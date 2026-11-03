@@ -42,6 +42,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
        block is emitted by one `cat -- <block file>`
   """
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Test.TestParallelCapture
 

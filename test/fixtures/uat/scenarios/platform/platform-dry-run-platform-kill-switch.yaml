@@ -1,0 +1,67 @@
+# T-0990 (BA): PLATFORM group: the platform kill switch stops the try-out of a record script of a company.
+# Covers REQ-633 criterion 7, the platform kill-switch case (with the platform switch on, the try-out answers 200 outcome script_rejected and no derived value).
+# Sources: docs/requirements.yaml REQ-633 criterion 7 (read from origin/main); lib/letflow/routers/tenants.ex (PUT /:slug/script-policy/kill-switch with on and reason, permission TenantsManage, OIDC only, platform latch);
+# lib/letflow/routers/entity_type_hooks.ex (dry_run_map); docs/roles.md (TenantsManage: platform administrator; ScriptsWrite: tenant administrator yes); test/fixtures/uat/actors.yaml (actor-platform-admin, actor-swiftroute-alice).
+# The company kill-switch case is in definitions-9. The platform operator appears here, in scope platform, because a platform operator may appear only in that scope (SCHEMA-10).
+# Not observable through the API of a running QA, so not checked here: "no sandbox started and zero reads" (a query count, covered by the product's own tests).
+# The sensitive action "change users" is not in this flow; the refusal that matters (a company administrator cannot set the platform switch) is not a step here because the platform latch has no tenant-side route to attempt.
+---
+id: platform-dry-run-platform-kill-switch
+scope: platform
+title: With the platform kill switch on for a company, the try-out of its record script is stopped before it runs
+version: "1.0"
+tags: [platform, scripts, entity-write, dry-run, kill-switch]
+
+description: >
+  The platform operator switches the platform script kill switch on for the company swiftroute. The SwiftRoute administrator tries out the record script bound to dry_quote and gets a normal 200 answer
+  with the outcome "script_rejected" and no derived value. The platform operator switches the platform switch off again and the administrator's try-out works.
+
+actors:
+  platform_admin: actor-platform-admin
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the record type dry_quote with a bound record script and the draft DRAFT-OK (as in definitions-6). The script switches of the company and of the platform are off at the start.
+    check: system_seeded
+    detail: Setup-prepared. If a switch is on at the start, report BLOCKED for the whole scenario.
+  - description: The platform operator and the SwiftRoute administrator can sign in with approved test tokens (interactive sign-ins).
+    check: system_seeded
+    detail: See the roster notes of actor-platform-admin and actor-swiftroute-alice. If one cannot sign in, report BLOCKED.
+
+steps:
+  - step: 1
+    actor: platform_admin
+    action: >
+      The platform operator switches the platform script kill switch on for the company swiftroute, giving the reason "UAT dry-run platform switch".
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      With the platform switch on, the administrator tries out the script bound to dry_quote on DRAFT-OK. The answer is noted as K2.
+    via: api
+  - step: 3
+    actor: platform_admin
+    action: >
+      The platform operator switches the platform script kill switch off again for swiftroute, giving the reason "UAT dry-run platform switch off".
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      With the platform switch off again, the administrator tries out the script bound to dry_quote on DRAFT-OK. The answer is noted as K3.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: With the platform switch on, the try-out answers 200 with the outcome script_rejected and no derived value; with it off again the try-out works.
+    verification:
+      method: api_response
+      detail: Steps 1 and 3 each answer 200 (the switch is set). K2 is status 200, outcome "script_rejected", no key derived and no key fail_code. K3 is status 200, outcome "ok" with a derived value, so the switch is off again.
+      evidence: K2 and K3 as received.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company's scripts still run on company data after the platform has stopped them, or the switch cannot be undone.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: The platform switch is off again after step 3. The only record left is the audit rows of the two try-outs.

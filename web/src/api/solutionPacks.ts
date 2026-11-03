@@ -32,11 +32,25 @@ export interface PackUpdateReviewRequest {
   incoming_artefacts: PackArtefactInput[]
 }
 
+export type PackUpdateOverrideOutcome = 'kept' | 'override_conflict' | 'orphaned' | 'property_gone'
+export type PackUpdateOverrideWarning = 'override_kept_pack_changed'
+export type PackUpdateOverrideAction = 'advanced' | 'retired' | 'orphaned' | 'property_gone' | 'left_unchanged'
+
+/** REQ-617: labels only; no patch, path or value is on the wire. */
+export interface PackUpdateOverride {
+  override_id: string
+  override_version: number
+  made_against: string
+  outcome: PackUpdateOverrideOutcome
+  warning?: PackUpdateOverrideWarning
+}
+
 export interface PackUpdateReviewEntry {
   artefact_type: string
   artefact_id: string
   classification: PackArtefactClassification
   resolved: boolean
+  override?: PackUpdateOverride
 }
 
 export interface PackUpdateReviewResponse {
@@ -62,6 +76,7 @@ export interface PackUpdateAppliedEntry {
   artefact_id: string
   classification: PackArtefactClassification
   action: PackUpdateAction
+  override_action?: PackUpdateOverrideAction
 }
 
 export interface PackUpdateApplyResponse {

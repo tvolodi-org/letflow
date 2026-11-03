@@ -12,6 +12,7 @@ defmodule Letflow.Plugs.LoginDiscoveryRateLimit.BucketTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Plugs.LoginDiscoveryRateLimit, as: Limiter
   alias Letflow.Plugs.LoginDiscoveryRateLimit.Bucket

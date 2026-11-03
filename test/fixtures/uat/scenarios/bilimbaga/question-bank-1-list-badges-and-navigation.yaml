@@ -1,0 +1,137 @@
+# Authored by BA-BILIMBAGA for GH #3423 / REQ-612 (UAT design task T-0931).
+# Covers REQ-612 criterion 1 (the page is inside the exam module and its actions show for the writer),
+# criterion 2 (bank list, difficulty badges, soft-deleted questions left out) and criterion 4 (New Question
+# and Edit navigation targets).
+# Not UAT-observable (left to the component tests): the distinct visual style of each badge (only the text is checked here); the messages files (criterion 8) and the
+# diff scope (criterion 10). The module-guard check for a tenant without the exam module is in question-editor-3 (steps 11 to 14).
+---
+id: bilimbaga-question-bank-1-list-badges-and-navigation
+scope: bilimbaga
+title: The question bank lists the tenant's questions with difficulty badges, leaves out deleted ones, and leads to the new-question and edit pages
+version: "1.0"
+tags: [question_bank, gui, navigation]
+
+description: >
+  An exam administrator keeps the bank of questions on one page: a heading, a table with the question text,
+  its type, its status and a difficulty badge, and the actions New Question and Edit. A question that was
+  deleted is not listed.
+  Preconditions: the browser language is English (en), because the quoted texts are the English texts; the
+  bilimbaga tenant has the exam module installed; the administrator holds the exam content writing permission
+  (the roster's bilimbaga administrator); at least one category exists (if none exists, the administrator
+  first makes one on the generic administration page for categories, or the scenario is BLOCKED). The three
+  questions used here are made in step 2 with the question editor itself; if saving does not work, the
+  scenario is BLOCKED and the editor scenarios report it.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The administrator holds the exam content writing permission
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Looks at the side menu and uses its question-bank entry
+    via: gui
+
+  - step: 2
+    actor: admin
+    action: >
+      Presses New Question three times and, each time, saves a single-choice question with two options (the first
+      option correct), choosing any category. The question texts and difficulties are
+      "UAT Q612 easy bank" with easy, "UAT Q612 medium bank" with medium, and "UAT Q612 hard bank" with hard
+    via: gui
+    produces:
+      question_texts: "the three question texts above"
+
+  - step: 3
+    actor: admin
+    action: Goes to the question bank and reads the heading, the column titles and the rows of the three questions
+    via: gui
+
+  - step: 4
+    actor: admin
+    action: >
+      Opens the generic administration page for questions and deletes the question "UAT Q612 hard bank" there
+    via: gui
+
+  - step: 5
+    actor: admin
+    action: Goes back to the question bank and reads the rows again
+    via: gui
+
+  - step: 6
+    actor: admin
+    action: Presses New Question in the bank and notes the page that opens
+    via: gui
+
+  - step: 7
+    actor: admin
+    action: Goes back to the question bank and presses Edit on the row of "UAT Q612 easy bank"
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The side menu offers the question bank to the administrator and opens it
+    verification:
+      method: gui_screen
+      detail: "Step 1 shows a menu entry 'Question Bank' that opens a page headed 'Question bank'"
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        The bank is reachable only by typing its address.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      The bank shows each saved question once, with its text, type, status and a difficulty badge whose text is the
+      difficulty chosen; the New Question and Edit actions are shown to this administrator
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 shows the column titles 'Question', 'Type', 'Status', 'Difficulty' and 'Actions'; the row
+        'UAT Q612 easy bank' shows 'Single choice', 'draft' and a badge 'easy'; the medium row shows a badge
+        'medium'; the hard row shows a badge 'hard'; a button 'New Question' and an 'Edit' button on each row
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An administrator who cannot see the difficulty or the status of the questions cannot balance the exams
+        built from them.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: >
+      A deleted question is no longer listed, and the other two remain
+    verification:
+      method: gui_screen
+      detail: >
+        Step 5 shows the rows 'UAT Q612 easy bank' and 'UAT Q612 medium bank' and no row 'UAT Q612 hard bank'
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Deleted questions that still appear in the bank can be chosen again for exams.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: >
+      New Question opens the empty new-question page, and Edit opens the edit page of that very question
+    verification:
+      method: gui_screen
+      detail: >
+        Step 6 shows the page 'New question' with an empty 'Question text' field and a 'Save Draft' button; step 7
+        shows the page 'Edit question' with the 'Question text' field showing 'UAT Q612 easy bank'
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An Edit button that opens another question lets the administrator change the wrong question.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove the questions "UAT Q612 easy bank" and "UAT Q612 medium bank" with their answer options through the
+    generic administration pages (answer options first, then the questions).

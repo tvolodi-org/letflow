@@ -8,6 +8,7 @@ defmodule Letflow.Scripts.TestShardPlanTest do
   Needs a real `bash` (on Windows set `TEST_PARALLEL_BASH` or `UAT_PF_BASH`).
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduletag :tmp_dir
   @moduletag timeout: 120_000

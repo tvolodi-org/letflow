@@ -1,4 +1,4 @@
-# Generates priv/modules/org/pack.json from the four entity-definition documents under
+# Generates priv/modules/org/pack.json from the six entity-definition documents under
 # priv/modules/org/entity_definitions/ (GH #2661 / REQ-473). Same provenance choice as the exam
 # pack (priv/modules/exam/generate_pack.exs): pack.json is committed and this script is the only
 # thing that may write it. A drift-guard test that re-reads the sources and compares is planned at
@@ -17,6 +17,8 @@ entity_types = ~w(
   org_site
   org_unit
   org_unit_membership
+  org_position
+  org_employee
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole
@@ -186,7 +188,7 @@ packed =
 
 document = %{
   "pack_id" => "letflow-org",
-  "version" => "0.1.0",
+  "version" => "0.2.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
   # Carried for symmetry with export/3's output, which emits it.
   # parse_document/1 never reads this key -- a document omitting it still

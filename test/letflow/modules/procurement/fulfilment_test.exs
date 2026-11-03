@@ -5,6 +5,7 @@ defmodule Letflow.Modules.Procurement.FulfilmentTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Modules.Procurement.Fulfilment
 

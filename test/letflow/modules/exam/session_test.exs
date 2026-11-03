@@ -8,6 +8,7 @@ defmodule Letflow.Modules.Exam.SessionTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   alias Letflow.Modules.Exam.Session
   alias Letflow.ExamFixtures

@@ -14,6 +14,7 @@ defmodule Letflow.Scripts.CdQaDecideTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduletag :tmp_dir
 

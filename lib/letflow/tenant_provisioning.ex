@@ -1904,6 +1904,28 @@ defmodule Letflow.TenantProvisioning do
   end
 
   @doc """
+  The `information_schema` `data_type` of one column of a tenant table (REQ-674): `{:ok, "uuid"}`,
+  `{:ok, "text"}`, ... or `:error` when the column is not physically present. One bound statement
+  (INV-7); the scope filter of `Letflow.Entities.Query.Compiler` reads it once per binding.
+  """
+  @spec entity_column_type(
+          schema_name :: String.t(),
+          table_name :: String.t(),
+          column_name :: String.t()
+        ) :: {:ok, String.t()} | :error
+  def entity_column_type(schema_name, table_name, column_name) do
+    query = """
+    SELECT data_type FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = $2 AND column_name = $3
+    """
+
+    case Repo.query!(query, [schema_name, table_name, column_name]) do
+      %Postgrex.Result{rows: [[type] | _]} -> {:ok, type}
+      %Postgrex.Result{rows: []} -> :error
+    end
+  end
+
+  @doc """
   Creates one `pending` `Letflow.TenantProvisioning.ColumnPromotion` row per
   tenant. `:all` resolves via `list_registrations/0` at call time (this
   module's own tenant-enumeration mechanism, reused rather than a second

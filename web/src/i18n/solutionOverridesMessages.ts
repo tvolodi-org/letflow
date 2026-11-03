@@ -49,6 +49,30 @@ const en: Catalog = {
   'solutionOverrides.error.forbidden': 'You may not change overrides.',
   'solutionOverrides.error.network': 'The server could not be reached. Your input is kept.',
   'solutionOverrides.error.generic': 'Something went wrong. Try again.',
+  'solutionOverrides.report.outcome.kept': 'Your override is kept',
+  'solutionOverrides.report.outcome.override_conflict': 'Override needs a decision',
+  'solutionOverrides.report.outcome.orphaned': 'Override is orphaned',
+  'solutionOverrides.report.outcome.property_gone': 'Overridden property no longer exists',
+  'solutionOverrides.report.outcome.unknown': 'Unknown outcome',
+  'solutionOverrides.report.warning.override_kept_pack_changed':
+    'The override is kept, but this part of the pack has changed.',
+  'solutionOverrides.report.nonBlocking': 'This does not block the update.',
+  'solutionOverrides.report.heading.overrideConflicts': 'Override conflicts',
+  'solutionOverrides.report.overrideConflict.hint': 'Keep your override or take the incoming version.',
+  'solutionOverrides.report.action.advanced': 'Override moved to the new version',
+  'solutionOverrides.report.action.retired': 'Override retired',
+  'solutionOverrides.report.action.orphaned': 'Override orphaned',
+  'solutionOverrides.report.action.property_gone': 'Overridden property removed',
+  'solutionOverrides.report.action.left_unchanged': 'Override left unchanged',
+  'solutionOverrides.report.action.unknown': 'Unknown action',
+  'solutionOverrides.report.actions.heading': 'What happened to the overrides',
+  'solutionOverrides.report.applyNeedsManage':
+    'This update has an override conflict. Applying it needs the permission to manage overrides.',
+  'solutionOverrides.report.error.conflict': 'A conflict is still unresolved. Your choices are kept.',
+  'solutionOverrides.report.error.forbidden': 'You may not apply this update. Your choices are kept.',
+  'solutionOverrides.report.error.override_merge_unsupported':
+    'An override cannot be merged. Choose keep ours or take theirs.',
+  'solutionOverrides.report.error.generic': 'The update was not applied. Try again.',
 }
 
 const ru: Catalog = {
@@ -95,6 +119,30 @@ const ru: Catalog = {
   'solutionOverrides.error.forbidden': 'У вас нет права менять переопределения.',
   'solutionOverrides.error.network': 'Не удалось связаться с сервером. Введённые данные сохранены.',
   'solutionOverrides.error.generic': 'Что-то пошло не так. Повторите попытку.',
+  'solutionOverrides.report.outcome.kept': 'Ваше переопределение сохраняется',
+  'solutionOverrides.report.outcome.override_conflict': 'Переопределение требует решения',
+  'solutionOverrides.report.outcome.orphaned': 'Переопределение осталось без объекта',
+  'solutionOverrides.report.outcome.property_gone': 'Переопределённого свойства больше нет',
+  'solutionOverrides.report.outcome.unknown': 'Неизвестный результат',
+  'solutionOverrides.report.warning.override_kept_pack_changed':
+    'Переопределение сохранено, но эта часть пакета изменилась.',
+  'solutionOverrides.report.nonBlocking': 'Это не блокирует обновление.',
+  'solutionOverrides.report.heading.overrideConflicts': 'Конфликты переопределений',
+  'solutionOverrides.report.overrideConflict.hint': 'Оставьте своё переопределение или примите входящую версию.',
+  'solutionOverrides.report.action.advanced': 'Переопределение перенесено на новую версию',
+  'solutionOverrides.report.action.retired': 'Переопределение выведено',
+  'solutionOverrides.report.action.orphaned': 'Переопределение осталось без объекта',
+  'solutionOverrides.report.action.property_gone': 'Переопределённое свойство удалено',
+  'solutionOverrides.report.action.left_unchanged': 'Переопределение не изменено',
+  'solutionOverrides.report.action.unknown': 'Неизвестное действие',
+  'solutionOverrides.report.actions.heading': 'Что стало с переопределениями',
+  'solutionOverrides.report.applyNeedsManage':
+    'В этом обновлении есть конфликт переопределения. Для применения нужно право управлять переопределениями.',
+  'solutionOverrides.report.error.conflict': 'Остался неразрешённый конфликт. Ваш выбор сохранён.',
+  'solutionOverrides.report.error.forbidden': 'У вас нет права применять это обновление. Ваш выбор сохранён.',
+  'solutionOverrides.report.error.override_merge_unsupported':
+    'Переопределение нельзя объединить. Выберите «оставить своё» или «принять входящее».',
+  'solutionOverrides.report.error.generic': 'Обновление не применено. Повторите попытку.',
 }
 
 const kk: Catalog = {
@@ -141,6 +189,30 @@ const kk: Catalog = {
   'solutionOverrides.error.forbidden': 'Қайта анықтауларды өзгертуге құқығыңыз жоқ.',
   'solutionOverrides.error.network': 'Серверге қосыла алмады. Енгізілген деректер сақталды.',
   'solutionOverrides.error.generic': 'Бірдеңе дұрыс болмады. Қайталап көріңіз.',
+  'solutionOverrides.report.outcome.kept': 'Сіздің қайта анықтауыңыз сақталады',
+  'solutionOverrides.report.outcome.override_conflict': 'Қайта анықтау келіссөзді қажет етеді',
+  'solutionOverrides.report.outcome.orphaned': 'Қайта анықтау жетімсіреп қалды',
+  'solutionOverrides.report.outcome.property_gone': 'Қайта анықтаған қасиет енді жоқ',
+  'solutionOverrides.report.outcome.unknown': 'Белгісіз нәтиже',
+  'solutionOverrides.report.warning.override_kept_pack_changed':
+    'Қайта анықтау сақталды, бірақ пакеттің бұл бөлігі өзгерген.',
+  'solutionOverrides.report.nonBlocking': 'Бұл жаңартуды тоқтатпайды.',
+  'solutionOverrides.report.heading.overrideConflicts': 'Қайта анықтау қайшылықтары',
+  'solutionOverrides.report.overrideConflict.hint': 'Өз қайта анықтауыңызды сақтаңыз немесе келетін нұсқаны алыңыз.',
+  'solutionOverrides.report.action.advanced': 'Қайта анықтау жаңа нұсқаға ауыстырылды',
+  'solutionOverrides.report.action.retired': 'Қайта анықтау шығарылды',
+  'solutionOverrides.report.action.orphaned': 'Қайта анықтау жетімсіреп қалды',
+  'solutionOverrides.report.action.property_gone': 'Қайта анықтаған қасиет жойылды',
+  'solutionOverrides.report.action.left_unchanged': 'Қайта анықтау өзгертілмеді',
+  'solutionOverrides.report.action.unknown': 'Белгісіз әрекет',
+  'solutionOverrides.report.actions.heading': 'Қайта анықтаулармен не болды',
+  'solutionOverrides.report.applyNeedsManage':
+    'Бұл жаңартуда қайта анықтау қайшылығы бар. Қолдану үшін қайта анықтауларды басқару құқығы қажет.',
+  'solutionOverrides.report.error.conflict': 'Шешілмеген қайшылық бар. Таңдауларыңыз сақталды.',
+  'solutionOverrides.report.error.forbidden': 'Бұл жаңартуды қолдануға құқығыңыз жоқ. Таңдауларыңыз сақталды.',
+  'solutionOverrides.report.error.override_merge_unsupported':
+    'Қайта анықтауды біріктіруге болмайды. Сақтау немесе келетінді алу таңдаңыз.',
+  'solutionOverrides.report.error.generic': 'Жаңарту қолданылмады. Қайталап көріңіз.',
 }
 
 export const solutionOverridesMessages = { en, ru, kk } as const

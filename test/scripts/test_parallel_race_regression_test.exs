@@ -31,6 +31,7 @@ defmodule Letflow.Scripts.TestParallelRaceRegressionTest do
   `async: false`: spawns process trees.
   """
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Test.TestParallelCapture
 

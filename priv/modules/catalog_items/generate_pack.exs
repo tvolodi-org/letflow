@@ -16,6 +16,7 @@ entity_types = ~w(
   catalog_uom
   catalog_item
   catalog_counterparty
+  catalog_lot
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole

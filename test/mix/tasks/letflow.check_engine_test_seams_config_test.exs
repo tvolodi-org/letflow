@@ -15,6 +15,7 @@ defmodule Mix.Tasks.Letflow.CheckEngineTestSeamsConfigTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Mix.Tasks.Letflow.CheckEngineTestSeamsConfig, as: Scan
 

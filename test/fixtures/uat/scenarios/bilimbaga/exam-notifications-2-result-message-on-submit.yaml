@@ -1,0 +1,103 @@
+# Authored by BA-BILIMBAGA for T-0993 (REQ-597 criterion 4, the exam_result message on submit).
+# Sources: docs/requirements.yaml REQ-597 description (Triggers 2, Log content) and criterion 4; lib/letflow/routers/notification_deliveries.ex
+# (a row carries id, template key, locale, recipient user id, status, reason, trigger reference, time; no address, subject, body or
+# score); test/fixtures/uat/actors.yaml.
+# Needs the exam notifications switch ON, which is platform configuration and not a UAT step: see the sidecar in
+# test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-notifications-2-result-message-on-submit.yaml. The admin token also
+# needs an approved qa-login mapping (roster note).
+# Not UAT-observable here: the passed or failed word and the percentage in the message. The delivery log does not hold them (by
+# design, INV-4), and no route shows the sent text. The scenario checks that exactly one result message was started for the
+# right candidate and session; whether it says passed or failed is covered by the backend test of criterion 4. The first-submit
+# only rule is checked by a second submit (step 3). A fully manually graded exam (grading pending) sends nothing; the fixture exam
+# is auto-graded, so that case is not run here. The adapter used on QA decides sent versus skipped (the do-nothing adapter gives
+# skipped with reason adapter_noop), so the scenario accepts either status and checks the row, not the delivery.
+---
+id: bilimbaga-exam-notifications-2-result-message-on-submit
+scope: bilimbaga
+title: With exam notifications switched on, submitting an exam starts exactly one result message for that candidate, and a second submit starts none
+version: "1.0"
+tags: [notifications, happy_path]
+
+description: >
+  With the platform switch on, a candidate who has an email address submits an auto-graded exam. The company's delivery log then
+  holds exactly one row for the result message, naming the candidate's user and the session. Submitting the same session again
+  is refused or accepted without effect and adds no second row. The log row holds no name, address or score.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  tenant_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed and the exam notifications switch is ON for this run
+    check: process_definition_active
+    detail: The environment cannot turn the switch on from a UAT step; if it is off, the run is BLOCKED, not PASS
+  - description: >
+      UAT assumption, to be confirmed by the process owner: the exam is a QA fixture exam assigned to all candidates and graded
+      automatically, and the candidate account has an email address
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: The administrator reads the company's delivery log and notes the rows that exist for exam results (the baseline)
+    via: api
+
+  - step: 2
+    actor: candidate
+    action: The candidate starts the exam, answers every question and submits it; the session identifier and the user identifier of the candidate are noted
+    via: api
+    produces:
+      instance_id: "the exam session's own identifier"
+
+  - step: 3
+    actor: candidate
+    action: The candidate submits the same session a second time and the answer is noted
+    via: api
+
+  - step: 4
+    actor: tenant_admin
+    action: The administrator reads the company's delivery log with no filter and picks the rows for exam results
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Exactly one result message was started for this session
+    verification:
+      method: api_response
+      detail: >
+        In step 4 there is exactly one new row (compared with step 1) with template key exam_result, trigger reference equal to
+        the session identifier of step 2 and recipient equal to the candidate's user identifier; its status is sent or skipped
+        (skipped has reason adapter_noop when the environment's adapter sends nothing), never failed
+      evidence: The baseline of step 1 and the list of step 4
+    on_fail:
+      severity: BLOCKER
+      business_impact: Candidates would not hear that their result is known, or would hear it twice.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: A second submit of the same session adds no second message
+    verification:
+      method: api_response
+      detail: >
+        The list of step 4 still holds exactly one row for the session identifier; the answer of step 3 is either accepted
+        without a new score or refused, and in both cases is not a server error
+      evidence: The answer of step 3 and the list of step 4
+    on_fail:
+      severity: MAJOR
+      business_impact: A candidate could be mailed again and again for one result.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: The row holds identifiers only
+    verification:
+      method: api_response
+      detail: The row of step 4 has only the fields id, template key, locale, recipient user id, status, reason, trigger reference and time; no email, name, exam title, score or passed/failed word
+      evidence: The row of step 4
+    on_fail:
+      severity: BLOCKER
+      business_impact: The log would hold candidates' personal data and results in plain view of administrators.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: true
+  description: No cleanup is needed for a submitted session; the log row stays as part of the audit trail

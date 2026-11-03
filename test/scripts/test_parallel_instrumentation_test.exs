@@ -21,6 +21,7 @@ defmodule Letflow.Scripts.TestParallelInstrumentationTest do
   measures elapsed seconds.
   """
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   @moduletag :tmp_dir
   @moduletag timeout: 180_000

@@ -7,7 +7,7 @@ defmodule Letflow.ScopeNodePaths.ConsistencyCheckTest do
 
   Defective rows cannot be produced through `write/2` (that is the point of the one writer), so
   they are seeded with a raw `insert_all` into the tenant's table: an orphan, an A/B cycle and a
-  consistent 13-deep chain are each reported; a tree built through `write/2` reports `:ok`. The
+  consistent 41-deep chain are each reported; a tree built through `write/2` reports `:ok`. The
   pure `analyse/1` covers `malformed`, `stale_paths`, a repeated-segment cycle and the list cap.
 
   `async: false`: tenant provisioning switches the sandbox to `:auto`.
@@ -60,7 +60,7 @@ defmodule Letflow.ScopeNodePaths.ConsistencyCheckTest do
       assert {:ok, report} = Consistency.check(schema)
       assert report.status == :ok
       assert report.checked_nodes == 4
-      assert report.max_depth == 12
+      assert report.max_depth == 40
       assert report.counts == @zero
       assert report.truncated == false
 
@@ -92,16 +92,24 @@ defmodule Letflow.ScopeNodePaths.ConsistencyCheckTest do
       assert report.counts == %{@zero | cycles: 2}
     end
 
-    test "a consistent 13-deep chain reports only its deepest node as depth_exceeded", %{
+    test "a consistent 41-deep chain reports only its deepest node as depth_exceeded", %{
       schema: schema
     } do
-      seed!(schema, chain_rows("d", 13))
+      seed!(schema, chain_rows("d", 41))
 
       assert {:ok, report} = Consistency.check(schema)
       assert report.status == :inconsistent
-      assert report.depth_exceeded == ["d13"]
+      assert report.depth_exceeded == ["d41"]
       assert report.counts == %{@zero | depth_exceeded: 1}
-      assert report.checked_nodes == 13
+      assert report.checked_nodes == 41
+    end
+
+    test "C-40: a consistent 40-deep chain is ok", %{schema: schema} do
+      seed!(schema, chain_rows("d", 40))
+
+      assert {:ok, report} = Consistency.check(schema)
+      assert report.status == :ok
+      assert report.depth_exceeded == []
     end
 
     test "the check is read-only", %{schema: schema} do

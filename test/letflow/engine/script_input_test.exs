@@ -5,6 +5,7 @@ defmodule Letflow.Engine.ScriptInputTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.ScriptInput
 

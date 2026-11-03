@@ -7,6 +7,7 @@ defmodule Letflow.LoginDiscovery.EnablementGateTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @mount Letflow.Routers.LoginDiscovery
 

@@ -20,6 +20,7 @@ defmodule Letflow.Modules.CatalogScopeDeclarationsTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.FixtureScoped

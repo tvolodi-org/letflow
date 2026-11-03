@@ -6,6 +6,7 @@ defmodule Letflow.LoginDiscovery.Notifier.SmtpSmokeTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   import ExUnit.CaptureLog
 

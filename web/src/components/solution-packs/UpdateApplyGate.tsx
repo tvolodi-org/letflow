@@ -17,10 +17,14 @@ export interface UpdateApplyGateProps {
   onApply: () => void
   applyState: 'idle' | 'submitting'
   blockedDetail: { artefactType: string; artefactId: string } | null
+  /** false hides the Apply control (UX only; the server stays the authority). */
+  applyAllowed?: boolean
+  restrictedMessage?: string
+  errorMessage?: string
 }
 
 export function UpdateApplyGate(props: UpdateApplyGateProps): React.ReactElement {
-  const { hasUnresolvedConflicts, unresolvedCount, onApply, applyState, blockedDetail } = props
+  const { hasUnresolvedConflicts, unresolvedCount, onApply, applyState, blockedDetail, applyAllowed = true, restrictedMessage, errorMessage } = props
 
   return (
     <div data-testid="update-apply-gate" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -40,6 +44,23 @@ export function UpdateApplyGate(props: UpdateApplyGateProps): React.ReactElement
         </div>
       )}
 
+      {errorMessage && (
+        <div
+          data-testid="update-apply-error"
+          role="alert"
+          style={{ padding: '.6rem .8rem', background: 'var(--color-error-light)', color: 'var(--color-error-dark)', borderRadius: '4px', fontSize: '.85rem' }}
+        >
+          {errorMessage}
+        </div>
+      )}
+
+      {!applyAllowed && (
+        <p data-testid="update-apply-restricted" style={{ fontSize: '.85rem', color: 'var(--text-secondary)' }}>
+          {restrictedMessage}
+        </p>
+      )}
+
+      {applyAllowed && (
       <div>
         <Button
           variant="primary"
@@ -52,6 +73,7 @@ export function UpdateApplyGate(props: UpdateApplyGateProps): React.ReactElement
           Apply update
         </Button>
       </div>
+      )}
     </div>
   )
 }

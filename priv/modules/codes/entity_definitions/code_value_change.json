@@ -1,0 +1,18 @@
+{
+  "name": "code_value_change",
+  "display_name": "Code value change",
+  "description": "GH #3588 / REQ-648. One row of the value history of a code: the value of a rewritable tag changed from old_value to new_value. code_id is a real foreign key onto code_tag. Rows are never deleted.",
+  "fields": [
+    {"name": "code_id", "type": "string", "required": true, "queried": true},
+    {"name": "old_value", "type": "string", "required": true, "queried": true},
+    {"name": "new_value", "type": "string", "required": true, "queried": true},
+    {"name": "changed_at", "type": "datetime", "required": true, "queried": true},
+    {"name": "changed_by", "type": "string", "required": true, "queried": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_code_value_change_code_id", "field": "code_id", "references_entity": "code_tag"}
+  ],
+  "indexes": [
+    {"name": "idx_code_value_change_code_id", "fields": ["code_id"]}
+  ]
+}

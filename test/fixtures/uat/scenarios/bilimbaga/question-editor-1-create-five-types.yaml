@@ -1,0 +1,210 @@
+# Authored by BA-BILIMBAGA for GH #3423 / REQ-612 (UAT design task T-0931).
+# Covers REQ-612 criterion 5 (create with Save Draft, the five types, the page's own fields) and criterion 6
+# (option rows by type, and the refusals made in the page before anything is sent).
+# Not UAT-observable: the exact order and content of the requests sent by Save Draft (component test with a mocked
+# api); the true/false words in the Russian and Kazakh texts (browser language is English here).
+---
+id: bilimbaga-question-editor-1-create-five-types
+scope: bilimbaga
+title: The question editor saves a draft question of each of the five types with the answer options that fit the type, and refuses an incomplete question in the page
+version: "1.0"
+tags: [question_editor, gui, create]
+
+description: >
+  An exam administrator writes a question on the new-question page. The type decides which answer controls
+  appear: single choice and multiple choice show two to eight options with a correct-answer control; true/false
+  shows exactly the two fixed options True and False with one marked correct; likert scale shows options with a
+  polarity (positive or negative) and a weight and no correct-answer control; short text shows no options but a
+  notice that an examiner grades the answer. Save Draft stores the question as a draft and opens its edit page.
+  Preconditions: the browser language is English (en); the bilimbaga tenant has the exam module installed; the
+  administrator holds the exam content writing permission (the roster's bilimbaga administrator); at least one
+  category exists. This scenario creates questions whose texts start with "UAT Q612 type".
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The administrator holds the exam content writing permission
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Opens the question bank, presses New Question and reads the page
+    via: gui
+
+  - step: 2
+    actor: admin
+    action: Opens the list of question types and reads the choices, then reads the choices of the difficulty field
+    via: gui
+
+  - step: 3
+    actor: admin
+    action: >
+      Presses Save Draft with the question text empty
+    via: gui
+    expect_refusal: true
+
+  - step: 4
+    actor: admin
+    action: >
+      Types the question text "UAT Q612 type single", leaves the category unchosen and presses Save Draft
+    via: gui
+    expect_refusal: true
+
+  - step: 5
+    actor: admin
+    action: >
+      Chooses a category, types the question text "UAT Q612 type single", keeps the type single choice, writes two
+      options and marks none correct, then presses Save Draft
+    via: gui
+    expect_refusal: true
+
+  - step: 6
+    actor: admin
+    action: >
+      Marks the first option correct and presses Save Draft; reads the page that follows
+    via: gui
+    produces:
+      single_question: "the question 'UAT Q612 type single'"
+
+  - step: 7
+    actor: admin
+    action: >
+      Opens New Question, chooses the type multiple choice, writes the text "UAT Q612 type multiple", writes three
+      options, marks none correct and presses Save Draft
+    via: gui
+    expect_refusal: true
+
+  - step: 8
+    actor: admin
+    action: >
+      Marks the first and third options correct and presses Save Draft
+    via: gui
+
+  - step: 9
+    actor: admin
+    action: >
+      Opens New Question, chooses the type true/false, writes the text "UAT Q612 type truefalse", reads the
+      answer section, marks True correct and presses Save Draft
+    via: gui
+
+  - step: 10
+    actor: admin
+    action: >
+      Opens New Question, chooses the type likert scale, writes the text "UAT Q612 type likert", reads the answer
+      section, writes two options with polarity positive and negative, and presses Save Draft
+    via: gui
+
+  - step: 11
+    actor: admin
+    action: >
+      Opens New Question, chooses the type short text, writes the text "UAT Q612 type shorttext", reads the answer
+      section and presses Save Draft
+    via: gui
+
+  - step: 12
+    actor: admin
+    action: Switches the type of an open new-question page from single choice to short text and back, then reads the page
+    via: gui
+
+  - step: 13
+    actor: admin
+    action: Opens the question bank and reads the rows of the five questions
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The new-question page offers Save Draft, a question text field with a placeholder, the five types, the three
+      difficulties and a category list
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 shows the page 'New question', the placeholder 'Write the question text', a button 'Save Draft' and
+        a field 'Category' with 'Choose a category'; step 2 shows exactly the types 'Single choice', 'Multiple
+        choice', 'True / false', 'Likert scale' and 'Short text', and exactly the difficulties easy, medium and hard
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A missing type or difficulty means that kind of question cannot be authored.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      An incomplete question is refused in the page with a visible message, and nothing is saved
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 shows 'Enter the question text.'; step 4 shows 'Choose a category.'; step 5 shows 'Mark exactly one
+        option as correct.'; step 7 shows 'Mark at least one option as correct.'; after each, the question bank
+        has no row for the refused text (checked in step 13: no duplicate rows)
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A question saved without text, category or a correct answer cannot be marked and breaks exams that use it.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: >
+      A complete single-choice question is saved as a draft and its edit page opens with the stored values
+    verification:
+      method: gui_screen
+      detail: >
+        After step 6 the page 'Edit question' shows the text 'UAT Q612 type single', the type 'Single choice', the
+        two options and the first one marked correct
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If the saved question and the options are not both stored, the question cannot be answered or marked.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: >
+      The answer section matches the type: true/false has exactly the fixed options True and False; likert shows
+      polarity and weight and no correct-answer control; short text shows no options and the examiner notice
+    verification:
+      method: gui_screen
+      detail: >
+        Step 9 shows exactly two options 'True' and 'False' that cannot be added or removed; step 10 shows for each
+        option a 'Polarity' choice (positive, negative) and a 'Weight' field and no 'Correct answer' control; step 11
+        shows no options and 'An examiner grades this answer. A short text question has no answer options.'
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Wrong controls for a type produce questions that are marked wrongly or cannot be marked.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-005
+    description: >
+      Switching the type changes the answer section without an error page
+    verification:
+      method: gui_screen
+      detail: "Step 12 shows the page working after each switch; the short text view shows the examiner notice and no options"
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        A crash on switching the type loses the administrator's typed text.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-006
+    description: >
+      All five questions are listed as drafts with their types
+    verification:
+      method: gui_screen
+      detail: >
+        Step 13 shows the five rows 'UAT Q612 type single', 'multiple', 'truefalse', 'likert', 'shorttext' with the
+        types 'Single choice', 'Multiple choice', 'True / false', 'Likert scale', 'Short text' and the status 'draft'
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A question that is not stored is lost work.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove the five questions "UAT Q612 type ..." with their answer options through the generic administration
+    pages (answer options first, then the questions).

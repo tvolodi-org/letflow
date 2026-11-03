@@ -7,6 +7,7 @@ defmodule Letflow.IdempotencyTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
   use ExUnitProperties
 
   import Plug.Test, only: [conn: 2]

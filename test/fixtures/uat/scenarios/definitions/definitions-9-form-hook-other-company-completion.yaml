@@ -1,0 +1,103 @@
+# T-0996 (BA): DEFINITIONS group, scenario 9: a user of another company who tries to complete a task with a check script gets the same answer as for a task that does not exist.
+# Covers REQ-632 criterion 8, quoted: "tenant A's form definition names a script key; a caller of tenant B completing tenant A's task through the router receives an answer byte-identical to the not-found
+# answer for an unknown task id, the sandbox is not started, and no task.form_hook_run row is written in either tenant's audit table."
+# Sources: docs/requirements.yaml REQ-632 criterion 8; docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10); lib/letflow/api/error.ex (not_found/0: fixed detail text, so the id is not echoed);
+# lib/letflow/routers/tasks.ex (handle_complete_result({:error, :task_not_found}, conn)); test/fixtures/uat/actors.yaml (actor-meridian-ben, tenant meridian).
+# Not UAT-observable: the sandbox not started, the absence of task.form_hook_run rows in both companies, and the count of rows in the other company's schema (no read route established), and the last sentence
+#   of criterion 8 (the 403 of a wrong assignee: "the answer it gets on origin/main at implement time" is not a fixed UAT value). These stay with the product's own tests.
+# The platform operator is not used: on a route that takes the company from the token it would get its own company's data, so it is not a cross-company probe.
+---
+id: definitions-9-form-hook-other-company-completion
+scope: definitions
+title: Another company's user completing a task with a check script gets the same answer as for an unknown task
+version: "1.0"
+tags: [definitions, scripts, form-validation, task-completion, other-company, refusal, isolation]
+
+description: >
+  The dispatcher of SwiftRoute starts an instance of fv_ks_on, whose human task names the published accepting check script fv_ok_total. A Meridian user (Ben) tries to complete that SwiftRoute task with the answer
+  total = 100, and separately tries to complete a task number that exists nowhere. Both answers are the same not-found answer, in status and body. SwiftRoute's Ops Manager then reads the task: it is still open
+  and nothing was saved. Finally the Ops Manager completes it, to show that the task was fine and was only out of Ben's reach.
+
+actors:
+  dispatcher: actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+  other_company_user: actor-meridian-ben
+
+preconditions:
+  - description: The switch for form validation scripts is ON in the test environment.
+    check: system_seeded
+    detail: Setup-prepared. If step 5 answers 503 with the code script_rejected, the switch is off; report BLOCKED for step 5 and run the other steps. Not a product failure.
+  - description: SwiftRoute has the published script fv_ok_total version 1 and the active process fv_ks_on (as in definitions-7). Setup supplies a task number that no company holds (UNKNOWN-TASK), written in the same form as a real task number.
+    check: system_seeded
+    detail: Setup-prepared. If a well-formed unknown number cannot be supplied, step 3 is BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      The dispatcher starts an instance of fv_ks_on. The instance and its task number are noted.
+    via: api
+  - step: 2
+    actor: other_company_user
+    action: >
+      Ben, a Meridian user, tries to complete the SwiftRoute task noted in step 1 with the answer total = 100.
+    expect_refusal: true
+    via: api
+    input:
+      total: 100
+  - step: 3
+    actor: other_company_user
+    action: >
+      Ben tries to complete the task number UNKNOWN-TASK with the answer total = 100.
+    expect_refusal: true
+    via: api
+    input:
+      total: 100
+  - step: 4
+    actor: ops_manager
+    action: >
+      The Ops Manager reads the task of step 1 and notes its status, then reads the instance and notes its status and whether its variables hold a total.
+    via: api
+  - step: 5
+    actor: ops_manager
+    action: >
+      The Ops Manager completes the task with the answer total = 100.
+    via: api
+    input:
+      total: 100
+
+expected_outcomes:
+  - id: EO-001
+    description: Ben's attempt on another company's task is answered exactly as an attempt on an unknown task.
+    verification:
+      method: api_response
+      detail: Steps 2 and 3 both answer 404 with the same body once the per-request trace_id member (which differs on every request) is left out of the comparison; the body does not contain the task number or any text of the script, and neither answer is 403 or 503.
+      evidence: Status and full body of steps 2 and 3, compared with the trace_id member left out.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A user of one company can tell which tasks of another company exist and which ones carry a check script.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The refused attempt changes nothing in SwiftRoute.
+    verification:
+      method: http_status
+      detail: Step 4 shows the task open, the instance still active and no total in its variables.
+      evidence: The task and instance reads of step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Another company's user changed or closed a SwiftRoute task.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The task itself is fine for its own company.
+    verification:
+      method: http_status
+      detail: Step 5 answers a success status and the task is then completed.
+      evidence: The answer of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The refusal of Ben cannot be told from a task that never works.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: None; the instance ends when the task is completed.

@@ -50,6 +50,22 @@ defmodule Letflow.Entities.RecordAccess do
     decide(owner, access, definition, restrictions)
   end
 
+  @doc """
+  The field-restriction read of the managed import path (REQ-651): `write/3` answered `:managed`,
+  which carries no restriction set, but `Letflow.Entities.ImportUpsert` needs one. One read,
+  `FieldGrants.load_restrictions/3`; `{:ok, set}` is `{:open, set}`, anything else (a failed read)
+  is `:hidden` (fail closed).
+  """
+  @spec managed_open(user_id :: String.t(), entity_type :: String.t(), prefix :: String.t()) ::
+          access()
+  def managed_open(user_id, entity_type, prefix)
+      when is_binary(user_id) and is_binary(entity_type) and is_binary(prefix) do
+    case FieldGrants.load_restrictions(user_id, entity_type, prefix) do
+      {:ok, restricted} -> {:open, restricted}
+      _failed_read -> :hidden
+    end
+  end
+
   # Denied, absent and any failed read are the one `:hidden`.
   defp decide(owner, {:ok, :allowed}, {:ok, _definition}, {:ok, restricted}) do
     case owner do

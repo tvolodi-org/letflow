@@ -6,6 +6,7 @@ defmodule Letflow.Plugs.ContentTypeTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   import Plug.Test
   import Plug.Conn

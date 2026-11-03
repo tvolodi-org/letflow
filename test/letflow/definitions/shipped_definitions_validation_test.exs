@@ -22,6 +22,7 @@ defmodule Letflow.Definitions.ShippedDefinitionsValidationTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.SemanticValidation

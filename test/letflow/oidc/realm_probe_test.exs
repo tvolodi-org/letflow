@@ -17,6 +17,7 @@ defmodule Letflow.Oidc.RealmProbeTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Oidc.RealmProbe
   alias Letflow.Oidc.RealmProbe.Httpc

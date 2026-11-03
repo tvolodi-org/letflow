@@ -212,6 +212,9 @@ deliberately with:
 mix test --include keycloak test/letflow/integration/keycloak_auth_pipeline_test.exs
 ```
 
+Test tags: `@moduletag :unit` marks a file that uses no database (no DataCase, Repo, Sandbox or TenantFixture); `mix test --only unit` runs just those, in about a minute.
+`@moduletag :slow` marks a file over 60 s of CI time; CI runs everything, and a fast local run may add `--exclude slow`.
+
 To run format-check + compile-with-warnings-as-errors + test as a
 single fail-fast gate (equivalent to R-Co's `zig build check`):
 

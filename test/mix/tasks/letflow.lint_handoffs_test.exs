@@ -41,6 +41,7 @@ defmodule Mix.Tasks.Letflow.LintHandoffsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   import ExUnit.CaptureIO
 

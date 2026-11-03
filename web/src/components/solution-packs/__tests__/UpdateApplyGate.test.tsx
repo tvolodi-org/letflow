@@ -154,3 +154,23 @@ describe('UpdateApplyGate — EO-002 server-side authoritative block (409 banner
     expect(banner).not.toHaveTextContent('process_definition')
   })
 })
+
+describe('UpdateApplyGate — REQ-631 part B', () => {
+  const base = { hasUnresolvedConflicts: false, unresolvedCount: 0, onApply: vi.fn(), applyState: 'idle' as const, blockedDetail: null }
+
+  it('A1 applyAllowed=false hides the button and shows the restricted message', () => {
+    render(<UpdateApplyGate {...base} applyAllowed={false} restrictedMessage="needs manage" />)
+    expect(screen.queryByTestId('update-apply-btn')).toBeNull()
+    expect(screen.getByTestId('update-apply-restricted')).toHaveTextContent('needs manage')
+  })
+
+  it('A1 errorMessage renders as an alert; defaults keep the button and no extras', () => {
+    const { unmount } = render(<UpdateApplyGate {...base} errorMessage="boom" />)
+    expect(screen.getByTestId('update-apply-error')).toHaveTextContent('boom')
+    expect(screen.getByTestId('update-apply-btn')).toBeInTheDocument()
+    unmount()
+    render(<UpdateApplyGate {...base} />)
+    expect(screen.queryByTestId('update-apply-error')).toBeNull()
+    expect(screen.queryByTestId('update-apply-restricted')).toBeNull()
+  })
+})

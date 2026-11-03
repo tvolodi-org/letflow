@@ -15,6 +15,7 @@ defmodule Letflow.Definitions.DistinctFromValidationTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Definitions.Graph
 

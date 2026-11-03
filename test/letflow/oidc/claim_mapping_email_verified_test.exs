@@ -9,6 +9,7 @@ defmodule Letflow.Oidc.ClaimMappingEmailVerifiedTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Oidc.ClaimMapping
   alias Letflow.Oidc.ClaimMappingConfig

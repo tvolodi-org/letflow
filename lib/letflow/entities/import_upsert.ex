@@ -114,6 +114,12 @@ defmodule Letflow.Entities.ImportUpsert do
 
   @doc """
   Imports `entries` in order and returns one `t:entry_result/0` per entry.
+
+  `writer` (REQ-651, `Letflow.Entities.ManagedImport`) replaces the `Records` call for a
+  module-managed type: it is called as `writer.(entry, ctx)` after the reference, duplicate and
+  restriction checks above, with `entry = %{entity_type:, external_ref:, field_values:}` and
+  `ctx = %{actor_id:, idempotency_key:}`, and returns `{:ok, %{record_id:, outcome:}}` or
+  `{:error, reason}`. `nil` (the generic path) keeps the `Records` call.
   """
   @spec run(
           entries :: [term()],
@@ -121,10 +127,12 @@ defmodule Letflow.Entities.ImportUpsert do
           actor_id :: String.t(),
           import_request_id :: String.t(),
           restricted :: MapSet.t(String.t()),
-          prefix :: String.t()
+          prefix :: String.t(),
+          writer :: nil | (map(), map() -> {:ok, map()} | {:error, term()})
         ) :: [entry_result()]
-  def run(entries, entity_type, actor_id, import_request_id, restricted, prefix) do
+  def run(entries, entity_type, actor_id, import_request_id, restricted, prefix, writer \\ nil) do
     ctx = %{
+      writer: writer,
       entity_type: entity_type,
       actor_id: actor_id,
       request_id: import_request_id,
@@ -167,11 +175,7 @@ defmodule Letflow.Entities.ImportUpsert do
           idempotency_key: idempotency_key(ctx.request_id, ref)
         }
 
-        # scope-all: tenant-wide callers only (import_scope_check/6 refuses upsert mode for a scoped caller)
-        # schema_checked: precheck/2 already read the CREATED version once for this request (GH #2807).
-        case Records.upsert_record_by_external_ref(attrs, ctx.prefix, :tenant,
-               schema_checked: true
-             ) do
+        case write_row(attrs, ref, ctx) do
           {:ok, %{record: %Latest{record_id: record_id}, outcome: outcome}} ->
             {:ok,
              %{
@@ -191,6 +195,29 @@ defmodule Letflow.Entities.ImportUpsert do
 
       {:error, reason} ->
         failure(source_record_id, reason)
+    end
+  end
+
+  defp write_row(attrs, _ref, %{writer: nil} = ctx) do
+    # scope-all: tenant-wide callers only (import_scope_check/6 refuses upsert mode for a scoped caller)
+    # schema_checked: precheck/2 already read the CREATED version once for this request (GH #2807).
+    Records.upsert_record_by_external_ref(attrs, ctx.prefix, :tenant, schema_checked: true)
+  end
+
+  # Module-managed type (REQ-651): the module's own function writes; its answer is reshaped here.
+  defp write_row(attrs, ref, %{writer: writer}) do
+    entry = %{
+      entity_type: attrs.entity_type,
+      external_ref: ref,
+      field_values: attrs.field_values
+    }
+
+    case writer.(entry, %{actor_id: attrs.actor_id, idempotency_key: attrs.idempotency_key}) do
+      {:ok, %{record_id: record_id, outcome: outcome}} ->
+        {:ok, %{record: %Latest{record_id: record_id}, outcome: outcome}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

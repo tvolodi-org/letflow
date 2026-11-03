@@ -27,6 +27,7 @@ defmodule Letflow.Api.KeycloakRealmAudienceMapperTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @realm_path Path.join([
                 __DIR__,

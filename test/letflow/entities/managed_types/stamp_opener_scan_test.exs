@@ -75,6 +75,8 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
     "lib/letflow/event_store/retention_operations.ex",
     "lib/letflow/identity.ex",
     "lib/letflow/identity/pending_admin_grants.ex",
+    # REQ-646 A3b: the subtree read interpolates only the prefix, checked against `@prefix_re` (INV-7).
+    "lib/letflow/modules/locations/tree.ex",
     "lib/letflow/ordering/metrics.ex",
     "lib/letflow/ordering/sweeper.ex",
     "lib/letflow/sandbox_pool.ex",

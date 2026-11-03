@@ -24,6 +24,7 @@ defmodule Letflow.Engine.Wasm.ResourceLimitsTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Engine.Wasm.ResourceLimits
 

@@ -16,6 +16,7 @@ defmodule Letflow.Scripts.GhWorkTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @script Path.expand("../../scripts", __DIR__) |> Path.join("gh_work" <> ".sh")
 

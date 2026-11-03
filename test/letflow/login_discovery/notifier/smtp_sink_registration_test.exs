@@ -16,6 +16,7 @@ defmodule Letflow.LoginDiscovery.Notifier.SmtpSinkRegistrationTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Test.SmtpHelpers, as: S
   alias Letflow.Test.SmtpSink

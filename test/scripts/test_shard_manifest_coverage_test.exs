@@ -14,6 +14,7 @@ defmodule Letflow.Scripts.TestShardManifestCoverageTest do
   Pure file reads: no timing, no Mix, no CI.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Test.TestShardManifest
 

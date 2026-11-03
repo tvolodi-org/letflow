@@ -9,6 +9,7 @@ defmodule Letflow.Engine.RequiredOutputsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Definitions.Graph.Node
   alias Letflow.Engine.RequiredOutputs
