@@ -58,7 +58,8 @@
               "!**/modules/exam/**",
               "!**/modules/registry",
               "!**/modules/types",
-              "**/org/**"
+              "**/org/**",
+              "**/locations/**"
             ]
           }
         ]
@@ -79,7 +80,30 @@
               "!**/modules/org/**",
               "!**/modules/registry",
               "!**/modules/types",
-              "**/exam/**"
+              "**/exam/**",
+              "**/locations/**"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/modules/locations/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@/modules/*/**",
+              "!@/modules/locations/**",
+              "!@/modules/registry",
+              "!@/modules/types",
+              "**/modules/*/**",
+              "!**/modules/locations/**",
+              "!**/modules/registry",
+              "!**/modules/types",
+              "**/exam/**",
+              "**/org/**"
             ]
           }
         ]

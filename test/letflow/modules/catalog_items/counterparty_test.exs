@@ -184,12 +184,9 @@ defmodule Letflow.Modules.CatalogItems.CounterpartyTest do
         assert conn.resp_body =~ "upsert_by external_ref only"
       end
 
-      # a managed type with no import function is still 403
+      # catalog_lot has an import function since REQ-654: without upsert_by it is 422
       lot = call_entities(tenant_id, :post, "/records/catalog_lot/import", body.("catalog_lot"))
-      assert lot.status == 403
-
-      assert lot.resp_body ==
-               Error.serialise(%{Error.entity_type_managed() | trace_id: @trace})
+      assert lot.status == 422
 
       assert supplier_count(schema) == 0
     end

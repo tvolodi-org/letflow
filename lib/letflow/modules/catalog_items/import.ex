@@ -81,7 +81,8 @@ defmodule Letflow.Modules.CatalogItems.Import do
     end)
   end
 
-  defp resolve(cell, target, field, system, prefix) when is_binary(cell) do
+  @doc false
+  def resolve(cell, target, field, system, prefix) when is_binary(cell) do
     case Latest.get_by_external_ref(target, system, cell, prefix) do
       {:ok, %Latest{deleted: false, field_values: %{"active" => false}}} ->
         {:error, {:reference_inactive, field}}
@@ -94,6 +95,6 @@ defmodule Letflow.Modules.CatalogItems.Import do
     end
   end
 
-  defp resolve(_cell, _target, field, _system, _prefix),
+  def resolve(_cell, _target, field, _system, _prefix),
     do: {:error, {:reference_not_found, field}}
 end

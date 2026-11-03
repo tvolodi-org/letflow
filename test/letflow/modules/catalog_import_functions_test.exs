@@ -57,23 +57,28 @@ defmodule Letflow.Modules.CatalogImportFunctionsTest do
     end
   end
 
-  test "R1f: the catalog_items manifest lists exactly the three catalog types" do
+  test "R1f: the catalog_items manifest lists exactly the four catalog types" do
     names = for %{entity_type: name} <- CatalogItems.manifest().import_functions, do: name
-    assert Enum.sort(names) == ["catalog_counterparty", "catalog_item", "catalog_uom"]
+
+    assert Enum.sort(names) == [
+             "catalog_counterparty",
+             "catalog_item",
+             "catalog_lot",
+             "catalog_uom"
+           ]
   end
 
-  test "R1g: import_function/2 resolves the three and refuses everything else" do
-    for type <- ["catalog_uom", "catalog_item", "catalog_counterparty"] do
+  test "R1g: import_function/2 resolves the four and refuses everything else" do
+    for type <- ["catalog_uom", "catalog_item", "catalog_counterparty", "catalog_lot"] do
       assert Catalog.import_function("catalog_items", type) == :ok
     end
 
-    assert Catalog.import_function("catalog_items", "catalog_lot") == {:error, :not_found}
     assert Catalog.import_function("catalog_items", "unknown") == {:error, :not_found}
     assert Catalog.import_function("no_module", "catalog_uom") == {:error, :not_found}
     assert Catalog.import_function(:catalog_items, "catalog_uom") == {:error, :not_found}
     assert Catalog.import_function("catalog_items", nil) == {:error, :not_found}
 
-    assert Catalog.call_import_function("catalog_items", "catalog_lot", "p", %{}, %{}) ==
+    assert Catalog.call_import_function("catalog_items", "unknown", "p", %{}, %{}) ==
              {:error, :not_found}
   end
 

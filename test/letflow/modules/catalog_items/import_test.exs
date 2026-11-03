@@ -176,15 +176,14 @@ defmodule Letflow.Modules.CatalogItems.ImportTest do
       assert outcomes(conn) == ["external_ref_invalid", "created"]
     end
 
-    test "G4: a managed type with no registered function is still 403 entity_type_managed" do
+    test "G4: catalog_lot has a registered function since REQ-654 and a bad row is a row error" do
       ctx = tenant_ctx("gh3602-g4")
 
-      assert Letflow.Modules.Catalog.import_function("catalog_items", "catalog_lot") ==
-               {:error, :not_found}
+      assert Letflow.Modules.Catalog.import_function("catalog_items", "catalog_lot") == :ok
 
       conn = upsert(ctx, "catalog_lot", [uom_row("L1")])
-      assert conn.status == 403
-      assert conn.resp_body =~ "entity_type_managed"
+      assert conn.status == 200
+      assert outcomes(conn) == ["field_not_allowed"]
       assert latest_count(ctx.schema) == 0
     end
 
@@ -195,10 +194,10 @@ defmodule Letflow.Modules.CatalogItems.ImportTest do
       assert latest_count(ctx.schema) == 0
     end
 
-    test "G6: catalog_lot answers 403 for an xlsx body too (bytes never read)" do
+    test "G6: catalog_lot reads an xlsx body since REQ-654 (garbage bytes are refused as 422)" do
       ctx = tenant_ctx("gh3602-g6")
       conn = xlsx_import(ctx, "catalog_lot", "garbage", "?upsert_by=external_ref")
-      assert conn.status == 403
+      assert conn.status == 422
     end
   end
 

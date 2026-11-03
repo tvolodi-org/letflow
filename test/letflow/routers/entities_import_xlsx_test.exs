@@ -284,7 +284,7 @@ defmodule Letflow.Routers.EntitiesImportXlsxTest do
   end
 
   describe "R5: managed and hidden types" do
-    test "R5a: a module-managed type with no import function is 403 entity_type_managed and nothing is written" do
+    test "R5a: catalog_lot has an import function: no upsert_by is 422, garbage bytes are 422, nothing is written" do
       %{schema: schema, tenant_id: tenant_id} =
         CatalogItemsFixture.installed_tenant!("gh3603-r5a")
 
@@ -294,13 +294,13 @@ defmodule Letflow.Routers.EntitiesImportXlsxTest do
       before = Repo.aggregate(Latest, :count, prefix: schema)
       conn = xlsx_import(ctx, "catalog_lot", book([["code"], ["X"]]))
 
-      assert conn.status == 403
-      assert conn.resp_body =~ "entity_type_managed"
+      assert conn.status == 422
+      refute conn.resp_body =~ "entity_type_managed"
       assert Repo.aggregate(Latest, :count, prefix: schema) == before
 
-      # garbage bytes give the same answer: the bytes are never read
       garbage = xlsx_import(ctx, "catalog_lot", "garbage")
-      assert strip_trace(garbage) == strip_trace(conn)
+      assert garbage.status == 422
+      assert Repo.aggregate(Latest, :count, prefix: schema) == before
     end
 
     test "R5b: a type hidden from the caller answers like a nonexistent type, as for CSV" do

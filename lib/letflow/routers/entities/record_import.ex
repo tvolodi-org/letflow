@@ -736,6 +736,30 @@ defmodule Letflow.Routers.Entities.RecordImport do
     %{"type" => Atom.to_string(reason)}
   end
 
+  # REQ-654: the constant refusals of the org and lot write functions, named as their own atoms.
+  defp import_reason_json(reason)
+       when reason in [
+              :unit_inactive,
+              :unit_not_found,
+              :legal_entity_inactive,
+              :legal_entity_not_found,
+              :site_inactive,
+              :site_not_found,
+              :position_inactive,
+              :position_not_found,
+              :position_not_in_unit,
+              :user_not_found,
+              :employee_inactive,
+              :employee_not_found,
+              :depth_exceeded,
+              :node_has_grants,
+              :item_inactive,
+              :item_not_found,
+              :lot_not_found
+            ] do
+    %{"type" => Atom.to_string(reason)}
+  end
+
   defp import_reason_json({reason, key})
        when reason in [:field_not_allowed, :field_invalid] and is_binary(key) do
     %{"type" => Atom.to_string(reason), "header" => key}
