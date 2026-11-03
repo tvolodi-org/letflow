@@ -1,0 +1,172 @@
+/** importMessages — GH 3650 / REQ-675. Message catalog of the master data import screen, en/ru/kk (D-062),
+ *  same id set in each. Row reason texts are built from one table so a reason cannot miss a language. */
+export const IMPORT_UI_LOCALES = ['en', 'ru', 'kk'] as const
+export type ImportUiLocale = (typeof IMPORT_UI_LOCALES)[number]
+
+type Triple = readonly [en: string, ru: string, kk: string]
+
+const UI: Record<string, Triple> = {
+  'import.title': ['Import master data', 'Импорт справочных данных', 'Анықтамалық деректерді импорттау'],
+  'import.type': ['Data type', 'Тип данных', 'Дерек түрі'],
+  'import.noTypes': ['No importable data types are installed.', 'Нет установленных типов данных для импорта.', 'Импортталатын дерек түрлері орнатылмаған.'],
+  'import.template.button': ['Download template', 'Скачать шаблон', 'Үлгіні жүктеп алу'],
+  'import.template.failed': ['The template could not be downloaded.', 'Не удалось скачать шаблон.', 'Үлгіні жүктеп алу мүмкін болмады.'],
+  'import.help.title': ['How to fill the file', 'Как заполнить файл', 'Файлды қалай толтыру керек'],
+  'import.help.reference': [
+    'A reference column holds the external id of the referenced record under the same external_ref_system.',
+    'Колонка-ссылка содержит внешний идентификатор связанной записи в той же external_ref_system.',
+    'Сілтеме бағанында сол external_ref_system ішіндегі байланысқан жазбаның сыртқы идентификаторы болады.',
+  ],
+  'import.help.order': [
+    'Parents and referenced records come first in the file or exist already.',
+    'Родительские и связанные записи идут в файле первыми или уже существуют.',
+    'Ата-ана және байланысқан жазбалар файлда бірінші тұрады немесе бұрыннан бар.',
+  ],
+  'import.help.externalRef': [
+    'Every row needs external_ref_system and external_ref_id.',
+    'В каждой строке нужны external_ref_system и external_ref_id.',
+    'Әр жолда external_ref_system және external_ref_id болуы керек.',
+  ],
+  'import.help.active': [
+    'Leave the active column empty: retiring is not done by import.',
+    'Колонку active оставьте пустой: вывод из использования импортом не выполняется.',
+    'active бағанын бос қалдырыңыз: пайдаланудан шығару импорт арқылы жасалмайды.',
+  ],
+  'import.limits': [
+    'Limits: at most 2 MB per file, at most 200 data rows, only the first sheet is read.',
+    'Ограничения: не более 2 МБ на файл, не более 200 строк данных, читается только первый лист.',
+    'Шектеулер: файл көлемі 2 МБ-тан, деректер жолы 200-ден аспауы тиіс, тек бірінші парақ оқылады.',
+  ],
+  'import.file': ['Excel file (.xlsx)', 'Файл Excel (.xlsx)', 'Excel файлы (.xlsx)'],
+  'import.check': ['Check file', 'Проверить файл', 'Файлды тексеру'],
+  'import.confirm': ['Import', 'Импортировать', 'Импорттау'],
+  'import.busy': ['Working…', 'Выполняется…', 'Орындалуда…'],
+  'import.dryRun.title': ['Check result', 'Результат проверки', 'Тексеру нәтижесі'],
+  'import.dryRun.nothingWritten': ['Nothing has been written yet.', 'Пока ничего не записано.', 'Әзірге ештеңе жазылған жоқ.'],
+  'import.dryRun.fix': [
+    'Fix the refused rows and check the file again before importing.',
+    'Исправьте отклонённые строки и проверьте файл снова, прежде чем импортировать.',
+    'Импорттау алдында қабылданбаған жолдарды түзетіп, файлды қайта тексеріңіз.',
+  ],
+  'import.dryRun.ready': ['The file is ready to import.', 'Файл готов к импорту.', 'Файл импорттауға дайын.'],
+  'import.summary.title': ['Import result', 'Результат импорта', 'Импорт нәтижесі'],
+  'import.summary.done': ['The import is finished.', 'Импорт завершён.', 'Импорт аяқталды.'],
+  'import.count.created': ['Created: {n}', 'Создано: {n}', 'Жасалды: {n}'],
+  'import.count.updated': ['Updated: {n}', 'Обновлено: {n}', 'Жаңартылды: {n}'],
+  'import.count.unchanged': ['Unchanged: {n}', 'Без изменений: {n}', 'Өзгеріссіз: {n}'],
+  'import.count.refused': ['Refused: {n}', 'Отклонено: {n}', 'Қабылданбады: {n}'],
+  'import.col.line': ['Line', 'Строка', 'Жол'],
+  'import.col.outcome': ['Outcome', 'Результат', 'Нәтиже'],
+  'import.col.externalId': ['External id', 'Внешний id', 'Сыртқы id'],
+  'import.col.message': ['Message', 'Сообщение', 'Хабарлама'],
+  'import.outcome.created': ['Created', 'Создано', 'Жасалды'],
+  'import.outcome.updated': ['Updated', 'Обновлено', 'Жаңартылды'],
+  'import.outcome.unchanged': ['Unchanged', 'Без изменений', 'Өзгеріссіз'],
+  'import.outcome.refused': ['Refused', 'Отклонено', 'Қабылданбады'],
+  'import.reason.header': ['Column: {header}', 'Колонка: {header}', 'Баған: {header}'],
+  'import.reason.unknown': ['The row was refused ({type}).', 'Строка отклонена ({type}).', 'Жол қабылданбады ({type}).'],
+  'import.error.limits': [
+    'The file is over the limits: at most 2 MB and 200 data rows.',
+    'Файл превышает ограничения: не более 2 МБ и 200 строк данных.',
+    'Файл шектеуден асады: 2 МБ және 200 жолдан аспауы тиіс.',
+  ],
+  'import.error.xlsx_unreadable': ['The file is not a readable xlsx file.', 'Файл не является читаемым xlsx.', 'Файл оқылатын xlsx емес.'],
+  'import.error.xlsx_too_large': ['The file is too large when uncompressed.', 'Файл слишком велик в распакованном виде.', 'Файл ашылған күйде тым үлкен.'],
+  'import.error.xlsx_header_missing': ['The file has no header row.', 'В файле нет строки заголовков.', 'Файлда тақырып жолы жоқ.'],
+  'import.error.xlsx_duplicate_header': ['The header has a duplicate column.', 'В заголовке есть повторяющаяся колонка.', 'Тақырыпта қайталанатын баған бар.'],
+  'import.error.xlsx_unknown_header': [
+    'The header has a column that is not a field of this data type.',
+    'В заголовке есть колонка, которой нет среди полей этого типа данных.',
+    'Тақырыпта осы дерек түрінің өрісі емес баған бар.',
+  ],
+  'import.error.xlsx_external_ref_pair': [
+    'external_ref_system and external_ref_id must be given together.',
+    'external_ref_system и external_ref_id должны быть указаны вместе.',
+    'external_ref_system және external_ref_id бірге көрсетілуі керек.',
+  ],
+  'import.error.dry_run_unavailable': [
+    'The check is not available: too many rows were refused by the database.',
+    'Проверка недоступна: слишком много строк отклонено базой данных.',
+    'Тексеру қолжетімсіз: деректер қоры тым көп жолды қабылдамады.',
+  ],
+  'import.error.unprocessable': ['The file was refused: {detail}', 'Файл отклонён: {detail}', 'Файл қабылданбады: {detail}'],
+  'import.error.notAvailable': [
+    'This data type is not available to you, or an import needs access to the whole company.',
+    'Этот тип данных вам недоступен, либо для импорта нужен доступ ко всей компании.',
+    'Бұл дерек түрі сізге қолжетімсіз, немесе импорт үшін бүкіл компанияға қолжетімділік қажет.',
+  ],
+  'import.error.forbidden': ['This action is not permitted.', 'Это действие не разрешено.', 'Бұл әрекетке рұқсат жоқ.'],
+  'import.error.busy': [
+    'The server is busy. The same file can be imported again later.',
+    'Сервер занят. Тот же файл можно импортировать повторно позже.',
+    'Сервер бос емес. Дәл сол файлды кейінірек қайта импорттауға болады.',
+  ],
+  'import.error.other': ['The request failed. Try again.', 'Запрос не выполнен. Повторите попытку.', 'Сұраныс орындалмады. Қайталап көріңіз.'],
+}
+
+const REASONS: Record<string, Triple> = {
+  record_payload_invalid: ['A value is not valid.', 'Недопустимое значение.', 'Мән жарамсыз.'],
+  record_size_exceeded: ['A value or the row is too large.', 'Значение или строка слишком велики.', 'Мән немесе жол тым үлкен.'],
+  definition_not_found: ['The data type has no active definition.', 'У типа данных нет активного определения.', 'Дерек түрінің белсенді анықтамасы жоқ.'],
+  payload_validation_failed: ['The row did not pass validation.', 'Строка не прошла проверку.', 'Жол тексеруден өтпеді.'],
+  idempotency_key_reuse: ['The row repeats an earlier row with different values.', 'Строка повторяет предыдущую с другими значениями.', 'Жол алдыңғы жолды басқа мәндермен қайталайды.'],
+  entity_type_managed: ['This data type is imported by its own function only.', 'Этот тип данных импортируется только своей функцией.', 'Бұл дерек түрі тек өз функциясымен импортталады.'],
+  definition_changed: ['The data type changed during the import. Import the file again.', 'Тип данных изменился во время импорта. Импортируйте файл снова.', 'Импорт кезінде дерек түрі өзгерді. Файлды қайта импорттаңыз.'],
+  external_ref_invalid: ['external_ref_system or external_ref_id is not valid.', 'external_ref_system или external_ref_id недопустимы.', 'external_ref_system немесе external_ref_id жарамсыз.'],
+  external_ref_record_deleted: ['The record with this external id was deleted.', 'Запись с этим внешним id удалена.', 'Бұл сыртқы id бар жазба жойылған.'],
+  external_ref_contention: ['The record is being changed by someone else. Import the file again.', 'Запись меняет кто-то другой. Импортируйте файл снова.', 'Жазбаны басқа адам өзгертіп жатыр. Файлды қайта импорттаңыз.'],
+  duplicate_external_ref_in_request: ['The same external id appears twice in the file.', 'Один и тот же внешний id встречается в файле дважды.', 'Бір сыртқы id файлда екі рет кездеседі.'],
+  field_restricted: ['A field in the row is not writable for you.', 'Поле в строке вам недоступно для записи.', 'Жолдағы өрісті жазуға рұқсатыңыз жоқ.'],
+  entity_append_only: ['This data type cannot be changed by import.', 'Этот тип данных нельзя изменить импортом.', 'Бұл дерек түрін импортпен өзгертуге болмайды.'],
+  tenant_not_provisioned: ['The company is not ready for imports.', 'Компания не готова к импорту.', 'Компания импортқа дайын емес.'],
+  invalid_schema_name: ['The company is not ready for imports.', 'Компания не готова к импорту.', 'Компания импортқа дайын емес.'],
+  trigger_backlog_full: ['The server is busy. Import the file again later.', 'Сервер занят. Импортируйте файл позже.', 'Сервер бос емес. Файлды кейінірек импорттаңыз.'],
+  reference_not_found: ['The referenced record was not found.', 'Связанная запись не найдена.', 'Байланысқан жазба табылмады.'],
+  reference_inactive: ['The referenced record is retired.', 'Связанная запись выведена из использования.', 'Байланысқан жазба пайдаланудан шығарылған.'],
+  cycle: ['The parent would create a cycle in the tree.', 'Родитель создал бы цикл в дереве.', 'Ата-ана ағашта цикл жасайды.'],
+  parent_inactive: ['The parent is retired.', 'Родитель выведен из использования.', 'Ата-ана пайдаланудан шығарылған.'],
+  parent_not_found: ['The parent was not found.', 'Родитель не найден.', 'Ата-ана табылмады.'],
+  node_not_found: ['The node was not found.', 'Узел не найден.', 'Түйін табылмады.'],
+  field_not_allowed: ['A field cannot be set by import.', 'Поле нельзя задать импортом.', 'Өрісті импортпен беруге болмайды.'],
+  field_invalid: ['A field value is not valid.', 'Недопустимое значение поля.', 'Өріс мәні жарамсыз.'],
+  unit_inactive: ['The org unit is retired.', 'Орг. единица выведена из использования.', 'Ұйымдық бірлік пайдаланудан шығарылған.'],
+  unit_not_found: ['The org unit was not found.', 'Орг. единица не найдена.', 'Ұйымдық бірлік табылмады.'],
+  legal_entity_inactive: ['The legal company is retired.', 'Юридическое лицо выведено из использования.', 'Заңды тұлға пайдаланудан шығарылған.'],
+  legal_entity_not_found: ['The legal company was not found.', 'Юридическое лицо не найдено.', 'Заңды тұлға табылмады.'],
+  site_inactive: ['The site is retired.', 'Площадка выведена из использования.', 'Алаң пайдаланудан шығарылған.'],
+  site_not_found: ['The site was not found.', 'Площадка не найдена.', 'Алаң табылмады.'],
+  position_inactive: ['The position is retired.', 'Должность выведена из использования.', 'Лауазым пайдаланудан шығарылған.'],
+  position_not_found: ['The position was not found.', 'Должность не найдена.', 'Лауазым табылмады.'],
+  position_not_in_unit: ['The position belongs to another org unit.', 'Должность относится к другой орг. единице.', 'Лауазым басқа ұйымдық бірлікке тиесілі.'],
+  user_not_found: ['The account was not found.', 'Учётная запись не найдена.', 'Тіркелгі табылмады.'],
+  employee_inactive: ['The employee is retired.', 'Сотрудник выведен из использования.', 'Қызметкер пайдаланудан шығарылған.'],
+  employee_not_found: ['The employee was not found.', 'Сотрудник не найден.', 'Қызметкер табылмады.'],
+  depth_exceeded: ['The tree is too deep.', 'Дерево слишком глубокое.', 'Ағаш тым терең.'],
+  node_has_grants: ['The node has access grants and cannot be changed this way.', 'У узла есть права доступа, так изменить его нельзя.', 'Түйінде қол жеткізу құқықтары бар, олай өзгертуге болмайды.'],
+  item_inactive: ['The item is retired.', 'Номенклатура выведена из использования.', 'Номенклатура пайдаланудан шығарылған.'],
+  item_not_found: ['The item was not found.', 'Номенклатура не найдена.', 'Номенклатура табылмады.'],
+  lot_not_found: ['The lot was not found.', 'Партия не найдена.', 'Партия табылмады.'],
+  internal_error: ['An internal error. Try the row again later.', 'Внутренняя ошибка. Повторите строку позже.', 'Ішкі қате. Жолды кейінірек қайталаңыз.'],
+  csv_cell_count: ['The row has more cells than the header.', 'В строке больше ячеек, чем в заголовке.', 'Жолда тақырыптан гөрі көп ұяшық бар.'],
+  xlsx_cell_count: ['The row has more cells than the header.', 'В строке больше ячеек, чем в заголовке.', 'Жолда тақырыптан гөрі көп ұяшық бар.'],
+  csv_invalid_integer: ['A cell is not a whole number.', 'Ячейка не содержит целое число.', 'Ұяшықта бүтін сан жоқ.'],
+  csv_invalid_decimal: ['A cell is not a number.', 'Ячейка не содержит число.', 'Ұяшықта сан жоқ.'],
+  csv_invalid_boolean: ['A cell is not yes/no (true or false).', 'Ячейка не содержит да/нет (true или false).', 'Ұяшықта иә/жоқ (true немесе false) жоқ.'],
+  csv_invalid_date: ['A cell is not a date.', 'Ячейка не содержит дату.', 'Ұяшықта күн жоқ.'],
+  csv_invalid_datetime: ['A cell is not a date and time.', 'Ячейка не содержит дату и время.', 'Ұяшықта күн мен уақыт жоқ.'],
+  csv_invalid_json: ['A cell is not valid JSON.', 'Ячейка не содержит корректный JSON.', 'Ұяшықта жарамды JSON жоқ.'],
+  csv_invalid_localized_text: ['A cell is not a valid text per language.', 'Ячейка не содержит корректный текст по языкам.', 'Ұяшықта тілдер бойынша жарамды мәтін жоқ.'],
+}
+
+function build(index: 0 | 1 | 2): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [id, t] of Object.entries(UI)) out[id] = t[index]
+  for (const [type, t] of Object.entries(REASONS)) out[`import.reason.${type}`] = t[index]
+  return out
+}
+
+export const importMessages: Record<ImportUiLocale, Record<string, string>> = {
+  en: build(0),
+  ru: build(1),
+  kk: build(2),
+}
