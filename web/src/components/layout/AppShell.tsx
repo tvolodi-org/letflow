@@ -174,9 +174,9 @@ export function AppShell() {
       </aside>
       {navOpen && <div className="lf-scrim" data-testid="nav-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />}
 
-      <div>
+      <div className="lf-main">
         <TopBar menuOpen={navOpen} onMenuToggle={() => setNavOpen((o) => !o)} menuControls="app-sidenav" />
-        <main id="main-content" tabIndex={-1}>
+        <main id="main-content" className="lf-content" tabIndex={-1}>
           <TestEnvironmentBanner />
           <ApiConnectivityBanner />
           <Outlet />

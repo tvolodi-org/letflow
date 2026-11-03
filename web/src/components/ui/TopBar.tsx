@@ -1,6 +1,6 @@
 /** TopBar — breadcrumbs (phone: only the last crumb), menu button for the drawer, end slot.
  *  Sticky glass comes from the .lf-topbar class. */
-import type { ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronRight, Menu, X } from 'lucide-react'
 import { useUiMessages } from './uiMessages'
@@ -43,14 +43,14 @@ export function TopBar({ crumbs = [], end, menuOpen = false, onMenuToggle, menuC
           {crumbs.map((c, i) => {
             const last = i === lastIndex
             return (
-              <span key={`${i}-${c.label}`} className="lf-crumbs__item">
+              <Fragment key={`${i}-${c.label}`}>
                 {i > 0 && <ChevronRight className="lf-icon" aria-hidden="true" />}
                 {last || c.to == null ? (
                   <span aria-current={last ? 'page' : undefined}>{c.label}</span>
                 ) : (
                   <Link to={c.to}>{c.label}</Link>
                 )}
-              </span>
+              </Fragment>
             )
           })}
         </nav>

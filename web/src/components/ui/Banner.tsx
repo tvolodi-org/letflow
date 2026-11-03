@@ -28,7 +28,7 @@ export function Banner({ tone, title, children, action }: BannerProps) {
         {title != null && children != null && ' '}
         {children}
       </div>
-      {action != null && <div className="lf-banner__action">{action}</div>}
+      {action}
     </div>
   )
 }

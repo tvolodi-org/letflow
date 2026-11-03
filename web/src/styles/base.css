@@ -16,3 +16,9 @@ pre,
 samp {
   font-family: var(--font-mono);
 }
+
+/* The shell's <nav> wraps the nav groups; it must not break the sidenav's flex gap between
+   brand, groups and footer (components.css lays those out as direct children). */
+.lf-sidenav > nav {
+  display: contents;
+}
