@@ -20,7 +20,7 @@ defmodule Letflow.Entities.XlsxExport do
   or `@` is shown and not evaluated. Known limit: a text of more than 32767 characters is
   written as it is and Excel may refuse it; the page size is already capped by the export route.
   A decimal goes through a float (a number cell has no more precision); the exact value is in
-  the JSON export.
+  the JSON export. A decimal too large for a float is written as its text form (T-1154).
   """
 
   alias Elixlsx.{Sheet, Workbook}
@@ -76,7 +76,7 @@ defmodule Letflow.Entities.XlsxExport do
   defp cell(value, "decimal") do
     case value |> to_string_safe() |> Decimal.parse() do
       {%Decimal{} = d, ""} ->
-        if Decimal.inf?(d) or Decimal.nan?(d), do: text(value), else: Decimal.to_float(d)
+        if Decimal.inf?(d) or Decimal.nan?(d), do: text(value), else: decimal_number(d, value)
 
       _ ->
         text(value)
@@ -91,6 +91,14 @@ defmodule Letflow.Entities.XlsxExport do
   end
 
   defp cell(value, _type), do: text(value)
+
+  # A decimal beyond the float range (exponent near the 6144 cap) has no number cell: its text
+  # form is written instead (a string cell, never a formula) and the rest of the export stays.
+  defp decimal_number(%Decimal{} = d, value) do
+    Decimal.to_float(d)
+  rescue
+    _ -> text(to_string_safe(value))
+  end
 
   defp to_string_safe(value) when is_binary(value), do: value
   defp to_string_safe(value) when is_number(value), do: to_string(value)

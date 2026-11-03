@@ -940,6 +940,9 @@ defmodule Letflow.TenantProvisioning do
     # REQ-620 / GH #3463 part A: four empty per-tenant ledger tables. No existing row altered.
     {20_261_031_100_001, Letflow.Repo.Migrations.CreateLedgerTables,
      "20261031100001_create_ledger_tables.exs"},
+    # REQ-620 / GH #3463 part B: ledger triggers and functions on the four tables. No table added, no row altered.
+    {20_261_031_200_001, Letflow.Repo.Migrations.CreateLedgerTriggers,
+     "20261031200001_create_ledger_triggers.exs"},
     # REQ-640 / GH #3578: empty per-tenant journal table, no existing row altered.
     {20_261_101_100_001, Letflow.Repo.Migrations.CreateTenantModuleUpgrades,
      "20261101100001_create_tenant_module_upgrades.exs"}

@@ -241,7 +241,11 @@ Additional visibility rulings:
 Open-not-decided in D-067 and kept open here:
 
 - whether `org_unit_membership` should be declared
-- whether "positions are scoped by org unit like employees" remains an assumption or is ratified
+- ~~whether "positions are scoped by org unit like employees" remains an assumption or is ratified~~ (settled by owner D-075, 2026-11-03, below)
+
+### R7 ruling of 2026-11-03 (owner D-075)
+
+Owner answer to audit note 4: positions are scoped by org unit. A position belongs to an org unit and follows the same unit rules as the other org-scoped types. `org_position` is declared `{:column, "org_unit_id"}`, as the visibility table already shows; it is no longer a UAT assumption. The ruling covers `org_position` only: `org_unit_membership` stays undeclared (open item 5), since D-075 does not decide it. REQ-643, REQ-661 and REQ-665 carry the same wording.
 
 ## Owner answers recorded (source: D-065, 2026-11-02)
 
@@ -263,7 +267,7 @@ These are owner choices this record carries as binding inputs for later entries:
 2. Tenant-wide serial uniqueness in ledger (0073 OQ-23).
 3. Whether org tree ever migrates from path to ancestor array (D-066 records it as a later option only).
 5. Whether `org_unit_membership` gets a scope declaration: not decided. It stays undeclared, so a scoped caller reads none.
-6. Whether `org_position` is scoped by org unit like employees: not decided. It is a UAT assumption, to be confirmed by the process owner.
+6. Whether `org_position` is scoped by org unit like employees: settled 2026-11-03 (owner D-075), see "R7 ruling of 2026-11-03".
 4. Module-upgrade slices for tenants that installed `org`, `locations`, or `catalog_items` before phase A.
 
 ## Consequences and phase-A merge ordering notes
