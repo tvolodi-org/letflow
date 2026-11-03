@@ -247,7 +247,7 @@ freeze and would not catch a regression), against
   is that the defect lives in the generic component's own handler, not in
   anything `EntityCrudPage`-specific — but ELIXIR-DEV/FRONTEND-DEV or
   REVIEWER should confirm this doesn't conflict with `DataTable`'s
-  `docs/frontend/design-system.md` §7.2 contract before implementing.
+  `web/src/components/ui/DataTable.tsx` contract (old `docs/frontend/design-system.md` §7.2, retired; see `docs/design-system/`) before implementing.
 - **OQ-2**: `setTimeout(fn, 0)` was the only deferral mechanism tested (twice,
   successfully). `queueMicrotask`, `Promise.resolve().then(fn)`, and React's
   own `startTransition`/`flushSync`-avoidance APIs were NOT tested and must

@@ -7,7 +7,7 @@ The specification for Letflow's React SPA (`web/`). Migrated from R-Co on
 | File | What it is | R-Co origin |
 |---|---|---|
 | [`frontend-requirements.md`](frontend-requirements.md) | The consolidated spec: 7 non-functional requirements (`FNFR-01..07`), constraints, and every UI requirement grouped by area | `docs/BPM_Platform_Frontend_Requirements.md` |
-| [`design-system.md`](design-system.md) | Colour/spacing/typography tokens, component conventions, breakpoints | `docs/guides/frontend_design_system.md` |
+| [`design-system.md`](design-system.md) | Pointer to `docs/design-system/` and the design repo (old text retired) | `docs/guides/frontend_design_system.md` |
 | [`requirements/`](requirements/) | 66 per-requirement files, one per UI requirement ID | `docs/requirements/{ADM-UI,DLQ-UI,IN-UI,PD-UI,SH,TK-UI,WH-UI}-*.md` |
 
 ## Requirement families
@@ -38,14 +38,12 @@ do**, not as a work queue.
 ## Accuracy warning
 
 These documents were written against R-Co and were not all kept current there.
-One statement remains known-false against the code as migrated:
+The old `design-system.md` claim that colours live in `web/src/styles/tokens.css`
+was false when this was written; since then the design system landed (generated
+`tokens.css`, see [`../design-system/README.md`](../design-system/README.md)) and
+`design-system.md` is only a pointer.
 
-- `design-system.md` §2 says colours live in `web/src/styles/tokens.css`; that
-  file does not exist and `src/` contains no CSS at all. Marked in §2 itself as
-  not-yet-implemented, pointing to `REQ-120` (undecided as of 2026-08-22).
-
-The stack line's version claim ("React 19") was the other known-false
-statement here; `REQ-119` corrected it to **React 18.3.1**, the version
+The stack line's version claim ("React 19") was known-false; `REQ-119` corrected it to **React 18.3.1**, the version
 actually locked in `web/package-lock.json`.
 
 `web/README.md`'s "Known drift" section is the current list. Fixing further
