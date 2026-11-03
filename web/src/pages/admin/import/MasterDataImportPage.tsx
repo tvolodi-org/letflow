@@ -10,7 +10,7 @@
  */
 import React, { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
-import { Download } from 'lucide-react'
+import { Download, FileSpreadsheet } from 'lucide-react'
 import { P, useAccess } from '@/auth/access'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
@@ -105,7 +105,6 @@ function ReasonText({ row }: { row: ImportResultRow }) {
 function ResultTable({ results }: { results: ImportResultRow[] }) {
   const intl = useIntl()
   const columns: DataTableColumn<ImportResultRow>[] = [
-    { id: 'line', header: intl.formatMessage({ id: 'import.col.line' }), align: 'end', mono: true, render: (r) => r.line ?? '' },
     {
       id: 'outcome',
       header: intl.formatMessage({ id: 'import.col.outcome' }),
@@ -119,6 +118,7 @@ function ResultTable({ results }: { results: ImportResultRow[] }) {
         )
       },
     },
+    { id: 'line', header: intl.formatMessage({ id: 'import.col.line' }), align: 'end', mono: true, render: (r) => r.line ?? '' },
     { id: 'externalId', header: intl.formatMessage({ id: 'import.col.externalId' }), mono: true, render: (r) => r.external_ref?.id ?? '' },
     {
       id: 'message',
@@ -348,7 +348,7 @@ function MasterDataImportPageInner() {
                 name="import-type"
                 label={intl.formatMessage({ id: 'import.type' })}
                 value={entityType}
-                types={types.map((t) => ({ id: t.entityType, label: t.labels[locale] }))}
+                types={types.map((t) => ({ id: t.entityType, label: t.labels[locale], icon: FileSpreadsheet }))}
                 onChange={(id) => {
                   if (working) return
                   setChosen(id)

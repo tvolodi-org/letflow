@@ -34,3 +34,14 @@ samp {
 .lf-scrim {
   grid-template-columns: minmax(0, 1fr);
 }
+
+/* Type cards: a code is mono and never wraps (rule 4); the cards are wide enough for the longest code.
+   The shared components.css wraps the id anywhere, so this is the one local override. */
+.lf-types {
+  grid-template-columns: repeat(auto-fill, minmax(15em, 1fr));
+}
+
+.lf-type__id {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
