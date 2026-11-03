@@ -76,6 +76,10 @@ function UnitsInner() {
   const unitRows = rows.data ?? []
   const companyRows = companies.data ?? []
   const siteRows = sites.data ?? []
+  const parentField = (field: string) =>
+    panel?.kind === 'new' && panel.parent !== ''
+      ? textOf(unitRows.find((u) => u.record_id === panel.parent) ?? ({} as EntityRecord), field)
+      : ''
   const selected = panel?.kind === 'record' ? unitRows.find((r) => r.record_id === panel.id) : undefined
   const nodes = unitTreeNodes(unitRows)
   const expandedIds = branchIds(nodes).filter((id) => !collapsed.includes(id))
@@ -181,11 +185,8 @@ function UnitsInner() {
           key={selected?.record_id ?? `new-${panel?.kind === 'new' ? panel.parent : ''}`}
           record={selected ?? null}
           parent={panel?.kind === 'new' ? panel.parent : ''}
-          parentCompany={
-            panel?.kind === 'new' && panel.parent !== ''
-              ? textOf(unitRows.find((u) => u.record_id === panel.parent) ?? ({} as EntityRecord), 'legal_entity_id')
-              : ''
-          }
+          parentCompany={parentField('legal_entity_id')}
+          parentSite={parentField('site_id')}
           readOnly={!canWrite || (selected !== undefined && !activeSelected)}
           units={unitRows}
           companies={companyRows.filter(isActive).map(option)}
@@ -270,6 +271,8 @@ function UnitForm(props: {
   parent: string
   /** Legal company a new child unit starts with (the parent's); empty for a root. */
   parentCompany: string
+  /** Site a new child unit starts with (the parent's); empty for a root. */
+  parentSite: string
   readOnly: boolean
   units: EntityRecord[]
   companies: { value: string; label: string }[]
@@ -286,7 +289,7 @@ function UnitForm(props: {
     code: r ? textOf(r, 'code') : '',
     name: r ? textOf(r, 'name') : '',
     legal_entity_id: r ? textOf(r, 'legal_entity_id') : props.parentCompany,
-    site_id: r ? textOf(r, 'site_id') : '',
+    site_id: r ? textOf(r, 'site_id') : props.parentSite,
     parent: r ? textOf(r, 'parent') : props.parent,
   }
   const [form, setForm] = useState(initial)
