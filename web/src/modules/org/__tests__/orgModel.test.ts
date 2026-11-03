@@ -1,6 +1,6 @@
 /** P1 — GH 3609 / REQ-669: the pure helpers. */
 import { describe, expect, it } from 'vitest'
-import { ORG_REASONS, binValid, buildUnitTree, descendantIds, errorMessageId, moveTargets, reasonOf } from '../orgModel'
+import { ORG_REASONS, binValid, buildUnitTree, descendantIds, errorMessageId, moveTargets, positionsOfUnit, reasonOf, unitOptions } from '../orgModel'
 import { rec } from './orgTestKit'
 
 const u = (id: string, code: string, parent?: string, active = true) =>
@@ -41,6 +41,23 @@ describe('P1 orgModel', () => {
     for (const reason of ORG_REASONS) expect(errorMessageId(e(422, { reason }))).toBe(`org.error.${reason}`)
     expect(errorMessageId(e(422, { reason: 'something_new' }))).toBe('org.error.unknown')
     expect(errorMessageId(new Error('network'))).toBe('org.error.generic')
+    expect(errorMessageId(e(404), { userLinked: true })).toBe('org.error.user_not_found')
+    expect(errorMessageId(e(404), { userLinked: false })).toBe('org.error.notFound')
+    expect(errorMessageId(e(403), { userLinked: true })).toBe('org.error.forbidden')
     expect(reasonOf(e(422, { reason: 'record_payload_invalid', fields: ['code', 3] })).fields).toEqual(['code'])
+  })
+
+  it('positionsOfUnit keeps the active positions of one unit', () => {
+    const p = (id: string, unit: string, active = true) => ({ ...u(id, id), field_values: { org_unit_id: unit, active } })
+    const ps = [p('p1', 'a'), p('p2', 'a', false), p('p3', 'b')]
+    expect(positionsOfUnit(ps, 'a').map((r) => r.record_id)).toEqual(['p1'])
+    expect(positionsOfUnit(ps, '')).toEqual([])
+  })
+
+  it('unitOptions indents by depth in tree order', () => {
+    const opts = unitOptions([u('a', 'A'), u('b', 'B', 'a')])
+    expect(opts.map((o) => o.value)).toEqual(['a', 'b'])
+    expect(opts[1].label.startsWith('  ')).toBe(true)
+    expect(opts[0].label.startsWith(' ')).toBe(false)
   })
 })

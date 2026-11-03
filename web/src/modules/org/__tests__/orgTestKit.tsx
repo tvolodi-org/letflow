@@ -12,6 +12,14 @@ export const withAtom: AccessState = {
   status: 'ready',
   info: { roles: [], platform_tenant: false, permissions: ['OrgStructureWrite'] },
 }
+export const withEmployeesAtom: AccessState = {
+  status: 'ready',
+  info: { roles: [], platform_tenant: false, permissions: ['OrgEmployeesWrite'] },
+}
+export const withBothAtoms: AccessState = {
+  status: 'ready',
+  info: { roles: [], platform_tenant: false, permissions: ['OrgStructureWrite', 'OrgEmployeesWrite'] },
+}
 export const withoutAtom: AccessState = {
   status: 'ready',
   info: { roles: [], platform_tenant: false, permissions: [] },
@@ -43,8 +51,12 @@ export function fakeServer(
     if (path === '/api/v1/entities/query') {
       const filters = (body['filters'] ?? []) as Clause[]
       const onlyActive = filters.some((f) => f.field === 'active' && f.value === true)
+      const eqs = filters.filter((f) => f.op === 'eq' && f.field !== 'active' && f.field !== 'deleted')
       const items = (data[body['entity_type'] as string] ?? []).filter(
-        (r) => !r.deleted && (!onlyActive || r.field_values['active'] === true),
+        (r) =>
+          !r.deleted &&
+          (!onlyActive || r.field_values['active'] === true) &&
+          eqs.every((f) => r.field_values[f.field] === f.value),
       )
       return { items, next_cursor: null }
     }

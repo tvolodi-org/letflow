@@ -4,6 +4,8 @@ import type { EntityRecord } from '@/types/api'
 export const LEGAL_ENTITY = 'org_legal_entity'
 export const SITE = 'org_site'
 export const UNIT = 'org_unit'
+export const POSITION = 'org_position'
+export const EMPLOYEE = 'org_employee'
 
 /** Every `reason` the org routes can answer (masters.ex, units.ex, org.ex, router.ex). Each has a message. */
 export const ORG_REASONS = [
@@ -20,6 +22,11 @@ export const ORG_REASONS = [
   'depth_exceeded',
   'node_has_grants',
   'unit_has_active_staff',
+  'position_in_use',
+  'position_not_in_unit',
+  'position_inactive',
+  'employee_inactive',
+  'user_not_found',
   'record_payload_invalid',
   'idempotency_key_reuse',
   'request_refused',
@@ -120,11 +127,26 @@ function isReason(value: string | undefined): value is OrgReason {
   return value !== undefined && (ORG_REASONS as readonly string[]).includes(value)
 }
 
-/** The message id for an error of a write call. */
-export function errorMessageId(err: unknown): string {
+/** The units as picker options in tree order, indented by depth. */
+export function unitOptions(rows: EntityRecord[]): { value: string; label: string }[] {
+  return buildUnitTree(rows).map(({ record, depth }) => ({
+    value: record.record_id,
+    label: '  '.repeat(depth) + (textOf(record, 'name') || textOf(record, 'code')),
+  }))
+}
+
+/** Active positions of one unit (none when no unit is chosen). */
+export function positionsOfUnit(positions: EntityRecord[], unitId: string): EntityRecord[] {
+  if (unitId === '') return []
+  return positions.filter((p) => isActive(p) && textOf(p, 'org_unit_id') === unitId)
+}
+
+/** The message id for an error of a write call. `ctx.userLinked`: the request body carried a user id. The router
+ *  answers user_not_found as a plain 404 (INV-5), so a 404 on such a request names the user as a possible cause. */
+export function errorMessageId(err: unknown, ctx: { userLinked?: boolean } = {}): string {
   const info = reasonOf(err)
   if (info.status === 403) return 'org.error.forbidden'
-  if (info.status === 404) return 'org.error.notFound'
+  if (info.status === 404) return ctx.userLinked ? 'org.error.user_not_found' : 'org.error.notFound'
   if (info.status === 409 || info.reason === 'idempotency_key_reuse') return 'org.error.idempotency_key_reuse'
   if (isReason(info.reason)) return `org.error.${info.reason}`
   if (info.status === 422 && info.reason !== undefined) return 'org.error.unknown'
