@@ -15,6 +15,16 @@ export function pendingFixtureRequests(): number {
   return inFlight
 }
 
+/** The JSON body of a request, when it has one (fixtures of query routes answer by entity type). */
+function parseBody(body: BodyInit | null | undefined): unknown {
+  if (typeof body !== 'string') return undefined
+  try {
+    return JSON.parse(body)
+  } catch {
+    return undefined
+  }
+}
+
 export function makeFixtureFetch(routes: FixtureRoute[], state: HarnessState): typeof window.fetch {
   return (input, init) => {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
@@ -27,7 +37,7 @@ export function makeFixtureFetch(routes: FixtureRoute[], state: HarnessState): t
     }
     if (state === 'loading') return new Promise<Response>(() => {})
     if (state === 'error') return Promise.resolve(jsonResponse(500, PROBLEM_500))
-    const { status, body } = route.reply(state, path)
+    const { status, body } = route.reply(state, path, parseBody(init?.body))
     inFlight += 1
     return Promise.resolve(jsonResponse(status, body)).finally(() => {
       inFlight -= 1

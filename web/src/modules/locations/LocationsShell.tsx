@@ -1,10 +1,13 @@
-/** LocationsShell — GH 3607 / REQ-671. The shared frame of the locations screens (title, loading/error through
- *  QueryStateBoundary), the list query hook and the small form pieces. */
+/** LocationsShell — GH 3607 / REQ-671. The shared frame of the locations screens (page header, loading/error through
+ *  QueryStateBoundary, toasts), the list query hook and the write-error pieces. */
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
 import { useAuth } from '@/auth/AuthContext'
-import { PageLayout } from '@/components/ui/PageLayout'
+import { Banner } from '@/components/ui/Banner'
+import { Button } from '@/components/ui/Button'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { ToastContainer } from '@/components/ui/Toast'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
@@ -33,13 +36,14 @@ export function useLocationRows(
 
 export function LocationsShell(props: {
   title: string
+  eyebrow?: string
+  lede?: string
   queries: UseQueryResult<unknown>[]
-  showRetired?: boolean
-  onShowRetired?: (v: boolean) => void
   actions?: ReactNode
   children: ReactNode
 }) {
   const intl = useIntl()
+  const retry = () => props.queries.forEach((q) => void q.refetch())
   const failed = props.queries.find((q) => q.isError)
   const state: RendererState = failed
     ? classifyError(failed.error)
@@ -47,33 +51,47 @@ export function LocationsShell(props: {
       ? 'loading'
       : 'success'
   return (
-    <PageLayout title={props.title} actions={props.actions}>
-      {props.onShowRetired && (
-        <label style={{ display: 'inline-flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
-          <input
-            type="checkbox"
-            checked={props.showRetired ?? false}
-            onChange={(e) => props.onShowRetired?.(e.target.checked)}
-          />
-          {intl.formatMessage({ id: 'locations.common.showRetired' })}
-        </label>
+    <>
+      <PageHeader title={props.title} eyebrow={props.eyebrow} lede={props.lede} actions={props.actions} />
+      {state === 'fetch-failure' ? (
+        <Banner
+          tone="danger"
+          action={
+            <Button variant="secondary" size="sm" onClick={retry}>
+              {intl.formatMessage({ id: 'locations.common.retry' })}
+            </Button>
+          }
+        >
+          {intl.formatMessage({ id: 'locations.common.loadFailed' })}
+        </Banner>
+      ) : (
+        <QueryStateBoundary state={state} onRetry={retry}>
+          {props.children}
+        </QueryStateBoundary>
       )}
-      <QueryStateBoundary state={state} onRetry={() => props.queries.forEach((q) => void q.refetch())}>
-        {props.children}
-      </QueryStateBoundary>
-    </PageLayout>
+      <ToastContainer />
+    </>
   )
 }
 
-/** The message of a failed write, as an alert. Names the fields of record_payload_invalid (no values). */
-export function LocationsErrorAlert({ error, link }: { error: unknown; link?: boolean }) {
+/** The text of a failed write (names the fields of record_payload_invalid, no values). */
+export function useErrorText(): (error: unknown, link?: boolean) => string {
   const intl = useIntl()
+  return (error, link) =>
+    intl.formatMessage(
+      { id: errorMessageId(error, { link }) },
+      { fields: (reasonOf(error).fields ?? []).join(', ') },
+    )
+}
+
+/** The message of a failed write, as a danger banner. */
+export function LocationsErrorAlert({ error, link }: { error: unknown; link?: boolean }) {
+  const errorText = useErrorText()
   if (!error) return null
-  const info = reasonOf(error)
   return (
-    <div id="locations-error" role="alert" style={{ color: 'var(--color-error-dark)', marginBottom: 'var(--space-3)' }}>
-      {intl.formatMessage({ id: errorMessageId(error, { link }) }, { fields: (info.fields ?? []).join(', ') })}
-    </div>
+    <Banner tone="danger">
+      <span id="locations-error">{errorText(error, link)}</span>
+    </Banner>
   )
 }
 
@@ -85,69 +103,6 @@ export function fieldMarked(error: unknown, name: string): boolean {
   return (
     (info.reason === 'field_invalid' || info.reason === 'field_not_allowed' || info.reason === 'record_payload_invalid') &&
     named
-  )
-}
-
-export function TextField(props: {
-  name: string
-  label: string
-  value: string
-  onChange: (v: string) => void
-  invalid?: boolean
-  readOnly?: boolean
-  list?: string
-}) {
-  const id = `locations-field-${props.name}`
-  return (
-    <div style={{ marginBottom: 'var(--space-3)' }}>
-      <label htmlFor={id} style={{ display: 'block' }}>
-        {props.label}
-      </label>
-      <input
-        id={id}
-        name={props.name}
-        value={props.value}
-        readOnly={props.readOnly}
-        list={props.list}
-        aria-invalid={props.invalid ? true : undefined}
-        aria-describedby={props.invalid ? 'locations-error' : undefined}
-        onChange={(e) => props.onChange(e.target.value)}
-      />
-    </div>
-  )
-}
-
-export function SelectField(props: {
-  name: string
-  label: string
-  value: string
-  onChange: (v: string) => void
-  options: { value: string; label: string }[]
-  placeholder: string
-  invalid?: boolean
-}) {
-  const id = `locations-field-${props.name}`
-  return (
-    <div style={{ marginBottom: 'var(--space-3)' }}>
-      <label htmlFor={id} style={{ display: 'block' }}>
-        {props.label}
-      </label>
-      <select
-        id={id}
-        name={props.name}
-        value={props.value}
-        aria-invalid={props.invalid ? true : undefined}
-        aria-describedby={props.invalid ? 'locations-error' : undefined}
-        onChange={(e) => props.onChange(e.target.value)}
-      >
-        <option value="">{props.placeholder}</option>
-        {props.options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </div>
   )
 }
 

@@ -1,6 +1,7 @@
 /** Fixtures registry (task S0d). Every screen task adds one entry here: its name, the fake API routes it reads
  *  and a render function. Keep fixtures to plain data; no secrets, no real tenant names. */
 import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
+import { locationsScreens } from './fixtures/locations'
 import type { HarnessScreen } from './types'
 
 const verifyCertificate: HarnessScreen = {
@@ -29,5 +30,5 @@ const verifyCertificate: HarnessScreen = {
 }
 
 export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries(
-  [verifyCertificate].map(s => [s.name, s]),
+  [verifyCertificate, ...locationsScreens].map(s => [s.name, s]),
 )
