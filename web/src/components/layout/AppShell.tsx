@@ -6,6 +6,7 @@ import { ApiConnectivityBanner } from './ApiConnectivityBanner'
 import { TestEnvironmentBanner } from './TestEnvironmentBanner'
 import { SkipLink } from './SkipLink'
 import { TenantHeader } from './TenantHeader'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { TenantSwitcher } from '@/auth/TenantSwitcher'
 import { dlqApi } from '@/api/dlq'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -112,21 +113,21 @@ export function AppShell() {
     .filter((g) => g.items.length > 0)
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ display: 'flex', minHeight: '100vh' }}>
       <SkipLink label="Skip to main content" />
       {/* Sidebar */}
       <aside
         style={{
           width: '220px',
           background: 'var(--surface-sidebar)',
-          color: 'var(--color-neutral-400)',
+          color: 'var(--on-night-muted)',
           display: 'flex',
           flexDirection: 'column',
           padding: '1.5rem 0',
           flexShrink: 0,
         }}
       >
-        <div style={{ padding: '0 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-neutral-100)' }}>
+        <div style={{ padding: '0 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 700, fontSize: '1.1rem', color: 'var(--on-night)' }}>
           {logoUrl != null && (
             <img src={logoUrl} alt={appName} style={{ height: '1.5rem', width: 'auto' }} />
           )}
@@ -139,7 +140,7 @@ export function AppShell() {
         <nav style={{ flex: 1 }}>
           {visibleGroups.map((g) => (
             <div key={g.id} role="group" aria-label={g.label} data-testid={`nav-group-${g.id}`}>
-              <div style={{ padding: '.75rem 1.25rem .25rem', fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-secondary)' }}>
+              <div style={{ padding: '.75rem 1.25rem .25rem', fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--on-night-muted)' }}>
                 {g.label}
               </div>
               {g.items.map((n) => (
@@ -149,7 +150,7 @@ export function AppShell() {
               style={({ isActive }) => ({
                 display: 'block',
                 padding: '.5rem 1.25rem',
-                color: isActive ? 'var(--color-neutral-100)' : 'var(--color-neutral-500)',
+                color: isActive ? 'var(--on-night)' : 'var(--on-night-muted)',
                 background: isActive ? 'var(--color-sidebar-active)' : 'transparent',
                 textDecoration: 'none',
                 fontSize: '.9rem',
@@ -183,26 +184,29 @@ export function AppShell() {
           ))}
         </nav>
 
-        <div style={{ padding: '.75rem 1.25rem', borderTop: '1px solid var(--color-sidebar-active)', fontSize: '.8rem', color: 'var(--text-secondary)' }}>
+        <div style={{ padding: '.75rem 1.25rem', borderTop: '1px solid var(--color-sidebar-active)', fontSize: '.8rem', color: 'var(--on-night-muted)' }}>
           <div
             data-testid="user-display-name"
-            style={{ marginBottom: '.25rem', color: 'var(--color-neutral-500)' }}
+            style={{ marginBottom: '.25rem', color: 'var(--on-night-muted)' }}
           >
             {session?.display_name}
           </div>
           <div
             data-testid="user-roles"
-            style={{ marginBottom: '.5rem', color: 'var(--text-secondary)', fontSize: '.75rem' }}
+            style={{ marginBottom: '.5rem', color: 'var(--on-night-muted)', fontSize: '.75rem' }}
           >
             {access.roles.join(', ')}
           </div>
           <button
             data-testid="logout-button"
             onClick={logout}
-            style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0, fontSize: '.8rem' }}
+            style={{ background: 'none', border: 'none', color: 'var(--on-night-muted)', cursor: 'pointer', padding: 0, fontSize: '.8rem' }}
           >
             Sign out
           </button>
+          <div style={{ marginTop: 'var(--space-2)' }}>
+            <ThemeToggle />
+          </div>
         </div>
       </aside>
 
