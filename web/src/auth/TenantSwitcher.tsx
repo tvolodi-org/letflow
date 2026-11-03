@@ -59,7 +59,7 @@ export function TenantSwitcher(): JSX.Element | null {
           background: 'none',
           border: '1px solid var(--color-sidebar-active)',
           borderRadius: 'var(--radius-sm)',
-          color: 'var(--color-neutral-300)',
+          color: 'var(--on-night)',
           padding: '.35rem .6rem',
           fontSize: '.75rem',
           cursor: pending ? 'default' : 'pointer',

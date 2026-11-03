@@ -21,7 +21,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyBrandingColors } from '../applyBranding'
 
-const TOKENS_CSS_PATH = join(__dirname, '../../styles/tokens.css')
+// --color-brand-* are old names: they live in the bridge file (the generated tokens.css has --current).
+const TOKENS_CSS_PATH = join(__dirname, '../../styles/legacy-bridge.css')
 const tokensCssContent = readFileSync(TOKENS_CSS_PATH, 'utf-8')
 
 /** Must track tokens.css's --color-brand-600 — read live, never hard-coded. */

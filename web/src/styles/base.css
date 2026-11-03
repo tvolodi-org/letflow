@@ -1,0 +1,18 @@
+/* Base styles: page ground and body type from the design tokens (body text in the sans family). */
+html {
+  background: var(--paper);
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: var(--type-body);
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+}
