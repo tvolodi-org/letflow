@@ -48667,3 +48667,131 @@ requirements:
       - "OQ-13 and OQ-23 of decision 0073 are not decided here."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-685, REQ-684, REQ-621, REQ-637, REQ-616, REQ-676, "decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md) with its section Amended (REQ-676, assets B1)", "the rework of REQ-621 for decision 0073 A2, A3 and A5 and the owner's GATE A (D-073, 0073 A10): the feature task must not start before them"]
+  - id: REQ-688
+    title: "WMS stock ledger slice L5: SERVICE-origin pre-locks of the ledger rows before the task-activation audit, lifting the typed refusal ledger_origin_not_supported for a consented SERVICE_TASK posting, and the decision 0061 amendment (decision 0073 slice table row L5, D-L12)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3705
+    description: >
+      Slice L5 of the WMS stock ledger: the row "L5 | SERVICE-origin pre-locks and lifting the typed refusal (D-L12), with
+      its 0061 amendment" of the slice table of decision 0073
+      (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md, "Consequences"). Sources: 0073 D-L12 (in D7),
+      0073 "Amended (REQ-676, assets B1)" A2 last item, A3 and A10 row L5 ("no change; the SERVICE origin stays refused",
+      that is, refused until this slice), and the design note lib/letflow/design/gh2657-wms-stock-ledger-core.md
+      (revision 5) sections 7.1 (run step 1), 7.2, 7.3, 7.5, 16.2 and 16.5 ("L5: SEC-12 conditions and its 0061
+      amendment"). Slice L3 is REQ-684 (activation checks, fixture module), REQ-685 (HandlerWrites.post/3, the authority
+      step, the per-transaction plan and its lock step) and REQ-686 (failure channel, ledger.posted audit, the class 5b
+      amendment of 0061, T-LK-1 to T-LK-6).
+
+      WHY THE REFUSAL EXISTS (note 7.5, 0073 D-L12). On the service and script apply (do_persist_service_task_advance in
+      lib/letflow/engine.ex; see the SERVICE_TASK bullet of that module's moduledoc) the order is :lock_ancestors, the
+      {:pre_type_lock, type} group (StepWrites.lock_planned_types/4 in lib/letflow/entities/step_writes.ex, reached through
+      the optional callback lock_types/4 of Letflow.Engine.EntityPort in lib/letflow/engine/entity_port.ex), then tokens and
+      the task activation whose task.create audit takes the tenant-wide audit chain row A, then the entity writes and the
+      handler calls. A posting there would take balance rows and the counter AFTER A, while a HUMAN posting holds them and
+      wants A for its tail audit: a cycle. L3 therefore refuses a {:dispatch, _} origin at run time with the typed
+      refusal :ledger_origin_not_supported (REQ-685 criterion 4) and refuses any posting line on a SERVICE_TASK node at
+      activation with module_writes_ledger_on_service_task (REQ-684 criterion 7).
+
+      THE FOUR CONDITIONS FOR LIFTING (0073 D-L12, note 7.5, SEC-12), and how this slice meets each. (a) The ledger rows
+      are taken as lock-only pre-steps BEFORE the task-activation audit, with balance keys resolvable at plan time: a new
+      lock-only step :pre_ledger_lock, appended by StepWrites.lock_planned_types/4 right after the {:pre_type_lock, type}
+      group, builds the node's posting lines once in a DRY build (the handler's build and the module's pure declare/2, no
+      database access, no step of it added to the transaction) from the same variables the apply uses, and locks the
+      union of their balance keys and ledger ids in the class 5b order of 0073 A3. The note says it was NOT VERIFIED that
+      service-path arguments are resolvable at plan time; this slice does not rely on it: the in-transaction lock step of
+      REQ-685 re-checks that every balance key and ledger id of the real build is in the pre-locked set and fails closed
+      when one is not (criterion 4). (b) The subject's roles are re-resolved from the database at run time (the authority
+      step of REQ-685 criterion 4, on the service path with the ACTIVATOR as subject, as HandlerWrites does for every
+      service-origin write, lib/letflow/entities/handler_writes.ex moduledoc), the platform sentinel
+      (EventStore.platform_actor_id/0 in lib/letflow/event_store.ex, the actor of a service apply) never holds the post
+      permission, and the credential rule of note 16.2 (an allowlist of :oidc) applies: on the dispatch origin the
+      credential is the one the activator used when activating (auth_context.credential from
+      lib/letflow/plugs/auth_pipeline.ex, carried by Activator.from_auth_context/2, criterion 2a), recorded in the signed
+      activated_by document. (c) When
+      script-produced variables feed legs, activation requires an explicit consent flag on the node recorded with
+      activated_by: whether a variable was produced by a script cannot be decided statically (any script-bound
+      SERVICE_TASK upstream may write any variable), so this slice requires the flag on EVERY SERVICE_TASK node that holds
+      a posting line, HTTP-bound or script-bound. (d) The cycle test T-LK-4 is inverted (criterion 7).
+
+      Names chosen here (no decision record names them): the node attribute "ledger_post_consent" (boolean), the
+      activated_by keys "ledger_consent_nodes" and "credential", the step name :pre_ledger_lock and the contract failure
+      atom :prelock_mismatch. The code module_writes_ledger_on_service_task of REQ-684 is kept, with its meaning narrowed
+      to "a posting line on a SERVICE_TASK node without the consent flag", so no activation code is added or removed.
+
+      THE 0061 AMENDMENT. This change appends to docs/migration/decisions/0061-engine-lock-order-platform-invariant.md one
+      section, after the section "## Amended (REQ-686, ledger class 5b)" that REQ-686 adds, with exactly this text (the
+      heading line, then one paragraph per item):
+
+      "## Amended (REQ-688, ledger pre-lock on the service apply)"
+
+      "Source: decision 0073 D-L12 and slice table row L5, and the class 5b text of 'Amended (REQ-686, ledger class 5b)'.
+      Item 1 (placement). On the service and script apply path, a SERVICE_TASK node whose module_writes hold a posting
+      line takes the ledger rows of class 5b in a lock-only pre-step, the :pre_ledger_lock step, right after the
+      {:pre_type_lock, type} group (class 5 with item 5a) and before the token inserts and the task activation whose
+      task.create audit takes the tenant-wide audit chain row (class 6). The step builds the node's posting lines once
+      without adding their steps to the transaction (the handlers' build and the modules' pure declare/2, no database
+      access), takes the union of their balance keys and ledger ids, inserts the missing balance rows and locks all
+      balance rows ascending by (ledger_id, k1..k8), then inserts the missing counter rows and locks the counter rows
+      ascending by ledger_id. Its only writes are the empty balance and counter rows it inserts, as item 5a writes an empty
+      counter row; no event, audit or sequence number changes position or content (rule 3). Item 2 (containment). The
+      in-transaction lock step of class 5b re-locks rows the pre-step already holds; when a balance key or a ledger id of
+      the transaction is not in the pre-locked set, the posting fails as a contract failure and nothing is committed, so
+      a dispatch-origin transaction never takes a ledger row after the audit chain row, and the class 5b rule 'a
+      transaction that holds the audit chain row or any later class never takes a ledger row' holds on the service path.
+      A dispatch-origin posting in a transaction without the pre-step stays refused (typed). Item 3 (guard, rule 4). The
+      wiring test fails if a service Multi whose node holds a posting line has no :pre_ledger_lock step after the last
+      {:pre_type_lock, type} step and before the token inserts. Item 4 (forced overlap, rule 5). Test T-LK-4, inverted: a
+      HUMAN posting and a SERVICE posting on the same balance key, overlapping on the balance row and the audit chain row,
+      both commit with no deadlock."
+
+      TESTS THAT PIN THE OLD REFUSAL AND MUST CHANGE (they are added by L3 and do not exist on origin/main when this entry
+      is written; at implement time grep test/ for ledger_origin_not_supported, module_writes_ledger_on_service_task and
+      T-LK-4 and classify every hit): REQ-684 criterion 7, test/letflow/definitions/module_writes_ledger_test.exs (the
+      SERVICE_TASK node refusal: now only without the consent flag); REQ-685 criterion 4, test/letflow/ledger/security_test.exs
+      (the origin refusal: a {:dispatch, _} origin with its pre-step is now accepted, without it refused as before);
+      REQ-686 criterion 8, test/letflow/ledger/lock_order_test.exs (T-LK-4: inverted); REQ-686 criterion 1,
+      test/letflow/engine/ledger_failure_mapping_test.exs (the dispatchers' classification of the 5-tuple, said to be
+      unreachable in L1 to L4, becomes reachable and is tested end to end); and the existing
+      test/letflow/engine/entity_port_prelock_wired_test.exs (the wiring of 0061 rule 4, extended by item 3).
+
+      Docs kept in step: the SERVICE_TASK bullet of the Letflow.Engine moduledoc (lib/letflow/engine.ex), the
+      R5 sentence of the Letflow.Entities.HandlerWrites moduledoc, the @doc of StepWrites.lock_planned_types/4 and the
+      moduledoc of Letflow.Definitions.Activator (lib/letflow/definitions/activator.ex, the activated_by document) name the
+      new step and keys. 0073 and lib/letflow/design/gh2657-wms-stock-ledger-core.md are not edited (D-L12 says "refused
+      in L1..L4", which stays true).
+
+      Pins: no table (@expected_tenant_tables unchanged), no migration, no route (route-scope snapshot and its
+      length(snapshot) pins unchanged), no permission atom (priv/permission_matrix/effective.golden unchanged). Moving: the
+      step lists asserted by test/letflow/engine/entity_port_prelock_wired_test.exs and
+      test/letflow/engine/service_task_entity_writes_lock_order_test.exs for a node WITH a posting line only; the
+      activated_by document of a graph without a consented posting line stays byte-identical (pins such as
+      test/letflow/definitions/entity_writes_activation_test.exs and test/letflow/definitions/activated_by_signature_test.exs
+      unchanged).
+
+      Existing data. No table, migration, seed or registry row changes. No definition on QA can hold a posting line on a
+      SERVICE_TASK node, since L3 refuses it at activation; an existing activated_by document has no ledger_consent_nodes
+      key and so can authorise no service posting until the definition is re-activated with the flag.
+
+      Not decided here: OQ-13 and OQ-23 of 0073 (scoped principals stay refused until L6); the :api_token rule for HUMAN
+      posting (note 16.2, unchanged).
+    acceptance_criteria:
+      - "1. Activation with the consent flag (0073 D-L12 condition c, note 7.5; test file test/letflow/definitions/module_writes_ledger_test.exs): Letflow.Definitions.ModuleWrites (lib/letflow/definitions/module_writes.ex) accepts a posting line on a SERVICE_TASK node when the node's attributes hold \"ledger_post_consent\": true, and refuses it otherwise with module_writes_ledger_on_service_task (422), for a one-posting and a two-posting node, HTTP-bound and script-bound alike; a value other than the boolean true (false, \"true\", 1, absent) is refused the same way. A HUMAN_TASK node needs no flag and is unchanged; the flag on a node without a posting line is ignored. The limits of REQ-684 criterion 7 (at most two posting lines, distinct ledger ids) apply to a SERVICE_TASK node unchanged."
+      - "2. Recorded with activated_by (0073 D-L12 conditions b and c; test file test/letflow/definitions/ledger_consent_activated_by_test.exs): when the graph holds at least one SERVICE_TASK node with a consented posting line, the activated_by document built in lib/letflow/definitions.ex (build_activated_by, through Letflow.Definitions.Activator.build_record) gains the key ledger_consent_nodes (the sorted ids of those nodes) and the key credential (the activator map's credential value, see criterion 2a), both covered by the signature of Letflow.Definitions.ActivatedBy.sign/3. For every other graph the document is byte-identical to the one origin/main builds. A test changes ledger_consent_nodes in a stored document and shows ActivatedBy.verify/3 refuses it."
+      - "3. The pre-lock step and its order (0073 D-L12 condition a, A3, note 7.2; test file test/letflow/engine/service_ledger_prelock_test.exs): for a SERVICE_TASK node with a posting line, StepWrites.lock_planned_types/4 appends one step :pre_ledger_lock after the {:pre_type_lock, type} group; the step runs the dry build of the node's posting lines (no step of it is added to the transaction, no write slot of the real build is used), inserts the missing balance rows and locks all balance rows of the union ascending by (ledger_id, k1..k8), then inserts the missing counter rows and locks them ascending by ledger_id. A step-name probe on a service apply shows, in this order, :lock_ancestors, the {:pre_type_lock, type} steps, :pre_ledger_lock, the token inserts, the task.create audit, then the posting step; a two-posting node with its lines in opposite order locks the same rows in the same order. A node without a posting line gets no :pre_ledger_lock step and its step list is unchanged. A dry build that records a deferred refusal of REQ-685 locks no ledger row for that posting."
+      - "4. Containment and the remaining typed refusal (note 7.1 run step 1, 0073 D-L12; test file test/letflow/ledger/security_test.exs): on a {:dispatch, _} origin the lock step of REQ-685 reads the :pre_ledger_lock result from the accumulator of the one Multi.merge of the module_writes lines; a balance key or ledger id of the real build that is not in that set is the contract failure {:ledger_contract, :prelock_mismatch} (closed 500 entity_write_failed body of REQ-686 criterion 1, no details), nothing committed; a test handler whose build output differs between the dry build and the real build proves it. A {:dispatch, _} posting in a transaction without a :pre_ledger_lock result, and any origin that is neither {:task, _} nor {:dispatch, _}, is still refused with :ledger_origin_not_supported, surfaced as write_not_permitted. The {:task, _} path is unchanged."
+      - "2a. Credential carried by the activator (0073 D-L12 condition b; test file test/letflow/routers/ledger_activation_credential_test.exs): the source is the auth_context key credential set by attach_auth_context in lib/letflow/plugs/auth_pipeline.ex (the atom :oidc or :api_token, set by the authenticating branch, never from the request). Letflow.Definitions.Activator.from_auth_context/2 in lib/letflow/definitions/activator.ex gains one output key credential, a string: \"oidc\" when auth_context.credential is :oidc, \"api_token\" when it is :api_token, and \"none\" when the key is absent or holds any other value (fail closed; the hand-built auth contexts in test/ and the call in Letflow.Definitions.Reactivation lost_reason/3 in lib/letflow/definitions/reactivation.ex pass none and get \"none\"). The type Letflow.Engine.EntityPort.activator() in lib/letflow/engine/entity_port.ex gains required(:credential) => String.t(). Letflow.Api.Context.activator/1 in lib/letflow/api/context.ex is unchanged and passes the map through as from_auth_context/2 returns it. Activator.build_record/3 copies it as the activated_by key credential only for a graph that criterion 2 extends, reading Map.get(activator, :credential, \"none\"). Tests through the real router and AuthPipeline, activating a definition with a consented SERVICE_TASK posting line: an activation sent with an OIDC bearer stores activated_by credential \"oidc\"; the same activation sent with an API token minted by Letflow.Identity.create_token/3 in lib/letflow/identity.ex (as test/letflow/routers/entities_export_test.exs does) stores \"api_token\"; a unit test shows from_auth_context/2 with no credential key returns credential \"none\". Pins of the activator shape that must move (grep -rn 'entities_records_write?' test/ on origin/main at write time: three files, all partial matches): the hand-built ghost activator literal in test/letflow/definitions/module_write_activation_test.exs gains credential: \"none\" to keep to the type; the partial matches in test/letflow/definitions/entity_writes_activation_test.exs and test/letflow/routers/entity_writes_promotion_routes_test.exs stay as they are. The implementer re-runs that grep and classifies every hit."
+      - "5. Authority on the dispatch origin (0073 D-L12 condition b, note 16.2; same file as criterion 4): the authority step of REQ-685 runs with the ACTIVATOR as subject (the subject_id that do_persist_service_task_advance in lib/letflow/engine.ex already passes) and the platform sentinel only as actor; the roles are read from the database in the transaction (Identity.list_effective_role_names/2, Authorization.effective_roles/2). The credential of the HandlerContext on a dispatch origin is taken from the verified activated_by key credential, and only \"oidc\" passes; \"api_token\", \"none\" or an absent key is refused credential_unsupported. A posting line whose node id is not in the verified ledger_consent_nodes is refused write_not_permitted. Tests, each with nothing written: an activator whose post atom was revoked after activation is refused role_denied; a capability whose subject is the platform sentinel id is refused role_denied; an api_token activation is refused; a node missing from ledger_consent_nodes is refused; a tenant-wide oidc activator with the post atom posts."
+      - "6. Outcomes on the service path (0073 D-L12 'ERROR plus DLQ on the service path', note 12.3; test file test/letflow/engine/service_ledger_posting_test.exs): an HTTP-bound and a script-bound SERVICE_TASK apply that post commit the ledger entry, its legs, the balances, the counter and one ledger.posted audit entry (REQ-686 criterion 5) whose actor is the platform sentinel, and the instance advances. A typed refusal (insufficient_balance) lands the instance in ERROR with exactly one DLQ entry through the existing landings (land_http_entity_write_failure and land_script_entity_write_failure in lib/letflow/engine.ex), classified :entity_write_refused by lib/letflow/engine/service_task_dispatcher.ex and lib/letflow/engine/script_task_dispatcher.ex, with no ledger row, counter change or ledger.posted entry written; a contract failure and an authority refusal land the same way with entity_write_failed and write_not_permitted respectively. A lock timeout in :pre_ledger_lock is classified as contention and re-applied (bounded) like a {:pre_type_lock, type} timeout. No log line or audit entry of these paths holds a slot value or a quantity (the T-ERR-3 capture of REQ-686, run on the service path)."
+      - "7. T-LK-4 inverted and the wiring guard (0073 D-L12 condition d, 0061 rules 4 and 5; files test/letflow/ledger/lock_order_test.exs and test/letflow/engine/entity_port_prelock_wired_test.exs): in the style of Letflow.LockOrderHelpers (test/support/lock_order_helpers.ex), with real commits and a telemetry handler that fails on any 40P01: a HUMAN posting completion and a SERVICE_TASK posting apply on the same balance key, forced to overlap on the balance row and on the audit chain row, both commit; and a SERVICE posting apply overlapping a non-posting HUMAN completion on the audit chain row commits. The wiring test fails when a service Multi whose node holds a posting line has no :pre_ledger_lock step after the last {:pre_type_lock, type} step and before the token inserts."
+      - "8. The 0061 amendment (0073 D-L12, 0061 rule 5): the change appends to docs/migration/decisions/0061-engine-lock-order-platform-invariant.md the section headed '## Amended (REQ-688, ledger pre-lock on the service apply)' whose text is word for word the quoted text of this entry's description (from 'Source: decision 0073 D-L12' to 'both commit with no deadlock.'); git diff origin/main...HEAD of that file shows added lines only, placed after the section '## Amended (REQ-686, ledger class 5b)'."
+      - "9. Pins of the old refusal: every test named in this entry's description under 'TESTS THAT PIN THE OLD REFUSAL' is changed as stated there, and the PR quotes the output of grep -rn 'ledger_origin_not_supported\\|module_writes_ledger_on_service_task' test/ with each hit classified (still refused, now accepted with the flag, or inverted). The moduledocs and @doc named under 'Docs kept in step' name :pre_ledger_lock and the activated_by keys ledger_consent_nodes and credential."
+      - "10. Gate and scope: the change is a tenant-data-path, lock-order and authorization change and passes a SECURITY-REVIEWER gate as a stated step against the L5 checklist of note 16.5 (the SEC-12 conditions a to d as met by criteria 1 to 7, and the 0061 amendment); the verdict and its evidence are quoted in the PR. The diff adds no migration, no table, no route and no permission atom, and edits neither decision 0073 nor the design note; mix letflow.check.static passes and the pins named in the description are moved or shown unchanged by grep in the PR."
+    open_questions:
+      - "The names ledger_post_consent, ledger_consent_nodes, credential (as an activated_by key), :pre_ledger_lock and :prelock_mismatch are chosen here; no decision record names them."
+      - "Condition (c) of 0073 D-L12 asks for consent only 'when script-produced variables feed legs'; this entry requires it on every SERVICE_TASK posting node because that case cannot be told apart statically. A narrower rule would need a decision."
+      - "Condition (b) says the credential rule of note 16.2 applies; on the dispatch origin no request credential exists, so this entry reads it as the activator's credential at activation, recorded and signed in activated_by. If the reviewer reads (b) differently, this needs a ruling before implementation."
+      - "OQ-13 and OQ-23 of decision 0073 are not decided here; scoped principals stay refused until slice L6."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-686, REQ-685, REQ-684, REQ-621, REQ-676, "decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md) D-L12 and its section Amended (REQ-676, assets B1)", "decision 0061 (docs/migration/decisions/0061-engine-lock-order-platform-invariant.md) as amended by REQ-686"]

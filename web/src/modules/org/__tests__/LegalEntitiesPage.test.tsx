@@ -64,7 +64,8 @@ describe('W1 writes', () => {
     await waitFor(() => expect(listCalls()).toBeGreaterThan(before))
     await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    // the record opens in the detail panel (no modal): click its row
+    fireEvent.click(screen.getByText('Alpha LLP'))
     expect(screen.getByLabelText('Code')).toHaveAttribute('readonly')
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Alpha 2' } })
     fireEvent.click(screen.getByTestId('org-save'))

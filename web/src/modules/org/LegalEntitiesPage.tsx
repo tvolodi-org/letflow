@@ -1,13 +1,21 @@
-/** LegalEntitiesPage — GH 3609 / REQ-669. List, create, edit and retire legal companies (module org). */
+/** LegalEntitiesPage — GH 3609 / REQ-669, style S1. Legal companies (module org): the list on the left, the record in
+ *  the detail panel on the right (create, edit, retire). Styling only: the writes and their rules are unchanged. */
 import { useState } from 'react'
+import { Archive } from 'lucide-react'
 import { useIntl } from 'react-intl'
+import { useAccess } from '@/auth/access'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { FormRow, FormSection } from '@/components/ui/FormSection'
+import { useToast } from '@/hooks/useToast'
+import type { TreeNode } from '@/components/ui/TreeView'
 import type { EntityRecord } from '@/types/api'
 import { orgApi, type LegalEntityCreate, type LegalEntityUpdate } from './org.api'
 import { OrgIntlProvider } from './OrgIntlProvider'
-import { OrgErrorAlert, OrgListShell, OrgTextField, fieldMarked, useOrgRows } from './OrgListShell'
+import { OrgErrorAlert, OrgTextField, fieldMarked, useOrgRows } from './OrgListShell'
+import { OrgDetail, OrgEmpty, OrgForm, OrgScreen, OrgStatus, OrgTree } from './OrgScreen'
 import { LEGAL_ENTITY, binValid, isActive, textOf } from './orgModel'
+import { ORG_STRUCTURE_WRITE } from './orgPermissions'
 import { useOrgWrite } from './useOrgWrite'
 
 type Cmd =
@@ -21,129 +29,129 @@ function run(cmd: Cmd, key: string) {
   return orgApi.retireLegalEntity(cmd.id, key)
 }
 
+type Panel = { kind: 'new' } | { kind: 'record'; id: string } | null
+
 function LegalEntitiesInner() {
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string>) => intl.formatMessage({ id }, values)
+  const toast = useToast()
+  const canWrite = useAccess().can(ORG_STRUCTURE_WRITE)
   const [showRetired, setShowRetired] = useState(false)
   const rows = useOrgRows(LEGAL_ENTITY, showRetired)
   const write = useOrgWrite<Cmd>(run)
-  const [editing, setEditing] = useState<'new' | EntityRecord | null>(null)
-  const [form, setForm] = useState({ code: '', name: '', bin: '' })
-  const [binError, setBinError] = useState(false)
+  const [panel, setPanel] = useState<Panel>(null)
   const [retiring, setRetiring] = useState<EntityRecord | null>(null)
+  const [binError, setBinError] = useState(false)
 
-  function open(target: 'new' | EntityRecord) {
+  const items = rows.data ?? []
+  const selected = panel?.kind === 'record' ? items.find((r) => r.record_id === panel.id) : undefined
+  const nodes: TreeNode[] = items.map((r) => ({
+    id: r.record_id,
+    name: textOf(r, 'name') || textOf(r, 'code'),
+    code: textOf(r, 'code'),
+    retired: !isActive(r),
+  }))
+
+  function openPanel(next: Panel) {
     write.clearError()
     setBinError(false)
-    setEditing(target)
-    setForm(
-      target === 'new'
-        ? { code: '', name: '', bin: '' }
-        : { code: textOf(target, 'code'), name: textOf(target, 'name'), bin: textOf(target, 'bin') },
-    )
+    setPanel(next)
   }
 
-  async function save() {
-    if (editing === null) return
+  async function save(form: { code: string; name: string; bin: string }) {
     if (!binValid(form.bin)) {
       setBinError(true)
       return
     }
     setBinError(false)
+    const isNew = panel?.kind === 'new'
     const result = await write.submit(
-      editing === 'new'
+      isNew || !selected
         ? { op: 'create', body: { code: form.code, name: form.name, bin: form.bin } }
-        : { op: 'update', id: editing.record_id, body: { name: form.name, bin: form.bin } },
+        : { op: 'update', id: selected.record_id, body: { name: form.name, bin: form.bin } },
     )
-    if (result === 'ok' || result === 'notFound') setEditing(null)
+    if (result === 'ok') {
+      toast.success(t(isNew ? 'org.common.created' : 'org.common.saved'))
+      if (isNew) setPanel(null)
+    }
+    if (result === 'notFound') setPanel(null)
   }
 
   async function confirmRetire() {
     if (!retiring) return
     const target = retiring
     setRetiring(null)
-    await write.submit({ op: 'retire', id: target.record_id }, target.record_id)
+    const result = await write.submit({ op: 'retire', id: target.record_id }, target.record_id)
+    if (result === 'ok') {
+      toast.success(t('org.common.retiredDone'))
+      setPanel(null)
+    }
   }
 
-  const items = rows.data ?? []
+  const createLabel = t('org.legal.create')
+  const detail =
+    panel?.kind === 'new' || selected ? (
+      <OrgDetail
+        title={selected ? textOf(selected, 'name') || textOf(selected, 'code') : t('org.legal.new')}
+        status={selected ? <OrgStatus active={isActive(selected)} /> : undefined}
+        actions={
+          canWrite && selected && isActive(selected) ? (
+            <Button
+              variant="danger"
+              size="sm"
+              icon={<Archive className="lf-icon" aria-hidden="true" />}
+              onClick={() => setRetiring(selected)}
+              data-testid="org-retire"
+            >
+              {t('org.common.retire')}
+            </Button>
+          ) : undefined
+        }
+        onClose={() => openPanel(null)}
+      >
+        <LegalForm
+          key={selected?.record_id ?? 'new'}
+          record={selected ?? null}
+          readOnly={!canWrite || (selected !== undefined && !isActive(selected))}
+          writeError={write.error}
+          binError={binError}
+          saving={write.isPending}
+          onSubmit={(f) => void save(f)}
+          onCancel={() => openPanel(null)}
+        />
+      </OrgDetail>
+    ) : null
+
   return (
-    <OrgListShell
+    <OrgScreen
       title={t('org.legal.title')}
+      lede={t('org.legal.lede')}
+      createLabel={createLabel}
+      canWrite={canWrite}
+      onCreate={() => openPanel({ kind: 'new' })}
       queries={[rows]}
       showRetired={showRetired}
       onShowRetired={setShowRetired}
-      actions={
-        <Button variant="primary" size="md" onClick={() => open('new')} data-testid="org-create">
-          {t('org.common.create')}
-        </Button>
+      count={nodes.length}
+      detail={detail}
+      escapeCloses={retiring === null}
+      onClosePanel={() => openPanel(null)}
+      master={
+        nodes.length === 0 ? (
+          <OrgEmpty canWrite={canWrite} createLabel={createLabel} onCreate={() => openPanel({ kind: 'new' })} />
+        ) : (
+          <OrgTree
+            label={t('org.legal.title')}
+            nodes={nodes}
+            selectedId={selected?.record_id ?? null}
+            showRetired={showRetired}
+            expandedIds={[]}
+            onSelect={(id) => openPanel({ kind: 'record', id })}
+            onToggle={() => undefined}
+          />
+        )
       }
     >
-      <OrgErrorAlert error={write.error} />
-      {editing !== null && (
-        <form
-          aria-label={t(editing === 'new' ? 'org.common.create' : 'org.common.edit')}
-          onSubmit={(e) => {
-            e.preventDefault()
-            void save()
-          }}
-        >
-          <OrgTextField name="code" label={t('org.common.code')} value={form.code} readOnly={editing !== 'new'} onChange={(v) => setForm({ ...form, code: v })} />
-          <OrgTextField name="name" label={t('org.common.name')} value={form.name} invalid={fieldMarked(write.error, 'name')} onChange={(v) => setForm({ ...form, name: v })} />
-          <OrgTextField
-            name="bin"
-            label={t('org.legal.bin')}
-            value={form.bin}
-            numeric
-            maxLength={12}
-            invalid={binError || fieldMarked(write.error, 'bin')}
-            onChange={(v) => setForm({ ...form, bin: v })}
-          />
-          {binError && <div role="alert">{t('org.error.binFormat')}</div>}
-          <Button variant="primary" size="md" disabled={write.isPending} onClick={() => void save()} data-testid="org-save">
-            {t('org.common.save')}
-          </Button>
-          <Button variant="ghost" size="md" onClick={() => setEditing(null)}>
-            {t('org.common.cancel')}
-          </Button>
-        </form>
-      )}
-      {items.length === 0 ? (
-        <p>{t('org.common.empty')}</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>{t('org.common.code')}</th>
-              <th>{t('org.common.name')}</th>
-              <th>{t('org.legal.bin')}</th>
-              <th>{t('org.common.state')}</th>
-              <th>{t('org.common.actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((r) => (
-              <tr key={r.record_id} data-testid={`org-row-${textOf(r, 'code')}`}>
-                <td>{textOf(r, 'code')}</td>
-                <td>{textOf(r, 'name')}</td>
-                <td>{textOf(r, 'bin')}</td>
-                <td>{t(isActive(r) ? 'org.common.active' : 'org.common.retired')}</td>
-                <td>
-                  {isActive(r) && (
-                    <>
-                      <Button variant="secondary" size="sm" onClick={() => open(r)}>
-                        {t('org.common.edit')}
-                      </Button>
-                      <Button variant="danger" size="sm" onClick={() => setRetiring(r)}>
-                        {t('org.common.retire')}
-                      </Button>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
       <ConfirmDialog
         open={retiring !== null}
         title={t('org.common.retireTitle')}
@@ -154,7 +162,78 @@ function LegalEntitiesInner() {
         onConfirm={() => void confirmRetire()}
         onCancel={() => setRetiring(null)}
       />
-    </OrgListShell>
+    </OrgScreen>
+  )
+}
+
+function LegalForm(props: {
+  record: EntityRecord | null
+  readOnly: boolean
+  writeError: unknown
+  binError: boolean
+  saving: boolean
+  onSubmit: (form: { code: string; name: string; bin: string }) => void
+  onCancel: () => void
+}) {
+  const intl = useIntl()
+  const t = (id: string) => intl.formatMessage({ id })
+  const initial = {
+    code: props.record ? textOf(props.record, 'code') : '',
+    name: props.record ? textOf(props.record, 'name') : '',
+    bin: props.record ? textOf(props.record, 'bin') : '',
+  }
+  const [form, setForm] = useState(initial)
+  const isNew = props.record === null
+  return (
+    <OrgForm
+      label={t(isNew ? 'org.common.create' : 'org.common.edit')}
+      error={<OrgErrorAlert error={props.writeError} />}
+      readOnly={props.readOnly}
+      dirty={form.code !== initial.code || form.name !== initial.name || form.bin !== initial.bin}
+      saving={props.saving}
+      onSubmit={() => props.onSubmit(form)}
+      onCancel={props.onCancel}
+    >
+      <FormSection>
+        <FormRow>
+          <OrgTextField
+            name="code"
+            label={t('org.common.code')}
+            value={form.code}
+            readOnly={!isNew || props.readOnly}
+            mono
+            width="s"
+            hint={isNew ? undefined : t('org.common.codeHint')}
+            onChange={(v) => setForm({ ...form, code: v })}
+          />
+          <OrgTextField
+            name="name"
+            label={t('org.common.name')}
+            value={form.name}
+            readOnly={props.readOnly}
+            width="m"
+            invalid={fieldMarked(props.writeError, 'name')}
+            onChange={(v) => setForm({ ...form, name: v })}
+          />
+        </FormRow>
+        <FormRow>
+          <OrgTextField
+            name="bin"
+            label={t('org.legal.bin')}
+            value={form.bin}
+            readOnly={props.readOnly}
+            numeric
+            mono
+            maxLength={12}
+            width="s"
+            hint={t('org.legal.binHint')}
+            error={props.binError ? t('org.error.binFormat') : undefined}
+            invalid={fieldMarked(props.writeError, 'bin')}
+            onChange={(v) => setForm({ ...form, bin: v })}
+          />
+        </FormRow>
+      </FormSection>
+    </OrgForm>
   )
 }
 
