@@ -49294,6 +49294,187 @@ requirements:
       - "The defaults of the description (buttons by permission and status, refusals of commission membership shown as messages, tenant time zone Asia/Almaty): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-700, REQ-701, REQ-669, REQ-670, REQ-671]
+  - id: REQ-710
+    title: "WMS stock ledger slice L1 rework for decision 0073 A5, A6 and A8 shape (b): a tenant migration replacing the four ledger tables with parents partitioned by ledger id, trigger lookups filtered by ledger id, Letflow.Ledger.Storage for the partitions of one ledger id with TRUNCATE triggers per partition, and the oracle and clone changes"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3752
+    description: >
+      Phase B of the assets and stock application (the stock register; owner decision D-085, 2026-11-04: build it fast),
+      the storage part of decision 0073 "Amended (REQ-676, assets B1)"
+      (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md) for the shape the speed test picked. A8 rule:
+      shape (b) is adopted when it meets the posting floor (4 workers on one tenant, at least 20 postings per second for
+      60 s, p95 under 500 ms, contention refusals under 1 percent) and the read thresholds. The speed test of 2026-11-04
+      (recorded outside the product, in the team repository file project/ledger-speed-test.md) measured shape (b) with 4
+      workers at 287 stock and 273 asset postings per second, p95 18 ms, two-posting transactions 125 per second, no
+      refusals, and the slowest read at 239 ms p95 with 100 readers; so shape (b), the shared tables partitioned by ledger
+      id, is adopted and shape (c), separate tables per ledger id, is not built (no ledger-id-to-table function). The
+      test volumes and the read limit are owner decision D-087 (ai-dala-portfolio/DECISIONS.md): stock register 3,000,000
+      entries and 1,000,000 balance rows, asset register 100,000 entries and 50,000 balance rows, reads p95 under 500 ms
+      with 100 concurrent readers (assumption, owner may change at GATE B).
+
+      This entry is part 1 of 2 (P9 of the phase B plan): the replacing migration of A5, the trigger rule changes of A6,
+      the function that creates the partitions of one ledger id (A6 creation form, TRUNCATE triggers per partition), the
+      typed refusal for a ledger id without partitions, and the test-support changes. Part 2 (REQ-711) calls the
+      function from module install and reactivate and proves the lock mode with a pg_locks test. Not in this entry: the
+      wiring into Letflow.Modules.Installs, any module's ledger registration, reads (L2b, REQ-637), posting changes beyond
+      the storage check (REQ-692 carries the per-ledger-id unique keys and idempotency lookups), and per-instance ledger
+      ids (D-L3, A6 second bullet).
+
+      Sources opened: decision 0073 A5 (the key table and "it REFUSES TO RUN when any of the four ledger tables has a
+      row"), A6 (partition names from a fixed prefix and the first 16 hex characters of the SHA-256 of the ledger id,
+      quoted as identifiers; "CREATE TABLE ... (LIKE parent INCLUDING ALL)" followed by "ALTER TABLE parent ATTACH
+      PARTITION ... FOR VALUES IN"; no DEFAULT partition and a typed refusal; triggers on the parents and BEFORE TRUNCATE
+      also on every partition; the oracle excludes partitions by pg_class.relispartition), A8 and A10 (rows L1 part B and
+      part C); decision 0003 (the partition key in every primary key and unique index, cited by A5); the speed test notes
+      named above, section "What (b) changes in the L1 migration": the leg lookups of ledger_check_entry and the reversal
+      lookup of ledger_guard_entry_insert get "AND ledger_id = $2", statement-level TRUNCATE triggers are not cloned to
+      partitions (seen in pg_trigger), the A5 keys including the composite self foreign key and the leg-to-entry foreign
+      key build on PostgreSQL 16. Phase B documents this entry follows: REQ-676 (Assets B1, the 0073 amendment), REQ-682
+      (Assets B6, the scope slot is a ledger slot and adds no index), REQ-681 (Assets B2), and the L2a rework REQ-692 (GH
+      #3725, pending in task T-1204, PR #3726 not merged when this entry was written).
+
+      What exists on origin/main (re-read for this entry). priv/repo/migrations/20261031100001_create_ledger_tables.exs
+      (CreateLedgerTables) creates ledger_counter, ledger_entry, ledger_leg and ledger_balance unpartitioned, with the keys
+      of the "Today" column of A5 and the non-unique indexes ledger_entry_ledger_event_index,
+      ledger_entry_document_index, ledger_entry_bpm_task_index, ledger_entry_correlation_index, ledger_leg_k1_k2_index,
+      ledger_leg_k2_k1_index, ledger_leg_k1_k2_event_index and ledger_balance_k2_k1_index;
+      priv/repo/migrations/20261031200001_create_ledger_triggers.exs (CreateLedgerTriggers, trigger_specs/0 lists 17
+      triggers, all ENABLE ALWAYS) defines ledger_check_entry (leg lookups "WHERE entry_id = $1" and the reversal mirror
+      "WHERE entry_id = $2", no ledger_id term) and ledger_guard_entry_insert (reversal lookup "WHERE id = $1"). Both are
+      in @tenant_scoped_migration_manifest of lib/letflow/tenant_provisioning.ex. lib/letflow/ledger.ex post/1 inserts
+      the missing balance rows first (insert_missing_balances/3) and unique_violation_refusal/1 maps the exact names
+      ledger_entry_subject_op_key, ledger_entry_origin_key_key and ledger_entry_device_seq_unique_index.
+      test/support/tenant_fixture.ex tables_in/1 reads information_schema.tables (table_type 'BASE TABLE', which lists
+      partitions too); @expected_tenant_tables names the four parents. test/support/tenant_template.ex do_clone/2 creates
+      every table with "CREATE TABLE (LIKE ... INCLUDING ALL)", which does not copy PARTITION BY (its own comment above
+      readd_foreign_keys!/1), so a cloned tenant (the default of TenantFixture.provisioned_tenant!/1) would get plain
+      ledger tables on which ATTACH PARTITION fails; @append_only_tables names the four parents. test/support/ledger_fixture.ex
+      tenant!/0 provisions a committed tenant; the ledger tests post to the ledger ids test_ledger, ledger_a, ledger_b and
+      fresh_h. lib/mix/tasks/letflow.check_boundaries.ex ledger_scan_paths/0 scans lib/letflow/ledger/**/*.ex and
+      priv/repo/migrations/*_create_ledger_*.exs (Rules 7 and 7b). No production code builds a Letflow.Ledger.Capability,
+      so no tenant holds a ledger row.
+
+      Storage rules (D-066, decision 0076 R2 and R6). The four shared per-tenant tables stay the only ledger storage, each
+      in the tenant schema and reached only through a validated tenant prefix (INV-1, schema-per-tenant; tenant_id is not
+      a ledger column, decision 0006 D2). ledger_entry, ledger_leg and ledger_balance become PARTITION BY LIST (ledger_id)
+      parents with the keys of the "New" column of A5; ledger_counter stays unpartitioned. A partition holds the rows of
+      exactly one ledger id; there is no DEFAULT partition. Existing rows: the migration refuses to run when any of the
+      four tables holds a row, so no row is ever dropped; on QA (auto-CD of main) every tenant has empty ledger tables and
+      replay_all_pending/0 replaces them. Purge of ledger rows is never offered (0073 D-L2b), so a partition is never
+      dropped by product code.
+
+      Scope declaration (D-067, decision 0076 R7). This entry adds no route, no read, no permission atom and no
+      :scope_declarations entry; scope of balances and movements stays the ledger scope slot (REQ-682 S2), which is a
+      column of every partition, so partitioning by ledger id changes no scope rule.
+
+      Typed results added (core contract atoms, never on the wire; REQ-686 criterion 1 maps every {:ledger_contract, atom}
+      to the closed internal failure; names chosen here): {:ledger_contract, :ledger_storage_missing},
+      {:ledger_contract, :invalid_ledger_id}, {:ledger_contract, :invalid_prefix} and {:ledger_contract,
+      :ledger_storage_inconsistent}.
+
+      Pins, stated as moves from the value on origin/main at implement time: one new tenant-scoped migration at the next
+      free version, file name matching *_create_ledger_*.exs (for example
+      <version>_create_ledger_partitioned_tables.exs), appended as the last manifest entry (+1 entry; the test that asserts
+      the last manifest entry, T5 of test/letflow/migrations/tenant_module_upgrades_migration_test.exs or its successor
+      after REQ-692, moves); T-SC-1a of test/letflow/entities/ledger_boundaries_test.exs gains the new migration path and
+      lib/letflow/ledger/storage.ex; B-5 of test/letflow/migrations/ledger_triggers_migration_test.exs ('17 triggers') is
+      rewritten to the trigger set of the new migration. Unchanged: @expected_tenant_tables and its count (86 on
+      origin/main today, only an example), priv/permission_matrix/effective.golden, the route-scope snapshot. The
+      implementer greps test/ for 'ledger_entry', 'ledger_leg', 'ledger_balance', 'trigger_specs' and
+      'unique_violation_refusal' and runs every hit once.
+
+      Sizing. One change, size L (phase B plan P10): one migration, one new module, two small edits in lib/letflow/ledger.ex,
+      three test-support edits, one new test file and the rewrites of the existing ledger migration tests.
+
+      Not measured by the speed test and not settled here: the engine work around a posting (the counter is held to the
+      end of the whole transaction, note 7.6); keeping the counter lock short is a rule for slices L3 and L4 (T-LD-1).
+    acceptance_criteria:
+      - "1. Replacing migration (0073 A5; new test file test/letflow/migrations/ledger_partitioned_tables_migration_test.exs, fresh tenants only): a tenant-scoped migration with the mandatory if prefix() guard, registered as the last entry of @tenant_scoped_migration_manifest in lib/letflow/tenant_provisioning.ex, first checks each of ledger_counter, ledger_entry, ledger_leg and ledger_balance for a row and raises with one fixed text that names no value when any has one; otherwise it drops the four tables and creates ledger_counter unpartitioned and ledger_entry, ledger_leg and ledger_balance as PARTITION BY LIST (ledger_id), with the column sets and CHECK set of 20261031100001 unchanged and every key of the A5 table in its 'New' column, including the self foreign key (reverses_entry_id, ledger_id) to ledger_entry (id, ledger_id). The only interpolated value is the migration prefix, quoted as an identifier (INV-7). The test reads pg_get_partkeydef, pg_get_constraintdef and pg_get_indexdef on a fresh replayed tenant and asserts: the three parents have relkind 'p' and key 'LIST (ledger_id)', ledger_counter has relkind 'r', each A5 key has the listed column list, the eight non-unique indexes named in the description keep their columns, and no DEFAULT partition exists. A second test inserts one ledger_counter row into a fresh tenant, runs the migration's up for that prefix and asserts the raise and that the four tables are unchanged."
+      - "2. Triggers on the parents (0073 A6 fourth bullet): the same migration re-creates the functions of 20261031200001 with CREATE OR REPLACE and the triggers on the new tables, each ENABLE ALWAYS: the row triggers and the deferred constraint trigger of ledger_entry, the row triggers of ledger_leg and ledger_balance declared on the parent only, the counter triggers on ledger_counter, and the BEFORE TRUNCATE statement trigger on each of the four tables. In ledger_check_entry every lookup of ledger_leg (leg count, the three sign rules and both sides of the reversal mirror) carries the term ledger_id = NEW.ledger_id, and in ledger_guard_entry_insert the reversal lookup reads WHERE id = $1 AND ledger_id = $2; values stay bound by USING and no schema name is written in a function body. Tests: the cases B-1 to B-19 of test/letflow/migrations/ledger_triggers_migration_test.exs pass on the new shape with partitions created by criterion 4 (B-5 rewritten to the new trigger set: on a parent and on each partition every trigger has tgenabled 'A'); a reversal whose target entry is in another ledger id is refused with the existing 'ledger entry reversal rule violated' text."
+      - "3. down/0 refuses to run unless :allow_ledger_migration_down is true (as CreateLedgerTables.down/0 does); with the flag, on a tenant without rows, it restores the unpartitioned tables, keys and triggers that the earlier manifest entries left; the test records pg_get_constraintdef, pg_get_indexdef and the trigger list (name, table, tgenabled) before up and asserts the same values after up and down."
+      - "4. Letflow.Ledger.Storage (new file lib/letflow/ledger/storage.ex, scanned by Rules 7 and 7b; test file test/letflow/ledger/storage_test.exs): ensure/2 with the spec ensure(prefix :: String.t(), ledger_id :: String.t()) :: :ok | {:error, {:ledger_contract, :invalid_prefix | :invalid_ledger_id | :ledger_storage_inconsistent}} raises ArgumentError outside an open transaction (as post/1 does); it refuses a prefix not of the form tenant_ followed by 32 lowercase hex with :invalid_prefix and a ledger id not of the 0073 form (the CHECK of 20261031100001: [a-z0-9_]{1,32} with an optional : and [a-z0-9-]{1,32}, at most 64 bytes) with :invalid_ledger_id, both before any statement. partition_names/1 returns the three names ledger_entry_p, ledger_leg_p and ledger_balance_p each followed by the first 16 lowercase hex characters of the SHA-256 of the ledger id. For each of ledger_entry, ledger_leg and ledger_balance in that order, ensure/2 runs CREATE TABLE of the partition (LIKE the parent INCLUDING ALL), renames every index of the partition to the name of the parent index it matches followed by _ and the 16 hex characters, runs ALTER TABLE parent ATTACH PARTITION partition FOR VALUES IN the ledger id, then creates the BEFORE TRUNCATE statement trigger on the partition ENABLE ALWAYS; every DDL text is produced by PostgreSQL format() from bound parameters, %I for each identifier and %L for the ledger id (INV-7). When all three partitions exist and are attached to their parents for that ledger id it runs no DDL and returns :ok; when only some exist, or a table of that name is not attached for that ledger id, it returns :ledger_storage_inconsistent and creates nothing. Tests: after ensure/2 for ledger ids 'test_ledger' and 'stock:main-1' the three partitions exist with relispartition true and the expected bound, every trigger of each partition has tgenabled 'A', and a TRUNCATE run directly on each partition is refused with the fixed text of ledger_refuse; a second ensure/2 runs no DDL (a telemetry handler on the repo query event sees no CREATE or ALTER statement); each of the four refusals is asserted."
+      - "5. No partition, a typed refusal (0073 A6 third bullet): before its first insert, the posting code of lib/letflow/ledger.ex (post/1, and lock_postings/1 when REQ-692 has landed) checks, for each posting's ledger id, that the three partitions of Storage.partition_names/1 exist in the capability's prefix as partitions of the three parents (one bound-parameter catalog read, no lock) and otherwise returns {:error, {:ledger_contract, :ledger_storage_missing}} with no row written. Test: on a fresh tenant with no partition for ledger id X, a posting to X returns that tuple, no ledger table has a row, and a following query in the same transaction succeeds (the transaction is not aborted)."
+      - "6. Unique violations raised by a partition (0073 A5; file test/letflow/ledger/idempotency_test.exs): unique_violation_refusal/1 maps a constraint name equal to ledger_entry_subject_op_key or ledger_entry_origin_key_key, or to one of them followed by _ and 16 lowercase hex characters, to idempotency_key_reuse, and ledger_entry_device_seq_unique_index with or without that suffix to client_seq_conflict; any other name stays :unknown. A test provokes each of the three unique violations with raw inserts into the parent of a tenant with partitions (counter rows set as the cases B-15 and B-16 do), passes the raised Postgrex.Error to unique_violation_refusal/1 and gets the refusal; the existing name-only cases keep their results."
+      - "7. Test support (0073 A6 fifth bullet): TenantFixture.tables_in/1 (test/support/tenant_fixture.ex) excludes tables with pg_class.relispartition true, so a tenant with partitions passes assert_schema_complete!/2 with @expected_tenant_tables and its count unchanged; TenantTemplate.do_clone/2 (test/support/tenant_template.ex) creates the three ledger parents of a clone with PARTITION BY LIST (ledger_id), so a cloned tenant and a replayed tenant both have relkind 'p' and key 'LIST (ledger_id)' for them and assert_clone_parity!/3 compares their relkind without normalisation; a pooled clone in which a test created partitions is reported as drift by diff_clone_state/2 and rebuilt, not reused; @append_only_tables keeps the four parent names. LedgerFixture.tenant!/0 (test/support/ledger_fixture.ex) calls Storage.ensure/2 for every ledger id the tests under test/letflow/ledger/ and test/letflow/migrations/ledger_*_test.exs post to (found by grep of ledger_id literals). Tests: in test/letflow/support/tenant_fixture_test.exs a tenant with the partitions of one ledger id passes the oracle; in test/letflow/support/tenant_template_ledger_test.exs a clone has the partitioned parents and ensure/2 succeeds on it, and a clone with a created partition is not returned as clean. Every existing test file under test/letflow/ledger/ passes with no change other than the setup of partitions."
+      - "8. Documents and gate: decision 0073 gets a short section 'Speed test result (REQ-710)' after A11 that names shape (b) as adopted by the A8 rule on 2026-11-04 with the figures of the description, the volumes of owner decision D-087 marked 'assumption, owner may change at GATE B', and that shape (c) and its ledger-id-to-table function are not built; the moduledoc of lib/letflow/ledger.ex names the storage check. The change passes a SECURITY-REVIEWER gate as a stated step (INV-1 prefix checks in Storage, INV-7 format() with %I and %L, the refuse-if-rows rule, TRUNCATE refused on every partition, no DEFAULT partition, no value in any RAISE or error); the verdict and evidence are quoted in the PR. The diff adds no route, no permission atom, no :scope_declarations entry and no caller of Storage.ensure/2 in lib/ outside lib/letflow/ledger/ (REQ-711 adds the install caller); mix letflow.check.static passes; the pins named in the description are moved or shown unchanged by grep in the PR."
+    open_questions:
+      - "The speed test result is recorded only in the team repository (project/ledger-speed-test.md); criterion 8 copies its summary into decision 0073 so the product holds the source of the shape choice."
+      - "0073 A6 says the oracle excludes partitions; it does not say whether the clone pool's drift probe should. This entry keeps partitions visible to TenantTemplate's drift probe (a clone with partitions is rebuilt) and hides them only from TenantFixture's table-set oracle; simplest reasonable default under D-086 (assumption, owner may change at GATE B)."
+      - "The index rename of criterion 4 (parent index name plus _ and 16 hex) is chosen here so that unique_violation_refusal/1 can map the name a partition reports; 0073 does not name partition index names."
+      - "Partitions on PostgreSQL 16 cost about 0.3 percent posting throughput each (speed test, 102 partitions); with one fixed ledger id per module (D-L3) this is not a limit for phase B. Per-instance ledger ids (slice L7) need their own rule."
+      - "OQ-13 and OQ-23 of decision 0073 are not decided here."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-620, REQ-621, REQ-676, REQ-692, "decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md) section Amended (REQ-676, assets B1), items A5, A6, A8 and A10", "decision 0003 (partition key in every primary key and unique index)"]
+
+  - id: REQ-711
+    title: "WMS stock ledger slice L1 rework part 2 for decision 0073 A6: module install and reactivate create the partitions of the module's ledger ids in the same transaction through Letflow.Ledger.Storage, idempotent on reactivate, with a pg_locks test of the lock modes on the ledger parents"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3751
+    description: >
+      Phase B of the assets and stock application (the stock register; owner decision D-085), part 2 of 2 of the storage
+      rework for shape (b) of decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md, section
+      "Amended (REQ-676, assets B1)", A6 first bullet): "The partitions of a ledger id ... are created when the module that
+      registers that ledger id is installed or reactivated for the tenant, through Letflow.Modules.Installs.install/3 and
+      reactivate/3 (lib/letflow/modules/installs.ex), in the same transaction as the install or reactivate transition, and
+      never inside a posting transaction ... which takes SHARE UPDATE EXCLUSIVE on the parent and so does not block reads
+      or writes of other ledger ids ... The requirement that writes the creation code proves the lock mode with a
+      pg_locks test. Creation is idempotent (a reactivate finds its partitions)." The A10 row L4 gives the stock module
+      only its storage creation from this rule. The shape was picked by the speed test of 2026-11-04 under 0073 A8 (see
+      REQ-710); the speed test did not measure the lock mode of ATTACH under load, so the test of criterion 4 is the first
+      measurement.
+
+      Sources opened: decision 0073 A6 and A10 as quoted; REQ-684 (slice L3a) criterion on Letflow.Modules.LedgerRegistration
+      (lib/letflow/modules/ledger_registration.ex, pending): the optional top-level manifest key :ledger, a map of
+      registration name to registration whose ledger_ids is {:fixed, [ids]}, each id <module_id> or
+      <module_id>:<suffix>, and Catalog.fetch_ledger/2 (lib/letflow/modules/catalog.ex) returning a registration; REQ-687
+      (slice L4, the stock module, pending), whose install test installs the module and posts to ledger id stock; REQ-710
+      (part 1, Letflow.Ledger.Storage.ensure/2). Phase B documents this entry follows: REQ-676 (Assets B1), REQ-679 (Assets
+      B4, the stock documents post to the stock register), REQ-691 (Assets C3, a change of kind posts to the stock and
+      the asset register, so the asset module's install creates its own ledger id's partitions by the same rule).
+
+      What exists on origin/main (re-read for this entry). lib/letflow/modules/installs.ex: install/3 runs one
+      Repo.transaction through install_transaction/2 (check_not_already_installed, check_dependencies_installed,
+      maybe_install_pack, check_managed_types_in_pack, insert_tenant_module, maybe_run_on_install) and maps a
+      Postgrex.Error raised inside it to {:error, :module_install_ddl_failed}, logged with the SQLSTATE only;
+      reactivate/3 calls transition/7 (an Ecto.Multi with the steps :row, :check (check_reactivatable/2, which refuses a
+      manifest hash that differs from the compiled one with :upgrade_required), :status and :audit) whose database errors
+      are not rescued and raise out of Repo.transaction/1; uninstall/3 keeps the tenant_modules row with status
+      uninstalled. No module on origin/main declares a :ledger key, so no install creates a partition today.
+
+      Storage rules (D-066, decision 0076 R2 and R6). No new table, column or migration. The partitions created are those
+      of REQ-710 (one per parent per ledger id, in the tenant schema, reached only through opts[:prefix], INV-1). Uninstall
+      drops nothing: partitions and their rows stay, since purge of ledger rows is never offered (0073 D-L2b), and a
+      reactivate finds them. Existing tenants: a module with a :ledger key installed before this change would have no
+      partitions; none exists on origin/main or on QA, so no back-fill is needed.
+
+      Scope declaration (D-067, decision 0076 R7). No route, no read, no permission atom and no :scope_declarations entry.
+      Who may install or reactivate a module is unchanged (the existing module routes and their permissions); the
+      creation adds no authority and reads no Scope.
+
+      Pins: the :letflow, :modules list of config/test.exs gains one fixture module (criterion 1); no other count moves. The implementer greps test/ for 'Installs.install(', 'Installs.reactivate(' and
+      'module_install_ddl_failed' and runs every hit once; tests that install a module without a :ledger key must see
+      no change (criterion 2).
+
+      Sizing. One change, size M (phase B plan P11): one private helper in lib/letflow/modules/installs.ex called from two
+      places, one new test file.
+    acceptance_criteria:
+      - "1. Install creates the partitions (0073 A6; new test file test/letflow/modules/installs_ledger_storage_test.exs, committed fresh tenants in Sandbox :auto): when the manifest of the installed module has the :ledger key of REQ-684, Letflow.Modules.Installs.install/3 calls Letflow.Ledger.Storage.ensure/2 with opts[:prefix] for every id in the {:fixed, ids} ledger_ids of every registration of that key, ids sorted ascending byte-wise, inside the install transaction, after insert_tenant_module and before maybe_run_on_install. The test uses a new fixture module under test/support/modules/ added to the :letflow, :modules list of config/test.exs the way the existing fixture modules are (the implementer greps test/ for pins on that list and moves them), with ledger ids '<module_id>' and '<module_id>:b'; after install/3 returns {:ok, _} the three partitions of each id exist, and a posting to each id through Letflow.LedgerFixture.post!/1 commits."
+      - "2. Same transaction, rollback, modules without a ledger: when a later step of the install fails (on_install returns an error) install/3 returns that error and no partition of the module's ledger ids exists afterwards; when Storage.ensure/2 returns {:error, {:ledger_contract, _}} install/3 returns {:error, :module_install_ddl_failed} and nothing is written; a Postgrex.Error raised by the DDL is mapped by the existing install_transaction/2 rescue to {:error, :module_install_ddl_failed}, logged with the SQLSTATE only. Installing a module without a :ledger key runs no statement on a ledger table or partition (a telemetry handler on the repo query event sees no statement naming ledger_) and its existing install tests pass unchanged."
+      - "3. Reactivate (0073 A6 'Creation is idempotent (a reactivate finds its partitions)'): reactivate/3 runs the same call as a step of its Ecto.Multi after :status and before :audit. Tests: install, uninstall/3 and reactivate/3 of the ledger test module return {:ok, _}, the partitions and any posted rows are unchanged after uninstall and after reactivate, and the reactivate runs no CREATE or ALTER statement (telemetry); on a tenant where one partition of the module's ledger id was removed by the test (raw DDL, the test's own setup) reactivate/3 returns an error tuple from the Multi and the module stays uninstalled. A {:error, {:ledger_contract, _}} from ensure/2 makes reactivate/3 return {:error, {:ledger_contract, _}} with the status change rolled back."
+      - "4. The pg_locks test (0073 A6: 'The requirement that writes the creation code proves the lock mode with a pg_locks test'; same file): a test process opens a transaction on its own connection, calls Storage.ensure/2 for a new ledger id on a committed tenant whose other ledger id 'test_ledger' already has partitions and rows, and before committing a second connection reads pg_locks for the first backend's pid joined to pg_class for the relations of the tenant schema. The test asserts that each of ledger_entry, ledger_leg and ledger_balance (the parents) is held in ShareUpdateExclusiveLock, that no parent and not ledger_counter is held in AccessExclusiveLock, and prints the full (relation, mode) list in its failure message. While that transaction is open, a read of the balances and entries of 'test_ledger' on a third connection with lock_timeout 2 s returns its rows, and a posting to 'test_ledger' through post/1 on a third connection with lock_timeout 2 s commits. If PostgreSQL holds a mode on a parent that conflicts with RowExclusiveLock (for example from the foreign keys cloned on ATTACH), the implementer does not weaken these assertions: the step returns FAIL with the measured lock list as a finding for the owner, because 0073 A6 then does not hold as written."
+      - "5. Never inside a posting transaction: a grep of lib/ finds Storage.ensure/2 called only in lib/letflow/modules/installs.ex (and defined in lib/letflow/ledger/storage.ex); the posting code of lib/letflow/ledger.ex and lib/letflow/ledger/ does not call it (a test reads those files and asserts no 'Storage.ensure' text outside storage.ex)."
+      - "6. Gate: the change passes a SECURITY-REVIEWER gate as a stated step (INV-1 the prefix comes only from opts[:prefix]; the ledger ids come only from the compiled manifest, never from a request; no new authority; INV-8 every failure path returns a typed error or rolls back); the verdict and evidence are quoted in the PR. The diff adds no migration, no table, no route, no permission atom, no :scope_declarations entry and no edit of lib/letflow/ledger.ex; the moduledoc of lib/letflow/modules/installs.ex states that install and reactivate create the partitions of the module's ledger ids; mix letflow.check.static passes."
+    open_questions:
+      - "A module upgrade (REQ-640, module upgrades) that adds a ledger id to an installed module does not create its partitions under this entry; a posting to it gets ledger_storage_missing (REQ-710 criterion 5). Whether the upgrade path creates them, or REQ-684's Catalog rule forbids adding ledger ids in an upgrade, is not decided here."
+      - "Criterion 4 may show that ATTACH PARTITION of a partition of a referenced or referencing table takes a lock on the other parent that blocks writes until the install commits (cloned foreign keys); this was not verified by reading the PostgreSQL source, and the speed test did not measure it. The test settles it; the entry does not presume the finding."
+      - "The order of the creation step inside install (after the tenant_modules row, before on_install) and inside reactivate (after :status, before :audit) is chosen here; 0073 A6 says only 'in the same transaction'."
+      - "OQ-13 and OQ-23 of decision 0073 are not decided here."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-710, REQ-684, REQ-676, "decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md) section Amended (REQ-676, assets B1), items A6 and A10"]
   - id: REQ-693
     title: "Assets B6 code: scoped read of the core ledger: authorize/3 for :read accepts a node set, balances/4 and entries/3 return the rows of the reader's units only, a subtree filter with a coverage field, and masked legs of a hidden side (decision 0073 section Amended (REQ-682, assets B6))"
     owner: ELIXIR-DEV
