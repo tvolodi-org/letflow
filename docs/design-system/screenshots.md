@@ -33,6 +33,8 @@ Add one entry to `web/src/dev/harness/registry.tsx`: `name`, `initialPath` / `ro
 (`VerifyCertificatePage`, a public page that reads `GET /api/public/certificate/:handle`). Fixture data is plain
 invented data: no real names, ids or secrets.
 
+Registered screens: `verify-certificate`; `org-legal`, `org-sites`, `org-units` (S1, `web/src/dev/harness/orgFixtures.tsx`: the org module screens with an auth and access stub; in the default state the harness opens one record in the detail panel). A fixture route's `reply(state, path, body)` gets the parsed JSON request body, so one fake `POST /api/v1/entities/query` can answer by `entity_type`.
+
 ## Taking screenshots
 
 ```
