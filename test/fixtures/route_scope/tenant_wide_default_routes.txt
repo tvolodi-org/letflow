@@ -64,6 +64,7 @@ GET /webhooks/subscriptions WebhookSubscriptionsManage
 GET /webhooks/subscriptions/:id/deliveries WebhookSubscriptionsManage
 PATCH /admin/services/:service_id AdminServicesManage
 PATCH /definitions/:id DefinitionsPatch
+PATCH /modules/catalog_items/lots/:id CatalogLotsWrite
 PATCH /modules/org/employees/:id OrgEmployeesWrite
 PATCH /modules/org/legal-entities/:id OrgStructureWrite
 PATCH /modules/org/positions/:id OrgEmployeesWrite
@@ -95,6 +96,8 @@ POST /instances/:id/cancel InstancesCancel
 POST /instances/:id/rebind-pins InstancesCancel
 POST /instances/:id/reconstruct InstancesCancel
 POST /integration-mappings IntegrationMappingsManage
+POST /modules/catalog_items/lots CatalogLotsWrite
+POST /modules/catalog_items/lots/:id/retire CatalogLotsWrite
 POST /modules/exam/authoring/:entity_type ExamAuthoringWrite
 POST /modules/exam/exam-sessions ExamSessionStart
 POST /modules/exam/exam-sessions/:id/certificate ExamCertificateIssue

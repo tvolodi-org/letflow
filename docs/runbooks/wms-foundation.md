@@ -228,10 +228,19 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
 20. **Lot writers: `create_lot/3`, `update_lot/4`, `retire_lot/3` (GH #3614 / REQ-664).** They live in
     `lib/letflow/modules/catalog_items/lots.ex` and are delegated from
     `Letflow.Modules.CatalogItems`. Each writes through the module's Owner in one transaction with
-    one audit entry (`catalog_lot.created`, `catalog_lot.updated`, `catalog_lot.retired`); there is
-    no route and no permission. A retired lot may still be updated, retiring a retired lot writes
+    one audit entry (`catalog_lot.created`, `catalog_lot.updated`, `catalog_lot.retired`); the
+    routes and the permission are item 21. A retired lot may still be updated, retiring a retired lot writes
     nothing, and nothing checks stock (there is no stock ledger on main). Writers for the item,
     unit and supplier types are the import slice A6b.
+21. **Lot routes (GH #3610 / REQ-668, `catalog_items` 0.2.0).** `Letflow.Modules.CatalogItems.Router`
+    (`lib/letflow/modules/catalog_items/router.ex`) serves `POST /lots`, `PATCH /lots/:id` and
+    `POST /lots/:id/retire` under `/api/v1/modules/catalog_items/`, behind the one permission
+    `CatalogLotsWrite`, which has no `role_grants` (TENANT_ADMIN and PLATFORM_ADMIN only). Every
+    body needs a text `idempotency_key`; the rest is the lot fields, checked by the item 20 writers.
+    An unknown, malformed or other-tenant lot or item id is 404, a refusal is 422 with a `reason`
+    (field names only), a reused key with other input is 409. The routes come from the code
+    manifest, so a tenant that installed the module earlier has them without an upgrade; its
+    definitions are still not upgraded (items 13 and 18).
 
 ## Locations module limits
 

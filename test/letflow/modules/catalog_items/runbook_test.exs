@@ -131,4 +131,13 @@ defmodule Letflow.Modules.CatalogItems.RunbookTest do
     assert text =~ "lib/letflow/modules/catalog_items/catalog_items.ex"
     assert text =~ "priv/modules/catalog_items/entity_definitions/catalog_item.json"
   end
+
+  test "P1: item 21 names the lot router, the permission, the mount and the issue" do
+    {21, text} = List.last(items())
+    assert text =~ "Letflow.Modules.CatalogItems.Router"
+    assert text =~ "lib/letflow/modules/catalog_items/router.ex"
+    assert text =~ "CatalogLotsWrite"
+    assert text =~ "/api/v1/modules/catalog_items/"
+    assert text =~ "#3610"
+  end
 end
