@@ -204,7 +204,7 @@ export function AppShell() {
           >
             Sign out
           </button>
-          <div style={{ marginTop: '.5rem' }}>
+          <div style={{ marginTop: 'var(--space-2)' }}>
             <ThemeToggle />
           </div>
         </div>
