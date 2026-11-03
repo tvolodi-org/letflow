@@ -73,6 +73,10 @@ const en: Record<string, string> = {
   'catalog_items.error.request_refused': 'The request was refused.',
   'catalog_items.error.unknown': 'The request was refused for a reason this screen does not know.',
   'catalog_items.error.generic': 'Something went wrong. Try again.',
+  'import.type.catalog_uom': 'Units of measure',
+  'import.type.catalog_item': 'Items',
+  'import.type.catalog_counterparty': 'Counterparties',
+  'import.type.catalog_lot': 'Lots',
 }
 
 const ru: Record<string, string> = {
@@ -126,6 +130,10 @@ const ru: Record<string, string> = {
   'catalog_items.error.request_refused': 'Запрос отклонён.',
   'catalog_items.error.unknown': 'Запрос отклонён по причине, которую этот экран не знает.',
   'catalog_items.error.generic': 'Что-то пошло не так. Попробуйте ещё раз.',
+  'import.type.catalog_uom': 'Единицы измерения',
+  'import.type.catalog_item': 'Номенклатура',
+  'import.type.catalog_counterparty': 'Контрагенты',
+  'import.type.catalog_lot': 'Партии',
 }
 
 const kk: Record<string, string> = {
@@ -179,6 +187,10 @@ const kk: Record<string, string> = {
   'catalog_items.error.request_refused': 'Сұрау қабылданбады.',
   'catalog_items.error.unknown': 'Сұрау бұл экран білмейтін себеппен қабылданбады.',
   'catalog_items.error.generic': 'Бірдеңе дұрыс болмады. Қайта көріңіз.',
+  'import.type.catalog_uom': 'Өлшем бірліктері',
+  'import.type.catalog_item': 'Номенклатура',
+  'import.type.catalog_counterparty': 'Контрагенттер',
+  'import.type.catalog_lot': 'Партиялар',
 }
 
 export const catalogItemsMessages: Record<CatalogItemsUiLocale, Record<string, string>> = { en, ru, kk }

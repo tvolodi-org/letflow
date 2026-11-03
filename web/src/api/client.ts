@@ -306,6 +306,25 @@ export const client = {
       body: body instanceof FormData ? body : JSON.stringify(body),
     })
   },
+  /** POST of raw bytes with a caller-chosen content type (REQ-675 xlsx import). Same headers and
+   *  non-2xx handling as post(); the body is not JSON-encoded. */
+  postRaw<T>(path: string, body: Blob | ArrayBuffer, contentType: string): Promise<T> {
+    return request<T>(path, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body,
+    })
+  },
+  /** POST with a JSON body and a binary answer (REQ-675 template: the export route). Throws the same
+   *  ApiError as the other calls. */
+  async postBlob(path: string, body: unknown): Promise<{ blob: Blob; contentType: string }> {
+    const headers = buildRequestHeaders({ 'Content-Type': 'application/json' })
+    const response = await window.fetch(`${BASE_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
+    await throwOnErrorResponse(response)
+    const blob = await response.blob()
+    const contentType = response.headers.get('Content-Type') ?? blob.type ?? 'application/octet-stream'
+    return { blob, contentType }
+  },
   postWithHeaders<T>(path: string, body: unknown, extraHeaders: Record<string, string>): Promise<T> {
     return request<T>(path, {
       method: 'POST',
