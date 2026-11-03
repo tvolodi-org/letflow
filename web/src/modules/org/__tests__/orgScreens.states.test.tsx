@@ -2,6 +2,7 @@
 /** S1 (style) — GH 3609 / REQ-669: the page states and the panel rules of the three org-structure screens
  *  (loading skeleton, empty with action, load error with retry, write error next to the field, success toast,
  *  no permission hides the actions, Escape and the close button, the panel stays open across rows). */
+import { ToastContainer } from '@/components/ui/Toast'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -36,7 +37,7 @@ function renderPage(page: React.ReactElement, access = withAtom) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <AccessStateProvider state={access}>{page}</AccessStateProvider>
+      <AccessStateProvider state={access}>{page}<ToastContainer /></AccessStateProvider>
     </QueryClientProvider>,
   )
 }

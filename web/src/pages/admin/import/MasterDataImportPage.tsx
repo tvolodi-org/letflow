@@ -22,7 +22,6 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
 import { Steps } from '@/components/ui/Steps'
 import { Tally } from '@/components/ui/Tally'
-import { ToastContainer } from '@/components/ui/Toast'
 import { TypePicker } from '@/components/ui/TypePicker'
 import { useToast } from '@/hooks/useToast'
 import { useInstalledModules } from '@/hooks/useInstalledModules'
@@ -263,7 +262,6 @@ function MasterDataImportPageInner() {
       <div className="lf-form">
         {header()}
         <LoadingSkeleton label={intl.formatMessage({ id: 'import.loading' })} />
-        <ToastContainer />
       </div>
     )
   }
@@ -456,7 +454,6 @@ function MasterDataImportPageInner() {
           </div>
         </aside>
       </div>
-      <ToastContainer />
     </div>
   )
 }

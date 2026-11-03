@@ -1,28 +1,26 @@
+/** FetchError — load error state (NOTES.md §2): a danger Banner with a Retry action.
+ *  Strings come from the ui message catalog (en, ru, kk); no inline styles. */
 import React from 'react'
+import { Banner } from './Banner'
+import { Button } from './Button'
+import { useUiMessages } from './uiMessages'
 
 interface FetchErrorProps {
   onRetry: () => void
 }
 
 export function FetchError({ onRetry }: FetchErrorProps): React.ReactElement {
+  const m = useUiMessages()
   return (
-    <div role="alert" style={{ padding: '1.5rem' }}>
-      <p style={{ marginBottom: '.75rem' }}>
-        Something went wrong loading this content.
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        style={{
-          padding: '.4rem .9rem',
-          border: '1px solid var(--color-neutral-400)',
-          borderRadius: '4px',
-          background: 'var(--surface-card)',
-          cursor: 'pointer',
-        }}
-      >
-        Retry
-      </button>
-    </div>
+    <Banner
+      tone="danger"
+      action={
+        <Button variant="secondary" size="sm" onClick={onRetry}>
+          {m.retry}
+        </Button>
+      }
+    >
+      {m.loadError}
+    </Banner>
   )
 }

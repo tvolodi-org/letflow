@@ -214,3 +214,81 @@ REQ-620 and REQ-621 are the register entries whose criteria the later rework of 
 This amendment rests on: D-066 (trees and storage) with REQ-649 (org tree path in the scope table, depth bound 40), REQ-645 and REQ-646 (location tree with a parent foreign key and no depth bound) and REQ-642 (master data as real columns, decision 0076); D-067 (access and scope) with decision 0076 (balances and movements scoped by org unit through the ledger scope slot; the scoped balances read is item B6, not this amendment); employees D-065 with REQ-643 (responsible person and actual user hold employee ids); links REQ-644 (a movement whose org unit and location are not linked is refused, D-065); codes REQ-648 (code record with assignment history); lots REQ-647. Per D-073 this amendment is amended if the GATE A check changes any of them.
 
 Out of scope: balance as of a date and the audit trail (B2), opening balances (B3), stock workflows (B4), counts (B5), the scoped balances read (B6), the asset register module (phase C), OQ-13 and OQ-23, and period close (D-062: not part of this product).
+
+## Amended (REQ-682, assets B6)
+
+Sources: owner decisions D-067 (scoped by org unit; a read slice for balances of a scoped user: visible rows only, a hidden parent's rollup read as "your units in P", the other side of a transfer masked) and D-073 (phase B specifications before GATE A) in `ai-dala-portfolio/DECISIONS.md`, decision 0051 D2, D6 and D7, REQ-642 point (8) (visibility table, row "balances and movements, scoped by the ledger scope slot, phase B") and requirement REQ-682 (GH #3679) in `docs/requirements.yaml`. This section writes no code, migration, test, seed or route. It adds to the text above and to the B1 section; where it replaces a sentence, it says so. The original text and the B1 section are unchanged.
+
+### S1 Why
+
+A user whose grants name some org units (not tenant-wide) cannot read balances or movements today: `authorize/3` of the ledger design note (`lib/letflow/design/gh2657-wms-stock-ledger-core.md`, section 14.1) requires `Letflow.Api.Scope.allowed_set/2` to answer `{:ok, :all}`, and slice L6 adds scope for posting only. D-067 puts balances and movements in the class "scoped by org unit". This section fixes the read side.
+
+### S2 The scope slot
+
+The scope slot is one of the 8 opaque balance-key slots `k1..k8` (D2), named by the optional rule-12 registration key `scope_slot` (note section 14.3). Its format is `uuid` and its value is the `org_unit` record id, the same string the org module writes as the scope node id (`lib/letflow/modules/org/masters.ex`). The slots are text `COLLATE "C"`, so the comparison is byte equality on the string; there is no uuid cast (unlike the entity predicate of REQ-674).
+
+* Core fixes no position for the scope slot. The stock register (slots OrgUnit, Location, Responsible, SKU, Lot) and the asset register (OrgUnit, Location, MaterialResponsible, ActualUser, Asset) each name their OrgUnit slot in their registration.
+* The header column `scope_ref` (one per posting, note section 4.2) is NOT read for visibility. Visibility is decided per balance row and per leg by the value of its scope slot.
+* A balance row or leg whose scope slot value is the empty string is visible only to a reader with `{:ok, :all}`.
+* A registration without `scope_slot` gives a scoped reader the refusal of S3.
+* Indexes. For a scope slot in position k1 or k2 the existing indexes of migration `20261031100001` serve the filter: `ledger_leg_k1_k2_index`, `ledger_leg_k2_k1_index`, `ledger_balance_k2_k1_index`, or the `ledger_balance` primary key. For any later position the filter scans within the (k1, k2) range, as note section 4.3 says, acceptable for the pilot. Whether a further index is needed is left to the speed test plan of the B1 amendment (A7); this section adds none.
+
+### S3 Authorisation of a scoped read (replaces, for purpose `:read` only, "Scope.allowed_set == {:ok, :all}" of note section 14.1)
+
+`authorize/3` with purpose `:read` accepts `{:ok, :all}` and `{:ok, {:nodes, ids}}` from `Letflow.Api.Scope.allowed_set/2` for the registration's read atom and stores the answer inside the opaque authorized value; a set supplied by the caller is never used. `{:ok, :none}`, a `ScopeSetError` (including the 50_000-id cap of `Letflow.ScopeNodePaths.allowed_node_ids/2`), a registration without `scope_slot`, and every refusal of the existing text give the same bare `:error`. Purpose `:reconcile` still requires `{:ok, :all}`.
+
+### S4 Visible rows and totals
+
+Every balance report (both bases of note section 8.2) and every entry listing filters on "scope slot value in the allowed ids" inside the outermost WHERE of the query, before any sum, count, group or cursor (0051 D6; never a filter after the query). A scoped reader gets only rows of units in its allowed set. A total, a sum per slot value and a count count visible rows only, with no placeholder row and no count of hidden rows (0051 D7).
+
+Worked example. Units: P (parent), A, B and H (children of P). One SKU. The reader is granted on A and B.
+
+| Unit | Balance | Reader (A, B) sees | Tenant-wide reader sees |
+|---|---|---|---|
+| P | 5 | no row | 5 |
+| A | 10 | 10 | 10 |
+| B | 20 | 20 | 20 |
+| H | 40 | no row | 40 |
+| Total for the SKU | | 30 | 75 |
+
+### S5 Rollup over a parent
+
+One key is added to the `filters` map of `balances/4` and `entries/3` (note section 14.1 types it only as `filters :: map()` with the error `:invalid_filter`; the key set is fixed by slice L2b, whose draft in the held task T-0922 closes the filters to the slot names of the registration, so this key is an addition to that set): a subtree of the scope slot, naming one org unit P. It is answered with the rows whose scope slot value is in the descendants of P (`Letflow.ScopeNodePaths.descendants_of/2`, P included), intersected with the allowed set.
+
+One report field is added, coverage, with exactly two values: `complete` when the authorized value holds `{:ok, :all}` or `Letflow.Api.Scope.allowed?/3` allows P, and `visible_only` otherwise. A client shows a `visible_only` result as "your units in P" and never as the total of P. In the example of S4 the reader granted on A and B gets the rollup over P = 30 with coverage `visible_only`; a reader granted on P gets 75 with coverage `complete`. An unknown P, and a P whose visible descendants hold no row, give the same answer (no rows, `visible_only`) with the same number of queries (0051 D7, INV-5).
+
+### S6 Movements with a hidden side
+
+An entry is listed for a scoped reader only when at least one of its legs has a visible scope slot value. Such an entry carries its header fields and its visible legs in full, and every other leg as a masked leg with exactly `leg_no`, `quantity`, `unit_ref` and a masked marker, without any slot value, `attrs` or `document_line_id`. An entry with no visible leg is absent, so filtering by the `document_id` of a document whose legs are all hidden gives the same empty answer, with the same number of queries, as an unknown `document_id`.
+
+Example: a transfer of 3 units of one SKU from A (visible) to H (hidden). The reader sees the leg of A with -3 in full and one masked leg with +3; a tenant-wide reader sees both legs in full. For the two postings of one change-of-kind document (A2), each ledger id is read with its own `authorize/3` call and masked by the same rule.
+
+### S7 Current tree
+
+Visibility is decided against the tree at read time (0051 D2). After a unit moves out of the reader's grant, its old balances and movements are hidden from that reader; those of a unit moved in become visible. `allowed_set/2` expands to live units only, so balances and legs of a retired unit are visible only to a reader with `{:ok, :all}` (open question S10).
+
+### S8 Impact on the slices and on REQ-642
+
+This change edits none of the items below.
+
+| Item | What this amendment changes in it |
+|---|---|
+| L2b (`authorize/3`, `balances/4`, `entries/3`, `reconcile/2`; held task T-0922) | `authorize/3` for `:read` per S3; the subtree filter key and the coverage field per S5; the visible-rows filter in balances and entries per S4; masked legs per S6. The later rework amends the criteria of T-0922. |
+| L4 (stock module read routes; held task T-1033) | its read routes pass the coverage field and masked legs through unchanged |
+| L6 (posting scope through `scope_slot`) | reads the same `scope_slot` key; the posting rule for a transfer with a hidden side stays OQ-13 |
+| REQ-642 point (8) (F9, access declarations) | the "balances and movements" row of the visibility table is filled by this section; no `:scope_declarations` entry is added or changed (0051 M4), since the ledger tables are not entity types and are not declared through rule 11 |
+
+### S9 Phase A dependencies
+
+This section rests on: D-066 (trees and storage) with REQ-642 (master data as real columns, decision 0076) and REQ-649 (org tree path in the scope table, depth 40, 0051 Amendment A2); D-067 (access and scope) with REQ-642 point (8), REQ-643 (org_unit, org_legal_entity and org_site readable tenant-wide by name, so the label "your units in P" can name P; employees scoped by org unit, so a responsible-person slot of a hidden leg is masked with the rest; employee ids in the responsible and actual-user slots, D-065) and REQ-674 (the uuid scope predicate for entity reads); REQ-519 (the enforcement flag; pending: until a tenant turns it on every caller reads with `{:ok, :all}` and nothing here is observable); REQ-648 (codes resolve to a target whose own scope is checked; the scoped balance read does not depend on codes); D-065 and REQ-649 (a unit with a balance cannot be retired). This section is amended if the GATE A check changes one of them (D-073).
+
+### S10 Open questions
+
+Not decided here, for the owner:
+
+* Whether a scoped reader keeps seeing the movements of a unit after it is retired or moved away. S7 gives the result of the current rules: they are hidden. (default, owner may change at GATE B)
+* Whether a scoped user may post a transfer to or from a hidden unit (OQ-13, slice L6).
+
+Until REQ-519 lets a tenant turn enforcement on, no reader on QA or in production is scoped, so the rules of this section are checked by tests only, not by UAT.
+
+Out of scope: the location tree (locations are tenant-wide and never a scope, REQ-642 points (3) and (8)); a second scope slot or a named scope set (0051 D1 amendment, not built); a new reader role (D-067; 0046 D10); balance as of a date beyond the event-time basis of note section 8.2 (B2); the screens.
