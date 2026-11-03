@@ -16,6 +16,14 @@ export interface SiteUpdate { name: string; legal_entity_id: string }
 /** `parent` is the parent unit's id; absent for a root. */
 export interface UnitCreate { code: string; name: string; legal_entity_id: string; site_id: string; parent?: string }
 export interface UnitUpdate { name: string; legal_entity_id: string; site_id: string }
+/** Optional keys are left out, never sent empty. */
+export interface PositionCreate { code: string; name: string; org_unit_id: string }
+export interface PositionUpdate { name: string }
+export interface EmployeeCreate { code: string; full_name: string; org_unit_id: string; position_id?: string; user_id?: string }
+/** `user_id: null` removes the link. */
+export interface EmployeeUpdate { full_name: string; user_id: string | null }
+/** Both keys are required by the route; `position_id: null` means no position. */
+export interface EmployeeTransfer { org_unit_id: string; position_id: string | null }
 
 const seg = (id: string) => encodeURIComponent(id)
 
@@ -38,6 +46,20 @@ export const orgApi = {
     client.post<EntityRecord>(`${BASE}/units/${seg(id)}/move`, { parent_id: parentId, idempotency_key: key }),
   retireUnit: (id: string, key: string) =>
     client.post<EntityRecord>(`${BASE}/units/${seg(id)}/retire`, { idempotency_key: key }),
+  createPosition: (b: PositionCreate, key: string) =>
+    client.post<EntityRecord>(`${BASE}/positions`, { ...b, idempotency_key: key }),
+  updatePosition: (id: string, b: PositionUpdate, key: string) =>
+    client.patch<EntityRecord>(`${BASE}/positions/${seg(id)}`, { ...b, idempotency_key: key }),
+  retirePosition: (id: string, key: string) =>
+    client.post<EntityRecord>(`${BASE}/positions/${seg(id)}/retire`, { idempotency_key: key }),
+  createEmployee: (b: EmployeeCreate, key: string) =>
+    client.post<EntityRecord>(`${BASE}/employees`, { ...b, idempotency_key: key }),
+  updateEmployee: (id: string, b: EmployeeUpdate, key: string) =>
+    client.patch<EntityRecord>(`${BASE}/employees/${seg(id)}`, { ...b, idempotency_key: key }),
+  transferEmployee: (id: string, b: EmployeeTransfer, key: string) =>
+    client.post<EntityRecord>(`${BASE}/employees/${seg(id)}/transfer`, { ...b, idempotency_key: key }),
+  retireEmployee: (id: string, key: string) =>
+    client.post<EntityRecord>(`${BASE}/employees/${seg(id)}/retire`, { idempotency_key: key }),
 }
 
 const MAX_PAGES = 50

@@ -289,8 +289,8 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # REQ-561 part 2 (GH #3194) added the six scheduled-jobs lines (132).
       # REQ-570 part 2 (GH #3248) added the three record-trigger-bindings lines (135).
       # REQ-633 (GH #3530) added the entity-type-hooks dry-run line (160).
-      # REQ-667 (GH #3611) added the five codes write lines (182).
-      assert length(snapshot) == 182
+      # REQ-667 (GH #3611) added the five codes write lines (188).
+      assert length(snapshot) == 188
 
       for line <- @resolver_lines ++ @tenant_wide_lines do
         refute line in snapshot, line

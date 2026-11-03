@@ -9,7 +9,7 @@ const JSX_TEXT_NODE = />[A-Za-z][A-Za-z '.-]{2,}</g
 describe('I3 no hard-coded JSX text', () => {
   const files = readdirSync(DIR).filter((f) => f.endsWith('.tsx'))
   it('finds the screens', () => {
-    expect(files).toEqual(expect.arrayContaining(['LegalEntitiesPage.tsx', 'SitesPage.tsx', 'UnitsPage.tsx']))
+    expect(files).toEqual(expect.arrayContaining(['LegalEntitiesPage.tsx', 'SitesPage.tsx', 'UnitsPage.tsx', 'PositionsPage.tsx', 'EmployeesPage.tsx']))
   })
   for (const f of files) {
     it(`${f} has no bare JSX text node`, () => {

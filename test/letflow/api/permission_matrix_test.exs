@@ -141,6 +141,7 @@ defmodule Letflow.Api.PermissionMatrixTest do
            Letflow.Modules.Exam.manifest().permissions ++
            Letflow.Modules.Procurement.manifest().permissions ++
            Letflow.Modules.Org.manifest().permissions ++
+           Letflow.Modules.Locations.manifest().permissions ++
            Letflow.Modules.Codes.manifest().permissions)
         |> Enum.map(&Atom.to_string/1)
         |> Enum.sort()
@@ -326,6 +327,7 @@ defmodule Letflow.Api.PermissionMatrixTest do
              Letflow.Modules.Exam,
              Letflow.Modules.Procurement,
              Letflow.Modules.Org,
+             Letflow.Modules.Locations,
              Letflow.Modules.Codes
            ])
         |> Enum.flat_map(& &1.manifest().permissions)

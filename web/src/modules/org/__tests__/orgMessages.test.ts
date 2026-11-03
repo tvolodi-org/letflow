@@ -13,6 +13,10 @@ describe('I1 orgMessages', () => {
     for (const other of rest) expect(other).toEqual(first)
     expect(orgMessages.ru['org.units.title']).not.toBe(orgMessages.en['org.units.title'])
     expect(orgMessages.kk['org.units.title']).not.toBe(orgMessages.en['org.units.title'])
+    for (const id of ['org.positions.title', 'org.employees.title', 'org.employees.transfer']) {
+      expect(orgMessages.ru[id], id).not.toBe(orgMessages.en[id])
+      expect(orgMessages.kk[id], id).not.toBe(orgMessages.en[id])
+    }
   })
 
   it('has a message per reason, the generic ones, in every locale', () => {

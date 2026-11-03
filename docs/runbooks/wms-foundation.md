@@ -276,8 +276,8 @@ limit names the GH issue or the code that holds it; paths are cited without line
    `org_unit_id` and `active`; the pair is unique and the relation is many to many. Two
    functions write links: `link_unit_location/4` and `unlink_unit_location/4` of module locations
    (GH #3616, REQ-662), one transaction and one audit entry each. Linking a pair that has an inactive
-   link reactivates the same record; unlinking sets `active` false and never deletes. There is no route
-   or import for links yet. Unlinking checks no stock: no ledger code exists, and the slice that first
+   link reactivates the same record; unlinking sets `active` false and never deletes. The routes are item 15;
+   there is no import for links yet. Unlinking checks no stock: no ledger code exists, and the slice that first
    posts stock under D-065 decides whether an unlink with stock is refused.
 10. **One real foreign key, one checked id.** `location_id` is a uuid column with a foreign key onto
     `location_node` (`ON DELETE RESTRICT`); `org_unit_id` is another pack's id, so it has no foreign key
@@ -307,6 +307,15 @@ limit names the GH issue or the code that holds it; paths are cited without line
    (retire stays `retire_node/3`), a changed `code` is `field_not_allowed`, the address is the given text
    only (no segment pattern), and nothing is retired or deleted by import. A dry run follows the rules of
    `ManagedImport`; a Tree refusal costs one replay there.
+15. **Write routes (GH #3612, REQ-666, locations 0.4.0).** `Letflow.Modules.Locations.Router` serves six
+   write routes under `/api/v1/modules/locations/`: `POST /nodes`, `PATCH /nodes/:id`,
+   `POST /nodes/:id/move`, `POST /nodes/:id/retire`, `POST /links` and `POST /links/retire`; no read
+   route. All need `LocationsWrite`; only TENANT_ADMIN and PLATFORM_ADMIN hold it (no `role_grants`).
+   Every body carries a text `idempotency_key`; `POST /nodes` also takes `address_pattern` (only the text
+   `"segments"`). A reused key with another body is 409 `idempotency_key_reuse`, a not-found target (also
+   of another tenant) is 404, any other refusal is 422 with a `reason`. A tenant that installed
+   `locations` before 0.4.0 gets the routes without an upgrade (they come from the code manifest), but its
+   definitions are not upgraded (item 13).
 
 ## Codes module limits
 
