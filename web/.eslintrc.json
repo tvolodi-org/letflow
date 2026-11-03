@@ -59,7 +59,8 @@
               "!**/modules/registry",
               "!**/modules/types",
               "**/org/**",
-              "**/locations/**"
+              "**/locations/**",
+              "**/codes/**"
             ]
           }
         ]
@@ -81,7 +82,8 @@
               "!**/modules/registry",
               "!**/modules/types",
               "**/exam/**",
-              "**/locations/**"
+              "**/locations/**",
+              "**/codes/**"
             ]
           }
         ]
@@ -103,7 +105,31 @@
               "!**/modules/registry",
               "!**/modules/types",
               "**/exam/**",
-              "**/org/**"
+              "**/org/**",
+              "**/codes/**"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/modules/codes/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@/modules/*/**",
+              "!@/modules/codes/**",
+              "!@/modules/registry",
+              "!@/modules/types",
+              "**/modules/*/**",
+              "!**/modules/codes/**",
+              "!**/modules/registry",
+              "!**/modules/types",
+              "**/exam/**",
+              "**/org/**",
+              "**/locations/**"
             ]
           }
         ]
