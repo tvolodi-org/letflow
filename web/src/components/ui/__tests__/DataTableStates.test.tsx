@@ -42,6 +42,14 @@ describe('T-1166 — DataTable', () => {
     expect(screen.getByTestId('datatable-header-qty')).toHaveClass('is-end')
   })
 
+  it('TC-T1174-30: hideStackLabel marks the cell so the phone card shows no label row', () => {
+    const cols: DataTableColumn<Row>[] = [...COLS, { key: 'st', label: 'Status', hideStackLabel: true, render: () => 'ok' }]
+    render(<DataTable columns={cols} data={ROWS} emptyMessage="none" />)
+    const first = screen.getAllByTestId('datatable-row')[0]
+    expect(within(first).getByTestId('datatable-cell-st')).toHaveClass('is-check')
+    expect(within(first).getByTestId('datatable-cell-name')).not.toHaveClass('is-check')
+  })
+
   it('TC-T1166-21: sortable header is a button with aria-sort none -> ascending -> descending', () => {
     vi.useFakeTimers()
     render(<DataTable columns={COLS} data={ROWS} emptyMessage="none" />)
@@ -140,10 +148,10 @@ describe('T-1166 — DataTable', () => {
     expect(screen.queryByTestId('datatable-retry')).toBeNull()
   })
 
-  it('TC-T1166-30: the file touches no inline colour or spacing (only the sticky header position)', () => {
+  it('TC-T1166-30: the file touches no inline colour or spacing (the sticky header is CSS)', () => {
     render(<DataTable columns={COLS} data={ROWS} emptyMessage="none" onRowClick={() => {}} selectedId="a" />)
     const styled = Array.from(document.querySelectorAll('[style]')).map((el) => el.getAttribute('style'))
-    expect(styled.every((s) => /^position: sticky; top: 0(px)?;?$/.test(s ?? ''))).toBe(true)
+    expect(styled).toEqual([])
   })
 
   it('TC-T1172-31: a table with rows settles when the page around it changes (no page-reset render loop)', async () => {
