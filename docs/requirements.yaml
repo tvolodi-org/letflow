@@ -48969,3 +48969,198 @@ requirements:
       - "The asset card state after a reversal and the refusal when the card has moved since: design questions for item C1 (criterion 7)."
       - "The asset register entry of item C1 does not exist yet; when it does, an amendment adds it to depends_on."
     depends_on: [REQ-616, REQ-620, REQ-621, REQ-643, REQ-644, REQ-647, REQ-648, REQ-676, REQ-679]
+
+  - id: REQ-703
+    title: "Assets B2 F10: tenant time zone setting, an IANA time zone name in the tenant settings with the default Asia/Almaty, and the start of the next local day as one UTC instant"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-681 -- follow-up F10 of decision 0078 (REQ-681), written by phase B task P28
+    description: >
+      Phase B of the assets and stock application (the stock register), owner decision D-085 (2026-11-04: build it
+      fast). Source: decision 0078 (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md,
+      REQ-681) D2 (the balance as of a date D is the sum of the legs whose event_time is before 00:00 of the day after
+      D, in the time zone of the tenant), D3 (no tenant time zone setting exists on main: the grep of 0078 D3 finds only
+      a comment in lib/letflow/definitions.ex), Open Q1 and follow-up F10 ("Tenant time zone setting, if Open Q1 is
+      accepted"). Open Q1 is answered by the owner's phase B assumptions (D-086/D-087, 2026-11-04): one tenant time zone
+      setting, default Asia/Almaty. Assumption, owner may change at GATE B: the default tenant time zone is Asia/Almaty.
+      The report field `timezone` that slice L2b states (REQ-637 criterion 5, "the value is read from the tenant record")
+      needs this setting; REQ-704 is the as-of-date read that uses it.
+
+      Where the setting lives. The tenant record's settings document (`tenants.settings`, the custom type
+      Letflow.Identity.TenantSettings in lib/letflow/identity/tenant_settings.ex, closed top-level key vocabulary
+      `@allowed_keys`, today seven keys: app_name logo_url brand_colors locales default_locale signatory_name
+      signatory_title) gains one key, `timezone`. It is written through the existing route PATCH /tenant/settings
+      (lib/letflow/routers/tenant_settings.ex, permission TenantSettingsManage, held by TENANT_ADMIN and by the platform
+      tenant's PLATFORM_ADMIN; the tenant is always the caller's own, from the token, no tenant path parameter) and
+      validated by Letflow.Identity.Tenant.settings_changeset/2 (lib/letflow/identity/tenant.ex) like the REQ-595
+      signatory keys. No migration, no column, no table: the settings document is a platform-table JSON value of the
+      tenant record, not master data, so the master-data storage rule of decision 0076 R6 (D-066) does not apply to it.
+
+      Time zone data. The product has no Elixir time zone database (mix.exs and mix.lock name neither tzdata nor tz), and
+      this entry adds no dependency: names are checked against PostgreSQL's own list (the view
+      pg_catalog.pg_timezone_names) and the local-day boundary is computed by PostgreSQL (`AT TIME ZONE`), with every
+      value bound as a query parameter (INV-7). PostgreSQL's time zone data decides offsets, so a test pins numbers only
+      for zones whose offsets are stable in every current tzdata release (Asia/Tokyo, Europe/Berlin, UTC), never for
+      Asia/Almaty (Kazakhstan moved from UTC+6 to UTC+5 on 2024-03-01, so the numbers depend on the image's tzdata).
+
+      Scope and access (D-067, decision 0076 R7): the tenant record is not an org-scoped type; the setting is one value
+      per tenant, read by every report of the tenant and changed only by a holder of TenantSettingsManage. Tests use fresh
+      tenants only (the existing test helpers create one per test). Existing data: no row is changed; every existing
+      tenant, QA included after auto-CD, has no `timezone` key and reads as Asia/Almaty.
+    acceptance_criteria:
+      - "1. Vocabulary (lib/letflow/identity/tenant_settings.ex): `@allowed_keys` holds exactly the eight keys app_name logo_url brand_colors locales default_locale signatory_name signatory_title timezone. The exact-set test 'REQ-595 A1: the closed vocabulary is exactly the seven keys' in test/letflow/identity/tenant_test.exs is updated to the eight keys (its name says eight), and every other exact-set pin of the seven-key literal is updated: the implementer greps test/ for `signatory_name signatory_title` and lists the hits in the PR."
+      - "2. Validation (Letflow.Identity.Tenant.settings_changeset/2, lib/letflow/identity/tenant.ex; tests in test/letflow/identity/tenant_test.exs): a `timezone` value is accepted when it is a string of 1 to 64 characters equal to a `name` of pg_catalog.pg_timezone_names (one parameterized query, run only when the key is present), or nil, which clears it. Each of these is refused with one error on :settings whose text is exactly 'timezone must be an IANA time zone name' and nothing is stored: 'Mars/Olympus', 'ALMT' (an abbreviation, not a name), an empty string, a 65-character string, the integer 5. 'Asia/Almaty', 'Asia/Tokyo', 'Europe/Berlin' and 'UTC' are accepted. The moduledoc of settings_changeset/2 lists the key and its rule next to the REQ-595 keys."
+      - "3. Reader (new file lib/letflow/identity/tenant_timezone.ex, module Letflow.Identity.TenantTimezone; tests in test/letflow/identity/tenant_timezone_test.exs): default/0 returns 'Asia/Almaty' (one module attribute, the only place the default is written in lib/); of/1 takes a %Letflow.Identity.Tenant{} and returns its settings 'timezone' value when set and default/0 otherwise (also when settings is nil); a test covers a tenant with nil settings, a tenant with settings but no timezone key, and a tenant set to 'Asia/Tokyo'."
+      - "4. Local-day boundary (same module and test file): start_of_next_day/2 has the spec start_of_next_day(Date.t(), String.t()) :: {:ok, DateTime.t()} | {:error, :invalid_timezone}. It returns the UTC instant of 00:00 of the day after the date in the zone, computed by PostgreSQL from the bound parameters as (($1::date + 1)::timestamp AT TIME ZONE $2), with microsecond precision and time zone Etc/UTC. Pinned results: ~D[2026-11-03] in 'Asia/Tokyo' is ~U[2026-11-03 15:00:00.000000Z]; ~D[2026-11-03] in 'UTC' is ~U[2026-11-04 00:00:00.000000Z]; in 'Europe/Berlin' ~D[2026-10-24] is ~U[2026-10-24 22:00:00.000000Z] and ~D[2026-10-25] (the 25-hour day) is ~U[2026-10-25 23:00:00.000000Z]. A name that is not in pg_timezone_names returns {:error, :invalid_timezone} without raising and without sending the AT TIME ZONE statement, and a test shows that a transaction around the call can still run a query afterwards."
+      - "5. Write route (PATCH /tenant/settings; tests in test/letflow/routers/tenant_settings_test.exs, real token through the real router): a TENANT_ADMIN sending {\"timezone\": \"Asia/Tokyo\"} gets 200, the response settings carry 'timezone' => 'Asia/Tokyo' and the tenant's other stored keys unchanged (the router's shallow merge), and TenantTimezone.of/1 on the re-read tenant returns 'Asia/Tokyo'; {\"timezone\": null} clears it and of/1 returns 'Asia/Almaty'; {\"timezone\": \"Mars/Olympus\"} gets 422 with the message of criterion 2 and the stored value is unchanged; a TASK_WORKER (no TenantSettingsManage) gets 403 and the stored value is unchanged. Two-tenant test: a TENANT_ADMIN of tenant A setting 'Asia/Tokyo' leaves tenant B's settings byte-identical (the route takes no tenant identifier; this is its cross-tenant negative test, INV-1, INV-10)."
+      - "6. Not disclosed on public routes: the responses of GET /api/tenant-config and GET /api/mobile/tenant-config for a tenant whose timezone is set contain no key 'timezone' and no value 'Asia/Tokyo' anywhere in the body (both routers build branding from an explicit allowlist, lib/letflow/routers/tenant_config.ex and lib/letflow/routers/mobile_tenant_config.ex; a test pins it). The tenant config bundle (lib/letflow/tenant_config_bundle.ex, which checks keys against TenantSettings.allowed_keys/0 and writes through Identity.update_tenant_settings/2) exports and imports the key: a test round-trips 'Asia/Tokyo', and a bundle with 'Mars/Olympus' is refused and changes nothing."
+      - "7. Scope of the change: no migration, no table, no column, no route, no permission atom (priv/permission_matrix/effective.golden unchanged), no role grant, no new dependency in mix.exs, no web/ or apps/mobile/ change, no feature flag. bash project/scripts/lf.sh lint passes and the test files named in criteria 1 to 6 pass (real output quoted in the PR)."
+    open_questions:
+      - "Assumption, owner may change at GATE B: the default tenant time zone is Asia/Almaty (D-086/D-087, answering 0078 Open Q1). A tenant whose users work in another zone sets it through PATCH /tenant/settings."
+      - "A change of the time zone changes the answer of every later as-of-date read for past dates (each answer states the zone it used, REQ-637 criterion 5, REQ-704). Whether a change of the setting needs its own audit entry or a lock once postings exist is not decided by any source; the existing route audits only refused keys. Not built here."
+      - "The web settings screen gets no time zone field in this entry; a screen is a later web requirement if the owner wants one before phase E."
+    depends_on: [REQ-681, REQ-595]
+
+  - id: REQ-704
+    title: "Assets B2 F1: balance as of a date on the core ledger: balances_on_date/5 in the tenant time zone, with the cutoff posting number and the report fields stated"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-637 -- follow-up F1 of decision 0078 (REQ-681); needs balances/4 of slice L2b and the tenant time zone of REQ-703
+    description: >
+      Phase B of the assets and stock application (the stock register), owner decision D-085. Source: decision 0078
+      (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md, REQ-681) D2 ("The balance of a
+      register as of a date D is the sum of the legs whose event_time is before 00:00 of the day after D (in the time
+      zone of D4), read with the as-of event-time basis of note section 8.2 together with a cutoff posting_seq N. Event
+      time without N is not offered"; "ledger_balance holds only the current balance and is NOT used for a past date";
+      "Every as-of answer and printout states the report fields of note section 8.4"; "The same (D, N) gives the same
+      numbers on every later read"), D4 (a correction is a reversal with its own event_time, and the worked example:
+      receipt of 10 on day 1, reversal on day 3, balance 10 as of day 1 and day 2, 0 as of day 3) and follow-up F1
+      ("As-of balances read (D2): balances/5 with the as-of basis", owner slice L2b REQ-637 or item B6 REQ-682). The
+      printout of F2 is phase E and is not here.
+
+      What exists and what this adds. Slice L2b (REQ-637, pending) builds Letflow.Ledger.balances/4 (lib/letflow/ledger.ex)
+      with the basis {:event_time, t, known_through | :latest} (legs of entries with event_time <= t AND posting_seq <=
+      known_through), the report map of its criterion 5 (keys basis, ledger_id, cutoff_seq, as_of, timezone, filters,
+      ledger_seq, rows, next_cursor) and authorize/3 with the Letflow.Ledger.Authorized value. REQ-637 takes a UTC instant,
+      not a date. This entry adds the date form on top of it: one function that turns a tenant-local date into the
+      instant of D2 and calls balances/4, so every caller (the stock and asset read routes of slice L4 and phase C, the
+      xlsx export of decision 0079 opening balances, the counts of decision 0079 counts) gets the same day boundary. The
+      time zone comes from Letflow.Identity.TenantTimezone (REQ-703). REQ-637's report reads the zone "from the tenant
+      record"; this entry makes TenantTimezone.of/1 that one reader, so the boundary and the stated zone cannot differ.
+
+      Strict "before 00:00 of the next day" and the <= of balances/4. event_time is timestamptz (migration
+      priv/repo/migrations/20261031100001_create_ledger_tables.exs), whose precision is one microsecond, so event_time < b
+      is the same set of legs as event_time <= b minus one microsecond. The function passes b minus one microsecond to
+      balances/4; there is no second comparison rule.
+
+      Speed (assumption, owner may change at GATE B, D-086/D-087 as corrected): reads at p95 under 500 ms with 100
+      concurrent readers at the speed-test volumes (stock register 3,000,000 entries and 1,000,000 balance rows, asset
+      register 100,000 entries and 50,000 balance rows; decision 0073 A9 numbers win where it names them). The balance of
+      one key as of an event_time is a measured operation of the speed test (0073 "Amended (REQ-676, assets B1)" A7), so it
+      is measured there and not by a criterion of this entry; this entry adds no index.
+
+      Scope and access (D-067, decision 0076 R7 row "Balances and movements: scoped by ledger scope slot (org unit)",
+      decision 0073 amendment REQ-682 for the scoped read): this entry adds no scoped read. The authorized value is minted
+      by authorize/3 of REQ-637, which refuses a scoped principal (a grant that is not tenant-wide) until slice L6, so a
+      scoped user gets no as-of balance through this function. Storage: no table, column or migration; reads only.
+      Ledger and tenant paths are security-sensitive: the change passes a security review. Tests use fresh tenants and the
+      neutral TEST registration of test/support/ledger_fixture.ex (REQ-621), never a production registration.
+    acceptance_criteria:
+      - "1. Function (lib/letflow/ledger.ex; tests in test/letflow/ledger/as_of_date_test.exs): Letflow.Ledger.balances_on_date/5 has the spec balances_on_date(authorized(), Date.t(), known_through :: pos_integer() | :latest, filters :: map(), page :: map()) :: {:ok, report()} | {:error, :cutoff_in_future | :invalid_filter | :invalid_timezone}. It reads the zone z = Letflow.Identity.TenantTimezone.of/1 of the tenant of the authorized value, computes b with TenantTimezone.start_of_next_day(date, z) (REQ-703), and returns the result of balances/4 with the basis {:event_time, b minus one microsecond, known_through} and the same filters and page. A date argument that is not a %Date{} (a string, a DateTime, nil) returns {:error, :invalid_filter} before any query (a repo query-event handler sees zero queries). A stored zone that PostgreSQL does not know returns {:error, :invalid_timezone} and reads no ledger row."
+      - "2. Tenant of the authorized value: Letflow.Ledger.Authorized carries the key tenant_id, set by authorize/3 from the authenticated tenant of the conn (the same source as its prefix, never a request parameter); this change adds the key to the struct's @enforce_keys if REQ-637 did not already add it under that name, and updates REQ-637's key-set test in test/letflow/ledger/authorize_test.exs. TenantTimezone.of/1 is called with the tenant read by that id; no prefix-to-tenant mapping is written."
+      - "3. Day boundary (test registration with a lateness cap of 8760 hours so every event time below is inside it; postings use client_event_time and the device fields it needs): for a tenant set to 'Asia/Tokyo' and D = the Tokyo-local date three days before the test run, a leg with event_time b minus one microsecond is in the balance as of D and a leg with event_time exactly b is not, and both are in the balance as of D plus one day. The report of the call states timezone 'Asia/Tokyo', as_of equal to b minus one microsecond, and as_of_date equal to the ISO 8601 string of D (criterion 4)."
+      - "4. Report fields (note 8.4, 0078 D2): the report of balances_on_date/5 has exactly the keys of the balances/4 report (REQ-637 criterion 5: basis, ledger_id, cutoff_seq, as_of, timezone, filters, ledger_seq, rows, next_cursor) plus as_of_date, a string 'YYYY-MM-DD'; a test asserts the exact key set and that each row is the allowlisted row map of REQ-637 criterion 5. The timezone field of balances/4 itself is read through TenantTimezone.of/1: a test calls balances/4 with an event-time basis for a tenant set to 'Asia/Tokyo' and for a tenant without the key and gets 'Asia/Tokyo' and 'Asia/Almaty'."
+      - "5. Worked example of 0078 D4 (same test file): a receipt of 10 on key K with event_time on local day D1 (D1 = three days before the test run) and its reversal (the reversal posting of REQ-637 criterion 1) with event_time on D1 plus two days: the balance of K as of D1 is 10, as of D1 plus one day is 10, as of D1 plus two days is 0 (the zero row stays, REQ-637 criterion 5)."
+      - "6. Reproducible cutoff (0078 D2): after three postings dated D the report of (D, 3) is recorded; then a fourth posting with event_time on D lands (a late posting inside the cap); the report of (D, 3) read again is byte-identical to the recorded one (compared as the canonical encoding of the report map, as REQ-637 criterion 4 compares), and the report of (D, 4) includes the fourth posting. :latest resolves to the counter's last_seq in the same snapshot (REQ-637 criterion 4) and the report states it in cutoff_seq; a known_through above it returns {:error, :cutoff_in_future}."
+      - "7. Current balance and no use of the balance table for a date: for D = the tenant-local date of the test run plus one day and known_through :latest, the rows equal those of balances/4 with {:posting_seq, :latest} for the same filters; for every call of balances_on_date/5 the statements sent (repo query-event handler) read the entry and leg tables of the ledger id and never the balance table (ledger_balance, or the balance table of the ledger id under shape c of 0073 A8) and contain no INSERT, UPDATE, DELETE or LOCK."
+      - "8. Tenancy (INV-1, INV-5, INV-6; test file test/letflow/ledger/read_tenancy_test.exs or the criterion-1 file): tenant A set to 'Asia/Tokyo' and tenant B set to 'Europe/Berlin' both hold postings on the same ledger id and key; each authorized value reads only its own tenant's legs and states its own zone; a filters or page map that holds a prefix, tenant, tenant_id or timezone key returns {:error, :invalid_filter} and cannot change the zone or the schema read."
+      - "9. Scope of the change: the change is a tenant-data-path change and passes a security review as a stated step (the verdict and its evidence quoted in the PR). It adds no migration, no table, no index, no route, no permission atom, no role grant, no manifest key, no scoped read (authorize/3 still refuses a scoped principal) and no web/ or apps/mobile/ change. The moduledoc of lib/letflow/ledger.ex states the day rule of 0078 D2 and the one-microsecond form. bash project/scripts/lf.sh lint passes and the test files named here pass (real output quoted in the PR)."
+    open_questions:
+      - "Assumption, owner may change at GATE B: the speed numbers in the description (p95 under 500 ms with 100 concurrent readers at the speed-test volumes) are measured by the speed test of decision 0073 A7, not by this entry."
+      - "A future date is answered like any date (its boundary lies after the newest leg, so it equals the current balance). No source asks for a refusal; none is built."
+      - "Whether as-of balances are read per org unit for a scoped user is decision 0073 amendment REQ-682 (item B6) and slice L6, not this entry."
+    depends_on: [REQ-703, REQ-637, REQ-621, REQ-681]
+
+  - id: REQ-705
+    title: "Assets B2 F6: an audit entry for every write of the location tree (create, update, move, retire), imported rows included"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-681 -- follow-up F6 of decision 0078 (REQ-681), written by phase B task P28
+    description: >
+      Phase B of the assets and stock application, owner decision D-085. Source: decision 0078
+      (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md, REQ-681) D8, row "Location
+      created, updated, moved, retired": "not found. lib/letflow/modules/locations/tree.ex calls Records.create_record/3
+      and Records.update_record/3 and no Audit function; no location.* audit action string exists in lib/", and
+      follow-up F6 ("Audit of location create, update, move, retire (D8)"). Checked again on main for this entry:
+      `grep -rn "Audit" lib/letflow/modules/locations/` finds only links.ex (the link writers audit, REQ-662), so the gap
+      holds for Letflow.Modules.Locations.Tree (create_node/3, update_node/4, move_node/4, retire_node/3).
+
+      The import of the tree (Letflow.Modules.Locations.Import, lib/letflow/modules/locations/import.ex, REQ-652) writes
+      only through those Tree functions (its moduledoc: "Every write goes through create_node/3, move_node/4 and
+      update_node/4"), so imported rows are audited by the same change. This narrows follow-up F8 of 0078 for the
+      location tree; the catalog masters are REQ-706; the org and lot import rows are already audited through
+      Letflow.Modules.Org and Letflow.Modules.CatalogItems.Lots (their import moduledocs state it).
+
+      Precedent, the same module: Letflow.Modules.Locations.Links (lib/letflow/modules/locations/links.ex) writes one
+      entry per accepted change through Letflow.Audit.insert_entry/3 inside the write's transaction, maps a database
+      failure to {:error, :audit_failed} (rescued, INV-8), and its test "A-5: an audit failure rolls the record back"
+      (test/letflow/modules/locations/link_writers_test.exs) drops the tenant's audit_entries table to force it. The
+      locations router already renders {:error, :audit_failed} as 500 internal_error (lib/letflow/modules/locations/router.ex).
+
+      Scope and storage: location_node is tenant-wide (decision 0076 R7), so its audit entries are about a tenant-wide
+      type; the audit trail is read through GET /audit (permission AuditRead, lib/letflow/routers/audit.ex), unchanged
+      here. Owner assumption D-086/D-087 (the audit trail is scoped by org unit like the other scoped types) does not
+      change what a reader of a tenant-wide type sees; the scoped audit read is not part of this entry. No table, column
+      or migration: entries go to the existing tenant audit_entries table. Tests use fresh tenants.
+    acceptance_criteria:
+      - "1. Entries per write (lib/letflow/modules/locations/tree.ex; tests in test/letflow/modules/locations/tree_audit_test.exs): each accepted call writes exactly one entry through Letflow.Audit.insert_entry/3 with resource_type 'location_node', resource_id the node's record id and actor_id the :actor_id of opts: create_node/3 writes action 'location_node.created' with before_state nil and after_state the stored field values of the new node; update_node/4 writes 'location_node.updated', move_node/4 writes 'location_node.moved' (its before and after states differ in parent_id) and retire_node/3 writes 'location_node.retired' (after_state active false), each with before_state the stored field values before the write and after_state those after it."
+      - "2. Same transaction: the entry is written inside the transaction of the write, after the record write and under the tree lock, so for each of the four functions a test that drops the tenant's audit_entries table first (as test A-5 of link_writers_test.exs does) gets {:error, :audit_failed} and finds the node not created or unchanged."
+      - "3. No entry without a change: a refused call (create_node/3 with :parent_not_found and with {:field_not_allowed, key}; update_node/4, move_node/4 and retire_node/3 with :node_not_found; move_node/4 with :cycle) writes no entry; a no-op (a move to the current parent, a retire of a retired node) writes no entry; a replay with the same idempotency key returns the original result and the count of the tenant's audit entries is unchanged."
+      - "4. Imported rows (test in test/letflow/modules/locations/import_test.exs or the criterion-1 file, through the import route POST /entities/records/location_node/import with a real token): a file that creates two nodes and changes the name and the parent of a third writes two 'location_node.created' entries, one 'location_node.updated' and one 'location_node.moved'; an unchanged row writes none; a dry run of the same file writes no entry."
+      - "5. Readable: GET /audit with resource_type=location_node for a TENANT_ADMIN of the tenant returns the entries of criterion 1; for a TENANT_ADMIN of a second tenant it returns none of them (INV-1)."
+      - "6. Docs and scope: the moduledoc of lib/letflow/modules/locations/tree.ex and the location tree item of docs/runbooks/wms-foundation.md name the four action names; the implementer runs test/letflow/modules/locations/runbook_test.exs. No migration, no table, no route, no permission atom, no role grant, no web/ change. bash project/scripts/lf.sh lint passes and the test files named here pass (real output quoted in the PR)."
+    depends_on: [REQ-681, REQ-645, REQ-646, REQ-652]
+
+  - id: REQ-706
+    title: "Assets B2 F7: an audit entry for every write of the unit, item and counterparty masters of module catalog_items, which are written only by the import"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-681 -- follow-ups F7 and F8 of decision 0078 (REQ-681), written by phase B task P28
+    description: >
+      Phase B of the assets and stock application, owner decision D-085. Source: decision 0078
+      (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md, REQ-681) D8, rows "Catalog item
+      created, updated, retired: not found ... has no audit writer" and "xlsx import: not found", follow-ups F7 ("Audit of
+      catalog item writes") and F8 ("Audit of rows written by xlsx import"). Checked again on main for this entry: the
+      moduledoc of Letflow.Modules.CatalogItems (lib/letflow/modules/catalog_items/catalog_items.ex) says the generic
+      entity routes answer 403 entity_type_managed for the four managed types except their import, and that the module
+      ships no write function other than the lot writers. So catalog_uom, catalog_item and catalog_counterparty are
+      written only by Letflow.Modules.CatalogItems.Import.row/3 (lib/letflow/modules/catalog_items/import.ex, REQ-651),
+      which calls Records.upsert_record_by_external_ref/3 and no Audit function. That is the whole of F7, and the part of
+      F8 that concerns these three types. The other import paths already audit or are covered elsewhere: org units,
+      positions and employees and lots are imported through write functions that audit (Letflow.Modules.Org.Import and
+      Letflow.Modules.CatalogItems.LotImport, whose moduledocs state it); the location tree is REQ-705. Imports of types
+      that are not module-managed (REQ-650) are outside the assets masters and not covered here.
+
+      Precedent, the same module: Letflow.Modules.CatalogItems.Lots (lib/letflow/modules/catalog_items/lots.ex) checks for
+      an already claimed idempotency key first (replay?/2: a claimed key goes to Records alone, because a failing Records
+      multi cannot be survived inside a surrounding transaction), otherwise runs the write and the entry in one
+      Repo.transaction and maps an audit failure to {:error, :audit_failed} (rescued, INV-8). An import row whose result
+      is {:error, :audit_failed} is rendered by the import route's existing fallback (import_reason_json/1 in
+      lib/letflow/routers/entities/record_import.ex) as type internal_error. The dry run (Letflow.Entities.ManagedImport,
+      lib/letflow/entities/managed_import.ex) runs the whole file in one transaction that is rolled back.
+
+      Scope and storage: the three types are tenant-wide (decision 0076 R7); owner assumption D-086/D-087 (the audit trail
+      is scoped by org unit like the other scoped types) does not change what a reader of a tenant-wide type sees, and the
+      scoped audit read is not part of this entry. No table, column or migration: entries go to the existing tenant
+      audit_entries table. Tests use fresh tenants.
+    acceptance_criteria:
+      - "1. Entries per row (lib/letflow/modules/catalog_items/import.ex; tests in test/letflow/modules/catalog_items/import_audit_test.exs, through the import route POST /entities/records/:entity_type/import with a real token): for each of catalog_uom, catalog_item and catalog_counterparty, a row whose outcome is :created writes exactly one entry with action '<type>.created' (for example 'catalog_item.created'), before_state nil and after_state the stored field values; a row whose outcome is :updated writes exactly one entry '<type>.updated' with before_state the stored field values before the row and after_state those after it; a row whose outcome is :unchanged writes none. Each entry has resource_type the type, resource_id the record id and actor_id the ctx actor_id of the row (the importing user)."
+      - "2. Same transaction: the record write and its entry run in one Repo.transaction, in the form of Lots.persist/5 (replay check first); a test that drops the tenant's audit_entries table first gets, for a new row, the row reason type internal_error in the import answer and no record of that external ref in the tenant."
+      - "3. No entry without a change: a refused row ({:reference_not_found, 'base_uom_id'}, {:reference_inactive, 'base_uom_id'}, a duplicate external ref in the file, a value the definition refuses) writes no entry; a second import of the same file (every row now :unchanged) writes no entry; calling Import.row/3 twice with the same ctx (the same idempotency key, a replay) returns the original result and writes no second entry; a dry run of a file of three new rows writes no entry and gives the same per-row outcomes as the real import."
+      - "4. Readable: GET /audit with resource_type=catalog_item for a TENANT_ADMIN of the tenant returns the entries of criterion 1; for a TENANT_ADMIN of a second tenant it returns none of them (INV-1)."
+      - "5. Docs and scope: the moduledocs of lib/letflow/modules/catalog_items/import.ex and catalog_items.ex and the catalog item of docs/runbooks/wms-foundation.md name the six action names; the implementer runs test/letflow/modules/catalog_items/runbook_test.exs and test/letflow/modules/catalog_items/import_test.exs. No migration, no table, no route, no permission atom, no role grant, no web/ change. bash project/scripts/lf.sh lint passes and the test files named here pass (real output quoted in the PR)."
+    depends_on: [REQ-681, REQ-651]
