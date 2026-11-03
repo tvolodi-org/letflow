@@ -35,5 +35,6 @@ cp <dir>/img/* <repo>/web/public/brand/
 - `data-theme="light|dark"` on `<html>`; without it the system setting applies. A script in `web/index.html` reads
   `localStorage["lf-theme"]` before first paint; `ThemeToggle` (`web/src/components/ui/ThemeToggle.tsx`) writes both.
 - Geologica, Onest and IBM Plex Mono are loaded from Google Fonts in `web/index.html` (with preconnect).
-- Tenant branding is unchanged for now: it still writes `--color-brand-600` (an alias of `--current` in the bridge).
-  Moving it to `--tenant-current` is task S0e.
+- Tenant branding writes `--tenant-current` (and the derived `-strong`, `-tint`, `--tenant-on-current` and the `-dark` set) from
+  `primary`; a colour that gives under 4.5:1 for on-current text on paper-raised is refused and the Letflow teal stays.
+  `secondary` stays in the allowlist but is unused.
