@@ -328,12 +328,14 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
     const expiryCol: DataTableColumn<EntityRecord> = {
       key: 'expiry',
       label: t('catalog_items.col.expiryDate'),
+      stackLabel: t('catalog_items.col.expiryStack'),
       mono: true,
       render: (lot) => textOf(lot, 'expiry_date') || dash,
     }
     const activeCol: DataTableColumn<EntityRecord> = {
       key: 'active',
       label: t('catalog_items.col.active'),
+      hideStackLabel: true,
       render: statusPill,
     }
     const fullColumns: DataTableColumn<EntityRecord>[] = [

@@ -41,6 +41,8 @@ export interface DataTableColumn<TRow> {
   mono?: boolean
   /** Label shown on the phone card; defaults to the header. */
   stackLabel?: string
+  /** Phone card: no label row (the cell already says it, e.g. a StatusPill). */
+  hideStackLabel?: boolean
 }
 
 export type DataTableRowState = 'error' | 'retired'
@@ -89,7 +91,7 @@ function resolveColumns<TRow>(columns: DataTableColumn<TRow>[]): Resolved<TRow>[
 }
 
 function cellClass<TRow>(col: DataTableColumn<TRow>): string | undefined {
-  const parts = [col.align === 'end' ? 'is-end' : '', col.mono ? 'mono' : ''].filter(Boolean)
+  const parts = [col.align === 'end' ? 'is-end' : '', col.mono ? 'mono' : '', col.hideStackLabel ? 'is-check' : ''].filter(Boolean)
   return parts.length > 0 ? parts.join(' ') : undefined
 }
 
