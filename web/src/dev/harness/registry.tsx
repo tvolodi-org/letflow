@@ -7,6 +7,7 @@ import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 // The harness renders a module's screen directly (it needs the screen's `initial` preset, which the route does
 // not carry); the module boundary rule is about modules importing each other, not about this dev-only file.
 import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
+import { locationsScreens } from './fixtures/locations'
 import { orgLegal, orgSites, orgUnits } from './orgFixtures'
 import type { FixtureRoute, HarnessScreen } from './types'
 
@@ -126,5 +127,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     codesScreen('codes-detail', { selectedId: 'c1' }),
     codesScreen('codes-assign', { assignId: 'c2' }),
     codesScreen('codes-receive', { receive: true }),
+    ...locationsScreens,
   ].map(s => [s.name, s]),
 )

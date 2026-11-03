@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 /** T-1166 — DataTable: design-system columns and states (the REQ-274 cases stay in DataTable.test.tsx). */
+import { useState } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { useMemo, useState } from 'react'
@@ -173,5 +174,38 @@ describe('T-1166 — DataTable', () => {
     })
     expect(screen.queryByText('z')).toBeNull()
     expect(screen.getByText('x')).toBeInTheDocument()
+  })
+
+  it('TC-T1172-31: a table with rows settles when the page around it changes (no page-reset render loop)', async () => {
+    let calls = 0
+    const cols: DataTableColumn<Row>[] = [
+      {
+        key: 'code',
+        label: 'Code',
+        render: (r) => {
+          calls += 1
+          if (calls > 200) throw new Error('DataTable re-renders without end')
+          return r.code
+        },
+      },
+    ]
+    function Host() {
+      const [n, setN] = useState(0)
+      return (
+        <>
+          <button onClick={() => setN(n + 1)}>bump {n}</button>
+          <DataTable columns={cols} data={ROWS} emptyMessage="none" />
+        </>
+      )
+    }
+    render(<Host />)
+    // a state change of the page around the table, outside the click turn (a write that finished)
+    await act(async () => {
+      await Promise.resolve()
+      fireEvent.click(screen.getByRole('button', { name: /bump/ }))
+      for (let i = 0; i < 20; i += 1) await Promise.resolve()
+    })
+    expect(calls).toBeLessThan(40)
+    expect(screen.getByText('C-2')).toBeInTheDocument()
   })
 })

@@ -2,7 +2,7 @@
 /** T1–T6 — GH 3607 / REQ-671: the location tree screen. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { fakeServer, queryBodies, rec, renderLocations, writeCalls } from './locationsTestKit'
 
 expect.extend(jestDomMatchers)
@@ -35,16 +35,21 @@ afterEach(() => cleanup())
 async function openPage() {
   fakeServer(clientMock, DATA)
   renderLocations('/admin/locations')
-  await screen.findByTestId('loc-row-A')
+  await screen.findByTitle('A')
+}
+
+/** Select a node by its code: the tree row carries the code in a `title`. */
+function selectRow(code: string) {
+  fireEvent.click(screen.getByTitle(code))
 }
 
 describe('T1 tree', () => {
   it('renders four levels in parent order with aria-level 1..4, siblings by code', async () => {
     await openPage()
-    const rows = screen.getAllByRole('row').filter((r) => r.hasAttribute('aria-level'))
-    expect(rows.map((r) => [r.getAttribute('data-testid'), r.getAttribute('aria-level')])).toEqual([
-      ['loc-row-A', '1'], ['loc-row-A1', '2'], ['loc-row-A1a', '3'], ['loc-row-A1a1', '4'], ['loc-row-B', '1'],
-    ])
+    const items = screen.getAllByRole('treeitem')
+    expect(
+      items.map((r) => [r.querySelector('.lf-tree__code')?.textContent, r.getAttribute('aria-level')]),
+    ).toEqual([['A', '1'], ['A1', '2'], ['A1a', '3'], ['A1a1', '4'], ['B', '1']])
     const filters = queryBodies(clientMock, 'location_node')[0]['filters'] as { field: string }[]
     expect(filters.map((f) => f.field)).toEqual(['deleted', 'active'])
   })
@@ -79,7 +84,8 @@ describe('T2 T3 create', () => {
     expect(Object.keys(writeCalls(clientMock)[0].body).sort()).toEqual(['code', 'idempotency_key', 'name', 'node_kind'])
 
     await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument())
-    fireEvent.click(within(screen.getByTestId('loc-row-B')).getByRole('button', { name: 'Add child' }))
+    selectRow('B')
+    fireEvent.click(screen.getByRole('button', { name: 'Add child' }))
     expect((screen.getByLabelText('Parent') as HTMLSelectElement).value).toBe('n-b')
     fireEvent.change(screen.getByLabelText('Code'), { target: { value: 'B1' } })
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Child' } })
@@ -97,7 +103,8 @@ describe('T2 T3 create', () => {
 describe('T4 move', () => {
   it('offers neither the node nor its descendants, offers Root, and sends parent_id', async () => {
     await openPage()
-    fireEvent.click(within(screen.getByTestId('loc-row-A1')).getByRole('button', { name: 'Move' }))
+    selectRow('A1')
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }))
     const picker = screen.getByLabelText('New parent') as HTMLSelectElement
     expect([...picker.options].map((o) => o.value).sort()).toEqual(['', 'n-a', 'n-b'])
     fireEvent.change(picker, { target: { value: 'n-b' } })
@@ -106,8 +113,8 @@ describe('T4 move', () => {
     expect(writeCalls(clientMock)[0].path).toBe(`${BASE}/nodes/n-a2/move`)
     expect(writeCalls(clientMock)[0].body).toMatchObject({ parent_id: 'n-b' })
 
-    await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument())
-    fireEvent.click(within(screen.getByTestId('loc-row-A1')).getByRole('button', { name: 'Move' }))
+    await waitFor(() => expect(screen.queryByTestId('loc-move')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }))
     fireEvent.change(screen.getByLabelText('New parent'), { target: { value: '' } })
     fireEvent.click(screen.getByTestId('loc-move-confirm'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(2))
@@ -119,7 +126,7 @@ describe('T5 edit and retire', () => {
   it('edit sends exactly the five fields; retire sends its route after confirm; the list reloads', async () => {
     await openPage()
     const before = queryBodies(clientMock, 'location_node').length
-    fireEvent.click(within(screen.getByTestId('loc-row-A1')).getByRole('button', { name: 'Edit' }))
+    selectRow('A1')
     expect((screen.getByLabelText('Code') as HTMLInputElement).readOnly).toBe(true)
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Renamed' } })
     fireEvent.change(screen.getByLabelText('Address'), { target: { value: '' } })
@@ -133,7 +140,8 @@ describe('T5 edit and retire', () => {
     await waitFor(() => expect(queryBodies(clientMock, 'location_node').length).toBeGreaterThan(before))
 
     await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument())
-    fireEvent.click(within(screen.getByTestId('loc-row-B')).getByRole('button', { name: 'Retire' }))
+    selectRow('B')
+    fireEvent.click(screen.getByRole('button', { name: 'Retire' }))
     fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(2))
     expect(writeCalls(clientMock)[1].path).toBe(`${BASE}/nodes/n-b/retire`)

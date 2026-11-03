@@ -4,10 +4,16 @@
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Button } from '@/components/ui/Button'
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { FormActions, FormRow, FormSection } from '@/components/ui/FormSection'
+import { Select } from '@/components/ui/Select'
+import { Tabs } from '@/components/ui/Tabs'
+import { useToast } from '@/hooks/useToast'
 import type { EntityRecord } from '@/types/api'
 import { ACTIVE_TRUE, DELETED_FALSE, locationsApi, type LinkBody } from './locations.api'
 import { LocationsIntlProvider } from './LocationsIntlProvider'
-import { LocationsErrorAlert, LocationsShell, SelectField, labelOf, useLocationRows } from './LocationsShell'
+import { LocationsErrorAlert, LocationsShell, labelOf, useLocationRows } from './LocationsShell'
 import { LINK, LOCATION_NODE, ORG_UNIT, isActive, textOf, treeOptions } from './locationsModel'
 import { useLocationsWrite } from './useLocationsWrite'
 
@@ -19,11 +25,12 @@ function run(cmd: Cmd, key: string) {
 
 type Mode = 'unit' | 'location'
 
-function LinksInner() {
+function LinksInner({ initialUnitId }: { initialUnitId?: string }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
+  const toast = useToast()
   const [mode, setMode] = useState<Mode>('unit')
-  const [unitId, setUnitId] = useState('')
+  const [unitId, setUnitId] = useState(initialUnitId ?? '')
   const [locationId, setLocationId] = useState('')
   const [addId, setAddId] = useState('')
   const units = useLocationRows(ORG_UNIT, 'active', [DELETED_FALSE, ACTIVE_TRUE])
@@ -61,7 +68,10 @@ function LinksInner() {
 
   async function submit(op: Cmd['op'], otherId: string) {
     const result = await write.submit({ op, body: bodyFor(otherId) })
-    if (result === 'ok' && op === 'link') setAddId('')
+    if (result === 'ok') {
+      if (op === 'link') setAddId('')
+      toast.success(t(op === 'link' ? 'locations.toast.linked' : 'locations.toast.unlinked'))
+    }
   }
 
   function switchMode(next: Mode) {
@@ -70,106 +80,121 @@ function LinksInner() {
     setAddId('')
   }
 
+  const otherOf = (l: EntityRecord) => otherRows.find((r) => r.record_id === textOf(l, otherKey))
+  const columns: DataTableColumn<EntityRecord>[] = [
+    { key: 'code', label: t('locations.common.code'), mono: true, render: (l) => textOf(otherOf(l) ?? l, 'code') || dash },
+    { key: 'name', label: t('locations.common.name'), render: (l) => labelOf(otherRows, textOf(l, otherKey), dash) },
+    ...(mode === 'unit'
+      ? [{ key: 'address', label: t('locations.common.address'), mono: true, render: (l: EntityRecord) => textOf(otherOf(l) ?? l, 'address') || dash }]
+      : []),
+    {
+      key: 'actions',
+      label: t('locations.common.actions'),
+      render: (l) => (
+        <Button variant="danger" size="sm" disabled={write.isPending} onClick={() => void submit('unlink', textOf(l, otherKey))}>
+          {t('locations.common.unlink')}
+        </Button>
+      ),
+    },
+  ]
+
   return (
-    <LocationsShell title={t('locations.links.title')} queries={[units, locations, links]}>
+    <LocationsShell title={t('locations.links.title')} eyebrow={t('locations.links.eyebrow')} lede={t('locations.links.lede')} queries={[units, locations, links]}>
       <LocationsErrorAlert error={write.error} link />
-      <fieldset style={{ marginBottom: 'var(--space-3)' }}>
-        <label style={{ display: 'block' }}>
-          <input type="radio" name="links_mode" checked={mode === 'unit'} onChange={() => switchMode('unit')} />
-          {t('locations.links.modeUnit')}
-        </label>
-        <label style={{ display: 'block' }}>
-          <input type="radio" name="links_mode" checked={mode === 'location'} onChange={() => switchMode('location')} />
-          {t('locations.links.modeLocation')}
-        </label>
-      </fieldset>
-      {mode === 'unit' ? (
-        <SelectField
-          name="unit"
-          label={t('locations.links.pickUnit')}
-          value={unitId}
-          options={treeOptions(unitRows, 'parent')}
-          placeholder={t('locations.common.choose')}
-          onChange={(v) => {
-            setUnitId(v)
-            setAddId('')
-          }}
-        />
-      ) : (
-        <SelectField
-          name="location"
-          label={t('locations.links.pickLocation')}
-          value={locationId}
-          options={treeOptions(locationRows, 'parent_id')}
-          placeholder={t('locations.common.choose')}
-          onChange={(v) => {
-            setLocationId(v)
-            setAddId('')
-          }}
-        />
-      )}
-      {chosen !== '' && (
-        <>
-          <h2>{t(mode === 'unit' ? 'locations.links.linkedLocations' : 'locations.links.linkedUnits')}</h2>
-          {linkRows.length === 0 ? (
-            <p>{t('locations.links.nothingLinked')}</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('locations.common.code')}</th>
-                  <th>{t('locations.common.name')}</th>
-                  {mode === 'unit' && <th>{t('locations.common.address')}</th>}
-                  <th>{t('locations.common.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linkRows.map((l) => {
-                  const otherId = textOf(l, otherKey)
-                  const other = otherRows.find((r) => r.record_id === otherId)
-                  return (
-                    <tr key={l.record_id} data-testid={`link-row-${otherId}`}>
-                      <td>{other ? textOf(other, 'code') : dash}</td>
-                      <td>{labelOf(otherRows, otherId, dash)}</td>
-                      {mode === 'unit' && <td>{(other && textOf(other, 'address')) || dash}</td>}
-                      <td>
-                        <Button variant="danger" size="sm" disabled={write.isPending} onClick={() => void submit('unlink', otherId)}>
-                          {t('locations.common.unlink')}
-                        </Button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
-          <SelectField
-            name="add"
-            label={t(mode === 'unit' ? 'locations.links.addLocation' : 'locations.links.addUnit')}
-            value={addId}
-            options={pickable}
-            placeholder={t('locations.common.choose')}
-            onChange={setAddId}
+      <div className="lf-card">
+        <div className="lf-card__body">
+          <Tabs
+            aria-label={t('locations.links.modeLabel')}
+            selected={mode}
+            onChange={(id) => switchMode(id as Mode)}
+            items={[
+              { id: 'unit', label: t('locations.links.modeUnit') },
+              { id: 'location', label: t('locations.links.modeLocation') },
+            ]}
           />
-          <Button
-            variant="primary"
-            size="md"
-            disabled={write.isPending || addId === '' || !otherRows.some((r) => r.record_id === addId && isActive(r))}
-            onClick={() => void submit('link', addId)}
-            data-testid="link-add"
-          >
-            {t('locations.common.link')}
-          </Button>
-        </>
-      )}
+          <FormSection>
+            <FormRow>
+              {mode === 'unit' ? (
+                <Select
+                  name="unit"
+                  label={t('locations.links.pickUnit')}
+                  width="l"
+                  value={unitId}
+                  options={treeOptions(unitRows, 'parent')}
+                  placeholder={t('locations.common.choose')}
+                  onChange={(v) => {
+                    setUnitId(v)
+                    setAddId('')
+                  }}
+                />
+              ) : (
+                <Select
+                  name="location"
+                  label={t('locations.links.pickLocation')}
+                  width="l"
+                  value={locationId}
+                  options={treeOptions(locationRows, 'parent_id')}
+                  placeholder={t('locations.common.choose')}
+                  onChange={(v) => {
+                    setLocationId(v)
+                    setAddId('')
+                  }}
+                />
+              )}
+            </FormRow>
+          </FormSection>
+          {chosen === '' ? (
+            <EmptyState title={t(mode === 'unit' ? 'locations.links.chooseUnitHint' : 'locations.links.chooseLocationHint')} />
+          ) : (
+            <>
+              <FormSection title={t(mode === 'unit' ? 'locations.links.linkedLocations' : 'locations.links.linkedUnits')}>
+                <DataTable
+                  columns={columns}
+                  data={linkRows}
+                  getRowId={(l) => l.record_id}
+                  emptyMessage={t('locations.links.nothingLinked')}
+                />
+              </FormSection>
+              <FormSection>
+                <FormRow>
+                  <Select
+                    name="add"
+                    label={t(mode === 'unit' ? 'locations.links.addLocation' : 'locations.links.addUnit')}
+                    width="l"
+                    value={addId}
+                    options={pickable}
+                    placeholder={t('locations.common.choose')}
+                    onChange={setAddId}
+                  />
+                </FormRow>
+                <FormActions
+                  primary={
+                    <Button
+                      variant="primary"
+                      size="md"
+                      loading={write.isPending}
+                      disabled={write.isPending || addId === '' || !otherRows.some((r) => r.record_id === addId && isActive(r))}
+                      onClick={() => void submit('link', addId)}
+                      data-testid="link-add"
+                    >
+                      {t('locations.common.link')}
+                    </Button>
+                  }
+                />
+              </FormSection>
+            </>
+          )}
+        </div>
+      </div>
     </LocationsShell>
   )
 }
 
-export default function LocationLinksPage() {
+/** `initialUnitId` shows the links of an org unit at first render (the screen harness uses it). */
+export default function LocationLinksPage({ initialUnitId }: { initialUnitId?: string } = {}) {
   return (
     <LocationsIntlProvider>
-      <LinksInner />
+      <LinksInner initialUnitId={initialUnitId} />
     </LocationsIntlProvider>
   )
 }

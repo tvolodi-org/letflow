@@ -1,5 +1,6 @@
 /** Pure helpers of the locations screens (GH 3607 / REQ-671): the trees, move targets, error mapping. */
 import type { EntityRecord } from '@/types/api'
+import type { TreeNode } from '@/components/ui/TreeView'
 
 export const LOCATION_NODE = 'location_node'
 export const LINK = 'location_org_unit_link'
@@ -62,6 +63,40 @@ export function buildTree(rows: EntityRecord[], parentKey: string): TreeRow[] {
   }
   for (const root of roots.sort(byCode)) walk(root, 0)
   return out
+}
+
+/** The rows of `buildTree` as nested TreeView nodes (name, code, retired flag). */
+export function toTreeNodes(rows: EntityRecord[], parentKey = 'parent_id'): TreeNode[] {
+  const roots: TreeNode[] = []
+  const stack: TreeNode[] = []
+  for (const { record, depth } of buildTree(rows, parentKey)) {
+    const node: TreeNode = {
+      id: record.record_id,
+      name: textOf(record, 'name') || textOf(record, 'code'),
+      code: textOf(record, 'code'),
+      retired: !isActive(record),
+    }
+    stack.length = depth
+    const parent = stack[depth - 1]
+    if (parent) parent.children = [...(parent.children ?? []), node]
+    else roots.push(node)
+    stack[depth] = node
+  }
+  return roots
+}
+
+/** Names of the ancestors of a node, root first, joined by " / " (empty for a root). */
+export function pathOf(rows: EntityRecord[], id: string, parentKey = 'parent_id'): string {
+  const byId = new Map(rows.map((r) => [r.record_id, r]))
+  const names: string[] = []
+  const seen = new Set([id])
+  let current = byId.get(textOf(byId.get(id) ?? ({ field_values: {} } as EntityRecord), parentKey))
+  while (current && !seen.has(current.record_id)) {
+    seen.add(current.record_id)
+    names.unshift(textOf(current, 'name') || textOf(current, 'code'))
+    current = byId.get(textOf(current, parentKey))
+  }
+  return names.join(' / ')
 }
 
 export function descendantIds(rows: EntityRecord[], id: string, parentKey = 'parent_id'): Set<string> {
