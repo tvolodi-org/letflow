@@ -304,10 +304,15 @@ defmodule Letflow.LedgerReplayTest do
   test "T-SEC-3 no module under lib/ names a ledger table" do
     pattern = ~r/ledger_(entry|leg|counter|balance)/
 
+    # REQ-621 criterion 10: the single writer (Letflow.Ledger and its directory) must name the
+    # tables; every other file under lib/ stays scanned
+    writer = ["lib/letflow/ledger.ex" | Path.wildcard("lib/letflow/ledger/*.ex")]
+
     hits =
-      for file <- Path.wildcard("lib/**/*.ex"), File.read!(file) =~ pattern, do: file
+      for file <- Path.wildcard("lib/**/*.ex") -- writer, File.read!(file) =~ pattern, do: file
 
     assert hits == [],
-           "REQ-620 criterion 12: no lib module may name a ledger table, found in #{inspect(hits)}"
+           "REQ-620 criterion 12: no lib module but lib/letflow/ledger.ex and lib/letflow/ledger/*.ex " <>
+             "may name a ledger table, found in #{inspect(hits)}"
   end
 end
