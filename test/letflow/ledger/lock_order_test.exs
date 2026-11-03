@@ -2,7 +2,8 @@ defmodule Letflow.Ledger.LockOrderTest do
   @moduledoc """
   REQ-621 / GH #3469 part A, criterion 2: T-LK-1a (AB-BA overlap raises no deadlock) and T-LK-1b
   (the statements a posting sends: missing rows inserted ascending, then locked ascending one key at
-  a time, the counter last; a refused posting never touches the counter). The counter-order
+  a time, the counter last; a refused posting never touches the counter) and, from part C (criterion 9), T-LK-3 (a lock
+  timeout on the counter row propagates unrescued, nothing is committed, a retry posts). The counter-order
   assertions are statement-order recordings, not lock probes.
   Sandbox `:auto` with real commits, hence `async: false`.
   """
@@ -10,7 +11,9 @@ defmodule Letflow.Ledger.LockOrderTest do
   use Letflow.DataCase, async: false
 
   alias Letflow.LedgerFixture, as: Fx
+  alias Letflow.Ledger
   alias Letflow.LockOrderHelpers, as: H
+  alias Letflow.Repo
 
   setup do
     Fx.setup_auto_mode!()
@@ -88,5 +91,40 @@ defmodule Letflow.Ledger.LockOrderTest do
     assert {:lock_balance, "a1"} in order and {:lock_balance, "b1"} in order
     refute Enum.any?(order, &(&1 in [:insert_counter, :lock_counter, :counter]))
     assert Fx.last_seq(schema) == 1
+  end
+
+  test "T-LK-3 a lock timeout (55P03) on the counter propagates, nothing is written, retry posts",
+       %{schema: schema} do
+    Fx.seed_on_hand!(schema, ["a1"], 1)
+    entries = Fx.count(schema, "ledger_entry")
+    legs = Fx.count(schema, "ledger_leg")
+    assert Fx.last_seq(schema) == 1
+
+    {holder, _backend} = H.hold_row(schema, {:ledger_counter, Fx.ledger_id()})
+    cap = Fx.capability(schema, "receipt", [Fx.leg(["a1"], 2)])
+
+    error =
+      assert_raise Postgrex.Error, fn ->
+        Repo.transaction(fn ->
+          Repo.query!("SET LOCAL lock_timeout = '200ms'")
+          Ledger.post(cap)
+        end)
+      end
+
+    assert error.postgres.code == :lock_not_available
+    assert error.postgres.pg_code == "55P03"
+    assert_receive {:deadlock_detected, _}, 5_000
+
+    # the holder is still open: nothing was committed by the timed-out posting
+    assert Fx.last_seq(schema) == 1
+    assert Fx.count(schema, "ledger_entry") == entries
+    assert Fx.count(schema, "ledger_leg") == legs
+    assert Decimal.eq?(Fx.balance(schema, ["a1"]).on_hand, 1)
+
+    send(holder.pid, :release)
+    Task.await(holder, H.await_ms())
+
+    assert {:ok, %{posting_seq: 2, duplicate: false}} = Fx.post_tx(cap)
+    assert Decimal.eq?(Fx.balance(schema, ["a1"]).on_hand, 3)
   end
 end

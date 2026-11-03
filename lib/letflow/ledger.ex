@@ -42,10 +42,27 @@ defmodule Letflow.Ledger do
   posters on different ledger ids share no counter lock) is mapped to the same refusals; the
   result holds neither the database message nor the constraint name.
 
-  ## Not in this part (REQ-621 part C, L2b, L3)
+  ## Offline fields and event time (part C)
 
-  Offline fields, event time and its lateness cap, and reversal. No live caller exists before
-  slice L3.
+  `device_id`, `client_seq` and `client_event_time` come from the raw command only (so they are
+  part of the `payload_hash`; a retry with other offline values is `idempotency_key_reuse`). A
+  second `client_op_id` that reuses a `(subject, device_id, client_seq)` is `client_seq_conflict`;
+  the unique index is the backstop. `event_time` is the client time or, online, the posting time.
+  It is checked under the counter lock, before the counter is updated: more than 5 minutes after
+  the posting time is `event_time_in_future`, more than `max_event_lateness_hours` before it is
+  `event_time_too_old` (the registration must carry that integer, 1..8760, else
+  `invalid_registration`). A duplicate is answered before this check. The offline columns are in
+  the entry digest.
+
+  ## Unrescued errors
+
+  The only `rescue` is in `insert_entry/2` and maps the three unique violations; everything else
+  propagates and leaves the transaction: lock timeout (55P03), deadlock (40P01), statement timeout
+  (57014) and a CHECK violation (23514, unreachable under the validation; its mapping is slice L3).
+
+  ## Not in this part (L2b, L3)
+
+  Reversal. No live caller exists before slice L3.
 
   ## Pilot gate (note 17, quoted)
 
@@ -83,6 +100,7 @@ defmodule Letflow.Ledger do
   @prefix_form ~r/\Atenant_[0-9a-f]{32}\z/
   @control ~r/[\x00-\x1f\x7f]/
   @limit Decimal.new("1.0E+21")
+  @future_seconds 300
 
   @doc false
   @spec post(Capability.t()) ::
@@ -130,12 +148,29 @@ defmodule Letflow.Ledger do
     subject = ids.subject_id
     op = cap.command.client_op_id
     origin = cap.origin_key
+    device = Map.get(cap.command, :device_id)
+    seq = Map.get(cap.command, :client_seq)
 
-    rows =
+    base =
       from(e in "ledger_entry",
         where:
           (e.subject_id == type(^subject, Ecto.UUID) and e.client_op_id == ^op) or
-            e.origin_key == ^origin,
+            e.origin_key == ^origin
+      )
+
+    query =
+      if is_binary(device) and is_integer(seq) do
+        from(e in base,
+          or_where:
+            e.subject_id == type(^subject, Ecto.UUID) and e.device_id == ^device and
+              e.client_seq == ^seq
+        )
+      else
+        base
+      end
+
+    rows =
+      from(e in query,
         select: %{
           id: type(e.id, Ecto.UUID),
           ledger_id: e.ledger_id,
@@ -144,22 +179,35 @@ defmodule Letflow.Ledger do
           subject_id: type(e.subject_id, Ecto.UUID),
           client_op_id: e.client_op_id,
           origin_key: e.origin_key,
-          payload_hash: e.payload_hash
+          payload_hash: e.payload_hash,
+          device_id: e.device_id,
+          client_seq: e.client_seq
         }
       )
       |> Repo.all(prefix: cap.prefix)
 
     by_key = Enum.find(rows, &(&1.subject_id == subject and &1.client_op_id == op))
     by_origin = Enum.find(rows, &(&1.origin_key == origin))
-    idempotency_decision(by_key, by_origin, payload_hash)
+
+    by_device =
+      is_binary(device) and
+        Enum.find(
+          rows,
+          &(&1.subject_id == subject and &1.device_id == device and &1.client_seq == seq)
+        )
+
+    idempotency_decision(by_key, by_origin, by_device || nil, payload_hash)
   end
 
-  defp idempotency_decision(nil, nil, _hash), do: :none
+  defp idempotency_decision(nil, nil, nil, _hash), do: :none
 
-  defp idempotency_decision(nil, _by_origin, _hash),
+  defp idempotency_decision(nil, nil, _by_device, _hash),
+    do: Validate.refuse(:client_seq_conflict, %{})
+
+  defp idempotency_decision(nil, _by_origin, _by_device, _hash),
     do: Validate.refuse(:idempotency_key_reuse, %{})
 
-  defp idempotency_decision(by_key, by_origin, hash) do
+  defp idempotency_decision(by_key, by_origin, _by_device, hash) do
     cond do
       by_origin != nil and by_origin.id != by_key.id ->
         Validate.refuse(:idempotency_key_reuse, %{})
@@ -225,8 +273,10 @@ defmodule Letflow.Ledger do
 
     units = Map.get(registration, :units)
     units_ok? = units == nil or (is_list(units) and Enum.all?(units, &is_binary/1))
+    lateness = Map.get(registration, :max_event_lateness_hours)
+    lateness_ok? = is_integer(lateness) and lateness in 1..8760
 
-    with true <- slots_ok? and units_ok?,
+    with true <- slots_ok? and units_ok? and lateness_ok?,
          {:ok, bounds} <- check_bounds(Map.get(registration, :key_bounds, []), names) do
       {:ok, bounds}
     else
@@ -400,17 +450,50 @@ defmodule Letflow.Ledger do
       |> Repo.one!(prefix: prefix)
 
     case idempotency(cap, ids, payload_hash) do
-      :none -> write_entry(cap, ids, posting, groups, locked, payload_hash, counter)
+      :none -> post_entry(cap, ids, posting, groups, locked, payload_hash, counter)
       {:duplicate, posted} -> {:ok, posted}
       {:error, _} = error -> error
     end
   end
 
-  defp write_entry(cap, ids, posting, groups, locked, payload_hash, counter) do
+  defp post_entry(cap, ids, posting, groups, locked, payload_hash, counter) do
+    %{rows: [[posting_time]]} = Repo.query!("SELECT clock_timestamp()")
+    event_time = posting.client_event_time || posting_time
+
+    with :ok <- check_event_time(event_time, posting_time, cap.registration) do
+      write_entry(
+        cap,
+        ids,
+        {posting, event_time, posting_time},
+        {groups, locked},
+        payload_hash,
+        counter
+      )
+    end
+  end
+
+  # Under the counter lock, before the counter UPDATE: a refusal writes nothing.
+  defp check_event_time(event_time, posting_time, registration) do
+    oldest = DateTime.add(posting_time, -registration.max_event_lateness_hours * 3600, :second)
+    newest = DateTime.add(posting_time, @future_seconds, :second)
+
+    cond do
+      DateTime.compare(event_time, newest) == :gt -> Validate.refuse(:event_time_in_future, %{})
+      DateTime.compare(event_time, oldest) == :lt -> Validate.refuse(:event_time_too_old, %{})
+      true -> :ok
+    end
+  end
+
+  defp write_entry(
+         cap,
+         ids,
+         {posting, event_time, posting_time},
+         {groups, locked},
+         payload_hash,
+         counter
+       ) do
     prefix = cap.prefix
     ledger_id = posting.ledger_id
-
-    %{rows: [[posting_time]]} = Repo.query!("SELECT clock_timestamp()")
 
     seq = counter.seq + 1
     entry_id = Ecto.UUID.generate()
@@ -429,8 +512,11 @@ defmodule Letflow.Ledger do
       actor_id: ids.actor_id,
       subject_id: ids.subject_id,
       correlation_id: posting.correlation_id || client_op_id,
-      event_time: posting_time,
+      event_time: event_time,
       posting_time: posting_time,
+      device_id: posting.device_id,
+      client_seq: posting.client_seq,
+      client_event_time: posting.client_event_time,
       client_op_id: client_op_id,
       origin_key: cap.origin_key,
       payload_hash: payload_hash,
@@ -458,7 +544,7 @@ defmodule Letflow.Ledger do
 
     with :ok <- insert_entry(prefix, entry_row) do
       write_legs_and_balances(
-        {prefix, ledger_id, seq, posting_time},
+        {prefix, ledger_id, seq, {event_time, posting_time}},
         {entry_id, chain_hash},
         {posting, groups, locked, leg_maps}
       )
@@ -466,7 +552,7 @@ defmodule Letflow.Ledger do
   end
 
   defp write_legs_and_balances(
-         {prefix, ledger_id, seq, posting_time},
+         {prefix, ledger_id, seq, {event_time, posting_time}},
          {entry_id, chain_hash},
          {posting, groups, locked, leg_maps}
        ) do
@@ -478,7 +564,7 @@ defmodule Letflow.Ledger do
           entry_id: Ecto.UUID.dump!(entry_id),
           ledger_id: ledger_id,
           posting_seq: seq,
-          event_time: posting_time,
+          event_time: event_time,
           leg_no: leg.leg_no,
           quantity: leg.quantity,
           unit_ref: leg.unit_ref,
