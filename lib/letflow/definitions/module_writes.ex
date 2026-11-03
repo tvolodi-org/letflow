@@ -34,6 +34,14 @@ defmodule Letflow.Definitions.ModuleWrites do
   imported, promoted or rolled-back copy of a stamped version has NO stamp, so its handler
   lines are refused with `:module_write_stamp_missing`.
 
+  ## Posting lines (REQ-684, decision 0073 A2)
+
+  A line whose handler registers `posts_ledger` is a posting line. A node with more than two of them
+  is refused (`module_writes_too_many_ledger_postings`, once, at the third), a posting line whose
+  ledger ids meet those of an earlier posting line is refused
+  (`module_writes_duplicate_ledger_posting`), and any posting line on a `SERVICE_TASK` is refused
+  (`module_writes_ledger_on_service_task`). These are activation-only checks in `violations/6`.
+
   ## Hashes
 
   The stamp and installed hashes are compared here and never returned: a violation carries a
@@ -124,16 +132,17 @@ defmodule Letflow.Definitions.ModuleWrites do
 
     activator_node_codes = if is_list(writes), do: activator_codes, else: []
 
-    {line_violations, cap_violations} =
+    {line_violations, cap_violations, ledger_violations} =
       if is_list(writes) and node_type in @node_types do
         {line_violations(writes, definition, entity_write_count, prefix),
-         cap_violations(writes, entity_write_count)}
+         cap_violations(writes, entity_write_count),
+         ledger_violations(node_type, writes, entity_write_count)}
       else
-        {[], []}
+        {[], [], []}
       end
 
     Enum.map(node_codes ++ activator_node_codes, &%{index: 0, code: &1}) ++
-      cap_violations ++ line_violations
+      cap_violations ++ line_violations ++ ledger_violations
   end
 
   @doc """
@@ -163,6 +172,68 @@ defmodule Letflow.Definitions.ModuleWrites do
       do: [%{index: @max_lines, code: :entity_writes_too_many_lines}],
       else: []
   end
+
+  # REQ-684 (decision 0073 A2, D-L12): the activation checks for posting lines, i.e. lines whose
+  # handler registers `posts_ledger`. Compiled manifests only, no database read. A line that does
+  # not resolve is reported by `line_violations/4` already (unknown handler) and counts as a
+  # non-posting line here. Activation only: the run-time two-posting check belongs to the posting
+  # path (slice L3b), so `line_violations/4` stays shared and unchanged.
+  defp ledger_violations(node_type, writes, entity_write_count) do
+    posting =
+      writes
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {line, index} ->
+        case posting_ledger_ids(line) do
+          nil -> []
+          ids -> [{entity_write_count + index, ids}]
+        end
+      end)
+
+    too_many =
+      case posting do
+        [_first, _second, {index, _ids} | _rest] ->
+          [%{index: index, code: :module_writes_too_many_ledger_postings}]
+
+        _within_limit ->
+          []
+      end
+
+    duplicates =
+      posting
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {{index, ids}, position} ->
+        earlier = posting |> Enum.take(position) |> Enum.flat_map(&elem(&1, 1))
+
+        if Enum.any?(ids, &(&1 in earlier)),
+          do: [%{index: index, code: :module_writes_duplicate_ledger_posting}],
+          else: []
+      end)
+
+    on_service_task =
+      if node_type == :SERVICE_TASK,
+        do:
+          for(
+            {index, _ids} <- posting,
+            do: %{index: index, code: :module_writes_ledger_on_service_task}
+          ),
+        else: []
+
+    too_many ++ duplicates ++ on_service_task
+  end
+
+  # The ledger ids of a well-formed posting line, or nil for any other line.
+  defp posting_ledger_ids(%{"module" => module, "handler" => handler} = line)
+       when is_binary(module) and is_binary(handler) and not is_struct(line) do
+    with {:ok, %{posts_ledger: name}} when is_binary(name) <-
+           Catalog.write_handler(module, handler),
+         {:ok, %{ledger_ids: ids}} <- Catalog.fetch_ledger(module, name) do
+      ids
+    else
+      _ -> nil
+    end
+  end
+
+  defp posting_ledger_ids(_line), do: nil
 
   # ── stamp-level state, resolved ONCE per node ────────────────────────────────────────────
 
