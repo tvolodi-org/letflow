@@ -52,6 +52,7 @@ defmodule Letflow.Modules.Catalog do
   alias Letflow.Api.Authorization
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.ScopeDeclaration
+  alias Letflow.Modules.LedgerRegistration
   alias Letflow.Modules.ManifestHash
   alias Letflow.Modules.Module
   alias Letflow.Modules.Step
@@ -79,14 +80,15 @@ defmodule Letflow.Modules.Catalog do
     """
 
     @enforce_keys [:module_id, :name, :entry_module, :targets, :args]
-    defstruct [:module_id, :name, :entry_module, :targets, :args]
+    defstruct [:module_id, :name, :entry_module, :targets, :args, posts_ledger: nil]
 
     @type t :: %__MODULE__{
             module_id: String.t(),
             name: String.t(),
             entry_module: module(),
             targets: [String.t()],
-            args: %{String.t() => %{required: boolean()}}
+            args: %{String.t() => %{required: boolean()}},
+            posts_ledger: String.t() | nil
           }
   end
 
@@ -224,7 +226,8 @@ defmodule Letflow.Modules.Catalog do
          name: name,
          entry_module: entry,
          targets: Enum.sort(spec.targets),
-         args: spec.args
+         args: spec.args,
+         posts_ledger: spec.posts_ledger
        }, spec.function}
     else
       _ -> :error
@@ -249,6 +252,31 @@ defmodule Letflow.Modules.Catalog do
       :error -> {:error, :not_found}
     end
   end
+
+  @doc """
+  The ledger registration `registration_name` of module `module_id` (REQ-684, decision 0073),
+  in the plain-data shape `Letflow.Ledger.post/1` reads (`LedgerRegistration.to_plain/1`). Resolution
+  is binary comparison against the compiled manifest list only (no atom is created): exactly one
+  entry carries the id, rule 18 is re-validated for its manifest, and the name is a key of `:ledger`.
+  Anything else, including a non-binary argument, is `{:error, :not_found}` (fail closed).
+  """
+  @spec fetch_ledger(module_id :: term(), registration_name :: term()) ::
+          {:ok, map()} | {:error, :not_found}
+  def fetch_ledger(module_id, registration_name)
+      when is_binary(module_id) and is_binary(registration_name) do
+    entries = entry_modules()
+
+    with [entry] <- Enum.filter(entries, fn e -> e.manifest().id == module_id end),
+         manifest = entry.manifest(),
+         :ok <- LedgerRegistration.validate(manifest, all_manifests(), entry),
+         %{^registration_name => registration} <- Map.get(manifest, :ledger) do
+      {:ok, LedgerRegistration.to_plain(registration)}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def fetch_ledger(_module_id, _registration_name), do: {:error, :not_found}
 
   @doc """
   Whether module `module_id` registered an import function for `entity_type` (REQ-651). Resolution
@@ -465,6 +493,15 @@ defmodule Letflow.Modules.Catalog do
   boolean `lossy`, non-nil `up` and `down`, strict semver `from` and `to` with `to` higher than `from`
   and unique ids, else `{:invalid_migrations, value}` (the whole `:migrations` value). Absent and
   `[]` are valid. Shape only; none of these is part of the manifest hash.
+
+  Rule 18 (REQ-684, decision 0073; the words "rule 12" in that decision and in the design note mean
+  this rule, written before rules 12 to 17 existed) runs after rule 17, the last rule: the optional
+  `:ledger` key, a map of registration name to ledger registration, validated by
+  `Letflow.Modules.LedgerRegistration.validate/3`. Errors are
+  `{:invalid_ledger_registration, name, reason}` with one closed reason per check (see that module).
+  Absent is valid. The manifest hash covers `:ledger` only when present. Rule 10 also gains
+  `{:write_handler_ledger_missing, handler_name}`: a handler whose `posts_ledger` names no
+  registration of the same manifest.
   """
   @spec validate(Module.manifest(), [Module.manifest()]) :: :ok | {:error, {atom(), term()}}
   def validate(manifest, known_manifests) do
@@ -490,7 +527,7 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_version(manifest),
          :ok <- validate_min_upgradable_from(manifest),
          :ok <- validate_migrations(manifest) do
-      :ok
+      LedgerRegistration.validate(manifest, known_manifests, entry_module)
     end
   end
 
@@ -837,7 +874,8 @@ defmodule Letflow.Modules.Catalog do
         with :ok <- check_handler_shapes(handlers),
              :ok <- check_handler_names_unique(handlers),
              :ok <- check_handler_module_id(manifest),
-             :ok <- check_handler_managed_types(manifest, handlers) do
+             :ok <- check_handler_managed_types(manifest, handlers),
+             :ok <- check_handler_ledger(manifest, handlers) do
           check_handler_targets_and_code(manifest, handlers, entry_module)
         end
     end
@@ -877,6 +915,23 @@ defmodule Letflow.Modules.Catalog do
       [_ | _] -> :ok
       _ -> {:error, {:write_handler_without_managed_types, first.name}}
     end
+  end
+
+  # REQ-684: a posting handler names a registration of the same manifest's `:ledger` map.
+  defp check_handler_ledger(manifest, handlers) do
+    ledger = Map.get(manifest, :ledger)
+
+    Enum.find_value(handlers, :ok, fn handler ->
+      case handler.posts_ledger do
+        nil ->
+          nil
+
+        name ->
+          if is_map(ledger) and not is_struct(ledger) and Map.has_key?(ledger, name),
+            do: nil,
+            else: {:error, {:write_handler_ledger_missing, handler.name}}
+      end
+    end)
   end
 
   defp check_handler_targets_and_code(manifest, handlers, entry_module) do

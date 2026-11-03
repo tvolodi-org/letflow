@@ -74,7 +74,9 @@ defmodule Letflow.Modules.CatalogTest do
                # GH #2540
                Letflow.Modules.FixtureDdlFailing,
                # REQ-574
-               Letflow.Modules.FixturePoints
+               Letflow.Modules.FixturePoints,
+               # REQ-684
+               Letflow.Modules.FixtureLedgerPost
              ]
     end
 
