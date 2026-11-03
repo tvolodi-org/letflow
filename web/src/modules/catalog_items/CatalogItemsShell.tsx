@@ -17,13 +17,13 @@ export function useLotRows(
   type: string,
   scope: string,
   filters: EntityQueryFilterClause[],
-  options: { sortField?: string; enabled?: boolean } = {},
+  options: { sortField?: string; sortDir?: 'asc' | 'desc'; enabled?: boolean } = {},
 ): UseQueryResult<EntityRecord[]> {
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   return useQuery({
     queryKey: catalogItemsQueryKeys.list(tenantId, type, scope),
-    queryFn: () => fetchAllRecords(type, filters, options.sortField),
+    queryFn: () => fetchAllRecords(type, filters, options.sortField, options.sortDir),
     enabled: options.enabled ?? true,
     placeholderData: keepPreviousData,
     retry: false,

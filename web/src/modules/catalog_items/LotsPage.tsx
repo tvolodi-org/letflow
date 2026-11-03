@@ -22,6 +22,13 @@ type ExpirySort = 'none' | 'asc' | 'desc'
 
 const ACTIVE_TRUE: EntityQueryFilterClause = { field: 'active', op: 'eq', value: true }
 
+/** "CODE - Name" label for an item row; trailing " - " is stripped when name is empty. */
+function itemLabel(r: EntityRecord): string {
+  const code = textOf(r, 'code')
+  const name = textOf(r, 'name')
+  return name ? `${code} - ${name}` : code
+}
+
 function LotsInner() {
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
@@ -48,7 +55,8 @@ function LotsInner() {
   ]
   const lotScope = `item:${selectedItem}|retired:${String(showRetired)}|sort:${expirySort}`
   const sortField = expirySort === 'none' ? 'code' : 'expiry_date'
-  const lotsQuery = useLotRows(CATALOG_LOT, lotScope, lotFilters, { sortField })
+  const sortDir = expirySort === 'desc' ? 'desc' : 'asc'
+  const lotsQuery = useLotRows(CATALOG_LOT, lotScope, lotFilters, { sortField, sortDir })
   const lots = lotsQuery.data ?? []
 
   const itemById = new Map(allItems.map((r) => [r.record_id, r]))
@@ -115,7 +123,7 @@ function LotsInner() {
         value={selectedItem}
         options={activeItems.map((r) => ({
           value: r.record_id,
-          label: `${textOf(r, 'code')} - ${textOf(r, 'name')}`.replace(/ - $/, textOf(r, 'code')),
+          label: itemLabel(r),
         }))}
         placeholder={t('catalog_items.common.choose')}
         onChange={setSelectedItem}
@@ -148,7 +156,7 @@ function LotsInner() {
             value={createForm.item_id}
             options={activeItems.map((r) => ({
               value: r.record_id,
-              label: `${textOf(r, 'code')} - ${textOf(r, 'name')}`.replace(/ - $/, textOf(r, 'code')),
+              label: itemLabel(r),
             }))}
             placeholder={t('catalog_items.common.choose')}
             onChange={(v) => setCreateForm((f) => ({ ...f, item_id: v }))}

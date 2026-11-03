@@ -41,13 +41,14 @@ export async function fetchAllRecords(
   type: string,
   filters: EntityQueryFilterClause[],
   sortField = 'code',
+  sortDir: 'asc' | 'desc' = 'asc',
 ): Promise<EntityRecord[]> {
   const out: EntityRecord[] = []
   let cursor: string | undefined
   for (let page = 0; page < MAX_PAGES; page++) {
     const res = await entitiesApi.queryRecords(type, {
       filters,
-      sort: [{ field: sortField, dir: 'asc' }],
+      sort: [{ field: sortField, dir: sortDir }],
       page_size: 200,
       ...(cursor ? { cursor } : {}),
     })

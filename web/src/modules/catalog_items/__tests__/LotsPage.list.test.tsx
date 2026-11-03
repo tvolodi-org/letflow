@@ -92,13 +92,11 @@ describe('L1 list', () => {
       ).toBe(true),
     )
     fireEvent.click(screen.getByTestId('expiry-sort-toggle'))
-    await waitFor(() =>
-      expect(
-        queryBodies(clientMock, 'catalog_lot').some(
-          (b) => JSON.stringify(b['sort']) === JSON.stringify([{ field: 'expiry_date', dir: 'asc' }]),
-        ),
-      ).toBe(true),
-    )
+    await waitFor(() => {
+      const bodies = queryBodies(clientMock, 'catalog_lot')
+      const last = bodies[bodies.length - 1]
+      expect(JSON.stringify(last?.['sort'])).toBe(JSON.stringify([{ field: 'expiry_date', dir: 'desc' }]))
+    })
   })
 
   it('no write calls are made just from loading the list', async () => {
