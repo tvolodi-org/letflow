@@ -48969,3 +48969,232 @@ requirements:
       - "The asset card state after a reversal and the refusal when the card has moved since: design questions for item C1 (criterion 7)."
       - "The asset register entry of item C1 does not exist yet; when it does, an amendment adds it to depends_on."
     depends_on: [REQ-616, REQ-620, REQ-621, REQ-643, REQ-644, REQ-647, REQ-648, REQ-676, REQ-679]
+
+  - id: REQ-700
+    title: "Assets B5 counts K1: the count order with its commission in module stock: order, scope and commission record types scoped by org unit, the four count document types registered, create, edit, issue with the linked-pair, overlap and duration checks, cancel, and two read routes (decision 0079 sections 1 to 4, split plan row C2)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-687 -- the count order lives in module stock, which slice L4 creates
+    description: >
+      Phase B item B5 of the assets and stock application (the stock register; owner decisions D-061, D-062, D-065,
+      D-067, D-085 "build it fast"), first implementing requirement of the counts decision record
+      docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680, Status PROPOSED), its split plan row C2
+      ("document types and the count order"). This entry follows 0079 sections 1 (place and shape), 2 (states), 3
+      (commission), 4 (count scope; the overlap rule only) and 9 (access); the phase B documents it follows are 0079,
+      docs/assets/stock-workflow-documents.md (REQ-679, item B4: section 1.3 plain tables, 9.3 access) and decision
+      0078 (REQ-681, item B2: D5 documents fixed once issued, D8 audit trail).
+
+      WHAT IS BUILT (one change, backend only, module stock of slice L4, REQ-687, lib/letflow/modules/stock/).
+      (1) Three module-managed record types in the stock module's pack (modules/stock/pack.json under priv/modules/,
+      created by this change if slice L4 or the stock document foundation of item B4 has not created it, otherwise
+      extended), each listed in manages_entity_types and declared {:column, "org_unit_id"} in scope_declarations (D-067,
+      decision 0076 R7: documents scoped by org unit), activated in on_install/3 with
+      Letflow.Modules.EntityActivation.activate_and_promote/3 as module codes does (lib/letflow/modules/codes/codes.ex):
+      count_order (the header: org_unit_id, kind full or selective, planned_start, planned_end, chair_employee_id, note,
+      status, document_id, number, issued_at, issued_by, cancelled_at, cancelled_by, and the fields cut_off_at and
+      cutoff_seq that REQ-701 fills), count_order_scope (one row per location subtree root: count_order_id, location_id,
+      org_unit_id copied from the header) and count_commission_member (one row per member: count_order_id,
+      employee_id, org_unit_id copied from the header). The generic entity routes then answer 403 entity_type_managed
+      for writes, as for the phase A module types. (2) The four document types of 0079 section 1 registered in
+      on_install/3 through Letflow.Documents.register_type/3 (lib/letflow/documents.ex) with keys count.order,
+      count.sheet, count.differences and count.posting, owner_module stock, numbering_scope :year, legal_entity_required
+      false and declared_fields %{}, as module procurement registers purchase_request
+      (lib/letflow/modules/procurement/procurement.ex). Only count.order is issued by this entry; count.sheet is issued
+      by REQ-701, the other two by the later B5 entries. (3) The write functions in a new file
+      lib/letflow/modules/stock/counts.ex (create, update, issue, cancel) and the routes of criterion 7.
+
+      STATES. The status field holds the closed list of 0079 section 2: draft, ordered, counting, counted, signed,
+      posted, cancelled. This entry moves draft to ordered (issue) and any of draft, ordered, counting, counted to
+      cancelled; REQ-701 adds ordered to counting and counting to counted; the later B5 entries add signed and posted.
+      A write that does not match the current status is refused with the one reason count_state_invalid.
+
+      DECIDED HERE as the simplest reasonable defaults (0079 leaves them open or names them only as proposals; each is
+      "UAT assumption, to be confirmed by the process owner", marked "assumption, owner may change at GATE B" as owner
+      decisions D-086 and D-087 ask): an order has exactly one org unit (0079 section 9: "scoped by the order's org
+      unit"), and its scope is one or more location subtree roots, each linked to that org unit; kind full means the
+      roots together cover every location linked to the org unit, kind selective has no such check (0079 does not
+      define selective); the chair must have a user link, because the chair opens, closes and cancels in Letflow (0079
+      sections 2 and 9), while a member without a user link is allowed and signs on paper (0079 section 3); no minimum
+      number of members beyond the chair (0079 section 12 question 2 default); the planned duration is at most 96 hours
+      (0079 section 8, count_too_long, because the differences must post within the 96-hour lateness cap of 0073 D-T);
+      the number prefixes of the four document types are CO, CS, CD and CP with number_pad 4.
+
+      ACCESS. Two new permission atoms in the stock manifest: StockCountOrder (create, update, issue, cancel) and
+      StockCountRecord (used by REQ-701; declared here so the manifest version moves once). The read routes use the
+      existing L4 atom StockRead. role_grants stays %{} (as REQ-687 decides for OQ-11): only TENANT_ADMIN holds them
+      (and PLATFORM_ADMIN through the platform clause of lib/letflow/api/authorization.ex); the role proposal of 0079
+      section 9 is the open owner question 3 of its section 12. No step needs PLATFORM_ADMIN and no tenant user is
+      granted it (docs/roles.md). On top of the permission, cancel requires the caller to be the chair: the caller's
+      employee record is found with Letflow.Modules.Org.employee_for_user/2 (lib/letflow/modules/org/org.ex) and must
+      be the order's chair_employee_id. A count order whose org unit is outside the caller's grant answers exactly as an
+      unknown id (INV-5; Letflow.Api.Scope.allowed?/3, lib/letflow/api/scope.ex).
+
+      NOT IN THIS ENTRY. The cut-off, the book quantities, the count sheet and typed input (REQ-701); the freeze of
+      postings inside an open count's scope (0079 section 4, split plan row C7: count_in_progress in the stock document
+      write path of item B4; no requirement is written for it yet); keyboard-scanner input, the differences sheet, its
+      signing and posting, the xlsx paperwork with signer lines (the later B5 entries, 0079 rows C1, C4 to C6); the web
+      screens (REQ-702); Inventory Object lines (no Inventory Object type exists yet, B4 section 11 question 5); scoped
+      posting (slice L6, assumption, owner may change at GATE B).
+
+      Storage and data (D-066). The three types are plain record types with real fields, no blob; every master
+      reference (org unit, location, employee) is a record id checked in code (decision 0076 R6), the count_order_id of
+      the two child types is the reference inside the pack. No migration and no tenant table: the types are module
+      pack types. Auto-CD to QA changes no row: the stock module is installed on no tenant (pilot gate of 0073, quoted
+      in REQ-687).
+
+      Pins (stated as moves from the value on origin/main at implement time; numbers are today's examples): seven new
+      tenant routes without scope: test/fixtures/route_scope/tenant_wide_default_routes.txt gains 7 lines and the
+      length(snapshot) == N pins in test/letflow/api/route_scope_resolver_test.exs,
+      test/letflow/api/route_scope_self_service_test.exs and test/letflow/api/tasks_route_classes_test.exs move by +7
+      (191 today, before slice L4 adds 3); priv/permission_matrix/effective.golden is regenerated with mix
+      letflow.permission_matrix --write after the last merge of origin/main (two atoms, held by the two admin roles);
+      the stock module version moves by one minor step. Tests run on fresh tenants only: each test provisions its own
+      tenant and installs org, locations, catalog_items and stock in it; no test reads QA or seeded data.
+
+      Speed (assumption, owner may change at GATE B, owner decisions D-086 and D-087): a list page answers in under 300
+      ms at the volumes of the speed test of decision 0073 A9 (stock register 3,000,000 entries, 1,000,000 balance
+      rows); this entry adds no number of its own and no speed test.
+    acceptance_criteria:
+      - "1. Registration (test file test/letflow/modules/stock/counts_registration_test.exs): the stock manifest (lib/letflow/modules/stock/stock.ex) lists count_order, count_order_scope and count_commission_member in manages_entity_types, declares each {:column, \"org_unit_id\"} in scope_declarations, adds the permissions StockCountOrder and StockCountRecord, keeps role_grants %{}, and Catalog.validate/1 returns :ok for it. After installing the stock module on a fresh tenant, the three types are active, a write to each of them through the generic entity routes answers 403 entity_type_managed, and Letflow.Documents has the four types count.order, count.sheet, count.differences and count.posting with owner_module stock, numbering_scope :year and legal_entity_required false; installing a second time is a no-op (register_type/3 of an equal type)."
+      - "2. Create and update a draft (test file test/letflow/modules/stock/counts_test.exs): Letflow.Modules.Stock.Counts.create/3 stores a count_order with status draft and its scope and commission rows; the input is org_unit_id, kind (full or selective), planned_start and planned_end (ISO 8601 with offset, stored in UTC), chair_employee_id, member_employee_ids (a list, may be empty), location_ids (the subtree roots, at least one) and note (optional). update/4 replaces the whole draft: every field and the full lists of roots and members are sent again, and rows no longer listed are removed; it is refused count_state_invalid unless the order is a draft. Refusals, each with nothing stored or changed: an unknown key (field_not_allowed), a missing or malformed field (field_invalid), an org_unit_id for which Letflow.Modules.Org.lookup/2 does not return a record with entity_type org_unit and active true (the check that Letflow.Modules.Locations uses in unit_active?) as org_unit_inactive, an empty location_ids list or a duplicate root as field_invalid, a chair or member that is not an active employee (Letflow.Modules.Org.active_employee?/2) as employee_inactive, a chair whose employee record has no user_id as chair_without_user, a member listed twice or equal to the chair as field_invalid. A test covers each refusal."
+      - "3. Issue (same test file): issue/3 checks, in this order, with nothing issued, no number allocated and the order left a draft on any refusal: status draft (count_state_invalid); every root linked to the order's org unit by Letflow.Modules.Locations.linked?/3, else count_scope_not_linked; no root inside the subtree of another root of the same order (Letflow.Modules.Locations.descendant_ids/2), else count_scope_overlaps; for kind full, every location of Letflow.Modules.Locations.location_ids_for_org_unit/2 is a root or a descendant of a root, else count_scope_incomplete; planned_end after planned_start and at most 96 hours after it, else count_too_long; the chair and every member still active employees and the chair still with a user_id (the refusals of criterion 2). Then, in one transaction, a count.order document is created with Letflow.Documents.create_draft/3 (issuing_org_unit_id the order's org unit, content the order's fields, roots and members) and issued with Letflow.Documents.issue/2, and the order gets status ordered, document_id, number, issued_at and issued_by. A test forces a refusal of issue/2 and sees the order still a draft with no document number taken."
+      - "4. Overlap of two open counts (WM-13, 0079 section 4; same test file): issue is refused count_scope_overlaps when another count order of the same org unit with status ordered, counting, counted or signed has a root equal to a root of this order, or a root inside its subtree, or a subtree containing one of its roots; an order of another org unit, or a cancelled or posted order, does not block. Issue takes a transaction-scoped Postgres advisory lock derived from the tenant schema name and the org unit id before this check, so two concurrent issues of overlapping orders of one org unit end with exactly one ordered and the other refused count_scope_overlaps; a test runs the two issues in two processes on a committed fresh tenant (not the shared sandbox) and asserts that outcome."
+      - "5. Cancel (same test file): cancel/3 moves an order in draft, ordered, counting or counted to cancelled with cancelled_at and cancelled_by, and is refused count_state_invalid from signed, posted and cancelled (0079 section 2: cancel only before the differences sheet is signed; the states after ordered are set directly in the test, since REQ-701 and the later B5 entries build the moves). The caller must be the chair: Letflow.Modules.Org.employee_for_user/2 for the caller's user id must return the order's chair_employee_id, else not_chair. An issued count.order document stays issued and unchanged after cancel (0056 D4; 0078 D5)."
+      - "6. Audit and fixed documents (decision 0078 D8; same test file): create, update, issue and cancel each write one audit entry through Letflow.Audit with the actions stock.count_order.created, stock.count_order.updated, stock.count_order.issued and stock.count_order.cancelled, the order's record id and status, and no field value beyond ids; a refused write writes no audit entry. After issue, no write function changes any field of the order, its scope rows or its commission rows except status and the cancel fields; a test calls update/4 on an ordered order and gets count_state_invalid."
+      - "7. Routes (router lib/letflow/modules/stock/router.ex; test file test/letflow/modules/stock/counts_router_test.exs through Letflow.Router with real bearer tokens): POST /api/v1/modules/stock/counts (StockCountOrder, 201 with the order), PUT /api/v1/modules/stock/counts/:id (StockCountOrder, 200), POST /api/v1/modules/stock/counts/:id/issue (StockCountOrder, 200), POST /api/v1/modules/stock/counts/:id/cancel (StockCountOrder, 200), GET /api/v1/modules/stock/counts (StockRead; query keys status, org_unit_id, limit and cursor, a closed set; rows ordered by planned_start descending, then id), GET /api/v1/modules/stock/counts/:id (StockRead; the order with its roots, its commission and its status), and GET /api/v1/modules/stock/counts/:id/document (StockRead; the issued count.order version: number label, version_no, issued_at and content_hash, no bytes). Each route name and permission is listed in route_policies. A refusal atom is 422 with extensions.reason the atom name and an unknown or malformed id is 404, as Letflow.Modules.Codes.Router renders them (lib/letflow/modules/codes/router.ex, render/3)."
+      - "8. Tenancy and scope (INV-1, INV-2, INV-5, INV-10; same router test file): the tenant comes only from the token, never from a path, query or body value. (a) A count order of tenant B asked for by id with a token of tenant A answers 404 with the same body as an unknown id (decoded JSON compared with trace_id dropped first, as the strip/1 helper of test/letflow/modules/codes/router_test.exs does), and the list of tenant A never shows it. (b) A TENANT_ADMIN whose grant covers org unit X but not Y (Letflow.Support.ScopedGrantsFixture, test/support/scoped_grants_fixture.ex) gets 404 with the unknown-id body for every by-id route of an order of Y, and the list shows orders of X only. (c) A tenant user without StockCountOrder gets 403 on the four write routes; one without StockRead gets 403 on the three read routes. No role other than TENANT_ADMIN holds the two new atoms (the golden shows them for TENANT_ADMIN and PLATFORM_ADMIN only)."
+      - "9. Gate and scope: the change is a tenant-data-path and authorization change (new routes, new permissions, scoped record types) and passes a SECURITY-REVIEWER gate as a stated step; the verdict and its evidence are quoted in the PR. The diff adds no migration, no tenant table, no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no ledger posting, no seed and no installation of the stock module on any tenant. The pins of the description move by the counts stated there; mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static and mix letflow.check_requirements_registration pass, and the new test files pass (real output quoted in the PR)."
+    open_questions:
+      - "The defaults of the description (one org unit per order, kind full and selective, the chair must have a user link, no minimum number of members, the 96-hour planned duration, number prefixes CO, CS, CD, CP): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+      - "Which roles hold StockCountOrder and StockCountRecord (0079 section 12 question 3): no role grant here; the role proposal of 0079 section 9 is a widening of access for the owner."
+      - "The freeze check of 0079 section 4 (split plan row C7, count_in_progress) and the signature slice (row C1) have no requirement entry yet; until the freeze is built, a stock posting inside an open count's scope is not refused."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-687, REQ-680, REQ-642, REQ-643, REQ-644, REQ-645, REQ-646, REQ-649, REQ-674, "the stock document foundation entry of item B4 (docs/assets/stock-workflow-documents.md, written by phase B task P32), if it creates the stock module's pack first"]
+
+  - id: REQ-701
+    title: "Assets B5 counts K2: open a count at the cut-off, build the count sheet from the book quantities as of the cut-off, record counted quantities by typing, add surplus lines, keep an append-only entry log, and close counting by issuing the count sheet (decision 0079 sections 4 to 6, split plan row C3)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-700 -- the count sheet hangs on the count order of REQ-700
+    description: >
+      Phase B item B5 of the assets and stock application, second implementing requirement of decision 0079
+      (docs/migration/decisions/0079-counts-inventory-taking.md, REQ-680), split plan row C3 ("cut-off book quantities
+      and the count sheet with typed input"). It follows 0079 sections 2 (states counting and counted), 4 (cut-off and
+      book quantity), 5 (line shapes 1 and 3; typed input) and 6 (entry log, typed number replaces), and decision 0078
+      (REQ-681, item B2) D2 (balance as of a date read on the as-of event-time basis together with a cut-off
+      posting_seq) and D8 (audit trail). Backend only, module stock (lib/letflow/modules/stock/counts.ex and the stock
+      router of REQ-700).
+
+      WHAT IS BUILT. (1) Two more module-managed record types in the stock module's pack, each in manages_entity_types
+      and declared {:column, "org_unit_id"} (D-067): count_sheet_line (count_order_id, line_no, kind stock or surplus,
+      org_unit_id, location_id, responsible_employee_id, catalog_item_id, catalog_lot_id, unit_ref, book_quantity,
+      counted_quantity; quantities decimal fields with decimal_strict true, as B4 section 1.3 asks) and count_entry (the
+      append-only entry log: count_order_id, line_no, org_unit_id, method typed, quantity_before, quantity_after,
+      entered_by, entered_by_employee_id, entered_at from the server clock). (2) Open: the chair opens an ordered count;
+      the cut-off time is the server time of the open (0079 section 4). The book quantities are read with
+      Letflow.Ledger.authorize/3 (the caller's conn, ledger stock, :read) and Letflow.Ledger.balances/4 (REQ-637) on the
+      basis {:event_time, cut_off_at, N}: the first read uses :latest for N and every later read of the same open uses
+      the cutoff_seq that the first report returned, so all lines rest on one (cut_off_at, N) pair (decision 0078 D2:
+      the same pair gives the same numbers on every later read). The reads are one per location of the scope (each root
+      and its Letflow.Modules.Locations.descendant_ids/2) with the filters org_unit (the order's org unit) and location,
+      each followed through next_cursor to the end; every balance key with a non-zero quantity becomes one stock line
+      (0079 section 5 line shape 1: the slots OrgUnit, Location, Responsible, SKU, Lot of the stock register with book
+      quantity and unit). (3) Typed input: a commission member or the chair replaces the counted quantity of a line
+      (0079 section 6: a typed number replaces; the replaced value stays in the entry log). (4) Surplus line: a key
+      found that is not on the book is added with book quantity 0 (0079 section 5 line shape 3). (5) Close counting:
+      the chair closes; the count sheet is issued as a count.sheet document (registered by REQ-700) and the order moves
+      to counted.
+
+      DECIDED HERE as the simplest reasonable defaults (UAT assumption, to be confirmed by the process owner;
+      assumption, owner may change at GATE B, owner decisions D-086 and D-087): the open is allowed from planned_start
+      (server time) to planned_end of the order; a line not yet counted has counted_quantity empty, and close counting
+      is refused while one stock line is uncounted (the commission types 0 for an item it did not find); the book
+      quantity is shown to the commission on the sheet (0079 does not ask for a blind count); the cut-off time and the
+      times on the sheet are stored in UTC and shown in the tenant time zone, default Asia/Almaty (assumption, owner may
+      change at GATE B); keys with a zero book quantity get no line.
+
+      PHASE B LIMIT. Ledger.authorize/3 answers :error for a scoped principal or an API token until the B6 read slice
+      (REQ-682; REQ-687 criterion 8), so in phase B only a tenant-wide caller (TENANT_ADMIN) can open a count; the open
+      is then refused 404 like every stock read route, and this entry states that limit instead of working around it.
+
+      NOT IN THIS ENTRY. The freeze of postings inside the scope (0079 row C7, count_in_progress; until it is built, a
+      posting after the cut-off does not change the book quantities of the sheet, because they are read at (cut_off_at,
+      N), but it does change the current balance); keyboard-scanner input and its Letflow.Modules.Codes.resolve/2 path,
+      no double counting of Inventory Objects (row C4); signing of the sheet, the differences sheet and their posting
+      (rows C1, C5, C6); the xlsx paperwork with signer lines; Inventory Object lines (no Inventory Object type exists
+      yet, B4 section 11 question 5; 0079 line shape 2 waits for it); the web screen (REQ-702).
+
+      Pins (moves from origin/main at implement time; today's numbers are examples): seven new tenant routes without
+      scope move test/fixtures/route_scope/tenant_wide_default_routes.txt by 7 lines and the three length(snapshot) == N
+      pins named in REQ-700 by +7; no new permission atom (StockCountRecord and StockRead are declared by REQ-700 and
+      REQ-687), so priv/permission_matrix/effective.golden does not change; the stock module version moves by one
+      minor step. No migration, no tenant table. Tests run on fresh tenants only, and post their book stock through the
+      test helpers of test/support/ledger_fixture.ex with the stock registration, as REQ-687 does, until the stock
+      documents of item B4 exist.
+
+      Speed (assumption, owner may change at GATE B): a balance as of a date answers in under 1 s and a list page in
+      under 300 ms at the volumes of the speed test of decision 0073 A9; this entry adds no number of its own.
+    acceptance_criteria:
+      - "1. Registration (test file test/letflow/modules/stock/counts_registration_test.exs of REQ-700): count_sheet_line and count_entry are in manages_entity_types, each declared {:column, \"org_unit_id\"}; book_quantity, counted_quantity, quantity_before and quantity_after are decimal fields with decimal_strict true; a write to either type through the generic entity routes answers 403 entity_type_managed."
+      - "2. Open (test file test/letflow/modules/stock/count_sheet_test.exs): Letflow.Modules.Stock.Counts.open/3 on an ordered count, by the chair (Letflow.Modules.Org.employee_for_user/2 of the caller returns chair_employee_id, else not_chair), at a server time from planned_start to planned_end (else count_not_due), sets cut_off_at to the server time, cutoff_seq to the N of criterion 3, status counting, and creates the stock lines of criterion 3, numbered from 1 in the order location id, sku, lot, responsible; any other status is count_state_invalid. The write is one transaction that re-reads the order under a row lock and refuses count_state_invalid if it is no longer ordered, so two concurrent opens leave exactly one set of lines (a test on a committed fresh tenant runs two opens in two processes)."
+      - "3. Book quantities as of the cut-off (decision 0078 D2; same test file): with balances posted through test/support/ledger_fixture.ex on a fresh tenant, the stock lines are exactly the balance keys of the order's org unit whose location is a root or a descendant of a root, with a non-zero quantity as of (cut_off_at, N); keys of another org unit, of a location outside the subtrees, or with quantity 0 get no line. Each line carries location_id, catalog_item_id, catalog_lot_id, responsible_employee_id and unit_ref from the balance key, book_quantity as the exact decimal string of the balance, and counted_quantity empty. A test posts an entry after the open and asserts that a second read of the sheet shows the same book quantities, and that a balances/4 read on the stored (cut_off_at, cutoff_seq) returns the same numbers as the lines; a test with more balance keys in one location than one page of balances/4 asserts that every key gets exactly one line."
+      - "4. Typed input (0079 section 6; same test file): record_count/4 (count id, line_no, counted_quantity, caller) replaces counted_quantity of one line and appends one count_entry with method typed, quantity_before (empty for the first entry), quantity_after, entered_by (the caller's user id), entered_by_employee_id and entered_at from the server clock. The caller must be the chair or a member of the commission with a user link (Letflow.Modules.Org.employee_for_user/2), else not_commission_member; the count must be counting, else count_state_invalid; counted_quantity is a decimal string, at least 0, with at most 9 decimal places (the scale of the stock registration, REQ-687 criterion 3), else field_invalid; an unknown line_no is line_not_found. Typing 5 and then 3 on the same line leaves 3 on the line and two entries, 5 and 3, in the log."
+      - "5. Surplus line (0079 section 5 line shape 3; same test file): add_surplus_line/3 adds a line of kind surplus with book_quantity 0 and its counted quantity, and one count_entry. Input: location_id, catalog_item_id, unit_ref, counted_quantity (above 0), catalog_lot_id and responsible_employee_id optional. Refusals, nothing stored: a location that is neither a root nor a descendant of a root of the order, or not linked to the order's org unit (Letflow.Modules.Locations.linked?/3), as location_not_in_count; an item that is not active (Letflow.Modules.CatalogItems.active?/2) as item_inactive; a unit not valid for the item (CatalogItems.item_uom_valid?/3) as unit_invalid; a lot not of the item (CatalogItems.item_lot_valid?/3) as lot_invalid; a responsible employee not active (Letflow.Modules.Org.active_employee?/2) as employee_inactive; a key (location, item, lot, responsible) that already has a line of this count as count_line_exists; the caller and status rules of criterion 4. A test covers each refusal."
+      - "6. Entry log is append-only (WM-13, decision 0078 D8; same test file): no function of the module updates or deletes a count_entry; a test lists the entries of a count after three typed entries and a surplus line and finds four, each with its user, employee and server time, in entered_at order. Each open, typed entry, surplus line and close also writes one audit entry through Letflow.Audit (actions stock.count.opened, stock.count.line_counted, stock.count.surplus_added, stock.count.closed) with ids, line_no and status only, no quantity; a refused call writes none."
+      - "7. Close counting (same test file): close_counting/3 by the chair on a counting count with every line counted creates and issues a count.sheet document in one transaction (Letflow.Documents.create_draft/3 and issue/2; issuing_org_unit_id the order's org unit; content the cut-off, cutoff_seq and every line with book and counted quantity) and moves the order to counted; a line with an empty counted_quantity refuses lines_uncounted with nothing issued; not the chair is not_chair. After close, record_count/4 and add_surplus_line/3 are count_state_invalid, and cancel/3 of REQ-700 still moves the counted order to cancelled (a test). The issued sheet is not changed by any later call."
+      - "8. Routes (stock router; test file test/letflow/modules/stock/count_sheet_router_test.exs through Letflow.Router with real bearer tokens): POST /api/v1/modules/stock/counts/:id/open (StockCountRecord), GET /api/v1/modules/stock/counts/:id/lines (StockRead; query keys limit and cursor; rows in line_no order with exactly line_no, kind, location_id, catalog_item_id, catalog_lot_id, responsible_employee_id, unit_ref, book_quantity, counted_quantity), PUT /api/v1/modules/stock/counts/:id/lines/:line_no/count (StockCountRecord; body exactly counted_quantity), POST /api/v1/modules/stock/counts/:id/surplus-lines (StockCountRecord), GET /api/v1/modules/stock/counts/:id/entries (StockRead; limit and cursor; entered_at order), POST /api/v1/modules/stock/counts/:id/close (StockCountRecord) and GET /api/v1/modules/stock/counts/:id/sheet-document (StockRead; the issued count.sheet version: number label, version_no, issued_at, content_hash, no bytes). Each is in route_policies; refusals render as in REQ-700 criterion 7. A quantity in a body or a response is a JSON string, never a number."
+      - "9. Tenancy, scope and the phase B limit (INV-1, INV-2, INV-5, INV-10; same router test file): a count of tenant B asked for with a token of tenant A answers 404 with the unknown-id body (trace_id dropped first) on every route of criterion 8; a TENANT_ADMIN whose grant covers org unit X but not Y gets 404 with that body for every route of a count of Y; POST open by a scoped principal of the count's own org unit answers 404 (Ledger.authorize/3 refuses scoped reads until REQ-682), as the description states; a tenant user without StockCountRecord gets 403 on the four write routes and one without StockRead 403 on the three read routes."
+      - "10. Gate and scope: a tenant-data-path change that reads the ledger; it passes a SECURITY-REVIEWER gate as a stated step, with the verdict and evidence quoted in the PR. The diff adds no ledger posting, no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no ledger SQL in module code (only Letflow.Ledger.authorize/3 and balances/4 are called, Rule 8 of REQ-684), no migration, no tenant table, no seed and no installation of the stock module on any tenant. The pins of the description move by the counts stated there; mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_requirements_registration and the new test files pass (real output quoted in the PR)."
+    open_questions:
+      - "The defaults of the description (the open window, no blind count, uncounted lines block the close, zero-quantity keys get no line): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+      - "Freeze or snapshot of movements during the count (0079 section 12 question 1): the freeze (row C7) has no requirement yet; this entry reads the book quantities at (cut_off_at, cutoff_seq), which does not depend on it."
+      - "Inventory Object lines (0079 line shape 2) wait for an Inventory Object record type (D-065), which has no requirement yet."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-700, REQ-687, REQ-637, REQ-684, REQ-681, REQ-646, REQ-647, REQ-643, "the B2 implementing entry for the balance as of a date on the stock register (decision 0078 D2, phase B task P28), only if it changes balances/4 or its basis"]
+
+  - id: REQ-702
+    title: "Assets B5 counts K3: web screens of module stock for the count order (list, create, edit, issue, cancel) and the count sheet with typed input (open, lines, surplus line, entry log, close) in English, Russian and Kazakh (decision 0079 split plan row C8, first part)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-701 -- the screens call the routes of REQ-700 and REQ-701
+    description: >
+      Phase B item B5 of the assets and stock application: the first part of split plan row C8 of decision 0079
+      (docs/migration/decisions/0079-counts-inventory-taking.md, REQ-680): the web screens for the count order and the
+      count sheet with typed input. Phase B has "counts with typed or keyboard-scanner input on the web"
+      (ai-dala-portfolio/architectures/assets.md, phase table, quoted in REQ-680); this entry is the typed part, the
+      scanner input field and the differences sheet screen come with the later B5 entries. The routes are those of
+      REQ-700 criterion 7 and REQ-701 criterion 8; the screens add no route and no permission.
+
+      Place: the SPA module stock, web/src/modules/stock/ (ModuleDefinition id stock, registered in
+      web/src/modules/registry.ts, as module codes is in web/src/modules/codes/index.ts); this change creates the folder
+      and its index.ts if no earlier stock screen (phase B tasks P39, P40) has, otherwise it adds its routes and nav item
+      to the existing definition. Count files in web/src/modules/stock/counts/. Paths admin/stock/counts (list) and
+      admin/stock/counts/:id (one count: the order, and from status counting on, the sheet). Nav item Counts with
+      permission StockRead. Messages in en, ru and kk in the module's own message file, as module codes does
+      (web/src/modules/codes/codesMessages.ts, CodesIntlProvider.tsx), following the platform language store of the
+      TopBar switch. Style: the components and tokens the phase A screens use (style S-final, GH #3717), list and
+      record panel with MasterDetail.
+
+      DECIDED HERE as the simplest reasonable defaults (UAT assumption, to be confirmed by the process owner;
+      assumption, owner may change at GATE B): the write buttons are shown only to a user whose /me/access lists the
+      atom of that route (StockCountOrder or StockCountRecord), and open, close and cancel only when the order's
+      status allows them; the server refusal not_chair or not_commission_member is shown as a message, not hidden in
+      advance (the screen does not compute commission membership); times are shown in the tenant time zone (default
+      Asia/Almaty, assumption, owner may change at GATE B); a quantity is typed as a decimal string and sent unchanged.
+
+      Not in this entry: keyboard-scanner input, the differences sheet, signing and posting screens, the xlsx paperwork
+      buttons (later B5 entries); printed forms (phase E); the camera scan on the phone (phase D).
+    acceptance_criteria:
+      - "1. Module and navigation (test file web/src/modules/stock/__tests__/countsModule.nav.test.tsx, in the style of web/src/modules/codes/__tests__/codesModule.nav.test.tsx): the stock ModuleDefinition has the routes admin/stock/counts and admin/stock/counts/:id and the nav item Counts with permission StockRead; with the stock module not installed the nav item is absent and the paths render the module guard's not-installed state; without StockRead the nav item is absent."
+      - "2. Count list and order form (test file web/src/modules/stock/__tests__/CountsPage.order.test.tsx, network mocked): the list shows number, org unit, kind, planned start, chair and status from GET counts, with a status filter; the create and edit form sends POST counts or PUT counts/:id with every field of REQ-700 criterion 2 (the whole draft: org unit, kind, planned start and end, chair, members, location roots, note), with pickers for the org unit, the employees and the location roots read through the existing read routes of the phase A modules; issue and cancel call their routes after a confirm dialog. A test checks the exact request body of a create and of an edit that removes one member, and that edit, issue and cancel buttons are absent for a user without StockCountOrder and the edit button is absent when the status is not draft."
+      - "3. Count sheet with typed input (test file web/src/modules/stock/__tests__/CountsPage.sheet.test.tsx, network mocked): on an ordered count the Open button calls POST counts/:id/open; on a counting count the lines table shows location, item, lot, responsible, unit, book quantity and counted quantity from GET counts/:id/lines and follows next_cursor; typing a quantity in a line's input and pressing Enter or leaving the field sends PUT counts/:id/lines/:line_no/count with body exactly {counted_quantity: the typed string}; an input that is not a decimal string at least 0 is not sent and shows a field error; the add surplus line form sends POST counts/:id/surplus-lines; the entry log panel shows GET counts/:id/entries with user and time; Close calls POST counts/:id/close. Tests cover each call and that after a count is counted the inputs are read-only."
+      - "4. Refusals and states (test file web/src/modules/stock/__tests__/countsErrors.test.tsx): each 422 reason of REQ-700 and REQ-701 that a screen can receive (count_state_invalid, count_scope_not_linked, count_scope_overlaps, count_scope_incomplete, count_too_long, chair_without_user, employee_inactive, org_unit_inactive, not_chair, not_commission_member, count_not_due, location_not_in_count, item_inactive, unit_invalid, lot_invalid, count_line_exists, lines_uncounted, line_not_found, field_invalid) shows its own message in the active language; a 404 shows the not-found state; every screen has its empty, loading and error state."
+      - "5. Three languages (test file web/src/modules/stock/__tests__/countsI18n.test.tsx, in the style of web/src/modules/codes/__tests__/codesI18n.test.tsx): every message key exists in en, ru and kk with a non-empty text, no text is written in the components outside the message file, and switching the platform language re-renders the count screens in that language."
+      - "6. Checks: the web gate npm run check (type-check, lint, unit tests, guards) passes in the engine's checks step; the change edits only files under web/ and adds exactly one line to web/src/modules/registry.ts (the stock module entry) if it creates the stock ModuleDefinition, none otherwise; no backend file changes."
+    open_questions:
+      - "The defaults of the description (buttons by permission and status, refusals of commission membership shown as messages, tenant time zone Asia/Almaty): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-700, REQ-701, REQ-669, REQ-670, REQ-671]
