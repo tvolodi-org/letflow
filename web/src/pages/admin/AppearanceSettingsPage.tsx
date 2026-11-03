@@ -161,7 +161,7 @@ export default function AppearanceSettingsPage() {
           />
           <span
             data-testid="appearance-settings-preview-swatch"
-            style={{ ...swatchStyle, background: appliedColor || 'var(--color-brand-600)' }}
+            style={{ ...swatchStyle, background: appliedColor || 'var(--current)' }}
             title="Currently applied colour"
           />
         </div>
