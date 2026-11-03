@@ -4,6 +4,7 @@
 import { useEffect, type ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
+import type { AccessState } from '@/auth/access/types'
 import MasterDataImportPage from '@/pages/admin/import/MasterDataImportPage'
 import type { FixtureRoute, HarnessScreen } from './types'
 
@@ -27,10 +28,10 @@ const AUTH: AuthContextValue = {
   switchingToTenantSlug: null,
 }
 
-const ACCESS = {
+const ACCESS: AccessState = {
   status: 'ready',
   info: { roles: [], platform_tenant: false, permissions: ['EntitiesRecordsImport', 'EntitiesRecordsExport'] },
-} as const
+}
 
 const MODULES: FixtureRoute = {
   match: path => path === '/api/v1/me/modules',
