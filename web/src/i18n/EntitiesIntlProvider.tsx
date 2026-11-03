@@ -18,11 +18,11 @@
 
 import type { ReactNode } from 'react'
 import { IntlProvider } from 'react-intl'
-import { resolveUiLocale } from './entitiesMessages'
+import { useUiLocale } from './uiLocaleStore'
 import { useMergedEntitiesMessages } from './useMergedEntitiesMessages'
 
 export function EntitiesIntlProvider({ children }: { children: ReactNode }) {
-  const locale = resolveUiLocale()
+  const locale = useUiLocale()
   const messages = useMergedEntitiesMessages()
   return (
     <IntlProvider locale={locale} defaultLocale="en" messages={messages}>

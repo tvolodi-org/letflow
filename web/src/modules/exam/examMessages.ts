@@ -17,6 +17,7 @@
  */
 
 import { questionMessagesEn, questionMessagesKk, questionMessagesRu } from './questionMessages'
+import { getUiLocale } from '@/i18n/uiLocaleStore'
 
 export const EXAM_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type ExamUiLocale = (typeof EXAM_UI_LOCALES)[number]
@@ -33,6 +34,7 @@ function isExamUiLocale(value: string): value is ExamUiLocale {
  *  EXAM_UI_FALLBACK_LOCALE. Never throws; safe under SSR/test environments
  *  with no `navigator`. */
 export function resolveUiLocale(candidates?: readonly string[]): ExamUiLocale {
+  if (candidates === undefined) return getUiLocale()
   const sources =
     candidates ??
     (typeof navigator !== 'undefined'

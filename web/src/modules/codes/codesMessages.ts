@@ -2,10 +2,13 @@
  *  Own copy of the locale resolver: module code may not import another module (0039 D3).
  *  The ru and kk texts are written by the developer and need a native-speaker check. */
 
+import { getUiLocale } from '@/i18n/uiLocaleStore'
+
 export const CODES_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type CodesUiLocale = (typeof CODES_UI_LOCALES)[number]
 
 export function resolveUiLocale(candidates?: readonly string[]): CodesUiLocale {
+  if (candidates === undefined) return getUiLocale()
   const sources =
     candidates ??
     (typeof navigator !== 'undefined'
@@ -91,6 +94,29 @@ const en: Record<string, string> = {
   'codes.error.request_refused': 'The request was refused.',
   'codes.error.unknown': 'The request was refused for a reason this screen does not know.',
   'codes.error.generic': 'Something went wrong. Try again.',
+  'codes.eyebrow': 'Work · Codes',
+  'codes.lede': 'Barcodes, QR codes and RFID tags, and what each one is attached to. Scan or type a full value to find one code.',
+  'codes.receive.sub': 'New codes start as Not assigned.',
+  'codes.receive.open': 'Receive codes',
+  'codes.list.exactPh': 'Scan or paste a full value',
+  'codes.list.showRetired': 'Show retired',
+  'codes.list.emptyText': 'Receive codes to add the first ones.',
+  'codes.list.emptyFiltered': 'No code matches the filters. Change or clear them.',
+  'codes.list.loadError': 'The codes could not be loaded.',
+  'codes.list.loading': 'Loading codes',
+  'codes.common.retry': 'Try again',
+  'codes.common.close': 'Close',
+  'codes.detail.close': 'Close the panel',
+  'codes.detail.valueSection': 'Value',
+  'codes.detail.historySection': 'Assignment history',
+  'codes.assign.title': 'Assign code',
+  'codes.assign.note': 'A code has one target at a time. Release it before you assign it to something else.',
+  'codes.assign.noTargets': 'There is no active target of this type.',
+  'codes.toast.received': '{count, plural, one {# code received} other {# codes received}}',
+  'codes.toast.assigned': 'Code assigned',
+  'codes.toast.released': 'Code released',
+  'codes.toast.retired': 'Code retired',
+  'codes.toast.valueChanged': 'Value changed',
 }
 
 const ru: Record<string, string> = {
@@ -162,6 +188,29 @@ const ru: Record<string, string> = {
   'codes.error.request_refused': 'Запрос отклонён.',
   'codes.error.unknown': 'Запрос отклонён по причине, которую этот экран не знает.',
   'codes.error.generic': 'Что-то пошло не так. Попробуйте ещё раз.',
+  'codes.eyebrow': 'Работа · Коды',
+  'codes.lede': 'Штрихкоды, QR-коды и RFID-метки и то, к чему привязан каждый из них. Отсканируйте или введите полное значение, чтобы найти код.',
+  'codes.receive.sub': 'Новые коды получают статус «Не назначен».',
+  'codes.receive.open': 'Приём кодов',
+  'codes.list.exactPh': 'Отсканируйте или вставьте полное значение',
+  'codes.list.showRetired': 'Показать выведенные',
+  'codes.list.emptyText': 'Примите коды, чтобы добавить первые.',
+  'codes.list.emptyFiltered': 'Ни один код не подходит под фильтры. Измените или сбросьте их.',
+  'codes.list.loadError': 'Не удалось загрузить коды.',
+  'codes.list.loading': 'Загрузка кодов',
+  'codes.common.retry': 'Повторить',
+  'codes.common.close': 'Закрыть',
+  'codes.detail.close': 'Закрыть панель',
+  'codes.detail.valueSection': 'Значение',
+  'codes.detail.historySection': 'История назначений',
+  'codes.assign.title': 'Назначить код',
+  'codes.assign.note': 'У кода одновременно только один объект. Освободите его, прежде чем назначать другому.',
+  'codes.assign.noTargets': 'Нет активных объектов этого типа.',
+  'codes.toast.received': '{count, plural, one {Принят # код} few {Принято # кода} many {Принято # кодов} other {Принято # кодов}}',
+  'codes.toast.assigned': 'Код назначен',
+  'codes.toast.released': 'Код освобождён',
+  'codes.toast.retired': 'Код выведен',
+  'codes.toast.valueChanged': 'Значение изменено',
 }
 
 const kk: Record<string, string> = {
@@ -233,6 +282,29 @@ const kk: Record<string, string> = {
   'codes.error.request_refused': 'Сұрау қабылданбады.',
   'codes.error.unknown': 'Сұрау бұл экран білмейтін себеппен қабылданбады.',
   'codes.error.generic': 'Бірдеңе дұрыс болмады. Қайта көріңіз.',
+  'codes.eyebrow': 'Жұмыс · Кодтар',
+  'codes.lede': 'Штрихкодтар, QR-кодтар және RFID белгілері, әрқайсысы неге бекітілгені. Кодты табу үшін толық мәнді сканерлеңіз немесе енгізіңіз.',
+  'codes.receive.sub': 'Жаңа кодтар «Тағайындалмаған» күйінде басталады.',
+  'codes.receive.open': 'Кодтарды қабылдау',
+  'codes.list.exactPh': 'Толық мәнді сканерлеңіз немесе қойыңыз',
+  'codes.list.showRetired': 'Шығарылғандарды көрсету',
+  'codes.list.emptyText': 'Алғашқы кодтарды қосу үшін оларды қабылдаңыз.',
+  'codes.list.emptyFiltered': 'Сүзгілерге ешбір код сәйкес келмейді. Оларды өзгертіңіз немесе тазалаңыз.',
+  'codes.list.loadError': 'Кодтарды жүктеу мүмкін болмады.',
+  'codes.list.loading': 'Кодтар жүктелуде',
+  'codes.common.retry': 'Қайталау',
+  'codes.common.close': 'Жабу',
+  'codes.detail.close': 'Тақтаны жабу',
+  'codes.detail.valueSection': 'Мәні',
+  'codes.detail.historySection': 'Тағайындау тарихы',
+  'codes.assign.title': 'Кодты тағайындау',
+  'codes.assign.note': 'Кодтың бір уақытта тек бір нысаны болады. Басқасына тағайындамас бұрын оны босатыңыз.',
+  'codes.assign.noTargets': 'Бұл түрдің белсенді нысаны жоқ.',
+  'codes.toast.received': '{count, plural, one {# код қабылданды} other {# код қабылданды}}',
+  'codes.toast.assigned': 'Код тағайындалды',
+  'codes.toast.released': 'Код босатылды',
+  'codes.toast.retired': 'Код шығарылды',
+  'codes.toast.valueChanged': 'Мән өзгертілді',
 }
 
 export const codesMessages: Record<CodesUiLocale, Record<string, string>> = { en, ru, kk }

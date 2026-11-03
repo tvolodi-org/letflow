@@ -28,15 +28,18 @@ describe('L2 list', () => {
   it('shows active sites with the company name and the retired ones after the switch', async () => {
     fakeServer(clientMock, { org_site: [SITE, RETIRED_SITE], org_legal_entity: [COMPANY, OLD_COMPANY] })
     renderOrg('/admin/org/sites')
-    const row = await screen.findByTestId('org-row-S1')
-    expect(within(row).getByText('Alpha LLP')).toBeInTheDocument()
+    fireEvent.click(await screen.findByText('Main site'))
+    expect(within(screen.getByTestId('detail-header')).getByText('Alpha LLP')).toBeInTheDocument()
     expect(screen.queryByText('Closed site')).not.toBeInTheDocument()
     expect(queryBodies(clientMock, 'org_site')[0]['filters']).toEqual(
       expect.arrayContaining([{ field: 'active', op: 'eq', value: true }]),
     )
     fireEvent.click(screen.getByRole('checkbox', { name: 'Show retired' }))
-    const retired = await screen.findByTestId('org-row-S2')
-    expect(within(retired).getByText('Old LLP')).toBeInTheDocument()
+    fireEvent.click(await screen.findByText('Closed site'))
+    expect(within(screen.getByTestId('detail-header')).getByText('Old LLP')).toBeInTheDocument()
+    // a retired record is shown read-only: no Save, no Retire
+    expect(screen.queryByTestId('org-save')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('org-retire')).not.toBeInTheDocument()
   })
 })
 
@@ -44,7 +47,7 @@ describe('W2 writes', () => {
   it('create, edit and retire send the accepted keys; the picker offers active companies only', async () => {
     fakeServer(clientMock, { org_site: [SITE], org_legal_entity: [COMPANY, OLD_COMPANY] })
     renderOrg('/admin/org/sites')
-    await screen.findByTestId('org-row-S1')
+    await screen.findByText('Main site')
 
     fireEvent.click(screen.getByTestId('org-create'))
     const picker = screen.getByLabelText('Legal company') as HTMLSelectElement
@@ -60,7 +63,7 @@ describe('W2 writes', () => {
     expect(call.body['legal_entity_id']).toBe('le-1')
 
     await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByText('Main site'))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Main 2' } })
     fireEvent.click(screen.getByTestId('org-save'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(2))

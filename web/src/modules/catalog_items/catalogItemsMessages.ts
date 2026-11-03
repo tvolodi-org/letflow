@@ -2,10 +2,13 @@
  *  same id set in each. Own copy of the locale resolver: module code may not import another module (0039 D3).
  *  The ru and kk texts are written by the developer and need a native-speaker check. */
 
+import { getUiLocale } from '@/i18n/uiLocaleStore'
+
 export const CATALOG_ITEMS_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type CatalogItemsUiLocale = (typeof CATALOG_ITEMS_UI_LOCALES)[number]
 
 export function resolveUiLocale(candidates?: readonly string[]): CatalogItemsUiLocale {
+  if (candidates === undefined) return getUiLocale()
   const sources =
     candidates ??
     (typeof navigator !== 'undefined'
@@ -38,8 +41,9 @@ const en: Record<string, string> = {
   'catalog_items.col.producer': 'Producer',
   'catalog_items.col.mark': 'Mark',
   'catalog_items.col.expiryDate': 'Expiry date',
+  'catalog_items.col.expiryStack': 'Expiry',
   'catalog_items.col.active': 'Active',
-  'catalog_items.filter.item': 'Item',
+  'catalog_items.filter.item': 'Filter by item',
   'catalog_items.filter.showRetired': 'Show retired',
   'catalog_items.sort.expiryAsc': 'Expiry ↑',
   'catalog_items.sort.expiryDesc': 'Expiry ↓',
@@ -77,6 +81,16 @@ const en: Record<string, string> = {
   'import.type.catalog_item': 'Items',
   'import.type.catalog_counterparty': 'Counterparties',
   'import.type.catalog_lot': 'Lots',
+  'catalog_items.eyebrow': 'Catalog',
+  'catalog_items.lede': 'Batches of goods with producer, mark and expiry date.',
+  'catalog_items.common.close': 'Close',
+  'catalog_items.common.retry': 'Try again',
+  'catalog_items.common.loading': 'Loading lots',
+  'catalog_items.common.emptyText': 'Create the first lot, or change the filter.',
+  'catalog_items.load.error': 'The lots could not be loaded.',
+  'catalog_items.toast.created': 'Lot {code} created.',
+  'catalog_items.toast.saved': 'Lot {code} saved.',
+  'catalog_items.toast.retired': 'Lot {code} retired.',
 }
 
 const ru: Record<string, string> = {
@@ -95,8 +109,9 @@ const ru: Record<string, string> = {
   'catalog_items.col.producer': 'Производитель',
   'catalog_items.col.mark': 'Маркировка',
   'catalog_items.col.expiryDate': 'Срок годности',
+  'catalog_items.col.expiryStack': 'Срок',
   'catalog_items.col.active': 'Активна',
-  'catalog_items.filter.item': 'Позиция',
+  'catalog_items.filter.item': 'Фильтр по позиции',
   'catalog_items.filter.showRetired': 'Показать выведенные',
   'catalog_items.sort.expiryAsc': 'Срок ↑',
   'catalog_items.sort.expiryDesc': 'Срок ↓',
@@ -134,6 +149,16 @@ const ru: Record<string, string> = {
   'import.type.catalog_item': 'Номенклатура',
   'import.type.catalog_counterparty': 'Контрагенты',
   'import.type.catalog_lot': 'Партии',
+  'catalog_items.eyebrow': 'Каталог',
+  'catalog_items.lede': 'Партии товаров с производителем, маркировкой и сроком годности.',
+  'catalog_items.common.close': 'Закрыть',
+  'catalog_items.common.retry': 'Повторить',
+  'catalog_items.common.loading': 'Загрузка партий',
+  'catalog_items.common.emptyText': 'Создайте первую партию или измените фильтр.',
+  'catalog_items.load.error': 'Не удалось загрузить партии.',
+  'catalog_items.toast.created': 'Партия {code} создана.',
+  'catalog_items.toast.saved': 'Партия {code} сохранена.',
+  'catalog_items.toast.retired': 'Партия {code} выведена.',
 }
 
 const kk: Record<string, string> = {
@@ -152,8 +177,9 @@ const kk: Record<string, string> = {
   'catalog_items.col.producer': 'Өндіруші',
   'catalog_items.col.mark': 'Таңба',
   'catalog_items.col.expiryDate': 'Жарамдылық мерзімі',
+  'catalog_items.col.expiryStack': 'Мерзімі',
   'catalog_items.col.active': 'Белсенді',
-  'catalog_items.filter.item': 'Позиция',
+  'catalog_items.filter.item': 'Позиция бойынша сүзу',
   'catalog_items.filter.showRetired': 'Шыққандарды көрсету',
   'catalog_items.sort.expiryAsc': 'Мерзім ↑',
   'catalog_items.sort.expiryDesc': 'Мерзім ↓',
@@ -191,6 +217,16 @@ const kk: Record<string, string> = {
   'import.type.catalog_item': 'Номенклатура',
   'import.type.catalog_counterparty': 'Контрагенттер',
   'import.type.catalog_lot': 'Партиялар',
+  'catalog_items.eyebrow': 'Каталог',
+  'catalog_items.lede': 'Өндіруші, таңба және жарамдылық мерзімі көрсетілген тауар партиялары.',
+  'catalog_items.common.close': 'Жабу',
+  'catalog_items.common.retry': 'Қайталау',
+  'catalog_items.common.loading': 'Партиялар жүктелуде',
+  'catalog_items.common.emptyText': 'Алғашқы партияны жасаңыз немесе сүзгіні өзгертіңіз.',
+  'catalog_items.load.error': 'Партияларды жүктеу мүмкін болмады.',
+  'catalog_items.toast.created': '{code} партиясы жасалды.',
+  'catalog_items.toast.saved': '{code} партиясы сақталды.',
+  'catalog_items.toast.retired': '{code} партиясы шығарылды.',
 }
 
 export const catalogItemsMessages: Record<CatalogItemsUiLocale, Record<string, string>> = { en, ru, kk }

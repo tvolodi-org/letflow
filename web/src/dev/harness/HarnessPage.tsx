@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Route, Routes, useParams, useSearchParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { HARNESS_SCREENS } from './registry'
 import { installFixtureFetch, pendingFixtureRequests } from './fixtureFetch'
 import { signalWhenSettled } from './readySignal'
@@ -41,6 +42,13 @@ export function HarnessPage() {
     document.documentElement.setAttribute('data-theme', theme)
     document.documentElement.lang = lang
   }, [theme, lang])
+
+  // Every screen reads its language from the UI-language store: give it the harness language while mounted
+  // (not saved, so the owner's stored choice is untouched).
+  useLayoutEffect(() => {
+    useUiLocaleStore.getState().setLocaleTransient(lang)
+    return () => useUiLocaleStore.getState().setLocaleTransient(null)
+  }, [lang])
 
   useLayoutEffect(() => {
     if (!screen) return

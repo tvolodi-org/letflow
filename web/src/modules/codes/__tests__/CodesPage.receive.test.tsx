@@ -20,16 +20,23 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 
+async function openDialog() {
+  fireEvent.click(await screen.findByTestId('receive-open'))
+  return screen.findByRole('dialog')
+}
+
 async function typeAndSubmit(text: string) {
+  if (!screen.queryByRole('dialog')) await openDialog()
   const area = await screen.findByLabelText('Values, one per line')
   fireEvent.change(area, { target: { value: text } })
-  fireEvent.click(screen.getByTestId('receive-submit'))
+  fireEvent.click(screen.getByTestId('receive-dialog-confirm'))
 }
 
 describe('R1 receive sends one call', () => {
   it('posts all non-empty lines in one request with the chosen kind and an idempotency key, then reloads', async () => {
     fakeServer(clientMock, {})
     renderCodes('/admin/codes')
+    await openDialog()
     fireEvent.change(await screen.findByLabelText('Kind of the batch'), { target: { value: 'qr' } })
     const before = queryBodies(clientMock, 'code_tag').length
     await typeAndSubmit('A1\r\n\nB2\nC3\n')
@@ -44,14 +51,15 @@ describe('R1 receive sends one call', () => {
     ])
     expect(call.body['idempotency_key']).toBeTruthy()
     await waitFor(() => expect(queryBodies(clientMock, 'code_tag').length).toBeGreaterThan(before))
-    await waitFor(() => expect(screen.getByLabelText('Values, one per line')).toHaveValue(''))
+    expect(await screen.findByText('3 codes received')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
   it('disables the button for empty input', async () => {
     fakeServer(clientMock, {})
     renderCodes('/admin/codes')
-    await screen.findByLabelText('Values, one per line')
-    expect(screen.getByTestId('receive-submit')).toBeDisabled()
+    await openDialog()
+    expect(screen.getByTestId('receive-dialog-confirm')).toBeDisabled()
   })
 })
 
@@ -62,8 +70,7 @@ describe('R2 entry_invalid marks the line', () => {
     })
     renderCodes('/admin/codes')
     await typeAndSubmit('A1\n\nA1\nZ9')
-    const alert = await screen.findByTestId('receive-line-error')
-    expect(alert).toHaveTextContent('Line 3: the value is repeated in this batch')
+    expect(await screen.findByText('Line 3: the value is repeated in this batch')).toBeInTheDocument()
     expect(screen.getByLabelText('Values, one per line')).toHaveAttribute('aria-invalid', 'true')
   })
 })
@@ -87,12 +94,12 @@ describe('R4 key reuse', () => {
     renderCodes('/admin/codes')
     await typeAndSubmit('A1')
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
-    await waitFor(() => expect(screen.getByTestId('receive-submit')).not.toBeDisabled())
-    fireEvent.click(screen.getByTestId('receive-submit'))
+    await waitFor(() => expect(screen.getByTestId('receive-dialog-confirm')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('receive-dialog-confirm'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(2))
-    await waitFor(() => expect(screen.getByTestId('receive-submit')).not.toBeDisabled())
+    await waitFor(() => expect(screen.getByTestId('receive-dialog-confirm')).not.toBeDisabled())
     fireEvent.change(screen.getByLabelText('Values, one per line'), { target: { value: 'A1\nA2' } })
-    fireEvent.click(screen.getByTestId('receive-submit'))
+    fireEvent.click(screen.getByTestId('receive-dialog-confirm'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(3))
     const keys = writeCalls(clientMock).map((c) => c.body['idempotency_key'])
     expect(keys[1]).toBe(keys[0])

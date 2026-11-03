@@ -1,6 +1,7 @@
 /** Fixed strings of the layout and feedback components (NOTES.md rule 4: en, ru, kk).
  *  Consumers may override each string through a prop; these are the defaults. */
-import { resolveUiLocale, type EntitiesUiLocale } from '@/i18n/entitiesMessages'
+import type { EntitiesUiLocale } from '@/i18n/entitiesMessages'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 
 export type UiMessageId =
   | 'close'
@@ -70,5 +71,6 @@ export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> =
 }
 
 export function useUiMessages(locale?: EntitiesUiLocale): Record<UiMessageId, string> {
-  return uiMessages[locale ?? resolveUiLocale()]
+  const current = useUiLocale()
+  return uiMessages[locale ?? current]
 }

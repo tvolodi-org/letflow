@@ -36,6 +36,13 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 
+/** The table row that holds a text (DataTable rows carry no test id). */
+function rowWith(text: string): HTMLElement {
+  const row = screen.getAllByText(text).map((e) => e.closest('tr')).find(Boolean)
+  if (!row) throw new Error(`no row with ${text}`)
+  return row
+}
+
 async function openPage() {
   fakeServer(clientMock, DATA)
   renderLocations('/admin/locations/links')
@@ -47,7 +54,8 @@ describe('L1 by unit', () => {
     await openPage()
     expect(queryBodies(clientMock, 'location_org_unit_link')).toHaveLength(0)
     fireEvent.change(screen.getByLabelText('Org unit'), { target: { value: 'u-1' } })
-    const row = await screen.findByTestId('link-row-l-1')
+    await screen.findAllByText('Loc one')
+    const row = rowWith('Loc one')
     expect(within(row).getByText('Loc one')).toBeInTheDocument()
     expect(within(row).getByText('A-1')).toBeInTheDocument()
     const filters = queryBodies(clientMock, 'location_org_unit_link')[0]['filters'] as { field: string; value: unknown }[]
@@ -58,10 +66,10 @@ describe('L1 by unit', () => {
 describe('L2 by location', () => {
   it('lists the units of the chosen location, querying by location_id', async () => {
     await openPage()
-    fireEvent.click(screen.getByLabelText('By location'))
+    fireEvent.click(screen.getByRole('tab', { name: 'By location' }))
     fireEvent.change(screen.getByLabelText('Location'), { target: { value: 'l-1' } })
-    await screen.findByTestId('link-row-u-1')
-    expect(screen.getByTestId('link-row-u-2')).toBeInTheDocument()
+    await screen.findByText('Unit one')
+    expect(screen.getByText('Unit two')).toBeInTheDocument()
     const filters = queryBodies(clientMock, 'location_org_unit_link')[0]['filters'] as { field: string; value: unknown }[]
     expect(filters).toContainEqual({ field: 'location_id', op: 'eq', value: 'l-1' })
   })
@@ -71,7 +79,7 @@ describe('L3 link and unlink', () => {
   it('posts both keys and the idempotency key and nothing else; offers only active, unlinked ends', async () => {
     await openPage()
     fireEvent.change(screen.getByLabelText('Org unit'), { target: { value: 'u-1' } })
-    await screen.findByTestId('link-row-l-1')
+    await screen.findAllByText('Loc one')
     const add = screen.getByLabelText('Location to link') as HTMLSelectElement
     // l-1 is linked already and l-3 is retired
     expect([...add.options].map((o) => o.value)).toEqual(['', 'l-2'])
@@ -82,7 +90,7 @@ describe('L3 link and unlink', () => {
     expect(Object.keys(writeCalls(clientMock)[0].body).sort()).toEqual(['idempotency_key', 'location_id', 'org_unit_id'])
     expect(writeCalls(clientMock)[0].body).toMatchObject({ org_unit_id: 'u-1', location_id: 'l-2' })
 
-    fireEvent.click(within(screen.getByTestId('link-row-l-1')).getByRole('button', { name: 'Unlink' }))
+    fireEvent.click(within(rowWith('Loc one')).getByRole('button', { name: 'Unlink' }))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(2))
     expect(writeCalls(clientMock)[1].path).toBe(`${BASE}/links/retire`)
     expect(Object.keys(writeCalls(clientMock)[1].body).sort()).toEqual(['idempotency_key', 'location_id', 'org_unit_id'])

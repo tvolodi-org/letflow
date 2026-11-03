@@ -21,12 +21,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { labelsApi } from '@/api/labels'
 import { getToken } from '@/api/client'
-import { entitiesMessages, resolveUiLocale } from './entitiesMessages'
+import { entitiesMessages } from './entitiesMessages'
+import { useUiLocale } from './uiLocaleStore'
 
 const OVERRIDABLE_PREFIX = 'entities.'
 
 export function useMergedEntitiesMessages(): Record<string, string> {
-  const locale = resolveUiLocale()
+  const locale = useUiLocale()
   const base = entitiesMessages[locale]
   const [overrides, setOverrides] = useState<Record<string, string> | null>(null)
 

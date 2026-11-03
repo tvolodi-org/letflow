@@ -32,6 +32,7 @@
  */
 
 import { solutionOverridesMessages } from './solutionOverridesMessages'
+import { getUiLocale } from './uiLocaleStore'
 
 export const ENTITIES_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type EntitiesUiLocale = (typeof ENTITIES_UI_LOCALES)[number]
@@ -48,6 +49,7 @@ function isEntitiesUiLocale(value: string): value is EntitiesUiLocale {
  *  ENTITIES_UI_FALLBACK_LOCALE. Never throws; safe under SSR/test
  *  environments with no `navigator`. */
 export function resolveUiLocale(candidates?: readonly string[]): EntitiesUiLocale {
+  if (candidates === undefined) return getUiLocale()
   const sources =
     candidates ??
     (typeof navigator !== 'undefined'

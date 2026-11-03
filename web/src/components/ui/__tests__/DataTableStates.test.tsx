@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 /** T-1166 — DataTable: design-system columns and states (the REQ-274 cases stay in DataTable.test.tsx). */
+import { useState } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { render, screen, fireEvent, cleanup, within, act } from '@testing-library/react'
@@ -39,6 +40,14 @@ describe('T-1166 — DataTable', () => {
     expect(within(first).getByTestId('datatable-cell-name')).toHaveAttribute('data-label', 'Item name')
     expect(within(first).getByTestId('datatable-cell-code')).toHaveAttribute('data-label', 'Code')
     expect(screen.getByTestId('datatable-header-qty')).toHaveClass('is-end')
+  })
+
+  it('TC-T1174-30: hideStackLabel marks the cell so the phone card shows no label row', () => {
+    const cols: DataTableColumn<Row>[] = [...COLS, { key: 'st', label: 'Status', hideStackLabel: true, render: () => 'ok' }]
+    render(<DataTable columns={cols} data={ROWS} emptyMessage="none" />)
+    const first = screen.getAllByTestId('datatable-row')[0]
+    expect(within(first).getByTestId('datatable-cell-st')).toHaveClass('is-check')
+    expect(within(first).getByTestId('datatable-cell-name')).not.toHaveClass('is-check')
   })
 
   it('TC-T1166-21: sortable header is a button with aria-sort none -> ascending -> descending', () => {
@@ -139,9 +148,42 @@ describe('T-1166 — DataTable', () => {
     expect(screen.queryByTestId('datatable-retry')).toBeNull()
   })
 
-  it('TC-T1166-30: the file touches no inline colour or spacing (only the sticky header position)', () => {
+  it('TC-T1166-30: the file touches no inline colour or spacing (the sticky header is CSS)', () => {
     render(<DataTable columns={COLS} data={ROWS} emptyMessage="none" onRowClick={() => {}} selectedId="a" />)
     const styled = Array.from(document.querySelectorAll('[style]')).map((el) => el.getAttribute('style'))
-    expect(styled.every((s) => /^position: sticky; top: 0(px)?;?$/.test(s ?? ''))).toBe(true)
+    expect(styled).toEqual([])
+  })
+
+  it('TC-T1172-31: a table with rows settles when the page around it changes (no page-reset render loop)', async () => {
+    let calls = 0
+    const cols: DataTableColumn<Row>[] = [
+      {
+        key: 'code',
+        label: 'Code',
+        render: (r) => {
+          calls += 1
+          if (calls > 200) throw new Error('DataTable re-renders without end')
+          return r.code
+        },
+      },
+    ]
+    function Host() {
+      const [n, setN] = useState(0)
+      return (
+        <>
+          <button onClick={() => setN(n + 1)}>bump {n}</button>
+          <DataTable columns={cols} data={ROWS} emptyMessage="none" />
+        </>
+      )
+    }
+    render(<Host />)
+    // a state change of the page around the table, outside the click turn (a write that finished)
+    await act(async () => {
+      await Promise.resolve()
+      fireEvent.click(screen.getByRole('button', { name: /bump/ }))
+      for (let i = 0; i < 20; i += 1) await Promise.resolve()
+    })
+    expect(calls).toBeLessThan(40)
+    expect(screen.getByText('C-2')).toBeInTheDocument()
   })
 })

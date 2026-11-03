@@ -76,6 +76,31 @@ describe('HarnessPage', () => {
   })
 })
 
+describe('codes screens (S4)', () => {
+  it('lists the invented codes in the requested language, with the write actions', async () => {
+    renderHarness('?lang=ru', 'codes')
+    expect(await screen.findByText('GATEA-BC-0001')).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Коды')
+    expect(screen.getAllByRole('button', { name: 'Приём кодов' }).length).toBeGreaterThan(0)
+  })
+
+  it('opens the detail panel, the assign dialog and the receive dialog from their presets', async () => {
+    renderHarness('', 'codes-detail')
+    expect(await screen.findByTestId('codes-detail')).toBeTruthy()
+    cleanup()
+    renderHarness('', 'codes-assign')
+    expect(await screen.findByTestId('assign-dialog')).toBeTruthy()
+    cleanup()
+    renderHarness('', 'codes-receive')
+    expect(await screen.findByTestId('receive-dialog')).toBeTruthy()
+  })
+
+  it('empty state shows the receive action', async () => {
+    renderHarness('?state=empty', 'codes')
+    expect(await screen.findByTestId('datatable-empty-state')).toBeTruthy()
+  })
+})
+
 describe('fixture fetch seam', () => {
   it('answers 404 for a request no fixture matches', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})

@@ -2,7 +2,7 @@
 /** E1, E2 — GH 3609 / REQ-669: every refusal reason of the routes shows its message; 404 reloads; 403 is named. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { fakeServer, problem, queryBodies, rec, renderOrg } from './orgTestKit'
 import { orgMessages } from '../orgMessages'
 import { ORG_REASONS } from '../orgModel'
@@ -36,7 +36,7 @@ async function saveLegalWith(err: unknown) {
   })
   renderOrg('/admin/org/legal-entities')
   await screen.findByText('Alpha LLP')
-  fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+  fireEvent.click(screen.getByText('Alpha LLP'))
   fireEvent.click(screen.getByTestId('org-save'))
 }
 
@@ -64,11 +64,11 @@ describe('E1 reasons', () => {
       throw problem(422, { reason: path.endsWith('/move') ? 'cycle' : 'unit_has_active_staff' })
     })
     renderOrg('/admin/org/units')
-    await screen.findByTestId('org-row-U1')
-    fireEvent.click(within(screen.getByTestId('org-row-U1')).getByRole('button', { name: 'Retire' }))
+    fireEvent.click(await screen.findByText('Unit U1'))
+    fireEvent.click(screen.getByRole('button', { name: 'Retire' }))
     fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'))
     expect(await screen.findByRole('alert')).toHaveTextContent(orgMessages.en['org.error.unit_has_active_staff'])
-    fireEvent.click(within(screen.getByTestId('org-row-U1')).getByRole('button', { name: 'Move' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }))
     fireEvent.change(screen.getByLabelText('New parent'), { target: { value: 'u-2' } })
     fireEvent.click(screen.getByTestId('org-move-confirm'))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(orgMessages.en['org.error.cycle']))

@@ -9,7 +9,8 @@
  *  callers keep working. A row's id comes from `getRowId`, else `row.id`.
  *  States: loading (skeleton rows), empty, load error with retry, per-row
  *  `error`/`retired` (`rowState`), selected (`selectedId`), compact density.
- *  Every cell has `data-label` so the table stacks into cards on phones.
+ *  Every cell has `data-label` so the table stacks into cards on phones. The sticky header is
+ *  `.lf-table th` in components.css (an inline style on <thead> would keep it visible in the card layout).
  */
 
 import React, { useMemo, useState } from 'react'
@@ -40,6 +41,8 @@ export interface DataTableColumn<TRow> {
   mono?: boolean
   /** Label shown on the phone card; defaults to the header. */
   stackLabel?: string
+  /** Phone card: no label row (the cell already says it, e.g. a StatusPill). */
+  hideStackLabel?: boolean
 }
 
 export type DataTableRowState = 'error' | 'retired'
@@ -88,7 +91,7 @@ function resolveColumns<TRow>(columns: DataTableColumn<TRow>[]): Resolved<TRow>[
 }
 
 function cellClass<TRow>(col: DataTableColumn<TRow>): string | undefined {
-  const parts = [col.align === 'end' ? 'is-end' : '', col.mono ? 'mono' : ''].filter(Boolean)
+  const parts = [col.align === 'end' ? 'is-end' : '', col.mono ? 'mono' : '', col.hideStackLabel ? 'is-check' : ''].filter(Boolean)
   return parts.length > 0 ? parts.join(' ') : undefined
 }
 
@@ -123,9 +126,12 @@ export function DataTable<TRow>(props: DataTableProps<TRow>): React.ReactElement
     [resolved],
   )
 
-  const sorting: SortingState = sortState.columnId
-    ? [{ id: sortState.columnId, desc: sortState.direction === 'desc' }]
-    : []
+  // Stable between renders: a fresh array each render makes the sorted row model recompute, whose
+  // change hook resets the page index and re-renders the table without end once `data` has changed.
+  const sorting = useMemo<SortingState>(
+    () => (sortState.columnId ? [{ id: sortState.columnId, desc: sortState.direction === 'desc' }] : []),
+    [sortState.columnId, sortState.direction],
+  )
 
   const table = useReactTable({
     data,
@@ -133,6 +139,10 @@ export function DataTable<TRow>(props: DataTableProps<TRow>): React.ReactElement
     state: { sorting },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    // No pagination here. Without this, every render's fresh `sorting` array makes the sorted row model
+    // report a change, tanstack queues a page-index reset, that sets state, and the table re-renders for ever
+    // as soon as it has rows (a page froze after any reload of its rows).
+    autoResetPageIndex: false,
   })
 
   // `table` is a stable ref (mutated in place), so memoizing on it would never
@@ -165,7 +175,7 @@ export function DataTable<TRow>(props: DataTableProps<TRow>): React.ReactElement
     <div className="lf-table-wrap" data-testid="data-table">
       <div data-testid="datatable-scroll-container">
         <table className={`lf-table lf-table--stack${density === 'compact' ? ' lf-table--compact' : ''}`}>
-          <thead data-testid="datatable-header" style={{ position: 'sticky', top: 0 }}>
+          <thead data-testid="datatable-header">
             <tr>
               {resolved.map(({ id, header, col }) => {
                 const isActive = sortState.columnId === id
