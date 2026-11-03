@@ -93,6 +93,35 @@ defmodule Letflow.Modules.Codes.WritesReceiveTest do
              {:error, {:entry_invalid, 0, :value_taken}}
   end
 
+  test "A5: the same key with another body is idempotency_key_reuse and writes nothing", %{
+    schema: schema
+  } do
+    o = opts()
+    assert {:ok, [first]} = Codes.receive_codes(schema, [e("RU1")], o)
+    tags = tag_count(schema)
+    audit = audit_count(schema)
+
+    assert Codes.receive_codes(schema, [e("RU2")], o) == {:error, :idempotency_key_reuse}
+    assert Codes.receive_codes(schema, [e("RU1", "qr")], o) == {:error, :idempotency_key_reuse}
+
+    assert Codes.receive_codes(schema, [e("RU1"), e("RU3")], o) ==
+             {:error, :idempotency_key_reuse}
+
+    assert Codes.receive_codes(schema, [e("RU1")], %{o | actor_id: Ecto.UUID.generate()}) ==
+             {:error, :idempotency_key_reuse}
+
+    assert tag_count(schema) == tags
+    assert audit_count(schema) == audit
+    assert {:ok, [^first]} = Codes.receive_codes(schema, [e("RU1")], o)
+  end
+
+  test "A6: a shorter replay of a two-code batch is idempotency_key_reuse", %{schema: schema} do
+    o = opts()
+    assert {:ok, [_, _]} = Codes.receive_codes(schema, [e("RS1"), e("RS2")], o)
+    assert Codes.receive_codes(schema, [e("RS1")], o) == {:error, :idempotency_key_reuse}
+    assert {:ok, [_, _]} = Codes.receive_codes(schema, [e("RS1"), e("RS2")], o)
+  end
+
   test "A4: a repeated key writes nothing new and answers the current codes", %{schema: schema} do
     o = opts()
     assert {:ok, [first]} = Codes.receive_codes(schema, [e("RP")], o)
