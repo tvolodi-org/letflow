@@ -13,13 +13,20 @@
       "jsx": true
     }
   },
-  "plugins": ["@typescript-eslint", "react-hooks", "react-refresh"],
+  "plugins": [
+    "@typescript-eslint",
+    "react-hooks",
+    "react-refresh"
+  ],
   "extends": [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",
     "plugin:react-hooks/recommended"
   ],
-  "ignorePatterns": ["dist", "node_modules"],
+  "ignorePatterns": [
+    "dist",
+    "node_modules"
+  ],
   "rules": {
     "react-refresh/only-export-components": "off",
     "no-restricted-imports": [
@@ -38,13 +45,17 @@
   },
   "overrides": [
     {
-      "files": ["src/modules/registry.ts"],
+      "files": [
+        "src/modules/registry.ts"
+      ],
       "rules": {
         "no-restricted-imports": "off"
       }
     },
     {
-      "files": ["src/modules/exam/**"],
+      "files": [
+        "src/modules/exam/**"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -60,14 +71,17 @@
               "!**/modules/types",
               "**/org/**",
               "**/locations/**",
-              "**/codes/**"
+              "**/codes/**",
+              "**/catalog_items/**"
             ]
           }
         ]
       }
     },
     {
-      "files": ["src/modules/org/**"],
+      "files": [
+        "src/modules/org/**"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -83,14 +97,17 @@
               "!**/modules/types",
               "**/exam/**",
               "**/locations/**",
-              "**/codes/**"
+              "**/codes/**",
+              "**/catalog_items/**"
             ]
           }
         ]
       }
     },
     {
-      "files": ["src/modules/locations/**"],
+      "files": [
+        "src/modules/locations/**"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -106,14 +123,17 @@
               "!**/modules/types",
               "**/exam/**",
               "**/org/**",
-              "**/codes/**"
+              "**/codes/**",
+              "**/catalog_items/**"
             ]
           }
         ]
       }
     },
     {
-      "files": ["src/modules/codes/**"],
+      "files": [
+        "src/modules/codes/**"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -129,7 +149,34 @@
               "!**/modules/types",
               "**/exam/**",
               "**/org/**",
-              "**/locations/**"
+              "**/locations/**",
+              "**/catalog_items/**"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/modules/catalog_items/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@/modules/*/**",
+              "!@/modules/catalog_items/**",
+              "!@/modules/registry",
+              "!@/modules/types",
+              "**/modules/*/**",
+              "!**/modules/catalog_items/**",
+              "!**/modules/registry",
+              "!**/modules/types",
+              "**/exam/**",
+              "**/org/**",
+              "**/locations/**",
+              "**/codes/**"
             ]
           }
         ]
