@@ -6,6 +6,7 @@ import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
 import MasterDataImportPage from '@/pages/admin/import/MasterDataImportPage'
+import { holdHarnessReady } from './fixtureFetch'
 import type { FixtureRoute, HarnessScreen } from './types'
 
 const AUTH: AuthContextValue = {
@@ -70,9 +71,8 @@ const IMPORT: FixtureRoute = {
   }),
 }
 
-/** The page resolves its language from navigator.languages (resolveUiLocale), so the harness language is set there. */
-function Shell({ lang, children }: { lang: string; children: ReactElement }) {
-  Object.defineProperty(window.navigator, 'languages', { value: [lang], configurable: true })
+/** The page follows the UI-language store, which the harness fills from ?lang=. */
+function Shell({ children }: { children: ReactElement }) {
   return (
     <AuthContext.Provider value={AUTH}>
       <AccessStateProvider state={ACCESS}>
@@ -87,18 +87,29 @@ function Shell({ lang, children }: { lang: string; children: ReactElement }) {
 function CheckedDriver() {
   useEffect(() => {
     let tries = 0
+    let started = false
+    const release = holdHarnessReady()
     const timer = window.setInterval(() => {
       const input = document.querySelector<HTMLInputElement>('[data-testid="dropzone-input"]')
-      if (input) {
+      if (document.querySelector('table, [role="table"]')) {
         window.clearInterval(timer)
+        release()
+      } else if (input && !started) {
+        started = true
         const dt = new DataTransfer()
         dt.items.add(new File([new Uint8Array(9216)], 'gate_a_items_with_error.xlsx'))
         input.files = dt.files
         input.dispatchEvent(new Event('change', { bubbles: true }))
         window.setTimeout(() => document.querySelector<HTMLButtonElement>('[data-testid="import-check"]')?.click(), 50)
-      } else if (++tries > 100) window.clearInterval(timer)
+      } else if (++tries > 200) {
+        window.clearInterval(timer)
+        release()
+      }
     }, 50)
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearInterval(timer)
+      release()
+    }
   }, [])
   return <MasterDataImportPage />
 }
@@ -106,8 +117,8 @@ function CheckedDriver() {
 export const masterDataImport: HarnessScreen = {
   name: 'master-data-import',
   routes: [MODULES, IMPORT],
-  render: ({ lang }) => (
-    <Shell lang={lang}>
+  render: () => (
+    <Shell>
       <MasterDataImportPage />
     </Shell>
   ),
@@ -116,8 +127,8 @@ export const masterDataImport: HarnessScreen = {
 export const masterDataImportResult: HarnessScreen = {
   name: 'master-data-import-result',
   routes: [MODULES, IMPORT],
-  render: ({ lang }) => (
-    <Shell lang={lang}>
+  render: () => (
+    <Shell>
       <CheckedDriver />
     </Shell>
   ),
