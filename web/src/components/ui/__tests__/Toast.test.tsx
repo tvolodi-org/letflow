@@ -36,7 +36,7 @@ describe('REQ-275 — Toast (ToastContainer)', () => {
     expect(screen.queryByTestId('toast-container')).not.toBeInTheDocument()
   })
 
-  it('TC-REQ275-08: success/warning auto-dismiss at 4s; error survives 4s but is gone by 8s', () => {
+  it('TC-REQ275-08: success/warning auto-dismiss at 4s; error is sticky', () => {
     render(<ToastContainer />)
     const toast = useToast()
     act(() => {
@@ -56,9 +56,10 @@ describe('REQ-275 — Toast (ToastContainer)', () => {
     expect(remainingAt4s[0]).toHaveAttribute('data-variant', 'error')
 
     act(() => {
-      vi.advanceTimersByTime(4000) // total 8000ms
+      vi.advanceTimersByTime(60000)
     })
-    expect(screen.queryByTestId('toast-item')).not.toBeInTheDocument()
+    // errors stay until dismissed (NOTES.md section 2)
+    expect(screen.getAllByTestId('toast-item')).toHaveLength(1)
   })
 
   it('TC-REQ275-09: manual close removes an error toast from the DOM before its 8s timer elapses', () => {
@@ -114,7 +115,7 @@ describe('REQ-275 — Toast (ToastContainer)', () => {
     expect(messages).toEqual(['newest', 'middle', 'oldest'])
 
     const container = screen.getByTestId('toast-container')
-    expect(container).toHaveStyle({ position: 'fixed', top: 'var(--space-4)', right: 'var(--space-4)' })
+    expect(container).toHaveClass('lf-toasts')
   })
 
   it('TC-REQ275-12: aria-live is "polite" for success/warning and "assertive" for error', () => {
@@ -133,5 +134,30 @@ describe('REQ-275 — Toast (ToastContainer)', () => {
     expect(byVariant.success).toBe('polite')
     expect(byVariant.warning).toBe('polite')
     expect(byVariant.error).toBe('assertive')
+  })
+
+  it('info tone renders with the info class and polite status; error is role=alert and sticky', () => {
+    render(<ToastContainer />)
+    const toast = useToast()
+    act(() => {
+      toast.info('Linked')
+      toast.error('Not saved', { description: 'Try again' })
+    })
+    const items = screen.getAllByTestId('toast-item')
+    const error = items.find((el) => el.getAttribute('data-variant') === 'error')!
+    const info = items.find((el) => el.getAttribute('data-variant') === 'info')!
+    expect(info).toHaveClass('lf-toast', 'lf-toast--info')
+    expect(info).toHaveAttribute('role', 'status')
+    expect(error).toHaveClass('lf-toast--danger')
+    expect(error).toHaveAttribute('role', 'alert')
+    expect(within(error).getByTestId('toast-description')).toHaveTextContent('Try again')
+  })
+
+  it('the close button is a named icon button', () => {
+    render(<ToastContainer />)
+    act(() => {
+      useToast().success('ok')
+    })
+    expect(screen.getByRole('button', { name: 'Dismiss notification' })).toHaveClass('lf-btn--icon')
   })
 })

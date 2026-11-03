@@ -7,7 +7,7 @@
 import React, { useId } from 'react'
 import { AlertCircle } from 'lucide-react'
 import type { EntitiesUiLocale } from '@/i18n/entitiesMessages'
-import { useFormMessages } from './uiMessages'
+import { useFormMessages } from './formMessages'
 
 export interface FieldProps {
   label: string

@@ -3,7 +3,7 @@
  *  that says whether there are unsaved changes; `saving` replaces the hint with the saving text. */
 import React from 'react'
 import type { EntitiesUiLocale } from '@/i18n/entitiesMessages'
-import { useFormMessages } from './uiMessages'
+import { useFormMessages } from './formMessages'
 
 export function FormSection(props: { title?: string; children: React.ReactNode }): React.ReactElement {
   return (

@@ -5,29 +5,11 @@ export function TenantHeader(): JSX.Element {
 
   return (
     <div
-      style={{
-        padding: '0 1.25rem',
-        marginBottom: '.75rem',
-        borderBottom: '1px solid var(--color-sidebar-active)',
-        paddingBottom: '.75rem',
-      }}
+      className="lf-sidenav__ws"
+      data-testid={isUnknown ? 'tenant-display-name-unknown' : 'tenant-display-name'}
+      title={tenantDisplayName}
     >
-      <div
-        data-testid={isUnknown ? 'tenant-display-name-unknown' : 'tenant-display-name'}
-        style={{
-          fontSize: '.78rem',
-          fontWeight: 600,
-          color: isUnknown ? 'var(--text-secondary)' : 'var(--color-brand-400)',
-          textTransform: 'uppercase',
-          letterSpacing: '.05em',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-        title={tenantDisplayName}
-      >
-        {tenantDisplayName}
-      </div>
+      {tenantDisplayName}
     </div>
   )
 }
