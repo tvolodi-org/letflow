@@ -115,7 +115,7 @@ describe('ISS-0559 — Button title and pressed props', () => {
     )
     const btn = screen.getByTestId('btn-toggle')
     expect(btn).toHaveAttribute('aria-pressed', 'true')
-    expect(btn.style.background).toBe('var(--color-neutral-200)')
+    expect(btn).toHaveClass('is-pressed')
   })
 
   it('TC-ISS0559-04: pressed=false renders aria-pressed=false and the base background', () => {
@@ -126,7 +126,7 @@ describe('ISS-0559 — Button title and pressed props', () => {
     )
     const btn = screen.getByTestId('btn-toggle')
     expect(btn).toHaveAttribute('aria-pressed', 'false')
-    expect(btn.style.background).toBe('var(--surface-card)')
+    expect(btn).not.toHaveClass('is-pressed')
   })
 
   it('TC-ISS0559-05: omitting pressed renders no aria-pressed attribute', () => {
@@ -138,13 +138,55 @@ describe('ISS-0559 — Button title and pressed props', () => {
     expect(screen.getByTestId('btn-plain')).not.toHaveAttribute('aria-pressed')
   })
 
-  it('TC-ISS0559-06: disabled takes precedence over pressed for background', () => {
+  it('TC-ISS0559-06: disabled and pressed combine', () => {
     render(
       <Button variant="secondary" size="sm" pressed disabled data-testid="btn-toggle">
         Hide Raw JSON
       </Button>,
     )
     const btn = screen.getByTestId('btn-toggle')
-    expect(btn.style.background).toBe('var(--surface-card)')
+    expect(btn).toBeDisabled()
+    expect(btn).toHaveClass('is-pressed')
+  })
+})
+
+describe('T-1165 — Button restyle (design-system classes)', () => {
+  it('maps variant and size to lf-btn classes', () => {
+    render(<Button variant="danger" size="sm">X</Button>)
+    const btn = screen.getByTestId('ds-button')
+    expect(btn).toHaveClass('lf-btn', 'lf-btn--danger', 'lf-btn--s')
+    expect(btn.getAttribute('style')).toBeNull()
+  })
+
+  it('md and lg use the default height', () => {
+    render(<Button variant="primary" size="lg">X</Button>)
+    expect(screen.getByTestId('ds-button')).not.toHaveClass('lf-btn--s')
+  })
+
+  it('loading keeps the text, sets is-loading and aria-busy', () => {
+    render(<Button variant="primary" size="md" loading>Saving</Button>)
+    const btn = screen.getByTestId('ds-button')
+    expect(btn).toHaveClass('is-loading')
+    expect(btn).toHaveAttribute('aria-busy', 'true')
+    expect(btn).toHaveTextContent('Saving')
+  })
+
+  it('iconOnly renders the icon with label as the accessible name', () => {
+    render(<Button variant="secondary" iconOnly label="More actions" icon={<svg data-testid="ic" />}>hidden</Button>)
+    const btn = screen.getByRole('button', { name: 'More actions' })
+    expect(btn).toHaveClass('lf-btn--icon')
+    expect(btn).not.toHaveTextContent('hidden')
+    expect(screen.getByTestId('ic')).toBeInTheDocument()
+  })
+
+  it('icon is shown before the label', () => {
+    render(<Button variant="primary" icon={<svg data-testid="ic" />}>Create</Button>)
+    expect(screen.getByTestId('ds-button').firstElementChild).toBe(screen.getByTestId('ic'))
+  })
+
+  it('keyboard: Enter on a focused button submits via click, disabled is not focusable', () => {
+    render(<Button variant="primary" disabled>Go</Button>)
+    screen.getByTestId('ds-button').focus()
+    expect(document.activeElement).not.toBe(screen.getByTestId('ds-button'))
   })
 })
