@@ -33,7 +33,7 @@ defmodule Letflow.Modules.CatalogUpgradeShapesTest do
     )
   end
 
-  defp manifest(version, steps, extra \\ %{}),
+  defp manifest(version, steps, extra),
     do: base() |> Map.merge(%{version: version, migrations: steps}) |> Map.merge(extra)
 
   @real_ids ~w(exam org catalog_items procurement locations codes)
