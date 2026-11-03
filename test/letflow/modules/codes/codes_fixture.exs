@@ -28,8 +28,12 @@ defmodule Letflow.CodesFixture do
 
   @install_opts Letflow.Routers.TenantModules.init([])
 
-  @doc "A provisioned tenant with `codes` installed: `%{tenant_id: _, schema: _}`."
-  @spec installed_tenant!(String.t()) :: %{tenant_id: String.t(), schema: String.t()}
+  @doc "A provisioned tenant with `codes` installed: `%{tenant_id: _, schema: _, slug: _}`."
+  @spec installed_tenant!(String.t()) :: %{
+          tenant_id: String.t(),
+          schema: String.t(),
+          slug: String.t()
+        }
   def installed_tenant!(slug_prefix) do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
 
@@ -47,7 +51,11 @@ defmodule Letflow.CodesFixture do
 
     install_codes!(tenant.tenant_id)
 
-    %{tenant_id: tenant.tenant_id, schema: tenant.schema_name}
+    %{
+      tenant_id: tenant.tenant_id,
+      schema: tenant.schema_name,
+      slug: Repo.get!(Letflow.Identity.Tenant, tenant.tenant_id).slug
+    }
   end
 
   @doc "Installs `codes` in the tenant through the real router as TENANT_ADMIN; raises unless 201."

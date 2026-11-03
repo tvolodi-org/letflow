@@ -99,6 +99,11 @@ POST /instances/:id/reconstruct InstancesCancel
 POST /integration-mappings IntegrationMappingsManage
 POST /modules/catalog_items/lots CatalogLotsWrite
 POST /modules/catalog_items/lots/:id/retire CatalogLotsWrite
+POST /modules/codes/:id/assign CodesWrite
+POST /modules/codes/:id/release CodesWrite
+POST /modules/codes/:id/retire CodesWrite
+POST /modules/codes/:id/value CodesWrite
+POST /modules/codes/receive CodesWrite
 POST /modules/exam/authoring/:entity_type ExamAuthoringWrite
 POST /modules/exam/exam-sessions ExamSessionStart
 POST /modules/exam/exam-sessions/:id/certificate ExamCertificateIssue
