@@ -303,6 +303,11 @@ defmodule Letflow.Test.TenantTemplate do
     "documents"
   ]
 
+  # REQ-620 (GH #3463 part C): the ledger tables carry triggers that refuse TRUNCATE (decision
+  # 0056 D4 pattern, same as the document tables above), so a reset can never empty them. A clone
+  # where any of them is dirty is unprovable and the caller rebuilds the schema.
+  @append_only_tables ["ledger_entry", "ledger_leg", "ledger_counter", "ledger_balance"]
+
   # Bounds for the reset transaction (design 3.5): a test that died holding a lock
   # must make the reset time out (-> unprovable -> rebuild), not hang the module.
   @reset_lock_timeout "3s"
@@ -664,6 +669,7 @@ defmodule Letflow.Test.TenantTemplate do
         diff = diff_clone_state(state, baseline)
 
         immutable_dirt = Enum.filter(diff.dirty_tables, &(&1 in @immutable_document_tables))
+        append_only_dirt = Enum.filter(diff.dirty_tables, &(&1 in @append_only_tables))
 
         cond do
           diff.drift != [] ->
@@ -672,6 +678,10 @@ defmodule Letflow.Test.TenantTemplate do
           immutable_dirt != [] ->
             {:error,
              {:unprovable, Enum.map(immutable_dirt, &"immutable_document_table_dirty #{&1}")}}
+
+          # If both lists are dirty the immutable branch above wins; the rebuild follows either way.
+          append_only_dirt != [] ->
+            {:error, {:unprovable, Enum.map(append_only_dirt, &"append_only_table_dirty #{&1}")}}
 
           true ->
             do_reset(schema_name, baseline, state, diff, extra, started)
