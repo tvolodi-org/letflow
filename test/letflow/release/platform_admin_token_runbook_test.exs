@@ -6,6 +6,7 @@ defmodule Letflow.Release.PlatformAdminTokenRunbookTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @path "docs/runbooks/platform-admin-token-reissue.md"
 

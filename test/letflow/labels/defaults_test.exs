@@ -6,6 +6,7 @@ defmodule Letflow.Labels.DefaultsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Labels
   alias Letflow.Labels.Defaults

@@ -8,6 +8,7 @@ defmodule Letflow.Scripts.UatPreflightNoAppRoleTest do
   status. Needs a real `bash` and `python3` (`UAT_PF_BASH` on Windows, see the bare-JWT test).
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduletag :tmp_dir
 

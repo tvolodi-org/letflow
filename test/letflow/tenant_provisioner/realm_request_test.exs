@@ -1,5 +1,6 @@
 defmodule Letflow.TenantProvisioner.RealmRequestTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.TenantProvisioner.RealmRequest
 

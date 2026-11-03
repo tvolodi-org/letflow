@@ -6,6 +6,7 @@ defmodule Letflow.TenantProvisioner.RequestTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.TenantProvisioner.Config
   alias Letflow.TenantProvisioner.Request

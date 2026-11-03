@@ -8,6 +8,7 @@ defmodule Letflow.KeycloakTenantRealmTemplateTest do
   a new row forces a decision: map it to a check or declare it not checkable from the file.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @dir Path.expand("../../priv/keycloak/provisioner/v1", __DIR__)
   @template Path.join(@dir, "tenant-realm.json")

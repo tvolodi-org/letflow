@@ -18,6 +18,7 @@ defmodule Letflow.Entities.RecordsTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityTypeInstance

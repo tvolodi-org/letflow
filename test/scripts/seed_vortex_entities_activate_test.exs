@@ -7,6 +7,7 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActivateTest do
   functions (extracted verbatim) against a stub `curl`; no network, no DB.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @script "scripts/seed_vortex_entities.sh"
 

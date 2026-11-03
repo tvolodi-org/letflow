@@ -8,6 +8,7 @@ defmodule Letflow.Scripts.UatSeedEmailVerifiedTest do
   calls from the environment. Needs bash (set `UAT_PF_BASH` to git-bash on Windows).
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduletag :tmp_dir
 

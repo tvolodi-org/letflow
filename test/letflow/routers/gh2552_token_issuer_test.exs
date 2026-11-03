@@ -16,6 +16,7 @@ defmodule Letflow.Routers.Gh2552TokenIssuerTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import Ecto.Query
 

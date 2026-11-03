@@ -18,6 +18,7 @@ defmodule Mix.Tasks.Letflow.MigrateTenantAdminsTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import Ecto.Query
   import Letflow.Support.TenantAdminMigrationFixture

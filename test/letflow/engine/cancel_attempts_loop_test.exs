@@ -6,6 +6,7 @@ defmodule Letflow.Engine.CancelAttemptsLoopTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   import ExUnit.CaptureLog
 

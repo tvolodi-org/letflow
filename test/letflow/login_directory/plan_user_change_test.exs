@@ -7,6 +7,7 @@ defmodule Letflow.LoginDirectory.PlanUserChangeTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Identity.User
   alias Letflow.LoginDirectory

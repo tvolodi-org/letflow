@@ -18,6 +18,7 @@ defmodule Letflow.Routers.PromotionReadStoredIdsTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import Ecto.Query
   import Plug.Conn, only: [assign: 3, put_req_header: 3]

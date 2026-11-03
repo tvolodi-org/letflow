@@ -13,6 +13,7 @@ defmodule Letflow.Gh2622CiPushConcurrencyTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduletag :tmp_dir
 

@@ -97,6 +97,12 @@ defmodule Letflow.Modules.Module do
       `Letflow.Entities.ScopeDeclaration` only. Production modules may declare only types in
       their own `:manages_entity_types` (`Catalog` rule 11). The manifest hash covers it only
       when present.
+    * `:import_functions` - **optional** (GH #3602 / REQ-651, decision 0077 D5); a list of
+      `%{entity_type: name, function: atom}` literal maps, one per managed type the module imports
+      from a file. `function` is an arity-3 function `f(prefix, entry, ctx)` exported by the entry
+      module itself (`Catalog` rule 14). Resolved by `Letflow.Modules.Catalog.import_function/2`
+      and called by `Catalog.call_import_function/5`. NOT part of the manifest hash (it holds
+      code, not definitions).
   """
   @type manifest :: %{
           required(:id) => String.t(),
@@ -113,7 +119,8 @@ defmodule Letflow.Modules.Module do
           optional(:write_handlers) => [write_handler_spec()],
           optional(:scope_declarations) => %{String.t() => {:column, String.t()} | :tenant_wide},
           optional(:document_org_resolver) => module(),
-          optional(:extension_points) => [extension_point()]
+          optional(:extension_points) => [extension_point()],
+          optional(:import_functions) => [%{entity_type: String.t(), function: atom()}]
         }
 
   @typedoc """
@@ -192,6 +199,7 @@ defmodule Letflow.Modules.Module do
   | `:scope_declarations` (optional) | `%{String.t() => {:column, String.t()} | :tenant_wide}` literal map (REQ-518) |
   | `:document_org_resolver` (optional) | module atom implementing `Letflow.Documents.OrgResolver` (REQ-542); at most one module may declare it |
   | `:extension_points` (optional) | `[t:extension_point/0]` literal list of string-keyed maps (REQ-574); rule 13 of `Catalog.validate/2` |
+  | `:import_functions` (optional) | `[%{entity_type: String.t(), function: atom()}]` literal list (REQ-651); rule 14 of `Catalog.validate/2` |
 
   If any `role_grants` value atom is absent from `permissions`, a
   `CompileError` is raised at the call site during compilation. Non-literal

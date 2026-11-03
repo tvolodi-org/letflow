@@ -4,6 +4,7 @@ defmodule Letflow.Modules.Exam.ScoringTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Modules.Exam.Scoring
 

@@ -1,3 +1,5 @@
+Code.require_file("../org/org_fixture.exs", __DIR__)
+
 defmodule Letflow.LocationsFixture do
   @moduledoc """
   Shared fixtures for the locations behaviour and read API tests (GH #3501 / REQ-625).
@@ -28,8 +30,12 @@ defmodule Letflow.LocationsFixture do
 
   @install_opts Letflow.Routers.TenantModules.init([])
 
-  @doc "A provisioned tenant with `locations` installed: `%{tenant_id: _, schema: _}`."
-  @spec installed_tenant!(String.t()) :: %{tenant_id: String.t(), schema: String.t()}
+  @doc "A provisioned tenant with `locations` installed: `%{tenant_id: _, schema: _, slug: _}`."
+  @spec installed_tenant!(String.t()) :: %{
+          tenant_id: String.t(),
+          schema: String.t(),
+          slug: String.t()
+        }
   def installed_tenant!(slug_prefix) do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
 
@@ -45,17 +51,26 @@ defmodule Letflow.LocationsFixture do
 
     {:ok, _seeded} = EventTypes.seed!(tenant.schema_name)
 
+    # `locations` depends on `org` (GH #3586): org first.
+    install_module!(tenant.tenant_id, "org")
     install_locations!(tenant.tenant_id)
 
-    %{tenant_id: tenant.tenant_id, schema: tenant.schema_name}
+    %{
+      tenant_id: tenant.tenant_id,
+      schema: tenant.schema_name,
+      slug: Repo.get!(Letflow.Identity.Tenant, tenant.tenant_id).slug
+    }
   end
 
   @doc "Installs `locations` in the tenant through the real router as TENANT_ADMIN; raises unless 201."
-  def install_locations!(tenant_id) do
+  def install_locations!(tenant_id), do: install_module!(tenant_id, "locations")
+
+  @doc "Installs module `module_id` in the tenant through the real router; raises unless 201."
+  def install_module!(tenant_id, module_id) do
     conn =
       Plug.Test.conn(:post, "/")
       |> Map.put(:body_params, %{
-        "module_id" => "locations",
+        "module_id" => module_id,
         "rationale" => "GH-3501 test install"
       })
       |> put_req_header("content-type", "application/json")
@@ -68,7 +83,7 @@ defmodule Letflow.LocationsFixture do
       |> Letflow.Routers.TenantModules.call(@install_opts)
 
     if conn.status != 201,
-      do: raise("locations install failed: #{conn.status} #{conn.resp_body}")
+      do: raise("#{module_id} install failed: #{conn.status} #{conn.resp_body}")
 
     :ok
   end
@@ -125,6 +140,27 @@ defmodule Letflow.LocationsFixture do
       "location_node",
       values("location_node", code, Map.put(extra, "node_kind", node_kind))
     )
+  end
+
+  @doc "An owner-path location_org_unit_link; `extra` overrides fields."
+  def link!(schema, org_unit_id, location_id, extra \\ %{}) do
+    create!(
+      schema,
+      "location_org_unit_link",
+      Map.merge(
+        %{"location_id" => location_id, "org_unit_id" => org_unit_id, "active" => true},
+        extra
+      )
+    )
+  end
+
+  @doc "An org_unit of module org (through the org owner); returns its record id."
+  def org_unit!(schema, code \\ "U-#{System.unique_integer([:positive])}", extra \\ %{}) do
+    Letflow.OrgFixture.create!(
+      schema,
+      "org_unit",
+      Letflow.OrgFixture.values("org_unit", code, extra)
+    ).record_id
   end
 
   @doc "Owner-path full-document update that must succeed; returns the stored `Latest` row."

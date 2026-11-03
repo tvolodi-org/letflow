@@ -14,6 +14,7 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActorTest do
   `seed_vortex_entities_activate_test.exs`.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @script "scripts/seed_vortex_entities.sh"
 

@@ -10,6 +10,7 @@ defmodule Letflow.Scripts.PersonaActorSeedDriftTest do
   section 6. Spec: test/specs/ISS-0931.md.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @lib "scripts/lib/seed_persona_actors_base.sh"
   @tenants %{

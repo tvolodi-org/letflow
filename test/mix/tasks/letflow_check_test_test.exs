@@ -111,6 +111,7 @@ defmodule Mix.Tasks.Letflow.Check.TestTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   @target_substring "default values for the optional arguments"
 

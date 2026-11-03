@@ -28,6 +28,7 @@ defmodule Letflow.MailRuntimeConfigTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   @moduletag :slow
 

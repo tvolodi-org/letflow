@@ -53,6 +53,7 @@ defmodule Mix.Tasks.Letflow.AuditIssueClosuresTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   # ISS-0297: extended from default 60s because Audit.run([]) processes the real docs/issues/ corpus (200+ YAML files) with System.cmd per closed issue -- hits ExUnit default under 16-way CPU load.
   @moduletag timeout: 120_000

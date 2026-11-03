@@ -38,6 +38,7 @@ defmodule Letflow.Scripts.TestParallelEnvGuardTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @script_name "test_parallel" <> ".sh"
   @helper "Letflow.Test." <> "TestParallelEnv"

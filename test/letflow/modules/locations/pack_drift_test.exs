@@ -10,11 +10,12 @@ defmodule Letflow.Modules.Locations.PackDriftTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Entities.Definition.Shape
 
   @dir Path.join([File.cwd!(), "priv", "modules", "locations"])
-  @types ~w(location_node)
+  @types ~w(location_node location_org_unit_link)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 

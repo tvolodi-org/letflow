@@ -17,6 +17,7 @@ defmodule Letflow.Test.PartitionClockTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Test.PartitionClock
 

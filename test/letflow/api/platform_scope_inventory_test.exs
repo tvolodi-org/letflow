@@ -39,6 +39,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   import ExUnit.CaptureIO
 

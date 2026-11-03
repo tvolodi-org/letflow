@@ -64,6 +64,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
   `async: false`: the cases spawn process trees and are timing-sensitive.
   """
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Test.TestParallelCapture
 

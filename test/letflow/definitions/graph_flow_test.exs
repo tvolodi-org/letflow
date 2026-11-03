@@ -14,6 +14,7 @@ defmodule Letflow.Definitions.GraphFlowTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.Graph.{Edge, Node}

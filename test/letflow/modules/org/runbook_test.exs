@@ -6,6 +6,7 @@ defmodule Letflow.Modules.Org.RunbookTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @runbook Path.expand("../../../../docs/runbooks/wms-foundation.md", __DIR__)
   @root Path.expand("../../../..", __DIR__)
@@ -49,6 +50,15 @@ defmodule Letflow.Modules.Org.RunbookTest do
     assert text =~ "#2582"
     assert text =~ "reserved_idempotency_key"
     assert text =~ "/3"
+  end
+
+  test "B-07: the limits name the two REQ-643 types, REQ-661 and the existing-tenant gap" do
+    text = items() |> Enum.map_join("\n", &elem(&1, 1))
+
+    assert text =~ "org_position"
+    assert text =~ "org_employee"
+    assert text =~ "REQ-661"
+    assert text =~ "upgrade_required"
   end
 
   test "B-03: every limit names a GH number or a code path" do
@@ -118,5 +128,14 @@ defmodule Letflow.Modules.Org.RunbookTest do
 
       assert line =~ symbol, "#{path}:#{line_no} no longer holds #{symbol}: #{inspect(line)}"
     end
+  end
+
+  test "REQ-665 P4: the runbook names the write routes and both permissions" do
+    text = items() |> Enum.map_join("\n", &elem(&1, 1))
+    assert text =~ "Letflow.Modules.Org.Router"
+    assert text =~ "OrgStructureWrite"
+    assert text =~ "OrgEmployeesWrite"
+    assert text =~ "/api/v1/modules/org/"
+    assert text =~ "#3613"
   end
 end

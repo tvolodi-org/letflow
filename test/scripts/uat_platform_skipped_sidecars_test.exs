@@ -8,6 +8,7 @@ defmodule Letflow.Scripts.UatPlatformSkippedSidecarsTest do
   under `== SKIPPED SCENARIOS ==`.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduletag :tmp_dir
 

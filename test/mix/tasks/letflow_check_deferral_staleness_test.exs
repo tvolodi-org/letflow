@@ -53,6 +53,7 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Mix.Tasks.Letflow.CheckDeferralStaleness, as: Check
   alias Mix.Tasks.Letflow.CheckRequirementsRegistration, as: Registration

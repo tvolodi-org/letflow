@@ -1,5 +1,6 @@
 defmodule Letflow.Modules.WriteHandlerSpecTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.FixtureLedger

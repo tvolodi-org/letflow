@@ -5,7 +5,8 @@ defmodule Letflow.OrgFixture do
   `installed_tenant!/1` provisions a real tenant, seeds its event types and installs the real
   `org` module through the real `Letflow.Routers.TenantModules`. The owner writers go through
   `Letflow.Entities.Records` with `ManagedTypes.owner_for!(Letflow.Modules.Org)`, exactly as the
-  module's own code will (the module ships no write functions in this slice).
+  module's own code will (fixture units have no scope tree index row; company and site writers are
+  `Letflow.Modules.Org.Masters`, REQ-660).
   """
 
   import ExUnit.Callbacks, only: [on_exit: 1]
@@ -23,8 +24,12 @@ defmodule Letflow.OrgFixture do
 
   @install_opts Letflow.Routers.TenantModules.init([])
 
-  @doc "A provisioned tenant with `org` installed: `%{tenant_id: _, schema: _}`."
-  @spec installed_tenant!(String.t()) :: %{tenant_id: String.t(), schema: String.t()}
+  @doc "A provisioned tenant with `org` installed: `%{tenant_id: _, schema: _, slug: _}`."
+  @spec installed_tenant!(String.t()) :: %{
+          tenant_id: String.t(),
+          schema: String.t(),
+          slug: String.t()
+        }
   def installed_tenant!(slug_prefix) do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
 
@@ -54,7 +59,11 @@ defmodule Letflow.OrgFixture do
 
     if conn.status != 201, do: raise("org install failed: #{conn.status} #{conn.resp_body}")
 
-    %{tenant_id: tenant.tenant_id, schema: tenant.schema_name}
+    %{
+      tenant_id: tenant.tenant_id,
+      schema: tenant.schema_name,
+      slug: Repo.get!(Letflow.Identity.Tenant, tenant.tenant_id).slug
+    }
   end
 
   @doc "The Owner authority of the org module."
@@ -135,5 +144,20 @@ defmodule Letflow.OrgFixture do
 
   def values("org_unit_membership", _code, extra) do
     Map.merge(%{"user_id" => "user-1", "org_unit_id" => "unit-1", "active" => true}, extra)
+  end
+
+  # org_position and org_employee reference a real org_unit by foreign key (REQ-643): the caller
+  # passes `"org_unit_id"` (see `unit_id!/1`) in `extra`.
+  def values("org_position", code, extra) do
+    Map.merge(%{"code" => code, "name" => "Position #{code}", "active" => true}, extra)
+  end
+
+  def values("org_employee", code, extra) do
+    Map.merge(%{"code" => code, "full_name" => "Employee #{code}", "active" => true}, extra)
+  end
+
+  @doc "Creates an org_unit and returns its record id, for the foreign keys of positions and employees."
+  def unit_id!(schema, code \\ "FK-#{System.unique_integer([:positive])}") do
+    create!(schema, "org_unit", values("org_unit", code)).record_id
   end
 end

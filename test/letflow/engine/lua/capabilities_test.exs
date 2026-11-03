@@ -9,6 +9,7 @@ defmodule Letflow.Engine.Lua.CapabilitiesTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.Lua.Capabilities
 

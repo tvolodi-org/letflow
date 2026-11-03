@@ -16,6 +16,7 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.EncoderTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.LoginDiscovery.Notifier.Smtp
   alias Letflow.LoginDiscovery.Notifier.Smtp.Message

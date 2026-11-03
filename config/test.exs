@@ -312,6 +312,7 @@ config :letflow, :modules, [
   Letflow.Modules.CatalogItems,
   Letflow.Modules.Procurement,
   Letflow.Modules.Locations,
+  Letflow.Modules.Codes,
   Letflow.Modules.Fixture,
   Letflow.Modules.FixtureDependent,
   Letflow.Modules.FixtureFailingInstall,
@@ -399,3 +400,8 @@ config :letflow, :exam_notifications_enabled, false
 # REQ-620 / GH #3463: same as config/dev.exs -- lets CreateLedgerTables.down run. Not set in
 # config/prod.exs or config/runtime.exs.
 config :letflow, :allow_ledger_migration_down, true
+
+# T-1096: keep Ecto query lines (56 MB of log per 10 min of tests) off the console. Only the default
+# handler is raised; the primary Logger level stays :debug, so ExUnit.CaptureLog and LoggerCollector
+# (their own handlers) still see debug/query events, and failing tests print their own output.
+config :logger, :default_handler, level: :warning

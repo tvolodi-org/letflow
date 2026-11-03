@@ -1,0 +1,20 @@
+{
+  "name": "code_assignment",
+  "display_name": "Code assignment",
+  "description": "GH #3588 / REQ-648. One row of the assignment history: the code (code_id, a real foreign key onto code_tag) named the record target_type / target_id from assigned_at until released_at (empty while open). target_type and target_id are declarative (decision 0050 D3.6): no key is possible and the target is not validated here. A row changes only once, when it is closed.",
+  "fields": [
+    {"name": "code_id", "type": "string", "required": true, "queried": true},
+    {"name": "target_type", "type": "string", "required": true, "queried": true},
+    {"name": "target_id", "type": "string", "required": true, "queried": true},
+    {"name": "assigned_at", "type": "datetime", "required": true, "queried": true},
+    {"name": "assigned_by", "type": "string", "required": true, "queried": true},
+    {"name": "released_at", "type": "datetime", "queried": true},
+    {"name": "released_by", "type": "string", "queried": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_code_assignment_code_id", "field": "code_id", "references_entity": "code_tag"}
+  ],
+  "indexes": [
+    {"name": "idx_code_assignment_code_id", "fields": ["code_id"]}
+  ]
+}

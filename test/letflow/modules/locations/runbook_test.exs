@@ -8,6 +8,7 @@ defmodule Letflow.Modules.Locations.RunbookTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @runbook Path.expand("../../../../docs/runbooks/wms-foundation.md", __DIR__)
   @root Path.expand("../../../..", __DIR__)
@@ -38,17 +39,27 @@ defmodule Letflow.Modules.Locations.RunbookTest do
     assert @runbook |> File.read!() |> String.split("\n") |> Enum.member?(@heading)
   end
 
-  test "B-2: the section is a numbered list 1..7 with the known limits" do
+  test "B-2: the section is a numbered list 1..15 with the known limits" do
     numbers = Enum.map(items(), &elem(&1, 0))
-    assert numbers == Enum.to_list(1..7)
+    assert numbers == Enum.to_list(1..15)
 
     text = items() |> Enum.map_join("\n", &elem(&1, 1))
     assert text =~ "entity_type_managed"
     assert text =~ "/3"
     assert text =~ "external_ref"
     assert text =~ "org_site_id"
+    assert text =~ "create_node"
+    for fun <- ~w(move_node update_node retire_node descendant_ids), do: assert(text =~ fun)
+    assert text =~ "not upgraded"
     assert text =~ "parent_id"
     assert text =~ "capacity"
+    for word <- ["location_org_unit_link", "linked?", "D-065"], do: assert(text =~ word)
+    assert text =~ "import_row"
+
+    for word <- ["link_unit_location", "unlink_unit_location", "reactivat", "stock"],
+        do: assert(text =~ word)
+
+    assert text =~ "no `active` column" or text =~ "There is no `active` column"
   end
 
   test "B-3: every limit names a GH number or a code path, and every GH ref is a plain number" do
@@ -72,5 +83,13 @@ defmodule Letflow.Modules.Locations.RunbookTest do
     for {n, path} <- cited do
       assert File.exists?(Path.join(@root, path)), "limit #{n}: cited path #{path} does not exist"
     end
+  end
+
+  test "REQ-666 P3: the runbook names the write routes and the permission" do
+    text = items() |> Enum.map_join("\n", &elem(&1, 1))
+    assert text =~ "Letflow.Modules.Locations.Router"
+    assert text =~ "LocationsWrite"
+    assert text =~ "/api/v1/modules/locations/"
+    assert text =~ "#3612"
   end
 end

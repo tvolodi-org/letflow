@@ -8,6 +8,7 @@ defmodule Letflow.Modules.DefmanifestTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   # F3 fix (ISS-0806 WF03-ISS0806-20260925): each negative-path compile_string
   # call now uses a distinct module name to eliminate the async: true race on

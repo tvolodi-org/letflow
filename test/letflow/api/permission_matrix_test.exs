@@ -139,7 +139,11 @@ defmodule Letflow.Api.PermissionMatrixTest do
       expected =
         (Authorization.core_permissions() ++
            Letflow.Modules.Exam.manifest().permissions ++
-           Letflow.Modules.Procurement.manifest().permissions)
+           Letflow.Modules.Procurement.manifest().permissions ++
+           Letflow.Modules.Org.manifest().permissions ++
+           Letflow.Modules.CatalogItems.manifest().permissions ++
+           Letflow.Modules.Locations.manifest().permissions ++
+           Letflow.Modules.Codes.manifest().permissions)
         |> Enum.map(&Atom.to_string/1)
         |> Enum.sort()
 
@@ -152,7 +156,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
                "org" => Letflow.Modules.Org.manifest().version,
                "catalog_items" => Letflow.Modules.CatalogItems.manifest().version,
                "procurement" => Letflow.Modules.Procurement.manifest().version,
-               "locations" => Letflow.Modules.Locations.manifest().version
+               "locations" => Letflow.Modules.Locations.manifest().version,
+               "codes" => Letflow.Modules.Codes.manifest().version
              }
 
       for role <- golden.roles do
@@ -318,7 +323,15 @@ defmodule Letflow.Api.PermissionMatrixTest do
       assert {:ok, scanned} = PermissionMatrix.fixture_permissions(sources)
 
       union =
-        (Catalog.entry_modules() -- [Letflow.Modules.Exam, Letflow.Modules.Procurement])
+        (Catalog.entry_modules() --
+           [
+             Letflow.Modules.Exam,
+             Letflow.Modules.Procurement,
+             Letflow.Modules.Org,
+             Letflow.Modules.CatalogItems,
+             Letflow.Modules.Locations,
+             Letflow.Modules.Codes
+           ])
         |> Enum.flat_map(& &1.manifest().permissions)
         |> MapSet.new(&Atom.to_string/1)
 
@@ -958,7 +971,7 @@ defmodule Letflow.Api.PermissionMatrixTest do
   end
 
   describe "T28 F1: the real config files" do
-    test "the source scan passes and the :prod config list is [Exam, Org, CatalogItems, Procurement, Locations]" do
+    test "the source scan passes and the :prod config list is [Exam, Org, CatalogItems, Procurement, Locations, Codes]" do
       sources =
         "config/*.exs" |> Path.wildcard() |> Enum.sort() |> Enum.map(&{&1, File.read!(&1)})
 
@@ -972,7 +985,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
                Letflow.Modules.Org,
                Letflow.Modules.CatalogItems,
                Letflow.Modules.Procurement,
-               Letflow.Modules.Locations
+               Letflow.Modules.Locations,
+               Letflow.Modules.Codes
              ]
 
       # The :dev read is done by the CI step itself: config/dev.exs raises when
@@ -982,7 +996,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
         Letflow.Modules.Org,
         Letflow.Modules.CatalogItems,
         Letflow.Modules.Procurement,
-        Letflow.Modules.Locations
+        Letflow.Modules.Locations,
+        Letflow.Modules.Codes
       ]
 
       assert PermissionMatrix.check_module_list(

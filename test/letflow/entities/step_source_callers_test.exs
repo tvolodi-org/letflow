@@ -27,6 +27,7 @@ defmodule Letflow.Entities.StepSourceCallersTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @definer "lib/letflow/entities/step_source.ex"
   @records "lib/letflow/entities/records.ex"

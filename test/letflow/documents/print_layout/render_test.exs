@@ -50,6 +50,7 @@ defmodule Letflow.Documents.PrintLayout.RenderTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   import ExUnit.CaptureLog
 

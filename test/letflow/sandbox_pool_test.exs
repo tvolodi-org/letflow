@@ -50,6 +50,7 @@ defmodule Letflow.SandboxPoolTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   require Logger
 

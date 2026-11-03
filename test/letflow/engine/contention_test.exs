@@ -5,6 +5,7 @@ defmodule Letflow.Engine.ContentionTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.Contention
 

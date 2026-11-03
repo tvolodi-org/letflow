@@ -7,23 +7,31 @@ defmodule Letflow.Modules.Locations.RegistrationTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Modules.Catalog
 
-  @four ["org_legal_entity", "org_site", "org_unit", "org_unit_membership"]
+  @four [
+    "org_employee",
+    "org_legal_entity",
+    "org_position",
+    "org_site",
+    "org_unit",
+    "org_unit_membership"
+  ]
 
   test "R-01: Catalog.validate/1 accepts the org manifest" do
     assert Catalog.validate(Letflow.Modules.Org.manifest()) == :ok
   end
 
-  test "R-02: the manifest is id org, no dependencies, and manages exactly the four types" do
+  test "R-02: the manifest is id org, no dependencies, and manages exactly the six types" do
     manifest = Letflow.Modules.Org.manifest()
 
     assert manifest.id == "org"
     assert manifest.depends_on == []
     assert Enum.sort(manifest.manages_entity_types) == @four
     assert manifest.pack == "modules/org/pack.json"
-    assert manifest.permissions == []
+    assert manifest.permissions == [:OrgStructureWrite, :OrgEmployeesWrite]
     assert manifest.role_grants == %{}
   end
 
@@ -40,5 +48,29 @@ defmodule Letflow.Modules.Locations.RegistrationTest do
   test "R-04: Catalog.entry_modules/0 includes the Org module and fetch/1 resolves it" do
     assert Letflow.Modules.Org in Catalog.entry_modules()
     assert Catalog.fetch("org") == {:ok, Letflow.Modules.Org}
+  end
+
+  test "R-5: locations is 0.4.0, depends on org, manages exactly @types" do
+    m = Letflow.Modules.Locations.manifest()
+    assert m.version == "0.4.0"
+    assert m.depends_on == ["org"]
+    assert m.manages_entity_types == ["location_node", "location_org_unit_link"]
+    assert Catalog.validate(m) == :ok
+
+    source =
+      File.read!(
+        Path.join([File.cwd!(), "lib", "letflow", "modules", "locations", "locations.ex"])
+      )
+
+    [_, block] = Regex.run(~r/@types \[(.*?)\]/s, source)
+    types = Regex.scan(~r/"([a-z_]+)"/, block) |> Enum.map(&List.last/1)
+    assert types == m.manages_entity_types
+  end
+
+  test "R-6: the scope declarations are the whole two-key map" do
+    assert Letflow.Modules.Locations.manifest().scope_declarations == %{
+             "location_node" => :tenant_wide,
+             "location_org_unit_link" => {:column, "org_unit_id"}
+           }
   end
 end

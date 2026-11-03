@@ -5,6 +5,7 @@ defmodule Letflow.Scripts.UatSeedEmailVerifiedForGroupTest do
   `curl` (`CURL` env); no network. Needs bash (set `UAT_PF_BASH` to git-bash on Windows).
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduletag :tmp_dir
 

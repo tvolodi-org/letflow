@@ -21,6 +21,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import Ecto.Query, only: [from: 2]
   import ExUnit.CaptureLog

@@ -24,6 +24,7 @@ defmodule Letflow.Modules.Exam.CertificateSnapshotTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import Ecto.Query, only: [from: 2]
 

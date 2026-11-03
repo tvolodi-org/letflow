@@ -20,6 +20,7 @@ defmodule Letflow.NoSmtpSecretGuardTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   # Built from pieces, at run time (a compiled regex does not belong in a module
   # attribute on current OTP), so the literal assignment text never appears in this file.

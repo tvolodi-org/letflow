@@ -27,6 +27,25 @@ defmodule Letflow.Routers.EntitiesTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
+
+  # T-1137 pooled tenant (ISS-1042 adopter audit): one tenant shape cloned once per module.
+  # Spawned/un-awaited processes: none (requests are dispatched in the test process).
+  # lib/ fire-and-forget workers: none reachable. Tenant-keyed in-memory state: none.
+  # Two slots of one shape: the INV-5 / permission tests claim two tenants in one test.
+  setup_all context do
+    Letflow.TenantFixture.start_pool!(context,
+      slots: [
+        [slug_prefix: "req310-entities", display_name: "REQ-310 Entities Router Test Tenant"],
+        [slug_prefix: "req310-entities", display_name: "REQ-310 Entities Router Test Tenant"]
+      ]
+    )
+  end
+
+  # MUST stay the module's first setup.
+  setup context do
+    Letflow.TenantFixture.attach_pool!(context)
+  end
 
   import Plug.Test
   import Plug.Conn
@@ -99,10 +118,10 @@ defmodule Letflow.Routers.EntitiesTest do
   # A provisioned tenant plus a real API token carrying `roles`. Every role
   # string below is one of Letflow.Api.Authorization's own five closed roles,
   # so the 403/non-403 assertions are driven by that module's real matrix.
-  defp tenant_ctx(slug_prefix, roles \\ ["TENANT_ADMIN"]) do
+  defp tenant_ctx(_slug_prefix, roles \\ ["TENANT_ADMIN"]) do
     tenant =
       TenantFixture.provisioned_tenant!(
-        slug_prefix: slug_prefix,
+        slug_prefix: "req310-entities",
         display_name: "REQ-310 Entities Router Test Tenant"
       )
 

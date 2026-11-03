@@ -17,6 +17,7 @@ defmodule Letflow.Scripts.UatPreflightLocalDepsTest do
   `UAT_PF_BASH` to git-bash.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduletag :tmp_dir
 

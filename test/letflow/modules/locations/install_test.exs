@@ -30,6 +30,8 @@ defmodule Letflow.Modules.Locations.InstallTest do
 
   @trace "gh3501-locations-install-fixed-trace"
 
+  @types ["location_node", "location_org_unit_link"]
+
   @install_opts Letflow.Routers.TenantModules.init([])
   @entities_opts Letflow.Routers.Entities.init([])
 
@@ -70,7 +72,17 @@ defmodule Letflow.Modules.Locations.InstallTest do
     |> Letflow.Routers.TenantModules.call(@install_opts)
   end
 
+  defp install_org!(ctx) do
+    conn =
+      post_install(ctx.tenant_id, %{"module_id" => "org", "rationale" => "GH-3586 org first"})
+
+    assert conn.status == 201, conn.resp_body
+  end
+
+  # `locations` depends on `org` since GH #3586, so org goes in first.
   defp install_locations!(ctx) do
+    install_org!(ctx)
+
     conn =
       post_install(ctx.tenant_id, %{
         "module_id" => "locations",
@@ -84,6 +96,7 @@ defmodule Letflow.Modules.Locations.InstallTest do
   defp rows(schema) do
     Repo.all(
       from(d in EntityDefinition,
+        where: d.name in @types,
         select: {d.name, d.managed_by, d.status},
         order_by: [d.name, d.inserted_at]
       ),
@@ -98,7 +111,7 @@ defmodule Letflow.Modules.Locations.InstallTest do
   defp promotions(tenant_id) do
     Repo.all(
       from(p in ColumnPromotion,
-        where: p.tenant_id == ^tenant_id,
+        where: p.tenant_id == ^tenant_id and p.entity_type in @types,
         select: {p.entity_type, p.column_name},
         order_by: [p.entity_type, p.column_name]
       )
@@ -108,12 +121,15 @@ defmodule Letflow.Modules.Locations.InstallTest do
   # The promoted columns the activation must have registered, computed from the persisted
   # definition by the same function the DDL uses, never hard-coded.
   defp expected_promotions(schema) do
-    {:ok, definition} = Definitions.get_active_definition_by_name("location_node", schema)
+    @types
+    |> Enum.flat_map(fn type ->
+      {:ok, definition} = Definitions.get_active_definition_by_name(type, schema)
 
-    definition
-    |> TenantProvisioning.document_from_persisted()
-    |> DDL.promoted_columns()
-    |> Enum.map(&{"location_node", &1.name})
+      definition
+      |> TenantProvisioning.document_from_persisted()
+      |> DDL.promoted_columns()
+      |> Enum.map(&{type, &1.name})
+    end)
     |> Enum.sort()
   end
 
@@ -165,7 +181,10 @@ defmodule Letflow.Modules.Locations.InstallTest do
     test "I-1b: afterwards location_node exists, active, managed_by locations", ctx do
       install_locations!(ctx)
 
-      assert rows(ctx.schema) == [{"location_node", "locations", :active}]
+      assert rows(ctx.schema) == [
+               {"location_node", "locations", :active},
+               {"location_org_unit_link", "locations", :active}
+             ]
     end
 
     test "I-1c: exactly one promotion row per promoted column, address and external_ref included",
@@ -176,18 +195,18 @@ defmodule Letflow.Modules.Locations.InstallTest do
       assert promotions(ctx.tenant_id) == expected
 
       for column <-
-            ~w(code node_kind parent_id address location_type active external_ref_system external_ref_id) do
+            ~w(code name node_kind parent_id segment address location_type active external_ref_system external_ref_id) do
         assert {"location_node", column} in expected, "#{column} should be promoted"
       end
 
-      # `name` and `org_site_id` are not queried, so they have no column.
-      refute {"location_node", "name"} in expected
+      # `org_site_id` is gone from the definition, so it has no column.
       refute {"location_node", "org_site_id"} in expected
     end
   end
 
   describe "criterion 4: a tenant-created location_node blocks the install and everything rolls back" do
     setup ctx do
+      install_org!(ctx)
       # The tenant path refuses this name now; plant a pre-existing legacy squat.
       own =
         Letflow.ManagedTypesSupport.plant_legacy_squat!(ctx.schema, "location_node", [
@@ -255,13 +274,102 @@ defmodule Letflow.Modules.Locations.InstallTest do
     end
   end
 
+  describe "GH #3586: the org unit link type" do
+    test "I-4a: both types are active; the link has a uuid FK column onto location_node, org_unit_id is text without FK",
+         ctx do
+      install_locations!(ctx)
+      table = "entity_location_org_unit_link"
+
+      %{rows: cols} =
+        Repo.query!(
+          """
+          SELECT a.attname, format_type(a.atttypid, a.atttypmod)
+          FROM pg_attribute a
+          JOIN pg_class t ON t.oid = a.attrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = $1 AND t.relname = $2 AND a.attname IN ('location_id', 'org_unit_id')
+          """,
+          [ctx.schema, table]
+        )
+
+      assert Enum.sort(cols) == [["location_id", "uuid"], ["org_unit_id", "text"]]
+
+      %{rows: fks} =
+        Repo.query!(
+          """
+          SELECT a.attname, c.confdeltype::text, r.relname
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_class r ON r.oid = c.confrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+          WHERE n.nspname = $1 AND t.relname = $2 AND c.contype = 'f'
+          """,
+          [ctx.schema, table]
+        )
+
+      assert fks == [["location_id", "r", "entity_location_node"]]
+    end
+
+    test "I-4b: without org the install is refused and leaves no trace", ctx do
+      assert Installs.install("locations", Ecto.UUID.generate(),
+               prefix: ctx.schema,
+               rationale: "GH-3586 no org"
+             ) == {:error, {:dependency_not_installed, "org"}}
+
+      refute module_installed?(ctx.schema)
+      assert rows(ctx.schema) == []
+      assert promotions(ctx.tenant_id) == []
+    end
+
+    test "I-4c: a generic create of a link is 403 entity_type_managed and stores nothing", ctx do
+      install_locations!(ctx)
+
+      conn =
+        call_entities(ctx, :post, "/records/location_org_unit_link", %{
+          "field_values" => %{
+            "location_id" => Ecto.UUID.generate(),
+            "org_unit_id" => Ecto.UUID.generate(),
+            "active" => true
+          }
+        })
+
+      assert conn.status == 403, conn.resp_body
+      assert conn.resp_body == Error.serialise(%{Error.entity_type_managed() | trace_id: @trace})
+
+      assert Repo.aggregate(
+               from(l in Latest, where: l.entity_type == "location_org_unit_link"),
+               :count,
+               prefix: ctx.schema
+             ) == 0
+    end
+
+    test "I-4d: the org_unit_id index exists and the scope declaration is the column", ctx do
+      install_locations!(ctx)
+
+      %{rows: idx} =
+        Repo.query!(
+          "SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND indexname = $2",
+          [ctx.schema, "idx_location_org_unit_link_org_unit_id"]
+        )
+
+      assert idx == [["idx_location_org_unit_link_org_unit_id"]]
+
+      assert Letflow.Entities.ScopeDeclaration.for_type("location_org_unit_link", ctx.schema) ==
+               {:column, "org_unit_id"}
+
+      assert Letflow.Entities.ScopeDeclaration.for_type("location_node", ctx.schema) ==
+               :tenant_wide
+    end
+  end
+
   describe "criterion 10: no route, no permission" do
-    test "S-2: the manifest declares no permission, role grant or route policy" do
+    test "S-2: the manifest declares LocationsWrite, six route policies and no role grant" do
       manifest = Letflow.Modules.Locations.manifest()
 
-      assert manifest.permissions == []
+      assert manifest.permissions == [:LocationsWrite]
       assert manifest.role_grants == %{}
-      assert manifest.route_policies == []
+      assert length(manifest.route_policies) == 6
     end
   end
 end

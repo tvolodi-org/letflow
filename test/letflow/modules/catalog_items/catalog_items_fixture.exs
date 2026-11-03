@@ -29,7 +29,11 @@ defmodule Letflow.CatalogItemsFixture do
   @install_opts Letflow.Routers.TenantModules.init([])
 
   @doc "A provisioned tenant with `catalog_items` installed: `%{tenant_id: _, schema: _}`."
-  @spec installed_tenant!(String.t()) :: %{tenant_id: String.t(), schema: String.t()}
+  @spec installed_tenant!(String.t()) :: %{
+          tenant_id: String.t(),
+          schema: String.t(),
+          slug: String.t()
+        }
   def installed_tenant!(slug_prefix) do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
 
@@ -63,7 +67,11 @@ defmodule Letflow.CatalogItemsFixture do
     if conn.status != 201,
       do: raise("catalog_items install failed: #{conn.status} #{conn.resp_body}")
 
-    %{tenant_id: tenant.tenant_id, schema: tenant.schema_name}
+    %{
+      tenant_id: tenant.tenant_id,
+      schema: tenant.schema_name,
+      slug: Repo.get!(Letflow.Identity.Tenant, tenant.tenant_id).slug
+    }
   end
 
   @doc "The Owner authority of the catalog_items module."
@@ -130,6 +138,15 @@ defmodule Letflow.CatalogItemsFixture do
     create!(schema, "catalog_counterparty", values("catalog_counterparty", code, extra))
   end
 
+  @doc "An active lot (owner path) of `item_id` with `code`; `extra` overrides fields."
+  def lot!(schema, item_id, code, extra \\ %{}) do
+    create!(
+      schema,
+      "catalog_lot",
+      values("catalog_lot", code, Map.merge(%{"item_id" => item_id}, extra))
+    )
+  end
+
   @doc "Owner-path full-document update that must succeed; returns the stored `Latest` row."
   def update!(schema, record, field_values) do
     {:ok, %{record: updated}} =
@@ -158,6 +175,10 @@ defmodule Letflow.CatalogItemsFixture do
       %{"code" => code, "name" => "Supplier #{code}", "kind" => "supplier", "active" => true},
       extra
     )
+  end
+
+  def values("catalog_lot", code, extra) do
+    Map.merge(%{"item_id" => Ecto.UUID.generate(), "code" => code, "active" => true}, extra)
   end
 
   def values("catalog_item", code, extra) do

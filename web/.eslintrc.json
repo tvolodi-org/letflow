@@ -57,7 +57,79 @@
               "**/modules/*/**",
               "!**/modules/exam/**",
               "!**/modules/registry",
-              "!**/modules/types"
+              "!**/modules/types",
+              "**/org/**",
+              "**/locations/**",
+              "**/codes/**"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/modules/org/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@/modules/*/**",
+              "!@/modules/org/**",
+              "!@/modules/registry",
+              "!@/modules/types",
+              "**/modules/*/**",
+              "!**/modules/org/**",
+              "!**/modules/registry",
+              "!**/modules/types",
+              "**/exam/**",
+              "**/locations/**",
+              "**/codes/**"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/modules/locations/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@/modules/*/**",
+              "!@/modules/locations/**",
+              "!@/modules/registry",
+              "!@/modules/types",
+              "**/modules/*/**",
+              "!**/modules/locations/**",
+              "!**/modules/registry",
+              "!**/modules/types",
+              "**/exam/**",
+              "**/org/**",
+              "**/codes/**"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/modules/codes/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@/modules/*/**",
+              "!@/modules/codes/**",
+              "!@/modules/registry",
+              "!@/modules/types",
+              "**/modules/*/**",
+              "!**/modules/codes/**",
+              "!**/modules/registry",
+              "!**/modules/types",
+              "**/exam/**",
+              "**/org/**",
+              "**/locations/**"
             ]
           }
         ]

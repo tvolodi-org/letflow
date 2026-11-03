@@ -11,6 +11,7 @@ defmodule Letflow.Scripts.UatPreflightPlatformAdminTest do
   on Windows). Spec: test/specs/ISS-0997.md.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduletag :tmp_dir
 
