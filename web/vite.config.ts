@@ -1,4 +1,5 @@
-import { defineConfig, type Plugin } from 'vite'
+import { type Plugin } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 import { readFileSync } from 'fs'
@@ -45,6 +46,10 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, './src'),
     },
+  },
+  test: {
+    // lf.sh caps workers with VITEST_MAX_FORKS/THREADS; a minimum above that cap makes tinypool throw.
+    poolOptions: { forks: { minForks: 1 }, threads: { minThreads: 1 } },
   },
   build: {
     rollupOptions: {

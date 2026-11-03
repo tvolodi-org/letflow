@@ -1,12 +1,15 @@
-/** Toast — design-system primitive (REQ-275, docs/frontend/design-system.md §7.4)
+/** Toast — design-system primitive (NOTES.md section 2, REQ-275 store).
  *
- *  ToastContainer subscribes to the useToast.ts module-level store and renders the
- *  current entries top-right, newest first, capped at 4 (enforced by the store).
- *  All colors/spacing/typography are sourced from web/src/styles/tokens.css custom
- *  properties — no hex/rgb/hsl literal appears in this file.
+ *  ToastContainer subscribes to the useToast.ts module-level store and renders the entries
+ *  newest first, at most 4 (enforced by the store). success/info/warning close after 4 s,
+ *  an error stays until it is dismissed. Errors announce assertively (role="alert"), the
+ *  others politely. Appearance: .lf-toasts / .lf-toast from components.css (tokens only).
+ *  The warning variant has no toast class in the design system: it uses the info tone
+ *  with the alert glyph (nearest rule).
  */
 
 import React, { useSyncExternalStore } from 'react'
+import { AlertTriangle, CheckCircle2, Info, OctagonAlert, X } from 'lucide-react'
 import {
   dismissToast,
   getToastSnapshot,
@@ -14,65 +17,35 @@ import {
   type ToastEntry,
   type ToastVariant,
 } from '../../hooks/useToast'
+import { useUiMessages } from './uiMessages'
 
-interface VariantColors {
-  background: string
-  text: string
+const TONE: Record<ToastVariant, 'success' | 'info' | 'danger'> = {
+  success: 'success',
+  info: 'info',
+  warning: 'info',
+  error: 'danger',
 }
 
-const VARIANT_BG: Record<ToastVariant, string> = {
-  success: 'var(--color-success-light)',
-  error: 'var(--color-error-light)',
-  warning: 'var(--color-warning-light)',
-}
+const ICON = { success: CheckCircle2, info: Info, warning: AlertTriangle, error: OctagonAlert } as const
 
-const VARIANT_TEXT: Record<ToastVariant, string> = {
-  success: 'var(--color-success-dark)',
-  error: 'var(--color-error-dark)',
-  warning: 'var(--color-warning-dark)',
-}
-
-function variantColors(variant: ToastVariant): VariantColors {
-  return { background: VARIANT_BG[variant], text: VARIANT_TEXT[variant] }
-}
-
-interface ToastItemProps {
-  entry: ToastEntry
-}
-
-function ToastItem({ entry }: ToastItemProps): React.ReactElement {
-  const colors = variantColors(entry.variant)
-
+function ToastItem({ entry }: { entry: ToastEntry }): React.ReactElement {
+  const t = useUiMessages()
+  const Icon = ICON[entry.variant]
   return (
     <div
       data-testid="toast-item"
       data-variant={entry.variant}
-      role="status"
+      className={`lf-toast lf-toast--${TONE[entry.variant]}`}
+      role={entry.variant === 'error' ? 'alert' : 'status'}
       aria-live={entry.variant === 'error' ? 'assertive' : 'polite'}
-      style={{
-        background: colors.background,
-        borderRadius: 'var(--radius-sm)',
-        boxShadow: 'var(--shadow-card)',
-        padding: 'var(--space-3) var(--space-4)',
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 'var(--space-2)',
-        minWidth: '280px',
-        maxWidth: '380px',
-      }}
     >
-      <div style={{ flex: 1 }}>
-        <p
-          data-testid="toast-message"
-          style={{ color: colors.text, fontSize: 'var(--text-sm)', margin: 0 }}
-        >
+      <Icon className="lf-icon" aria-hidden="true" />
+      <div>
+        <p data-testid="toast-message" className="lf-toast__title">
           {entry.message}
         </p>
         {entry.description && (
-          <p
-            data-testid="toast-description"
-            style={{ color: colors.text, fontSize: 'var(--text-sm)', margin: 'var(--space-1) 0 0' }}
-          >
+          <p data-testid="toast-description" className="lf-toast__body">
             {entry.description}
           </p>
         )}
@@ -80,16 +53,11 @@ function ToastItem({ entry }: ToastItemProps): React.ReactElement {
       <button
         data-testid="toast-close"
         type="button"
-        aria-label="Dismiss notification"
+        className="lf-btn lf-btn--ghost lf-btn--icon"
+        aria-label={t.dismiss}
         onClick={() => dismissToast(entry.id)}
-        style={{
-          background: 'transparent',
-          border: 'none',
-          color: 'var(--text-secondary)',
-          cursor: 'pointer',
-        }}
       >
-        ×
+        <X className="lf-icon" aria-hidden="true" />
       </button>
     </div>
   )
@@ -103,18 +71,7 @@ export function ToastContainer(): React.ReactElement | null {
   }
 
   return (
-    <div
-      data-testid="toast-container"
-      style={{
-        position: 'fixed',
-        top: 'var(--space-4)',
-        right: 'var(--space-4)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-2)',
-        zIndex: 'var(--z-toast)' as unknown as number,
-      }}
-    >
+    <div data-testid="toast-container" className="lf-toasts">
       {entries.map((entry) => (
         <ToastItem key={entry.id} entry={entry} />
       ))}
