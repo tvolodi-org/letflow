@@ -65,6 +65,7 @@ GET /webhooks/subscriptions/:id/deliveries WebhookSubscriptionsManage
 PATCH /admin/services/:service_id AdminServicesManage
 PATCH /definitions/:id DefinitionsPatch
 PATCH /modules/catalog_items/lots/:id CatalogLotsWrite
+PATCH /modules/locations/nodes/:id LocationsWrite
 PATCH /modules/org/employees/:id OrgEmployeesWrite
 PATCH /modules/org/legal-entities/:id OrgStructureWrite
 PATCH /modules/org/positions/:id OrgEmployeesWrite
@@ -104,6 +105,11 @@ POST /modules/exam/exam-sessions/:id/certificate ExamCertificateIssue
 POST /modules/exam/exam-sessions/:id/events ExamSessionReportEvent
 POST /modules/exam/exam-sessions/:id/submit ExamSessionSubmit
 POST /modules/exam/grading-queue/:session_id/:question_id/grade ExamGradingWrite
+POST /modules/locations/links LocationsWrite
+POST /modules/locations/links/retire LocationsWrite
+POST /modules/locations/nodes LocationsWrite
+POST /modules/locations/nodes/:id/move LocationsWrite
+POST /modules/locations/nodes/:id/retire LocationsWrite
 POST /modules/org/employees OrgEmployeesWrite
 POST /modules/org/employees/:id/retire OrgEmployeesWrite
 POST /modules/org/employees/:id/transfer OrgEmployeesWrite

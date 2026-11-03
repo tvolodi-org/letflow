@@ -7,7 +7,7 @@ import { MemoryRouter, useRoutes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { UserSession } from '@/types/api'
 import type { AccessState } from '@/auth/access/types'
-import { withAtom, withoutAtom } from './orgTestKit'
+import { withAtom, withBothAtoms, withEmployeesAtom, withoutAtom } from './orgTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -60,28 +60,50 @@ async function renderShell(access: AccessState, installed: { module_id: string; 
 }
 
 const ORG = [{ module_id: 'org', version: '1.0.0' }]
-const LINKS: [string, string][] = [
+const STRUCTURE_LINKS: [string, string][] = [
   ['Legal companies', '/admin/org/legal-entities'],
   ['Sites', '/admin/org/sites'],
   ['Org units', '/admin/org/units'],
 ]
+const EMPLOYEE_LINKS: [string, string][] = [
+  ['Positions', '/admin/org/positions'],
+  ['Employees', '/admin/org/employees'],
+]
+const LINKS: [string, string][] = [...STRUCTURE_LINKS, ...EMPLOYEE_LINKS]
 
 describe('M1 definition and nav', () => {
-  it('is registered with three nav items on OrgStructureWrite', async () => {
+  it('is registered with five nav items, each on its write atom (N1)', async () => {
     const { orgModuleDefinition } = await import('../index')
     const { REGISTERED_MODULES } = await import('@/modules/registry')
     expect(REGISTERED_MODULES.map((m) => m.id)).toContain('org')
     expect(orgModuleDefinition.id).toBe('org')
     expect(orgModuleDefinition.navItems.map((n) => [n.label, n.to, n.permission])).toEqual(
-      LINKS.map(([l, to]) => [l, to, 'OrgStructureWrite']),
+      [
+        ...STRUCTURE_LINKS.map(([l, to]) => [l, to, 'OrgStructureWrite']),
+        ...EMPLOYEE_LINKS.map(([l, to]) => [l, to, 'OrgEmployeesWrite']),
+      ],
     )
   })
 
-  it('shows the three links to a holder of the atom when org is installed', async () => {
-    await renderShell(withAtom, ORG)
+  it('shows all five links to a holder of both atoms when org is installed', async () => {
+    await renderShell(withBothAtoms, ORG)
     for (const [name, href] of LINKS) {
       await waitFor(() => expect(screen.getByRole('link', { name })).toHaveAttribute('href', href))
     }
+  })
+
+  it('shows each holder only the links of the atom held (N1)', async () => {
+    await renderShell(withAtom, ORG)
+    for (const [name, href] of STRUCTURE_LINKS) {
+      await waitFor(() => expect(screen.getByRole('link', { name })).toHaveAttribute('href', href))
+    }
+    for (const [name] of EMPLOYEE_LINKS) expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
+    cleanup()
+    await renderShell(withEmployeesAtom, ORG)
+    for (const [name, href] of EMPLOYEE_LINKS) {
+      await waitFor(() => expect(screen.getByRole('link', { name })).toHaveAttribute('href', href))
+    }
+    for (const [name] of STRUCTURE_LINKS) expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
   })
 
   it('shows no org link without the atom or without the module installed', async () => {
@@ -89,7 +111,7 @@ describe('M1 definition and nav', () => {
     await waitFor(() => expect(screen.getByTestId('logout-button')).toBeInTheDocument())
     for (const [name] of LINKS) expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
     cleanup()
-    await renderShell(withAtom, [])
+    await renderShell(withBothAtoms, [])
     await waitFor(() => expect(screen.getByTestId('logout-button')).toBeInTheDocument())
     for (const [name] of LINKS) expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
   })
@@ -117,7 +139,7 @@ async function renderRegistryAt(path: string, access: AccessState, installed: { 
 describe('M2 install guard', () => {
   for (const [, path] of LINKS) {
     it(`${path} is not found when org is not installed`, async () => {
-      await renderRegistryAt(path, withAtom, [])
+      await renderRegistryAt(path, withBothAtoms, [])
       await waitFor(() => expect(screen.getByTestId('not-found-page')).toBeInTheDocument())
     })
   }

@@ -364,12 +364,12 @@ defmodule Letflow.Modules.Locations.InstallTest do
   end
 
   describe "criterion 10: no route, no permission" do
-    test "S-2: the manifest declares no permission, role grant or route policy" do
+    test "S-2: the manifest declares LocationsWrite, six route policies and no role grant" do
       manifest = Letflow.Modules.Locations.manifest()
 
-      assert manifest.permissions == []
+      assert manifest.permissions == [:LocationsWrite]
       assert manifest.role_grants == %{}
-      assert manifest.route_policies == []
+      assert length(manifest.route_policies) == 6
     end
   end
 end
