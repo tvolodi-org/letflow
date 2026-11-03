@@ -7,7 +7,8 @@ defmodule Letflow.Modules.Codes.RouterTest do
   GH #3611 / REQ-667: the five write routes of module `codes` through the full pipeline
   (`Letflow.Router`) with real bearer tokens. Tests H1/H2 (holders), R1..R6 (routes),
   E1..E5 (refusals), T1..T3 (tenancy). `async: false`: tenant provisioning runs DDL.
-  Same key with other input is not a 409 on these routes: the writers replay (runbook item 17).
+  On /receive the same key with another body is 409 `idempotency_key_reuse` (T-1153);
+  the single-code routes still replay without comparing (runbook item 17).
   """
 
   use Letflow.DataCase, async: false
@@ -151,6 +152,20 @@ defmodule Letflow.Modules.Codes.RouterTest do
       res = receive!(ctx, ["R1a", "R1b"])
       assert Enum.map(res, & &1["value"]) == ["R1a", "R1b"]
       assert count(ctx.a.schema) == 2
+    end
+
+    test "R1b receive: same key and body replays, other body is 409", ctx do
+      k = key()
+
+      body = fn v ->
+        %{"idempotency_key" => k, "entries" => [%{"value" => v, "kind" => "barcode"}]}
+      end
+
+      assert [%{"value" => "R1b1"}] = ok!(call(:post, "/receive", ctx.admin, body.("R1b1")), 201)
+      assert [%{"value" => "R1b1"}] = ok!(call(:post, "/receive", ctx.admin, body.("R1b1")), 201)
+      res = ok!(call(:post, "/receive", ctx.admin, body.("R1b2")), 409)
+      assert res["reason"] == "idempotency_key_reuse"
+      assert count(ctx.a.schema) == 1
     end
 
     test "R2 a taken value in entry 1 is entry_invalid and nothing is created", ctx do
