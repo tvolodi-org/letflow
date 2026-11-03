@@ -39,8 +39,47 @@ function exprManifestPlugin(): Plugin {
   }
 }
 
+// Task S0d — dev server only (apply: 'serve'; never in a build). Pages under /__harness/ get a hidden iframe whose
+// document the server holds back until the harness page says it has drawn (/__harness-ready, an image request),
+// or 10 s pass. A page's load event waits for it, so `firefox --screenshot` (which fires on load) sees the screen.
+function harnessGatePlugin(): Plugin {
+  const waiting: Array<() => void> = []
+  return {
+    name: 'harness-gate',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url ?? ''
+        if (url.startsWith('/__harness-ready')) {
+          while (waiting.length) waiting.pop()?.()
+          res.statusCode = 204
+          res.end()
+          return
+        }
+        if (url.startsWith('/__harness-wait')) {
+          const release = () => {
+            clearTimeout(timer)
+            if (!res.writableEnded) {
+              res.setHeader('Content-Type', 'text/html')
+              res.end('<!doctype html>')
+            }
+          }
+          const timer = setTimeout(release, 10_000)
+          waiting.push(release)
+          return
+        }
+        next()
+      })
+    },
+    transformIndexHtml(_html, ctx) {
+      if (!ctx.originalUrl?.startsWith('/__harness/')) return []
+      return [{ tag: 'iframe', attrs: { src: '/__harness-wait', hidden: true, title: 'harness gate' }, injectTo: 'body-prepend' }]
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), exprManifestPlugin()],
+  plugins: [react(), exprManifestPlugin(), harnessGatePlugin()],
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),

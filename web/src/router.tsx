@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { ProtectedRoute } from '@/auth/ProtectedRoute'
 import { P, RequirePermission, type Permission } from '@/auth/access'
 import OidcCallbackPage from '@/pages/OidcCallbackPage'
@@ -74,7 +74,19 @@ function platformPage(permission: Permission, page: ReactNode) {
   )
 }
 
+/** Task S0d: the screen harness exists only in the dev server. `import.meta.env.DEV` is a build-time constant,
+ *  so the production bundle contains neither the route nor the module (harness.build.test.ts proves it). */
+const harnessRoutes: RouteObject[] = import.meta.env.DEV
+  ? [
+      {
+        path: '/__harness/:screen/*',
+        lazy: async () => ({ Component: (await import('@/dev/harness/HarnessPage')).HarnessPage }),
+      },
+    ]
+  : []
+
 export const router = createBrowserRouter([
+  ...harnessRoutes,
   {
     path: '/auth/callback',
     element: <OidcCallbackPage />,
