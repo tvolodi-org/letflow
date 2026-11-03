@@ -119,6 +119,28 @@ defmodule Letflow.Test.TenantTemplateTest do
     end
   end
 
+  describe "REQ-683 T1 -- the fingerprint covers the entity record event type versions" do
+    test "the fingerprint string changes when seed_versions/0 changes" do
+      current = Letflow.Entities.EventTypes.seed_versions()
+      platform = Letflow.TenantProvisioning.platform_event_type_seed_versions()
+
+      assert {"ENTITY_RECORD_MIGRATED", 1} in current
+
+      a = TenantTemplate.fingerprint_comment_for(platform, current)
+
+      b =
+        TenantTemplate.fingerprint_comment_for(
+          platform,
+          List.keydelete(current, "ENTITY_RECORD_MIGRATED", 0)
+        )
+
+      c = TenantTemplate.fingerprint_comment_for(platform, current)
+
+      refute a == b
+      assert a == c
+    end
+  end
+
   describe "ISS-0842 — stale template detection and rebuild" do
     # Regression tests for the fingerprint-based staleness check. The key
     # failure mode this covers: a reused test DB (from a prior `mix test`

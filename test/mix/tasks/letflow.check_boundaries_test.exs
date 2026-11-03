@@ -266,6 +266,47 @@ defmodule Mix.Tasks.Letflow.CheckBoundariesTest do
   end
 
   # ================================================================
+  # Rule 9 -- module_upgrade capability fence (REQ-683, decision 0055 D3)
+  # ================================================================
+
+  describe "Rule 9 (REQ-683 AC27)" do
+    @writer "lib/letflow/module_upgrade/writer.ex"
+    @capability "lib/letflow/module_upgrade/capability.ex"
+
+    test "F1: routers, a module subdir and records.ex may not reference the writer" do
+      for source <- [
+            "lib/letflow/routers/entities.ex",
+            "lib/letflow/modules/exam/session.ex",
+            "lib/letflow/entities/records.ex"
+          ] do
+        assert {:violation, reason} = CB.classify_edge({source, @writer}, %{})
+        assert reason =~ @writer
+        assert reason =~ @capability
+        assert reason =~ "0055 D3"
+      end
+    end
+
+    test "F2: catalog.ex may not reference the capability (rule 1 does not exempt it)" do
+      assert {:violation, _} =
+               CB.classify_edge({"lib/letflow/modules/catalog.ex", @capability}, %{})
+    end
+
+    test "F3: a file under module_upgrade/ and a test file are ok" do
+      assert :ok = CB.classify_edge({"lib/letflow/module_upgrade/runner.ex", @writer}, %{})
+      assert :ok = CB.classify_edge({@writer, @capability}, %{})
+      assert :ok = CB.classify_edge({"test/letflow/module_upgrade/writer_test.exs", @writer}, %{})
+    end
+
+    test "F4: other targets under module_upgrade/ are not fenced" do
+      assert :ok =
+               CB.classify_edge(
+                 {"lib/letflow/routers/entities.ex", "lib/letflow/module_upgrade/other.ex"},
+                 %{}
+               )
+    end
+  end
+
+  # ================================================================
   # Rule 6 -- engine -> entities layer rule (GH 2534 PR 7c-2, AC22)
   # Design: lib/letflow/design/gh2534-7c-script-handler.md section 11.4.
   # Rule 6 classifies DIRECT file edges only (no transitive closure).

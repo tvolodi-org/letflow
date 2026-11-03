@@ -14,10 +14,10 @@ was written.
    403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
-   (`lib/letflow/entities/records.ex:2223`, delegating to `ManagedTypes.check_record_write/3`).
+   (`lib/letflow/entities/records.ex:1936`, delegating to `ManagedTypes.check_record_write/3`).
 2. **Writes go through the module's own Owner only, and nothing checks references.** Module
    code writes with the `/3` arity, `Records.create_record/3` with
-   `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:423`). The
+   `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:421`). The
    module has owner-path write functions for legal companies and sites (GH #3619 / REQ-660, item 12) and for units (GH #3618 / REQ-495: `create_unit/3`, `update_unit/4`, `move_unit/4`, `retire_unit/3` in `Letflow.Modules.Org.Units`, keeping the scope tree index through `Letflow.ScopeNodePaths.write/2` in the same transaction; the retire balance guard of D-065 is not built yet). References between the
    original four types (`legal_entity_id`, `site_id`, `parent`, `org_unit_id` of the membership) are
    declarative strings with no foreign keys and no reference check (the two newer types are item 8): a record can name a legal entity, site or unit that does
@@ -30,10 +30,10 @@ was written.
    entry points (`create_record`, `update_record`, `delete_record`) refuse, before any query, an
    `idempotency_key` that starts with the exact bytes `sys:step:` (or `record_trigger:` when no `:trigger_lineage` is passed, REQ-628) and return
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
-   `lib/letflow/entities/records.ex:1292`; prefix `@step_key_prefix`, line 368). Only
+   `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
    `lib/letflow/entities/step_writes.ex:760` and `lib/letflow/entities/handler_writes.ex:248`.
-   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1235`) is a separate check:
+   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
 5. **The read API is by record id only.** `Letflow.Modules.Org.lookup/2`, `active?/2` and
@@ -125,12 +125,12 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    generic entity routes answer 403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
-   (`lib/letflow/entities/records.ex:2223`, delegating to `ManagedTypes.check_record_write/3`).
+   (`lib/letflow/entities/records.ex:1936`, delegating to `ManagedTypes.check_record_write/3`).
    The one exception is the import route (item 2).
 2. **Writes go through the module's own Owner only; the three masters are imported through the
    managed import path (GH #3602, REQ-651).** Module code writes with the `/3` arity,
    `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.CatalogItems)`
-   (`lib/letflow/entities/records.ex:423`); the only such caller is
+   (`lib/letflow/entities/records.ex:421`); the only such caller is
    `lib/letflow/modules/catalog_items/import.ex`. `catalog_uom`, `catalog_item` and
    `catalog_counterparty` register `Letflow.Modules.CatalogItems.import_row/3` in the manifest key
    `:import_functions`; `POST /entities/records/:entity_type/import` calls it once per row through
@@ -153,10 +153,10 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    entry points (`create_record`, `update_record`, `delete_record`) refuse, before any query, an
    `idempotency_key` that starts with the exact bytes `sys:step:` (or `record_trigger:` when no `:trigger_lineage` is passed, REQ-628) and return
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
-   `lib/letflow/entities/records.ex:1292`; prefix `@step_key_prefix`, line 368). Only
+   `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
    `lib/letflow/entities/step_writes.ex:760` and `lib/letflow/entities/handler_writes.ex:248`.
-   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1235`) is a separate check:
+   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
 6. **The read API is by record id only; deleted is the same as absent.**

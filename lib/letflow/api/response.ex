@@ -63,7 +63,12 @@ defmodule Letflow.Api.Response do
   @problem_content_type "application/problem+json"
   @separation_of_duties_body ~s({"detail":"separation of duties","status":403})
   # GH #2701 (REQ-516 S3): record events carry `field_values`, which no history item shows.
-  @entity_record_event_types ["ENTITY_RECORD_CREATED", "ENTITY_RECORD_UPDATED"]
+  # REQ-683: a MIGRATED event carries `before` and `after` instead, dropped the same way.
+  @entity_record_event_types [
+    "ENTITY_RECORD_CREATED",
+    "ENTITY_RECORD_UPDATED",
+    "ENTITY_RECORD_MIGRATED"
+  ]
 
   # ── Client-visible variable and event-payload shaping (GH #2587 PR B3, CO-1, INV-2) ──
 
@@ -107,7 +112,7 @@ defmodule Letflow.Api.Response do
         applied_payload(payload)
 
       event_type in @entity_record_event_types ->
-        Map.delete(payload, "field_values")
+        Map.drop(payload, ["field_values", "before", "after"])
 
       true ->
         VariableLabels.redact_event_payload(payload, hidden)

@@ -70,6 +70,7 @@ defmodule Letflow.Idempotency do
     "script_run:",
     # REQ-628: the record-trigger result transaction (record_triggers/apply.ex).
     "record_trigger:",
+    "module_upgrade:",
     "certificate:issue:",
     "entities-record-import:",
     "attachment_attached:",

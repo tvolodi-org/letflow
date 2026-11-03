@@ -66,6 +66,15 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
 
   Rule 8 is not built here (slice L3).
 
+  ## Rule 9 — module_upgrade capability fence (REQ-683, decision 0055 D3)
+
+  The entry that introduced this rule calls it "rule 7"; that number is taken by the neutral
+  vocabulary scan above and 8 is reserved for the ledger work, so it is Rule 9 here.
+  `lib/letflow/module_upgrade/writer.ex` and `lib/letflow/module_upgrade/capability.ex` may be
+  referenced only from files under `lib/letflow/module_upgrade/`. The writer appends events
+  behind the capability and bypasses tenant hooks, so the only way to reach it is the upgrade
+  runner that lives in that directory. Evaluated after the scope gates and before Rule 6.
+
   ## Permitted exceptions (Rules 0–3)
 
   * Rule 0: any edge whose target is NOT inside a `lib/letflow/modules/<id>/`
@@ -281,6 +290,13 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
       String.starts_with?(source, "test/support/") ->
         :ok
 
+      # Rule 9: the module_upgrade writer and capability are reachable only from module_upgrade/
+      module_upgrade_fenced?(source, target) ->
+        {:violation,
+         "module_upgrade fence: #{source} → #{target} (lib/letflow/module_upgrade/writer.ex and " <>
+           "lib/letflow/module_upgrade/capability.ex may only be referenced from " <>
+           "lib/letflow/module_upgrade/, decision 0055 D3)"}
+
       # Rule 6: a forbidden layer edge (DIRECT edges only), before Rule 0
       layer_reason != nil ->
         {:violation, layer_reason}
@@ -318,6 +334,16 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
          "boundary violation: #{source} → #{target} " <>
            "(only lib/letflow/modules/catalog.ex may reference module-subdir files)"}
     end
+  end
+
+  @module_upgrade_fenced [
+    "lib/letflow/module_upgrade/writer.ex",
+    "lib/letflow/module_upgrade/capability.ex"
+  ]
+
+  defp module_upgrade_fenced?(source, target) do
+    target in @module_upgrade_fenced and
+      not String.starts_with?(source, "lib/letflow/module_upgrade/")
   end
 
   @neutral_words ~w(stock item location warehouse site lot serial sku material inventory bin pallet)

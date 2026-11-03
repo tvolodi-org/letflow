@@ -24,6 +24,8 @@ defmodule Letflow.Routers.Req516RecordHistoryRoutesTest do
   import Plug.Conn
 
   alias Letflow.Entities.EntityTypeInstance
+  alias Letflow.ModuleUpgrade.Capability
+  alias Letflow.ModuleUpgrade.Writer
   alias Letflow.Support.RecordHistoryFixture, as: R
   alias Letflow.Support.ScopeSetFixture, as: F
   alias Letflow.Support.ScopeWritesFixture, as: W
@@ -132,6 +134,27 @@ defmodule Letflow.Routers.Req516RecordHistoryRoutesTest do
       assert {:ok, _} = Ecto.UUID.cast(first["event_id"])
       assert first["event_type"] == "ENTITY_RECORD_CREATED"
       assert first["actor_display_name"] == "REQ-516 History Test User"
+    end
+  end
+
+  describe "REQ-683 H3 a migrated record" do
+    test "the MIGRATED item is listed with no field_values, before or after key", %{t: t} do
+      record_id = R.record!(t, %{"title" => "case", "secret" => "s3"})
+      {:ok, cap} = Capability.new(t.tenant_id, "up-1", "plan-1", t.author.id)
+
+      assert {:ok, :appended} =
+               Writer.migrate_record(cap, R.type_name(), record_id, %{"title" => "moved"}, "s1")
+
+      token = R.token!(t, R.user!(t), ["TENANT_ADMIN"])
+      conn = history(t, token, record_id)
+      assert conn.status == 200, conn.resp_body
+
+      migrated = List.last(body_of(conn)["items"])
+      assert migrated["event_type"] == "ENTITY_RECORD_MIGRATED"
+      refute Map.has_key?(migrated, "field_values")
+      refute Map.has_key?(migrated, "before")
+      refute Map.has_key?(migrated, "after")
+      refute conn.resp_body =~ "moved"
     end
   end
 

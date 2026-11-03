@@ -54,7 +54,8 @@ defmodule Letflow.TenantProvisioning.EntityEventTypeSeedingTest do
   @entity_event_types [
     "ENTITY_RECORD_CREATED",
     "ENTITY_RECORD_UPDATED",
-    "ENTITY_RECORD_DELETED"
+    "ENTITY_RECORD_DELETED",
+    "ENTITY_RECORD_MIGRATED"
   ]
 
   # ---------------------------------------------------------------------------------

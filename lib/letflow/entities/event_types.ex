@@ -1,7 +1,7 @@
 defmodule Letflow.Entities.EventTypes do
   @moduledoc """
-  One-time seed step registering the three entity-record event types
-  (REQ-228) through the **existing**
+  One-time seed step registering the four entity-record event types
+  (REQ-228; ENTITY_RECORD_MIGRATED, REQ-683) through the **existing**
   `Letflow.EventStore.Registry.register_type/2` — no parallel registration
   mechanism. See
   `lib/letflow/design/req228-entity-event-registration-commands.md` §4 for
@@ -99,6 +99,33 @@ defmodule Letflow.Entities.EventTypes do
     "additionalProperties" => false
   }
 
+  # REQ-683 / decision 0055 D3: one module data migration step applied to one record. `after`
+  # holds the written keys, `before` the row's values of exactly those keys.
+  @migrated_schema %{
+    "type" => "object",
+    "required" => [
+      "entity_type",
+      "record_id",
+      "entity_def_version",
+      "upgrade_id",
+      "step_id",
+      "plan_hash",
+      "before",
+      "after"
+    ],
+    "properties" => %{
+      "entity_type" => %{"type" => "string"},
+      "record_id" => %{"type" => "string"},
+      "entity_def_version" => %{"type" => "string"},
+      "upgrade_id" => %{"type" => "string"},
+      "step_id" => %{"type" => "string"},
+      "plan_hash" => %{"type" => "string"},
+      "before" => %{"type" => "object"},
+      "after" => %{"type" => "object"}
+    },
+    "additionalProperties" => false
+  }
+
   @event_type_specs [
     %{
       name: "ENTITY_RECORD_CREATED",
@@ -124,25 +151,39 @@ defmodule Letflow.Entities.EventTypes do
       schema_version: 1,
       json_schema: @deleted_schema,
       description: "An entity record was marked deleted (REQ-228)."
+    },
+    %{
+      name: "ENTITY_RECORD_MIGRATED",
+      schema_version: 1,
+      json_schema: @migrated_schema,
+      description:
+        "A module data migration changed keys of an entity record (REQ-683, decision 0055 D3): " <>
+          "`after` is merged over the record's field_values; `before` holds the replaced values."
     }
   ]
 
   @doc """
-  The names of the three entity-record event types, in registration order. Readers that filter a
+  The names of the four entity-record event types, in registration order. Readers that filter a
   record's event stream take the names from here, so the strings are written once.
   """
   @spec record_event_names() :: [String.t()]
   def record_event_names, do: Enum.map(@event_type_specs, & &1.name)
 
+  @doc false
+  # The (name, schema_version) pairs the seed registers. The test tenant template hashes them into
+  # its fingerprint, so a template built before a new type or version is rebuilt (REQ-683).
+  @spec seed_versions() :: [{String.t(), pos_integer()}]
+  def seed_versions, do: Enum.map(@event_type_specs, &{&1.name, &1.schema_version})
+
   @type seed_result :: %{registered: [Registry.EventType.t()], skipped: [String.t()]}
 
   @doc """
   Registers `ENTITY_RECORD_CREATED`, `ENTITY_RECORD_UPDATED`,
-  `ENTITY_RECORD_DELETED` (in that order) via `Registry.register_type/2`,
+  `ENTITY_RECORD_DELETED`, `ENTITY_RECORD_MIGRATED` (in that order) via `Registry.register_type/2`,
   scoped to the tenant schema named by `prefix`.
 
   Idempotent across repeated calls (design §4): a
-  `{:error, :duplicate_event_type_version}` for one of the three is treated
+  `{:error, :duplicate_event_type_version}` for one of the four is treated
   as "already registered, not a failure" and that event type's `name` is
   added to `skipped` rather than aborting the whole seed. Any other error
   return aborts immediately as `{:error, reason}`, leaving `registered`

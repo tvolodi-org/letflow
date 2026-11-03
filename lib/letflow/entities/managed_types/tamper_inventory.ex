@@ -5,6 +5,9 @@ defmodule Letflow.Entities.ManagedTypes.TamperInventory do
   record events of the exam entity types that were probably NOT written by the exam module's own
   paths (the generic records routes or import).
 
+  `ENTITY_RECORD_MIGRATED` is deliberately not listed (REQ-683): only `Letflow.ModuleUpgrade.Writer`
+  appends it, which is the module path by construction (decision 0050 D7), so it is never a tamper.
+
   ## What distinguishes the sources
 
   A plain record write appends one `events` row (the `ENTITY_RECORD_*` created/updated/deleted types) with the
