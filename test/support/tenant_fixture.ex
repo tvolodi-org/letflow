@@ -206,6 +206,7 @@ defmodule Letflow.TenantFixture do
     "solution_pack_overrides",
     "tasks",
     "tenant_logos",
+    "tenant_module_upgrades",
     "tenant_modules",
     "tenant_role",
     "timers",

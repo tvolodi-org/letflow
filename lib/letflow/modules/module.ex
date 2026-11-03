@@ -66,7 +66,7 @@ defmodule Letflow.Modules.Module do
   (design §1.3). Field semantics:
 
     * `:id` — the module's own id string (e.g. `"fixture"`, `"exam"`).
-    * `:version` — a version string, opaque to this requirement.
+    * `:version` — a strict semver 2.0.0 string (`Letflow.Modules.Catalog` rule 15).
     * `:depends_on` — other module ids this module requires installed first.
     * `:pack` — a path to the module's solution-pack document, or `nil`.
     * `:permissions` — the permission atoms this module declares and owns.
@@ -103,6 +103,11 @@ defmodule Letflow.Modules.Module do
       module itself (`Catalog` rule 14). Resolved by `Letflow.Modules.Catalog.import_function/2`
       and called by `Catalog.call_import_function/5`. NOT part of the manifest hash (it holds
       code, not definitions).
+    * `:min_upgradable_from` - **optional** (GH #3578 / REQ-640, decision 0055 D1); a strict semver
+      string not higher than `:version`. Absent means the module's own `:version` (no older version
+      is upgradable). Not part of the manifest hash.
+    * `:migrations` - **optional**; an ordered list of `Letflow.Modules.Step` structs. Absent means
+      `[]`. Not part of the manifest hash. Chained by `Letflow.Modules.Catalog.upgrade_path/3`.
   """
   @type manifest :: %{
           required(:id) => String.t(),
@@ -120,7 +125,9 @@ defmodule Letflow.Modules.Module do
           optional(:scope_declarations) => %{String.t() => {:column, String.t()} | :tenant_wide},
           optional(:document_org_resolver) => module(),
           optional(:extension_points) => [extension_point()],
-          optional(:import_functions) => [%{entity_type: String.t(), function: atom()}]
+          optional(:import_functions) => [%{entity_type: String.t(), function: atom()}],
+          optional(:min_upgradable_from) => String.t(),
+          optional(:migrations) => [Letflow.Modules.Step.t()]
         }
 
   @typedoc """

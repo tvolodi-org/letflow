@@ -1131,3 +1131,5 @@
 16 test/scripts/test_parallel_instrumentation_test.exs 2296.72
 16 test/scripts/test_parallel_pool_behaviour_test.exs 17224.08
 16 test/support/tenant_schema_reaper_test.exs 239.87
+4 test/letflow/migrations/tenant_module_upgrades_migration_test.exs 5746.12
+7 test/letflow/modules/catalog_upgrade_shapes_test.exs 5746.12
