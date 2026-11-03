@@ -460,7 +460,7 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
     test "exit 3 with deploy=true fails closed: decide error, nothing written", %{dir: dir} do
       r = decide(dir, "deploy=true\nreason=cd-qa: tip unreadable\n", 3)
       assert r.status == 1
-      assert r.out == "cd-qa: decide error\n"
+      assert String.starts_with?(r.out, "cd-qa: decide error\n")
       assert r.summary == "cd-qa: decide error\n"
       assert r.output == ""
     end
@@ -487,9 +487,34 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
       for {out, rc} <- cases do
         r = decide(dir, out, rc)
         assert r.status == 1, "accepted #{inspect(out)} rc #{rc}: #{r.out}"
-        assert r.out == "cd-qa: decide error\n", "#{inspect(out)} rc #{rc}: #{inspect(r.out)}"
+
+        assert String.starts_with?(r.out, "cd-qa: decide error\n"),
+               "#{inspect(out)} rc #{rc}: #{inspect(r.out)}"
+
         assert r.output == "", "#{inspect(out)} rc #{rc} wrote #{inspect(r.output)}"
       end
+    end
+  end
+
+  describe "decide step wrapper, locale (T-1159)" do
+    setup do
+      assert System.find_executable("bash"), "bash is required"
+      {:ok, dir: decide_fixture()}
+    end
+
+    test "plain ASCII reason is accepted under en_US.UTF-8", %{dir: dir} do
+      File.write!(Path.join(dir, "decide.out"), "deploy=true\nreason=cd-qa: behind tip abc\n")
+      r = run_step(dir, "work", [{"FAKE_DECIDE_RC", "0"}, {"LC_ALL", "en_US.UTF-8"}])
+      assert r.status == 0, r.out
+      assert r.out == "cd-qa: behind tip abc\n"
+      assert r.output == "deploy=true\n"
+    end
+
+    test "a rejected decision prints the offending lines", %{dir: dir} do
+      r = decide(dir, "deploy=true\nreason=cd-qa: behind\ttip\n", 0)
+      assert r.status == 1
+      assert r.out =~ "cd-qa: decide error\n"
+      assert r.out =~ "decide rc=0 lines=2 line1=deploy=true line2="
     end
   end
 
