@@ -57,7 +57,7 @@
         </div>
       </header>
 
-      <div class="lf-md">
+      <div class="lf-md" data-detail="open">
         <!-- master: tree -->
         <section class="lf-card lf-md__master" aria-labelledby="tree-h">
           <div class="lf-md__tools">
@@ -104,9 +104,10 @@
         </section>
 
         <!-- detail -->
-        <section class="lf-card" aria-labelledby="d-h">
+        <section class="lf-card lf-md__detail" aria-labelledby="d-h">
           <div class="lf-detail-head">
             <div class="lf-detail-head__title">
+              <button class="lf-btn lf-btn--ghost lf-btn--s lf-md__back"><svg class="lf-icon"><use href="#i-back"/></svg><span data-t="back">Back to the list</span></button>
               <span class="lf-detail-head__path" data-t="path">Head office / Finance department</span>
               <h2 id="d-h" data-t="u.acc">Accounting</h2>
             </div>
@@ -187,7 +188,7 @@ window.LF_STRINGS = {
   ru: {
     'nav.work': 'Работа', 'nav.legal': 'Юридические лица', 'nav.sites': 'Площадки', 'nav.units': 'Организационные единицы', 'nav.positions': 'Должности', 'nav.employees': 'Сотрудники', 'nav.locations': 'Местоположения', 'nav.links': 'Связи местоположений', 'nav.codes': 'Коды', 'nav.lots': 'Партии', 'nav.admin': 'Администрирование', 'nav.import': 'Импорт данных',
     'eyebrow': 'Работа · Оргструктура', 'title': 'Организационные единицы', 'lede': 'Отделы и группы обоих юридических лиц. Каждая единица относится к одному юрлицу и одной площадке.',
-    'importUnits': 'Импортировать единицы', 'create': 'Создать единицу', 'treeTitle': 'Дерево единиц', 'search': 'Поиск единиц', 'searchPh': 'Поиск по наименованию или коду', 'showRetired': 'Показать выведенные', 'units': 'единиц',
+    'back': 'К списку', 'importUnits': 'Импортировать единицы', 'create': 'Создать единицу', 'treeTitle': 'Дерево единиц', 'search': 'Поиск единиц', 'searchPh': 'Поиск по наименованию или коду', 'showRetired': 'Показать выведенные', 'units': 'единиц',
     'u.ho': 'Головной офис', 'u.fin': 'Финансовый департамент', 'u.acc': 'Бухгалтерия', 'u.pay': 'Группа расчёта заработной платы', 'u.it': 'ИТ-департамент', 'u.svc': 'Сервисная компания', 'u.wh': 'Складская команда', 'u.wha': 'Складская смена А',
     'path': 'Головной офис / Финансовый департамент', 'active': 'Действует', 'addChild': 'Добавить дочернюю', 'move': 'Переместить', 'retire': 'Вывести',
     'tab.details': 'Сведения', 'tab.positions': 'Должности', 'tab.employees': 'Сотрудники', 'tab.locations': 'Местоположения',
@@ -199,7 +200,7 @@ window.LF_STRINGS = {
   kk: {
     'nav.work': 'Жұмыс', 'nav.legal': 'Заңды тұлғалар', 'nav.sites': 'Алаңдар', 'nav.units': 'Ұйымдық бірліктер', 'nav.positions': 'Лауазымдар', 'nav.employees': 'Қызметкерлер', 'nav.locations': 'Орналасқан жерлер', 'nav.links': 'Орын байланыстары', 'nav.codes': 'Кодтар', 'nav.lots': 'Партиялар', 'nav.admin': 'Тенант әкімшілігі', 'nav.import': 'Деректерді импорттау',
     'eyebrow': 'Жұмыс · Ұйымдық құрылым', 'title': 'Ұйымдық бірліктер', 'lede': 'Екі заңды тұлғаның бөлімдері мен топтары. Әр бірлік бір заңды тұлғаға және бір алаңға тиесілі.',
-    'importUnits': 'Бірліктерді импорттау', 'create': 'Бірлік жасау', 'treeTitle': 'Бірліктер ағашы', 'search': 'Бірліктерді іздеу', 'searchPh': 'Атауы немесе коды бойынша іздеу', 'showRetired': 'Шығарылғандарды көрсету', 'units': 'бірлік',
+    'back': 'Тізімге оралу', 'importUnits': 'Бірліктерді импорттау', 'create': 'Бірлік жасау', 'treeTitle': 'Бірліктер ағашы', 'search': 'Бірліктерді іздеу', 'searchPh': 'Атауы немесе коды бойынша іздеу', 'showRetired': 'Шығарылғандарды көрсету', 'units': 'бірлік',
     'u.ho': 'Бас кеңсе', 'u.fin': 'Қаржы департаменті', 'u.acc': 'Бухгалтерия', 'u.pay': 'Жалақы есептеу тобы', 'u.it': 'АТ департаменті', 'u.svc': 'Сервистік компания', 'u.wh': 'Қойма командасы', 'u.wha': 'Қойманың А ауысымы',
     'path': 'Бас кеңсе / Қаржы департаменті', 'active': 'Белсенді', 'addChild': 'Еншілес бірлік қосу', 'move': 'Көшіру', 'retire': 'Шығару',
     'tab.details': 'Мәліметтер', 'tab.positions': 'Лауазымдар', 'tab.employees': 'Қызметкерлер', 'tab.locations': 'Орындар',

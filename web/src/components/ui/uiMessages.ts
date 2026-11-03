@@ -18,6 +18,7 @@ export type UiMessageId =
   | 'replace'
   | 'invalidFile'
   | 'skipLink'
+  | 'back'
 
 export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> = {
   en: {
@@ -35,6 +36,7 @@ export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> =
     replace: 'Replace',
     invalidFile: 'This file cannot be used.',
     skipLink: 'Skip to main content',
+    back: 'Back to the list',
   },
   ru: {
     close: 'Закрыть',
@@ -51,6 +53,7 @@ export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> =
     replace: 'Заменить',
     invalidFile: 'Этот файл нельзя использовать.',
     skipLink: 'Перейти к основному содержимому',
+    back: 'Назад к списку',
   },
   kk: {
     close: 'Жабу',
@@ -67,6 +70,7 @@ export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> =
     replace: 'Ауыстыру',
     invalidFile: 'Бұл файлды қолдануға болмайды.',
     skipLink: 'Негізгі мазмұнға өту',
+    back: 'Тізімге оралу',
   },
 }
 
