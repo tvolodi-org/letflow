@@ -571,8 +571,9 @@ defmodule Letflow.LedgerTablesMigrationTest do
     manifest = TenantProvisioning.tenant_scoped_migrations()
     assert {@version, CreateLedgerTables} in manifest
 
+    # later migrations append after the triggers (REQ-640 added CreateTenantModuleUpgrades)
     assert {20_261_031_200_001, Letflow.Repo.Migrations.CreateLedgerTriggers} ==
-             List.last(manifest)
+             Enum.find(manifest, &(elem(&1, 0) == 20_261_031_200_001))
 
     for t <- ~w(ledger_balance ledger_counter ledger_entry ledger_leg) do
       assert t in TenantFixture.expected_tenant_tables()
