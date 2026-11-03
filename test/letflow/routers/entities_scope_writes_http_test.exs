@@ -622,7 +622,26 @@ defmodule Letflow.Routers.EntitiesScopeWritesHttpTest do
     end
   end
 
+  # The cursor is `EQ:<position>:<signature>`; the signature is random base64url text that can
+  # contain "sf-" by chance (T-1160, main push run 41582949127). Only the unsigned part can
+  # carry a node id or a set, so only that part is scanned.
+  defp cursor_leaks_scope?(text) do
+    unsigned =
+      case String.split(text, ":", parts: 3) do
+        [head, position, _signature] -> head <> ":" <> position
+        _ -> text
+      end
+
+    String.contains?(unsigned, "sf-") or String.contains?(unsigned, "nodes")
+  end
+
   describe "T-W11 revocation mid-pagination: the cursor carries no set" do
+    test "the cursor scan ignores a signature that happens to contain a node-id prefix" do
+      refute cursor_leaks_scope?("EQ:1793683537952807:6SK_s7ipNGIzXOm_bTcZjTIlrtiTLS_sf-6zk_b8")
+      assert cursor_leaks_scope?("EQ:sf-a1:sig")
+      assert cursor_leaks_scope?("EQ:nodes:sig")
+    end
+
     test "page 2 of the same cursor applies the CURRENT scope", %{fx: fx} do
       body = %{
         "entity_type" => @type_item,
@@ -635,15 +654,10 @@ defmodule Letflow.Routers.EntitiesScopeWritesHttpTest do
       cursor = W.json(first)["next_cursor"]
       assert is_binary(cursor)
 
-      decoded =
-        case Base.url_decode64(cursor, padding: false) do
-          {:ok, raw} -> raw
-          :error -> cursor
-        end
-
-      refute cursor =~ "sf-"
-      refute decoded =~ "sf-"
-      refute decoded =~ "nodes"
+      # Decoding must succeed, so the scan can never fall back to the random encoded text.
+      {:ok, decoded} = Base.url_decode64(cursor, padding: false)
+      assert String.starts_with?(decoded, "EQ:")
+      refute cursor_leaks_scope?(decoded)
 
       :ok = W.set_grant!(fx, {:node, :b})
 
