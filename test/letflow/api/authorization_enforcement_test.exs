@@ -84,6 +84,8 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Modules.Procurement.Router,
     # GH #3613 (REQ-665) -- every Letflow.Modules.Org.Router route declares a policy key (route_policies).
     Letflow.Modules.Org.Router,
+    # GH #3611 (REQ-667) -- every Letflow.Modules.Codes.Router route declares a policy key (route_policies).
+    Letflow.Modules.Codes.Router,
     # GH #3612 (REQ-666) -- every Letflow.Modules.Locations.Router route declares a policy key (route_policies).
     Letflow.Modules.Locations.Router,
     # REQ-366 §1 -- Letflow.Routers.Help's single route declares :HelpRead,
@@ -164,6 +166,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Modules.Exam.Router => "/modules/exam",
     Letflow.Modules.Procurement.Router => "/modules/procurement",
     Letflow.Modules.Org.Router => "/modules/org",
+    Letflow.Modules.Codes.Router => "/modules/codes",
     Letflow.Modules.Locations.Router => "/modules/locations",
     Letflow.Routers.Help => "/help",
     Letflow.Routers.Me => "/me",

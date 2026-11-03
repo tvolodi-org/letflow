@@ -96,6 +96,11 @@ POST /instances/:id/cancel InstancesCancel
 POST /instances/:id/rebind-pins InstancesCancel
 POST /instances/:id/reconstruct InstancesCancel
 POST /integration-mappings IntegrationMappingsManage
+POST /modules/codes/:id/assign CodesWrite
+POST /modules/codes/:id/release CodesWrite
+POST /modules/codes/:id/retire CodesWrite
+POST /modules/codes/:id/value CodesWrite
+POST /modules/codes/receive CodesWrite
 POST /modules/exam/authoring/:entity_type ExamAuthoringWrite
 POST /modules/exam/exam-sessions ExamSessionStart
 POST /modules/exam/exam-sessions/:id/certificate ExamCertificateIssue

@@ -1,15 +1,16 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: catalog_items@0.1.0,codes@0.1.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0
+# modules: catalog_items@0.1.0,codes@0.2.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0
 # roles: 8
-# permissions: 71
-# rows: 568
+# permissions: 72
+# rows: 576
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
 AGENT_RUNNER AttachmentsRead false core -
 AGENT_RUNNER AuditRead false core -
+AGENT_RUNNER CodesWrite false module:codes -
 AGENT_RUNNER DefinitionsRead false core -
 AGENT_RUNNER DefinitionsRollback false core -
 AGENT_RUNNER DefinitionsWrite false core -
@@ -81,6 +82,7 @@ CANDIDATE AttachmentLinksIssue false core -
 CANDIDATE AttachmentsManage false core -
 CANDIDATE AttachmentsRead false core -
 CANDIDATE AuditRead false core -
+CANDIDATE CodesWrite false module:codes -
 CANDIDATE DefinitionsRead false core -
 CANDIDATE DefinitionsRollback false core -
 CANDIDATE DefinitionsWrite false core -
@@ -152,6 +154,7 @@ PLATFORM_ADMIN AttachmentLinksIssue true core core
 PLATFORM_ADMIN AttachmentsManage true core core
 PLATFORM_ADMIN AttachmentsRead true core core
 PLATFORM_ADMIN AuditRead true core core
+PLATFORM_ADMIN CodesWrite true module:codes core
 PLATFORM_ADMIN DefinitionsRead true core core
 PLATFORM_ADMIN DefinitionsRollback true core core
 PLATFORM_ADMIN DefinitionsWrite true core core
@@ -223,6 +226,7 @@ PROCESS_DESIGNER AttachmentLinksIssue true core core
 PROCESS_DESIGNER AttachmentsManage false core -
 PROCESS_DESIGNER AttachmentsRead true core core
 PROCESS_DESIGNER AuditRead false core -
+PROCESS_DESIGNER CodesWrite false module:codes -
 PROCESS_DESIGNER DefinitionsRead true core core
 PROCESS_DESIGNER DefinitionsRollback false core -
 PROCESS_DESIGNER DefinitionsWrite true core core
@@ -294,6 +298,7 @@ PROCESS_OPERATOR AttachmentLinksIssue true core core
 PROCESS_OPERATOR AttachmentsManage true core core
 PROCESS_OPERATOR AttachmentsRead true core core
 PROCESS_OPERATOR AuditRead true core core
+PROCESS_OPERATOR CodesWrite false module:codes -
 PROCESS_OPERATOR DefinitionsRead true core core
 PROCESS_OPERATOR DefinitionsRollback false core -
 PROCESS_OPERATOR DefinitionsWrite false core -
@@ -365,6 +370,7 @@ TASK_WORKER AttachmentLinksIssue true core core
 TASK_WORKER AttachmentsManage false core -
 TASK_WORKER AttachmentsRead true core core
 TASK_WORKER AuditRead false core -
+TASK_WORKER CodesWrite false module:codes -
 TASK_WORKER DefinitionsRead true core core
 TASK_WORKER DefinitionsRollback false core -
 TASK_WORKER DefinitionsWrite false core -
@@ -436,6 +442,7 @@ TENANT_ADMIN AttachmentLinksIssue true core core
 TENANT_ADMIN AttachmentsManage true core core
 TENANT_ADMIN AttachmentsRead true core core
 TENANT_ADMIN AuditRead true core core
+TENANT_ADMIN CodesWrite true module:codes core
 TENANT_ADMIN DefinitionsRead true core core
 TENANT_ADMIN DefinitionsRollback true core core
 TENANT_ADMIN DefinitionsWrite true core core
@@ -507,6 +514,7 @@ TENANT_AUDITOR AttachmentLinksIssue false core -
 TENANT_AUDITOR AttachmentsManage false core -
 TENANT_AUDITOR AttachmentsRead true core core
 TENANT_AUDITOR AuditRead true core core
+TENANT_AUDITOR CodesWrite false module:codes -
 TENANT_AUDITOR DefinitionsRead true core core
 TENANT_AUDITOR DefinitionsRollback false core -
 TENANT_AUDITOR DefinitionsWrite false core -

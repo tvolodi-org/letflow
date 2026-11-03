@@ -340,8 +340,8 @@ Each limit names the GH issue or the code that holds it; paths are cited without
    `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.Codes)`
    (`lib/letflow/modules/codes/codes.ex`); the tests do the same
    (`test/letflow/modules/codes/codes_fixture.exs`).
-3. **Write functions exist, routes do not.** Receive, assign, release, retire and change value are
-   in `lib/letflow/modules/codes/writes.ex` (REQ-663, GH #3615); the scan route is REQ-667 (GH #3588).
+3. **Write functions have write routes (item 18); the scan route is not built.** Receive, assign, release, retire and change value are
+   in `lib/letflow/modules/codes/writes.ex` (REQ-663, GH #3615); the routes are REQ-667 (GH #3611), the scan route is a later slice (GH #3588).
 4. **The target is not validated.** `target_type` and `target_id` are declarative strings, no
    foreign key is possible (decision 0050 D3.5 and D3.6, GH #3588); a code may name a type no module ships.
    The module that writes a code validates the target through the owning module's lookup.
@@ -382,3 +382,11 @@ Each limit names the GH issue or the code that holds it; paths are cited without
 17. **A replay is not compared with its input.** A repeated idempotency key answers the current state of
     the code and writes nothing; the same key with other input is not detected (GH #3615,
     `lib/letflow/modules/codes/writes.ex`).
+18. **Write routes (GH #3611, REQ-667, codes 0.2.0).** `Letflow.Modules.Codes.Router` serves five POST
+    routes under `/api/v1/modules/codes/`: `/receive` (body `entries`, 201), `/:id/assign` (`target_type`,
+    `target_id`), `/:id/release`, `/:id/retire` and `/:id/value` (`value`), all 200. All need `CodesWrite`;
+    only TENANT_ADMIN and PLATFORM_ADMIN hold it (no `role_grants`). Every body carries a text
+    `idempotency_key` and no other keys. An unknown code or target (also of another tenant) is 404, a bad
+    batch entry is 422 `entry_invalid` with its `index` and `entry_reason`, any other refusal is 422 with a
+    `reason`. A tenant that installed codes before 0.2.0 gets the routes without an upgrade (they come from the
+    code manifest); the scan route is not built (`lib/letflow/modules/codes/router.ex`).
