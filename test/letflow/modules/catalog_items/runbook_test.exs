@@ -133,11 +133,19 @@ defmodule Letflow.Modules.CatalogItems.RunbookTest do
   end
 
   test "P1: item 21 names the lot router, the permission, the mount and the issue" do
-    {21, text} = List.last(items())
+    {21, text} = Enum.find(items(), &(elem(&1, 0) == 21))
     assert text =~ "Letflow.Modules.CatalogItems.Router"
     assert text =~ "lib/letflow/modules/catalog_items/router.ex"
     assert text =~ "CatalogLotsWrite"
     assert text =~ "/api/v1/modules/catalog_items/"
     assert text =~ "#3610"
+  end
+
+  test "P2: item 22 names the tracking policies, validate_capture and the open points" do
+    {22, text} = List.last(items())
+
+    for word <- ~w(serial lot expiry REQ-503 validate_capture #3581 0057 entity_type_managed) do
+      assert text =~ word, word
+    end
   end
 end
