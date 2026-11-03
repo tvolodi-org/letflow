@@ -123,9 +123,13 @@ export function DataTable<TRow>(props: DataTableProps<TRow>): React.ReactElement
     [resolved],
   )
 
-  const sorting: SortingState = sortState.columnId
-    ? [{ id: sortState.columnId, desc: sortState.direction === 'desc' }]
-    : []
+  // Stable identity: a new `[]` per render made the sorted row model recompute on every render, which
+  // schedules react-table's page-index reset, which sets state, which renders again (an endless loop once
+  // `data` changed identity, seen on the codes screen).
+  const sorting = useMemo<SortingState>(
+    () => (sortState.columnId ? [{ id: sortState.columnId, desc: sortState.direction === 'desc' }] : []),
+    [sortState.columnId, sortState.direction],
+  )
 
   const table = useReactTable({
     data,
@@ -165,7 +169,7 @@ export function DataTable<TRow>(props: DataTableProps<TRow>): React.ReactElement
     <div className="lf-table-wrap" data-testid="data-table">
       <div data-testid="datatable-scroll-container">
         <table className={`lf-table lf-table--stack${density === 'compact' ? ' lf-table--compact' : ''}`}>
-          <thead data-testid="datatable-header" style={{ position: 'sticky', top: 0 }}>
+          <thead data-testid="datatable-header">
             <tr>
               {resolved.map(({ id, header, col }) => {
                 const isActive = sortState.columnId === id

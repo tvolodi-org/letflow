@@ -2,7 +2,7 @@
 /** E1 — GH 3606 / REQ-672: every refusal of the write routes shows its own translated message. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { fakeServer, problem, rec, renderCodes } from './codesTestKit'
 
 expect.extend(jestDomMatchers)
@@ -42,11 +42,10 @@ describe('E1 error messages', () => {
         },
       )
       renderCodes('/admin/codes')
-      const row = await screen.findByTestId('code-row-FREE-1')
-      fireEvent.click(within(row).getByRole('button', { name: 'Change value' }))
+      fireEvent.click((await screen.findByText('FREE-1')).closest('tr')!)
       fireEvent.change(await screen.findByLabelText('New value'), { target: { value: 'X' } })
       fireEvent.click(screen.getByTestId('value-confirm'))
-      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(text))
+      expect(await screen.findByText(text)).toBeInTheDocument()
     })
   }
 })

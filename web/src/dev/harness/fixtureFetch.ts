@@ -27,7 +27,15 @@ export function makeFixtureFetch(routes: FixtureRoute[], state: HarnessState): t
     }
     if (state === 'loading') return new Promise<Response>(() => {})
     if (state === 'error') return Promise.resolve(jsonResponse(500, PROBLEM_500))
-    const { status, body } = route.reply(state, path)
+    let requestBody: unknown
+    if (typeof init?.body === 'string') {
+      try {
+        requestBody = JSON.parse(init.body)
+      } catch {
+        requestBody = undefined
+      }
+    }
+    const { status, body } = route.reply(state, path, requestBody)
     inFlight += 1
     return Promise.resolve(jsonResponse(status, body)).finally(() => {
       inFlight -= 1
