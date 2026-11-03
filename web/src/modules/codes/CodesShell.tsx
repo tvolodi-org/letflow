@@ -1,12 +1,13 @@
-/** CodesShell — GH 3606 / REQ-672. The frame of the codes screen (title, loading/error through QueryStateBoundary),
- *  the list query hook and the small form pieces. */
+/** CodesShell — GH 3606 / REQ-672, restyled in S4. The frame of the codes screen (page header with the one primary
+ *  action), the list query hook and the text of a failed write. Layout, fields, table, pills and dialogs come
+ *  from the shared components; nothing here sets a colour or a spacing. */
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query'
-import { useIntl } from 'react-intl'
+import type { IntlShape } from 'react-intl'
 import { useAuth } from '@/auth/AuthContext'
-import { PageLayout } from '@/components/ui/PageLayout'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
-import { classifyError, type RendererState } from '@/utils/classifyError'
+import type { RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
 import { fetchAllRecords } from './codes.api'
 import { codesQueryKeys } from './codesQueryKeys'
@@ -31,80 +32,31 @@ export function useCodeRows(
   })
 }
 
-export function CodesShell(props: { title: string; queries: UseQueryResult<unknown>[]; children: ReactNode }) {
-  const failed = props.queries.find((q) => q.isError)
-  const state: RendererState = failed
-    ? classifyError(failed.error)
-    : props.queries.some((q) => q.isPending && q.fetchStatus !== 'idle')
-      ? 'loading'
-      : 'success'
+export function CodesShell(props: {
+  eyebrow: string
+  title: string
+  lede: string
+  actions?: ReactNode
+  /** The class of a failed load. Loading and a plain fetch failure are drawn by the list itself (skeleton rows,
+   *  banner with retry); the boundary answers the rest (no permission, rate limit). */
+  state: RendererState
+  onRetry: () => void
+  children: ReactNode
+}) {
+  const boundaryState = props.state === 'fetch-failure' || props.state === 'loading' ? 'success' : props.state
   return (
-    <PageLayout title={props.title}>
-      <QueryStateBoundary state={state} onRetry={() => props.queries.forEach((q) => void q.refetch())}>
+    <>
+      <PageHeader eyebrow={props.eyebrow} title={props.title} lede={props.lede} actions={props.actions} />
+      <QueryStateBoundary state={boundaryState} onRetry={props.onRetry}>
         {props.children}
       </QueryStateBoundary>
-    </PageLayout>
+    </>
   )
 }
 
-/** The message of a failed write, as an alert. Names the fields of record_payload_invalid (no values). */
-export function CodesErrorAlert({ error, id = 'codes-error' }: { error: unknown; id?: string }) {
-  const intl = useIntl()
+/** The message of a failed write. Names the fields of record_payload_invalid (no values). */
+export function errorText(intl: IntlShape, error: unknown): string | null {
   if (!error) return null
   const info = reasonOf(error)
-  return (
-    <div id={id} role="alert" style={{ color: 'var(--color-error-dark)', marginBottom: 'var(--space-3)' }}>
-      {intl.formatMessage({ id: errorMessageId(error) }, { fields: (info.fields ?? []).join(', '), max: MAX_BATCH })}
-    </div>
-  )
-}
-
-export function TextField(props: {
-  name: string
-  label: string
-  value: string
-  onChange: (v: string) => void
-  invalid?: boolean
-}) {
-  const id = `codes-field-${props.name}`
-  return (
-    <div style={{ marginBottom: 'var(--space-3)' }}>
-      <label htmlFor={id} style={{ display: 'block' }}>
-        {props.label}
-      </label>
-      <input
-        id={id}
-        name={props.name}
-        value={props.value}
-        aria-invalid={props.invalid ? true : undefined}
-        onChange={(e) => props.onChange(e.target.value)}
-      />
-    </div>
-  )
-}
-
-export function SelectField(props: {
-  name: string
-  label: string
-  value: string
-  onChange: (v: string) => void
-  options: { value: string; label: string }[]
-  placeholder: string
-}) {
-  const id = `codes-field-${props.name}`
-  return (
-    <div style={{ marginBottom: 'var(--space-3)' }}>
-      <label htmlFor={id} style={{ display: 'block' }}>
-        {props.label}
-      </label>
-      <select id={id} name={props.name} value={props.value} onChange={(e) => props.onChange(e.target.value)}>
-        <option value="">{props.placeholder}</option>
-        {props.options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
+  return intl.formatMessage({ id: errorMessageId(error) }, { fields: (info.fields ?? []).join(', '), max: MAX_BATCH })
 }
