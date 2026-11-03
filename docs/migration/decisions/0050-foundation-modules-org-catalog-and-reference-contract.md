@@ -405,6 +405,12 @@ Status: Accepted (owner decisions D-061, D-062, D-065, D-066, D-067). Amends D7,
    unit and location are not linked is refused (A4, REQ-644). A bin is exactly 12 ASCII digits (REQ-660).
    `Letflow.ScopeNodePaths` keeps its own path code, with no shared tree helper (REQ-642 (2)).
 
+## Amendment 2026-11-03 (codes write routes, GH #3611 / REQ-667)
+
+The write routes of module `codes` are gated by one module permission, `CodesWrite`, for the same reason as the org permissions below:
+a module route cannot name a core permission. Its holders are TENANT_ADMIN and PLATFORM_ADMIN (no `role_grants`); granting it to
+another role is a widening under decision 0055 D7.
+
 ## Amendment 2026-11-02 (org write routes, GH #3613 / REQ-665)
 
 The write routes of module `org` are gated by two module permissions, `OrgStructureWrite` (legal companies, sites, org units) and

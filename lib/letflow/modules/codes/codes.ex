@@ -25,10 +25,11 @@ defmodule Letflow.Modules.Codes do
     * R8 movements and ledger rows name the object's record id, never the code.
 
   The types are declared in `manages_entity_types`, so after install the generic entity routes answer
-  403 `entity_type_managed`. The module ships no routes, no permissions and no role grants; the write functions are in
+  403 `entity_type_managed`. The write routes (GH #3611 / REQ-667, version 0.2.0, `Letflow.Modules.Codes.Router`) are gated by the module
+  permission `:CodesWrite`; no role grants (only TENANT_ADMIN and PLATFORM_ADMIN hold it). The write functions are in
   `Letflow.Modules.Codes.Writes` (GH #3615 / REQ-663): `receive_codes/3` (bulk, at most 1000 entries,
   UAT assumption), `assign_code/5` (targets `location_node`, `catalog_item`, `catalog_lot`),
-  `release_code/3`, `retire_code/3` and `change_code_value/4`. Routes are REQ-667.
+  `release_code/3`, `retire_code/3` and `change_code_value/4`. The routes call them.
 
   ## Scope (D-067, decision 0051 M4)
 
@@ -65,14 +66,20 @@ defmodule Letflow.Modules.Codes do
   @impl true
   defmanifest(
     id: "codes",
-    version: "0.1.0",
+    version: "0.2.0",
     depends_on: [],
     pack: "modules/codes/pack.json",
-    permissions: [],
+    permissions: [:CodesWrite],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
-    route_policies: [],
+    route_policies: [
+      {"POST", "/receive", :CodesWrite},
+      {"POST", "/:id/assign", :CodesWrite},
+      {"POST", "/:id/release", :CodesWrite},
+      {"POST", "/:id/retire", :CodesWrite},
+      {"POST", "/:id/value", :CodesWrite}
+    ],
     manages_entity_types: ["code_tag", "code_assignment", "code_value_change"],
     scope_declarations: %{
       "code_tag" => :tenant_wide,
@@ -80,6 +87,9 @@ defmodule Letflow.Modules.Codes do
       "code_value_change" => :tenant_wide
     }
   )
+
+  @impl true
+  def router, do: Letflow.Modules.Codes.Router
 
   @impl true
   def on_install(prefix, _settings, ctx) do

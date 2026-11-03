@@ -17,16 +17,34 @@ defmodule Letflow.Modules.Codes.RegistrationTest do
     assert Catalog.validate(Codes.manifest()) == :ok
   end
 
-  test "R-02: id codes, no dependencies, the three managed types, no permissions or grants" do
+  test "R-02: id codes, no dependencies, the three managed types, one write permission, no grants" do
     m = Codes.manifest()
     assert m.id == "codes"
-    assert m.version == "0.1.0"
+    assert m.version == "0.2.0"
     assert m.depends_on == []
     assert m.manages_entity_types == @types
     assert m.pack == "modules/codes/pack.json"
-    assert m.permissions == []
+    assert m.permissions == [:CodesWrite]
     assert m.role_grants == %{}
-    assert m.route_policies == []
+  end
+
+  test "REQ-667 M1: one write permission, five route policies, the router, no role grants" do
+    m = Codes.manifest()
+    assert m.permissions == [:CodesWrite]
+    assert m.role_grants == %{}
+    assert m.depends_on == []
+    assert Codes.router() == Letflow.Modules.Codes.Router
+    assert length(m.route_policies) == 5
+    assert length(Enum.uniq(m.route_policies)) == 5
+
+    assert Enum.all?(m.route_policies, fn {method, _path, atom} ->
+             method == "POST" and atom == :CodesWrite
+           end)
+
+    assert Enum.sort(Enum.map(m.route_policies, &elem(&1, 1))) ==
+             Enum.sort(["/receive", "/:id/assign", "/:id/release", "/:id/retire", "/:id/value"])
+
+    assert Catalog.validate(m) == :ok
   end
 
   test "R-03: Catalog.entry_modules/0 has Codes right after Locations; fetch/1 resolves it" do

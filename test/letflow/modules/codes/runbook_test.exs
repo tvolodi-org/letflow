@@ -39,9 +39,9 @@ defmodule Letflow.Modules.Codes.RunbookTest do
     assert @runbook |> File.read!() |> String.split("\n") |> Enum.member?(@heading)
   end
 
-  test "B-2: the section is a numbered list 1..17 with the known limits" do
+  test "B-2: the section is a numbered list 1..18 with the known limits" do
     numbers = Enum.map(items(), &elem(&1, 0))
-    assert numbers == Enum.to_list(1..17)
+    assert numbers == Enum.to_list(1..18)
 
     text = items() |> Enum.map_join("\n", &elem(&1, 1))
 
@@ -86,5 +86,13 @@ defmodule Letflow.Modules.Codes.RunbookTest do
     for {n, path} <- cited do
       assert File.exists?(Path.join(@root, path)), "limit #{n}: cited path #{path} does not exist"
     end
+  end
+
+  test "REQ-667 P1: the runbook names the write routes and the permission" do
+    text = items() |> Enum.map_join("\n", &elem(&1, 1))
+    assert text =~ "Letflow.Modules.Codes.Router"
+    assert text =~ "CodesWrite"
+    assert text =~ "/api/v1/modules/codes/"
+    assert text =~ "#3611"
   end
 end
