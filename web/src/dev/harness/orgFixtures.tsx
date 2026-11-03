@@ -77,30 +77,37 @@ const ACCESS: AccessState = {
 }
 
 /** Opens the record of the given tree row once it is on screen, so the screenshot shows the detail panel. */
-function AutoOpen({ nodeId, active }: { nodeId: string; active: boolean }) {
+function AutoOpen({ nodeId, active, then }: { nodeId: string; active: boolean; then?: string }) {
   useEffect(() => {
     if (!active) return
     let frame = 0
     let tries = 0
+    const clickThen = () => {
+      const button = document.querySelector<HTMLElement>(`[data-testid="${then}"]`)
+      if (button) button.click()
+      else if (tries++ < 120) frame = requestAnimationFrame(clickThen)
+    }
     const tick = () => {
       const row = document.querySelector<HTMLElement>(`.lf-tree__row[data-node-id="${nodeId}"]`)
-      if (row) row.click()
-      else if (tries++ < 120) frame = requestAnimationFrame(tick)
+      if (row) {
+        row.click()
+        if (then) frame = requestAnimationFrame(clickThen)
+      } else if (tries++ < 120) frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [nodeId, active])
+  }, [nodeId, active, then])
   return null
 }
 
-function OrgHarness(props: { lang: HarnessLang; state: HarnessState; nodeId: string; children: ReactNode }) {
+function OrgHarness(props: { lang: HarnessLang; state: HarnessState; nodeId: string; children: ReactNode; then?: string }) {
   return (
     <AuthContext.Provider value={AUTH}>
       <AccessStateProvider state={ACCESS}>
         <OrgLocaleContext.Provider value={props.lang}>
           <main className="lf-content">
             {props.children}
-            <AutoOpen nodeId={props.nodeId} active={props.state === 'default'} />
+            <AutoOpen nodeId={props.nodeId} active={props.state === 'default'} then={props.then} />
           </main>
         </OrgLocaleContext.Provider>
       </AccessStateProvider>
@@ -133,6 +140,17 @@ export const orgUnits: HarnessScreen = {
   routes: [queryRoute()],
   render: ({ lang, state }) => (
     <OrgHarness lang={lang} state={state} nodeId="u-acc">
+      <UnitsPage />
+    </OrgHarness>
+  ),
+}
+
+/** The create-child form of the first unit: shows the legal company pre-filled with the parent's (task T-1181). */
+export const orgUnitsNewChild: HarnessScreen = {
+  name: 'org-units-new-child',
+  routes: [queryRoute()],
+  render: ({ lang, state }) => (
+    <OrgHarness lang={lang} state={state} nodeId="u-acc" then="org-add-child">
       <UnitsPage />
     </OrgHarness>
   ),

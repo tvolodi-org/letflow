@@ -181,6 +181,11 @@ function UnitsInner() {
           key={selected?.record_id ?? `new-${panel?.kind === 'new' ? panel.parent : ''}`}
           record={selected ?? null}
           parent={panel?.kind === 'new' ? panel.parent : ''}
+          parentCompany={
+            panel?.kind === 'new' && panel.parent !== ''
+              ? textOf(unitRows.find((u) => u.record_id === panel.parent) ?? ({} as EntityRecord), 'legal_entity_id')
+              : ''
+          }
           readOnly={!canWrite || (selected !== undefined && !activeSelected)}
           units={unitRows}
           companies={companyRows.filter(isActive).map(option)}
@@ -263,6 +268,8 @@ function UnitsInner() {
 function UnitForm(props: {
   record: EntityRecord | null
   parent: string
+  /** Legal company a new child unit starts with (the parent's); empty for a root. */
+  parentCompany: string
   readOnly: boolean
   units: EntityRecord[]
   companies: { value: string; label: string }[]
@@ -278,7 +285,7 @@ function UnitForm(props: {
   const initial = {
     code: r ? textOf(r, 'code') : '',
     name: r ? textOf(r, 'name') : '',
-    legal_entity_id: r ? textOf(r, 'legal_entity_id') : '',
+    legal_entity_id: r ? textOf(r, 'legal_entity_id') : props.parentCompany,
     site_id: r ? textOf(r, 'site_id') : '',
     parent: r ? textOf(r, 'parent') : props.parent,
   }
