@@ -10,6 +10,9 @@ defmodule Letflow.Modules.CatalogItems.TrackingPolicyTest do
 
   import Letflow.CatalogItemsFixture
 
+  import Ecto.Query, only: [from: 2]
+
+  alias Letflow.Entities.Definitions
   alias Letflow.EventStore.Event
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.CatalogItems
@@ -60,6 +63,73 @@ defmodule Letflow.Modules.CatalogItems.TrackingPolicyTest do
                )
 
       assert inspect(error) =~ "tracking_policy"
+    end
+  end
+
+  describe "an existing tenant" do
+    @json Path.join(
+            :code.priv_dir(:letflow),
+            "modules/catalog_items/entity_definitions/catalog_item.json"
+          )
+
+    test "I-04: activating the new definition keeps an old record readable", ctx do
+      shipped =
+        @json
+        |> File.read!()
+        |> Jason.decode!(keys: :atoms)
+        |> Map.update!(:fields, fn fs ->
+          Enum.map(fs, &Map.update!(&1, :type, fn t -> String.to_existing_atom(t) end))
+        end)
+        |> Map.update(:constraints, [], fn cs ->
+          Enum.map(cs, &Map.update!(&1, :type, fn t -> String.to_existing_atom(t) end))
+        end)
+
+      old =
+        Map.update!(shipped, :fields, fn fs ->
+          Enum.reject(fs, &(&1.name == "tracking_policy"))
+        end)
+
+      actor = Ecto.UUID.generate()
+      # the row the install wrote and activated: the shipped shape (this is "the new definition")
+      {:ok, %{id: shipped_id}} = Definitions.get_definition_by_name("catalog_item", ctx.schema)
+
+      # an older tenant: an earlier version without the field is the active one
+      {:ok, _} =
+        Definitions.create_definition(
+          %{definition: old, created_by: actor},
+          ctx.schema,
+          owner()
+        )
+
+      assert {:ok, _} =
+               Definitions.activate_definition(
+                 "catalog_item",
+                 actor,
+                 "gh3581 I-04 old",
+                 ctx.schema
+               )
+
+      item = item_with(ctx, "I-04", nil)
+      refute Map.has_key?(item.field_values, "tracking_policy")
+
+      # the module upgrade: the shipped row becomes the newest and is activated by name
+      Repo.update_all(
+        from(e in Letflow.Entities.EntityDefinition, where: e.id == ^shipped_id),
+        [set: [inserted_at: DateTime.utc_now() |> DateTime.add(60)]],
+        prefix: ctx.schema
+      )
+
+      assert {:ok, %{id: ^shipped_id}} =
+               Definitions.activate_definition(
+                 "catalog_item",
+                 actor,
+                 "gh3581 I-04 new",
+                 ctx.schema
+               )
+
+      assert {:ok, map} = CatalogItems.lookup(ctx.schema, item.record_id)
+      assert map["code"] == "I-04"
+      refute Map.has_key?(map, "tracking_policy")
     end
   end
 
