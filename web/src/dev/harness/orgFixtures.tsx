@@ -6,7 +6,6 @@ import { useEffect, type ReactNode } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
-import { OrgLocaleContext } from '@/modules/org/OrgIntlProvider'
 import LegalEntitiesPage from '@/modules/org/LegalEntitiesPage'
 import PositionsPage from '@/modules/org/PositionsPage'
 import EmployeesPage from '@/modules/org/EmployeesPage'
@@ -140,12 +139,10 @@ function OrgHarness(props: { lang: HarnessLang; state: HarnessState; nodeId: str
   return (
     <AuthContext.Provider value={AUTH}>
       <AccessStateProvider state={ACCESS}>
-        <OrgLocaleContext.Provider value={props.lang}>
-          <main className="lf-content">
-            {props.children}
-            <AutoOpen nodeId={props.nodeId} active={props.state === 'default'} then={props.then} />
-          </main>
-        </OrgLocaleContext.Provider>
+        <main className="lf-content">
+          {props.children}
+          <AutoOpen nodeId={props.nodeId} active={props.state === 'default'} then={props.then} />
+        </main>
       </AccessStateProvider>
     </AuthContext.Provider>
   )

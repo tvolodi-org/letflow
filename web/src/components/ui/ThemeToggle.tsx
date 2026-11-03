@@ -5,7 +5,8 @@
  */
 import { useState } from 'react'
 import { Moon, Sun } from 'lucide-react'
-import { resolveUiLocale, type EntitiesUiLocale } from '@/i18n/entitiesMessages'
+import type { EntitiesUiLocale } from '@/i18n/entitiesMessages'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { currentTheme, setTheme, type Theme } from '@/theming/theme'
 
 export const themeToggleMessages: Record<EntitiesUiLocale, Record<Theme | 'label', string>> = {
@@ -16,7 +17,8 @@ export const themeToggleMessages: Record<EntitiesUiLocale, Record<Theme | 'label
 
 export function ThemeToggle({ locale }: { locale?: EntitiesUiLocale }) {
   const [theme, setLocal] = useState<Theme>(() => currentTheme())
-  const messages = themeToggleMessages[locale ?? resolveUiLocale(typeof navigator === 'undefined' ? [] : navigator.languages)]
+  const current = useUiLocale()
+  const messages = themeToggleMessages[locale ?? current]
   const isDark = theme === 'dark'
   const toggle = () => {
     const next: Theme = isDark ? 'light' : 'dark'

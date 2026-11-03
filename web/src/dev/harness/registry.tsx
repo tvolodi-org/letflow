@@ -10,6 +10,7 @@ import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 // The harness renders a module's screen directly (it needs the screen's `initial` preset, which the route does
 // not carry); the module boundary rule is about modules importing each other, not about this dev-only file.
 import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
+import { topbarLanguage } from './topbarFixtures'
 import { locationsScreens } from './fixtures/locations'
 import { orgEmployees, orgLegal, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
@@ -208,6 +209,7 @@ const catalogItemsLotsCreate: HarnessScreen = {
 export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries(
   [
     verifyCertificate,
+    topbarLanguage,
     orgLegal,
     orgSites,
     orgUnits,

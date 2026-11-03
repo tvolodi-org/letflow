@@ -9,6 +9,9 @@ import { SkipLink } from './SkipLink'
 import { TenantHeader } from './TenantHeader'
 import { TopBar } from '@/components/ui/TopBar'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
+import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher'
+import { UI_LOCALES, UI_LOCALE_LABELS, useUiLocale, useUiLocaleStore } from '@/i18n/uiLocaleStore'
+import { navLabel, navMessages } from './navMessages'
 import { TenantSwitcher } from '@/auth/TenantSwitcher'
 import { dlqApi } from '@/api/dlq'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -87,6 +90,8 @@ export const NAV_ITEMS: NavItem[] = [
 
 export function AppShell() {
   const { session, logout } = useAuth()
+  const uiLocale = useUiLocale()
+  const setUiLocale = useUiLocaleStore((s) => s.setLocale)
   const access = useAccess()
   const tenantKeys = useTenantScopedQueryKeys()
   const { appName, logoUrl } = useBranding()
@@ -142,11 +147,11 @@ export function AppShell() {
 
         <nav aria-label="Main">
           {visibleGroups.map((g) => (
-            <div key={g.id} className="lf-sidenav__group" role="group" aria-label={g.label} data-testid={`nav-group-${g.id}`}>
-              <div className="lf-sidenav__label">{g.label}</div>
+            <div key={g.id} className="lf-sidenav__group" role="group" aria-label={navMessages[uiLocale].groups[g.id]} data-testid={`nav-group-${g.id}`}>
+              <div className="lf-sidenav__label">{navMessages[uiLocale].groups[g.id]}</div>
               {g.items.map((n) => (
                 <NavLink key={n.to} to={n.to} className="lf-sidenav__item">
-                  <span>{n.label}</span>
+                  <span>{navLabel(uiLocale, n.to, n.label)}</span>
                   {n.to === '/dlq' && dlqSeverity !== 'none' && (
                     <span
                       className={dlqSeverity === 'critical' ? 'lf-pill lf-pill--danger' : 'lf-pill lf-pill--warning'}
@@ -175,7 +180,18 @@ export function AppShell() {
       {navOpen && <div className="lf-scrim" data-testid="nav-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />}
 
       <div className="lf-main">
-        <TopBar menuOpen={navOpen} onMenuToggle={() => setNavOpen((o) => !o)} menuControls="app-sidenav" />
+        <TopBar
+          menuOpen={navOpen}
+          onMenuToggle={() => setNavOpen((o) => !o)}
+          menuControls="app-sidenav"
+          end={
+            <LanguageSwitcher
+              locales={UI_LOCALES.map((code) => ({ code, label: UI_LOCALE_LABELS[code] }))}
+              current={uiLocale}
+              onChange={(code) => setUiLocale(code as (typeof UI_LOCALES)[number])}
+            />
+          }
+        />
         <main id="main-content" className="lf-content" tabIndex={-1}>
           <TestEnvironmentBanner />
           <ApiConnectivityBanner />

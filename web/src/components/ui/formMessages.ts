@@ -1,5 +1,6 @@
 /** Catalog for the strings that form components own (en, ru, kk). Callers may override via props. */
-import { resolveUiLocale, type EntitiesUiLocale } from '@/i18n/entitiesMessages'
+import type { EntitiesUiLocale } from '@/i18n/entitiesMessages'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 
 export const formMessages: Record<
   EntitiesUiLocale,
@@ -11,5 +12,6 @@ export const formMessages: Record<
 }
 
 export function useFormMessages(locale?: EntitiesUiLocale) {
-  return formMessages[locale ?? resolveUiLocale(typeof navigator === 'undefined' ? [] : navigator.languages)]
+  const current = useUiLocale()
+  return formMessages[locale ?? current]
 }

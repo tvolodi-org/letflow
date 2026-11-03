@@ -1,10 +1,13 @@
 /** orgMessages — GH 3609 / REQ-669. Message catalog of the org screens, en/ru/kk (D-062), same id set in each.
  *  Own copy of the locale resolver: module code may not import another module (0039 D3). */
 
+import { getUiLocale } from '@/i18n/uiLocaleStore'
+
 export const ORG_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type OrgUiLocale = (typeof ORG_UI_LOCALES)[number]
 
 export function resolveUiLocale(candidates?: readonly string[]): OrgUiLocale {
+  if (candidates === undefined) return getUiLocale()
   const sources =
     candidates ??
     (typeof navigator !== 'undefined'
