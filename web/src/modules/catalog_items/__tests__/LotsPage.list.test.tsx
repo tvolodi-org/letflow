@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { fakeServer, queryBodies, rec, renderLots, writeCalls } from './catalogItemsTestKit'
+import { findLot, queryLot, fakeServer, queryBodies, rec, renderLots, writeCalls } from './catalogItemsTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -35,26 +35,26 @@ afterEach(() => cleanup())
 describe('L1 list', () => {
   it('queries catalog_lot with deleted eq false and active eq true by default', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     const bodies = queryBodies(clientMock, 'catalog_lot')
     expect(bodies.length).toBeGreaterThan(0)
     const filters = bodies[0]?.['filters'] as { field: string; op: string; value?: unknown }[]
     expect(filters).toContainEqual({ field: 'deleted', op: 'eq', value: false })
     expect(filters).toContainEqual({ field: 'active', op: 'eq', value: true })
-    expect(screen.queryByTestId('lot-row-LOT-C')).not.toBeInTheDocument()
+    expect(queryLot('LOT-C')).not.toBeInTheDocument()
   })
 
   it('shows item code and name in the lot row', async () => {
     renderLots('/admin/catalog/lots')
-    const row = await screen.findByTestId('lot-row-LOT-A')
+    const row = await findLot('LOT-A')
     expect(row).toHaveTextContent('ITEM-1')
     expect(row).toHaveTextContent('Bolt')
   })
 
   it('picking an item adds item_id eq filter and only shows that item lots', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
-    fireEvent.change(screen.getByLabelText('Item'), { target: { value: 'i1' } })
+    await findLot('LOT-A')
+    fireEvent.change(screen.getByLabelText('Filter by item'), { target: { value: 'i1' } })
     await waitFor(() =>
       expect(queryBodies(clientMock, 'catalog_lot').some((b) =>
         (b['filters'] as { field: string; op: string; value?: unknown }[]).some(
@@ -62,13 +62,13 @@ describe('L1 list', () => {
         ),
       )).toBe(true),
     )
-    await waitFor(() => expect(screen.queryByTestId('lot-row-LOT-B')).not.toBeInTheDocument())
-    expect(await screen.findByTestId('lot-row-LOT-A')).toBeInTheDocument()
+    await waitFor(() => expect(queryLot('LOT-B')).not.toBeInTheDocument())
+    expect(await findLot('LOT-A')).toBeInTheDocument()
   })
 
   it('retired switch drops the active filter', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     fireEvent.click(screen.getByTestId('show-retired'))
     await waitFor(() =>
       expect(
@@ -77,12 +77,12 @@ describe('L1 list', () => {
         ),
       ).toBe(true),
     )
-    expect(await screen.findByTestId('lot-row-LOT-C')).toBeInTheDocument()
+    expect(await findLot('LOT-C')).toBeInTheDocument()
   })
 
   it('sort toggle sends expiry_date sort on the lots query', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     fireEvent.click(screen.getByTestId('expiry-sort-toggle'))
     await waitFor(() =>
       expect(
@@ -101,7 +101,7 @@ describe('L1 list', () => {
 
   it('no write calls are made just from loading the list', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     expect(writeCalls(clientMock)).toHaveLength(0)
   })
 })

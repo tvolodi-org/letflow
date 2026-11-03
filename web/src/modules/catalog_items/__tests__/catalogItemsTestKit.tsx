@@ -1,5 +1,5 @@
 /** Shared helpers of the catalog_items tests (GH 3605 / REQ-673). */
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useRoutes } from 'react-router-dom'
 import { vi } from 'vitest'
@@ -92,4 +92,14 @@ export function renderLots(path: string, access: AccessState = withAtom, queryCl
 
 export function problem(status: number, body: Record<string, unknown>) {
   return { status, message: 'x', code: String(status), details: body }
+}
+
+/** The table row of a lot, found by its code in the code cell. */
+export async function findLot(code: string): Promise<HTMLElement> {
+  const cell = await screen.findByText(code, { selector: 'td' })
+  return cell.closest('tr') as HTMLElement
+}
+
+export function queryLot(code: string): HTMLElement | null {
+  return screen.queryByText(code, { selector: 'td' })
 }

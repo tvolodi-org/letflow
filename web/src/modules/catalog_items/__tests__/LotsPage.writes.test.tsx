@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { fakeServer, queryBodies, rec, renderLots, writeCalls } from './catalogItemsTestKit'
+import { findLot, queryLot, fakeServer, queryBodies, rec, renderLots, writeCalls } from './catalogItemsTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -31,7 +31,7 @@ afterEach(() => cleanup())
 describe('W1 create', () => {
   it('POSTs /lots with item_id, code, idempotency_key; omits empty optional fields', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     fireEvent.click(screen.getByTestId('create-lot'))
     fireEvent.change(await screen.findByLabelText('Item'), { target: { value: 'i1' } })
     fireEvent.change(screen.getByLabelText('Lot code'), { target: { value: 'LOT-NEW' } })
@@ -52,11 +52,11 @@ describe('W1 create', () => {
 
   it('POSTs /lots including expiry_date when filled in', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     fireEvent.click(screen.getByTestId('create-lot'))
     fireEvent.change(await screen.findByLabelText('Item'), { target: { value: 'i1' } })
     fireEvent.change(screen.getByLabelText('Lot code'), { target: { value: 'LOT-EXP' } })
-    fireEvent.change(screen.getByLabelText('Expiry date'), { target: { value: '2026-12-31' } })
+    fireEvent.change(screen.getByLabelText(/^Expiry date/), { target: { value: '2026-12-31' } })
     fireEvent.click(screen.getByTestId('create-submit'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
     expect(writeCalls(clientMock)[0].body['expiry_date']).toBe('2026-12-31')
@@ -64,7 +64,7 @@ describe('W1 create', () => {
 
   it('disables create submit when item or code is empty', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     fireEvent.click(screen.getByTestId('create-lot'))
     await screen.findByLabelText('Item')
     expect(screen.getByTestId('create-submit')).toBeDisabled()
@@ -74,9 +74,9 @@ describe('W1 create', () => {
 describe('W2 edit', () => {
   it('PATCHes /lots/:id with exactly producer, mark, expiry_date and idempotency_key', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     fireEvent.click(screen.getByTestId('edit-LOT-A'))
-    fireEvent.change(await screen.findByLabelText('Producer'), { target: { value: 'NewCo' } })
+    fireEvent.change(await screen.findByLabelText(/^Producer/), { target: { value: 'NewCo' } })
     const before = queryBodies(clientMock, 'catalog_lot').length
     fireEvent.click(screen.getByTestId('edit-submit'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
@@ -91,9 +91,9 @@ describe('W2 edit', () => {
 
   it('sends null for an emptied field', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     fireEvent.click(screen.getByTestId('edit-LOT-A'))
-    fireEvent.change(await screen.findByLabelText('Producer'), { target: { value: '' } })
+    fireEvent.change(await screen.findByLabelText(/^Producer/), { target: { value: '' } })
     fireEvent.click(screen.getByTestId('edit-submit'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
     expect(writeCalls(clientMock)[0].body['producer']).toBeNull()
@@ -101,9 +101,9 @@ describe('W2 edit', () => {
 
   it('does not include item_id or code in the edit body', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     fireEvent.click(screen.getByTestId('edit-LOT-A'))
-    await screen.findByLabelText('Producer')
+    await screen.findByLabelText(/^Producer/)
     fireEvent.click(screen.getByTestId('edit-submit'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
     expect(writeCalls(clientMock)[0].body).not.toHaveProperty('item_id')
@@ -114,7 +114,7 @@ describe('W2 edit', () => {
 describe('W3 retire', () => {
   it('POSTs /lots/:id/retire with only idempotency_key after confirmation, then reloads', async () => {
     renderLots('/admin/catalog/lots')
-    await screen.findByTestId('lot-row-LOT-A')
+    await findLot('LOT-A')
     fireEvent.click(screen.getByTestId('retire-LOT-A'))
     expect(await screen.findByText(/A retired lot cannot be activated again/)).toBeInTheDocument()
     expect(writeCalls(clientMock)).toHaveLength(0)
@@ -141,9 +141,9 @@ describe('W3 retire', () => {
       ],
     })
     renderLots('/admin/catalog/lots')
-    await waitFor(() => expect(screen.queryByTestId('lot-row-LOT-RET')).not.toBeInTheDocument())
+    await waitFor(() => expect(queryLot('LOT-RET')).not.toBeInTheDocument())
     fireEvent.click(screen.getByTestId('show-retired'))
-    await screen.findByTestId('lot-row-LOT-RET')
+    await findLot('LOT-RET')
     expect(screen.queryByTestId('retire-LOT-RET')).not.toBeInTheDocument()
   })
 })

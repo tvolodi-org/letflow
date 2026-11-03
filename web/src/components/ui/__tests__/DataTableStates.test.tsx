@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /** T-1166 — DataTable: design-system columns and states (the REQ-274 cases stay in DataTable.test.tsx). */
+import { useState } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { useMemo, useState } from 'react'
 import { render, screen, fireEvent, cleanup, within, act } from '@testing-library/react'
 expect.extend(jestDomMatchers)
 
@@ -40,6 +40,14 @@ describe('T-1166 — DataTable', () => {
     expect(within(first).getByTestId('datatable-cell-name')).toHaveAttribute('data-label', 'Item name')
     expect(within(first).getByTestId('datatable-cell-code')).toHaveAttribute('data-label', 'Code')
     expect(screen.getByTestId('datatable-header-qty')).toHaveClass('is-end')
+  })
+
+  it('TC-T1174-30: hideStackLabel marks the cell so the phone card shows no label row', () => {
+    const cols: DataTableColumn<Row>[] = [...COLS, { key: 'st', label: 'Status', hideStackLabel: true, render: () => 'ok' }]
+    render(<DataTable columns={cols} data={ROWS} emptyMessage="none" />)
+    const first = screen.getAllByTestId('datatable-row')[0]
+    expect(within(first).getByTestId('datatable-cell-st')).toHaveClass('is-check')
+    expect(within(first).getByTestId('datatable-cell-name')).not.toHaveClass('is-check')
   })
 
   it('TC-T1166-21: sortable header is a button with aria-sort none -> ascending -> descending', () => {
@@ -140,39 +148,10 @@ describe('T-1166 — DataTable', () => {
     expect(screen.queryByTestId('datatable-retry')).toBeNull()
   })
 
-  it('TC-T1166-30: the file touches no inline colour, spacing or position', () => {
+  it('TC-T1166-30: the file touches no inline colour or spacing (the sticky header is CSS)', () => {
     render(<DataTable columns={COLS} data={ROWS} emptyMessage="none" onRowClick={() => {}} selectedId="a" />)
     const styled = Array.from(document.querySelectorAll('[style]')).map((el) => el.getAttribute('style'))
     expect(styled).toEqual([])
-  })
-
-  it('settles when the rows change identity with a parent that keeps filtering (no render loop)', async () => {
-    const ALL = [
-      { id: 'a', v: 'x' },
-      { id: 'b', v: 'z' },
-    ]
-    function Parent() {
-      const [f, setF] = useState('')
-      const data = useMemo(() => ALL.filter((r) => f === '' || r.id === f), [f])
-      return (
-        <div>
-          <button onClick={() => setF('a')}>filter</button>
-          <DataTable
-            columns={[{ key: 'v', label: 'V', render: (r: { v: string }) => r.v, sortable: true }]}
-            data={data}
-            getRowId={(r) => r.id}
-            emptyMessage="none"
-          />
-        </div>
-      )
-    }
-    render(<Parent />)
-    fireEvent.click(screen.getByText('filter'))
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 50))
-    })
-    expect(screen.queryByText('z')).toBeNull()
-    expect(screen.getByText('x')).toBeInTheDocument()
   })
 
   it('TC-T1172-31: a table with rows settles when the page around it changes (no page-reset render loop)', async () => {

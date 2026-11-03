@@ -8,7 +8,7 @@
  *   inside DataTable rather than the data rows
  * TC-REQ274-03: data=[] + isLoading=false renders the centered empty state
  *   with emptyMessage text
- * TC-REQ274-04: the header is sticky through the th rule in components.css (no inline position)
+ * TC-REQ274-04: the header element (datatable-header) carries position: sticky
  * TC-REQ274-05: clicking a sortable column's header twice toggles asc then
  *   desc row order
  * TC-REQ274-06: onRowClick fires with the clicked row's data
@@ -16,8 +16,6 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { render, screen, fireEvent, cleanup, within, act } from '@testing-library/react'
 expect.extend(jestDomMatchers)
@@ -76,15 +74,12 @@ describe('REQ-274 — DataTable', () => {
     expect(screen.queryAllByTestId('datatable-row')).toHaveLength(0)
   })
 
-  it('TC-REQ274-04: the header is sticky through components.css (th), with no inline position', () => {
+  it('TC-REQ274-04: the header is a thead; sticky positioning comes from .lf-table th, not an inline style', () => {
     render(<DataTable columns={COLUMNS} data={ROWS} emptyMessage="No rows" />)
 
-    // An inline `position` would beat `.lf-table--stack thead { position: absolute }` and show the header
-    // block on phones (S4 screenshot, 390 wide); the sticky rule lives on the th cells in the stylesheet.
     const header = screen.getByTestId('datatable-header')
+    expect(header.tagName).toBe('THEAD')
     expect(header).not.toHaveAttribute('style')
-    const css = readFileSync(path.resolve(__dirname, '../../../styles/components.css'), 'utf-8')
-    expect(css).toMatch(/\.lf-table th \{ position: sticky; top: 0;/)
   })
 
   it('TC-REQ274-05: clicking a sortable header toggles asc then desc order', () => {

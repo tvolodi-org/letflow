@@ -9,7 +9,8 @@
  *  callers keep working. A row's id comes from `getRowId`, else `row.id`.
  *  States: loading (skeleton rows), empty, load error with retry, per-row
  *  `error`/`retired` (`rowState`), selected (`selectedId`), compact density.
- *  Every cell has `data-label` so the table stacks into cards on phones.
+ *  Every cell has `data-label` so the table stacks into cards on phones. The sticky header is
+ *  `.lf-table th` in components.css (an inline style on <thead> would keep it visible in the card layout).
  */
 
 import React, { useMemo, useState } from 'react'
@@ -40,6 +41,8 @@ export interface DataTableColumn<TRow> {
   mono?: boolean
   /** Label shown on the phone card; defaults to the header. */
   stackLabel?: string
+  /** Phone card: no label row (the cell already says it, e.g. a StatusPill). */
+  hideStackLabel?: boolean
 }
 
 export type DataTableRowState = 'error' | 'retired'
@@ -88,7 +91,7 @@ function resolveColumns<TRow>(columns: DataTableColumn<TRow>[]): Resolved<TRow>[
 }
 
 function cellClass<TRow>(col: DataTableColumn<TRow>): string | undefined {
-  const parts = [col.align === 'end' ? 'is-end' : '', col.mono ? 'mono' : ''].filter(Boolean)
+  const parts = [col.align === 'end' ? 'is-end' : '', col.mono ? 'mono' : '', col.hideStackLabel ? 'is-check' : ''].filter(Boolean)
   return parts.length > 0 ? parts.join(' ') : undefined
 }
 
@@ -123,9 +126,8 @@ export function DataTable<TRow>(props: DataTableProps<TRow>): React.ReactElement
     [resolved],
   )
 
-  // Stable identity: a new `[]` per render made the sorted row model recompute on every render, which
-  // schedules react-table's page-index reset, which sets state, which renders again (an endless loop once
-  // `data` changed identity, seen on the codes screen).
+  // Stable between renders: a fresh array each render makes the sorted row model recompute, whose
+  // change hook resets the page index and re-renders the table without end once `data` has changed.
   const sorting = useMemo<SortingState>(
     () => (sortState.columnId ? [{ id: sortState.columnId, desc: sortState.direction === 'desc' }] : []),
     [sortState.columnId, sortState.direction],
