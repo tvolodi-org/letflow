@@ -12,7 +12,7 @@ import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
 import { topbarLanguage } from './topbarFixtures'
 import { locationsScreens } from './fixtures/locations'
-import { orgEmployees, orgLegal, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
+import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
 import { masterDataImport, masterDataImportResult } from './importFixtures'
@@ -217,6 +217,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     orgUnitsNewChild,
     orgPositions,
     orgEmployees,
+    ...orgListScreens,
     catalogItemsLots,
     catalogItemsLotsEdit,
     catalogItemsLotsCreate,

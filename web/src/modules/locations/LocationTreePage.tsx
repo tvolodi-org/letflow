@@ -434,6 +434,8 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
           }}
         >
           <MasterDetail
+            detailOpen={panelOpen}
+            onBack={closePanel}
             master={
               <>
                 <div className="lf-md__tools">
