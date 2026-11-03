@@ -22,8 +22,8 @@ defmodule Letflow.Modules.CatalogItems do
 
   All are declared in `manages_entity_types`, so after install the generic entity routes answer
   403 `entity_type_managed`, except the import of the four types through the one import function `import_row/3` (REQ-651 for
-  the first three, REQ-654 for `catalog_lot`; upsert by external ref only). The module ships no routes, no permissions, no role grants and
-  no other write functions than the lot writers `create_lot/3`, `update_lot/4` and `retire_lot/3` (GH #3614 / REQ-664); the read API (REQ-507, GH #2664) is below. The unit scale and conversion factors
+  the first three, REQ-654 for `catalog_lot`; upsert by external ref only). The module ships no other write functions than the lot writers `create_lot/3`, `update_lot/4` and `retire_lot/3` (GH #3614 / REQ-664), and
+  three lot routes (`Letflow.Modules.CatalogItems.Router`, GH #3610 / REQ-668) behind the one permission `CatalogLotsWrite`, with no role grants (TENANT_ADMIN and PLATFORM_ADMIN hold it); the read API (REQ-507, GH #2664) is below. The unit scale and conversion factors
   are REQ-504 (#2660), not here. `catalog_lot.item_id` is a real foreign key (D-066); the other
   references between the types, `base_uom_id` among them, stay declarative strings (0050 D3.6).
   The manifest declares every type `:tenant_wide` in `scope_declarations` (D-067, 0051 M4;
@@ -63,14 +63,18 @@ defmodule Letflow.Modules.CatalogItems do
   @impl true
   defmanifest(
     id: "catalog_items",
-    version: "0.1.0",
+    version: "0.2.0",
     depends_on: [],
     pack: "modules/catalog_items/pack.json",
-    permissions: [],
+    permissions: [:CatalogLotsWrite],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
-    route_policies: [],
+    route_policies: [
+      {"POST", "/lots", :CatalogLotsWrite},
+      {"PATCH", "/lots/:id", :CatalogLotsWrite},
+      {"POST", "/lots/:id/retire", :CatalogLotsWrite}
+    ],
     manages_entity_types: [
       "catalog_uom",
       "catalog_item",
@@ -104,6 +108,9 @@ defmodule Letflow.Modules.CatalogItems do
 
   def import_row(prefix, entry, ctx),
     do: Letflow.Modules.CatalogItems.Import.row(prefix, entry, ctx)
+
+  @impl true
+  def router, do: Letflow.Modules.CatalogItems.Router
 
   @impl true
   def on_install(prefix, _settings, ctx) do

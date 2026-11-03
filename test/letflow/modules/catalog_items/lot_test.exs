@@ -409,10 +409,10 @@ defmodule Letflow.Modules.CatalogItems.LotTest do
   end
 
   describe "criterion 8: no permission, route or grant" do
-    test "L-17: the manifest adds no permission, route policy or role grant" do
+    test "L-17: the manifest adds one write permission, three route policies and no role grant" do
       manifest = CatalogItems.manifest()
-      assert manifest.permissions == []
-      assert manifest.route_policies == []
+      assert manifest.permissions == [:CatalogLotsWrite]
+      assert length(manifest.route_policies) == 3
       assert manifest.role_grants == %{}
     end
   end

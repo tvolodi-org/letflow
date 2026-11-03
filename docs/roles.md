@@ -174,6 +174,8 @@ widening that needs per-tenant grant snapshots. The effective rows are in
 `priv/permission_matrix/effective.golden`.
 Module `org` (GH #3613, REQ-665) declares `OrgStructureWrite` (legal companies, sites, org units: create, change, move, retire) and `OrgEmployeesWrite` (positions and employees: create, change, transfer, retire), tenant scope. It declares no `role_grants`, so only
 TENANT_ADMIN and PLATFORM_ADMIN hold them; giving either to another role is a later widening that needs per-tenant grant snapshots.
+Module `catalog_items` (GH #3610, REQ-668) declares `CatalogLotsWrite` (create, change and retire lots), tenant scope. It declares no `role_grants`, so only
+TENANT_ADMIN and PLATFORM_ADMIN hold it.
 Module `codes` (GH #3611, REQ-667) declares `CodesWrite` (receive, assign, release, retire and rewrite codes), tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.
 Module `locations` (GH #3612, REQ-666) declares `LocationsWrite` (location nodes: create, change, move, retire; links of org units to locations: link, unlink), tenant scope. It declares no `role_grants`, so only
 TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.

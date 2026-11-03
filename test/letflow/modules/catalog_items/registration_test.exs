@@ -24,8 +24,17 @@ defmodule Letflow.Modules.CatalogItems.RegistrationTest do
     assert manifest.depends_on == []
     assert Enum.sort(manifest.manages_entity_types) == @four
     assert manifest.pack == "modules/catalog_items/pack.json"
-    assert manifest.permissions == []
+    assert manifest.permissions == [:CatalogLotsWrite]
     assert manifest.role_grants == %{}
+    assert manifest.version == "0.2.0"
+    assert Letflow.Modules.CatalogItems.router() == Letflow.Modules.CatalogItems.Router
+
+    assert Enum.sort(manifest.route_policies) ==
+             Enum.sort([
+               {"POST", "/lots", :CatalogLotsWrite},
+               {"PATCH", "/lots/:id", :CatalogLotsWrite},
+               {"POST", "/lots/:id/retire", :CatalogLotsWrite}
+             ])
   end
 
   test "R-03: the manifest's managed list equals the private @types list on_install/3 activates" do

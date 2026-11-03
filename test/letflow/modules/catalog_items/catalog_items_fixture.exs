@@ -29,7 +29,11 @@ defmodule Letflow.CatalogItemsFixture do
   @install_opts Letflow.Routers.TenantModules.init([])
 
   @doc "A provisioned tenant with `catalog_items` installed: `%{tenant_id: _, schema: _}`."
-  @spec installed_tenant!(String.t()) :: %{tenant_id: String.t(), schema: String.t()}
+  @spec installed_tenant!(String.t()) :: %{
+          tenant_id: String.t(),
+          schema: String.t(),
+          slug: String.t()
+        }
   def installed_tenant!(slug_prefix) do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
 
@@ -63,7 +67,11 @@ defmodule Letflow.CatalogItemsFixture do
     if conn.status != 201,
       do: raise("catalog_items install failed: #{conn.status} #{conn.resp_body}")
 
-    %{tenant_id: tenant.tenant_id, schema: tenant.schema_name}
+    %{
+      tenant_id: tenant.tenant_id,
+      schema: tenant.schema_name,
+      slug: Repo.get!(Letflow.Identity.Tenant, tenant.tenant_id).slug
+    }
   end
 
   @doc "The Owner authority of the catalog_items module."
