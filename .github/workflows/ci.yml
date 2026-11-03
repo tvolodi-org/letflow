@@ -73,6 +73,13 @@
 #      free plan's 20 concurrent jobs: 3 PRs in flight is ~21 long jobs, above the 20 limit;
 #      a PR run can queue behind the others. A plan or runner-size change is the owner's decision.
 #
+# 5. T-1249: docs-only change. When EVERY changed file is under docs/ (job `changes`, step
+#    "Decide whether the change is docs-only", rule in scripts/ci_docs_only.sh; pull_request and
+#    merge_group only), `backend_static` still runs (register consistency checks), shard 1 runs
+#    only the docs-related test files (`scripts/ci_docs_only.sh files`, step "Run docs tests")
+#    and shards 2-4 skip their expensive steps and report success. Job and check names do not
+#    change, so the aggregator is unchanged. Any path outside docs/ gives the full shards.
+#
 # Toolchain versions: read from .tool-versions (elixir 1.20.3-otp-29,
 # erlang 29.0.5, rust 1.97.1) via setup-beam's version-file input (Elixir/OTP)
 # and a shell step feeding dtolnay/rust-toolchain@stable (Rust, REQ-165 --
@@ -228,6 +235,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend || steps.fallback.outputs.frontend }}
       mobile: ${{ steps.filter.outputs.mobile || steps.fallback.outputs.mobile }}
       heavy: ${{ steps.heavy.outputs.heavy }}
+      docs_only: ${{ steps.docs.outputs.docs_only }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -389,6 +397,43 @@ jobs:
           echo "heavy=$heavy" >> "$GITHUB_OUTPUT"
           if [ "$heavy" = "false" ]; then
             echo "Exam and :slow tests skipped by path: this change touches nothing they depend on. The nightly run on main (and workflow_dispatch) runs the full suite." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # T-1249: is this change ONLY under docs/? Then the backend shards run just the docs-related
+      # test files (scripts/ci_docs_only.sh files) instead of the full suite; the static job still
+      # runs the register consistency checks, and every job and required check name stays. Same
+      # fail-safe as the heavy step: only a pull_request or merge_group run with a usable range
+      # and a clean script result may say true; everything else says false (full shards).
+      - name: Decide whether the change is docs-only
+        id: docs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -uo pipefail
+          docs_only=false
+          reason="full shards (event $EVENT_NAME)"
+          BASE_SHA=""; HEAD_SHA=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then BASE_SHA="$PR_BASE_SHA"; HEAD_SHA="$PR_HEAD_SHA"; fi
+          if [ "$EVENT_NAME" = "merge_group" ]; then BASE_SHA="$MG_BASE_SHA"; HEAD_SHA="$MG_HEAD_SHA"; fi
+          if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=50 origin "$BASE_SHA" || true
+            fi
+            if CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA") && RESULT=$(bash scripts/ci_docs_only.sh <<<"$CHANGED") && [[ $RESULT =~ ^docs_only=(true|false)$ ]]; then
+              docs_only="${BASH_REMATCH[1]}"
+              reason="path rule (scripts/ci_docs_only.sh)"
+            else
+              reason="path rule failed, running everything"
+            fi
+          fi
+          echo "docs_only=$docs_only ($reason)"
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          if [ "$docs_only" = "true" ]; then
+            echo "Docs-only change: shard 1 runs the docs-related tests only, shards 2-4 skip their work. The merge queue and main run the same rule / the full suite as configured." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # Q-1037 / GH #2364 (backend-gate sharding): the static half of the old single `backend`
@@ -692,23 +737,27 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Elixir/OTP (from .tool-versions)
+        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
         uses: erlef/setup-beam@v1
         with:
           version-file: .tool-versions
           version-type: strict
 
       - name: Read pinned Rust version from .tool-versions
+        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
         id: rust_pin
         run: |
           version=$(grep -E '^rust ' .tool-versions | awk '{print $2}')
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Rust (pinned via .tool-versions)
+        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ steps.rust_pin.outputs.version }}
 
       - name: Cache deps and _build
+        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
         uses: actions/cache@v4
         with:
           path: |
@@ -719,7 +768,7 @@ jobs:
             ${{ runner.os }}-mix-
 
       - name: Install dependencies
-        if: needs.changes.outputs.backend != 'false'
+        if: needs.changes.outputs.backend != 'false' && (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
         run: mix deps.get
 
       # Step 3 of the backend-gate speed-up (Q-1037 / GH #2364): the service database is a
@@ -729,7 +778,7 @@ jobs:
       # header of this file). The step fails unless the three values really read back as `off`,
       # so a silent no-op cannot masquerade as a tuned run.
       - name: Tune Postgres for CI (durability off, throwaway database)
-        if: needs.changes.outputs.backend != 'false'
+        if: needs.changes.outputs.backend != 'false' && (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
         env:
           PGPASSWORD: letflow
         run: |
@@ -756,7 +805,7 @@ jobs:
           done
 
       - name: Run test shard
-        if: needs.changes.outputs.backend != 'false'
+        if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only != 'true'
         run: mix letflow.check.test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           MIX_ENV: test
@@ -781,6 +830,21 @@ jobs:
           # busiest one; 80 leaves room for growth. Recheck after --append or a rebuild.
           TEST_PARALLEL_EXTRA_ARGS: "--slowest 40 --slowest-modules 80"
           TEST_PARALLEL_PRINT_SLOWEST: 1
+
+      # T-1249: docs-only change: shard 1 runs only the test files that read docs/ (list from
+      # scripts/ci_docs_only.sh files); shards 2-4 skip every expensive step and report success.
+      # The register consistency checks (requirements registration, handoff lint) run in
+      # `backend_static`, which is not skipped by docs_only.
+      - name: Run docs tests (docs-only change)
+        if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only == 'true' && matrix.shard == 1
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(bash scripts/ci_docs_only.sh files)
+          echo "docs-only change: running ${#files[@]} docs-related test files"
+          mix test "${files[@]}"
+        env:
+          MIX_ENV: test
+          WASMEX_BUILD: true
 
   # This job's `name:` string is a required-status-check `context` on main's branch
   # protection (docs/migration/decisions/0018-branch-protection-posture.md). Do not
