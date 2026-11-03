@@ -19,6 +19,13 @@ defmodule Letflow.LedgerTablesMigrationTest do
 
   setup do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "r620a-mig")
+
+    # Part A checks the CHECK set with raw rows (no counter row, no legs). The part B triggers
+    # (ledger_triggers_migration_test.exs) would refuse them, so user triggers are off per table here.
+    for t <- ~w(ledger_counter ledger_entry ledger_leg ledger_balance) do
+      Repo.query!(~s(ALTER TABLE "#{tenant.schema_name}".#{t} DISABLE TRIGGER USER))
+    end
+
     {:ok, schema: tenant.schema_name, tenant_id: tenant.tenant_id}
   end
 
@@ -546,21 +553,26 @@ defmodule Letflow.LedgerTablesMigrationTest do
         [schema]
       )
 
-    # Part A creates no function, so this is empty here; part B adds triggers and keeps these checks.
+    # Part B adds the trigger functions; the checks below hold for each of them.
     for [name, src, secdef, config] <- rows do
       refute src =~ schema, name
       refute secdef, name
       assert config in [nil, []], name
     end
 
-    assert rows == []
+    assert Enum.sort(Enum.map(rows, &hd/1)) ==
+             ~w(ledger_check_counter ledger_check_entry ledger_guard_balance ledger_guard_entry_insert)
   end
 
   # -- registration and the down guard ---------------------------------------------------------------
 
-  test "A-11 registered last in the manifest and present in the tenant", %{schema: schema} do
-    assert {@version, CreateLedgerTables} =
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+  test "A-11 registered in the manifest (before the part B triggers) and present in the tenant",
+       %{schema: schema} do
+    manifest = TenantProvisioning.tenant_scoped_migrations()
+    assert {@version, CreateLedgerTables} in manifest
+
+    assert {20_261_031_200_001, Letflow.Repo.Migrations.CreateLedgerTriggers} ==
+             List.last(manifest)
 
     for t <- ~w(ledger_balance ledger_counter ledger_entry ledger_leg) do
       assert t in TenantFixture.expected_tenant_tables()
