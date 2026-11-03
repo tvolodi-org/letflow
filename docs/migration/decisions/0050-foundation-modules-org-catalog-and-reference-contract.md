@@ -404,3 +404,11 @@ Status: Accepted (owner decisions D-061, D-062, D-065, D-066, D-067). Amends D7,
    REQ-495 and is added by the slice that first posts to a register naming an org unit. A movement whose org
    unit and location are not linked is refused (A4, REQ-644). A bin is exactly 12 ASCII digits (REQ-660).
    `Letflow.ScopeNodePaths` keeps its own path code, with no shared tree helper (REQ-642 (2)).
+
+## Amendment 2026-11-02 (org write routes, GH #3613 / REQ-665)
+
+The write routes of module `org` are gated by two module permissions, `OrgStructureWrite` (legal companies, sites, org units) and
+`OrgEmployeesWrite` (positions, employees), because a module route cannot name a core permission
+(`Catalog.validate/1` answers `{:undeclared_route_permission, _}` or `{:core_permission_collision, _}`). Their holders are exactly
+those of `:UsersGroupsRolesManage` (TENANT_ADMIN and PLATFORM_ADMIN; the manifest declares no `role_grants`). Granting either
+atom to another role is a widening under decision 0055 D7.

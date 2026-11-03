@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: catalog_items@0.1.0,codes@0.1.0,exam@0.1.0,locations@0.3.0,org@0.2.0,procurement@0.1.0
+# modules: catalog_items@0.1.0,codes@0.1.0,exam@0.1.0,locations@0.3.0,org@0.3.0,procurement@0.1.0
 # roles: 8
-# permissions: 68
-# rows: 544
+# permissions: 70
+# rows: 560
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -53,6 +53,8 @@ AGENT_RUNNER MyAccessRead true core core
 AGENT_RUNNER MyModulesRead true core core
 AGENT_RUNNER NotificationTemplatesManage false core -
 AGENT_RUNNER NumberSequencesManage false core -
+AGENT_RUNNER OrgEmployeesWrite false module:org -
+AGENT_RUNNER OrgStructureWrite false module:org -
 AGENT_RUNNER PlatformServicesManage false core -
 AGENT_RUNNER ProcurementLineRecord false module:procurement -
 AGENT_RUNNER ProcurementRequestDecide false module:procurement -
@@ -121,6 +123,8 @@ CANDIDATE MyAccessRead true core core
 CANDIDATE MyModulesRead true core core
 CANDIDATE NotificationTemplatesManage false core -
 CANDIDATE NumberSequencesManage false core -
+CANDIDATE OrgEmployeesWrite false module:org -
+CANDIDATE OrgStructureWrite false module:org -
 CANDIDATE PlatformServicesManage false core -
 CANDIDATE ProcurementLineRecord false module:procurement -
 CANDIDATE ProcurementRequestDecide false module:procurement -
@@ -189,6 +193,8 @@ PLATFORM_ADMIN MyAccessRead true core core
 PLATFORM_ADMIN MyModulesRead true core core
 PLATFORM_ADMIN NotificationTemplatesManage true core core
 PLATFORM_ADMIN NumberSequencesManage true core core
+PLATFORM_ADMIN OrgEmployeesWrite true module:org core
+PLATFORM_ADMIN OrgStructureWrite true module:org core
 PLATFORM_ADMIN PlatformServicesManage true core core
 PLATFORM_ADMIN ProcurementLineRecord true module:procurement core
 PLATFORM_ADMIN ProcurementRequestDecide true module:procurement core
@@ -257,6 +263,8 @@ PROCESS_DESIGNER MyAccessRead true core core
 PROCESS_DESIGNER MyModulesRead true core core
 PROCESS_DESIGNER NotificationTemplatesManage false core -
 PROCESS_DESIGNER NumberSequencesManage false core -
+PROCESS_DESIGNER OrgEmployeesWrite false module:org -
+PROCESS_DESIGNER OrgStructureWrite false module:org -
 PROCESS_DESIGNER PlatformServicesManage false core -
 PROCESS_DESIGNER ProcurementLineRecord false module:procurement -
 PROCESS_DESIGNER ProcurementRequestDecide false module:procurement -
@@ -325,6 +333,8 @@ PROCESS_OPERATOR MyAccessRead true core core
 PROCESS_OPERATOR MyModulesRead true core core
 PROCESS_OPERATOR NotificationTemplatesManage false core -
 PROCESS_OPERATOR NumberSequencesManage false core -
+PROCESS_OPERATOR OrgEmployeesWrite false module:org -
+PROCESS_OPERATOR OrgStructureWrite false module:org -
 PROCESS_OPERATOR PlatformServicesManage false core -
 PROCESS_OPERATOR ProcurementLineRecord false module:procurement -
 PROCESS_OPERATOR ProcurementRequestDecide false module:procurement -
@@ -393,6 +403,8 @@ TASK_WORKER MyAccessRead true core core
 TASK_WORKER MyModulesRead true core core
 TASK_WORKER NotificationTemplatesManage false core -
 TASK_WORKER NumberSequencesManage false core -
+TASK_WORKER OrgEmployeesWrite false module:org -
+TASK_WORKER OrgStructureWrite false module:org -
 TASK_WORKER PlatformServicesManage false core -
 TASK_WORKER ProcurementLineRecord false module:procurement -
 TASK_WORKER ProcurementRequestDecide false module:procurement -
@@ -461,6 +473,8 @@ TENANT_ADMIN MyAccessRead true core core
 TENANT_ADMIN MyModulesRead true core core
 TENANT_ADMIN NotificationTemplatesManage true core core
 TENANT_ADMIN NumberSequencesManage true core core
+TENANT_ADMIN OrgEmployeesWrite true module:org core
+TENANT_ADMIN OrgStructureWrite true module:org core
 TENANT_ADMIN PlatformServicesManage false core -
 TENANT_ADMIN ProcurementLineRecord true module:procurement core
 TENANT_ADMIN ProcurementRequestDecide true module:procurement core
@@ -529,6 +543,8 @@ TENANT_AUDITOR MyAccessRead true core core
 TENANT_AUDITOR MyModulesRead true core core
 TENANT_AUDITOR NotificationTemplatesManage false core -
 TENANT_AUDITOR NumberSequencesManage false core -
+TENANT_AUDITOR OrgEmployeesWrite false module:org -
+TENANT_AUDITOR OrgStructureWrite false module:org -
 TENANT_AUDITOR PlatformServicesManage false core -
 TENANT_AUDITOR ProcurementLineRecord false module:procurement -
 TENANT_AUDITOR ProcurementRequestDecide false module:procurement -

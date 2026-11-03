@@ -39,9 +39,9 @@ defmodule Letflow.Modules.Codes.RunbookTest do
     assert @runbook |> File.read!() |> String.split("\n") |> Enum.member?(@heading)
   end
 
-  test "B-2: the section is a numbered list 1..14 with the known limits" do
+  test "B-2: the section is a numbered list 1..17 with the known limits" do
     numbers = Enum.map(items(), &elem(&1, 0))
-    assert numbers == Enum.to_list(1..14)
+    assert numbers == Enum.to_list(1..17)
 
     text = items() |> Enum.map_join("\n", &elem(&1, 1))
 

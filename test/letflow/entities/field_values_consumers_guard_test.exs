@@ -20,6 +20,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
   # origin, timestamps and ids; instances.ex: moduledoc text only).
   @audit_writers_mentioning_field_values [
     "letflow/modules/catalog_items/lots.ex",
+    "letflow/modules/codes/writes.ex",
     "letflow/modules/exam/snapshot.ex",
     "letflow/modules/locations/links.ex",
     "letflow/modules/org/masters.ex",

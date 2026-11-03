@@ -5,8 +5,8 @@ defmodule Letflow.CodesFixture do
   `installed_tenant!/1` provisions a real tenant, seeds its event types and installs the real
   `codes` module through the real `Letflow.Routers.TenantModules`. The owner writers go
   through `Letflow.Entities.Records` with
-  `ManagedTypes.owner_for!(Letflow.Modules.Codes)`, exactly as the module's own code will
-  (the module ships no write functions in this slice).
+  `ManagedTypes.owner_for!(Letflow.Modules.Codes)`, exactly as the module's own
+  write functions do (`Letflow.Modules.Codes.Writes`, REQ-663).
 
   This is a `.exs` under `test/letflow/modules/codes/`, NOT a `test/support/**/*.ex`
   file: the R1/R2 caller guard in `managed_types_callers_test.exs` scans `test/support/**/*.ex`
@@ -51,11 +51,14 @@ defmodule Letflow.CodesFixture do
   end
 
   @doc "Installs `codes` in the tenant through the real router as TENANT_ADMIN; raises unless 201."
-  def install_codes!(tenant_id) do
+  def install_codes!(tenant_id), do: install_module!(tenant_id, "codes")
+
+  @doc "Installs the module `module_id` in the tenant through the real router; raises unless 201."
+  def install_module!(tenant_id, module_id) do
     conn =
       Plug.Test.conn(:post, "/")
       |> Map.put(:body_params, %{
-        "module_id" => "codes",
+        "module_id" => module_id,
         "rationale" => "GH-3588 test install"
       })
       |> put_req_header("content-type", "application/json")
@@ -68,7 +71,7 @@ defmodule Letflow.CodesFixture do
       |> Letflow.Routers.TenantModules.call(@install_opts)
 
     if conn.status != 201,
-      do: raise("codes install failed: #{conn.status} #{conn.resp_body}")
+      do: raise("#{module_id} install failed: #{conn.status} #{conn.resp_body}")
 
     :ok
   end

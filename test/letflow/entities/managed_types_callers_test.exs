@@ -67,6 +67,8 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @org_masters "lib/letflow/modules/org/masters.ex"
   # REQ-664: the catalog lot writers (create/update/retire) write under the catalog_items Owner.
   @catalog_lots "lib/letflow/modules/catalog_items/lots.ex"
+  # REQ-663: the code writers write under the codes Owner.
+  @codes_writes "lib/letflow/modules/codes/writes.ex"
   # REQ-651: the catalog masters' import function.
   @catalog_import "lib/letflow/modules/catalog_items/import.ex"
   @fixture_managed "test/support/modules/fixture_managed/fixture_managed.ex"
@@ -102,7 +104,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
 
   # Static allow-list for R1: adding a file here is a reviewed diff (design 7.3). Kept in the
   # sorted order `r1_files/1` returns (the scan set is path-sorted).
-  @authority_callers [@handler_writes, @catalog_lots] ++
+  @authority_callers [@handler_writes, @catalog_lots, @codes_writes] ++
                        @exam_writers ++
                        [@locations_links, @locations_tree, @org_masters, @fixture_managed]
   # R3 / R4 allow-lists (unchanged from REQ-496 T-34).
@@ -693,7 +695,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
       assert r2_violations(files) == []
       # GH #2596: the three exam writers join the fixture (directory rule, alias form).
       assert owner_for_callers(files) ==
-               [@catalog_import, @catalog_lots] ++
+               [@catalog_import, @catalog_lots, @codes_writes] ++
                  @exam_owner_callers ++
                  [@locations_links, @locations_tree, @org_masters, @fixture_managed]
     end
