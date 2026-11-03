@@ -33,8 +33,7 @@ async function saveNodeWith(err: unknown) {
     throw err
   })
   renderLocations('/admin/locations')
-  await screen.findByTestId('loc-row-L1')
-  fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+  fireEvent.click(await screen.findByTitle('L1'))
   fireEvent.click(screen.getByTestId('loc-save'))
 }
 
