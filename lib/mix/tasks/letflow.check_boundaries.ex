@@ -48,6 +48,24 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
     `check_reads` re-check; entity RECORDS are read only through the port).
     A transitive reading of F10 would need a different check, not this rule.
 
+  ## Ledger vocabulary rules (REQ-620 criterion 10, Rules 7 and 7b)
+
+  The ledger is domain-neutral. `ledger_scan_paths/0` names the files it covers (today the two
+  ledger migrations, `priv/repo/migrations/*_create_ledger_*.exs`, plus `lib/letflow/ledger/**`
+  and `lib/letflow/modules/ledger_registration.ex` once they exist). Each is parsed with
+  `Code.string_to_quoted/2` and walked; comments and the arguments of `@moduledoc`, `@doc`
+  and `@typedoc` are not part of the scan.
+
+  * **Rule 7 — neutral vocabulary.** No atom, variable or function name, alias part or string
+    literal contains a whole word of the denylist (stock, item, location, warehouse, site, lot,
+    serial, sku, material, inventory, bin, pallet; plural `s`/`es` too). Identifiers are split on
+    `_`, non-alphanumerics and camelCase, so `binary` and `website` pass. A reviewed exception is
+    a `{file, word}` pair in `@neutral_vocabulary_allowlist`.
+  * **Rule 7b — no module reference.** The only `Letflow.Modules.*` name the ledger files may
+    use is `Letflow.Modules.LedgerRegistration`.
+
+  Rule 8 is not built here (slice L3).
+
   ## Permitted exceptions (Rules 0–3)
 
   * Rule 0: any edge whose target is NOT inside a `lib/letflow/modules/<id>/`
@@ -120,8 +138,24 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
         _ -> []
       end)
 
-    if violations == [] do
+    ledger_paths = ledger_scan_paths()
+
+    ledger_violations =
+      ledger_paths
+      |> Enum.map(&{&1, File.read!(&1)})
+      |> ledger_rule_violations()
+
+    for {path, rule, detail} <- ledger_violations do
+      IO.puts("VIOLATION: #{path} (#{rule}: #{detail})")
+    end
+
+    if violations == [] and ledger_violations == [] do
       IO.puts("mix letflow.check_boundaries: OK -- #{length(edges)} edges checked, 0 violations")
+
+      IO.puts(
+        "mix letflow.check_boundaries: ledger rules 7/7b OK -- #{length(ledger_paths)} files"
+      )
+
       :ok
     else
       for {src, tgt, reason} <- violations do
@@ -129,7 +163,7 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
       end
 
       Mix.raise(
-        "mix letflow.check_boundaries: FAILED -- #{length(violations)} violation(s) found"
+        "mix letflow.check_boundaries: FAILED -- #{length(violations) + length(ledger_violations)} violation(s) found"
       )
     end
   end
@@ -284,6 +318,138 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
          "boundary violation: #{source} → #{target} " <>
            "(only lib/letflow/modules/catalog.ex may reference module-subdir files)"}
     end
+  end
+
+  @neutral_words ~w(stock item location warehouse site lot serial sku material inventory bin pallet)
+  @neutral_regex Regex.compile!("\\A(" <> Enum.join(@neutral_words, "|") <> ")(s|es)?\\z")
+
+  # A new `{file, word}` pair here is a reviewed diff; it starts empty.
+  @neutral_vocabulary_allowlist []
+
+  @doc """
+  The files Rules 7 and 7b scan: the ledger migrations, the ledger namespace and the one
+  registration module, kept only where they exist.
+  """
+  @spec ledger_scan_paths() :: [String.t()]
+  def ledger_scan_paths do
+    fixed =
+      Enum.filter(
+        [
+          "lib/letflow/ledger.ex",
+          "lib/letflow/modules/ledger_registration.ex",
+          "lib/letflow/ledger/handler_post.ex",
+          "lib/letflow/ledger/failure.ex",
+          "lib/letflow/ledger/codes.ex"
+        ],
+        &File.regular?/1
+      )
+
+    Enum.sort(
+      Enum.uniq(
+        Path.wildcard("lib/letflow/ledger/**/*.ex") ++
+          Path.wildcard("priv/repo/migrations/*_create_ledger_*.exs") ++ fixed
+      )
+    )
+  end
+
+  @doc """
+  Rules 7 and 7b over `[{path, source}]`: `[{path, rule, detail}]` (empty when clean). Pure.
+  A source that does not parse is a violation, never a raise.
+  """
+  @spec ledger_rule_violations([{String.t(), String.t()}]) ::
+          [{String.t(), :rule_7 | :rule_7b | :parse_error, String.t()}]
+  def ledger_rule_violations(files) when is_list(files) do
+    check_neutral_vocabulary(files) ++ check_module_references(files)
+  end
+
+  @doc "Rule 7: denylisted whole words in identifiers, alias parts and string literals."
+  @spec check_neutral_vocabulary([{String.t(), String.t()}]) :: [{String.t(), atom(), String.t()}]
+  def check_neutral_vocabulary(files) do
+    Enum.flat_map(files, fn {path, source} ->
+      case scan_tokens(source) do
+        {:error, detail} ->
+          [{path, :parse_error, detail}]
+
+        {:ok, tokens, _aliases} ->
+          tokens
+          |> Enum.flat_map(&token_words/1)
+          |> Enum.filter(&Regex.match?(@neutral_regex, &1))
+          |> Enum.uniq()
+          |> Enum.reject(&({Path.basename(path), &1} in @neutral_vocabulary_allowlist))
+          |> Enum.map(&{path, :rule_7, "denylisted word #{inspect(&1)}"})
+      end
+    end)
+  end
+
+  @doc "Rule 7b: any `Letflow.Modules.*` reference other than `Letflow.Modules.LedgerRegistration`."
+  @spec check_module_references([{String.t(), String.t()}]) ::
+          [{String.t(), atom(), String.t()}]
+  def check_module_references(files) do
+    Enum.flat_map(files, fn {path, source} ->
+      case scan_tokens(source) do
+        # the parse error is reported once, by Rule 7
+        {:error, _detail} ->
+          []
+
+        {:ok, tokens, aliases} ->
+          alias_hits =
+            for [:Letflow, :Modules | rest] = parts <- aliases, rest != [:LedgerRegistration] do
+              {path, :rule_7b, "module reference " <> Enum.join(parts, ".")}
+            end
+
+          string_hits =
+            for t <- tokens,
+                is_binary(t),
+                String.starts_with?(t, "Elixir.Letflow.Modules.") do
+              {path, :rule_7b, "module reference string " <> inspect(t)}
+            end
+
+          Enum.uniq(alias_hits ++ string_hits)
+      end
+    end)
+  end
+
+  defp scan_tokens(source) do
+    case Code.string_to_quoted(source, emit_warnings: false) do
+      {:ok, ast} ->
+        {_, {tokens, aliases}} = Macro.prewalk(ast, {[], []}, &collect_token/2)
+        {:ok, tokens, aliases}
+
+      {:error, {meta, message, token}} ->
+        line = if is_list(meta), do: Keyword.get(meta, :line), else: meta
+        {:error, "cannot parse (line #{inspect(line)}): #{inspect(message)}#{inspect(token)}"}
+    end
+  end
+
+  # Doc attributes are prose: replaced by nil so their arguments are never collected.
+  defp collect_token({:@, _, [{attr, _, [_]}]}, acc) when attr in [:moduledoc, :doc, :typedoc],
+    do: {nil, acc}
+
+  defp collect_token({:__aliases__, _, parts} = node, {tokens, aliases}) do
+    parts = Enum.filter(parts, &is_atom/1)
+    {node, {Enum.map(parts, &Atom.to_string/1) ++ tokens, [parts | aliases]}}
+  end
+
+  defp collect_token({name, _, ctx} = node, {tokens, aliases})
+       when is_atom(name) and is_atom(ctx),
+       do: {node, {[Atom.to_string(name) | tokens], aliases}}
+
+  defp collect_token({name, _, args} = node, {tokens, aliases})
+       when is_atom(name) and is_list(args),
+       do: {node, {[Atom.to_string(name) | tokens], aliases}}
+
+  defp collect_token(atom, {tokens, aliases}) when is_atom(atom) and not is_nil(atom),
+    do: {atom, {[Atom.to_string(atom) | tokens], aliases}}
+
+  defp collect_token(bin, {tokens, aliases}) when is_binary(bin),
+    do: {bin, {[bin | tokens], aliases}}
+
+  defp collect_token(node, acc), do: {node, acc}
+
+  defp token_words(token) when is_binary(token) do
+    ~r/[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+/
+    |> Regex.scan(token)
+    |> Enum.map(fn [w] -> String.downcase(w) end)
   end
 
   @layer_rules [
