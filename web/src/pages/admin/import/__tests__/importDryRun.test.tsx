@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { chooseFile, clientMock, ok, refused, renderPage, xlsxFile } from './importTestKit'
+import { chooseFile, chooseType, clientMock, ok, refused, renderPage, xlsxFile } from './importTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -37,7 +37,7 @@ describe('D1 dry run', () => {
     fireEvent.click(screen.getByTestId('import-check'))
     await screen.findByTestId('import-dry-run')
     expect(clientMock.postRaw).toHaveBeenCalledWith(DRY_PATH, file, XLSX)
-    const rows = screen.getAllByTestId('import-result-row')
+    const rows = screen.getAllByTestId('datatable-row')
     expect(rows).toHaveLength(3)
     expect(rows[0]).toHaveTextContent('Created')
     expect(rows[0]).toHaveTextContent('E2')
@@ -47,9 +47,9 @@ describe('D1 dry run', () => {
     expect(rows[2]).toHaveTextContent('base_uom_id')
     expect(rows[2]).toHaveTextContent('4')
     const counts = screen.getByTestId('import-counts')
-    expect(counts).toHaveTextContent('Created: 1')
-    expect(counts).toHaveTextContent('Unchanged: 1')
-    expect(counts).toHaveTextContent('Refused: 1')
+    expect(counts).toHaveTextContent(/1\s*Created/)
+    expect(counts).toHaveTextContent(/1\s*Unchanged/)
+    expect(counts).toHaveTextContent(/1\s*Refused/)
     expect(screen.getByText('Nothing has been written yet.')).toBeInTheDocument()
   })
 
@@ -65,7 +65,7 @@ describe('D1 dry run', () => {
     renderPage()
     chooseFile(xlsxFile())
     fireEvent.click(screen.getByTestId('import-check'))
-    const row = await screen.findByTestId('import-result-row')
+    const row = await screen.findByTestId('datatable-row')
     expect(row).toHaveTextContent('code: code violates required')
   })
 })
@@ -93,7 +93,7 @@ describe('C1/C2 confirm', () => {
     clientMock.postRaw.mockResolvedValue({ dry_run: true, results: [ok(2, 'created')] })
     fireEvent.click(screen.getByTestId('import-check'))
     await waitFor(() => expect(confirm).toBeEnabled())
-    fireEvent.change(screen.getByTestId('import-type'), { target: { value: 'org_position' } })
+    chooseType('org_position')
     expect(confirm).toBeDisabled()
   })
 
@@ -111,9 +111,9 @@ describe('C1/C2 confirm', () => {
     fireEvent.click(screen.getByTestId('import-confirm'))
     await screen.findByTestId('import-summary')
     expect(clientMock.postRaw).toHaveBeenLastCalledWith(REAL_PATH, file, XLSX)
-    expect(screen.getAllByTestId('import-result-row')).toHaveLength(2)
-    expect(screen.getByTestId('import-counts')).toHaveTextContent('Updated: 2')
-    expect(screen.getByTestId('import-counts')).toHaveTextContent('Created: 0')
+    expect(screen.getAllByTestId('datatable-row')).toHaveLength(2)
+    expect(screen.getByTestId('import-counts')).toHaveTextContent(/2\s*Updated/)
+    expect(screen.getByTestId('import-counts')).toHaveTextContent(/0\s*Created/)
     expect(screen.getByTestId('import-confirm')).toBeDisabled()
   })
 })

@@ -15,6 +15,18 @@ export function pendingFixtureRequests(): number {
   return inFlight
 }
 
+/** A screen that drives itself after mount (picks a file, presses a button) holds the ready signal until done. */
+export function holdHarnessReady(): () => void {
+  inFlight += 1
+  let released = false
+  return () => {
+    if (!released) {
+      released = true
+      inFlight -= 1
+    }
+  }
+}
+
 function parseBody(raw: unknown): unknown {
   if (typeof raw !== 'string') return undefined
   try {

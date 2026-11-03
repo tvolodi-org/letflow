@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { access, clientMock, renderPage } from './importTestKit'
+import { access, chooseType, clientMock, renderPage } from './importTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -36,7 +36,7 @@ describe('T1 template', () => {
   it('posts the export route with the two filters and saves <type>-template.xlsx', async () => {
     clientMock.postBlob.mockResolvedValue({ blob: new Blob(['x']), contentType: 'x' })
     renderPage()
-    fireEvent.change(screen.getByTestId('import-type'), { target: { value: 'catalog_uom' } })
+    chooseType('catalog_uom')
     fireEvent.click(screen.getByTestId('import-template'))
     await waitFor(() => expect(downloads).toEqual(['catalog_uom-template.xlsx']))
     expect(clientMock.postBlob).toHaveBeenCalledWith('/api/v1/entities/records/catalog_uom/export?format=xlsx', {

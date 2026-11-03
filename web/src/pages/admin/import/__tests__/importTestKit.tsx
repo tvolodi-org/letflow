@@ -24,8 +24,12 @@ export function xlsxFile(name = 'units.xlsx', bytes = 10): File {
   return new File([new Uint8Array(bytes)], name)
 }
 
+export function chooseType(id: string) {
+  fireEvent.click(screen.getByRole('radio', { name: new RegExp(`${id}$`) }))
+}
+
 export function chooseFile(file: File) {
-  fireEvent.change(screen.getByTestId('import-file'), { target: { files: [file] } })
+  fireEvent.change(screen.getByTestId('dropzone-input'), { target: { files: [file] } })
 }
 
 export function ok(line: number, outcome: 'created' | 'updated' | 'unchanged', id = `E${line}`): ImportResultRow {

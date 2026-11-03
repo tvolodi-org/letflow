@@ -15,6 +15,7 @@ import { locationsScreens } from './fixtures/locations'
 import { orgEmployees, orgLegal, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
+import { masterDataImport, masterDataImportResult } from './importFixtures'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -224,5 +225,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     codesScreen('codes-assign', { assignId: 'c2' }),
     codesScreen('codes-receive', { receive: true }),
     ...locationsScreens,
+    masterDataImport,
+    masterDataImportResult,
   ].map(s => [s.name, s]),
 )
