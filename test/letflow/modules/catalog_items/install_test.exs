@@ -250,6 +250,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
 
       assert {"catalog_item", "base_uom_id"} in expected
       assert {"catalog_item", "kind"} in expected
+      assert {"catalog_item", "tracking_policy"} in expected
       assert {"catalog_counterparty", "kind"} in expected
       assert {"catalog_counterparty", "tax_id"} in expected
       assert {"catalog_lot", "item_id"} in expected

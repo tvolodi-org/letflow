@@ -251,6 +251,21 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
     (field names only), a reused key with other input is 409. The routes come from the code
     manifest, so a tenant that installed the module earlier has them without an upgrade; its
     definitions are still not upgraded (items 13 and 18).
+22. **Tracking policy and `validate_capture/3` (GH #3581 / REQ-641, `catalog_items` 0.3.0).**
+    `catalog_item` has an optional `tracking_policy` enum (`none`, `lot`, `serial`, `expiry`; absent is
+    `none`) in `priv/modules/catalog_items/entity_definitions/catalog_item.json`. `validate_capture/3`
+    in `lib/letflow/modules/catalog_items/catalog_items.ex` checks a capture map against it: `none`
+    needs nothing, `lot` the lot, `serial` the serial, `expiry` the lot and the expiry date (the
+    receipt date is the posting time); a supplied value the policy does not require is refused. It is
+    called by no receipt or issue yet, so the MD-04 evidence stays open until the receipt and ledger
+    slices. Serial ownership and the refusal of a duplicate active serial stay in the stock ledger
+    (REQ-503 design `lib/letflow/design/gh2658-wms-stock-dimensions.md`, section 5). MD-01
+    synchronisation is not built (decision 0057 D1). The field is set only through the owner path,
+    because the generic import refuses a managed type (`entity_type_managed`). A tenant installed
+    before 0.3.0 keeps the old definition (no upgrade path, items 13 and 18): `lookup/2` works and
+    `validate_capture/3` reads the missing field as `none`; QA tenants are fresh-only. One policy per
+    item; a combined policy such as serial with expiry is an open owner question (assumption, owner
+    may change at GATE B).
 
 ## Locations module limits
 
