@@ -21,6 +21,7 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import ExUnit.CaptureLog
   import Ecto.Query, only: [from: 2]

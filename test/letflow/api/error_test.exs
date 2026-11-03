@@ -12,6 +12,7 @@ defmodule Letflow.Api.ErrorTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Api.Error
 

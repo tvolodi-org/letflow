@@ -24,6 +24,7 @@ defmodule Letflow.Obs.LoggerTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   import ExUnit.CaptureLog
   import Plug.Test

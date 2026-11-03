@@ -7,6 +7,7 @@ defmodule Letflow.Engine.VariableLabelsRedactionTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.VariableLabels
 

@@ -22,6 +22,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Api.RouteScope
   alias Letflow.Support.RouteInventory

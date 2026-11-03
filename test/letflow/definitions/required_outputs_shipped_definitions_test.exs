@@ -25,6 +25,7 @@ defmodule Letflow.Definitions.RequiredOutputsShippedDefinitionsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.RoleBinding

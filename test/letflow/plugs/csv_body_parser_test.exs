@@ -5,6 +5,7 @@ defmodule Letflow.Plugs.CsvBodyParserTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   import Plug.Test
   import Plug.Conn

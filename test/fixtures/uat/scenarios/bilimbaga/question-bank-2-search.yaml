@@ -1,0 +1,121 @@
+# Authored by BA-BILIMBAGA for GH #3423 / REQ-612 (UAT design task T-0931).
+# Covers REQ-612 criterion 3 (search on an explicit Search button; matching rows only; clearing restores the list;
+# a term with no match shows the empty state).
+# Not UAT-observable: the search being sent as data and never joined into query text (INV-7) and the filter field
+# name per language (component test); the Russian and Kazakh interface variants of the search (the roster actor's
+# browser language is set in the scenario text to English only).
+---
+id: bilimbaga-question-bank-2-search
+scope: bilimbaga
+title: The question bank searches on the Search button, shows only matching questions, restores the list when cleared, and shows an empty message when nothing matches
+version: "1.0"
+tags: [question_bank, gui, search]
+
+description: >
+  The administrator finds a question in the bank by a word of its text. Typing alone does not search; the search
+  runs when the Search button is pressed or Enter is pressed in the field. The search ignores letter case.
+  Preconditions: the browser language is English (en); the bilimbaga tenant has the exam module installed; the
+  administrator holds the exam content writing permission; at least one category exists. The two questions used
+  here are made in step 1 with the question editor; if saving does not work, the scenario is BLOCKED.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The administrator holds the exam content writing permission
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      Saves two single-choice questions with two options each (the first option correct) in the question editor:
+      "UAT Q612 Zebra crossing" and "UAT Q612 Harbour light", any category and difficulty
+    via: gui
+
+  - step: 2
+    actor: admin
+    action: Opens the question bank and notes that both questions are listed
+    via: gui
+
+  - step: 3
+    actor: admin
+    action: Types "zebra" in the field 'Search questions' and does not press anything else; reads the rows
+    via: gui
+
+  - step: 4
+    actor: admin
+    action: Presses the Search button and reads the rows
+    via: gui
+
+  - step: 5
+    actor: admin
+    action: Clears the field and presses Enter inside the field; reads the rows
+    via: gui
+
+  - step: 6
+    actor: admin
+    action: Types "UAT Q612 no such words" and presses the Search button; reads the page
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The search field has a visible label and a placeholder, and the Search button is next to it
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 shows the label 'Search questions', the placeholder 'Search by question text' and a button
+        'Search'; both questions are listed
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        A field without a label or a button is hard to find for keyboard and screen-reader users.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      Typing alone does not change the list; pressing Search shows only the question whose text contains the
+      term, whatever the letter case
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 still shows both rows; step 4 shows only the row 'UAT Q612 Zebra crossing'
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A list that refilters on every keystroke floods the server; a search that misses a differently-cased
+        word hides questions from the administrator.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: >
+      Clearing the field and pressing Enter restores the full list
+    verification:
+      method: gui_screen
+      detail: "Step 5 shows both rows 'UAT Q612 Zebra crossing' and 'UAT Q612 Harbour light'"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An administrator stuck on a filtered list believes the other questions are gone.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: >
+      A term that matches nothing shows the empty message and no table rows
+    verification:
+      method: gui_screen
+      detail: "Step 6 shows 'No questions found.' and no rows"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A blank page for an empty result looks like a broken page.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove the questions "UAT Q612 Zebra crossing" and "UAT Q612 Harbour light" with their answer options through
+    the generic administration pages (answer options first).

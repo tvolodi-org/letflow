@@ -110,10 +110,10 @@ defmodule Letflow.ExamFixtures do
       Repo.delete_all(from(t in Tenant, where: t.id == ^tenant.id))
     end)
 
-    assert {:ok, %Registration{schema_name: schema_name}} =
-             TenantProvisioning.provision_tenant_schema(tenant.id)
-
-    assert {:ok, _applied_versions} = TenantProvisioning.replay_migrations(tenant.id)
+    # T-1138: clone the prepared template schema (the default of `TenantFixture`) instead of
+    # replaying every tenant migration per test.
+    Letflow.Test.TenantTemplate.ensure_template!()
+    assert {:ok, schema_name} = Letflow.Test.TenantTemplate.clone_tenant_schema!(tenant.id)
     assert {:ok, _seed_result} = Letflow.Entities.EventTypes.seed!(schema_name)
 
     activate_exam_definitions!(schema_name)
@@ -166,10 +166,10 @@ defmodule Letflow.ExamFixtures do
       Repo.delete_all(from(t in Tenant, where: t.id == ^tenant.id))
     end)
 
-    assert {:ok, %Registration{schema_name: schema_name}} =
-             TenantProvisioning.provision_tenant_schema(tenant.id)
-
-    assert {:ok, _applied_versions} = TenantProvisioning.replay_migrations(tenant.id)
+    # T-1138: clone the prepared template schema (the default of `TenantFixture`) instead of
+    # replaying every tenant migration per test.
+    Letflow.Test.TenantTemplate.ensure_template!()
+    assert {:ok, schema_name} = Letflow.Test.TenantTemplate.clone_tenant_schema!(tenant.id)
     assert {:ok, _seed_result} = Letflow.Entities.EventTypes.seed!(schema_name)
 
     activate_exam_definitions!(schema_name)

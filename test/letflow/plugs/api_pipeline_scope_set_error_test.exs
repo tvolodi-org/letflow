@@ -19,6 +19,7 @@ defmodule Letflow.Plugs.ApiPipelineScopeSetErrorTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   import Plug.Test
 

@@ -10,6 +10,7 @@ defmodule Letflow.Scripts.TestParallelPoolClampTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Test.TestParallelEnv
 

@@ -21,6 +21,7 @@ defmodule Letflow.Supervisor.HttpTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   test "Letflow.Supervisor.Http has zero children under config/test.exs's start_http: false" do
     refute Application.get_env(:letflow, :start_http, true)

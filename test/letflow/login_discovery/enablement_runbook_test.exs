@@ -6,6 +6,7 @@ defmodule Letflow.LoginDiscovery.EnablementRunbookTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @rotation "docs/runbooks/login-directory-pepper-rotation.md"
   @enablement "docs/runbooks/login-directory-enablement.md"

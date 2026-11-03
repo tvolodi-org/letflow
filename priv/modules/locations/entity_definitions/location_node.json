@@ -1,0 +1,28 @@
+{
+  "name": "location_node",
+  "display_name": "Location",
+  "description": "GH #3501 / REQ-625, GH #3591 / REQ-645, decisions 0050 D1, 0057 D1 and 0066. One tree of locations. node_kind is a free non-empty text per level (country, region, building, zone, aisle, rack, shelf, bin, position, or any other word the tenant chooses); there is no fixed list and no depth bound. parent_id is the record_id of the parent location_node (absent for a root); the foreign_keys entry fk_location_node_parent_id promotes it to a nullable uuid self-referencing column with ON DELETE RESTRICT (inert on the soft-delete path), and idx_location_node_parent_id indexes it. The tree is stored as this parent link only: no path and no depth is stored (decision 0066); the live write rules are in Letflow.Modules.Locations.Tree. segment is the optional short label of the node inside its address, it never contains a dash. address is the scannable label, unique per tenant, optional; it is built once at create from the segments of the ancestors when the tenant chooses the segment pattern, and nothing rewrites it later. name is queried. active false retires the record, there is no delete operation. external_ref_system and external_ref_id are the nullable import key (0057 D1). The link to an org unit is a later step and is not stored here.",
+  "fields": [
+    {"name": "code", "type": "string", "required": true, "queried": true},
+    {"name": "name", "type": "string", "required": true, "queried": true},
+    {"name": "node_kind", "type": "string", "required": true, "queried": true},
+    {"name": "parent_id", "type": "string", "queried": true},
+    {"name": "segment", "type": "string", "queried": true},
+    {"name": "address", "type": "string", "queried": true},
+    {"name": "location_type", "type": "enum", "queried": true, "enum_values": ["receiving", "pick", "ship", "reject", "quarantine", "custody", "outdoor"]},
+    {"name": "active", "type": "boolean", "required": true, "queried": true},
+    {"name": "external_ref_system", "type": "string", "queried": true},
+    {"name": "external_ref_id", "type": "string", "queried": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_location_node_parent_id", "field": "parent_id", "references_entity": "location_node"}
+  ],
+  "indexes": [
+    {"name": "idx_location_node_parent_id", "fields": ["parent_id"]}
+  ],
+  "constraints": [
+    {"name": "uq_location_node_code", "type": "unique", "fields": ["code"]},
+    {"name": "uq_location_node_address", "type": "unique", "fields": ["address"]},
+    {"name": "uq_location_node_external_ref", "type": "unique", "fields": ["external_ref_system", "external_ref_id"]}
+  ]
+}

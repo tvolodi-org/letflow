@@ -5,6 +5,7 @@ defmodule Letflow.Engine.VariableLabelsWriteRuleTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.VariableLabels
   alias Letflow.EventStore.Registry.ValidationFailure

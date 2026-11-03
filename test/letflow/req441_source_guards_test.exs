@@ -17,6 +17,7 @@ defmodule Letflow.Req441SourceGuardsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @transport "lib/letflow/login_discovery/notifier/smtp/transport.ex"
 

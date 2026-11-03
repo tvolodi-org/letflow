@@ -1,0 +1,10 @@
+scenario_id: bilimbaga-exam-notifications-3-assignment-message-person-only
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: >
+  The scenario needs the exam notifications switch (application setting exam_notifications_enabled) turned on. It is false in the shipped configuration, is not a tenant setting and cannot be changed by any UAT actor or request, so the run is BLOCKED, not PASS. The same behaviour is covered by the backend tests of REQ-597. The scenario also needs assignments written by a path that sends the assignment message; REQ-597 states that no route or code path calls it yet (its wiring gap), and no route writes an assignment.
+recorded_by: BA
+recorded_at: "2026-10-30"
+issue_ref: "GH #3363"
+review: >
+  Revisit when a route that writes exam assignments calls the assignment notice and the QA switch is on.

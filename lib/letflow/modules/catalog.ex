@@ -250,6 +250,50 @@ defmodule Letflow.Modules.Catalog do
   end
 
   @doc """
+  Whether module `module_id` registered an import function for `entity_type` (REQ-651). Resolution
+  is binary comparison against the compiled manifest list only (no atom is created): exactly one
+  entry carries the id, rule 14 is re-validated for it, and a spec with that name exists. Anything
+  else, including a non-binary argument, is `{:error, :not_found}` (fail closed).
+  """
+  @spec import_function(module_id :: term(), entity_type :: term()) :: :ok | {:error, :not_found}
+  def import_function(module_id, entity_type) do
+    case resolve_import_function(entry_modules(), module_id, entity_type) do
+      {:ok, _module, _fun} -> :ok
+      :error -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Calls the import function registered for `entity_type` by `module_id`: the only `apply/3` of
+  import code. The registration is re-resolved here; unresolved is `{:error, :not_found}`. The
+  function is `f(prefix, entry, ctx)` and returns `{:ok, %{record_id:, outcome:}}` or
+  `{:error, reason}`; the core never builds an Owner for it.
+  """
+  @spec call_import_function(term(), term(), String.t(), map(), map()) :: term()
+  def call_import_function(module_id, entity_type, prefix, entry, ctx) do
+    case resolve_import_function(entry_modules(), module_id, entity_type) do
+      {:ok, module, fun} -> apply(module, fun, [prefix, entry, ctx])
+      :error -> {:error, :not_found}
+    end
+  end
+
+  defp resolve_import_function(entries, module_id, entity_type)
+       when is_list(entries) and is_binary(module_id) and is_binary(entity_type) do
+    with [entry] <-
+           Enum.filter(entries, fn entry_module -> entry_module.manifest().id == module_id end),
+         manifest = entry.manifest(),
+         :ok <- validate_import_functions(manifest, entry),
+         spec when not is_nil(spec) <-
+           Enum.find(Map.get(manifest, :import_functions, []), &(&1.entity_type == entity_type)) do
+      {:ok, entry, spec.function}
+    else
+      _ -> :error
+    end
+  end
+
+  defp resolve_import_function(_entries, _module_id, _entity_type), do: :error
+
+  @doc """
   The SHA-256 manifest hash (`Letflow.Modules.ManifestHash`) of a registered
   entry module (by module atom) or of the module with the given manifest id.
   Computed per call from the compiled manifest; no state is kept.
@@ -403,6 +447,14 @@ defmodule Letflow.Modules.Catalog do
   `{:duplicate_extension_point, name}` (the first repeated name). Absent and `[]` are valid and
   equal. Shape only: that `site.definition` names a definition of the module and the `returns`
   subset are not checked here.
+
+  Rule 14 (REQ-651, decision 0077 D5) runs after rule 13: the optional `:import_functions` key, a
+  list of `%{entity_type: name, function: atom}` maps. The first problem found is returned:
+  `{:invalid_import_functions, value}` (not a list of maps with exactly those two keys, a binary
+  name and an atom function), `{:import_function_type_not_managed, name}` (name not in the same
+  manifest's `:manages_entity_types`), `{:duplicate_import_function, name}`,
+  `{:import_function_not_exported, name}` (the entry module does not export the function with
+  arity 3). Absent and `[]` are valid.
   """
   @spec validate(Module.manifest(), [Module.manifest()]) :: :ok | {:error, {atom(), term()}}
   def validate(manifest, known_manifests) do
@@ -423,7 +475,8 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_write_handlers(manifest, entry_module),
          :ok <- validate_scope_declarations(manifest, known_manifests),
          :ok <- validate_document_org_resolver(manifest, known_manifests),
-         :ok <- validate_extension_points(manifest) do
+         :ok <- validate_extension_points(manifest),
+         :ok <- validate_import_functions(manifest, entry_module) do
       :ok
     end
   end
@@ -835,6 +888,59 @@ defmodule Letflow.Modules.Catalog do
         true ->
           nil
       end
+    end)
+  end
+
+  # Rule 14 (REQ-651). Shared by validate/2 and the per-call re-check in resolve_import_function/3.
+  defp validate_import_functions(manifest, entry_module) do
+    case Map.get(manifest, :import_functions, []) do
+      [] ->
+        :ok
+
+      specs ->
+        with :ok <- check_import_shapes(specs),
+             :ok <- check_import_managed(manifest, specs),
+             :ok <- check_import_unique(specs) do
+          check_import_exported(specs, entry_module)
+        end
+    end
+  end
+
+  defp check_import_shapes(specs) do
+    if is_list(specs) and Enum.all?(specs, &well_formed_import?/1),
+      do: :ok,
+      else: {:error, {:invalid_import_functions, specs}}
+  end
+
+  defp well_formed_import?(%{entity_type: name, function: fun} = spec),
+    do: map_size(spec) == 2 and is_binary(name) and is_atom(fun) and not is_nil(fun)
+
+  defp well_formed_import?(_other), do: false
+
+  defp check_import_managed(manifest, specs) do
+    managed = Map.get(manifest, :manages_entity_types, [])
+
+    case Enum.find(specs, &(&1.entity_type not in managed)) do
+      nil -> :ok
+      spec -> {:error, {:import_function_type_not_managed, spec.entity_type}}
+    end
+  end
+
+  defp check_import_unique(specs) do
+    names = Enum.map(specs, & &1.entity_type)
+
+    case Enum.find(names, fn name -> Enum.count(names, &(&1 == name)) > 1 end) do
+      nil -> :ok
+      name -> {:error, {:duplicate_import_function, name}}
+    end
+  end
+
+  defp check_import_exported(specs, entry_module) do
+    Enum.find_value(specs, :ok, fn spec ->
+      unless is_atom(entry_module) and not is_nil(entry_module) and
+               Code.ensure_loaded?(entry_module) and
+               function_exported?(entry_module, spec.function, 3),
+             do: {:error, {:import_function_not_exported, spec.entity_type}}
     end)
   end
 

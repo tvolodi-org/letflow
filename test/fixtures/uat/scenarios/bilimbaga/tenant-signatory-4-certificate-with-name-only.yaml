@@ -1,0 +1,110 @@
+# Authored by BA-BILIMBAGA for the tenant signatory settings (BilimBaga study T4c gap 4, GH #3355).
+# Requirement: REQ-595 criteria 4 (a second save with the title null; a certificate issued afterwards has
+# no title in its snapshot), 7 (name only), 10 (PDF with only the name) and 12 (public verify).
+# Run after scenario 3 or alone; it needs its own passed session without certificate.
+---
+id: bilimbaga-tenant-signatory-4-certificate-with-name-only
+scope: bilimbaga
+title: A certificate issued when only the signatory name is set prints the name and keeps the generic title line
+version: "1.0"
+tags: [certificate, signatory, public_page, snapshot]
+
+description: >
+  The two signatory settings are independent. The administrator stores the
+  signatory name "Aigul Nurpeisova" and the title "Director of Certification",
+  then saves the title again as null, so only the name remains set. A
+  candidate who passed an exam asks for the certificate for the first time.
+  The PDF prints the name and, in the title line, the generic text "Automated
+  Issuance". The public verification shows the name and no title.
+  Source: REQ-595 criteria 4, 7 and 10 (PDF with only the name: the name is
+  printed and the title line is "Automated Issuance"). A passed session
+  without certificate is needed; if none is left, this scenario is BLOCKED,
+  not PASS.
+
+actors:
+  admin: actor-bilimbaga-admin
+  candidate: actor-bilimbaga-candidate
+  verifier: actor-any
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      The candidate has a submitted and graded exam session that they passed
+      and for which no certificate has been asked yet
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: admin
+    action: Saves the organisation settings with the signatory name "Aigul Nurpeisova" and the signatory title "Director of Certification"
+    via: api
+
+  - step: 2
+    actor: admin
+    action: Saves the organisation settings with the signatory title set to null and nothing else
+    via: api
+
+  - step: 3
+    actor: candidate
+    action: Asks for the certificate of the passed exam session for the first time and keeps the one-time public handle shown in the answer
+    via: api
+    produces:
+      handle: "the one-time public handle from the first certificate issue"
+
+  - step: 4
+    actor: candidate
+    action: Downloads the certificate PDF of the passed exam session and reads the text of its signature block
+    via: api
+
+  - step: 5
+    actor: verifier
+    action: Looks up the certificate with the handle from step 3 on the public lookup, without signing in, and reads the organisation branding part of the answer
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The save with the title set to null is accepted and the name stays stored
+    verification:
+      method: http_status
+      detail: "Step 2 answers 200; settings.signatory_title is null; settings.signatory_name is 'Aigul Nurpeisova'"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The organisation cannot clear one signatory line without losing the other.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The PDF prints "Aigul Nurpeisova" and "Automated Issuance" and does not
+      print "Director of Certification"
+    verification:
+      method: api_response
+      detail: "PDF text of step 4: contains 'Aigul Nurpeisova' and 'Automated Issuance'; does not contain 'Director of Certification'"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A cleared title would still be printed, or the title line would be left
+        empty on the paper certificate.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      The public verification shows the signatory name and shows no signatory
+      title
+    verification:
+      method: api_response
+      detail: "Step 5 answer: branding part holds signatory_name 'Aigul Nurpeisova' and has no key signatory_title"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The verifier would see a title the organisation had removed.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    The administrator saves the signatory name as null to leave the
+    organisation without a signatory. The issued certificate stays as record of
+    the candidate's exam.

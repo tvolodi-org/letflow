@@ -18,6 +18,7 @@ defmodule Mix.Tasks.Letflow.CheckIssueRefsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Mix.Tasks.Letflow.CheckIssueRefs
 

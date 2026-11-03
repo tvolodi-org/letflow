@@ -18,6 +18,7 @@ defmodule Letflow.Definitions.RequiredOutputsValidationTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.SemanticValidation

@@ -391,10 +391,10 @@ script-bound (R5); this section is the contract a handler is written against.
 Registering a new module means editing **both** config files, plus the test
 that pins their contents:
 
-- `config/config.exs` (`config :letflow, :modules`) — `[Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems, Letflow.Modules.Procurement]`
+- `config/config.exs` (`config :letflow, :modules`) — `[Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems, Letflow.Modules.Procurement, Letflow.Modules.Locations]`
   — the real, production module list. Add your entry module here.
 - `config/test.exs:294` — `config :letflow, :modules, [...]` — the test-env
-  list, currently `[Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems, Letflow.Modules.Procurement,
+  list, currently `[Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems, Letflow.Modules.Procurement, Letflow.Modules.Locations,
   Letflow.Modules.Fixture, Letflow.Modules.FixtureDependent,
   Letflow.Modules.FixtureFailingInstall, ...]` (more fixtures follow;
   prod entries first, then the test-only fixtures under
@@ -408,7 +408,7 @@ that pins their contents:
     order"` asserts `Catalog.entry_modules() ==
     [Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems, Letflow.Modules.Fixture, ...]` literally — add
     your module to this literal list, in the same order as `config/test.exs`.
-  - `"config/config.exs registers exactly [Exam, Org, CatalogItems, Procurement]"` greps the
+  - `"config/config.exs registers exactly [Exam, Org, CatalogItems, Procurement, Locations]"` greps the
     real file (`~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems\s*\]/`;
     the line is wrapped by `mix format` once it passes 98 columns, hence the `\s*`)
     — update this regex to match your new `config/config.exs` line.

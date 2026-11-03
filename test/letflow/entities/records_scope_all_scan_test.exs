@@ -47,12 +47,21 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
   # file => number of justified call sites, outside the router and Records itself
   @ledger %{
     "lib/letflow/entities/import_upsert.ex" => 1,
+    # REQ-651: the catalog masters' import function (managed import path, tenant-wide types)
+    "lib/letflow/modules/catalog_items/import.ex" => 1,
     "lib/letflow/modules/exam/anti_cheat.ex" => 1,
     # REQ-582 part B: create_assignment/2 is the exam module's own surface for the seed task
     "lib/letflow/modules/exam/authoring.ex" => 4,
     "lib/letflow/modules/exam/certificate.ex" => 1,
     "lib/letflow/modules/exam/session.ex" => 5,
     "lib/letflow/modules/exam/snapshot.ex" => 1,
+    "lib/letflow/modules/catalog_items/lots.ex" => 2,
+    "lib/letflow/modules/codes/writes.ex" => 2,
+    # REQ-662: the link writers (create, update) of module locations
+    "lib/letflow/modules/locations/links.ex" => 2,
+    "lib/letflow/modules/locations/tree.ex" => 2,
+    # REQ-660: the legal company and site writers of module org
+    "lib/letflow/modules/org/masters.ex" => 2,
     "lib/letflow/record_triggers/apply.ex" => 3,
     "lib/letflow/scheduler/record_deadline_sweep.ex" => 1,
     "lib/mix/tasks/letflow.seed.exam_fixtures.ex" => 1

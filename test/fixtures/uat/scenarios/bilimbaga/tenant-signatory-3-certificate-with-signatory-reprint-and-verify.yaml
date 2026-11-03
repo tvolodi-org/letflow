@@ -1,0 +1,172 @@
+# Authored by BA-BILIMBAGA for the tenant signatory settings (BilimBaga study T4c gap 4, GH #3355).
+# Requirement: REQ-595 criteria 7 (snapshot set), 9 (reprint never changes), 10 (PDF text), 12 (public verify);
+# the PDF download and the public lookup are REQ-356, REQ-357, REQ-592 (see
+# certificate-pdf-download-code-resolves-public-verify.yaml for how the code is read from the PDF).
+# Not UAT-observable, left to the backend tests of REQ-595: the stored snapshot field itself (the
+# scenario reads it through the PDF and the public lookup, which are its two outputs), the
+# Latin-1 degrade and the legacy certificate rendering (criterion 11).
+---
+id: bilimbaga-tenant-signatory-3-certificate-with-signatory-reprint-and-verify
+scope: bilimbaga
+title: A certificate issued while the signatory is set prints and publishes that signatory, and a later change of the settings does not alter it
+version: "1.0"
+tags: [certificate, signatory, public_page, snapshot]
+
+description: >
+  The organisation administrator has stored the signatory name "Aigul
+  Nurpeisova" and the title "Director of Certification". A candidate who
+  passed an exam then asks for the certificate for the first time. The
+  organisation's signatory is copied into the certificate when it is first
+  issued. The PDF the candidate downloads prints the name and the title in the
+  signature block instead of the generic lines "Certification Authority" and
+  "Automated Issuance". The public verification of the certificate, which
+  needs no sign-in, also shows the name and the title, because they are
+  printed on the paper the holder shows to third parties.
+  The administrator then changes the settings (another name and title) and
+  afterwards clears both. The candidate downloads the PDF again: it still
+  prints "Aigul Nurpeisova" and "Director of Certification", and the public
+  verification still shows the same two lines. An issued certificate is never
+  rewritten by a later settings change.
+  Source: REQ-595 criteria 7, 9, 10 and 12 and its description (SNAPSHOT, PDF,
+  PUBLIC VERIFY). The PDF text is read from the downloaded file.
+  The first issue happens in this scenario, so the passed session must not have
+  a certificate yet. A passed session without certificate is needed (one per
+  scenario of this group: scenarios 3, 4 and 5); if there is none, this
+  scenario is BLOCKED, not PASS.
+
+actors:
+  admin: actor-bilimbaga-admin
+  candidate: actor-bilimbaga-candidate
+  verifier: actor-any
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      The candidate has a submitted and graded exam session that they passed
+      and for which no certificate has been asked yet
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: admin
+    action: Saves the organisation settings with the signatory name "Aigul Nurpeisova" and the signatory title "Director of Certification"
+    via: api
+
+  - step: 2
+    actor: candidate
+    action: Asks for the certificate of the passed exam session for the first time and keeps the one-time public handle shown in the answer
+    via: api
+    produces:
+      first_handle: "the one-time public handle from the first certificate issue"
+
+  - step: 3
+    actor: candidate
+    action: Downloads the certificate PDF of the passed exam session, reads its text and reads the code at the end of the printed verify line
+    via: api
+    produces:
+      pdf_one_text: "the text of the signature block of the first PDF"
+      code_one: "the code printed on the first downloaded PDF"
+
+  - step: 4
+    actor: verifier
+    action: Looks up the certificate with first_handle from step 2 on the public lookup, without signing in, and reads the organisation branding part of the answer
+    via: api
+
+  - step: 5
+    actor: admin
+    action: Saves the organisation settings with the signatory name "Dana Serikova" and the signatory title "Head of Examinations"
+    via: api
+
+  - step: 6
+    actor: candidate
+    action: Downloads the certificate PDF of the same exam session again and reads the text of its signature block
+    via: api
+    produces:
+      pdf_two_text: "the text of the signature block of the second PDF"
+
+  - step: 7
+    actor: admin
+    action: Saves the organisation settings with the signatory name set to null and the signatory title set to null
+    via: api
+
+  - step: 8
+    actor: candidate
+    action: Downloads the certificate PDF of the same exam session a third time and reads the text of its signature block and the code at the end of its verify line
+    via: api
+    produces:
+      pdf_three_text: "the text of the signature block of the third PDF"
+      code_three: "the code printed on the third downloaded PDF"
+
+  - step: 9
+    actor: verifier
+    action: Looks up the certificate with code_three from step 8 on the public lookup, without signing in, and reads the organisation branding part of the answer
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The first PDF prints "Aigul Nurpeisova" and "Director of Certification"
+      in the signature block and does not print "Certification Authority" or
+      "Automated Issuance"
+    verification:
+      method: api_response
+      detail: "pdf_one_text contains the name and the title; it does not contain 'Certification Authority' or 'Automated Issuance'"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        The certificate still carries the generic text, so the organisation
+        cannot show who signs its certificates.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The public verification of the certificate shows the signatory name
+      "Aigul Nurpeisova" and the signatory title "Director of Certification"
+      next to the other branding of the certificate
+    verification:
+      method: api_response
+      detail: "Step 4 answer: branding part holds signatory_name 'Aigul Nurpeisova' and signatory_title 'Director of Certification'; the candidate name, exam title, score and issue date are still present"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A verifier sees a different signature from the one on the paper and
+        may doubt a genuine certificate.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      After the administrator changes the settings, the second PDF still
+      prints "Aigul Nurpeisova" and "Director of Certification" and does not
+      print "Dana Serikova" or "Head of Examinations"
+    verification:
+      method: api_response
+      detail: "pdf_two_text equals pdf_one_text in the signature block; it contains no 'Dana Serikova' and no 'Head of Examinations'"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A certificate already handed to a person would change its signatory
+        afterwards, which makes issued certificates untrustworthy.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      After the administrator clears both settings, the third PDF still prints
+      the original name and title and does not fall back to the generic text,
+      and the public verification with the code from this PDF shows the same
+      name and title
+    verification:
+      method: api_response
+      detail: "pdf_three_text equals pdf_one_text in the signature block and has no 'Certification Authority' and no 'Automated Issuance'; step 9 answer: signatory_name 'Aigul Nurpeisova', signatory_title 'Director of Certification'"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Removing a setting would erase the signature of certificates issued
+        earlier.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    The settings were cleared in step 7. The issued certificate stays as record
+    of the candidate's exam; it cannot be removed.

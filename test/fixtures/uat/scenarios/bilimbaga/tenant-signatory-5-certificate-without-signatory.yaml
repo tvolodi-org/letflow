@@ -1,0 +1,90 @@
+# Authored by BA-BILIMBAGA for the tenant signatory settings (BilimBaga study T4c gap 4, GH #3355).
+# Requirement: REQ-595 criteria 8 (snapshot unset: no signatory key), 10 (PDF with neither key keeps today's
+# text) and 12 (public verify without signatory). Needs its own passed session without certificate.
+---
+id: bilimbaga-tenant-signatory-5-certificate-without-signatory
+scope: bilimbaga
+title: A certificate issued when no signatory is set keeps the generic signature lines and shows no signatory on the public verification
+version: "1.0"
+tags: [certificate, signatory, public_page, snapshot]
+
+description: >
+  An organisation that has not named a signatory must get the same certificate
+  as before this feature: the PDF signature block reads "<organisation name>
+  Certification Authority" and "Automated Issuance", and the public
+  verification shows no signatory name or title. The administrator makes sure
+  both signatory settings are not set (saves both as null). A candidate who
+  passed an exam asks for the certificate for the first time, downloads the
+  PDF, and a verifier looks the certificate up without signing in.
+  Source: REQ-595 criteria 8, 10 and 12. A passed session without certificate
+  is needed; if none is left, this scenario is BLOCKED, not PASS.
+
+actors:
+  admin: actor-bilimbaga-admin
+  candidate: actor-bilimbaga-candidate
+  verifier: actor-any
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      The candidate has a submitted and graded exam session that they passed
+      and for which no certificate has been asked yet
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: admin
+    action: Saves the organisation settings with the signatory name set to null and the signatory title set to null
+    via: api
+
+  - step: 2
+    actor: candidate
+    action: Asks for the certificate of the passed exam session for the first time and keeps the one-time public handle shown in the answer
+    via: api
+    produces:
+      handle: "the one-time public handle from the first certificate issue"
+
+  - step: 3
+    actor: candidate
+    action: Downloads the certificate PDF of the passed exam session and reads the text of its signature block
+    via: api
+
+  - step: 4
+    actor: verifier
+    action: Looks up the certificate with the handle from step 2 on the public lookup, without signing in, and reads the organisation branding part of the answer
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The PDF signature block reads "Certification Authority" (after the
+      organisation name) and "Automated Issuance", as before the feature
+    verification:
+      method: api_response
+      detail: "PDF text of step 3 contains '<organisation name> Certification Authority' and 'Automated Issuance'"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An organisation that did not opt in would get a changed or empty
+        signature block on its certificates.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The public verification shows no signatory name and no signatory title
+    verification:
+      method: api_response
+      detail: "Step 4 answer: the branding part has no key containing the text signatory"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A verifier would see an empty or invented signatory for a certificate
+        that has none.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Nothing is left set. The issued certificate stays as record of the
+    candidate's exam.

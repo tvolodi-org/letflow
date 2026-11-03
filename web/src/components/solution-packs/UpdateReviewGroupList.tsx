@@ -9,7 +9,13 @@
  *  classification/status only, per design §4.3.1.
  */
 import React from 'react'
-import type { PackResolutionChoice, PackUpdateAppliedEntry, PackUpdateReviewEntry } from '@/api/solutionPacks'
+import { useIntl } from 'react-intl'
+import type {
+  PackResolutionChoice,
+  PackUpdateAppliedEntry,
+  PackUpdateOverride,
+  PackUpdateReviewEntry,
+} from '@/api/solutionPacks'
 import { formatDateTime } from '@/i18n/format'
 
 export interface UpdateReviewGroupListProps {
@@ -22,6 +28,67 @@ export interface UpdateReviewGroupListProps {
 
 export function artefactKey(artefactType: string, artefactId: string): string {
   return `${artefactType}:${artefactId}`
+}
+
+/** Copy of the server's `Definitions.blocking_conflict?/1`: an orphaned override never blocks. */
+export function entryNeedsDecision(entry: PackUpdateReviewEntry): boolean {
+  return (
+    !entry.resolved &&
+    entry.override?.outcome !== 'orphaned' &&
+    (entry.classification === 'both_sides_conflict' || entry.override?.outcome === 'override_conflict')
+  )
+}
+
+const KNOWN_OUTCOMES = new Set(['kept', 'override_conflict', 'orphaned', 'property_gone'])
+const KNOWN_ACTIONS = new Set(['advanced', 'retired', 'orphaned', 'property_gone', 'left_unchanged'])
+
+/** Labels only: ids, versions, patch and value of the override are never shown. */
+function OverrideOutcomeNote({ override }: { override: PackUpdateOverride }): React.ReactElement {
+  const intl = useIntl()
+  const outcome = KNOWN_OUTCOMES.has(override.outcome) ? override.outcome : 'unknown'
+  return (
+    <div
+      data-testid="update-review-override-outcome"
+      data-outcome={override.outcome}
+      style={{ fontSize: '.8rem', color: 'var(--text-secondary)' }}
+    >
+      <span>{intl.formatMessage({ id: `solutionOverrides.report.outcome.${outcome}` })}</span>
+      {override.warning === 'override_kept_pack_changed' && (
+        <div data-testid="update-review-override-warning">
+          {intl.formatMessage({ id: 'solutionOverrides.report.warning.override_kept_pack_changed' })}
+        </div>
+      )}
+      {(override.outcome === 'orphaned' || override.outcome === 'property_gone') && (
+        <div data-testid="update-review-override-nonblocking">
+          {intl.formatMessage({ id: 'solutionOverrides.report.nonBlocking' })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AppliedOverrideActions({ appliedEntries }: { appliedEntries: PackUpdateAppliedEntry[] }): React.ReactElement {
+  const intl = useIntl()
+  const withAction = appliedEntries.filter((e) => e.override_action)
+  return (
+    <div data-testid="update-override-actions">
+      <h4 style={{ margin: '0 0 .35rem' }}>{intl.formatMessage({ id: 'solutionOverrides.report.actions.heading' })}</h4>
+      {withAction.map((e) => {
+        const action = KNOWN_ACTIONS.has(e.override_action as string) ? e.override_action : 'unknown'
+        return (
+          <div
+            key={artefactKey(e.artefact_type, e.artefact_id)}
+            data-testid="update-override-action"
+            data-override-action={e.override_action}
+            data-artefact-id={e.artefact_id}
+            style={{ fontSize: '.85rem', padding: '.25rem 0' }}
+          >
+            {e.artefact_id}: {intl.formatMessage({ id: `solutionOverrides.report.action.${action}` })}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 const GROUP_LABELS: Record<PackUpdateReviewEntry['classification'], string> = {
@@ -40,6 +107,7 @@ function EntryRow({ entry }: { entry: PackUpdateReviewEntry }): React.ReactEleme
     >
       <span data-testid="update-review-entry-type" style={{ color: 'var(--text-secondary)' }}>{entry.artefact_type}</span>
       <span data-testid="update-review-entry-id" style={{ fontFamily: 'var(--font-mono)' }}>{entry.artefact_id}</span>
+      {entry.override && <OverrideOutcomeNote override={entry.override} />}
     </div>
   )
 }
@@ -60,6 +128,7 @@ function ResolutionControl(props: {
         <span style={{ color: 'var(--text-secondary)' }}>{entry.artefact_type}</span>
         <span style={{ fontFamily: 'var(--font-mono)' }}>{entry.artefact_id}</span>
       </div>
+      {entry.override && <OverrideOutcomeNote override={entry.override} />}
       <div role="radiogroup" aria-label={`Resolution for ${entry.artefact_id}`} style={{ display: 'flex', gap: '.5rem' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '.25rem', fontSize: '.8rem' }}>
           <input
@@ -97,8 +166,15 @@ export function UpdateReviewGroupList(props: UpdateReviewGroupListProps): React.
     local_only: [],
     both_sides_conflict: [],
   }
+  // An unresolved override_conflict outside a both_sides_conflict entry needs a decision too:
+  // it is shown in its own block instead of a no-decision group.
+  const overrideConflicts: PackUpdateReviewEntry[] = []
   for (const entry of entries) {
-    groups[entry.classification].push(entry)
+    if (entry.classification !== 'both_sides_conflict' && entryNeedsDecision(entry)) {
+      overrideConflicts.push(entry)
+    } else {
+      groups[entry.classification].push(entry)
+    }
   }
 
   const conflictNeedsDecision = groups.both_sides_conflict.filter((e) => !e.resolved)
@@ -123,6 +199,14 @@ export function UpdateReviewGroupList(props: UpdateReviewGroupListProps): React.
           <EntryRow key={artefactKey(entry.artefact_type, entry.artefact_id)} entry={entry} />
         ))}
       </div>
+
+      {overrideConflicts.length > 0 && (
+        <OverrideConflictBlock
+          entries={overrideConflicts}
+          resolutionChoices={resolutionChoices}
+          onChooseResolution={onChooseResolution}
+        />
+      )}
 
       <div data-testid="update-review-group-both_sides_conflict">
         <h4 style={{ margin: '0 0 .35rem' }}>
@@ -161,6 +245,7 @@ export function UpdateReviewGroupList(props: UpdateReviewGroupListProps): React.
                   <span style={{ color: 'var(--text-secondary)' }}>{entry.artefact_type}</span>
                   <span style={{ fontFamily: 'var(--font-mono)' }}>{entry.artefact_id}</span>
                 </div>
+                {entry.override && <OverrideOutcomeNote override={entry.override} />}
                 {attr ? (
                   <div data-testid="update-review-resolved-attribution" style={{ color: 'var(--text-secondary)', fontSize: '.8rem' }}>
                     Kept by {attr.resolvedBy} at {formatDateTime(attr.resolvedAt)}
@@ -180,6 +265,33 @@ export function UpdateReviewGroupList(props: UpdateReviewGroupListProps): React.
       {appliedEntries && (
         <UpdateAttributionPanel appliedEntries={appliedEntries} attribution={attribution} />
       )}
+      {appliedEntries?.some((e) => e.override_action) && <AppliedOverrideActions appliedEntries={appliedEntries} />}
+    </div>
+  )
+}
+
+function OverrideConflictBlock(props: {
+  entries: PackUpdateReviewEntry[]
+  resolutionChoices: Map<string, PackResolutionChoice>
+  onChooseResolution: UpdateReviewGroupListProps['onChooseResolution']
+}): React.ReactElement {
+  const intl = useIntl()
+  return (
+    <div data-testid="update-review-override-conflict-needs-decision">
+      <h4 style={{ margin: '0 0 .35rem' }}>
+        {intl.formatMessage({ id: 'solutionOverrides.report.heading.overrideConflicts' })} ({props.entries.length})
+      </h4>
+      <p style={{ margin: '0 0 .35rem', fontSize: '.85rem', color: 'var(--text-secondary)' }}>
+        {intl.formatMessage({ id: 'solutionOverrides.report.overrideConflict.hint' })}
+      </p>
+      {props.entries.map((entry) => (
+        <ResolutionControl
+          key={artefactKey(entry.artefact_type, entry.artefact_id)}
+          entry={entry}
+          choice={props.resolutionChoices.get(artefactKey(entry.artefact_type, entry.artefact_id))}
+          onChoose={(choice) => props.onChooseResolution(entry.artefact_type, entry.artefact_id, choice)}
+        />
+      ))}
     </div>
   )
 }

@@ -39,6 +39,7 @@ defmodule Letflow.LoginDiscovery.NotifierNoLeakTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   require Logger
 

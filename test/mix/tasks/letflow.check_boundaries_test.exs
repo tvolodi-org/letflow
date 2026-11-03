@@ -10,6 +10,7 @@ defmodule Mix.Tasks.Letflow.CheckBoundariesTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Mix.Tasks.Letflow.CheckBoundaries, as: CB
 

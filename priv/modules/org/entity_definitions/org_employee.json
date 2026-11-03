@@ -1,0 +1,101 @@
+{
+  "name": "org_employee",
+  "display_name": "Org Employee",
+  "description": "GH #3584 / REQ-643, decision 0050 amendment 2026-10-31 (D-061). A person in the organization, with or without a login. code is the personnel number; user_id is the optional Letflow user id as text (no foreign key, one employee per user). org_unit_id and position_id are real foreign keys (D-066). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+  "fields": [
+    {
+      "name": "code",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "full_name",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "org_unit_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "position_id",
+      "type": "string",
+      "queried": true
+    },
+    {
+      "name": "user_id",
+      "type": "string",
+      "queried": true
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "external_ref_system",
+      "type": "string",
+      "queried": true
+    },
+    {
+      "name": "external_ref_id",
+      "type": "string",
+      "queried": true
+    }
+  ],
+  "foreign_keys": [
+    {
+      "name": "fk_org_employee_org_unit_id",
+      "field": "org_unit_id",
+      "references_entity": "org_unit"
+    },
+    {
+      "name": "fk_org_employee_position_id",
+      "field": "position_id",
+      "references_entity": "org_position"
+    }
+  ],
+  "constraints": [
+    {
+      "name": "uq_org_employee_code",
+      "type": "unique",
+      "fields": [
+        "code"
+      ]
+    },
+    {
+      "name": "uq_org_employee_user",
+      "type": "unique",
+      "fields": [
+        "user_id"
+      ]
+    },
+    {
+      "name": "uq_org_employee_external_ref",
+      "type": "unique",
+      "fields": [
+        "external_ref_system",
+        "external_ref_id"
+      ]
+    }
+  ],
+  "indexes": [
+    {
+      "name": "idx_org_employee_org_unit_id",
+      "fields": [
+        "org_unit_id"
+      ]
+    },
+    {
+      "name": "idx_org_employee_position_id",
+      "fields": [
+        "position_id"
+      ]
+    }
+  ]
+}

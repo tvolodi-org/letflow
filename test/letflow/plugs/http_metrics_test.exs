@@ -23,6 +23,7 @@ defmodule Letflow.Plugs.HttpMetricsTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   import Plug.Test
 

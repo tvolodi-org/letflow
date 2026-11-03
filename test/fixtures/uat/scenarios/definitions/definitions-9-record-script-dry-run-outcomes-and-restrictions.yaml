@@ -1,0 +1,174 @@
+# T-0990 (BA): DEFINITIONS group, scenario 9: a record script that fails, runs out of budget or breaks a rule still answers the try-out with 200 and an outcome name; a restricted field is not given to the script.
+# Covers REQ-633 criterion 7 (one 200 with the outcome string for script_failed with the manifest code, script_error, budget_exceeded, memory_limit_exceeded, timeout, output_invalid; no derived value; no raw error text)
+# and criterion 8 (a draft carrying a restricted field is run with that field left out; a derived field that would widen a restriction gives script_output_restriction_widened and no derived value), and criterion 9 for the audit class of a failed run.
+# Sources: docs/requirements.yaml REQ-633 criteria 7, 8, 9 (read from origin/main); lib/letflow/routers/entity_type_hooks.ex (dry_run_map: derived only for ok, fail_code only for script_failed, stats always);
+# lib/letflow/entity_type_hooks.ex (dry_run_result; audit after_state outcome_class holds the outcome name); docs/migration/decisions/0065-entity-pre-write-script-hook.md (D6 outcome names, D5 restrictions); docs/roles.md (ScriptsWrite, AuditRead: tenant administrator yes).
+# The company kill-switch case of criterion 7 is steps 10 to 13 (the platform kill-switch case is in the platform scenario platform-dry-run-platform-kill-switch, because a platform operator may appear only in scope platform, SCHEMA-10, and actors.yaml is outside this task).
+# Not observable through the API of a running QA, so not checked here (covered by the product's own tests): criterion 7 script_busy (needs every script slot of the company held at once, which no step can arrange), "no sandbox started and zero reads" for the kill-switch cases (a query count),
+#   criterion 8 first clause comparison with a direct function call (a function-level assertion), and the exact internal outcome of memory_limit_exceeded where setup cannot provide a script that exhausts memory without harming the shared test node:
+#   step 6 is then reported BLOCKED, not failed.
+# Setup supplies the bound scripts. Each of the record types below has one bound script that misbehaves in one named way and nothing else. The sensitive actions are not in this flow.
+---
+id: definitions-9-record-script-dry-run-outcomes-and-restrictions
+scope: definitions
+title: A record script that fails or breaks a rule still answers the try-out with an outcome name, and a restricted field is not given to the script
+version: "1.0"
+tags: [definitions, scripts, entity-write, dry-run, outcomes, restrictions, audit]
+
+description: >
+  SwiftRoute has eight small record types, each with a bound record script made to behave in one way: dry_o_fail (stops with a business refusal code declared by its description), dry_o_error (raises an error whose text must never be shown),
+  dry_o_budget (runs past its instruction budget), dry_o_memory (grows past its memory limit), dry_o_time (runs past its time limit), dry_o_bad (returns a value that does not fit its declared output), dry_o_restrict (has a restricted field and a derived field
+  that would widen that restriction) and dry_o_see (its script reports whether it was given a restricted field). The administrator tries out each on a draft. For the first seven the try-out answers 200 with the outcome name, no derived value and no error text;
+  for dry_o_see it answers 200 with the outcome "ok" and the derived value "no", because the restricted field on the draft is left out of what the script sees. The audit list shows the outcome name in each try-out row. At the end the administrator switches the
+  company's script kill switch on; with it on, a try-out of dry_quote answers 200 with the outcome "script_rejected" and no derived value. The switch is turned off again and the try-out works.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the record types dry_o_fail, dry_o_error, dry_o_budget, dry_o_memory, dry_o_time, dry_o_bad and dry_o_restrict, each with one published record script bound to it that behaves as described, and dry_o_see, whose bound script derives the field seen_secret as "yes" if the field secret_note is present in what it was given and "no" otherwise. The field secret_note of dry_o_see is restricted.
+    check: system_seeded
+    detail: Setup-prepared; the switch of decision 0065 is ON. The business code of dry_o_fail is noted as FAIL-CODE (a code written in its description by setup). For dry_o_restrict the derived field is one whose target would be readable by more people than its source, so the rule of the restriction check refuses it. A type whose script cannot be provided safely in the test environment is reported BLOCKED for its own step only.
+  - description: No manifest of dry_o_see names secret_note as an input. The try-out never gives a restricted field to the script, whoever published it and whatever permissions that person holds (the try-out always runs as a caller who may not pass restricted inputs).
+    check: system_seeded
+    detail: Setup-prepared. The administrator's sign-in is interactive. The rule is in EntityTypeHooks.dry_run/4, which calls EntityWrite.run_audited with publisher_may_restricted? false, and EntityWrite.build_input/5, which then empties the restricted inputs.
+  - description: SwiftRoute has the record type dry_quote with a bound record script and the draft DRAFT-OK (as in definitions-6 and definitions-7). The script switches of the company and of the platform are off at the start.
+    check: system_seeded
+    detail: Setup-prepared. If a switch is on at the start, report BLOCKED for steps 10 to 13.
+  - description: The draft DRAFT-GEN is {the fields each type requires, with plain values, and no value that looks like a secret}. The draft DRAFT-SEC for dry_o_see holds secret_note with the text SECRET-NOTE-9.
+    check: system_seeded
+    detail: Setup-prepared.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator notes the number of try-out rows in the audit list for each of the eight type names (BEFORE-n), then tries out dry_o_fail on DRAFT-GEN. The answer is noted as O1.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries out dry_o_error on DRAFT-GEN. The answer is noted as O2.
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator tries out dry_o_budget on DRAFT-GEN. The answer is noted as O3.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator tries out dry_o_time on DRAFT-GEN. The answer is noted as O4.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries out dry_o_bad on DRAFT-GEN. The answer is noted as O5.
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries out dry_o_memory on DRAFT-GEN. The answer is noted as O6.
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator tries out dry_o_restrict on DRAFT-GEN. The answer is noted as O7.
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries out dry_o_see on DRAFT-SEC (the draft carries secret_note with SECRET-NOTE-9). The answer is noted as O8.
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the audit list for the eight type names and the new try-out rows (new compared with step 1).
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator switches the company's script kill switch on, giving the reason "UAT dry-run kill switch".
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      With the company switch on, the administrator tries out dry_quote on DRAFT-OK. The answer is noted as K1.
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The administrator switches the company's script kill switch off again, giving the reason "UAT dry-run kill switch off".
+    via: api
+  - step: 13
+    actor: tenant_admin_a
+    action: >
+      With the company switch off again, the administrator tries out dry_quote on DRAFT-OK. The answer is noted as K3.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A business refusal of the script is a 200 with the outcome script_failed and the code the script declares.
+    verification:
+      method: api_response
+      detail: O1 is status 200, outcome "script_failed", fail_code equal to FAIL-CODE, no key derived, and stats with the three counters. The body holds no error text and no script source.
+      evidence: O1 as received.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot see why a script would refuse a record before it is used.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A script that raises an error, runs past a limit or returns a wrong shape is a 200 with its own outcome name and no detail.
+    verification:
+      method: api_response
+      detail: O2 is 200 with the outcome "script_error"; O3 is 200 with "budget_exceeded"; O4 is 200 with "timeout"; O5 is 200 with "output_invalid"; O6 is 200 with "memory_limit_exceeded". None of the five has a derived key or a fail_code key, none holds the error text of the script, and each holds the stats counters.
+      evidence: O2 to O6 as received.
+    on_fail:
+      severity: MAJOR
+      business_impact: A failing script gives an HTTP error or leaks its error text, so the administrator cannot tell kinds of failure apart safely.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A derived field that would widen a restriction is refused as an outcome, with no derived value.
+    verification:
+      method: api_response
+      detail: O7 is status 200, outcome "script_output_restriction_widened", no key derived. The stats counters are present.
+      evidence: O7 as received.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A script could copy a restricted value into a field that more people can read.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A restricted field on the draft is left out of what the script sees.
+    verification:
+      method: api_response
+      detail: O8 is status 200, outcome "ok", derived seen_secret equal to "no". The body does not contain SECRET-NOTE-9.
+      evidence: O8 as received.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A try-out hands a restricted value to a script that the caller may not give it to.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Each try-out leaves exactly one audit row with its outcome name and no error text, derived value or draft value.
+    verification:
+      method: api_response
+      detail: In step 9 each of the eight type names has exactly one new try-out row (BEFORE-n plus 1). The after-state outcome_class of the rows is script_failed, script_error, budget_exceeded, timeout, output_invalid, memory_limit_exceeded, script_output_restriction_widened and ok in the order of the steps. No row contains the error text of a script, the text SECRET-NOTE-9 or any draft value. (For a type whose step was reported BLOCKED, no row is expected.)
+      evidence: The new audit rows of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: The audit trail lacks the try-out or holds values it must never store.
+      suggested_action: route_to_wf03
+
+  - id: EO-006
+    description: With the company switch on, the try-out answers 200 with the outcome script_rejected and no derived value; with it off again the try-out works.
+    verification:
+      method: api_response
+      detail: Steps 10 and 12 each answer 200 (the switch is set). K1 is status 200, outcome "script_rejected", no key derived and no key fail_code. K3 is status 200, outcome "ok" with a derived value, so the switch is off again.
+      evidence: K1 and K3 as received.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A switched-off script still runs on company data, or a switch cannot be undone.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing was created except audit rows, which are never deleted. The company script kill switch is off again after step 12.

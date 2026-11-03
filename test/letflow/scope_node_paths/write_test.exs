@@ -9,7 +9,7 @@ defmodule Letflow.ScopeNodePaths.WriteTest do
       `write/2` commits on its own.
     * T-22: a move re-parents the whole subtree in one step.
     * T-23: a direct and a transitive cycle are refused, table unchanged.
-    * T-24: depth 12 is the bound for inserts and for moved subtrees.
+    * T-24: depth 40 is the bound for inserts and for moved subtrees.
     * T-25: every typed refusal; a refusal inside a caller transaction leaves it usable.
     * T-26: the `SHARE ROW EXCLUSIVE` table lock is held by the caller's transaction after
       `write/2` and after `lock!/1`; `lock!/1` is re-entrant and raises outside a transaction;
@@ -238,29 +238,33 @@ defmodule Letflow.ScopeNodePaths.WriteTest do
 
   # ── T-24 ────────────────────────────────────────────────────────────────────────────────────
 
-  describe "T-24: depth bound 12" do
-    test "a 12-deep chain is allowed, the 13th level is refused", %{schema: schema} do
-      ids = for i <- 1..12, do: "n#{i}"
-      chain!(schema, ids)
+  describe "T-24: depth bound 40" do
+    test "T-24a: a 40-deep chain of 64-byte ids fits the index, the 41st level is refused",
+         %{schema: schema} do
+      assert ScopeNodePaths.max_depth() == 40
+      ids = for i <- 1..40, do: String.pad_trailing("n#{i}", 64, "x")
+      last = chain!(schema, ids)
 
-      assert node(schema, "n12").depth == 12
-      assert ScopeNodePaths.write({:insert, "n13", "n12"}, schema) == {:error, :depth_exceeded}
-      assert node(schema, "n13") == nil
+      assert node(schema, last).depth == 40
+      assert byte_size(node(schema, last).path) == 2601
+      assert ScopeNodePaths.write({:insert, "extra", last}, schema) == {:error, :depth_exceeded}
+      assert node(schema, "extra") == nil
     end
 
-    test "a move that pushes the deepest descendant past 12 is refused; exactly 12 is allowed",
+    test "T-24b: a move that pushes the deepest descendant past 40 is refused; exactly 40 is allowed",
          %{schema: schema} do
-      chain!(schema, for(i <- 1..11, do: "n#{i}"))
+      chain!(schema, for(i <- 1..39, do: "n#{i}"))
       chain!(schema, ["s", "s2"])
       before = snapshot(schema)
 
-      # s under n11 -> s at 12, s2 at 13.
-      assert ScopeNodePaths.write({:move, "s", "n11"}, schema) == {:error, :depth_exceeded}
+      # s under n39 -> s at 40, s2 at 41.
+      assert ScopeNodePaths.write({:move, "s", "n39"}, schema) == {:error, :depth_exceeded}
       assert snapshot(schema) == before
 
-      # s under n10 -> s at 11, s2 at 12: the bound itself is allowed.
-      assert {:ok, %Node{depth: 11}} = ScopeNodePaths.write({:move, "s", "n10"}, schema)
-      assert node(schema, "s2").depth == 12
+      # s under n38 -> s at 39, s2 at 40: the bound itself is allowed.
+      assert {:ok, %Node{depth: 39}} = ScopeNodePaths.write({:move, "s", "n38"}, schema)
+      assert node(schema, "s2").depth == 40
+      assert String.starts_with?(node(schema, "s2").path, node(schema, "n38").path <> "s/")
     end
   end
 

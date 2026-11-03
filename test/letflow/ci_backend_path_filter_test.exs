@@ -32,6 +32,7 @@ defmodule Letflow.CiBackendPathFilterTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   # GH #2622: the path rules moved out of ci.yml into this script (the one source).
   @rules_sh "scripts/ci_changed_paths.sh"

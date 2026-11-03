@@ -230,6 +230,30 @@ not chosen. Amendment:
 * Residual divergence risk (projection vs entity) is bounded by D7's write lock plus the
   same-transaction rule, and detected by the consistency check.
 
+## Amendment 2026-10-31 (owner decision D-061)
+
+GH #3584 / REQ-643 (phase A item A1 of the assets and stock application). Added lines only; no other line
+of this record changes.
+
+* **D1 and D4 are superseded for employees and positions.** D1's "No employee entity" and the
+  naming-only `position` are replaced by two managed types in module `org`, `org_position` (a position
+  in the roster of one org unit) and `org_employee` (a person, with or without a login, with an optional
+  `user_id` link to a Letflow account, unique per user). The org module goes from 0.1.0 to 0.2.0. Their
+  `org_unit_id` and `position_id` are real foreign keys (D-066); the four original types keep the
+  declarative strings of D3.6.
+* **D4 stays as written for the purchase request.** The requester is a Letflow user plus a membership row.
+  An employee record now exists; linking a requester to it is not part of this amendment.
+* **One term.** The "materially responsible person" (identifier `material_responsible`) of the stock and
+  asset registers, and the "actual user" (`actual_user`), are each an `org_employee` record id, never a
+  Letflow user id. A consumer that writes one checks it with `Letflow.Modules.Org.active_employee?/2` at
+  write time (D3.5). `employee_for_user/2` finds the employee of a Letflow user. The WMS custodian slot is
+  a custodian party, not a person, and is not renamed.
+* **Visibility (owner decisions D-065 and D-067).** Employee records are visible only to users who can see
+  the employee's org unit. The scope declaration of the org manifest (`org_position` and `org_employee`
+  scoped by `org_unit_id`; the other three masters tenant-wide; no entry for `org_unit_membership`)
+  carries the rule once a tenant turns scope enforcement on (REQ-519, pending). This slice adds no
+  route, so no user reads employee records yet.
+
 ## Capabilities relied on (cited on this branch)
 
 | Capability | Evidence |
@@ -320,3 +344,77 @@ Proposed by `ORCH` from decisions relayed by the supervisor on 2026-10-14; rulin
 stated above; not independently verified by the writer except where file:line citations are given.
 
 REVIEWER sign-off:
+
+## Amendment 2026-11-02 (owner decision D-066): reference storage and the two trees
+
+Source: owner decision D-066 of 2026-11-02 (ai-dala-portfolio/DECISIONS.md, "Storage of trees and master
+data"), with its evidence letflow-team/project/tree-and-master-data-storage.md. Recorded here so that D3.6 and
+D8 are not read as the live rule for the assets phase A types. The full rule, its reasons and the change table
+belong to the master data layer record of REQ-642 (A0), which is not written yet.
+
+1. **D3.6 is superseded for new and changed phase A master data types.** A reference to a type of the same
+   pack is a real foreign key declared in the pack's entity definition (`foreign_keys`, a uuid column with
+   `ON DELETE RESTRICT`), standard fields are queried columns, and business codes are unique constraints, as
+   decision 0023 already allows. A reference to a type of another pack, or to any type, stays a declarative id
+   checked by the referencing module (D3.5), because no foreign key across packs is proven. The keys per type
+   are named in REQ-643, REQ-644, REQ-645, REQ-647 and REQ-648.
+2. **Deployed types first get an upgrade path.** Module install is first-install only and decision 0055 is not
+   built, so a new key reaches only tenants that install the module after the change. The existing org types
+   (`org_legal_entity`, `org_site`, `org_unit`, `org_unit_membership`) keep D3.6 until a module upgrade slice for
+   org exists; no phase A requirement builds one.
+3. **D8 stays for the org tree.** The org tree keeps the materialised path in `scope_node_paths`; its depth bound
+   is set by REQ-649 (A2), which also records where the bound comes from. The location tree does not use
+   `scope_node_paths` or a stored path: it is a parent link with a real foreign key inside the locations pack and
+   no depth bound (REQ-645, REQ-646).
+
+## Amendment 2026-10-31 A2 (owner decisions D-061, D-062): org tree depth, legal entities, move and retire
+
+Status: Accepted (owner decisions D-061, D-062, D-065, D-066, D-067). Amends D7, D8 and decision 0051 D3.
+
+1. **The org tree depth bound is 40.** "Recommended 12" is gone. The unique btree index on
+   `scope_node_paths.path` holds an entry of 2704 bytes at most. A node id is at most 64 bytes
+   (`@max_node_id_bytes`), so a path at depth d is at most 1 + 65 * d bytes: 2601 bytes at d = 40, which fits.
+   With 36-byte uuid ids about 72 levels would fit (2704 / 37), so 40 comes from the id rule, not from a law
+   of the database. The figure 12 in D7, D8, decision 0051 D3 and decision 0064 is superseded by 40 (0064 is
+   not edited). The bound is `Letflow.ScopeNodePaths.max_depth/0`. A later option is an ancestor array
+   (`uuid[]` with a GIN index, D-066); it is not built and not planned. No migration: `depth` is a smallint
+   with no CHECK, and every existing row is at depth 12 or less.
+2. **Move cost.** A move takes a SHARE ROW EXCLUSIVE lock on `scope_node_paths` for the tenant and rewrites one
+   row per node of the subtree. Measured: about 17 to 25 ms for 1,000 nodes and 100 to 250 ms for 5,000 to
+   10,000 nodes (source: `letflow-team/project/tree-and-master-data-storage.md`, section a). Other tree
+   writers wait; readers continue.
+3. **Several legal entities in one tree.** One org tree may hold units of different legal entities.
+   `legal_entity_id` and `site_id` are the unit's own fields: never inherited, never derived from the
+   position, never changed by a move.
+4. **bin.** A bin identifies a legal entity. Uniqueness per tenant is owed to a later slice (it needs an org
+   module upgrade step after 0.2.0 and decision 0055's module upgrade, neither built). The format is exactly
+   12 ASCII digits, validated by the write functions of REQ-660 (D-065).
+5. **Move rule.** A move changes only the parent and the path rows of the subtree. No ledger row is written
+   and no balance changes: slots name the unit by its immutable record id (D3.1), and the ledger is append
+   only (decision 0073). Links to locations (A4) are untouched. Grants naming the unit keep naming it and
+   cover the new subtree from the commit. A move is never refused because of grants.
+6. **Retire rule.** Retiring sets `active` false (D3.2) and `retired_at` on the unit's path row only;
+   descendants stay live. It is refused with `:node_has_grants` while a grant names the unit (REQ-517).
+   Balances and movements stay readable and are not moved or zeroed. A new posting naming a retired unit is
+   refused by ledger slice L7 (decision 0073 D6); until then it is accepted (a documented limit). Links of a
+   retired unit stay as history; a new link naming a retired unit is refused by the link writer through
+   `active?/2` (D3.5), owed to A4.
+7. **Owner answers of 2026-11-02 (source: D-065).** Retiring a unit with a non-zero balance in any register
+   is refused. No posting naming an org unit exists on main, so the guard is owed to `retire_unit/3` of
+   REQ-495 and is added by the slice that first posts to a register naming an org unit. A movement whose org
+   unit and location are not linked is refused (A4, REQ-644). A bin is exactly 12 ASCII digits (REQ-660).
+   `Letflow.ScopeNodePaths` keeps its own path code, with no shared tree helper (REQ-642 (2)).
+
+## Amendment 2026-11-03 (codes write routes, GH #3611 / REQ-667)
+
+The write routes of module `codes` are gated by one module permission, `CodesWrite`, for the same reason as the org permissions below:
+a module route cannot name a core permission. Its holders are TENANT_ADMIN and PLATFORM_ADMIN (no `role_grants`); granting it to
+another role is a widening under decision 0055 D7.
+
+## Amendment 2026-11-02 (org write routes, GH #3613 / REQ-665)
+
+The write routes of module `org` are gated by two module permissions, `OrgStructureWrite` (legal companies, sites, org units) and
+`OrgEmployeesWrite` (positions, employees), because a module route cannot name a core permission
+(`Catalog.validate/1` answers `{:undeclared_route_permission, _}` or `{:core_permission_collision, _}`). Their holders are exactly
+those of `:UsersGroupsRolesManage` (TENANT_ADMIN and PLATFORM_ADMIN; the manifest declares no `role_grants`). Granting either
+atom to another role is a widening under decision 0055 D7.

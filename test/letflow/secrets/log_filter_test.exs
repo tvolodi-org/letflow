@@ -15,6 +15,7 @@ defmodule Letflow.Secrets.LogFilterTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Test.LoggerCollector
 

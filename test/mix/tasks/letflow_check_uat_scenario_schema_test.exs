@@ -40,6 +40,7 @@ defmodule Mix.Tasks.Letflow.CheckUatScenarioSchemaTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Mix.Tasks.Letflow.CheckUatScenarioSchema, as: Check
 

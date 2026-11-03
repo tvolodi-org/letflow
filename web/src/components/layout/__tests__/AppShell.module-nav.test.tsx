@@ -26,6 +26,9 @@ vi.mock('@/modules/registry', () => ({
         ? [SAMPLE_FIXTURE_NAV_ITEM]
         : [],
   ),
+  getInstalledImportTypes: vi.fn((installed: InstalledModule[]) =>
+    installed.some((m) => m.module_id === 'sample') ? [{ entityType: 'sample_thing', labels: { en: 'Things', ru: 'Things', kk: 'Things' } }] : [],
+  ),
   REGISTERED_MODULE_ROUTE_OBJECTS: [],
 }))
 
@@ -133,5 +136,23 @@ describe('AppShell installed-module nav', () => {
     // With no installed modules, neither module-provided nav item appears.
     expect(screen.queryByText('Sample')).not.toBeInTheDocument()
     expect(screen.queryByText('Exams')).not.toBeInTheDocument()
+  })
+
+  // GH 3650 / REQ-675 (P3): the import nav item needs the permission and an installed module listing a type.
+  it('shows the import nav item for EntitiesRecordsImport when a module lists an import type', async () => {
+    await renderAppShellAs('tenantAdmin', [{ module_id: 'sample', version: '1.0.0' }])
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Import data' })).toHaveAttribute('href', '/admin/import'))
+  })
+
+  it('hides the import nav item without EntitiesRecordsImport', async () => {
+    await renderAppShellAs('candidate', [{ module_id: 'sample', version: '1.0.0' }])
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Sample' })).toBeInTheDocument())
+    expect(screen.queryByRole('link', { name: 'Import data' })).not.toBeInTheDocument()
+  })
+
+  it('hides the import nav item when no installed module lists an import type', async () => {
+    await renderAppShellAs('tenantAdmin', [])
+    await waitFor(() => expect(screen.getByTestId('logout-button')).toBeInTheDocument())
+    expect(screen.queryByRole('link', { name: 'Import data' })).not.toBeInTheDocument()
   })
 })

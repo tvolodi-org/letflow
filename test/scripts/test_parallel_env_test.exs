@@ -11,6 +11,7 @@ defmodule Letflow.Scripts.TestParallelEnvTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Test.TestParallelEnv
 

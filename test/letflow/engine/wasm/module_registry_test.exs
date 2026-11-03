@@ -13,6 +13,7 @@ defmodule Letflow.Engine.Wasm.ModuleRegistryTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Engine.Wasm.ModuleRegistry
 

@@ -6,7 +6,7 @@ defmodule Letflow.Modules.Org.InstallTest do
   Everything runs against a real provisioned tenant on real Postgres: the install goes through
   the real `Letflow.Routers.TenantModules` (`POST /`), the owner writes go through
   `Letflow.Entities.Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.Org)`
-  (the module ships no write functions in this slice, those are REQ-495), and the managed-lock
+  (the fixtures write units directly, without a scope tree index row; the unit functions are REQ-495, `Org.create_unit/3`), and the managed-lock
   checks go through the real `Letflow.Routers.Entities`.
 
   `async: false`: tenant provisioning switches the sandbox to `:auto` and the install runs DDL.
@@ -34,7 +34,7 @@ defmodule Letflow.Modules.Org.InstallTest do
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.ColumnPromotion
 
-  @types ~w(org_legal_entity org_site org_unit org_unit_membership)
+  @types ~w(org_legal_entity org_site org_unit org_unit_membership org_position org_employee)
   @masters ~w(org_legal_entity org_site org_unit)
   @trace "gh2661-org-install-fixed-trace"
 
@@ -178,7 +178,68 @@ defmodule Letflow.Modules.Org.InstallTest do
     Map.merge(%{"user_id" => "user-1", "org_unit_id" => "unit-1", "active" => true}, extra)
   end
 
+  defp values("org_position", code, extra) do
+    Map.merge(
+      %{
+        "code" => code,
+        "name" => "Position #{code}",
+        "org_unit_id" => Ecto.UUID.generate(),
+        "active" => true
+      },
+      extra
+    )
+  end
+
+  defp values("org_employee", code, extra) do
+    Map.merge(
+      %{
+        "code" => code,
+        "full_name" => "Employee #{code}",
+        "org_unit_id" => Ecto.UUID.generate(),
+        "active" => true
+      },
+      extra
+    )
+  end
+
   defp values(type, code), do: values(type, code, %{})
+
+  # A real org_unit record, so a foreign key to it can hold.
+  defp unit!(schema, code \\ "u-#{System.unique_integer([:positive])}") do
+    {:ok, %{record: record}} = owner_create(schema, "org_unit", values("org_unit", code))
+    record.record_id
+  end
+
+  defp position!(schema, unit_id, code) do
+    {:ok, %{record: record}} =
+      owner_create(
+        schema,
+        "org_position",
+        values("org_position", code, %{"org_unit_id" => unit_id})
+      )
+
+    record.record_id
+  end
+
+  defp foreign_keys(schema, table) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT a.attname, c.confdeltype::text, f.relname, ta.atttypid::regtype::text
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_class f ON f.oid = c.confrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+        JOIN pg_attribute ta ON ta.attrelid = c.conrelid AND ta.attnum = c.conkey[1]
+        WHERE n.nspname = $1 AND t.relname = $2 AND c.contype = 'f'
+        ORDER BY a.attname
+        """,
+        [schema, table]
+      )
+
+    rows
+  end
 
   defp ref(system, id), do: %{"external_ref_system" => system, "external_ref_id" => id}
 
@@ -223,10 +284,10 @@ defmodule Letflow.Modules.Org.InstallTest do
       assert module_installed?(ctx.schema)
     end
 
-    test "I-02: afterwards exactly the four types exist, all active, each managed_by org", ctx do
+    test "I-02: afterwards exactly the six types exist, all active, each managed_by org", ctx do
       install_org!(ctx)
 
-      assert rows(ctx.schema) == Enum.map(@types, &{&1, "org", :active})
+      assert rows(ctx.schema) == Enum.map(Enum.sort(@types), &{&1, "org", :active})
     end
 
     test "I-03: exactly one promotion row per promoted column, external_ref columns included",
@@ -247,6 +308,15 @@ defmodule Letflow.Modules.Org.InstallTest do
       assert {"org_site", "legal_entity_id"} in expected
       assert {"org_unit_membership", "user_id"} in expected
       assert {"org_unit_membership", "org_unit_id"} in expected
+
+      for column <- ~w(code full_name org_unit_id position_id user_id active) do
+        assert {"org_employee", column} in expected, "org_employee.#{column} should be promoted"
+      end
+
+      for column <- ~w(code name org_unit_id active) do
+        assert {"org_position", column} in expected, "org_position.#{column} should be promoted"
+      end
+
       # The deliberately unqueried references have no column.
       refute {"org_unit", "legal_entity_id"} in expected
       refute {"org_unit", "site_id"} in expected
@@ -383,6 +453,154 @@ defmodule Letflow.Modules.Org.InstallTest do
     end
   end
 
+  # ── REQ-643 (GH #3584): positions and employees ────────────────────────────────────────────
+
+  describe "REQ-643: org_position and org_employee storage (fresh tenant)" do
+    setup ctx do
+      install_org!(ctx)
+      :ok
+    end
+
+    test "E-01: org_unit_id and position_id are uuid foreign keys ON DELETE RESTRICT; user_id is text with none",
+         ctx do
+      assert foreign_keys(ctx.schema, "entity_org_position") == [
+               ["org_unit_id", "r", "entity_org_unit", "uuid"]
+             ]
+
+      assert foreign_keys(ctx.schema, "entity_org_employee") == [
+               ["org_unit_id", "r", "entity_org_unit", "uuid"],
+               ["position_id", "r", "entity_org_position", "uuid"]
+             ]
+
+      %{rows: [[type]]} =
+        Repo.query!(
+          "SELECT data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'entity_org_employee' AND column_name = 'user_id'",
+          [ctx.schema]
+        )
+
+      assert type == "text"
+    end
+
+    test "E-02: the three index names exist", ctx do
+      %{rows: rows} =
+        Repo.query!(
+          "SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND indexname LIKE 'idx_org_%' ORDER BY 1",
+          [ctx.schema]
+        )
+
+      assert List.flatten(rows) ==
+               ~w(idx_org_employee_org_unit_id idx_org_employee_position_id idx_org_position_org_unit_id)
+    end
+
+    test "E-03: an employee without user and position, and one with both, are accepted", ctx do
+      unit = unit!(ctx.schema)
+      pos = position!(ctx.schema, unit, "p-1")
+
+      assert {:ok, _} =
+               owner_create(
+                 ctx.schema,
+                 "org_employee",
+                 values("org_employee", "e-1", %{"org_unit_id" => unit})
+               )
+
+      assert {:ok, _} =
+               owner_create(
+                 ctx.schema,
+                 "org_employee",
+                 values("org_employee", "e-2", %{
+                   "org_unit_id" => unit,
+                   "position_id" => pos,
+                   "user_id" => "user-77"
+                 })
+               )
+
+      assert record_count(ctx.schema, "org_employee") == 2
+    end
+
+    test "E-04: duplicate employee code, duplicate user_id and duplicate position code are refused",
+         ctx do
+      unit = unit!(ctx.schema)
+
+      emp = fn code, extra ->
+        values("org_employee", code, Map.put(extra, "org_unit_id", unit))
+      end
+
+      assert {:ok, _} =
+               owner_create(ctx.schema, "org_employee", emp.("same", %{"user_id" => "u-1"}))
+
+      assert {:error, {:record_payload_invalid, [%Violation{rule: :unique, path: ["code"]}]}} =
+               owner_create(ctx.schema, "org_employee", emp.("same", %{}))
+
+      assert {:error, {:record_payload_invalid, [%Violation{rule: :unique, path: ["user_id"]}]}} =
+               owner_create(ctx.schema, "org_employee", emp.("other", %{"user_id" => "u-1"}))
+
+      # employees without a user are not limited
+      assert {:ok, _} = owner_create(ctx.schema, "org_employee", emp.("n-1", %{}))
+      assert {:ok, _} = owner_create(ctx.schema, "org_employee", emp.("n-2", %{}))
+      assert record_count(ctx.schema, "org_employee") == 3
+
+      position!(ctx.schema, unit, "pc")
+
+      assert {:error, {:record_payload_invalid, [%Violation{rule: :unique, path: ["code"]}]}} =
+               owner_create(
+                 ctx.schema,
+                 "org_position",
+                 values("org_position", "pc", %{"org_unit_id" => unit})
+               )
+    end
+
+    test "E-05: an unknown well-formed uuid in a reference is a reference violation and writes nothing",
+         ctx do
+      unit = unit!(ctx.schema)
+      unknown = Ecto.UUID.generate()
+
+      assert {:error, {:record_payload_invalid, [%Violation{rule: :reference, path: p1}]}} =
+               owner_create(
+                 ctx.schema,
+                 "org_position",
+                 values("org_position", "x", %{"org_unit_id" => unknown})
+               )
+
+      assert {:error, {:record_payload_invalid, [%Violation{rule: :reference, path: p2}]}} =
+               owner_create(
+                 ctx.schema,
+                 "org_employee",
+                 values("org_employee", "x", %{"org_unit_id" => unknown})
+               )
+
+      assert {:error, {:record_payload_invalid, [%Violation{rule: :reference, path: p3}]}} =
+               owner_create(
+                 ctx.schema,
+                 "org_employee",
+                 values("org_employee", "y", %{"org_unit_id" => unit, "position_id" => unknown})
+               )
+
+      assert [p1, p2, p3] |> Enum.map(&List.wrap/1) |> List.flatten() ==
+               ["org_unit_id", "org_unit_id", "position_id"]
+
+      assert record_count(ctx.schema, "org_position") == 0
+      assert record_count(ctx.schema, "org_employee") == 0
+    end
+
+    test "E-06: the scope declaration resolves for all six types, none for the membership",
+         ctx do
+      alias Letflow.Entities.ScopeDeclaration
+
+      for t <- ~w(org_legal_entity org_site org_unit) do
+        assert ScopeDeclaration.for_type(t, ctx.schema) == :tenant_wide
+      end
+
+      for t <- ~w(org_position org_employee) do
+        assert ScopeDeclaration.for_type(t, ctx.schema) == {:column, "org_unit_id"}
+      end
+
+      refute ScopeDeclaration.for_type("org_unit_membership", ctx.schema) in [
+               :tenant_wide,
+               {:column, "org_unit_id"}
+             ]
+    end
+  end
+
   # ── AC6: managed lock ───────────────────────────────────────────────────────────────────────
 
   describe "AC6: the generic routes refuse every org type" do
@@ -432,7 +650,7 @@ defmodule Letflow.Modules.Org.InstallTest do
       other = fresh_tenant!("gh2661-org-b")
 
       install_org!(ctx)
-      assert length(rows(ctx.schema)) == 4
+      assert length(rows(ctx.schema)) == 6
 
       assert rows(other.schema_name) == []
       refute module_installed?(other.schema_name)

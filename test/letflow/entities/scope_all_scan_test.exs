@@ -30,6 +30,7 @@ defmodule Letflow.Entities.ScopeAllScanTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Support.RouteInventory
 

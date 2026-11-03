@@ -26,6 +26,7 @@ defmodule Letflow.Modules.Exam.ExamDefinitionsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Entities.Definition.Validator
 

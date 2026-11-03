@@ -38,8 +38,10 @@ import ServicesPage from '@/pages/admin/services/ServicesPage'
 import PlatformMigrationConsolePage from '@/pages/admin/platform-migrations/PlatformMigrationConsolePage'
 import SolutionPackUpdateLauncherPage from '@/pages/solution-packs/SolutionPackUpdateLauncherPage'
 import SolutionPackUpdateReviewPage from '@/pages/solution-packs/SolutionPackUpdateReviewPage'
+import SolutionPackOverridesPage from '@/pages/solution-packs/SolutionPackOverridesPage'
 import EventRetentionPage from '@/pages/admin/event-retention/EventRetentionPage'
 import PrintTemplatesPage from '@/pages/admin/PrintTemplatesPage'
+import MasterDataImportPage from '@/pages/admin/import/MasterDataImportPage'
 import ModuleUninstallPage from '@/pages/admin/moduleLifecycle/ModuleUninstallPage'
 import { isModulesUninstallEnabled } from '@/config/modulesUninstallFlag'
 import EntityListBrowserPage from '@/pages/entities/EntityListBrowserPage'
@@ -121,6 +123,7 @@ export const router = createBrowserRouter([
       { path: 'admin/audit', element: <AuditLogPage /> },
       { path: 'admin/appearance', element: <AppearanceSettingsPage /> },
       { path: 'admin/print-templates', element: <RequirePermission permission={P.DocumentPrintTemplatesManage}><PrintTemplatesPage /></RequirePermission> },
+      { path: 'admin/import', element: <RequirePermission permission={P.EntitiesRecordsImport}><MasterDataImportPage /></RequirePermission> },
       { path: 'admin/module-lifecycle', element: <ModuleLifecycleRoute /> },
       { path: 'admin/health', element: platformPage(P.TenantsManage, <HealthDashboardPage />) },
       { path: 'admin/metrics', element: <MetricsPage /> },
@@ -143,6 +146,15 @@ export const router = createBrowserRouter([
       // `definitions/:id/promotions/:reviewId`.
       { path: 'solution-packs', element: <SolutionPackUpdateLauncherPage /> },
       { path: 'solution-packs/:packId/update-review', element: <SolutionPackUpdateReviewPage /> },
+      // REQ-631: per-tenant overrides of one pack; DefinitionsRead reads, SolutionOverridesManage writes (controls only)
+      {
+        path: 'solution-packs/:packId/overrides',
+        element: (
+          <RequirePermission permission={P.DefinitionsRead}>
+            <SolutionPackOverridesPage />
+          </RequirePermission>
+        ),
+      },
       { path: 'admin/event-retention', element: platformPage(P.TenantsManage, <EventRetentionPage />) },
       { path: 'dlq', element: <DlqPage /> },
       { path: 'webhooks', element: <WebhooksPage /> },

@@ -6,13 +6,21 @@
  *  module code itself never imports the guard (0039 D3).
  */
 import { createElement } from 'react'
-import type { InstalledModule, ModuleDefinition, ModuleNavItem } from './types'
+import type { InstalledModule, ModuleDefinition, ModuleImportType, ModuleNavItem } from './types'
 import { examModuleDefinition } from './exam/index'
+import { orgModuleDefinition } from './org/index'
+import { locationsModuleDefinition } from './locations/index'
+import { codesModuleDefinition } from './codes/index'
+import { catalogItemsModuleDefinition } from './catalog_items/index'
 import { ModuleGuard } from '@/components/routing/ModuleGuard'
 import type { RouteObject } from 'react-router-dom'
 
 export const REGISTERED_MODULES: ModuleDefinition[] = [
   examModuleDefinition,
+  orgModuleDefinition,
+  locationsModuleDefinition,
+  codesModuleDefinition,
+  catalogItemsModuleDefinition,
 ]
 
 /** All registered module RouteObjects wrapped in ModuleGuard, for inclusion
@@ -38,4 +46,12 @@ export function getInstalledModuleNavItems(
   definitions: ModuleDefinition[] = REGISTERED_MODULES,
 ): ModuleNavItem[] {
   return getInstalledModuleDefinitions(installedModules, definitions).flatMap((definition) => definition.navItems)
+}
+
+/** REQ-675: importable entity types of the installed modules, in REGISTERED_MODULES order and then list order. */
+export function getInstalledImportTypes(
+  installedModules: InstalledModule[],
+  definitions: ModuleDefinition[] = REGISTERED_MODULES,
+): ModuleImportType[] {
+  return getInstalledModuleDefinitions(installedModules, definitions).flatMap((definition) => definition.importTypes ?? [])
 }

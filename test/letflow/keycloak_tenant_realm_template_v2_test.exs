@@ -8,6 +8,7 @@ defmodule Letflow.KeycloakTenantRealmTemplateV2Test do
   each rule is shown to bite by a mutated copy.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @dir Path.expand("../../priv/keycloak/provisioner/v2", __DIR__)
   @template Path.join(@dir, "tenant-realm.json")

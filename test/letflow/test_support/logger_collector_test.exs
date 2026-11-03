@@ -14,6 +14,7 @@ defmodule Letflow.Test.LoggerCollectorTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   require Logger
 

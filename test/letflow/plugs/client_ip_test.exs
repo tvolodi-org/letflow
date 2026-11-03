@@ -7,6 +7,7 @@ defmodule Letflow.Plugs.ClientIpTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   import Plug.Conn
   import Plug.Test

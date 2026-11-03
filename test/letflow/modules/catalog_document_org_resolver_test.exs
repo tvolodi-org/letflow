@@ -6,6 +6,7 @@ defmodule Letflow.Modules.CatalogDocumentOrgResolverTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Documents.OrgResolver.Default
   alias Letflow.Documents.TestResolvers

@@ -22,6 +22,7 @@ defmodule Letflow.Docs.RolesScopedApproversTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @heading "## Known limitation: scoped approvers (stage 2)"
 

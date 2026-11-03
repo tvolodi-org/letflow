@@ -7,6 +7,7 @@ defmodule Letflow.Gh2622CiCdTimeoutsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @root Path.expand("../..", __DIR__)
   @ci_yml Path.join(@root, ".github/workflows/ci.yml")

@@ -2,6 +2,7 @@ defmodule Letflow.LoginDiscovery.BootCheckTest do
   # Pure decision-table test for REQ-444's email-first enablement gate.
   # No DB, no subprocess, no config reads.
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.LoginDiscovery.BootCheck
 

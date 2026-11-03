@@ -8,6 +8,7 @@ defmodule Letflow.Webhooks.UrlValidatorTest do
   safely because `check_ip_literal/1` short-circuits before any DNS call.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Webhooks.UrlValidator
 

@@ -5,6 +5,7 @@ defmodule Letflow.Definitions.GraphValidationScriptTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.Graph.Node

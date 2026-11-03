@@ -1,0 +1,186 @@
+# Authored by BA-BILIMBAGA for the tenant signatory settings (BilimBaga study T4c gap 4, GH #3355).
+# Requirement: REQ-595 (criteria 4, 5, 6); decision 0006 D2 is not touched (no new storage).
+# Sensitive-action note: the administrator changes the organisation's published settings (the
+# "change users" family does not apply). The refusal steps for this write are in
+# tenant-signatory-2-invalid-values-and-write-refusals.yaml.
+# Not UAT-observable, left to the backend tests of REQ-595: the allowlist unit pin (criterion 1),
+# the Latin-1 degrade and legacy certificate rendering (criterion 11), non-string stored values
+# (criterion 13). The audit entry of step 3 is read from the stored audit trail, not from a screen.
+---
+id: bilimbaga-tenant-signatory-1-settings-save-unknown-key-and-public-config
+scope: bilimbaga
+title: The organisation administrator stores the signatory name and title, an unknown setting is dropped and recorded, and the public sign-in configuration shows no signatory
+version: "1.0"
+tags: [tenant-settings, signatory, certificate, privacy]
+
+description: >
+  BilimBaga wants its certificates to be signed by a named person, for example
+  "Aigul Nurpeisova, Director of Certification". The organisation administrator
+  stores two new organisation settings: the signatory name and the signatory
+  title. Each is a short text of at most 100 characters. Either may be stored
+  on its own, and clearing one (sending it as empty-by-null) is allowed and
+  means "not set". The answer to a save keeps its two parts, the organisation
+  identifier and the settings, and shows both stored values. A setting the
+  platform does not know (here "signatory_role") is not stored; the save still
+  succeeds and one audit entry records that the unknown setting was dropped.
+  The public sign-in configuration (the web one and the mobile one) is read
+  before anyone signs in; it must not gain a signatory, because a signatory is
+  not needed to sign in. Source: REQ-595 criteria 4, 5 and 6 and its
+  description (TENANT-CONFIG RESPONSES), docs/migration/decisions/0006 D2.
+  The signatory text can be set only by this save; the web administration
+  screen has no field for it (REQ-595, OUT OF SCOPE), so the steps use the
+  settings request. The stored values are read back through the administrator's
+  configuration export, which carries all organisation settings.
+
+actors:
+  admin: actor-bilimbaga-admin
+  visitor: actor-any
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      The signatory name and title of the organisation are not set (never set,
+      or cleared by an earlier run of these scenarios). If a value is stored,
+      step 1 of this scenario still passes but the "before" reading in step 1
+      is taken as the starting state
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: visitor
+    action: Reads the public web sign-in configuration and the public mobile sign-in configuration of the organisation, without signing in, and keeps both bodies as before_web and before_mobile
+    via: api
+    produces:
+      before_web: "body of the public web configuration"
+      before_mobile: "body of the public mobile configuration"
+
+  - step: 2
+    actor: admin
+    action: Saves the organisation settings with the signatory name "Aigul Nurpeisova" and the signatory title "Director of Certification"
+    via: api
+
+  - step: 3
+    actor: admin
+    action: Saves the organisation settings with the signatory name "Aigul Nurpeisova" and an unknown setting "signatory_role" with the value "x"
+    via: api
+
+  - step: 4
+    actor: admin
+    action: Exports the organisation configuration and reads the stored organisation settings
+    via: api
+
+  - step: 5
+    actor: admin
+    action: Saves the organisation settings with the signatory title set to null and nothing else
+    via: api
+
+  - step: 6
+    actor: admin
+    action: Exports the organisation configuration and reads the stored organisation settings again
+    via: api
+
+  - step: 7
+    actor: visitor
+    action: Reads the public web sign-in configuration and the public mobile sign-in configuration again, without signing in, after the settings were stored in step 2 and 3, and compares both bodies with before_web and before_mobile
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The save in step 2 is accepted; its answer still has exactly the two
+      parts organisation identifier and settings, and the settings hold
+      "Aigul Nurpeisova" as signatory name and "Director of Certification" as
+      signatory title
+    verification:
+      method: http_status
+      detail: "Status 200; body keys are tenant_id and settings; settings.signatory_name and settings.signatory_title equal the sent values"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        The organisation cannot name its signatory, so certificates keep the
+        generic "Certification Authority" text and BilimBaga cannot retire
+        its old certificate template.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The save in step 3 succeeds, stores the name, does not store the unknown
+      setting, and does not report an error to the administrator
+    verification:
+      method: api_response
+      detail: "Status 200; settings.signatory_name is 'Aigul Nurpeisova'; the settings in the answer have no key signatory_role; the later export (step 4) has no signatory_role either"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An unknown setting stored by mistake widens what the organisation
+        settings may hold; a rejected save would break administrators whose
+        tools send extra fields.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      The dropping of the unknown setting is recorded: one audit entry with the
+      action "tenant_settings.reject_unrecognized_keys" exists for step 3 and
+      its recorded state holds signatory_role with the value "x"
+    verification:
+      method: audit_event
+      detail: "audit_entries for the tenant: exactly one new entry with action tenant_settings.reject_unrecognized_keys written by step 3; after_state holds signatory_role => x"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Nobody can later see that an administrator or a tool tried to store a
+        setting the platform does not allow.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      The export in step 4 shows signatory name "Aigul Nurpeisova" and
+      signatory title "Director of Certification" stored, unchanged by step 3
+    verification:
+      method: api_response
+      detail: "Export body, tenant settings part: signatory_name 'Aigul Nurpeisova', signatory_title 'Director of Certification', no signatory_role"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        What the administrator was told was stored is not what a certificate
+        would print.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-005
+    description: >
+      Setting the title to null is accepted: the answer shows the signatory
+      title as null and the signatory name unchanged; the export in step 6
+      shows the same (the title reads as not set)
+    verification:
+      method: http_status
+      detail: "Step 5 status 200; settings.signatory_title is null; settings.signatory_name is 'Aigul Nurpeisova'. Step 6 export: signatory_title null, signatory_name unchanged"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An organisation that drops its signatory title cannot clear it, so
+        certificates keep printing a title that is no longer true.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-006
+    description: >
+      The public web and mobile sign-in configurations in step 7 are equal to
+      the ones read in step 1 and contain no text "signatory" anywhere in
+      their branding
+    verification:
+      method: api_response
+      detail: "Step 7 bodies equal before_web and before_mobile; neither body's branding has a key containing the text signatory"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        The signatory's name would be published to anyone who opens the sign-in
+        page, before signing in, with no purpose.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    The signatory name stays stored as "Aigul Nurpeisova" after step 6 unless
+    the next scenario of this group sets its own values; the administrator
+    saves the signatory name as null to leave the organisation as found
+    (settings cannot be removed, only set to null, which reads as not set).

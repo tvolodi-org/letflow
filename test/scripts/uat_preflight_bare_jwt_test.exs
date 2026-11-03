@@ -11,6 +11,7 @@ defmodule Letflow.Scripts.UatPreflightBareJwtTest do
   section 6. Spec: test/specs/ISS-0936.md.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   # NOTE: test names feed the tmp_dir path, which the script echoes in its report;
   # keep them free of the forbidden substrings (NO_PASSWORD / BAD_CRED) asserted below.

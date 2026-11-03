@@ -78,13 +78,17 @@ defmodule Letflow.Entities.CsvImport do
   defp split_header([]), do: {:error, :csv_header_missing}
   defp split_header([{_line, header} | data]), do: {:ok, header, data}
 
-  defp field_types(fields) do
+  @doc false
+  # Shared with `Letflow.Entities.XlsxImport` (GH #3603, REQ-650): same header rules and the same
+  # per-cell coercion, so both file formats give identical entries and reasons.
+  def field_types(fields) do
     for %{"name" => name} = field <- fields, into: %{} do
       {name, {field["type"], field["decimal_strict"] == true}}
     end
   end
 
-  defp check_header(header, field_types, upsert?) do
+  @doc false
+  def check_header(header, field_types, upsert?) do
     cond do
       length(header) != length(Enum.uniq(header)) ->
         {:error, :csv_duplicate_header}
@@ -114,12 +118,13 @@ defmodule Letflow.Entities.CsvImport do
 
   # ── rows ──────────────────────────────────────────────────────────────
 
-  defp convert_row(line, cells, header, _field_types, _upsert?)
-       when length(cells) != length(header) do
+  @doc false
+  def convert_row(line, cells, header, _field_types, _upsert?)
+      when length(cells) != length(header) do
     %{line: line, result: {:error, :csv_cell_count, nil}}
   end
 
-  defp convert_row(line, cells, header, field_types, upsert?) do
+  def convert_row(line, cells, header, field_types, upsert?) do
     pairs = header |> Enum.zip(cells) |> Enum.reject(fn {_name, cell} -> cell == "" end)
 
     result =

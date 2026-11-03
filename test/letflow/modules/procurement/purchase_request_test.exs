@@ -6,6 +6,7 @@ defmodule Letflow.Modules.Procurement.PurchaseRequestTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Modules.Procurement.PurchaseRequest
 

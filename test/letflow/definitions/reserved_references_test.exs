@@ -6,6 +6,7 @@ defmodule Letflow.Definitions.ReservedReferencesTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.ReservedReferences

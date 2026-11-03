@@ -11,6 +11,7 @@ defmodule Letflow.Api.Gh2659ImportImpliesWriteTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @golden "priv/permission_matrix/effective.golden"
 

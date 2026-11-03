@@ -20,6 +20,7 @@ defmodule Letflow.Engine.Wasm.CallTimeoutTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Engine.PluginInterface
   alias Letflow.Engine.PluginInterface.ExecutionContext

@@ -251,6 +251,13 @@ export const queryKeys = {
       [...queryKeys.solutionPackUpdate.all(tenantId), 'review', packId, targetVersion] as const,
   },
 
+  /** REQ-631 — per-tenant solution-pack overrides screen. */
+  solutionPackOverrides: {
+    all: (tenantId: string) => ['tenant', tenantId, 'solutionPackOverrides'] as const,
+    list: (tenantId: string, packId: string) =>
+      [...queryKeys.solutionPackOverrides.all(tenantId), packId] as const,
+  },
+
   /** REQ-377 §3.2 — operator-facing history-retirement screen. */
   eventRetention: {
     all: (tenantId: string) => ['tenant', tenantId, 'event-retention'] as const,

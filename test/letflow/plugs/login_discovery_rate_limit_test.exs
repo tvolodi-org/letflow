@@ -19,6 +19,7 @@ defmodule Letflow.Plugs.LoginDiscoveryRateLimitTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   import ExUnit.CaptureLog
   import Plug.Conn

@@ -1,0 +1,118 @@
+# T-0990 (BA): DEFINITIONS group, scenario 6: a try-out of the check-and-derive script bound to a record type works on a draft record, shows what it would fill in, and writes nothing.
+# Covers REQ-633 (Record E slice E-5, dry-run) criterion 2 (a caller with the script-writing permission gets an answer), criterion 3 (no record, no event, no real-write audit row, the draft is not stored),
+# criterion 4 (derived value computed from a stored master record; changing the master record changes the next answer; the reply holds only the allowed fields), criterion 9 (exactly one audit row per try-out,
+# right action, type name, actor, key set, no derived value and no draft value in it). Criterion 1 is the route and the permission pin of the product's own tests; its business effect is the answer of step 2.
+# Sources: docs/requirements.yaml REQ-633 criteria 2, 3, 4, 9 (read from origin/main); docs/migration/decisions/0065-entity-pre-write-script-hook.md (D6, D8); lib/letflow/routers/entity_type_hooks.ex (dry_run_map: reply keys
+# outcome, stats, derived; audit router: dry-run row); lib/letflow/entity_type_hooks.ex (audit_dry_run: action, resource_type, resource_id, after_state keys); lib/letflow/routers/audit.ex (GET list with resource_type filter, serialises
+# action, resource_id, after_state); docs/roles.md (ScriptsWrite, AuditRead, EntitiesRecordsWrite, EntitiesQuery: tenant administrator yes); test/fixtures/uat/actors.yaml (actor-swiftroute-alice).
+# Not observable through the API of a running QA, so not checked here (covered by the product's own tests): criterion 1 (pins of the route table); criterion 3 second sentence (a source scan of the function and its router action);
+#   criterion 3 table counts of the event store, idempotency and number-sequence tables (no read route; the visible proof is the record list, the draft search and the audit list); criterion 4 exact key set of the reply is checked here by what is
+#   present and absent, not by a database; criterion 9 sixth sentence (a forced audit failure by dropping the audit table) because no step may damage the audit table; criterion 9 refusals writing no row are in scenario definitions-7.
+# Setup supplies the bound script, so no step here publishes or binds anything. The sensitive actions: see sensitive data is covered by definitions-8 (other company); approve, pay or release, change users are not in this flow.
+---
+id: definitions-6-record-script-dry-run-derives-and-writes-nothing
+scope: definitions
+title: A try-out of the record script shows the filled-in value from the stored master record and writes no record
+version: "1.0"
+tags: [definitions, scripts, entity-write, dry-run, no-write, audit, derived]
+
+description: >
+  The administrator of SwiftRoute holds the record type dry_quote, which has a published record script bound to it. The script reads one master record of the type rate_card (the rate for one
+  region) and fills in the field surcharge on the quote. The administrator first notes how many dry_quote records exist and which audit rows exist for dry_quote. Then the administrator tries out the
+  script on a draft quote that is not stored. The answer says the outcome is ok and gives the surcharge computed from the stored rate. Afterwards the number of quotes is unchanged, a search for the draft's marker text
+  finds nothing, and the audit list has exactly one new row, a try-out row, with no surcharge and no draft value in it, and no row of a real record write. The administrator then changes the stored rate, tries out the same
+  draft again and sees the new surcharge, and finally puts the rate back.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the record type dry_quote with a published record script bound to it. The script declares one read (the master record of type rate_card whose region equals the draft's region) and one derived field (surcharge), and it fills in surcharge from the rate on that master record.
+    check: system_seeded
+    detail: Setup-prepared (record scripts are behind the switch of decision 0065; the switch is ON). If dry_quote has no bound script, report BLOCKED for the whole scenario. This is not a product failure.
+  - description: SwiftRoute holds one rate_card master record for the region R-NORTH with the rate RATE-1 (a value chosen by setup), and dry_quote holds no record whose notes field contains the marker text MARKER-DRYRUN-6.
+    check: system_seeded
+    detail: Setup-prepared. The draft used in the steps is {region R-NORTH, notes MARKER-DRYRUN-6, plus the other fields dry_quote requires}. The value surcharge expected in step 2 is the value the script computes from RATE-1; setup states it as SURCHARGE-1 and the value for RATE-2 as SURCHARGE-2.
+  - description: The administrator of SwiftRoute can sign in with an approved test token (an interactive sign-in, not an API token).
+    check: system_seeded
+    detail: See the roster note of actor-swiftroute-alice. If it cannot sign in, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the list of record-script bindings of SwiftRoute and notes the entry for dry_quote. Then notes the number of dry_quote records (BEFORE-COUNT), the result of a search of dry_quote records
+      for the notes text MARKER-DRYRUN-6 (BEFORE-SEARCH), and from the audit list (filtered to the type name dry_quote) the number of rows (BEFORE-AUDIT-ALL) and how many of them have the action
+      "entity_write_hook.dry_run" (BEFORE-AUDIT-DRY).
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries out the script bound to dry_quote on the draft with the region R-NORTH and the notes MARKER-DRYRUN-6. The answer (status and full body) is noted as R1.
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator reads again the number of dry_quote records, searches dry_quote records for MARKER-DRYRUN-6, and reads the audit list filtered to dry_quote with the text of every new row (new compared with step 1).
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator changes the rate on the rate_card record for R-NORTH from RATE-1 to RATE-2 (a real change, made by the administrator's own permission to write records).
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries out the script bound to dry_quote again on the same draft as in step 2. The answer is noted as R2.
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator changes the rate on the rate_card record for R-NORTH back to RATE-1, then reads the number of dry_quote records and searches for MARKER-DRYRUN-6 once more.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The try-out answers 200 with the outcome ok and the value computed from the stored master record, and holds nothing else of the tenant's data.
+    verification:
+      method: api_response
+      detail: R1 is status 200 and the body has exactly the keys outcome, derived and stats. outcome is "ok"; derived holds the field surcharge with the value SURCHARGE-1; stats holds the three counters instructions_used, heap_words_at_end and duration_us. The body has no fingerprint, no script source, no manifest, no rate_card row, and does not repeat the draft (neither the region nor the text MARKER-DRYRUN-6).
+      evidence: R1 as received.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot check a record script before using it, or the answer leaks tenant data that was not asked for.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The try-out stores nothing, neither the draft nor an event of a real write.
+    verification:
+      method: api_response
+      detail: In step 3 the number of dry_quote records equals BEFORE-COUNT, the search for MARKER-DRYRUN-6 equals BEFORE-SEARCH (no record), and the audit list for dry_quote has no new row whose action is anything other than "entity_write_hook.dry_run" (no record-created or record-updated row). The record count and the search after step 6 are the same again.
+      evidence: The counts and the search of steps 3 and 6, and the new audit rows of step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A try-out creates a real quote or a real audit trail of a change that never happened.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Exactly one audit row is written for the try-out, and it holds only the allowed facts.
+    verification:
+      method: api_response
+      detail: In step 3 the audit list for dry_quote has exactly one new row (BEFORE-AUDIT-DRY plus 1). Its action is "entity_write_hook.dry_run", its resource type and resource id are both "dry_quote", its actor is the SwiftRoute administrator. Its after-state keys are exactly script_key, script_version, script_sha256, hmac_key_version, hmac_hex, outcome_class (value "ok"), duration_us, instructions_used, heap_words_at_end and principal (value "tenant_wide"). The text of the row does not contain the value SURCHARGE-1, the text MARKER-DRYRUN-6 or the region R-NORTH.
+      evidence: The new audit row as received.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Either the use of the try-out is not traceable, or the audit trail holds draft values that should not be stored there.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: The derived value follows the stored master record.
+    verification:
+      method: api_response
+      detail: R2 is status 200, outcome "ok", derived surcharge equals SURCHARGE-2 (not SURCHARGE-1). After step 5 the audit list for dry_quote has exactly two new try-out rows compared with step 1, and still no row of a real record write on dry_quote (the change of step 4 is on rate_card, not dry_quote).
+      evidence: R2 and the audit list after step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The script works on old or invented data, so the administrator decides on a wrong preview.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Step 6 puts the rate on R-NORTH back to RATE-1. The audit rows stay (the audit trail is never deleted). Nothing else was created.
