@@ -527,7 +527,7 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
           </div>
         </FilterBar>
         {rowBanner}
-        {selected ? <MasterDetail master={table} detail={detail} /> : table}
+        {selected ? <MasterDetail master={table} detail={detail} detailOpen onBack={() => setSelectedId(null)} /> : table}
       </CodesShell>
 
       <Dialog

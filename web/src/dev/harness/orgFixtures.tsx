@@ -114,7 +114,7 @@ const ACCESS: AccessState = {
 /** Opens the record of the given tree row once it is on screen, so the screenshot shows the detail panel. */
 function AutoOpen({ nodeId, active, then }: { nodeId: string; active: boolean; then?: string }) {
   useEffect(() => {
-    if (!active) return
+    if (!active || nodeId === '') return
     let frame = 0
     let tries = 0
     const clickThen = () => {
@@ -208,3 +208,21 @@ export const orgUnitsNewChild: HarnessScreen = {
     </OrgHarness>
   ),
 }
+
+/** The same screens with nothing open (list only): narrow screens show the list, not the empty detail panel (T-1183). */
+const listOnly = (name: string, routes: HarnessScreen['routes'], page: ReactNode): HarnessScreen => ({
+  name,
+  routes,
+  render: ({ lang, state }) => (
+    <OrgHarness lang={lang} state={state} nodeId="">
+      {page}
+    </OrgHarness>
+  ),
+})
+export const orgListScreens: HarnessScreen[] = [
+  listOnly('org-legal-list', [queryRoute()], <LegalEntitiesPage />),
+  listOnly('org-sites-list', [queryRoute()], <SitesPage />),
+  listOnly('org-units-list', [queryRoute()], <UnitsPage />),
+  listOnly('org-positions-list', [queryRoute()], <PositionsPage />),
+  listOnly('org-employees-list', [queryRoute(), usersRoute()], <EmployeesPage />),
+]

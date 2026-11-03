@@ -21,6 +21,7 @@ export type UiMessageId =
   | 'loadError'
   | 'retry'
   | 'loadingContent'
+  | 'back'
 
 export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> = {
   en: {
@@ -41,6 +42,7 @@ export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> =
     loadError: 'Something went wrong loading this content.',
     retry: 'Retry',
     loadingContent: 'Loading content',
+    back: 'Back to the list',
   },
   ru: {
     close: 'Закрыть',
@@ -60,6 +62,7 @@ export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> =
     loadError: 'Не удалось загрузить содержимое.',
     retry: 'Повторить',
     loadingContent: 'Загрузка содержимого',
+    back: 'Назад к списку',
   },
   kk: {
     close: 'Жабу',
@@ -79,6 +82,7 @@ export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> =
     loadError: 'Мазмұнды жүктеу кезінде қате шықты.',
     retry: 'Қайталау',
     loadingContent: 'Мазмұн жүктелуде',
+    back: 'Тізімге оралу',
   },
 }
 

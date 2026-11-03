@@ -112,6 +112,8 @@ export function OrgScreen(props: OrgScreenProps) {
       />
       <div onKeyDown={onKeyDown} data-testid="org-screen">
         <MasterDetail
+          detailOpen={props.detail !== null}
+          onBack={props.onClosePanel}
           tools={
             <div className="lf-btn-row lf-btn-row--between" data-testid="org-retired-row">
               <Checkbox label={t('org.common.showRetired')} checked={props.showRetired} onChange={props.onShowRetired} />
