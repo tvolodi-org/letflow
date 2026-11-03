@@ -8,13 +8,22 @@
  *  the field only feeds the ESLint drift test (boundary-config.test.ts).
  */
 import type { ModuleDefinition } from '@/modules/types'
+import { locationsMessages } from './locationsMessages'
 import { locationsRouteObjects } from './locationsRoutes'
 import { LOCATIONS_WRITE } from './locationsPermissions'
+
+function importLabels(entityType: string) {
+  const id = `import.type.${entityType}`
+  return { en: locationsMessages.en[id], ru: locationsMessages.ru[id], kk: locationsMessages.kk[id] }
+}
 
 export const locationsModuleDefinition: ModuleDefinition = {
   id: 'locations',
   depends_on: [],
   routeObjects: locationsRouteObjects,
+  importTypes: [
+    { entityType: 'location_node', labels: importLabels('location_node') },
+  ],
   navItems: [
     { to: '/admin/locations', label: 'Locations', permission: LOCATIONS_WRITE },
     { to: '/admin/locations/links', label: 'Location links', permission: LOCATIONS_WRITE },
