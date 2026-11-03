@@ -30,6 +30,8 @@ export const P = {
   TenantSettingsManage: 'TenantSettingsManage',
   EntitiesDefinitionsRead: 'EntitiesDefinitionsRead',
   EntitiesRecordsWrite: 'EntitiesRecordsWrite',
+  EntitiesRecordsImport: 'EntitiesRecordsImport',
+  EntitiesRecordsExport: 'EntitiesRecordsExport',
   EntitiesViewsManage: 'EntitiesViewsManage',
   EntitiesQuery: 'EntitiesQuery',
   EntitiesAggregate: 'EntitiesAggregate',
