@@ -143,12 +143,12 @@ defmodule Letflow.Ledger.PostBalanceTest do
 
     invalid(
       post.("receipt", [Fx.leg(["a"], 1)], posting: %{device_id: "d1"}),
-      :offline_fields_not_available
+      :posting_shape
     )
 
     invalid(
       post.("receipt", [Fx.leg(["a"], 1)], posting: %{event_time: DateTime.utc_now()}),
-      :event_time_not_available
+      :posting_shape
     )
 
     invalid(post.("receipt", [Fx.leg(["A"], 1)], []), :slot_invalid, 1)
