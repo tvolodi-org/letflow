@@ -9,10 +9,11 @@
 
 import type { ReactNode } from 'react'
 import { IntlProvider } from 'react-intl'
-import { examMessages, resolveUiLocale } from './examMessages'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { examMessages } from './examMessages'
 
 export function ExamIntlProvider({ children }: { children: ReactNode }) {
-  const locale = resolveUiLocale()
+  const locale = useUiLocale()
   return (
     <IntlProvider locale={locale} defaultLocale="en" messages={examMessages[locale]}>
       {children}

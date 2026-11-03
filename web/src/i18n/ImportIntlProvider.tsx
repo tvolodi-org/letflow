@@ -5,11 +5,11 @@
  */
 import type { ReactNode } from 'react'
 import { IntlProvider } from 'react-intl'
-import { resolveUiLocale } from './entitiesMessages'
+import { useUiLocale } from './uiLocaleStore'
 import { importMessages } from './importMessages'
 
 export function ImportIntlProvider({ children }: { children: ReactNode }) {
-  const locale = resolveUiLocale()
+  const locale = useUiLocale()
   return (
     <IntlProvider locale={locale} defaultLocale="en" messages={importMessages[locale]}>
       {children}

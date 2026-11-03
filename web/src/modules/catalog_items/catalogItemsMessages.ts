@@ -2,10 +2,13 @@
  *  same id set in each. Own copy of the locale resolver: module code may not import another module (0039 D3).
  *  The ru and kk texts are written by the developer and need a native-speaker check. */
 
+import { getUiLocale } from '@/i18n/uiLocaleStore'
+
 export const CATALOG_ITEMS_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type CatalogItemsUiLocale = (typeof CATALOG_ITEMS_UI_LOCALES)[number]
 
 export function resolveUiLocale(candidates?: readonly string[]): CatalogItemsUiLocale {
+  if (candidates === undefined) return getUiLocale()
   const sources =
     candidates ??
     (typeof navigator !== 'undefined'
