@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** S1: the org screens' fixtures render through the harness, in the language the harness gives. */
 import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HarnessPage } from '../HarnessPage'
 import { HARNESS_SCREENS } from '../registry'
@@ -39,6 +39,12 @@ describe('org harness screens', () => {
     cleanup()
     renderHarness('org-employees')
     expect((await screen.findByTestId('detail-header')).textContent).toContain('Aigerim Sarsenova')
+  })
+
+  it('org-units-new-child opens the create-child form with the parent company pre-filled', async () => {
+    renderHarness('org-units-new-child')
+    const company = (await screen.findByLabelText('Legal company')) as HTMLSelectElement
+    await waitFor(() => expect(company.value).not.toBe(''))
   })
 
   it('org-legal renders in Russian', async () => {
