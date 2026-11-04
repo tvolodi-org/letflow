@@ -42,6 +42,9 @@ GET /modules/stock/balances StockRead
 GET /modules/stock/counts StockRead
 GET /modules/stock/counts/:id StockRead
 GET /modules/stock/counts/:id/document StockRead
+GET /modules/stock/counts/:id/entries StockRead
+GET /modules/stock/counts/:id/lines StockRead
+GET /modules/stock/counts/:id/sheet-document StockRead
 GET /modules/stock/documents StockRead
 GET /modules/stock/documents/:id StockRead
 GET /modules/stock/movements StockRead
@@ -147,7 +150,10 @@ POST /modules/procurement/purchase-requests/:id/revise ProcurementRequestWrite
 POST /modules/procurement/purchase-requests/:id/submit ProcurementRequestWrite
 POST /modules/stock/counts StockCountOrder
 POST /modules/stock/counts/:id/cancel StockCountOrder
+POST /modules/stock/counts/:id/close StockCountRecord
 POST /modules/stock/counts/:id/issue StockCountOrder
+POST /modules/stock/counts/:id/open StockCountRecord
+POST /modules/stock/counts/:id/surplus-lines StockCountRecord
 POST /modules/stock/documents StockPost
 POST /modules/stock/documents/:id/cancel StockReverse
 POST /modules/stock/documents/:id/issue StockPost
@@ -199,6 +205,7 @@ PUT /integration-mappings/:id IntegrationMappingsManage
 PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
 PUT /modules/stock/counts/:id StockCountOrder
+PUT /modules/stock/counts/:id/lines/:line_no/count StockCountRecord
 PUT /modules/stock/documents/:id StockPost
 PUT /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 PUT /script-policy/kill-switch ScriptPolicyManage

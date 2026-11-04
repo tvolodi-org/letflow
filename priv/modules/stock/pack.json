@@ -277,7 +277,7 @@
     },
     {
       "definition_json": {
-        "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled by REQ-701.",
+        "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled when the count is opened and sheet_document_id when it is closed (REQ-701).",
         "display_name": "Count order",
         "fields": [
           {
@@ -365,6 +365,10 @@
           {
             "name": "cutoff_seq",
             "type": "integer"
+          },
+          {
+            "name": "sheet_document_id",
+            "type": "string"
           }
         ],
         "indexes": [
@@ -380,7 +384,7 @@
       },
       "display_name": "Count order",
       "entity_definition_id": "45573d30-45d7-3626-82e0-0b0f034df9ac",
-      "logical_shape_version": "675de2c0d92d7c97e64ced95882d837831491cc85e56ab46c1c4f4ed7f4db7dc",
+      "logical_shape_version": "6af1ee737981143037242fb1eb6160b747311357e2eefbe08ad77edb76a419cf",
       "name": "count_order"
     },
     {
@@ -474,6 +478,189 @@
       "entity_definition_id": "38bb9992-f3dc-8b51-b6ab-1e4b4a9a97ea",
       "logical_shape_version": "0f88c0dd502f7d1cefcaa1a77d8deff4faa5d801f799f7553819470d3d5c28f5",
       "name": "count_commission_member"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-701 / GH #3736. One line of the count sheet of a count order: a ledger balance key as of the cut-off (kind stock, book_quantity from the stock ledger) or a surplus line the commission added (kind surplus, book_quantity 0). count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column (decision 0076 R7). counted_quantity is empty until the commission has counted the line. Quantities are exact decimals (precision 24, scale 9, decimal_strict). Master references are record ids checked in code (0076 R6).",
+        "display_name": "Count sheet line",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "queried": true,
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "enum_values": [
+              "stock",
+              "surplus"
+            ],
+            "name": "kind",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "responsible_employee_id",
+            "type": "string"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "name": "unit_ref",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "book_quantity",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "counted_quantity",
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_count_sheet_line_count_order_id",
+            "references_entity": "count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "line_no"
+            ],
+            "name": "idx_count_sheet_line_order_line"
+          }
+        ],
+        "name": "count_sheet_line"
+      },
+      "display_name": "Count sheet line",
+      "entity_definition_id": "a65f3994-b33a-c9cc-a095-ec02499efa99",
+      "logical_shape_version": "3e7986f79541a473ad7c81be52436ad87f372e57c96411b88b62b533cf1e1e1d",
+      "name": "count_sheet_line"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-701 / GH #3736. One entry of the append-only log of a count order: who typed which quantity on which sheet line and when. entry_no is 1..n per order (a total order for the log and its cursor). No function of module stock updates or deletes an entry. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column (decision 0076 R7). method is typed now; the scanner value comes with REQ-720.",
+        "display_name": "Count entry",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "entry_no",
+            "queried": true,
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "typed"
+            ],
+            "name": "method",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity_before",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity_after",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "name": "entered_by",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "entered_by_employee_id",
+            "type": "string"
+          },
+          {
+            "name": "entered_at",
+            "required": true,
+            "type": "datetime"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_count_entry_count_order_id",
+            "references_entity": "count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "entry_no"
+            ],
+            "name": "idx_count_entry_order_entry"
+          }
+        ],
+        "name": "count_entry"
+      },
+      "display_name": "Count entry",
+      "entity_definition_id": "14b35543-6cb6-524e-1f4d-f90a3a120bf5",
+      "logical_shape_version": "c5c9f7a071d20a9bdec8e58cec123fc2a0e6d1d4e7597cc6b3c8dcc6485a86e8",
+      "name": "count_entry"
     },
     {
       "definition_json": {

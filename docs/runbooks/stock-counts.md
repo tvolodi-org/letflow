@@ -1,8 +1,8 @@
 # Stock counts: the count order (REQ-700, GH #3737)
 
 Module `stock` 0.2.0 keeps the **count order** of an inventory taking (decision 0079 sections 1 to 4
-and 9). This slice stops at the issued order: the cut-off, the book quantities, the count sheet, the
-differences, signing and posting are REQ-701 and later. No ledger call is made here.
+and 9). This section stops at the issued order; the cut-off, the book quantities and the count sheet are REQ-701
+(section "The count sheet" below), the differences, signing and posting are later. `Counts` itself makes no ledger call.
 
 Every default below is an **assumption, owner may change at GATE B**.
 
@@ -15,8 +15,8 @@ Every default below is an **assumption, owner may change at GATE B**.
 | Functions | `Letflow.Modules.Stock.Counts`: `create/3`, `update/4`, `issue/3`, `cancel/3`, `get/3`, `list/3`, `document/3` |
 | Routes under `/api/v1/modules/stock` | `POST /counts`, `PUT /counts/:id`, `POST /counts/:id/issue`, `POST /counts/:id/cancel` (permission `StockCountOrder`); `GET /counts`, `GET /counts/:id`, `GET /counts/:id/document` (permission `StockRead`) |
 
-`StockCountOrder` is held by TENANT_ADMIN and PLATFORM_ADMIN only (no role grants). The permission for
-the count records, `StockCountRecord`, comes with REQ-701, the first route that uses it.
+`StockCountOrder` and `StockCountRecord` (REQ-701) are held by TENANT_ADMIN and PLATFORM_ADMIN only (no role
+grants).
 
 ## Rules
 
@@ -37,6 +37,38 @@ the count records, `StockCountRecord`, comes with REQ-701, the first route that 
 7. The routes take no client idempotency key: a retried create makes a second draft, which cancel
    removes. `depends_on` of the module stays empty, so a tenant without `org` or `locations` gets
    `org_unit_inactive` or `employee_inactive` instead of a crash.
+
+## The count sheet (REQ-701, GH #3736; module `stock` 0.4.0)
+
+Every default is an **assumption, owner may change at GATE B**. Functions: `Letflow.Modules.Stock.CountSheet`,
+reached as `Counts.open/3`, `record_count/5`, `add_surplus_line/4`, `close_counting/3`, `lines/4`,
+`entries/4`, `sheet_document/3`. Record types `count_sheet_line` and `count_entry` (scoped by `org_unit_id`),
+permission `StockCountRecord` (TENANT_ADMIN and PLATFORM_ADMIN only).
+
+| Route | Permission | Ok |
+|---|---|---|
+| `POST /counts/:id/open` (empty body) | `StockCountRecord` | 200 order view with `cut_off_at`, `cutoff_seq` |
+| `GET /counts/:id/lines`, `GET /counts/:id/entries` (`limit` 1..200, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
+| `PUT /counts/:id/lines/:line_no/count` (body exactly `counted_quantity`) | `StockCountRecord` | 200 line |
+| `POST /counts/:id/surplus-lines` | `StockCountRecord` | 201 line |
+| `POST /counts/:id/close` (empty body) | `StockCountRecord` | 200 order view with `sheet_document_id` |
+| `GET /counts/:id/sheet-document` | `StockRead` | 200 issued summary, no content bytes |
+
+1. **Open**: the chair, an `ordered` count, inside the planned period (`count_not_due`). The cut-off is now.
+   Book quantities are read from the stock ledger only through `Ledger.balances/4`: the first read fixes
+   `cutoff_seq`, every later page and location is read at `{:event_time, cut_off_at, cutoff_seq}`. One line per
+   non-zero balance key of the unit inside the order's locations. A tenant-wide reader opens (a scoped caller or
+   an API token gets 404). A ledger refusal is `ledger_read_failed`; more than 2000 lines is `count_too_large`.
+   Two concurrent opens give one winner: the loser answers `count_state_invalid`.
+2. **Typed input**: the chair or a commission member (`not_commission_member`), a `counting` count. The quantity
+   is a decimal string with at most 9 decimals (`field_invalid`); it replaces the counted quantity of the line
+   and one entry is appended (`entry_no`, before, after, user, employee, time). Entries are never updated or deleted.
+3. **Surplus lines**: a stock item the books do not know. Refusals in order: `location_not_in_count`, `item_inactive`,
+   `unit_invalid`, `lot_invalid`, `employee_inactive`, `count_line_exists`. The line has kind `surplus`, book 0.
+4. **Close**: the chair, every `stock` line counted (`lines_uncounted` issues nothing and takes no number). The
+   `count.sheet` document is created and issued, the order becomes `counted`. Cancel still works afterwards.
+5. Every write takes one advisory lock per order first (also `Counts.cancel/3`). Not in this slice: the freeze of
+   postings after the cut-off, scanner input, differences, signing and posting.
 
 ## Org units and the document service
 
