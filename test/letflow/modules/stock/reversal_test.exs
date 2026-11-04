@@ -197,6 +197,9 @@ defmodule Letflow.Modules.Stock.ReversalTest do
       assert P.req(ctx, :post, issued["id"], "cancel", %{}) |> P.status!(422) |> Map.get("reason") ==
                "reason_required"
 
+      assert P.req(ctx, :post, issued["id"], "cancel", []) |> P.status!(422) |> Map.get("reason") ==
+               "reason_invalid"
+
       cancelled =
         P.req(ctx, :post, issued["id"], "cancel", %{"reason" => "not needed"}) |> P.status!(200)
 

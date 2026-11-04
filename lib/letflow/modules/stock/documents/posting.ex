@@ -444,13 +444,17 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     with {:ok, view} <- fetch.(prefix, id),
          :ok <- cancellable(prefix, view),
          %{} = issued <- issued(prefix, view.id) || {:error, :internal},
-         {:ok, _version} <- do_cancel(prefix, view, issued, Map.get(body, "reason"), actor) do
+         {:ok, reason} <- cancel_reason(body),
+         {:ok, _version} <- do_cancel(prefix, view, issued, reason, actor) do
       fetch.(prefix, id)
     else
       {:error, reason} -> {:error, reason}
       _other -> {:error, :internal}
     end
   end
+
+  defp cancel_reason(%{} = body), do: {:ok, Map.get(body, "reason")}
+  defp cancel_reason(_body), do: {:error, :reason_invalid}
 
   defp cancellable(prefix, view) do
     pending = pending(prefix, view.id)
