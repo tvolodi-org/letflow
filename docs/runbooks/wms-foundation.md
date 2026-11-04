@@ -521,3 +521,8 @@ names the GH issue or the code that holds it; paths are cited without line numbe
 22. **`reason_text` of a reversal is kept on the instance only.** The ledger keeps the closed `reason_code`; the free
     text (at most 500 characters) is the variable `reason_text` of the `stock_reversal` instance
     (`lib/letflow/modules/stock/documents/posting.ex`, GH #3748).
+23. **Receipt-only fields.** Version 0.4.0 adds `supplier_document_ref`, `received_on`, `unit_price` and `line_value`
+    to the receipt types. Price and value live on the document only: the posting reads literal keys and never copies
+    them to the ledger. At issue the lot is checked against the item's tracking policy (serial-tracked goods are
+    refused, `tracking_policy_not_supported`) and `received_on` may not be after the event day in Asia/Almaty
+    (assumption, owner may change at GATE B) (`lib/letflow/modules/stock/documents/checks.ex`, GH #3747).

@@ -169,6 +169,14 @@
           {
             "name": "note",
             "type": "string"
+          },
+          {
+            "name": "supplier_document_ref",
+            "type": "string"
+          },
+          {
+            "name": "received_on",
+            "type": "date"
           }
         ],
         "indexes": [
@@ -183,12 +191,12 @@
       },
       "display_name": "Stock receipt (header)",
       "entity_definition_id": "0c25df3d-6843-d3bc-fd43-d9562afe1966",
-      "logical_shape_version": "b816d2c1b026a5bf7f9845e050027ee908aae6f5212f26ef0a505a5dc2192c91",
+      "logical_shape_version": "5cb6483f8fa7cf3a5f01cd08a70068824c5a87da591c917451b2dc84de8bdff0",
       "name": "stock_receipt"
     },
     {
       "definition_json": {
-        "description": "GH #3749 / REQ-712, docs/assets/stock-workflow-documents.md sections 1.4 and 9.3. One line of a stock receipt. header_id is the record_id of the stock_receipt header (not the document id); the foreign_keys entry fk_stock_receipt_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict). catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (another pack: no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+        "description": "GH #3749 / REQ-712, docs/assets/stock-workflow-documents.md sections 1.4 and 9.3. One line of a stock receipt. header_id is the record_id of the stock_receipt header (not the document id); the foreign_keys entry fk_stock_receipt_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict). catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (another pack: no foreign key; the module checks them at issue). GH #3747 / REQ-714: unit_price and line_value are optional exact decimals kept on the document only (never posted to the ledger). Written only by module stock; after issue nothing of a line changes.",
         "display_name": "Stock receipt (line)",
         "fields": [
           {
@@ -229,6 +237,20 @@
             "name": "quantity",
             "required": true,
             "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "unit_price",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "line_value",
+            "type": "decimal"
           }
         ],
         "foreign_keys": [
@@ -250,7 +272,7 @@
       },
       "display_name": "Stock receipt (line)",
       "entity_definition_id": "450d0aee-6502-e643-a766-5d4bb96c2171",
-      "logical_shape_version": "ff0b60bedec9880289aa52307b99e642c83997794a2277798f726f612940722b",
+      "logical_shape_version": "509883652a737faaea8278b6a3451037f19c774cde86b135e8872e4d36412837",
       "name": "stock_receipt_line"
     },
     {

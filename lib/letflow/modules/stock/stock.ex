@@ -39,7 +39,16 @@ defmodule Letflow.Modules.Stock do
   (`Letflow.Modules.Stock.Counts`, `Letflow.Modules.Stock.Router`). No ledger call. `depends_on`
   gains `org` and `locations` (the count functions read both; the boundary lint requires it).
 
-  ## Count sheet (REQ-701 / GH #3736; version 0.4.0)
+  ## Receipt fields (REQ-714 / GH #3747; version 0.4.0)
+
+  The receipt types gain optional `supplier_document_ref` and `received_on` (header) and `unit_price`
+  and `line_value` (line). Price and value live on the document only: the posting code reads literal
+  keys and never copies them to the ledger. At issue the lot is checked against the item's tracking
+  policy and `received_on` may not be after the event day in Asia/Almaty (`Documents.Checks`).
+  No route, permission or migration. Assumptions, owner may change at GATE B: the constant zone, the
+  date check at issue, serial-tracked goods refused.
+
+  ## Count sheet (REQ-701 / GH #3736; version 0.5.0)
 
   Two more module-managed record types, `count_sheet_line` and `count_entry` (both scoped by the column
   `org_unit_id`), a field `sheet_document_id` on `count_order`, the permission `StockCountRecord` and
@@ -121,7 +130,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.4.0",
+    version: "0.5.0",
     depends_on: ["catalog_items", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
