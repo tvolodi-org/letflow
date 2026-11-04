@@ -52,6 +52,12 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert m.manages_entity_types == [
              "stock_receipt",
              "stock_receipt_line",
+             "stock_transfer",
+             "stock_transfer_line",
+             "stock_handover",
+             "stock_handover_line",
+             "stock_return",
+             "stock_return_line",
              "count_order",
              "count_order_scope",
              "count_commission_member",
@@ -76,6 +82,12 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert m.scope_declarations == %{
              "stock_receipt" => {:column, "org_unit_id"},
              "stock_receipt_line" => {:column, "org_unit_id"},
+             "stock_transfer" => {:column, "org_unit_id"},
+             "stock_transfer_line" => {:column, "org_unit_id"},
+             "stock_handover" => {:column, "org_unit_id"},
+             "stock_handover_line" => {:column, "org_unit_id"},
+             "stock_return" => {:column, "org_unit_id"},
+             "stock_return_line" => {:column, "org_unit_id"},
              "count_order" => {:column, "org_unit_id"},
              "count_order_scope" => {:column, "org_unit_id"},
              "count_commission_member" => {:column, "org_unit_id"},
@@ -180,7 +192,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 13
+    assert length(files) == 14
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
