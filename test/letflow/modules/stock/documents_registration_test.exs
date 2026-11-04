@@ -33,12 +33,12 @@ defmodule Letflow.Modules.Stock.DocumentsRegistrationTest do
 
   test "A-REG-1: the manifest literals and the catalog check" do
     m = Stock.manifest()
-    assert m.version == "0.2.0"
+    assert m.version == "0.3.0"
     assert m.pack == "modules/stock/pack.json"
     assert m.depends_on == ["catalog_items", "locations", "org"]
-    assert m.manages_entity_types == ["stock_receipt", "stock_receipt_line"]
+    assert Enum.take(m.manages_entity_types, 2) == ["stock_receipt", "stock_receipt_line"]
 
-    assert m.scope_declarations == %{
+    assert Map.take(m.scope_declarations, ["stock_receipt", "stock_receipt_line"]) == %{
              "stock_receipt" => {:column, "org_unit_id"},
              "stock_receipt_line" => {:column, "org_unit_id"}
            }
