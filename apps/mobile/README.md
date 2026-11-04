@@ -179,6 +179,23 @@ memberships-or-403) to succeed first. It lands in a dedicated
 `BootstrapPhase.success`: membership and the installed-module list have not
 been re-verified from the network.
 
+## Camera scanning
+
+The `codes` module (REQ-732, `lib/features/codes/`) adds a scan screen to the
+generic client: the camera reads a barcode or QR code, the raw text goes
+unchanged to `POST /api/v1/modules/codes/resolve`, and the screen shows what
+the code names. A typed field is the fallback when the camera is refused. The
+screen is reachable from the tenant home only when the tenant has the `codes`
+module installed.
+
+Package: `mobile_scanner`. It is the one package that reads both barcodes and
+QR codes on Android and iOS and returns the raw text. Only
+`lib/features/codes/mobile_scanner_source.dart` imports it; the rest of the
+module uses the `ScanSource` interface, which tests replace with a fake, so no
+test needs a camera. Permissions: Android `CAMERA` (camera not required),
+iOS `NSCameraUsageDescription`. The lookup is online only; nothing is stored
+on the device.
+
 ## Static guards
 
 `test/guards/` holds three ordinary Dart tests that fail `flutter test` (and

@@ -122,10 +122,9 @@ GoRouter _buildRouter(BootstrapController controller) {
         path: '/home',
         builder: (context, state) => const TenantHomeScreen(),
       ),
-      // REQ-421 ships zero real feature modules — buildRouteTable's real
-      // output is the empty set (design §5.4, OQ-4). A module absent from
-      // `installed_modules` has no route entry here, so `GoRouter`'s own
-      // default not-found page is shown for it (AC3).
+      // buildRouteTable uses the real feature registry (`codes`, REQ-732).
+      // A module absent from `installed_modules` has no route entry here, so
+      // `GoRouter`'s own default not-found page is shown for it (AC3).
       ...buildRouteTable(controller.state.installedModules),
     ],
   );

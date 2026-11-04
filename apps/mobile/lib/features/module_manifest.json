@@ -1,3 +1,7 @@
 {
-  "features": {}
+  "features": {
+    "codes": {
+      "depends_on": []
+    }
+  }
 }
