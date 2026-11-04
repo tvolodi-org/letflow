@@ -13,13 +13,16 @@ defmodule Letflow.Ledger.Storage.Ddl do
   alias Letflow.Repo
 
   @doc false
-  @spec create_partition(String.t(), String.t(), String.t(), String.t(), String.t()) :: :ok
-  def create_partition(prefix, parent, part, ledger_id, h) do
+  @spec create_partition(String.t(), String.t(), String.t(), String.t(), String.t(), String.t()) ::
+          :ok
+  def create_partition(prefix, parent, part, ledger_id, h, entry_part) do
     Repo.query!(
       "SELECT format('CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)', $1::text, $2::text, $1::text, $3::text)",
       [prefix, part, parent]
     )
     |> run_text()
+
+    add_partition_key(prefix, parent, part, h, entry_part)
 
     Repo.query!(
       "SELECT format('ALTER TABLE %I.%I ATTACH PARTITION %I.%I FOR VALUES IN (%L)', $1::text, $2::text, $1::text, $3::text, $4::text)",
@@ -43,6 +46,29 @@ defmodule Letflow.Ledger.Storage.Ddl do
 
     :ok
   end
+
+  # REQ-711: the two ledger foreign keys live on the partitions, not on the parents, and are added
+  # BEFORE ATTACH. A parent-level key is cloned by ATTACH and makes it take SHARE ROW EXCLUSIVE on the
+  # parents, which would block every posting of the tenant. Each key points at the entry partition of
+  # the same ledger id (a LIST partition holds one id), so the database still refuses a leg or a
+  # reversal across ledger ids (decision 0073 A5). The balance partition has no such key.
+  defp add_partition_key(prefix, "ledger_entry", part, h, _entry_part) do
+    Repo.query!(
+      "SELECT format('ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (reverses_entry_id, ledger_id) REFERENCES %I.%I (id, ledger_id)', $1::text, $2::text, 'ledger_entry_reverses_entry_id_fkey_' || $3::text, $1::text, $2::text)",
+      [prefix, part, h]
+    )
+    |> run_text()
+  end
+
+  defp add_partition_key(prefix, "ledger_leg", part, h, entry_part) do
+    Repo.query!(
+      "SELECT format('ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (entry_id, ledger_id, posting_seq, event_time) REFERENCES %I.%I (id, ledger_id, posting_seq, event_time)', $1::text, $2::text, 'ledger_leg_entry_fk_' || $3::text, $1::text, $4::text)",
+      [prefix, part, h, entry_part]
+    )
+    |> run_text()
+  end
+
+  defp add_partition_key(_prefix, _parent, _part, _h, _entry_part), do: :ok
 
   # After ATTACH every index of the partition has a parent index in pg_inherits.
   defp rename_indexes(prefix, part, h) do

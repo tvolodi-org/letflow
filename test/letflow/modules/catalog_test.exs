@@ -76,7 +76,9 @@ defmodule Letflow.Modules.CatalogTest do
                # REQ-574
                Letflow.Modules.FixturePoints,
                # REQ-684
-               Letflow.Modules.FixtureLedgerPost
+               Letflow.Modules.FixtureLedgerPost,
+               # REQ-711
+               Letflow.Modules.FixtureLedgerStorage
              ]
     end
 

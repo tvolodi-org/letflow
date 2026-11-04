@@ -50,7 +50,8 @@ defmodule Letflow.Modules.CatalogLedgerHashTest do
       assert Catalog.manifest_hash(id) == {:ok, expected}, name
     end
 
-    assert map_size(@golden) == length(registered) - 1
+    # the two fixtures with a :ledger key (FixtureLedgerPost, and FixtureLedgerStorage from REQ-711) are not in @golden
+    assert map_size(@golden) == length(registered) - 2
   end
 
   test "T-MH-21 equal inputs, equal hash; the fixture is covered" do
