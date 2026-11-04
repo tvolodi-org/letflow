@@ -475,6 +475,31 @@ defmodule Letflow.Routers.TenantConfigBundleTest do
     end
   end
 
+  describe "REQ-703 -- timezone in the bundle" do
+    test "TZ-6c1 Asia/Tokyo round-trips through export and import" do
+      a = tenant!("r703-a")
+      b = tenant!("r703-b")
+      set_settings!(a, %{"timezone" => "Asia/Tokyo"})
+
+      doc = json(export(a))
+      assert doc["tenant_settings"] == %{"timezone" => "Asia/Tokyo"}
+      assert import_(b, doc).status == 200
+      assert tenant_settings(b) == %{"timezone" => "Asia/Tokyo"}
+    end
+
+    test "TZ-6c2 Mars/Olympus and a NUL-byte name are refused with 422, nothing changes" do
+      t = tenant!("r703-c")
+      set_settings!(t, %{"app_name" => "Keep"})
+
+      for zone <- ["Mars/Olympus", "UTC\u0000x"] do
+        conn = import_(t, bundle(%{"timezone" => zone}, [{"fixture", %{"k" => "v"}}]))
+        assert conn.status == 422
+        assert tenant_settings(t) == %{"app_name" => "Keep"}
+        assert module_settings(t, "fixture") == %{}
+      end
+    end
+  end
+
   describe "AC5 -- schema version and all-or-nothing" do
     test "A1 unknown version vs missing version" do
       t = tenant!("r552-a1")

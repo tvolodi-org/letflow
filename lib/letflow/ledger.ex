@@ -64,7 +64,8 @@ defmodule Letflow.Ledger do
   only the reversal-target unique index (see Reversal): every other key includes the ledger id and
   all writers of one ledger id serialize on its counter row, so a unique violation on them after
   the third lookup is unreachable.
-  `unique_violation_refusal/1` stays as a pure mapper of the three constraint names.
+  `unique_violation_refusal/1` stays as a pure mapper of the three constraint names (each with the
+  optional `_<16 hex>` suffix of a partition's index, REQ-710).
 
   ## Offline fields and event time (part C)
 
@@ -127,6 +128,8 @@ defmodule Letflow.Ledger do
   `{:ledger_contract, :invalid_registration}` (the registration data is not of the expected
   shape: an extra atom beyond note 12.2, chosen here as the fail-closed backstop for the rule
   that L3 will enforce at build time) and `{:ledger_contract, :isolation_not_read_committed}`.
+  `{:ledger_contract, :ledger_storage_missing}` (REQ-710): a ledger id of the plan has no attached
+  partition set (`Letflow.Ledger.Storage.ensure/2` makes it, never a posting); nothing is written.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -139,6 +142,7 @@ defmodule Letflow.Ledger do
   alias Letflow.Ledger.Digest
   alias Letflow.Ledger.LockedPlan
   alias Letflow.Ledger.Reconcile
+  alias Letflow.Ledger.Storage
   alias Letflow.Ledger.Validate
   alias Letflow.Repo
 
@@ -224,7 +228,12 @@ defmodule Letflow.Ledger do
          :ok <- check_plan_rules(parts),
          :ok <- check_pairing(prefix, parts) do
       parts = Enum.sort_by(parts, & &1.ledger_id)
-      lock_parts(prefix, parts)
+      # REQ-710: the entry, leg and balance tables are partitioned by ledger id; a ledger id
+      # without its partitions is refused before the first write (one catalog read).
+      case Storage.missing(prefix, Enum.map(parts, & &1.ledger_id)) do
+        [] -> lock_parts(prefix, parts)
+        _missing -> {:error, {:ledger_contract, :ledger_storage_missing}}
+      end
     end
   end
 
@@ -656,14 +665,20 @@ defmodule Letflow.Ledger do
   def unique_violation_refusal(%Postgrex.Error{
         postgres: %{code: :unique_violation, constraint: constraint}
       }) do
-    case constraint do
-      c when c in ["ledger_entry_subject_op_key", "ledger_entry_origin_key_key"] ->
+    # A partition's index carries the parent's name plus `_<16 hex>` (Letflow.Ledger.Storage).
+    cond do
+      is_binary(constraint) and
+          Regex.match?(
+            ~r/\A(ledger_entry_subject_op_key|ledger_entry_origin_key_key)(_[0-9a-f]{16})?\z/,
+            constraint
+          ) ->
         Validate.refuse(:idempotency_key_reuse, %{})
 
-      "ledger_entry_device_seq_unique_index" ->
+      is_binary(constraint) and
+          Regex.match?(~r/\Aledger_entry_device_seq_unique_index(_[0-9a-f]{16})?\z/, constraint) ->
         Validate.refuse(:client_seq_conflict, %{})
 
-      _other ->
+      true ->
         :unknown
     end
   end

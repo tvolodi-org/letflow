@@ -53,3 +53,8 @@ deploy/lib/*.sh text eol=lf
 # writer always emits LF, so pin LF on every checkout (the parser also strips a
 # trailing CR, but a CRLF working copy would still show as a whole-file diff).
 priv/permission_matrix/*.golden text eol=lf
+
+# D-089: the bundled font licence texts are verbatim release.sh copies hashed in MANIFEST.sha256 (web/tests/unit/designSystemCopy.test.ts);
+# keep their bytes (one has mixed line endings) on every checkout.
+web/public/design-system/fonts/*.txt -text
+web/src/fonts/*.txt -text

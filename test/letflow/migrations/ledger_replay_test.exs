@@ -13,7 +13,8 @@ defmodule Letflow.LedgerReplayTest do
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning
 
-  @versions [20_261_031_100_001, 20_261_031_200_001]
+  # REQ-692 and REQ-710 later versions of the ledger tables are part of "the previous version" too
+  @versions [20_261_031_100_001, 20_261_031_200_001, 20_261_104_100_001, 20_261_104_200_001]
   @ledger_tables ~w(ledger_balance ledger_counter ledger_entry ledger_leg)
   @t0 "2026-10-31T10:00:00Z"
   @append_only "ledger data is append-only: this statement is refused"
@@ -46,6 +47,7 @@ defmodule Letflow.LedgerReplayTest do
   # One committed posting, seq 1 of ledger "wh": one leg (k1 "a", +5), balance on_hand 5.
   defp post_one(schema) do
     id = Ecto.UUID.generate()
+    Letflow.LedgerFixture.ensure_storage!(schema, "wh")
 
     {:ok, _} =
       Repo.transaction(fn ->
@@ -271,9 +273,13 @@ defmodule Letflow.LedgerReplayTest do
           {~s|DELETE FROM "#{a}".ledger_leg|, a, b, "ledger_leg"},
           {~s|TRUNCATE "#{b}".ledger_balance|, b, a, "ledger_balance"}
         ] do
+      # REQ-710: a row trigger cloned onto a partition names the partition (`<table>_p<16 hex>`)
       assert {:error,
-              %Postgrex.Error{postgres: %{message: @append_only, schema: ^schema, table: ^table}}} =
-               Repo.query(sql)
+              %Postgrex.Error{
+                postgres: %{message: @append_only, schema: ^schema, table: found}
+              }} = Repo.query(sql)
+
+      assert found =~ ~r/\A#{table}(_p[0-9a-f]{16})?\z/
 
       refute @append_only =~ other
     end
