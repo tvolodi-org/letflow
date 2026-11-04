@@ -37,6 +37,10 @@ environment:
 # choice and reason in full). `path` and `path_provider` are added solely
 # to resolve the production on-disk store location
 # (`getApplicationSupportDirectory()`); no other new runtime surface.
+#
+# REQ-732 (codes scan): `mobile_scanner`, the one package that reads barcodes
+# and QR codes from the camera on Android and iOS (see README, "Camera
+# scanning").
 dependencies:
   dio: ^5.11.1
   flutter:
@@ -46,6 +50,7 @@ dependencies:
   flutter_secure_storage: ^11.2.0
   go_router: ^17.5.0
   intl: ^0.20.3
+  mobile_scanner: ^7.5.0
   path: ^1.9.1
   path_provider: ^2.1.5
   sembast: ^3.8.5

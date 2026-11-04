@@ -93,6 +93,9 @@ already shipped; Letflow's is not.
 
 v1 is **online-first with a read-through definition cache.**
 
+The camera scan of barcodes and QR codes (`REQ-732`) is **online only**: every scanned text is resolved by
+`POST /api/v1/modules/codes/resolve`, and there is no offline queue or local lookup for it.
+
 ### Scope table (added 2026-10-01, `REQ-430`)
 
 | Requirement | Scope | Delivered by |
@@ -168,6 +171,14 @@ renderer states exist for exactly this reason.
 D5 introduces a per-tenant **installed-module list** that controls both
 navigation and API access. The mobile app must follow the same contract as the
 SPA.
+
+### First feature folder: `codes` (`REQ-732`)
+
+The first module feature lives in `apps/mobile/lib/features/codes/` (scan screen, controller, resolve client; only
+`mobile_scanner_source.dart` imports the camera package). It is declared in `module_manifest.json` and registered in
+`kFeatureRegistry`, so it is reachable only when `codes` is installed. It needs the camera permission: Android
+`CAMERA` (with `uses-feature camera required=false`) and iOS `NSCameraUsageDescription`. If the permission is refused
+the screen offers a typed-code fallback.
 
 ### Navigation and routes
 

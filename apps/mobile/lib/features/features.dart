@@ -5,6 +5,5 @@
 /// declares each feature's `depends_on` list, enforced by
 /// `test/guards/module_boundary_guard_test.dart`.
 ///
-/// REQ-419 ships no modules yet — the manifest is empty. The first module
-/// requirement populates both.
+/// First module: `codes` (REQ-732), the camera scan of barcodes and QR codes.
 library;
