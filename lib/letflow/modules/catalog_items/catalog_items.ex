@@ -27,6 +27,9 @@ defmodule Letflow.Modules.CatalogItems do
   three lot routes (`Letflow.Modules.CatalogItems.Router`, GH #3610 / REQ-668) behind the one permission `CatalogLotsWrite`, with no role grants (TENANT_ADMIN and PLATFORM_ADMIN hold it); the read API (REQ-507, GH #2664) is below. The unit scale and conversion factors
   are REQ-504 (#2660), not here. `catalog_lot.item_id` is a real foreign key (D-066); the other
   references between the types, `base_uom_id` among them, stay declarative strings (0050 D3.6).
+  The import audits its rows (GH #3739 / REQ-706): `catalog_uom.created|updated`,
+  `catalog_item.created|updated` and `catalog_counterparty.created|updated`, written by
+  `Letflow.Modules.CatalogItems.Import`.
   The manifest declares every type `:tenant_wide` in `scope_declarations` (D-067, 0051 M4;
   enforcement is REQ-519). `item_lot_valid?/3` checks an item and one of its lots; `validate_capture/3` checks the lot, serial and
   expiry captured for an item against its tracking policy (nothing calls it yet).
