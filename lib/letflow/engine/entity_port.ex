@@ -172,7 +172,9 @@ defmodule Letflow.Engine.EntityPort do
           | %{
               required(:applied) => [applied_line()],
               required(:lines_hash) => String.t(),
-              required(:sys_values) => %{optional(String.t()) => String.t() | non_neg_integer()}
+              required(:sys_values) => %{optional(String.t()) => String.t() | non_neg_integer()},
+              # REQ-686: one summary per ledger entry written; absent when none was.
+              optional(:ledger_posts) => [map()]
             }
 
   @typedoc """
@@ -181,6 +183,9 @@ defmodule Letflow.Engine.EntityPort do
   """
   @type failure ::
           {:refused, non_neg_integer(), refusal_code(), detail :: atom()}
+          # REQ-686: a typed ledger refusal: index, neutral core code, wire code (the module's
+          # alias), the closed audit detail atom, and the `details` map for the body only.
+          | {:refused_detailed, non_neg_integer(), atom(), String.t(), atom(), map()}
           | {:failed, non_neg_integer(), step :: atom()}
           | :not_a_line_failure
 

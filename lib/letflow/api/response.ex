@@ -353,6 +353,37 @@ defmodule Letflow.Api.Response do
   end
 
   @doc """
+  REQ-686 (note 12.2): a typed ledger refusal. The status follows the CORE `code`; the body is
+  `{"error": <wire code>, "line_index": n, "details": {...}}` where the wire code is the module's
+  alias when it has one. `details` is the closed map the ledger built (ids, leg numbers, slot
+  values of the caller's own legs, `available` for a reader); atoms become strings.
+  """
+  @spec entity_write_refused_detailed(
+          Plug.Conn.t(),
+          atom(),
+          String.t(),
+          non_neg_integer(),
+          map()
+        ) :: Plug.Conn.t()
+  def entity_write_refused_detailed(conn, code, wire, index, details)
+      when is_atom(code) and is_binary(wire) and is_integer(index) and is_map(details) do
+    send_json(conn, entity_write_status(code), %{
+      "error" => wire,
+      "line_index" => index,
+      "details" => detail_json(details)
+    })
+  end
+
+  defp detail_json(map) when is_map(map) and not is_struct(map),
+    do: Map.new(map, fn {k, v} -> {to_string(k), detail_json(v)} end)
+
+  defp detail_json(list) when is_list(list), do: Enum.map(list, &detail_json/1)
+  defp detail_json(value) when is_boolean(value) or is_nil(value), do: value
+  defp detail_json(value) when is_atom(value), do: Atom.to_string(value)
+  defp detail_json(value) when is_binary(value) or is_integer(value), do: value
+  defp detail_json(_other), do: nil
+
+  @doc """
   The `Retry-After` seconds of a `trigger_backlog_full` answer (REQ-606, decision 0067 D6).
   PROVISIONAL, like the 503 itself, pending the owner's decision (REQ-606 open_questions).
   """
@@ -373,7 +404,13 @@ defmodule Letflow.Api.Response do
   defp entity_write_status(:record_version_conflict), do: 409
   defp entity_write_status(:entity_write_contention), do: 503
   defp entity_write_status(:trigger_backlog_full), do: 503
-  defp entity_write_status(_validation_class), do: 422
+
+  defp entity_write_status(code) do
+    case Letflow.Ledger.Codes.status(code) do
+      status when is_integer(status) -> status
+      nil -> 422
+    end
+  end
 
   @doc """
   HTTP 409 -- the activator of the definition is no longer an active user, so its delegated

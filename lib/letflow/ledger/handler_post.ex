@@ -29,6 +29,12 @@ defmodule Letflow.Ledger.HandlerPost do
        writes each posting in ascending ledger-id order (`Ledger.write_posting/2`). A node without a
        posting line adds nothing (an empty sub-multi).
 
+  ## Failure channel (REQ-686)
+
+  A refusal of the plan step keeps its typed shape; a refusal of the lock or write step is wrapped
+  as `{:ledger_at, step_key, refusal}` so `Letflow.Ledger.Failure.map/2` can give it a line index,
+  with the module's alias applied to the wire code (the core code stays the audit code).
+
   This is the only module outside `Letflow.Ledger` that names `lock_postings` / `write_posting`.
   """
 
@@ -39,6 +45,7 @@ defmodule Letflow.Ledger.HandlerPost do
   alias Letflow.Ledger
   alias Letflow.Ledger.Authority
   alias Letflow.Ledger.Capability
+  alias Letflow.Ledger.Failure
   alias Letflow.Ledger.Validate
 
   @max_command_bytes 262_144
@@ -226,25 +233,49 @@ defmodule Letflow.Ledger.HandlerPost do
   # ---------------------------------------------------------------------
 
   defp run_plan_step(%{origin: {:task, _}} = cap) do
-    with :ok <- authority(cap),
-         :ok <- release(cap.deferred_refusal) do
-      {:ok, {:planned, cap}}
+    with {:ok, read?} <- authority(cap),
+         :ok <- release(cap) do
+      {:ok, {:planned, %{cap | read_disclosed: read?}}}
     end
   end
 
   defp run_plan_step(_cap), do: {:error, {:ledger_denied, :ledger_origin_not_supported}}
 
   defp authority(cap) do
-    case Authority.check(cap) do
-      :ok -> :ok
+    case Authority.check_with_read(cap) do
+      {:ok, read?} -> {:ok, read?}
       {:error, detail} -> {:error, {:ledger_denied, detail}}
     end
   end
 
-  defp release(nil), do: :ok
-  defp release({:typed, refusal}), do: {:error, refusal}
-  defp release({:forbidden, _}), do: {:error, {:ledger_denied, :declare_refused}}
-  defp release({:contract, code}), do: {:error, {:ledger_contract, code}}
+  defp release(%{deferred_refusal: nil}), do: :ok
+  defp release(%{deferred_refusal: {:typed, refusal}} = cap), do: {:error, aliased(refusal, cap)}
+
+  defp release(%{deferred_refusal: {:forbidden, _}}),
+    do: {:error, {:ledger_denied, :declare_refused}}
+
+  defp release(%{deferred_refusal: {:contract, code}}), do: {:error, {:ledger_contract, code}}
+
+  # REQ-686 (note 12.2): the wire code is the module's alias for an aliasable core code, else the
+  # core code itself. The status, the audit entry, the log and any metric follow the core code.
+  defp aliased({:ledger_refused, code, _wire, details}, cap) do
+    core = Atom.to_string(code)
+    wire = Map.get(Map.get(cap.registration, :error_aliases) || %{}, core, core)
+    {:ledger_refused, code, wire, details}
+  end
+
+  defp aliased(other, _cap), do: other
+
+  # A refusal of the lock or write step carries no line index of its own: the step key of the
+  # posting line is added (`{:ledger_at, key, refusal}`) and the alias applied. Assumption
+  # (REQ-686 F5): a plan-wide refusal uses the LOWEST posting line.
+  defp keyed_error({:error, {:ledger_refused, _, _, _} = refusal}, key, cap),
+    do: {:error, {:ledger_at, key, aliased(refusal, cap)}}
+
+  defp keyed_error({:error, {:ledger_contract, _} = contract}, key, _cap),
+    do: {:error, {:ledger_at, key, contract}}
+
+  defp keyed_error(other, _key, _cap), do: other
 
   @doc """
   Appends the one lock step (decision 0073 A3) after the last handler call of a node: a single
@@ -268,31 +299,78 @@ defmodule Letflow.Ledger.HandlerPost do
         [] ->
           Multi.new()
 
-        caps ->
+        keyed ->
+          caps = Enum.map(keyed, &elem(&1, 1))
+          {first_key, first_cap} = hd(keyed)
+
           Multi.new()
-          |> Multi.run({:ledger_lock, :all}, fn _repo, _changes -> Ledger.lock_postings(caps) end)
+          |> Multi.run({:ledger_lock, :all}, fn _repo, _changes ->
+            caps |> Ledger.lock_postings() |> keyed_error(first_key, first_cap)
+          end)
           |> Multi.run({:ledger_write, :all}, fn _repo, %{{:ledger_lock, :all} => plan} ->
-            write_all(plan)
+            write_all(plan, keyed)
           end)
       end
     end)
   end
 
+  # `[{step key, capability}]` ascending by key.
   defp planned(changes) do
     for({{:line, key, :ledger_post}, {:planned, cap}} <- changes, do: {key, cap})
     |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.map(&elem(&1, 1))
   end
 
-  defp write_all(plan) do
+  defp write_all(plan, keyed) do
     plan.postings
     |> Map.keys()
     |> Enum.sort()
     |> Enum.reduce_while({:ok, %{}}, fn ledger_id, {:ok, acc} ->
       case Ledger.write_posting(plan, ledger_id) do
-        {:ok, posted} -> {:cont, {:ok, Map.put(acc, ledger_id, posted)}}
-        {:error, _} = error -> {:halt, error}
+        {:ok, posted} ->
+          {:cont, {:ok, Map.put(acc, ledger_id, posted)}}
+
+        {:error, _} = error ->
+          {key, cap} = cap_for(keyed, ledger_id)
+          {:halt, keyed_error(error, key, cap)}
       end
     end)
+  end
+
+  defp cap_for(keyed, ledger_id) do
+    Enum.find(keyed, hd(keyed), fn {_key, cap} ->
+      is_map(cap.posting) and Map.get(cap.posting, :ledger_id) == ledger_id
+    end)
+  end
+
+  @doc """
+  Maps a failed ledger step's reason to the engine's failure channel
+  (`Letflow.Ledger.Failure.map/2`); `StepWrites` names only this module.
+  """
+  @spec failure(non_neg_integer(), term()) :: Letflow.Engine.EntityPort.failure()
+  def failure(index, reason), do: Failure.map(index, reason)
+
+  @doc """
+  The `ledger.posted` audit summaries of a node's posted entries (REQ-686), read from the changes
+  of the lock merge: ascending by ledger id, one per entry actually written (a duplicate replay
+  writes nothing and has none). Ids, the cause, a count and the chain hash only.
+  """
+  @spec posted_summaries(map()) :: [map()]
+  def posted_summaries(changes) when is_map(changes) do
+    with %{} = written <- Map.get(changes, {:ledger_write, :all}),
+         %{postings: postings} <- Map.get(changes, {:ledger_lock, :all}) do
+      for {ledger_id, %{duplicate: false} = posted} <- Enum.sort(written),
+          %{posting: posting} <- [Map.get(postings, ledger_id)] do
+        %{
+          entry_id: posted.entry_id,
+          ledger_id: ledger_id,
+          posting_seq: posted.posting_seq,
+          cause: posting.cause,
+          leg_count: length(posting.legs),
+          chain_hash: posted.chain_hash
+        }
+      end
+    else
+      _none -> []
+    end
   end
 end

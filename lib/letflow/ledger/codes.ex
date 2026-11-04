@@ -19,6 +19,7 @@ defmodule Letflow.Ledger.Codes do
     {"posting_not_balanced", 409},
     {"posting_already_reversed", 409},
     {"posting_is_reversal", 409},
+    {"posting_is_paired", 409},
     {"idempotency_key_reuse", 409},
     {"client_seq_conflict", 409},
     {"event_time_in_future", 422},
@@ -68,6 +69,17 @@ defmodule Letflow.Ledger.Codes do
   @doc "The core codes of note 12.2 as `{code, http_status}`, in table order."
   @spec core() :: [{String.t(), pos_integer()}]
   def core, do: @core
+
+  @doc """
+  The HTTP status of a core code (string or atom), `nil` for a code that is not a core code.
+  """
+  @spec status(String.t() | atom()) :: pos_integer() | nil
+  def status(code) when is_atom(code) and not is_nil(code), do: status(Atom.to_string(code))
+
+  def status(code) when is_binary(code),
+    do: Enum.find_value(@core, fn {c, s} -> c == code && s end)
+
+  def status(_code), do: nil
 
   @doc "The core codes a module may alias (decision 0073 D3)."
   @spec aliasable() :: [String.t()]
