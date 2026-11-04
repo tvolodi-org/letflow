@@ -67,6 +67,22 @@ defmodule Letflow.Modules.Stock.Router do
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
   so a scoped caller gets the same 404 for an order of another unit as for an unknown id. When the
   tenant's scope enforcement is `on`, the default-class route answers a scoped caller 403 first.
+  REQ-701 / GH #3736 adds seven routes over `Letflow.Modules.Stock.CountSheet` (the count sheet):
+
+  | Route | Permission | Ok |
+  |---|---|---|
+  | `POST /counts/:id/open` (empty body; `Ledger.authorize(:read)` here, a refusal is 404) | `StockCountRecord` | 200 order view |
+  | `GET /counts/:id/lines` (`limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
+  | `PUT /counts/:id/lines/:line_no/count` (body exactly `counted_quantity`, a decimal string) | `StockCountRecord` | 200 line |
+  | `POST /counts/:id/surplus-lines` | `StockCountRecord` | 201 line |
+  | `GET /counts/:id/entries` (`limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
+  | `POST /counts/:id/close` (empty body) | `StockCountRecord` | 200 order view |
+  | `GET /counts/:id/sheet-document` | `StockRead` | 200 issued summary, no content bytes |
+
+  Extra refusal reasons: `not_commission_member`, `count_not_due`, `line_not_found`, `lines_uncounted`,
+  `location_not_in_count`, `item_inactive`, `unit_invalid`, `lot_invalid`, `count_line_exists`,
+  `count_too_large`, `ledger_read_failed`. Opening needs a tenant-wide reader: any other principal is 404.
+
   A refusal is 422 with `extensions.reason` (`count_state_invalid`, `count_scope_not_linked`,
   `count_scope_overlaps`, `count_scope_incomplete`, `count_too_long`, `org_unit_inactive`,
   `employee_inactive`, `chair_without_user`, `not_chair`, `field_not_allowed`, `field_invalid`).
@@ -256,6 +272,76 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  # -- count sheet (REQ-701) ----------------------------------------------------------------------
+
+  # `Ledger.authorize/3` is done here; a refusal reaches the module as `authorized: nil` and answers 404.
+  authz_post "/counts/:id/open", :StockCountRecord do
+    authorized =
+      case Ledger.authorize(conn, @ledger, :read) do
+        {:ok, authorized} -> authorized
+        :error -> nil
+      end
+
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.open(prefix, conn.params["id"], Map.put(opts, :authorized, authorized)),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_get "/counts/:id/lines", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.lines(prefix, conn.params["id"], query_params(conn), opts)
+    end)
+  end
+
+  authz_put "/counts/:id/lines/:line_no/count", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      case conn.body_params do
+        %{"_json" => _} ->
+          {:error, {:field_invalid, "body"}}
+
+        %{"counted_quantity" => quantity} = body when map_size(body) == 1 ->
+          Counts.record_count(prefix, conn.params["id"], conn.params["line_no"], quantity, opts)
+
+        %{} = body when map_size(body) == 0 ->
+          {:error, {:field_invalid, "counted_quantity"}}
+
+        %{} = body ->
+          {:error, {:field_not_allowed, body |> Map.delete("counted_quantity") |> first_key()}}
+      end
+    end)
+  end
+
+  authz_post "/counts/:id/surplus-lines", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 201, fn prefix, opts ->
+      case conn.body_params do
+        %{"_json" => _} -> {:error, {:field_invalid, "body"}}
+        body -> Counts.add_surplus_line(prefix, conn.params["id"], body, opts)
+      end
+    end)
+  end
+
+  authz_get "/counts/:id/entries", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.entries(prefix, conn.params["id"], query_params(conn), opts)
+    end)
+  end
+
+  authz_post "/counts/:id/close", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.close_counting(prefix, conn.params["id"], opts),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_get "/counts/:id/sheet-document", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.sheet_document(prefix, conn.params["id"], opts)
+    end)
+  end
+
   authz_unmatched(:ordinary)
 
   # -- document handlers ---------------------------------------------------------------------------
@@ -334,6 +420,8 @@ defmodule Letflow.Modules.Stock.Router do
   rescue
     Scope.ScopeSetError -> :none
   end
+
+  defp query_params(conn), do: Plug.Conn.fetch_query_params(conn).query_params
 
   defp empty_body?(conn), do: conn.body_params in [%{}, nil]
 

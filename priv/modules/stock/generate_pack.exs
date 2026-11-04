@@ -18,6 +18,8 @@ entity_types = ~w(
   count_order
   count_order_scope
   count_commission_member
+  count_sheet_line
+  count_entry
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole
