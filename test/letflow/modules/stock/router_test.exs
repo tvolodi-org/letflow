@@ -14,6 +14,7 @@ defmodule Letflow.Modules.Stock.RouterTest do
 
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ScopeNodePaths
   alias Letflow.LedgerFixture, as: Fx
   alias Letflow.StockFixture, as: S
   alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
@@ -24,6 +25,8 @@ defmodule Letflow.Modules.Stock.RouterTest do
   @u1 "44444444-4444-4444-8444-444444444444"
   @l1 "33333333-3333-4333-8333-333333333333"
   @l2 "35353535-3535-4535-8535-353535353535"
+  @u2 "46464646-4646-4646-8646-464646464646"
+  @p "47474747-4747-4747-8747-474747474747"
 
   setup do
     ctx = S.setup_oidc!([:a, :b, :c, :s, :p])
@@ -63,6 +66,41 @@ defmodule Letflow.Modules.Stock.RouterTest do
     })
   end
 
+  # u1 receives 10 of sku1 (doc-r), u2 receives 5 of sku2 (doc-h), u1 sends 3 of sku1 to u2 (doc-t).
+  defp seed_units!(schema) do
+    S.post!(schema, "receipt", %{
+      document_id: "doc-r",
+      lines: [S.line(@sku1, "10", %{to: S.side(@u1, @l1)})]
+    })
+
+    S.post!(schema, "receipt", %{
+      document_id: "doc-h",
+      lines: [S.line(@sku2, "5", %{to: S.side(@u2, @l1)})]
+    })
+
+    S.post!(schema, "transfer", %{
+      document_id: "doc-t",
+      lines: [S.line(@sku1, "3", %{from: S.side(@u1, @l1), to: S.side(@u2, @l1)})]
+    })
+  end
+
+  # A token whose first use creates the user (while the group still holds the unscoped grant).
+  defp login!(ctx, sub) do
+    tok = S.token(ctx, :s, ["TENANT_ADMIN"], sub: sub)
+    ok!(S.get("/balances", tok))
+    tok
+  end
+
+  # Drops the group grant and gives each user (by name) one TENANT_ADMIN grant on its node.
+  defp scope_users!(schema, grants) do
+    _ = RSG.raw_delete_rows!(schema, RSG.group_of!(schema, "TENANT_ADMIN"), "TENANT_ADMIN")
+
+    for {sub, node} <- grants do
+      user = Letflow.Repo.one!(from(u in User, where: u.username == ^sub), prefix: schema)
+      :ok = RSG.raw_user_row!(schema, user.id, "TENANT_ADMIN", node)
+    end
+  end
+
   defp ledger_statements(fun) do
     {result, statements} = Fx.record(fun)
     {result, Enum.filter(statements, fn {sql, _} -> sql =~ "ledger_" end)}
@@ -74,7 +112,7 @@ defmodule Letflow.Modules.Stock.RouterTest do
       body = ok!(S.get("/balances", ctx.tok_a))
 
       assert body |> Map.keys() |> Enum.sort() ==
-               ~w(as_of basis cutoff_seq filters ledger_id ledger_seq next_cursor rows timezone)
+               ~w(as_of basis coverage cutoff_seq filters ledger_id ledger_seq next_cursor rows timezone)
 
       assert %{
                "basis" => "posting_seq",
@@ -382,37 +420,66 @@ defmodule Letflow.Modules.Stock.RouterTest do
       end
     end
 
-    test "T-R-SC a scoped reader gets 404 on every route (P25 lifts balances and movements)",
-         ctx do
+    test "T-R-SC a scoped reader reads its own units; reconcile stays 404", ctx do
       s = S.tenant!("stk-s", ctx.names.s)
       seed!(s.schema_name)
-      tok = S.token(ctx, :s, ["TENANT_ADMIN"], sub: "scoped-reader")
-
-      # first login creates the user and the group membership; then the grant becomes scoped
-      ok!(S.get("/balances", tok))
-
-      user =
-        Letflow.Repo.one!(from(u in User, where: u.username == "scoped-reader"),
-          prefix: s.schema_name
-        )
-
-      _ =
-        RSG.raw_delete_rows!(
-          s.schema_name,
-          RSG.group_of!(s.schema_name, "TENANT_ADMIN"),
-          "TENANT_ADMIN"
-        )
-
       node = RSG.node!(s.schema_name)
-      :ok = RSG.raw_user_row!(s.schema_name, user.id, "TENANT_ADMIN", node)
-
+      tok = login!(ctx, "scoped-reader")
+      scope_users!(s.schema_name, [{"scoped-reader", node}])
       reference = c_reference(ctx)
 
-      for path <- ["/balances", "/movements", "/reconcile"] do
-        conn = S.get(path, tok)
-        assert conn.status == 404, path
-        assert strip(S.json(conn)) == reference, path
-      end
+      # the grant node holds no stock: both reads answer 200 with no rows
+      assert ok!(S.get("/balances", tok))["rows"] == []
+      assert ok!(S.get("/movements", tok))["rows"] == []
+
+      conn = S.get("/reconcile", tok)
+      assert conn.status == 404
+      assert strip(S.json(conn)) == reference
+    end
+
+    test "T-R-SV visible rows, coverage label and masked legs for a scoped reader", ctx do
+      s = S.tenant!("stk-s", ctx.names.s)
+      schema = s.schema_name
+      seed_units!(schema)
+
+      {:ok, _} = ScopeNodePaths.write({:insert, @p, nil}, schema)
+      {:ok, _} = ScopeNodePaths.write({:insert, @u1, @p}, schema)
+      {:ok, _} = ScopeNodePaths.write({:insert, @u2, @p}, schema)
+
+      tok1 = login!(ctx, "reader-u1")
+      tok_p = login!(ctx, "reader-p")
+      scope_users!(schema, [{"reader-u1", @u1}, {"reader-p", @p}])
+
+      body = ok!(S.get("/balances", tok1))
+      assert body["coverage"] == nil
+      assert Enum.map(body["rows"], & &1["org_unit"]) |> Enum.uniq() == [@u1]
+
+      sub = ok!(S.get("/balances?scope_subtree=#{@p}", tok1))
+      assert sub["coverage"] == "visible_only"
+      assert Enum.map(sub["rows"], & &1["org_unit"]) |> Enum.uniq() == [@u1]
+
+      moves = ok!(S.get("/movements", tok1))["rows"]
+      transfer = Enum.find(moves, &(&1["document_id"] == "doc-t"))
+      [full] = Enum.filter(transfer["legs"], &(!Map.has_key?(&1, "masked")))
+      [masked] = Enum.filter(transfer["legs"], & &1["masked"])
+      assert full["org_unit"] == @u1
+      assert masked |> Map.keys() |> Enum.sort() == ~w(leg_no masked quantity unit_ref)
+      assert Decimal.equal?(Decimal.new(masked["quantity"]), 3)
+      # a movement wholly in the hidden unit is absent
+      refute Enum.any?(moves, &(&1["document_id"] == "doc-h"))
+
+      all = ok!(S.get("/balances?scope_subtree=#{@p}", tok_p))
+      assert all["coverage"] == "complete"
+      assert Enum.map(all["rows"], & &1["org_unit"]) |> Enum.uniq() |> Enum.sort() == [@u1, @u2]
+
+      full_moves = ok!(S.get("/movements?scope_subtree=#{@p}", tok_p))["rows"]
+      refute Enum.any?(full_moves, fn m -> Enum.any?(m["legs"], &Map.has_key?(&1, "masked")) end)
+
+      # an unknown subtree and a bad one
+      unknown = "99999999-9999-4999-8999-999999999999"
+      u = ok!(S.get("/balances?scope_subtree=#{unknown}", tok1))
+      assert u["rows"] == [] and u["coverage"] == "visible_only"
+      assert reason!(S.get("/balances?scope_subtree=", tok1), 422) == "invalid_filter"
     end
 
     test "T-R-403 a TASK_WORKER is forbidden on every route and no ledger query runs", ctx do
