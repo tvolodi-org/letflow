@@ -6,7 +6,7 @@ defmodule Letflow.Modules.Stock.Router do
 
   | Route | Permission | Ledger call | 200 body |
   |---|---|---|---|
-  | `GET /balances` | `StockRead` | `authorize(:read)`, `balances/4` | `basis, ledger_id, cutoff_seq, as_of, timezone, filters, ledger_seq, next_cursor, rows` |
+  | `GET /balances` | `StockRead` | `authorize(:read)`, `balances/4` | `basis, ledger_id, cutoff_seq, as_of, timezone, filters, ledger_seq, next_cursor, rows` (+ `as_of_date` when asked) |
   | `GET /movements` | `StockRead` | `authorize(:read)`, `entries/3` | `rows, next_cursor` |
   | `GET /reconcile` | `StockReconcile` | `authorize(:reconcile)`, `reconcile/2` | `ledger_id, checked_through_seq, mismatches, gap_check, chain_check, audit_check, next_cursor` |
 
@@ -19,7 +19,11 @@ defmodule Letflow.Modules.Stock.Router do
   `:all` until plan task P25 (REQ-682) lifts the guard `tenant_wide/1`. `Map.get` is used because
   Rule 8 forbids naming the `Authorized` struct in module code.
 
-  Refusals: 422 `invalid_filter` / `cutoff_in_future` / `run_expired`, 409 `reconcile_busy`, 503
+  `GET /balances?as_of_date=YYYY-MM-DD[&cutoff_seq=N]` (REQ-704) answers the balance at the end of that
+  day in the tenant time zone through `Ledger.balances_on_date/5`; without `cutoff_seq` the cutoff is
+  the current posting counter, stated in `cutoff_seq`. It is refused with `basis` or `as_of`.
+
+  Refusals: 422 `invalid_filter` / `cutoff_in_future` / `invalid_timezone` / `run_expired`, 409 `reconcile_busy`, 503
   `ledger_read_timeout` (a statement timeout 57014 of the core). Each carries only the extension key
   `reason`. The optional app env `:stock_reconcile_statement_timeout_ms` (1..10000, unset everywhere
   but a test) can only lower the reconcile statement timeout; it is the seam that lets a test force 57014.
@@ -40,7 +44,7 @@ defmodule Letflow.Modules.Stock.Router do
   @slots ~w(sku location org_unit responsible lot)
   @optional_empty ~w(responsible lot)
   @text_filters ~w(cause document_type document_id correlation_id)
-  @balance_keys ~w(basis cutoff_seq as_of limit cursor) ++ @slots
+  @balance_keys ~w(basis cutoff_seq as_of as_of_date limit cursor) ++ @slots
   @movement_keys ~w(from_seq to_seq limit cursor) ++ @text_filters
 
   authz_get "/balances", :StockRead do
@@ -49,7 +53,7 @@ defmodule Letflow.Modules.Stock.Router do
            {:ok, basis} <- basis(params),
            {:ok, filters} <- slot_filters(params),
            {:ok, page} <- page(params, :text) do
-        case Ledger.balances(authorized, basis, filters, page) do
+        case read_balances(authorized, basis, filters, page) do
           {:ok, report} -> Response.ok(conn, balances_body(report))
           {:error, reason} -> refuse(conn, reason)
         end
@@ -141,7 +145,21 @@ defmodule Letflow.Modules.Stock.Router do
   defp check({:broken_at, n}), do: %{broken_at: n}
   defp check({:mismatch_at, n}), do: %{mismatch_at: n}
 
+  defp read_balances(authorized, {:date, date, n}, filters, page),
+    do: Ledger.balances_on_date(authorized, date, n, filters, page)
+
+  defp read_balances(authorized, basis, filters, page),
+    do: Ledger.balances(authorized, basis, filters, page)
+
   defp balances_body(report) do
+    body = balances_body_base(report)
+
+    if Map.has_key?(report, :as_of_date),
+      do: Map.put(body, :as_of_date, report.as_of_date),
+      else: body
+  end
+
+  defp balances_body_base(report) do
     %{
       basis: report.basis.type,
       ledger_id: report.ledger_id,
@@ -163,6 +181,20 @@ defmodule Letflow.Modules.Stock.Router do
     if Enum.all?(params, fn {key, value} -> key in allowed and is_binary(value) end),
       do: {:ok, params},
       else: {:error, :invalid_filter}
+  end
+
+  # REQ-704: `as_of_date=YYYY-MM-DD` reads the balance at the end of that day in the tenant time
+  # zone; `cutoff_seq` is optional (absent: `:latest`, stated in the answer); it excludes `basis`
+  # and `as_of`. Assumption, owner may change at GATE B.
+  defp basis(%{"as_of_date" => raw} = params) do
+    with true <- Regex.match?(~r/\A\d{4}-\d{2}-\d{2}\z/, raw),
+         {:ok, date} <- Date.from_iso8601(raw),
+         false <- Map.has_key?(params, "basis") or Map.has_key?(params, "as_of"),
+         {:ok, cutoff} <- optional_uint(params, "cutoff_seq") do
+      {:ok, {:date, date, cutoff || :latest}}
+    else
+      _bad -> {:error, :invalid_filter}
+    end
   end
 
   defp basis(params) do
@@ -302,6 +334,7 @@ defmodule Letflow.Modules.Stock.Router do
     do: problem(conn, Error.service_unavailable("request refused"), "ledger_read_timeout")
 
   defp refuse(conn, :cutoff_in_future), do: unprocessable(conn, "cutoff_in_future")
+  defp refuse(conn, :invalid_timezone), do: unprocessable(conn, "invalid_timezone")
   defp refuse(conn, :run_expired), do: unprocessable(conn, "run_expired")
   defp refuse(conn, _invalid), do: unprocessable(conn, "invalid_filter")
 

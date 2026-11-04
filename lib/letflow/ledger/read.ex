@@ -64,24 +64,51 @@ defmodule Letflow.Ledger.Read do
   alias Letflow.Ledger.Authorized
   alias Letflow.Ledger.Digest
   alias Letflow.Repo
-  alias Letflow.TenantProvisioning
 
   @k_fields [:k1, :k2, :k3, :k4, :k5, :k6, :k7, :k8]
   @default_limit 50
-  @max_value_bytes 200
   @timezone_form ~r/\A[A-Za-z0-9_+\-\/]{1,64}\z/
+  @max_value_bytes 200
   @entry_filters ~w(cause document_type document_id correlation_id from_seq to_seq scope_subtree)
   @subtree_key "scope_subtree"
 
   # ---- balances ------------------------------------------------------------------------------
 
   @doc false
-  def balances(%Authorized{} = a, basis, filters, page) do
+  def balances(%Authorized{} = a, basis, filters, page),
+    do: balances_in_zone(a, basis, filters, page, fn -> zone_of(a) end)
+
+  # REQ-704: the as-of-date read states exactly the zone it computed its boundary with. The zone
+  # name is stated as stored: `TenantTimezone` validates it when it is written.
+  @doc false
+  def balances_on_date(%Authorized{} = a, %Date{} = date, known_through, filters, page) do
+    with {:ok, tenant} <- fetch_tenant(a),
+         zone = TenantTimezone.of(tenant),
+         {:ok, boundary} <- TenantTimezone.start_of_next_day(date, zone),
+         as_of = DateTime.add(boundary, -1, :microsecond),
+         {:ok, report} <-
+           balances_in_zone(a, {:event_time, as_of, known_through}, filters, page, zone) do
+      {:ok, Map.put(report, :as_of_date, Date.to_iso8601(date))}
+    end
+  end
+
+  def balances_on_date(_a, _date, _known_through, _filters, _page), do: {:error, :invalid_filter}
+
+  defp fetch_tenant(%Authorized{tenant_id: id}) when is_binary(id) do
+    case Identity.get_tenant(id) do
+      {:ok, tenant} -> {:ok, tenant}
+      _error -> {:error, :invalid_timezone}
+    end
+  end
+
+  defp fetch_tenant(_a), do: {:error, :invalid_timezone}
+
+  defp balances_in_zone(%Authorized{} = a, basis, filters, page, zone) do
     with {:ok, kind, t, n} <- check_basis(basis),
          {:ok, filt, subtree} <- check_slot_filters(a, filters),
          {:ok, limit, cursor} <- check_page(page, &decode_balance_cursor/1),
          {:ok, n, key} <- apply_cursor(n, cursor) do
-      run_balances(a, kind, t, n, filt, subtree, limit, key)
+      run_balances(a, kind, t, n, filt, subtree, limit, key, zone)
     end
   end
 
@@ -200,7 +227,7 @@ defmodule Letflow.Ledger.Read do
   defp apply_cursor(n, {n, keys}), do: {:ok, n, keys}
   defp apply_cursor(_n, _cursor), do: {:error, :invalid_filter}
 
-  defp run_balances(a, kind, t, n, filt, subtree, limit, key) do
+  defp run_balances(a, kind, t, n, filt, subtree, limit, key, zone) do
     rows_q = rows_query(a, kind, t, n, filt, subtree, key, limit + 1)
 
     query =
@@ -246,7 +273,7 @@ defmodule Letflow.Ledger.Read do
          ledger_id: a.ledger_id,
          cutoff_seq: cutoff,
          as_of: t,
-         timezone: timezone(a.prefix),
+         timezone: if(is_function(zone, 0), do: zone.(), else: zone),
          filters: filters_echo(a, filt, subtree),
          coverage: coverage(a, subtree),
          ledger_seq: ledger_seq,
@@ -444,18 +471,20 @@ defmodule Letflow.Ledger.Read do
   defp coverage(%Authorized{scope: {:nodes, ids}}, subtree),
     do: if(subtree in ids, do: :complete, else: :visible_only)
 
-  # The tenant timezone is only stated in the report (storage stays UTC). Read from the tenant
-  # record's settings when present; the default is the owner's assumption (D-086/D-087).
-  defp timezone(prefix) do
-    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
-         {:ok, tenant} <- Identity.get_tenant(tenant_id),
-         %{"timezone" => zone} when is_binary(zone) <- tenant.settings,
+  # The tenant timezone is only stated in the report (storage stays UTC). A missing tenant id (test
+  # fixtures), tenant or a malformed stored name gives the default (`balances/4` stays total; the
+  # as-of-date read refuses instead, it needs a real zone for its boundary), which is the owner's assumption (D-086/D-087).
+  defp zone_of(%Authorized{tenant_id: id}) when is_binary(id) do
+    with {:ok, tenant} <- Identity.get_tenant(id),
+         zone = TenantTimezone.of(tenant),
          true <- Regex.match?(@timezone_form, zone) do
       zone
     else
       _absent_or_malformed -> TenantTimezone.default()
     end
   end
+
+  defp zone_of(_a), do: TenantTimezone.default()
 
   # ---- entries -------------------------------------------------------------------------------
 

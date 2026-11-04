@@ -152,6 +152,106 @@ defmodule Letflow.Modules.Stock.RouterTest do
     end
   end
 
+  describe "balances as of a date (REQ-704)" do
+    # The default tenant zone is Asia/Almaty (+05:00, no DST): the date of "now" there
+    defp almaty_today,
+      do: DateTime.utc_now() |> DateTime.add(5 * 3600) |> DateTime.to_date() |> Date.to_iso8601()
+
+    defp almaty_day(offset),
+      do:
+        DateTime.utc_now()
+        |> DateTime.add(5 * 3600)
+        |> DateTime.to_date()
+        |> Date.add(offset)
+        |> Date.to_iso8601()
+
+    test "T-AD-R1 R2 R6 the date read, its default cutoff, and unchanged keys without it", ctx do
+      seed!(ctx.a.schema_name)
+      today = almaty_today()
+
+      plain = ok!(S.get("/balances", ctx.tok_a))
+      refute Map.has_key?(plain, "as_of_date")
+
+      body = ok!(S.get("/balances?as_of_date=#{today}&cutoff_seq=3", ctx.tok_a))
+
+      assert body |> Map.keys() |> Enum.sort() ==
+               ~w(as_of as_of_date basis cutoff_seq filters ledger_id ledger_seq next_cursor rows timezone)
+
+      assert %{"basis" => "event_time", "as_of_date" => ^today, "timezone" => "Asia/Almaty"} =
+               body
+
+      assert body["cutoff_seq"] == 3 and length(body["rows"]) == 3
+
+      latest = ok!(S.get("/balances?as_of_date=#{today}", ctx.tok_a))
+      assert latest["cutoff_seq"] == latest["ledger_seq"] and latest["cutoff_seq"] == 3
+
+      # yesterday's end is before every posting of the test
+      assert %{"rows" => []} = ok!(S.get("/balances?as_of_date=#{almaty_day(-1)}", ctx.tok_a))
+
+      # a later posting does not change the (date, cutoff) answer
+      S.post!(ctx.a.schema_name, "receipt", %{
+        lines: [S.line(@sku2, "1", %{to: S.side(@u1, @l1)})]
+      })
+
+      again = ok!(S.get("/balances?as_of_date=#{today}&cutoff_seq=3", ctx.tok_a))
+      assert Jason.encode!(again["rows"]) == Jason.encode!(body["rows"])
+    end
+
+    test "T-AD-R3 bad date queries are refused before any ledger query", ctx do
+      seed!(ctx.a.schema_name)
+      today = almaty_today()
+
+      for path <- [
+            "/balances?as_of_date=2026-13-01",
+            "/balances?as_of_date=20261101",
+            "/balances?as_of_date=",
+            "/balances?as_of_date=#{today}&basis=posting_seq",
+            "/balances?as_of_date=#{today}&basis=event_time&cutoff_seq=1&as_of=2026-01-01T00:00:00Z",
+            "/balances?as_of_date=#{today}&as_of=2026-01-01T00:00:00Z",
+            "/balances?as_of_date=#{today}&cutoff_seq=-1",
+            "/balances?as_of_date[]=#{today}"
+          ] do
+        {conn, statements} = ledger_statements(fn -> S.get(path, ctx.tok_a) end)
+        assert reason!(conn, 422) == "invalid_filter", path
+        assert statements == [], path
+      end
+    end
+
+    test "T-AD-R4 a cutoff above the counter and an unknown stored zone are 422", ctx do
+      seed!(ctx.a.schema_name)
+      today = almaty_today()
+
+      assert reason!(S.get("/balances?as_of_date=#{today}&cutoff_seq=99999", ctx.tok_a), 422) ==
+               "cutoff_in_future"
+
+      :ok = Fx.put_tenant_settings!(ctx.a, %{"timezone" => "Mars/Olympus"})
+
+      {conn, statements} =
+        ledger_statements(fn -> S.get("/balances?as_of_date=#{today}", ctx.tok_a) end)
+
+      assert reason!(conn, 422) == "invalid_timezone"
+      assert statements == []
+    end
+
+    test "T-AD-R5 B's admin sees none of A's rows by date; refusals as the plain read", ctx do
+      seed!(ctx.a.schema_name)
+      today = almaty_today()
+      tok_b = S.token(ctx, :b, ["TENANT_ADMIN"])
+
+      assert %{"rows" => [], "ledger_seq" => 0} =
+               ok!(S.get("/balances?as_of_date=#{today}", tok_b))
+
+      assert reason!(
+               S.get("/balances?as_of_date=#{today}&tenant_id=#{ctx.a.tenant_id}", tok_b),
+               422
+             ) ==
+               "invalid_filter"
+
+      worker = S.token(ctx, :a, ["TASK_WORKER"], sub: "worker-ad")
+      assert_status(S.get("/balances?as_of_date=#{today}", worker), 403)
+    end
+  end
+
   describe "movements" do
     test "T-RM-1 order, filter, paging, key sets and no internal columns", ctx do
       seed!(ctx.a.schema_name)

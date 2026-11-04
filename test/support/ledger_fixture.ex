@@ -296,6 +296,7 @@ defmodule Letflow.LedgerFixture do
   def authorized(schema, purpose \\ :reconcile, ledger_id \\ @ledger_id) do
     %Ledger.Authorized{
       prefix: schema,
+      tenant_id: nil,
       ledger_id: ledger_id,
       registration_name: "test",
       purpose: purpose,
