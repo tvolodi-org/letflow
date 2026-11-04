@@ -429,6 +429,33 @@ defmodule Letflow.LoginDirectoryTest do
                end)
     end
 
+    test "GH #2498: an undefined column is the fixed :directory_unavailable, no exception text" do
+      %{tenant_id: tenant_id} = Fx.tenant!()
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          result =
+            in_tx(fn ->
+              Repo.query!("SAVEPOINT s")
+
+              Repo.query!(
+                "ALTER TABLE tenant_login_directory RENAME COLUMN key_id TO key_id_drift"
+              )
+
+              r = LoginDirectory.upsert_entry(tenant_id, "drift@x.com")
+              Repo.query!("ROLLBACK TO SAVEPOINT s")
+              r
+            end)
+
+          send(self(), {:result, result})
+        end)
+
+      assert_received {:result, {:error, :directory_unavailable}}
+      refute log =~ "does not exist"
+      refute log =~ "undefined_column"
+      refute log =~ "Postgrex.Error"
+    end
+
     test "remove_entry_if_unreferenced/3: :absent, :kept while another active user holds the email, then :removed" do
       %{tenant_id: tenant_id, schema_name: schema_name} = Fx.tenant!()
       email = Fx.unique_email("rm")
