@@ -693,6 +693,8 @@ defmodule Letflow.Routers.Entities do
     |> maybe_put_optional(:decimal_scale, field, "decimal_scale")
     # GH #2654: opt-in exact decimal strings (decision 0060); false passes through, null is absent.
     |> maybe_put_optional(:decimal_strict, field, "decimal_strict")
+    # REQ-636: module reference `{module_id, entity_type}` on a string field; the Validator judges it.
+    |> maybe_put_optional(:reference, field, "reference")
     |> maybe_put_optional(:default, field, "default")
     |> maybe_put_optional(:locales, field, "locales")
     # GH #2532: numeric range keys. A JSON null is dropped (absent); any
