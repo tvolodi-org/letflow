@@ -1205,8 +1205,15 @@
 3 test/letflow/documents/attach_artefact_test.exs 7346.89
 16 test/letflow/documents/artefact_guard_test.exs 7346.89
 20 test/letflow/documents/fetch_artefact_test.exs 7346.89
+5 test/letflow/modules/stock/two_side_registration_test.exs 7346.89
+7 test/letflow/modules/stock/two_side_issue_test.exs 7346.89
+12 test/letflow/modules/stock/two_side_reversal_test.exs 7346.89
+18 test/letflow/modules/stock/two_side_router_test.exs 7346.89
+23 test/letflow/modules/stock/two_side_posting_test.exs 7346.89
 19 test/letflow/modules/stock/count_sheet_test.exs 7346.89
 10 test/letflow/modules/stock/count_sheet_router_test.exs 7346.89
+3 test/letflow/modules/procurement/attachment_routes_test.exs 7346.89
+20 test/letflow/modules/procurement/attachments_test.exs 7346.89
 6 test/letflow/modules/stock/receipt_fields_test.exs 7346.89
 6 test/letflow/modules/stock/receipt_tracking_test.exs 7346.89
 6 test/letflow/modules/stock/receipt_posting_test.exs 7346.89
