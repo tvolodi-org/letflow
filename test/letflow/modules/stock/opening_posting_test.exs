@@ -28,7 +28,7 @@ defmodule Letflow.Modules.Stock.OpeningPostingTest do
     Map.put(ctx, :tok_u2, S.token(ctx, :a, ["TENANT_ADMIN"], sub: "second-admin"))
   end
 
-  defp complete_route(ctx, task, token) do
+  defp complete_route(_ctx, task, token) do
     conn =
       Plug.Test.conn(:post, "/api/v1/tasks/#{task.id}/complete", "{}")
       |> Plug.Conn.put_req_header("authorization", "Bearer " <> token)
