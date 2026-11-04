@@ -142,7 +142,7 @@ defmodule Letflow.Ledger.ReportTest do
     assert {:ok, _} = Task.await(poster, 20_000)
   end
 
-  property "T-RP-3 CS-01: opening + movements in (N0, N1] == closing, both bases", %{} do
+  test "T-RP-3 CS-01: opening + movements in (N0, N1] == closing, both bases" do
     check all(
             ops <-
               StreamData.list_of(
