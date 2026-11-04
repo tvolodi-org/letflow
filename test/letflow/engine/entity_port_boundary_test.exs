@@ -89,6 +89,10 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
 
   # SEC F8 (GH 2632), forms 5 and 7: a delegation helper or a new file outside the scanned globs.
   # The AST inventory runs over ALL of lib/**; docs and comments are not AST nodes.
+  # REQ-685: the build side of `HandlerWrites.post/3` lives in the ledger scan scope (rule 7) and
+  # names `HandlerWrites` for the per-call token seam; the two files are pinned, not a new class.
+  @ledger_post_holders ["lib/letflow/ledger/handler_post.ex", "lib/letflow/ledger/capability.ex"]
+
   describe "port inventory over lib/** (SEC F8)" do
     test "T-F8-5a only the pinned files name a holder or reach the port's accessors" do
       inventory =
@@ -99,6 +103,7 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
       holders =
         for {file, %{holders: [_ | _]}} <- inventory,
             not String.starts_with?(file, "lib/letflow/entities/"),
+            file not in @ledger_post_holders,
             do: file
 
       accessors = for {file, %{accessors: [_ | _]}} <- inventory, do: file

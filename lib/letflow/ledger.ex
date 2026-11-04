@@ -154,7 +154,6 @@ defmodule Letflow.Ledger do
   @prefix_form ~r/\Atenant_[0-9a-f]{32}\z/
   @control ~r/[\x00-\x1f\x7f]/
   @limit Decimal.new("1.0E+21")
-  @future_seconds 300
   @page_cap 200
 
   @type reconciliation :: Reconcile.reconciliation()
@@ -175,7 +174,7 @@ defmodule Letflow.Ledger do
   @doc false
   @spec post(Capability.t()) ::
           {:ok, posted()} | {:error, refusal()} | {:error, {:ledger_contract, atom()}}
-  def post(%Capability{} = cap) do
+  def post(cap) when is_struct(cap, Capability) do
     with {:ok, plan} <- lock_postings([cap]),
          [ledger_id] <- Map.keys(plan.postings) do
       write_posting(plan, ledger_id)
@@ -202,7 +201,7 @@ defmodule Letflow.Ledger do
 
   # No database statement: a list of one or two capabilities of one well-formed prefix.
   defp check_plan_shape(caps) when is_list(caps) and caps != [] do
-    prefixes = for %Capability{prefix: prefix} <- caps, do: prefix
+    prefixes = for cap <- caps, is_struct(cap, Capability), do: cap.prefix
 
     cond do
       length(prefixes) != length(caps) -> {:error, {:ledger_contract, :invalid_capability}}
@@ -754,7 +753,9 @@ defmodule Letflow.Ledger do
 
   defp check_bounds(_bounds, _names), do: :error
 
-  defp check_identity(%Capability{subject_id: s, actor_id: a, origin_key: o}) do
+  defp check_identity(cap) do
+    %{subject_id: s, actor_id: a, origin_key: o} = cap
+
     with {:ok, subject} <- cast_uuid(s),
          {:ok, actor} <- cast_uuid(a),
          true <- is_binary(o) and byte_size(o) in 1..200 and String.valid?(o),
@@ -890,16 +891,8 @@ defmodule Letflow.Ledger do
   # -- write -----------------------------------------------------------------------------------
 
   # Under the counter lock, before any write: a refusal writes nothing.
-  defp check_event_time(event_time, posting_time, registration) do
-    oldest = DateTime.add(posting_time, -registration.max_event_lateness_hours * 3600, :second)
-    newest = DateTime.add(posting_time, @future_seconds, :second)
-
-    cond do
-      DateTime.compare(event_time, newest) == :gt -> Validate.refuse(:event_time_in_future, %{})
-      DateTime.compare(event_time, oldest) == :lt -> Validate.refuse(:event_time_too_old, %{})
-      true -> :ok
-    end
-  end
+  defp check_event_time(event_time, posting_time, registration),
+    do: Validate.check_event_window(event_time, posting_time, registration)
 
   @doc false
   @spec write_posting(LockedPlan.t(), String.t()) ::

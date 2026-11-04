@@ -101,7 +101,11 @@ defmodule Letflow.LedgerFixture do
         ),
       subject_id: Keyword.get(opts, :subject_id, Ecto.UUID.generate()),
       actor_id: Ecto.UUID.generate(),
-      origin_key: Keyword.get(opts, :origin_key, "origin-#{unique}")
+      origin_key: Keyword.get(opts, :origin_key, "origin-#{unique}"),
+      origin: Keyword.get(opts, :origin, {:task, Ecto.UUID.generate()}),
+      instance_id: Ecto.UUID.generate(),
+      credential: Keyword.get(opts, :credential, :oidc),
+      deferred_refusal: Keyword.get(opts, :deferred_refusal)
     }
   end
 

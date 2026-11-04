@@ -135,6 +135,8 @@ defmodule Letflow.Engine.EntityPort do
           # `task_id` / `dispatch_id` pair, so "exactly one of the two" cannot be violated.
           required(:origin) => origin(),
           optional(:subject_id) => Ecto.UUID.t(),
+          # REQ-685: the credential kind of the completing request (nil when the caller gave none).
+          optional(:credential) => atom() | nil,
           optional(:guard_budget_ms) => non_neg_integer(),
           required(:instance_id) => Ecto.UUID.t(),
           required(:node_id) => String.t(),

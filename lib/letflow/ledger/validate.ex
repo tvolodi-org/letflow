@@ -57,6 +57,55 @@ defmodule Letflow.Ledger.Validate do
 
   @text_fields [reason_code: 64, document_type: 128, document_id: 128, related_document_id: 128]
 
+  @reasons [
+    :reason_required,
+    :offline_fields_incomplete,
+    :device_id_invalid,
+    :client_seq_invalid,
+    :client_event_time_invalid,
+    :unknown_cause,
+    :no_legs,
+    :too_many_legs,
+    :quantity_invalid,
+    :quantity_scale,
+    :quantity_zero,
+    :quantity_range,
+    :k1_empty,
+    :slot_invalid,
+    :unit_invalid,
+    :unit_not_allowed,
+    :sign_mismatch,
+    :ledger_id_invalid,
+    :client_op_id_invalid,
+    :text_field,
+    :attrs_invalid,
+    :posting_shape
+  ]
+
+  @future_seconds 300
+
+  @doc "The closed set of `invalid_posting` reasons (kept in step with `reason/0` by a test)."
+  @spec reasons() :: [reason()]
+  def reasons, do: @reasons
+
+  @doc """
+  The event-time window of a posting (REQ-621, moved here by REQ-685 so the build-time check and
+  the run-time check under the counter lock use ONE function): not later than 300 s after the
+  posting time, not older than the registration's lateness allowance. Pure.
+  """
+  @spec check_event_window(DateTime.t(), DateTime.t(), map()) ::
+          :ok | {:error, {:ledger_refused, atom(), String.t(), map()}}
+  def check_event_window(event_time, posting_time, registration) do
+    oldest = DateTime.add(posting_time, -registration.max_event_lateness_hours * 3600, :second)
+    newest = DateTime.add(posting_time, @future_seconds, :second)
+
+    cond do
+      DateTime.compare(event_time, newest) == :gt -> refuse(:event_time_in_future, %{})
+      DateTime.compare(event_time, oldest) == :lt -> refuse(:event_time_too_old, %{})
+      true -> :ok
+    end
+  end
+
   @doc "A typed refusal tuple."
   @spec refuse(atom(), map()) :: {:error, {:ledger_refused, atom(), String.t(), map()}}
   def refuse(code, details), do: {:error, {:ledger_refused, code, Atom.to_string(code), details}}
