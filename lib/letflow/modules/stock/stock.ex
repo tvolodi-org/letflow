@@ -57,6 +57,12 @@ defmodule Letflow.Modules.Stock do
   only), typed input, surplus lines, the append-only entry log, close (issues the `count.sheet`
   document). The stock module is installed on no tenant yet, so the changed pack touches no existing row.
 
+  ## Count paperwork (REQ-719 / GH #3762; version 0.6.0)
+
+  One read route, `GET /counts/:id/paperwork/:kind` (`StockRead`), answers the `.xlsx` of an issued count
+  order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
+  `CountPaperworkSource`). No migration, record type or permission.
+
   ## Slots and their order (append-only, rule 12)
 
   `sku, location, org_unit, responsible, lot`, all uuid text. `sku` is slot 1 because the sign rule
@@ -130,7 +136,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.5.0",
+    version: "0.6.0",
     depends_on: ["catalog_items", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
@@ -164,6 +170,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/counts", :StockRead},
       {"GET", "/counts/:id", :StockRead},
       {"GET", "/counts/:id/document", :StockRead},
+      {"GET", "/counts/:id/paperwork/:kind", :StockRead},
       {"POST", "/counts/:id/open", :StockCountRecord},
       {"GET", "/counts/:id/lines", :StockRead},
       {"PUT", "/counts/:id/lines/:line_no/count", :StockCountRecord},

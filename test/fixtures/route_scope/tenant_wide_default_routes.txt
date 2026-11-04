@@ -46,6 +46,7 @@ GET /modules/stock/counts/:id StockRead
 GET /modules/stock/counts/:id/document StockRead
 GET /modules/stock/counts/:id/entries StockRead
 GET /modules/stock/counts/:id/lines StockRead
+GET /modules/stock/counts/:id/paperwork/:kind StockRead
 GET /modules/stock/counts/:id/sheet-document StockRead
 GET /modules/stock/documents StockRead
 GET /modules/stock/documents/:id StockRead
