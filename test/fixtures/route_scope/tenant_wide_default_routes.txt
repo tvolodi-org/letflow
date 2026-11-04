@@ -43,10 +43,12 @@ GET /modules/procurement/purchase-requests/:id/lines/:line_no ProcurementRequest
 GET /modules/stock/balances StockRead
 GET /modules/stock/counts StockRead
 GET /modules/stock/counts/:id StockRead
+GET /modules/stock/counts/:id/differences StockRead
 GET /modules/stock/counts/:id/document StockRead
 GET /modules/stock/counts/:id/entries StockRead
 GET /modules/stock/counts/:id/lines StockRead
 GET /modules/stock/counts/:id/sheet-document StockRead
+GET /modules/stock/counts/:id/signatures StockRead
 GET /modules/stock/documents StockRead
 GET /modules/stock/documents/:id StockRead
 GET /modules/stock/movements StockRead
@@ -155,8 +157,11 @@ POST /modules/procurement/purchase-requests/:id/submit ProcurementRequestWrite
 POST /modules/stock/counts StockCountOrder
 POST /modules/stock/counts/:id/cancel StockCountOrder
 POST /modules/stock/counts/:id/close StockCountRecord
+POST /modules/stock/counts/:id/differences StockCountRecord
+POST /modules/stock/counts/:id/differences-signatures StockCountRecord
 POST /modules/stock/counts/:id/issue StockCountOrder
 POST /modules/stock/counts/:id/open StockCountRecord
+POST /modules/stock/counts/:id/sheet-signatures StockCountRecord
 POST /modules/stock/counts/:id/scan StockCountRecord
 POST /modules/stock/counts/:id/surplus-lines StockCountRecord
 POST /modules/stock/documents StockPost

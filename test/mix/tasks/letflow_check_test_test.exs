@@ -944,6 +944,16 @@ defmodule Mix.Tasks.Letflow.Check.TestTest do
       assert exception.message =~ "partition logs in"
     end
 
+    test "an empty selective-plan slice (runner exits 0, nothing to run) passes",
+         %{fake_bin_dir: fake_bin_dir} do
+      stdout =
+        "test_parallel: plan p.txt has no test for partitions 1..1; nothing to run in this slice\n"
+
+      install_fake_executable(fake_bin_dir, "bash", stdout, 0)
+      install_wasm_hang_aware_fake_mix(fake_bin_dir)
+      run_and_capture_ok(fake_bin_dir)
+    end
+
     test "hard-fails when the log-dir line is present but the directory contains zero partition-*.log files",
          %{fixture_root: fixture_root, fake_bin_dir: fake_bin_dir} do
       empty_dir = Path.join(fixture_root, "empty_logs")

@@ -76,7 +76,35 @@ permission `StockCountRecord` (TENANT_ADMIN and PLATFORM_ADMIN only).
    `scan_id_conflict`. A `scan_id` is counted once per order: a retry answers the first quantity with
    `duplicate: true`. Audit action `stock.count.line_scanned` (ids, status, line number only).
 6. Every write takes one advisory lock per order first (also `Counts.cancel/3`). Not in this slice: the freeze of
-   postings after the cut-off, differences, signing and posting.
+   postings after the cut-off and posting (differences and signing: REQ-717, below).
+
+## Signing and the differences sheet (REQ-717, GH #3764; module `stock` 0.6.0)
+
+Every default is an **assumption, owner may change at GATE B**. Functions: `Letflow.Modules.Stock.CountDifferences`,
+reached as `Counts.mark_sheet_signed/4`, `issue_differences/3`, `mark_differences_signed/4`, `differences/3`,
+`signatures/3`. Record type `count_signature` (append-only, scoped by `org_unit_id`); five optional fields on the
+count order (`sheet_signed_at`, `differences_document_id`, `differences_number`, `differences_issued_at`,
+`differences_signed_at`). "Signed" is a paper signature on the printout: the chair records it, the system does not
+verify it. No ledger call: the posting is REQ-718 and waits for the count freeze.
+
+| Route | Permission | Ok |
+|---|---|---|
+| `POST /counts/:id/sheet-signatures` (body exactly `signer_employee_ids`) | `StockCountRecord` | 200 order view |
+| `POST /counts/:id/differences` (empty body) | `StockCountRecord` | 200 order view with `differences_document_id` |
+| `POST /counts/:id/differences-signatures` (body exactly `signer_employee_ids`) | `StockCountRecord` | 200 order view, status `signed` |
+| `GET /counts/:id/differences` | `StockRead` | 200 number, version, hash, `lines` |
+| `GET /counts/:id/signatures` | `StockRead` | 200 `rows` ordered by `marked_at` |
+
+1. **Sheet signing**: only the chair, a `counted` count. The set must be exact: the chair, every commission member and
+   every responsible employee of a sheet line (`signers_incomplete` when one is missing, `field_invalid` for a stranger,
+   a duplicate or a malformed id; `sheet_already_signed` on a second mark). The count stays `counted`.
+2. **Differences**: needs the signed sheet (`sheet_not_signed`). Built from the issued sheet content, one item per line
+   whose counted quantity differs from the book quantity (`difference`, `direction` surplus or shortage). More than 200
+   items is `differences_too_many` and takes no number. No difference at all gives an issued document with no `lines`.
+   A second issue is `differences_already_issued`.
+3. **Differences signing**: the same exact-set rule (responsible employees of the difference lines only); refused
+   `count_window_expired` more than 96 hours after the cut-off (the count stays `counted` and can be cancelled). The
+   count becomes `signed`, and `Counts.cancel/3` then answers `count_state_invalid`.
 
 ## Org units and the document service
 

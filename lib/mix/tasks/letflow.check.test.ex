@@ -252,14 +252,20 @@ defmodule Mix.Tasks.Letflow.Check.Test do
             "pre-compile step -- check the streamed output above for the real error)."
         )
 
-      :not_found ->
-        Mix.raise(
-          "mix letflow.check.test: FAILED -- scripts/test_parallel.sh exited 0 but " <>
-            "never printed a \"test_parallel: partition logs in <dir>\" line. This " <>
-            "task cannot locate the per-partition logs it needs for the ISS-0069 " <>
-            "warning check, so it is treating this as a hard failure of the check " <>
-            "itself rather than silently passing."
-        )
+      # T-1297 selective CI: a shard whose slice of the plan is empty makes the runner
+      # exit 0 with this line and no partition logs. That is a pass, not a hole.
+      :not_found when exit_code == 0 ->
+        if String.contains?(output, "nothing to run in this slice") do
+          :ok
+        else
+          Mix.raise(
+            "mix letflow.check.test: FAILED -- scripts/test_parallel.sh exited 0 but " <>
+              "never printed a \"test_parallel: partition logs in <dir>\" line. This " <>
+              "task cannot locate the per-partition logs it needs for the ISS-0069 " <>
+              "warning check, so it is treating this as a hard failure of the check " <>
+              "itself rather than silently passing."
+          )
+        end
 
       {:ok, log_dir} ->
         # ISS-0699 (design doc §3a.3): this task, not the script, now owns bounding

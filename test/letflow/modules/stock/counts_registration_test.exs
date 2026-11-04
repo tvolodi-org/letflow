@@ -17,6 +17,38 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Stock
 
+  test "R1 (REQ-717) count_signature, the five count_order fields, the five routes, version 0.7.0" do
+    m = Stock.manifest()
+    assert m.version == "0.7.0" and Catalog.validate(m) == :ok
+    assert "count_signature" in m.manages_entity_types
+    assert m.scope_declarations["count_signature"] == {:column, "org_unit_id"}
+
+    pack = "priv/modules/stock/pack.json" |> File.read!() |> Jason.decode!()
+
+    names = fn type ->
+      pack["entity_definitions"]
+      |> Enum.find(&(&1["name"] == type))
+      |> get_in(["definition_json", "fields"])
+      |> Enum.map(& &1["name"])
+    end
+
+    assert Enum.sort(names.("count_signature")) ==
+             ~w(count_order_id document_id document_kind employee_id marked_at marked_by org_unit_id signer_role version_no)
+
+    for f <-
+          ~w(sheet_signed_at differences_document_id differences_number differences_issued_at differences_signed_at),
+        do: assert(f in names.("count_order"))
+
+    for route <- [
+          {"POST", "/counts/:id/sheet-signatures", :StockCountRecord},
+          {"POST", "/counts/:id/differences", :StockCountRecord},
+          {"POST", "/counts/:id/differences-signatures", :StockCountRecord},
+          {"GET", "/counts/:id/differences", :StockRead},
+          {"GET", "/counts/:id/signatures", :StockRead}
+        ],
+        do: assert(route in m.route_policies)
+  end
+
   test "R-MANIFEST (REQ-701 R1, R2) the count permissions, five managed scoped types, decimal fields" do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
@@ -103,7 +135,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
              &(elem(&1, 1) == "stock" and String.starts_with?(elem(&1, 0), "count_"))
            ) ==
              Enum.map(
-               ~w(count_commission_member count_entry count_order count_order_scope count_sheet_line),
+               ~w(count_commission_member count_entry count_order count_order_scope count_sheet_line count_signature),
                &{&1, "stock", :active}
              )
 
@@ -111,7 +143,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
              {:column, "org_unit_id"}
 
     for type <-
-          ~w(count_order count_order_scope count_commission_member count_sheet_line count_entry) do
+          ~w(count_order count_order_scope count_commission_member count_sheet_line count_entry count_signature) do
       conn =
         Plug.Test.conn(:post, "/records/#{type}")
         |> Map.put(:body_params, %{"field_values" => %{"kind" => "full"}})
