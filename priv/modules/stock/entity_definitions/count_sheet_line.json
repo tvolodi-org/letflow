@@ -1,0 +1,24 @@
+{
+  "name": "count_sheet_line",
+  "display_name": "Count sheet line",
+  "description": "REQ-701 / GH #3736. One line of the count sheet of a count order: a ledger balance key as of the cut-off (kind stock, book_quantity from the stock ledger) or a surplus line the commission added (kind surplus, book_quantity 0). count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column (decision 0076 R7). counted_quantity is empty until the commission has counted the line. Quantities are exact decimals (precision 24, scale 9, decimal_strict). Master references are record ids checked in code (0076 R6).",
+  "fields": [
+    {"name": "count_order_id", "type": "string", "required": true, "queried": true},
+    {"name": "line_no", "type": "integer", "required": true, "queried": true},
+    {"name": "kind", "type": "enum", "required": true, "enum_values": ["stock", "surplus"]},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "location_id", "type": "string", "required": true},
+    {"name": "responsible_employee_id", "type": "string"},
+    {"name": "catalog_item_id", "type": "string", "required": true},
+    {"name": "catalog_lot_id", "type": "string"},
+    {"name": "unit_ref", "type": "string", "required": true},
+    {"name": "book_quantity", "type": "decimal", "required": true, "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true},
+    {"name": "counted_quantity", "type": "decimal", "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_count_sheet_line_count_order_id", "field": "count_order_id", "references_entity": "count_order"}
+  ],
+  "indexes": [
+    {"name": "idx_count_sheet_line_order_line", "fields": ["count_order_id", "line_no"]}
+  ]
+}
