@@ -865,7 +865,7 @@
     },
     {
       "definition_json": {
-        "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled when the count is opened and sheet_document_id when it is closed (REQ-701).",
+        "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled when the count is opened and sheet_document_id when it is closed (REQ-701). REQ-717: sheet_signed_at, differences_document_id, differences_number, differences_issued_at and differences_signed_at are filled by the signing and differences steps; old rows lack them.",
         "display_name": "Count order",
         "fields": [
           {
@@ -957,6 +957,26 @@
           {
             "name": "sheet_document_id",
             "type": "string"
+          },
+          {
+            "name": "sheet_signed_at",
+            "type": "datetime"
+          },
+          {
+            "name": "differences_document_id",
+            "type": "string"
+          },
+          {
+            "name": "differences_number",
+            "type": "string"
+          },
+          {
+            "name": "differences_issued_at",
+            "type": "datetime"
+          },
+          {
+            "name": "differences_signed_at",
+            "type": "datetime"
           }
         ],
         "indexes": [
@@ -972,7 +992,7 @@
       },
       "display_name": "Count order",
       "entity_definition_id": "45573d30-45d7-3626-82e0-0b0f034df9ac",
-      "logical_shape_version": "6af1ee737981143037242fb1eb6160b747311357e2eefbe08ad77edb76a419cf",
+      "logical_shape_version": "3f7878a0a5098b0ca490cb08fec094cd8cc77124632030bbbe945e9bdb8d656f",
       "name": "count_order"
     },
     {
@@ -1249,6 +1269,93 @@
       "entity_definition_id": "14b35543-6cb6-524e-1f4d-f90a3a120bf5",
       "logical_shape_version": "c5c9f7a071d20a9bdec8e58cec123fc2a0e6d1d4e7597cc6b3c8dcc6485a86e8",
       "name": "count_entry"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-717 / GH #3764. One row per signer of a count document: the chair records, for the printout of the count sheet or of the differences sheet, that the person signed on paper (assumption, owner may change at GATE B: the system does not verify the signature). Append-only: no function of module stock updates or deletes a row. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column (decision 0076 R7). document_id and version_no name the issued document version that was signed.",
+        "display_name": "Count signature",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "sheet",
+              "differences"
+            ],
+            "name": "document_kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "document_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "version_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "employee_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "chair",
+              "member",
+              "responsible"
+            ],
+            "name": "signer_role",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "marked_by",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "marked_at",
+            "required": true,
+            "type": "datetime"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_count_signature_count_order_id",
+            "references_entity": "count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "document_kind"
+            ],
+            "name": "idx_count_signature_order_kind"
+          }
+        ],
+        "name": "count_signature"
+      },
+      "display_name": "Count signature",
+      "entity_definition_id": "6b56a708-c09a-ee8c-c55e-8c256520139d",
+      "logical_shape_version": "27e319e942eb7eaf90dc86d7b392072d3d9dfbbc5c0a91605237c88bd66a498f",
+      "name": "count_signature"
     },
     {
       "definition_json": {

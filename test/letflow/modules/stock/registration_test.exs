@@ -45,7 +45,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.5.0"
+    assert m.version == "0.6.0"
     assert m.depends_on == ["catalog_items", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
@@ -63,6 +63,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "count_commission_member",
              "count_sheet_line",
              "count_entry",
+             "count_signature",
              "stock_posting_mark"
            ]
 
@@ -93,6 +94,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "count_commission_member" => {:column, "org_unit_id"},
              "count_sheet_line" => {:column, "org_unit_id"},
              "count_entry" => {:column, "org_unit_id"},
+             "count_signature" => {:column, "org_unit_id"},
              "stock_posting_mark" => {:column, "org_unit_id"}
            }
 
@@ -122,7 +124,12 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"POST", "/counts/:id/surplus-lines", :StockCountRecord},
              {"GET", "/counts/:id/entries", :StockRead},
              {"POST", "/counts/:id/close", :StockCountRecord},
-             {"GET", "/counts/:id/sheet-document", :StockRead}
+             {"GET", "/counts/:id/sheet-document", :StockRead},
+             {"POST", "/counts/:id/sheet-signatures", :StockCountRecord},
+             {"POST", "/counts/:id/differences", :StockCountRecord},
+             {"POST", "/counts/:id/differences-signatures", :StockCountRecord},
+             {"GET", "/counts/:id/differences", :StockRead},
+             {"GET", "/counts/:id/signatures", :StockRead}
            ]
 
     assert Stock.router() == Letflow.Modules.Stock.Router
@@ -191,7 +198,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 14
+    assert length(files) == 15
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
@@ -199,8 +206,11 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # REQ-712: the document context (documents.ex, documents/) reads and writes its own record and
     # document tables, so Repo and Ecto.Query are allowed there; the ledger names stay banned everywhere.
     # REQ-701: count_sheet.ex does the same for the sheet lines and the entry log.
+    # REQ-717: count_differences.ex reads the order children and writes the signature rows.
     # REQ-700: counts.ex reads and writes the count record types (Repo, Ecto.Query), never a ledger table.
-    own_tables = fn path -> path =~ ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex)} end
+    own_tables = fn path ->
+      path =~ ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex|count_differences\.ex)}
+    end
 
     for {path, source} <- sources,
         word <-

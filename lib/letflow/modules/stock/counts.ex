@@ -47,6 +47,7 @@ defmodule Letflow.Modules.Stock.Counts do
   alias Letflow.Modules.Locations.Tree
   alias Letflow.Modules.Org
   alias Letflow.Modules.ReadApi
+  alias Letflow.Modules.Stock.CountDifferences
   alias Letflow.Modules.Stock.CountSheet
   alias Letflow.Repo
 
@@ -233,6 +234,14 @@ defmodule Letflow.Modules.Stock.Counts do
   defdelegate lines(prefix, id, params, opts), to: CountSheet
   defdelegate entries(prefix, id, params, opts), to: CountSheet
   defdelegate sheet_document(prefix, id, opts), to: CountSheet
+
+  # --- signing and the differences sheet (REQ-717): `Letflow.Modules.Stock.CountDifferences` ------
+
+  defdelegate mark_sheet_signed(prefix, id, signer_ids, opts), to: CountDifferences
+  defdelegate issue_differences(prefix, id, opts), to: CountDifferences
+  defdelegate mark_differences_signed(prefix, id, signer_ids, opts), to: CountDifferences
+  defdelegate differences(prefix, id, opts), to: CountDifferences
+  defdelegate signatures(prefix, id, opts), to: CountDifferences
 
   defp chair?(prefix, header, actor) do
     chair = header["chair_employee_id"]
@@ -878,7 +887,12 @@ defmodule Letflow.Modules.Stock.Counts do
       "cancelled_by" => header["cancelled_by"],
       "cut_off_at" => header["cut_off_at"],
       "cutoff_seq" => header["cutoff_seq"],
-      "sheet_document_id" => header["sheet_document_id"]
+      "sheet_document_id" => header["sheet_document_id"],
+      "sheet_signed_at" => header["sheet_signed_at"],
+      "differences_document_id" => header["differences_document_id"],
+      "differences_number" => header["differences_number"],
+      "differences_issued_at" => header["differences_issued_at"],
+      "differences_signed_at" => header["differences_signed_at"]
     }
   end
 
