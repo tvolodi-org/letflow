@@ -493,6 +493,7 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       # REQ-712 (GH #3749) added the six stock document lines (194 -> 200).
       # REQ-700 (GH #3737) added the seven stock count lines (200 -> 207).
       assert length(snapshot) == 212
+
       # REQ-713 added the three stock post/reverse/cancel lines (208 -> 211); REQ-639 F-5 added the form-validation-dry-run line (211 -> 212).
 
       for l <- @removed_lines, do: refute(l in snapshot, l)
