@@ -413,6 +413,9 @@ defmodule Letflow.Modules.LedgerRegistrationTest do
 
     test "creates no atom for an unknown name" do
       name = "never_seen_" <> Base.encode16(:crypto.strong_rand_bytes(8))
+      # Warm-up: the first call loads every entry module (and its policy) lazily, which creates
+      # atoms of its own; the test is about the unknown name, not about code loading.
+      assert {:ok, _} = Catalog.fetch_ledger("fixture_ledger_post", "alpha")
       before = :erlang.system_info(:atom_count)
       assert Catalog.fetch_ledger("fixture_ledger_post", name) == {:error, :not_found}
       assert Catalog.fetch_ledger(name, name) == {:error, :not_found}
