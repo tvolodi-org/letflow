@@ -33,7 +33,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
 
     assert m.role_grants == %{}
 
-    assert Enum.slice(m.manages_entity_types, 2, 5) == [
+    assert Enum.slice(m.manages_entity_types, 8, 5) == [
              "count_order",
              "count_order_scope",
              "count_commission_member",
@@ -145,7 +145,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
       assert {:ok, _} = Letflow.Documents.register_type(s, attrs, ctx)
     end
 
-    # the receipt, the opening (REQ-725) and the four count types
-    assert length(Repo.all(DocumentType, prefix: s)) == 6
+    # the receipt, the opening (REQ-725), the three two-sided kinds and the four count types
+    assert length(Repo.all(DocumentType, prefix: s)) == 9
   end
 end

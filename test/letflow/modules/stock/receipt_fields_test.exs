@@ -174,7 +174,9 @@ defmodule Letflow.Modules.Stock.ReceiptFieldsTest do
       |> Enum.map(&Path.basename/1)
       |> Enum.sort()
 
-    assert hits == ~w(checks.ex documents.ex opening_checks.ex opening_shape.ex shape.ex stock.ex)
+    assert hits ==
+             ~w(checks.ex documents.ex kinds.ex opening_checks.ex opening_shape.ex shape.ex stock.ex)
+
     checks = File.read!("lib/letflow/modules/stock/documents/checks.ex")
     assert length(Regex.scan(~r/@receipt_timezone\s/, checks)) == 2
   end

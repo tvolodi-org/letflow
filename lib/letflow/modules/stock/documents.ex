@@ -1,12 +1,11 @@
 defmodule Letflow.Modules.Stock.Documents do
   @moduledoc """
   REQ-712 / GH #3749 (assets B4 part 1): the stock document context. The one writer of the receipt
-  header (`stock_receipt`) and line (`stock_receipt_line`) records and of the versioned document
-  (`Letflow.Documents`, decision 0056) behind them. REQ-725 adds a second kind, `opening` (header
-  `stock_opening`, line `stock_opening_line`, per-line location, responsible and real receipt date, no
-  event time), described by `Letflow.Modules.Stock.Documents.Kinds`; the same functions serve both kinds
-  and the five `Records` write call sites are parameterised by kind. `check/2` (opening only) runs every
-  line check and writes nothing. Public functions: `save/3`, `replace/4`,
+  header and line records of every kind (`Letflow.Modules.Stock.Documents.Kinds`: receipt, and since REQ-721 transfer,
+  hand over and return; the receipt types are `stock_receipt` and `stock_receipt_line`) and of the versioned document
+  (`Letflow.Documents`, decision 0056) behind them. REQ-725 adds the kind `opening` (header
+  `stock_opening`, line `stock_opening_line`, per-line location, responsible and real receipt date, no event time);
+  `check/2` (opening only) runs every line check and writes nothing. Public functions: `save/3`, `replace/4`,
   `discard/3`, `issue/4` (writes) and `fetch/3`, `list/2` (reads); posting, reversal and cancel live in
   `Letflow.Modules.Stock.Documents.Posting` (REQ-713). The tenant is the `prefix` argument
   and nothing else (INV-1); the router derives it from the token.
@@ -35,7 +34,7 @@ defmodule Letflow.Modules.Stock.Documents do
     the lock decides `document_not_draft`.
   * Issue runs the checks first and calls `Letflow.Documents.issue/2` once, so a refused check takes no
     number. `{:error, :busy}` from it stays `:busy`. After issue replace and discard are refused.
-    REQ-713: before any number is taken the module's `stock_receipt` process definition is made
+    REQ-713: before any number is taken the kind's process definition (`stock_receipt`, `stock_transfer`, ...) is made
     active with the request's activator (`{:error, :definition_not_active}` otherwise); after the
     issue committed one posting instance is started, and a failed start is NOT an error (the
     document stays issued; the retry route repairs it).
@@ -92,19 +91,19 @@ defmodule Letflow.Modules.Stock.Documents do
   @spec save(String.t(), map(), String.t()) :: {:ok, map()} | {:error, term()}
   def save(prefix, body, actor) when is_binary(prefix) do
     with {:ok, doc} <- Kinds.parse(body, :create) do
-      kind = Kinds.get(doc.kind)
+      spec = Kinds.get(doc.kind)
 
       tx(prefix, fn ->
         unit = doc.header["org_unit_id"]
 
         draft_attrs = %{
-          type_key: kind.type_key,
+          type_key: spec.type_key,
           issuing_org_unit_id: unit,
           content: content(doc)
         }
 
         case Documents.create_draft(prefix, draft_attrs, actor) do
-          {:ok, %{document: document}} -> write_new(prefix, kind, document.id, doc, actor)
+          {:ok, %{document: document}} -> write_new(prefix, spec, document.id, doc, actor)
           {:error, reason} -> Repo.rollback(draft_error(reason))
         end
       end)
@@ -119,16 +118,15 @@ defmodule Letflow.Modules.Stock.Documents do
          :ok <- draft?(current),
          {:ok, doc} <- Kinds.parse(body, {:replace, current.kind}),
          :ok <- same_unit(current, doc) do
-      kind = Kinds.get(current.kind)
-
       tx(prefix, fn ->
         lock!(prefix, id)
         locked = fetch!(prefix, id)
         if locked.state != "draft", do: Repo.rollback(:document_not_draft)
 
-        ref_free!(prefix, kind, id, doc)
-        write_header!(prefix, kind, :update, locked.header_id, id, doc, actor)
-        write_lines!(prefix, kind, locked, doc, actor)
+        spec = Kinds.get(doc.kind)
+        ref_free!(prefix, spec, id, doc)
+        write_header!(prefix, spec, :update, locked.header_id, id, doc, actor)
+        write_lines!(prefix, spec, locked, doc, actor)
 
         case Documents.edit_draft(prefix, id, content(doc), actor) do
           {:ok, _version} -> :ok
@@ -157,9 +155,9 @@ defmodule Letflow.Modules.Stock.Documents do
             {:error, reason} -> Repo.rollback(draft_error(reason))
           end
 
-          kind = Kinds.get(locked.kind)
-          Enum.each(locked.lines, &delete!(prefix, kind.line_type, &1.line_id, actor))
-          delete!(prefix, kind.header_type, locked.header_id, actor)
+          spec = Kinds.get(locked.kind)
+          Enum.each(locked.lines, &delete!(prefix, spec.line_type, &1.line_id, actor))
+          delete!(prefix, spec.type_key, locked.header_id, actor)
           :ok
         end)
 
@@ -168,7 +166,7 @@ defmodule Letflow.Modules.Stock.Documents do
   end
 
   @doc """
-  Runs the event-time and master checks of draft `id`, makes the `stock_receipt` process definition
+  Runs the event-time and master checks of draft `id`, makes the kind's process definition
   active (`opts[:activator]`, the request's activator), then issues it once and starts its posting
   instance. A refused check or a definition that cannot be activated issues nothing and takes no
   number. Returns the issued document (`opts[:authorized]` is the ledger read authorization for
@@ -180,28 +178,28 @@ defmodule Letflow.Modules.Stock.Documents do
          {:ok, view} <- fetch(prefix, id),
          :ok <- draft?(view),
          :ok <- issue_checks(prefix, view),
-         :ok <- activate(prefix, Kinds.get(view.kind).definition, Keyword.get(opts, :activator)),
+         :ok <- activate(prefix, Kinds.get(view.kind), Keyword.get(opts, :activator)),
          {:ok, _issued} <- issue_once(prefix, id, actor) do
       start_posting(prefix, id, actor)
       fetch(prefix, id, Keyword.get(opts, :authorized))
     end
   end
 
-  # The receipt stops at its first failure in the order of REQ-712/REQ-714. The opening runs every
-  # line check (`OpeningChecks`) and stops at the first failing line in line order.
-  defp issue_checks(prefix, %{kind: "receipt"} = view) do
-    with :ok <- Checks.event_time(view.event_time, now()),
-         :ok <- Checks.received_on(view.received_on, view.event_time) do
-      Checks.masters(prefix, view)
-    end
-  end
-
+  # The receipt and the two-sided kinds stop at their first failure (REQ-712/REQ-714/REQ-721). The
+  # opening runs every line check (`OpeningChecks`) and stops at the first failing line in line order.
   defp issue_checks(prefix, %{kind: "opening"} = view) do
     with {:ok, today} <- today() do
       case prefix |> OpeningChecks.check_all(view, today) |> OpeningChecks.first_failure() do
         :ok -> :ok
         {reason, line_no} -> {:error, {reason, %{"line_no" => line_no}}}
       end
+    end
+  end
+
+  defp issue_checks(prefix, view) do
+    with :ok <- Checks.event_time(view.event_time, now()),
+         :ok <- Checks.received_on(Map.get(view, :received_on), view.event_time) do
+      Checks.masters(prefix, view)
     end
   end
 
@@ -227,8 +225,8 @@ defmodule Letflow.Modules.Stock.Documents do
   defp opening?(%{kind: "opening"}), do: :ok
   defp opening?(_view), do: {:error, {"unknown_kind", %{}}}
 
-  defp activate(prefix, definition, activator) do
-    case Posting.ensure_active(prefix, definition, activator) do
+  defp activate(prefix, spec, activator) do
+    case Posting.ensure_active(prefix, spec.definition, activator) do
       :ok -> :ok
       :error -> {:error, :definition_not_active}
     end
@@ -263,20 +261,20 @@ defmodule Letflow.Modules.Stock.Documents do
 
   # -- write helpers ------------------------------------------------------------------------------
 
-  defp write_new(prefix, kind, document_id, doc, actor) do
-    ref_free!(prefix, kind, document_id, doc)
-    header_id = write_header!(prefix, kind, :create, nil, document_id, doc, actor)
+  defp write_new(prefix, spec, document_id, doc, actor) do
+    ref_free!(prefix, spec, document_id, doc)
+    header_id = write_header!(prefix, spec, :create, nil, document_id, doc, actor)
 
     for line <- doc.lines do
-      create_line!(prefix, kind, header_id, doc.header["org_unit_id"], line, actor)
+      create_line!(prefix, spec, header_id, doc.header["org_unit_id"], line, actor)
     end
 
     fetch!(prefix, document_id)
   end
 
-  defp write_header!(prefix, kind, :create, _record_id, document_id, doc, actor) do
+  defp write_header!(prefix, spec, :create, _record_id, document_id, doc, actor) do
     attrs = %{
-      entity_type: kind.header_type,
+      entity_type: spec.type_key,
       field_values: header_values(doc, document_id),
       actor_id: actor,
       idempotency_key: Ecto.UUID.generate()
@@ -289,9 +287,9 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
-  defp write_header!(prefix, kind, :update, record_id, document_id, doc, actor) do
+  defp write_header!(prefix, spec, :update, record_id, document_id, doc, actor) do
     attrs = %{
-      entity_type: kind.header_type,
+      entity_type: spec.type_key,
       record_id: record_id,
       field_values: header_values(doc, document_id),
       actor_id: actor,
@@ -305,9 +303,9 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
-  defp create_line!(prefix, kind, header_id, unit, line, actor) do
+  defp create_line!(prefix, spec, header_id, unit, line, actor) do
     attrs = %{
-      entity_type: kind.line_type,
+      entity_type: spec.line_type,
       field_values: line_values(line, header_id, unit),
       actor_id: actor,
       idempotency_key: Ecto.UUID.generate()
@@ -320,9 +318,9 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
-  defp update_line!(prefix, kind, line_id, header_id, unit, line, actor) do
+  defp update_line!(prefix, spec, line_id, header_id, unit, line, actor) do
     attrs = %{
-      entity_type: kind.line_type,
+      entity_type: spec.line_type,
       record_id: line_id,
       field_values: line_values(line, header_id, unit),
       actor_id: actor,
@@ -353,20 +351,20 @@ defmodule Letflow.Modules.Stock.Documents do
 
   # Line `n` of the new document updates existing line `n`, or is created; lines beyond the new
   # count are deleted. The header's org unit never changes on a draft (checked before).
-  defp write_lines!(prefix, kind, locked, doc, actor) do
+  defp write_lines!(prefix, spec, locked, doc, actor) do
     existing = Map.new(locked.lines, &{&1.line_no, &1})
     count = length(doc.lines)
     unit = doc.header["org_unit_id"]
 
     for line <- doc.lines do
       case Map.fetch(existing, line["line_no"]) do
-        {:ok, old} -> update_line!(prefix, kind, old.line_id, locked.header_id, unit, line, actor)
-        :error -> create_line!(prefix, kind, locked.header_id, unit, line, actor)
+        {:ok, old} -> update_line!(prefix, spec, old.line_id, locked.header_id, unit, line, actor)
+        :error -> create_line!(prefix, spec, locked.header_id, unit, line, actor)
       end
     end
 
     for old <- locked.lines, old.line_no > count do
-      delete!(prefix, kind.line_type, old.line_id, actor)
+      delete!(prefix, spec.line_type, old.line_id, actor)
     end
 
     :ok
@@ -390,7 +388,7 @@ defmodule Letflow.Modules.Stock.Documents do
         Repo.exists?(
           from(r in Latest,
             where:
-              r.entity_type == ^kind.header_type and not r.deleted and
+              r.entity_type == ^kind.type_key and not r.deleted and
                 fragment("?->>'external_ref_system' = ?", r.field_values, ^system) and
                 fragment("?->>'external_ref_id' = ?", r.field_values, ^ref) and
                 fragment("?->>'document_id' <> ?", r.field_values, ^document_id)
@@ -477,10 +475,10 @@ defmodule Letflow.Modules.Stock.Documents do
   def fetch(prefix, id, authorized \\ nil) when is_binary(prefix) do
     with {:ok, id} <- cast(id),
          %Document{} = document <- Repo.get(Document, id, prefix: prefix),
-         %{} = kind <- Kinds.for_type_key(document.type_key),
+         %{} = spec <- Kinds.by_type_key(document.type_key),
          %DocumentVersion{} = version <- live_version(prefix, id),
-         {:ok, header} <- header(prefix, kind, id) do
-      base = view(prefix, kind, document, version, header)
+         {:ok, header} <- header(prefix, spec, id) do
+      base = view(prefix, spec, document, version, header)
       {:ok, Map.merge(base, Posting.state_fields(prefix, base, authorized))}
     else
       _none -> {:error, :not_found}
@@ -505,11 +503,11 @@ defmodule Letflow.Modules.Stock.Documents do
     )
   end
 
-  defp header(prefix, kind, document_id) do
+  defp header(prefix, spec, document_id) do
     query =
       from(r in Latest,
         where:
-          r.entity_type == ^kind.header_type and not r.deleted and
+          r.entity_type == ^spec.type_key and not r.deleted and
             fragment("?->>'document_id' = ?", r.field_values, ^document_id),
         select: {r.record_id, r.field_values},
         limit: 1
@@ -521,32 +519,19 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
-  defp lines(prefix, kind, header_id) do
+  defp lines(prefix, spec, header_id) do
     query =
       from(r in Latest,
         where:
-          r.entity_type == ^kind.line_type and not r.deleted and
+          r.entity_type == ^spec.line_type and not r.deleted and
             fragment("?->>'header_id' = ?", r.field_values, ^header_id),
         select: {r.record_id, r.field_values}
       )
 
     prefix
     |> then(&Repo.all(query, prefix: &1))
-    |> Enum.map(&line_view(kind.kind, &1))
+    |> Enum.map(&line_view(spec.kind, &1))
     |> Enum.sort_by(& &1.line_no)
-  end
-
-  defp line_view("receipt", {record_id, fv}) do
-    %{
-      line_id: record_id,
-      line_no: fv["line_no"],
-      catalog_item_id: fv["catalog_item_id"],
-      catalog_uom_id: fv["catalog_uom_id"],
-      catalog_lot_id: fv["catalog_lot_id"],
-      quantity: fv["quantity"],
-      unit_price: fv["unit_price"],
-      line_value: fv["line_value"]
-    }
   end
 
   defp line_view("opening", {record_id, fv}) do
@@ -567,40 +552,33 @@ defmodule Letflow.Modules.Stock.Documents do
     }
   end
 
-  defp view(prefix, %{kind: "opening"} = kind, document, version, {header_id, fv}) do
+  defp line_view(_kind, {record_id, fv}) do
     %{
-      id: document.id,
-      kind: "opening",
-      state: state(version.status),
-      number: number_label(prefix, document),
-      issued_at: iso(version.issued_at),
-      header_id: header_id,
-      org_unit_id: fv["org_unit_id"],
-      note: fv["note"],
-      external_ref_system: fv["external_ref_system"],
-      external_ref_id: fv["external_ref_id"],
-      lines: lines(prefix, kind, header_id)
+      line_id: record_id,
+      line_no: fv["line_no"],
+      catalog_item_id: fv["catalog_item_id"],
+      catalog_uom_id: fv["catalog_uom_id"],
+      catalog_lot_id: fv["catalog_lot_id"],
+      quantity: fv["quantity"],
+      unit_price: fv["unit_price"],
+      line_value: fv["line_value"]
     }
   end
 
-  defp view(prefix, kind, document, version, {header_id, fv}) do
-    %{
+  # The keys of the header fields of the kind come from `Kinds.view_fields/2` (receipt: location,
+  # responsible and counterparty; the two-sided kinds: the from and to fields).
+  defp view(prefix, spec, document, version, {header_id, fv}) do
+    spec
+    |> Kinds.view_fields(fv)
+    |> Map.merge(%{
       id: document.id,
-      kind: "receipt",
+      kind: spec.kind,
       state: state(version.status),
-      number: number_label(prefix, document),
+      number: number_label(prefix, spec, document),
       issued_at: iso(version.issued_at),
       header_id: header_id,
-      org_unit_id: fv["org_unit_id"],
-      location_id: fv["location_id"],
-      responsible_id: fv["responsible_id"],
-      counterparty_id: fv["counterparty_id"],
-      supplier_document_ref: fv["supplier_document_ref"],
-      received_on: fv["received_on"],
-      event_time: fv["event_time"],
-      note: fv["note"],
-      lines: lines(prefix, kind, header_id)
-    }
+      lines: lines(prefix, spec, header_id)
+    })
   end
 
   defp state(:draft), do: "draft"
@@ -612,10 +590,10 @@ defmodule Letflow.Modules.Stock.Documents do
 
   # Same label as the private `number_label/3` of `Letflow.Documents` (prefix, period for a yearly
   # scope, padded number); the type row is the source of prefix and pad.
-  defp number_label(_prefix, %Document{number: nil}), do: nil
+  defp number_label(_prefix, _spec, %Document{number: nil}), do: nil
 
-  defp number_label(prefix, %Document{number: number, period: period} = document) do
-    type = Repo.get!(DocumentType, document.type_key, prefix: prefix)
+  defp number_label(prefix, spec, %Document{number: number, period: period}) do
+    type = Repo.get!(DocumentType, spec.type_key, prefix: prefix)
     padded = number |> Integer.to_string() |> String.pad_leading(type.number_pad, "0")
 
     case type.numbering_scope do
@@ -635,24 +613,24 @@ defmodule Letflow.Modules.Stock.Documents do
     with {:ok, filters} <- list_filters(params) do
       rows = Repo.all(list_query(filters), prefix: prefix)
       {page, rest} = Enum.split(rows, filters.limit)
-      headers = headers_for(prefix, Enum.map(page, & &1.id))
+      type_keys = page |> Enum.map(& &1.type_key) |> Enum.uniq()
+      headers = Enum.reduce(type_keys, %{}, &Map.merge(&2, headers_for(prefix, &1, page)))
       states = Posting.states_for(prefix, Enum.map(page, &%{id: &1.id, state: state(&1.status)}))
-      types = types_for(prefix, page)
+      types = document_types(prefix, type_keys)
 
       {:ok,
        %{
-         rows: Enum.map(page, &row(&1, headers, types, states)),
+         rows: Enum.map(page, &row(&1, headers, Map.fetch!(types, &1.type_key), states)),
          next_cursor: if(rest != [], do: cursor_of(List.last(page)))
        }}
     end
   end
 
-  defp types_for(_prefix, []), do: %{}
+  defp document_types(_prefix, []), do: %{}
 
-  defp types_for(prefix, page) do
-    keys = page |> Enum.map(& &1.type_key) |> Enum.uniq()
-
-    Repo.all(from(t in DocumentType, where: t.key in ^keys), prefix: prefix)
+  defp document_types(prefix, type_keys) do
+    prefix
+    |> then(&Repo.all(from(t in DocumentType, where: t.key in ^type_keys), prefix: &1))
     |> Map.new(&{&1.key, &1})
   end
 
@@ -712,7 +690,7 @@ defmodule Letflow.Modules.Stock.Documents do
         as: :doc,
         join: v in DocumentVersion,
         on: v.document_id == d.id and v.status in [:draft, :issued, :cancelled],
-        where: d.type_key in ^kind_type_keys(filters.kind),
+        where: d.type_key in ^list_type_keys(filters.kind),
         order_by: [desc: d.inserted_at, desc: d.id],
         limit: ^(filters.limit + 1),
         select: %{
@@ -733,8 +711,8 @@ defmodule Letflow.Modules.Stock.Documents do
     |> filter_cursor(filters.cursor)
   end
 
-  defp kind_type_keys(nil), do: Enum.map(Kinds.kinds(), &Kinds.get(&1).type_key)
-  defp kind_type_keys(kind), do: [Kinds.get(kind).type_key]
+  defp list_type_keys(nil), do: Kinds.type_keys()
+  defp list_type_keys(kind), do: [Kinds.get(kind).type_key]
 
   defp filter_state(query, nil), do: query
 
@@ -787,14 +765,18 @@ defmodule Letflow.Modules.Stock.Documents do
     do: Integer.to_string(DateTime.to_unix(at, :microsecond)) <> "." <> id
 
   # One query for the page: header text `document_id` against text ids (both sides text).
-  defp headers_for(_prefix, []), do: %{}
+  defp headers_for(prefix, type_key, page) do
+    case for(r <- page, r.type_key == type_key, do: r.id) do
+      [] -> %{}
+      ids -> headers_for(prefix, type_key, ids, :ids)
+    end
+  end
 
-  defp headers_for(prefix, ids) do
+  defp headers_for(prefix, type_key, ids, :ids) do
     query =
       from(r in Latest,
         where:
-          r.entity_type in ^Enum.map(Kinds.kinds(), &Kinds.get(&1).header_type) and
-            not r.deleted and
+          r.entity_type == ^type_key and not r.deleted and
             fragment("?->>'document_id' = ANY(?)", r.field_values, type(^ids, {:array, :string})),
         select: r.field_values
       )
@@ -802,10 +784,7 @@ defmodule Letflow.Modules.Stock.Documents do
     prefix |> then(&Repo.all(query, prefix: &1)) |> Map.new(&{&1["document_id"], &1})
   end
 
-  defp row(r, headers, types, states) do
-    type = Map.fetch!(types, r.type_key)
-    kind = Kinds.for_type_key(r.type_key)
-
+  defp row(r, headers, type, states) do
     number =
       if r.number do
         padded = r.number |> Integer.to_string() |> String.pad_leading(type.number_pad, "0")
@@ -817,7 +796,7 @@ defmodule Letflow.Modules.Stock.Documents do
 
     %{
       id: r.id,
-      kind: kind.kind,
+      kind: Kinds.by_type_key(r.type_key).kind,
       state: Map.fetch!(states, r.id),
       number: number,
       issued_at: iso(r.issued_at),

@@ -1,0 +1,61 @@
+{
+  "name": "stock_return",
+  "display_name": "Stock return (header)",
+  "description": "GH #3770 / REQ-721, docs/assets/stock-workflow-documents.md sections 1.4 and 9.1. The header of a return of stock from a responsible employee back to a location. Written only by module stock (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: nothing of that is stored here. org_unit_id is the filing org unit (queried; the scope column of decision 0076 R7): the from unit for a transfer or hand over, the unit the stock goes back to for a return. event_time is ISO 8601 with offset, stored in UTC. The from_* and to_* fields are record ids of modules org and locations (other packs: no foreign key; the module checks them at issue). After issue nothing of the header changes. No counterparty, price or reason field.",
+  "fields": [
+    {
+      "name": "document_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "event_time",
+      "type": "datetime",
+      "required": true
+    },
+    {
+      "name": "org_unit_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "from_org_unit_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "from_location_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "from_responsible_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "to_location_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "to_responsible_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "note",
+      "type": "string"
+    }
+  ],
+  "indexes": [
+    {
+      "name": "idx_stock_return_document_id",
+      "fields": [
+        "document_id"
+      ]
+    }
+  ]
+}

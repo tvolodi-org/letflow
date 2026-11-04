@@ -11,7 +11,8 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
   active (`employee_not_active`), a given counterparty is a live active `catalog_counterparty`
   (`counterparty_not_active`), then per line in `line_no` order the unit is valid for the item
   (`unit_not_valid`) and a given lot belongs to the item (`lot_not_valid`). A failure carries the
-  reason and, for a line check, its `line_no`. A master retired between this check and the posting is not
+  reason and, for a line check, its `line_no`; for a two-sided kind (REQ-721) the from side is checked
+  before the to side and a side failure carries `"side"` (`"from"` or `"to"`). A master retired between this check and the posting is not
   caught until L7 (runbook).
 
   REQ-714 / GH #3747: `received_on/2` refuses a real receipt date after the event day (local date in the
@@ -26,6 +27,7 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Org
   alias Letflow.Modules.Stock
+  alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Repo
 
   @future_seconds 300
@@ -92,12 +94,35 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
 
   @doc "Runs the master checks of `view` (the document map of `Letflow.Modules.Stock.Documents`)."
   @spec masters(String.t(), map()) :: :ok | refusal()
-  def masters(prefix, view) do
+  def masters(prefix, %{kind: "receipt"} = view) do
     with :ok <- check(Locations.linked?(prefix, view.org_unit_id, view.location_id), "not_linked"),
          :ok <- check(Org.active_employee?(prefix, view.responsible_id), "employee_not_active"),
          :ok <- counterparty(prefix, view.counterparty_id) do
-      view.lines |> Enum.sort_by(& &1.line_no) |> Enum.reduce_while(:ok, &line(prefix, &1, &2))
+      lines(prefix, view)
     end
+  end
+
+  # REQ-721: a two-sided document checks the from side, then the to side (each: location linked to
+  # the side's org unit, responsible employee active; a failure names the side), then the lines. The
+  # sides come from `Kinds.sides/2`, the same function the posting command uses. No counterparty.
+  def masters(prefix, view) do
+    spec = Kinds.get(view.kind)
+    {from, to} = Kinds.sides(spec, Kinds.header_of(spec, view))
+
+    with :ok <- side(prefix, from, "from"),
+         :ok <- side(prefix, to, "to") do
+      lines(prefix, view)
+    end
+  end
+
+  defp side(prefix, side, name) do
+    with :ok <-
+           check(Locations.linked?(prefix, side.org_unit, side.location), "not_linked", name),
+         do: check(Org.active_employee?(prefix, side.responsible), "employee_not_active", name)
+  end
+
+  defp lines(prefix, view) do
+    view.lines |> Enum.sort_by(& &1.line_no) |> Enum.reduce_while(:ok, &line(prefix, &1, &2))
   end
 
   defp counterparty(_prefix, nil), do: :ok
@@ -189,4 +214,7 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
 
   defp check(true, _reason), do: :ok
   defp check(false, reason), do: {:error, {reason, %{}}}
+
+  defp check(true, _reason, _side), do: :ok
+  defp check(false, reason, side), do: {:error, {reason, %{"side" => side}}}
 end

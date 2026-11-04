@@ -148,8 +148,8 @@ defmodule Letflow.Modules.Stock.OpeningShapeTest do
     assert {:ok, %{kind: "opening"}} = Kinds.parse(body(), :create)
     assert {:error, {"unknown_kind", %{}}} = Kinds.parse(%{"kind" => "bogus"}, :create)
     assert Kinds.get("opening").definition == "stock_opening"
-    assert Kinds.for_type_key("stock_receipt").kind == "receipt"
-    assert Kinds.for_type_key("count.order") == nil
+    assert Kinds.by_type_key("stock_receipt").kind == "receipt"
+    assert Kinds.by_type_key("count.order") == nil
   end
 
   test "O-REUSE-1 the opening and the receipt share one definition of price, quantity, date" do

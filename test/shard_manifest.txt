@@ -1201,6 +1201,11 @@
 32 test/letflow/tenant_onboarding_test.exs 6192.79
 32 test/letflow/tenant_provisioning_script_events_test.exs 3001.65
 32 test/scripts/test_parallel_pool_clamp_test.exs 1076.93
+5 test/letflow/modules/stock/two_side_registration_test.exs 7346.89
+7 test/letflow/modules/stock/two_side_issue_test.exs 7346.89
+12 test/letflow/modules/stock/two_side_reversal_test.exs 7346.89
+18 test/letflow/modules/stock/two_side_router_test.exs 7346.89
+23 test/letflow/modules/stock/two_side_posting_test.exs 7346.89
 19 test/letflow/modules/stock/count_sheet_test.exs 7346.89
 10 test/letflow/modules/stock/count_sheet_router_test.exs 7346.89
 3 test/letflow/modules/procurement/attachment_routes_test.exs 7346.89

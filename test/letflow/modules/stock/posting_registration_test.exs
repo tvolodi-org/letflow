@@ -75,15 +75,12 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
     assert Enum.all?(Map.values(post.args) ++ Map.values(reverse.args), & &1.required)
   end
 
-  test "B-REG-2 the pack ships the posting definitions, installed as stamped drafts", ctx do
+  test "B-REG-2 the pack ships six definitions, installed as stamped drafts", ctx do
     defs =
       File.read!("priv/modules/stock/pack.json") |> Jason.decode!() |> Map.fetch!("definitions")
 
-    assert defs |> Enum.map(& &1["process_key"]) |> Enum.sort() == [
-             "stock_opening",
-             "stock_receipt",
-             "stock_reversal"
-           ]
+    assert defs |> Enum.map(& &1["process_key"]) |> Enum.sort() ==
+             ~w(stock_handover stock_opening stock_receipt stock_return stock_reversal stock_transfer)
 
     # stock_opening (REQ-726) has two tasks and is pinned by opening_posting_test.exs
     for %{"graph" => graph} = definition <- defs, definition["process_key"] != "stock_opening" do
@@ -92,21 +89,20 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
       assert line["module"] == "stock"
 
       assert line["handler"] ==
-               if(definition["process_key"] == "stock_receipt",
-                 do: "post_document",
-                 else: "reverse_document"
+               if(definition["process_key"] == "stock_reversal",
+                 do: "reverse_document",
+                 else: "post_document"
                )
     end
 
+    names = Enum.map(defs, & &1["process_key"])
+
     rows =
-      Repo.all(
-        from(d in ProcessDefinition,
-          where: d.name in ["stock_receipt", "stock_reversal", "stock_opening"]
-        ),
+      Repo.all(from(d in ProcessDefinition, where: d.name in ^names),
         prefix: ctx.schema
       )
 
-    assert length(rows) == 3
+    assert length(rows) == 6
 
     for row <- rows do
       assert row.status == :draft
@@ -117,7 +113,7 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
     admin = TokenMintFixture.role_holder!(ctx.schema, ["TENANT_ADMIN"])
     activator = Activator.from_auth_context(%{user_id: admin.id, roles: ["TENANT_ADMIN"]}, false)
 
-    for name <- ["stock_receipt", "stock_reversal", "stock_opening"] do
+    for name <- names do
       assert Posting.ensure_active(ctx.schema, name, activator) == :ok
       assert {:ok, %{status: :active}} = Definitions.get_active_by_name(name, prefix: ctx.schema)
       # a second call is a no-op
