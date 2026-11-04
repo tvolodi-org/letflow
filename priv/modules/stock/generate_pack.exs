@@ -15,6 +15,12 @@ definitions_dir = Path.join(pack_dir, "entity_definitions")
 entity_types = ~w(
   stock_receipt
   stock_receipt_line
+  stock_transfer
+  stock_transfer_line
+  stock_handover
+  stock_handover_line
+  stock_return
+  stock_return_line
   count_order
   count_order_scope
   count_commission_member
@@ -236,6 +242,28 @@ process_definitions = [
     "reverse",
     "reverse_document",
     base_args ++ ["reason_code"]
+  ),
+  # REQ-721: one posting definition per two-sided kind, same shape as stock_receipt.
+  process_definition.(
+    "00501000-0000-0040-0080-000000003770",
+    "stock_transfer",
+    "post",
+    "post_document",
+    base_args
+  ),
+  process_definition.(
+    "00501000-0000-0040-0080-000000003771",
+    "stock_handover",
+    "post",
+    "post_document",
+    base_args
+  ),
+  process_definition.(
+    "00501000-0000-0040-0080-000000003772",
+    "stock_return",
+    "post",
+    "post_document",
+    base_args
   )
 ]
 

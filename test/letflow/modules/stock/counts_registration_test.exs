@@ -27,7 +27,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
     refute :StockCountRecord in m.permissions
     assert m.role_grants == %{}
 
-    assert Enum.slice(m.manages_entity_types, 2, 3) == [
+    assert Enum.slice(m.manages_entity_types, 8, 3) == [
              "count_order",
              "count_order_scope",
              "count_commission_member"
@@ -116,6 +116,6 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
       assert {:ok, _} = Letflow.Documents.register_type(s, attrs, ctx)
     end
 
-    assert length(Repo.all(DocumentType, prefix: s)) == 5
+    assert length(Repo.all(DocumentType, prefix: s)) == 8
   end
 end

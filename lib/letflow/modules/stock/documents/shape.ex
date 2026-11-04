@@ -3,7 +3,9 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   REQ-712 / GH #3749: the pure shape check of a stock document request body (save and replace).
   No database, no clock. `parse/2` returns the normalised document or the first refusal, in the order
   of the entry: `unknown_kind`, `field_not_allowed`, `field_required`, `field_invalid`,
-  `event_time_invalid`, `lines_count`, `quantity_invalid`.
+  `event_time_invalid`, `lines_count`, `quantity_invalid`, and for a two-sided kind (transfer, hand over,
+  return; REQ-721) last `sides_equal`. The header keys of each kind come from
+  `Letflow.Modules.Stock.Documents.Kinds`; a key of another kind is `field_not_allowed`.
 
   A refusal is `{:error, {reason, extras}}` with `reason` one of the strings above and `extras` a
   map of fixed keys (`"field"`, `"line_no"`); a supplied value is never echoed. `field_invalid` and
@@ -19,13 +21,10 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   strict decimal field) so the record and the versioned content are the same text.
   """
 
-  @kinds ["receipt"]
+  alias Letflow.Modules.Stock.Documents.Kinds
+
   @max_lines 100
   @note_max 500
-  @header_required ~w(org_unit_id location_id responsible_id event_time)
-  @header_optional ~w(counterparty_id note)
-  @header_keys @header_required ++ @header_optional
-  @id_keys ~w(org_unit_id location_id responsible_id counterparty_id)
   @line_required ~w(catalog_item_id catalog_uom_id quantity)
   @line_keys @line_required ++ ["catalog_lot_id"]
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
@@ -34,7 +33,7 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
 
   @doc "The closed set of document kinds."
   @spec kinds() :: [String.t()]
-  def kinds, do: @kinds
+  def kinds, do: Kinds.kinds()
 
   @doc "The line cap."
   @spec max_lines() :: pos_integer()
@@ -48,13 +47,16 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   @spec parse(term(), :create | {:replace, String.t()}) :: {:ok, map()} | refusal()
   def parse(body, mode) when is_map(body) and not is_struct(body) do
     with {:ok, kind} <- kind(body, mode),
-         :ok <- allowed(body),
-         :ok <- required(body),
-         {:ok, header} <- header(body),
+         spec = Kinds.get(kind),
+         :ok <- allowed(body, spec),
+         :ok <- required(body, spec),
+         {:ok, header} <- header(body, spec),
          {:ok, event_time} <- event_time(body["event_time"]),
          {:ok, raw_lines} <- raw_lines(body["lines"]),
-         {:ok, lines} <- lines(raw_lines) do
-      {:ok, %{kind: kind, header: Map.put(header, "event_time", event_time), lines: lines}}
+         {:ok, lines} <- lines(raw_lines),
+         header = Map.put(header, "event_time", event_time),
+         :ok <- sides_differ(spec, header) do
+      {:ok, %{kind: kind, header: header, lines: lines}}
     end
   end
 
@@ -64,7 +66,7 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
 
   defp kind(body, :create) do
     case Map.fetch(body, "kind") do
-      {:ok, kind} when kind in @kinds -> {:ok, kind}
+      {:ok, kind} when is_binary(kind) -> known_kind(kind)
       {:ok, _other} -> refuse("unknown_kind")
       :error -> refuse("field_required", %{"field" => "kind"})
     end
@@ -78,18 +80,22 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
     end
   end
 
-  defp allowed(body) do
+  defp known_kind(kind) do
+    if Kinds.get(kind), do: {:ok, kind}, else: refuse("unknown_kind")
+  end
+
+  defp allowed(body, spec) do
     case body
          |> Map.keys()
-         |> Enum.reject(&(&1 in ["kind", "lines" | @header_keys]))
+         |> Enum.reject(&(&1 in ["kind", "lines" | spec.header_keys]))
          |> Enum.sort() do
       [] -> :ok
       [key | _] -> refuse("field_not_allowed", %{"field" => printable(key)})
     end
   end
 
-  defp required(body) do
-    case Enum.find(@header_required ++ ["lines"], &(not Map.has_key?(body, &1))) do
+  defp required(body, spec) do
+    case Enum.find(spec.required ++ ["lines"], &(not Map.has_key?(body, &1))) do
       nil -> :ok
       key -> refuse("field_required", %{"field" => key})
     end
@@ -97,23 +103,38 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
 
   # -- header -------------------------------------------------------------------------------------
 
-  defp header(body) do
-    Enum.reduce_while(@header_keys -- ["event_time"], {:ok, %{}}, fn key, {:ok, acc} ->
+  defp header(body, spec) do
+    Enum.reduce_while(spec.header_keys -- ["event_time"], {:ok, %{}}, fn key, {:ok, acc} ->
       case Map.fetch(body, key) do
         :error -> {:cont, {:ok, acc}}
-        {:ok, value} -> header_value(key, value, acc)
+        {:ok, value} -> header_value(key, value, acc, spec)
       end
     end)
   end
 
-  defp header_value(key, value, acc) when key in @id_keys do
-    case uuid(value) do
-      {:ok, id} -> {:cont, {:ok, Map.put(acc, key, id)}}
-      :error -> {:halt, refuse("field_invalid", %{"field" => key})}
+  # Last check of a two-sided kind (REQ-721): the from and the to side must differ in at least one
+  # of org unit, location and responsible. Ids are canonical lowercase uuid text, so text equality
+  # is exact.
+  defp sides_differ(spec, header) do
+    case Kinds.sides(spec, header) do
+      {nil, _to} -> :ok
+      {same, same} -> refuse("sides_equal")
+      {_from, _to} -> :ok
     end
   end
 
-  defp header_value("note", value, acc) when is_binary(value) do
+  defp header_value(key, value, acc, spec) when key != "note" do
+    if key in spec.id_keys do
+      case uuid(value) do
+        {:ok, id} -> {:cont, {:ok, Map.put(acc, key, id)}}
+        :error -> {:halt, refuse("field_invalid", %{"field" => key})}
+      end
+    else
+      {:halt, refuse("field_invalid", %{"field" => key})}
+    end
+  end
+
+  defp header_value("note", value, acc, _spec) when is_binary(value) do
     note = :unicode.characters_to_nfc_binary(value)
 
     if String.valid?(value) and is_binary(note) and byte_size(note) <= @note_max,
@@ -121,7 +142,8 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
       else: {:halt, refuse("field_invalid", %{"field" => "note"})}
   end
 
-  defp header_value(key, _value, _acc), do: {:halt, refuse("field_invalid", %{"field" => key})}
+  defp header_value(key, _value, _acc, _spec),
+    do: {:halt, refuse("field_invalid", %{"field" => key})}
 
   @doc "Canonical lowercase uuid text of a binary, else `:error`."
   @spec uuid(term()) :: {:ok, String.t()} | :error

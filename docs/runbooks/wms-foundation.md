@@ -521,3 +521,17 @@ names the GH issue or the code that holds it; paths are cited without line numbe
 22. **`reason_text` of a reversal is kept on the instance only.** The ledger keeps the closed `reason_code`; the free
     text (at most 500 characters) is the variable `reason_text` of the `stock_reversal` instance
     (`lib/letflow/modules/stock/documents/posting.ex`, GH #3748).
+23. **A transfer, hand over or return is filed under one org unit only.** The filing unit is the from unit
+    (`org_unit_id`) of a transfer or hand over, and the unit the stock goes back to (`org_unit_id`) for a return; the
+    other unit does not see the document in phase B, and scoped (L6) posting is not part of phase B. The filing unit is
+    the scope column of the header and of every line (`Letflow.Modules.Stock.Documents.Kinds`, GH #3770).
+24. **The from side is checked by the ledger only, at the post task.** Issue checks that each side's location is
+    linked to its org unit and that each side's employee is active, but not the balance; a transfer, hand over or
+    return larger than the from side holds answers `insufficient_stock` at the post task, which then stays pending
+    with no entry and no mark until the document is cancelled, and a reversal after the to side's quantity left is
+    refused the same way (`lib/letflow/modules/stock/documents/posting.ex`, GH #3770).
+25. **Defaults of transfer, hand over and return, owner may change at GATE B.** Number prefixes `TRF`, `HOV`, `RET`
+    (year numbering, pad 6, no legal entity); the responsible employee is not bound to the side's org unit; no
+    price, value, reason or counterparty field; a return needs no earlier hand over; equal sides (same unit, location
+    and employee) are refused at save as `sides_equal` (`priv/modules/stock/entity_definitions/stock_transfer.json`,
+    GH #3770).
