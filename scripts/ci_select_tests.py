@@ -56,7 +56,7 @@ SENSITIVE_RE = re.compile(
 )
 # Pins, permission atoms and matrices, tenant tables: anywhere under lib/ by name.
 SENSITIVE_LIB_NAME_RE = re.compile(
-    r"permission|authoriz|scope_enforcement|route_polic|tenant_schema|tenant_template|"
+    r"permission|authoriz|scope_enforc|route_polic|tenant_schema|tenant_template|"
     r"migration|schema_registry|storage"
 )
 
