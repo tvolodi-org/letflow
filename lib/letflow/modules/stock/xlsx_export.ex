@@ -24,7 +24,7 @@ defmodule Letflow.Modules.Stock.XlsxExport do
 
   alias Elixlsx.{Sheet, Workbook}
 
-  @movements_timezone "Asia/Almaty"
+  @movements_timezone Letflow.Identity.TenantTimezone.default()
 
   @note "A balance as of an event time before an opening posting shows no opening quantity (decision 0079 D1)."
 
