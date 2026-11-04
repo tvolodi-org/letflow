@@ -95,6 +95,8 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
     # REQ-558 part 1: line_events.ex is the second writer, of `procurement_line_events` and
     # `procurement_lines` (insert only), with the same two refutes.
     @line_writer "lib/letflow/modules/procurement/line_events.ex"
+    # REQ-626 part A: attachments.ex is the third writer, of `procurement_attachments` (insert only).
+    @attachment_writer "lib/letflow/modules/procurement/attachments.ex"
 
     test "the module does not touch the engine or write document tables itself" do
       assert @files != []
@@ -103,13 +105,34 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
         source = File.read!(file)
         refute source =~ "Letflow.Engine", file
 
-        if file in [@decision_writer, @line_writer] do
+        if file in [@decision_writer, @line_writer, @attachment_writer] do
           refute source =~ ~r/Repo\.(update|delete)/, file
           refute source =~ ~r/Repo\.insert\w*\(\s*%Document/, file
         else
           refute source =~ ~r/Repo\.(insert|update|delete)/, file
         end
       end
+    end
+
+    test "U4: the attachment table has no update or delete function and no byte row is deleted" do
+      source = File.read!(@attachment_writer)
+      refute source =~ ~r/\bdef(p)?\s+(update|delete|remove)\w*\(/
+      refute source =~ ~r/\b(update_all|delete_all)\b/
+
+      for file <- @files do
+        refute File.read!(file) =~ ~r/delete\w*\(\s*Artifact/, file
+      end
+    end
+
+    test "the size limit equals the one of Letflow.Repository.Attachments" do
+      [_, limit] =
+        Regex.run(
+          ~r/@max_upload_bytes (\d[\d_]*)/,
+          File.read!("lib/letflow/repository/attachments.ex")
+        )
+
+      [_, mine] = Regex.run(~r/@max_bytes (\d[\d_]*)/, File.read!(@attachment_writer))
+      assert limit == mine
     end
 
     test "no file outside the module calls the purchase request operations" do

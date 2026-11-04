@@ -66,3 +66,26 @@ Status is derived, never set by a caller (`Letflow.Modules.Procurement.Fulfilmen
   `replayed: true`. The mark is keyed by `line_no` and survives a revision that keeps the line number.
 - A Closed or Cancelled request refuses a new officer, supplier, reference or cancel with 409
   `request_closed`, the same body shape as `not_approved`. The cancel that closes the request succeeds.
+
+## Attachments (REQ-626 part A, GH #3503)
+
+Files on a purchase request. The bytes are stored once per hash in `repository_artifacts`; the link table
+`procurement_attachments` is append-only (a trigger refuses UPDATE and DELETE) and holds one row per file per version.
+
+| Route | Permission | Who |
+|---|---|---|
+| `POST /purchase-requests/:id/attachments` | `ProcurementRequestWrite` | requester, open draft only |
+| `POST /purchase-requests/:id/attachments/:attachment_id/replace` | `ProcurementRequestWrite` | requester, open draft only (`:attachment_id` is the slot id) |
+| `GET /purchase-requests/:id/attachments` | `ProcurementRequestRead` | requester or a holder of `ProcurementRequestDecide` (`?version_no=`) |
+| `GET /purchase-requests/:id/attachments/:attachment_id/content` | `ProcurementRequestRead` | same |
+
+- Body of the two POSTs: JSON `file_name`, `content_type`, `content_base64`. Refusals: type outside the allow-list 422
+  `content_type_not_allowed`, infected 422 `infected`, scanner down 503, over 25 MiB 413, bad name or base64 422 `validation`.
+- A request that is submitted has no open draft: attach and replace answer 409 `not_draft` until part B (new version).
+- A replace adds a row (same slot and version, `replaces_id` set); the old row and bytes stay and remain downloadable.
+  Two partial unique indexes keep each slot a single chain. The literal unique index on
+  `(document_id, version_no, slot_id)` of the requirement was **not** used, because it contradicts criterion 5.
+- **Known limit:** the JSON body parser caps a request at 2 MiB, so a real upload through these routes is about 1.5 MiB of file. The
+  25 MiB rule is enforced in the context. A larger upload needs a body parser or multipart route (a follow-up that touches
+  `api_pipeline.ex`).
+- Procurement attachments are not counted in the storage usage and not refused by the storage allowance.

@@ -19,6 +19,10 @@ defmodule Letflow.Modules.Procurement do
   well: the tenant role that holds it is TENANT_ADMIN (via core), PLATFORM_ADMIN only through the
   platform clause; a test asserts exactly that.
 
+  REQ-626 / GH #3503 part A adds files on a purchase request (`Letflow.Modules.Procurement.Attachments`,
+  table `procurement_attachments`): attach, list, download and replace in an open draft, behind the
+  existing Write and Read permissions (no new atom, no widening).
+
   The permissions are declared with their route policies (the permission-matrix
   classification pre-approves a new module atom only when the owner's own route policies name it)
   and with no `role_grants`: in this slice only TENANT_ADMIN and PLATFORM_ADMIN hold them, so the
@@ -69,7 +73,13 @@ defmodule Letflow.Modules.Procurement do
       {"POST", "/purchase-requests/:id/lines/:line_no/officer", :ProcurementLineRecord},
       {"POST", "/purchase-requests/:id/lines/:line_no/supplier", :ProcurementLineRecord},
       {"POST", "/purchase-requests/:id/lines/:line_no/reference", :ProcurementLineRecord},
-      {"POST", "/purchase-requests/:id/lines/:line_no/cancel", :ProcurementLineRecord}
+      {"POST", "/purchase-requests/:id/lines/:line_no/cancel", :ProcurementLineRecord},
+      {"POST", "/purchase-requests/:id/attachments", :ProcurementRequestWrite},
+      {"GET", "/purchase-requests/:id/attachments", :ProcurementRequestRead},
+      {"GET", "/purchase-requests/:id/attachments/:attachment_id/content",
+       :ProcurementRequestRead},
+      {"POST", "/purchase-requests/:id/attachments/:attachment_id/replace",
+       :ProcurementRequestWrite}
     ]
   )
 

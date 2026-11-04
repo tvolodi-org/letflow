@@ -17,6 +17,16 @@ defmodule Letflow.Modules.Procurement.Router do
   | `POST /purchase-requests/:id/lines/:line_no/supplier` | `ProcurementLineRecord` | `LineEvents.record_supplier/3` | same |
   | `POST /purchase-requests/:id/lines/:line_no/reference` | `ProcurementLineRecord` | `LineEvents.record_reference/3` | same |
   | `POST /purchase-requests/:id/lines/:line_no/cancel` | `ProcurementLineRecord` | `LineEvents.cancel_line/3` | same (409 `request_closed` on a Closed or Cancelled request) |
+  | `POST /purchase-requests/:id/attachments` | `ProcurementRequestWrite` | `Attachments.attach/4` | 201 / 404 / 409 `not_draft` / 413 / 422 / 503 |
+  | `GET /purchase-requests/:id/attachments` | `ProcurementRequestRead` | `Attachments.list/4` | 200 / 404 / 422 |
+  | `GET /purchase-requests/:id/attachments/:attachment_id/content` | `ProcurementRequestRead` | `Attachments.download/5` | 200 bytes / 404 |
+  | `POST /purchase-requests/:id/attachments/:attachment_id/replace` | `ProcurementRequestWrite` | `Attachments.replace/5` | same as attach (`:attachment_id` is the slot id) |
+
+  GH #3503 / REQ-626 part A: the attachment routes take a JSON body of `file_name`, `content_type` and
+  `content_base64` only. The effective upload cap is the JSON body limit of `Letflow.Plugs.ApiPipeline`
+  (2 MiB, about 1.5 MiB of file): the 25 MiB rule is enforced in `Attachments`, a larger body gets a
+  413 from the parser first. List and download are open to the requester and to a holder of
+  `ProcurementRequestDecide`; attach and replace to the requester only.
 
   The caller is `conn.assigns.auth_context.user_id` and the tenant is `conn.assigns.scoped_opts`
   (INV-1, INV-10): no route takes a performer, requester, actor or tenant from the body or path. The
@@ -38,10 +48,13 @@ defmodule Letflow.Modules.Procurement.Router do
 
   use Letflow.Api.AuthorizedRouter
 
+  import Plug.Conn, only: [put_resp_content_type: 3, put_resp_header: 3, send_resp: 3]
+
   require Logger
 
   alias Letflow.Api.Authorization
   alias Letflow.Api.Response
+  alias Letflow.Modules.Procurement.Attachments
   alias Letflow.Modules.Procurement.Decisions
   alias Letflow.Modules.Procurement.LineEvents
   alias Letflow.Modules.Procurement.PurchaseRequests
@@ -132,6 +145,58 @@ defmodule Letflow.Modules.Procurement.Router do
     record_line(conn, :cancel_line, ~w(reason idempotency_key))
   end
 
+  authz_post "/purchase-requests/:id/attachments", :ProcurementRequestWrite do
+    with {:ok, file} <- upload_params(conn) do
+      result = Attachments.attach(prefix!(conn), actor(conn), conn.params["id"], file)
+      render_attachment(conn, result)
+    else
+      {:error, _reason} = error -> render(conn, error, 201, & &1)
+    end
+  end
+
+  authz_get "/purchase-requests/:id/attachments", :ProcurementRequestRead do
+    opts = [decider?: holds?(conn, :ProcurementRequestDecide), version_no: version_param(conn)]
+
+    case Attachments.list(prefix!(conn), actor(conn), conn.params["id"], opts) do
+      {:ok, view} -> Response.ok(conn, view)
+      {:error, _reason} = error -> render(conn, error, 200, & &1)
+    end
+  end
+
+  authz_get "/purchase-requests/:id/attachments/:attachment_id/content",
+            :ProcurementRequestRead do
+    opts = [decider?: holds?(conn, :ProcurementRequestDecide)]
+
+    case Attachments.download(
+           prefix!(conn),
+           actor(conn),
+           conn.params["id"],
+           conn.params["attachment_id"],
+           opts
+         ) do
+      {:ok, file} -> send_file_bytes(conn, file)
+      {:error, _reason} = error -> render(conn, error, 200, & &1)
+    end
+  end
+
+  authz_post "/purchase-requests/:id/attachments/:attachment_id/replace",
+             :ProcurementRequestWrite do
+    with {:ok, file} <- upload_params(conn) do
+      result =
+        Attachments.replace(
+          prefix!(conn),
+          actor(conn),
+          conn.params["id"],
+          conn.params["attachment_id"],
+          file
+        )
+
+      render_attachment(conn, result)
+    else
+      {:error, _reason} = error -> render(conn, error, 201, & &1)
+    end
+  end
+
   authz_unmatched(:ordinary)
 
   # -- rendering --------------------------------------------------------------------------------
@@ -168,6 +233,32 @@ defmodule Letflow.Modules.Procurement.Router do
            with_reason(Letflow.Api.Error.conflict("request refused"), reason)
          )
 
+  defp render(conn, {:error, reason}, _status, _shape)
+       when reason in [:not_draft, :slot_conflict],
+       do:
+         Response.send_problem(
+           conn,
+           with_reason(Letflow.Api.Error.conflict("request refused"), reason)
+         )
+
+  defp render(conn, {:error, reason}, _status, _shape)
+       when reason in [:content_type_not_allowed, :infected],
+       do:
+         Response.send_problem(
+           conn,
+           with_reason(Letflow.Api.Error.unprocessable("request refused"), reason)
+         )
+
+  defp render(conn, {:error, :file_too_large}, _status, _shape),
+    do:
+      Response.send_problem(
+        conn,
+        with_reason(Letflow.Api.Error.payload_too_large("file is too large"), :file_too_large)
+      )
+
+  defp render(conn, {:error, :scan_unavailable}, _status, _shape),
+    do: Response.service_unavailable(conn, "scan unavailable, retry shortly")
+
   defp render(conn, {:error, :binding_refused}, _status, _shape),
     do:
       Response.send_problem(
@@ -188,6 +279,68 @@ defmodule Letflow.Modules.Procurement.Router do
 
   defp with_reason(problem, reason),
     do: %{problem | extensions: %{"reason" => Atom.to_string(reason)}}
+
+  # -- attachments -------------------------------------------------------------------------------
+
+  defp render_attachment(conn, {:ok, view}), do: Response.created(conn, view)
+  defp render_attachment(conn, {:error, _reason} = error), do: render(conn, error, 201, & &1)
+
+  # Only the three file fields are read from the body; a missing or non-text field, or base64 that
+  # does not decode, is a validation error naming the field.
+  defp upload_params(conn) do
+    body = whitelist(conn, ~w(file_name content_type content_base64))
+
+    with {:ok, name} <- text_field(body, "file_name"),
+         {:ok, type} <- text_field(body, "content_type"),
+         {:ok, encoded} <- text_field(body, "content_base64"),
+         {:ok, bytes} <- decode(encoded) do
+      {:ok, %{file_name: name, content_type: type, bytes: bytes}}
+    end
+  end
+
+  defp text_field(body, key) do
+    case Map.get(body, key) do
+      value when is_binary(value) -> {:ok, value}
+      _other -> {:error, {:validation, [%{field: key, code: "invalid"}]}}
+    end
+  end
+
+  defp decode(encoded) do
+    case Base.decode64(encoded, ignore: :whitespace) do
+      {:ok, bytes} -> {:ok, bytes}
+      :error -> {:error, {:validation, [%{field: "content_base64", code: "invalid"}]}}
+    end
+  end
+
+  defp version_param(conn) do
+    case conn.query_params do
+      %{"version_no" => value} -> value
+      _other -> nil
+    end
+  end
+
+  # The stored type is from the allow-list (never text/html); `nosniff` and `no-store` as the
+  # instance attachment download.
+  defp send_file_bytes(conn, file) do
+    conn
+    |> put_resp_content_type(file.content_type, nil)
+    |> put_resp_header("content-disposition", content_disposition(file.file_name))
+    |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("x-content-type-options", "nosniff")
+    |> send_resp(200, file.content)
+  end
+
+  # Copy of the private `Letflow.Routers.Instances.content_disposition/1` (not shared: that file
+  # is out of scope for this slice).
+  defp content_disposition(file_name) do
+    sanitized =
+      file_name
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\"", "\\\"")
+      |> String.replace(~r/[\x00-\x1F\x7F]/, "")
+
+    "attachment; filename=\"#{sanitized}\""
+  end
 
   # -- plumbing ----------------------------------------------------------------------------------
 
