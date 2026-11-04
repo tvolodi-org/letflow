@@ -117,7 +117,7 @@ import {
 } from '../pipeline'
 import { assertServiceReadiness, resolveCredential } from '../helpers'
 
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 
 const PROPOSER_USERNAME = process.env.UAT_QA_PROMO_CONFLICT_PROPOSER_USERNAME ?? 'uat-promo-conflict-proposer'
 const PROPOSER_PASSWORD = resolveCredential('UAT_QA_PROMO_CONFLICT_PROPOSER_PASSWORD', 'promo-conflict-proposer-pass')

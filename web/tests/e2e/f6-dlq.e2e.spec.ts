@@ -5,7 +5,7 @@ import * as path from 'path'
 import { getKeycloakToken, loginWithToken, assertServiceReadiness } from './helpers'
 
 const SCREENSHOTS_DIR = 'tests/screenshots'
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 const API_PREFIX = '/api/v1'
 
 function getEnvOrDefault(name: string, fallback: string): string {

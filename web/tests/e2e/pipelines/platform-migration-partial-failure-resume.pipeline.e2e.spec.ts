@@ -138,7 +138,7 @@ import {
 // platform-definition-promotion-rollback spec's own 300s budget.
 test.setTimeout(300_000)
 
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 
 interface RolloutPipelineState {
   adminToken: string
