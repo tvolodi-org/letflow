@@ -645,7 +645,14 @@ defmodule Letflow.Routers.Tasks do
 
         with :ok <- Tasks.in_scope(id, scope, opts) do
           id
-          |> Tasks.reassign_task(%{user_id: user_id}, opts)
+          |> Tasks.reassign_task(
+            %{
+              user_id: user_id,
+              actor_id: conn.assigns.auth_context.user_id,
+              actor_roles: Map.get(conn.assigns.auth_context, :roles) || []
+            },
+            opts
+          )
           |> handle_reassign_result(conn, opts)
         else
           {:error, _reason} = error -> handle_reassign_result(error, conn, opts)
@@ -702,6 +709,15 @@ defmodule Letflow.Routers.Tasks do
 
   defp handle_reassign_result({:error, {:task_not_pending, _status}}, conn, _opts) do
     Response.conflict(conn, "task is not pending")
+  end
+
+  # Same wording as the claim refusal for the same cause (GH #2931).
+  defp handle_reassign_result({:error, :assignee_role_not_held}, conn, _opts) do
+    Response.conflict(conn, "caller does not hold the assigned role")
+  end
+
+  defp handle_reassign_result({:error, :assignee_group_not_member}, conn, _opts) do
+    Response.conflict(conn, "caller is not a member of the assigned group")
   end
 
   defp handle_reassign_result({:error, :not_currently_assigned}, conn, _opts) do
