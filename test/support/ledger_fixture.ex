@@ -141,6 +141,63 @@ defmodule Letflow.LedgerFixture do
     posted
   end
 
+  @doc """
+  A reversal capability for `target_id` (REQ-637 part A). The target and reason are also put in
+  the command, so a changed target is `idempotency_key_reuse`. Options as `capability/4` plus
+  `:reason` (default "r1"); `:posting` is merged over the reversal posting.
+  """
+  @spec reversal_capability(String.t(), String.t() | nil, keyword()) :: Capability.t()
+  def reversal_capability(schema, target_id, opts \\ []) do
+    {reason, opts} = Keyword.pop(opts, :reason, "r1")
+
+    posting =
+      Map.merge(
+        %{reverses_entry_id: target_id, reason_code: reason},
+        Keyword.get(opts, :posting, %{})
+      )
+
+    command =
+      Map.merge(%{reverses: target_id, reason: reason}, Keyword.get(opts, :command, %{}))
+
+    capability(schema, "reversal", [], Keyword.merge(opts, posting: posting, command: command))
+  end
+
+  @doc "The entry row of `entry_id` as a map (columns used by the reversal tests)."
+  def entry_row(schema, entry_id) do
+    %{rows: [row]} =
+      Repo.query!(
+        ~s|SELECT cause, sign_rule, reverses_entry_id::text, ledger_id, posting_seq, reason_code, document_type, document_id, correlation_id, chain_hash, entry_digest FROM "#{schema}".ledger_entry WHERE id = $1|,
+        [Ecto.UUID.dump!(entry_id)]
+      )
+
+    keys =
+      ~w(cause sign_rule reverses_entry_id ledger_id posting_seq reason_code document_type document_id correlation_id chain_hash entry_digest)a
+
+    Map.new(Enum.zip(keys, row))
+  end
+
+  @doc "The legs of `entry_id` ordered by leg_no: `{leg_no, [k1..k8], quantity, unit_ref, attrs}`."
+  def leg_rows(schema, entry_id) do
+    %{rows: rows} =
+      Repo.query!(
+        ~s|SELECT leg_no, ARRAY[k1,k2,k3,k4,k5,k6,k7,k8], quantity, unit_ref, attrs FROM "#{schema}".ledger_leg WHERE entry_id = $1 ORDER BY leg_no|,
+        [Ecto.UUID.dump!(entry_id)]
+      )
+
+    Enum.map(rows, &List.to_tuple/1)
+  end
+
+  @doc "Sum of `on_hand` over every balance row of `ledger_id` (one SQL aggregate)."
+  def total_on_hand(schema, ledger_id \\ @ledger_id) do
+    %{rows: [[total]]} =
+      Repo.query!(
+        ~s|SELECT COALESCE(sum(on_hand), 0) FROM "#{schema}".ledger_balance WHERE ledger_id = $1|,
+        [ledger_id]
+      )
+
+    total
+  end
+
   @doc "Seeds `quantity` on_hand for `k` by posting a receipt through `post/1`."
   def seed_on_hand!(schema, k, quantity, opts \\ []) do
     post!(capability(schema, "receipt", [leg(k, quantity)], opts))

@@ -125,7 +125,7 @@ defmodule Letflow.Ledger.PostBalanceTest do
     post = fn cause, legs, opts -> Fx.post_tx(Fx.capability(schema, cause, legs, opts)) end
     ok = Fx.leg(["a"], 1)
 
-    invalid(post.("reversal", [ok], []), :reversal_not_available)
+    invalid(post.("reversal", [ok], []), :posting_shape)
     invalid(post.("nope", [ok], []), :unknown_cause)
     invalid(post.("receipt", [], []), :no_legs)
     invalid(post.("receipt", List.duplicate(ok, 201), []), :too_many_legs)

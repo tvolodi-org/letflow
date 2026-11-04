@@ -109,6 +109,24 @@ defmodule Letflow.Ledger.IdempotencyTest do
     assert Fx.count(schema, "ledger_entry") == 2
   end
 
+  test "T-AC6-rev a concurrent identical reversal retry is the duplicate, never already_reversed",
+       %{schema: schema} do
+    key = ["a", "l"]
+    target = Fx.post!(receipt(schema, key, 6))
+    cap = Fx.reversal_capability(schema, target.entry_id)
+    worker = fn -> Fx.post_tx(cap) end
+
+    %{first: r1, second: r2} =
+      H.forced_overlap(schema, {:ledger_balance, Fx.ledger_id(), key}, worker, worker)
+
+    assert [{:ok, %{duplicate: false} = first}, {:ok, %{duplicate: true} = dup}] =
+             Enum.sort_by([r1, r2], fn {:ok, p} -> p.duplicate end)
+
+    assert dup.entry_id == first.entry_id and dup.posting_seq == first.posting_seq
+    assert Fx.count(schema, "ledger_entry") == 2
+    assert Fx.last_seq(schema) == 2
+  end
+
   test "T-AC6-g a retry on another balance key set is the duplicate at the counter lock", %{
     schema: schema
   } do

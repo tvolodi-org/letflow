@@ -75,6 +75,9 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
     "lib/letflow/event_store/retention_operations.ex",
     "lib/letflow/identity.ex",
     "lib/letflow/identity/pending_admin_grants.ex",
+    # REQ-710: partition DDL text is built by Postgres `format('%I'/'%L')` from bound parameters (INV-7);
+    # reviewed by SECURITY-REVIEWER.
+    "lib/letflow/ledger/storage/ddl.ex",
     # REQ-646 A3b: the subtree read interpolates only the prefix, checked against `@prefix_re` (INV-7).
     "lib/letflow/modules/locations/tree.ex",
     "lib/letflow/ordering/metrics.ex",
