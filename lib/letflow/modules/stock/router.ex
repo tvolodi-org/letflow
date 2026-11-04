@@ -26,6 +26,10 @@ defmodule Letflow.Modules.Stock.Router do
   module. Refusals: 404 (unknown, malformed or another tenant's id), 409 `document_not_draft`, 422 with a
   `reason` (shape reasons, `invalid_filter`, the issue checks), 503 `busy`.
 
+  Both read routes take `format=json|xlsx` (REQ-728 / GH #3772; default `json`). `xlsx` renders the same
+  body through `Letflow.Modules.Stock.XlsxExport` (one page per file, a `report` sheet with the time basis);
+  any other value is 422 `invalid_filter` before the ledger is read.
+
   The tenant comes only from `conn.assigns.scoped_opts` (through `authorize/3`); a tenant key in the
   query is refused 422 `invalid_filter` and never read. `authorize/3` runs first: a caller who may not
   read gets the same 404 as an unknown path (INV-5) and never learns which query keys exist.
@@ -54,6 +58,9 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.Access
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Views
+  alias Letflow.Modules.Stock.XlsxExport
+
+  require Logger
 
   @ledger "stock"
   @uint ~r/\A(0|[1-9][0-9]{0,14})\z/
@@ -62,19 +69,25 @@ defmodule Letflow.Modules.Stock.Router do
   @slots ~w(sku location org_unit responsible lot)
   @optional_empty ~w(responsible lot)
   @text_filters ~w(cause document_type document_id correlation_id)
-  @balance_keys ~w(basis cutoff_seq as_of limit cursor scope_subtree) ++ @slots
-  @movement_keys ~w(from_seq to_seq limit cursor scope_subtree) ++ @text_filters
+  @balance_keys ~w(basis cutoff_seq as_of limit cursor format scope_subtree) ++ @slots
+  @movement_keys ~w(from_seq to_seq limit cursor format scope_subtree) ++ @text_filters
 
   authz_get "/balances", :StockRead do
     with_read(conn, fn conn, authorized ->
       with {:ok, params} <- params(conn, @balance_keys),
+           {:ok, format} <- format(params),
            {:ok, basis} <- basis(params),
            {:ok, filters} <- slot_filters(params),
            {:ok, filters} <- subtree_filter(params, filters),
            {:ok, page} <- page(params, :text) do
         case Ledger.balances(authorized, basis, filters, page) do
-          {:ok, report} -> Response.ok(conn, balances_body(report))
-          {:error, reason} -> refuse(conn, reason)
+          {:ok, report} ->
+            body = balances_body(report)
+
+            respond(conn, format, body, "stock-balances.xlsx", fn -> XlsxExport.balances(body) end)
+
+          {:error, reason} ->
+            refuse(conn, reason)
         end
       else
         {:error, reason} -> refuse(conn, reason)
@@ -85,15 +98,20 @@ defmodule Letflow.Modules.Stock.Router do
   authz_get "/movements", :StockRead do
     with_read(conn, fn conn, authorized ->
       with {:ok, params} <- params(conn, @movement_keys),
+           {:ok, format} <- format(params),
            {:ok, filters} <- entry_filters(params),
            {:ok, filters} <- subtree_filter(params, filters),
            {:ok, page} <- page(params, :integer) do
         case Ledger.entries(authorized, filters, page) do
           {:ok, %{rows: rows, next_cursor: next}} ->
-            Response.ok(conn, %{
+            body = %{
               rows: Enum.map(rows, &Views.stock_movement/1),
               next_cursor: if(next, do: Integer.to_string(next))
-            })
+            }
+
+            respond(conn, format, body, "stock-movements.xlsx", fn ->
+              XlsxExport.movements(body, filters)
+            end)
 
           {:error, reason} ->
             refuse(conn, reason)
@@ -255,6 +273,37 @@ defmodule Letflow.Modules.Stock.Router do
   defp check({:gap, seqs}), do: %{gap: seqs}
   defp check({:broken_at, n}), do: %{broken_at: n}
   defp check({:mismatch_at, n}), do: %{mismatch_at: n}
+
+  defp respond(conn, :json, body, _name, _render), do: Response.ok(conn, body)
+
+  defp respond(conn, :xlsx, _body, name, render) do
+    case render.() do
+      {:ok, binary} ->
+        send_xlsx(conn, binary, name)
+
+      {:error, :xlsx_write_failed} ->
+        Logger.error("stock xlsx write failed")
+        Response.internal_error(conn)
+    end
+  end
+
+  @xlsx_content_type "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+  defp send_xlsx(conn, binary, name) do
+    conn
+    |> Plug.Conn.put_resp_content_type(@xlsx_content_type, nil)
+    |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="#{name}"))
+    |> Plug.Conn.put_resp_header("cache-control", "no-store")
+    |> Plug.Conn.send_resp(200, binary)
+  end
+
+  defp format(params) do
+    case Map.get(params, "format", "json") do
+      "json" -> {:ok, :json}
+      "xlsx" -> {:ok, :xlsx}
+      _other -> {:error, :invalid_filter}
+    end
+  end
 
   defp balances_body(report) do
     %{
