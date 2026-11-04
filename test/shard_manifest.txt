@@ -67,6 +67,7 @@
 2 test/letflow/modules/install_context_test.exs 0.10
 2 test/letflow/modules/locations/link_writers_test.exs 28521.23
 2 test/letflow/modules/module_test.exs 0.00
+2 test/letflow/modules/stock/registration_test.exs 7346.89
 2 test/letflow/routers/admin_v1_test.exs 158735.81
 2 test/letflow/routers/audit_platform_entries_isolation_test.exs 2872.77
 2 test/letflow/routers/entities/record_writes_hook_503_test.exs 6650.43
@@ -392,6 +393,7 @@
 11 test/letflow/modules/exam/snapshot_live_options_test.exs 0.10
 11 test/letflow/modules/installs_managed_by_test.exs 4184.06
 11 test/letflow/modules/solutions_test.exs 1432.91
+11 test/letflow/modules/stock/router_test.exs 7346.89
 11 test/letflow/release/idempotency_squats_test.exs 9914.07
 11 test/letflow/repository/attachments_test.exs 39287.75
 11 test/letflow/routers/entities_import_csv_test.exs 14359.15
@@ -507,6 +509,7 @@
 14 test/letflow/modules/catalog_items/counterparty_test.exs 16094.00
 14 test/letflow/modules/codes/router_test.exs 78501.01
 14 test/letflow/modules/exam/session_score_fields_test.exs 1771.54
+14 test/letflow/modules/stock/install_test.exs 7346.89
 14 test/letflow/platform/change_set_review_test.exs 0.86
 14 test/letflow/record_triggers/outbox_backlog_test.exs 14254.96
 14 test/letflow/routers/entities_aggregate_test.exs 13512.65
@@ -618,6 +621,7 @@
 17 test/letflow/modules/catalog_items/registration_test.exs 3.60
 17 test/letflow/modules/exam/snapshot_restrictions_test.exs 15864.39
 17 test/letflow/modules/locations/behaviour_test.exs 29406.17
+17 test/letflow/modules/stock/views_test.exs 7346.89
 17 test/letflow/plugs/cors_test.exs 23.08
 17 test/letflow/record_triggers/tenant_isolation_test.exs 5299.17
 17 test/letflow/routers/entities_aggregate_restricted_join_test.exs 22876.76
@@ -942,6 +946,7 @@
 26 test/letflow/entity_type_hooks_test.exs 30215.31
 26 test/letflow/identity/last_interactive_admin_guard_test.exs 66040.71
 26 test/letflow/ledger/idempotency_test.exs 17649.23
+26 test/letflow/migrations/ledger_fk_move_migration_test.exs 7346.89
 26 test/letflow/modules/exam/certificate_document_test.exs 3236.34
 26 test/letflow/modules/exam/question_set_resolver_test.exs 0.08
 26 test/letflow/modules/org/people_test.exs 18981.32
@@ -1027,6 +1032,7 @@
 28 test/letflow/login_discovery/enablement_runbook_test.exs 42.57
 28 test/letflow/migrations/ledger_tables_migration_test.exs 18693.23
 28 test/letflow/modules/exam/grading_mark_test.exs 24146.25
+28 test/letflow/modules/stock/runbook_test.exs 7346.89
 28 test/letflow/platform_tenant_runtime_config_test.exs 17905.47
 28 test/letflow/record_triggers/outbox_step_writes_test.exs 2074.49
 28 test/letflow/routers/entities/record_writes_hook_codes_test.exs 64296.10
@@ -1129,6 +1135,7 @@
 31 test/letflow/login_discovery/notifier/smtp_test.exs 236.05
 31 test/letflow/modules/codes/pack_drift_test.exs 43.16
 31 test/letflow/modules/exam/scoring_test.exs 0.06
+31 test/letflow/modules/installs_ledger_storage_test.exs 7346.89
 31 test/letflow/modules/org/registration_test.exs 4.56
 31 test/letflow/modules/procurement/line_cancel_test.exs 61039.48
 31 test/letflow/modules/procurement/route_independence_test.exs 2263.51
@@ -1169,6 +1176,7 @@
 32 test/letflow/modules/exam/anti_cheat_test.exs 19225.26
 32 test/letflow/modules/locations/tree_write_test.exs 42967.29
 32 test/letflow/modules/procurement/purchase_requests_test.exs 30283.53
+32 test/letflow/modules/stock/ledger_policy_test.exs 7346.89
 32 test/letflow/plugs/pending_admin_login_response_test.exs 17568.56
 32 test/letflow/repository/attachment_scanner/signature_heuristic_test.exs 0.10
 32 test/letflow/req064_tenant_id_removal_test.exs 7869.99

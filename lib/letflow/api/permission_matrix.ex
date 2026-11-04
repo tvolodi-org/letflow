@@ -233,6 +233,7 @@ defmodule Letflow.Api.PermissionMatrix do
         for {_method, _path, permission} <- manifest.route_policies,
             do: {Atom.to_string(permission), manifest.id}
       end)
+      |> Kernel.++(ledger_refs(manifests))
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
       |> Map.new(fn {permission, ids} -> {permission, ids |> Enum.uniq() |> Enum.sort()} end)
 
@@ -255,6 +256,22 @@ defmodule Letflow.Api.PermissionMatrix do
       declarations: declarations,
       module_dirs_present: module_dirs_present
     }
+  end
+
+  # REQ-687: an atom named in the owner's own :ledger registration counts as referenced by it
+  # (StockPost and StockReverse have no route). Malformed registrations count as none
+  # (Catalog.validate/1 reports them).
+  defp ledger_refs(manifests) do
+    for manifest <- manifests,
+        ledger = Map.get(manifest, :ledger),
+        is_map(ledger),
+        {_name, registration} <- ledger,
+        is_map(registration),
+        permissions = Map.get(registration, :permissions),
+        is_map(permissions),
+        {_purpose, permission} <- permissions,
+        is_atom(permission) and not is_nil(permission),
+        do: {Atom.to_string(permission), manifest.id}
   end
 
   defp declared_list(entries) when is_list(entries), do: entries
