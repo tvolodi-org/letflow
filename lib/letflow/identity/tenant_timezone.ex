@@ -34,6 +34,14 @@ defmodule Letflow.Identity.TenantTimezone do
   @doc "True when PostgreSQL knows `name` as a time zone (exact, case-sensitive match)."
   @spec known_zone?(term()) :: boolean()
   def known_zone?(name) when is_binary(name) do
+    # The IANA alphabet only: a NUL byte or other odd character would make
+    # PostgreSQL reject the parameter and abort a surrounding transaction.
+    if Regex.match?(~r/\A[A-Za-z0-9_+\-\/]{1,64}\z/, name), do: query_zone(name), else: false
+  end
+
+  def known_zone?(_other), do: false
+
+  defp query_zone(name) do
     case SQL.query(
            Repo,
            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names WHERE name = $1)",
@@ -43,8 +51,6 @@ defmodule Letflow.Identity.TenantTimezone do
       _ -> false
     end
   end
-
-  def known_zone?(_other), do: false
 
   @doc """
   The UTC instant at which the local day after `date` begins in `zone`.

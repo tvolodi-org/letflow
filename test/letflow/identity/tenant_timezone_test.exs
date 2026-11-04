@@ -35,6 +35,23 @@ defmodule Letflow.Identity.TenantTimezoneTest do
              TenantTimezone.start_of_next_day(~D[2026-10-25], "Europe/Berlin")
   end
 
+  test "TZ-4g: a NUL-byte zone name is refused before any query, transaction stays usable" do
+    {:ok, :done} =
+      Repo.transaction(fn ->
+        refute TenantTimezone.known_zone?("UTC\u0000x")
+
+        assert {:error, :invalid_timezone} =
+                 TenantTimezone.start_of_next_day(~D[2026-11-03], "UTC\u0000x")
+
+        changeset =
+          Tenant.settings_changeset(%Tenant{}, %{"settings" => %{"timezone" => "UTC\u0000x"}})
+
+        refute changeset.valid?
+        assert {:ok, _} = TenantTimezone.start_of_next_day(~D[2026-11-03], "UTC")
+        :done
+      end)
+  end
+
   test "TZ-4e: an unknown zone errors before the conversion and keeps the transaction usable" do
     test_pid = self()
     id = {:tz_probe, make_ref()}
