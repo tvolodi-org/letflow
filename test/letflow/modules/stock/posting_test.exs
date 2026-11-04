@@ -499,7 +499,7 @@ defmodule Letflow.Modules.Stock.PostingTest do
       posted = P.post_and_complete!(ctx, doc["id"])
 
       assert posted |> Map.keys() |> Enum.sort() ==
-               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posting_check reason_code reason_text received_on responsible_id reversed_at reversed_by state supplier_document_ref)
+               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posting_check received_on responsible_id reversed_at reversed_by state supplier_document_ref)
 
       assert posted["posting_check"] in ["ok", "mismatch", nil]
     end

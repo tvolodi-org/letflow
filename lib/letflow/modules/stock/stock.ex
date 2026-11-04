@@ -31,6 +31,27 @@ defmodule Letflow.Modules.Stock do
   A unique constraint on (`document_id`, `mark`) of the mark type allows one posted and one reversed
   mark per document, so a second completion is refused and nothing is written.
 
+  ## Transfer, hand over and return (REQ-721 / GH #3770, assets phase B P37; version 0.5.0)
+
+  Three more document kinds with two sides per line, built on the same code as the receipt through
+  the kind table `Letflow.Modules.Stock.Documents.Kinds`: the managed types `stock_transfer`,
+  `stock_handover`, `stock_return` (each with a `_line` type, all scoped by the column `org_unit_id`),
+  the document types `TRF`, `HOV`, `RET` (year numbering, pad 6) and the process definitions of the
+  same names. Posting writes one ledger entry with two legs per line (`-q` at the from side, `+q` at
+  the to side). No new route, permission or ledger rule.
+
+  ## Issue and write off (REQ-715 / GH #3746; version 0.6.0)
+
+  Two more document kinds on the same routes, `issue` and `write_off` (`Documents.Kinds` is the kind
+  table): the managed types `stock_issue`, `stock_issue_line`, `stock_writeoff`, `stock_writeoff_line`
+  (all scoped by `org_unit_id`), the document types `stock_issue` (ISS) and `stock_writeoff` (WOF),
+  numbered per year, and the process definitions `stock_issue` and `stock_writeoff`. They post with the
+  same `post_document` handler; the legs are negative and the ledger refuses a posting below zero
+  (`insufficient_stock`). A line has no price or value. A write-off carries `reason_code` (`lost`,
+  `damaged`, `used_up`, `other`) and an optional `reason_text`. An existing installation gets the new
+  types and definitions by reinstalling the module; there is no upgrade hook. No route, permission or
+  migration. Assumptions, owner may change at GATE B: the prefixes, the reason list, no counterparty.
+
   ## Counts (REQ-700 / GH #3737, assets phase B counts; version 0.3.0)
 
   The count order: three module-managed record types (`count_order`, `count_order_scope`,
@@ -56,18 +77,6 @@ defmodule Letflow.Modules.Stock do
   cut-off (book quantities from the stock ledger through `Ledger.authorize/3` and `Ledger.balances/4`
   only), typed input, surplus lines, the append-only entry log, close (issues the `count.sheet`
   document). The stock module is installed on no tenant yet, so the changed pack touches no existing row.
-
-  ## Issue and write off (REQ-715 / GH #3746; version 0.6.0)
-
-  Two more document kinds on the same routes, `issue` and `write_off` (`Documents.Kinds` is the kind
-  table): the managed types `stock_issue`, `stock_issue_line`, `stock_writeoff`, `stock_writeoff_line`
-  (all scoped by `org_unit_id`), the document types `stock_issue` (ISS) and `stock_writeoff` (WOF),
-  numbered per year, and the process definitions `stock_issue` and `stock_writeoff`. They post with the
-  same `post_document` handler; the legs are negative and the ledger refuses a posting below zero
-  (`insufficient_stock`). A line has no price or value. A write-off carries `reason_code` (`lost`,
-  `damaged`, `used_up`, `other`) and an optional `reason_text`. An existing installation gets the new
-  types and definitions by reinstalling the module; there is no upgrade hook. No route, permission or
-  migration. Assumptions, owner may change at GATE B: the prefixes, the reason list, no counterparty.
 
   ## Slots and their order (append-only, rule 12)
 
@@ -105,6 +114,12 @@ defmodule Letflow.Modules.Stock do
     "stock_issue_line",
     "stock_writeoff",
     "stock_writeoff_line",
+    "stock_transfer",
+    "stock_transfer_line",
+    "stock_handover",
+    "stock_handover_line",
+    "stock_return",
+    "stock_return_line",
     "count_order",
     "count_order_scope",
     "count_commission_member",
@@ -124,10 +139,6 @@ defmodule Letflow.Modules.Stock do
     declared_fields: %{}
   }
 
-  # REQ-715: the issue and the write-off document types; assumptions, owner may change at GATE B.
-  @issue_type %{@receipt_type | key: "stock_issue", number_prefix: "ISS"}
-  @writeoff_type %{@receipt_type | key: "stock_writeoff", number_prefix: "WOF"}
-
   # The four count document types (decision 0079 section 9); numbering restarts each year.
   @count_document_types for {key, prefix} <- [
                               {"count.order", "CO"},
@@ -145,7 +156,31 @@ defmodule Letflow.Modules.Stock do
                               declared_fields: %{}
                             }
 
-  @document_types [@receipt_type, @issue_type, @writeoff_type | @count_document_types]
+  # REQ-715: issue and write-off (prefixes ISS, WOF; assumption, owner may change at GATE B).
+  @one_side_document_types for {key, prefix} <- [
+                                 {"stock_issue", "ISS"},
+                                 {"stock_writeoff", "WOF"}
+                               ],
+                               do: %{@receipt_type | key: key, number_prefix: prefix}
+
+  # REQ-721: transfer, hand over and return (prefixes TRF, HOV, RET; assumption, owner may change at GATE B).
+  @two_side_document_types for {key, prefix} <- [
+                                 {"stock_transfer", "TRF"},
+                                 {"stock_handover", "HOV"},
+                                 {"stock_return", "RET"}
+                               ],
+                               do: %{
+                                 key: key,
+                                 owner_module: "stock",
+                                 numbering_scope: :year,
+                                 number_prefix: prefix,
+                                 number_pad: 6,
+                                 legal_entity_required: false,
+                                 declared_fields: %{}
+                               }
+
+  @document_types [@receipt_type | @one_side_document_types ++ @two_side_document_types] ++
+                    @count_document_types
 
   @impl true
   defmanifest(
@@ -199,6 +234,12 @@ defmodule Letflow.Modules.Stock do
       "stock_issue_line",
       "stock_writeoff",
       "stock_writeoff_line",
+      "stock_transfer",
+      "stock_transfer_line",
+      "stock_handover",
+      "stock_handover_line",
+      "stock_return",
+      "stock_return_line",
       "count_order",
       "count_order_scope",
       "count_commission_member",
@@ -213,6 +254,12 @@ defmodule Letflow.Modules.Stock do
       "stock_issue_line" => {:column, "org_unit_id"},
       "stock_writeoff" => {:column, "org_unit_id"},
       "stock_writeoff_line" => {:column, "org_unit_id"},
+      "stock_transfer" => {:column, "org_unit_id"},
+      "stock_transfer_line" => {:column, "org_unit_id"},
+      "stock_handover" => {:column, "org_unit_id"},
+      "stock_handover_line" => {:column, "org_unit_id"},
+      "stock_return" => {:column, "org_unit_id"},
+      "stock_return_line" => {:column, "org_unit_id"},
       "count_order" => {:column, "org_unit_id"},
       "count_order_scope" => {:column, "org_unit_id"},
       "count_commission_member" => {:column, "org_unit_id"},

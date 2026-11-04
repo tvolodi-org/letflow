@@ -41,7 +41,7 @@ import { getKeycloakToken, loginWithToken, assertServiceReadiness, resolveCreden
 import { typeIntoTestIdInput } from './type-into-input'
 
 const API_PREFIX = '/api/v1'
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 // Generous above the fix's measured ~1s resolution, tight enough that a
 // genuine sustained freeze reliably trips it — same bound and reasoning as
 // the ISS-0662/ISS-0729/ISS-0737 sibling specs use.

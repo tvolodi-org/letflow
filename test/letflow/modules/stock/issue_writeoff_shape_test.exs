@@ -33,16 +33,19 @@ defmodule Letflow.Modules.Stock.IssueWriteoffShapeTest do
 
   defp refusal(body), do: Shape.parse(body, :create)
 
-  test "K1 the kind table is the three kinds with distinct keys" do
-    assert Shape.kinds() == ["receipt", "issue", "write_off"]
-    assert Kinds.kinds() == Shape.kinds()
-    assert Kinds.type_keys() == ["stock_receipt", "stock_issue", "stock_writeoff"]
-    assert Kinds.header_types() == Kinds.type_keys()
-    assert Kinds.process_definitions() == Kinds.type_keys()
-    assert Kinds.get("issue").side == "from" and Kinds.get("receipt").side == "to"
+  test "K1 the kind table has issue and write_off with distinct keys" do
+    assert Shape.kinds() == Kinds.kinds()
+    assert Enum.take(Kinds.kinds(), 3) == ["receipt", "issue", "write_off"]
+    assert Kinds.get("issue").type_key == "stock_issue"
+    assert Kinds.get("write_off").type_key == "stock_writeoff"
+    assert Kinds.get("issue").definition == "stock_issue"
+    assert Kinds.get("write_off").definition == "stock_writeoff"
+    assert Kinds.get("issue").cause == "issue" and Kinds.get("write_off").cause == "write_off"
     assert Kinds.by_type_key("stock_writeoff").kind == "write_off"
-    assert Kinds.get("transfer") == nil
-    assert length(Enum.uniq_by(Kinds.all(), & &1.device_id)) == 3
+    refute Kinds.get("issue").two_sided?
+    assert {%{}, nil} = Kinds.sides(Kinds.get("write_off"), %{})
+    assert length(Enum.uniq_by(Kinds.all(), & &1.device_id)) == length(Kinds.all())
+    assert length(Enum.uniq_by(Kinds.all(), & &1.prefix)) == length(Kinds.all())
   end
 
   test "S1 reason rules of a write-off and an issue" do
@@ -109,6 +112,6 @@ defmodule Letflow.Modules.Stock.IssueWriteoffShapeTest do
                })
              )
 
-    assert {:error, {"unknown_kind", %{}}} = refusal(body("transfer"))
+    assert {:error, {"unknown_kind", %{}}} = refusal(body("bogus"))
   end
 end

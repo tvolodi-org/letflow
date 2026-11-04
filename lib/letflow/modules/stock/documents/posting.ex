@@ -8,8 +8,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   ## How a document posts
 
   The issue step (and the retry route `post/4`) starts ONE instance of the module's process
-  definition of the document's kind (`stock_receipt`, `stock_issue` or `stock_writeoff`, see
-  `Letflow.Modules.Stock.Documents.Kinds`; REQ-715) (`Letflow.Engine.create/2`, no correlation key: it is unique across
+  definition `stock_receipt` (`Letflow.Engine.create/2`, no correlation key: it is unique across
   all statuses and would make a cancelled post unrestartable; the idempotency key
   `stock-post:<version id>:<attempt>` is used instead). Completing its HUMAN_TASK `post` runs the
   write handler `post_document` (`Letflow.Modules.Stock.Handlers`): the ledger entry and the
@@ -151,19 +150,20 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   """
   @spec start_post(String.t(), map(), map(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def start_post(prefix, view, issued, actor) do
+    spec = Kinds.get(view.kind)
+
     with :ok <- start_seam(),
-         kind = Kinds.get(view.kind),
-         {:ok, command} <- document_command(kind, view, issued) do
+         {:ok, command} <- post_command(spec, view, issued) do
       vars = %{
         "document_id" => view.id,
-        "document_type" => kind.type_key,
+        "document_type" => spec.type_key,
         "version_no" => issued.version_no,
         "org_unit_id" => view.org_unit_id,
         "mark" => "posted",
         "posting" => command
       }
 
-      start(prefix, kind.process, "stock-post", issued.version_id, view.id, vars, actor)
+      start(prefix, spec.definition, "stock-post", issued.version_id, view.id, vars, actor)
     end
   end
 
@@ -233,12 +233,10 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     end
   end
 
-  defp definition_ids(prefix, name) when is_binary(name), do: definition_ids(prefix, [name])
-
-  defp definition_ids(prefix, names) when is_list(names) do
+  defp definition_ids(prefix, name) do
     Repo.all(
       from(d in ProcessDefinition,
-        where: d.name in ^names and d.owner_module == "stock",
+        where: d.name == ^name and d.owner_module == "stock",
         select: d.id
       ),
       prefix: prefix
@@ -257,35 +255,36 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     )
   end
 
-  # The receipt command from the frozen content: the header and lines as issued, plus the line
-  # RECORD ids (`view.lines` are the records; nothing changes after issue).
-  defp document_command(kind, view, %{content: content, number: number, period: period} = issued) do
+  # The posting command from the frozen content: the header and lines as issued, plus the line
+  # RECORD ids (`view.lines` are the records; nothing changes after issue). The sides of every line
+  # come from `Kinds.sides/2` (a receipt has a `to` side only; REQ-721 kinds also a `from` side).
+  defp post_command(spec, view, %{content: content, number: number, period: period} = issued) do
     header = Map.get(content, "header", %{})
     lines = Map.get(content, "lines", [])
     line_ids = Map.new(view.lines, &{&1.line_no, &1.line_id})
 
     with {:ok, seq} <- client_seq(period, number),
-         {:ok, built} <- build_lines(lines, header, line_ids, kind.side) do
-      command = %{
-        "cause" => kind.cause,
-        "document_type" => kind.type_key,
-        "document_id" => view.id,
-        "client_op_id" => issued.version_id,
-        "device_id" => kind.device_id,
-        "client_seq" => seq,
-        "client_event_time" => Map.get(header, "event_time"),
-        "lines" => built
-      }
-
-      {:ok, with_reason(command, kind, header)}
+         {:ok, built} <- build_lines(lines, Kinds.sides(spec, header), line_ids) do
+      {:ok,
+       %{
+         "cause" => spec.cause,
+         "document_type" => spec.type_key,
+         "document_id" => view.id,
+         "client_op_id" => issued.version_id,
+         "device_id" => spec.device_id,
+         "client_seq" => seq,
+         "client_event_time" => Map.get(header, "event_time"),
+         "lines" => built
+       }
+       |> with_reason(spec, header)}
     end
   end
 
-  # A write-off carries its reason code (the cause demands one); other kinds carry none.
+  # A write-off carries its reason code (the ledger cause demands one); other kinds carry none.
   defp with_reason(command, %{kind: "write_off"}, header),
     do: Map.put(command, "reason_code", Map.get(header, "reason_code"))
 
-  defp with_reason(command, _kind, _header), do: command
+  defp with_reason(command, _spec, _header), do: command
 
   defp client_seq(period, number) when is_binary(period) and is_integer(number) do
     with {year, ""} <- Integer.parse(period),
@@ -298,10 +297,10 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
 
   defp client_seq(_period, _number), do: {:error, :number_out_of_range}
 
-  defp build_lines(lines, header, line_ids, side) do
+  defp build_lines(lines, sides, line_ids) do
     Enum.reduce_while(lines, {:ok, []}, fn line, {:ok, acc} ->
       case Map.fetch(line_ids, Map.get(line, "line_no")) do
-        {:ok, line_id} -> {:cont, {:ok, [leg_line(line, line_id, header, side) | acc]}}
+        {:ok, line_id} -> {:cont, {:ok, [leg_line(line, line_id, sides) | acc]}}
         :error -> {:halt, {:error, :line_record_missing}}
       end
     end)
@@ -311,18 +310,24 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     end
   end
 
-  defp leg_line(line, line_id, header, side) do
-    %{
+  defp leg_line(line, line_id, {from, to}) do
+    base = %{
       "line_id" => line_id,
       "sku" => Map.get(line, "catalog_item_id"),
       "lot" => Map.get(line, "catalog_lot_id"),
       "unit" => Map.get(line, "catalog_uom_id"),
-      "quantity" => Map.get(line, "quantity"),
-      side => %{
-        "org_unit" => Map.get(header, "org_unit_id"),
-        "location" => Map.get(header, "location_id"),
-        "responsible" => Map.get(header, "responsible_id")
-      }
+      "quantity" => Map.get(line, "quantity")
+    }
+
+    base = if to, do: Map.put(base, "to", side_map(to)), else: base
+    if from, do: Map.put(base, "from", side_map(from)), else: base
+  end
+
+  defp side_map(side) do
+    %{
+      "org_unit" => side.org_unit,
+      "location" => side.location,
+      "responsible" => side.responsible
     }
   end
 
@@ -338,7 +343,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   def post(prefix, id, %{actor_id: actor, activator: activator}, fetch) do
     with {:ok, view} <- fetch.(prefix, id),
          :ok <- postable(prefix, view),
-         :ok <- active(prefix, Kinds.get(view.kind).process, activator),
+         :ok <- active(prefix, Kinds.get(view.kind).definition, activator),
          %{} = issued <- issued(prefix, view.id) || {:error, :internal},
          {:ok, _instance} <- start_post(prefix, view, issued, actor) do
       fetch.(prefix, id)
@@ -380,7 +385,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
          {:ok, view} <- fetch.(prefix, id),
          marks = marks(prefix, [view.id]) |> Map.get(view.id, %{}),
          :ok <- reversible(prefix, view, marks),
-         {:ok, entry_id} <- main_entry(authorized, view),
+         {:ok, entry_id} <- posting_entry(authorized, view),
          :ok <- active(prefix, @reversal_definition, activator),
          %{} = issued <- issued(prefix, view.id) || {:error, :internal},
          reversal = %{
@@ -430,9 +435,9 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     end
   end
 
-  # The one posting entry of the document (the kind's cause), read through the caller's tenant-wide
-  # authorization.
-  defp main_entry(authorized, view) do
+  # The one posting entry (cause of the kind) of the document, read through the caller's
+  # tenant-wide authorization.
+  defp posting_entry(authorized, view) do
     cause = Kinds.get(view.kind).cause
 
     case entries(authorized, view.id) do
@@ -528,7 +533,11 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   @doc "Which post / reverse tasks of the document's active instances are pending."
   @spec pending(String.t(), String.t()) :: %{post: boolean(), reverse: boolean()}
   def pending(prefix, id) do
-    ids = definition_ids(prefix, Kinds.process_definitions() ++ [@reversal_definition])
+    ids =
+      Enum.flat_map(
+        Kinds.definition_names() ++ [@reversal_definition],
+        &definition_ids(prefix, &1)
+      )
 
     nodes =
       Repo.all(
@@ -582,7 +591,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     marks = marks(prefix, [base.id]) |> Map.get(base.id, %{})
     state = derive_state(base.state, marks)
     rows = if authorized, do: entries(authorized, base.id), else: :error
-    receipt = main_row(rows, Kinds.get(base.kind).cause)
+    receipt = receipt_row(rows, Kinds.get(base.kind).cause)
 
     %{
       state: state,
@@ -616,14 +625,14 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     Map.new(rows, &{&1.id, derive_state(&1.state, Map.get(marks, &1.id, %{}))})
   end
 
-  defp main_row({:ok, rows}, cause) do
+  defp receipt_row({:ok, rows}, cause) do
     case Enum.filter(rows, &(&1.cause == cause)) do
       [one] -> one
       _none_or_many -> nil
     end
   end
 
-  defp main_row(_unavailable, _cause), do: nil
+  defp receipt_row(_unavailable, _cause), do: nil
 
   defp posting_check(_base, _state, _marks, :error, _prefix), do: nil
   # More than one page of entries for one document cannot happen without a flood.
@@ -657,7 +666,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   defp consistent?(base, state, marks, receipts, reversals, prefix) do
     case receipts do
       [receipt] ->
-        legs_match?(receipt, expected_legs(prefix, base.id, Kinds.get(base.kind).sign)) and
+        legs_match?(receipt, expected_legs(prefix, base)) and
           Map.has_key?(marks, "posted") and
           reversal_consistent?(state, marks, receipt, reversals)
 
@@ -675,23 +684,25 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     do: reversals == [] and not Map.has_key?(marks, "reversed")
 
   # Expected legs from the frozen content: a multiset of {sku, location, org_unit, responsible,
-  # lot, unit, quantity}, quantity normalised as a Decimal.
-  defp expected_legs(prefix, id, sign) do
-    case issued(prefix, id) do
+  # lot, unit, signed quantity}, quantity normalised as a Decimal. A two-sided kind (REQ-721) gives
+  # per line a `-q` leg at the from side and a `+q` leg at the to side (`Kinds.sides/2`, the same
+  # function the posting command uses).
+  defp expected_legs(prefix, base) do
+    case issued(prefix, base.id) do
       %{content: content} ->
-        header = Map.get(content, "header", %{})
+        spec = Kinds.get(base.kind)
+        {from, to} = Kinds.sides(spec, Map.get(content, "header", %{}))
 
-        for line <- Map.get(content, "lines", []) do
-          leg_key(
-            Map.get(line, "catalog_item_id"),
-            Map.get(header, "location_id"),
-            Map.get(header, "org_unit_id"),
-            Map.get(header, "responsible_id"),
-            Map.get(line, "catalog_lot_id"),
-            Map.get(line, "catalog_uom_id"),
-            signed(Map.get(line, "quantity"), sign)
-          )
-        end
+        Enum.flat_map(Map.get(content, "lines", []), fn line ->
+          quantity = Map.get(line, "quantity")
+          leg = &leg_key(line, &1, &2)
+
+          cond do
+            from && to -> [leg.(from, negate(quantity)), leg.(to, quantity)]
+            from -> [leg.(from, negate(quantity))]
+            true -> [leg.(to, quantity)]
+          end
+        end)
         |> Enum.sort()
 
       _none ->
@@ -699,13 +710,22 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     end
   end
 
-  # An issue or write-off leg is negative in the ledger; the frozen content holds the positive quantity.
-  defp signed(quantity, 1), do: quantity
+  defp leg_key(line, side, quantity) do
+    leg_key(
+      Map.get(line, "catalog_item_id"),
+      side.location,
+      side.org_unit,
+      side.responsible,
+      Map.get(line, "catalog_lot_id"),
+      Map.get(line, "catalog_uom_id"),
+      quantity
+    )
+  end
 
-  defp signed(quantity, -1) do
+  defp negate(quantity) do
     case Decimal.parse(to_string(quantity)) do
       {%Decimal{} = d, ""} -> d |> Decimal.negate() |> Decimal.to_string(:normal)
-      _bad -> quantity
+      _bad -> "invalid"
     end
   end
 

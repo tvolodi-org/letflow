@@ -5,8 +5,7 @@ migration, no definition JSON, no route, no screen. The module, its types, its p
 ledger registration are later requirements, written after GATE A from this file. GATE B still needs the
 owner's check with the portfolio manager (D-063, D-073).
 
-Built so far: the receipt (REQ-712..714) and the issue and write-off documents (REQ-715, GH #3746; module stock 0.5.0).
-Transfer, hand over and return are not built.
+Built so far: the receipt (REQ-712..714), the issue and write-off documents (REQ-715, GH #3746) and transfer, hand over and return (REQ-721); module stock 0.6.0.
 
 Sources: owner decisions D-061 (only workflows write to the registers; registers are read-only and corrected
 by new entries), D-062 (documents are fixed once signed; balance as of a date; backdating limit; audit

@@ -69,7 +69,7 @@ import { randomUUID } from 'crypto'
 import { createPipeline, getKeycloakToken, loginWithToken, navigateSpa, authHeaders, shot } from '../pipeline'
 import { assertServiceReadiness, resolveCredential } from '../helpers'
 
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 
 interface SemanticValidationPipelineState {
   adminToken: string

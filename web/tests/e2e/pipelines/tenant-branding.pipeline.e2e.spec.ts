@@ -51,7 +51,7 @@ import {
 import { assertServiceReadiness, resolveCredential } from '../helpers'
 
 const APP_BASE_URL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:4173'
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 
 const PASSING_COLOR = '#1864ab' // matches tenant_settings_test.exs's AC2 setup colour
 const FAILING_COLOR = '#228be6' // matches tenant_settings_test.exs's AC2 reject colour

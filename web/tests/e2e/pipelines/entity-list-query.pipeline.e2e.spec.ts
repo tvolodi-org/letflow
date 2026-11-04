@@ -26,7 +26,7 @@
  *                                  via the UI's page-size-error banner
  *
  * PRE-CONDITIONS. This spec requires:
- *   1. A running Letflow backend at BPM_TEST_URL (default: http://127.0.0.1:8080)
+ *   1. A running Letflow backend at BPM_TEST_URL (default: http://127.0.0.1:4000)
  *   2. A running frontend at E2E_BASE_URL (default: http://127.0.0.1:4173)
  *   3. Keycloak at BPM_IDP_BASE_URL with admin-user / UAT_QA_ADMIN_PASSWORD
  *   4. At least 2 existing `tag` records in the default tenant with distinct
@@ -80,7 +80,7 @@ import {
 } from '../pipeline'
 import { assertServiceReadiness, resolveCredential } from '../helpers'
 
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 
 const ENTITY_TYPE = 'tag'
 const ENTITY_BROWSE_PATH = `/entities/${ENTITY_TYPE}`
