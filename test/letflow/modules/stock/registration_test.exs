@@ -169,8 +169,6 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
     # REQ-712: the document context (documents.ex, documents/) reads and writes its own record and
     # document tables, so Repo and Ecto.Query are allowed there; the ledger names stay banned everywhere.
-    own_tables = fn path -> path =~ ~r{stock/documents(\.ex|/)} end
-
     # REQ-700: counts.ex reads and writes the count record types (Repo, Ecto.Query), never a ledger table.
     own_tables = fn path -> path =~ ~r{stock/(documents(\.ex|/)|counts\.ex)} end
 
