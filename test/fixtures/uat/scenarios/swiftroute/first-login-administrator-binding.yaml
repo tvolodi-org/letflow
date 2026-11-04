@@ -2,6 +2,12 @@
 # a company's administrator). Rules come from docs/migration/decisions/0048-pending-tenant-admin-grant.md
 # section 1.4 and 1.6 (binding needs a verified e-mail that matches the open grant; a bind that does
 # not fire is silent and the next login retries).
+# MAIL (T-1254, D-088): any mail this scenario needs (invitation, e-mail verification, password reset) is read
+# through the QA mail trap, never a human mailbox. Test addresses end in @uat.letflow.internal. Before step 1 the
+# runner purges the trap (scripts/mail_trap.sh purge); to read a mail it runs
+# scripts/mail_trap.sh wait ADDR 60 and uses the printed link. A realm not wired to the trap yet is reported
+# WAITING FOR INFRA, not run against a real mailbox. Google sign-in is a separate optional branch, outside this chain.
+# See docs/testing/uat-mail-trap.md.
 ---
 id: swiftroute-first-login-administrator-binding
 company_id: swiftroute

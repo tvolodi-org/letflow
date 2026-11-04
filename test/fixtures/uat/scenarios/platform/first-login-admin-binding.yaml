@@ -10,6 +10,12 @@
 # Setup: onboarding takes ONE administrator e-mail per customer, so the scenario sets up two
 # customers, each with its own sign-in realm: customer A names the confirmed person, customer B
 # names the unconfirmed person.
+# MAIL (T-1254, D-088): any mail this scenario needs (invitation, e-mail verification, password reset) is read
+# through the QA mail trap, never a human mailbox. Test addresses end in @uat.letflow.internal. Before step 1 the
+# runner purges the trap (scripts/mail_trap.sh purge); to read a mail it runs
+# scripts/mail_trap.sh wait ADDR 60 and uses the printed link. A realm not wired to the trap yet is reported
+# WAITING FOR INFRA, not run against a real mailbox. Google sign-in is a separate optional branch, outside this chain.
+# See docs/testing/uat-mail-trap.md.
 ---
 id: platform-first-login-admin-binding
 scope: platform
