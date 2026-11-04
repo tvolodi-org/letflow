@@ -6,7 +6,7 @@ defmodule Letflow.Modules.Stock.Router do
 
   | Route | Permission | Ledger call | 200 body |
   |---|---|---|---|
-  | `GET /balances` | `StockRead` | `authorize(:read)`, `balances/4` | `basis, ledger_id, cutoff_seq, as_of, timezone, filters, ledger_seq, next_cursor, rows` (+ `as_of_date` when asked) |
+  | `GET /balances` | `StockRead` | `authorize(:read)`, `balances/4` | `basis, ledger_id, cutoff_seq, as_of, timezone, filters, ledger_seq, next_cursor, coverage, rows` (+ `as_of_date` when asked) |
   | `GET /movements` | `StockRead` | `authorize(:read)`, `entries/3` | `rows, next_cursor` |
   | `GET /reconcile` | `StockReconcile` | `authorize(:reconcile)`, `reconcile/2` | `ledger_id, checked_through_seq, mismatches, gap_check, chain_check, audit_check, next_cursor` |
 
@@ -14,10 +14,14 @@ defmodule Letflow.Modules.Stock.Router do
   query is refused 422 `invalid_filter` and never read. `authorize/3` runs first: a caller who may not
   read gets the same 404 as an unknown path (INV-5) and never learns which query keys exist.
 
-  Scoped readers: REQ-693 lets `authorize/3` serve a node-scoped reader, but this slice keeps the
-  entry's rule (criterion 8a): balances and movements answer 404 for any reader whose scope is not
-  `:all` until plan task P25 (REQ-682) lifts the guard `tenant_wide/1`. `Map.get` is used because
-  Rule 8 forbids naming the `Authorized` struct in module code.
+  Scoped readers (REQ-682, P25): `authorize/3` serves a reader granted on org units; balances and
+  movements then hold the rows of those units only (the filter runs inside the core statement).
+  The query key `scope_subtree` (one org unit id P) narrows both routes to the subtree of P;
+  `/balances` then carries `coverage`: `complete` or `visible_only`. A client shows `visible_only`
+  as "your units in P", never as the total of P. A movement leg in a hidden unit is passed through
+  as the core returns it: `leg_no, quantity, unit_ref, masked: true` and nothing else
+  (`Views.stock_movement_leg/1`). Without a subtree filter `coverage` is `null`. `reconcile` stays
+  tenant-wide only.
 
   `GET /balances?as_of_date=YYYY-MM-DD[&cutoff_seq=N]` (REQ-704) answers the balance at the end of that
   day in the tenant time zone through `Ledger.balances_on_date/5`; without `cutoff_seq` the cutoff is
@@ -44,14 +48,15 @@ defmodule Letflow.Modules.Stock.Router do
   @slots ~w(sku location org_unit responsible lot)
   @optional_empty ~w(responsible lot)
   @text_filters ~w(cause document_type document_id correlation_id)
-  @balance_keys ~w(basis cutoff_seq as_of as_of_date limit cursor) ++ @slots
-  @movement_keys ~w(from_seq to_seq limit cursor) ++ @text_filters
+  @balance_keys ~w(basis cutoff_seq as_of as_of_date limit cursor scope_subtree) ++ @slots
+  @movement_keys ~w(from_seq to_seq limit cursor scope_subtree) ++ @text_filters
 
   authz_get "/balances", :StockRead do
     with_read(conn, fn conn, authorized ->
       with {:ok, params} <- params(conn, @balance_keys),
            {:ok, basis} <- basis(params),
            {:ok, filters} <- slot_filters(params),
+           {:ok, filters} <- subtree_filter(params, filters),
            {:ok, page} <- page(params, :text) do
         case read_balances(authorized, basis, filters, page) do
           {:ok, report} -> Response.ok(conn, balances_body(report))
@@ -67,6 +72,7 @@ defmodule Letflow.Modules.Stock.Router do
     with_read(conn, fn conn, authorized ->
       with {:ok, params} <- params(conn, @movement_keys),
            {:ok, filters} <- entry_filters(params),
+           {:ok, filters} <- subtree_filter(params, filters),
            {:ok, page} <- page(params, :integer) do
         case Ledger.entries(authorized, filters, page) do
           {:ok, %{rows: rows, next_cursor: next}} ->
@@ -105,16 +111,10 @@ defmodule Letflow.Modules.Stock.Router do
 
   defp with_read(conn, fun) do
     case Ledger.authorize(conn, @ledger, :read) do
-      {:ok, authorized} ->
-        if tenant_wide?(authorized), do: fun.(conn, authorized), else: Response.not_found(conn)
-
-      :error ->
-        Response.not_found(conn)
+      {:ok, authorized} -> fun.(conn, authorized)
+      :error -> Response.not_found(conn)
     end
   end
-
-  # P25 (REQ-682) removes this guard.
-  defp tenant_wide?(authorized), do: Map.get(authorized, :scope) == :all
 
   defp reconcile(conn, authorized, opts) do
     case Ledger.reconcile(authorized, opts) do
@@ -169,6 +169,7 @@ defmodule Letflow.Modules.Stock.Router do
       filters: report.filters,
       ledger_seq: report.ledger_seq,
       next_cursor: report.next_cursor,
+      coverage: if(report.coverage, do: Atom.to_string(report.coverage)),
       rows: Enum.map(report.rows, &Views.stock_balance/1)
     }
   end
@@ -255,6 +256,20 @@ defmodule Letflow.Modules.Stock.Router do
        |> put_unless_nil("to_seq", to)}
     else
       _bad -> {:error, :invalid_filter}
+    end
+  end
+
+  # The core filter key is the atom-free string "scope_subtree"; the id is checked by the core
+  # (a bad id answers invalid_filter), the route only bounds the text.
+  defp subtree_filter(params, filters) do
+    case Map.fetch(params, "scope_subtree") do
+      :error ->
+        {:ok, filters}
+
+      {:ok, id} ->
+        if id != "" and byte_size(id) <= 64 and String.valid?(id),
+          do: {:ok, Map.put(filters, "scope_subtree", id)},
+          else: {:error, :invalid_filter}
     end
   end
 
