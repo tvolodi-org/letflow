@@ -20,6 +20,10 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   conservation that the sign rule `zero_sum_by_slot_1` (per sku) does not check. The key is
   `[sku, location, org_unit, responsible, lot]` (absent responsible and lot are empty text).
 
+  A `reversal` (REQ-713) takes `reverses_entry_id` (uuid) and `reason_code`, no lines, and returns a
+  posting with no legs; the core negates the target's legs. `cause: "reversal"` with lines is refused.
+  The line `unit` is a token of at most 64 bytes (a uom uuid is 36).
+
   The refusal is always `{:error, {:invalid_posting, %{leg_no: n}}}`, `n` the number of the first leg the
   bad line would produce; no reason, key or value is returned. Whole-command faults give 1; more than
   100 lines give the first leg of line 101. Assumption, owner may change at GATE B: the six causes.
@@ -36,6 +40,40 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
 
   @impl Letflow.Ledger.Policy
   def declare(command, _registration) when is_map(command) do
+    if Map.get(command, :cause) == "reversal", do: reversal(command), else: ordinary(command)
+  end
+
+  def declare(_command, _registration), do: invalid(1)
+
+  # REQ-713: a reversal carries the target entry and a reason code and NO lines; the core negates
+  # the legs (`Letflow.Ledger.Validate.reversal_posting/2`). A reversal with lines is refused.
+  defp reversal(command) do
+    lines = Map.get(command, :lines)
+
+    with true <- lines in [nil, []],
+         {:ok, target} <- ok(Policy.uuid(Map.get(command, :reverses_entry_id))),
+         reason when is_binary(reason) <- Map.get(command, :reason_code) do
+      header =
+        command
+        |> Map.take(@header)
+        |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+      {:ok,
+       Policy.posting(
+         Map.merge(header, %{
+           ledger_id: "stock",
+           cause: "reversal",
+           legs: [],
+           reverses_entry_id: target,
+           reason_code: reason
+         })
+       )}
+    else
+      _ -> invalid(1)
+    end
+  end
+
+  defp ordinary(command) do
     with {:ok, cause, width} <- cause(Map.get(command, :cause)),
          {:ok, lines} <- lines(Map.get(command, :lines), width),
          {:ok, legs} <- build(cause, lines, width) do
@@ -47,8 +85,6 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
       {:ok, Policy.posting(Map.merge(header, %{ledger_id: "stock", cause: cause, legs: legs}))}
     end
   end
-
-  def declare(_command, _registration), do: invalid(1)
 
   defp cause(cause) when is_binary(cause) do
     cond do
@@ -85,7 +121,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
     with {:ok, line_id} <- ok(Policy.uuid(Map.get(line, :line_id))),
          {:ok, sku} <- ok(Policy.uuid(Map.get(line, :sku))),
          {:ok, lot} <- optional_uuid(Map.get(line, :lot)),
-         {:ok, unit} <- ok(Policy.token(Map.get(line, :unit), 32)),
+         {:ok, unit} <- ok(Policy.token(Map.get(line, :unit), 64)),
          {:ok, quantity} <- quantity(Map.get(line, :quantity)),
          {:ok, from, to} <- sides(cause, Map.get(line, :from), Map.get(line, :to)) do
       base = %{sku: sku, lot: lot, unit: unit, quantity: quantity, line_id: line_id}
