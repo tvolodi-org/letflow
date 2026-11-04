@@ -49789,7 +49789,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-712 -- the opening document is a new kind on the stock document foundation of REQ-712 and the receipt-only checks of REQ-714
+    gh: 3775
     # Source: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (REQ-677, merged in #3729; sections D1, D2, D3, D4, D6, D9 and Open owner questions Q1 to Q3), decision 0073 (D-T, D-P with D9 OQ-20, the PILOT GATE of the slice table) with its section Amended by REQ-676, decision 0076 (R7 scope declarations, D-067), decision 0078 (D5 order of issue and posting); entries REQ-712 (document foundation, its routes, checks and reasons), REQ-714 (validate_capture/3 call and its reasons), REQ-687 (declare/2 line cap of 100 lines) on origin/main de23767f1. Functions read on origin/main: Letflow.Modules.CatalogItems.item_uom_valid?/3 (true only for the item's base_uom_id), item_lot_valid?/3 and validate_capture/3 (lib/letflow/modules/catalog_items/catalog_items.ex); Letflow.Modules.Locations.linked?/3 (lib/letflow/modules/locations/locations.ex); Letflow.Modules.Org.active_employee?/2 (lib/letflow/modules/org/org.ex); Letflow.Documents.create_draft/3, edit_draft/4, discard_draft/3, issue/2 (lib/letflow/documents.ex). Owner decisions D-085, D-086, D-087 (2026-11-04: build fast; defaults for open questions, owner may change at GATE B). Written by the business analyst (T-1235) 2026-11-04.
     description: >
       Phase B item B3 of the assets and stock application, implementation part 1 of 4 (REQ-725 to REQ-728). It adds the
@@ -49867,7 +49867,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-725 -- posts the opening document of REQ-725 through the posting machinery of REQ-713
+    gh: 3774
     # Source: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (D1 no backdating, D2 one posting with cause opening and sign rule positive, D4 steps 4 and 5 and its UAT assumption on the approver, D6 corrections and repeats, D7 no service path before L5, Q1, Q2); decision 0073 (D-T, D-C, D-L12) with its section Amended by REQ-676; decision 0078 (D4, D5); entries REQ-713 (posting, posting mark, retry, idempotency, binding check, reversal, cancel), REQ-687 (registration causes and declare/2) and REQ-685 (authority step) on origin/main de23767f1. Code read on origin/main: Letflow.Ledger.post/1 and stamp_event_times (lib/letflow/ledger.ex: event_time is client_event_time or, online, the posting time), Letflow.Ledger.Validate (lib/letflow/ledger/validate.ex: a posting that carries event_time is posting_shape); Letflow.Engine.SeparationOfDuties (lib/letflow/engine/separation_of_duties.ex, HUMAN_TASK attribute distinct_from, user id, no role exempt); the graph checks of distinct_from in lib/letflow/definitions/graph.ex (CHK-26, CHK-27: the named node must be upstream); Letflow.Routers.Tasks POST /:id/complete answering Letflow.Api.Response.separation_of_duties/1 (403); Letflow.Engine.create/2 and complete_task/3 (lib/letflow/engine.ex). Written by the business analyst (T-1235) 2026-11-04.
     description: >
       Phase B item B3, implementation part 2 of 4. It posts an issued opening document of REQ-725 to the stock ledger
@@ -49930,7 +49930,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-725 -- imports lines into the opening document of REQ-725 through the managed import of REQ-651
+    gh: 3773
     # Source: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (D5 xlsx import of opening lines, D3 line checks, D2 line fields); decision 0077 (D1 reader, D2 limits, D3 mapping: each header is exactly a field name, D7 dry run); entries REQ-651 (managed import path, import functions), REQ-650 (xlsx import), REQ-675 (import screen) and REQ-725 on origin/main de23767f1. Code read on origin/main: Letflow.Entities.ManagedImport.run/8 (lib/letflow/entities/managed_import.ex: one row per call, partial success, dry run in one rolled-back transaction); Letflow.Routers.Entities.RecordImport (lib/letflow/routers/entities/record_import.ex: POST /api/v1/entities/records/:entity_type/import with EntitiesRecordsImport, the xlsx media type, ?upsert_by=external_ref, ?dry_run=true, @import_record_cap 200, import_scope_check refusing scoped principals in upsert mode, and import_reason_json with its closed reason lists); the import functions of the master modules (lib/letflow/modules/org/import.ex @references and find/4, lib/letflow/modules/catalog_items/import.ex, lib/letflow/modules/locations/import.ex: a reference cell holds the external id of the target under the SAME external-ref system as the row, {:reference_not_found, field} and {:reference_inactive, field}); Letflow.Modules.ReadApi (lib/letflow/modules/read_api.ex, lookup/3 and active?/3); the external_ref_system and external_ref_id fields of the master types in priv/modules/org, priv/modules/locations and priv/modules/catalog_items entity definitions; Letflow.Modules.Module :import_functions (lib/letflow/modules/module.ex, Catalog rule 14). Written by the business analyst (T-1235) 2026-11-04.
     description: >
       Phase B item B3, implementation part 3 of 4. It lets a user fill a draft opening document of REQ-725 from an xlsx
@@ -49992,7 +49992,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-687 -- adds the xlsx format to the two read routes of slice L4 and renders the masked legs of REQ-693
+    gh: 3772
     # Source: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (D8 xlsx export of balances and movements, D1 consequence for reports); the ledger design note lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 8.4 (what every report states: basis, cutoff_seq, as_of, timezone, filters, ledger_seq) and 16.3 (export neutralisation); decision 0077 D8 (writer dependency elixlsx); entries REQ-687 (criteria 5, 6 and 8: the balances and movements routes, their closed query keys, views and refusals; out-of-scope item (3) names this export), REQ-693 (criterion 6: masked legs of a scoped reader) and REQ-714 (criterion 5: the Asia/Almaty module constant) on origin/main de23767f1. Code read on origin/main: Letflow.Entities.XlsxExport.build/3 (lib/letflow/entities/xlsx_export.ex: text cells are string cells, never formulas; a decimal through a float, its text form when too large) and the records export's send_xlsx/3 in lib/letflow/routers/entities.ex (content type, content-disposition attachment, cache-control no-store). Written by the business analyst (T-1235) 2026-11-04.
     description: >
       Phase B item B3, implementation part 4 of 4: the two xlsx exports of the stock register of 0079 D8, for the read
