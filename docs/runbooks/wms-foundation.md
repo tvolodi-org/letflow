@@ -373,8 +373,8 @@ Each limit names the GH issue or the code that holds it; paths are cited without
    `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.Codes)`
    (`lib/letflow/modules/codes/codes.ex`); the tests do the same
    (`test/letflow/modules/codes/codes_fixture.exs`).
-3. **Write functions have write routes (item 18); the scan route is not built.** Receive, assign, release, retire and change value are
-   in `lib/letflow/modules/codes/writes.ex` (REQ-663, GH #3615); the routes are REQ-667 (GH #3611), the scan route is a later slice (GH #3588).
+3. **Write functions have write routes (item 18) and the scan has a route (item 19).** Receive, assign, release, retire and change value are
+   in `lib/letflow/modules/codes/writes.ex` (REQ-663, GH #3615); the routes are REQ-667 (GH #3611), the scan route is REQ-730 (GH #3797).
 4. **The target is not validated.** `target_type` and `target_id` are declarative strings, no
    foreign key is possible (decision 0050 D3.5 and D3.6, GH #3588); a code may name a type no module ships.
    The module that writes a code validates the target through the owning module's lookup.
@@ -422,7 +422,13 @@ Each limit names the GH issue or the code that holds it; paths are cited without
     `idempotency_key` and no other keys. An unknown code or target (also of another tenant) is 404, a bad
     batch entry is 422 `entry_invalid` with its `index` and `entry_reason`, any other refusal is 422 with a
     `reason`. A tenant that installed codes before 0.2.0 gets the routes without an upgrade (they come from the
-    code manifest); the scan route is not built (`lib/letflow/modules/codes/router.ex`).
+    code manifest); the scan route is item 19.
+19. **Scan lookup route (GH #3797, REQ-730, codes 0.3.0).** `POST /api/v1/modules/codes/resolve` (body `value`, no
+    `idempotency_key`, no other key) needs `CodesRead`; only TENANT_ADMIN and PLATFORM_ADMIN hold it (no
+    `role_grants`). It writes nothing. A not assigned code, or an assigned code whose target type is
+    `tenant_wide`, is 200 with the `resolve/2` map; a retired or conflicting code is 200 with the sent value and
+    null keys. An unknown code, and an assigned code whose target type is scoped or undeclared (fail closed),
+    are the same 404 (`lib/letflow/modules/codes/router.ex`).
 
 ## Stock module limits
 
