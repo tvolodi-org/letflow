@@ -959,7 +959,10 @@ defmodule Letflow.TenantProvisioning do
      "20261104300001_move_ledger_fks_to_partitions.exs"},
     # REQ-577 / GH #3261 (decision 0070 D2, slice A): per-type write restriction and write grants.
     {20_261_105_100_001, Letflow.Repo.Migrations.CreateEntityTypeWriteAccessTables,
-     "20261105100001_create_entity_type_write_access_tables.exs"}
+     "20261105100001_create_entity_type_write_access_tables.exs"},
+    # REQ-603 part A (decision 0074 P2, P6): purge_requests table and guarded delete triggers.
+    {20_261_105_200_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards,
+     "20261105200001_create_purge_requests_and_delete_guards.exs"}
   ]
 
   @doc """

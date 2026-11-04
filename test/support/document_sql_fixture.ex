@@ -179,6 +179,59 @@ defmodule Letflow.DocumentSqlFixture do
     id
   end
 
+  @doc """
+  Inserts a `purge_requests` row (REQ-603 part A) and returns its id. It is inserted unapproved
+  (the insert trigger demands it) and then approved by an UPDATE, unless `approve: false`.
+
+  Options: `:artefact_hash` (hex text), `:content_hash` (default the fixture hash), `:expired`
+  (the request window lies in the past), `:consumed`, `:requested_by`, `:approved_by`.
+  """
+  def insert_purge_request!(schema, tenant_id, document_id, version_id, opts \\ []) do
+    id = Keyword.get_lazy(opts, :id, &Ecto.UUID.generate/0)
+    expired? = Keyword.get(opts, :expired, false)
+
+    exec!(
+      """
+      INSERT INTO #{table(schema, "purge_requests")}
+        (id, tenant_id, document_id, version_id, version_no, content_hash, artefact_hash,
+         reason_code, requested_by, requested_at, expires_at)
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 1, $5, $6, 'legal_erasure', $7::uuid,
+              CASE WHEN $8::boolean THEN now() - interval '2 hours' ELSE now() END,
+              CASE WHEN $8::boolean THEN now() - interval '1 hour' ELSE now() + interval '1 hour' END)
+      """,
+      [
+        id,
+        tenant_id,
+        document_id,
+        version_id,
+        Keyword.get(opts, :content_hash, @hash),
+        Keyword.get(opts, :artefact_hash),
+        Keyword.get_lazy(opts, :requested_by, &Ecto.UUID.generate/0),
+        expired?
+      ]
+    )
+
+    if Keyword.get(opts, :approve, true) do
+      exec!(
+        """
+        UPDATE #{table(schema, "purge_requests")}
+           SET approved_by = $2::uuid, approved_at = now()
+         WHERE id = $1::uuid
+        """,
+        [id, Keyword.get_lazy(opts, :approved_by, &Ecto.UUID.generate/0)]
+      )
+    end
+
+    if Keyword.get(opts, :consumed, false) do
+      exec!(
+        ~s|UPDATE #{table(schema, "purge_requests")} SET consumed_at = now() WHERE id = $1::uuid|,
+        [id]
+      )
+    end
+
+    id
+  end
+
   @doc "Sets the retention policy of a type directly (period may be nil)."
   def set_policy!(schema, key, period, from, action) do
     exec!(
