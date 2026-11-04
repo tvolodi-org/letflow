@@ -15,5 +15,6 @@ export const stockModuleDefinition: ModuleDefinition = {
   navItems: [
     { to: '/admin/stock/balances', label: 'Balances', permission: STOCK_READ },
     { to: '/admin/stock/movements', label: 'Movements', permission: STOCK_READ },
+    { to: '/admin/stock/counts', label: 'Counts', permission: STOCK_READ },
   ],
 }
