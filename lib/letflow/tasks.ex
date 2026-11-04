@@ -824,9 +824,11 @@ defmodule Letflow.Tasks do
   # who holds that role / is in that group (token roles or tenant-role groups), or by a
   # TENANT_ADMIN. `:TasksReassign` alone (PROCESS_OPERATOR) is not enough: otherwise the operator
   # reassigns the task to themselves and completes it without the routing role. A missing
-  # `:actor_id` fails closed. USER-assigned tasks are unchanged.
+  # `:actor_id` (key present, value nil) fails closed. A trusted in-process caller that passes no
+  # `:actor_id` key at all (no HTTP caller; the router always sets it) is not checked.
+  # USER-assigned tasks are unchanged.
   defp authorize_reassign(%Task{assignee_type: type, assignee_ref: ref}, attrs, prefix)
-       when type in ["ROLE", "GROUP"] do
+       when type in ["ROLE", "GROUP"] and is_map_key(attrs, :actor_id) do
     actor_id = Map.get(attrs, :actor_id)
     token_roles = Map.get(attrs, :actor_roles, [])
 
