@@ -135,7 +135,8 @@ defmodule Letflow.Ledger.AsOfDateTest do
     post_at!(s, "receipt", ["k", "l"], 1, at)
 
     assert {:ok, again} = Ledger.balances_on_date(a, d, 3, %{}, %{})
-    # `ledger_seq` is the live counter (4 now, 3 before), so it is left out of the byte comparison
+
+    # REQ-704 criterion 6: `ledger_seq` is the live counter (4 now, 3 before) and is excluded from the comparison
     same = &Jason.encode!(Map.delete(&1, :ledger_seq))
     assert same.(again) == same.(before)
     assert again.ledger_seq == 4 and before.ledger_seq == 3
@@ -160,10 +161,10 @@ defmodule Letflow.Ledger.AsOfDateTest do
 
     ledger_sql = Enum.filter(sql, &(&1 =~ "ledger_"))
     assert ledger_sql != []
-    # The quantities come from the leg table. The existing event-basis path of balances/4 still
-    # reads `ledger_balance` for the list of keys only (finding of T-1224: criterion 7 of REQ-704
-    # says "never the balance table"; changing that path is a change of REQ-637 and its speed test).
-    assert Enum.all?(ledger_sql, &(&1 =~ "ledger_leg"))
+    # REQ-704 criterion 7 (amended): quantities come from `ledger_leg`; `ledger_balance` is read
+    # only to list keys, so no statement may select its on_hand column.
+    assert Enum.any?(ledger_sql, &(&1 =~ "ledger_leg"))
+    refute Enum.any?(ledger_sql, &(&1 =~ ~r/ledger_balance"?\.\"?(on_hand)/i))
     refute Enum.any?(ledger_sql, &(&1 =~ ~r/\b(INSERT|UPDATE|DELETE|LOCK)\b/i))
   end
 

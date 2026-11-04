@@ -67,8 +67,8 @@ defmodule Letflow.Ledger.Read do
 
   @k_fields [:k1, :k2, :k3, :k4, :k5, :k6, :k7, :k8]
   @default_limit 50
-  @timezone_form ~r/\A[A-Za-z0-9_+\-\/]{1,64}\z/
   @max_value_bytes 200
+  @timezone_form ~r/\A[A-Za-z0-9_+\-\/]{1,64}\z/
   @entry_filters ~w(cause document_type document_id correlation_id from_seq to_seq scope_subtree)
   @subtree_key "scope_subtree"
 
