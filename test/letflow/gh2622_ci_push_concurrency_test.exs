@@ -290,7 +290,8 @@ defmodule Letflow.Gh2622CiPushConcurrencyTest do
                "backend_shard" => "Backend shard ${{ matrix.shard }}/${{ strategy.job-total }}",
                "backend" => "Backend gate (mix letflow.check)",
                "frontend" => "Frontend gate (npm run check)",
-               "mobile" => "Mobile gate (flutter analyze + test + build)"
+               "mobile" => "Mobile gate (flutter analyze + test + build)",
+               "full_run_marker" => "Selective CI markers (main)"
              }
     end
   end

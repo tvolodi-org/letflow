@@ -300,6 +300,33 @@ if [ -n "$manifest_path" ]; then
   fi
 fi
 
+# T-1297: TEST_PARALLEL_PLAN=<file> replaces the manifest's file lists with an explicit plan made
+# by scripts/ci_select_tests.py (selective CI run): lines `<global partition> <test path>`. Only the
+# lines for this runner's slice count; they must fill FIRST..FIRST+k-1 without a gap, and LAST is
+# lowered to that k, so a shard with less to do runs fewer partitions (no empty partition, which
+# `mix test` would turn into "run everything"). No line for the slice: nothing to run, exit 0.
+# Needs the manifest (its header still has to match TOTAL). Unset, nothing changes.
+plan_path="${TEST_PARALLEL_PLAN:-}"
+if [ -n "$plan_path" ]; then
+  if [ -z "$manifest_path" ] || [ ! -r "$plan_path" ]; then
+    echo "test_parallel: ERROR TEST_PARALLEL_PLAN='$plan_path' needs a readable plan file and TEST_PARALLEL_MANIFEST" >&2
+    exit 2
+  fi
+  manifest_effective=$(tr -d '\r' < "$plan_path" | awk -v f="$FIRST" -v l="$LAST" 'NF >= 2 && $1 >= f && $1 <= l { print $1, $2, "listed" }')
+  plan_k=$(printf '%s\n' "$manifest_effective" | awk 'NF { seen[$1] = 1 } END { n = 0; for (k in seen) n++; print n }')
+  if [ "$plan_k" -eq 0 ]; then
+    echo "test_parallel: plan $plan_path has no test for partitions $FIRST..$LAST; nothing to run in this slice"
+    exit 0
+  fi
+  plan_last=$((FIRST + plan_k - 1))
+  if [ "$(printf '%s\n' "$manifest_effective" | awk -v l="$plan_last" 'NF && $1 > l { n++ } END { print n + 0 }')" -ne 0 ]; then
+    echo "test_parallel: ERROR plan $plan_path leaves a gap: partitions must be $FIRST..$plan_last without holes" >&2
+    exit 2
+  fi
+  LAST="$plan_last"
+  echo "test_parallel: selective plan $plan_path: partitions $FIRST..$LAST, $(printf '%s\n' "$manifest_effective" | grep -c .) test file(s)"
+fi
+
 # --- Step 1: pre-compile MIX_ENV=test exactly once (AC5) -----------------
 
 _tp_cpu="unknown"; _tp_mem="unknown"; _tp_load="unknown"
@@ -891,7 +918,7 @@ phase_start_epoch=$(date +%s)
 # pull request or merge-queue run that touches nothing the heavy files depend on; the nightly
 # run, push to main and workflow_dispatch leave it unset. Needs a manifest (explicit file lists).
 heavy_skip_list=""
-if [ "${TEST_PARALLEL_SKIP_HEAVY:-}" = "1" ]; then
+if [ "${TEST_PARALLEL_SKIP_HEAVY:-}" = "1" ] && [ -z "${plan_path:-}" ]; then
   if [ -z "$manifest_path" ]; then
     echo "test_parallel: ERROR TEST_PARALLEL_SKIP_HEAVY=1 needs TEST_PARALLEL_MANIFEST (explicit file lists)" >&2
     exit 2

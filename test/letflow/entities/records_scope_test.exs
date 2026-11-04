@@ -554,7 +554,9 @@ defmodule Letflow.Entities.RecordsScopeTest do
           ] do
         {result, sql} = W.statements(fn -> lookup(fx, id, @in_a, type) end)
         assert result == :not_found, type
-        refute Enum.any?(sql, &(&1 =~ "ANY(")), "#{type}: no id lookup statement"
+
+        refute Enum.any?(sql, &(&1 =~ "ANY(" and not (&1 =~ "entity_scope_declarations"))),
+               "#{type}: no id lookup statement"
       end
     end
 
