@@ -1063,7 +1063,9 @@ defmodule Letflow.Ledger do
   The only way to get a `Letflow.Ledger.Authorized` value. The principal is built here from the
   conn (never supplied by the caller); the answer is the bare atom `:error` for every failure
   (INV-5): unknown ledger id, no principal, any credential other than an interactive one, a role
-  without the registration's permission for `purpose`, a scoped (not tenant-wide) grant, grants
+  without the registration's permission for `purpose`, a scoped (not tenant-wide) grant for
+  `:reconcile` or for a registration without `scope_slot` (REQ-693: a scoped `:read` of a
+  registration with a `scope_slot` is accepted and the value holds the allowed node set), grants
   that cannot be loaded, a node-expansion failure (`ScopeSetError`, fail closed, INV-8). No log
   line and no telemetry carries the ledger id or the grants. The prefix is the plug's own.
   """
@@ -1074,7 +1076,7 @@ defmodule Letflow.Ledger do
          {:ok, permission} <- permission_for(entry, purpose),
          {:ok, _conn, %Principal{kind: :user} = principal} <- Scope.principal_from_conn(conn),
          true <- Enum.any?(principal.roles, &Authorization.role_allows?(&1, permission)),
-         {:ok, :all} <- tenant_wide_set(principal, permission),
+         {:ok, scope} <- read_scope(principal, permission, purpose, entry),
          {:ok, names} <- slot_names(entry) do
       {:ok,
        %Authorized{
@@ -1082,7 +1084,9 @@ defmodule Letflow.Ledger do
          ledger_id: ledger_id,
          registration_name: entry.name,
          purpose: purpose,
-         slot_names: names
+         slot_names: names,
+         scope: scope,
+         scope_col: scope_col(entry, names)
        }}
     else
       _refused -> :error
@@ -1102,11 +1106,41 @@ defmodule Letflow.Ledger do
     end
   end
 
-  # REQ-637: ScopeSetError, fail closed, is the one rescue of the ledger files.
-  defp tenant_wide_set(principal, permission) do
-    Scope.allowed_set(principal, permission)
+  # REQ-637: ScopeSetError, fail closed, is the one rescue of the ledger files. REQ-693: a node set
+  # is accepted for :read when the registration names a scope slot; everything else is :error.
+  defp read_scope(principal, permission, purpose, entry) do
+    case Scope.allowed_set(principal, permission) do
+      {:ok, :all} ->
+        {:ok, :all}
+
+      {:ok, {:nodes, ids}} when purpose == :read and is_list(ids) ->
+        if scope_slot_name(entry) != nil, do: {:ok, {:nodes, ids}}, else: :error
+
+      _other ->
+        :error
+    end
   rescue
     Scope.ScopeSetError -> :error
+  end
+
+  defp scope_slot_name(%{registration: %{slots: slots} = registration}) when is_list(slots) do
+    with name when is_binary(name) <- Map.get(registration, :scope_slot),
+         true <- Enum.any?(slots, &(is_map(&1) and Map.get(&1, :name) == name)) do
+      name
+    else
+      _none -> nil
+    end
+  end
+
+  defp scope_slot_name(_entry), do: nil
+
+  defp scope_col(entry, names) do
+    with name when is_binary(name) <- scope_slot_name(entry),
+         idx when is_integer(idx) <- Enum.find_index(names, &(&1 == name)) do
+      Enum.at([:k1, :k2, :k3, :k4, :k5, :k6, :k7, :k8], idx)
+    else
+      _none -> nil
+    end
   end
 
   defp slot_names(%{name: name, registration: %{slots: slots}})
