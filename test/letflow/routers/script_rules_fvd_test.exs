@@ -12,7 +12,9 @@ defmodule Letflow.Routers.ScriptRulesFvdTest do
   import Ecto.Query
 
   alias Letflow.Audit.Entry
+  alias Letflow.Engine.Lua.ScriptRunner
   alias Letflow.Scripts.FormValidation
+  alias Letflow.Support.ScriptPolicyFixture, as: P
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
   alias Letflow.Support.ScriptTaskFixture, as: F
 
@@ -60,6 +62,24 @@ defmodule Letflow.Routers.ScriptRulesFvdTest do
     end
   end
 
+  # The first call in a fresh VM loads code and takes about 60 ms, above the 50 ms cap: warm the
+  # runner once so the real-sandbox rows measure the steady state.
+  setup_all do
+    opts = [
+      tenant: "tenant_warmup",
+      timeout_ms: 5_000,
+      ctx: %{
+        instance_id: "i",
+        node_id: "n",
+        token_id: "t",
+        now: ~U[2026-10-26 08:00:00.000000Z]
+      }
+    ]
+
+    {:ok, _} = ScriptRunner.run("return { ok = true }", %{}, opts)
+    :ok
+  end
+
   setup do
     previous = Application.fetch_env(:letflow, :form_validation_hook_enabled)
     Application.put_env(:letflow, :form_validation_hook_enabled, true)
@@ -88,7 +108,7 @@ defmodule Letflow.Routers.ScriptRulesFvdTest do
     conn =
       Fixture.router_conn(:post, path, fx, roles, body)
       |> Plug.Conn.assign(:auth_context, %{
-        user_id: Ecto.UUID.generate(),
+        user_id: Keyword.get(opts, :user_id, Ecto.UUID.generate()),
         tenant_id: fx.tenant_id,
         roles: roles,
         credential: credential
@@ -123,6 +143,59 @@ defmodule Letflow.Routers.ScriptRulesFvdTest do
     end)
   end
 
+  defp hooks_on! do
+    Application.put_env(:letflow, :scripts_test_hooks, true)
+    on_exit(fn -> Application.delete_env(:letflow, :scripts_test_hooks) end)
+  end
+
+  @ok_reply {:ok,
+             %{
+               output: %{"ok" => true},
+               stats: %{duration_us: 1, instructions_used: 2, heap_words_at_end: 3}
+             }}
+
+  @counted ~w(tasks instance_projections tokens events event_idempotency event_payload_store
+              instance_state_snapshots script_task_dispatches script_rules entity_record_latest
+              entity_type_instances)
+
+  defp counts(fx) do
+    for table <- @counted, into: %{} do
+      %{rows: [[n]]} = Repo.query!(~s|SELECT count(*) FROM "#{fx.schema_name}"."#{table}"|)
+      {table, n}
+    end
+  end
+
+  defp audit_count(fx) do
+    %{rows: [[n]]} = Repo.query!(~s|SELECT count(*) FROM "#{fx.schema_name}".audit_entries|)
+    n
+  end
+
+  defp without_stats(conn), do: conn |> json() |> Map.delete("stats")
+
+  defp direct_facts(variables) do
+    %{
+      variables: variables,
+      variable_labels: %{},
+      instance_id: "00000000-0000-0000-0000-000000000000",
+      token_id: "dry-run",
+      form: %{
+        definition_id: "dry-run",
+        definition_version: 0,
+        node_id: "dry-run",
+        schema_version_hash: "dry-run"
+      },
+      task: %{
+        id: "dry-run",
+        node_id: "dry-run",
+        assignee_kind: "dry-run",
+        now: DateTime.utc_now()
+      }
+    }
+  end
+
+  defp pin(rule),
+    do: %{script_key: rule.key, script_version: rule.version, script_sha256: rule.sha256}
+
   test "R2 accepted and refused bodies are allowlisted", %{a: a} do
     ok = publish!(a, "okr", "return { ok = true }")
     refuse = publish!(a, "refr", @refuse)
@@ -144,78 +217,136 @@ defmodule Letflow.Routers.ScriptRulesFvdTest do
   end
 
   test "R3 the verdict equals a direct FormValidation.run", %{a: a} do
+    accept = publish!(a, "eqa", "return { ok = true }")
     refuse = publish!(a, "eqr", @refuse)
-    pin = %{script_key: "eqr", script_version: refuse.version, script_sha256: refuse.sha256}
 
-    facts = %{
-      variables: %{"note" => "x"},
-      variable_labels: %{},
-      instance_id: "00000000-0000-0000-0000-000000000000",
-      token_id: "dry-run",
-      form: %{
-        definition_id: "dry-run",
-        definition_version: 0,
-        node_id: "dry-run",
-        schema_version_hash: "dry-run"
-      },
-      task: %{
-        id: "dry-run",
-        node_id: "dry-run",
-        assignee_kind: "dry-run",
-        now: DateTime.utc_now()
-      }
-    }
+    assert {:ok, :accepted} =
+             FormValidation.run(a.schema_name, pin(accept), direct_facts(%{"note" => "fine"}))
 
-    assert {:ok, {:refused, %{code: "too_short"}}} = FormValidation.run(a.schema_name, pin, facts)
-    conn = fvd(a, "eqr", %{"version" => refuse.version, "variables" => %{"note" => "x"}})
-    assert json(conn)["code"] == "too_short"
+    conn = fvd(a, "eqa", %{"version" => accept.version, "variables" => %{"note" => "fine"}})
+    assert json(conn)["outcome"] == "accepted"
+    refute Map.has_key?(json(conn), "code")
+    refute Map.has_key?(json(conn), "fields")
+
+    assert {:ok, {:refused, %{code: code, fields: fields}}} =
+             FormValidation.run(a.schema_name, pin(refuse), direct_facts(%{"note" => "x"}))
+
+    body = json(fvd(a, "eqr", %{"version" => refuse.version, "variables" => %{"note" => "x"}}))
+    assert body["outcome"] == "refused"
+    assert body["code"] == code
+    assert body["fields"] == fields |> Jason.encode!() |> Jason.decode!()
   end
 
-  test "R4 the sandbox gets the constant facts", %{a: a} do
+  test "R4 constant facts reach the sandbox and nothing but one audit row is written", %{a: a} do
     rule = publish!(a, "cst", "return { ok = true }")
+    stub!(@ok_reply)
+    hooks_on!()
 
-    stub!(
-      {:ok,
-       %{
-         output: %{"ok" => true},
-         stats: %{duration_us: 1, instructions_used: 2, heap_words_at_end: 3}
-       }}
-    )
-
-    Application.put_env(:letflow, :scripts_test_hooks, true)
-    on_exit(fn -> Application.delete_env(:letflow, :scripts_test_hooks) end)
-
+    before = counts(a)
+    audits = audit_count(a)
     conn = fvd(a, "cst", %{"version" => rule.version, "variables" => %{"note" => "hi"}})
     assert conn.status == 200, conn.resp_body
-    assert [{_source, input, _opts}] = StubRunner.calls()
-    assert inspect(input) =~ "dry-run"
-    assert [_one] = audit_rows(a)
+
+    assert counts(a) == before
+    assert audit_count(a) == audits + 1
+
+    assert [{_source, input, opts}] = StubRunner.calls()
+    assert input["output"] == %{"note" => "hi"}
+
+    assert input["form"] == %{
+             "definition_id" => "dry-run",
+             "definition_version" => 0,
+             "node_id" => "dry-run",
+             "schema_version_hash" => "dry-run"
+           }
+
+    assert %{"id" => "dry-run", "node_id" => "dry-run", "assignee_kind" => "dry-run"} =
+             input["task"]
+
+    assert opts[:ctx].instance_id == "00000000-0000-0000-0000-000000000000"
+    assert opts[:ctx].token_id == "dry-run"
+    assert opts[:ctx].node_id == "dry-run"
+    assert opts[:fail_codes] == []
   end
 
-  test "R5 infrastructure outcomes are 200 without code or fields", %{a: a} do
-    rule = publish!(a, "inf", "return { ok = true }")
+  test "R4 source scan: the dry-run path touches no engine, task, record or event module" do
+    scripts = File.read!("lib/letflow/scripts.ex")
+    router = File.read!("lib/letflow/routers/script_rules.ex")
 
-    stub!({:error, :budget_exceeded, %{}})
-    Application.put_env(:letflow, :scripts_test_hooks, true)
-    on_exit(fn -> Application.delete_env(:letflow, :scripts_test_hooks) end)
+    {i, _} = :binary.match(scripts, "def dry_run_form_validation(")
+    {j, _} = :binary.match(scripts, "defp dry_run_response(")
+    fun = binary_part(scripts, i, j - i)
 
-    conn = fvd(a, "inf", %{"version" => rule.version, "variables" => %{}})
+    {k, _} = :binary.match(router, ~S|authz_post "/:key/form-validation-dry-run"|)
+    {l, _} = :binary.match(router, "authz_unmatched(:ordinary)")
+    action = binary_part(router, k, l - k)
+
+    for {name, text} <- [function: fun, action: action],
+        forbidden <- ~w(Engine Tasks Records EventStore) do
+      refute Regex.match?(~r/\b#{forbidden}\./, text), "#{name} references #{forbidden}"
+    end
+
+    # the only Repo access in the function body is through get/3 and Audit.insert_entry
+    refute Regex.match?(~r/\bRepo\.\w+/, fun)
+    assert fun =~ "get(prefix, key, version)"
+    assert fun =~ "Audit.insert_entry(Repo, attrs, prefix)"
+
+    # and the two Repo reads below it are Repo.get_by on ScriptRule
+    scripts_get = binary_part(scripts, elem(:binary.match(scripts, "def get(prefix"), 0), 400)
+    assert scripts_get =~ "Repo.get_by(ScriptRule"
+    form_validation = File.read!("lib/letflow/scripts/form_validation.ex")
+    assert form_validation =~ "Repo.get_by(ScriptRule, [key: key, version: version]"
+  end
+
+  for {label, reply, outcome} <- [
+        {"script_error", {:error, :script_error, %{}}, "script_error"},
+        {"budget_exceeded", {:error, :budget_exceeded, %{}}, "budget_exceeded"},
+        {"memory_limit_exceeded", {:error, :memory_limit_exceeded, %{}}, "memory_limit_exceeded"},
+        {"timeout", {:error, :timeout, %{}}, "timeout"},
+        {"output_invalid", {:error, :output_invalid, %{}}, "output_invalid"},
+        {"script_busy", {:error, :script_busy, %{}}, "script_busy"}
+      ] do
+    test "R5 #{label} is a 200 without code or fields", %{a: a} do
+      rule = publish!(a, "inf", "return { ok = true }")
+      stub!(unquote(Macro.escape(reply)))
+      hooks_on!()
+
+      conn = fvd(a, "inf", %{"version" => rule.version, "variables" => %{}})
+      assert conn.status == 200, conn.resp_body
+      body = json(conn)
+      assert body["outcome"] == unquote(outcome)
+      assert body |> Map.keys() |> Enum.sort() == ~w(outcome stats)
+      assert [entry] = audit_rows(a)
+      assert entry.after_state["outcome"] == unquote(outcome)
+    end
+  end
+
+  test "R5 script_busy from the real admission with every slot held", %{a: a} do
+    rule = publish!(a, "busy", "return { ok = true }")
+    F.hold_all_slots!(a.schema_name)
+
+    conn = fvd(a, "busy", %{"version" => rule.version, "variables" => %{}})
     assert conn.status == 200, conn.resp_body
-    body = json(conn)
-    assert body["outcome"] == "budget_exceeded"
-    refute Map.has_key?(body, "code")
-    refute Map.has_key?(body, "fields")
+    assert json(conn)["outcome"] == "script_busy"
+    assert [entry] = audit_rows(a)
+    assert entry.after_state["outcome"] == "script_busy"
   end
 
-  test "R5 flag off is a 200 script_rejected, no run", %{a: a} do
+  test "R5 flag off is a 200 script_rejected, no run, audited", %{a: a} do
     rule = publish!(a, "off", "return { ok = true }")
+    stub!(@ok_reply)
+    hooks_on!()
     Application.put_env(:letflow, :form_validation_hook_enabled, false)
+
     conn = fvd(a, "off", %{"version" => rule.version, "variables" => %{}})
     assert conn.status == 200
     assert json(conn)["outcome"] == "script_rejected"
+    assert StubRunner.calls() == []
+    assert [entry] = audit_rows(a)
+    assert entry.after_state["outcome"] == "script_rejected"
   end
 
-  test "R6 unknown key, absent and bad versions are one 404; draft is script_rejected", %{a: a} do
+  test "R6 unknown key, absent and bad versions are one 404", %{a: a} do
     rule = publish!(a, "ver", "return { ok = true }")
     missing = fvd(a, "nokey", %{"version" => 1, "variables" => %{}})
     assert missing.status == 404
@@ -227,15 +358,84 @@ defmodule Letflow.Routers.ScriptRulesFvdTest do
     end
 
     assert fvd(a, "ver", %{"version" => "#{rule.version}", "variables" => %{}}).status == 200
+  end
 
+  test "R6 draft, revoked and other-kind versions answer one script_rejected body; discarded is 404",
+       %{a: a} do
     draft =
       F.draft!(a.schema_name, "drf", "return { ok = true }", @manifest,
         hook_kind: "form_validation"
       )
 
-    conn = fvd(a, "drf", %{"version" => draft.version, "variables" => %{}})
-    assert conn.status == 200
-    assert json(conn)["outcome"] == "script_rejected"
+    revoked =
+      F.revoke_raw!(a.schema_name, publish!(a, "rev", "return { ok = true }"))
+
+    other = F.published!(a.schema_name, "oth", "return { ok = true }", @manifest)
+
+    discarded =
+      F.draft!(a.schema_name, "dis", "return { ok = true }", @manifest,
+        hook_kind: "form_validation"
+      )
+
+    actor = %{user_id: Ecto.UUID.generate(), credential: :oidc, trace_id: "t1279"}
+
+    assert {:ok, %{status: :discarded}} =
+             Letflow.Scripts.discard(a.schema_name, "dis", discarded.version, actor)
+
+    bodies =
+      for {key, rule} <- [{"drf", draft}, {"rev", revoked}, {"oth", other}] do
+        conn = fvd(a, key, %{"version" => rule.version, "variables" => %{"note" => "x"}})
+        assert conn.status == 200, conn.resp_body
+        assert json(conn)["outcome"] == "script_rejected"
+        without_stats(conn)
+      end
+
+    assert bodies |> Enum.uniq() |> length() == 1
+    assert hd(bodies) == %{"outcome" => "script_rejected"}
+
+    gone = fvd(a, "dis", %{"version" => discarded.version, "variables" => %{}})
+    missing = fvd(a, "nokey", %{"version" => 1, "variables" => %{}})
+    assert {gone.status, gone.resp_body} == {404, missing.resp_body}
+  end
+
+  test "R13 restricted_inputs naming an active definition and a known field run", %{a: a} do
+    P.active_definition!(a.schema_name, "customer", ["name", "email"])
+
+    manifest =
+      Map.put(@manifest, "restricted_inputs", [
+        %{"name" => "note", "from" => [%{"entity_type" => "customer", "field" => "name"}]}
+      ])
+
+    rule = publish!(a, "rsok", @refuse, manifest)
+    before = counts(a)
+    conn = fvd(a, "rsok", %{"version" => rule.version, "variables" => %{"note" => "x"}})
+    assert conn.status == 200, conn.resp_body
+    assert json(conn)["outcome"] == "refused"
+    assert json(conn)["code"] == "too_short"
+    assert counts(a) == before
+  end
+
+  test "R13 an unknown entity type or field is script_rejected with no run", %{a: a} do
+    P.active_definition!(a.schema_name, "customer", ["name", "email"])
+    stub!(@ok_reply)
+    hooks_on!()
+
+    for {key, from} <- [
+          {"rsfld", %{"entity_type" => "customer", "field" => "nope"}},
+          {"rsent", %{"entity_type" => "ghost", "field" => "name"}}
+        ] do
+      manifest =
+        Map.put(@manifest, "restricted_inputs", [%{"name" => "note", "from" => [from]}])
+
+      rule = publish!(a, key, "return { ok = true }", manifest)
+      conn = fvd(a, key, %{"version" => rule.version, "variables" => %{"note" => "x"}})
+      assert conn.status == 200, conn.resp_body
+      body = json(conn)
+      assert body["outcome"] == "script_rejected"
+      assert body |> Map.keys() |> Enum.sort() == ~w(outcome stats)
+    end
+
+    assert StubRunner.calls() == []
   end
 
   test "R7 bad bodies are 422, no run, no audit", %{a: a} do
@@ -272,18 +472,28 @@ defmodule Letflow.Routers.ScriptRulesFvdTest do
     assert fvd(a, "cap", %{"version" => rule.version, "variables" => over}).status == 422
   end
 
-  test "R8 one audit row with exactly four after_state keys", %{a: a} do
+  test "R8 one audit row with exactly four after_state keys, no payload, caller as actor", %{a: a} do
     rule = publish!(a, "aud", @refuse)
-    fvd(a, "aud", %{"version" => rule.version, "variables" => %{"note" => @marker}})
+    caller = Ecto.UUID.generate()
+
+    fvd(a, "aud", %{"version" => rule.version, "variables" => %{"note" => @marker}},
+      user_id: caller
+    )
+
     assert [entry] = audit_rows(a)
     assert entry.resource_type == "script_rule"
+    assert entry.actor_id == caller
 
     assert entry.after_state |> Map.keys() |> Enum.sort() ==
              ~w(duration_us heap_words_at_end instructions_used outcome)
 
     assert entry.after_state["outcome"] == "refused"
-    refute inspect(entry) =~ @marker
-    refute inspect(entry) =~ "too_short"
+
+    dump = inspect(entry)
+    refute dump =~ @marker
+    refute dump =~ "too_short"
+    refute dump =~ "note"
+    refute dump =~ "return {"
   end
 
   test "R8 a failing audit insert is a 500 without a verdict", %{a: a} do
@@ -338,6 +548,30 @@ defmodule Letflow.Routers.ScriptRulesFvdTest do
              "variables" => %{},
              "tenant_id" => b.tenant_id
            }).status == 422
+  end
+
+  test "R10 a malformed body for another tenant's key is 422; a tenant query param is ignored",
+       %{a: a, b: b} do
+    rb = publish!(b, "bonly2", "return { ok = true }")
+
+    for key <- ["bonly2", "absent"] do
+      conn = fvd(a, key, %{"version" => rb.version, "variables" => "x"})
+      assert conn.status == 422, conn.resp_body
+    end
+
+    # a tenant named in the query string does not move the call into that tenant
+    conn =
+      call(
+        "/bonly2/form-validation-dry-run?tenant_id=#{b.tenant_id}&prefix=#{b.schema_name}",
+        a,
+        %{"version" => rb.version, "variables" => %{}},
+        []
+      )
+
+    absent = fvd(a, "absent", %{"version" => 1, "variables" => %{}})
+    assert conn.status == 404
+    assert conn.resp_body == absent.resp_body
+    assert audit_rows(a) == [] and audit_rows(b) == []
   end
 
   test "R5 the tenant kill switch is a 409 with no run and no audit", %{a: a} do
