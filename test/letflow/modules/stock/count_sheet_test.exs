@@ -427,7 +427,7 @@ defmodule Letflow.Modules.Stock.CountSheetTest do
 
       lot =
         Map.merge(c.input, %{
-          "catalog_item_id" => c.input["catalog_item_id"],
+          "catalog_item_id" => c.m.lot_item,
           "catalog_lot_id" => c.m.lot,
           "responsible_employee_id" => c.w.chair
         })
