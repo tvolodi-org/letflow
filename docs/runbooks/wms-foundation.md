@@ -451,8 +451,11 @@ names the GH issue or the code that holds it; paths are cited without line numbe
    on `next_cursor` until it is null, and only the last result carries `chain_check` and `audit_check`
    (`lib/letflow/ledger/reconcile.ex`). A statement timeout is 503 `ledger_read_timeout`, a busy lock 409
    `reconcile_busy`.
-8. **No export of ledger data.** CSV or XLSX export and its cell neutralisation are a later requirement
-   (REQ-677, GH #3707).
+8. **Export is one page per xlsx file.** `format=xlsx` on `balances` and `movements` renders the page the JSON answer
+   holds (follow `next_cursor` for the next file); the `report` sheet gives the time basis and a note that a balance
+   as of a time before an opening posting shows no opening quantity (decision 0079 D1). The movements file has
+   no `ledger_seq` (GATE B open question) and its timezone is Asia/Almaty (assumption, owner may change at GATE B)
+   (GH #3772, `lib/letflow/modules/stock/xlsx_export.ex`).
 9. **The T-LD-1 throughput floor is a pilot condition.** The floor of note 7.6 (REQ-686 criterion 9) is not
    checked by this module (`lib/letflow/design/gh2657-wms-stock-ledger-core.md`, GH #3707).
 10. **Event time of an entry follows the core rule.** The policy ignores an `event_time` key; the entry time

@@ -46,7 +46,7 @@ defmodule Letflow.Modules.Stock.RunbookTest do
     text = items() |> Enum.map_join("\n", &elem(&1, 1))
 
     for word <-
-          ~w(L7 OQ-20 OQ-13 OQ-23 REQ-679 L5 404 REQ-682 OQ-11 export T-LD-1) ++
+          ~w(L7 OQ-20 OQ-13 OQ-23 REQ-679 L5 404 REQ-682 OQ-11 export T-LD-1 3772 ledger_seq) ++
             [
               "NOT enabled for a customer tenant until L6",
               "one chunk",
