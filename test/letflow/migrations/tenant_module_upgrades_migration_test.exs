@@ -90,8 +90,12 @@ defmodule Letflow.TenantModuleUpgradesMigrationTest do
     schema: schema,
     tenant_id: tenant_id
   } do
-    assert {@version, CreateTenantModuleUpgrades} =
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+    # later migrations append after it (REQ-692 added CreateLedgerPerLedgerIdKeys)
+    manifest = TenantProvisioning.tenant_scoped_migrations()
+    assert {@version, CreateTenantModuleUpgrades} = Enum.at(manifest, -2)
+
+    assert {20_261_104_100_001, Letflow.Repo.Migrations.CreateLedgerPerLedgerIdKeys} =
+             List.last(manifest)
 
     assert column_names(schema) != []
 
