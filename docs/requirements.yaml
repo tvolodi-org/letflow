@@ -49247,6 +49247,7 @@ requirements:
       - "OQ-13 and OQ-23 of decision 0073 are not decided here."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-710, REQ-684, REQ-676, "decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md) section Amended (REQ-676, assets B1), items A6 and A10"]
+
   - id: REQ-712
     title: "Assets B4 stock documents part 1: the document foundation in module stock (receipt header and line record types, drafts, master checks before issue, issue through the versioned documents service), no posting yet"
     owner: ELIXIR-DEV
