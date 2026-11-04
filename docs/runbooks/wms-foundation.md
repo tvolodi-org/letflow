@@ -441,18 +441,24 @@ names the GH issue or the code that holds it; paths are cited without line numbe
    postings; serial-tracked goods stay out of the pilot (GH #3707).
 4. **No posting path in the product yet.** The stock documents of REQ-679 are not built, so nothing posts
    to ledger id `stock`; the SERVICE origin is refused until slice L5 (REQ-688, GH #3705).
-5. **Scoped readers and API tokens get 404 from every read route.** `Letflow.Ledger.authorize/3` answers
-   `:error` for an API token, and `lib/letflow/modules/stock/router.ex` answers a reader whose scope is not
-   tenant-wide with the same 404 on balances and movements, until the scoped read of REQ-682 (plan task P25);
-   `reconcile` is tenant-wide only (GH #3733).
+5. **API tokens get 404 from every read route; a scoped reader reads its own units.** `Letflow.Ledger.authorize/3`
+   answers `:error` for an API token. A reader granted on org units (REQ-682, REQ-693) gets the balances and
+   movements of those units only; the query key `scope_subtree` (one org unit id) narrows to a subtree and
+   `/balances` then reports `coverage` `complete` or `visible_only`, which a client shows as "your units in P"
+   and never as the total of P; a movement leg in a hidden unit is masked (`leg_no`, `quantity`, `unit_ref`,
+   `masked`). `reconcile` is tenant-wide only and answers a scoped reader 404 (GH #3733). Whether the ledger read
+   follows the tenant's enforcement mode is open (owner, assumption, may change at GATE B).
 6. **No role grants; OQ-11 is open.** Only TENANT_ADMIN and PLATFORM_ADMIN hold `StockPost`, `StockReverse`,
    `StockRead` and `StockReconcile` (`docs/roles.md`); the owner decides any widening (GH #3707).
 7. **Reconcile reads one chunk per call.** `GET /api/v1/modules/stock/reconcile` runs one chunk; a client loops
    on `next_cursor` until it is null, and only the last result carries `chain_check` and `audit_check`
    (`lib/letflow/ledger/reconcile.ex`). A statement timeout is 503 `ledger_read_timeout`, a busy lock 409
    `reconcile_busy`.
-8. **No export of ledger data.** CSV or XLSX export and its cell neutralisation are a later requirement
-   (REQ-677, GH #3707).
+8. **Export is one page per xlsx file.** `format=xlsx` on `balances` and `movements` renders the page the JSON answer
+   holds (follow `next_cursor` for the next file); the `report` sheet gives the time basis and a note that a balance
+   as of a time before an opening posting shows no opening quantity (decision 0079 D1). The movements file has
+   no `ledger_seq` (GATE B open question) and its timezone is Asia/Almaty (assumption, owner may change at GATE B)
+   (GH #3772, `lib/letflow/modules/stock/xlsx_export.ex`).
 9. **The T-LD-1 throughput floor is a pilot condition.** The floor of note 7.6 (REQ-686 criterion 9) is not
    checked by this module (`lib/letflow/design/gh2657-wms-stock-ledger-core.md`, GH #3707).
 10. **Event time of an entry follows the core rule.** The policy ignores an `event_time` key; the entry time
