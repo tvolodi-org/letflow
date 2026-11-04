@@ -410,17 +410,6 @@ defmodule Letflow.Modules.LedgerRegistrationTest do
                inspect(args)
       end
     end
-
-    test "creates no atom for an unknown name" do
-      name = "never_seen_" <> Base.encode16(:crypto.strong_rand_bytes(8))
-      # Warm-up: the first call loads every entry module (and its policy) lazily, which creates
-      # atoms of its own; the test is about the unknown name, not about code loading.
-      assert {:ok, _} = Catalog.fetch_ledger("fixture_ledger_post", "alpha")
-      before = :erlang.system_info(:atom_count)
-      assert Catalog.fetch_ledger("fixture_ledger_post", name) == {:error, :not_found}
-      assert Catalog.fetch_ledger(name, name) == {:error, :not_found}
-      assert :erlang.system_info(:atom_count) == before
-    end
   end
 
   describe "T-FX-01 the fixture" do
@@ -455,6 +444,31 @@ defmodule Letflow.Modules.LedgerRegistrationTest do
           ] do
         refute File.read!(path) =~ ~r/\bRepo\b/, path
       end
+    end
+  end
+end
+
+defmodule Letflow.Modules.LedgerRegistrationAtomTest do
+  @moduledoc """
+  T-LR-30, kept out of the async module: the atom table is VM-global, so a concurrent test
+  creating atoms would make the count move. Sync modules run after all async ones.
+  """
+
+  use ExUnit.Case, async: false
+  @moduletag :unit
+
+  alias Letflow.Modules.Catalog
+
+  describe "Catalog.fetch_ledger/2 atoms" do
+    test "creates no atom for an unknown name" do
+      name = "never_seen_" <> Base.encode16(:crypto.strong_rand_bytes(8))
+      # Warm-up: the first call loads every entry module (and its policy) lazily, which creates
+      # atoms of its own; the test is about the unknown name, not about code loading.
+      assert {:ok, _} = Catalog.fetch_ledger("fixture_ledger_post", "alpha")
+      before = :erlang.system_info(:atom_count)
+      assert Catalog.fetch_ledger("fixture_ledger_post", name) == {:error, :not_found}
+      assert Catalog.fetch_ledger(name, name) == {:error, :not_found}
+      assert :erlang.system_info(:atom_count) == before
     end
   end
 end
