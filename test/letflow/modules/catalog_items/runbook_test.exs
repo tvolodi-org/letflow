@@ -109,8 +109,8 @@ defmodule Letflow.Modules.CatalogItems.RunbookTest do
       {"lib/letflow/entities/records.ex", 1235, "reject_reserved_attributes"},
       {"lib/letflow/entities/records.ex", 368, "step_key_prefix"},
       {"lib/letflow/routers/entities.ex", 566, "entity_type_managed"},
-      {"lib/letflow/entities/step_writes.ex", 760, "command_multi"},
-      {"lib/letflow/entities/handler_writes.ex", 248, "command_multi"}
+      {"lib/letflow/entities/step_writes.ex", 767, "command_multi"},
+      {"lib/letflow/entities/handler_writes.ex", 300, "command_multi"}
     ]
 
     section = items() |> Enum.map_join("\n", &elem(&1, 1))
