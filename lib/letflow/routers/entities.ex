@@ -1112,8 +1112,9 @@ defmodule Letflow.Routers.Entities do
 
   # ══ POST /entities/restrictions/import (ISS-0935) ═════════════════════
   #
-  # Body carries up to four optional arrays -- `field_restrictions`,
-  # `field_grants`, `type_restrictions`, `type_grants`
+  # Body carries up to six optional arrays -- `field_restrictions`,
+  # `field_grants`, `type_restrictions`, `type_grants`, and since REQ-577 `write_restrictions`,
+  # `write_grants` (a managed type in those two is the managed 403, nothing stored)
   # (`Letflow.Entities.Restrictions.import_restrictions/2`'s own moduledoc
   # has the full per-row shape/validation contract). The route-level
   # :EntitiesRestrictionsManage check (the `authz_post` macro) is the permission 403;
@@ -1133,10 +1134,15 @@ defmodule Letflow.Routers.Entities do
       # whole request with the constant 403, before row validation and before any write.
       with {:ok, denied} <-
              TypeAccess.denied_types(user_id, Restrictions.entity_types(body), prefix),
-           true <- MapSet.size(denied) == 0 do
+           true <- MapSet.size(denied) == 0,
+           :ok <- write_types_unmanaged(Restrictions.write_entity_types(body), prefix) do
         import_restrictions_rows(conn, body, prefix)
       else
-        _denied_or_failed -> Response.forbidden(conn, "insufficient permissions")
+        {:error, :managed} ->
+          Response.send_problem(conn, Error.entity_type_managed())
+
+        _denied_or_failed ->
+          Response.forbidden(conn, "insufficient permissions")
       end
     else
       {:error, :malformed_json} ->
@@ -1144,28 +1150,64 @@ defmodule Letflow.Routers.Entities do
     end
   end
 
+  # REQ-577: a module-managed type cannot carry a write restriction. Runs after the TypeAccess
+  # gate, so the managed answer is given only for types visible to the caller (INV-5); a failed
+  # read is the constant 403.
+  defp write_types_unmanaged(names, prefix) do
+    Enum.reduce_while(names, :ok, fn name, :ok ->
+      case ManagedTypes.owner_of(name, prefix) do
+        :unmanaged -> {:cont, :ok}
+        {:ok, _module_id} -> {:halt, {:error, :managed}}
+        _failed_read -> {:halt, {:error, :failed_read}}
+      end
+    end)
+  end
+
   defp import_restrictions_rows(conn, body, prefix) do
     case Restrictions.import_restrictions(body, prefix) do
       {:ok, counts} ->
-        Response.ok(conn, %{"inserted" => restrictions_counts_json(counts)})
+        base = %{"inserted" => restrictions_counts_json(counts)}
+
+        resp =
+          case counts do
+            %{write_lost: lost, write_lost_truncated: truncated?} ->
+              Map.merge(base, %{"write_lost" => lost, "write_lost_truncated" => truncated?})
+
+            _no_write_report ->
+              base
+          end
+
+        Response.ok(conn, resp)
 
       {:error, {:invalid_rows, errors}} ->
         Response.unprocessable(conn, restriction_rows_error_detail(errors))
     end
   end
 
-  defp restrictions_counts_json(%{
-         field_restrictions: field_restrictions,
-         field_grants: field_grants,
-         type_restrictions: type_restrictions,
-         type_grants: type_grants
-       }) do
+  defp restrictions_counts_json(
+         %{
+           field_restrictions: field_restrictions,
+           field_grants: field_grants,
+           type_restrictions: type_restrictions,
+           type_grants: type_grants
+         } = counts
+       ) do
+    # REQ-577: the write counts appear only when the request carried the write lists.
     %{
       "field_restrictions" => field_restrictions,
       "field_grants" => field_grants,
       "type_restrictions" => type_restrictions,
       "type_grants" => type_grants
     }
+    |> put_optional_count(counts, :write_restrictions, "write_restrictions")
+    |> put_optional_count(counts, :write_grants, "write_grants")
+  end
+
+  defp put_optional_count(json, counts, key, name) do
+    case counts do
+      %{^key => value} -> Map.put(json, name, value)
+      _absent -> json
+    end
   end
 
   defp restriction_rows_error_detail(errors) do
