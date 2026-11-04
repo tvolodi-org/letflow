@@ -299,7 +299,7 @@ defmodule Letflow.Ledger.GapFreeTest do
                Enum.sort([
                  "SELECT current_setting('transaction_isolation')",
                  "SELECT clock_timestamp()",
-                 # REQ-637 part C (reconcile/2): a reviewed addition, four literal statements
+                 # REQ-637 part C (reconcile/2): a reviewed addition, three literal statements
                  "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
                  "SELECT set_config('statement_timeout', $1, true)",
                  "SELECT pg_try_advisory_xact_lock(hashtext($1), hashtext($2))"
