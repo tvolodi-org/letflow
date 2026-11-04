@@ -87,6 +87,7 @@ defmodule Letflow.Entities.Record.Projector do
   @created_event "ENTITY_RECORD_CREATED"
   @updated_event "ENTITY_RECORD_UPDATED"
   @deleted_event "ENTITY_RECORD_DELETED"
+  @migrated_event "ENTITY_RECORD_MIGRATED"
 
   # The internal fold result: the master reference is ONE value (GH #2794), so a half-set pair
   # has no representation here.
@@ -496,7 +497,7 @@ defmodule Letflow.Entities.Record.Projector do
   end
 
   defp apply_event(nil, %{event_type: event_type}, record_id)
-       when event_type in [@updated_event, @deleted_event] do
+       when event_type in [@updated_event, @deleted_event, @migrated_event] do
     {:error, {:corrupt_event_stream, {:missing_created_event, record_id}}}
   end
 
@@ -527,6 +528,21 @@ defmodule Letflow.Entities.Record.Projector do
      %{
        acc
        | deleted: true,
+         entity_def_version: decode_entity_def_version(event.payload),
+         last_event_global_seq: event.global_seq,
+         last_event_sequence_number: event.sequence_number,
+         last_event_type: event.event_type
+     }}
+  end
+
+  # MIGRATED while not deleted (REQ-683, decision 0055 D3): the payload's `after` keys are merged
+  # over the accumulator's field_values (untouched keys stay); entity_def_version re-decoded from
+  # this event's payload; `deleted` and the external ref are left alone.
+  defp apply_event(%{deleted: false} = acc, %{event_type: @migrated_event} = event, _record_id) do
+    {:ok,
+     %{
+       acc
+       | field_values: Map.merge(acc.field_values, Map.get(event.payload, "after", %{})),
          entity_def_version: decode_entity_def_version(event.payload),
          last_event_global_seq: event.global_seq,
          last_event_sequence_number: event.sequence_number,

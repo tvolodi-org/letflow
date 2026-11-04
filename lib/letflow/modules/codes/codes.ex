@@ -35,8 +35,9 @@ defmodule Letflow.Modules.Codes do
 
   All three types are `:tenant_wide` in `scope_declarations`, immutable once set. `resolve/2` and the
   other read functions take no principal and apply no scope: a scan route must check the scope of
-  the resolved target (`Letflow.Api.Scope.allowed?/3`) and answer an out-of-scope target with the
-  same 404 as an unknown code.
+  the resolved target and answer an out-of-scope target with the same 404 as an unknown code. The
+  scan route `POST /resolve` (GH #3797 / REQ-730, version 0.3.0, permission `:CodesRead`) does so in
+  its fail-closed form: only a `:tenant_wide` target type resolves.
 
   ## Read API contract
 
@@ -66,10 +67,10 @@ defmodule Letflow.Modules.Codes do
   @impl true
   defmanifest(
     id: "codes",
-    version: "0.2.0",
+    version: "0.3.0",
     depends_on: [],
     pack: "modules/codes/pack.json",
-    permissions: [:CodesWrite],
+    permissions: [:CodesWrite, :CodesRead],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
@@ -78,7 +79,8 @@ defmodule Letflow.Modules.Codes do
       {"POST", "/:id/assign", :CodesWrite},
       {"POST", "/:id/release", :CodesWrite},
       {"POST", "/:id/retire", :CodesWrite},
-      {"POST", "/:id/value", :CodesWrite}
+      {"POST", "/:id/value", :CodesWrite},
+      {"POST", "/resolve", :CodesRead}
     ],
     manages_entity_types: ["code_tag", "code_assignment", "code_value_change"],
     scope_declarations: %{

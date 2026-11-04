@@ -39,6 +39,7 @@ defmodule Letflow.Modules.CatalogUpgradeShapesTest do
   @real_ids ~w(exam org catalog_items procurement locations codes)
 
   # Hashes of the registered manifests computed on unmodified origin/main before REQ-640.
+  # codes re-pinned by GH #3797 (version 0.2.0 -> 0.3.0).
   # catalog_items re-pinned by GH #3581 (version 0.2.0 -> 0.3.0; the hash covers the version).
   @hashes %{
     "exam" => "992e5266d1b81a138684f50228c5a3429393dcb90fdd0bb0dfb1fa9646252d8a",
@@ -46,7 +47,7 @@ defmodule Letflow.Modules.CatalogUpgradeShapesTest do
     "catalog_items" => "d0e4882ffd3c14833715727d94bdc188897ca84e73a74c927048d19cb610eb9a",
     "procurement" => "265b5841f1705989bacfdf2ca82385fa0c9d83ad462e3f257f0ac87060f8dd61",
     "locations" => "a9f6b26a8d6df340267381c4a3025b7a8848eb0f02d288167b66d9134ba96116",
-    "codes" => "e572003cee0f261c8cd5ace7021ab5420ecb558aa0e15d571ef0ccf8d2928eb6"
+    "codes" => "8129ab71a3312ee9d7ec0b376a1b8cae6ab53c449d137603ae9d3d04eeb82be1"
   }
 
   describe "criterion 1: strict semver version" do
