@@ -385,7 +385,8 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
     Enum.sort(
       Enum.uniq(
         Path.wildcard("lib/letflow/ledger/**/*.ex") ++
-          Path.wildcard("priv/repo/migrations/*_create_ledger_*.exs") ++ fixed
+          Path.wildcard("priv/repo/migrations/*_create_ledger_*.exs") ++
+          Path.wildcard("priv/repo/migrations/*_move_ledger_*.exs") ++ fixed
       )
     )
   end

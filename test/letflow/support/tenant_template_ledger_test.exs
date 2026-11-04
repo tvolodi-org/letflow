@@ -136,7 +136,12 @@ defmodule Letflow.Test.TenantTemplateLedgerTest do
         [s]
       )
 
-    assert rows == [["ledger_entry", "ledger_entry"], ["ledger_leg", "ledger_entry"]]
+    # REQ-711: the entry and leg keys live on the per-ledger-id partitions (created by
+    # Storage.ensure/2), so a template with no ledger partition has none on the parents;
+    # whatever exists stays inside the ledger set.
+    assert Enum.all?(rows, fn [from, to] ->
+             String.starts_with?(from, "ledger_") and String.starts_with?(to, "ledger_entry")
+           end)
   end
 
   test "T-TT-4 the sandbox fixture loader refuses a ledger table", %{schema: s} do

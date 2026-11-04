@@ -13,8 +13,14 @@ defmodule Letflow.LedgerReplayTest do
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning
 
-  # REQ-692 and REQ-710 later versions of the ledger tables are part of "the previous version" too
-  @versions [20_261_031_100_001, 20_261_031_200_001, 20_261_104_100_001, 20_261_104_200_001]
+  # REQ-692, REQ-710 and REQ-711 later versions of the ledger tables are part of "the previous version" too
+  @versions [
+    20_261_031_100_001,
+    20_261_031_200_001,
+    20_261_104_100_001,
+    20_261_104_200_001,
+    20_261_104_300_001
+  ]
   @ledger_tables ~w(ledger_balance ledger_counter ledger_entry ledger_leg)
   @t0 "2026-10-31T10:00:00Z"
   @append_only "ledger data is append-only: this statement is refused"
@@ -312,7 +318,10 @@ defmodule Letflow.LedgerReplayTest do
 
     # REQ-621 criterion 10: the single writer (Letflow.Ledger and its directory) must name the
     # tables; every other file under lib/ stays scanned
-    writer = ["lib/letflow/ledger.ex" | Path.wildcard("lib/letflow/ledger/*.ex")]
+    # REQ-711: the DDL of the partitions (ledger/storage/ddl.ex) names the two tables whose keys it adds
+    writer =
+      ["lib/letflow/ledger.ex" | Path.wildcard("lib/letflow/ledger/*.ex")] ++
+        Path.wildcard("lib/letflow/ledger/storage/*.ex")
 
     hits =
       for file <- Path.wildcard("lib/**/*.ex") -- writer, File.read!(file) =~ pattern, do: file

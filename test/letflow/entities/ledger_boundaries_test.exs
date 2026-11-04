@@ -17,6 +17,7 @@ defmodule Letflow.LedgerBoundariesTest do
     assert "priv/repo/migrations/20261031200001_create_ledger_triggers.exs" in paths
     assert "priv/repo/migrations/20261104100001_create_ledger_per_ledger_id_keys.exs" in paths
     assert "priv/repo/migrations/20261104200001_create_ledger_partitioned_tables.exs" in paths
+    assert "priv/repo/migrations/20261104300001_move_ledger_fks_to_partitions.exs" in paths
     assert "lib/letflow/ledger/storage.ex" in paths
     assert "lib/letflow/ledger/storage/ddl.ex" in paths
     assert "lib/letflow/ledger/locked_plan.ex" in paths

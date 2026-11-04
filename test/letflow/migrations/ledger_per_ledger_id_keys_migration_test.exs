@@ -208,14 +208,14 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
     assert defs["ledger_entry_pkey"] == "PRIMARY KEY (id, ledger_id)"
     assert defs["ledger_entry_ledger_seq_key"] == "UNIQUE (ledger_id, posting_seq)"
 
-    assert defs["ledger_entry_reverses_entry_id_fkey"] ==
-             "FOREIGN KEY (reverses_entry_id, ledger_id) REFERENCES ledger_entry(id, ledger_id)"
+    # REQ-711: the reversal key lives on the partitions, not on the parent (ledger_fk_move_migration_test.exs)
+    assert defs["ledger_entry_reverses_entry_id_fkey"] == nil
 
     # two of our keys, ledger_seq and one more unique, pkey, one FK, and the CHECK set (>= 15) are all present
     kinds = defs |> Map.values() |> Enum.map(&hd(String.split(&1, " ")))
     assert Enum.count(kinds, &(&1 == "UNIQUE")) == 4
     assert Enum.count(kinds, &(&1 == "PRIMARY")) == 1
-    assert Enum.count(kinds, &(&1 == "FOREIGN")) == 1
+    assert Enum.count(kinds, &(&1 == "FOREIGN")) == 0
     assert Enum.count(kinds, &(&1 == "CHECK")) >= 15
   end
 
@@ -223,9 +223,9 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
     schema: schema,
     tenant_id: tenant_id
   } do
-    # REQ-710 registers CreateLedgerPartitionedTables after this migration
+    # REQ-710 and REQ-711 register CreateLedgerPartitionedTables and MoveLedgerFksToPartitions after it
     assert {@version, CreateLedgerPerLedgerIdKeys} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -3)
 
     old = ~s(ALTER TABLE "#{schema}".ledger_entry)
     Repo.query!("#{old} DROP CONSTRAINT ledger_entry_subject_op_key")

@@ -952,7 +952,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-710: replaces the four ledger tables with the partitioned shape (b); refuses to run when a
     # ledger table has a row, so no existing row is altered.
     {20_261_104_200_001, Letflow.Repo.Migrations.CreateLedgerPartitionedTables,
-     "20261104200001_create_ledger_partitioned_tables.exs"}
+     "20261104200001_create_ledger_partitioned_tables.exs"},
+    # REQ-711: the two ledger foreign keys move from the parents to the partitions, so ATTACH PARTITION
+    # takes no SHARE ROW EXCLUSIVE lock on the parents. No table, column or row is altered.
+    {20_261_104_300_001, Letflow.Repo.Migrations.MoveLedgerFksToPartitions,
+     "20261104300001_move_ledger_fks_to_partitions.exs"}
   ]
 
   @doc """

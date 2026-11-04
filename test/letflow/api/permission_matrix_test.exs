@@ -817,6 +817,10 @@ defmodule Letflow.Api.PermissionMatrixTest do
       assert step =~ "head_sha=$(git rev-parse HEAD)"
       refute step =~ "MIX_ENV: test"
 
+      # T-1259: the nightly (schedule) and workflow_dispatch runs take HEAD^1 as baseline.
+      [_, sched] = String.split(step, "schedule|workflow_dispatch)", parts: 2)
+      [sched, _] = String.split(sched, ";;", parts: 2)
+      assert sched =~ "ref=$(git rev-parse HEAD^1)"
       assert static_job =~ "key: ${{ runner.os }}-mix-dev-${{ hashFiles('mix.lock') }}"
 
       # The shared caches deliberately keep _build/dev: the remaining MIX_ENV=dev subprocess
