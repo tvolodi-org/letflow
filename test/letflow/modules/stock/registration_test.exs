@@ -45,19 +45,45 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.1.0"
-    assert m.depends_on == []
-    assert m.pack == nil
-    assert m.manages_entity_types == []
+    assert m.version == "0.2.0"
+    assert m.depends_on == ["org", "locations"]
+    assert m.pack == "modules/stock/pack.json"
+
+    assert m.manages_entity_types == [
+             "count_order",
+             "count_order_scope",
+             "count_commission_member"
+           ]
+
     assert Map.get(m, :write_handlers, []) == []
-    assert m.permissions == [:StockPost, :StockReverse, :StockRead, :StockReconcile]
+
+    assert m.permissions == [
+             :StockPost,
+             :StockReverse,
+             :StockRead,
+             :StockReconcile,
+             :StockCountOrder
+           ]
+
     assert m.role_grants == %{}
-    assert m.scope_declarations == %{}
+
+    assert m.scope_declarations == %{
+             "count_order" => {:column, "org_unit_id"},
+             "count_order_scope" => {:column, "org_unit_id"},
+             "count_commission_member" => {:column, "org_unit_id"}
+           }
 
     assert m.route_policies == [
              {"GET", "/balances", :StockRead},
              {"GET", "/movements", :StockRead},
-             {"GET", "/reconcile", :StockReconcile}
+             {"GET", "/reconcile", :StockReconcile},
+             {"POST", "/counts", :StockCountOrder},
+             {"PUT", "/counts/:id", :StockCountOrder},
+             {"POST", "/counts/:id/issue", :StockCountOrder},
+             {"POST", "/counts/:id/cancel", :StockCountOrder},
+             {"GET", "/counts", :StockRead},
+             {"GET", "/counts/:id", :StockRead},
+             {"GET", "/counts/:id/document", :StockRead}
            ]
 
     assert Stock.router() == Letflow.Modules.Stock.Router
@@ -126,11 +152,12 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 4
+    assert length(files) == 5
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
 
+    # REQ-700: counts.ex reads and writes the count record types (Repo, Ecto.Query), never a ledger table.
     for {path, source} <- sources,
         word <-
           [
@@ -142,7 +169,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
             "ledger_balance",
             "ledger_counter",
             "binary_to_term"
-          ] do
+          ],
+        not (Path.basename(path) == "counts.ex" and word in ["Repo", "Ecto.Query"]) do
       refute source =~ word, "#{path} names #{word}"
     end
   end

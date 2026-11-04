@@ -62,6 +62,8 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     "lib/letflow/modules/locations/tree.ex" => 2,
     # REQ-660: the legal company and site writers of module org
     "lib/letflow/modules/org/masters.ex" => 2,
+    # REQ-700: the count order writers (create, update, delete of the child rows) of module stock
+    "lib/letflow/modules/stock/counts.ex" => 3,
     "lib/letflow/record_triggers/apply.ex" => 3,
     "lib/letflow/scheduler/record_deadline_sweep.ex" => 1,
     "lib/mix/tasks/letflow.seed.exam_fixtures.ex" => 1

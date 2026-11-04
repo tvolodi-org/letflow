@@ -321,6 +321,7 @@
 9 test/letflow/modules/locations/descendant_ids_test.exs 11432.99
 9 test/letflow/modules/locations/tree_audit_test.exs 33101.54
 9 test/letflow/modules/org/units_test.exs 28660.19
+9 test/letflow/modules/stock/counts_registration_test.exs 7346.89
 9 test/letflow/nested_mix_test.exs 724.70
 9 test/letflow/oidc/claim_mapping_test.exs 0.09
 9 test/letflow/oidc/provider_registry_multi_realm_test.exs 5316.26
@@ -353,6 +354,7 @@
 10 test/letflow/identity_migration_test.exs 9137.04
 10 test/letflow/modules/catalog_items/router_test.exs 33150.80
 10 test/letflow/modules/exam/session_assignment_test.exs 19167.38
+10 test/letflow/modules/stock/counts_router_test.exs 7346.89
 10 test/letflow/ordering_test.exs 14883.41
 10 test/letflow/plugs/auth_pipeline_scope_test.exs 21814.35
 10 test/letflow/record_triggers_test.exs 25155.29
@@ -698,6 +700,7 @@
 19 test/letflow/modules/exam/certificate_snapshot_test.exs 43878.31
 19 test/letflow/modules/exam/exam_stamped_tenant_test.exs 7623.90
 19 test/letflow/modules/locations/entity_definitions_test.exs 65.16
+19 test/letflow/modules/stock/counts_test.exs 7346.89
 19 test/letflow/platform_tenant_test.exs 0.79
 19 test/letflow/routers/req078_supporting_routes_test.exs 27547.86
 19 test/letflow/routers/req469_tenant_type_test.exs 29979.97
@@ -914,6 +917,7 @@
 25 test/letflow/metrics/registry_test.exs 1.96
 25 test/letflow/migrations/backfill_exam_tenant_modules_test.exs 2915.06
 25 test/letflow/migrations/instance_projections_scope_node_id_migration_test.exs 9139.59
+25 test/letflow/modules/stock/pack_drift_test.exs 7346.89
 25 test/letflow/obs/alerts_test.exs 12674.38
 25 test/letflow/plugs/admission_pipeline_test.exs 5998.74
 25 test/letflow/plugs/api_pipeline_scope_set_error_test.exs 0.54

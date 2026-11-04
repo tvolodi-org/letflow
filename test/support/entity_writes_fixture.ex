@@ -81,6 +81,19 @@ defmodule Letflow.EntityWritesFixture do
   @doc "Drops a tenant built by `committed_tenant_case!/1`."
   @spec drop_committed_tenant!(String.t()) :: :ok
   def drop_committed_tenant!(tenant_id) do
+    # A module with a pack (REQ-700: stock) leaves install rows that reference the tenant.
+    Repo.delete_all(
+      from(i in Letflow.Definitions.SolutionPackInstall, where: i.tenant_id == ^tenant_id)
+    )
+
+    Repo.delete_all(
+      from(b in Letflow.Definitions.SolutionPackArtefactBase, where: b.tenant_id == ^tenant_id)
+    )
+
+    Repo.delete_all(
+      from(cp in Letflow.TenantProvisioning.ColumnPromotion, where: cp.tenant_id == ^tenant_id)
+    )
+
     case Letflow.TenantProvisioning.schema_name_for_tenant(tenant_id) do
       {:ok, name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{name}" CASCADE))
       {:error, :invalid_tenant_id} -> :ok

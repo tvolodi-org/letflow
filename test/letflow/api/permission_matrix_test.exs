@@ -399,10 +399,10 @@ defmodule Letflow.Api.PermissionMatrixTest do
       assert refs(manifests) == %{}
     end
 
-    test "T-PM-5: the golden holds the four stock atoms for TENANT_ADMIN and PLATFORM_ADMIN only" do
+    test "T-PM-5: the golden holds the five stock atoms for TENANT_ADMIN and PLATFORM_ADMIN only" do
       golden = File.read!("priv/permission_matrix/effective.golden")
 
-      for atom <- ~w(StockPost StockReverse StockRead StockReconcile) do
+      for atom <- ~w(StockPost StockReverse StockRead StockReconcile StockCountOrder) do
         rows = golden |> String.split("\n") |> Enum.filter(&String.contains?(&1, " #{atom} "))
         allowed = for row <- rows, String.contains?(row, " true "), do: hd(String.split(row, " "))
         assert Enum.sort(allowed) == ["PLATFORM_ADMIN", "TENANT_ADMIN"]

@@ -61,11 +61,16 @@ defmodule Letflow.StockFixture do
     {:ok, _roles} = RoleRegistry.seed_default_platform_role_groups(prefix: tenant.schema_name)
 
     if Keyword.get(opts, :install, true) do
-      {:ok, _} =
-        Installs.install("stock", Ecto.UUID.generate(),
-          prefix: tenant.schema_name,
-          rationale: "test: REQ-687"
-        )
+      {:ok, _} = Letflow.Entities.EventTypes.seed!(tenant.schema_name)
+
+      # REQ-700: stock depends on org and locations.
+      for id <- ["org", "locations", "stock"] do
+        {:ok, _} =
+          Installs.install(id, Ecto.UUID.generate(),
+            prefix: tenant.schema_name,
+            rationale: "test: REQ-687"
+          )
+      end
     end
 
     tenant

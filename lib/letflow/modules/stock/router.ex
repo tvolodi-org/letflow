@@ -24,13 +24,35 @@ defmodule Letflow.Modules.Stock.Router do
   `reason`. The optional app env `:stock_reconcile_statement_timeout_ms` (1..10000, unset everywhere
   but a test) can only lower the reconcile statement timeout; it is the seam that lets a test force 57014.
   The renderer idioms are copied from `Letflow.Modules.Codes.Router`.
+
+  ## Count orders (REQ-700, GH #3737; `Letflow.Modules.Stock.Counts`)
+
+  | Route | Permission | Ok |
+  |---|---|---|
+  | `POST /counts` | `StockCountOrder` | 201 order view |
+  | `PUT /counts/:id` (whole-document replace of a draft: header, `location_ids`, `member_employee_ids`) | `StockCountOrder` | 200 |
+  | `POST /counts/:id/issue`, `POST /counts/:id/cancel` (empty body) | `StockCountOrder` | 200 |
+  | `GET /counts` (`status`, `org_unit_id`, `limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
+  | `GET /counts/:id` | `StockRead` | 200 order view |
+  | `GET /counts/:id/document` | `StockRead` | 200 issued summary, no content bytes |
+
+  The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
+  so a scoped caller gets the same 404 for an order of another unit as for an unknown id. When the
+  tenant's scope enforcement is `on`, the default-class route answers a scoped caller 403 first.
+  A refusal is 422 with `extensions.reason` (`count_state_invalid`, `count_scope_not_linked`,
+  `count_scope_overlaps`, `count_scope_incomplete`, `count_too_long`, `org_unit_inactive`,
+  `employee_inactive`, `chair_without_user`, `not_chair`, `field_not_allowed`, `field_invalid`).
   """
 
   use Letflow.Api.AuthorizedRouter
 
+  require Logger
+
   alias Letflow.Api.Error
   alias Letflow.Api.Response
+  alias Letflow.Api.Scope
   alias Letflow.Ledger
+  alias Letflow.Modules.Stock.Counts
   alias Letflow.Modules.Stock.Views
 
   @ledger "stock"
@@ -95,7 +117,109 @@ defmodule Letflow.Modules.Stock.Router do
     end
   end
 
+  # -- count orders (REQ-700) ---------------------------------------------------------------------
+
+  authz_post "/counts", :StockCountOrder do
+    count_write(conn, :StockCountOrder, 201, fn prefix, opts ->
+      Counts.create(prefix, conn.body_params, opts)
+    end)
+  end
+
+  authz_put "/counts/:id", :StockCountOrder do
+    count_write(conn, :StockCountOrder, 200, fn prefix, opts ->
+      Counts.update(prefix, conn.params["id"], conn.body_params, opts)
+    end)
+  end
+
+  authz_post "/counts/:id/issue", :StockCountOrder do
+    count_write(conn, :StockCountOrder, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.issue(prefix, conn.params["id"], opts),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_post "/counts/:id/cancel", :StockCountOrder do
+    count_write(conn, :StockCountOrder, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.cancel(prefix, conn.params["id"], opts),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_get "/counts", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.list(prefix, Plug.Conn.fetch_query_params(conn).query_params, opts)
+    end)
+  end
+
+  authz_get "/counts/:id", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.get(prefix, conn.params["id"], opts)
+    end)
+  end
+
+  authz_get "/counts/:id/document", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.document(prefix, conn.params["id"], opts)
+    end)
+  end
+
   authz_unmatched(:ordinary)
+
+  # -- count order handlers (REQ-700) -------------------------------------------------------------
+
+  # The tenant is `scoped_opts`, the actor `auth_context.user_id`, the scope is the caller's allowed
+  # set for `permission`, computed here and not through ScopeGate (which answers :all when the
+  # tenant's enforcement mode is not `on`). A scope that cannot be computed fails closed as 404.
+  defp count_write(conn, permission, status, fun) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+
+    with {:ok, actor} <- Ecto.UUID.cast(conn.assigns.auth_context.user_id),
+         {:ok, conn, principal} <- Scope.principal_from_conn(conn),
+         {:ok, scope} <- allowed_set(principal, permission) do
+      render(conn, fun.(prefix, %{actor_id: actor, scope: scope}), status)
+    else
+      :none -> Response.not_found(conn)
+      _ -> Response.send_problem(conn, Error.forbidden("not permitted"))
+    end
+  end
+
+  defp allowed_set(principal, permission) do
+    case Scope.allowed_set(principal, permission) do
+      {:ok, :none} -> :none
+      {:ok, scope} -> {:ok, scope}
+    end
+  rescue
+    Scope.ScopeSetError -> :none
+  end
+
+  defp empty_body?(conn), do: conn.body_params in [%{}, nil]
+
+  defp first_key(%{} = body), do: body |> Map.keys() |> Enum.sort() |> List.first() |> to_string()
+  defp first_key(_), do: "body"
+
+  defp render(conn, {:ok, body}, status), do: Response.send_json(conn, status, body)
+  defp render(conn, {:error, :not_found}, _status), do: Response.not_found(conn)
+  defp render(conn, {:error, :audit_failed}, _status), do: Response.internal_error(conn)
+
+  defp render(conn, {:error, {:field_not_allowed, key}}, _status) when is_binary(key),
+    do:
+      problem(conn, Error.unprocessable("request refused"), "field_not_allowed", %{"field" => key})
+
+  defp render(conn, {:error, {:field_invalid, key}}, _status) when is_binary(key),
+    do: problem(conn, Error.unprocessable("request refused"), "field_invalid", %{"field" => key})
+
+  defp render(conn, {:error, reason}, _status) when is_atom(reason),
+    do: unprocessable(conn, Atom.to_string(reason))
+
+  defp render(conn, {:error, term}, _status) do
+    Logger.warning("stock count request refused: #{inspect(elem_tag(term))}")
+    unprocessable(conn, "request_refused")
+  end
+
+  defp elem_tag(term) when is_tuple(term) and tuple_size(term) > 0, do: elem(term, 0)
+  defp elem_tag(_term), do: :other
 
   # -- handlers -----------------------------------------------------------------------------------
 
@@ -308,6 +432,6 @@ defmodule Letflow.Modules.Stock.Router do
   defp unprocessable(conn, reason),
     do: problem(conn, Error.unprocessable("request refused"), reason)
 
-  defp problem(conn, problem, reason),
-    do: Response.send_problem(conn, %{problem | extensions: %{"reason" => reason}})
+  defp problem(conn, problem, reason, extra \\ %{}),
+    do: Response.send_problem(conn, %{problem | extensions: Map.put(extra, "reason", reason)})
 end

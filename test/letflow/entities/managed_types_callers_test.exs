@@ -69,6 +69,8 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @catalog_lots "lib/letflow/modules/catalog_items/lots.ex"
   # REQ-663: the code writers write under the codes Owner.
   @codes_writes "lib/letflow/modules/codes/writes.ex"
+  # REQ-700: the count order writers write under the stock Owner.
+  @stock_counts "lib/letflow/modules/stock/counts.ex"
   # REQ-651: the catalog masters' import function.
   @catalog_import "lib/letflow/modules/catalog_items/import.ex"
   @fixture_managed "test/support/modules/fixture_managed/fixture_managed.ex"
@@ -106,7 +108,13 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   # sorted order `r1_files/1` returns (the scan set is path-sorted).
   @authority_callers [@handler_writes, @catalog_lots, @codes_writes] ++
                        @exam_writers ++
-                       [@locations_links, @locations_tree, @org_masters, @fixture_managed]
+                       [
+                         @locations_links,
+                         @locations_tree,
+                         @org_masters,
+                         @stock_counts,
+                         @fixture_managed
+                       ]
   # R3 / R4 allow-lists (unchanged from REQ-496 T-34).
   @module_owner_callers [@managed_types, @installs]
   @owner_builders [@managed_types]
@@ -697,7 +705,13 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
       assert owner_for_callers(files) ==
                [@catalog_import, @catalog_lots, @codes_writes] ++
                  @exam_owner_callers ++
-                 [@locations_links, @locations_tree, @org_masters, @fixture_managed]
+                 [
+                   @locations_links,
+                   @locations_tree,
+                   @org_masters,
+                   @stock_counts,
+                   @fixture_managed
+                 ]
     end
 
     test "GH #2596 T-06: R1 sees the real exam write sites (non-vacuous)", %{files: files} do

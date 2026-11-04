@@ -1,0 +1,214 @@
+{
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [],
+  "entity_definitions": [
+    {
+      "definition_json": {
+        "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled by REQ-701.",
+        "display_name": "Count order",
+        "fields": [
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "full",
+              "selective"
+            ],
+            "name": "kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "planned_start",
+            "queried": true,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "planned_end",
+            "queried": true,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "chair_employee_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "draft",
+              "ordered",
+              "counting",
+              "counted",
+              "signed",
+              "posted",
+              "cancelled"
+            ],
+            "name": "status",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "document_id",
+            "type": "string"
+          },
+          {
+            "name": "number",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "issued_at",
+            "type": "datetime"
+          },
+          {
+            "name": "issued_by",
+            "type": "string"
+          },
+          {
+            "name": "cancelled_at",
+            "type": "datetime"
+          },
+          {
+            "name": "cancelled_by",
+            "type": "string"
+          },
+          {
+            "name": "cut_off_at",
+            "type": "datetime"
+          },
+          {
+            "name": "cutoff_seq",
+            "type": "integer"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "org_unit_id",
+              "status"
+            ],
+            "name": "idx_count_order_org_unit_status"
+          }
+        ],
+        "name": "count_order"
+      },
+      "display_name": "Count order",
+      "entity_definition_id": "45573d30-45d7-3626-82e0-0b0f034df9ac",
+      "logical_shape_version": "675de2c0d92d7c97e64ced95882d837831491cc85e56ab46c1c4f4ed7f4db7dc",
+      "name": "count_order"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-700 / GH #3737. One root location of a count order (the order covers the root and every location below it). count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column.",
+        "display_name": "Count order scope",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_count_order_scope_order_id",
+            "references_entity": "count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id"
+            ],
+            "name": "idx_count_order_scope_order_id"
+          }
+        ],
+        "name": "count_order_scope"
+      },
+      "display_name": "Count order scope",
+      "entity_definition_id": "534d46cd-35cc-d97f-3325-2fef3e66e06e",
+      "logical_shape_version": "0f51a2fe0b737cf33e2126a1cda3ddf1ccb88df498ec0c73f473a9ab0f654c1e",
+      "name": "count_order_scope"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-700 / GH #3737. One member (not the chair) of the commission of a count order. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column.",
+        "display_name": "Count commission member",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "employee_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_count_commission_member_order_id",
+            "references_entity": "count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id"
+            ],
+            "name": "idx_count_commission_member_order_id"
+          }
+        ],
+        "name": "count_commission_member"
+      },
+      "display_name": "Count commission member",
+      "entity_definition_id": "38bb9992-f3dc-8b51-b6ab-1e4b4a9a97ea",
+      "logical_shape_version": "0f88c0dd502f7d1cefcaa1a77d8deff4faa5d801f799f7553819470d3d5c28f5",
+      "name": "count_commission_member"
+    }
+  ],
+  "exported_at": "2026-10-19T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "pack_id": "letflow-stock",
+  "service_catalog_entries": [],
+  "variable_schemas": [],
+  "version": "0.2.0"
+}
