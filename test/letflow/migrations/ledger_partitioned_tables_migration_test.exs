@@ -233,7 +233,7 @@ defmodule Letflow.LedgerPartitionedTablesMigrationTest do
        %{schema: schema, tenant_id: tenant_id} do
     # REQ-711 registers MoveLedgerFksToPartitions after it
     assert {@version, CreateLedgerPartitionedTables} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -3)
 
     q!(~s|DELETE FROM "#{schema}".schema_migrations WHERE version = $1|, [@version])
     assert {:ok, _} = TenantProvisioning.replay_migrations(tenant_id)
