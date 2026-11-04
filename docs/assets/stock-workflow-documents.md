@@ -94,6 +94,7 @@ Header fields (beyond 1.4):
 | `responsible_id` | string | yes | org_employee |
 | `counterparty_id` | string | no ("from none") | catalog_counterparty |
 | `supplier_document_ref` | string | no | none |
+| `received_on` | date | no | none (real receipt date, decision 0078 D7; never `event_time`) |
 
 Line fields (beyond 1.4): `unit_price` (decimal, `decimal_strict` true, optional), `line_value` (decimal,
 `decimal_strict` true, optional). These two are the only price and value fields in the six documents
