@@ -1198,3 +1198,5 @@
 32 test/letflow/tenant_onboarding_test.exs 6192.79
 32 test/letflow/tenant_provisioning_script_events_test.exs 3001.65
 32 test/scripts/test_parallel_pool_clamp_test.exs 1076.93
+3 test/letflow/modules/procurement/attachment_routes_test.exs 7346.89
+20 test/letflow/modules/procurement/attachments_test.exs 7346.89

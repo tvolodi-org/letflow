@@ -171,7 +171,7 @@ purchase request version) and `ProcurementLineRecord` (REQ-558 / GH #3188: recor
 TENANT_ADMIN and PLATFORM_ADMIN hold them; a requester never decides their own request (the module
 refuses it), and giving requesters write access or approvers the decide permission is a later
 widening that needs per-tenant grant snapshots. The effective rows are in
-`priv/permission_matrix/effective.golden`.
+`priv/permission_matrix/effective.golden`. REQ-626 / GH #3503 part A: the four attachment routes of a purchase request use the existing Write (attach, replace) and Read (list, download) permissions and widen nobody.
 Module `org` (GH #3613, REQ-665) declares `OrgStructureWrite` (legal companies, sites, org units: create, change, move, retire) and `OrgEmployeesWrite` (positions and employees: create, change, transfer, retire), tenant scope. It declares no `role_grants`, so only
 TENANT_ADMIN and PLATFORM_ADMIN hold them; giving either to another role is a later widening that needs per-tenant grant snapshots.
 Module `catalog_items` (GH #3610, REQ-668) declares `CatalogLotsWrite` (create, change and retire lots), tenant scope. It declares no `role_grants`, so only
