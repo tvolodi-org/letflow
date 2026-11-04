@@ -1,0 +1,17 @@
+{
+  "name": "stock_receipt",
+  "display_name": "Stock receipt (header)",
+  "description": "GH #3749 / REQ-712, docs/assets/stock-workflow-documents.md sections 1.4 and 9.1, decision 0078 D5. The header of a stock receipt document. It is written only by module stock (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: no number, status, posted_at, posted_by or reversed_by_entry is stored here (they are read from the versioned document). org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). event_time is the time of the receipt, ISO 8601 with offset, stored in UTC. location_id, responsible_id and counterparty_id are record ids of modules locations, org and catalog_items (other packs: no foreign key; the module checks them at issue). After issue nothing of the header changes.",
+  "fields": [
+    {"name": "document_id", "type": "string", "required": true, "queried": true},
+    {"name": "event_time", "type": "datetime", "required": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "location_id", "type": "string", "required": true},
+    {"name": "responsible_id", "type": "string", "required": true},
+    {"name": "counterparty_id", "type": "string"},
+    {"name": "note", "type": "string"}
+  ],
+  "indexes": [
+    {"name": "idx_stock_receipt_document_id", "fields": ["document_id"]}
+  ]
+}

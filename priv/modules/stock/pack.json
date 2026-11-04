@@ -1,0 +1,137 @@
+{
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [],
+  "entity_definitions": [
+    {
+      "definition_json": {
+        "description": "GH #3749 / REQ-712, docs/assets/stock-workflow-documents.md sections 1.4 and 9.1, decision 0078 D5. The header of a stock receipt document. It is written only by module stock (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: no number, status, posted_at, posted_by or reversed_by_entry is stored here (they are read from the versioned document). org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). event_time is the time of the receipt, ISO 8601 with offset, stored in UTC. location_id, responsible_id and counterparty_id are record ids of modules locations, org and catalog_items (other packs: no foreign key; the module checks them at issue). After issue nothing of the header changes.",
+        "display_name": "Stock receipt (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "counterparty_id",
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_stock_receipt_document_id"
+          }
+        ],
+        "name": "stock_receipt"
+      },
+      "display_name": "Stock receipt (header)",
+      "entity_definition_id": "0c25df3d-6843-d3bc-fd43-d9562afe1966",
+      "logical_shape_version": "b816d2c1b026a5bf7f9845e050027ee908aae6f5212f26ef0a505a5dc2192c91",
+      "name": "stock_receipt"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3749 / REQ-712, docs/assets/stock-workflow-documents.md sections 1.4 and 9.3. One line of a stock receipt. header_id is the record_id of the stock_receipt header (not the document id); the foreign_keys entry fk_stock_receipt_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict). catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (another pack: no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+        "display_name": "Stock receipt (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_stock_receipt_line_header_id",
+            "references_entity": "stock_receipt"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_stock_receipt_line_header_id"
+          }
+        ],
+        "name": "stock_receipt_line"
+      },
+      "display_name": "Stock receipt (line)",
+      "entity_definition_id": "450d0aee-6502-e643-a766-5d4bb96c2171",
+      "logical_shape_version": "ff0b60bedec9880289aa52307b99e642c83997794a2277798f726f612940722b",
+      "name": "stock_receipt_line"
+    }
+  ],
+  "exported_at": "2026-10-19T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "pack_id": "letflow-stock",
+  "service_catalog_entries": [],
+  "variable_schemas": [],
+  "version": "0.1.0"
+}

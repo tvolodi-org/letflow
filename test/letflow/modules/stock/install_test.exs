@@ -1,3 +1,5 @@
+Code.require_file("stock_fixture.exs", __DIR__)
+
 defmodule Letflow.Modules.Stock.InstallTest do
   @moduledoc """
   REQ-687 / GH #3707 criterion 1 (T-IN-1, T-IN-2) and criterion 3 end to end (T-LP-10): the real
@@ -39,6 +41,15 @@ defmodule Letflow.Modules.Stock.InstallTest do
   end
 
   defp opts(s), do: [prefix: s, rationale: @why]
+
+  # REQ-712: stock depends on org, catalog_items and locations.
+  defp install_stock!(ctx) do
+    on_exit(fn -> Letflow.StockFixture.drop_pack_rows!(ctx.fx.tenant_id) end)
+
+    for module_id <- ["org", "catalog_items", "locations", "stock"] do
+      assert {:ok, _} = Installs.install(module_id, Ecto.UUID.generate(), opts(ctx.s))
+    end
+  end
 
   defp receipt!(ctx, quantity, extra \\ []) do
     command = %{
@@ -84,7 +95,7 @@ defmodule Letflow.Modules.Stock.InstallTest do
   end
 
   test "T-IN-1: install creates the storage; a declared receipt posts and reads back", ctx do
-    assert {:ok, _} = Installs.install("stock", Ecto.UUID.generate(), opts(ctx.s))
+    install_stock!(ctx)
     posted = receipt!(ctx, "5")
     assert posted.ledger_id == "stock"
 
@@ -98,7 +109,7 @@ defmodule Letflow.Modules.Stock.InstallTest do
   end
 
   test "T-IN-2: uninstall then reactivate keeps the first posting and accepts a second", ctx do
-    assert {:ok, _} = Installs.install("stock", Ecto.UUID.generate(), opts(ctx.s))
+    install_stock!(ctx)
     receipt!(ctx, "5")
 
     assert {:ok, _} = Installs.uninstall("stock", Ecto.UUID.generate(), opts(ctx.s))
@@ -112,7 +123,7 @@ defmodule Letflow.Modules.Stock.InstallTest do
   end
 
   test "T-LP-10: a declared write_off hands its reason code to the core and posts", ctx do
-    assert {:ok, _} = Installs.install("stock", Ecto.UUID.generate(), opts(ctx.s))
+    install_stock!(ctx)
     receipt!(ctx, "5")
 
     side = %{org_unit: @unit_a, location: @loc}

@@ -335,6 +335,7 @@
 9 test/letflow/scope_enforcement/on_flip_guards_test.exs 19706.40
 9 test/letflow/scripts/entity_write_tenant_test.exs 12679.62
 9 test/letflow/simulation/req207_vortex_test.exs 12070.67
+9 test/letflow/modules/stock/documents_registration_test.exs 7346.89
 10 test/letflow/api/scope_allowed_set_test.exs 28798.49
 10 test/letflow/application_test.exs 3.57
 10 test/letflow/definitions/extension_site_activation_test.exs 4282.22
@@ -372,6 +373,7 @@
 10 test/mix/tasks/letflow.login_directory_tasks_test.exs 46714.82
 10 test/scripts/uat_preflight_no_app_role_test.exs 4952.09
 10 test/support/bpm_default_realm_displacement_gate_test.exs 2177.29
+10 test/letflow/modules/stock/documents_router_test.exs 7346.89
 11 test/letflow/api/gh2659_import_implies_write_test.exs 71.41
 11 test/letflow/api/permission_matrix_test.exs 208.03
 11 test/letflow/api_token_auth_pipeline_test.exs 10265.66
@@ -706,6 +708,7 @@
 19 test/letflow/scripts/validation_form_validation_test.exs 3.78
 19 test/letflow/tenant_provisioning/constraint_fk_activation_test.exs 11952.22
 19 test/scripts/uat_seed_email_verified_for_group_test.exs 486.28
+19 test/letflow/modules/stock/master_checks_test.exs 7346.89
 20 test/letflow/api/identity_id_hardening_test.exs 16911.85
 20 test/letflow/api/roles_matrix_parity_test.exs 245.01
 20 test/letflow/api/scope_gate_test.exs 16199.06
@@ -931,6 +934,7 @@
 25 test/mix/tasks/letflow.seed.exam_fixtures_test.exs 25231.05
 25 test/mix/tasks/letflow_check_issue_refs_test.exs 1623.91
 25 test/scripts/uat_preflight_bare_jwt_test.exs 12016.08
+25 test/letflow/modules/stock/pack_drift_test.exs 7346.89
 26 test/letflow/definitions/schemas_test.exs 6.07
 26 test/letflow/docs/roles_on_flip_docs_test.exs 13030.46
 26 test/letflow/engine/complete_task_form_hook_crash_test.exs 5835.87

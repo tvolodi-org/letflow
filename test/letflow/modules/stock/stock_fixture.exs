@@ -61,14 +61,33 @@ defmodule Letflow.StockFixture do
     {:ok, _roles} = RoleRegistry.seed_default_platform_role_groups(prefix: tenant.schema_name)
 
     if Keyword.get(opts, :install, true) do
-      {:ok, _} =
-        Installs.install("stock", Ecto.UUID.generate(),
-          prefix: tenant.schema_name,
-          rationale: "test: REQ-687"
-        )
+      {:ok, _seeded} = Letflow.Entities.EventTypes.seed!(tenant.schema_name)
+      on_exit(fn -> drop_pack_rows!(tenant.tenant_id) end)
+
+      # REQ-712: stock depends on org, catalog_items and locations (install order: org first).
+      for module_id <- ["org", "catalog_items", "locations", "stock"] do
+        {:ok, _} =
+          Installs.install(module_id, Ecto.UUID.generate(),
+            prefix: tenant.schema_name,
+            rationale: "test: REQ-687"
+          )
+      end
     end
 
     tenant
+  end
+
+  @doc "Deletes the pack install rows of a tenant (module packs ship entity types now), before the tenant drop."
+  def drop_pack_rows!(tenant_id) do
+    import Ecto.Query, only: [from: 2]
+    alias Letflow.Definitions.SolutionPackArtefactBase
+    alias Letflow.Definitions.SolutionPackInstall
+    alias Letflow.TenantProvisioning.ColumnPromotion
+
+    Letflow.Repo.delete_all(from(i in SolutionPackInstall, where: i.tenant_id == ^tenant_id))
+    Letflow.Repo.delete_all(from(b in SolutionPackArtefactBase, where: b.tenant_id == ^tenant_id))
+    Letflow.Repo.delete_all(from(cp in ColumnPromotion, where: cp.tenant_id == ^tenant_id))
+    :ok
   end
 
   def registration do

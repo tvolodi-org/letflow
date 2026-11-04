@@ -63,6 +63,8 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   # REQ-662: the link writers write under the locations Owner.
   @locations_links "lib/letflow/modules/locations/links.ex"
   @locations_tree "lib/letflow/modules/locations/tree.ex"
+  # REQ-712: the stock document context writes the receipt header and line records under the stock Owner.
+  @stock_documents "lib/letflow/modules/stock/documents.ex"
   # REQ-660: the org legal company and site writers write under the org Owner.
   @org_masters "lib/letflow/modules/org/masters.ex"
   # REQ-664: the catalog lot writers (create/update/retire) write under the catalog_items Owner.
@@ -106,7 +108,13 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   # sorted order `r1_files/1` returns (the scan set is path-sorted).
   @authority_callers [@handler_writes, @catalog_lots, @codes_writes] ++
                        @exam_writers ++
-                       [@locations_links, @locations_tree, @org_masters, @fixture_managed]
+                       [
+                         @locations_links,
+                         @locations_tree,
+                         @org_masters,
+                         @stock_documents,
+                         @fixture_managed
+                       ]
   # R3 / R4 allow-lists (unchanged from REQ-496 T-34).
   @module_owner_callers [@managed_types, @installs]
   @owner_builders [@managed_types]
@@ -697,7 +705,13 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
       assert owner_for_callers(files) ==
                [@catalog_import, @catalog_lots, @codes_writes] ++
                  @exam_owner_callers ++
-                 [@locations_links, @locations_tree, @org_masters, @fixture_managed]
+                 [
+                   @locations_links,
+                   @locations_tree,
+                   @org_masters,
+                   @stock_documents,
+                   @fixture_managed
+                 ]
     end
 
     test "GH #2596 T-06: R1 sees the real exam write sites (non-vacuous)", %{files: files} do

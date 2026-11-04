@@ -10,6 +10,22 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /movements` | `StockRead` | `authorize(:read)`, `entries/3` | `rows, next_cursor` |
   | `GET /reconcile` | `StockReconcile` | `authorize(:reconcile)`, `reconcile/2` | `ledger_id, checked_through_seq, mismatches, gap_check, chain_check, audit_check, next_cursor` |
 
+  REQ-712 / GH #3749 adds six document routes over `Letflow.Modules.Stock.Documents` (no SQL here):
+
+  | Route | Permission | Ok |
+  |---|---|---|
+  | `POST /documents` | `StockPost` | 201 document |
+  | `PUT /documents/:id` | `StockPost` | 200 document (replaces the whole draft) |
+  | `DELETE /documents/:id` | `StockPost` | 204 |
+  | `POST /documents/:id/issue` | `StockPost` | 200 document |
+  | `GET /documents` | `StockRead` | 200 `rows, next_cursor` |
+  | `GET /documents/:id` | `StockRead` | 200 document |
+
+  `:id` is the id of the versioned document. The guard is `Letflow.Modules.Stock.Access`: an interactive
+  tenant-wide principal only; an API token or a scoped principal gets the same 404 as a tenant without the
+  module. Refusals: 404 (unknown, malformed or another tenant's id), 409 `document_not_draft`, 422 with a
+  `reason` (shape reasons, `invalid_filter`, the issue checks), 503 `busy`.
+
   The tenant comes only from `conn.assigns.scoped_opts` (through `authorize/3`); a tenant key in the
   query is refused 422 `invalid_filter` and never read. `authorize/3` runs first: a caller who may not
   read gets the same 404 as an unknown path (INV-5) and never learns which query keys exist.
@@ -31,6 +47,8 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Ledger
+  alias Letflow.Modules.Stock.Access
+  alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Views
 
   @ledger "stock"
@@ -95,7 +113,104 @@ defmodule Letflow.Modules.Stock.Router do
     end
   end
 
+  authz_post "/documents", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      render_document(conn, Documents.save(access.prefix, body(conn), access.actor_id), 201)
+    end)
+  end
+
+  authz_put "/documents/:id", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      result = Documents.replace(access.prefix, conn.params["id"], body(conn), access.actor_id)
+      render_document(conn, result, 200)
+    end)
+  end
+
+  authz_delete "/documents/:id", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      case Documents.discard(access.prefix, conn.params["id"], access.actor_id) do
+        :ok -> Response.no_content(conn)
+        {:error, reason} -> refuse_document(conn, reason)
+      end
+    end)
+  end
+
+  authz_post "/documents/:id/issue", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      render_document(
+        conn,
+        Documents.issue(access.prefix, conn.params["id"], access.actor_id),
+        200
+      )
+    end)
+  end
+
+  authz_get "/documents", :StockRead do
+    with_access(conn, :read, fn conn, access ->
+      case Documents.list(access.prefix, list_params(conn)) do
+        {:ok, page} -> Response.ok(conn, page)
+        {:error, reason} -> refuse_document(conn, reason)
+      end
+    end)
+  end
+
+  authz_get "/documents/:id", :StockRead do
+    with_access(conn, :read, fn conn, access ->
+      render_document(conn, Documents.fetch(access.prefix, conn.params["id"]), 200)
+    end)
+  end
+
   authz_unmatched(:ordinary)
+
+  # -- document handlers ---------------------------------------------------------------------------
+
+  defp with_access(conn, purpose, fun) do
+    case Access.check(conn, purpose) do
+      {:ok, access} -> fun.(conn, access)
+      :error -> Response.not_found(conn)
+    end
+  end
+
+  # A repeated query key is refused: the parsed map would keep only the last value.
+  defp list_params(conn) do
+    pairs = URI.query_decoder(conn.query_string) |> Enum.to_list()
+    keys = Enum.map(pairs, &elem(&1, 0))
+
+    if keys == Enum.uniq(keys),
+      do: Plug.Conn.fetch_query_params(conn).query_params,
+      else: %{"limit" => "repeated"}
+  end
+
+  # A body that is not a JSON object arrives as `%{"_json" => ...}`; the shape check refuses it.
+  defp body(conn) do
+    case conn.body_params do
+      %{"_json" => _} -> :not_an_object
+      %Plug.Conn.Unfetched{} -> :not_an_object
+      params -> params
+    end
+  end
+
+  defp render_document(conn, {:ok, document}, status),
+    do: Response.send_json(conn, status, document)
+
+  defp render_document(conn, {:error, reason}, _status), do: refuse_document(conn, reason)
+
+  defp refuse_document(conn, :not_found), do: Response.not_found(conn)
+
+  defp refuse_document(conn, :document_not_draft),
+    do: problem(conn, Error.conflict("request refused"), "document_not_draft")
+
+  defp refuse_document(conn, :busy),
+    do: problem(conn, Error.service_unavailable("request refused"), "busy")
+
+  defp refuse_document(conn, :invalid_filter), do: unprocessable(conn, "invalid_filter")
+
+  defp refuse_document(conn, {reason, extras}) when is_binary(reason) and is_map(extras) do
+    problem = Error.unprocessable("request refused")
+    Response.send_problem(conn, %{problem | extensions: Map.put(extras, "reason", reason)})
+  end
+
+  defp refuse_document(conn, _internal), do: Response.internal_error(conn)
 
   # -- handlers -----------------------------------------------------------------------------------
 

@@ -45,19 +45,29 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.1.0"
-    assert m.depends_on == []
-    assert m.pack == nil
-    assert m.manages_entity_types == []
+    assert m.version == "0.2.0"
+    assert m.depends_on == ["catalog_items", "locations", "org"]
+    assert m.pack == "modules/stock/pack.json"
+    assert m.manages_entity_types == ["stock_receipt", "stock_receipt_line"]
     assert Map.get(m, :write_handlers, []) == []
     assert m.permissions == [:StockPost, :StockReverse, :StockRead, :StockReconcile]
     assert m.role_grants == %{}
-    assert m.scope_declarations == %{}
+
+    assert m.scope_declarations == %{
+             "stock_receipt" => {:column, "org_unit_id"},
+             "stock_receipt_line" => {:column, "org_unit_id"}
+           }
 
     assert m.route_policies == [
              {"GET", "/balances", :StockRead},
              {"GET", "/movements", :StockRead},
-             {"GET", "/reconcile", :StockReconcile}
+             {"GET", "/reconcile", :StockReconcile},
+             {"POST", "/documents", :StockPost},
+             {"PUT", "/documents/:id", :StockPost},
+             {"DELETE", "/documents/:id", :StockPost},
+             {"POST", "/documents/:id/issue", :StockPost},
+             {"GET", "/documents", :StockRead},
+             {"GET", "/documents/:id", :StockRead}
            ]
 
     assert Stock.router() == Letflow.Modules.Stock.Router
@@ -126,10 +136,14 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 4
+    assert length(files) == 8
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
+
+    # REQ-712: the document context (documents.ex, documents/) reads and writes its own record and
+    # document tables, so Repo and Ecto.Query are allowed there; the ledger names stay banned everywhere.
+    own_tables = fn path -> path =~ ~r{stock/documents(\.ex|/)} end
 
     for {path, source} <- sources,
         word <-
@@ -143,7 +157,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
             "ledger_counter",
             "binary_to_term"
           ] do
-      refute source =~ word, "#{path} names #{word}"
+      unless own_tables.(path) and word in ["Repo", "Ecto.Query"],
+        do: refute(source =~ word, "#{path} names #{word}")
     end
   end
 end

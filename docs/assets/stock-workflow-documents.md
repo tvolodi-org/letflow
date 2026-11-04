@@ -58,16 +58,19 @@ Each document is two module-managed record types of the stock module (slice L4):
 
 ### 1.4 Header fields common to all six documents
 
+REQ-712 (GH #3749) replaced the first draft of this table. The header record holds only the fields below.
+The **number, state and issued time are not stored on the header**: they are read from the versioned document
+of decision 0056 (`Letflow.Documents`) that `document_id` names (number gap-free per document type, assigned
+at issue; state draft, issued or cancelled from the status of its live version). Who posted, when, and the
+reversal entry are read from the posting marks of REQ-713 and the ledger entry, not stored on the header
+either. So the header has no `number`, `status`, `posted_at`, `posted_by` or `reversed_by_entry` field.
+
 | Field | Type | Req. | Master |
 |---|---|---|---|
-| `number` | string | yes (assigned at posting, gap-free per document type) | none |
-| `status` | enum draft, posted, reversed | yes | none |
-| `event_time` | datetime | yes | none |
+| `document_id` | string (id of the versioned document) | yes | none |
+| `event_time` | datetime (ISO 8601 with offset, stored in UTC) | yes | none |
 | `org_unit_id` | string (record id) | yes (the scope column, section 9) | org_unit |
 | `note` | string | no | none |
-| `posted_at` | datetime | no (set at posting) | none |
-| `posted_by` | string (principal id) | no (set at posting) | none |
-| `reversed_by_entry` | string | no (set at reversal) | none |
 
 Each document's own header fields are added in its section. Common line fields: `id`, `header_id`
 (FK in pack, required), `line_no` (integer, required), and `catalog_item_id` (SKU, required, master
@@ -243,9 +246,12 @@ org unit (section 11).
 
 ### 9.1 Life cycle
 
-States: **draft, posted, reversed**.
+States as read from the versioned document and the posting marks: **draft, issued, posted, reversed** (and
+**cancelled**, REQ-713). In REQ-712 only draft and issued exist; issue gives the number and fixes the content
+(decision 0078 D5: issue first, post second). The state is not a header field (section 1.4).
 
-* A draft may be edited and posts nothing.
+* A draft may be edited, discarded and posts nothing.
+* An issued document is fixed (no header or line field changes) and waits for its posting.
 * Posting is one transaction that commits the ledger posting and marks the document posted, or commits
   neither.
 * After posting no field of the header or of any line changes, and the document is never deleted (D-062:
