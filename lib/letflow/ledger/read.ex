@@ -46,6 +46,7 @@ defmodule Letflow.Ledger.Read do
   import Ecto.Query
 
   alias Letflow.Identity
+  alias Letflow.Identity.TenantTimezone
   alias Letflow.Ledger
   alias Letflow.Ledger.Authorized
   alias Letflow.Ledger.Digest
@@ -55,7 +56,6 @@ defmodule Letflow.Ledger.Read do
   @k_fields [:k1, :k2, :k3, :k4, :k5, :k6, :k7, :k8]
   @default_limit 50
   @max_value_bytes 200
-  @default_timezone "Asia/Almaty"
   @timezone_form ~r/\A[A-Za-z0-9_+\-\/]{1,64}\z/
   @entry_filters ~w(cause document_type document_id correlation_id from_seq to_seq)
 
@@ -355,7 +355,7 @@ defmodule Letflow.Ledger.Read do
          true <- Regex.match?(@timezone_form, zone) do
       zone
     else
-      _absent_or_malformed -> @default_timezone
+      _absent_or_malformed -> TenantTimezone.default()
     end
   end
 
