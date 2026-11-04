@@ -27,7 +27,7 @@
 #                          the lowest weight (lowest index on a tie). Updated manifest to stdout.
 #
 # Options:
-#   --partitions P         bins for --from-tsv (default 16, the old M=4 layout; M=6 is 24). --append reads
+#   --partitions P         bins for --from-tsv (default 16, the old M=4 layout; M=6 is 24, M=8 is 32). --append reads
 #                          the partition count from the manifest header.
 #   --root DIR             repository root holding test/ (default: current directory)
 #
