@@ -1,6 +1,6 @@
 defmodule Letflow.Modules.Stock.PackDriftTest do
   @moduledoc """
-  GH #3749 / REQ-712 criterion 1 (tests P-01..P-04): the drift guard named
+  GH #3749 / REQ-712 criterion 1 (extended by REQ-700 / GH #3737 with the count types) (tests P-01..P-04): the drift guard named
   in the header of `priv/modules/stock/generate_pack.exs`. `pack.json` is committed output of that
   script; this test re-reads the source document and proves the committed pack still says
   exactly what they say: `definition_json` equal to the decoded source, the content-derived
@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
   alias Letflow.Entities.Definition.Shape
 
   @dir Path.join([File.cwd!(), "priv", "modules", "stock"])
-  @types ~w(stock_receipt stock_receipt_line)
+  @types ~w(stock_receipt stock_receipt_line count_order count_order_scope count_commission_member)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 
@@ -66,7 +66,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
 
   defp atom_keys(map), do: Map.new(map, fn {k, v} -> {String.to_existing_atom(k), v} end)
 
-  test "P-01: the pack holds exactly the two entity definitions, in the source set, and nothing else" do
+  test "P-01: the pack holds exactly the five entity definitions, in the source set, and nothing else" do
     document = pack()
 
     assert document["pack_id"] == "letflow-stock"
