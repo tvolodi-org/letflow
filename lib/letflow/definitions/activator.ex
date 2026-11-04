@@ -22,6 +22,11 @@ defmodule Letflow.Definitions.Activator do
         "activated_at" => iso8601,
         "signature" => %{"alg" => "HMAC-SHA256", "key_version" => n, "mac" => hex}}
 
+  REQ-688 adds, only for a graph with a SERVICE_TASK posting node that carries
+  `ledger_post_consent: true`, `"ledger_consent_nodes" => [sorted node ids]` and
+  `"credential" => "oidc" | "api_token" | "none"` (the credential kind of the activating request).
+  Both are covered by the signature; every other document is byte-identical to before.
+
   The `signature` (T-0250, GH #2644) is added by `Letflow.Definitions.ActivatedBy.sign/3` on the
   signing paths (activate, rollback, promotion) and checked at use. It holds no secret and no
   field value (INV-2, INV-4).
@@ -44,7 +49,7 @@ defmodule Letflow.Definitions.Activator do
   """
   @spec from_auth_context(auth_context :: term(), platform_tenant? :: boolean()) ::
           EntityPort.activator() | nil
-  def from_auth_context(%{user_id: user_id, roles: role_strings}, platform_tenant?)
+  def from_auth_context(%{user_id: user_id, roles: role_strings} = auth_context, platform_tenant?)
       when is_binary(user_id) and is_boolean(platform_tenant?) do
     roles = Authorization.effective_roles(role_strings, platform_tenant?)
 
@@ -64,11 +69,18 @@ defmodule Letflow.Definitions.Activator do
       user_id: user_id,
       roles: roles |> Enum.map(&Atom.to_string/1) |> Enum.sort(),
       entities_records_write?: "EntitiesRecordsWrite" in permissions,
-      permissions: permissions
+      permissions: permissions,
+      credential: credential_kind(Map.get(auth_context, :credential))
     }
   end
 
   def from_auth_context(_auth_context, _platform_tenant?), do: nil
+
+  # REQ-688: the credential kind of the activating request, recorded (signed) only for a graph with
+  # a consented SERVICE posting node; anything but the two known kinds is "none".
+  defp credential_kind(:oidc), do: "oidc"
+  defp credential_kind(:api_token), do: "api_token"
+  defp credential_kind(_other), do: "none"
 
   @doc """
   The `activated_by` document for `activator`, authorising exactly `pairs` (`{entity_type,

@@ -571,6 +571,10 @@ defmodule Letflow.Entities.StepWrites do
           if ctx.skip?.(changes) do
             Multi.run(Multi.new(), :entity_writes, fn _repo, _changes -> {:ok, :skipped} end)
           else
+            # REQ-688: the nested build cannot see this merge's changes, so the service apply's
+            # `:pre_ledger_lock` result (the engine's own step, never a handler's) rides in the ctx.
+            ctx = Map.put(ctx, :ledger_prelock, Map.get(changes, :pre_ledger_lock))
+
             build_lines(
               lines,
               module_lines,
@@ -667,6 +671,9 @@ defmodule Letflow.Entities.StepWrites do
   the private clause above it also covers a node WITHOUT `module_writes`. Lock-only: no read of
   record data, no authorization step; the one write is the empty number-sequence counter row of a
   bound type (REQ-541: no event, audit or sequence number).
+
+  REQ-688: when `lock_ctx` also carries `:service` (the service apply's facts) and the node holds
+  a ledger posting line, ONE `:pre_ledger_lock` step follows the group (see `ledger_prelock/4`).
   """
   @spec lock_planned_types(
           Multi.t(),
@@ -674,9 +681,39 @@ defmodule Letflow.Entities.StepWrites do
           [EntityPort.module_write_line()],
           %{required(:prefix) => String.t()}
         ) :: Multi.t()
-  def lock_planned_types(%Multi{} = multi, lines, module_lines, %{prefix: prefix})
-      when is_list(lines) and is_list(module_lines) and is_binary(prefix),
-      do: lock_union(multi, lines, module_lines, prefix, :pre_type_lock)
+  def lock_planned_types(%Multi{} = multi, lines, module_lines, %{prefix: prefix} = lock_ctx)
+      when is_list(lines) and is_list(module_lines) and is_binary(prefix) do
+    multi
+    |> lock_union(lines, module_lines, prefix, :pre_type_lock)
+    |> ledger_prelock(lines, module_lines, lock_ctx)
+  end
+
+  # REQ-688 (decision 0073 D-L12): ONE `:pre_ledger_lock` step after the type-lock group and before
+  # the task activation (the first audit chain row), for a node with a posting line on the service
+  # origin. Gated ONLY on "a posting line exists and a service context was given", not on consent or
+  # credential: the refusals for those run at the plan step through a real apply, and the empty
+  # rows this step inserts for a refused principal roll back with the transaction.
+  defp ledger_prelock(multi, lines, module_lines, %{prefix: prefix, service: service})
+       when is_map(service) do
+    if Enum.any?(module_lines, &HandlerPost.posts_ledger?/1) do
+      ctx = Map.put(service, :prefix, prefix)
+      attrs = handler_base(ctx, service.variable_labels)
+
+      entries =
+        module_lines
+        |> Enum.with_index(length(lines))
+        |> Enum.filter(fn {line, _index} -> HandlerPost.posts_ledger?(line) end)
+        |> Enum.map(fn {line, index} -> {Map.put(attrs, :line_index, index), line} end)
+
+      Multi.run(multi, :pre_ledger_lock, fn _repo, _changes ->
+        HandlerPost.prelock(entries, service.variables)
+      end)
+    else
+      multi
+    end
+  end
+
+  defp ledger_prelock(multi, _lines, _module_lines, _lock_ctx), do: multi
 
   defp lock_union(multi, lines, module_lines, prefix, tag) do
     declarative =
@@ -695,7 +732,26 @@ defmodule Letflow.Entities.StepWrites do
   defp append_handler_calls(multi, _lines, [], _ctx, _variables, _labels, _guard), do: multi
 
   defp append_handler_calls(multi, lines, module_lines, ctx, variables, labels, guard) do
-    base = %{
+    base = ctx |> handler_base(labels) |> Map.put(:ledger_prelock, Map.get(ctx, :ledger_prelock))
+
+    module_lines
+    |> Enum.with_index(length(lines))
+    |> Enum.reduce(multi, fn {line, line_index}, acc ->
+      acc
+      |> Multi.run({:line, StepSource.call_key(line_index), :deadline}, guard)
+      |> HandlerWrites.build_call(Map.put(base, :line_index, line_index), line, variables)
+    end)
+    # REQ-685 (decision 0073 A3): the ONE ledger lock step, after the LAST handler call so no
+    # ledger row is locked before every line of the node has been built. Adds no step when no
+    # call planned a posting.
+    |> HandlerPost.lock_steps(module_lines, Map.get(ctx, :ledger_prelock))
+  end
+
+  # The call attributes shared by the real handler calls and the ledger pre-step's dry build, so
+  # the two contexts cannot drift. `ledger_consent` (REQ-688) is the node's consent flag from the
+  # verified `activated_by` (the service ctx only; a task origin has none).
+  defp handler_base(ctx, labels) do
+    %{
       prefix: ctx.prefix,
       instance_id: ctx.instance_id,
       origin: origin(ctx),
@@ -710,20 +766,10 @@ defmodule Letflow.Entities.StepWrites do
       credential: Map.get(ctx, :credential),
       activator_id: ctx.activator_id,
       manifest_hash: owner_manifest_hash(ctx),
-      variable_labels: labels
+      variable_labels: labels,
+      ledger_consent:
+        Map.get(ctx, :consented, ctx.node_id in Map.get(ctx, :ledger_consent_nodes, []))
     }
-
-    module_lines
-    |> Enum.with_index(length(lines))
-    |> Enum.reduce(multi, fn {line, line_index}, acc ->
-      acc
-      |> Multi.run({:line, StepSource.call_key(line_index), :deadline}, guard)
-      |> HandlerWrites.build_call(Map.put(base, :line_index, line_index), line, variables)
-    end)
-    # REQ-685 (decision 0073 A3): the ONE ledger lock step, after the LAST handler call so no
-    # ledger row is locked before every line of the node has been built. Adds no step when no
-    # call planned a posting.
-    |> HandlerPost.lock_steps(module_lines)
   end
 
   defp owner_manifest_hash(%{owner: %{manifest_hash: hash}}) when is_binary(hash), do: hash
@@ -1018,6 +1064,9 @@ defmodule Letflow.Entities.StepWrites do
   # lands it like a failed `{:type_lock, type}`.
   def interpret_failure({:pre_type_lock, type}, _reason) when is_binary(type),
     do: {:failed, 0, :type_lock}
+
+  # REQ-688: the service apply's ledger pre-step fails only on a database fault.
+  def interpret_failure(:pre_ledger_lock, _reason), do: {:failed, 0, :ledger_prelock}
 
   # REQ-685/686: the one ledger lock step and the posting writes. The reason is wrapped with the
   # posting line's step key by `HandlerPost` (`{:ledger_at, key, inner}`); a typed refusal then

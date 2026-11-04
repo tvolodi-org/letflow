@@ -783,8 +783,13 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
       # handler files may call none of them (scan H4: only `HandlerWrites.create/3`).
       # REQ-685 adds `post/3` (the handler-facing ledger write) and the `__*__` hooks that
       # `Letflow.Ledger.HandlerPost` calls (token, ordinal, registration, declare, record).
+      # REQ-688 adds `dry_postings/4` (the ledger pre-step's write-free dry build) and the hooks
+      # `__facts__/1` (consent, pre-step result and dry flag of the per-call token) and
+      # `__dry_collect__/2`, both called by `HandlerPost` only.
       assert public == [
                __declare__: 2,
+               __dry_collect__: 2,
+               __facts__: 1,
                __next_ordinal__: 1,
                __posts_ledger__: 2,
                __record__: 2,
@@ -793,6 +798,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
                authorize_module_writes: 2,
                build_call: 4,
                create: 3,
+               dry_postings: 4,
                lock_types: 3,
                lock_types: 4,
                post: 3,

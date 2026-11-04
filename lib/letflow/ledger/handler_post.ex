@@ -20,13 +20,17 @@ defmodule Letflow.Ledger.HandlerPost do
 
   ## Run time
 
-    1. `{:line, key, :ledger_post}` PLANS only: origin (`{:task, _}` only), `Authority.check/1`
-       (credential, roles from the database, scope), then the deferred refusal, then
-       `{:ok, {:planned, capability}}`. It locks nothing and writes nothing.
-    2. `lock_steps/1`, appended once by `StepWrites` after the LAST handler call, takes the ONE lock
+    1. `{:line, key, :ledger_post}` PLANS only: origin (`{:task, _}`, or `{:dispatch, _}` when the
+       service apply's `:pre_ledger_lock` result is present, REQ-688, and the node's consent flag
+       is set: else the typed `ledger_origin_not_supported` / `ledger_consent_missing`),
+       `Authority.check/1` (credential, roles from the database, scope), then the deferred
+       refusal, then `{:ok, {:planned, capability}}`. It locks nothing and writes nothing.
+    2. `lock_steps/3`, appended once by `StepWrites` after the LAST handler call, takes the ONE lock
        step of decision 0073 A3 over the union of all planned postings (`Ledger.lock_postings/1`:
        insert-if-absent ascending, `FOR UPDATE` ascending, counters ascending by ledger id) and then
-       writes each posting in ascending ledger-id order (`Ledger.write_posting/2`). A node without a
+       writes each posting in ascending ledger-id order (`Ledger.write_posting/2`). On the dispatch
+       origin the step first proves (`Ledger.lock_set/1`) that every key and ledger id is in the
+       pre-locked set, else `{:ledger_contract, :prelock_mismatch}` with nothing locked. A node without a
        posting line adds nothing (an empty sub-multi).
 
   ## Failure channel (REQ-686)
@@ -65,13 +69,25 @@ defmodule Letflow.Ledger.HandlerPost do
          {:ok, ordinal} <- HandlerWrites.__next_ordinal__(token) do
       key = StepSource.call_key(ctx.line_index) + ordinal
       build = check_command(command, registration, token)
+      facts = HandlerWrites.__facts__(token)
+      build = Map.put(build, :consented, facts.consent)
 
       case Capability.mint(ctx, name, build, origin_key(ctx.origin, ctx.node_id, key)) do
         {:ok, cap} ->
-          step = {:line, key, :ledger_post}
-          appended = Multi.run(multi, step, fn _repo, _changes -> run_plan_step(cap) end)
-          HandlerWrites.__record__(token, Multi.to_list(appended) -- Multi.to_list(multi))
-          {:ok, appended}
+          if facts.dry? do
+            # REQ-688 dry build: collect the capability, add no step and use no write slot.
+            HandlerWrites.__dry_collect__(token, cap)
+            {:ok, multi}
+          else
+            prelocked = facts.prelocked
+            step = {:line, key, :ledger_post}
+
+            appended =
+              Multi.run(multi, step, fn _repo, _changes -> run_plan_step(cap, prelocked) end)
+
+            HandlerWrites.__record__(token, Multi.to_list(appended) -- Multi.to_list(multi))
+            {:ok, appended}
+          end
 
         {:error, :invalid_context} ->
           {:error, :invalid_context}
@@ -232,14 +248,25 @@ defmodule Letflow.Ledger.HandlerPost do
   # Run time
   # ---------------------------------------------------------------------
 
-  defp run_plan_step(%{origin: {:task, _}} = cap) do
+  defp run_plan_step(%{origin: {:task, _}} = cap, _prelocked), do: plan(cap)
+
+  # REQ-688: the SERVICE origin needs the `:pre_ledger_lock` result of this transaction (without it
+  # the locks could follow the audit chain row, the L3 deadlock) and the node's consent flag,
+  # BEFORE the authority check; the credential and the roles are then checked as for a task.
+  defp run_plan_step(%{origin: {:dispatch, _}} = cap, prelocked) do
+    cond do
+      not is_map(prelocked) -> {:error, {:ledger_denied, :ledger_origin_not_supported}}
+      cap.consented != true -> {:error, {:ledger_denied, :ledger_consent_missing}}
+      true -> plan(cap)
+    end
+  end
+
+  defp plan(cap) do
     with {:ok, read?} <- authority(cap),
          :ok <- release(cap) do
       {:ok, {:planned, %{cap | read_disclosed: read?}}}
     end
   end
-
-  defp run_plan_step(_cap), do: {:error, {:ledger_denied, :ledger_origin_not_supported}}
 
   defp authority(cap) do
     case Authority.check_with_read(cap) do
@@ -281,19 +308,23 @@ defmodule Letflow.Ledger.HandlerPost do
   Appends the one lock step (decision 0073 A3) after the last handler call of a node: a single
   `Multi.merge` that reads the planned capabilities from the changes. A node none of whose lines
   names a handler that posts to a ledger gets no extra step at all (its Multi is unchanged).
+  `prelocked` (REQ-688) is the `:pre_ledger_lock` result of the enclosing service transaction (the
+  nested build cannot see it in its own changes); the dispatch origin is checked against it.
   """
-  @spec lock_steps(Multi.t(), [map()]) :: Multi.t()
-  def lock_steps(%Multi{} = multi, module_lines) when is_list(module_lines) do
-    if Enum.any?(module_lines, &posts_ledger?/1), do: lock_merge(multi), else: multi
+  @spec lock_steps(Multi.t(), [map()], map() | nil) :: Multi.t()
+  def lock_steps(%Multi{} = multi, module_lines, prelocked \\ nil) when is_list(module_lines) do
+    if Enum.any?(module_lines, &posts_ledger?/1), do: lock_merge(multi, prelocked), else: multi
   end
 
-  defp posts_ledger?(%{"module" => module_id, "handler" => name}) do
+  @doc false
+  @spec posts_ledger?(term()) :: boolean()
+  def posts_ledger?(%{"module" => module_id, "handler" => name}) do
     match?({:ok, _ledger}, HandlerWrites.__posts_ledger__(module_id, name))
   end
 
-  defp posts_ledger?(_line), do: false
+  def posts_ledger?(_line), do: false
 
-  defp lock_merge(multi) do
+  defp lock_merge(multi, prelocked) do
     Multi.merge(multi, fn changes ->
       case planned(changes) do
         [] ->
@@ -305,13 +336,66 @@ defmodule Letflow.Ledger.HandlerPost do
 
           Multi.new()
           |> Multi.run({:ledger_lock, :all}, fn _repo, _changes ->
-            caps |> Ledger.lock_postings() |> keyed_error(first_key, first_cap)
+            with :ok <- contained(caps, prelocked) do
+              caps |> Ledger.lock_postings() |> keyed_error(first_key, first_cap)
+            else
+              {:error, _} = error -> keyed_error(error, first_key, first_cap)
+            end
           end)
           |> Multi.run({:ledger_write, :all}, fn _repo, %{{:ledger_lock, :all} => plan} ->
             write_all(plan, keyed)
           end)
       end
     end)
+  end
+
+  # REQ-688 containment: on the SERVICE origin the real lock step must touch nothing outside the
+  # set the pre-step locked, checked BEFORE any insert or lock. The task origin is not checked.
+  defp contained([%{origin: {:dispatch, _}} | _] = caps, prelocked) do
+    with {:ok, set} <- Ledger.lock_set(caps) do
+      if is_map(prelocked) and set.ledger_ids -- Map.get(prelocked, :ledger_ids, []) == [] and
+           set.keys -- Map.get(prelocked, :keys, []) == [],
+         do: :ok,
+         else: {:error, {:ledger_contract, :prelock_mismatch}}
+    end
+  end
+
+  defp contained(_caps, _prelocked), do: :ok
+
+  @doc """
+  REQ-688 (decision 0073 D-L12): the SERVICE apply's lock-only pre-step, run BEFORE the task
+  activation's audit chain row. `entries` are `{attrs, line}` for each posting line in declared
+  order. Runs the write-free dry build of each line (`HandlerWrites.dry_postings/4`, no database
+  access), keeps the capabilities that carry a posting and no deferred refusal, and takes their
+  balance and counter rows with `Ledger.prelock/1` in the order of the real lock step. Returns
+  `{:ok, %{ledger_ids:, keys:}}`; a line that cannot be dry built contributes no key (the real
+  build then fails containment).
+  """
+  @spec prelock([{map(), map()}], map()) :: {:ok, %{ledger_ids: [String.t()], keys: [term()]}}
+  def prelock(entries, variables) when is_list(entries) and is_map(variables) do
+    caps =
+      Enum.reduce(entries, [], fn {attrs, line}, acc ->
+        case HandlerWrites.dry_postings(attrs, line, variables, dry_plan(acc)) do
+          {:ok, new} -> acc ++ new
+          :skip -> acc
+        end
+      end)
+
+    case Enum.filter(caps, &(is_map(&1.posting) and &1.deferred_refusal == nil)) do
+      [] -> {:ok, %{ledger_ids: [], keys: []}}
+      keyable -> Ledger.prelock(keyable)
+    end
+  end
+
+  defp dry_plan(caps) do
+    for cap <- caps do
+      %{
+        ledger_id: Map.get(cap.posting || %{}, :ledger_id),
+        document_type: Map.get(cap.posting || %{}, :document_type),
+        document_id: Map.get(cap.posting || %{}, :document_id)
+      }
+    end
+    |> Enum.sort_by(&{&1.ledger_id, &1.document_id})
   end
 
   # `[{step key, capability}]` ascending by key.

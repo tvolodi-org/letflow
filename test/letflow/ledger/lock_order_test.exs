@@ -234,21 +234,78 @@ defmodule Letflow.Ledger.LockOrderTest do
     assert {:ok, _} = PFx.complete(ctx)
   end
 
-  test "T-LK-4 the SERVICE origin posting is refused write_not_permitted, nothing written" do
-    ctx = engine_case("req686-lk4", post_lines(["post_alpha"]))
-    lines = post_lines(["post_alpha"])
+  # REQ-688 (inverts the L3c pin "the SERVICE origin posting is refused"): the refusal without the
+  # pre-step is still pinned in security_test.exs (T-SEC-1g, S-2); here the consented SERVICE
+  # apply and a HUMAN completion overlap and both commit.
+  test "T-LK-4a a HUMAN posting and a SERVICE posting on one balance key both commit" do
+    ctx = engine_case("req688-lk4a", post_lines(["post_alpha"]))
+    svc = PFx.more_service!(ctx, post_lines(["post_alpha"], "d2"))
+    seed_ledgers!(ctx)
 
-    assert {:error, {:line, _key, :ledger_post} = step,
-            {:ledger_denied, :ledger_origin_not_supported}, _changes} =
-             PFx.run_lines(ctx, lines, origin: {:dispatch, Ecto.UUID.generate()})
+    %{first: r1, second: r2} =
+      H.forced_overlap(
+        ctx.schema,
+        {:ledger_counter, PFx.alpha()},
+        fn -> PFx.complete(ctx) end,
+        fn -> Letflow.EntityWritesFixture.apply_http(svc, %{"label" => "x"}) end
+      )
 
-    assert {:refused, 0, :write_not_permitted, :ledger_origin_not_supported} =
-             Letflow.Entities.StepWrites.interpret_failure(
-               step,
-               {:ledger_denied, :ledger_origin_not_supported}
-             )
+    assert {:ok, _} = r1
+    assert {:ok, :advanced} = r2
+    assert seqs(ctx.schema) |> hd() == ["fixture_ledger_post", 3]
+  end
 
-    assert {0, 0, 0, 0} = PFx.ledger_counts(ctx.schema)
+  test "T-LK-4b the SERVICE posting overlapping the balance row of a HUMAN posting commits" do
+    ctx = engine_case("req688-lk4b", post_lines(["post_alpha"]))
+    svc = PFx.more_service!(ctx, post_lines(["post_alpha"], "d2"))
+    seed_ledgers!(ctx)
+
+    %{first: r1, second: r2} =
+      H.forced_overlap(
+        ctx.schema,
+        {:ledger_balance, PFx.alpha(), ["a", ""]},
+        fn -> Letflow.EntityWritesFixture.apply_http(svc, %{"label" => "x"}) end,
+        fn -> PFx.complete(ctx) end
+      )
+
+    assert {:ok, :advanced} = r1
+    assert {:ok, _} = r2
+  end
+
+  test "T-LK-4c a SERVICE posting overlapping a non-posting HUMAN completion on the audit row" do
+    ctx = engine_case("req688-lk4c", post_lines(["post_alpha"]))
+    svc = PFx.more_service!(ctx, post_lines(["post_alpha"], "d2"))
+    plain = PFx.more_task!(ctx, [PFx.line("plain")])
+    seed_ledgers!(ctx)
+
+    %{first: r1, second: r2} =
+      H.forced_overlap(
+        ctx.schema,
+        :audit_chain,
+        fn -> Letflow.EntityWritesFixture.apply_http(svc, %{"label" => "x"}) end,
+        fn -> PFx.complete(plain) end
+      )
+
+    assert {:ok, :advanced} = r1
+    assert {:ok, _} = r2
+  end
+
+  test "T-LK-4d a counter held beyond the lock timeout stops the SERVICE apply in the pre-step" do
+    ctx = engine_case("req688-lk4d", post_lines(["post_alpha"]))
+    svc = PFx.more_service!(ctx, post_lines(["post_alpha"], "d2"))
+    seed_ledgers!(ctx)
+    before = seqs(ctx.schema)
+    counts = PFx.ledger_counts(ctx.schema)
+
+    {holder, _backend} = H.hold_row(ctx.schema, {:ledger_counter, PFx.alpha()})
+    result = Letflow.EntityWritesFixture.apply_http(svc, %{"label" => "x"})
+    send(holder.pid, :release)
+    Task.await(holder, H.await_ms())
+
+    # contention is re-applied by the engine and then given up (ERROR + DLQ); nothing was written
+    refute match?({:ok, :advanced}, result)
+    assert seqs(ctx.schema) == before
+    assert PFx.ledger_counts(ctx.schema) == counts
   end
 
   test "T-LK-5 a third posting line fails with nothing committed; one posting plus a plain line passes" do
