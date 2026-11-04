@@ -54,6 +54,10 @@ defmodule Letflow.Test.TenantTemplateLedgerTest do
     tenant: tenant,
     schema: s
   } do
+    # REQ-710: the balance row below needs the partitions of its ledger id; they are part of the
+    # baseline here (a partition made after the baseline is definition drift, see the clone test
+    # in tenant_template_test.exs)
+    Letflow.LedgerFixture.ensure_storage!(s, "wh")
     baseline = TenantTemplate.capture_clone_baseline!(s)
     assert {:ok, _} = TenantTemplate.reset_clone_schema!(s, baseline)
 

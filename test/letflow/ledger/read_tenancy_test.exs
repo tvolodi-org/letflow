@@ -143,7 +143,11 @@ defmodule Letflow.Ledger.ReadTenancyTest do
 
   describe "T-TN-4 source scan" do
     @files Path.wildcard("lib/letflow/ledger.ex") ++ Path.wildcard("lib/letflow/ledger/*.ex")
-    @pins %{"lib/letflow/ledger.ex" => 2, "lib/letflow/ledger/reconcile.ex" => 3}
+    @pins %{
+      "lib/letflow/ledger.ex" => 2,
+      "lib/letflow/ledger/reconcile.ex" => 3,
+      "lib/letflow/ledger/storage.ex" => 2
+    }
 
     # Returns {literal query calls, offenders} for the source text.
     defp scan(source) do

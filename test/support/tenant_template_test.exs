@@ -78,6 +78,36 @@ defmodule Letflow.Test.TenantTemplateTest do
     end
   end
 
+  describe "REQ-710 -- the ledger parents are partitioned in a clone" do
+    test "a clone has LIST (ledger_id) parents, takes partitions, and a partitioned clone is not clean" do
+      :ok = TenantTemplate.ensure_template!()
+
+      tenant = insert_throwaway_tenant!()
+      on_exit(fn -> cleanup_tenant!(tenant) end)
+
+      assert {:ok, clone} = TenantTemplate.clone_tenant_schema!(tenant.id)
+
+      for t <- ~w(ledger_entry ledger_leg ledger_balance) do
+        assert %{rows: [["p", "LIST (ledger_id)"]]} =
+                 Repo.query!(
+                   "SELECT c.relkind::text, pg_get_partkeydef(c.oid) FROM pg_class c " <>
+                     "JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2",
+                   [clone, t]
+                 )
+      end
+
+      baseline = TenantTemplate.capture_clone_baseline!(clone)
+      refute "ledger_entry_p" in TenantTemplate.baseline_tables(baseline)
+
+      # Storage.ensure/2 works on a clone (the clone carries the TRUNCATE guard function)
+      assert {:ok, :ok} =
+               Repo.transaction(fn -> Letflow.Ledger.Storage.ensure(clone, "clone_ledger") end)
+
+      assert {:ok, state} = TenantTemplate.probe_clone_state(clone)
+      refute TenantTemplate.clean_diff?(TenantTemplate.diff_clone_state(state, baseline))
+    end
+  end
+
   describe "the template itself is faithful to a genuine migration build" do
     # design §3.4 use site 1. This is what proves the TEMPLATE is not merely
     # self-consistent but actually equivalent to a schema built by replaying

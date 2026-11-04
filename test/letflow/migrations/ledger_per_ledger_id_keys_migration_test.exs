@@ -26,6 +26,10 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
   setup do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "r692-mig")
 
+    # REQ-710: the entry, leg and balance tables are partitioned by ledger id
+    for id <- ~w(ledger_a ledger_b ledger_c),
+        do: Letflow.LedgerFixture.ensure_storage!(tenant.schema_name, id)
+
     for t <- ~w(ledger_counter ledger_entry ledger_leg ledger_balance) do
       Repo.query!(~s(ALTER TABLE "#{tenant.schema_name}".#{t} DISABLE TRIGGER USER))
     end
@@ -74,10 +78,13 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
 
   defp ok!(result), do: assert({:ok, _} = result)
 
+  # REQ-710: a violation raised inside a partition names the partition's renamed index
+  # (`<parent name>_<16 hex>`).
   defp refused(result, constraint) do
-    assert {:error,
-            %Postgrex.Error{postgres: %{code: :unique_violation, constraint: ^constraint}}} =
+    assert {:error, %Postgrex.Error{postgres: %{code: :unique_violation, constraint: found}}} =
              result
+
+    assert found =~ ~r/\A#{Regex.escape(constraint)}(_[0-9a-f]{16})?\z/
   end
 
   defp constraint_defs(schema) do
@@ -85,7 +92,7 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
       Repo.query!(
         "SELECT c.conname, pg_get_constraintdef(c.oid) FROM pg_constraint c " <>
           "JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace " <>
-          "WHERE n.nspname = $1 AND t.relname = 'ledger_entry' ORDER BY c.conname",
+          "WHERE n.nspname = $1 AND t.relname = 'ledger_entry' AND c.conparentid = 0 ORDER BY c.conname",
         [schema]
       )
 
@@ -110,11 +117,11 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
     for {name, text} <- @new_defs, do: assert(defs[name] == text)
 
     assert index_def(schema, "ledger_entry_device_seq_unique_index") ==
-             "CREATE UNIQUE INDEX ledger_entry_device_seq_unique_index ON ledger_entry " <>
+             "CREATE UNIQUE INDEX ledger_entry_device_seq_unique_index ON ONLY ledger_entry " <>
                "USING btree (ledger_id, subject_id, device_id, client_seq) WHERE (device_id IS NOT NULL)"
 
     assert index_def(schema, "ledger_entry_reverses_unique_index") ==
-             "CREATE UNIQUE INDEX ledger_entry_reverses_unique_index ON ledger_entry " <>
+             "CREATE UNIQUE INDEX ledger_entry_reverses_unique_index ON ONLY ledger_entry " <>
                "USING btree (ledger_id, reverses_entry_id) WHERE (reverses_entry_id IS NOT NULL)"
   end
 
@@ -198,11 +205,11 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
   } do
     defs = constraint_defs(schema)
 
-    assert defs["ledger_entry_pkey"] == "PRIMARY KEY (id)"
+    assert defs["ledger_entry_pkey"] == "PRIMARY KEY (id, ledger_id)"
     assert defs["ledger_entry_ledger_seq_key"] == "UNIQUE (ledger_id, posting_seq)"
 
     assert defs["ledger_entry_reverses_entry_id_fkey"] ==
-             "FOREIGN KEY (reverses_entry_id) REFERENCES ledger_entry(id)"
+             "FOREIGN KEY (reverses_entry_id, ledger_id) REFERENCES ledger_entry(id, ledger_id)"
 
     # two of our keys, ledger_seq and one more unique, pkey, one FK, and the CHECK set (>= 15) are all present
     kinds = defs |> Map.values() |> Enum.map(&hd(String.split(&1, " ")))
@@ -216,8 +223,9 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
     schema: schema,
     tenant_id: tenant_id
   } do
+    # REQ-710 registers CreateLedgerPartitionedTables after this migration
     assert {@version, CreateLedgerPerLedgerIdKeys} =
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
 
     old = ~s(ALTER TABLE "#{schema}".ledger_entry)
     Repo.query!("#{old} DROP CONSTRAINT ledger_entry_subject_op_key")
@@ -264,6 +272,13 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
       )
     end
 
+    # REQ-710: the partitioned shape refuses key lists without ledger_id, so the replacing
+    # migration goes down first (it restores the earlier plain tables with this migration's keys)
+    replacing = {20_261_104_200_001, Letflow.Repo.Migrations.CreateLedgerPartitionedTables}
+
+    assert [20_261_104_200_001] =
+             Ecto.Migrator.run(Repo, [replacing], :down, all: true, prefix: schema, log: false)
+
     assert [@version] = run.(:down)
     defs = constraint_defs(schema)
     assert defs["ledger_entry_subject_op_key"] == "UNIQUE (subject_id, client_op_id)"
@@ -275,6 +290,9 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
 
     assert constraint_defs(schema)["ledger_entry_origin_key_key"] ==
              "UNIQUE (ledger_id, origin_key)"
+
+    assert [20_261_104_200_001] =
+             Ecto.Migrator.run(Repo, [replacing], :up, all: true, prefix: schema, log: false)
   end
 
   test "KEY-7 the only interpolation is the quoted schema and no value is interpolated" do

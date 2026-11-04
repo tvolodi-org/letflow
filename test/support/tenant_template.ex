@@ -1369,9 +1369,17 @@ defmodule Letflow.Test.TenantTemplate do
 
       # Step 3: CREATE TABLE (LIKE ... INCLUDING ALL) per table, deterministic
       # lexical order.
+      # REQ-710: the three ledger parents are PARTITION BY LIST (ledger_id) in the template
+      # (partitions are made per ledger id, so a clone starts with none).
       Enum.each(tables, fn table ->
+        partition_by =
+          if table in ~w(ledger_entry ledger_leg ledger_balance),
+            do: " PARTITION BY LIST (ledger_id)",
+            else: ""
+
         Repo.query!(
-          ~s|CREATE TABLE "#{clone_schema}"."#{table}" (LIKE "#{@template_schema}"."#{table}" INCLUDING ALL)|
+          ~s|CREATE TABLE "#{clone_schema}"."#{table}" (LIKE "#{@template_schema}"."#{table}" INCLUDING ALL)| <>
+            partition_by
         )
       end)
 
