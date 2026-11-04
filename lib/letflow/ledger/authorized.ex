@@ -1,18 +1,26 @@
 defmodule Letflow.Ledger.Authorized do
   @moduledoc """
-  REQ-637 part C (GH #3559): the authorised value of one ledger id.
+  REQ-637 / GH #3559 part B (slice L2b): the authorized value of the read side of the core
+  ledger. The only way to get one is `Letflow.Ledger.authorize/3`; `balances/4`, `entries/3` and
+  (part C) `reconcile/2` accept nothing else, and take the tenant schema prefix and the ledger
+  id from it, never from a caller map.
 
-  Minted only by `authorize/3` (part B). Part C adds the struct so `Letflow.Ledger.reconcile/2`
-  can pattern-match on it; part B adds its own fields (a merge of the two keeps both sides'
-  fields). `purpose` is `:read` or `:reconcile`; `reconcile/2` accepts only `:reconcile`.
+  `slot_names` is the ordered list of the slot names of the registration of the ledger id; the
+  closed filter key set of `balances/4` is derived from it, so a read never goes back to the
+  registry. `purpose` is `:read` or `:reconcile`.
+
+  Elixir structs are not opaque at runtime. The control that nothing outside the ledger files
+  builds one is a source scan test (`authorize_test.exs`, T-AZ-8).
   """
 
-  @enforce_keys [:prefix, :ledger_id, :purpose]
-  defstruct [:prefix, :ledger_id, :purpose]
+  @enforce_keys [:prefix, :ledger_id, :registration_name, :purpose, :slot_names]
+  defstruct @enforce_keys
 
   @type t :: %__MODULE__{
           prefix: String.t(),
           ledger_id: String.t(),
-          purpose: :read | :reconcile
+          registration_name: String.t(),
+          purpose: :read | :reconcile,
+          slot_names: [String.t()]
         }
 end

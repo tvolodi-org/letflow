@@ -46,14 +46,15 @@ defmodule Letflow.Ledger.PostBalanceTest do
     assert statements == []
   end
 
-  test "T-AC1b the capability struct enforces its eight keys" do
+  test "T-AC1b the capability struct enforces its twelve keys" do
     assert_raise ArgumentError, fn -> struct!(Capability, %{prefix: "x"}) end
 
     keys = Capability.__struct__() |> Map.keys() |> List.delete(:__struct__) |> Enum.sort()
 
     assert keys ==
              Enum.sort(
-               ~w(prefix registration_name registration command posting subject_id actor_id origin_key)a
+               ~w(prefix registration_name registration command posting subject_id actor_id origin_key
+                  origin instance_id credential deferred_refusal)a
              )
   end
 

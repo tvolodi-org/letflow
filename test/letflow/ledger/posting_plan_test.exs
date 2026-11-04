@@ -452,6 +452,7 @@ defmodule Letflow.Ledger.PostingPlanTest do
 
   # -- criterion 8 --------------------------------------------------------------------------------
 
+  # REQ-685: `handler_post.ex` is the ONE engine-side caller (the lock step `lock_steps/2`).
   test "PL-SC-1 no caller of lock_postings or write_posting in lib outside ledger.ex" do
     callers =
       for file <- Path.wildcard("lib/**/*.ex"),
@@ -459,6 +460,6 @@ defmodule Letflow.Ledger.PostingPlanTest do
           File.read!(file) =~ ~r/\b(lock_postings|write_posting)\(/,
           do: file
 
-    assert callers == []
+    assert callers == ["lib/letflow/ledger/handler_post.ex"]
   end
 end

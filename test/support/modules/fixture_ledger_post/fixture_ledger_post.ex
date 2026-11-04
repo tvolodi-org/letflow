@@ -4,7 +4,7 @@ defmodule Letflow.Modules.FixtureLedgerPost do
   registrations, `alpha` (fixed ledger id `fixture_ledger_post`) and `beta`
   (`fixture_ledger_post:beta`), so the later slices can post two ledgers in one transaction. It has
   its own four permission atoms (no role is granted any of them), one error alias on `alpha`, a
-  policy in `ledger_policy/`, two posting handlers and a plain `create/3` handler. No pack, no
+  policy in `ledger_policy/`, two posting handlers and a plain `create/3` handler. One pack (REQ-685: only the `fxlp_note` entity type), no
   `on_install`, no router. Registered only in `config/test.exs`, last in the list.
   """
 
@@ -17,7 +17,7 @@ defmodule Letflow.Modules.FixtureLedgerPost do
     id: "fixture_ledger_post",
     version: "0.1.0",
     depends_on: [],
-    pack: nil,
+    pack: "module_fixtures/ledger_post.json",
     permissions: [:FxlpPost, :FxlpReverse, :FxlpRead, :FxlpReconcile],
     role_grants: %{},
     required_roles: [],
@@ -29,14 +29,26 @@ defmodule Letflow.Modules.FixtureLedgerPost do
         name: "post_alpha",
         function: {Letflow.Modules.FixtureLedgerPost.Handlers, :post_alpha},
         targets: ["fxlp_note"],
-        args: %{"note" => %{required: true}},
+        args: %{
+          "note" => %{required: true},
+          "posting" => %{required: false},
+          "twice" => %{required: false},
+          "skip_note" => %{required: false},
+          "before" => %{required: false}
+        },
         posts_ledger: "alpha"
       },
       %Letflow.Modules.WriteHandlerSpec{
         name: "post_beta",
         function: {Letflow.Modules.FixtureLedgerPost.Handlers, :post_beta},
         targets: ["fxlp_note"],
-        args: %{"note" => %{required: true}},
+        args: %{
+          "note" => %{required: true},
+          "posting" => %{required: false},
+          "twice" => %{required: false},
+          "skip_note" => %{required: false},
+          "before" => %{required: false}
+        },
         posts_ledger: "beta"
       },
       %Letflow.Modules.WriteHandlerSpec{
