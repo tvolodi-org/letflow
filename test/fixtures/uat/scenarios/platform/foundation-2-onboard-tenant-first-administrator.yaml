@@ -23,12 +23,18 @@
 # OWNER/INFRA DECISIONS OPEN (none decided here; production is untouched by all of them):
 #   D-1 Provide a pool of spare UAT realms (size, who refills it), or approve the UAT Keycloak client
 #       creating realms and the script allowlist naming them.
-#   D-2 Approve the tooling-created logins (names, test e-mail addresses on a mailbox-less domain) and
+#   D-2 Approve the tooling-created logins (names, test e-mail addresses @uat.letflow.internal (QA mail trap)) and
 #       record them in test/fixtures/uat/actors.yaml; until then they are written as actor-any.
 #   D-3 Foundation-4c needs a platform administrator of a customer tenant, which decision 0046 D4 says
 #       must not exist. Drop that refusal from UAT (backend tests keep it) or approve a one-off account.
 #   D-4 Confirm the QA operator account holds the platform administrator role in the platform tenant and
 #       that the platform-tenant setting is in place on every QA instance.
+# MAIL (T-1254, D-088): any mail this scenario needs (invitation, e-mail verification, password reset) is read
+# through the QA mail trap, never a human mailbox. Test addresses end in @uat.letflow.internal. Before step 1 the
+# runner purges the trap (scripts/mail_trap.sh purge); to read a mail it runs
+# scripts/mail_trap.sh wait ADDR 60 and uses the printed link. A realm not wired to the trap yet is reported
+# WAITING FOR INFRA, not run against a real mailbox. Google sign-in is a separate optional branch, outside this chain.
+# See docs/testing/uat-mail-trap.md.
 ---
 id: platform-foundation-2-onboard-tenant-first-administrator
 scope: platform
@@ -67,7 +73,7 @@ steps:
     action: >
       TEST-TOOLING STEP (outside the product): with the UAT-only identity-provider client, create the
       future administrator's login in the spare realm, with a fixed test e-mail address on a
-      mailbox-less test domain and that address marked as confirmed. Keep the address for the next steps.
+      test domain @uat.letflow.internal (the QA mail trap; the runner purges the trap first) and that address marked as confirmed. Keep the address for the next steps.
     via: api
     sla_context:
       expected_within_hours: null
