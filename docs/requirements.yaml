@@ -49790,7 +49790,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-715 -- builds on the stock document foundation, posting and reversal of REQ-712 to REQ-715, none of which is built yet
+    gh: 3770
     # Source: docs/assets/stock-workflow-documents.md (REQ-679; sections 1.3 type names, 1.4 common fields, 5 Transfer, 6 Hand over, 7.1 Return, 7.3 conservation, 8 master checks 'both' and 'both legs', 9.1, 9.2, 9.3 scope column of a two-unit document, 10 speed assumptions, 11 questions 3 and 4); entries REQ-687 (registration causes transfer, hand_over and return with sign rule zero_sum_by_slot_1; declare/2 command with from and to sides of org_unit, location and responsible, two legs per line built from the same sku, lot, unit and quantity, and the refusal of a line whose sides are equal in all three keys), REQ-712 (foundation, routes, master checks at issue, tenancy criterion 8), REQ-713 (posting, binding check on read, reversal, cancel), REQ-714 (lot by tracking policy at issue, criterion 4), REQ-715 (issue and write off, insufficient_stock refusal at the post task), REQ-637 (the no-negative guard applies to a reversal) on origin/main de23767f1; decision 0073 (D-C, D-L12, D-T, D9 OQ-21, slice table pilot gate) with its section Amended (REQ-676, assets B1); decision 0076 R7 (documents scoped by org unit). Functions read on origin/main: Letflow.Modules.Locations.linked?/3 (lib/letflow/modules/locations/locations.ex), Letflow.Modules.Org.active_employee?/2 (lib/letflow/modules/org/org.ex), Letflow.Modules.CatalogItems.item_uom_valid?/3 and item_lot_valid?/3 (lib/letflow/modules/catalog_items/catalog_items.ex). Owner decisions D-085, D-086, D-087 (2026-11-04). Written by the business analyst (T-1227) 2026-11-04.
     description: >
       Phase B item B4 of the assets and stock application, implementation part 5 (phase B plan item P33): the three
@@ -49863,7 +49863,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-715 -- the screens call the document routes of REQ-712 and REQ-713 and the kinds of REQ-714 and REQ-715, none of which is built yet
+    gh: 3769
     # Source: entries REQ-712 (routes POST, PUT, DELETE and GET of /api/v1/modules/stock/documents, GET and POST issue of documents/:id, the field lists of criterion 2, the 422, 409 and 503 reasons of criteria 3 to 7, StockPost and StockRead), REQ-713 (routes post, reverse and cancel, states posted, reversed and cancelled, posting_check, the reversal reason codes, StockReverse, the unassigned post task completed in the task inbox), REQ-714 (receipt fields and reasons), REQ-715 (issue and write off fields and reasons), REQ-702 (the SPA module stock in web/src/modules/stock/, created by whichever stock screen lands first), REQ-669 (common screen rules) on origin/main de23767f1; docs/assets/stock-workflow-documents.md sections 1.4 (time zone), 2, 3, 7.2 and 9.1. Web code read on origin/main: web/src/modules/registry.ts (REGISTERED_MODULES, ModuleGuard wrap), web/src/modules/codes/ (index.ts, codesRoutes.tsx with RequirePermission of web/src/auth/access/RequirePermission.tsx, codesMessages.ts, CodesIntlProvider.tsx, __tests__/codesModule.nav.test.tsx, codesI18n.test.tsx, codes-i18n-grep.test.ts), web/src/api/entities.ts (entitiesApi.queryRecords), web/src/components/ui/MasterDetail.tsx, web/src/router.tsx (path tasks, TaskInboxPage); master fields read in priv/modules/catalog_items/entity_definitions/catalog_item.json (base_uom_id, tracking_policy), catalog_lot.json (item_id, code), priv/modules/org/entity_definitions/org_employee.json (full_name), org_unit.json and priv/modules/locations/entity_definitions/location_node.json (code, name, active); Letflow.Modules.CatalogItems.item_uom_valid?/3 (only the item's base_uom_id is a valid unit). Written by the business analyst (T-1227) 2026-11-04.
     description: >
       Phase B item B4 of the assets and stock application (plan item P33): the web screens for stock documents, first
@@ -49922,7 +49922,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-721 -- the forms send the kinds and fields of REQ-721 and extend the screens of REQ-722, neither built yet
+    gh: 3768
     # Source: entries REQ-721 (kinds transfer, hand_over and return, header fields per kind, sides_equal, the side key of a side check), REQ-722 (document screens, list filters, form and refusal rules, defaults) and REQ-669 (common screen rules); docs/assets/stock-workflow-documents.md sections 5, 6 and 7.1. Web code read on origin/main de23767f1: web/src/modules/codes/ (message file and i18n tests), web/src/api/entities.ts (entitiesApi.queryRecords). Written by the business analyst (T-1227) 2026-11-04.
     description: >
       Phase B item B4 (plan item P33), web screens part 2: the stock document screens of REQ-722 gain the three kinds of
@@ -49961,7 +49961,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-687 -- the screens call the balances and movements routes of slice L4, not built yet
+    gh: 3767
     # Source: entries REQ-687 (criterion 5 GET /api/v1/modules/stock/balances: query keys basis, cutoff_seq, as_of, sku, location, org_unit, responsible, lot, limit, cursor, body keys and the stock_balance row keys; criterion 6 GET /api/v1/modules/stock/movements: query keys cause, document_type, document_id, correlation_id, from_seq, to_seq, limit, cursor, the stock_movement row and leg keys; criterion 8 refusals: 404 for API tokens and principals whose grant is not tenant-wide, 403 without StockRead, 422 invalid_filter; the six causes of criterion 2), REQ-693 (criterion 6: a hidden leg is a map with exactly leg_no, quantity, unit_ref and masked true; the stock routes pass it through, 0073 S8), REQ-713 (the core cause reversal), REQ-722 (the stock document view), REQ-702 and REQ-669 (module and common screen rules) on origin/main de23767f1; pending REQ-703 and REQ-704 of task T-1222 (tenant time zone setting; balance as of a date, which adds no route); docs/assets/stock-workflow-documents.md sections 1.2 (slots) and 10 (speed assumptions). Web code read on origin/main: web/src/modules/registry.ts, web/src/modules/codes/, web/src/api/entities.ts (entitiesApi.queryRecords), lib/letflow/entities/query/allowlist.ex typed_columns/0 (record_id is a filterable string column) and lib/letflow/entities/query/types.ex (operator in accepts string fields). Written by the business analyst (T-1227) 2026-11-04.
     description: >
       Phase B item B4 of the assets and stock application (plan item P33): the read screens of the stock register.
