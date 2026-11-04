@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- REQ-732: the codes scan screen reads barcodes and QR codes with the camera.
+         Not required: a device without one still installs and uses the typed field. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="letflow"
         android:name="${applicationName}"

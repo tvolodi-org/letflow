@@ -14,7 +14,14 @@ import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../bootstrap/navigation_bootstrap.dart' show apiClientProvider;
+import 'package:go_router/go_router.dart';
+
+import '../bootstrap/navigation_bootstrap.dart'
+    show
+        apiClientProvider,
+        installedModulesProvider,
+        isModuleInstalled,
+        kCodesScanRoutePath;
 import '../i18n/i18n.dart';
 import 'definitions.dart';
 
@@ -27,7 +34,10 @@ import 'definitions.dart';
 /// the airplane-mode "no loading indicator at any frame" acceptance
 /// criterion regardless of how briefly it is visible).
 class DefinitionHomeController extends ChangeNotifier {
-  DefinitionHomeController({required this.repository, required this.syncService});
+  DefinitionHomeController({
+    required this.repository,
+    required this.syncService,
+  });
 
   final DefinitionCacheRepository repository;
   final DefinitionSyncService syncService;
@@ -94,6 +104,10 @@ class _TenantHomeScreenState extends ConsumerState<TenantHomeScreen> {
   Widget build(BuildContext context) {
     final controller = ref.watch(definitionHomeControllerProvider);
     final entries = controller.entries;
+    final codesInstalled = isModuleInstalled(
+      ref.watch(installedModulesProvider),
+      'codes',
+    );
 
     return Scaffold(
       key: const Key('tenant-home-screen'),
@@ -102,24 +116,39 @@ class _TenantHomeScreenState extends ConsumerState<TenantHomeScreen> {
       // or any other loading-indicator widget anywhere in this build
       // method — not gated behind a flag, simply never constructed
       // (design §8.3).
-      body: entries.isEmpty
-          ? Center(
-              key: const Key('tenant-home-empty'),
-              child: Text(tr('home.emptyMessage')),
-            )
-          : ListView.builder(
-              key: const Key('tenant-home-list'),
-              itemCount: entries.length,
-              itemBuilder: (context, index) {
-                final entry = entries[index];
-                final displayName = entry.name.isEmpty ? entry.id : entry.name;
-                return ListTile(
-                  key: Key('tenant-home-entry-${entry.compositeKey}'),
-                  title: Text(displayName),
-                  subtitle: Text('${entry.type} · v${entry.version}'),
-                );
-              },
+      body: Column(
+        children: [
+          if (codesInstalled)
+            ListTile(
+              key: const Key('tenant-home-codes-entry'),
+              leading: const Icon(Icons.qr_code_scanner),
+              title: Text(tr('home.codes.scan')),
+              onTap: () => context.go(kCodesScanRoutePath),
             ),
+          Expanded(
+            child: entries.isEmpty
+                ? Center(
+                    key: const Key('tenant-home-empty'),
+                    child: Text(tr('home.emptyMessage')),
+                  )
+                : ListView.builder(
+                    key: const Key('tenant-home-list'),
+                    itemCount: entries.length,
+                    itemBuilder: (context, index) {
+                      final entry = entries[index];
+                      final displayName = entry.name.isEmpty
+                          ? entry.id
+                          : entry.name;
+                      return ListTile(
+                        key: Key('tenant-home-entry-${entry.compositeKey}'),
+                        title: Text(displayName),
+                        subtitle: Text('${entry.type} · v${entry.version}'),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -141,7 +170,10 @@ final definitionSyncServiceProvider = Provider<DefinitionSyncService>((ref) {
       'silently falls back for.',
     );
   }
-  return DefinitionSyncService(repository: repo, client: ref.watch(apiClientProvider));
+  return DefinitionSyncService(
+    repository: repo,
+    client: ref.watch(apiClientProvider),
+  );
 });
 
 final definitionHomeControllerProvider =
