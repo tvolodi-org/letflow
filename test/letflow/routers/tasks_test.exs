@@ -1892,6 +1892,69 @@ defmodule Letflow.Routers.TasksTest do
       assert entry.after_state["assignee_ref"] == new_user
     end
 
+    test "GH #2931: a PROCESS_OPERATOR without the routing role cannot reassign a ROLE task to self",
+         %{tenant: tenant} do
+      dispatcher = Ecto.UUID.generate()
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "role-ops-manager"})
+
+      conn =
+        build_conn(:post, "/#{task.id}/reassign", tenant,
+          user_id: dispatcher,
+          roles: ["PROCESS_OPERATOR", "TASK_WORKER"],
+          body: %{"user_id" => dispatcher}
+        )
+        |> dispatch()
+
+      assert conn.status == 409
+      assert conn.resp_body =~ "does not hold the assigned role"
+
+      row = Repo.get!(EngineTask, task.id, prefix: tenant.schema_name)
+      assert row.assignee_type == "ROLE"
+      assert row.assignee_ref == "role-ops-manager"
+      assert task_audit_rows(tenant, task.id, "task.reassign") == []
+
+      complete =
+        build_conn(:post, "/#{task.id}/complete", tenant,
+          user_id: dispatcher,
+          roles: ["PROCESS_OPERATOR", "TASK_WORKER"],
+          body: %{}
+        )
+        |> dispatch()
+
+      assert complete.status in [403, 409]
+    end
+
+    test "GH #2931: a GROUP task is refused to a non-member PROCESS_OPERATOR", %{tenant: tenant} do
+      task = insert_task!(tenant, %{assignee_type: "GROUP", assignee_ref: Ecto.UUID.generate()})
+      me = Ecto.UUID.generate()
+
+      conn =
+        build_conn(:post, "/#{task.id}/reassign", tenant,
+          user_id: me,
+          roles: ["PROCESS_OPERATOR"],
+          body: %{"user_id" => me}
+        )
+        |> dispatch()
+
+      assert conn.status == 409
+      assert Repo.get!(EngineTask, task.id, prefix: tenant.schema_name).assignee_type == "GROUP"
+    end
+
+    test "GH #2931: a caller holding the routing role (token) may reassign a ROLE task",
+         %{tenant: tenant} do
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "role-ops-manager"})
+      new_user = Ecto.UUID.generate()
+
+      conn =
+        build_conn(:post, "/#{task.id}/reassign", tenant,
+          roles: ["PROCESS_OPERATOR", "role-ops-manager"],
+          body: %{"user_id" => new_user}
+        )
+        |> dispatch()
+
+      assert conn.status == 200
+    end
+
     test "refused reassigns (unassigned, unknown id, invalid body) write no audit row",
          %{tenant: tenant} do
       task = insert_task!(tenant, %{})
