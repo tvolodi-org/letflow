@@ -110,9 +110,9 @@ defmodule Letflow.LedgerFkMoveMigrationTest do
     end
   end
 
-  test "MG-3 registered last in the tenant manifest" do
+  test "MG-3 registered second to last in the tenant manifest (REQ-623 appends after it)" do
     assert {@version, MoveLedgerFksToPartitions} =
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
   end
 
   # -- ST-9: the keys still hold across ledger ids ---------------------------------------------------
