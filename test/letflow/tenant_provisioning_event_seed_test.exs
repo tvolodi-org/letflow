@@ -280,7 +280,8 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       # the total to 18. GH 2534 7c-1 adds SCRIPT_TASK_COMPLETED/SCRIPT_RUN_RECORDED,
       # raising it to 20. GH #2587 (REQ-499 PR A1) adds
       # INSTANCE_SYS_VARIABLES_SET/TASK_ENTITY_WRITES_APPLIED, raising it to 22.
-      assert count == 22
+      # REQ-683 adds ENTITY_RECORD_MIGRATED, raising it to 23.
+      assert count == 23
 
       # And the seeded types are still all usable after the re-seed no-op.
       attrs = append_attrs("TASK_COMPLETED", minimal_payload_for("TASK_COMPLETED"))
@@ -343,7 +344,8 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       # rows leaves 15 rows here (18 total - 3 deleted), not 10; GH 2534 7c-1 adds the two
       # SCRIPT_* types, so 17 (20 - 3); GH #2587 (REQ-499 PR A1) adds
       # INSTANCE_SYS_VARIABLES_SET/TASK_ENTITY_WRITES_APPLIED, so 19 (22 - 3).
-      assert count_before == 19
+      # REQ-683 adds ENTITY_RECORD_MIGRATED (not among the deleted rows): 20 (23 - 3).
+      assert count_before == 20
 
       # First replay_migrations/2 call after the simulated pre-existing state --
       # backfills the 3 missing rows.
@@ -377,6 +379,7 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
                  "ENTITY_RECORD_CREATED",
                  "ENTITY_RECORD_UPDATED",
                  "ENTITY_RECORD_DELETED",
+                 "ENTITY_RECORD_MIGRATED",
                  # REQ-391: seeded unconditionally alongside the other
                  # platform types, never deleted by this test's
                  # req140_types delete, so present both before and after
@@ -417,7 +420,7 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       assert event.event_type == "DEFINITION_PROMOTED"
 
       # Second replay_migrations/2 call: a no-op, still returns success, and
-      # does NOT duplicate any of the 22 rows (13 platform + 3 ISS-0721
+      # does NOT duplicate any of the 23 rows (13 platform + 4 ISS-0721/REQ-683
       # ENTITY_RECORD_* entity types + 2 REQ-391 ATTACHMENT_* types + 2 GH 2534 7c-1
       # SCRIPT_* types + 2 GH #2587 decision 0054 types).
       assert {:ok, _applied_versions} = TenantProvisioning.replay_migrations(tenant_id)
@@ -425,7 +428,32 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       count_after_second_call =
         Repo.aggregate(EventType, :count, prefix: schema_name)
 
-      assert count_after_second_call == 22
+      assert count_after_second_call == 23
+    end
+  end
+
+  # ---------------------------------------------------------------------------------
+  # REQ-683 B1: a tenant provisioned before ENTITY_RECORD_MIGRATED existed gets the registry row
+  # from the boot-time replay (no migration, no mix task).
+  # ---------------------------------------------------------------------------------
+
+  describe "REQ-683 B1: replay_all_pending/0 backfills ENTITY_RECORD_MIGRATED" do
+    test "a deleted MIGRATED row comes back at v1, with no replay failure, and a second replay adds none" do
+      %{tenant_id: tenant_id, schema_name: schema_name} = provisioned_tenant()
+      migrated = from(t in EventType, where: t.name == "ENTITY_RECORD_MIGRATED")
+
+      {1, _} = Repo.delete_all(migrated, prefix: schema_name)
+      assert Repo.all(migrated, prefix: schema_name) == []
+
+      assert %{error: []} = TenantProvisioning.replay_all_pending()
+
+      assert [%EventType{schema_version: 1}] = Repo.all(migrated, prefix: schema_name)
+      refute Enum.any?(TenantProvisioning.list_replay_failures(), &(&1.tenant_id == tenant_id))
+
+      count = Repo.aggregate(EventType, :count, prefix: schema_name)
+      assert %{error: []} = TenantProvisioning.replay_all_pending()
+      assert Repo.aggregate(EventType, :count, prefix: schema_name) == count
+      assert [_one] = Repo.all(migrated, prefix: schema_name)
     end
   end
 end

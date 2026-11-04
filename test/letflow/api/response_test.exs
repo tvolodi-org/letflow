@@ -443,6 +443,19 @@ defmodule Letflow.Api.ResponseTest do
       refute shaped |> inspect() |> String.contains?("s3")
     end
 
+    test "H2: ENTITY_RECORD_MIGRATED drops before and after" do
+      payload = %{
+        "entity_type" => "customer",
+        "record_id" => "r-1",
+        "before" => %{"secret" => "s3"},
+        "after" => %{"secret" => "s4"}
+      }
+
+      shaped = Response.public_event_payload("ENTITY_RECORD_MIGRATED", payload, MapSet.new())
+
+      assert shaped == %{"entity_type" => "customer", "record_id" => "r-1"}
+    end
+
     test "R1: other event types keep field_values unchanged" do
       shaped =
         Response.public_event_payload("ENTITY_RECORD_DELETED", @record_payload, MapSet.new())

@@ -236,6 +236,79 @@ defmodule Letflow.Entities.Record.ProjectorTest do
   # correctly reflecting deletion per the stated representation.
   # ---------------------------------------------------------------------------------
 
+  # ---------------------------------------------------------------------------------
+  # REQ-683 P1-P3 -- the ENTITY_RECORD_MIGRATED fold clause (pure: merged events in, snapshot out).
+  # ---------------------------------------------------------------------------------
+
+  describe "REQ-683 -- fold_record_events/3 and ENTITY_RECORD_MIGRATED" do
+    @rid "11111111-1111-1111-1111-111111111111"
+
+    defp fold_event(type, seq, payload) do
+      %{
+        event_type: type,
+        payload: payload,
+        sequence_number: seq,
+        global_seq: seq + 100,
+        event_id: Ecto.UUID.generate()
+      }
+    end
+
+    defp created_event do
+      fold_event("ENTITY_RECORD_CREATED", 1, %{
+        "entity_type" => "customer",
+        "entity_def_version" => "aa",
+        "record_id" => @rid,
+        "field_values" => %{"keep" => 1, "touch" => "old"}
+      })
+    end
+
+    defp migrated_event(seq) do
+      fold_event("ENTITY_RECORD_MIGRATED", seq, %{
+        "entity_type" => "customer",
+        "entity_def_version" => "bb",
+        "record_id" => @rid,
+        "before" => %{"touch" => "old", "new" => nil},
+        "after" => %{"touch" => "new", "new" => 2}
+      })
+    end
+
+    test "P1: merges after over field_values, takes the payload version and the event fields" do
+      migrated = migrated_event(2)
+
+      assert {:ok, snap} =
+               Projector.fold_record_events("customer", @rid, [created_event(), migrated])
+
+      assert snap.field_values == %{"keep" => 1, "touch" => "new", "new" => 2}
+      assert snap.entity_def_version == Base.decode16!("bb", case: :lower)
+      assert snap.deleted == false
+      assert snap.last_event_type == "ENTITY_RECORD_MIGRATED"
+      assert snap.last_event_sequence_number == 2
+      assert snap.last_event_global_seq == migrated.global_seq
+    end
+
+    test "P2: MIGRATED as the first event is a missing_created_event error" do
+      assert {:error, {:corrupt_event_stream, {:missing_created_event, @rid}}} =
+               Projector.fold_record_events("customer", @rid, [migrated_event(1)])
+    end
+
+    test "P3: MIGRATED after DELETED is an event_after_delete error" do
+      deleted =
+        fold_event("ENTITY_RECORD_DELETED", 2, %{
+          "entity_type" => "customer",
+          "entity_def_version" => "aa",
+          "record_id" => @rid
+        })
+
+      migrated = migrated_event(3)
+
+      assert {:error,
+              {:corrupt_event_stream, {:event_after_delete, @rid, "ENTITY_RECORD_MIGRATED", id}}} =
+               Projector.fold_record_events("customer", @rid, [created_event(), deleted, migrated])
+
+      assert id == migrated.event_id
+    end
+  end
+
   describe "AC2 -- replay_record/3 on a stream ending in DELETED reflects deletion correctly" do
     test "deleted: true, field_values retained at its last pre-delete value" do
       %{schema_name: schema} = provisioned_tenant()

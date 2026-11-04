@@ -346,6 +346,7 @@ defmodule Letflow.Routers.Instances do
 
   require Logger
 
+  alias Letflow.Api.Authorization
   alias Letflow.Api.Context
   alias Letflow.Api.Error
   alias Letflow.Api.Pagination
@@ -959,6 +960,28 @@ defmodule Letflow.Routers.Instances do
     end
   end
 
+  # GH #2932: a caller whose roles make it a task worker only (the same `is_task_worker_only?/1`
+  # rule `GET /tasks/inbox` uses) reads the variables and event payloads of an instance only when
+  # it takes part in it: it started it or holds a task of it (user, group or role assignee).
+  # Anyone else gets the ordinary 404, the same as a nonexistent id (INV-2/INV-5). Roles that watch
+  # live processes (operator, designer, admin, auditor) keep the tenant-wide read.
+  defp with_participation(conn, id, opts, fun) do
+    ctx = conn.assigns.auth_context
+    platform_tenant? = PlatformTenant.platform_tenant?(Map.get(ctx, :tenant_id))
+    roles = Authorization.effective_roles(Map.get(ctx, :roles, []), platform_tenant?)
+
+    if Authorization.is_task_worker_only?(roles) and
+         not Instances.participant?(
+           id,
+           Letflow.Tasks.resolve_principal_scope(ctx.user_id, opts),
+           opts
+         ) do
+      Response.not_found(conn)
+    else
+      fun.()
+    end
+  end
+
   # ── GET /instances/:id (design §"Router"/get_by_id) ────────────────────
 
   defp handle_get_by_id(conn, raw_id) do
@@ -966,8 +989,10 @@ defmodule Letflow.Routers.Instances do
 
     case cast_instance_id(raw_id) do
       {:ok, id} ->
-        with_hidden_labels(conn, fn hidden ->
-          render_get_by_id(conn, Instances.get_by_id(id, opts), hidden)
+        with_participation(conn, id, opts, fn ->
+          with_hidden_labels(conn, fn hidden ->
+            render_get_by_id(conn, Instances.get_by_id(id, opts), hidden)
+          end)
         end)
 
       {:error, :invalid_instance_id} ->
@@ -1072,16 +1097,18 @@ defmodule Letflow.Routers.Instances do
         page_size: page_size
       }
 
-      with_hidden_labels(conn, fn hidden ->
-        result = Instances.history(id, params, opts)
+      with_participation(conn, id, opts, fn ->
+        with_hidden_labels(conn, fn hidden ->
+          result = Instances.history(id, params, opts)
 
-        names =
-          case result do
-            {:ok, %{items: items}} -> Instances.actor_display_names(items, opts)
-            _error -> %{}
-          end
+          names =
+            case result do
+              {:ok, %{items: items}} -> Instances.actor_display_names(items, opts)
+              _error -> %{}
+            end
 
-        render_page_result(result, conn, &history_item_map(&1, names, hidden))
+          render_page_result(result, conn, &history_item_map(&1, names, hidden))
+        end)
       end)
     else
       {:error, :invalid_instance_id} ->
