@@ -43,6 +43,10 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
 
   @secret "SYS-SECRET-VALUE-4417"
 
+  # A marker that cannot occur by chance in the random UUIDs/hashes of a run record (4 digits
+  # "4417" did: GH #3829; a UUID containing them failed the refute). A 9-digit run is practically impossible.
+  @leak_marker "918273645"
+
   # ── fixtures ────────────────────────────────────────────────────────────────────────────────
 
   defp tenant(prefix), do: TenantFixture.provisioned_tenant!(slug_prefix: prefix)
@@ -613,7 +617,7 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
       b =
         F.bound!(
           t,
-          "return { total = ctx.input.amount, [\"_sys.x\"] = 4417 }",
+          "return { total = ctx.input.amount, [\"_sys.x\"] = 918273645 }",
           sys_manifest(),
           %{"amount" => 2}
         )
@@ -629,8 +633,8 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
       assert record["outcome"] == "output_invalid"
       assert record["detail"] == "reserved_variable_key"
       # TDV F2: the value is nowhere in the run record nor on the dispatch row
-      refute inspect(record, limit: :infinity) =~ "4417"
-      refute inspect(done, limit: :infinity) =~ "4417"
+      refute inspect(record, limit: :infinity) =~ @leak_marker
+      refute inspect(done, limit: :infinity) =~ @leak_marker
       assert F.payloads(t.schema_name, b.instance_id, "SCRIPT_TASK_COMPLETED") == []
     end
 
