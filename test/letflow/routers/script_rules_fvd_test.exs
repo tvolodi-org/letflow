@@ -81,7 +81,7 @@ defmodule Letflow.Routers.ScriptRulesFvdTest do
   defp publish!(fx, key, source, manifest \\ @manifest),
     do: F.published!(fx.schema_name, key, source, manifest, hook_kind: "form_validation")
 
-  defp call(path, fx, body, opts \\ []) do
+  defp call(path, fx, body, opts) do
     roles = Keyword.get(opts, :roles, @admin)
     credential = Keyword.get(opts, :credential, :oidc)
 
