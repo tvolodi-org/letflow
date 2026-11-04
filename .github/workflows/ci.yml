@@ -284,9 +284,14 @@ jobs:
             exit 0
           fi
 
+          # T-1303: a pull request diffs against the merge base (three dots): its base.sha is the
+          # moving tip of the base branch, and a two-dot diff would list what main gained since the
+          # branch was last updated as the PR's own changes. A merge-group head contains its base.
+          DOTS=".."
           if [ "$EVENT_NAME" = "pull_request" ]; then
             BASE_SHA="$PR_BASE_SHA"
             HEAD_SHA="$PR_HEAD_SHA"
+            DOTS="..."
           elif [ "$EVENT_NAME" = "merge_group" ]; then
             # Merge queue (A3): the same path regex as for a PR decides which gates run,
             # over this queue entry's own range. With stacked entries base_sha is the
@@ -323,11 +328,11 @@ jobs:
             exit 0
           fi
 
-          if ! CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA"); then
-            echo "::error::git diff $BASE_SHA..$HEAD_SHA failed -- the fail-safe step will run every gate."
+          if ! CHANGED=$(git diff --name-only "${BASE_SHA}${DOTS}${HEAD_SHA}"); then
+            echo "::error::git diff ${BASE_SHA}${DOTS}${HEAD_SHA} failed -- the fail-safe step will run every gate."
             exit 1
           fi
-          echo "Changed files ($BASE_SHA..$HEAD_SHA):"
+          echo "Changed files (${BASE_SHA}${DOTS}${HEAD_SHA}): $(grep -c . <<<"$CHANGED") file(s)"
           echo "$CHANGED"
 
           # GH #2622: the path rules are in scripts/ci_changed_paths.sh, the one source; its
@@ -386,13 +391,14 @@ jobs:
           heavy=true
           reason="full suite (event $EVENT_NAME)"
           BASE_SHA=""; HEAD_SHA=""
-          if [ "$EVENT_NAME" = "pull_request" ]; then BASE_SHA="$PR_BASE_SHA"; HEAD_SHA="$PR_HEAD_SHA"; fi
+          DOTS=".."
+          if [ "$EVENT_NAME" = "pull_request" ]; then BASE_SHA="$PR_BASE_SHA"; HEAD_SHA="$PR_HEAD_SHA"; DOTS="..."; fi
           if [ "$EVENT_NAME" = "merge_group" ]; then BASE_SHA="$MG_BASE_SHA"; HEAD_SHA="$MG_HEAD_SHA"; fi
           if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
             if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
               git fetch --no-tags --depth=50 origin "$BASE_SHA" || true
             fi
-            if CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA") && RESULT=$(bash scripts/ci_heavy_paths.sh <<<"$CHANGED") && [[ $RESULT =~ ^heavy=(true|false)$ ]]; then
+            if CHANGED=$(git diff --name-only "${BASE_SHA}${DOTS}${HEAD_SHA}") && RESULT=$(bash scripts/ci_heavy_paths.sh <<<"$CHANGED") && [[ $RESULT =~ ^heavy=(true|false)$ ]]; then
               heavy="${BASH_REMATCH[1]}"
               reason="path rule (scripts/ci_heavy_paths.sh)"
             else
@@ -423,13 +429,14 @@ jobs:
           docs_only=false
           reason="full shards (event $EVENT_NAME)"
           BASE_SHA=""; HEAD_SHA=""
-          if [ "$EVENT_NAME" = "pull_request" ]; then BASE_SHA="$PR_BASE_SHA"; HEAD_SHA="$PR_HEAD_SHA"; fi
+          DOTS=".."
+          if [ "$EVENT_NAME" = "pull_request" ]; then BASE_SHA="$PR_BASE_SHA"; HEAD_SHA="$PR_HEAD_SHA"; DOTS="..."; fi
           if [ "$EVENT_NAME" = "merge_group" ]; then BASE_SHA="$MG_BASE_SHA"; HEAD_SHA="$MG_HEAD_SHA"; fi
           if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
             if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
               git fetch --no-tags --depth=50 origin "$BASE_SHA" || true
             fi
-            if CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA") && RESULT=$(bash scripts/ci_docs_only.sh <<<"$CHANGED") && [[ $RESULT =~ ^docs_only=(true|false)$ ]]; then
+            if CHANGED=$(git diff --name-only "${BASE_SHA}${DOTS}${HEAD_SHA}") && RESULT=$(bash scripts/ci_docs_only.sh <<<"$CHANGED") && [[ $RESULT =~ ^docs_only=(true|false)$ ]]; then
               docs_only="${BASH_REMATCH[1]}"
               reason="path rule (scripts/ci_docs_only.sh)"
             else
@@ -500,16 +507,18 @@ jobs:
             { echo "plan<<PLAN_EOF"; printf '%s' "$4"; echo "PLAN_EOF"; } >> "$GITHUB_OUTPUT"
             echo "### Backend tests: $1" >> "$GITHUB_STEP_SUMMARY"
             echo "$2" >> "$GITHUB_STEP_SUMMARY"
-            echo "backend tests mode=$1 reason=$2"
+            echo "Changed files: ${nfiles:-unknown}" >> "$GITHUB_STEP_SUMMARY"
+            echo "backend tests mode=$1 reason=$2 changed_files=${nfiles:-unknown}"
           }
           full() { emit full "$1" "" ""; exit 0; }
           if [ "$DOCS_ONLY" = "true" ]; then
             emit docs-only "docs-only change: shard 1 runs the docs-related tests (scripts/ci_docs_only.sh)" "" ""
             exit 0
           fi
-          BASE=""; HEAD=""
+          BASE=""; HEAD=""; DOTS=".."
+          nfiles=""
           case "$EVENT_NAME" in
-            pull_request) BASE="$PR_BASE_SHA"; HEAD="$PR_HEAD_SHA" ;;
+            pull_request) BASE="$PR_BASE_SHA"; HEAD="$PR_HEAD_SHA"; DOTS="..." ;;
             merge_group) BASE="$MG_BASE_SHA"; HEAD="$MG_HEAD_SHA" ;;
             push) BASE="$PUSH_BEFORE"; HEAD="$PUSH_AFTER" ;;
           esac
@@ -520,7 +529,8 @@ jobs:
           if [ -z "$BASE" ] || [ -z "$HEAD" ] || [ "$BASE" = "$ZERO" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             full "event $EVENT_NAME: no usable base commit"
           fi
-          if ! CHANGED=$(git diff --name-only --no-renames "$BASE" "$HEAD"); then full "git diff failed"; fi
+          if ! CHANGED=$(git diff --name-only --no-renames "${BASE}${DOTS}${HEAD}"); then full "git diff failed"; fi
+          nfiles=$(grep -c . <<<"$CHANGED" || true)
           since=""
           if git rev-parse -q --verify refs/tags/ci-full-green >/dev/null && git merge-base --is-ancestor refs/tags/ci-full-green HEAD 2>/dev/null; then
             since=$(git rev-list --count refs/tags/ci-full-green..HEAD) || since=""
