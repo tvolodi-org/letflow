@@ -405,11 +405,17 @@ defmodule Letflow.LoginDirectory do
   `current_key_id/0` if absent (`ON CONFLICT DO NOTHING`). Must run inside a transaction. Returns
   `{:ok, :inserted | :exists}`, `{:error, :invalid_email}` (nothing written, the
   sentinel is never written), `{:error, :pepper_unavailable}`,
-  `{:error, :not_in_transaction}` or `{:error, :write_failed}`.
+  `{:error, :not_in_transaction}`, `{:error, :directory_unavailable}` (undefined column or
+  table: schema drift, fixed reason, no exception text) or `{:error, :write_failed}`.
   """
   @spec upsert_entry(tenant_id :: Ecto.UUID.t(), email :: String.t()) ::
           {:ok, :inserted | :exists}
-          | {:error, :invalid_email | :pepper_unavailable | :not_in_transaction | :write_failed}
+          | {:error,
+             :invalid_email
+             | :pepper_unavailable
+             | :not_in_transaction
+             | :directory_unavailable
+             | :write_failed}
   def upsert_entry(tenant_id, email) do
     with :ok <- ensure_in_transaction(),
          {:ok, key} <- key_or_error(email),
@@ -432,8 +438,8 @@ defmodule Letflow.LoginDirectory do
       end
     end
   rescue
-    # Fixed reason only: the exception text must never reach a caller or a log.
-    _exception -> {:error, :write_failed}
+    # Fixed reasons only: the exception text must never reach a caller or a log.
+    exception -> {:error, classify_write_failure(exception)}
   end
 
   @doc """
@@ -452,7 +458,12 @@ defmodule Letflow.LoginDirectory do
           prefix :: String.t()
         ) ::
           {:ok, :removed | :kept | :absent}
-          | {:error, :invalid_email | :pepper_unavailable | :not_in_transaction | :write_failed}
+          | {:error,
+             :invalid_email
+             | :pepper_unavailable
+             | :not_in_transaction
+             | :directory_unavailable
+             | :write_failed}
   def remove_entry_if_unreferenced(tenant_id, email, prefix) when is_binary(prefix) do
     with :ok <- ensure_in_transaction(),
          {:ok, key} <- key_or_error(email),
@@ -484,8 +495,17 @@ defmodule Letflow.LoginDirectory do
       end
     end
   rescue
-    _exception -> {:error, :write_failed}
+    exception -> {:error, classify_write_failure(exception)}
   end
+
+  # GH #2498: schema drift (a missing column or table in the public directory table) is an
+  # infrastructure fault, not a write race; classify by exception class and Postgres error
+  # code only, never by message, and return a fixed atom.
+  defp classify_write_failure(%Postgrex.Error{postgres: %{code: code}})
+       when code in [:undefined_column, :undefined_table],
+       do: :directory_unavailable
+
+  defp classify_write_failure(_exception), do: :write_failed
 
   defp key_or_error(email) do
     case email_key(email) do
