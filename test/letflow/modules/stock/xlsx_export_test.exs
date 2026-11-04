@@ -90,7 +90,8 @@ defmodule Letflow.Modules.Stock.XlsxExportTest do
         assert (path <> "?format=json") |> S.get(ctx.tok_a) |> ok!() |> Map.delete("trace_id") ==
                  plain
 
-        refute Map.has_key?(plain, "coverage")
+        # coverage is null without a subtree filter (main), and the file omits that row
+        assert Map.get(plain, "coverage") == nil
 
         for bad <- ["csv", "", "XLSX", "xlsx%20", "[]=xlsx"] do
           {conn, statements} =

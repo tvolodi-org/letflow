@@ -70,4 +70,10 @@ defmodule Letflow.Modules.Stock.ViewsTest do
              ledger_sum: "1"
            }
   end
+
+  test "T-VW-2: a masked leg keeps only leg_no, quantity, unit_ref and masked" do
+    leg = %{leg_no: 2, quantity: "3", unit_ref: "pcs", masked: true}
+
+    assert Views.stock_movement_leg(leg) == leg
+  end
 end

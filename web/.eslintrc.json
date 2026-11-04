@@ -73,7 +73,8 @@
               "**/org/**",
               "**/locations/**",
               "**/codes/**",
-              "**/catalog_items/**"
+              "**/catalog_items/**",
+              "**/stock/**"
             ]
           }
         ]
@@ -99,7 +100,8 @@
               "**/exam/**",
               "**/locations/**",
               "**/codes/**",
-              "**/catalog_items/**"
+              "**/catalog_items/**",
+              "**/stock/**"
             ]
           }
         ]
@@ -125,7 +127,8 @@
               "**/exam/**",
               "**/org/**",
               "**/codes/**",
-              "**/catalog_items/**"
+              "**/catalog_items/**",
+              "**/stock/**"
             ]
           }
         ]
@@ -151,7 +154,8 @@
               "**/exam/**",
               "**/org/**",
               "**/locations/**",
-              "**/catalog_items/**"
+              "**/catalog_items/**",
+              "**/stock/**"
             ]
           }
         ]
@@ -177,7 +181,35 @@
               "**/exam/**",
               "**/org/**",
               "**/locations/**",
-              "**/codes/**"
+              "**/codes/**",
+              "**/stock/**"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/modules/stock/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@/modules/*/**",
+              "!@/modules/stock/**",
+              "!@/modules/registry",
+              "!@/modules/types",
+              "**/modules/*/**",
+              "!**/modules/stock/**",
+              "!**/modules/registry",
+              "!**/modules/types",
+              "**/exam/**",
+              "**/org/**",
+              "**/locations/**",
+              "**/codes/**",
+              "**/catalog_items/**"
             ]
           }
         ]
