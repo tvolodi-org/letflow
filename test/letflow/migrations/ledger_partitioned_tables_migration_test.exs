@@ -117,13 +117,10 @@ defmodule Letflow.LedgerPartitionedTablesMigrationTest do
       {"ledger_entry", "ledger_entry_origin_key_key"} => "UNIQUE (ledger_id, origin_key)",
       {"ledger_entry", "ledger_entry_leg_target_key"} =>
         "UNIQUE (id, ledger_id, posting_seq, event_time)",
-      {"ledger_entry", "ledger_entry_reverses_entry_id_fkey"} =>
-        "FOREIGN KEY (reverses_entry_id, ledger_id) REFERENCES ledger_entry(id, ledger_id)",
+      # REQ-711: the reversal key and the leg-to-entry key are declared on the partitions, not on the
+      # parents (ledger_fk_move_migration_test.exs MG-1).
       {"ledger_leg", "ledger_leg_pkey"} => "PRIMARY KEY (id, ledger_id)",
       {"ledger_leg", "ledger_leg_entry_leg_no_key"} => "UNIQUE (ledger_id, entry_id, leg_no)",
-      {"ledger_leg", "ledger_leg_entry_fk"} =>
-        "FOREIGN KEY (entry_id, ledger_id, posting_seq, event_time) REFERENCES " <>
-          "ledger_entry(id, ledger_id, posting_seq, event_time)",
       {"ledger_balance", "ledger_balance_pkey"} =>
         "PRIMARY KEY (ledger_id, k1, k2, k3, k4, k5, k6, k7, k8)",
       {"ledger_counter", "ledger_counter_pkey"} => "PRIMARY KEY (ledger_id)"
@@ -234,8 +231,9 @@ defmodule Letflow.LedgerPartitionedTablesMigrationTest do
 
   test "PM-4 registered last; a replay on an empty tenant restores the partitioned shape",
        %{schema: schema, tenant_id: tenant_id} do
+    # REQ-711 registers MoveLedgerFksToPartitions after it
     assert {@version, CreateLedgerPartitionedTables} =
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
 
     q!(~s|DELETE FROM "#{schema}".schema_migrations WHERE version = $1|, [@version])
     assert {:ok, _} = TenantProvisioning.replay_migrations(tenant_id)
@@ -404,7 +402,7 @@ defmodule Letflow.LedgerPartitionedTablesMigrationTest do
     assert length(trigger_rows(fresh, true)) == 17
   end
 
-  test "DOC-1 decision 0073 records the picked shape and the marked assumptions; no caller of ensure/2 outside tests and the storage module" do
+  test "DOC-1 decision 0073 records the picked shape and the marked assumptions; no caller of ensure/2 outside tests, the storage module and the module installer (REQ-711)" do
     text = File.read!("docs/migration/decisions/0073-domain-neutral-ledger-primitive.md")
     assert text =~ "### Speed test result (REQ-710)"
     assert text =~ "assumption, owner may change at GATE B"
@@ -412,7 +410,7 @@ defmodule Letflow.LedgerPartitionedTablesMigrationTest do
 
     callers =
       for file <- Path.wildcard("lib/**/*.ex"),
-          file not in ["lib/letflow/ledger/storage.ex"],
+          file not in ["lib/letflow/ledger/storage.ex", "lib/letflow/modules/installs.ex"],
           File.read!(file) =~ ~r/Storage\.ensure\(/,
           do: file
 

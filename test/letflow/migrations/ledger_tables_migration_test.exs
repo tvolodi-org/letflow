@@ -352,13 +352,21 @@ defmodule Letflow.LedgerTablesMigrationTest do
         [schema]
       )
 
-    assert [[entry_tbl, entry_def], [leg_tbl, leg_def]] = rows
-    assert entry_tbl =~ "ledger_entry"
-    assert entry_def =~ "FOREIGN KEY (reverses_entry_id, ledger_id) REFERENCES"
-    assert entry_def =~ "ledger_entry(id, ledger_id)"
-    assert leg_tbl =~ "ledger_leg"
-    assert leg_def =~ "FOREIGN KEY (entry_id, ledger_id, posting_seq, event_time) REFERENCES"
-    assert leg_def =~ "ledger_entry(id, ledger_id, posting_seq, event_time)"
+    # REQ-711: the keys are declared on the partitions (one pair per ledger id), none on the parents
+    assert length(rows) == 6
+    {entries, legs} = Enum.split_with(rows, fn [tbl, _] -> tbl =~ "ledger_entry_p" end)
+    assert length(entries) == 3 and length(legs) == 3
+
+    for [_tbl, entry_def] <- entries do
+      assert entry_def =~ "FOREIGN KEY (reverses_entry_id, ledger_id) REFERENCES"
+      assert entry_def =~ ~r/ledger_entry_p[0-9a-f]{16}\(id, ledger_id\)/
+    end
+
+    for [tbl, leg_def] <- legs do
+      assert tbl =~ "ledger_leg_p"
+      assert leg_def =~ "FOREIGN KEY (entry_id, ledger_id, posting_seq, event_time) REFERENCES"
+      assert leg_def =~ ~r/ledger_entry_p[0-9a-f]{16}\(id, ledger_id, posting_seq, event_time\)/
+    end
 
     names = index_names(schema)
 

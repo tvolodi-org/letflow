@@ -344,7 +344,10 @@ config :letflow, :modules, [
   Letflow.Modules.FixturePoints,
   # REQ-684 / GH #3698: two ledger registrations, a posting handler and a policy
   # (test/support/modules/fixture_ledger_post/).
-  Letflow.Modules.FixtureLedgerPost
+  Letflow.Modules.FixtureLedgerPost,
+  # REQ-711 / GH #3751: ledger storage at install and reactivate
+  # (test/support/modules/fixture_ledger_storage/).
+  Letflow.Modules.FixtureLedgerStorage
 ]
 
 # REQ-518 (SEC ruling R-3): the ONLY place this key may be set. Catalog rule 11 and
