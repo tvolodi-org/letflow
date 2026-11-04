@@ -30,7 +30,7 @@ import { useNames } from './stockNames'
 
 const digits = (v: string) => v.replace(/\D/g, '')
 
-function MovementsInner() {
+function MovementsInner({ initialOpenId = null }: { initialOpenId?: string | null }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { session } = useAuth()
@@ -42,7 +42,7 @@ function MovementsInner() {
     from_seq: '',
     to_seq: '',
   })
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(initialOpenId)
   const patch = (p: Partial<MovementFilters>) => setFilters((f) => ({ ...f, ...p }))
   const badRange = rangeError(filters.from_seq, filters.to_seq)
 
@@ -194,10 +194,11 @@ function MovementsInner() {
   )
 }
 
-export default function MovementsPage() {
+/** `initialOpenId`: opens the legs panel of one entry at first render (the screen harness uses it). */
+export default function MovementsPage({ initialOpenId }: { initialOpenId?: string } = {}) {
   return (
     <StockIntlProvider>
-      <MovementsInner />
+      <MovementsInner initialOpenId={initialOpenId ?? null} />
     </StockIntlProvider>
   )
 }
