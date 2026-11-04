@@ -11,7 +11,7 @@ defmodule Letflow.Modules.ManifestHash do
   ## Hashed surface
 
   `id`, `version`, the sorted `manages_entity_types`, the `scope_declarations` map (REQ-518;
-  only when the key is present, so existing hashes are unchanged), the whole `ledger` registration
+  only when the key is present, so existing hashes are unchanged), the sorted `reference_targets` list (REQ-636, only when present), the whole `ledger` registration
   map (REQ-684, again only when present: ledger ids, slots, causes, key bounds, permission atoms,
   scope slot, lateness, aliases, units, policy module and function), and per write handler
   (sorted by `name`) `name`, `inspect(module)`, the function name, the sorted
@@ -68,8 +68,15 @@ defmodule Letflow.Modules.ManifestHash do
       end
 
     # REQ-684 (decision 0073): the whole `:ledger` registration map, again only when present.
-    case Map.fetch(manifest, :ledger) do
-      {:ok, ledger} -> Map.put(base, "ledger", ledger)
+    base =
+      case Map.fetch(manifest, :ledger) do
+        {:ok, ledger} -> Map.put(base, "ledger", ledger)
+        :error -> base
+      end
+
+    # REQ-636 (decision 0070 slice C): the reference targets, sorted, again only when present.
+    case Map.fetch(manifest, :reference_targets) do
+      {:ok, targets} -> Map.put(base, "reference_targets", sorted_list(targets))
       :error -> base
     end
   end

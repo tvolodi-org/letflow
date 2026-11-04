@@ -33,6 +33,15 @@ defmodule Letflow.Entities.Definition do
   the activation. Ledgers that must be tamper-proof use `managed_by`
   (decision 0050 D7).
 
+  ## `reference` (REQ-636, decision 0070 slice C)
+
+  Optional on a `:string` field: `%{"module_id" => m, "entity_type" => t}`. A write with a
+  non-empty value is stored only when it names a live, active record of type `t` of installed
+  module `m`, which opted `t` in with the manifest key `:reference_targets`
+  (`Letflow.Entities.ReferenceCheck`). The Validator checks the shape only; whether the module
+  exists is decided at write time. Part of the logical shape, so adopting it is a new version to
+  activate. Existing stored values are never rechecked.
+
   ## `writable_by_process` (GH #2587, decision 0054 D4a.2)
 
   Optional top-level boolean, never defaulted or inserted by any layer.
@@ -105,6 +114,7 @@ defmodule Letflow.Entities.Definition do
           optional(:decimal_precision) => pos_integer(),
           optional(:decimal_scale) => non_neg_integer(),
           optional(:decimal_strict) => boolean(),
+          optional(:reference) => %{String.t() => String.t()},
           optional(:default) => term(),
           optional(:locales) => [String.t(), ...],
           optional(:search_strategy) => :plain | :fulltext,
