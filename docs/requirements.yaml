@@ -49544,3 +49544,373 @@ requirements:
       - "2. Whether a scoped reader keeps seeing the movements of a unit after it is retired or moved away (0073 S10; criterion 9 builds the current rule: hidden). Default, owner may change at GATE B."
       - "3. Whether the GATE A check changes phase A (D-073); if it does, this entry is amended."
     depends_on: [REQ-637, REQ-682, REQ-684, REQ-620, REQ-621, REQ-642]
+
+  - id: REQ-716
+    title: "Assets B5 counts K4: keyboard-scanner input on the count sheet: a scanned code resolved through the open assignment, the scope check on the target, one outcome per resolve result, one unit added per scan, and a repeated scan id never counted twice (decision 0079 sections 5 and 6, split plan row C4)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-701 -- the scan adds units to the count sheet lines and the entry log that REQ-701 builds
+    # Source: docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680; sections 4, 5 with its outcome table, 6, 12 and the split plan row C4), docs/migration/decisions/0076-master-data-layer.md (R7 visibility table and additional ruling 2: a code-scan route checks the scope of the target and answers an out-of-scope target with the same 404 as an unknown code), entries REQ-700, REQ-701 and REQ-702 on origin/main 1f8b997e8. Code read on origin/main: Letflow.Modules.Codes.resolve/2 and its moduledoc (lib/letflow/modules/codes/codes.ex: results :not_found, :code_retired, :assignment_conflict, not_assigned with nil target; R6 resolve through the open assignment only), the closed target list @targets location_node, catalog_item, catalog_lot of Letflow.Modules.Codes.Writes.assign_code/5 (lib/letflow/modules/codes/writes.ex), the scope declarations of locations (location_node :tenant_wide) and catalog_items (catalog_item and catalog_lot :tenant_wide), Letflow.Modules.Locations.descendant_ids/2 (a delegate to Letflow.Modules.Locations.Tree, lib/letflow/modules/locations/tree.ex) and linked?/3, CatalogItems.item_lot_valid?/3, the test helper assign!/5 of test/letflow/modules/codes/codes_fixture.exs and its use with target type no_such_type in test/letflow/modules/codes/read_api_test.exs (AT-01). Written by the business analyst (T-1240) 2026-11-04.
+    description: >
+      Phase B item B5 of the assets and stock application (the stock register; owner decisions D-061, D-062, D-065,
+      D-067, D-085 "build it fast"), split plan row C4 of decision 0079 ("keyboard-scanner input":
+      Codes.resolve/2 path, outcome table of section 5, no double counting, scope-checked 404). Phase B has "counts
+      with typed or keyboard-scanner input on the web" (ai-dala-portfolio/architectures/assets.md, phase table, quoted
+      in REQ-680). Backend only, module stock (lib/letflow/modules/stock/counts.ex and the stock router of REQ-700);
+      the scanner field on the screen is REQ-720.
+
+      HOW A KEYBOARD SCANNER WORKS HERE (0079 section 5). The scanner types the code text followed by Enter into the
+      focused input of the screen; the screen sends that text unchanged. The server resolves it with
+      Letflow.Modules.Codes.resolve/2 (exact, case-sensitive, through the open assignment only, REQ-648) and then
+      checks the target against the count. A code can be assigned to a location_node, a catalog_item or a catalog_lot
+      (the closed target list of Codes.Writes.assign_code/5). So a scan names either a place (a location) or a thing
+      (an item, or a lot of an item); the counted line is found from the place the commission is at and the thing.
+
+      WHAT IS BUILT. scan/4 (count id, input, caller, opts) and one route. Input: scanned_text (the code text),
+      location_id (the place being counted, picked on the screen or set by an earlier location scan) and scan_id (a
+      uuid the screen makes once per scan and sends again on a retry). The count_entry type of REQ-701 gains the
+      method value scan and the fields scan_id, code_id, scanned_text and location_id (all optional for typed
+      entries), so every scan that changes a line is in the append-only entry log with its user and server time
+      (0079 section 6).
+
+      DECIDED HERE as the simplest reasonable defaults (0079 leaves them open; each is "UAT assumption, to be
+      confirmed by the process owner", marked "assumption, owner may change at GATE B" as owner decisions D-086 and
+      D-087 ask): (a) a location scan records nothing and answers the location, so the screen can set the current
+      place; (b) an item code adds one unit to the stock line of that place and item with no lot, a lot code to the
+      line of that place and lot; (c) a scan whose place and thing match no line is refused scan_no_line (the
+      commission adds a surplus line, REQ-701), and one that matches more than one line (the same item and lot with
+      different responsible persons) is refused scan_ambiguous (the commission types the quantity on the line);
+      (d) one scan adds exactly 1 in the line's own unit; (e) a retry with the same scan_id is answered as the first
+      time and adds nothing, which is the WM-13 "no double counting" rule for a keyboard scanner on an unsteady
+      network; (f) a refused scan records nothing and writes no audit entry (0079 section 5 table: "nothing
+      recorded").
+
+      SCOPE OF THE TARGET (decision 0076 R7 ruling 2, D-067). The caller's scope on the count is the count's org unit,
+      checked as in REQ-700 (Letflow.Api.Scope.allowed?/3; a count outside the grant answers as an unknown id). The
+      target types are all :tenant_wide (visibility table of 0076 R7), so the count scope of the target is the
+      count's own scope: a location target is in scope only when it is a root of the count or a descendant of one
+      (Letflow.Modules.Locations.descendant_ids/2) and linked to the count's org unit (Locations.linked?/3); an
+      out-of-scope location target answers exactly as an unknown code, the same 404 body as an unknown count id, with
+      no hint that the location exists. An item or lot target is visible tenant-wide, so a scan of it is checked
+      against the lines of the count only (scan_no_line, no 404).
+
+      NOT IN THIS ENTRY. Inventory Object lines and "a second scan of the same Inventory Object is not counted twice"
+      (0079 sections 5 line shape 2 and 6): no Inventory Object type exists yet (REQ-700 and REQ-701 say the same); the
+      outcome code_not_countable below is the answer such a target gets until it exists. The camera scan and offline
+      counting on the phone (phase D). The freeze of postings (0079 row C7). The web field (REQ-720).
+
+      Pins (moves from origin/main at implement time; numbers are examples): one new tenant route without scope:
+      test/fixtures/route_scope/tenant_wide_default_routes.txt gains 1 line and the three length(snapshot) == N pins
+      named in REQ-700 move by +1; no new permission atom (the route uses StockCountRecord of REQ-700), so
+      priv/permission_matrix/effective.golden does not change; the count_entry definition in the stock pack changes
+      (ManifestHash moves) and the stock module version moves by one minor step. No migration, no tenant table. Tests
+      run on fresh tenants only: each test provisions its own tenant, installs org, locations, catalog_items, codes
+      and stock, and makes its codes with the codes module's own write functions (receive_codes/3 and assign_code/5);
+      no test reads QA or seeded data.
+
+      Speed (assumption, owner may change at GATE B, owner decisions D-086 and D-087): the volumes of the speed test of
+      decision 0073 A9 apply; this entry adds no number of its own and no speed test.
+    acceptance_criteria:
+      - "1. Registration (test file test/letflow/modules/stock/counts_registration_test.exs of REQ-700): the count_entry definition accepts method typed and scan and has the optional fields scan_id, code_id, scanned_text and location_id; a typed entry of REQ-701 is still accepted unchanged; a write to count_entry through the generic entity routes still answers 403 entity_type_managed."
+      - "2. Outcome per resolve result (0079 section 5 table; test file test/letflow/modules/stock/count_scan_test.exs, fresh tenant, codes made with Letflow.Modules.Codes.receive_codes/3 and assign_code/5): Letflow.Modules.Stock.Counts.scan/4 on a counting count by a commission member answers, with nothing recorded and no audit entry in each refused case: {:error, :not_found} from resolve/2 as code_unknown; :code_retired as code_retired; :assignment_conflict as code_assignment_conflict; a code with status not_assigned (nil target) as code_not_assigned; a code whose open assignment has a target type other than location_node, catalog_item and catalog_lot as code_not_countable (the test makes that assignment with assign!/5 of test/letflow/modules/codes/codes_fixture.exs, as read_api_test.exs AT-01 does with no_such_type); a location_node target that is not a root or a descendant of a root of the count, or not linked to the count's org unit, as code_unknown with the same result as an unknown code. A test covers each case and asserts that the entry count and every line's counted_quantity are unchanged."
+      - "3. Location scan (same test file): a location_node target inside the count scope answers {:ok, %{kind: location, location_id: id}}, records no entry, changes no line and writes no audit entry."
+      - "4. Item and lot scan (same test file): for a catalog_item target, the line is the stock or surplus line of the count with location_id equal to the input location_id, catalog_item_id equal to the target and an empty catalog_lot_id; for a catalog_lot target, the line with that location_id and catalog_lot_id equal to the target. Exactly one such line: its counted_quantity becomes 1 when it was empty, else its value plus 1, and one count_entry is appended with method scan, quantity_before, quantity_after, scan_id, code_id, scanned_text, location_id, entered_by, entered_by_employee_id and entered_at from the server clock; the answer carries the line (line_no and counted_quantity as a decimal string). No line: scan_no_line. More than one line: scan_ambiguous. Refused also, nothing recorded: an input location_id that is not a root or a descendant of a root of the count or not linked to its org unit as location_not_in_count (the atom of REQ-701); the caller and status rules of REQ-701 criterion 4 (not_commission_member, count_state_invalid); a missing or malformed scanned_text, location_id or scan_id, or an unknown key, as field_invalid or field_not_allowed. Three scans of one item code on one line with an empty count leave counted_quantity 3 and three entries; a typed 10 after them leaves 10 and a fourth entry with method typed (0079 section 6: a typed number replaces)."
+      - "5. No double counting (WM-13, 0079 section 6; same test file): a second call of scan/4 on the same count with the same scan_id, scanned_text and location_id answers the same line and quantity as the first, with the field duplicate true, and appends no entry and changes no line; the same scan_id with a different scanned_text or location_id is refused scan_id_conflict with nothing recorded. The check and the line update run in one transaction that re-reads the count under the row lock of REQ-701 criterion 2, so two concurrent scans with the same scan_id on a committed fresh tenant (two processes, not the shared sandbox) add exactly one unit and one entry, and two concurrent scans with different scan_ids add two units and two entries."
+      - "6. Audit (decision 0078 D8; same test file): each accepted scan that changes a line writes one audit entry through Letflow.Audit with the action stock.count.line_scanned, the count's record id, line_no and status only, no quantity and no scanned text; a location scan, a duplicate and a refused scan write none."
+      - "7. Route (stock router; test file test/letflow/modules/stock/count_scan_router_test.exs through Letflow.Router with real bearer tokens): POST /api/v1/modules/stock/counts/:id/scan (StockCountRecord; body exactly scanned_text, location_id and scan_id) answers 200 with the outcome of criteria 3 to 5; the route is in route_policies; refusals render as in REQ-700 criterion 7 (422 with extensions.reason the atom name); code_unknown renders as 404 with the same body as an unknown count id (decoded JSON compared with trace_id dropped first, as the strip/1 helper of test/letflow/modules/codes/router_test.exs does), for an unknown code and for an out-of-scope location target alike (decision 0076 R7 ruling 2). A quantity in a response is a JSON string, never a number."
+      - "8. Tenancy and scope (INV-1, INV-2, INV-5, INV-10; same router test file): the tenant comes only from the token. A count of tenant B scanned with a token of tenant A answers 404 with the unknown-id body and B's count is unchanged; a code that exists only in tenant B, scanned on a count of tenant A, answers 404 code_unknown; a TENANT_ADMIN whose grant covers org unit X but not Y (Letflow.Support.ScopedGrantsFixture) gets 404 with the unknown-id body on a count of Y; a tenant user without StockCountRecord gets 403."
+      - "9. Gate and scope: a tenant-data-path change (a new write route on scoped count records, a cross-module read of codes and locations) that passes a SECURITY-REVIEWER gate as a stated step, verdict and evidence quoted in the PR. The diff adds no migration, no tenant table, no edit of lib/letflow/modules/codes/, lib/letflow/ledger.ex or lib/letflow/ledger/, no ledger posting, no seed and no installation of the stock module on any tenant. The pins of the description move by the counts stated there; mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_requirements_registration and the new test files pass (real output quoted in the PR)."
+    open_questions:
+      - "The defaults of the description (a location scan sets the place, an item code needs a line with no lot, scan_no_line and scan_ambiguous, one unit per scan in the line's unit, the scan_id retry rule, refused scans not logged): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+      - "Inventory Object lines and their found or not found scan (0079 line shape 2) wait for an Inventory Object record type (D-065), which has no requirement yet; until then such a target is code_not_countable."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-701, REQ-700, REQ-648, REQ-663, REQ-667, REQ-645, REQ-646, REQ-644, REQ-647, REQ-680]
+
+  - id: REQ-717
+    title: "Assets B5 counts K5: the count sheet marked signed, the differences sheet built from it and issued, the differences sheet marked signed by its signers, with paper signatures recorded as acknowledgements (decision 0079 sections 2, 8 and 9, split plan row C5 without the xlsx paperwork)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-701 -- the differences are built from the count sheet that REQ-701 issues
+    # Source: docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680; sections 1, 2 with its state table, 3, 8, 9, 12 questions 2, 5 and 6, split plan row C5 and the line 'C1 is the only row that may start before GATE B'), docs/migration/decisions/0056-versioned-documents.md (D4 immutable issued versions, D6 signatures DIRECTION only), docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D-T lateness cap 96 hours, @max_legs 200 in lib/letflow/ledger/validate.ex), decision 0078 (REQ-681: D5 documents fixed once issued, D8 audit trail), entries REQ-700 and REQ-701 on origin/main 1f8b997e8, owner assumption D-086/D-087 'signed means a paper signature on the printout'. Code read on origin/main: Letflow.Documents.create_draft/3 and issue/2 (lib/letflow/documents.ex; no signing function exists), Letflow.Modules.Org.employee_for_user/2 (lib/letflow/modules/org/org.ex). Written by the business analyst (T-1240) 2026-11-04.
+    description: >
+      Phase B item B5 of the assets and stock application, split plan row C5 of decision 0079 ("differences sheet and
+      its signing": differences from the signed sheet, signer lines, mark signed); the xlsx paperwork of the same row
+      is REQ-719, the posting is REQ-718. Backend only, module stock (lib/letflow/modules/stock/counts.ex and the stock
+      router of REQ-700). It moves a count through the states of 0079 section 2 from counted to signed.
+
+      SIGNATURES AS ACKNOWLEDGEMENTS (0079 section 9; owner assumption D-086/D-087: "signed" means a paper signature
+      on the printout, assumption, owner may change at GATE B). The signature slice of 0056 D6 (internal_ack,
+      DocumentsSign, document.signed, split plan row C1) is not built and is NOT a dependency of this entry: 0079
+      section 9 says that until it is built the chair marks a document signed in Letflow after the signer lines on
+      the printout are signed on paper, naming the signers, and that this is an acknowledgement recorded in the audit
+      trail, not an electronic signature. This entry builds exactly that interim. No issued document version is
+      changed by a mark (0056 D4).
+
+      WHAT IS BUILT. (1) One more module-managed record type in the stock pack, count_signature, in
+      manages_entity_types and declared {:column, "org_unit_id"} (D-067): count_order_id, document_kind (sheet or
+      differences), document_id, version_no, employee_id, signer_role (chair, member or responsible), org_unit_id
+      copied from the order, marked_by (user id) and marked_at (server clock); append-only. (2) The count_order type of
+      REQ-700 gains sheet_signed_at, differences_document_id, differences_number, differences_issued_at and
+      differences_signed_at. (3) Three write functions and their routes: mark_sheet_signed/4, issue_differences/3 and
+      mark_differences_signed/4. (4) Two read routes.
+
+      SIGNERS (0079 section 9, quoted). Count sheet: the chair, each member and each responsible person named on a
+      line. Differences sheet: the chair, each member and each responsible person whose lines carry a difference. A
+      member or responsible person with no user link is allowed: they sign on paper and the chair confirms them (0079
+      section 3).
+
+      DIFFERENCES (0079 section 8). Every line of the issued count sheet whose counted quantity differs from its book
+      quantity is one difference line: a surplus when counted is greater, a shortage when it is lower; a surplus line
+      of REQ-701 (book 0) is a surplus. The difference is counted minus book as an exact decimal string.
+
+      DECIDED HERE as the simplest reasonable defaults (each "UAT assumption, to be confirmed by the process owner",
+      marked "assumption, owner may change at GATE B" as D-086 and D-087 ask): (a) only the chair marks a document
+      signed, and the list of signers sent must equal the required set of that document exactly; (b) a differences
+      sheet with more than 200 lines is refused at issue (one posting carries at most 200 legs, @max_legs of
+      lib/letflow/ledger/validate.ex, and REQ-718 makes one leg per difference line); the count stays counted and the
+      chair may cancel it and order smaller counts (0079 section 12 question 5 says split at order time, which is
+      not possible because the number of differences is known only after counting; this refusal is where the split
+      is forced); (c) a differences sheet with no line is issued and signed like any other and REQ-718 posts nothing
+      for it; (d) marking the differences sheet signed is refused count_window_expired when the server time is more
+      than 96 hours after the count's cut_off_at (0079 section 8: signing later than 96 hours after the cut-off cannot
+      be posted under 0073 D-T). The refusal comes before the state signed on purpose: 0079 forbids cancel from signed,
+      so a refusal at signing leaves the count counted, where the chair can still cancel it and order a new count
+      (0079 section 8 says the same count "is closed unposted"; this entry closes it by cancel). This is a
+      clarification of 0079 section 8, stated in findings for the record's owner.
+
+      Phase A and phase B documents followed: decision 0079 and its owner assumptions, REQ-700 (states, chair check,
+      refusal rendering), REQ-701 (sheet lines, close counting), decision 0078 D5 and D8.
+
+      NOT IN THIS ENTRY. Electronic signatures and the signature slice of 0056 D6 (row C1); ЭЦП (NCALayer); the posting
+      of the differences (REQ-718); the xlsx paperwork with signer lines (REQ-719); the web screens (REQ-720); the
+      freeze of postings during the count (0079 row C7, no requirement yet).
+
+      Pins (moves from origin/main at implement time; numbers are examples): five new tenant routes without scope:
+      tenant_wide_default_routes.txt gains 5 lines and the three length(snapshot) == N pins named in REQ-700 move by
+      +5; no new permission atom (StockCountRecord and StockRead of REQ-700 and REQ-687), so effective.golden does not
+      change; the stock pack and manifest change (ManifestHash moves) and the module version moves by one minor step.
+      No migration, no tenant table. Tests on fresh tenants only; book stock posted through the test helpers of
+      test/support/ledger_fixture.ex, as REQ-701 does.
+    acceptance_criteria:
+      - "1. Registration (test file test/letflow/modules/stock/counts_registration_test.exs of REQ-700): count_signature is in manages_entity_types with the fields of the description, declared {:column, \"org_unit_id\"}; count_order has the five new fields; a write to count_signature through the generic entity routes answers 403 entity_type_managed; Catalog.validate/1 returns :ok for the stock manifest."
+      - "2. Mark the sheet signed (test file test/letflow/modules/stock/count_differences_test.exs): mark_sheet_signed/4 (count id, signer_employee_ids, caller, opts) on a counted count whose count.sheet is issued and not yet marked, by the chair (Letflow.Modules.Org.employee_for_user/2 of the caller is chair_employee_id, else not_chair), whose signer_employee_ids equal exactly the set of the chair, every member and every responsible_employee_id named on a line of the issued sheet (else signers_incomplete when one is missing, field_invalid when one is not in the set or listed twice), appends one count_signature per signer with document_kind sheet, the sheet's document_id and version_no and the signer's role (an employee who is both member and responsible person gets one row with role member), sets sheet_signed_at, and leaves the status counted. Refused count_state_invalid for any other status and sheet_already_signed when sheet_signed_at is set; nothing stored on a refusal. A test covers each refusal and a member with no user link who is accepted as a signer."
+      - "3. Issue the differences (same test file): issue_differences/3 by the chair on a counted count with sheet_signed_at set (else sheet_not_signed) and no differences_document_id (else differences_already_issued) builds the difference lines of the description from the issued count.sheet version content (not from the live line records), and in one transaction creates and issues one count.differences document (Letflow.Documents.create_draft/3 and issue/2; issuing_org_unit_id the order's org unit; content the cut_off_at, cutoff_seq, the sheet's document_id and version_no, and one item per difference line with line_no, kind, location_id, catalog_item_id, catalog_lot_id, responsible_employee_id, unit_ref, book_quantity, counted_quantity, difference and direction surplus or shortage), and sets differences_document_id, differences_number and differences_issued_at. A test with book 10 and counted 7, book 4 and counted 4, a surplus line counted 2 and book 0 and counted 1 gets three lines: difference -3 shortage, 2 surplus, 1 surplus. More than 200 difference lines: differences_too_many with nothing issued and no number taken; a count with no difference gets an issued document with no line. A test forces a refusal of issue/2 and sees no differences_document_id and no number taken."
+      - "4. Mark the differences signed (same test file): mark_differences_signed/4 by the chair on a counted count with an issued differences sheet (else differences_not_issued) and differences_signed_at empty, with signer_employee_ids equal exactly to the chair, every member and every responsible_employee_id of a difference line (the refusals of criterion 2), at a server time no more than 96 hours after cut_off_at (else count_window_expired, the count stays counted), appends one count_signature per signer with document_kind differences, sets differences_signed_at to the server time and moves the count to signed. After it, cancel/3 of REQ-700 is refused count_state_invalid, and mark_sheet_signed/4, issue_differences/3 and a second mark_differences_signed/4 are refused (count_state_invalid). A test passes a server time more than 96 hours after cut_off_at through a :now option in opts (the write functions of this entry accept it for tests) and asserts count_window_expired, status counted, and that cancel/3 then succeeds."
+      - "5. Fixed documents and audit (0056 D4, decision 0078 D5 and D8; same test file): no function of this entry changes an issued document version or a count_signature row, and no function deletes one; each mark and the issue writes one audit entry through Letflow.Audit with the actions stock.count.sheet_signed, stock.count.differences_issued and stock.count.differences_signed, the count's record id, status and the signer employee ids, no quantity; a refused call writes none."
+      - "6. Routes (stock router; test file test/letflow/modules/stock/count_differences_router_test.exs through Letflow.Router with real bearer tokens): POST /api/v1/modules/stock/counts/:id/sheet-signatures (StockCountRecord; body exactly signer_employee_ids), POST /api/v1/modules/stock/counts/:id/differences (StockCountRecord; no body), POST /api/v1/modules/stock/counts/:id/differences-signatures (StockCountRecord; body exactly signer_employee_ids), GET /api/v1/modules/stock/counts/:id/differences (StockRead; the issued differences document: number label, version_no, issued_at, content_hash and its difference lines; quantities as JSON strings) and GET /api/v1/modules/stock/counts/:id/signatures (StockRead; the count_signature rows in marked_at order with document_kind, employee_id, signer_role, marked_by and marked_at). Each is in route_policies; refusals render as in REQ-700 criterion 7; GET differences before issue answers 422 differences_not_issued."
+      - "7. Tenancy and scope (INV-1, INV-2, INV-5, INV-10; same router test file): a count of tenant B asked for with a token of tenant A answers 404 with the unknown-id body (trace_id dropped first) on every route of criterion 6 and B's count is unchanged; a TENANT_ADMIN whose grant covers org unit X but not Y (Letflow.Support.ScopedGrantsFixture) gets 404 with that body on every route for a count of Y; a tenant user without StockCountRecord gets 403 on the three write routes and one without StockRead 403 on the two read routes. No step needs PLATFORM_ADMIN and no tenant user is granted it (docs/roles.md)."
+      - "8. Gate and scope: a tenant-data-path change (new routes and a new scoped record type); it passes a SECURITY-REVIEWER gate as a stated step, verdict and evidence quoted in the PR. The diff adds no ledger posting, no edit of lib/letflow/documents.ex, lib/letflow/ledger.ex or lib/letflow/ledger/, no migration, no tenant table, no seed and no installation of the stock module on any tenant. The pins of the description move by the counts stated there; mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_requirements_registration and the new test files pass (real output quoted in the PR)."
+    open_questions:
+      - "The defaults of the description (only the chair marks, the exact signer set, the 200-line cap at issue of the differences, the empty differences sheet, count_window_expired at signing): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+      - "Electronic signatures (0056 D6, row C1) replace the chair's marks later; whether the marks of this entry are then migrated into document.signed events is for that slice."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-701, REQ-700, REQ-680, REQ-681, REQ-643]
+
+  - id: REQ-718
+    title: "Assets B5 counts K6: the signed differences sheet posted to the stock ledger as one entry from a human task with the cause count_difference, the posting record issued, the posting check on read, and one reversal of the whole count (decision 0079 section 8, split plan row C6)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-717 -- the posting reads the signed differences sheet that REQ-717 issues
+    # Source: docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680; sections 1 posting record, 2 state posted, 4 freeze, 8 with causes, number of postings, event time, origin and undo, 9 access, split plan rows C6 and C7), docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D-C sign rules positive, negative, zero_sum_by_slot_1, any, reversal; D-T; D-L12; section Amended by REQ-676: A2 at most two postings per transaction with different ledger ids, A4 a reversal stays inside the ledger id of its entry), decision 0078 (REQ-681: D4, D5 order and binding by detection), entries REQ-637, REQ-684, REQ-685, REQ-686, REQ-687 (stock registration causes and declare/2 command keys, criterion 3) and REQ-700, REQ-701 on origin/main 1f8b997e8; REQ-712 and REQ-713 of task T-1226 (pending, on branch origin/team/T-1226 only: the stock_posting_mark type, the stock_reversal definition and reverse_document handler, the posting_check rule). Code read on origin/main: Letflow.Modules.LedgerRegistration (@sign_rules in lib/letflow/modules/ledger_registration.ex), Letflow.Ledger.Validate (@max_legs 200, check_sign(:any, _), @text_fields reason_code 64, lib/letflow/ledger/validate.ex), the lateness check of lib/letflow/ledger.ex (event_time_too_old), Letflow.Entities.HandlerWrites (create/3 only; no update function, lib/letflow/entities/handler_writes.ex). Written by the business analyst (T-1240) 2026-11-04.
+    description: >
+      Phase B item B5 of the assets and stock application, split plan row C6 of decision 0079 ("posting of the
+      differences": one posting, human-started step, reversal of all entries), WM-12 (a variance changes book stock
+      only through an authorized posting with a reason and a task reference). Backend only, module stock.
+
+      ONE CAUSE WITH SIGN RULE ANY (a correction of 0079 section 8, stated in findings). 0079 section 8 asks for ONE
+      posting per differences sheet (one entry, one leg per difference line) and names two causes, count_surplus with
+      sign rule positive and count_shortage with sign rule negative. A ledger entry has exactly one cause and its sign
+      rule is checked over all its legs (Letflow.Ledger.Validate, check_sign), and 0073 A2 refuses a second posting to
+      the same ledger id in one transaction, so a sheet with both a surplus and a shortage cannot be one posting under
+      two causes. This entry keeps the one posting (the rule that carries WM-12 atomicity and the single reversal of
+      0073 A4) and registers ONE cause, count_difference, with sign rule any (a sign rule of the closed list of 0073
+      D-C, accepted by LedgerRegistration @sign_rules) and reason_required true: a surplus line is a leg with +difference,
+      a shortage line a leg with -difference. The no-negative guard of the core still applies to every negative leg.
+      The cause names of 0079 are "slice-local proposals"; the sign rule pair is replaced by this one cause. Decided here
+      as the only implementation that fits both 0079's one-posting rule and 0073 A2; the record's owner may amend 0079.
+
+      POSTING (0079 section 8 origin; 0073 D-L12: never a SERVICE task). The same machinery as REQ-713 (pending, task
+      T-1226) for stock documents: POST counts/:id/post starts one process instance of the module definition
+      stock_count_posting (shipped in the pack, start, one HUMAN_TASK node post whose single module_writes line calls the
+      write handler post_count, end) with Letflow.Engine.create/2; its variables carry the posting command built from
+      the issued differences document. The handler post_count, registered in write_handlers and declaring posts_ledger
+      for the registration stock (REQ-684), calls HandlerWrites.post/3 (REQ-685) once and creates one stock_posting_mark
+      (the type of REQ-713) with document_type count.differences, document_id the differences document id, version_no,
+      mark posted and the order's org_unit_id. Both commit in the task completion transaction or neither does.
+      Command: client_op_id the issued differences version id (a second posting of the same version is the ledger's
+      idempotent duplicate, REQ-621); cause count_difference; document_type count.differences; document_id the
+      differences document id; related_document_id the count.order document id; reason_code count (0079 section 8:
+      the reason is the count, the task reference is the differences document id); event_time the count's
+      differences_signed_at (0079 section 8: the signing time); one line per difference line with the slots of the
+      stock registration (sku the catalog_item_id, location, org_unit, responsible, lot) and unit_ref, a surplus as a to
+      side and a shortage as a from side, quantity the absolute difference.
+
+      AFTER THE POSTING. Handlers create records only (HandlerWrites has create/3 and no update), so the count's stored
+      status stays signed until the chair issues the posting record: POST counts/:id/posting-record issues the
+      count.posting document (0079 section 1: the ledger entry ids and the posting time, for the audit) and sets
+      status posted. The read of the count shows the posting state from the marks before that (none, pending, posted,
+      reversed). A signed count with no difference line makes no ledger call: the posting-record route issues
+      count.posting with no entry and sets posted directly.
+
+      BINDING GAP, STATED (as REQ-713, 0078 D5: detection, not a ledger check, until slice L7). The handler reads
+      nothing and the engine merges completion output_variables without a per-node allowlist, so a holder of StockPost
+      could complete the post task with changed variables. This entry detects it on read: posting_check ok when the
+      legs of the count's ledger entry equal the legs the issued differences content gives, mismatch otherwise.
+
+      REVERSAL (0079 section 8 undo; 0073 A4). A posted count is undone only by one reversal of its one entry:
+      POST counts/:id/reverse starts the stock_reversal definition of REQ-713 (handler reverse_document) with the
+      count's entry id and as client_op_id the posted mark's record id; it creates a reversed mark. A reversal is itself
+      subject to the 96-hour window of 0073 D-T. After a reversal the count reads posting state reversed; the count's
+      documents stay issued (0078 D5: reversal first; no cancel of count documents is built here).
+
+      FREEZE (0079 section 4, row C7). Without the freeze, a stock posting inside the scope between the cut-off and the
+      count's posting would be counted twice by the difference (the book quantity is the balance at the cut-off). The
+      freeze check has no requirement entry yet; this entry depends on it and must not be implemented before it, and
+      the freeze's exemption for the count's own posting (document_type count.differences) is part of that entry.
+
+      DECIDED HERE as the simplest reasonable defaults (UAT assumption, to be confirmed by the process owner;
+      assumption, owner may change at GATE B, D-086, D-087): the post and reverse tasks have no assignee (as REQ-713);
+      the reversal reason_code closed list is that of REQ-713; the stock registration's 100-line limit of declare/2
+      (REQ-687 criterion 3, sized for two-leg lines) is 200 lines for count_difference, whose lines make one leg each
+      (200 legs, @max_legs); a posting refused by the ledger (event_time_too_old more than 96 hours after the signing,
+      insufficient_stock) leaves the post task pending and the count signed, and 0079 section 8 gives no override.
+
+      Pins (moves from origin/main at implement time; numbers are examples): four new tenant routes without scope
+      (+4 lines in tenant_wide_default_routes.txt and +4 on the three length(snapshot) pins named in REQ-700); no new
+      permission atom (StockPost, StockReverse of REQ-687, StockCountRecord, StockRead), so effective.golden does not
+      change; the manifest's ledger registration gains a cause, write_handlers gains post_count and the pack gains
+      stock_count_posting (ManifestHash moves; the module version moves one minor step); the REQ-687 tests that pin
+      the exact cause set and the declare/2 line limit change with this entry. Tests on fresh committed tenants only.
+
+      Speed (assumption, owner may change at GATE B, D-086, D-087): posting one document answers in under 500 ms at the
+      volumes of the speed test of decision 0073 A9; this entry adds no speed test.
+    acceptance_criteria:
+      - "1. Registration (test file test/letflow/modules/stock/count_posting_registration_test.exs): the stock registration's causes are those of REQ-687 criterion 3 plus exactly count_difference %{sign_rule: :any, reason_required: true}; Letflow.Modules.Stock.LedgerPolicy declare/2 accepts a command with cause count_difference whose lines each have exactly one of from and to (a line with both or neither is {:error, {:invalid_posting, %{leg_no: n}}}) and up to 200 lines (201 is refused that way), and makes one leg per line, +quantity for a to side and -quantity for a from side; write_handlers gains post_count (targets [stock_posting_mark], posts_ledger stock) and the pack the definition stock_count_posting with exactly one HUMAN_TASK node carrying exactly one module_writes line; Catalog.validate/1 passes and the stamped definition passes Letflow.Definitions.ModuleWrites activation. The REQ-687 cause-set and line-limit tests are updated for these two changes only."
+      - "2. Start the posting (test file test/letflow/modules/stock/count_posting_test.exs, fresh committed tenant): post/3 (route of criterion 7) on a signed count with at least one difference line starts exactly one stock_count_posting instance whose post task is pending; it answers 409 posting_pending while such a task is pending, 409 count_posted when a posted mark exists, and 422 count_state_invalid when the count is not signed, starting nothing."
+      - "3. Complete the posting (same test file): completing the post task through Letflow.Engine.complete_task/3 with credential :oidc by a TENANT_ADMIN commits one ledger entry on ledger id stock with cause count_difference, reason_code count, document_type count.differences, document_id the differences document id, related_document_id the count.order document id, client_op_id the differences version id, event_time the count's differences_signed_at, one leg per difference line with the line's slots, unit_ref and the signed difference as quantity, and one stock_posting_mark with mark posted; Letflow.Ledger.balances/4 then shows each counted quantity for the shortage and surplus keys of a count with no movement after the cut-off. A completion refused by the ledger (event_time_too_old for a count whose differences_signed_at the test setup puts more than 96 hours before the completion; insufficient_stock when a shortage exceeds the current balance; a TASK_WORKER completer refused by the authority step of REQ-685) writes neither the entry nor the mark and leaves the task pending; a test per case."
+      - "4. Posting record and state (same test file): the read of the count (GET counts/:id of REQ-700) answers posting_state none, pending, posted or reversed and, once posted, entry_id (read with Letflow.Ledger.entries/3, filter document_id), posted_at and posted_by. issue_posting_record/3 by the chair (else not_chair) issues one count.posting document (content the entry_id, posting_seq and posting_time of the entry) in one transaction with status posted; it is refused count_not_posted with no posted mark and posting_record_exists when already issued. For a signed count with no difference line, issue_posting_record/3 issues count.posting with no entry and sets status posted without a ledger call, and post/3 answers 422 no_differences. A test per case."
+      - "5. Posting check on read (0078 D5 detection, as REQ-713 criterion 6; same test file): the read of the count answers posting_check ok when the legs of the count's ledger entry equal the legs the issued differences content gives (same slots, unit_ref and quantity per line, one entry), and mismatch otherwise, with no detail of the difference in the body. A test completes the post task with output_variables that change one line's quantity and asserts posting_state posted and posting_check mismatch."
+      - "6. Reversal (test file test/letflow/modules/stock/count_reversal_test.exs): reverse/3 (route of criterion 7, body reason_code from the closed list of REQ-713 and reason_text as REQ-713 criterion 7) on a count with a posted mark and no reversed mark starts one stock_reversal instance with the count's entry_id and as client_op_id the posted mark's record id; 409 count_not_posted without a posted mark, 409 count_reversed with a reversed mark, 409 reversal_pending while a reverse task is pending, 422 reason_invalid. Completing the reverse task with credential :oidc by a holder of StockReverse posts one reversal of the whole entry and one reversed mark in one transaction; balances return to their values before the posting; the count's issued documents are unchanged."
+      - "7. Routes (stock router; test file test/letflow/modules/stock/count_posting_router_test.exs through Letflow.Router with real bearer tokens): POST /api/v1/modules/stock/counts/:id/post (StockPost; no body), POST /api/v1/modules/stock/counts/:id/reverse (StockReverse), POST /api/v1/modules/stock/counts/:id/posting-record (StockCountRecord; no body) and GET /api/v1/modules/stock/counts/:id/posting-document (StockRead; the issued count.posting version: number label, version_no, issued_at, content_hash, no bytes; 422 count_not_posted before it is issued). Each is in route_policies; refusals render as in REQ-700 criterion 7."
+      - "8. Tenancy and scope (INV-1, INV-2, INV-5, INV-10; same router test file): a count of tenant B posted, reversed or read with a token of tenant A answers 404 with the unknown-id body (trace_id dropped first) and B's ledger and count are unchanged; a TENANT_ADMIN whose grant covers org unit X but not Y gets 404 with that body on every route for a count of Y; a tenant user without StockPost gets 403 on post, without StockReverse 403 on reverse, without StockCountRecord 403 on posting-record, without StockRead 403 on the read route. No role other than TENANT_ADMIN holds StockPost and StockReverse (REQ-687: no role grants) and no tenant user is granted PLATFORM_ADMIN (docs/roles.md)."
+      - "9. Gate, runbook and scope: a ledger and tenant-data-path change that passes the SECURITY-REVIEWER deep review as a stated step (credential :oidc only, authority before any deferred refusal, no ledger SQL in module code, Rule 8 of REQ-684, the handler contract scans on lib/letflow/modules/stock/handlers.ex), verdict and evidence quoted in the PR. The stock runbook section gains an item for the binding gap of criterion 5 until slice L7. The diff adds no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no migration, no tenant table, no seed and no installation of the stock module on any tenant. The pins of the description move by the counts stated there; mix letflow.check.static, mix letflow.check_boundaries, mix letflow.permission_matrix --check, mix letflow.check_requirements_registration and the test files of criteria 1 to 8 pass, real output quoted."
+    open_questions:
+      - "One cause count_difference with sign rule any replaces the two causes count_surplus (positive) and count_shortage (negative) of 0079 section 8, because one entry has one cause and 0073 A2 refuses two postings to one ledger id in one transaction; REVIEWER or the owner may amend 0079 section 8 to match."
+      - "The freeze of 0079 section 4 (row C7, count_in_progress) has no requirement entry; this entry waits for it, since without it a movement inside the scope after the cut-off is corrected twice."
+      - "The binding gap of criterion 5 is detected, not prevented, until slice L7 (as REQ-713); if the security review asks for prevention, a core requirement comes first."
+      - "The defaults of the description (unassigned tasks, the 200-line limit for count_difference, refused postings left pending, no cancel of count documents after a reversal): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-717, REQ-687, REQ-684, REQ-685, REQ-686, REQ-637, REQ-621, REQ-676, REQ-681, "REQ-713 of task T-1226 (pending, on origin/team/T-1226 only): stock_posting_mark, stock_reversal and reverse_document", "the freeze entry of decision 0079 split plan row C7 (count_in_progress in the stock document write path), not written yet"]
+
+  - id: REQ-719
+    title: "Assets B5 counts K7: count paperwork output as xlsx files with signer lines for the issued count order, count sheet and differences sheet, rendered from the issued document versions (decision 0079 section 10, split plan row C5, paperwork part)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-717 -- the differences paperwork renders the differences sheet and its signers that REQ-717 defines
+    # Source: docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680; sections 1, 9 signers, 10 paperwork format, split plan row C5), owner assumption D-086/D-087 'count paperwork in phase B is xlsx with signer lines (printed forms come in phase E)' and 'the default tenant time zone is Asia/Almaty', docs/migration/decisions/0077-xlsx-import-export.md (D8: writer dependency elixlsx, a text is always a string cell and never a formula), decision 0076 (owner answer 7: employee records are visible only where the employee's org unit is visible), entries REQ-700, REQ-701 on origin/main 1f8b997e8, REQ-703 of task T-1222 (pending: Letflow.Identity.TenantTimezone.of/1). Code read on origin/main: Letflow.Entities.XlsxExport.build/3 (lib/letflow/entities/xlsx_export.ex: takes definition fields, export record rows and meta; sheets records and export only), the xlsx response of lib/letflow/routers/entities.ex (@xlsx_content_type), mix.exs and mix.lock (elixlsx 0.6.0 already a dependency), the org_employee fields full_name and code, location_node code and name, catalog_item code and name, catalog_lot code (priv/modules/*/entity_definitions/). Written by the business analyst (T-1240) 2026-11-04.
+    description: >
+      Phase B item B5 of the assets and stock application: the count paperwork of owner decision D-062 (order,
+      commission, count sheet, differences sheet, signatures) as files. 0079 section 10 and the owner assumption of
+      2026-11-04 (D-086/D-087): count paperwork in phase B is xlsx with signer lines, printed forms in Russian and
+      Kazakh come in phase E (print templates); assumption, owner may change at GATE B. Backend only, module stock.
+
+      WHAT IS BUILT. A pure renderer Letflow.Modules.Stock.CountPaperwork (lib/letflow/modules/stock/count_paperwork.ex:
+      issued content and names in, workbook bytes out, no database, no clock) and one read route that answers the
+      workbook of one issued document of a count: the count order (count.order of REQ-700), the count sheet
+      (count.sheet of REQ-701) or the differences sheet (count.differences of REQ-717). Each file is rendered from the
+      ISSUED document version content, never from the live records, so the paper always equals the fixed document
+      (D-062, 0056 D4). Names are looked up at download time (org unit and employee full_name and code, location code
+      and name, item code and name, lot code) and printed next to the ids of the issued content.
+
+      WHY NOT XlsxExport.build/3. 0079 section 10 says the paperwork is exported with Letflow.Entities.XlsxExport.
+      Its build/3 renders one page of a record export (definition fields, export records, the sheets records and
+      export) and has no header block or signer lines. This entry uses the same writer, elixlsx (decision 0077 D8,
+      already in mix.lock; no new dependency), and the same cell rule as XlsxExport (a text is always a string cell,
+      never a formula). Unlike XlsxExport, a quantity is written as its exact decimal text, not as a float, because a
+      count document must show the exact stored quantity. Stated in findings for the record's owner.
+
+      LAYOUT (decided here, the simplest reasonable default; UAT assumption, to be confirmed by the process owner;
+      assumption, owner may change at GATE B). Sheet document: two columns, label and value: document kind, number
+      label, version_no, issued_at, the org unit (code and name), and for the sheet and the differences the cut-off
+      time; every time in the tenant time zone (Letflow.Identity.TenantTimezone.of/1 of REQ-703, default Asia/Almaty)
+      with its offset. Sheet lines (sheet and differences only): a header row, then one row per line in line_no order:
+      line_no, location code and name, item code and name, lot code, responsible full name, unit, book quantity,
+      counted quantity, and for the differences also difference and direction. Sheet scope (order only): one row per
+      location root (code and name) and the commission. Sheet signatures: one row per required signer of 0079 section
+      9 (the sets of REQ-717 criteria 2 and 4; for the order: the chair): role, full name, personnel code, an empty
+      signature cell and an empty date cell. Labels are English; Russian and Kazakh print forms are phase E.
+
+      NAMES AND SCOPE (decision 0076 owner answer 7, D-067). Employee records are scoped by org unit: a full name and
+      code are printed only when the caller's grant covers the employee's org unit (Letflow.Api.Scope.allowed?/3);
+      otherwise the name and code cells are empty and the signer line stays, so the paper can still be signed. Location,
+      item and lot names are tenant-wide (0076 R7 visibility table).
+
+      NOT IN THIS ENTRY. Printed forms and their Russian and Kazakh text (phase E); the posting record count.posting as a
+      file (it has no signer, 0079 section 9); xlsx import of counted quantities; the web buttons (REQ-720).
+
+      Pins (moves from origin/main at implement time; numbers are examples): one new tenant route without scope (+1
+      line in tenant_wide_default_routes.txt and +1 on the three length(snapshot) pins named in REQ-700); no new
+      permission atom (StockRead), so effective.golden does not change; the stock module version moves one minor step
+      (route_policies changes ManifestHash). No migration, no tenant table, no new dependency. Tests on fresh tenants
+      only.
+    acceptance_criteria:
+      - "1. Renderer (test file test/letflow/modules/stock/count_paperwork_test.exs, pure, no database): Letflow.Modules.Stock.CountPaperwork.build/3 (kind order, sheet or differences; the issued content map; a names map) returns {:ok, binary} whose workbook, read back by unzipping its parts with :zip.unzip/2 as test/letflow/entities/xlsx_export_test.exs does (shared_strings/1), has the sheets document, lines (sheet and differences), scope (order) and signatures with the rows of the description; every quantity cell is a string cell equal to the stored decimal string (a test with 0.000000001 and 12345678901234.5 reads them back exactly); a text starting with =, +, - or @ is a string cell, not a formula; a time is shown in the given time zone with its offset (a test with Asia/Almaty shows +05:00). The signatures sheet has one row per required signer with empty signature and date cells."
+      - "2. Route (stock router; test file test/letflow/modules/stock/count_paperwork_router_test.exs through Letflow.Router with real bearer tokens): GET /api/v1/modules/stock/counts/:id/paperwork/:kind (StockRead; kind exactly order, sheet or differences, any other value 404) answers 200 with Content-Type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet and Content-Disposition attachment with the file name the document's number label plus .xlsx; it answers 422 document_not_issued when that document of the count is not issued yet. The route is in route_policies."
+      - "3. Fixed content (D-062, 0056 D4; same router test file): the lines and quantities of the file equal the issued document version content: a test issues the count sheet, then changes a live line record through the test setup and asserts the downloaded sheet still shows the issued value; a second download of the same version gives the same rows."
+      - "4. Names and scope (decision 0076 owner answer 7; same router test file): for a TENANT_ADMIN whose grant covers the count's org unit X but not org unit Z of one commission member (Letflow.Support.ScopedGrantsFixture), the signatures sheet shows that member's row with empty name and code cells and every other signer's full name; a tenant-wide TENANT_ADMIN sees all names."
+      - "5. Tenancy (INV-1, INV-2, INV-5, INV-10; same router test file): a count of tenant B asked for with a token of tenant A answers 404 with the unknown-id body (trace_id dropped first) and no bytes; a TENANT_ADMIN whose grant does not cover the count's org unit gets the same 404; a tenant user without StockRead gets 403. The tenant time zone is read from the token's tenant only."
+      - "6. Gate and scope: a tenant-data-path change (a new export route of scoped records with employee names); it passes a SECURITY-REVIEWER gate as a stated step, verdict and evidence quoted in the PR (export neutralisation of formulas, scope of names, no bytes on a refusal). The diff adds no dependency (mix.lock unchanged), no edit of lib/letflow/entities/xlsx_export.ex, no ledger call, no migration, no tenant table, no seed and no installation of the stock module on any tenant. The pins of the description move by the counts stated there; mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_requirements_registration and the new test files pass (real output quoted in the PR)."
+    open_questions:
+      - "The layout, English labels, current names at download time and the exact decimal text cells: UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B (printed forms in phase E)."
+      - "If REQ-703 (tenant time zone, task T-1222) has not merged at implement time, the renderer uses Asia/Almaty and the route reads no setting; the implementer states which in the PR."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-717, REQ-700, REQ-701, REQ-653, REQ-643, "REQ-703 of task T-1222 (pending): Letflow.Identity.TenantTimezone.of/1"]
+
+  - id: REQ-720
+    title: "Assets B5 counts K8: web screens of module stock for keyboard-scanner input on the count sheet, the differences sheet with its signer marks, posting and reversal, and the xlsx paperwork downloads, in English, Russian and Kazakh (decision 0079 split plan row C8, second part)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-702 -- the screens extend the count screens of REQ-702
+    # Source: docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680; sections 2, 5, 6, 8, 9, 10, split plan row C8), ai-dala-portfolio/architectures/assets.md phase table 'counts with typed or keyboard-scanner input on the web' (quoted in REQ-680), entry REQ-702 on origin/main 1f8b997e8 (its place, messages and style), and the routes of REQ-716, REQ-717, REQ-718 and REQ-719 (this batch). Files read on origin/main: web/src/modules/codes/ (index.ts, codesMessages.ts, CodesIntlProvider.tsx and its __tests__) as REQ-702 names them. Written by the business analyst (T-1240) 2026-11-04.
+    description: >
+      Phase B item B5 of the assets and stock application: the second part of split plan row C8 of decision 0079 (web
+      screens in English, Russian and Kazakh). REQ-702 builds the count order and the count sheet with typed input;
+      this entry adds to the same count screen (web/src/modules/stock/counts/, path admin/stock/counts/:id) the scanner
+      field, the differences sheet with its signer marks, posting and reversal, and the paperwork downloads. The routes
+      are those of REQ-716, REQ-717, REQ-718 and REQ-719; the screens add no route and no permission. Messages in en,
+      ru and kk in the module's own message file of REQ-702; style and components as REQ-702.
+
+      SCANNER FIELD (0079 section 5: the scanner types the code text followed by Enter into the focused input). On a
+      counting count the sheet has one text input for scans, focused when the sheet opens and again after every
+      answer, and a current-place picker (the location roots of the count and their descendants). Enter sends the
+      typed text unchanged with the current place and a new scan_id; a location answer sets the current place; a line
+      answer highlights that line and shows its new counted quantity; a duplicate answer shows "already counted" (no
+      error); each refusal shows its own message. A request that fails on the network is sent again with the same
+      scan_id, so a retry never counts twice (REQ-716 criterion 5).
+
+      DECIDED HERE as the simplest reasonable defaults (UAT assumption, to be confirmed by the process owner;
+      assumption, owner may change at GATE B): the scan_id is a random uuid made in the browser per Enter; a retry is
+      offered by a button on the failed scan, not automatic; the signer dialogs list the required signers (chair,
+      members, responsible persons from the count and its lines) as check boxes, all unchecked, and the chair checks
+      those who signed on paper; write buttons show only for a user whose /me/access lists the route's atom
+      (StockCountRecord, StockPost, StockReverse) and the count's state allows them; not_chair and similar refusals
+      are shown as messages, not hidden in advance (as REQ-702); times in the tenant time zone (default Asia/Almaty).
+
+      Not in this entry: the camera scan and offline counting on the phone (phase D); printed forms (phase E); any
+      backend change.
+    acceptance_criteria:
+      - "1. Scanner field (test file web/src/modules/stock/__tests__/CountsPage.scan.test.tsx, network mocked): on a counting count the scan input has focus after the sheet loads and after each answer; typing a code and pressing Enter sends POST counts/:id/scan with body exactly {scanned_text: the typed text unchanged, location_id: the current place, scan_id: a uuid}; a location answer sets the current place shown in the picker; a line answer shows that line's new counted quantity; a duplicate answer shows the already-counted message; Enter on an empty input or with no current place sends nothing and shows a field message; a network failure shows a retry button that sends the same body with the same scan_id. Tests cover each case and that the scan input is absent when the count is not counting or the user lacks StockCountRecord."
+      - "2. Differences and signer marks (test file web/src/modules/stock/__tests__/CountsPage.differences.test.tsx, network mocked): on a counted count the Mark sheet signed dialog lists the chair, the members and every responsible person of the lines and sends POST counts/:id/sheet-signatures with body exactly {signer_employee_ids: the checked ids}; Issue differences sends POST counts/:id/differences; the differences panel shows GET counts/:id/differences (line, location, item, lot, responsible, unit, book, counted, difference, surplus or shortage) and an empty state when there is no line; the Mark differences signed dialog lists the chair, the members and the responsible persons of difference lines and sends POST counts/:id/differences-signatures; the signatures panel shows GET counts/:id/signatures. A test checks each exact request body and that the buttons follow the count's state."
+      - "3. Posting and reversal (test file web/src/modules/stock/__tests__/CountsPage.posting.test.tsx, network mocked): on a signed count Post sends POST counts/:id/post after a confirm dialog and the screen shows posting_state pending, posted or reversed and posting_check from GET counts/:id; Issue posting record sends POST counts/:id/posting-record; Reverse opens a dialog with the reason codes of REQ-718 criterion 6 (reason text required for other) and sends POST counts/:id/reverse; a posting_check mismatch shows a warning. A test per call and that Post is absent without StockPost and Reverse without StockReverse."
+      - "4. Paperwork downloads (test file web/src/modules/stock/__tests__/CountsPage.paperwork.test.tsx, network mocked): the count screen shows a download button for the order once it is issued, for the sheet once it is issued and for the differences once they are issued; each requests GET counts/:id/paperwork/order, sheet or differences and saves the answer under the file name of its Content-Disposition; a 422 document_not_issued shows its message."
+      - "5. Refusals, states and languages (test files web/src/modules/stock/__tests__/countsErrors.test.tsx and countsI18n.test.tsx of REQ-702, extended): each 422 reason of REQ-716, REQ-717, REQ-718 and REQ-719 that a screen can receive (code_retired, code_assignment_conflict, code_not_assigned, code_not_countable, scan_no_line, scan_ambiguous, scan_id_conflict, location_not_in_count, signers_incomplete, sheet_already_signed, sheet_not_signed, differences_already_issued, differences_not_issued, differences_too_many, count_window_expired, no_differences, count_not_posted, posting_record_exists, reason_invalid, document_not_issued) and each 409 (posting_pending, count_posted, count_reversed, reversal_pending) shows its own message in the active language; a 404 on a scan shows the unknown-code message, on any other call the not-found state; every key exists in en, ru and kk with a non-empty text and no text is written in the components outside the message file."
+      - "6. Checks: the web gate npm run check (type-check, lint, unit tests, guards) passes in the engine's checks step; the change edits only files under web/src/modules/stock/; no backend file changes and web/src/modules/registry.ts is not changed."
+    open_questions:
+      - "The defaults of the description (uuid per Enter, manual retry, unchecked signer boxes, buttons by permission and state): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-702, REQ-716, REQ-717, REQ-718, REQ-719]
