@@ -2,7 +2,7 @@ defmodule Letflow.Modules.Codes.Router do
   @moduledoc """
   GH #3611 / REQ-667: the write routes of module `codes`, mounted by `Letflow.Routers.Modules` at
   `/api/v1/modules/codes`. A thin layer over the write functions of `Letflow.Modules.Codes`
-  (REQ-663); no read routes and no scan route (D-067, a later slice).
+  (REQ-663), plus the scan lookup `POST /resolve` (GH #3797 / REQ-730).
 
   | Route | Permission | Delegate | Ok |
   |---|---|---|---|
@@ -11,6 +11,13 @@ defmodule Letflow.Modules.Codes.Router do
   | `POST /:id/release` | `CodesWrite` | `release_code/3` | 200 |
   | `POST /:id/retire` | `CodesWrite` | `retire_code/3` | 200 |
   | `POST /:id/value` (body `value`) | `CodesWrite` | `change_code_value/4` | 200 |
+  | `POST /resolve` (body `value`, no `idempotency_key`) | `CodesRead` | `resolve/2` | 200 |
+
+  `POST /resolve` writes nothing. A `not_assigned` code, or an assigned code whose target type is
+  `:tenant_wide` (`Letflow.Entities.ScopeDeclaration.for_type/2`), is 200 with the resolve map. A
+  retired or conflicting code is 200 with the sent value and five null keys. An unknown code, and an
+  assigned code whose target type is scoped or undeclared (fail closed, decision 0076 R7 ruling 2),
+  get the same 404 as an unknown code id (INV-5).
 
   The tenant is `conn.assigns.scoped_opts` and the actor `conn.assigns.auth_context.user_id`
   (INV-1, INV-10): no route takes either from the path or body. Every body carries a required
@@ -31,9 +38,14 @@ defmodule Letflow.Modules.Codes.Router do
 
   alias Letflow.Api.Error
   alias Letflow.Api.Response
+  alias Letflow.Entities.ScopeDeclaration
   alias Letflow.Modules.Codes
 
   @not_found [:code_not_found, :target_not_found]
+
+  authz_post "/resolve", :CodesRead do
+    resolve_action(conn)
+  end
 
   authz_post "/receive", :CodesWrite do
     action(conn, ["entries"], 201, fn prefix, _id, body, opts ->
@@ -64,6 +76,65 @@ defmodule Letflow.Modules.Codes.Router do
   authz_unmatched(:ordinary)
 
   # -- shapes -------------------------------------------------------------------------------------
+
+  defp resolve_action(conn) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+
+    body =
+      case conn.body_params do
+        %{"_json" => _} -> %{}
+        map when is_map(map) -> map
+        _ -> %{}
+      end
+
+    with :ok <- check_keys(body, ["value"]),
+         value when is_binary(value) <- body["value"] do
+      render_resolve(conn, Codes.resolve(prefix, value), prefix, value)
+    else
+      {:error, _} = error -> render(conn, error, 200)
+      _ -> render(conn, {:error, {:field_invalid, "value"}}, 200)
+    end
+  end
+
+  defp render_resolve(
+         conn,
+         {:ok, %{"status" => "assigned", "target_type" => type} = map},
+         prefix,
+         _v
+       ) do
+    case type do
+      t when is_binary(t) ->
+        case ScopeDeclaration.for_type(t, prefix) do
+          :tenant_wide -> Response.send_json(conn, 200, map)
+          _ -> Response.not_found(conn)
+        end
+
+      _ ->
+        Response.not_found(conn)
+    end
+  end
+
+  defp render_resolve(conn, {:ok, map}, _prefix, _value), do: Response.send_json(conn, 200, map)
+
+  defp render_resolve(conn, {:error, :code_retired}, _prefix, value),
+    do: Response.send_json(conn, 200, unresolved(value, "retired"))
+
+  defp render_resolve(conn, {:error, :assignment_conflict}, _prefix, value),
+    do: Response.send_json(conn, 200, unresolved(value, "assignment_conflict"))
+
+  defp render_resolve(conn, _other, _prefix, _value), do: Response.not_found(conn)
+
+  defp unresolved(value, status) do
+    %{
+      "code_id" => nil,
+      "value" => value,
+      "kind" => nil,
+      "status" => status,
+      "target_type" => nil,
+      "target_id" => nil,
+      "assignment_id" => nil
+    }
+  end
 
   defp action(conn, required, status, fun) do
     with_request(conn, fn prefix, body, opts, conn ->
