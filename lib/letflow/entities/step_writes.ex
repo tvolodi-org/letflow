@@ -113,6 +113,7 @@ defmodule Letflow.Entities.StepWrites do
   alias Letflow.Entities.Records
   alias Letflow.Entities.StepSource
   alias Letflow.Entities.TypeAccess
+  alias Letflow.Ledger.HandlerPost
   alias Letflow.Repo
 
   @max_lines 20
@@ -705,6 +706,8 @@ defmodule Letflow.Entities.StepWrites do
       # GH #2590 R5 (T-10): the field-restriction subject. The completer on the human origin; the
       # ACTIVATOR on the service origin, where the event actor is the platform sentinel.
       subject_id: subject_id(ctx),
+      # REQ-685: the credential kind of the completing request (nil when the caller gave none).
+      credential: Map.get(ctx, :credential),
       activator_id: ctx.activator_id,
       manifest_hash: owner_manifest_hash(ctx),
       variable_labels: labels
@@ -717,6 +720,10 @@ defmodule Letflow.Entities.StepWrites do
       |> Multi.run({:line, StepSource.call_key(line_index), :deadline}, guard)
       |> HandlerWrites.build_call(Map.put(base, :line_index, line_index), line, variables)
     end)
+    # REQ-685 (decision 0073 A3): the ONE ledger lock step, after the LAST handler call so no
+    # ledger row is locked before every line of the node has been built. Adds no step when no
+    # call planned a posting.
+    |> HandlerPost.lock_steps(module_lines)
   end
 
   defp owner_manifest_hash(%{owner: %{manifest_hash: hash}}) when is_binary(hash), do: hash
@@ -1005,6 +1012,11 @@ defmodule Letflow.Entities.StepWrites do
   def interpret_failure({:pre_type_lock, type}, _reason) when is_binary(type),
     do: {:failed, 0, :type_lock}
 
+  # REQ-685: the one ledger lock step and the posting writes. A typed ledger refusal reaches the
+  # wire in slice L3c (REQ-686); until then it lands as the closed internal failure.
+  def interpret_failure({tag, :all}, _reason) when tag in [:ledger_lock, :ledger_write],
+    do: {:failed, 0, tag}
+
   def interpret_failure(_step, _reason), do: :not_a_line_failure
 
   # The DECLARED line index of a step key: a declarative key is its own index; a handler-range
@@ -1031,6 +1043,14 @@ defmodule Letflow.Entities.StepWrites do
     do: {:refused, i, :write_not_permitted, :hash_mismatch}
 
   defp interpret_line(i, _name, :owner_recheck, _reason), do: {:failed, i, :owner_recheck}
+
+  # REQ-685: the plan + authority step of a ledger posting. A denial is the uniform 403 (the detail
+  # is for the tenant audit only); a deferred refusal is released after authority as the closed
+  # internal failure.
+  defp interpret_line(i, _name, :ledger_post, {:ledger_denied, detail}),
+    do: {:refused, i, :write_not_permitted, detail}
+
+  defp interpret_line(i, _name, :ledger_post, _reason), do: {:failed, i, :ledger_post}
 
   defp interpret_line(i, _name, :build, reason) do
     case reason do

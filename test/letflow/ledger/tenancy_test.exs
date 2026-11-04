@@ -127,10 +127,16 @@ defmodule Letflow.Ledger.TenancyTest do
 
       # REQ-637 part A: the entry insert's unique-index backstop of the reversal target.
       # REQ-637 part B: authorize/3 catching ScopeSetError (fail closed). Both in ledger.ex.
-      assert for({file, :rescue} <- findings, do: file) == [
-               "lib/letflow/ledger.ex",
-               "lib/letflow/ledger.ex"
-             ]
+      # REQ-685 adds two total-function guards: `authority.ex` fails closed when the scope
+      # expansion raises its own `ScopeSetError`, and `handler_post.ex` turns a raise of the pure
+      # core validation on a malformed policy result into the typed shape refusal.
+      assert for({file, :rescue} <- findings, do: file) ==
+               [
+                 "lib/letflow/ledger.ex",
+                 "lib/letflow/ledger.ex",
+                 "lib/letflow/ledger/authority.ex",
+                 "lib/letflow/ledger/handler_post.ex"
+               ]
     end
 
     defp scan(source) do
