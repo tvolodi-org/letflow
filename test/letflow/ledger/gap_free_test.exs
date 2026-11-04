@@ -291,14 +291,18 @@ defmodule Letflow.Ledger.GapFreeTest do
       acc
     end
 
-    test "T-GF-4 the ledger sources hold exactly two literal SQL statements" do
+    test "T-GF-4 the ledger sources hold exactly the literal SQL statements" do
       results = Enum.map(@files, &scan(File.read!(&1)))
       assert Enum.flat_map(results, &elem(&1, 0)) == []
 
       assert results |> Enum.flat_map(&elem(&1, 1)) |> Enum.sort() ==
                Enum.sort([
                  "SELECT current_setting('transaction_isolation')",
-                 "SELECT clock_timestamp()"
+                 "SELECT clock_timestamp()",
+                 # REQ-637 part C (reconcile/2): a reviewed addition, four literal statements
+                 "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+                 "SELECT set_config('statement_timeout', $1, true)",
+                 "SELECT pg_try_advisory_xact_lock(hashtext($1), hashtext($2))"
                ])
     end
 
