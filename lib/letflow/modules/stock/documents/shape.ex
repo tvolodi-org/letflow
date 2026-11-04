@@ -3,7 +3,7 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   REQ-712 / GH #3749: the pure shape check of a stock document request body (save and replace).
   No database, no clock. `parse/2` returns the normalised document or the first refusal, in the order
   of the entry: `unknown_kind`, `field_not_allowed`, `field_required`, `field_invalid`,
-  `event_time_invalid`, `lines_count`, `quantity_invalid`.
+  `event_time_invalid`, `lines_count`, `quantity_invalid`, `price_invalid`.
 
   A refusal is `{:error, {reason, extras}}` with `reason` one of the strings above and `extras` a
   map of fixed keys (`"field"`, `"line_no"`); a supplied value is never echoed. `field_invalid` and
@@ -17,6 +17,12 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   A quantity is a decimal string (no float, no number) that is greater than zero and has at most 9
   decimals; it is stored and rendered with exactly 9 decimals (`10.5` becomes `10.500000000`, the form of a
   strict decimal field) so the record and the versioned content are the same text.
+
+  REQ-714 / GH #3747: optional keys are per kind. For `receipt` the header may carry `supplier_document_ref`
+  (1..200 characters, NFC) and `received_on` (`YYYY-MM-DD`, year 2000..2100), a line may carry `unit_price` and
+  `line_value` (non-negative decimal strings, at most 9 decimals, zero accepted, else `price_invalid` with
+  `"field"` and `"line_no"`). An absent key is the only "not given": `null` is refused. The comparison of
+  `received_on` with the event day is not here (it needs a time zone: `Checks.received_on/2`).
   """
 
   @kinds ["receipt"]
@@ -28,7 +34,11 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   @id_keys ~w(org_unit_id location_id responsible_id counterparty_id)
   @line_required ~w(catalog_item_id catalog_uom_id quantity)
   @line_keys @line_required ++ ["catalog_lot_id"]
+  @header_extra %{"receipt" => ~w(supplier_document_ref received_on)}
+  @line_extra %{"receipt" => ~w(unit_price line_value)}
+  @ref_max 200
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
+  @received_on ~r/\A[0-9]{4}-[0-9]{2}-[0-9]{2}\z/
 
   @type refusal :: {:error, {String.t(), map()}}
 
@@ -48,12 +58,12 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   @spec parse(term(), :create | {:replace, String.t()}) :: {:ok, map()} | refusal()
   def parse(body, mode) when is_map(body) and not is_struct(body) do
     with {:ok, kind} <- kind(body, mode),
-         :ok <- allowed(body),
+         :ok <- allowed(body, kind),
          :ok <- required(body),
-         {:ok, header} <- header(body),
+         {:ok, header} <- header(body, kind),
          {:ok, event_time} <- event_time(body["event_time"]),
          {:ok, raw_lines} <- raw_lines(body["lines"]),
-         {:ok, lines} <- lines(raw_lines) do
+         {:ok, lines} <- lines(raw_lines, kind) do
       {:ok, %{kind: kind, header: Map.put(header, "event_time", event_time), lines: lines}}
     end
   end
@@ -78,10 +88,13 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
     end
   end
 
-  defp allowed(body) do
+  defp header_keys(kind), do: @header_keys ++ Map.get(@header_extra, kind, [])
+  defp line_keys(kind), do: @line_keys ++ Map.get(@line_extra, kind, [])
+
+  defp allowed(body, kind) do
     case body
          |> Map.keys()
-         |> Enum.reject(&(&1 in ["kind", "lines" | @header_keys]))
+         |> Enum.reject(&(&1 in ["kind", "lines" | header_keys(kind)]))
          |> Enum.sort() do
       [] -> :ok
       [key | _] -> refuse("field_not_allowed", %{"field" => printable(key)})
@@ -97,8 +110,8 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
 
   # -- header -------------------------------------------------------------------------------------
 
-  defp header(body) do
-    Enum.reduce_while(@header_keys -- ["event_time"], {:ok, %{}}, fn key, {:ok, acc} ->
+  defp header(body, kind) do
+    Enum.reduce_while(header_keys(kind) -- ["event_time"], {:ok, %{}}, fn key, {:ok, acc} ->
       case Map.fetch(body, key) do
         :error -> {:cont, {:ok, acc}}
         {:ok, value} -> header_value(key, value, acc)
@@ -119,6 +132,24 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
     if String.valid?(value) and is_binary(note) and byte_size(note) <= @note_max,
       do: {:cont, {:ok, Map.put(acc, "note", note)}},
       else: {:halt, refuse("field_invalid", %{"field" => "note"})}
+  end
+
+  defp header_value("supplier_document_ref", value, acc) when is_binary(value) do
+    ref = String.valid?(value) && :unicode.characters_to_nfc_binary(value)
+
+    if is_binary(ref) and String.length(ref) in 1..@ref_max,
+      do: {:cont, {:ok, Map.put(acc, "supplier_document_ref", ref)}},
+      else: {:halt, refuse("field_invalid", %{"field" => "supplier_document_ref"})}
+  end
+
+  defp header_value("received_on", value, acc) when is_binary(value) do
+    with true <- Regex.match?(@received_on, value),
+         {:ok, date} <- Date.from_iso8601(value),
+         true <- date.year in 2000..2100 do
+      {:cont, {:ok, Map.put(acc, "received_on", value)}}
+    else
+      _bad -> {:halt, refuse("field_invalid", %{"field" => "received_on"})}
+    end
   end
 
   defp header_value(key, _value, _acc), do: {:halt, refuse("field_invalid", %{"field" => key})}
@@ -158,11 +189,11 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
 
   defp raw_lines(_other), do: refuse("field_invalid", %{"field" => "lines"})
 
-  defp lines(raw) do
+  defp lines(raw, kind) do
     raw
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, []}, fn {line, no}, {:ok, acc} ->
-      case line(line, no) do
+      case line(line, no, kind) do
         {:ok, parsed} -> {:cont, {:ok, [parsed | acc]}}
         {:error, _} = error -> {:halt, error}
       end
@@ -173,19 +204,20 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
     end
   end
 
-  defp line(line, no) when is_map(line) and not is_struct(line) do
-    with :ok <- line_allowed(line, no),
+  defp line(line, no, kind) when is_map(line) and not is_struct(line) do
+    with :ok <- line_allowed(line, no, kind),
          :ok <- line_required(line, no),
          {:ok, ids} <- line_ids(line, no),
-         {:ok, quantity} <- quantity(line["quantity"], no) do
-      {:ok, ids |> Map.put("line_no", no) |> Map.put("quantity", quantity)}
+         {:ok, quantity} <- quantity(line["quantity"], no),
+         {:ok, prices} <- prices(line, no) do
+      {:ok, ids |> Map.merge(prices) |> Map.put("line_no", no) |> Map.put("quantity", quantity)}
     end
   end
 
-  defp line(_line, no), do: refuse("field_invalid", %{"field" => "lines", "line_no" => no})
+  defp line(_line, no, _kind), do: refuse("field_invalid", %{"field" => "lines", "line_no" => no})
 
-  defp line_allowed(line, no) do
-    case line |> Map.keys() |> Enum.reject(&(&1 in @line_keys)) |> Enum.sort() do
+  defp line_allowed(line, no, kind) do
+    case line |> Map.keys() |> Enum.reject(&(&1 in line_keys(kind))) |> Enum.sort() do
       [] -> :ok
       [key | _] -> refuse("field_not_allowed", %{"field" => printable(key), "line_no" => no})
     end
@@ -222,6 +254,29 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   end
 
   defp quantity(_other, no), do: refuse("quantity_invalid", %{"line_no" => no})
+
+  defp prices(line, no) do
+    Enum.reduce_while(~w(unit_price line_value), {:ok, %{}}, fn key, {:ok, acc} ->
+      case Map.fetch(line, key) do
+        :error ->
+          {:cont, {:ok, acc}}
+
+        {:ok, text} ->
+          case price(text) do
+            {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
+            :error -> {:halt, refuse("price_invalid", %{"field" => key, "line_no" => no})}
+          end
+      end
+    end)
+  end
+
+  defp price(text) when is_binary(text) do
+    if Regex.match?(@quantity, text),
+      do: {:ok, text |> Decimal.new() |> Decimal.round(9) |> Decimal.to_string(:normal)},
+      else: :error
+  end
+
+  defp price(_other), do: :error
 
   defp refuse(reason, extras \\ %{}), do: {:error, {reason, extras}}
 
