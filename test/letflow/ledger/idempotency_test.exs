@@ -2,7 +2,8 @@ defmodule Letflow.Ledger.IdempotencyTest do
   @moduledoc """
   REQ-621 / GH #3469 part B, criterion 6: T-AC6-a..i. `client_op_id` idempotency with the payload
   hash, the duplicate answer, `idempotency_key_reuse`, the `sys:` refusal and the unique-violation
-  backstop. Sandbox `:auto` with real commits, hence `async: false`.
+  backstop. REQ-692 / GH #3726 criterion 2: IDM-1..3 and the rewritten (2), the lookups per ledger
+  id. Sandbox `:auto` with real commits, hence `async: false`.
   """
 
   use Letflow.DataCase, async: false
@@ -11,7 +12,6 @@ defmodule Letflow.Ledger.IdempotencyTest do
   alias Letflow.Ledger.Digest
   alias Letflow.LedgerFixture, as: Fx
   alias Letflow.LockOrderHelpers, as: H
-  alias Letflow.Repo
 
   @reuse {:ledger_refused, :idempotency_key_reuse, "idempotency_key_reuse", %{}}
 
@@ -175,10 +175,68 @@ defmodule Letflow.Ledger.IdempotencyTest do
       assert Ledger.unique_violation_refusal(%RuntimeError{message: "x"}) == :unknown
     end
 
-    test "(2) the same op on two ledger ids: the second gets idempotency_key_reuse", %{
+    test "(2) the same op on two ledger ids: two entries, posting_seq 1 in each counter", %{
       schema: schema
     } do
-      parent = self()
+      {cap_1, cap_2} = two_ledgers(schema)
+
+      assert {:ok, %{duplicate: false, posting_seq: 1} = first} = Fx.post_tx(cap_1)
+      assert {:ok, %{duplicate: false, posting_seq: 1} = second} = Fx.post_tx(cap_2)
+
+      assert first.entry_id != second.entry_id
+      assert Fx.count(schema, "ledger_entry") == 2
+      assert Fx.last_seq(schema, "ledger_a") == 1
+      assert Fx.last_seq(schema, "ledger_b") == 1
+    end
+
+    test "IDM-1 a replay of the B command returns the B entry, never the A entry", %{
+      schema: schema
+    } do
+      {cap_1, cap_2} = two_ledgers(schema)
+      assert {:ok, a} = Fx.post_tx(cap_1)
+      assert {:ok, b} = Fx.post_tx(cap_2)
+
+      assert {:ok, %{duplicate: true} = replay} = Fx.post_tx(cap_2)
+      assert replay.entry_id == b.entry_id
+      assert replay.ledger_id == "ledger_b"
+      assert replay.entry_id != a.entry_id
+      assert Fx.count(schema, "ledger_entry") == 2
+    end
+
+    test "IDM-2 the same origin_key on A and on B posts twice; on one ledger id it is a reuse", %{
+      schema: schema
+    } do
+      a = receipt(schema, ["a", "l"], 1, ledger_id: "ledger_a", origin_key: "origin-shared")
+      b = receipt(schema, ["a", "l"], 1, ledger_id: "ledger_b", origin_key: "origin-shared")
+      assert {:ok, _} = Fx.post_tx(a)
+      assert {:ok, %{duplicate: false}} = Fx.post_tx(b)
+      assert Fx.count(schema, "ledger_entry") == 2
+
+      again = receipt(schema, ["a", "l"], 1, ledger_id: "ledger_a", origin_key: "origin-shared")
+      assert {:error, @reuse} = Fx.post_tx(again)
+      assert Fx.count(schema, "ledger_entry") == 2
+    end
+
+    test "IDM-3 the same (subject, device, client_seq) on A and B posts twice; on one id it conflicts",
+         %{schema: schema} do
+      subject = Ecto.UUID.generate()
+      cmd = %{device_id: "dev-1", client_seq: 3}
+
+      mk = fn ledger_id ->
+        receipt(schema, ["a", "l"], 1, ledger_id: ledger_id, subject_id: subject, command: cmd)
+      end
+
+      assert {:ok, _} = Fx.post_tx(mk.("ledger_a"))
+      assert {:ok, %{duplicate: false}} = Fx.post_tx(mk.("ledger_b"))
+      assert Fx.count(schema, "ledger_entry") == 2
+
+      assert {:error, {:ledger_refused, :client_seq_conflict, "client_seq_conflict", %{}}} =
+               Fx.post_tx(mk.("ledger_a"))
+
+      assert Fx.count(schema, "ledger_entry") == 2
+    end
+
+    defp two_ledgers(schema) do
       cap_1 = receipt(schema, ["a", "l"], 1, ledger_id: "ledger_a", origin_key: "origin-i1")
 
       cap_2 =
@@ -189,28 +247,7 @@ defmodule Letflow.Ledger.IdempotencyTest do
           command: %{client_op_id: cap_1.command.client_op_id}
         )
 
-      {t1, pid1} =
-        H.start_worker(fn ->
-          Repo.transaction(fn ->
-            {:ok, _} = Ledger.post(cap_1)
-            send(parent, :first_posted)
-
-            receive do
-              :commit -> :ok
-            after
-              H.await_ms() -> Repo.rollback(:timeout)
-            end
-          end)
-        end)
-
-      assert_receive :first_posted, 10_000
-      {t2, pid2} = H.start_worker(fn -> Fx.post_tx(cap_2) end)
-      H.await_blocked_by(pid2, [pid1])
-      send(t1.pid, :commit)
-
-      assert {{:ok, :ok}, _} = Task.await(t1, H.await_ms())
-      assert {{:error, @reuse}, _} = Task.await(t2, H.await_ms())
-      assert Fx.count(schema, "ledger_entry") == 1
+      {cap_1, cap_2}
     end
   end
 end

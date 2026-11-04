@@ -118,19 +118,15 @@ defmodule Letflow.Ledger.TenancyTest do
       assert Enum.count(found, &(&1 == :rescue)) == 2
     end
 
-    test "the ledger modules interpolate no SQL, rescue once, never log" do
+    test "the ledger modules interpolate no SQL, rescue nothing, never log" do
       files = Path.wildcard("lib/letflow/ledger.ex") ++ Path.wildcard("lib/letflow/ledger/*.ex")
       assert length(files) >= 4
 
       findings = for file <- files, f <- scan(File.read!(file)), do: {file, f}
       assert Enum.reject(findings, &(elem(&1, 1) == :rescue)) == []
 
-      rescues = for {file, :rescue} <- findings, do: file
-      assert rescues == ["lib/letflow/ledger.ex"]
-
-      # the single rescue is the entry insert; it re-raises what it does not map
-      source = File.read!("lib/letflow/ledger.ex")
-      assert source =~ ~r/rescue\s+e in Postgrex\.Error ->.*reraise e, __STACKTRACE__/s
+      # REQ-692: the entry insert no longer rescues; write_posting/2 returns contract atoms only
+      assert for({file, :rescue} <- findings, do: file) == []
     end
 
     defp scan(source) do

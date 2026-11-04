@@ -945,7 +945,10 @@ defmodule Letflow.TenantProvisioning do
      "20261031200001_create_ledger_triggers.exs"},
     # REQ-640 / GH #3578: empty per-tenant journal table, no existing row altered.
     {20_261_101_100_001, Letflow.Repo.Migrations.CreateTenantModuleUpgrades,
-     "20261101100001_create_tenant_module_upgrades.exs"}
+     "20261101100001_create_tenant_module_upgrades.exs"},
+    # REQ-692 / GH #3725: the four entry unique keys gain ledger_id first. No table or column added, no row altered.
+    {20_261_104_100_001, Letflow.Repo.Migrations.CreateLedgerPerLedgerIdKeys,
+     "20261104100001_create_ledger_per_ledger_id_keys.exs"}
   ]
 
   @doc """

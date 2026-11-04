@@ -15,6 +15,8 @@ defmodule Letflow.LedgerBoundariesTest do
     paths = CB.ledger_scan_paths()
     assert "priv/repo/migrations/20261031100001_create_ledger_tables.exs" in paths
     assert "priv/repo/migrations/20261031200001_create_ledger_triggers.exs" in paths
+    assert "priv/repo/migrations/20261104100001_create_ledger_per_ledger_id_keys.exs" in paths
+    assert "lib/letflow/ledger/locked_plan.ex" in paths
     assert CB.ledger_rule_violations(Enum.map(paths, &{&1, File.read!(&1)})) == []
   end
 
