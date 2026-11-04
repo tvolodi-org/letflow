@@ -292,7 +292,10 @@ defmodule Letflow.Ledger.GapFreeTest do
     end
 
     test "T-GF-4 the ledger sources hold exactly two literal SQL statements" do
-      results = Enum.map(@files, &scan(File.read!(&1)))
+      {storage, posting_files} =
+        Enum.split_with(@files, &(&1 == "lib/letflow/ledger/storage.ex"))
+
+      results = Enum.map(posting_files, &scan(File.read!(&1)))
       assert Enum.flat_map(results, &elem(&1, 0)) == []
 
       assert results |> Enum.flat_map(&elem(&1, 1)) |> Enum.sort() ==
@@ -300,6 +303,14 @@ defmodule Letflow.Ledger.GapFreeTest do
                  "SELECT current_setting('transaction_isolation')",
                  "SELECT clock_timestamp()"
                ])
+
+      # REQ-710: Storage is the partition catalog reader and creator, never called from a posting.
+      # Its two literal statements are the catalog read and the advisory lock, both bound.
+      [{storage_bad, storage_lits}] = Enum.map(storage, &scan(File.read!(&1)))
+      assert storage_bad == []
+      assert length(storage_lits) == 2
+      assert Enum.any?(storage_lits, &(&1 =~ "pg_advisory_xact_lock(hashtextextended($1, 0))"))
+      refute Enum.any?(storage_lits, &(&1 =~ ~r/\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE)\b/i))
     end
 
     test "T-GF-4 the scan bites on an interpolated query and a sequence" do

@@ -948,7 +948,11 @@ defmodule Letflow.TenantProvisioning do
      "20261101100001_create_tenant_module_upgrades.exs"},
     # REQ-692 / GH #3725: the four entry unique keys gain ledger_id first. No table or column added, no row altered.
     {20_261_104_100_001, Letflow.Repo.Migrations.CreateLedgerPerLedgerIdKeys,
-     "20261104100001_create_ledger_per_ledger_id_keys.exs"}
+     "20261104100001_create_ledger_per_ledger_id_keys.exs"},
+    # REQ-710: replaces the four ledger tables with the partitioned shape (b); refuses to run when a
+    # ledger table has a row, so no existing row is altered.
+    {20_261_104_200_001, Letflow.Repo.Migrations.CreateLedgerPartitionedTables,
+     "20261104200001_create_ledger_partitioned_tables.exs"}
   ]
 
   @doc """

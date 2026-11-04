@@ -90,11 +90,14 @@ defmodule Letflow.TenantModuleUpgradesMigrationTest do
     schema: schema,
     tenant_id: tenant_id
   } do
-    # later migrations append after it (REQ-692 added CreateLedgerPerLedgerIdKeys)
+    # later migrations append after it (REQ-692 added CreateLedgerPerLedgerIdKeys, REQ-710 CreateLedgerPartitionedTables)
     manifest = TenantProvisioning.tenant_scoped_migrations()
-    assert {@version, CreateTenantModuleUpgrades} = Enum.at(manifest, -2)
+    assert {@version, CreateTenantModuleUpgrades} = Enum.at(manifest, -3)
 
     assert {20_261_104_100_001, Letflow.Repo.Migrations.CreateLedgerPerLedgerIdKeys} =
+             Enum.at(manifest, -2)
+
+    assert {20_261_104_200_001, Letflow.Repo.Migrations.CreateLedgerPartitionedTables} =
              List.last(manifest)
 
     assert column_names(schema) != []

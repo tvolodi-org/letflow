@@ -172,7 +172,36 @@ defmodule Letflow.Ledger.IdempotencyTest do
 
       refute inspect(r) =~ "ledger_entry"
       assert Ledger.unique_violation_refusal(violation("some_other_key")) == :unknown
+
+      assert Ledger.unique_violation_refusal(%Postgrex.Error{
+               postgres: %{code: :unique_violation}
+             }) == :unknown
+
       assert Ledger.unique_violation_refusal(%RuntimeError{message: "x"}) == :unknown
+    end
+
+    test "(1b) REQ-710: a partition's index name is the parent name plus 16 lower-case hex" do
+      h = "509bcf065e86b593"
+
+      for c <- ["ledger_entry_subject_op_key", "ledger_entry_origin_key_key"] do
+        assert Ledger.unique_violation_refusal(violation(c <> "_" <> h)) == {:error, @reuse}
+      end
+
+      assert {:error, {:ledger_refused, :client_seq_conflict, _, _}} =
+               Ledger.unique_violation_refusal(
+                 violation("ledger_entry_device_seq_unique_index_" <> h)
+               )
+
+      for bad <- [
+            "ledger_entry_subject_op_key_",
+            "ledger_entry_subject_op_key_509BCF065E86B593",
+            "ledger_entry_subject_op_key_509bcf065e86b59",
+            "ledger_entry_subject_op_key_509bcf065e86b593ab",
+            "ledger_entry_device_seq_unique_index_zz",
+            "x_ledger_entry_origin_key_key"
+          ] do
+        assert Ledger.unique_violation_refusal(violation(bad)) == :unknown, bad
+      end
     end
 
     test "(2) the same op on two ledger ids: two entries, posting_seq 1 in each counter", %{
