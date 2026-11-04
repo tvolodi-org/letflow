@@ -86,6 +86,7 @@ defmodule Letflow.Entities.HandlerWrites do
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.RecordAccess
+  alias Letflow.Entities.ReferenceCheck
   alias Letflow.Entities.Records
   alias Letflow.Entities.StepSource
   alias Letflow.Entities.StepWrites
@@ -307,6 +308,9 @@ defmodule Letflow.Entities.HandlerWrites do
 
     with :ok <- check_type_access(ctx, entity_type),
          :ok <- check_restrictions(ctx, entity_type, field_values),
+         # REQ-636: a guard; check_target/2 admits only the handler module's managed types, which
+         # the check skips (the owner validates its own references).
+         :ok <- ReferenceCheck.check(entity_type, field_values, ctx.prefix),
          {:ok, source} <-
            StepSource.new(
              Map.merge(origin_attrs, %{
