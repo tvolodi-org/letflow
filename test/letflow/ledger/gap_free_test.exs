@@ -204,6 +204,35 @@ defmodule Letflow.Ledger.GapFreeTest do
       assert Digest.chain_hash(@golden_chain_first, @golden_digest) == @golden_chain_second
     end
 
+    test "T-GF-1c golden vector of a reversal (reverses_entry_id is covered; golden_rev.py)" do
+      header = %{
+        golden_header()
+        | id: "11111111-1111-1111-1111-111111111111",
+          posting_seq: 2,
+          cause: "reversal",
+          sign_rule: "reversal",
+          client_op_id: "op-2",
+          origin_key: "origin-2",
+          leg_count: 1
+      }
+
+      header =
+        Map.merge(header, %{
+          reverses_entry_id: "44444444-4444-4444-4444-444444444444",
+          reason_code: "r1"
+        })
+
+      leg = %{hd(golden_legs()) | quantity: Decimal.new("-10.5")}
+      digest = Digest.entry_digest(header, [leg])
+      assert digest == "9d20e395ced9ad94365880a1f2cb57b04fbcfe35cbaade43b350ea3e7d494013"
+
+      assert Digest.chain_hash(@golden_chain_first, digest) ==
+               "9be93b4d77427b15ddd3b6360187168e1ad543c4fed9a28665e4be80d2b22bf4"
+
+      other = %{header | reverses_entry_id: "55555555-5555-5555-5555-555555555555"}
+      assert Digest.entry_digest(other, [leg]) != digest
+    end
+
     test "T-GF-1c every column class changes the digest; attrs key order does not" do
       base = Digest.entry_digest(golden_header(), golden_legs())
       [leg1, leg2] = golden_legs()

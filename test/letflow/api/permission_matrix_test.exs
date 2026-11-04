@@ -313,6 +313,18 @@ defmodule Letflow.Api.PermissionMatrixTest do
   # --- T9 fixture scan --------------------------------------------------------------------
 
   describe "T9 AC2: fixture_permissions/1" do
+    test "REQ-684: a ledger registration's permissions MAP is skipped, the list is scanned" do
+      source = """
+      defmanifest(
+        permissions: [:FxA, :FxB],
+        ledger: %{"x" => %{permissions: %{post: :FxA, reverse: :FxB}}}
+      )
+      """
+
+      assert PermissionMatrix.fixture_permissions([{"x.ex", source}]) ==
+               {:ok, MapSet.new(["FxA", "FxB"])}
+    end
+
     test "the scan of the real test/support/modules sources is a superset of the fixtures' atoms" do
       sources =
         "test/support/modules/**/*.{ex,exs}"
