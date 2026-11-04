@@ -22,7 +22,7 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
   Assumptions, owner may change at GATE B: prefixes `TRF`, `HOV`, `RET`.
   """
 
-  @receipt_keys ~w(org_unit_id location_id responsible_id event_time counterparty_id note)
+  @receipt_keys ~w(org_unit_id location_id responsible_id event_time counterparty_id note supplier_document_ref received_on)
   @two_side_common ~w(org_unit_id event_time note from_location_id from_responsible_id)
   @transfer_keys @two_side_common ++ ~w(to_org_unit_id to_location_id to_responsible_id)
   @return_keys @two_side_common ++ ~w(from_org_unit_id to_location_id to_responsible_id)

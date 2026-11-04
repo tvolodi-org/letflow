@@ -89,7 +89,7 @@ defmodule Letflow.Modules.Stock.TwoSideIssueTest do
     assert %{"reason" => "unit_not_valid", "line_no" => 2} = body
 
     lot_line = %{
-      "catalog_item_id" => ctx.ma.item,
+      "catalog_item_id" => ctx.ma.lot_item,
       "catalog_uom_id" => ctx.ma.uom,
       "catalog_lot_id" => ctx.m2.lot,
       "quantity" => "1"

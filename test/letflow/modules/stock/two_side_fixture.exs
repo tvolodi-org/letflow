@@ -18,11 +18,11 @@ defmodule Letflow.StockTwoSideFixture do
   @doc "The second set of masters of the same tenant (its item and unit of measure are not used)."
   def b2!(ctx), do: D.masters!(ctx.schema)
 
-  @doc "The lines: item with lot and without, quantities `q1` and `q2`."
+  @doc "The lines: the lot-tracked item with its lot, and the plain item without lot (REQ-714 tracking check)."
   def lines(m, q1 \\ "4", q2 \\ "1") do
     [
       %{
-        "catalog_item_id" => m.item,
+        "catalog_item_id" => m.lot_item,
         "catalog_uom_id" => m.uom,
         "catalog_lot_id" => m.lot,
         "quantity" => q1

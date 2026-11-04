@@ -14,6 +14,13 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
   reason and, for a line check, its `line_no`; for a two-sided kind (REQ-721) the from side is checked
   before the to side and a side failure carries `"side"` (`"from"` or `"to"`). A master retired between this check and the posting is not
   caught until L7 (runbook).
+
+  REQ-714 / GH #3747: `received_on/2` refuses a real receipt date after the event day (local date in the
+  constant zone `Asia/Almaty`, read from PostgreSQL because the project has no Elixir tz database;
+  assumption, owner may change at GATE B): `received_on_after_event`. Per line, after the unit check and
+  before the lot-belongs-to check, the lot is checked against the item's tracking policy: `lot_required`,
+  `lot_not_allowed`, `lot_expiry_missing`, `tracking_policy_not_supported` (serial), and `tracking_invalid`
+  as the INV-8 fallback. `received_on` never feeds `event_time`.
   """
 
   alias Letflow.Modules.CatalogItems
@@ -21,8 +28,10 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
   alias Letflow.Modules.Org
   alias Letflow.Modules.Stock
   alias Letflow.Modules.Stock.Documents.Kinds
+  alias Letflow.Repo
 
   @future_seconds 300
+  @receipt_timezone Letflow.Identity.TenantTimezone.default()
 
   @type refusal :: {:error, {String.t(), map()}}
 
@@ -42,6 +51,29 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
       delta > @future_seconds -> {:error, {"event_time_in_future", %{}}}
       delta < -lateness_seconds() -> {:error, {"event_time_too_old", %{}}}
       true -> :ok
+    end
+  end
+
+  @doc """
+  The real receipt date may not be after the event day in the module zone. `nil` is always fine.
+  A failed zone query is `{:error, :internal}` (nothing is issued).
+  """
+  @spec received_on(String.t() | nil, String.t()) :: :ok | refusal() | {:error, :internal}
+  def received_on(nil, _event_time), do: :ok
+
+  def received_on(received_on, event_time) when is_binary(received_on) do
+    with {:ok, at, _offset} <- DateTime.from_iso8601(event_time),
+         {:ok, wanted} <- Date.from_iso8601(received_on),
+         {:ok, %{rows: [[%Date{} = day]]}} <-
+           Repo.query("SELECT (($1::timestamptz) AT TIME ZONE $2)::date", [
+             at,
+             @receipt_timezone
+           ]) do
+      if Date.compare(wanted, day) == :gt,
+        do: {:error, {"received_on_after_event", %{}}},
+        else: :ok
+    else
+      _failed -> {:error, :internal}
     end
   end
 
@@ -100,9 +132,62 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
         {:halt, {:error, {"lot_not_valid", %{"line_no" => line.line_no}}}}
 
       true ->
-        {:cont, :ok}
+        tracking_then_lot(prefix, line)
     end
   end
+
+  defp tracking_then_lot(prefix, line) do
+    with :ok <- tracking(prefix, line),
+         true <-
+           not is_binary(line.catalog_lot_id) or
+             CatalogItems.item_lot_valid?(prefix, line.catalog_item_id, line.catalog_lot_id) do
+      {:cont, :ok}
+    else
+      false -> {:halt, {:error, {"lot_not_valid", %{"line_no" => line.line_no}}}}
+      {:error, _} = error -> {:halt, error}
+    end
+  end
+
+  defp tracking(prefix, line) do
+    refusal = fn reason -> {:error, {reason, %{"line_no" => line.line_no}}} end
+
+    policy =
+      case CatalogItems.lookup(prefix, line.catalog_item_id) do
+        {:ok, %{"tracking_policy" => policy}} when is_binary(policy) -> policy
+        _none -> "none"
+      end
+
+    if policy == "serial" do
+      refusal.("tracking_policy_not_supported")
+    else
+      capture = capture(prefix, policy, line.catalog_lot_id)
+
+      case CatalogItems.validate_capture(prefix, line.catalog_item_id, capture) do
+        :ok -> :ok
+        other -> refusal.(tracking_reason(other))
+      end
+    end
+  end
+
+  defp capture(prefix, "expiry", lot_id) when is_binary(lot_id) do
+    expiry =
+      case CatalogItems.lookup(prefix, lot_id) do
+        {:ok, %{"entity_type" => "catalog_lot"} = lot} -> lot["expiry_date"]
+        _other -> nil
+      end
+
+    %{"lot" => lot_id, "expiry" => expiry}
+  end
+
+  defp capture(_prefix, _policy, lot_id), do: %{"lot" => lot_id}
+
+  @doc false
+  @spec tracking_reason(term()) :: String.t()
+  def tracking_reason({:error, {:capture_required, "lot"}}), do: "lot_required"
+  def tracking_reason({:error, {:capture_not_allowed, "lot"}}), do: "lot_not_allowed"
+  def tracking_reason({:error, {:capture_required, "expiry"}}), do: "lot_expiry_missing"
+  def tracking_reason({:error, {:capture_invalid, "expiry"}}), do: "lot_expiry_missing"
+  def tracking_reason(_other), do: "tracking_invalid"
 
   defp check(true, _reason), do: :ok
   defp check(false, reason), do: {:error, {reason, %{}}}

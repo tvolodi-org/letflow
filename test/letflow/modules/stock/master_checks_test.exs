@@ -118,7 +118,7 @@ defmodule Letflow.Modules.Stock.MasterChecksTest do
     lot2 = Cat.lot!(s, item2.record_id, "LOT2#{System.unique_integer([:positive])}")
 
     line = %{
-      "catalog_item_id" => m.item,
+      "catalog_item_id" => m.lot_item,
       "catalog_uom_id" => m.uom,
       "catalog_lot_id" => lot2.record_id,
       "quantity" => "1"

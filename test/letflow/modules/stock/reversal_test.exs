@@ -46,7 +46,9 @@ defmodule Letflow.Modules.Stock.ReversalTest do
 
   defp balance_total(ctx) do
     rows =
-      S.get("/balances?sku=#{ctx.ma.item}", ctx.tok_a) |> P.status!(200) |> Map.fetch!("rows")
+      for sku <- [ctx.ma.lot_item, ctx.ma.item],
+          row <- (S.get("/balances?sku=#{sku}", ctx.tok_a) |> P.status!(200))["rows"],
+          do: row
 
     Enum.reduce(rows, Decimal.new(0), &Decimal.add(Decimal.new(&1["quantity"]), &2))
   end
