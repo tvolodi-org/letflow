@@ -6,8 +6,8 @@ defmodule Letflow.Modules.Stock.Views do
   reaches the wire by itself. No database view, no SQL.
 
   Slot order of `k`: sku, location, org_unit, responsible, lot. An empty responsible or lot is `nil`.
-  The functions have no catch-all clause: a masked leg (scoped reader) cannot reach them because the
-  routes refuse a scoped reader first.
+  A leg the core masks for a scoped reader (REQ-682) keeps exactly `leg_no, quantity, unit_ref,
+  masked: true`; the slot keys are absent, not nil.
   """
 
   @doc "A `stock_balance` view."
@@ -37,6 +37,9 @@ defmodule Letflow.Modules.Stock.Views do
 
   @doc "A `stock_movement_leg` view."
   @spec stock_movement_leg(map()) :: map()
+  def stock_movement_leg(%{masked: true, leg_no: leg_no, quantity: quantity, unit_ref: unit_ref}),
+    do: %{leg_no: leg_no, quantity: quantity, unit_ref: unit_ref, masked: true}
+
   def stock_movement_leg(%{
         leg_no: leg_no,
         k: k,
