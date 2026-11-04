@@ -961,6 +961,12 @@ defmodule Letflow.Api.PermissionMatrix do
   end
 
   # Walks the AST carrying the nearest enclosing line (a 2-tuple has no meta).
+  #
+  # REQ-684: a ledger registration also has a `permissions:` key, a MAP naming the post, reverse,
+  # read and reconcile atoms. It is not the manifest's permission list; every atom it names must
+  # be in that list (Catalog rule 18), which this scan already reads, so the map is skipped.
+  defp collect_permissions({:permissions, {:%{}, _meta, _pairs}}, _line, acc), do: {:ok, acc}
+
   defp collect_permissions({:permissions, value}, line, acc) do
     if is_list(value) and Enum.all?(value, &is_atom/1),
       do: {:ok, value ++ acc},
