@@ -193,7 +193,7 @@ defmodule Letflow.CiSelectTestsTest do
 
   test "test_parallel.sh knows the plan hook and parses" do
     path = Path.join(@root, "scripts/test_parallel.sh")
-    assert {_, 0} = System.cmd("bash", ["-n", path])
+    assert {_, 0} = System.cmd("bash", ["-n", path], env: Letflow.Test.TestParallelEnv.cmd_env())
     assert File.read!(path) =~ "TEST_PARALLEL_PLAN"
   end
 end
