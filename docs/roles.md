@@ -35,6 +35,7 @@ scenario file. A tenant-side actor holds TENANT_ADMIN or a tenant role, never PL
 - Scope: tenant.
 - Who holds it: ordinary staff who do assigned tasks.
 - Does: read and complete their tasks, read definitions, query entity data they may see.
+- Instance reads (GH #2932): `GET /instances/:id` and `/instances/:id/history` answer 404 unless the caller started the instance or holds one of its tasks (assigned to the user, one of their groups or one of their roles). Operators, designers, admins and auditors read tenant-wide.
 - Must not: start or cancel instances, assign tasks, change anything else.
 
 ## AGENT_RUNNER
