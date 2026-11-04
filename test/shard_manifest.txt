@@ -1135,3 +1135,5 @@
 7 test/letflow/modules/catalog_upgrade_shapes_test.exs 5746.12
 11 test/letflow/modules/catalog_items/tracking_policy_test.exs 5000
 11 test/letflow/modules/catalog_items/tracking_policy_cross_tenant_test.exs 5000
+5 test/letflow/modules/locations/tree_audit_test.exs 5746.12
+13 test/letflow/modules/catalog_items/import_audit_test.exs 5746.12
