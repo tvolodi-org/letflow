@@ -98,6 +98,73 @@ defmodule Letflow.Definitions.ModuleWritesLedgerTest do
     assert ledger_codes(:SERVICE_TASK, [line("plain"), line("plain")]) == []
   end
 
+  # REQ-688 (M-1..M-4): the consent flag lifts the SERVICE_TASK refusal.
+  defp consent_codes(consent, writes) do
+    attributes = if consent == :absent, do: %{}, else: %{"ledger_post_consent" => consent}
+
+    %Graph.Node{id: "svc", node_type: :SERVICE_TASK, attributes: attributes}
+    |> ModuleWrites.violations(writes, %{}, 0, [], "tenant_x")
+    |> Enum.filter(&(&1.code in @ledger_codes))
+    |> Enum.map(&{&1.code, &1.index})
+  end
+
+  test "M-1 a SERVICE_TASK posting line (one or two) with the flag true is accepted" do
+    assert consent_codes(true, [line("plain"), line("post_alpha")]) == []
+    assert consent_codes(true, [line("post_alpha"), line("post_beta")]) == []
+  end
+
+  test "M-2 anything but the boolean true still refuses (false, text, number, absent)" do
+    for flag <- [false, "true", 1, nil, :absent] do
+      assert consent_codes(flag, [line("post_alpha")]) ==
+               [{:module_writes_ledger_on_service_task, 0}],
+             "flag #{inspect(flag)}"
+    end
+  end
+
+  test "M-3 the flag does not lift the posting limits on a SERVICE_TASK" do
+    assert consent_codes(true, [line("post_alpha"), line("post_alpha")]) ==
+             [{:module_writes_duplicate_ledger_posting, 1}]
+
+    three = [line("post_alpha"), line("post_beta"), line("post_alpha")]
+    assert {:module_writes_too_many_ledger_postings, 2} in consent_codes(true, three)
+  end
+
+  test "M-4 the flag on a non-posting node, and on a HUMAN_TASK, is ignored" do
+    assert consent_codes(true, [line("plain")]) == []
+
+    node = %Graph.Node{
+      id: "ht",
+      node_type: :HUMAN_TASK,
+      attributes: %{"ledger_post_consent" => true}
+    }
+
+    assert [] ==
+             node
+             |> ModuleWrites.violations([line("post_alpha")], %{}, 0, [], "tenant_x")
+             |> Enum.filter(&(&1.code in @ledger_codes))
+  end
+
+  test "M-5 ledger_consent_nodes lists sorted consented SERVICE posting nodes only" do
+    consented = fn id, flag, type ->
+      node = %Graph.Node{id: id, node_type: type, attributes: %{"ledger_post_consent" => flag}}
+      {node, [line("post_alpha")]}
+    end
+
+    declared = [
+      consented.("b", true, :SERVICE_TASK),
+      consented.("a", true, :SERVICE_TASK),
+      consented.("c", false, :SERVICE_TASK),
+      consented.("d", true, :HUMAN_TASK),
+      {%Graph.Node{
+         id: "e",
+         node_type: :SERVICE_TASK,
+         attributes: %{"ledger_post_consent" => true}
+       }, [line("plain")]}
+    ]
+
+    assert ModuleWrites.ledger_consent_nodes(declared) == ["a", "b"]
+  end
+
   test "T-AC-09 an unresolved handler or module adds no ledger code" do
     ghost = %{line("post_alpha") | "handler" => "ghost"}
     other = %{line("post_alpha") | "module" => "fixture_ledger"}

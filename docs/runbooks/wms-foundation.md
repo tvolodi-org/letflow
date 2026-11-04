@@ -32,7 +32,7 @@ was written.
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1292`; prefix `@step_key_prefix`, line 368). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:767` and `lib/letflow/entities/handler_writes.ex:300`.
+   `lib/letflow/entities/step_writes.ex:813` and `lib/letflow/entities/handler_writes.ex:327`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1235`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -159,7 +159,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1292`; prefix `@step_key_prefix`, line 368). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:767` and `lib/letflow/entities/handler_writes.ex:300`.
+   `lib/letflow/entities/step_writes.ex:813` and `lib/letflow/entities/handler_writes.ex:327`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1235`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -423,3 +423,43 @@ Each limit names the GH issue or the code that holds it; paths are cited without
     batch entry is 422 `entry_invalid` with its `index` and `entry_reason`, any other refusal is 422 with a
     `reason`. A tenant that installed codes before 0.2.0 gets the routes without an upgrade (they come from the
     code manifest); the scan route is not built (`lib/letflow/modules/codes/router.ex`).
+
+## Stock module limits
+
+Module `stock` (GH #3707 / REQ-687, slice L4 of the stock ledger, decision 0073, owner decisions D-085 to D-087)
+as it is on main: one ledger registration, a pure posting policy, two views and three read routes. Each limit
+names the GH issue or the code that holds it; paths are cited without line numbers. Numbers marked
+"assumption, owner may change at GATE B" are owner assumptions, not decisions.
+
+1. **No master checks until slice L7.** The module has no gather step and checks no item, location, unit,
+   org unit, employee or lot against a master (decision 0073 D6, D7 D-P and OQ-20, GH #3707). A mistyped id
+   makes a new balance key whose first-touch unit pin is permanent.
+2. **Pilot gate, quoted from decision 0073:** "The stock module is NOT enabled for a customer tenant until L6
+   AND L7 are done, and serial-tracked goods stay out of the pilot until OQ-23 is resolved." No seed, pack or
+   QA fixture installs the module (`docs/migration/decisions/0073-domain-neutral-ledger-primitive.md`).
+3. **OQ-13 and OQ-23 are not decided.** There is no serial slot and no warehouse or zone scoping of
+   postings; serial-tracked goods stay out of the pilot (GH #3707).
+4. **No posting path in the product yet.** The stock documents of REQ-679 are not built, so nothing posts
+   to ledger id `stock`; the SERVICE origin is refused until slice L5 (REQ-688, GH #3705).
+5. **Scoped readers and API tokens get 404 from every read route.** `Letflow.Ledger.authorize/3` answers
+   `:error` for an API token, and `lib/letflow/modules/stock/router.ex` answers a reader whose scope is not
+   tenant-wide with the same 404 on balances and movements, until the scoped read of REQ-682 (plan task P25);
+   `reconcile` is tenant-wide only (GH #3733).
+6. **No role grants; OQ-11 is open.** Only TENANT_ADMIN and PLATFORM_ADMIN hold `StockPost`, `StockReverse`,
+   `StockRead` and `StockReconcile` (`docs/roles.md`); the owner decides any widening (GH #3707).
+7. **Reconcile reads one chunk per call.** `GET /api/v1/modules/stock/reconcile` runs one chunk; a client loops
+   on `next_cursor` until it is null, and only the last result carries `chain_check` and `audit_check`
+   (`lib/letflow/ledger/reconcile.ex`). A statement timeout is 503 `ledger_read_timeout`, a busy lock 409
+   `reconcile_busy`.
+8. **No export of ledger data.** CSV or XLSX export and its cell neutralisation are a later requirement
+   (REQ-677, GH #3707).
+9. **The T-LD-1 throughput floor is a pilot condition.** The floor of note 7.6 (REQ-686 criterion 9) is not
+   checked by this module (`lib/letflow/design/gh2657-wms-stock-ledger-core.md`, GH #3707).
+10. **Event time of an entry follows the core rule.** The policy ignores an `event_time` key; the entry time
+    is the core's `client_event_time` (posting time online) (`lib/letflow/modules/stock/ledger_policy/declare.ex`).
+11. **The registry of ledger ids is built at boot.** `Letflow.Modules.Catalog.ledger_registry/0` is stored in
+    the app env `:ledger_registry` by `lib/letflow/application.ex` when unset; routes still answer 404 for a
+    tenant that has not installed the module (GH #3707).
+12. **Assumptions, owner may change at GATE B:** the default tenant time zone Asia/Almaty, the speed-test
+    volumes and p95 targets, the 96-hour lateness, the six causes and the slot order
+    `sku, location, org_unit, responsible, lot` (`lib/letflow/modules/stock/stock.ex`).

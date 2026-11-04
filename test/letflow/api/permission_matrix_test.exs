@@ -143,7 +143,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
            Letflow.Modules.Org.manifest().permissions ++
            Letflow.Modules.CatalogItems.manifest().permissions ++
            Letflow.Modules.Locations.manifest().permissions ++
-           Letflow.Modules.Codes.manifest().permissions)
+           Letflow.Modules.Codes.manifest().permissions ++
+           Letflow.Modules.Stock.manifest().permissions)
         |> Enum.map(&Atom.to_string/1)
         |> Enum.sort()
 
@@ -157,7 +158,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
                "catalog_items" => Letflow.Modules.CatalogItems.manifest().version,
                "procurement" => Letflow.Modules.Procurement.manifest().version,
                "locations" => Letflow.Modules.Locations.manifest().version,
-               "codes" => Letflow.Modules.Codes.manifest().version
+               "codes" => Letflow.Modules.Codes.manifest().version,
+               "stock" => Letflow.Modules.Stock.manifest().version
              }
 
       for role <- golden.roles do
@@ -310,6 +312,105 @@ defmodule Letflow.Api.PermissionMatrixTest do
     end
   end
 
+  describe "REQ-687 criterion 4: a ledger registration's permissions count as referenced by its owner" do
+    defp ledger_manifest(id, permissions, routes \\ []) do
+      %{
+        id: id,
+        route_policies: routes,
+        ledger: %{id => %{permissions: permissions}}
+      }
+    end
+
+    defp refs(manifests),
+      do: PermissionMatrix.context_from_manifests(manifests, MapSet.new()).route_refs
+
+    test "T-PM-1: a new atom named only in its owner's ledger registration is pre_approved" do
+      refs = refs([ledger_manifest("m", %{post: :ModNew, read: :ModX}, [{"GET", "/a", :ModX}])])
+      assert refs["ModNew"] == ["m"]
+
+      report =
+        PermissionMatrix.classify(
+          baseline(),
+          with_new_atom("ModNew", %{}),
+          ctx(%{route_refs: Map.put(refs, "ModX", ["m"])})
+        )
+
+      assert report.labels == [:pre_approved]
+      assert report.failures == []
+    end
+
+    test "T-PM-2: a new atom named neither in routes nor in a registration is :not_routed_by_owner" do
+      refs = refs([ledger_manifest("m", %{read: :Other}, [{"GET", "/a", :ModX}])])
+      refute Map.has_key?(refs, "ModNew")
+
+      report =
+        PermissionMatrix.classify(
+          baseline(),
+          with_new_atom("ModNew", %{}),
+          ctx(%{route_refs: refs})
+        )
+
+      assert report.failures == [
+               {:widening, @pa, "ModNew", :not_routed_by_owner},
+               {:widening, @ta, "ModNew", :not_routed_by_owner}
+             ]
+    end
+
+    test "T-PM-3: a new atom also named in another module's registration is :referenced_by_other_module" do
+      refs =
+        refs([ledger_manifest("m", %{post: :ModNew}), ledger_manifest("other", %{post: :ModNew})])
+
+      assert refs["ModNew"] == ["m", "other"]
+
+      report =
+        PermissionMatrix.classify(
+          baseline(),
+          with_new_atom("ModNew", %{}),
+          ctx(%{route_refs: refs})
+        )
+
+      assert report.failures == [
+               {:widening, @pa, "ModNew", :referenced_by_other_module},
+               {:widening, @ta, "ModNew", :referenced_by_other_module}
+             ]
+    end
+
+    test "T-PM-4: a role grant of such an atom to a non-admin role still fails" do
+      refs = refs([ledger_manifest("m", %{post: :ModNew})])
+
+      report =
+        PermissionMatrix.classify(
+          baseline(),
+          with_new_atom("ModNew", %{{@cand, "ModNew"} => :core}),
+          ctx(%{route_refs: refs})
+        )
+
+      assert report.failures == [{:widening, @cand, "ModNew", :new_atom_non_admin_role}]
+    end
+
+    test "malformed registrations count as none" do
+      manifests = [
+        %{id: "a", route_policies: [], ledger: %{"a" => :nope}},
+        %{id: "b", route_policies: [], ledger: %{"b" => %{permissions: [:x]}}},
+        %{id: "c", route_policies: [], ledger: :nope},
+        %{id: "d", route_policies: []}
+      ]
+
+      assert refs(manifests) == %{}
+    end
+
+    test "T-PM-5: the golden holds the four stock atoms for TENANT_ADMIN and PLATFORM_ADMIN only" do
+      golden = File.read!("priv/permission_matrix/effective.golden")
+
+      for atom <- ~w(StockPost StockReverse StockRead StockReconcile) do
+        rows = golden |> String.split("\n") |> Enum.filter(&String.contains?(&1, " #{atom} "))
+        allowed = for row <- rows, String.contains?(row, " true "), do: hd(String.split(row, " "))
+        assert Enum.sort(allowed) == ["PLATFORM_ADMIN", "TENANT_ADMIN"]
+        assert length(rows) == 8
+      end
+    end
+  end
+
   # --- T9 fixture scan --------------------------------------------------------------------
 
   describe "T9 AC2: fixture_permissions/1" do
@@ -342,7 +443,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
              Letflow.Modules.Org,
              Letflow.Modules.CatalogItems,
              Letflow.Modules.Locations,
-             Letflow.Modules.Codes
+             Letflow.Modules.Codes,
+             Letflow.Modules.Stock
            ])
         |> Enum.flat_map(& &1.manifest().permissions)
         |> MapSet.new(&Atom.to_string/1)
@@ -1002,7 +1104,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
                Letflow.Modules.CatalogItems,
                Letflow.Modules.Procurement,
                Letflow.Modules.Locations,
-               Letflow.Modules.Codes
+               Letflow.Modules.Codes,
+               Letflow.Modules.Stock
              ]
 
       # The :dev read is done by the CI step itself: config/dev.exs raises when
@@ -1013,7 +1116,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
         Letflow.Modules.CatalogItems,
         Letflow.Modules.Procurement,
         Letflow.Modules.Locations,
-        Letflow.Modules.Codes
+        Letflow.Modules.Codes,
+        Letflow.Modules.Stock
       ]
 
       assert PermissionMatrix.check_module_list(
