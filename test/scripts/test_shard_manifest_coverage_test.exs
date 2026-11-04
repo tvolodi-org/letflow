@@ -21,7 +21,7 @@ defmodule Letflow.Scripts.TestShardManifestCoverageTest do
   @repo_root Path.expand("../..", __DIR__)
   @manifest Path.join(@repo_root, "test/shard_manifest.txt")
   @partitions_per_shard 4
-  @shards 4
+  @shards 6
   @total @partitions_per_shard * @shards
 
   @fix_command "scripts/test_shard_plan.sh --append test/shard_manifest.txt > new && mv new test/shard_manifest.txt"
