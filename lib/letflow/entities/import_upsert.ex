@@ -43,6 +43,7 @@ defmodule Letflow.Entities.ImportUpsert do
   alias Letflow.Entities.ExternalRef
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.RecordAccess
+  alias Letflow.Entities.ReferenceCheck
   alias Letflow.Entities.Records
   alias Letflow.EventStore.Registry
 
@@ -165,7 +166,7 @@ defmodule Letflow.Entities.ImportUpsert do
   defp upsert_entry(entry, ref, source_record_id, ctx) do
     field_values = Map.get(entry, "field_values", %{})
 
-    case check_restrictions(field_values, ref, ctx) do
+    case check_restrictions(field_values, ref, ctx) |> check_references(field_values, ctx) do
       :ok ->
         attrs = %{
           entity_type: ctx.entity_type,
@@ -220,6 +221,13 @@ defmodule Letflow.Entities.ImportUpsert do
         error
     end
   end
+
+  # REQ-636: a tenant-type line (no module writer) whose reference field names no available record
+  # is refused before the store. A module-managed import validates its own references.
+  defp check_references(:ok, field_values, %{writer: nil} = ctx),
+    do: ReferenceCheck.check(ctx.entity_type, field_values, ctx.prefix)
+
+  defp check_references(result, _field_values, _ctx), do: result
 
   defp check_restrictions(field_values, ref, %{restricted: restricted} = ctx) do
     cond do

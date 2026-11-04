@@ -1431,6 +1431,7 @@ defmodule Letflow.Definitions.SolutionPack do
     "decimal_precision" => :decimal_precision,
     "decimal_scale" => :decimal_scale,
     "decimal_strict" => :decimal_strict,
+    "reference" => :reference,
     "default" => :default,
     "locales" => :locales,
     "search_strategy" => :search_strategy,
