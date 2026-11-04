@@ -131,6 +131,9 @@ defmodule Letflow.Ledger do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Api.Authorization
+  alias Letflow.Api.Scope
+  alias Letflow.Api.Scope.Principal
   alias Letflow.Ledger.Authorized
   alias Letflow.Ledger.Capability
   alias Letflow.Ledger.Digest
@@ -1037,4 +1040,97 @@ defmodule Letflow.Ledger do
       quantity_scale: scale
     })
   end
+
+  # ---- read side (REQ-637 / GH #3559 part B) ---------------------------------------------------
+
+  @doc """
+  The one place the registration of a ledger id comes from (REQ-637 criterion 3, open question 1):
+  `Application.get_env(:letflow, :ledger_registry, %{})`, a map `ledger_id => %{name, registration,
+  read_permission, reconcile_permission}`. The default is empty, so `authorize/3` answers `:error`
+  for every ledger id in production until slice L3 points this function at the manifest catalog.
+  """
+  @spec registration_for(term()) :: {:ok, map()} | :error
+  def registration_for(ledger_id) when is_binary(ledger_id) do
+    case Application.get_env(:letflow, :ledger_registry, %{}) do
+      %{} = registry -> Map.fetch(registry, ledger_id)
+      _other -> :error
+    end
+  end
+
+  def registration_for(_ledger_id), do: :error
+
+  @doc """
+  The only way to get a `Letflow.Ledger.Authorized` value. The principal is built here from the
+  conn (never supplied by the caller); the answer is the bare atom `:error` for every failure
+  (INV-5): unknown ledger id, no principal, any credential other than an interactive one, a role
+  without the registration's permission for `purpose`, a scoped (not tenant-wide) grant, grants
+  that cannot be loaded, a node-expansion failure (`ScopeSetError`, fail closed, INV-8). No log
+  line and no telemetry carries the ledger id or the grants. The prefix is the plug's own.
+  """
+  @spec authorize(Plug.Conn.t(), String.t(), :read | :reconcile) :: {:ok, Authorized.t()} | :error
+  def authorize(%Plug.Conn{} = conn, ledger_id, purpose)
+      when is_binary(ledger_id) and purpose in [:read, :reconcile] do
+    with {:ok, entry} <- registration_for(ledger_id),
+         {:ok, permission} <- permission_for(entry, purpose),
+         {:ok, _conn, %Principal{kind: :user} = principal} <- Scope.principal_from_conn(conn),
+         true <- Enum.any?(principal.roles, &Authorization.role_allows?(&1, permission)),
+         {:ok, :all} <- tenant_wide_set(principal, permission),
+         {:ok, names} <- slot_names(entry) do
+      {:ok,
+       %Authorized{
+         prefix: principal.prefix,
+         ledger_id: ledger_id,
+         registration_name: entry.name,
+         purpose: purpose,
+         slot_names: names
+       }}
+    else
+      _refused -> :error
+    end
+  end
+
+  def authorize(_conn, _ledger_id, _purpose), do: :error
+
+  defp permission_for(entry, purpose) do
+    key = if purpose == :read, do: :read_permission, else: :reconcile_permission
+
+    with %{^key => permission} when is_atom(permission) <- entry,
+         true <- permission in Authorization.permissions() do
+      {:ok, permission}
+    else
+      _no_permission -> :error
+    end
+  end
+
+  # REQ-637: ScopeSetError, fail closed, is the one rescue of the ledger files.
+  defp tenant_wide_set(principal, permission) do
+    Scope.allowed_set(principal, permission)
+  rescue
+    Scope.ScopeSetError -> :error
+  end
+
+  defp slot_names(%{name: name, registration: %{slots: slots}})
+       when is_binary(name) and is_list(slots) and length(slots) <= 8 do
+    names = for %{name: slot} <- slots, is_binary(slot), do: slot
+    if length(names) == length(slots), do: {:ok, names}, else: :error
+  end
+
+  defp slot_names(_entry), do: :error
+
+  @doc """
+  REQ-637 criteria 4 and 5: the balance report of an authorized ledger id on one of two bases,
+  `{:posting_seq, n | :latest}` or `{:event_time, t, n | :latest}`. See `Letflow.Ledger.Read`.
+  Returns `{:ok, report}`, `{:error, :cutoff_in_future}` or `{:error, :invalid_filter}`.
+  """
+  @spec balances(Authorized.t(), tuple(), map(), map()) ::
+          {:ok, map()} | {:error, :cutoff_in_future | :invalid_filter}
+  defdelegate balances(authorized, basis, filters, page), to: Letflow.Ledger.Read
+
+  @doc """
+  REQ-637 criterion 6: the entries of an authorized ledger id in ascending `posting_seq` order.
+  Returns `{:ok, %{rows: [map], next_cursor: term | nil}}` or `{:error, :invalid_filter}`.
+  """
+  @spec entries(Authorized.t(), map(), map()) ::
+          {:ok, %{rows: [map()], next_cursor: term() | nil}} | {:error, :invalid_filter}
+  defdelegate entries(authorized, filters, page), to: Letflow.Ledger.Read
 end

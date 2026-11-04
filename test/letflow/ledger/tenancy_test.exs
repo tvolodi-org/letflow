@@ -118,20 +118,21 @@ defmodule Letflow.Ledger.TenancyTest do
       assert Enum.count(found, &(&1 == :rescue)) == 2
     end
 
-    test "the ledger modules interpolate no SQL, rescue only the reversal backstop, never log" do
+    test "the ledger modules interpolate no SQL, rescue only two named cases, never log" do
       files = Path.wildcard("lib/letflow/ledger.ex") ++ Path.wildcard("lib/letflow/ledger/*.ex")
       assert length(files) >= 4
 
       findings = for file <- files, f <- scan(File.read!(file)), do: {file, f}
       assert Enum.reject(findings, &(elem(&1, 1) == :rescue)) == []
 
-      # REQ-637 part A: one rescue in ledger.ex, the entry insert's unique-index backstop of the
-      # reversal target (maps only that violation to posting_already_reversed, re-raises anything
-      # else). REQ-685 adds two total-function guards: `authority.ex` fails closed when the scope
+      # REQ-637 part A: the entry insert's unique-index backstop of the reversal target.
+      # REQ-637 part B: authorize/3 catching ScopeSetError (fail closed). Both in ledger.ex.
+      # REQ-685 adds two total-function guards: `authority.ex` fails closed when the scope
       # expansion raises its own `ScopeSetError`, and `handler_post.ex` turns a raise of the pure
       # core validation on a malformed policy result into the typed shape refusal.
       assert for({file, :rescue} <- findings, do: file) ==
                [
+                 "lib/letflow/ledger.ex",
                  "lib/letflow/ledger.ex",
                  "lib/letflow/ledger/authority.ex",
                  "lib/letflow/ledger/handler_post.ex"
