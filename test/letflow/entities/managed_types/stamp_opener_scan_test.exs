@@ -68,8 +68,8 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
   @dynamic_sql_files [
     @stamp,
     "lib/letflow/engine.ex",
+    "lib/letflow/entities/record/live_projection.ex",
     "lib/letflow/entities/record/projector.ex",
-    "lib/letflow/entities/records.ex",
     "lib/letflow/entities/step_writes.ex",
     "lib/letflow/event_store/partition_maintenance.ex",
     "lib/letflow/event_store/retention_operations.ex",
