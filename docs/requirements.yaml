@@ -49066,6 +49066,200 @@ requirements:
       - "The asset register entry of item C1 does not exist yet; when it does, an amendment adds it to depends_on."
     depends_on: [REQ-616, REQ-620, REQ-621, REQ-643, REQ-644, REQ-647, REQ-648, REQ-676, REQ-679]
 
+  - id: REQ-703
+    title: "Assets B2 F10: tenant time zone setting, an IANA time zone name in the tenant settings with the default Asia/Almaty, and the start of the next local day as one UTC instant"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3743
+    description: >
+      Phase B of the assets and stock application (the stock register), owner decision D-085 (2026-11-04: build it
+      fast). Source: decision 0078 (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md,
+      REQ-681) D2 (the balance as of a date D is the sum of the legs whose event_time is before 00:00 of the day after
+      D, in the time zone of the tenant), D3 (no tenant time zone setting exists on main: the grep of 0078 D3 finds only
+      a comment in lib/letflow/definitions.ex), Open Q1 and follow-up F10 ("Tenant time zone setting, if Open Q1 is
+      accepted"). Open Q1 is answered by the owner's phase B assumptions (D-086/D-087, 2026-11-04): one tenant time zone
+      setting, default Asia/Almaty. Assumption, owner may change at GATE B: the default tenant time zone is Asia/Almaty.
+      The report field `timezone` that slice L2b states (REQ-637 criterion 5, "the value is read from the tenant record")
+      needs this setting; REQ-704 is the as-of-date read that uses it.
+
+      Where the setting lives. The tenant record's settings document (`tenants.settings`, the custom type
+      Letflow.Identity.TenantSettings in lib/letflow/identity/tenant_settings.ex, closed top-level key vocabulary
+      `@allowed_keys`, today seven keys: app_name logo_url brand_colors locales default_locale signatory_name
+      signatory_title) gains one key, `timezone`. It is written through the existing route PATCH /tenant/settings
+      (lib/letflow/routers/tenant_settings.ex, permission TenantSettingsManage, held by TENANT_ADMIN and by the platform
+      tenant's PLATFORM_ADMIN; the tenant is always the caller's own, from the token, no tenant path parameter) and
+      validated by Letflow.Identity.Tenant.settings_changeset/2 (lib/letflow/identity/tenant.ex) like the REQ-595
+      signatory keys. No migration, no column, no table: the settings document is a platform-table JSON value of the
+      tenant record, not master data, so the master-data storage rule of decision 0076 R6 (D-066) does not apply to it.
+
+      Time zone data. The product has no Elixir time zone database (mix.exs and mix.lock name neither tzdata nor tz), and
+      this entry adds no dependency: names are checked against PostgreSQL's own list (the view
+      pg_catalog.pg_timezone_names) and the local-day boundary is computed by PostgreSQL (`AT TIME ZONE`), with every
+      value bound as a query parameter (INV-7). PostgreSQL's time zone data decides offsets, so a test pins numbers only
+      for zones whose offsets are stable in every current tzdata release (Asia/Tokyo, Europe/Berlin, UTC), never for
+      Asia/Almaty (Kazakhstan moved from UTC+6 to UTC+5 on 2024-03-01, so the numbers depend on the image's tzdata).
+
+      Scope and access (D-067, decision 0076 R7): the tenant record is not an org-scoped type; the setting is one value
+      per tenant, read by every report of the tenant and changed only by a holder of TenantSettingsManage. Tests use fresh
+      tenants only (the existing test helpers create one per test). Existing data: no row is changed; every existing
+      tenant, QA included after auto-CD, has no `timezone` key and reads as Asia/Almaty.
+    acceptance_criteria:
+      - "1. Vocabulary (lib/letflow/identity/tenant_settings.ex): `@allowed_keys` holds exactly the eight keys app_name logo_url brand_colors locales default_locale signatory_name signatory_title timezone. The exact-set test 'REQ-595 A1: the closed vocabulary is exactly the seven keys' in test/letflow/identity/tenant_test.exs is updated to the eight keys (its name says eight), and every other exact-set pin of the seven-key literal is updated: the implementer greps test/ for `signatory_name signatory_title` and lists the hits in the PR."
+      - "2. Validation (Letflow.Identity.Tenant.settings_changeset/2, lib/letflow/identity/tenant.ex; tests in test/letflow/identity/tenant_test.exs): a `timezone` value is accepted when it is a string of 1 to 64 characters equal to a `name` of pg_catalog.pg_timezone_names (one parameterized query, run only when the key is present), or nil, which clears it. Each of these is refused with one error on :settings whose text is exactly 'timezone must be an IANA time zone name' and nothing is stored: 'Mars/Olympus', 'ALMT' (an abbreviation, not a name), an empty string, a 65-character string, the integer 5. 'Asia/Almaty', 'Asia/Tokyo', 'Europe/Berlin' and 'UTC' are accepted. The moduledoc of settings_changeset/2 lists the key and its rule next to the REQ-595 keys."
+      - "3. Reader (new file lib/letflow/identity/tenant_timezone.ex, module Letflow.Identity.TenantTimezone; tests in test/letflow/identity/tenant_timezone_test.exs): default/0 returns 'Asia/Almaty' (one module attribute, the only place the default is written in lib/); of/1 takes a %Letflow.Identity.Tenant{} and returns its settings 'timezone' value when set and default/0 otherwise (also when settings is nil); a test covers a tenant with nil settings, a tenant with settings but no timezone key, and a tenant set to 'Asia/Tokyo'."
+      - "4. Local-day boundary (same module and test file): start_of_next_day/2 has the spec start_of_next_day(Date.t(), String.t()) :: {:ok, DateTime.t()} | {:error, :invalid_timezone}. It returns the UTC instant of 00:00 of the day after the date in the zone, computed by PostgreSQL from the bound parameters as (($1::date + 1)::timestamp AT TIME ZONE $2), with microsecond precision and time zone Etc/UTC. Pinned results: ~D[2026-11-03] in 'Asia/Tokyo' is ~U[2026-11-03 15:00:00.000000Z]; ~D[2026-11-03] in 'UTC' is ~U[2026-11-04 00:00:00.000000Z]; in 'Europe/Berlin' ~D[2026-10-24] is ~U[2026-10-24 22:00:00.000000Z] and ~D[2026-10-25] (the 25-hour day) is ~U[2026-10-25 23:00:00.000000Z]. A name that is not in pg_timezone_names returns {:error, :invalid_timezone} without raising and without sending the AT TIME ZONE statement, and a test shows that a transaction around the call can still run a query afterwards."
+      - "5. Write route (PATCH /tenant/settings; tests in test/letflow/routers/tenant_settings_test.exs, real token through the real router): a TENANT_ADMIN sending {\"timezone\": \"Asia/Tokyo\"} gets 200, the response settings carry 'timezone' => 'Asia/Tokyo' and the tenant's other stored keys unchanged (the router's shallow merge), and TenantTimezone.of/1 on the re-read tenant returns 'Asia/Tokyo'; {\"timezone\": null} clears it and of/1 returns 'Asia/Almaty'; {\"timezone\": \"Mars/Olympus\"} gets 422 with the message of criterion 2 and the stored value is unchanged; a TASK_WORKER (no TenantSettingsManage) gets 403 and the stored value is unchanged. Two-tenant test: a TENANT_ADMIN of tenant A setting 'Asia/Tokyo' leaves tenant B's settings byte-identical (the route takes no tenant identifier; this is its cross-tenant negative test, INV-1, INV-10)."
+      - "6. Not disclosed on public routes: the responses of GET /api/tenant-config and GET /api/mobile/tenant-config for a tenant whose timezone is set contain no key 'timezone' and no value 'Asia/Tokyo' anywhere in the body (both routers build branding from an explicit allowlist, lib/letflow/routers/tenant_config.ex and lib/letflow/routers/mobile_tenant_config.ex; a test pins it). The tenant config bundle (lib/letflow/tenant_config_bundle.ex, which checks keys against TenantSettings.allowed_keys/0 and writes through Identity.update_tenant_settings/2) exports and imports the key: a test round-trips 'Asia/Tokyo', and a bundle with 'Mars/Olympus' is refused and changes nothing."
+      - "7. Scope of the change: no migration, no table, no column, no route, no permission atom (priv/permission_matrix/effective.golden unchanged), no role grant, no new dependency in mix.exs, no web/ or apps/mobile/ change, no feature flag. bash project/scripts/lf.sh lint passes and the test files named in criteria 1 to 6 pass (real output quoted in the PR)."
+    open_questions:
+      - "Assumption, owner may change at GATE B: the default tenant time zone is Asia/Almaty (D-086/D-087, answering 0078 Open Q1). A tenant whose users work in another zone sets it through PATCH /tenant/settings."
+      - "A change of the time zone changes the answer of every later as-of-date read for past dates (each answer states the zone it used, REQ-637 criterion 5, REQ-704). Whether a change of the setting needs its own audit entry or a lock once postings exist is not decided by any source; the existing route audits only refused keys. Not built here."
+      - "The web settings screen gets no time zone field in this entry; a screen is a later web requirement if the owner wants one before phase E."
+    depends_on: [REQ-681, REQ-595]
+
+  - id: REQ-704
+    title: "Assets B2 F1: balance as of a date on the core ledger: balances_on_date/5 in the tenant time zone, with the cutoff posting number and the report fields stated"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3742
+    description: >
+      Phase B of the assets and stock application (the stock register), owner decision D-085. Source: decision 0078
+      (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md, REQ-681) D2 ("The balance of a
+      register as of a date D is the sum of the legs whose event_time is before 00:00 of the day after D (in the time
+      zone of D4), read with the as-of event-time basis of note section 8.2 together with a cutoff posting_seq N. Event
+      time without N is not offered"; "ledger_balance holds only the current balance and is NOT used for a past date";
+      "Every as-of answer and printout states the report fields of note section 8.4"; "The same (D, N) gives the same
+      numbers on every later read"), D4 (a correction is a reversal with its own event_time, and the worked example:
+      receipt of 10 on day 1, reversal on day 3, balance 10 as of day 1 and day 2, 0 as of day 3) and follow-up F1
+      ("As-of balances read (D2): balances/5 with the as-of basis", owner slice L2b REQ-637 or item B6 REQ-682). The
+      printout of F2 is phase E and is not here.
+
+      What exists and what this adds. Slice L2b (REQ-637, pending) builds Letflow.Ledger.balances/4 (lib/letflow/ledger.ex)
+      with the basis {:event_time, t, known_through | :latest} (legs of entries with event_time <= t AND posting_seq <=
+      known_through), the report map of its criterion 5 (keys basis, ledger_id, cutoff_seq, as_of, timezone, filters,
+      ledger_seq, rows, next_cursor) and authorize/3 with the Letflow.Ledger.Authorized value. REQ-637 takes a UTC instant,
+      not a date. This entry adds the date form on top of it: one function that turns a tenant-local date into the
+      instant of D2 and calls balances/4, so every caller (the stock and asset read routes of slice L4 and phase C, the
+      xlsx export of decision 0079 opening balances, the counts of decision 0079 counts) gets the same day boundary. The
+      time zone comes from Letflow.Identity.TenantTimezone (REQ-703). REQ-637's report reads the zone "from the tenant
+      record"; this entry makes TenantTimezone.of/1 that one reader, so the boundary and the stated zone cannot differ.
+
+      Strict "before 00:00 of the next day" and the <= of balances/4. event_time is timestamptz (migration
+      priv/repo/migrations/20261031100001_create_ledger_tables.exs), whose precision is one microsecond, so event_time < b
+      is the same set of legs as event_time <= b minus one microsecond. The function passes b minus one microsecond to
+      balances/4; there is no second comparison rule.
+
+      Speed (assumption, owner may change at GATE B, D-086/D-087 as corrected): reads at p95 under 500 ms with 100
+      concurrent readers at the speed-test volumes (stock register 3,000,000 entries and 1,000,000 balance rows, asset
+      register 100,000 entries and 50,000 balance rows; decision 0073 A9 numbers win where it names them). The balance of
+      one key as of an event_time is a measured operation of the speed test (0073 "Amended (REQ-676, assets B1)" A7), so it
+      is measured there and not by a criterion of this entry; this entry adds no index.
+
+      Scope and access (D-067, decision 0076 R7 row "Balances and movements: scoped by ledger scope slot (org unit)",
+      decision 0073 amendment REQ-682 for the scoped read): this entry adds no scoped read. The authorized value is minted
+      by authorize/3 of REQ-637, which refuses a scoped principal (a grant that is not tenant-wide) until slice L6, so a
+      scoped user gets no as-of balance through this function. Storage: no table, column or migration; reads only.
+      Ledger and tenant paths are security-sensitive: the change passes a security review. Tests use fresh tenants and the
+      neutral TEST registration of test/support/ledger_fixture.ex (REQ-621), never a production registration.
+    acceptance_criteria:
+      - "1. Function (lib/letflow/ledger.ex; tests in test/letflow/ledger/as_of_date_test.exs): Letflow.Ledger.balances_on_date/5 has the spec balances_on_date(authorized(), Date.t(), known_through :: pos_integer() | :latest, filters :: map(), page :: map()) :: {:ok, report()} | {:error, :cutoff_in_future | :invalid_filter | :invalid_timezone}. It reads the zone z = Letflow.Identity.TenantTimezone.of/1 of the tenant of the authorized value, computes b with TenantTimezone.start_of_next_day(date, z) (REQ-703), and returns the result of balances/4 with the basis {:event_time, b minus one microsecond, known_through} and the same filters and page. A date argument that is not a %Date{} (a string, a DateTime, nil) returns {:error, :invalid_filter} before any query (a repo query-event handler sees zero queries). A stored zone that PostgreSQL does not know returns {:error, :invalid_timezone} and reads no ledger row."
+      - "2. Tenant of the authorized value: Letflow.Ledger.Authorized carries the key tenant_id, set by authorize/3 from the authenticated tenant of the conn (the same source as its prefix, never a request parameter); this change adds the key to the struct's @enforce_keys if REQ-637 did not already add it under that name, and updates REQ-637's key-set test in test/letflow/ledger/authorize_test.exs. TenantTimezone.of/1 is called with the tenant read by that id; no prefix-to-tenant mapping is written."
+      - "3. Day boundary (test registration with a lateness cap of 8760 hours so every event time below is inside it; postings use client_event_time and the device fields it needs): for a tenant set to 'Asia/Tokyo' and D = the Tokyo-local date three days before the test run, a leg with event_time b minus one microsecond is in the balance as of D and a leg with event_time exactly b is not, and both are in the balance as of D plus one day. The report of the call states timezone 'Asia/Tokyo', as_of equal to b minus one microsecond, and as_of_date equal to the ISO 8601 string of D (criterion 4)."
+      - "4. Report fields (note 8.4, 0078 D2): the report of balances_on_date/5 has exactly the keys of the balances/4 report (REQ-637 criterion 5: basis, ledger_id, cutoff_seq, as_of, timezone, filters, ledger_seq, rows, next_cursor) plus as_of_date, a string 'YYYY-MM-DD'; a test asserts the exact key set and that each row is the allowlisted row map of REQ-637 criterion 5. The timezone field of balances/4 itself is read through TenantTimezone.of/1: a test calls balances/4 with an event-time basis for a tenant set to 'Asia/Tokyo' and for a tenant without the key and gets 'Asia/Tokyo' and 'Asia/Almaty'."
+      - "5. Worked example of 0078 D4 (same test file): a receipt of 10 on key K with event_time on local day D1 (D1 = three days before the test run) and its reversal (the reversal posting of REQ-637 criterion 1) with event_time on D1 plus two days: the balance of K as of D1 is 10, as of D1 plus one day is 10, as of D1 plus two days is 0 (the zero row stays, REQ-637 criterion 5)."
+      - "6. Reproducible cutoff (0078 D2): after three postings dated D the report of (D, 3) is recorded; then a fourth posting with event_time on D lands (a late posting inside the cap); the report of (D, 3) read again is byte-identical to the recorded one (compared as the canonical encoding of the report map, as REQ-637 criterion 4 compares), and the report of (D, 4) includes the fourth posting. :latest resolves to the counter's last_seq in the same snapshot (REQ-637 criterion 4) and the report states it in cutoff_seq; a known_through above it returns {:error, :cutoff_in_future}."
+      - "7. Current balance and no use of the balance table for a date: for D = the tenant-local date of the test run plus one day and known_through :latest, the rows equal those of balances/4 with {:posting_seq, :latest} for the same filters; for every call of balances_on_date/5 the statements sent (repo query-event handler) read the entry and leg tables of the ledger id and never the balance table (ledger_balance, or the balance table of the ledger id under shape c of 0073 A8) and contain no INSERT, UPDATE, DELETE or LOCK."
+      - "8. Tenancy (INV-1, INV-5, INV-6; test file test/letflow/ledger/read_tenancy_test.exs or the criterion-1 file): tenant A set to 'Asia/Tokyo' and tenant B set to 'Europe/Berlin' both hold postings on the same ledger id and key; each authorized value reads only its own tenant's legs and states its own zone; a filters or page map that holds a prefix, tenant, tenant_id or timezone key returns {:error, :invalid_filter} and cannot change the zone or the schema read."
+      - "9. Scope of the change: the change is a tenant-data-path change and passes a security review as a stated step (the verdict and its evidence quoted in the PR). It adds no migration, no table, no index, no route, no permission atom, no role grant, no manifest key, no scoped read (authorize/3 still refuses a scoped principal) and no web/ or apps/mobile/ change. The moduledoc of lib/letflow/ledger.ex states the day rule of 0078 D2 and the one-microsecond form. bash project/scripts/lf.sh lint passes and the test files named here pass (real output quoted in the PR)."
+    open_questions:
+      - "Assumption, owner may change at GATE B: the speed numbers in the description (p95 under 500 ms with 100 concurrent readers at the speed-test volumes) are measured by the speed test of decision 0073 A7, not by this entry."
+      - "A future date is answered like any date (its boundary lies after the newest leg, so it equals the current balance). No source asks for a refusal; none is built."
+      - "Whether as-of balances are read per org unit for a scoped user is decision 0073 amendment REQ-682 (item B6) and slice L6, not this entry."
+    depends_on: [REQ-703, REQ-637, REQ-621, REQ-681]
+
+  - id: REQ-705
+    title: "Assets B2 F6: an audit entry for every write of the location tree (create, update, move, retire), imported rows included"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3741
+    description: >
+      Phase B of the assets and stock application, owner decision D-085. Source: decision 0078
+      (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md, REQ-681) D8, row "Location
+      created, updated, moved, retired": "not found. lib/letflow/modules/locations/tree.ex calls Records.create_record/3
+      and Records.update_record/3 and no Audit function; no location.* audit action string exists in lib/", and
+      follow-up F6 ("Audit of location create, update, move, retire (D8)"). Checked again on main for this entry:
+      `grep -rn "Audit" lib/letflow/modules/locations/` finds only links.ex (the link writers audit, REQ-662), so the gap
+      holds for Letflow.Modules.Locations.Tree (create_node/3, update_node/4, move_node/4, retire_node/3).
+
+      The import of the tree (Letflow.Modules.Locations.Import, lib/letflow/modules/locations/import.ex, REQ-652) writes
+      only through those Tree functions (its moduledoc: "Every write goes through create_node/3, move_node/4 and
+      update_node/4"), so imported rows are audited by the same change. This narrows follow-up F8 of 0078 for the
+      location tree; the catalog masters are REQ-706; the org and lot import rows are already audited through
+      Letflow.Modules.Org and Letflow.Modules.CatalogItems.Lots (their import moduledocs state it).
+
+      Precedent, the same module: Letflow.Modules.Locations.Links (lib/letflow/modules/locations/links.ex) writes one
+      entry per accepted change through Letflow.Audit.insert_entry/3 inside the write's transaction, maps a database
+      failure to {:error, :audit_failed} (rescued, INV-8), and its test "A-5: an audit failure rolls the record back"
+      (test/letflow/modules/locations/link_writers_test.exs) drops the tenant's audit_entries table to force it. The
+      locations router already renders {:error, :audit_failed} as 500 internal_error (lib/letflow/modules/locations/router.ex).
+
+      Scope and storage: location_node is tenant-wide (decision 0076 R7), so its audit entries are about a tenant-wide
+      type; the audit trail is read through GET /audit (permission AuditRead, lib/letflow/routers/audit.ex), unchanged
+      here. Owner assumption D-086/D-087 (the audit trail is scoped by org unit like the other scoped types) does not
+      change what a reader of a tenant-wide type sees; the scoped audit read is not part of this entry. No table, column
+      or migration: entries go to the existing tenant audit_entries table. Tests use fresh tenants.
+    acceptance_criteria:
+      - "1. Entries per write (lib/letflow/modules/locations/tree.ex; tests in test/letflow/modules/locations/tree_audit_test.exs): each accepted call writes exactly one entry through Letflow.Audit.insert_entry/3 with resource_type 'location_node', resource_id the node's record id and actor_id the :actor_id of opts: create_node/3 writes action 'location_node.created' with before_state nil and after_state the stored field values of the new node; update_node/4 writes 'location_node.updated', move_node/4 writes 'location_node.moved' (its before and after states differ in parent_id) and retire_node/3 writes 'location_node.retired' (after_state active false), each with before_state the stored field values before the write and after_state those after it."
+      - "2. Same transaction: the entry is written inside the transaction of the write, after the record write and under the tree lock, so for each of the four functions a test that drops the tenant's audit_entries table first (as test A-5 of link_writers_test.exs does) gets {:error, :audit_failed} and finds the node not created or unchanged."
+      - "3. No entry without a change: a refused call (create_node/3 with :parent_not_found and with {:field_not_allowed, key}; update_node/4, move_node/4 and retire_node/3 with :node_not_found; move_node/4 with :cycle) writes no entry; a no-op (a move to the current parent, a retire of a retired node) writes no entry; a replay with the same idempotency key returns the original result and the count of the tenant's audit entries is unchanged."
+      - "4. Imported rows (test in test/letflow/modules/locations/import_test.exs or the criterion-1 file, through the import route POST /entities/records/location_node/import with a real token): a file that creates two nodes and changes the name and the parent of a third writes two 'location_node.created' entries, one 'location_node.updated' and one 'location_node.moved'; an unchanged row writes none; a dry run of the same file writes no entry."
+      - "5. Readable: GET /audit with resource_type=location_node for a TENANT_ADMIN of the tenant returns the entries of criterion 1; for a TENANT_ADMIN of a second tenant it returns none of them (INV-1)."
+      - "6. Docs and scope: the moduledoc of lib/letflow/modules/locations/tree.ex and the location tree item of docs/runbooks/wms-foundation.md name the four action names; the implementer runs test/letflow/modules/locations/runbook_test.exs. No migration, no table, no route, no permission atom, no role grant, no web/ change. bash project/scripts/lf.sh lint passes and the test files named here pass (real output quoted in the PR)."
+    depends_on: [REQ-681, REQ-645, REQ-646, REQ-652]
+
+  - id: REQ-706
+    title: "Assets B2 F7: an audit entry for every write of the unit, item and counterparty masters of module catalog_items, which are written only by the import"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3739
+    description: >
+      Phase B of the assets and stock application, owner decision D-085. Source: decision 0078
+      (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md, REQ-681) D8, rows "Catalog item
+      created, updated, retired: not found ... has no audit writer" and "xlsx import: not found", follow-ups F7 ("Audit of
+      catalog item writes") and F8 ("Audit of rows written by xlsx import"). Checked again on main for this entry: the
+      moduledoc of Letflow.Modules.CatalogItems (lib/letflow/modules/catalog_items/catalog_items.ex) says the generic
+      entity routes answer 403 entity_type_managed for the four managed types except their import, and that the module
+      ships no write function other than the lot writers. So catalog_uom, catalog_item and catalog_counterparty are
+      written only by Letflow.Modules.CatalogItems.Import.row/3 (lib/letflow/modules/catalog_items/import.ex, REQ-651),
+      which calls Records.upsert_record_by_external_ref/3 and no Audit function. That is the whole of F7, and the part of
+      F8 that concerns these three types. The other import paths already audit or are covered elsewhere: org units,
+      positions and employees and lots are imported through write functions that audit (Letflow.Modules.Org.Import and
+      Letflow.Modules.CatalogItems.LotImport, whose moduledocs state it); the location tree is REQ-705. Imports of types
+      that are not module-managed (REQ-650) are outside the assets masters and not covered here.
+
+      Precedent, the same module: Letflow.Modules.CatalogItems.Lots (lib/letflow/modules/catalog_items/lots.ex) checks for
+      an already claimed idempotency key first (replay?/2: a claimed key goes to Records alone, because a failing Records
+      multi cannot be survived inside a surrounding transaction), otherwise runs the write and the entry in one
+      Repo.transaction and maps an audit failure to {:error, :audit_failed} (rescued, INV-8). An import row whose result
+      is {:error, :audit_failed} is rendered by the import route's existing fallback (import_reason_json/1 in
+      lib/letflow/routers/entities/record_import.ex) as type internal_error. The dry run (Letflow.Entities.ManagedImport,
+      lib/letflow/entities/managed_import.ex) runs the whole file in one transaction that is rolled back.
+
+      Scope and storage: the three types are tenant-wide (decision 0076 R7); owner assumption D-086/D-087 (the audit trail
+      is scoped by org unit like the other scoped types) does not change what a reader of a tenant-wide type sees, and the
+      scoped audit read is not part of this entry. No table, column or migration: entries go to the existing tenant
+      audit_entries table. Tests use fresh tenants.
+    acceptance_criteria:
+      - "1. Entries per row (lib/letflow/modules/catalog_items/import.ex; tests in test/letflow/modules/catalog_items/import_audit_test.exs, through the import route POST /entities/records/:entity_type/import with a real token): for each of catalog_uom, catalog_item and catalog_counterparty, a row whose outcome is :created writes exactly one entry with action '<type>.created' (for example 'catalog_item.created'), before_state nil and after_state the stored field values; a row whose outcome is :updated writes exactly one entry '<type>.updated' with before_state the stored field values before the row and after_state those after it; a row whose outcome is :unchanged writes none. Each entry has resource_type the type, resource_id the record id and actor_id the ctx actor_id of the row (the importing user)."
+      - "2. Same transaction: the record write and its entry run in one Repo.transaction, in the form of Lots.persist/5 (replay check first); a test that drops the tenant's audit_entries table first gets, for a new row, the row reason type internal_error in the import answer and no record of that external ref in the tenant."
+      - "3. No entry without a change: a refused row ({:reference_not_found, 'base_uom_id'}, {:reference_inactive, 'base_uom_id'}, a duplicate external ref in the file, a value the definition refuses) writes no entry; a second import of the same file (every row now :unchanged) writes no entry; calling Import.row/3 twice with the same ctx (the same idempotency key, a replay) returns the original result and writes no second entry; a dry run of a file of three new rows writes no entry and gives the same per-row outcomes as the real import."
+      - "4. Readable: GET /audit with resource_type=catalog_item for a TENANT_ADMIN of the tenant returns the entries of criterion 1; for a TENANT_ADMIN of a second tenant it returns none of them (INV-1)."
+      - "5. Docs and scope: the moduledocs of lib/letflow/modules/catalog_items/import.ex and catalog_items.ex and the catalog item of docs/runbooks/wms-foundation.md name the six action names; the implementer runs test/letflow/modules/catalog_items/runbook_test.exs and test/letflow/modules/catalog_items/import_test.exs. No migration, no table, no route, no permission atom, no role grant, no web/ change. bash project/scripts/lf.sh lint passes and the test files named here pass (real output quoted in the PR)."
+    depends_on: [REQ-681, REQ-651]
   - id: REQ-700
     title: "Assets B5 counts K1: the count order with its commission in module stock: order, scope and commission record types scoped by org unit, the four count document types registered, create, edit, issue with the linked-pair, overlap and duration checks, cancel, and two read routes (decision 0079 sections 1 to 4, split plan row C2)"
     owner: ELIXIR-DEV
@@ -50041,3 +50235,233 @@ requirements:
       - "2. One page per file (no whole-register export in one file): default, owner may change at GATE B; a whole-register file needs a page cap and a time limit from the speed test of 0073 A7."
       - "3. Times in the files are UTC ISO 8601 text as in the JSON answer; the timezone row names Asia/Almaty only as the report basis (assumption, owner may change at GATE B)."
     depends_on: [REQ-687, REQ-693, REQ-714, REQ-653, REQ-677, REQ-637]
+
+  - id: REQ-721
+    title: "Assets B4 stock documents part 5: the transfer, hand over and return documents (two sides, two legs per line, master checks on both sides, the equal sides refusal), on the foundation of parts 1 to 4"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3770
+    # Source: docs/assets/stock-workflow-documents.md (REQ-679; sections 1.3 type names, 1.4 common fields, 5 Transfer, 6 Hand over, 7.1 Return, 7.3 conservation, 8 master checks 'both' and 'both legs', 9.1, 9.2, 9.3 scope column of a two-unit document, 10 speed assumptions, 11 questions 3 and 4); entries REQ-687 (registration causes transfer, hand_over and return with sign rule zero_sum_by_slot_1; declare/2 command with from and to sides of org_unit, location and responsible, two legs per line built from the same sku, lot, unit and quantity, and the refusal of a line whose sides are equal in all three keys), REQ-712 (foundation, routes, master checks at issue, tenancy criterion 8), REQ-713 (posting, binding check on read, reversal, cancel), REQ-714 (lot by tracking policy at issue, criterion 4), REQ-715 (issue and write off, insufficient_stock refusal at the post task), REQ-637 (the no-negative guard applies to a reversal) on origin/main de23767f1; decision 0073 (D-C, D-L12, D-T, D9 OQ-21, slice table pilot gate) with its section Amended (REQ-676, assets B1); decision 0076 R7 (documents scoped by org unit). Functions read on origin/main: Letflow.Modules.Locations.linked?/3 (lib/letflow/modules/locations/locations.ex), Letflow.Modules.Org.active_employee?/2 (lib/letflow/modules/org/org.ex), Letflow.Modules.CatalogItems.item_uom_valid?/3 and item_lot_valid?/3 (lib/letflow/modules/catalog_items/catalog_items.ex). Owner decisions D-085, D-086, D-087 (2026-11-04). Written by the business analyst (T-1227) 2026-11-04.
+    description: >
+      Phase B item B4 of the assets and stock application, implementation part 5 (phase B plan item P33): the three
+      documents that move a quantity inside the stock register from one side to another. Transfer moves a quantity
+      from one org unit and location to another (stock documents file section 5). Hand over moves a quantity to an
+      employee who uses it, so it stays in the register with that employee as Responsible (section 6). Return moves a
+      handed-over quantity back from the employee (section 7.1). The meanings are the business analyst's proposal of
+      REQ-679, to be confirmed by the owner at GATE B. Each line posts two legs: -quantity on the from side and
+      +quantity on the to side, built by the declare/2 of REQ-687 from the same line's SKU, lot, unit and quantity
+      (causes transfer, hand_over and return, sign rule zero_sum_by_slot_1; conservation per SKU, lot and unit by
+      construction, REQ-687). They reuse every route, the save and issue steps, the posting, the binding check, the
+      reversal and the cancel of REQ-712 to REQ-715 by adding three kinds to the closed kind set; no route, no
+      permission atom and no change of declare/2.
+
+      The two sides. A side is the three keys org unit, location and responsible employee. Transfer and hand over: the
+      from side is the header's org_unit_id, from_location_id and from_responsible_id; the to side is to_org_unit_id,
+      to_location_id and to_responsible_id (hand over may name the same org unit on both sides). Return: the from side is
+      from_org_unit_id, from_location_id and from_responsible_id (the employee who returns); the to side is the header's
+      org_unit_id, to_location_id and to_responsible_id (stock documents file 7.1). A document whose two sides are equal
+      in all three keys moves nothing and is refused at save (declare/2 of REQ-687 would refuse it at posting).
+
+      Insufficient stock. The from side must hold the quantity: the ledger's no-negative guard (REQ-621) refuses a
+      posting that would take the from side's balance key below zero with the alias insufficient_stock (REQ-687), at the
+      post task, as REQ-715 criterion 3 does; a return of a quantity the employee does not hold is refused the same way.
+      The issue step does not pre-check the balance (REQ-715: a balance read before the posting proves nothing under
+      concurrency). The guard also applies to a reversal (REQ-637): reversing a transfer whose quantity has already left
+      the to side is refused with insufficient_stock.
+
+      Storage (D-066). Plain tables, no blob: each document is a header record type and a line record type, managed by
+      the stock module, with real columns as REQ-712 declares them; the line's header_id is a foreign key inside the
+      pack, every master reference (org unit, location, employee, item, unit, lot) is a declarative record id checked in
+      code at issue (decision 0076 R6 rules 2 and 5). Nothing is stored on the ledger beyond the posting of REQ-713.
+
+      Scope declaration (D-067, decision 0076 R7: documents scoped by org unit). Every header and line type declares
+      {:column, "org_unit_id"}; the line carries a copy of the header's org_unit_id. The column holds the header's
+      org_unit_id: the from unit of a transfer, the unit that hands over, and the unit a return goes back to (stock
+      documents file 9.3). Whether the other unit sees such a document, with a masked other side, is for the scoped
+      document read of a later slice (B6 and L6); in phase B a scoped principal and an API token get the 404 of REQ-712
+      criterion 8 on every document route, so no scoped reader sees any document (assumption, owner may change at GATE
+      B: scoped posting L6 is not part of phase B, D-086, D-087). The ledger legs are scoped by the org unit slot of each
+      leg (REQ-687 scope_slot org_unit, read slice REQ-693).
+
+      Defaults (owner may change at GATE B, D-087): numbering per calendar year with prefixes TRF, HOV and RET and pad 6;
+      the responsible employee of a side need not belong to that side's org unit (stock documents file section 11
+      question 3); no price or value field (section 4); no reason field. Speed (assumption, owner may change at GATE B):
+      posting one document under 500 ms with the volumes of the speed test (stock register 3,000,000 entries and
+      1,000,000 balance rows); measured by the speed test of decision 0073 A7, not by this change.
+
+      Pins (moves from the value on origin/main at implement time): the module version moves one minor step
+      (ManifestHash changes); six managed types and three process definitions join the pack; the stock runbook item
+      count moves by the items of criterion 8. No route, no tenant table, no permission atom.
+    acceptance_criteria:
+      - "1. Types and registration (test file test/letflow/modules/stock/two_side_registration_test.exs, fresh committed tenant): manages_entity_types gains stock_transfer, stock_transfer_line, stock_handover, stock_handover_line, stock_return and stock_return_line, each declaring {:column, org_unit_id}; on_install/3 registers the document types stock_transfer (prefix TRF), stock_handover (prefix HOV) and stock_return (prefix RET) with Letflow.Documents.register_type/3, numbering_scope :year, number_pad 6, legal_entity_required false, declared_fields %{}; the pack gains the process definitions stock_transfer, stock_handover and stock_return, each with the one HUMAN_TASK post node and the post_document write handler of REQ-713. Header fields beyond the common ones of REQ-712 criterion 2 (document_id, event_time, org_unit_id, note): stock_transfer and stock_handover add from_location_id, from_responsible_id, to_org_unit_id, to_location_id and to_responsible_id; stock_return adds from_org_unit_id, from_location_id, from_responsible_id, to_location_id and to_responsible_id; every added field is a string and required. Line fields: exactly the common line fields of REQ-712 criterion 2, no price, value or reason field. The module version moves one minor step; a test asserts the exact field name set of each of the six types and that a second install is a no-op."
+      - "2. Save (documents router test file of REQ-712): POST /api/v1/modules/stock/documents accepts kind transfer, hand_over and return (the closed kind set becomes receipt, issue, write_off, transfer, hand_over, return), PUT and DELETE work on them as on a receipt, and the shape checks of REQ-712 criterion 3 apply. A document whose from side and to side, as the description defines them per kind, are equal in all three keys answers 422 with reason sides_equal and writes nothing; sides that differ in one key only (for example a hand over to another employee in the same org unit and location) are accepted. A unit_price, line_value, reason_code, counterparty_id or received_on key answers 422 field_not_allowed. A test per kind for create, for sides_equal and for one field_not_allowed key."
+      - "3. Issue (master checks test file of REQ-712): the issue step of a transfer, hand over or return runs, in this order, stopping at the first failure, answering 422 with the reason and the extra key side (from or to) for a side check, or line_no for a line check, and issuing nothing: the from side's org unit and location are linked (Letflow.Modules.Locations.linked?/3, not_linked), the from side's responsible employee is active (Letflow.Modules.Org.active_employee?/2, employee_not_active), then the same two checks for the to side, then per line in line_no order the unit check of REQ-712 criterion 5 (unit_not_valid), the tracking checks of REQ-714 criterion 4 and the lot check of REQ-712 criterion 5 (lot_not_valid); there is no counterparty check. The event time checks of REQ-712 criterion 6 apply. Issued numbers have the prefixes TRF, HOV and RET. A test per kind for a successful issue, and tests for not_linked and employee_not_active on each side, with real master records written through their owner paths."
+      - "4. Posting (posting test file of REQ-713, fresh committed tenant, OIDC credential): completing the post task of an issued document of each kind commits one ledger entry on ledger id stock with cause transfer, hand_over or return, document_type the kind's versioned document type key, document_id, client_op_id and event_time as REQ-713 criterion 2 states, and two legs per line in line order: first -quantity with the from side's org_unit, location and responsible, then +quantity with the to side's, both with the line's sku, lot, unit_ref and document_line_id; and one stock_posting_mark with mark posted. A test receives 10 of one SKU at side A, transfers 4 to side B (balances A 6, B 4), hands over 3 from side B to employee E in the same unit and location (balances B 1, E 3), and returns 2 from E to side B (balances E 1, B 3), each read with Letflow.Ledger.balances/4. A transfer of 7 from side A (balance 6) and a return of 2 from an employee with no balance are each refused with the ledger code insufficient_stock, write no entry and no posted mark, leave the task pending and the document issued, and leave both sides' balances unchanged."
+      - "5. Binding check on read (REQ-713 criterion 6, same posting test file): for these kinds posting_check ok means that the document has one entry with two legs per line and that each leg's sku, location, org_unit, responsible, lot, unit_ref and signed quantity equal those the issued content gives for that leg; mismatch otherwise, with no detail of the difference in the body. A test completes the post task of a transfer with output_variables that change the to side's location and asserts state posted and posting_check mismatch. For a cancelled document, the rule of REQ-713 criterion 8 applies with the kind's own cause in place of cause receipt."
+      - "6. Reversal and cancel (reversal test file of REQ-713): an issued and posted transfer, hand over or return is reversed and then cancelled through the routes of REQ-713 criteria 7 and 8, and the balances of both sides return to their values before the posting; a test per kind. A test transfers 4 from side A to side B, issues 4 from side B (REQ-715), and asserts that the reversal of the transfer is refused with insufficient_stock (the guard applies to a reversal, REQ-637), writes no reversal and no reversed mark, and leaves the reverse task pending."
+      - "7. Scope column and tenancy (INV-1, INV-2, INV-5, INV-10; documents router test file of REQ-712): the header's org_unit_id fills the scope column of header and lines (a test asserts that a transfer's and a hand over's lines carry the from unit and a return's lines the unit it returns to), and the list filter org_unit_id of REQ-712 criterion 4 matches that column only (a test lists by the to unit of a transfer and gets no row). The new kinds follow REQ-712 criterion 8: 404 for an API token and a principal whose grant is not tenant-wide, 403 for a TASK_WORKER, and a cross-tenant negative test in which a TENANT_ADMIN of tenant B saves, issues and posts tenant A's transfer id and gets 404 with A's document unchanged; a transfer of tenant A whose to side names an org unit and location of tenant B is refused at issue with not_linked and side to."
+      - "8. Runbook and gate: the stock runbook section of REQ-687 (docs/runbooks/wms-foundation.md, test file test/letflow/modules/stock/runbook_test.exs) gains numbered items stating that a transfer, hand over or return is filed under one org unit only (the from unit, or the unit a return goes back to) and the other unit does not see the document in phase B; that the from side's stock is checked only by the ledger at the post task (insufficient_stock), and that the post task then stays pending until the document is cancelled; and that the defaults of the description are owner-changeable at GATE B; the runbook test's item count pin moves accordingly. The change adds no route, no permission atom (priv/permission_matrix/effective.golden unchanged), no edit of lib/letflow/ledger.ex or lib/letflow/ledger/ and no change of Letflow.Modules.Stock.LedgerPolicy declare/2; it is a ledger-posting and tenant-data-path change and passes the SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_requirements_registration and the test files of criteria 1 to 7 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Meaning of transfer, hand over and return (stock documents file section 11 question 4): proposals, to be confirmed at GATE B."
+      - "Whether the other org unit of a transfer, hand over or return sees the document, with a masked other side (stock documents file 9.3, D-067): a scoped document read of a later slice; in phase B scoped principals see no document."
+      - "Whether a return must name the employee and quantity of an earlier hand over (a link between the two documents): default no, the ledger guard on the employee's balance is the only check; owner may change at GATE B."
+      - "Numbering prefixes TRF, HOV, RET and the responsible employee not bound to the side's unit: defaults, owner may change at GATE B."
+    depends_on: [REQ-715, REQ-714, REQ-713, REQ-712, REQ-687, REQ-679, REQ-637, REQ-621, REQ-644, REQ-643]
+
+  - id: REQ-722
+    title: "Assets B4 stock document screens part 1: web screens of module stock for the document list, the document view with its actions (issue, retry posting, reverse, cancel) and the draft forms of receipt, issue and write off, in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 3769
+    # Source: entries REQ-712 (routes POST, PUT, DELETE and GET of /api/v1/modules/stock/documents, GET and POST issue of documents/:id, the field lists of criterion 2, the 422, 409 and 503 reasons of criteria 3 to 7, StockPost and StockRead), REQ-713 (routes post, reverse and cancel, states posted, reversed and cancelled, posting_check, the reversal reason codes, StockReverse, the unassigned post task completed in the task inbox), REQ-714 (receipt fields and reasons), REQ-715 (issue and write off fields and reasons), REQ-702 (the SPA module stock in web/src/modules/stock/, created by whichever stock screen lands first), REQ-669 (common screen rules) on origin/main de23767f1; docs/assets/stock-workflow-documents.md sections 1.4 (time zone), 2, 3, 7.2 and 9.1. Web code read on origin/main: web/src/modules/registry.ts (REGISTERED_MODULES, ModuleGuard wrap), web/src/modules/codes/ (index.ts, codesRoutes.tsx with RequirePermission of web/src/auth/access/RequirePermission.tsx, codesMessages.ts, CodesIntlProvider.tsx, __tests__/codesModule.nav.test.tsx, codesI18n.test.tsx, codes-i18n-grep.test.ts), web/src/api/entities.ts (entitiesApi.queryRecords), web/src/components/ui/MasterDetail.tsx, web/src/router.tsx (path tasks, TaskInboxPage); master fields read in priv/modules/catalog_items/entity_definitions/catalog_item.json (base_uom_id, tracking_policy), catalog_lot.json (item_id, code), priv/modules/org/entity_definitions/org_employee.json (full_name), org_unit.json and priv/modules/locations/entity_definitions/location_node.json (code, name, active); Letflow.Modules.CatalogItems.item_uom_valid?/3 (only the item's base_uom_id is a valid unit). Written by the business analyst (T-1227) 2026-11-04.
+    description: >
+      Phase B item B4 of the assets and stock application (plan item P33): the web screens for stock documents, first
+      part. The routes are those of REQ-712 and REQ-713 with the kinds of REQ-714 and REQ-715; the screens add no route
+      and no permission. Part 2 (REQ-723) adds the forms of transfer, hand over and return; REQ-724 adds the balances and
+      movements screens.
+
+      Place: the SPA module stock, web/src/modules/stock/ (ModuleDefinition id stock, registered in
+      web/src/modules/registry.ts as module codes is). This change creates the folder and its index.ts if no earlier
+      stock screen (REQ-702) has, otherwise it adds its routes and nav item to the existing definition.
+      Document files in web/src/modules/stock/documents/. Paths admin/stock/documents (list), admin/stock/documents/new
+      (a new draft; query key kind) and admin/stock/documents/:id (one document). Nav item Stock documents with
+      permission StockRead. Messages in en, ru and kk in the module's own message file, as module codes does, following
+      the platform language store. The common screen rules of REQ-669 apply (stored values only through the routes, no
+      tenant identifier sent, query keys and query state per web/tests/guards/forbidlist.ts). Style: the components and
+      tokens of the phase A screens, list and record panel with MasterDetail.
+
+      Posting. A document is posted by completing its post task, which has no assignee (REQ-713), in the existing task
+      inbox (path tasks). The document view does not complete the task; for an issued document with no posting it says
+      that the posting waits for the post task and links to the task inbox. A ledger refusal at that completion (for
+      example insufficient_stock) is shown by the task inbox, not by these screens.
+
+      Storage and scope. No storage: the screens hold no data of their own beyond the form being typed. Scope (D-067):
+      the screens read and write only through the stock module routes, which take the tenant from the token and apply
+      their own refusals; in phase B a scoped principal or an API token gets 404 from those routes (REQ-712 criterion 8),
+      which the screens show as their not-found state.
+
+      DECIDED HERE as the simplest reasonable defaults (UAT assumption, to be confirmed by the process owner; assumption,
+      owner may change at GATE B, D-087): a write button is shown only to a user whose access lists the route's atom
+      (StockPost for save, discard, issue and retry posting; StockReverse for reverse and cancel) and only in the states
+      that allow it; times are shown and entered in the tenant time zone, which is the constant Asia/Almaty until the
+      tenant time zone setting exists (pending REQ-703 of task T-1222), and event_time is sent as ISO 8601 with that
+      zone's offset; a quantity, price or value is typed as a decimal string and sent unchanged; the unit of a line is the
+      chosen item's base unit, shown and not editable (item_uom_valid?/3 accepts only the base unit); pickers list active
+      records only. Speed (assumption, owner may change at GATE B): a list page under 300 ms is a server figure of the
+      speed test, not checked by this change.
+
+      Not in this entry: the forms of transfer, hand over and return (REQ-723); balances and movements (REQ-724);
+      completing the post task inside the document view; keyboard-scanner or camera input of a line; printed forms and
+      signatures (phase E); xlsx import of documents.
+    acceptance_criteria:
+      - "1. Module and navigation (test file web/src/modules/stock/__tests__/documentsModule.nav.test.tsx, in the style of web/src/modules/codes/__tests__/codesModule.nav.test.tsx): the stock ModuleDefinition has the routes admin/stock/documents, admin/stock/documents/new and admin/stock/documents/:id and the nav item Stock documents with permission StockRead; with the stock module not installed the nav item is absent and the paths render the module guard's not-installed state; without StockRead the nav item is absent."
+      - "2. List (test file web/src/modules/stock/__tests__/DocumentsPage.list.test.tsx, network mocked): the list calls GET /api/v1/modules/stock/documents and shows per row the number (a draft mark while number is null), the kind, the event time in the tenant time zone, the org unit's name and the state; the filters kind (receipt, issue, write_off), state (draft, issued, posted, reversed, cancelled) and org unit send only the query keys kind, state and org_unit_id; a Load more button follows next_cursor. Names of org units are read with entitiesApi.queryRecords of type org_unit, one call per page, filtering record_id with the operator in on the ids of that page; an id with no readable record is shown as the id text. A test checks the query keys sent for each filter and the second page."
+      - "3. Draft forms of receipt, issue and write off (test file web/src/modules/stock/__tests__/DocumentForm.oneSide.test.tsx, network mocked): the form shows exactly the fields REQ-712 criterion 2, REQ-714 criterion 1 and REQ-715 criterion 1 give the kind: header event time, org unit, location, responsible employee and note; receipt also counterparty (optional), supplier document reference and received date; write off also reason code (lost, damaged, used_up, other) and reason text, required for other before sending; lines with item, unit, lot, quantity, and for a receipt also unit price and line value. Pickers read active records with entitiesApi.queryRecords of org_unit, location_node, org_employee, catalog_item, catalog_counterparty, and catalog_lot filtered on item_id of the line's item. Save of a new draft sends POST /api/v1/modules/stock/documents with kind and the whole body; save of an edit sends PUT /api/v1/modules/stock/documents/:id with the whole header and the whole line list, every loaded field of every kept line sent back and a removed line left out. A test per kind checks the exact request body of a create, and a test checks the exact body of an edit that removes one line of three; a quantity that is not a decimal string above zero is not sent and marks the field."
+      - "4. Document view and actions (test file web/src/modules/stock/__tests__/DocumentPage.actions.test.tsx, network mocked): the view calls GET /api/v1/modules/stock/documents/:id and shows the header and the lines in line_no order with master names, the state, number, issued_at, posted_at and posted_by, reversed_at and reversed_by, and a warning when posting_check is mismatch. Actions by state: draft: Edit, Discard (DELETE after a confirm dialog) and Issue (POST documents/:id/issue after a confirm dialog); issued with no posting: the text that the posting waits for the post task, a link to the task inbox path tasks, Retry posting (POST documents/:id/post) and Cancel; posted: Reverse (POST documents/:id/reverse with reason_code from wrong_document, wrong_quantity, wrong_master_data, other, and reason_text, required for other, at most 500 characters, checked before sending); reversed: Cancel (POST documents/:id/cancel with the typed reason); cancelled: none. After an accepted action the document is read again. Tests check each call and its body, and that the buttons are absent for a user without the atom of the route and in the states that do not allow them."
+      - "5. Refusals (test file web/src/modules/stock/__tests__/documentsErrors.test.tsx): each reason the routes of REQ-712 to REQ-715 can answer to these screens shows its own message in the active language: unknown_kind, field_not_allowed, field_required, lines_count, quantity_invalid, price_invalid, reason_invalid, document_not_draft, not_linked, employee_not_active, counterparty_not_active, unit_not_valid, lot_not_valid, lot_required, lot_not_allowed, lot_expiry_missing, tracking_policy_not_supported, received_on_after_event, event_time_too_old, event_time_in_future, busy, posting_pending, document_posted, document_cancelled, document_not_posted, document_reversed, reversal_pending, document_not_issued; a reason that carries line_no marks that line, and field_not_allowed and field_required mark the named field. A 404 shows the not-found state, a 403 that the action is not permitted, a 503 busy that the user may try again; every screen has its empty, loading and error state."
+      - "6. Three languages (test files web/src/modules/stock/__tests__/documentsI18n.test.tsx and documents-i18n-grep.test.ts, in the style of web/src/modules/codes/__tests__/codesI18n.test.tsx and codes-i18n-grep.test.ts): every message key exists in en, ru and kk with a non-empty text, no text is written in the components outside the message file, and switching the platform language re-renders the document screens in that language."
+      - "7. Checks: the web gate npm run check (type-check, lint, unit tests, guards) passes in the engine's checks step; the change edits only files under web/ and adds exactly one line to web/src/modules/registry.ts (the stock module entry) if it creates the stock ModuleDefinition, none otherwise; no backend file changes. REVIEWER verdict recorded."
+    open_questions:
+      - "The defaults of the description (buttons by permission and state, tenant time zone Asia/Almaty, base unit only, active records only in pickers): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+      - "Whether the document view should complete the post task itself instead of linking to the task inbox: default no (the post task is a human task of the engine, REQ-713); owner may change at GATE B."
+    depends_on: [REQ-712, REQ-713, REQ-714, REQ-715, REQ-669]
+
+  - id: REQ-723
+    title: "Assets B4 stock document screens part 2: the draft forms of transfer, hand over and return in the stock document screens, with a from side and a to side, in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 3768
+    # Source: entries REQ-721 (kinds transfer, hand_over and return, header fields per kind, sides_equal, the side key of a side check), REQ-722 (document screens, list filters, form and refusal rules, defaults) and REQ-669 (common screen rules); docs/assets/stock-workflow-documents.md sections 5, 6 and 7.1. Web code read on origin/main de23767f1: web/src/modules/codes/ (message file and i18n tests), web/src/api/entities.ts (entitiesApi.queryRecords). Written by the business analyst (T-1227) 2026-11-04.
+    description: >
+      Phase B item B4 (plan item P33), web screens part 2: the stock document screens of REQ-722 gain the three kinds of
+      REQ-721 that move a quantity from one side to another. A side is an org unit, a location and a responsible
+      employee. Transfer and hand over: the from side is the document's org unit with from location and from
+      responsible, the to side is to org unit, to location and to responsible. Return: the from side is from org unit,
+      from location and from responsible (the employee who returns), the to side is the document's org unit with to
+      location and to responsible (REQ-721 description). The form shows the two sides as two labelled groups, From and
+      To, so the user never has to know which header field holds which side.
+
+      Same place, routes, rules and defaults as REQ-722 (web/src/modules/stock/documents/, no route and no permission
+      added, StockPost to save and issue, the tenant time zone Asia/Almaty until the setting exists, active records only
+      in pickers, the base unit only). Storage: none. Scope: through the stock routes only, as REQ-722 says. The list of
+      REQ-722 shows a two-side document under its document org unit (the from unit of a transfer or hand over, the
+      unit a return goes back to); the list filter by org unit matches that unit only (REQ-721 criterion 7).
+
+      DECIDED HERE (UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B): a hand
+      over form starts with the to org unit and to location equal to the from side (the usual case is a hand over
+      inside one unit), and both stay editable; the form does not send a document whose two sides are equal in all three
+      keys and shows the sides_equal message, and the server's sides_equal answer is shown the same way.
+
+      Not in this entry: a link between a return and an earlier hand over (REQ-721 open question); balances and
+      movements (REQ-724).
+    acceptance_criteria:
+      - "1. Forms (test file web/src/modules/stock/__tests__/DocumentForm.twoSides.test.tsx, network mocked): for kind transfer, hand_over and return the form shows the header event time and note, a From group and a To group of org unit, location and responsible employee pickers mapped to the header fields of REQ-721 criterion 1 as the description says per kind, and lines with item, unit (the item's base unit, not editable), lot and quantity only. A test per kind checks the exact request body of POST /api/v1/modules/stock/documents for a create, with every header field of the kind and kind set; a test checks that a hand over form opens with the to org unit and to location of the from side and sends a changed to location when the user changes it."
+      - "2. Equal sides: when the From and To groups name the same org unit, location and responsible employee, Save sends nothing and shows the sides_equal message; a server answer 422 sides_equal shows the same message; sides that differ in one key are sent. A test per case."
+      - "3. List, view and actions: the list filter kind of REQ-722 criterion 2 offers transfer, hand_over and return as well; the document view of REQ-722 criterion 4 shows a two-side document's From and To groups with master names and offers the same actions by state; a test per kind renders the view of a posted document and checks the Reverse call. The REQ-722 tests of the filter options are updated for the three added kinds."
+      - "4. Side refusals (documents refusals test file of REQ-722): a 422 not_linked or employee_not_active with side from or side to shows its message on the From or To group named by side, and sides_equal shows its own message; the other refusals of REQ-722 criterion 5 show as there. A test per side."
+      - "5. Languages and checks: every new text is in the module message file in en, ru and kk and the i18n tests of REQ-722 criterion 6 pass with the new keys; the web gate npm run check passes in the engine's checks step; the change edits only files under web/; no backend file changes. REVIEWER verdict recorded."
+    open_questions:
+      - "The hand over form's starting values and the client-side equal sides check: UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+    depends_on: [REQ-721, REQ-722, REQ-669]
+
+  - id: REQ-724
+    title: "Assets B4 stock register screens: web screens of module stock for current balances (filters by item, location, org unit, responsible and lot) and movements (filters by cause, document and posting range, legs with masked hidden sides), in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 3767
+    # Source: entries REQ-687 (criterion 5 GET /api/v1/modules/stock/balances: query keys basis, cutoff_seq, as_of, sku, location, org_unit, responsible, lot, limit, cursor, body keys and the stock_balance row keys; criterion 6 GET /api/v1/modules/stock/movements: query keys cause, document_type, document_id, correlation_id, from_seq, to_seq, limit, cursor, the stock_movement row and leg keys; criterion 8 refusals: 404 for API tokens and principals whose grant is not tenant-wide, 403 without StockRead, 422 invalid_filter; the six causes of criterion 2), REQ-693 (criterion 6: a hidden leg is a map with exactly leg_no, quantity, unit_ref and masked true; the stock routes pass it through, 0073 S8), REQ-713 (the core cause reversal), REQ-722 (the stock document view), REQ-702 and REQ-669 (module and common screen rules) on origin/main de23767f1; pending REQ-703 and REQ-704 of task T-1222 (tenant time zone setting; balance as of a date, which adds no route); docs/assets/stock-workflow-documents.md sections 1.2 (slots) and 10 (speed assumptions). Web code read on origin/main: web/src/modules/registry.ts, web/src/modules/codes/, web/src/api/entities.ts (entitiesApi.queryRecords), lib/letflow/entities/query/allowlist.ex typed_columns/0 (record_id is a filterable string column) and lib/letflow/entities/query/types.ex (operator in accepts string fields). Written by the business analyst (T-1227) 2026-11-04.
+    description: >
+      Phase B item B4 of the assets and stock application (plan item P33): the read screens of the stock register.
+      Balances shows how much of each item lies at each org unit, location, responsible employee and lot now. Movements
+      lists the posted entries, newest first in posting order, with their legs. Both are read-only; the register is
+      written only by the documents (D-061). The routes are those of REQ-687 criteria 5 and 6; the screens add no route
+      and no permission.
+
+      Place: the SPA module stock, web/src/modules/stock/; its ModuleDefinition exists from REQ-722 (or REQ-702), and this
+      change adds its routes and nav items to it. Files in
+      web/src/modules/stock/register/. Paths admin/stock/balances and admin/stock/movements; nav items Balances and
+      Movements, each with permission StockRead. Messages in en, ru and kk in the module message file. The common
+      screen rules of REQ-669 apply.
+
+      What is shown. A balance row's slots and unit are record ids (REQ-687 criterion 5); the screen shows the item's,
+      location's, org unit's and unit's name, the employee's full name and the lot's code, read with
+      entitiesApi.queryRecords of the master's type, one call per type per page, filtering record_id with the operator
+      in on the ids of that page; an id with no readable record (or an empty slot, null) is shown as the id text (or
+      empty). A quantity is shown as the canonical text the route answers, never re-computed. Cause names and the
+      document type keys (stock_receipt and the others of REQ-712 to REQ-721) are shown as translated words. A leg that
+      the route answers with masked true (a leg in an org unit the reader does not see, REQ-693 criterion 6) shows its
+      quantity and unit and the words hidden unit in place of its slots.
+
+      Balance basis. This entry reads the latest balances only (basis posting_seq with no cutoff_seq). The balance as
+      of a date (item B2; pending REQ-704 of task T-1222 adds the core function and no route) needs a route of its own
+      and is a later screen entry.
+
+      Storage and scope. No storage. Scope (D-067: balances and movements scoped by the ledger's org unit slot): the
+      routes decide what a reader sees (REQ-687 criterion 8, REQ-693); the screen sends no tenant identifier and no
+      scope key of its own and shows a 404 as its not-available state.
+
+      DECIDED HERE (UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B): rows
+      are shown as the route answers them, zero balances included, with no client-side filter; times are shown in the
+      tenant time zone, the constant Asia/Almaty until the tenant time zone setting exists (pending REQ-703 of task
+      T-1222). Speed (assumption, owner may change at GATE B): a list page under 300 ms and reads at p95 under 500 ms
+      with 100 concurrent readers on 3,000,000 entries and 1,000,000 balance rows are server figures of the speed test
+      of decision 0073 A7, not checked by this change.
+
+      Not in this entry: balance as of a date; the reconcile route of REQ-687 criterion 7; export to xlsx (REQ-677);
+      the subtree filter and coverage field of REQ-693 criteria 4 and 5 (the balances route of REQ-687 has no such
+      query key).
+    acceptance_criteria:
+      - "1. Module and navigation (test file web/src/modules/stock/__tests__/registerModule.nav.test.tsx, in the style of web/src/modules/codes/__tests__/codesModule.nav.test.tsx): the stock ModuleDefinition has the routes admin/stock/balances and admin/stock/movements and the nav items Balances and Movements, each with permission StockRead; with the stock module not installed the nav items are absent and the paths render the module guard's not-installed state; without StockRead the nav items are absent."
+      - "2. Balances (test file web/src/modules/stock/__tests__/BalancesPage.test.tsx, network mocked): the screen calls GET /api/v1/modules/stock/balances with no basis and no cutoff_seq key; the filters item, location, org unit, responsible employee and lot are pickers of active records (entitiesApi.queryRecords of catalog_item, location_node, org_unit, org_employee, and catalog_lot filtered on the chosen item) and send only the query keys sku, location, org_unit, responsible and lot with the chosen record id; the table shows per row the item, location, org unit, responsible and lot names, the unit name and the quantity text unchanged (a row with quantity 0 is shown), and the header shows the ledger_seq the page was read at; a Load more button follows next_cursor. Names are read as the description says, one queryRecords call per master type per page; a test checks the query keys of each filter, the name calls of one page, a row whose responsible and lot are null, and the second page."
+      - "3. Movements (test file web/src/modules/stock/__tests__/MovementsPage.test.tsx, network mocked): the screen calls GET /api/v1/modules/stock/movements; the filters cause (receipt, issue, write_off, transfer, hand_over, return, reversal), document (taken from the page's query key document_id) and posting range (from and to posting number) send only the query keys cause, document_id, from_seq and to_seq; a range whose from number is above its to number is not sent and marks the field. Each row shows posting_seq, event_time in the tenant time zone, the translated cause, reason_code when set, and the translated document type; opening a row shows its legs with leg_no, the slot names, the unit name and the signed quantity text. A leg with masked true shows its quantity, its unit and the hidden unit text and no slot. A Load more button follows next_cursor. A test checks the query keys of each filter, the legs of a two-leg row, a masked leg, and the second page."
+      - "4. Link from a document (test file web/src/modules/stock/__tests__/DocumentPage.actions.test.tsx of REQ-722): the stock document view of REQ-722 criterion 4 gains, for a posted or reversed document, a link Movements to admin/stock/movements with the query key document_id set to the document's document_id; a test checks the link target and that a draft or issued document has no such link."
+      - "5. Refusals (test file web/src/modules/stock/__tests__/registerErrors.test.tsx): a 422 invalid_filter shows its message, a 404 shows the not-available state (the answer for a reader the route does not serve), a 403 that the action is not permitted, and every screen has its empty, loading and error state."
+      - "6. Languages and checks: every text is in the module message file in en, ru and kk; test files web/src/modules/stock/__tests__/registerI18n.test.tsx and register-i18n-grep.test.ts, in the style of the codes module tests, show the same keys in the three languages, no text written in the components, and a re-render on a language switch; the web gate npm run check passes in the engine's checks step; the change edits only files under web/ and does not change web/src/modules/registry.ts; no backend file changes. REVIEWER verdict recorded."
+    open_questions:
+      - "Balance as of a date on the screen: needs a stock route over the core function of pending REQ-704 (task T-1222); a later entry."
+      - "Zero balances shown, latest basis only, tenant time zone Asia/Almaty: UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+    depends_on: [REQ-687, REQ-693, REQ-722, REQ-669]

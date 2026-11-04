@@ -220,6 +220,63 @@ defmodule Letflow.LedgerFixture do
     end
   end
 
+  @doc "An authorized value as part B will mint it (REQ-637 part C builds the literal)."
+  def authorized(schema, purpose \\ :reconcile, ledger_id \\ @ledger_id) do
+    %Ledger.Authorized{
+      prefix: schema,
+      ledger_id: ledger_id,
+      registration_name: "test",
+      purpose: purpose,
+      slot_names: Enum.map(registration().slots, & &1.name)
+    }
+  end
+
+  @doc "Every result of a reconciliation run, chunk by chunk (stops on an error tuple)."
+  def reconcile_chunks(authorized, opts \\ %{}) do
+    case Ledger.reconcile(authorized, opts) do
+      {:ok, %{next_cursor: nil} = result} ->
+        [result]
+
+      {:ok, %{next_cursor: cursor} = result} ->
+        [result | reconcile_chunks(authorized, Map.put(opts, :cursor, cursor))]
+
+      {:error, _} = error ->
+        [error]
+    end
+  end
+
+  @doc "The last result of a run with the mismatches of all its chunks."
+  def reconcile_all(authorized, opts \\ %{}) do
+    case reconcile_chunks(authorized, opts) do
+      [{:error, _} = error] ->
+        error
+
+      results ->
+        last = List.last(results)
+        {:ok, %{last | mismatches: Enum.flat_map(results, & &1.mismatches)}}
+    end
+  end
+
+  @doc "True when the connection role owns the ledger tables (owner-tamper tests need it)."
+  def table_owner?(schema) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT tableowner = current_user FROM pg_tables WHERE schemaname = $1 AND tablename = 'ledger_entry'",
+        [schema]
+      )
+
+    rows == [[true]]
+  end
+
+  @doc "Disables the user triggers of a ledger table as its owner (residual D-L2a of decision 0073)."
+  def disable_guards!(schema, table) when table in ~w(ledger_entry ledger_leg ledger_counter) do
+    Repo.query!(~s|ALTER TABLE "#{schema}".#{table} DISABLE TRIGGER USER|)
+    :ok
+  end
+
+  @doc "Runs a statement as the table owner with its bound parameters (test tampering)."
+  def exec!(sql, params \\ []), do: Repo.query!(sql, params)
+
   @doc "Row count of a ledger table in `schema`."
   def count(schema, table)
       when table in ~w(ledger_entry ledger_leg ledger_counter ledger_balance) do
@@ -259,5 +316,83 @@ defmodule Letflow.LedgerFixture do
     after
       0 -> Enum.reverse(acc)
     end
+  end
+
+  # ---- read side (REQ-637 part B) --------------------------------------------------------------
+
+  @doc """
+  The test registry value of `Ledger.registration_for/1`: the test ledger id with the test
+  registration and two EXISTING tenant-scope permission atoms (read: TENANT_ADMIN and
+  PROCESS_DESIGNER; reconcile: TENANT_ADMIN only).
+  """
+  def registry do
+    %{
+      @ledger_id => %{
+        name: "test",
+        registration: registration(),
+        read_permission: :ScriptsWrite,
+        reconcile_permission: :ScriptsPublish
+      }
+    }
+  end
+
+  @doc "Installs `registry` (default `registry/0`) as the ledger registry for the test; restored on exit."
+  def put_registry!(registry \\ registry()) do
+    previous = Application.fetch_env(:letflow, :ledger_registry)
+    Application.put_env(:letflow, :ledger_registry, registry)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:letflow, :ledger_registry, value)
+        :error -> Application.delete_env(:letflow, :ledger_registry)
+      end
+    end)
+
+    :ok
+  end
+
+  @doc "A committed tenant with the default role groups seeded; returns `%{tenant_id, schema_name}`."
+  def tenant_fixture! do
+    tenant = TenantFixture.provisioned_tenant!(slug_prefix: "ledger", teardown: false)
+    on_exit(fn -> EntityWritesFixture.drop_committed_tenant!(tenant.tenant_id) end)
+
+    {:ok, _roles} =
+      Letflow.Identity.RoleRegistry.seed_default_platform_role_groups(prefix: tenant.schema_name)
+
+    tenant
+  end
+
+  @doc "A real active user of the tenant holding `roles` by group membership."
+  def user!(fx, roles),
+    do: Letflow.Support.TokenMintFixture.role_holder!(fx.schema_name, roles)
+
+  @doc "A conn as the auth plug leaves it for `user` (claiming `roles`) with `credential`."
+  def conn_for(fx, user, roles, credential \\ :oidc) do
+    :get
+    |> Plug.Test.conn("/")
+    |> Plug.Conn.assign(:auth_context, %{
+      user_id: user.id,
+      tenant_id: fx.tenant_id,
+      roles: roles,
+      credential: credential
+    })
+    |> Plug.Conn.assign(:scoped_opts, prefix: fx.schema_name)
+  end
+
+  @doc "Writes `settings` (string keys) straight into the tenant record, past the settings cast."
+  def put_tenant_settings!(fx, settings) do
+    Repo.query!("UPDATE tenants SET settings = $1 WHERE id = $2", [
+      settings,
+      Ecto.UUID.dump!(fx.tenant_id)
+    ])
+
+    :ok
+  end
+
+  @doc "An `Authorized` value for `fx` built through `Ledger.authorize/3` as a TENANT_ADMIN."
+  def authorized!(fx, purpose \\ :read) do
+    user = user!(fx, ["TENANT_ADMIN"])
+    {:ok, auth} = Ledger.authorize(conn_for(fx, user, ["TENANT_ADMIN"]), @ledger_id, purpose)
+    auth
   end
 end
