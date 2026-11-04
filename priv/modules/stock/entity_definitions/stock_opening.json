@@ -1,0 +1,15 @@
+{
+  "name": "stock_opening",
+  "display_name": "Stock opening balance (header)",
+  "description": "GH #3775 / REQ-725, decision 0079 sections D1 to D4. The header of an opening balance document. It is written only by module stock (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: no number, status, posted_at or posted_by is stored here. There is no event_time: the ledger stamps the posting time as the event time (REQ-726), and the real receipt date is a field of each line. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). external_ref_system and external_ref_id are an optional pair that names the document for the xlsx import (decision 0079 D5); their uniqueness among live documents is checked by the module, not by a table constraint (a soft-deleted row would keep the pair taken). After issue nothing of the header changes.",
+  "fields": [
+    {"name": "document_id", "type": "string", "required": true, "queried": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "note", "type": "string"},
+    {"name": "external_ref_system", "type": "string", "queried": true},
+    {"name": "external_ref_id", "type": "string", "queried": true}
+  ],
+  "indexes": [
+    {"name": "idx_stock_opening_document_id", "fields": ["document_id"]}
+  ]
+}

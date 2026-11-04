@@ -22,6 +22,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `PUT /documents/:id` | `StockPost` | 200 document (replaces the whole draft) |
   | `DELETE /documents/:id` | `StockPost` | 204 |
   | `POST /documents/:id/issue` | `StockPost` | 200 document |
+  | `POST /documents/:id/check` | `StockPost` | 200 `ok, lines` (opening only, writes nothing) |
   | `POST /documents/:id/post` | `StockPost` | 200 document (starts the posting instance) |
   | `POST /documents/:id/reverse` | `StockReverse` | 200 document (starts the reversal instance) |
   | `POST /documents/:id/cancel` | `StockReverse` | 200 document (state `cancelled`) |
@@ -206,6 +207,15 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  authz_post "/documents/:id/check", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      case Documents.check(access.prefix, conn.params["id"]) do
+        {:ok, result} -> Response.ok(conn, result)
+        {:error, reason} -> refuse_document(conn, reason)
+      end
+    end)
+  end
+
   authz_post "/documents/:id/post", :StockPost do
     with_access(conn, :post, fn conn, access ->
       who = %{actor_id: access.actor_id, activator: Letflow.Api.Context.activator(conn)}
@@ -355,7 +365,7 @@ defmodule Letflow.Modules.Stock.Router do
 
   @conflicts ~w(document_not_issued document_cancelled document_posted posting_pending
                 document_not_posted document_reversed reversal_pending posting_inconsistent
-                definition_not_active)a
+                definition_not_active external_ref_taken)a
 
   defp refuse_document(conn, reason) when reason in @conflicts,
     do: problem(conn, Error.conflict("request refused"), Atom.to_string(reason))

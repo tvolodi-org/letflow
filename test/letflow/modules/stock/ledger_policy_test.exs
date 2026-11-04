@@ -78,6 +78,67 @@ defmodule Letflow.Modules.Stock.LedgerPolicyTest do
     end
   end
 
+  test "T-LP-OPEN-1: opening gives one positive leg per line at to, with no client time" do
+    second = "77777777-7777-4777-8777-777777777777"
+
+    assert {:ok, posting} =
+             declare(
+               cmd("opening", [
+                 line(nil, side(%{responsible: @resp})),
+                 line(nil, side(%{location: "88888888-8888-4888-8888-888888888888"}), %{
+                   line_id: second,
+                   lot: nil
+                 })
+               ])
+             )
+
+    assert posting == %{
+             ledger_id: "stock",
+             cause: "opening",
+             document_type: "doc",
+             document_id: "d1",
+             legs: [
+               %{
+                 k: k(@loc, @unit_a, @resp, @lot),
+                 quantity: Decimal.new("2.5"),
+                 unit_ref: "pcs",
+                 document_line_id: @line
+               },
+               %{
+                 k: k("88888888-8888-4888-8888-888888888888", @unit_a, "", ""),
+                 quantity: Decimal.new("2.5"),
+                 unit_ref: "pcs",
+                 document_line_id: second
+               }
+             ]
+           }
+
+    refute Map.has_key?(posting, :client_event_time)
+  end
+
+  test "T-LP-OPEN-2: an opening command with a client event time key is refused for the whole command" do
+    good = line(nil, side())
+
+    for key <- [:event_time, :client_event_time, :device_id, :client_seq] do
+      assert refused(cmd("opening", [good], %{key => "2026-01-01T00:00:00Z"})) == bad(1)
+    end
+
+    # nil values are the absence of the key; the receipt is not touched by the rule
+    assert {:ok, _} =
+             declare(cmd("opening", [good], %{event_time: nil, device_id: nil, client_seq: nil}))
+
+    assert {:ok, _} =
+             declare(cmd("receipt", [good], %{client_event_time: "2026-01-01T00:00:00Z"}))
+  end
+
+  test "T-LP-OPEN-3: an opening line with a from side is refused with its leg number" do
+    good = line(nil, side())
+    assert refused(cmd("opening", [good, line(side(), side())])) == bad(2)
+    assert refused(cmd("opening", [line(nil, nil)])) == bad(1)
+    assert refused(cmd("opening", [])) == bad(1)
+    assert refused(cmd("opening", List.duplicate(good, 101))) == bad(101)
+  end
+
   test "T-LP-4: lines keep their order, legs of several lines" do
     second = "77777777-7777-4777-8777-777777777777"
 

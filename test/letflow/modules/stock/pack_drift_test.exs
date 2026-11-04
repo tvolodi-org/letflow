@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
   alias Letflow.Entities.Definition.Shape
 
   @dir Path.join([File.cwd!(), "priv", "modules", "stock"])
-  @types ~w(stock_receipt stock_receipt_line count_order count_order_scope count_commission_member stock_posting_mark)
+  @types ~w(stock_receipt stock_receipt_line stock_opening stock_opening_line count_order count_order_scope count_commission_member stock_posting_mark)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 
@@ -75,7 +75,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
              Enum.sort(@types)
 
     assert document["definitions"] |> Enum.map(& &1["process_key"]) |> Enum.sort() ==
-             ["stock_receipt", "stock_reversal"]
+             ["stock_opening", "stock_receipt", "stock_reversal"]
 
     assert document["variable_schemas"] == []
     assert document["service_catalog_entries"] == []

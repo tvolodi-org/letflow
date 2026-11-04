@@ -1,0 +1,27 @@
+{
+  "name": "stock_opening_line",
+  "display_name": "Stock opening balance (line)",
+  "description": "GH #3775 / REQ-725, decision 0079 section D2. One line of an opening balance document. header_id is the record_id of the stock_opening header (not the document id); the foreign_keys entry fk_stock_opening_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7). line_no is the position 1..n. location_id and responsible_id are record ids of modules locations and org, catalog_item_id, catalog_uom_id and catalog_lot_id of module catalog_items (other packs: no foreign key; the module checks them at issue). quantity is an exact decimal (precision 24, scale 9, decimal_strict). received_on is the real receipt date of the stock, a field only: it never becomes the event time. unit_price and line_value are optional exact decimals kept on the document only (never posted to the ledger). external_ref_system and external_ref_id are an optional pair for the xlsx import. Written only by module stock; after issue nothing of a line changes.",
+  "fields": [
+    {"name": "header_id", "type": "string", "required": true, "queried": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "line_no", "type": "integer", "required": true},
+    {"name": "location_id", "type": "string", "required": true},
+    {"name": "responsible_id", "type": "string", "required": true},
+    {"name": "catalog_item_id", "type": "string", "required": true},
+    {"name": "catalog_uom_id", "type": "string", "required": true},
+    {"name": "catalog_lot_id", "type": "string"},
+    {"name": "quantity", "type": "decimal", "required": true, "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true},
+    {"name": "received_on", "type": "date", "required": true},
+    {"name": "unit_price", "type": "decimal", "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true},
+    {"name": "line_value", "type": "decimal", "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true},
+    {"name": "external_ref_system", "type": "string", "queried": true},
+    {"name": "external_ref_id", "type": "string", "queried": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_stock_opening_line_header_id", "field": "header_id", "references_entity": "stock_opening"}
+  ],
+  "indexes": [
+    {"name": "idx_stock_opening_line_header_id", "fields": ["header_id"]}
+  ]
+}

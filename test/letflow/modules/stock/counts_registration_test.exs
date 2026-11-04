@@ -116,6 +116,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
       assert {:ok, _} = Letflow.Documents.register_type(s, attrs, ctx)
     end
 
-    assert length(Repo.all(DocumentType, prefix: s)) == 5
+    # the receipt, the opening (REQ-725) and the four count types
+    assert length(Repo.all(DocumentType, prefix: s)) == 6
   end
 end

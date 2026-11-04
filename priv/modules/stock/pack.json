@@ -127,6 +127,83 @@
       },
       "process_key": "stock_reversal",
       "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000003774",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "submit"
+          },
+          {
+            "id": "e2",
+            "source": "submit",
+            "target": "approve"
+          },
+          {
+            "id": "e3",
+            "source": "approve",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "role": "TENANT_ADMIN"
+            },
+            "id": "submit",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "attributes": {
+              "distinct_from": [
+                "submit"
+              ],
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "approve",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_opening",
+      "version": "1.0.0"
     }
   ],
   "entity_definitions": [
@@ -274,6 +351,159 @@
       "entity_definition_id": "450d0aee-6502-e643-a766-5d4bb96c2171",
       "logical_shape_version": "509883652a737faaea8278b6a3451037f19c774cde86b135e8872e4d36412837",
       "name": "stock_receipt_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3775 / REQ-725, decision 0079 sections D1 to D4. The header of an opening balance document. It is written only by module stock (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: no number, status, posted_at or posted_by is stored here. There is no event_time: the ledger stamps the posting time as the event time (REQ-726), and the real receipt date is a field of each line. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). external_ref_system and external_ref_id are an optional pair that names the document for the xlsx import (decision 0079 D5); their uniqueness among live documents is checked by the module, not by a table constraint (a soft-deleted row would keep the pair taken). After issue nothing of the header changes.",
+        "display_name": "Stock opening balance (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_stock_opening_document_id"
+          }
+        ],
+        "name": "stock_opening"
+      },
+      "display_name": "Stock opening balance (header)",
+      "entity_definition_id": "e02280b6-e6aa-2688-b035-d7381c9c3ad0",
+      "logical_shape_version": "83ae3a431917ac0180726996339b71c06a4f612f05cdc1e01b479d06c72bca81",
+      "name": "stock_opening"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3775 / REQ-725, decision 0079 section D2. One line of an opening balance document. header_id is the record_id of the stock_opening header (not the document id); the foreign_keys entry fk_stock_opening_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7). line_no is the position 1..n. location_id and responsible_id are record ids of modules locations and org, catalog_item_id, catalog_uom_id and catalog_lot_id of module catalog_items (other packs: no foreign key; the module checks them at issue). quantity is an exact decimal (precision 24, scale 9, decimal_strict). received_on is the real receipt date of the stock, a field only: it never becomes the event time. unit_price and line_value are optional exact decimals kept on the document only (never posted to the ledger). external_ref_system and external_ref_id are an optional pair for the xlsx import. Written only by module stock; after issue nothing of a line changes.",
+        "display_name": "Stock opening balance (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "name": "received_on",
+            "required": true,
+            "type": "date"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "unit_price",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "line_value",
+            "type": "decimal"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_stock_opening_line_header_id",
+            "references_entity": "stock_opening"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_stock_opening_line_header_id"
+          }
+        ],
+        "name": "stock_opening_line"
+      },
+      "display_name": "Stock opening balance (line)",
+      "entity_definition_id": "b86eda74-879b-30b8-2f45-14f64c1ad522",
+      "logical_shape_version": "1b469c6d066fb0c78fd42536fe2c349f2054befd519c39bfda2c8297c7f4d303",
+      "name": "stock_opening_line"
     },
     {
       "definition_json": {

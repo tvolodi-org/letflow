@@ -60,13 +60,8 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
   def received_on(nil, _event_time), do: :ok
 
   def received_on(received_on, event_time) when is_binary(received_on) do
-    with {:ok, at, _offset} <- DateTime.from_iso8601(event_time),
-         {:ok, wanted} <- Date.from_iso8601(received_on),
-         {:ok, %{rows: [[%Date{} = day]]}} <-
-           Repo.query("SELECT (($1::timestamptz) AT TIME ZONE $2)::date", [
-             at,
-             @receipt_timezone
-           ]) do
+    with {:ok, wanted} <- Date.from_iso8601(received_on),
+         {:ok, day} <- event_day(event_time) do
       if Date.compare(wanted, day) == :gt,
         do: {:error, {"received_on_after_event", %{}}},
         else: :ok
@@ -74,6 +69,26 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
       _failed -> {:error, :internal}
     end
   end
+
+  @doc """
+  The local date (module zone, the one constant of this module) of the UTC ISO text `event_time`,
+  read from PostgreSQL. The opening document (REQ-725) calls it with the clock's now.
+  """
+  @spec event_day(String.t()) :: {:ok, Date.t()} | {:error, :internal}
+  def event_day(event_time) when is_binary(event_time) do
+    with {:ok, at, _offset} <- DateTime.from_iso8601(event_time),
+         {:ok, %{rows: [[%Date{} = day]]}} <-
+           Repo.query("SELECT (($1::timestamptz) AT TIME ZONE $2)::date", [
+             at,
+             @receipt_timezone
+           ]) do
+      {:ok, day}
+    else
+      _failed -> {:error, :internal}
+    end
+  end
+
+  def event_day(_other), do: {:error, :internal}
 
   @doc "Runs the master checks of `view` (the document map of `Letflow.Modules.Stock.Documents`)."
   @spec masters(String.t(), map()) :: :ok | refusal()
@@ -124,22 +139,30 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
   end
 
   defp tracking(prefix, line) do
-    refusal = fn reason -> {:error, {reason, %{"line_no" => line.line_no}}} end
+    case tracking_result(prefix, line.catalog_item_id, line.catalog_lot_id) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {reason, %{"line_no" => line.line_no}}}
+    end
+  end
 
+  @doc """
+  The tracking-policy check of one line as a reason text: `:ok` or `{:error, reason}`. The receipt
+  (`masters/2`) and the opening document (REQ-725) both use it, so the mapping has one definition.
+  """
+  @spec tracking_result(String.t(), String.t(), String.t() | nil) :: :ok | {:error, String.t()}
+  def tracking_result(prefix, item_id, lot_id) do
     policy =
-      case CatalogItems.lookup(prefix, line.catalog_item_id) do
+      case CatalogItems.lookup(prefix, item_id) do
         {:ok, %{"tracking_policy" => policy}} when is_binary(policy) -> policy
         _none -> "none"
       end
 
     if policy == "serial" do
-      refusal.("tracking_policy_not_supported")
+      {:error, "tracking_policy_not_supported"}
     else
-      capture = capture(prefix, policy, line.catalog_lot_id)
-
-      case CatalogItems.validate_capture(prefix, line.catalog_item_id, capture) do
+      case CatalogItems.validate_capture(prefix, item_id, capture(prefix, policy, lot_id)) do
         :ok -> :ok
-        other -> refusal.(tracking_reason(other))
+        other -> {:error, tracking_reason(other)}
       end
     end
   end

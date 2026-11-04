@@ -526,3 +526,27 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     them to the ledger. At issue the lot is checked against the item's tracking policy (serial-tracked goods are
     refused, `tracking_policy_not_supported`) and `received_on` may not be after the event day in Asia/Almaty
     (assumption, owner may change at GATE B) (`lib/letflow/modules/stock/documents/checks.ex`, GH #3747).
+24. **Opening balance document.** Version 0.5.0 adds the second document kind `opening` (records `stock_opening` and
+    `stock_opening_line`, number prefix `OPN` per year, pad 6). It posts only through the two-person process
+    `stock_opening` (GH #3774); a larger stock than 100 lines is entered as several documents
+    (`lib/letflow/modules/stock/documents/opening_shape.ex`, GH #3775).
+25. **The entry's event time is its posting time.** An opening carries no event time; the real receipt date is a field of
+    each line (`received_on`) and never reaches the ledger. A balance as of an earlier time therefore shows no opening
+    quantity, and the posting handler, the policy and the read-side check all refuse a client event time
+    (`lib/letflow/modules/stock/handlers.ex`, GH #3774).
+26. **At most 100 lines.** The cap of the stock policy `declare/2` applies, a deviation from the 200 lines of decision
+    0079 D2 (owner may change at GATE B) (`lib/letflow/modules/stock/ledger_policy/declare.ex`, GH #3775).
+27. **Not offered on a customer tenant before the pilot gate.** Opening balances follow the NOT enabled for a customer
+    tenant rule of decision 0073 until slices L6 and L7 (decision 0079 D3, GH #3775).
+28. **Defaults the owner may change at GATE B.** The prefix `OPN`, numbering per year, pad 6, the time zone Asia/Almaty
+    for the receipt-date check, 100 lines, the external reference pair, and a second person for every opening (owner
+    may change at GATE B) (`lib/letflow/modules/stock/stock.ex`, GH #3775).
+29. **Who is the preparer.** The `approve` task has `distinct_from ["submit"]`; the issue step completes `submit` as the
+    issuing user. When that completion fails the `submit` task stays pending and whoever completes it is the preparer;
+    the retry route `post` answers `posting_pending` while a `submit` or `approve` task is pending
+    (`lib/letflow/modules/stock/documents/posting.ex`, GH #3774).
+30. **No service posting of opening balances.** A posting from a service task stays refused (`ledger_origin_not_supported`)
+    until slice L5; the process has no service task (decision 0079 D7, GH #3774).
+31. **A repeated approval is refused, not answered with the first result.** A second `stock_opening` instance for the
+    same issued version fails at `approve` on the unique mark of item 20: one entry, one mark, no second answer
+    (`priv/modules/stock/entity_definitions/stock_posting_mark.json`, GH #3774).

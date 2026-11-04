@@ -14,6 +14,9 @@ defmodule Letflow.Modules.Stock.Handlers do
   `prefix`, `subject_id` or `credential` in the arguments is never copied: the platform fills
   them from the context. The platform scans (`handler_writes_callers_test.exs`, H4) cover this file.
 
+  The cause `opening` (REQ-726, process definition `stock_opening`, node `approve`) is built without
+  the offline keys `device_id`, `client_seq` and `client_event_time`.
+
   A second mark of the same kind for one document violates the unique constraint of the mark type,
   so the completion rolls back before any ledger write (criterion 5 of REQ-713).
   """
@@ -88,6 +91,22 @@ defmodule Letflow.Modules.Stock.Handlers do
        reverses_entry_id: Map.get(posting, "reverses_entry_id"),
        reason_code: Map.get(posting, "reason_code")
      }}
+  end
+
+  # REQ-726: an opening has NO event time from the client. The three offline keys are never copied
+  # for it (a changed `posting` variable cannot backdate it); the ledger stamps the posting time.
+  defp command(%{"cause" => "opening", "lines" => lines} = posting) when is_list(lines) do
+    with {:ok, lines} <- lines(lines) do
+      {:ok,
+       %{
+         ledger_id: "stock",
+         cause: "opening",
+         document_type: Map.get(posting, "document_type"),
+         document_id: Map.get(posting, "document_id"),
+         client_op_id: Map.get(posting, "client_op_id"),
+         lines: lines
+       }}
+    end
   end
 
   defp command(%{"cause" => cause, "lines" => lines} = posting)
