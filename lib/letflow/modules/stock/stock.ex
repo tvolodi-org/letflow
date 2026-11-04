@@ -66,6 +66,17 @@ defmodule Letflow.Modules.Stock do
   only), typed input, surplus lines, the append-only entry log, close (issues the `count.sheet`
   document). The stock module is installed on no tenant yet, so the changed pack touches no existing row.
 
+  ## Signing and the differences sheet (REQ-717 / GH #3764; version 0.6.0)
+
+  One more module-managed record type, `count_signature` (append-only, scoped by the column
+  `org_unit_id`), five optional fields on `count_order` and five routes
+  (`Letflow.Modules.Stock.CountDifferences`, delegated from `Counts`): the chair records the signers
+  of the count sheet, the differences sheet is issued from the issued sheet content, the chair records
+  its signers and the count becomes `signed`. No ledger call (the posting is REQ-718). Existing tenants
+  with `stock` installed take the new type through the module-upgrade path; the new header fields are
+  optional, so a `counted` count that exists already simply has none of them.
+  Assumption, owner may change at GATE B: "signed" is a paper signature recorded by the chair.
+
   ## Slots and their order (append-only, rule 12)
 
   `sku, location, org_unit, responsible, lot`, all uuid text. `sku` is slot 1 because the sign rule
@@ -109,6 +120,7 @@ defmodule Letflow.Modules.Stock do
     "count_commission_member",
     "count_sheet_line",
     "count_entry",
+    "count_signature",
     "stock_posting_mark"
   ]
 
@@ -161,7 +173,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.5.0",
+    version: "0.6.0",
     depends_on: ["catalog_items", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
@@ -201,7 +213,12 @@ defmodule Letflow.Modules.Stock do
       {"POST", "/counts/:id/surplus-lines", :StockCountRecord},
       {"GET", "/counts/:id/entries", :StockRead},
       {"POST", "/counts/:id/close", :StockCountRecord},
-      {"GET", "/counts/:id/sheet-document", :StockRead}
+      {"GET", "/counts/:id/sheet-document", :StockRead},
+      {"POST", "/counts/:id/sheet-signatures", :StockCountRecord},
+      {"POST", "/counts/:id/differences", :StockCountRecord},
+      {"POST", "/counts/:id/differences-signatures", :StockCountRecord},
+      {"GET", "/counts/:id/differences", :StockRead},
+      {"GET", "/counts/:id/signatures", :StockRead}
     ],
     manages_entity_types: [
       "stock_receipt",
@@ -217,6 +234,7 @@ defmodule Letflow.Modules.Stock do
       "count_commission_member",
       "count_sheet_line",
       "count_entry",
+      "count_signature",
       "stock_posting_mark"
     ],
     scope_declarations: %{
@@ -233,6 +251,7 @@ defmodule Letflow.Modules.Stock do
       "count_commission_member" => {:column, "org_unit_id"},
       "count_sheet_line" => {:column, "org_unit_id"},
       "count_entry" => {:column, "org_unit_id"},
+      "count_signature" => {:column, "org_unit_id"},
       "stock_posting_mark" => {:column, "org_unit_id"}
     },
     write_handlers: [
