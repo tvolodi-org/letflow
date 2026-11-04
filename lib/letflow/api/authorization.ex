@@ -1306,6 +1306,11 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/entity-type-extensions"), do: :EntitiesExtensionsManage
   def endpoint_policy_key("DELETE", "/entity-type-extensions/:id"), do: :EntitiesExtensionsManage
 
+  def endpoint_policy_key("PUT", "/entity-scope-declarations/:entity_type"),
+    do: :EntitiesRestrictionsManage
+
+  def endpoint_policy_key("GET", "/entity-scope-declarations"), do: :EntitiesRestrictionsManage
+
   # REQ-565 (GH #3201): tenant integration mappings; one permission for all five routes.
   def endpoint_policy_key("POST", "/integration-mappings"), do: :IntegrationMappingsManage
   def endpoint_policy_key("GET", "/integration-mappings"), do: :IntegrationMappingsManage
