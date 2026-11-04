@@ -20,9 +20,11 @@ defmodule Letflow.Ledger.Storage do
   Safety: the prefix and the ledger id are validated before any statement (INV-1, INV-7); every
   statement is built by PostgreSQL `format()` from bound parameters, no value is concatenated in
   Elixir. Concurrent creators of one ledger id are serialised by a transaction advisory lock.
-  Locks: ATTACH takes SHARE UPDATE EXCLUSIVE on the parent, and cloning the foreign keys of an
-  entry partition may take SHARE ROW EXCLUSIVE on `ledger_leg` and `ledger_entry` (REQ-711 measures
-  it). No caller exists in `lib/` outside this directory yet (REQ-711 wires install).
+  Locks: ATTACH takes SHARE UPDATE EXCLUSIVE on the parent. The two foreign keys are declared on
+  the partitions before ATTACH, pointing at the entry partition of the same ledger id, because a
+  parent-level key makes ATTACH take SHARE ROW EXCLUSIVE on the parents (measured by REQ-711), which
+  would block the postings of every other ledger id. `Letflow.Modules.Installs.install/3` and
+  `reactivate/3` are the only callers (REQ-711).
   """
 
   alias Letflow.Ledger.Storage.Ddl
@@ -94,7 +96,7 @@ defmodule Letflow.Ledger.Storage do
         h = hash(ledger_id)
 
         Enum.each(@parents, fn parent ->
-          Ddl.create_partition(prefix, parent, names[parent], ledger_id, h)
+          Ddl.create_partition(prefix, parent, names[parent], ledger_id, h, names["ledger_entry"])
         end)
 
         :ok
@@ -114,19 +116,23 @@ defmodule Letflow.Ledger.Storage do
         Repo.query!(
           """
           SELECT c.relname, p.relname,
-                 pg_get_expr(c.relpartbound, c.oid) = format('FOR VALUES IN (%L)', $3::text)
+                 pg_get_expr(c.relpartbound, c.oid) = format('FOR VALUES IN (%L)', $3::text),
+                 EXISTS (SELECT 1 FROM pg_constraint k
+                          WHERE k.conrelid = c.oid AND k.contype = 'f' AND k.conparentid = 0
+                            AND k.conname = ANY($4::text[]))
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             LEFT JOIN pg_inherits i ON i.inhrelid = c.oid
             LEFT JOIN pg_class p ON p.oid = i.inhparent
            WHERE n.nspname = $1 AND c.relname = ANY($2::text[])
           """,
-          [prefix, Map.values(names), ledger_id]
+          [prefix, Map.values(names), ledger_id, key_names(hash(ledger_id))]
         )
 
       attached =
-        Enum.count(rows, fn [name, parent, bound_ok] ->
-          bound_ok == true and Map.get(names, parent) == name
+        Enum.count(rows, fn [name, parent, bound_ok, has_key] ->
+          bound_ok == true and Map.get(names, parent) == name and
+            (has_key == true or parent == "ledger_balance")
         end)
 
       cond do
@@ -138,6 +144,10 @@ defmodule Letflow.Ledger.Storage do
       :invalid
     end
   end
+
+  # REQ-711: the per-partition foreign keys a ledger_entry / ledger_leg partition must carry.
+  defp key_names(h),
+    do: ["ledger_entry_reverses_entry_id_fkey_" <> h, "ledger_leg_entry_fk_" <> h]
 
   defp valid_prefix?(prefix), do: is_binary(prefix) and Regex.match?(@prefix_form, prefix)
 
