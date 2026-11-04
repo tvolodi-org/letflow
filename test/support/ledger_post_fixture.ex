@@ -154,7 +154,41 @@ defmodule Letflow.LedgerPostFixture do
     end)
   end
 
-  defp activate!(schema, activator_user, graph) do
+  @doc """
+  REQ-688: the SERVICE_TASK case. A stamped definition START -> SERVICE_TASK `svc` (HTTP-bound,
+  holding `module_lines`; `ledger_post_consent: true` unless `consent: false`) -> END, activated
+  through the real activation path by the role holder (`ctx.completer`, whose roles the run-time
+  authority step re-reads) with the activator's credential `:credential` (default
+  `:oidc`), an instance started and its dispatch row marked `"advanced"`. Apply it with
+  `Letflow.EntityWritesFixture.apply_http/2`. Options: `:committed`, `:holder_roles`.
+  """
+  @spec service_case!(String.t(), [map()], keyword()) :: map()
+  def service_case!(slug_prefix, module_lines, opts \\ []) do
+    base = case!(slug_prefix, [], opts)
+    more_service!(base, module_lines, opts)
+  end
+
+  @doc "REQ-688: another SERVICE_TASK definition and instance in the tenant of `ctx` (see `service_case!/3`)."
+  @spec more_service!(map(), [map()], keyword()) :: map()
+  def more_service!(base, module_lines, opts \\ []) do
+    attrs = if Keyword.get(opts, :consent, true), do: %{"ledger_post_consent" => true}, else: %{}
+
+    graph = Fx.service_graph([], Map.put(attrs, "module_writes", module_lines))
+
+    definition =
+      activate!(base.schema, base.completer, graph, Keyword.get(opts, :credential, :oidc))
+
+    pending = Fx.start_service_instance!(base, definition)
+
+    dispatch =
+      pending.dispatch
+      |> Ecto.Changeset.change(%{status: :advanced})
+      |> Repo.update!(prefix: base.schema)
+
+    %{pending | dispatch: dispatch}
+  end
+
+  defp activate!(schema, activator_user, graph, credential \\ :oidc) do
     {:ok, draft} =
       Definitions.create(
         %{
@@ -187,7 +221,10 @@ defmodule Letflow.LedgerPostFixture do
     Repo.query!(~s(ALTER TABLE "#{schema}"."process_definitions" ENABLE TRIGGER USER))
 
     activator =
-      Activator.from_auth_context(%{user_id: activator_user.id, roles: ["TENANT_ADMIN"]}, false)
+      Activator.from_auth_context(
+        %{user_id: activator_user.id, roles: ["TENANT_ADMIN"], credential: credential},
+        false
+      )
 
     {:ok, %{definition: activated}} =
       Definitions.activate(draft.id, prefix: schema, activator: activator)
@@ -204,16 +241,47 @@ defmodule Letflow.LedgerPostFixture do
   """
   @spec run_lines(map(), [map()], keyword()) :: term()
   def run_lines(ctx, lines, opts \\ []) do
-    ctx |> build_lines(lines, opts) |> HandlerPost.lock_steps(lines) |> Repo.transaction()
+    ctx
+    |> build_lines(lines, opts)
+    |> HandlerPost.lock_steps(lines, Keyword.get(opts, :prelocked))
+    |> Repo.transaction()
   end
 
   @doc "The handler-call Multi of `lines` WITHOUT the lock step (see `run_lines/3`)."
   @spec build_lines(map(), [map()], keyword()) :: Ecto.Multi.t()
   def build_lines(ctx, lines, opts \\ []) do
+    base = base_attrs(ctx, opts)
+
+    lines
+    |> Enum.with_index()
+    |> Enum.reduce(Ecto.Multi.new(), fn {line, index}, acc ->
+      HandlerWrites.build_call(acc, Map.put(base, :line_index, index), line, %{})
+    end)
+  end
+
+  @doc """
+  REQ-688: runs the ledger pre-step (`HandlerPost.prelock/2`) for `lines` in one transaction and
+  returns its result (`%{ledger_ids:, keys:}`). Options as `build_lines/3` (use `origin:
+  {:dispatch, id}` and `consent: true` for the service origin).
+  """
+  @spec prelock_set(map(), [map()], keyword()) :: map()
+  def prelock_set(ctx, lines, opts \\ []) do
+    base = base_attrs(ctx, opts)
+
+    entries =
+      lines
+      |> Enum.with_index()
+      |> Enum.map(fn {line, index} -> {Map.put(base, :line_index, index), line} end)
+
+    {:ok, set} = Repo.transaction(fn -> elem(HandlerPost.prelock(entries, %{}), 1) end)
+    set
+  end
+
+  defp base_attrs(ctx, opts) do
     {:ok, manifest_hash} = Catalog.manifest_hash(FixtureLedgerPost)
     subject = Keyword.get(opts, :subject, ctx.completer)
 
-    base = %{
+    %{
       prefix: ctx.schema,
       instance_id: ctx.instance_id,
       origin: Keyword.get(opts, :origin, {:task, ctx.task.id}),
@@ -224,14 +292,10 @@ defmodule Letflow.LedgerPostFixture do
       subject_id: subject.id,
       credential: Keyword.get(opts, :credential, :oidc),
       activator_id: subject.id,
-      manifest_hash: manifest_hash
+      manifest_hash: manifest_hash,
+      ledger_consent: Keyword.get(opts, :consent, false),
+      ledger_prelock: Keyword.get(opts, :prelocked)
     }
-
-    lines
-    |> Enum.with_index()
-    |> Enum.reduce(Ecto.Multi.new(), fn {line, index}, acc ->
-      HandlerWrites.build_call(acc, Map.put(base, :line_index, index), line, %{})
-    end)
   end
 
   @doc "A `post_alpha`/`post_beta` line that posts `posting` and writes no bookkeeping row."

@@ -190,16 +190,75 @@ defmodule Letflow.Ledger do
   @doc false
   @spec lock_postings([Capability.t()]) ::
           {:ok, LockedPlan.t()} | {:error, refusal()} | {:error, {:ledger_contract, atom()}}
-  def lock_postings(caps) do
+  def lock_postings(caps), do: in_read_committed(caps, &lock_in_transaction/1)
+
+  # The shared guard of the lock step and the REQ-688 pre-step: a well-formed plan, an open
+  # transaction, READ COMMITTED.
+  defp in_read_committed(caps, fun) do
     with :ok <- check_plan_shape(caps) do
       unless Repo.in_transaction?() do
         raise ArgumentError, "Letflow.Ledger.post/1 requires an open transaction"
       end
 
       case Repo.query!("SELECT current_setting('transaction_isolation')") do
-        %{rows: [["read committed"]]} -> lock_in_transaction(caps)
+        %{rows: [["read committed"]]} -> fun.(caps)
         _other -> {:error, {:ledger_contract, :isolation_not_read_committed}}
       end
+    end
+  end
+
+  @doc false
+  # REQ-688 containment: the ledger ids and `{ledger_id, [k1..k8]}` keys the lock step of `caps`
+  # would take, ascending, with NO lock and NO insert (a reversal's target is read without a lock,
+  # as the lock step does). The same refusals as `lock_postings/1` for a malformed plan.
+  @spec lock_set([Capability.t()]) ::
+          {:ok, %{ledger_ids: [String.t()], keys: [{String.t(), [String.t()]}]}}
+          | {:error, refusal()}
+          | {:error, {:ledger_contract, atom()}}
+  def lock_set(caps) do
+    with :ok <- check_plan_shape(caps),
+         {:ok, parts} <- prepare_all(caps),
+         {:ok, parts} <- resolve_reversals(hd(caps).prefix, parts) do
+      {:ok, set_of(Enum.sort_by(parts, & &1.ledger_id))}
+    end
+  end
+
+  defp set_of(parts) do
+    %{
+      ledger_ids: Enum.map(parts, & &1.ledger_id),
+      keys: for(part <- parts, group <- part.groups, do: {part.ledger_id, group.key})
+    }
+  end
+
+  @doc false
+  # REQ-688 (decision 0073 D-L12): the SERVICE apply's lock-only pre-step. Inserts the missing
+  # (empty) balance rows and the counter rows of `caps` and locks them in exactly the order of the
+  # real lock step (balances ascending by ledger id and key, then counters ascending by ledger id),
+  # writing no entry, leg, event or audit row. Never refuses: a plan it cannot prepare (malformed,
+  # storage missing, unresolvable reversal) locks nothing and returns the empty set, so the real
+  # lock step refuses it the way it always does and containment fails closed.
+  @spec prelock([Capability.t()]) ::
+          {:ok, %{ledger_ids: [String.t()], keys: [{String.t(), [String.t()]}]}}
+  def prelock(caps) do
+    case in_read_committed(caps, &prelock_in_transaction/1) do
+      {:ok, _set} = locked -> locked
+      _unpreparable -> {:ok, %{ledger_ids: [], keys: []}}
+    end
+  end
+
+  defp prelock_in_transaction(caps) do
+    prefix = hd(caps).prefix
+
+    with {:ok, parts} <- prepare_all(caps),
+         {:ok, parts} <- resolve_reversals(prefix, parts),
+         parts = Enum.sort_by(parts, & &1.ledger_id),
+         [] <- Storage.missing(prefix, Enum.map(parts, & &1.ledger_id)) do
+      :ok = insert_all_balances(prefix, parts)
+      {:ok, parts} = lock_all_balances(prefix, parts)
+      {:ok, _parts} = lock_counters(prefix, parts)
+      {:ok, set_of(parts)}
+    else
+      _unpreparable -> {:error, :unpreparable}
     end
   end
 

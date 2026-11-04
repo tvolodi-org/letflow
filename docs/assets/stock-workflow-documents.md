@@ -22,7 +22,7 @@ GATE B"; **assumption** = "assumption, owner may change at GATE B" (owner decisi
 
 ### 1.1 Ledger rules applied (decision 0073 and its REQ-676 amendment)
 
-* Postings come only from a human task (user task node). The SERVICE origin is refused (D-L12).
+* Postings come from a human task (user task node). A service task posts only when its node carries the explicit consent flag `ledger_post_consent` and the definition was activated with an OIDC credential (REQ-688, D-L12); without it the SERVICE origin is refused.
 * `event_time` of a posting is the document's event time field. It may be at most 96 hours back and at most
   5 minutes ahead; beyond that the posting is refused with `event_time_too_old` or `event_time_in_future`
   (D-T). An older date is an opening balance (item B3), not one of these documents.
