@@ -3,14 +3,17 @@ defmodule Letflow.Entities.ScopeDeclaration do
   Which entity types are scope-aware, and by which column (REQ-518 / GH #2535, decision 0051
   D6; design `lib/letflow/design/req518-compiler-scope-filter.md` section 3.2).
 
-  A declaration is owned by a MODULE: the optional `:scope_declarations` manifest key,
-  `%{entity_type_name => {:column, field_name} | :tenant_wide}`. It is never read from a tenant
-  definition (`definition_json`), so a tenant cannot declare, widen or remove one.
+  A declaration has two owners. A MODULE owns the declarations of its types: the optional
+  `:scope_declarations` manifest key, `%{entity_type_name => {:column, field_name} | :tenant_wide}`.
+  For a tenant-owned type that no manifest names and no module manages, the third source is the
+  core table `entity_scope_declarations` (REQ-635, decision 0070 D3), written only through
+  `Letflow.Entities.ScopeDeclarations` by a tenant-wide TENANT_ADMIN. A declaration is never read
+  from a tenant definition (`definition_json`), so a definition cannot declare, widen or remove one.
 
   ## Resolution (only these inputs)
 
     1. the compiled manifests of `Letflow.Modules.Catalog.entry_modules/0` that name the type;
-       no manifest names it -> `:undeclared` with ZERO queries;
+       no manifest names it -> source 4 below (a malformed name costs no query);
     2. the declaring module must have a `tenant_modules` row of ANY status (one read per call):
        an uninstalled module keeps exactly its pre-uninstall read filters (decision 0066 D3);
     3. the type must be MANAGED by the declaring module (`ManagedTypes.owner_of/2`, one read per
@@ -19,6 +22,11 @@ defmodule Letflow.Entities.ScopeDeclaration do
        test-only allowlist `config :letflow, :scope_declaration_unmanaged_modules` (set in
        `config/test.exs` only; `Catalog` rule 11 enforces the same rule at validation time).
 
+    4. a type no manifest names, with a valid name: ONE read of `entity_scope_declarations` for all
+       such types, then one `ManagedTypes.owner_of/2` per type that has a row; only an
+       `:unmanaged` type takes its row (a row for a managed name is ignored). No row ->
+       `:undeclared`.
+
   Anything else, including a malformed prefix or a type named by two modules, is `:undeclared`
   (fail closed). A type that is `:undeclared` returns no data to a scoped caller
   (`Letflow.Entities.Query.Compiler`).
@@ -26,6 +34,7 @@ defmodule Letflow.Entities.ScopeDeclaration do
 
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.Catalog
+  alias Letflow.Entities.ScopeDeclarations
   alias Letflow.Modules.Installs
   alias Letflow.TenantProvisioning
 
@@ -48,25 +57,65 @@ defmodule Letflow.Entities.ScopeDeclaration do
     types = Enum.uniq(entity_types)
     base = Map.new(types, &{&1, :undeclared})
 
-    case candidates(types) do
-      empty when map_size(empty) == 0 ->
-        base
+    candidates = candidates(types)
 
-      candidates ->
-        # A malformed prefix is :undeclared for every type (fail closed, no query).
-        case TenantProvisioning.tenant_id_for_schema_name(prefix) do
-          {:ok, _tenant_id} ->
-            installed = installed_module_ids(prefix)
+    rest =
+      Enum.filter(types, &(not Map.has_key?(candidates, &1) and ManagedTypes.managed_name?(&1)))
 
-            Enum.reduce(candidates, base, fn {type, declared_by}, acc ->
-              Map.put(acc, type, resolve_candidate(type, declared_by, installed, prefix))
-            end)
+    if map_size(candidates) == 0 and rest == [] do
+      base
+    else
+      # A malformed prefix is :undeclared for every type (fail closed, no query).
+      case TenantProvisioning.tenant_id_for_schema_name(prefix) do
+        {:ok, _tenant_id} ->
+          base
+          |> resolve_manifest_types(candidates, prefix)
+          |> resolve_table_types(rest, prefix)
 
-          {:error, :invalid_schema_name} ->
-            base
-        end
+        {:error, :invalid_schema_name} ->
+          base
+      end
     end
   end
+
+  defp resolve_manifest_types(acc, candidates, _prefix) when map_size(candidates) == 0, do: acc
+
+  defp resolve_manifest_types(acc, candidates, prefix) do
+    installed = installed_module_ids(prefix)
+
+    Enum.reduce(candidates, acc, fn {type, declared_by}, acc ->
+      Map.put(acc, type, resolve_candidate(type, declared_by, installed, prefix))
+    end)
+  end
+
+  # Third source: the tenant's own table, for types no manifest names.
+  defp resolve_table_types(acc, [], _prefix), do: acc
+
+  defp resolve_table_types(acc, types, prefix) do
+    types
+    |> ScopeDeclarations.for_types_rows(prefix)
+    |> Enum.reduce(acc, fn {type, {kind, field}}, acc ->
+      case ManagedTypes.owner_of(type, prefix) do
+        :unmanaged -> Map.put(acc, type, table_declaration(kind, field))
+        _managed_or_error -> acc
+      end
+    end)
+  end
+
+  defp table_declaration("tenant_wide", nil), do: :tenant_wide
+
+  defp table_declaration("column", field) do
+    if valid_declaration?({:column, field}), do: {:column, field}, else: :undeclared
+  end
+
+  defp table_declaration(_kind, _field), do: :undeclared
+
+  @doc "True when some module manifest names `entity_type` in its `:scope_declarations`."
+  @spec manifest_named?(term()) :: boolean()
+  def manifest_named?(entity_type) when is_binary(entity_type),
+    do: map_size(candidates([entity_type])) > 0
+
+  def manifest_named?(_other), do: false
 
   # %{type => [{module_id, declaration}]} for the requested types only.
   defp candidates(types) do

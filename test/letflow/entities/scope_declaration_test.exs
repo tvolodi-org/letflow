@@ -6,7 +6,7 @@ defmodule Letflow.Entities.ScopeDeclarationTest do
   `Letflow.Entities.ScopeDeclaration`.
 
     * T-D1: `for_type/2` is `{:column, field}`, `:tenant_wide` or `:undeclared` for the four
-      declared fixture types, and `:undeclared` with ZERO queries for a type no manifest names;
+      declared fixture types, and `:undeclared` for a type no manifest names (one table read for a valid name, REQ-635);
       `for_types/2` reads the installed modules once whatever the number of types;
     * the declaring module must be installed, the type must be managed by it (or be on the
       test-only unmanaged allowlist), a type stamped by another module is `:undeclared`;
@@ -75,13 +75,24 @@ defmodule Letflow.Entities.ScopeDeclarationTest do
       assert ScopeDeclaration.for_type("scoped_managed_item", s) == {:column, "scope_node"}
     end
 
-    test "a type no manifest names is :undeclared with ZERO queries, whatever it is", %{fx: fx} do
-      for type <- ["plain_undeclared", "does_not_exist", "scoped_item_2", "Scoped_Item", ""] do
+    test "a valid-name type no manifest names costs ONE table read, a malformed name none (REQ-635)",
+         %{fx: fx} do
+      for type <- ["plain_undeclared", "does_not_exist", "scoped_item_2"] do
         {declaration, queries} =
           Fixture.capture_repo_queries(fn -> ScopeDeclaration.for_type(type, fx.schema_name) end)
 
         assert declaration == :undeclared, type
-        assert queries == [], "#{type}: an undeclared type must cost no query"
+        assert Enum.count(queries, &(&1.query =~ "entity_scope_declarations")) == 1, type
+        refute Enum.any?(queries, &(&1.query =~ "tenant_modules")), type
+        refute Enum.any?(queries, &(&1.query =~ "entity_definitions")), type
+      end
+
+      for type <- ["Scoped_Item", ""] do
+        {declaration, queries} =
+          Fixture.capture_repo_queries(fn -> ScopeDeclaration.for_type(type, fx.schema_name) end)
+
+        assert declaration == :undeclared, type
+        assert queries == [], "#{type}: a malformed name must cost no query"
       end
     end
 

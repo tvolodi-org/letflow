@@ -198,7 +198,8 @@ defmodule Letflow.Entities.RecordsScopeReferencesTest do
         end)
 
       assert verdict == :refused
-      refute Enum.any?(sql, &(&1 =~ "ANY("))
+      # the declaration read (entity_scope_declarations) is the one allowed statement
+      refute Enum.any?(sql, &(&1 =~ "ANY(" and not (&1 =~ "entity_scope_declarations")))
     end
 
     test "null and absent values are skipped; malformed values are refused; both without a statement; :none refuses a reference; :all reads nothing",
