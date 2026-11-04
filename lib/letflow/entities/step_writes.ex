@@ -878,8 +878,15 @@ defmodule Letflow.Entities.StepWrites do
   # a type that is not writable by process, so denied and absent are one answer.
   @spec check_type_access(String.t(), map()) :: :ok | {:error, :type_denied}
   def check_type_access(entity_type, ctx) do
-    case TypeAccess.authorized?(subject_id(ctx), entity_type, ctx.prefix) do
-      {:ok, :allowed} -> :ok
+    subject = subject_id(ctx)
+
+    # REQ-577: a write restriction (`Letflow.Entities.WriteAccess`) without a grant for the subject
+    # refuses like a denied type; activation validation stays TypeAccess-only.
+    with {:ok, :allowed} <- TypeAccess.authorized?(subject, entity_type, ctx.prefix),
+         {:ok, :allowed} <-
+           Letflow.Entities.WriteAccess.authorized?(subject, entity_type, ctx.prefix) do
+      :ok
+    else
       _denied_or_failed -> {:error, :type_denied}
     end
   end
