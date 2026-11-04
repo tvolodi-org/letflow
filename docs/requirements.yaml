@@ -50977,3 +50977,148 @@ requirements:
       - "Balance as of a date on the screen: needs a stock route over the core function of pending REQ-704 (task T-1222); a later entry."
       - "Zero balances shown, latest basis only, tenant time zone Asia/Almaty: UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
     depends_on: [REQ-687, REQ-693, REQ-722, REQ-669]
+  - id: REQ-730
+    title: "Assets D1a: scan lookup route of module codes: POST /resolve with the scanned text, a read permission CodesRead held by the tenant administrator only, the scope check of the target type and one 404 for an unknown code and a target the caller may not see"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-667 -- the resolve route is added to the codes router of REQ-667 and reads the resolve/2 function of REQ-648
+    # Source: ai-dala-portfolio/architectures/assets.md (phase table row D "Camera scan in the generic client"; "The phone client starts as Letflow's generic mobile client, extended with camera scanning"); letflow-team/project/assets-gap-analysis.md (table row 3b "Barcode/QR codes", section 3 "Mobile", rough order step 7 "Mobile: camera scan, then offline writes, then voice port"); owner decisions D-058 points (4), (5), (7), (8), D-061, D-063, D-067 point (3), D-083 point (3), D-085 point (3) and D-086 in ai-dala-portfolio/DECISIONS.md; docs/migration/decisions/0076-master-data-layer.md (R7 visibility table, additional rulings 2 and 3); docs/migration/decisions/0055 D7 as implemented in lib/letflow/api/permission_matrix.ex (classify_added/5: a row true only through a manifest's role_grants is a refused widening; a new module atom held by a non-admin role is :new_atom_non_admin_role); docs/roles.md (module permissions paragraph of codes: only TENANT_ADMIN and PLATFORM_ADMIN hold CodesWrite, another role is a later widening). Code read on origin/main b0ff4fe7f: Letflow.Modules.Codes.resolve/2 and its moduledoc (lib/letflow/modules/codes/codes.ex; outcomes {:ok, map} with the seven keys, :not_found, :code_retired, :assignment_conflict), the codes manifest (version 0.2.0, permissions [:CodesWrite], role_grants %{}, five route_policies), Letflow.Modules.Codes.Router (lib/letflow/modules/codes/router.ex: render/3, Response.not_found/1 for code_not_found, check_keys/2, strip/1 in test/letflow/modules/codes/router_test.exs), Letflow.Entities.ScopeDeclaration.for_type/2 (lib/letflow/entities/scope_declaration.ex: :tenant_wide, {:column, field} or :undeclared, fail closed), Letflow.Modules.Catalog validate_route_policy_permissions_declared/1 (lib/letflow/modules/catalog.ex), assign!/5 of test/letflow/modules/codes/codes_fixture.exs. Written by the business analyst (T-1190) 2026-11-04.
+    description: >
+      Phase D item D1 of the assets and stock application, backend part (owner decisions D-060 to D-063; D-085 point
+      (3) releases the specification of phases C to F early). The phone client gets camera scanning (REQ-732), and a
+      scan has to be looked up by code (the codes module of phase A item A5, REQ-648). On main no route resolves a
+      code: Letflow.Modules.Codes.resolve/2 exists, and REQ-667 left "a scan route with the target's scope check"
+      out. This entry adds that route and nothing else.
+
+      WHAT IS BUILT. One route in Letflow.Modules.Codes.Router (lib/letflow/modules/codes/router.ex), mounted under
+      /api/v1/modules/codes/: POST /resolve with the JSON body {"value": <the scanned text>}. It is a read: it
+      writes no record, no audit entry and takes no idempotency_key. POST with a body, not GET with a query string,
+      because a query string decodes "+" as a space and a scanned code may contain "+"; the text is passed to
+      resolve/2 unchanged (no trimming, no case folding, D-058 point (8)).
+
+      PERMISSION. One new module atom :CodesRead in the codes manifest's permissions and in the route policy of
+      POST /resolve; role_grants stays %{}, so only TENANT_ADMIN and PLATFORM_ADMIN hold it, as for every module
+      atom of phase A (docs/roles.md). Reason: a manifest role grant of a module atom to any other role is refused
+      by mix letflow.permission_matrix --check (Letflow.Api.PermissionMatrix, :module_grant and
+      :new_atom_non_admin_role), and roles.md calls such a grant "a later widening that needs per-tenant grant
+      snapshots". D-067 point (3) makes codes visible tenant-wide; who among the other roles gets the scan is the
+      open question below, not decided here. D-083 point (3) keeps the early phases administrator-only.
+
+      ANSWERS (one per resolve/2 result). Success bodies are the JSON object itself, as the other codes routes send
+      (Response.send_json/3), with exactly the seven keys code_id, value, kind, status, target_type, target_id and
+      assignment_id:
+      (a) {:ok, map} with status assigned, and Letflow.Entities.ScopeDeclaration.for_type/2 of the map's
+      target_type in the caller's tenant is :tenant_wide: 200 with the map of resolve/2;
+      (b) {:ok, map} with status not_assigned (no target): 200 with the map of resolve/2, so the phone can say "not
+      assigned" (D-058 point (4) "offers to assign" stays with the web screen of REQ-672 and the count of REQ-716);
+      (c) {:error, :code_retired}: 200 with status "retired", value equal to the sent text and the other five keys
+      null;
+      (d) {:error, :assignment_conflict}: 200 with status "assignment_conflict", value equal to the sent text and
+      the other five keys null;
+      (e) {:error, :not_found}: 404 with the same body as an unknown code id on POST /:id/release
+      (Response.not_found/1);
+      (f) {:ok, map} with status assigned whose target_type is not :tenant_wide (a {:column, _} or an :undeclared
+      type): 404 with the same body as (e). This is the scope check of decision 0076 R7 ruling 2 ("a code-scan
+      route checks the scope of the target and answers an out-of-scope target with the same 404 as an unknown
+      code"), in its simplest fail-closed form: every target type that Codes.Writes.assign_code/5 accepts today
+      (location_node, catalog_item, catalog_lot) is :tenant_wide in the visibility table of 0076 R7, so a target is
+      shown only when its type is tenant-wide; a scoped target type (an asset card of phase C) gets a per-record
+      check in a later entry, and until then it is answered as unknown.
+      200 for (c) and (d) rather than a 422 reason, because the mobile API client keeps only the field errors of a
+      422 (apps/mobile/lib/api/api_error.dart, ValidationError) and could not tell the two cases apart.
+      Body errors: a body that is not exactly the one key value, or whose value is not a string, answers 422 with
+      reason field_not_allowed (an extra key, idempotency_key included, naming the key) or field_invalid (missing or
+      non-string value, field value), as check_keys/2 of the router renders them.
+
+      Pins (moves from origin/main at implement time; the numbers are examples): one new tenant route without
+      scope: test/fixtures/route_scope/tenant_wide_default_routes.txt gains 1 line and its three length(snapshot)
+      == N pins move by +1; the codes module version moves one minor step (0.2.0 on origin/main today); a new
+      permission atom moves priv/permission_matrix/effective.golden (mix letflow.permission_matrix --write after the
+      last merge of origin/main). No migration, no tenant table, no change of the three code types or their
+      scope_declarations (immutable, 0051 M4).
+
+      NOT IN THIS ENTRY. The phone screen (REQ-732). The name of the coded object in the answer (open question).
+      Role grants of CodesRead to other roles. Offline lookup (D-058 point (5), MOB-8). Scans inside a count (the
+      count scan route of REQ-716). RFID readers (D-058 point (7): typed field only).
+    acceptance_criteria:
+      - "1. Manifest (test file test/letflow/modules/codes/registration_test.exs): permissions equal [:CodesWrite, :CodesRead]; role_grants equal %{}; route_policies are the five of origin/main plus {\"POST\", \"/resolve\", :CodesRead}; depends_on still []; scope_declarations unchanged (the whole map asserted with ==); version one minor step above origin/main at implement time; Catalog.validate/1 accepts the manifest; mix letflow.permission_matrix --write after the last merge of origin/main and mix letflow.permission_matrix --check pass, output quoted."
+      - "2. Holders through the real router (test file test/letflow/modules/codes/resolve_router_test.exs, Letflow.Router with real bearer tokens as test/letflow/modules/codes/router_test.exs mints them): TENANT_ADMIN gets 200 on POST /api/v1/modules/codes/resolve for an assigned code; PROCESS_DESIGNER, PROCESS_OPERATOR, TASK_WORKER and TENANT_AUDITOR each get 403; among the eight roles only TENANT_ADMIN and PLATFORM_ADMIN hold :CodesRead."
+      - "3. Answers (same test file, fresh tenant with locations, catalog_items and codes installed; codes made with Letflow.Modules.Codes.receive_codes/3, assign_code/5 and retire_code/3; the conflict and the undeclared target made through the owner path helpers of test/letflow/modules/codes/codes_fixture.exs, as read_api_test.exs does): a code assigned to a location_node, one assigned to a catalog_item and one assigned to a catalog_lot each answer 200 with a body equal to the map of Codes.resolve/2 for that value; a not_assigned code answers 200 with status not_assigned and null target_type, target_id and assignment_id; a retired code answers 200 with exactly status retired, the sent value and null code_id, kind, target_type, target_id and assignment_id; a code with status assigned and no open assignment answers 200 with exactly status assignment_conflict, the sent value and the same five nulls; every 200 body has exactly the seven keys of the description."
+      - "4. One 404 (same test file; decoded JSON compared with trace_id dropped first, as strip/1 of router_test.exs does): an unknown value, a value that differs from a stored one only in letter case, and a value assigned (assign!/5) to the target type no_such_type, for which ScopeDeclaration.for_type/2 is :undeclared, each answer 404 with a body equal to the body of POST /api/v1/modules/codes/<unknown uuid>/release; the test names decision 0076 R7 ruling 2."
+      - "5. Body and read only (same test file): a body without value answers 422 reason field_invalid with field value; a value of 7 or null answers 422 reason field_invalid; a body with an extra key (idempotency_key, or any other) answers 422 reason field_not_allowed naming it; a value containing a plus sign and a trailing space is resolved exactly as sent (a code stored with that value answers 200); after every request of criteria 3 to 5 the record counts of code_tag, code_assignment and code_value_change and the count of audit entries of the tenant are unchanged."
+      - "6. Tenancy (INV-1, INV-5, INV-10; same test file): a TENANT_ADMIN of tenant B sending the value of a code that exists only in tenant A gets 404 with the body of criterion 4 and nothing changes in tenant A; the route takes no tenant identifier (the tenant comes only from the token); a tenant without codes installed gets the dispatcher's 404 for POST /api/v1/modules/codes/resolve."
+      - "7. Pins, docs and gates: the route is in test/fixtures/route_scope/tenant_wide_default_routes.txt with the three length pins moved by +1 from origin/main at implement time; the docs/roles.md paragraph of module codes names CodesRead (scan lookup) and its holders, and test/letflow/api/roles_matrix_parity_test.exs passes; the moduledoc of lib/letflow/modules/codes/router.ex lists the route in its table and no longer says there is no scan route; docs/runbooks/wms-foundation.md section Codes module limits gains one item naming the route, its 404 rule and that only tenant-wide target types are shown, and test/letflow/modules/codes/runbook_test.exs passes; git diff --name-only origin/main...HEAD lists no file under priv/repo/migrations/, priv/modules/codes/, web/ or apps/; mix letflow.check.static and the tests of test/letflow/modules/codes/ pass, real output quoted; SECURITY-REVIEWER (a new read route over tenant data taking a scanned text) and REVIEWER verdicts recorded."
+    open_questions:
+      - "Who besides the tenant administrator may scan: D-067 point (3) makes codes visible tenant-wide, but a module role grant to another role is a widening that the permission matrix check refuses and roles.md says needs per-tenant grant snapshots (decision 0055 D7). Phase D demos use the tenant administrator; a widening entry is needed before field workers scan. Not decided here."
+      - "The answer names the coded object only by target_type and target_id; showing its name or address needs a read of the target record with its field rules (INV-2) and is a later entry. UAT assumption, to be confirmed by the process owner: the phone shows the kind of object only."
+      - "Retired and conflicting codes answered as 200 with a status instead of a 422 reason, and a scoped target type answered as unknown until a per-record scope check exists: UAT assumption, to be confirmed by the process owner (owner decision D-086, simplest reasonable option)."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-648, REQ-663, REQ-667]
+  - id: REQ-732
+    title: "Assets D1b: camera scan of barcodes and QR codes in the generic mobile client: a scan screen of feature codes shown only when module codes is installed, the lookup through the resolve route, a typed code as fallback, online only, in English, Russian and Kazakh"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S9
+    # impl_order: UNREGISTERED -- blocked-by: REQ-730 -- the scan screen calls the resolve route of REQ-730
+    # Source: ai-dala-portfolio/architectures/assets.md (phase table row D; "The phone client starts as Letflow's generic mobile client (owner decision 2026-10-31), extended with camera scanning"); letflow-team/project/assets-gap-analysis.md (row 3e "Mobile shell: Working v1 client (forms, lists, tasks), online only, no camera"; section 3 "No camera or scanner package in apps/mobile/pubspec.yaml"; rough order step 7); owner decisions D-058 points (5), (7), (8), D-061, D-062 (Russian and Kazakh in the first version), D-085 and D-086 in ai-dala-portfolio/DECISIONS.md; docs/mobile/requirements.md (MOB-4 six states, MOB-7 i18n, MOB-8 v1 boundary: no offline writes); docs/mobile/architecture.md (section 4 scope table and out-of-v1 list, section 6 application modules: feature folders lib/features/<id>/, module API base path, 404 on a module path is module not available, import boundary D3); decision 0039 D3 and D5. Code read on origin/main b0ff4fe7f: apps/mobile/pubspec.yaml (no camera package; REQ-419 comment on runtime dependencies), apps/mobile/lib/features/features.dart and module_manifest.json (empty, "the first module requirement populates both"), apps/mobile/lib/bootstrap/navigation_bootstrap.dart (buildRouteTable/2 with its registry keyed by module id, the one file allowed to import from features/), apps/mobile/lib/api/api_error.dart (ModuleNotAvailableError for any 404 on /api/v1/modules/<id>/, ValidationError keeps field errors only), apps/mobile/lib/renderers/renderer_state_view.dart, apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb, apps/mobile/README.md (sembast choice recorded there, REQ-423), the guards under apps/mobile/test/guards/ (forbidden_dependencies, module_boundary, single_api_client, text_literal, v1_scope_boundary, android_manifest_security, ios_ats), apps/mobile/android/app/src/main/AndroidManifest.xml (no uses-permission), apps/mobile/ios/Runner/Info.plist. Written by the business analyst (T-1190) 2026-11-04.
+    description: >
+      Phase D item D1 of the assets and stock application, phone part (owner decisions D-060 to D-063, D-085 point
+      (3)). The owner decided that the phone client starts as Letflow's generic mobile client extended with camera
+      scanning (D-061). Today apps/mobile/ has no camera package and no feature module. This entry adds the first
+      feature module, codes, with one screen that scans a barcode or QR code with the camera (or takes a typed code)
+      and shows what the code names, through the resolve route of REQ-730. Online only.
+
+      PLACE. The feature folder apps/mobile/lib/features/codes/ (docs/mobile/architecture.md section 6), declared in
+      apps/mobile/lib/features/module_manifest.json with depends_on []. Its routes go into the registry that
+      buildRouteTable/2 of apps/mobile/lib/bootstrap/navigation_bootstrap.dart reads under the key codes, so the
+      scan screen and its entry on the tenant home screen exist only when GET /api/v1/me/modules lists module_id
+      codes; navigation_bootstrap.dart is the only file outside the folder that imports from it (D3 rule 1).
+
+      CAMERA PACKAGE (decided here, an implementation choice, recorded in apps/mobile/README.md as the sembast
+      choice of REQ-423 is): the package mobile_scanner, at the newest version that resolves with the Flutter and
+      Dart versions pinned in apps/mobile/pubspec.yaml; reason: one package reads barcodes and QR codes from the
+      camera on Android and iOS and returns the raw text. The scanning widget is used only behind a small interface
+      in the feature folder, so widget tests use a fake source and never a camera. If the package or one of its
+      transitive packages fails apps/mobile/test/guards/forbidden_dependencies_guard_test.dart, the implementer
+      stops and reports; the guard is not edited. Platform files: the Android manifest gains the CAMERA permission
+      and iOS Info.plist gains NSCameraUsageDescription with a short reason text.
+
+      SCREEN. (1) The camera view reads barcodes and QR codes; the first detection with a non-empty text stops
+      reading and sends that text, unchanged (no trimming, no case change, D-058 point (8)); a detection without
+      text is ignored; the camera reads again only after the user presses Scan again, so one physical scan sends one
+      request. (2) A text field with a Look up button sends a typed code by the same call; it is the way when the
+      camera permission is refused or a code cannot be read, and the way for RFID text (D-058 point (7)). (3) The
+      call is POST /api/v1/modules/codes/resolve with the body {"value": text} through the shared ApiClient. (4)
+      The result shows: for status assigned, the code value, the kind (barcode, QR, EPC, TID) and the kind of
+      object (location, item, lot, or "other object" for any other target_type), each as a translated text; for
+      not_assigned, "This code is not assigned to anything"; for retired, "This code is retired"; for
+      assignment_conflict, "This code has an assignment problem; ask the administrator"; for a 404, which the
+      ApiClient raises as ModuleNotAvailableError on a module path, "This code is not known" (the screen exists only
+      when codes is installed, so on this call a 404 means an unknown code or one the user may not see, REQ-730).
+      (5) The view is wrapped by RendererStateView (apps/mobile/lib/renderers/renderer_state_view.dart), so loading,
+      fetch failure (with retry), permission denied (a 403, for a user without CodesRead) and the 429 countdown show
+      as in the renderers. (6) No result and no scanned text is stored on the device; nothing is queued while
+      offline (MOB-8): offline is the fetch-failure state.
+
+      Texts: every new text is an ARB message in app_en.arb, app_ru.arb and app_kk.arb (D-062; the ru and kk words
+      are a draft for the native check, as D-083 says of the web).
+
+      NOT IN THIS ENTRY. Offline lookup or a code cache (D-058 point (5), MOB-8); assigning an unknown code from the
+      phone; scans that count or move stock (counting by phone is a later phase D entry; the count scan route is
+      REQ-716); the name of the coded object (REQ-730 open question); RFID reader hardware (D-058 point (7)); a
+      dedicated client app (D-061: a later question).
+    acceptance_criteria:
+      - "1. Module place (test files apps/mobile/test/features/codes/codes_routes_test.dart and the existing guard tests): module_manifest.json declares the feature codes with depends_on []; buildRouteTable/2 with an installed list that holds codes returns the scan route, and with a list without codes returns no codes route; a widget test of the tenant home screen shows the scan entry only when codes is installed; test/guards/module_boundary_guard_test.dart passes with navigation_bootstrap.dart as the only importer of lib/features/codes/ outside the folder."
+      - "2. Camera package and platform files: pubspec.yaml and pubspec.lock add mobile_scanner and no other new runtime package; apps/mobile/README.md gains a section that names the package and the reason of the description; AndroidManifest.xml declares android.permission.CAMERA and ios/Runner/Info.plist has NSCameraUsageDescription; forbidden_dependencies_guard_test.dart, android_manifest_security_guard_test.dart, ios_ats_guard_test.dart and test/android/android_manifest_test.dart pass unchanged."
+      - "3. One scan, one request (test file apps/mobile/test/features/codes/scan_screen_test.dart, a fake scan source and a fake network layer): a fake detection of the text \"AB+12 \" (with a trailing space) sends exactly one POST /api/v1/modules/codes/resolve whose body is exactly {\"value\": \"AB+12 \"}; three more detections before Scan again send no request; a detection with no text sends none; after Scan again the next detection sends one request."
+      - "4. Typed code (same test file): typing a code and pressing Look up sends the same request with the typed text unchanged; with the camera permission refused (the fake source reports it) the screen shows the camera-refused message and the typed field still works."
+      - "5. Results (same test file): an answer with status assigned and target_type location_node, catalog_item, catalog_lot or any other text shows the value, the translated kind and the translated object kind location, item, lot or other object; not_assigned, retired and assignment_conflict each show their message of the description; a 404 shows This code is not known and not the module-not-available screen; a 403 shows the permission-denied state, a network failure the fetch-failure state with a retry that sends the request again, a 429 the retry-after countdown, each through RendererStateView (the test finds RendererStateView at the root of the result view)."
+      - "6. Online only: no new code under lib/ writes to sembast, flutter_secure_storage or a file; test/guards/v1_scope_boundary_guard_test.dart passes unchanged; a widget test shows that leaving and reopening the scan screen shows no earlier result."
+      - "7. Languages: every new text is an ARB key present in app_en.arb, app_ru.arb and app_kk.arb with a non-empty value; test/guards/text_literal_guard_test.dart passes; a widget test shows the result texts in ru and kk for one assigned code."
+      - "8. Docs and gates: docs/mobile/architecture.md section 6 names the first feature folder lib/features/codes/ and the camera permission, and section 4 states that the camera scan is online only; the change edits only files under apps/mobile/ and docs/mobile/; flutter pub get, flutter analyze and flutter test in apps/mobile pass, real output quoted; REVIEWER verdict recorded."
+    open_questions:
+      - "The phone shows the kind of object, not its name, until REQ-730's open question on the target name is decided: UAT assumption, to be confirmed by the process owner."
+      - "The scan entry is on the tenant home screen and only the tenant administrator holds CodesRead (REQ-730); other roles see the permission-denied state until a widening entry exists. UAT assumption, to be confirmed by the process owner."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-730, REQ-648, REQ-421, REQ-425, REQ-426, REQ-429, REQ-430]
