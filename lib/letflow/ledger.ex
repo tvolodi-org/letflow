@@ -492,7 +492,10 @@ defmodule Letflow.Ledger do
 
   defp guard_all(parts) do
     Enum.find_value(parts, :ok, fn part ->
-      case guard(part.groups, part.locked, part.cap.registration.slots, part.reversal != false) do
+      slots = part.cap.registration.slots
+      disclose? = Map.get(part.cap, :read_disclosed, false) == true
+
+      case guard(part.groups, part.locked, slots, part.reversal != false, disclose?) do
         :ok -> nil
         {:error, _} = refusal -> refusal
       end
@@ -854,15 +857,15 @@ defmodule Letflow.Ledger do
 
   # -- guard -----------------------------------------------------------------------------------
 
-  defp guard(groups, locked, slots, reversal?) do
+  defp guard(groups, locked, slots, reversal?, disclose?) do
     groups
     |> Enum.zip(locked)
     |> Enum.find_value(:ok, fn {group, row} ->
-      refusal_for(group, row, length(slots), reversal?)
+      refusal_for(group, row, length(slots), reversal?, disclose?)
     end)
   end
 
-  defp refusal_for(%{legs: legs}, row, slot_count, reversal?) do
+  defp refusal_for(%{legs: legs}, row, slot_count, reversal?, disclose?) do
     new_on_hand = Enum.reduce(legs, row.on_hand, &Decimal.add(&2, &1.quantity))
 
     cond do
@@ -881,11 +884,17 @@ defmodule Letflow.Ledger do
       Decimal.lt?(new_on_hand, 0) ->
         requested =
           for leg <- legs, Decimal.lt?(leg.quantity, 0) do
-            %{
+            base = %{
               leg_no: leg.leg_no,
               k: Enum.take(leg.k, slot_count),
               requested: leg.quantity |> Decimal.abs() |> Digest.quantity_text()
             }
+
+            # REQ-686: the on-hand before the posting, only for a subject who holds the
+            # registration's read permission (decided in the authority step, never by the guard).
+            if disclose?,
+              do: Map.put(base, :available, Digest.quantity_text(row.on_hand)),
+              else: base
           end
 
         Validate.refuse(:insufficient_balance, %{legs: requested})
