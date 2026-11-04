@@ -31,3 +31,7 @@ the `:test` environment references them (same arrangement as `priv/wasm_fixtures
 * R5 (GH #2590): `ledger_foundation.json` also ships stamped SERVICE_TASK definitions `fxl_svc_module`, `fxl_svc_mixed`, `fxl_svc_mixed_first` and `fxl_svc_two_handlers` (node `svc`, an HTTP endpoint that is never called: the tests apply the result with `Engine.advance_after_service_task_outcome/4`), and `ledger_rogue.json` ships `fxr_svc_<handler>` for `throws`, `exits`, `drop_policy` and `denies`. No generator is committed for `ledger_rogue.json`: its entries are key-sorted, 2-space JSON; the R5 `fxr_svc_*` entries were produced by a one-off script in that same layout (existing bytes unchanged apart from the R5 entries). Edit it by hand in that layout.
 
 * `scoped_foundation.json` -- REQ-518 / GH #2535: four entity definitions for `Letflow.Modules.FixtureScoped` (`scoped_item`, `scoped_child` with an fk to `scoped_item`, `scoped_master`, and the managed `scoped_managed_item`), each with a string `scope_node` column where the module declares one. The module is on the test-only `:scope_declaration_unmanaged_modules` allowlist.
+
+* `ledger_post.json` -- REQ-685: the one managed entity definition `fxlp_note` (append-only, one `note`
+  string field) of `Letflow.Modules.FixtureLedgerPost`, the bookkeeping type of its posting handlers. No process
+  definitions: the engine tests stamp their own definition by hand (`Letflow.LedgerPostFixture`).

@@ -278,6 +278,42 @@ defmodule Letflow.Modules.Catalog do
 
   def fetch_ledger(_module_id, _registration_name), do: {:error, :not_found}
 
+  # REQ-685 (decision 0073 note 14.4): calls the registration's posting policy, `declare/2`, at build
+  # time. The module comes from the compiled manifest (plain registration data), never from a
+  # caller. A policy is pure by contract (`Letflow.Ledger.Policy`); a raise, exit or throw of
+  # its code is `{:error, :declare_raised}` with NO text kept (INV-4), except a database or
+  # connection error, which is re-raised. Anything but `{:ok, map}` / `{:error, {atom, map}}`
+  # is `{:error, :declare_refused}`.
+  @doc false
+  @spec declare_posting(map(), map()) ::
+          {:ok, map()} | {:error, {atom(), map()}} | {:error, :declare_raised | :declare_refused}
+  def declare_posting(%{policy: %{module: module}} = registration, command)
+      when is_atom(module) and not is_nil(module) do
+    try do
+      case module.declare(command, registration) do
+        {:ok, posting} when is_map(posting) and not is_struct(posting) ->
+          {:ok, posting}
+
+        {:error, {code, details}} when is_atom(code) and is_map(details) ->
+          {:error, {code, details}}
+
+        _other ->
+          {:error, :declare_refused}
+      end
+    rescue
+      exception in [DBConnection.ConnectionError, Postgrex.Error] ->
+        reraise exception, __STACKTRACE__
+
+      _exception ->
+        {:error, :declare_raised}
+    catch
+      :exit, _reason -> {:error, :declare_raised}
+      :throw, _value -> {:error, :declare_raised}
+    end
+  end
+
+  def declare_posting(_registration, _command), do: {:error, :declare_refused}
+
   @doc """
   Whether module `module_id` registered an import function for `entity_type` (REQ-651). Resolution
   is binary comparison against the compiled manifest list only (no atom is created): exactly one

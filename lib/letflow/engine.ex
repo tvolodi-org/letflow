@@ -2813,7 +2813,11 @@ defmodule Letflow.Engine do
           required(:idempotency_key) => String.t()
         }
 
-  @type complete_opts :: [prefix: String.t(), f1: Letflow.Tasks.f1()]
+  @type complete_opts :: [
+          prefix: String.t(),
+          f1: Letflow.Tasks.f1(),
+          credential: atom() | nil
+        ]
 
   # `{:error, {:variable_schema_lookup_failed, VariableSchema.error_reason()}}` was
   # removed from this union (GH#310 / ISS-0091): neither member of
@@ -2936,6 +2940,11 @@ defmodule Letflow.Engine do
   (`{:error, {:form_hook_failed, :script_busy}}`), the transaction is rolled back, a fixed 25 ms
   backoff runs outside any transaction, and the whole completion re-runs, at most 3 attempts in
   total; then that error is returned and the task stays pending. No other code retries.
+
+  REQ-685: `opts[:credential]` is the credential kind of the completing request. It reaches the
+  module write handlers' `HandlerContext` and is checked, as exactly `:oidc`, only by a ledger
+  posting line; any other value or its absence refuses that line and changes nothing else
+  (the tasks router sets it in REQ-686).
   """
   @spec complete_task(
           task_id :: Ecto.UUID.t(),
@@ -2960,7 +2969,8 @@ defmodule Letflow.Engine do
         completed_at,
         prefix,
         Keyword.get(opts, :f1, :off),
-        hidden_check(opts)
+        hidden_check(opts),
+        Keyword.get(opts, :credential)
       )
     end
   end
@@ -3018,6 +3028,7 @@ defmodule Letflow.Engine do
          prefix,
          f1,
          hidden_check,
+         credential,
          attempt \\ 1
        ) do
     result =
@@ -3030,6 +3041,7 @@ defmodule Letflow.Engine do
         prefix,
         f1,
         hidden_check,
+        credential,
         attempt
       )
 
@@ -3046,6 +3058,7 @@ defmodule Letflow.Engine do
           prefix,
           f1,
           hidden_check,
+          credential,
           attempt + 1
         )
 
@@ -3063,6 +3076,7 @@ defmodule Letflow.Engine do
          prefix,
          f1,
          hidden_check,
+         credential,
          attempt
        ) do
     try do
@@ -3080,6 +3094,7 @@ defmodule Letflow.Engine do
             prefix,
             f1,
             hidden_check,
+            credential,
             attempt
           )
 
@@ -3101,6 +3116,7 @@ defmodule Letflow.Engine do
          prefix,
          f1,
          hidden_check,
+         credential,
          attempt
        ) do
     plan
@@ -3113,7 +3129,8 @@ defmodule Letflow.Engine do
       prefix,
       f1,
       hidden_check,
-      hook
+      hook,
+      credential
     )
     |> run_transaction(plan)
     |> audit_form_hook_refusal(actor_id, prefix, attempt >= @form_hook_busy_attempts)
@@ -3155,7 +3172,8 @@ defmodule Letflow.Engine do
             prefix,
             :off,
             hidden_check,
-            hook
+            hook,
+            nil
           )
           |> Multi.to_list()
           |> Enum.map(fn
@@ -3442,7 +3460,8 @@ defmodule Letflow.Engine do
          prefix,
          f1,
          hidden_check,
-         hook
+         hook,
+         credential
        ) do
     Multi.new()
     |> maybe_entity_write_timeouts(plan)
@@ -3570,7 +3589,7 @@ defmodule Letflow.Engine do
     end)
     # GH #2587 PR B2 (D-B.2): AFTER :transition (which only computes) and before the tail,
     # skipped on either execution error, so a failed completion writes no record.
-    |> maybe_entity_writes(plan, actor_id, prefix)
+    |> maybe_entity_writes(plan, actor_id, prefix, credential)
     |> Multi.merge(fn changes ->
       build_complete_task_tail_multi(
         changes,
@@ -3975,9 +3994,9 @@ defmodule Letflow.Engine do
     end)
   end
 
-  defp maybe_entity_writes(multi, nil, _actor_id, _prefix), do: multi
+  defp maybe_entity_writes(multi, nil, _actor_id, _prefix, _credential), do: multi
 
-  defp maybe_entity_writes(multi, plan, actor_id, prefix) do
+  defp maybe_entity_writes(multi, plan, actor_id, prefix, credential) do
     ctx = %{
       prefix: prefix,
       origin: {:task, plan.task_id},
@@ -3986,6 +4005,7 @@ defmodule Letflow.Engine do
       definition_id: plan.definition_id,
       definition_version: plan.definition_version,
       actor_id: actor_id,
+      credential: credential,
       activator_id: plan.activator_id,
       authorized: plan.authorized,
       variables: &entity_write_variables/1,
@@ -9670,7 +9690,7 @@ defmodule Letflow.Engine do
        when (is_tuple(failed_step) and tuple_size(failed_step) == 3 and
                elem(failed_step, 0) == :line) or
               (is_tuple(failed_step) and tuple_size(failed_step) == 2 and
-                 elem(failed_step, 0) == :type_lock) do
+                 elem(failed_step, 0) in [:type_lock, :ledger_lock, :ledger_write]) do
     case EntityPort.impl().interpret_failure(failed_step, reason) do
       {:refused, index, code, detail} ->
         task = Map.fetch!(changes, :task)
