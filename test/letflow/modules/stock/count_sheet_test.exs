@@ -84,7 +84,7 @@ defmodule Letflow.Modules.Stock.CountSheetTest do
     v
   end
 
-  defp lines!(c, id, params \\ %{}) do
+  defp lines!(c, id, params) do
     {:ok, page} = Counts.lines(c.s, id, params, opts(c.chair_user))
     page
   end
