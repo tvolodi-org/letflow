@@ -960,9 +960,12 @@ defmodule Letflow.TenantProvisioning do
     # REQ-577 / GH #3261 (decision 0070 D2, slice A): per-type write restriction and write grants.
     {20_261_105_100_001, Letflow.Repo.Migrations.CreateEntityTypeWriteAccessTables,
      "20261105100001_create_entity_type_write_access_tables.exs"},
+    # REQ-635 / GH #3549 (decision 0070 D3, slice B): per-type scope declaration table.
+    {20_261_105_200_001, Letflow.Repo.Migrations.CreateEntityScopeDeclarations,
+     "20261105200001_create_entity_scope_declarations.exs"},
     # REQ-623: guard_document_versions() lets an issued version set artefact_hash once (NULL to hex).
-    {20_261_105_200_001, Letflow.Repo.Migrations.OpenDocumentArtefactHashWriteOnce,
-     "20261105200001_open_document_artefact_hash_write_once.exs"}
+    {20_261_105_300_001, Letflow.Repo.Migrations.OpenDocumentArtefactHashWriteOnce,
+     "20261105300001_open_document_artefact_hash_write_once.exs"}
   ]
 
   @doc """

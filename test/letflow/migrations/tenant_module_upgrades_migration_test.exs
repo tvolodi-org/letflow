@@ -93,21 +93,18 @@ defmodule Letflow.TenantModuleUpgradesMigrationTest do
     # later migrations append after it (REQ-692 added CreateLedgerPerLedgerIdKeys, REQ-710
     # CreateLedgerPartitionedTables, REQ-711 MoveLedgerFksToPartitions, REQ-577 and REQ-623 after)
     manifest = TenantProvisioning.tenant_scoped_migrations()
-    assert {@version, CreateTenantModuleUpgrades} = Enum.at(manifest, -6)
+    assert {@version, CreateTenantModuleUpgrades} = Enum.at(manifest, -7)
 
     assert {20_261_104_100_001, Letflow.Repo.Migrations.CreateLedgerPerLedgerIdKeys} =
-             Enum.at(manifest, -5)
+             Enum.at(manifest, -6)
 
     assert {20_261_104_200_001, Letflow.Repo.Migrations.CreateLedgerPartitionedTables} =
-             Enum.at(manifest, -4)
+             Enum.at(manifest, -5)
 
     assert {20_261_104_300_001, Letflow.Repo.Migrations.MoveLedgerFksToPartitions} =
-             Enum.at(manifest, -3)
+             Enum.at(manifest, -4)
 
-    assert {20_261_105_100_001, Letflow.Repo.Migrations.CreateEntityTypeWriteAccessTables} =
-             Enum.at(manifest, -2)
-
-    assert {20_261_105_200_001, Letflow.Repo.Migrations.OpenDocumentArtefactHashWriteOnce} =
+    assert {20_261_105_300_001, Letflow.Repo.Migrations.OpenDocumentArtefactHashWriteOnce} =
              List.last(manifest)
 
     assert column_names(schema) != []
