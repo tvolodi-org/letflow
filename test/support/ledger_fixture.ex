@@ -246,6 +246,57 @@ defmodule Letflow.LedgerFixture do
     end
   end
 
+  @doc "An authorized value as part B will mint it (REQ-637 part C builds the literal)."
+  def authorized(schema, purpose \\ :reconcile, ledger_id \\ @ledger_id) do
+    %Ledger.Authorized{prefix: schema, ledger_id: ledger_id, purpose: purpose}
+  end
+
+  @doc "Every result of a reconciliation run, chunk by chunk (stops on an error tuple)."
+  def reconcile_chunks(authorized, opts \\ %{}) do
+    case Ledger.reconcile(authorized, opts) do
+      {:ok, %{next_cursor: nil} = result} ->
+        [result]
+
+      {:ok, %{next_cursor: cursor} = result} ->
+        [result | reconcile_chunks(authorized, Map.put(opts, :cursor, cursor))]
+
+      {:error, _} = error ->
+        [error]
+    end
+  end
+
+  @doc "The last result of a run with the mismatches of all its chunks."
+  def reconcile_all(authorized, opts \\ %{}) do
+    case reconcile_chunks(authorized, opts) do
+      [{:error, _} = error] ->
+        error
+
+      results ->
+        last = List.last(results)
+        {:ok, %{last | mismatches: Enum.flat_map(results, & &1.mismatches)}}
+    end
+  end
+
+  @doc "True when the connection role owns the ledger tables (owner-tamper tests need it)."
+  def table_owner?(schema) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT tableowner = current_user FROM pg_tables WHERE schemaname = $1 AND tablename = 'ledger_entry'",
+        [schema]
+      )
+
+    rows == [[true]]
+  end
+
+  @doc "Disables the user triggers of a ledger table as its owner (residual D-L2a of decision 0073)."
+  def disable_guards!(schema, table) when table in ~w(ledger_entry ledger_leg ledger_counter) do
+    Repo.query!(~s|ALTER TABLE "#{schema}".#{table} DISABLE TRIGGER USER|)
+    :ok
+  end
+
+  @doc "Runs a statement as the table owner with its bound parameters (test tampering)."
+  def exec!(sql, params \\ []), do: Repo.query!(sql, params)
+
   @doc "Row count of a ledger table in `schema`."
   def count(schema, table)
       when table in ~w(ledger_entry ledger_leg ledger_counter ledger_balance) do

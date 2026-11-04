@@ -101,7 +101,8 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
     @stamp => ~w(letflow.managed_by_stamp lock_timeout statement_timeout),
     @snapshot_rollout => ~w(lock_timeout statement_timeout),
     @contention => ~w(lock_timeout),
-    @scope_enforcement => ~w(lock_timeout)
+    @scope_enforcement => ~w(lock_timeout),
+    "lib/letflow/ledger/reconcile.ex" => ~w(statement_timeout)
   }
   # Assertion 4
   @stamp_callers [@release, @mix_stamp, @mix_inventory]

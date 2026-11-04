@@ -85,6 +85,11 @@ defmodule Letflow.Ledger do
   CHECK violation (23514, unreachable under the validation; its mapping is slice L3) propagate
   and leave the transaction.
 
+  ## Reconcile (REQ-637 part C)
+
+  `reconcile/2` re-derives balances, the sequence and the digest chain, chunked and read-only; see
+  `Letflow.Ledger.Reconcile`. The audit-entry comparison belongs to slice L3.
+
   ## Reversal (REQ-637 part A, slice L2b)
 
   A reversal is a NEW posting (cause `reversal`, sign rule `reversal`, `reverses_entry_id`) in the
@@ -129,9 +134,11 @@ defmodule Letflow.Ledger do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Ledger.Authorized
   alias Letflow.Ledger.Capability
   alias Letflow.Ledger.Digest
   alias Letflow.Ledger.LockedPlan
+  alias Letflow.Ledger.Reconcile
   alias Letflow.Ledger.Storage
   alias Letflow.Ledger.Validate
   alias Letflow.Repo
@@ -149,6 +156,22 @@ defmodule Letflow.Ledger do
   @control ~r/[\x00-\x1f\x7f]/
   @limit Decimal.new("1.0E+21")
   @future_seconds 300
+  @page_cap 200
+
+  @type reconciliation :: Reconcile.reconciliation()
+
+  @doc "The one page cap of the read side: the most legs one posting can carry."
+  @spec page_cap() :: pos_integer()
+  def page_cap, do: @page_cap
+
+  @doc """
+  One chunk of a reconciliation of the authorised ledger id (see `Letflow.Ledger.Reconcile`).
+  A value not minted for `:reconcile` raises `FunctionClauseError`.
+  """
+  @spec reconcile(Authorized.t(), map()) ::
+          {:ok, reconciliation()}
+          | {:error, :reconcile_busy | :invalid_cursor | :invalid_opts | :run_expired}
+  defdelegate reconcile(authorized, opts), to: Reconcile
 
   @doc false
   @spec post(Capability.t()) ::

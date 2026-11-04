@@ -320,7 +320,7 @@ defmodule Letflow.Ledger.GapFreeTest do
       acc
     end
 
-    test "T-GF-4 the ledger sources hold exactly two literal SQL statements" do
+    test "T-GF-4 the ledger sources hold exactly the literal SQL statements" do
       {storage, posting_files} =
         Enum.split_with(@files, &(&1 == "lib/letflow/ledger/storage.ex"))
 
@@ -330,7 +330,11 @@ defmodule Letflow.Ledger.GapFreeTest do
       assert results |> Enum.flat_map(&elem(&1, 1)) |> Enum.sort() ==
                Enum.sort([
                  "SELECT current_setting('transaction_isolation')",
-                 "SELECT clock_timestamp()"
+                 "SELECT clock_timestamp()",
+                 # REQ-637 part C (reconcile/2): a reviewed addition, three literal statements
+                 "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+                 "SELECT set_config('statement_timeout', $1, true)",
+                 "SELECT pg_try_advisory_xact_lock(hashtext($1), hashtext($2))"
                ])
 
       # REQ-710: Storage is the partition catalog reader and creator, never called from a posting.
