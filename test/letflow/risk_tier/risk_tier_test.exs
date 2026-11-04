@@ -175,6 +175,8 @@ defmodule Letflow.RiskTierTest do
         |> Enum.sort()
 
       assert docs == [
+               "docs/agents/ORCHESTRATOR.md",
+               "docs/agents/protocols/GIT_MERGE.md",
                "docs/agents/shared/HANDOFF_PROTOCOL.md",
                "docs/assets/stock-workflow-documents.md",
                "docs/frontend/x-ui-widget-vocabulary.md",
