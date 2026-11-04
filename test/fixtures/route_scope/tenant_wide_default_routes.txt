@@ -37,6 +37,9 @@ GET /modules/exam/grading-queue/:session_id/:question_id ExamGradingRead
 GET /modules/fixture/items/:id FixtureRead
 GET /modules/procurement/purchase-requests/:id ProcurementRequestRead
 GET /modules/procurement/purchase-requests/:id/lines/:line_no ProcurementRequestRead
+GET /modules/stock/balances StockRead
+GET /modules/stock/movements StockRead
+GET /modules/stock/reconcile StockReconcile
 GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage

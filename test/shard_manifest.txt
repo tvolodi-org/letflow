@@ -24,6 +24,7 @@
 1 test/letflow/ledger/tenancy_test.exs 11387.78
 1 test/letflow/mail_runtime_config_test.exs 3984.41
 1 test/letflow/modules/exam/session_test.exs 118607.51
+1 test/letflow/modules/stock/ledger_policy_test.exs 6015.36
 1 test/letflow/plugs/auth_pipeline_configurable_verifier_test.exs 3115.33
 1 test/letflow/public_read_test.exs 5349.87
 1 test/letflow/record_triggers/apply_test.exs 7332.67
@@ -210,6 +211,7 @@
 6 test/letflow/modules/exam/session_lineage_test.exs 2791.41
 6 test/letflow/modules/exam/snapshot_test.exs 515.68
 6 test/letflow/modules/locations/read_api_test.exs 32582.32
+6 test/letflow/modules/stock/registration_test.exs 6015.36
 6 test/letflow/plugs/http_metrics_test.exs 42.08
 6 test/letflow/plugs/platform_scope_facts_test.exs 26538.74
 6 test/letflow/routers/entities_decimal_strict_reads_test.exs 38722.67
@@ -317,6 +319,7 @@
 9 test/letflow/login_discovery/notifier/smtp_test.exs 208.95
 9 test/letflow/modules/exam/snapshot_restrictions_test.exs 13732.81
 9 test/letflow/modules/procurement/router_test.exs 33204.29
+9 test/letflow/modules/stock/views_test.exs 6015.36
 9 test/letflow/oidc/jit_provisioning_config_admin_bind_test.exs 4002.25
 9 test/letflow/platform_tenant_test.exs 1.00
 9 test/letflow/plugs/iss0736_oidc_live_revocation_test.exs 3235.88
@@ -505,6 +508,7 @@
 14 test/letflow/migrations/create_entity_type_extensions_test.exs 8788.26
 14 test/letflow/modules/catalog_items/import_test.exs 35338.34
 14 test/letflow/modules/procurement/line_events_test.exs 29070.95
+14 test/letflow/modules/stock/router_test.exs 6015.36
 14 test/letflow/oidc/claim_mapping_property_test.exs 81.28
 14 test/letflow/platform/change_set_review_test.exs 0.13
 14 test/letflow/record_triggers/runner_test.exs 16111.11
@@ -910,6 +914,7 @@
 25 test/letflow/modules/locations/pack_drift_test.exs 80.07
 25 test/letflow/modules/org/writers_test.exs 30826.54
 25 test/letflow/modules/procurement/purchase_requests_test.exs 24582.67
+25 test/letflow/modules/stock/install_test.exs 6015.36
 25 test/letflow/obs/alerts_test.exs 12073.14
 25 test/letflow/oidc/realm_probe_test.exs 2702.04
 25 test/letflow/record_triggers/outbox_backlog_test.exs 13878.94
@@ -1093,6 +1098,7 @@
 30 test/letflow/modules/codes/read_api_test.exs 10733.03
 30 test/letflow/modules/exam/anti_cheat_test.exs 15674.08
 30 test/letflow/modules/exam/grading_mark_test.exs 25913.50
+30 test/letflow/modules/stock/runbook_test.exs 6015.36
 30 test/letflow/routers/entities_aggregate_test.exs 10527.22
 30 test/letflow/routers/entities_managed_by_test.exs 19690.94
 30 test/letflow/routers/event_retention_test.exs 1909.57

@@ -278,6 +278,31 @@ defmodule Letflow.Modules.Catalog do
 
   def fetch_ledger(_module_id, _registration_name), do: {:error, :not_found}
 
+  @doc """
+  REQ-687 (decision 0073): the registry `Letflow.Ledger.registration_for/1` reads, built from the
+  compiled manifests: `%{ledger_id => %{name, registration, read_permission, reconcile_permission}}`.
+  Each registration goes through `fetch_ledger/2`, so rule 18 is re-validated; an invalid one is
+  skipped. Pure; `Letflow.Application.start/2` stores it in the app env when that is unset.
+  """
+  @spec ledger_registry() :: %{String.t() => map()}
+  def ledger_registry do
+    for entry <- entry_modules(),
+        manifest = entry.manifest(),
+        is_map(Map.get(manifest, :ledger)),
+        {name, _raw} <- Map.get(manifest, :ledger),
+        {:ok, plain} <- [fetch_ledger(manifest.id, name)],
+        ledger_id <- plain.ledger_ids,
+        into: %{} do
+      {ledger_id,
+       %{
+         name: name,
+         registration: plain,
+         read_permission: plain.permissions[:read],
+         reconcile_permission: plain.permissions[:reconcile]
+       }}
+    end
+  end
+
   # REQ-685 (decision 0073 note 14.4): calls the registration's posting policy, `declare/2`, at build
   # time. The module comes from the compiled manifest (plain registration data), never from a
   # caller. A policy is pure by contract (`Letflow.Ledger.Policy`); a raise, exit or throw of

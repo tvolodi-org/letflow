@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: catalog_items@0.3.0,codes@0.2.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0
+# modules: catalog_items@0.3.0,codes@0.2.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.1.0
 # roles: 8
-# permissions: 73
-# rows: 584
+# permissions: 77
+# rows: 616
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -71,6 +71,10 @@ AGENT_RUNNER ScheduledJobsManage false core -
 AGENT_RUNNER ScriptsPublish false core -
 AGENT_RUNNER ScriptsWrite false core -
 AGENT_RUNNER SolutionOverridesManage false core -
+AGENT_RUNNER StockPost false module:stock -
+AGENT_RUNNER StockRead false module:stock -
+AGENT_RUNNER StockReconcile false module:stock -
+AGENT_RUNNER StockReverse false module:stock -
 AGENT_RUNNER TasksAssign false core -
 AGENT_RUNNER TasksComplete false core -
 AGENT_RUNNER TasksRead false core -
@@ -144,6 +148,10 @@ CANDIDATE ScheduledJobsManage false core -
 CANDIDATE ScriptsPublish false core -
 CANDIDATE ScriptsWrite false core -
 CANDIDATE SolutionOverridesManage false core -
+CANDIDATE StockPost false module:stock -
+CANDIDATE StockRead false module:stock -
+CANDIDATE StockReconcile false module:stock -
+CANDIDATE StockReverse false module:stock -
 CANDIDATE TasksAssign false core -
 CANDIDATE TasksComplete false core -
 CANDIDATE TasksRead false core -
@@ -217,6 +225,10 @@ PLATFORM_ADMIN ScheduledJobsManage true core core
 PLATFORM_ADMIN ScriptsPublish true core core
 PLATFORM_ADMIN ScriptsWrite true core core
 PLATFORM_ADMIN SolutionOverridesManage true core core
+PLATFORM_ADMIN StockPost true module:stock core
+PLATFORM_ADMIN StockRead true module:stock core
+PLATFORM_ADMIN StockReconcile true module:stock core
+PLATFORM_ADMIN StockReverse true module:stock core
 PLATFORM_ADMIN TasksAssign true core core
 PLATFORM_ADMIN TasksComplete true core core
 PLATFORM_ADMIN TasksRead true core core
@@ -290,6 +302,10 @@ PROCESS_DESIGNER ScheduledJobsManage false core -
 PROCESS_DESIGNER ScriptsPublish false core -
 PROCESS_DESIGNER ScriptsWrite true core core
 PROCESS_DESIGNER SolutionOverridesManage false core -
+PROCESS_DESIGNER StockPost false module:stock -
+PROCESS_DESIGNER StockRead false module:stock -
+PROCESS_DESIGNER StockReconcile false module:stock -
+PROCESS_DESIGNER StockReverse false module:stock -
 PROCESS_DESIGNER TasksAssign false core -
 PROCESS_DESIGNER TasksComplete false core -
 PROCESS_DESIGNER TasksRead true core core
@@ -363,6 +379,10 @@ PROCESS_OPERATOR ScheduledJobsManage false core -
 PROCESS_OPERATOR ScriptsPublish false core -
 PROCESS_OPERATOR ScriptsWrite false core -
 PROCESS_OPERATOR SolutionOverridesManage false core -
+PROCESS_OPERATOR StockPost false module:stock -
+PROCESS_OPERATOR StockRead false module:stock -
+PROCESS_OPERATOR StockReconcile false module:stock -
+PROCESS_OPERATOR StockReverse false module:stock -
 PROCESS_OPERATOR TasksAssign true core core
 PROCESS_OPERATOR TasksComplete true core core
 PROCESS_OPERATOR TasksRead true core core
@@ -436,6 +456,10 @@ TASK_WORKER ScheduledJobsManage false core -
 TASK_WORKER ScriptsPublish false core -
 TASK_WORKER ScriptsWrite false core -
 TASK_WORKER SolutionOverridesManage false core -
+TASK_WORKER StockPost false module:stock -
+TASK_WORKER StockRead false module:stock -
+TASK_WORKER StockReconcile false module:stock -
+TASK_WORKER StockReverse false module:stock -
 TASK_WORKER TasksAssign false core -
 TASK_WORKER TasksComplete true core core
 TASK_WORKER TasksRead true core core
@@ -509,6 +533,10 @@ TENANT_ADMIN ScheduledJobsManage true core core
 TENANT_ADMIN ScriptsPublish true core core
 TENANT_ADMIN ScriptsWrite true core core
 TENANT_ADMIN SolutionOverridesManage true core core
+TENANT_ADMIN StockPost true module:stock core
+TENANT_ADMIN StockRead true module:stock core
+TENANT_ADMIN StockReconcile true module:stock core
+TENANT_ADMIN StockReverse true module:stock core
 TENANT_ADMIN TasksAssign true core core
 TENANT_ADMIN TasksComplete true core core
 TENANT_ADMIN TasksRead true core core
@@ -582,6 +610,10 @@ TENANT_AUDITOR ScheduledJobsManage false core -
 TENANT_AUDITOR ScriptsPublish false core -
 TENANT_AUDITOR ScriptsWrite false core -
 TENANT_AUDITOR SolutionOverridesManage false core -
+TENANT_AUDITOR StockPost false module:stock -
+TENANT_AUDITOR StockRead false module:stock -
+TENANT_AUDITOR StockReconcile false module:stock -
+TENANT_AUDITOR StockReverse false module:stock -
 TENANT_AUDITOR TasksAssign false core -
 TENANT_AUDITOR TasksComplete false core -
 TENANT_AUDITOR TasksRead true core core
