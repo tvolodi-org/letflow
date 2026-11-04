@@ -64,6 +64,8 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     "lib/letflow/modules/org/masters.ex" => 2,
     # REQ-712: the stock document context (header and line create and update, soft delete)
     "lib/letflow/modules/stock/documents.ex" => 5,
+    # REQ-700: the count order writers (create, update, delete of the child rows) of module stock
+    "lib/letflow/modules/stock/counts.ex" => 3,
     "lib/letflow/record_triggers/apply.ex" => 3,
     "lib/letflow/scheduler/record_deadline_sweep.ex" => 1,
     "lib/mix/tasks/letflow.seed.exam_fixtures.ex" => 1
