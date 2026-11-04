@@ -7,6 +7,9 @@ defmodule Letflow.Idempotency.SquatAudit do
   as `certificate:issue:<session id>` and claim it in `event_idempotency` before the server did.
   The legitimate writer then got `idempotency_key_reuse` for ever. This module finds such rows.
 
+  The `module_upgrade:` key of `ENTITY_RECORD_MIGRATED` (REQ-683) is a server family minted only by
+  `Letflow.ModuleUpgrade.Writer`, not a client-key family, so it is not in the audited list.
+
   ## Read-only by construction
 
   This module only reads. `audit_tenant/1` runs inside a transaction whose first statements make

@@ -384,6 +384,44 @@ defmodule Letflow.Instances do
     |> Repo.exists?(prefix: prefix)
   end
 
+  @doc """
+  GH #2932: whether the principal takes part in instance `instance_id`: it started the instance
+  (the actor of the `INSTANCE_STARTED` event) or a task of the instance is assigned to it, to one
+  of its groups or to a role it holds (`principal` is the `Letflow.Tasks.resolve_principal_scope/2`
+  shape; task status does not matter, so a worker who already completed their step still takes part).
+
+  Used by the instance read routes to keep a task-worker-only caller away from the variables and
+  the event payloads of an instance it has no part in. One `exists?` query per source, both with
+  the tenant `prefix` (INV-1).
+  """
+  @spec participant?(Ecto.UUID.t(), Letflow.Tasks.principal_scope(), opts()) :: boolean()
+  def participant?(id, %{user_id: user_id} = principal, opts) when is_list(opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    started? =
+      case Ecto.UUID.cast(user_id) do
+        {:ok, uid} ->
+          Event
+          |> where([e], e.instance_id == ^id and e.event_type == "INSTANCE_STARTED")
+          |> where([e], e.actor_id == ^uid)
+          |> Repo.exists?(prefix: prefix)
+
+        :error ->
+          false
+      end
+
+    started? or
+      Letflow.Engine.Task
+      |> where([t], t.instance_id == ^id)
+      |> where(
+        [t],
+        (t.assignee_type == "USER" and t.assignee_ref == ^user_id) or
+          (t.assignee_type == "GROUP" and t.assignee_ref in ^principal.group_ids) or
+          (t.assignee_type == "ROLE" and t.assignee_ref in ^principal.role_names)
+      )
+      |> Repo.exists?(prefix: prefix)
+  end
+
   defp ensure_instance_exists(id, prefix) do
     if instance_visible?(id, prefix: prefix), do: :ok, else: {:error, :not_found}
   end

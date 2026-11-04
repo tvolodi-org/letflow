@@ -291,8 +291,9 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # REQ-633 (GH #3530) added the entity-type-hooks dry-run line (160).
       # GH #3610 (REQ-668) added the three catalog_items lot lines and GH #3611 (REQ-667) the five codes write lines (183 -> 191).
       # REQ-712 (GH #3749) added the six stock document lines (194 -> 200).
-      # REQ-700 (GH #3737) added the seven stock count lines (200 -> 210).
-      assert length(snapshot) == 210
+      # REQ-700 (GH #3737) added the seven stock count lines (200 -> 207).
+      assert length(snapshot) == 211
+      # REQ-713 added the three stock post/reverse/cancel lines (208 -> 211).
 
       for line <- @resolver_lines ++ @tenant_wide_lines do
         refute line in snapshot, line

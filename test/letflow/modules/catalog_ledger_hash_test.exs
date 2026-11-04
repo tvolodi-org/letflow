@@ -18,7 +18,7 @@ defmodule Letflow.Modules.CatalogLedgerHashTest do
     "CatalogItems" => "d0e4882ffd3c14833715727d94bdc188897ca84e73a74c927048d19cb610eb9a",
     "Procurement" => "265b5841f1705989bacfdf2ca82385fa0c9d83ad462e3f257f0ac87060f8dd61",
     "Locations" => "a9f6b26a8d6df340267381c4a3025b7a8848eb0f02d288167b66d9134ba96116",
-    "Codes" => "e572003cee0f261c8cd5ace7021ab5420ecb558aa0e15d571ef0ccf8d2928eb6",
+    "Codes" => "8129ab71a3312ee9d7ec0b376a1b8cae6ab53c449d137603ae9d3d04eeb82be1",
     "Fixture" => "469c50f3420bc652af6afb8e24c202c8f455d486fb9524b6ca2c1fb61caa0b59",
     "FixtureDependent" => "42e4637c9404ced4a6545a77bc7334c2ca7f6fb7d1b50f747a71a9d7484b06b6",
     "FixtureFailingInstall" => "33e53980998a1ca1ce3cd6269ee9dd0e258b83c71317fdce3557de37c8ada7fe",

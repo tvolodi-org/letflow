@@ -959,12 +959,24 @@ defmodule Letflow.Test.TenantTemplate do
   # it is stable within one BEAM VM and changes only when migrations are added
   # or removed (which requires a recompile, hence a new BEAM VM).
   defp migration_fingerprint_comment do
+    fingerprint_comment_for(
+      TenantProvisioning.platform_event_type_seed_versions(),
+      Letflow.Entities.EventTypes.seed_versions()
+    )
+  end
+
+  # The pure part of the fingerprint (REQ-683): the migration versions, the platform event type
+  # seed pairs and the entity record event type pairs. Public so a test can compute it for two
+  # lists and see the string change.
+  @doc false
+  def fingerprint_comment_for(platform_versions, entity_versions) do
     fingerprint =
       TenantProvisioning.tenant_scoped_migrations()
       |> Enum.map(fn {version, _module} -> version end)
       |> Enum.sort()
       |> Enum.join(",")
-      |> Kernel.<>("|" <> inspect(TenantProvisioning.platform_event_type_seed_versions()))
+      |> Kernel.<>("|" <> inspect(platform_versions))
+      |> Kernel.<>("|" <> inspect(entity_versions))
       |> then(&:crypto.hash(:md5, &1))
       |> Base.encode16(case: :lower)
 
