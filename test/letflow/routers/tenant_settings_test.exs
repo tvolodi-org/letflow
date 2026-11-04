@@ -454,6 +454,73 @@ defmodule Letflow.Routers.TenantSettingsTest do
     end
   end
 
+  describe "REQ-703: tenant time zone over PATCH" do
+    alias Letflow.Identity.TenantTimezone
+
+    test "TZ-5a/b: set, other keys kept, null clears to the default" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req703-a")
+      assert patch_settings(tenant, body: %{"app_name" => "Acme"}).status == 200
+
+      resp = patch_settings(tenant, body: %{"timezone" => "Asia/Tokyo"})
+      assert resp.status == 200
+      settings = Jason.decode!(resp.resp_body)["settings"]
+      assert settings["timezone"] == "Asia/Tokyo"
+      assert settings["app_name"] == "Acme"
+      assert TenantTimezone.of(Repo.get!(Tenant, tenant.tenant_id)) == "Asia/Tokyo"
+
+      assert patch_settings(tenant, body: %{"timezone" => nil}).status == 200
+      assert TenantTimezone.of(Repo.get!(Tenant, tenant.tenant_id)) == "Asia/Almaty"
+    end
+
+    test "TZ-5c: an unknown zone is refused 422 and the stored value is unchanged" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req703-c")
+      assert patch_settings(tenant, body: %{"timezone" => "Asia/Tokyo"}).status == 200
+      before = Repo.get!(Tenant, tenant.tenant_id)
+
+      resp = patch_settings(tenant, body: %{"timezone" => "Mars/Olympus"})
+      assert resp.status == 422
+      assert resp.resp_body =~ "timezone must be an IANA time zone name"
+      assert Repo.get!(Tenant, tenant.tenant_id).settings == before.settings
+    end
+
+    test "TZ-5d: a non-admin gets 403 and nothing changes" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req703-d")
+      before = Repo.get!(Tenant, tenant.tenant_id)
+
+      resp = patch_settings(tenant, roles: ["TASK_WORKER"], body: %{"timezone" => "Asia/Tokyo"})
+      assert resp.status == 403
+      assert Repo.get!(Tenant, tenant.tenant_id) == before
+    end
+
+    test "TZ-5e: tenant B is untouched by tenant A's change" do
+      a = TenantFixture.provisioned_tenant!(slug_prefix: "req703-ea")
+      b = TenantFixture.provisioned_tenant!(slug_prefix: "req703-eb")
+      before_b = Repo.get!(Tenant, b.tenant_id)
+
+      assert patch_settings(a, body: %{"timezone" => "Asia/Tokyo"}).status == 200
+      assert Repo.get!(Tenant, b.tenant_id).settings == before_b.settings
+      assert TenantTimezone.of(Repo.get!(Tenant, b.tenant_id)) == "Asia/Almaty"
+    end
+
+    test "TZ-6a: the public tenant-config body does not carry the time zone" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req703-p")
+
+      {1, nil} =
+        Repo.update_all(
+          from(t in Tenant, where: t.id == ^tenant.tenant_id),
+          set: [idp_realm_id: "req703-p-realm-#{tenant.tenant_id}"]
+        )
+
+      assert patch_settings(tenant, body: %{"app_name" => "Acme"}).status == 200
+      {_c, before} = get_tenant_config(tenant.tenant.slug)
+      assert patch_settings(tenant, body: %{"timezone" => "Asia/Tokyo"}).status == 200
+      {conn_after, after_body} = get_tenant_config(tenant.tenant.slug)
+      assert conn_after.status == 200
+      assert after_body == before
+      refute Jason.encode!(after_body) =~ "Asia/Tokyo"
+    end
+  end
+
   # ═══════════════════════════════════════════════════════════════════════
   # AC5 — settings_changeset/2's cast list stays [:settings] only;
   # TenantSettings' closed vocabulary unchanged; this endpoint cannot touch

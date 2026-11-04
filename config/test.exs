@@ -313,6 +313,7 @@ config :letflow, :modules, [
   Letflow.Modules.Procurement,
   Letflow.Modules.Locations,
   Letflow.Modules.Codes,
+  Letflow.Modules.Stock,
   Letflow.Modules.Fixture,
   Letflow.Modules.FixtureDependent,
   Letflow.Modules.FixtureFailingInstall,
@@ -341,7 +342,13 @@ config :letflow, :modules, [
   # (test/support/modules/fixture_ddl_failing/).
   Letflow.Modules.FixtureDdlFailing,
   # REQ-574 / GH #3256: one declared extension point (test/support/modules/fixture_points/).
-  Letflow.Modules.FixturePoints
+  Letflow.Modules.FixturePoints,
+  # REQ-684 / GH #3698: two ledger registrations, a posting handler and a policy
+  # (test/support/modules/fixture_ledger_post/).
+  Letflow.Modules.FixtureLedgerPost,
+  # REQ-711 / GH #3751: ledger storage at install and reactivate
+  # (test/support/modules/fixture_ledger_storage/).
+  Letflow.Modules.FixtureLedgerStorage
 ]
 
 # REQ-518 (SEC ruling R-3): the ONLY place this key may be set. Catalog rule 11 and

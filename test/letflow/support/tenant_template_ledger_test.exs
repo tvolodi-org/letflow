@@ -54,6 +54,10 @@ defmodule Letflow.Test.TenantTemplateLedgerTest do
     tenant: tenant,
     schema: s
   } do
+    # REQ-710: the balance row below needs the partitions of its ledger id; they are part of the
+    # baseline here (a partition made after the baseline is definition drift, see the clone test
+    # in tenant_template_test.exs)
+    Letflow.LedgerFixture.ensure_storage!(s, "wh")
     baseline = TenantTemplate.capture_clone_baseline!(s)
     assert {:ok, _} = TenantTemplate.reset_clone_schema!(s, baseline)
 
@@ -132,7 +136,12 @@ defmodule Letflow.Test.TenantTemplateLedgerTest do
         [s]
       )
 
-    assert rows == [["ledger_entry", "ledger_entry"], ["ledger_leg", "ledger_entry"]]
+    # REQ-711: the entry and leg keys live on the per-ledger-id partitions (created by
+    # Storage.ensure/2), so a template with no ledger partition has none on the parents;
+    # whatever exists stays inside the ledger set.
+    assert Enum.all?(rows, fn [from, to] ->
+             String.starts_with?(from, "ledger_") and String.starts_with?(to, "ledger_entry")
+           end)
   end
 
   test "T-TT-4 the sandbox fixture loader refuses a ledger table", %{schema: s} do

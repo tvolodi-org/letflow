@@ -26,7 +26,7 @@ defmodule Letflow.Modules.CatalogItems.RegistrationTest do
     assert manifest.pack == "modules/catalog_items/pack.json"
     assert manifest.permissions == [:CatalogLotsWrite]
     assert manifest.role_grants == %{}
-    assert manifest.version == "0.2.0"
+    assert manifest.version == "0.3.0"
     assert Letflow.Modules.CatalogItems.router() == Letflow.Modules.CatalogItems.Router
 
     assert Enum.sort(manifest.route_policies) ==

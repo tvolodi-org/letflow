@@ -1248,8 +1248,8 @@ defmodule Letflow.TenantFixture do
   defp tables_in(schema_name) do
     %{rows: rows} =
       Repo.query!(
-        "SELECT table_name FROM information_schema.tables " <>
-          "WHERE table_schema = $1 AND table_type = 'BASE TABLE'",
+        "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " <>
+          "WHERE n.nspname = $1 AND c.relkind IN ('r', 'p') AND NOT c.relispartition",
         [schema_name]
       )
 

@@ -408,7 +408,9 @@ defmodule Letflow.Engine do
       `:lock_ancestors` (the group; GH #2695), then, with an entity plan, the `{:pre_type_lock, type}`
       group (GH #2704, through the entity port's optional `lock_types/4`: the same ascending union
       of line and handler-target types, BEFORE the token inserts and the task activation, whose
-      `task.create` audit takes the audit chain row), then tokens, task activation, timers, dispatch
+      `task.create` audit takes the audit chain row), then, for a node with a ledger posting line
+      (REQ-688, decision 0061 "Amended (REQ-688...)"), the lock-only `:pre_ledger_lock` step (the
+      write-free dry build's balance rows and counters, class 5b), then tokens, task activation, timers, dispatch
       arms and sub-process children, the entity writes (their own type locks are now no-op re-locks),
       the events, the projection, the completion cascade (the ancestors' sequence rows and projection
       UPDATEs, with the group already held) and the entity audits last. The pre-lock is lock-only (its one write: the empty counter row of a type bound to a number sequence, REQ-541): no
@@ -2813,7 +2815,11 @@ defmodule Letflow.Engine do
           required(:idempotency_key) => String.t()
         }
 
-  @type complete_opts :: [prefix: String.t(), f1: Letflow.Tasks.f1()]
+  @type complete_opts :: [
+          prefix: String.t(),
+          f1: Letflow.Tasks.f1(),
+          credential: atom() | nil
+        ]
 
   # `{:error, {:variable_schema_lookup_failed, VariableSchema.error_reason()}}` was
   # removed from this union (GH#310 / ISS-0091): neither member of
@@ -2865,6 +2871,9 @@ defmodule Letflow.Engine do
           # deactivated (the refusal stub, 409).
           | {:error,
              {:entity_write_refused, index :: non_neg_integer() | :contention, code :: atom()}}
+          # REQ-686: a typed ledger refusal (index, neutral core code, wire code, details).
+          | {:error,
+             {:entity_write_refused_detailed, non_neg_integer(), atom(), String.t(), map()}}
           | {:error, {:entity_write_failed, index :: non_neg_integer(), step :: atom()}}
           | {:error, :entity_write_needs_reactivation}
           | {:error, Ecto.Changeset.t()}
@@ -2936,6 +2945,11 @@ defmodule Letflow.Engine do
   (`{:error, {:form_hook_failed, :script_busy}}`), the transaction is rolled back, a fixed 25 ms
   backoff runs outside any transaction, and the whole completion re-runs, at most 3 attempts in
   total; then that error is returned and the task stays pending. No other code retries.
+
+  REQ-685: `opts[:credential]` is the credential kind of the completing request. It reaches the
+  module write handlers' `HandlerContext` and is checked, as exactly `:oidc`, only by a ledger
+  posting line; any other value or its absence refuses that line and changes nothing else
+  (the tasks router sets it in REQ-686).
   """
   @spec complete_task(
           task_id :: Ecto.UUID.t(),
@@ -2960,7 +2974,8 @@ defmodule Letflow.Engine do
         completed_at,
         prefix,
         Keyword.get(opts, :f1, :off),
-        hidden_check(opts)
+        hidden_check(opts),
+        Keyword.get(opts, :credential)
       )
     end
   end
@@ -3018,6 +3033,7 @@ defmodule Letflow.Engine do
          prefix,
          f1,
          hidden_check,
+         credential,
          attempt \\ 1
        ) do
     result =
@@ -3030,6 +3046,7 @@ defmodule Letflow.Engine do
         prefix,
         f1,
         hidden_check,
+        credential,
         attempt
       )
 
@@ -3046,6 +3063,7 @@ defmodule Letflow.Engine do
           prefix,
           f1,
           hidden_check,
+          credential,
           attempt + 1
         )
 
@@ -3063,6 +3081,7 @@ defmodule Letflow.Engine do
          prefix,
          f1,
          hidden_check,
+         credential,
          attempt
        ) do
     try do
@@ -3080,6 +3099,7 @@ defmodule Letflow.Engine do
             prefix,
             f1,
             hidden_check,
+            credential,
             attempt
           )
 
@@ -3101,6 +3121,7 @@ defmodule Letflow.Engine do
          prefix,
          f1,
          hidden_check,
+         credential,
          attempt
        ) do
     plan
@@ -3113,7 +3134,8 @@ defmodule Letflow.Engine do
       prefix,
       f1,
       hidden_check,
-      hook
+      hook,
+      credential
     )
     |> run_transaction(plan)
     |> audit_form_hook_refusal(actor_id, prefix, attempt >= @form_hook_busy_attempts)
@@ -3155,7 +3177,8 @@ defmodule Letflow.Engine do
             prefix,
             :off,
             hidden_check,
-            hook
+            hook,
+            nil
           )
           |> Multi.to_list()
           |> Enum.map(fn
@@ -3442,7 +3465,8 @@ defmodule Letflow.Engine do
          prefix,
          f1,
          hidden_check,
-         hook
+         hook,
+         credential
        ) do
     Multi.new()
     |> maybe_entity_write_timeouts(plan)
@@ -3570,7 +3594,7 @@ defmodule Letflow.Engine do
     end)
     # GH #2587 PR B2 (D-B.2): AFTER :transition (which only computes) and before the tail,
     # skipped on either execution error, so a failed completion writes no record.
-    |> maybe_entity_writes(plan, actor_id, prefix)
+    |> maybe_entity_writes(plan, actor_id, prefix, credential)
     |> Multi.merge(fn changes ->
       build_complete_task_tail_multi(
         changes,
@@ -3923,6 +3947,22 @@ defmodule Letflow.Engine do
     end
   end
 
+  # REQ-688: the ledger consent nodes and the activating credential, read from the document
+  # `recorded_activator/2` has JUST verified (callers run it first). Absent keys (every older
+  # document) authorise nothing: no consent nodes, no credential.
+  defp recorded_ledger(%{activated_by: activated_by}) when is_map(activated_by) do
+    nodes =
+      case Map.get(activated_by, "ledger_consent_nodes") do
+        list when is_list(list) -> Enum.filter(list, &is_binary/1)
+        _absent -> []
+      end
+
+    credential = if Map.get(activated_by, "credential") == "oidc", do: :oidc, else: nil
+    %{ledger_consent_nodes: nodes, credential: credential}
+  end
+
+  defp recorded_ledger(_definition), do: %{ledger_consent_nodes: [], credential: nil}
+
   # `DefinitionsActivate` is NOT assumed (a rollback or promotion may record a different
   # permission set).
   defp recorded_activator_document(%{
@@ -3975,9 +4015,9 @@ defmodule Letflow.Engine do
     end)
   end
 
-  defp maybe_entity_writes(multi, nil, _actor_id, _prefix), do: multi
+  defp maybe_entity_writes(multi, nil, _actor_id, _prefix, _credential), do: multi
 
-  defp maybe_entity_writes(multi, plan, actor_id, prefix) do
+  defp maybe_entity_writes(multi, plan, actor_id, prefix, credential) do
     ctx = %{
       prefix: prefix,
       origin: {:task, plan.task_id},
@@ -3986,6 +4026,7 @@ defmodule Letflow.Engine do
       definition_id: plan.definition_id,
       definition_version: plan.definition_version,
       actor_id: actor_id,
+      credential: credential,
       activator_id: plan.activator_id,
       authorized: plan.authorized,
       variables: &entity_write_variables/1,
@@ -4090,7 +4131,7 @@ defmodule Letflow.Engine do
   # instance-event `metadata` is set (B3 SEC F3: nothing `_sys`-derived in metadata).
   defp append_entity_write_tail(
          multi,
-         %{applied: applied, lines_hash: lines_hash, sys_values: sys_values},
+         %{applied: applied, lines_hash: lines_hash, sys_values: sys_values} = result,
          plan,
          %Task{} = task,
          actor_id,
@@ -4100,6 +4141,7 @@ defmodule Letflow.Engine do
        when is_map(plan) do
     multi
     |> append_entity_write_audits(applied, lines_hash, plan, task, actor_id, prefix)
+    |> append_ledger_posted_audits(Map.get(result, :ledger_posts, []), actor_id, prefix)
     |> append_sys_variables_event(sys_values, task, actor_id, idempotency_key, prefix)
     |> append_entity_writes_applied_event(
       applied,
@@ -4150,6 +4192,20 @@ defmodule Letflow.Engine do
 
       Multi.run(acc, audit_step_name(line), fn repo, _changes ->
         Audit.insert_entry(repo, attrs, prefix)
+      end)
+    end)
+  end
+
+  # REQ-686 (decision 0073 D8): one `ledger.posted` audit entry per ledger entry written by this
+  # completion. The ledger lock merge ran before the tail, so the counter (class 5b) is taken
+  # before the audit chain row (class 6). The engine names no ledger module: the summaries arrive
+  # in the `:entity_writes` result. An audit failure raises and rolls the whole transaction back.
+  defp append_ledger_posted_audits(multi, [], _actor_id, _prefix), do: multi
+
+  defp append_ledger_posted_audits(multi, summaries, actor_id, prefix) do
+    Enum.reduce(summaries, multi, fn summary, acc ->
+      Multi.run(acc, {:ledger_posted_audit, summary.ledger_id}, fn repo, _changes ->
+        Audit.insert_entry(repo, Letflow.Audit.LedgerPosted.attrs(summary, actor_id), prefix)
       end)
     end)
   end
@@ -6038,7 +6094,7 @@ defmodule Letflow.Engine do
               # inserts and the task activation (whose `task.create` audit takes the audit chain
               # row), so the order is the same as a HUMAN completion's: group, type rows, audit
               # row. Lock-only steps through the entity port; no write moves.
-              |> maybe_service_pre_lock(completion, prefix)
+              |> maybe_service_pre_lock(completion, advanced_state, dispatch, prefix)
               |> Multi.merge(fn _changes ->
                 Multi.new()
                 |> Multi.run({:hop_chain_token_records, dispatch.instance_id}, fn repo,
@@ -6171,6 +6227,18 @@ defmodule Letflow.Engine do
               # instead of leaking as a bare reason.
               {:error, {:pre_type_lock, _type} = failed_step, reason, _changes}
               when is_map_key(completion, :entity_plan) ->
+                {:error, {:entity_write_step_failed, failed_step, reason}}
+
+              {:error, :pre_ledger_lock = failed_step, reason, _changes}
+              when is_map_key(completion, :entity_plan) ->
+                {:error, {:entity_write_step_failed, failed_step, reason}}
+
+              # REQ-688: the ledger lock and write steps of a SERVICE posting are named too, so a
+              # typed refusal (insufficient_balance...) or a contract failure reaches the port's
+              # interpreter (`Failure.map/2`) instead of leaking as a bare reason.
+              {:error, {ledger_tag, :all} = failed_step, reason, _changes}
+              when ledger_tag in [:ledger_lock, :ledger_write] and
+                     is_map_key(completion, :entity_plan) ->
                 {:error, {:entity_write_step_failed, failed_step, reason}}
 
               {:error, _failed_step, reason, _changes} ->
@@ -6405,6 +6473,8 @@ defmodule Letflow.Engine do
         route: route,
         guard_budget_ms: 10_000
       }
+
+      plan = Map.merge(plan, recorded_ledger(definition))
 
       case EntityPort.impl().prepare(lines, prepare_ctx(prefix, module_lines)) do
         :ok ->
@@ -6672,6 +6742,9 @@ defmodule Letflow.Engine do
       {:refused, index, code, detail} ->
         {:refuse, code, index, detail}
 
+      {:refused_detailed, index, code, _wire, detail, _details} ->
+        {:refuse, code, index, detail}
+
       {:failed, index, step} ->
         {:refuse, :entity_write_failed, index, step}
 
@@ -6724,7 +6797,11 @@ defmodule Letflow.Engine do
       # names no module); `HandlerWrites` re-resolves everything from them.
       module_writes: plan.module_writes,
       owner: plan.owner,
-      entity_write_count: length(plan.lines)
+      entity_write_count: length(plan.lines),
+      # REQ-688: from the verified `activated_by` only; the handler call sees them through the
+      # per-call token, never through the context it can read.
+      credential: plan.credential,
+      ledger_consent_nodes: plan.ledger_consent_nodes
     }
 
     multi
@@ -6743,10 +6820,34 @@ defmodule Letflow.Engine do
 
   # GH #2704 (C-E): the pre-lock group of the entity-type rows of a planned completion; a
   # completion without `:entity_plan` adds no step at all.
-  defp maybe_service_pre_lock(multi, %{entity_plan: plan}, prefix),
-    do: EntityPort.lock_types(multi, plan.lines, plan.module_writes, %{prefix: prefix})
+  # REQ-688: the lock context also carries the service facts the ledger pre-step needs for its
+  # write-free dry build of a posting line (`:service`); the production adapter ignores it for a
+  # node without a posting line.
+  defp maybe_service_pre_lock(multi, %{entity_plan: plan}, advanced_state, _dispatch, prefix) do
+    lock_ctx = %{
+      prefix: prefix,
+      service: %{
+        origin: {:dispatch, plan.dispatch_id},
+        instance_id: plan.instance_id,
+        node_id: plan.node_id,
+        definition_id: plan.definition_id,
+        definition_version: plan.definition_version,
+        actor_id: EventStore.platform_actor_id(),
+        subject_id: plan.activator_id,
+        activator_id: plan.activator_id,
+        credential: plan.credential,
+        consented: plan.node_id in plan.ledger_consent_nodes,
+        owner: plan.owner,
+        entity_write_count: length(plan.lines),
+        variables: advanced_state.variables,
+        variable_labels: advanced_state.variable_labels
+      }
+    }
 
-  defp maybe_service_pre_lock(multi, _no_plan, _prefix), do: multi
+    EntityPort.lock_types(multi, plan.lines, plan.module_writes, lock_ctx)
+  end
+
+  defp maybe_service_pre_lock(multi, _no_plan, _state, _dispatch, _prefix), do: multi
 
   # Test seam (same compile-time switch as `__complete_task_multi_step_names__/3`): sends the step
   # names of the service Multi about to run to the pid in `:service_multi_probe`. Absent from
@@ -6774,7 +6875,7 @@ defmodule Letflow.Engine do
   end
 
   defp service_entity_tail_events(
-         %{applied: applied, lines_hash: lines_hash, sys_values: sys_values},
+         %{applied: applied, lines_hash: lines_hash, sys_values: sys_values} = result,
          plan,
          completion_key,
          prefix
@@ -6820,6 +6921,9 @@ defmodule Letflow.Engine do
         {:error, _reason} -> {:error, {:entity_write_failed, 0, :applied_event}}
       end
     end)
+    # REQ-688 (criterion 6): the `ledger.posted` audit of a SERVICE posting, actor the platform
+    # sentinel; the ledger rows were taken by the pre-step, before the first audit chain row.
+    |> append_ledger_posted_audits(Map.get(result, :ledger_posts, []), sentinel, prefix)
   end
 
   defp service_entity_tail_events(:skipped, _plan, _completion_key, _prefix), do: Multi.new()
@@ -9670,7 +9774,7 @@ defmodule Letflow.Engine do
        when (is_tuple(failed_step) and tuple_size(failed_step) == 3 and
                elem(failed_step, 0) == :line) or
               (is_tuple(failed_step) and tuple_size(failed_step) == 2 and
-                 elem(failed_step, 0) == :type_lock) do
+                 elem(failed_step, 0) in [:type_lock, :ledger_lock, :ledger_write]) do
     case EntityPort.impl().interpret_failure(failed_step, reason) do
       {:refused, index, code, detail} ->
         task = Map.fetch!(changes, :task)
@@ -9680,6 +9784,15 @@ defmodule Letflow.Engine do
         if code == :entity_write_contention,
           do: {:error, {:entity_write_refused, :contention, code}},
           else: {:error, {:entity_write_refused, index, code}}
+
+      # REQ-686: a typed ledger refusal. The audit stores the neutral core code and the closed
+      # detail atom; `wire` and `details` reach only the response, never the audit or the log.
+      {:refused_detailed, index, code, wire, detail, details} ->
+        task = Map.fetch!(changes, :task)
+
+        record_entity_write_refusal_audit(task, actor_id, index, code, detail, prefix)
+
+        {:error, {:entity_write_refused_detailed, index, code, wire, details}}
 
       {:failed, index, step} ->
         Logger.error(

@@ -62,6 +62,8 @@ defmodule Letflow.Engine.LuaHostNoHandlerAccessTest do
     lib/letflow/entities/handler_writes.ex
     lib/letflow/entities/managed_types.ex
     lib/letflow/entities/step_writes.ex
+    lib/letflow/ledger/capability.ex
+    lib/letflow/ledger/handler_post.ex
     lib/letflow/modules/catalog.ex
     lib/letflow/modules/manifest_hash.ex
     lib/letflow/modules/module.ex

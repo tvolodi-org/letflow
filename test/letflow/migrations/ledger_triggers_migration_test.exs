@@ -22,6 +22,8 @@ defmodule Letflow.LedgerTriggersMigrationTest do
   setup do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "r620b-trg")
     schema = tenant.schema_name
+    # REQ-710: the entry, leg and balance tables are partitioned by ledger id
+    for id <- ~w(wh n1 m1 other), do: Letflow.LedgerFixture.ensure_storage!(schema, id)
     # one committed posting: ledger "wh", seq 1, one leg (k1 "a", +5), balance on_hand 5
     e1 = post(schema, "wh", 1, legs: [%{k1: "a", q: 5}], balance: {"a", 5})
     {:ok, schema: schema, tenant_id: tenant.tenant_id, e1: e1}
@@ -54,6 +56,8 @@ defmodule Letflow.LedgerTriggersMigrationTest do
 
   defp entry_row(schema, id, ledger, seq, opts) do
     reverses = Keyword.get(opts, :reverses)
+    # REQ-710: a raw row needs the partitions of its ledger id
+    Letflow.LedgerFixture.ensure_storage!(schema, ledger)
 
     insert_sql(schema, "ledger_entry", %{
       id: id,
@@ -147,6 +151,7 @@ defmodule Letflow.LedgerTriggersMigrationTest do
     end
   end
 
+  # REQ-710: a row trigger cloned onto a partition reports the partition's name (`<table>_p<16 hex>`)
   defp refused(sql, text, schema, table) do
     assert {:error,
             %Postgrex.Error{
@@ -154,9 +159,11 @@ defmodule Letflow.LedgerTriggersMigrationTest do
                 code: :restrict_violation,
                 message: ^text,
                 schema: ^schema,
-                table: ^table
+                table: found
               }
             }} = Repo.query(sql)
+
+    assert found =~ ~r/\A#{Regex.escape(table)}(_p[0-9a-f]{16})?\z/
   end
 
   defp snapshot(schema, table) do
@@ -261,6 +268,7 @@ defmodule Letflow.LedgerTriggersMigrationTest do
           JOIN pg_class c ON c.oid = t.tgrelid
           JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = $1 AND NOT t.tgisinternal AND c.relname LIKE 'ledger\\_%'
+           AND NOT c.relispartition
          ORDER BY t.tgname
         """,
         [s]
@@ -396,7 +404,7 @@ defmodule Letflow.LedgerTriggersMigrationTest do
     assert {:raised, %Postgrex.Error{postgres: %{code: :unique_violation, constraint: c}}} =
              attempt(fn -> post_ledger.("wh", 3, reverses: e1) end)
 
-    assert c == "ledger_entry_reverses_unique_index"
+    assert c =~ ~r/\Aledger_entry_reverses_unique_index(_[0-9a-f]{16})?\z/
 
     # a target in another ledger
     other = post(s, "other", 1, legs: [%{k1: "a", q: 5}])
@@ -482,6 +490,7 @@ defmodule Letflow.LedgerTriggersMigrationTest do
        } do
     parent = self()
     ledger = "race"
+    Letflow.LedgerFixture.ensure_storage!(s, ledger)
 
     first =
       Task.async(fn ->
@@ -585,7 +594,7 @@ defmodule Letflow.LedgerTriggersMigrationTest do
       %{rows: [[n]]} =
         Repo.query!(
           "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace " <>
-            "WHERE n.nspname = $1 AND NOT t.tgisinternal AND c.relname LIKE 'ledger\\_%'",
+            "WHERE n.nspname = $1 AND NOT t.tgisinternal AND c.relname LIKE 'ledger\\_%' AND NOT c.relispartition",
           [s]
         )
 
@@ -608,6 +617,7 @@ defmodule Letflow.LedgerTriggersMigrationTest do
     assert %{rows: [[1]]} = Repo.query!("SELECT count(*) FROM \"#{a}\".ledger_counter")
     assert %{rows: [[0]]} = Repo.query!("SELECT count(*) FROM \"#{b}\".ledger_counter")
 
+    Letflow.LedgerFixture.ensure_storage!(b, "wh")
     # b's first posting is seq 1 although a's "wh" is already at 1: counters are per schema
     post(b, "wh", 1, legs: [%{k1: "a", q: 1}])
     assert %{rows: [[1]]} = Repo.query!("SELECT count(*) FROM \"#{b}\".ledger_counter")

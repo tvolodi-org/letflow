@@ -52,7 +52,10 @@ defmodule Letflow.Entities.HandlerContext do
     :activator_id,
     :handler
   ]
+  # REQ-685: `credential` is the credential kind of the completing request (nil when absent); it
+  # is not an enforced key, so every existing builder still compiles.
   defstruct [
+    :credential,
     :prefix,
     :instance_id,
     :origin,
@@ -79,6 +82,7 @@ defmodule Letflow.Entities.HandlerContext do
           actor_id: Ecto.UUID.t(),
           subject_id: Ecto.UUID.t(),
           activator_id: Ecto.UUID.t(),
+          credential: atom() | nil,
           handler: %{module_id: String.t(), name: String.t(), targets: [String.t()]}
         }
 end

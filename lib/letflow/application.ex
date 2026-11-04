@@ -26,6 +26,12 @@ defmodule Letflow.Application do
                 "(it enables test-only script seams)."
     end
 
+    # REQ-687 (decision 0073): the read side of the ledger finds a registration through this env key;
+    # build it once from the compiled manifests unless something (a test) already set it.
+    if Application.get_env(:letflow, :ledger_registry) == nil,
+      do:
+        Application.put_env(:letflow, :ledger_registry, Letflow.Modules.Catalog.ledger_registry())
+
     # REQ-190 (design req190-secrets-core.md §6.2): redacts every log
     # event's metadata map via Letflow.Secrets.Redaction.redact_map/1
     # before it reaches any handler. Registered first, ahead of every

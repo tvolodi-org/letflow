@@ -32,7 +32,7 @@ was written.
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:760` and `lib/letflow/entities/handler_writes.ex:248`.
+   `lib/letflow/entities/step_writes.ex:813` and `lib/letflow/entities/handler_writes.ex:327`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -139,6 +139,10 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `?dry_run=true` runs the file and rolls it back (decision 0077 D5 to D7). `catalog_lot` is imported
    through `Letflow.Modules.CatalogItems.LotImport` (GH #3599, REQ-654), which calls only `create_lot/3` and
    `update_lot/4` (item 20, GH #3614); its `item_id` cell is the external id of a `catalog_item`.
+   Each `:created` or `:updated` row also writes one audit entry in the same transaction (GH #3739,
+   REQ-706): `catalog_uom.created`, `catalog_uom.updated`, `catalog_item.created`, `catalog_item.updated`,
+   `catalog_counterparty.created` and `catalog_counterparty.updated`, with the stored field values before
+   and after; an `:unchanged` row, a refused row and a replay write none.
 3. **No reference check on `base_uom_id`.** A `catalog_item` can name a `base_uom_id` that is
    not a `catalog_uom` record, is inactive or is deleted: it is a declarative string with no
    foreign key (decision 0050 D3.6; the import path is the exception: `reference_not_found` and
@@ -155,7 +159,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:760` and `lib/letflow/entities/handler_writes.ex:248`.
+   `lib/letflow/entities/step_writes.ex:813` and `lib/letflow/entities/handler_writes.ex:327`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -251,6 +255,21 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
     (field names only), a reused key with other input is 409. The routes come from the code
     manifest, so a tenant that installed the module earlier has them without an upgrade; its
     definitions are still not upgraded (items 13 and 18).
+22. **Tracking policy and `validate_capture/3` (GH #3581 / REQ-641, `catalog_items` 0.3.0).**
+    `catalog_item` has an optional `tracking_policy` enum (`none`, `lot`, `serial`, `expiry`; absent is
+    `none`) in `priv/modules/catalog_items/entity_definitions/catalog_item.json`. `validate_capture/3`
+    in `lib/letflow/modules/catalog_items/catalog_items.ex` checks a capture map against it: `none`
+    needs nothing, `lot` the lot, `serial` the serial, `expiry` the lot and the expiry date (the
+    receipt date is the posting time); a supplied value the policy does not require is refused. It is
+    called by no receipt or issue yet, so the MD-04 evidence stays open until the receipt and ledger
+    slices. Serial ownership and the refusal of a duplicate active serial stay in the stock ledger
+    (REQ-503 design `lib/letflow/design/gh2658-wms-stock-dimensions.md`, section 5). MD-01
+    synchronisation is not built (decision 0057 D1). The field is set only through the owner path,
+    because the generic import refuses a managed type (`entity_type_managed`). A tenant installed
+    before 0.3.0 keeps the old definition (no upgrade path, items 13 and 18): `lookup/2` works and
+    `validate_capture/3` reads the missing field as `none`; QA tenants are fresh-only. One policy per
+    item; a combined policy such as serial with expiry is an open owner question (assumption, owner
+    may change at GATE B).
 
 ## Locations module limits
 
@@ -266,6 +285,11 @@ limit names the GH issue or the code that holds it; paths are cited without line
    `move_node/4`, `update_node/4` and `retire_node/3` (`lib/letflow/modules/locations/tree.ex`, GH #3588)
    are the write functions; they write with `ManagedTypes.owner_for!(Letflow.Modules.Locations)`, each
    after the tenant tree lock. There is no un-retire and no delete function.
+   Each accepted write also appends one audit entry in the same transaction (GH #3741, REQ-705,
+   `Letflow.Audit.insert_entry/3`): `location_node.created`, `location_node.updated`,
+   `location_node.moved` and `location_node.retired`, with the stored field values before and after.
+   A refusal, a no-op and a replay write none; a failed entry rolls the write back
+   (`{:error, :audit_failed}`). Imported rows write through the same functions and are audited too.
 3. **Tree rules are enforced by the module functions.** `create_node/3` refuses a parent that is not
    found or inactive; `move_node/4` is one parent change of one record and refuses a cycle by walking
    the parent chain; `retire_node/3` refuses while a descendant is active. A subtree is read with
@@ -399,3 +423,63 @@ Each limit names the GH issue or the code that holds it; paths are cited without
     batch entry is 422 `entry_invalid` with its `index` and `entry_reason`, any other refusal is 422 with a
     `reason`. A tenant that installed codes before 0.2.0 gets the routes without an upgrade (they come from the
     code manifest); the scan route is not built (`lib/letflow/modules/codes/router.ex`).
+
+## Stock module limits
+
+Module `stock` (GH #3707 / REQ-687, slice L4 of the stock ledger, decision 0073, owner decisions D-085 to D-087)
+as it is on main: one ledger registration, a pure posting policy, two views and three read routes. Each limit
+names the GH issue or the code that holds it; paths are cited without line numbers. Numbers marked
+"assumption, owner may change at GATE B" are owner assumptions, not decisions.
+
+1. **No master checks until slice L7.** The module has no gather step and checks no item, location, unit,
+   org unit, employee or lot against a master (decision 0073 D6, D7 D-P and OQ-20, GH #3707). A mistyped id
+   makes a new balance key whose first-touch unit pin is permanent.
+2. **Pilot gate, quoted from decision 0073:** "The stock module is NOT enabled for a customer tenant until L6
+   AND L7 are done, and serial-tracked goods stay out of the pilot until OQ-23 is resolved." No seed, pack or
+   QA fixture installs the module (`docs/migration/decisions/0073-domain-neutral-ledger-primitive.md`).
+3. **OQ-13 and OQ-23 are not decided.** There is no serial slot and no warehouse or zone scoping of
+   postings; serial-tracked goods stay out of the pilot (GH #3707).
+4. **Nothing posts until REQ-713.** The stock documents of REQ-679 exist as drafts and issued documents (REQ-712,
+   GH #3749), but no posting path is built, so nothing posts to ledger id `stock`; the SERVICE origin is refused until
+   slice L5 (REQ-688, GH #3705).
+5. **API tokens get 404 from every read route; a scoped reader reads its own units.** `Letflow.Ledger.authorize/3`
+   answers `:error` for an API token. A reader granted on org units (REQ-682, REQ-693) gets the balances and
+   movements of those units only; the query key `scope_subtree` (one org unit id) narrows to a subtree and
+   `/balances` then reports `coverage` `complete` or `visible_only`, which a client shows as "your units in P"
+   and never as the total of P; a movement leg in a hidden unit is masked (`leg_no`, `quantity`, `unit_ref`,
+   `masked`). `reconcile` is tenant-wide only and answers a scoped reader 404 (GH #3733). Whether the ledger read
+   follows the tenant's enforcement mode is open (owner, assumption, may change at GATE B).
+6. **No role grants; OQ-11 is open.** Only TENANT_ADMIN and PLATFORM_ADMIN hold `StockPost`, `StockReverse`,
+   `StockRead` and `StockReconcile` (`docs/roles.md`); the owner decides any widening (GH #3707).
+7. **Reconcile reads one chunk per call.** `GET /api/v1/modules/stock/reconcile` runs one chunk; a client loops
+   on `next_cursor` until it is null, and only the last result carries `chain_check` and `audit_check`
+   (`lib/letflow/ledger/reconcile.ex`). A statement timeout is 503 `ledger_read_timeout`, a busy lock 409
+   `reconcile_busy`.
+8. **Export is one page per xlsx file.** `format=xlsx` on `balances` and `movements` renders the page the JSON answer
+   holds (follow `next_cursor` for the next file); the `report` sheet gives the time basis and a note that a balance
+   as of a time before an opening posting shows no opening quantity (decision 0079 D1). The movements file has
+   no `ledger_seq` (GATE B open question) and its timezone is Asia/Almaty (assumption, owner may change at GATE B)
+   (GH #3772, `lib/letflow/modules/stock/xlsx_export.ex`).
+9. **The T-LD-1 throughput floor is a pilot condition.** The floor of note 7.6 (REQ-686 criterion 9) is not
+   checked by this module (`lib/letflow/design/gh2657-wms-stock-ledger-core.md`, GH #3707).
+10. **Event time of an entry follows the core rule.** The policy ignores an `event_time` key; the entry time
+    is the core's `client_event_time` (posting time online) (`lib/letflow/modules/stock/ledger_policy/declare.ex`).
+11. **The registry of ledger ids is built at boot.** `Letflow.Modules.Catalog.ledger_registry/0` is stored in
+    the app env `:ledger_registry` by `lib/letflow/application.ex` when unset; routes still answer 404 for a
+    tenant that has not installed the module (GH #3707).
+12. **Assumptions, owner may change at GATE B:** the default tenant time zone Asia/Almaty, the speed-test
+    volumes and p95 targets, the 96-hour lateness, the six causes and the slot order
+    `sku, location, org_unit, responsible, lot` (`lib/letflow/modules/stock/stock.ex`).
+13. **Master checks of a document run at issue only.** `POST /api/v1/modules/stock/documents/:id/issue` checks the
+    link of org unit and location, the employee, the counterparty and each line's unit and lot
+    (`lib/letflow/modules/stock/documents/checks.ex`); a master retired between issue and posting is not caught
+    until the ledger's own master validation, slice L7 (decision 0073 D6, GH #3749).
+14. **Scoped principals and API tokens get 404 from the document routes.** The six routes of
+    `lib/letflow/modules/stock/router.ex` under `/documents` serve an interactive tenant-wide principal only, the
+    guard is `lib/letflow/modules/stock/access.ex`; scoped posting (L6) is not part of phase B (GH #3749).
+15. **Document defaults are owner-changeable at GATE B.** Receipt numbered per year with prefix RCP and pad 6, no
+    legal entity, at most 100 lines, the responsible employee not bound to the org unit, no approval step, the
+    org unit of a draft cannot change (discard and create anew) (`lib/letflow/modules/stock/documents.ex`, GH #3749).
+16. **Installing the new version is an explicit step.** Version 0.2.0 of the module adds the two record types and the
+    document type `stock_receipt`; a tenant that installed 0.1.0 takes them through the module upgrade path
+    (`lib/letflow/modules/tenant_module_upgrade.ex`), no tenant is upgraded or seeded by the change (GH #3749).

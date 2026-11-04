@@ -14,11 +14,20 @@ defmodule Letflow.Modules.Locations.Tree do
   through `Letflow.Entities.Records` with the module authority; the scope index of decision 0051 is
   not touched.
 
+  Audit (GH #3741 / REQ-705, decision 0078 D8): each accepted write appends one entry through
+  `Letflow.Audit.insert_entry/3` inside the write's transaction, after the record write and under the
+  tree lock, with `resource_type` `location_node`, the node's record id and the `:actor_id`:
+  `location_node.created` (before nil), `location_node.updated`, `location_node.moved` and
+  `location_node.retired`, with the stored field values before and after. A refused call, a no-op and a
+  replay write none; a database failure of the entry rolls the write back as `{:error, :audit_failed}`.
+  The import of the tree writes only through these functions, so imported rows are audited too.
+
   `prefix` must come from the authenticated tenant on the server side, never from attrs or opts.
   """
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Audit
   alias Letflow.Entities.Records
   alias Letflow.EventStore.IdempotencyRecord
   alias Letflow.Entities.ManagedTypes
@@ -94,7 +103,9 @@ defmodule Letflow.Modules.Locations.Tree do
            :ok <- check_segment(attrs),
            {:ok, fv} <- build_values(prefix, attrs, parent_id, pattern),
            {:ok, record_id} <- write(prefix, fv, actor_id, idem),
-           {:ok, node} <- ReadApi.lookup(prefix, record_id, @types) do
+           {:ok, node} <- ReadApi.lookup(prefix, record_id, @types),
+           {:ok, after_fv} <- stored_fields(prefix, node),
+           :ok <- audit(prefix, actor_id, "location_node.created", record_id, nil, after_fv) do
         node
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -253,7 +264,7 @@ defmodule Letflow.Modules.Locations.Tree do
       end
     end
 
-    write_locked(prefix, node_id, actor_id, idem, change)
+    write_locked(prefix, node_id, actor_id, idem, change, "location_node.moved")
   end
 
   @doc """
@@ -278,7 +289,7 @@ defmodule Letflow.Modules.Locations.Tree do
       end
     end
 
-    write_locked(prefix, node_id, actor_id, idem, change)
+    write_locked(prefix, node_id, actor_id, idem, change, "location_node.updated")
   end
 
   @doc """
@@ -298,7 +309,7 @@ defmodule Letflow.Modules.Locations.Tree do
       end
     end
 
-    write_locked(prefix, node_id, actor_id, idem, change)
+    write_locked(prefix, node_id, actor_id, idem, change, "location_node.retired")
   end
 
   defp write_opts!(opts, fname) do
@@ -317,7 +328,7 @@ defmodule Letflow.Modules.Locations.Tree do
   # `change.(node, stored_fields)` returns `{:ok, new_fields}`, `:noop` or `{:error, reason}`.
   # A claimed idempotency key skips the lock and the checks (see `replay?/2`) and rebuilds the same
   # document from the node's current state, so Records answers the original or `:idempotency_key_reuse`.
-  defp write_locked(prefix, node_id, actor_id, idem, change) do
+  defp write_locked(prefix, node_id, actor_id, idem, change, action) do
     if replay?(prefix, idem) do
       with {:ok, node} <- ReadApi.lookup(prefix, node_id, @types),
            {:ok, fv} <- stored_fields(prefix, node),
@@ -330,20 +341,21 @@ defmodule Letflow.Modules.Locations.Tree do
         :noop -> ReadApi.lookup(prefix, node_id, @types)
       end
     else
-      locked(prefix, node_id, actor_id, idem, change)
+      locked(prefix, node_id, actor_id, idem, change, action)
     end
   end
 
   defp replay_change(:noop, _fv), do: :noop
   defp replay_change(other, _fv), do: other
 
-  defp locked(prefix, node_id, actor_id, idem, change) do
+  defp locked(prefix, node_id, actor_id, idem, change, action) do
     Repo.transaction(fn ->
       lock!(prefix)
 
       with {:ok, node} <- find_node(prefix, node_id),
            {:ok, fv} <- stored_fields(prefix, node),
-           {:ok, node} <- apply_change(prefix, node, change.(node, fv), actor_id, idem) do
+           {:ok, node} <-
+             apply_change(prefix, node, fv, change.(node, fv), actor_id, idem, action) do
         node
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -351,13 +363,36 @@ defmodule Letflow.Modules.Locations.Tree do
     end)
   end
 
-  defp apply_change(_prefix, node, :noop, _actor, _idem), do: {:ok, node}
-  defp apply_change(_prefix, _node, {:error, _} = err, _actor, _idem), do: err
+  defp apply_change(_prefix, node, _fv, :noop, _actor, _idem, _action), do: {:ok, node}
+  defp apply_change(_prefix, _node, _fv, {:error, _} = err, _actor, _idem, _action), do: err
 
-  defp apply_change(prefix, node, {:ok, new_fv}, actor_id, idem) do
-    with {:ok, _} <- update_doc(prefix, node["record_id"], new_fv, actor_id, idem) do
-      ReadApi.lookup(prefix, node["record_id"], @types)
+  defp apply_change(prefix, node, before_fv, {:ok, new_fv}, actor_id, idem, action) do
+    with {:ok, _} <- update_doc(prefix, node["record_id"], new_fv, actor_id, idem),
+         {:ok, updated} <- ReadApi.lookup(prefix, node["record_id"], @types),
+         {:ok, after_fv} <- stored_fields(prefix, updated),
+         :ok <- audit(prefix, actor_id, action, node["record_id"], before_fv, after_fv) do
+      {:ok, updated}
     end
+  end
+
+  # INV-8: Audit raises on a database failure; the transaction is already aborted then, so the
+  # rescue only turns the raise into a refusal and runs no further query.
+  defp audit(prefix, actor_id, action, record_id, before, after_state) do
+    entry = %{
+      actor_id: actor_id,
+      action: action,
+      resource_type: "location_node",
+      resource_id: record_id,
+      before_state: before,
+      after_state: after_state
+    }
+
+    case Audit.insert_entry(Repo, entry, prefix) do
+      {:ok, _} -> :ok
+      {:error, _} -> {:error, :audit_failed}
+    end
+  rescue
+    _ -> {:error, :audit_failed}
   end
 
   defp find_node(prefix, node_id) do

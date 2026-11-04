@@ -60,7 +60,9 @@ Letflow.TenantSchemaReaper.sweep_template_build_orphans(Letflow.Repo)
 # --only lua_wallclock_race` subprocess, same shape as the :wasm_hang subprocess
 # above. Deliberate inclusion for a plain local run: `mix test --include
 # lua_wallclock_race test/letflow/engine/lua/executor_test.exs`.
-ExUnit.start(exclude: [:keycloak, :wasm_hang, :lua_wallclock_race])
+# REQ-686: the ledger counter throughput run (T-LD-1) is a 4 x 60 s measurement, run on demand with
+# `mix test --only ledger_throughput`.
+ExUnit.start(exclude: [:keycloak, :wasm_hang, :lua_wallclock_race, :ledger_throughput])
 
 # ISS-0515: structural pre-build of the "tenant_template" schema, synchronous,
 # BEFORE any test in this partition process can run. See

@@ -11,12 +11,17 @@ defmodule Letflow.Ledger.Validate do
   Part C (offline fields): `device_id`, `client_seq` and `client_event_time` are read from the raw
   command only. A posting that carries them, or an `event_time`, is `:posting_shape` (the posting is
   the server-derived declaration; the client never sets the event time directly). The client time is
-  an ISO 8601 string with an offset (or a `DateTime`), year 2000..2100. `reversal_not_available`
-  names what a later slice replaces (reversal: L2b).
+  an ISO 8601 string with an offset (or a `DateTime`), year 2000..2100.
+
+  Reversal (REQ-637 part A): a posting with cause `reversal` or a `reverses_entry_id` is a reversal.
+  It carries no legs (the engine derives them from the target), needs a `reason_code`
+  (`:reason_required`), and its target id must be a UUID: a malformed id is refused exactly as an
+  unknown one (`validation_failed` / `movement_not_found`, one body for every unreadable target).
+  The normalised posting has `reversal: true`, `sign_rule` `"reversal"`, `legs: []`.
   """
 
   @type reason ::
-          :reversal_not_available
+          :reason_required
           | :offline_fields_incomplete
           | :device_id_invalid
           | :client_seq_invalid
@@ -52,6 +57,55 @@ defmodule Letflow.Ledger.Validate do
 
   @text_fields [reason_code: 64, document_type: 128, document_id: 128, related_document_id: 128]
 
+  @reasons [
+    :reason_required,
+    :offline_fields_incomplete,
+    :device_id_invalid,
+    :client_seq_invalid,
+    :client_event_time_invalid,
+    :unknown_cause,
+    :no_legs,
+    :too_many_legs,
+    :quantity_invalid,
+    :quantity_scale,
+    :quantity_zero,
+    :quantity_range,
+    :k1_empty,
+    :slot_invalid,
+    :unit_invalid,
+    :unit_not_allowed,
+    :sign_mismatch,
+    :ledger_id_invalid,
+    :client_op_id_invalid,
+    :text_field,
+    :attrs_invalid,
+    :posting_shape
+  ]
+
+  @future_seconds 300
+
+  @doc "The closed set of `invalid_posting` reasons (kept in step with `reason/0` by a test)."
+  @spec reasons() :: [reason()]
+  def reasons, do: @reasons
+
+  @doc """
+  The event-time window of a posting (REQ-621, moved here by REQ-685 so the build-time check and
+  the run-time check under the counter lock use ONE function): not later than 300 s after the
+  posting time, not older than the registration's lateness allowance. Pure.
+  """
+  @spec check_event_window(DateTime.t(), DateTime.t(), map()) ::
+          :ok | {:error, {:ledger_refused, atom(), String.t(), map()}}
+  def check_event_window(event_time, posting_time, registration) do
+    oldest = DateTime.add(posting_time, -registration.max_event_lateness_hours * 3600, :second)
+    newest = DateTime.add(posting_time, @future_seconds, :second)
+
+    cond do
+      DateTime.compare(event_time, newest) == :gt -> refuse(:event_time_in_future, %{})
+      DateTime.compare(event_time, oldest) == :lt -> refuse(:event_time_too_old, %{})
+      true -> :ok
+    end
+  end
+
   @doc "A typed refusal tuple."
   @spec refuse(atom(), map()) :: {:error, {:ledger_refused, atom(), String.t(), map()}}
   def refuse(code, details), do: {:error, {:ledger_refused, code, Atom.to_string(code), details}}
@@ -71,8 +125,69 @@ defmodule Letflow.Ledger.Validate do
          :ok <- check_ledger_id(posting.ledger_id),
          :ok <- check_client_op_id(command),
          :ok <- check_unavailable(posting),
-         {:ok, offline} <- check_offline(command),
-         {:ok, cause} <- check_cause(posting.cause, registration),
+         {:ok, offline} <- check_offline(command) do
+      if reversal?(posting),
+        do: reversal_posting(posting, offline),
+        else: ordinary_posting(posting, offline, registration)
+    end
+  end
+
+  defp reversal?(posting),
+    do: posting.cause == "reversal" or Map.get(posting, :reverses_entry_id) != nil
+
+  # The target is resolved by `Letflow.Ledger` (it needs a read); here only the shape.
+  defp reversal_posting(posting, offline) do
+    target = Map.get(posting, :reverses_entry_id)
+
+    with :ok <- check_reversal_shape(posting, target),
+         :ok <- check_reason(Map.get(posting, :reason_code)),
+         :ok <- check_text(posting),
+         {:ok, target_id} <- cast_target(target) do
+      {:ok,
+       %{
+         ledger_id: posting.ledger_id,
+         cause: "reversal",
+         sign_rule: "reversal",
+         reversal: true,
+         reverses_entry_id: target_id,
+         legs: [],
+         reason_code: Map.get(posting, :reason_code),
+         document_type: Map.get(posting, :document_type),
+         document_id: Map.get(posting, :document_id),
+         related_document_id: Map.get(posting, :related_document_id),
+         correlation_id: Map.get(posting, :correlation_id),
+         scope_ref: Map.get(posting, :scope_ref),
+         device_id: offline.device_id,
+         client_seq: offline.client_seq,
+         client_event_time: offline.client_event_time
+       }}
+    end
+  end
+
+  defp check_reversal_shape(posting, target) do
+    if posting.cause == "reversal" and target != nil and posting.legs == [],
+      do: :ok,
+      else: invalid(:posting_shape)
+  end
+
+  defp check_reason(reason) when is_binary(reason) and reason != "", do: :ok
+  defp check_reason(_reason), do: invalid(:reason_required)
+
+  defp cast_target(target) when is_binary(target) do
+    case Ecto.UUID.cast(target) do
+      {:ok, id} -> {:ok, id}
+      :error -> movement_not_found()
+    end
+  end
+
+  defp cast_target(_target), do: movement_not_found()
+
+  @doc "The one refusal for an unreadable reversal target (unknown, malformed, other ledger or tenant)."
+  @spec movement_not_found() :: {:error, {:ledger_refused, atom(), String.t(), map()}}
+  def movement_not_found, do: refuse(:validation_failed, %{reason: "movement_not_found"})
+
+  defp ordinary_posting(posting, offline, registration) do
+    with {:ok, cause} <- check_cause(posting.cause, registration),
          {:ok, legs} <- check_legs(posting.legs, registration),
          :ok <- check_text(posting),
          :ok <- check_sign(cause.sign_rule, legs) do
@@ -81,6 +196,8 @@ defmodule Letflow.Ledger.Validate do
          ledger_id: posting.ledger_id,
          cause: posting.cause,
          sign_rule: Atom.to_string(cause.sign_rule),
+         reversal: false,
+         reverses_entry_id: nil,
          legs: legs,
          reason_code: Map.get(posting, :reason_code),
          document_type: Map.get(posting, :document_type),
@@ -126,9 +243,6 @@ defmodule Letflow.Ledger.Validate do
     cond do
       Enum.any?(offline, &(Map.get(posting, &1) != nil)) ->
         invalid(:posting_shape)
-
-      posting.cause == "reversal" or Map.get(posting, :reverses_entry_id) != nil ->
-        invalid(:reversal_not_available)
 
       true ->
         :ok

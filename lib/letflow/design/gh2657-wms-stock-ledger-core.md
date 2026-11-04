@@ -474,6 +474,7 @@ The refusal body `{"error": code, "line_index": n}` (S6) gains an optional `"det
 | `posting_not_balanced` | 409 | sign rule `zero_sum_by_slot_1` violated (before any lock) | `{"k1": [...]}` |
 | `posting_already_reversed` | 409 | 10 | `{"entry_id"}` (the caller named it) |
 | `posting_is_reversal` | 409 | 10 | `{"entry_id"}` |
+| `posting_is_paired` | 409 | REQ-637 criterion 11: a single reversal of an entry that has a sibling in another ledger id | `{"entry_id"}` |
 | `idempotency_key_reuse` | 409 | 9.2 | `{}` |
 | `client_seq_conflict` | 409 | 9.3 | `{}` |
 | `event_time_in_future`, `event_time_too_old` | 422 | 8.3 | `{}` |

@@ -8,11 +8,16 @@ defmodule Letflow.Entities.HandlerWrites do
   synthetic instances, `lock_types/3` and `build_call/4` inside it. R5 reaches the same functions
   from a SERVICE_TASK apply (origin `{:dispatch, id}`, platform sentinel as `actor_id`, the
   activator as `subject_id`); `create/3` additionally byte-caps a service-origin write's values.
+  REQ-688: a ledger posting (`post/3`) on that origin runs only after the apply's lock-only
+  `:pre_ledger_lock` step, for a node whose signed `activated_by` lists it in
+  `ledger_consent_nodes` and records an OIDC credential; the consent and the pre-step result reach
+  `post/3` through the per-call token, never through the `HandlerContext`.
 
-  ## Handler-facing API: `create/3` only
+  ## Handler-facing API: `create/3` and `post/3`
 
-  A module's handler builds Multi steps by calling `create/3` and nothing else (the contract is
-  in `Letflow.Entities.HandlerContext`). `create/3` is the single place where every platform
+  A module's handler builds Multi steps by calling `create/3` and, when its manifest entry names a
+  `posts_ledger` registration, `post/3` (REQ-685) and nothing else (the contract is in
+  `Letflow.Entities.HandlerContext`). `create/3` is the single place where every platform
   check lives (F-2), so "enforced twice" (the writer's target assertion plus the narrowed
   `Owner`) holds for the whole handler-visible API:
 
@@ -85,6 +90,7 @@ defmodule Letflow.Entities.HandlerWrites do
   alias Letflow.Entities.StepSource
   alias Letflow.Entities.StepWrites
   alias Letflow.EventStore
+  alias Letflow.Ledger.HandlerPost
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Installs
   alias Letflow.NumberSequences
@@ -123,6 +129,7 @@ defmodule Letflow.Entities.HandlerWrites do
           required(:activator_id) => Ecto.UUID.t(),
           required(:manifest_hash) => String.t() | nil,
           optional(:subject_id) => Ecto.UUID.t(),
+          optional(:credential) => atom() | nil,
           optional(:variable_labels) => %{optional(String.t()) => [String.t()]}
         }
 
@@ -140,16 +147,88 @@ defmodule Letflow.Entities.HandlerWrites do
           | {:error, :target_not_registered | :too_many_writes | :invalid_write_command}
   def create(%Multi{} = multi, %HandlerContext{} = ctx, command) do
     with {:ok, token} <- fetch_token(ctx),
+         :not_dry <- dry_mode(token),
          {:ok, entity_type, field_values} <- check_command(ctx, command),
          {:ok, owner} <- check_target(ctx, entity_type),
          {:ok, ordinal} <- next_ordinal(token) do
       written = build_write(multi, ctx, owner, ordinal, entity_type, field_values)
       record_produced(token, Multi.to_list(written) -- Multi.to_list(multi))
       {:ok, written}
+    else
+      # REQ-688: a dry build (the ledger pre-step) never builds an entity write.
+      :dry -> {:ok, multi}
+      {:error, _reason} = error -> error
     end
   end
 
   def create(_multi, _ctx, _command), do: {:error, :invalid_write_command}
+
+  defp dry_mode(token), do: if(Map.has_key?(token, :dry), do: :dry, else: :not_dry)
+
+  @doc """
+  REQ-685 (decision 0073 A2/A3): appends the ONE ledger posting step of this handler call. A
+  one-line delegate to `Letflow.Ledger.HandlerPost`, which verifies the per-call token and the
+  context exactly as `create/3` does (`{:error, :invalid_context}` for an absent or forged one),
+  checks the command at build time, mints the server-side capability and appends a single
+  `{:line, key, :ledger_post}` step. It shares the 49 write slots of the call with `create/3`
+  (`{:error, :too_many_writes}` is the existing budget refusal). Every other problem of the
+  posting is stored in the capability and released at run time, after the authority check.
+  """
+  @spec post(Multi.t(), HandlerContext.t(), map()) ::
+          {:ok, Multi.t()} | {:error, :invalid_context | :too_many_writes}
+  def post(multi, ctx, command), do: HandlerPost.build(multi, ctx, command)
+
+  # The seam `HandlerPost` (the only caller; scan H4 and the boundary rule keep everyone else out)
+  # uses so that `create/3` and `post/3` share ONE `produced` list and ONE write budget.
+  @doc false
+  @spec __token__(term()) :: {:ok, map()} | :error
+  def __token__(ctx) do
+    case fetch_token(ctx) do
+      {:ok, token} -> if valid_context?(ctx), do: {:ok, token}, else: :error
+      _forged_or_absent -> :error
+    end
+  end
+
+  @doc false
+  def __next_ordinal__(token), do: next_ordinal(token)
+
+  # The ledger rules of module code live behind `Letflow.Modules` and the ledger scan (rule 7b)
+  # keeps `Letflow.Ledger` from naming it, so the registration lookup and the policy call pass here.
+  @doc false
+  def __registration__(module_id, name), do: Catalog.fetch_ledger(module_id, name)
+
+  @doc false
+  def __declare__(registration, command), do: Catalog.declare_posting(registration, command)
+
+  # The `posts_ledger` registration name of a handler (nil when it posts to none); the resolver
+  # stays in this file (scan H3).
+  @doc false
+  @spec __posts_ledger__(term(), term()) :: {:ok, String.t()} | :error
+  def __posts_ledger__(module_id, name) do
+    case Catalog.write_handler(module_id, name) do
+      {:ok, %{posts_ledger: ledger}} when is_binary(ledger) -> {:ok, ledger}
+      _none -> :error
+    end
+  end
+
+  @doc false
+  def __record__(token, entries), do: record_produced(token, entries)
+
+  # REQ-688: the per-call facts only the platform sets, read by `HandlerPost` (never a field of the
+  # `HandlerContext`, which a handler can copy): the consent of the node, the `:pre_ledger_lock`
+  # result of the enclosing transaction (nil when the node has none) and the dry-build collector.
+  @doc false
+  @spec __facts__(map()) :: %{consent: boolean(), prelocked: map() | nil, dry?: boolean()}
+  def __facts__(token) do
+    %{
+      consent: Map.get(token, :consent) == true,
+      prelocked: Map.get(token, :prelock),
+      dry?: Map.has_key?(token, :dry)
+    }
+  end
+
+  @doc false
+  def __dry_collect__(token, cap), do: Process.put(@token_key, %{token | dry: [cap | token.dry]})
 
   # The context must be EXACTLY the one the platform built for the handler call now running in
   # this process; anything else (a forged copy, a call outside a handler call) is refused.
@@ -504,7 +583,7 @@ defmodule Letflow.Entities.HandlerWrites do
     |> Multi.run({:line, k0, :owner_recheck}, fn _repo, _changes ->
       owner_recheck(module_id, prefix, stamp_hash)
     end)
-    |> Multi.merge(fn _changes -> invoke(attrs, line, variables, k0) end)
+    |> Multi.merge(fn changes -> invoke(attrs, line, variables, k0, changes) end)
   end
 
   # The install row and both hashes, re-read with NO lock at execution time (TOCTOU defence).
@@ -524,7 +603,16 @@ defmodule Letflow.Entities.HandlerWrites do
 
   defp owner_recheck(_module_id, _prefix, _stamp_hash), do: {:error, :hash_mismatch}
 
-  defp invoke(attrs, line, variables, k0) do
+  @doc """
+  REQ-688 (decision 0073 D-L12): the WRITE-FREE dry build of one posting line, for the service
+  apply's ledger pre-step. Runs the handler's `build` with the same resolution, arguments and
+  context as `invoke/5` but with a dry token: `post/3` only mints and collects the capability and
+  `create/3` is a no-op. NO database access: variables are the in-memory ones, the registration's
+  `declare/2` goes through the compiled manifest. Returns `{:ok, [capability]}` or `:skip` (any
+  failure: the real build fails the same way later and containment fails closed).
+  """
+  @spec dry_postings(map(), map(), map(), [map()]) :: {:ok, [struct()]} | :skip
+  def dry_postings(attrs, line, variables, plan) do
     with {:ok, handler} <- resolve(line),
          {:ok, args} <-
            resolve_args(
@@ -534,12 +622,52 @@ defmodule Letflow.Entities.HandlerWrites do
              Map.get(attrs, :variable_labels, %{})
            ),
          ctx = build_context(attrs, handler),
-         {:ok, built, produced} <- call_handler(handler, ctx, args),
+         {{:ok, %Multi{}}, token} <-
+           run_handler(handler, ctx, args, plan, %{
+             dry: [],
+             consent: Map.get(attrs, :ledger_consent) == true,
+             prelock: nil
+           }) do
+      {:ok, Enum.reverse(token.dry)}
+    else
+      _other -> :skip
+    end
+  end
+
+  defp invoke(attrs, line, variables, k0, changes) do
+    with {:ok, handler} <- resolve(line),
+         {:ok, args} <-
+           resolve_args(
+             Map.get(line, "args", %{}),
+             handler.args,
+             variables,
+             Map.get(attrs, :variable_labels, %{})
+           ),
+         ctx = build_context(attrs, handler),
+         {:ok, built, produced} <-
+           call_handler(handler, ctx, args, plan_of(changes), %{
+             consent: Map.get(attrs, :ledger_consent) == true,
+             prelock: Map.get(attrs, :ledger_prelock)
+           }),
          :ok <- check_built(built, produced, k0) do
       built
     else
       {:error, reason} -> Multi.error(Multi.new(), {:line, k0, :build}, reason)
     end
+  end
+
+  # REQ-685 (0073 A2): the postings planned by the calls built BEFORE this one, read from the
+  # enclosing merge's changes. A step that failed never reaches a later build (the transaction has
+  # stopped), and a duplicate retry skips the node's steps, so the plan only holds steps that ran.
+  defp plan_of(changes) do
+    for {{:line, _key, :ledger_post}, {:planned, cap}} <- changes do
+      %{
+        ledger_id: Map.get(cap.posting || %{}, :ledger_id),
+        document_type: Map.get(cap.posting || %{}, :document_type),
+        document_id: Map.get(cap.posting || %{}, :document_id)
+      }
+    end
+    |> Enum.sort_by(&{&1.ledger_id, &1.document_id})
   end
 
   defp resolve(%{"module" => module_id, "handler" => name}) do
@@ -562,6 +690,7 @@ defmodule Letflow.Entities.HandlerWrites do
       line_index: attrs.line_index,
       actor_id: attrs.actor_id,
       subject_id: Map.get(attrs, :subject_id, attrs.actor_id),
+      credential: Map.get(attrs, :credential),
       activator_id: attrs.activator_id,
       handler: %{module_id: handler.module_id, name: handler.name, targets: handler.targets}
     }
@@ -636,8 +765,8 @@ defmodule Letflow.Entities.HandlerWrites do
   # has no write state to corrupt. A database or connection error from such a read is NOT
   # reduced here: it is re-raised so the engine's contention mapping around
   # `Repo.transaction` sees it (the transaction rolls back either way).
-  defp call_handler(handler, ctx, args) do
-    case safe_call(handler, ctx, args) do
+  defp call_handler(handler, ctx, args, plan, extra) do
+    case safe_call(handler, ctx, args, plan, extra) do
       {{:ok, %Multi{} = built}, produced} ->
         {:ok, built, produced}
 
@@ -662,26 +791,32 @@ defmodule Letflow.Entities.HandlerWrites do
 
   # Runs the handler with the per-call token set (and always cleared). Returns the handler's raw
   # return paired with the entries `create/3` produced during the call.
-  defp safe_call(handler, ctx, args) do
-    Process.put(@token_key, %{ctx: ctx, produced: []})
+  defp safe_call(handler, ctx, args, plan, extra) do
+    {raw, token} = run_handler(handler, ctx, args, plan, extra)
+    {raw, token.produced}
+  end
+
+  # `{raw return, final token}`; a raise, throw or exit leaves a token with nothing produced.
+  defp run_handler(handler, ctx, args, plan, extra) do
+    Process.put(@token_key, Map.merge(%{ctx: ctx, produced: [], plan: plan}, extra))
 
     try do
       raw = Catalog.call_write_handler(handler, Multi.new(), ctx, args)
-      {raw, Map.fetch!(Process.get(@token_key), :produced)}
+      {raw, Process.get(@token_key)}
     rescue
       exception in [DBConnection.ConnectionError, Postgrex.Error] ->
         reraise exception, __STACKTRACE__
 
       exception ->
-        {{:raised, exception.__struct__}, []}
+        {{:raised, exception.__struct__}, %{produced: [], dry: []}}
     catch
       # An exit that comes from the DB layer (pool checkout timeout, connection process gone) is
       # not a handler fault: propagate it so the transaction fails as a database error would.
       :exit, reason ->
-        if db_exit?(reason), do: exit(reason), else: {{:raised, :exit}, []}
+        if db_exit?(reason), do: exit(reason), else: {{:raised, :exit}, %{produced: [], dry: []}}
 
       :throw, _value ->
-        {{:raised, :throw}, []}
+        {{:raised, :throw}, %{produced: [], dry: []}}
     after
       Process.delete(@token_key)
     end

@@ -37,7 +37,8 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
         {"name", "string", true, false},
         {"base_uom_id", "string", true, true},
         {"kind", "enum", true, true},
-        @active
+        @active,
+        {"tracking_policy", "enum", false, true}
       ] ++ @external_ref,
     "catalog_counterparty" =>
       [
@@ -109,6 +110,14 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
         actual = type |> read!() |> field_tuples() |> Enum.sort()
         assert actual == Enum.sort(@expected_fields[type]), "#{type}: #{inspect(actual)}"
       end
+    end
+
+    test "D-07: tracking_policy is an optional queried enum of four values (GH #3581)" do
+      field = read!("catalog_item")["fields"] |> Enum.find(&(&1["name"] == "tracking_policy"))
+      assert field["type"] == "enum"
+      assert field["enum_values"] == ["none", "lot", "serial", "expiry"]
+      assert field["queried"] == true
+      refute field["required"]
     end
 
     test "D-04: field names are unique, every type has an active flag, kind is the material/service enum" do

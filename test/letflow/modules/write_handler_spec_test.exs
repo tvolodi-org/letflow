@@ -70,6 +70,67 @@ defmodule Letflow.Modules.WriteHandlerSpecTest do
     end
   end
 
+  describe "posts_ledger (REQ-684)" do
+    test "T-WH-01 accepts a registration name, nil and absence; absence reads as nil" do
+      assert {:ok, %WriteHandlerSpec{posts_ledger: "alpha"}} =
+               WriteHandlerSpec.new(Map.put(@valid, :posts_ledger, "alpha"))
+
+      assert {:ok, %WriteHandlerSpec{posts_ledger: nil}} =
+               WriteHandlerSpec.new(Map.put(@valid, :posts_ledger, nil))
+
+      assert {:ok, %WriteHandlerSpec{posts_ledger: nil}} = WriteHandlerSpec.new(@valid)
+    end
+
+    for value <- [1, :alpha, ["a"], true] do
+      test "T-WH-02 refuses #{inspect(value)}" do
+        assert {:error, {:invalid_field, :posts_ledger}} =
+                 WriteHandlerSpec.new(Map.put(@valid, :posts_ledger, unquote(value)))
+      end
+    end
+
+    test "T-WH-03 the four required keys stay required; posts_ledger is not enforced" do
+      for key <- [:name, :function, :targets, :args] do
+        assert {:error, {:missing_keys, [^key]}} = WriteHandlerSpec.new(Map.delete(@valid, key))
+      end
+
+      assert {:ok, _} = WriteHandlerSpec.new(@valid)
+      assert %WriteHandlerSpec{posts_ledger: nil} = struct!(WriteHandlerSpec, Map.to_list(@valid))
+    end
+
+    test "T-WH-04 a handler naming no registration of its manifest is refused" do
+      manifest = Letflow.Modules.FixtureLedgerPost.manifest()
+      [first | rest] = manifest.write_handlers
+      ghost = %{first | posts_ledger: "ghost"}
+
+      assert {:error, {:write_handler_ledger_missing, "post_alpha"}} =
+               Catalog.validate(%{manifest | write_handlers: [ghost | rest]}, [])
+
+      assert {:error, {:write_handler_ledger_missing, "post_alpha"}} =
+               Catalog.validate(
+                 Map.delete(%{manifest | write_handlers: [ghost | rest]}, :ledger),
+                 []
+               )
+    end
+
+    test "T-WH-05 a posting handler still needs targets and a managed type" do
+      manifest = Letflow.Modules.FixtureLedgerPost.manifest()
+      [first | rest] = manifest.write_handlers
+
+      assert {:error, {:write_handler_no_targets, "post_alpha"}} =
+               Catalog.validate(%{manifest | write_handlers: [%{first | targets: []} | rest]}, [])
+
+      assert {:error, {:write_handler_without_managed_types, "post_alpha"}} =
+               Catalog.validate(Map.put(manifest, :manages_entity_types, []), [])
+    end
+
+    test "T-LR-31 Catalog.write_handler/2 carries posts_ledger" do
+      assert {:ok, %{posts_ledger: "alpha"}} =
+               Catalog.write_handler("fixture_ledger_post", "post_alpha")
+
+      assert {:ok, %{posts_ledger: nil}} = Catalog.write_handler("fixture_ledger_post", "plain")
+    end
+  end
+
   describe "valid?/1" do
     test "accepts a built struct, refuses a struct with a bad field and plain maps" do
       {:ok, spec} = WriteHandlerSpec.new(@valid)

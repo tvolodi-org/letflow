@@ -332,7 +332,9 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
 
     cond do
       last == :HandlerWrites ->
-        if fun == :create and length(args) == 3, do: [], else: [{:handler_writes, fun}]
+        if fun in [:create, :post] and length(args) == 3,
+          do: [],
+          else: [{:handler_writes, fun}]
 
       {parts, fun} in @atom_creators ->
         [{:atom_creation, fun}]
@@ -453,6 +455,13 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
     test "H4: the real fixture handlers reach the platform only through HandlerWrites.create/3" do
       source = File.read!("test/support/modules/fixture_ledger/handlers.ex")
       assert source =~ "HandlerWrites.create("
+      assert purity_violations(source) == []
+    end
+
+    test "H4: the posting fixture handlers reach the platform only through create/3 and post/3" do
+      source = File.read!("test/support/modules/fixture_ledger_post/handlers.ex")
+      assert source =~ "HandlerWrites.create("
+      assert source =~ "HandlerWrites.post("
       assert purity_violations(source) == []
     end
 
@@ -600,6 +609,12 @@ end", {:call, :from}},
         {body.("HandlerWrites.build_call(m, c, %{}, %{})"), {:handler_writes, :build_call}},
         {body.("HandlerWrites.lock_types(m, [], \"p\")"), {:handler_writes, :lock_types}},
         {body.("HandlerWrites.create(m, c)"), {:handler_writes, :create}},
+        # REQ-685: post/3 is the second handler-facing call; its arity-2 form and the platform seam
+        # `HandlerPost` uses are not.
+        {body.("HandlerWrites.post(m, c)"), {:handler_writes, :post}},
+        {body.("HandlerWrites.__token__(c)"), {:handler_writes, :__token__}},
+        {body.("HandlerWrites.__next_ordinal__(c)"), {:handler_writes, :__next_ordinal__}},
+        {body.("HandlerWrites.__record__(c, [])"), {:handler_writes, :__record__}},
         {body.("HandlerWrites.authorize_module_writes([], %{})"),
          {:handler_writes, :authorize_module_writes}},
         # R4b, SECURITY re-review of R4a: the scan gaps

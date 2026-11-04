@@ -123,13 +123,24 @@
             "name": "external_ref_id",
             "queried": true,
             "type": "string"
+          },
+          {
+            "enum_values": [
+              "none",
+              "lot",
+              "serial",
+              "expiry"
+            ],
+            "name": "tracking_policy",
+            "queried": true,
+            "type": "enum"
           }
         ],
         "name": "catalog_item"
       },
       "display_name": "Catalog Item",
       "entity_definition_id": "802d6a3a-9f95-0c9c-d9b8-7261ade45e3d",
-      "logical_shape_version": "72be36ff9738d7d3a21da778c8b08c5263ff86278ce2e09da531a2c0eedd75c8",
+      "logical_shape_version": "122f1e3483b1a53799ae44433db77d7b13cbc914edb49d0b06408649f5e36b41",
       "name": "catalog_item"
     },
     {

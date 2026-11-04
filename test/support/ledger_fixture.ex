@@ -14,6 +14,7 @@ defmodule Letflow.LedgerFixture do
   alias Letflow.EntityWritesFixture
   alias Letflow.Ledger
   alias Letflow.Ledger.Capability
+  alias Letflow.Ledger.Storage
   alias Letflow.Repo
   alias Letflow.TenantFixture
   alias Letflow.Test.SandboxAutoMode
@@ -34,21 +35,46 @@ defmodule Letflow.LedgerFixture do
   def tenant! do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "ledger", teardown: false)
     on_exit(fn -> EntityWritesFixture.drop_committed_tenant!(tenant.tenant_id) end)
+    ensure_storage!(tenant.schema_name, @ledger_id)
     tenant.schema_name
   end
 
   @doc """
+  REQ-710: makes the partition set of `ledger_id` (the posting path never does). Invalid input
+  and an absent schema are left to the caller's own assertion (the call is then a no-op).
+  """
+  @spec ensure_storage!(String.t(), String.t()) :: :ok
+  def ensure_storage!(schema, ledger_id) do
+    if Storage.missing(schema, [ledger_id]) != [] do
+      Repo.transaction(fn -> Storage.ensure(schema, ledger_id) end)
+    end
+
+    :ok
+  rescue
+    _error in [Postgrex.Error, ArgumentError] -> :ok
+  end
+
+  @doc """
   The test registration (shape of note 14.3 restricted to slots, causes, key_bounds, units,
-  max_event_lateness_hours). Options: `:key_bounds`, `:units`.
+  max_event_lateness_hours). Options: `:key_bounds`, `:units`, and `:scope_slot` (REQ-693):
+  `scope_slot: "k_unit"` adds a fourth `:uuid` slot of that name and the registration key
+  `scope_slot`; without it the map is as before.
   """
   @spec registration(keyword()) :: map()
   def registration(opts \\ []) do
+    base = [
+      %{name: "k_primary", format: :token, required: true},
+      %{name: "k_second", format: :token, required: false},
+      %{name: "k_third", format: :token, required: false}
+    ]
+
+    scope_slot = Keyword.get(opts, :scope_slot)
+
+    slots =
+      if scope_slot, do: base ++ [%{name: scope_slot, format: :uuid, required: false}], else: base
+
     %{
-      slots: [
-        %{name: "k_primary", format: :token, required: true},
-        %{name: "k_second", format: :token, required: false},
-        %{name: "k_third", format: :token, required: false}
-      ],
+      slots: slots,
       causes: %{
         "receipt" => %{sign_rule: :positive, reason_required: false},
         "issue" => %{sign_rule: :negative, reason_required: false},
@@ -59,6 +85,7 @@ defmodule Letflow.LedgerFixture do
       units: Keyword.get(opts, :units),
       max_event_lateness_hours: 96
     }
+    |> then(&if(scope_slot, do: Map.put(&1, :scope_slot, scope_slot), else: &1))
   end
 
   @doc "A declared leg."
@@ -79,6 +106,15 @@ defmodule Letflow.LedgerFixture do
   def capability(schema, cause, legs, opts \\ []) do
     unique = System.unique_integer([:positive])
 
+    ledger_id =
+      Map.get(
+        Keyword.get(opts, :posting, %{}),
+        :ledger_id,
+        Keyword.get(opts, :ledger_id, @ledger_id)
+      )
+
+    if Keyword.get(opts, :ensure_storage, true), do: ensure_storage!(schema, ledger_id)
+
     %Capability{
       prefix: schema,
       registration_name: "test",
@@ -86,12 +122,16 @@ defmodule Letflow.LedgerFixture do
       command: Map.merge(%{client_op_id: "op-#{unique}"}, Keyword.get(opts, :command, %{})),
       posting:
         Map.merge(
-          %{ledger_id: Keyword.get(opts, :ledger_id, @ledger_id), cause: cause, legs: legs},
+          %{ledger_id: ledger_id, cause: cause, legs: legs},
           Keyword.get(opts, :posting, %{})
         ),
       subject_id: Keyword.get(opts, :subject_id, Ecto.UUID.generate()),
       actor_id: Ecto.UUID.generate(),
-      origin_key: Keyword.get(opts, :origin_key, "origin-#{unique}")
+      origin_key: Keyword.get(opts, :origin_key, "origin-#{unique}"),
+      origin: Keyword.get(opts, :origin, {:task, Ecto.UUID.generate()}),
+      instance_id: Ecto.UUID.generate(),
+      credential: Keyword.get(opts, :credential, :oidc),
+      deferred_refusal: Keyword.get(opts, :deferred_refusal)
     }
   end
 
@@ -99,20 +139,109 @@ defmodule Letflow.LedgerFixture do
   Runs `Ledger.post/1` in a transaction. A refusal rolls the transaction back (as the L3 Multi
   will), so it leaves nothing: returns `{:ok, posted}` or `{:error, refusal}`.
   """
-  @spec post_tx(Capability.t()) :: {:ok, map()} | {:error, term()}
-  def post_tx(%Capability{} = cap) do
+  @spec post_tx(Capability.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def post_tx(%Capability{} = cap, opts \\ []) do
     Repo.transaction(fn ->
       case Ledger.post(cap) do
-        {:ok, posted} -> posted
-        {:error, reason} -> Repo.rollback(reason)
+        {:ok, posted} ->
+          if Keyword.get(opts, :audit, true), do: audit_posted!(cap, posted)
+          posted
+
+        {:error, reason} ->
+          Repo.rollback(reason)
       end
     end)
   end
 
-  @doc "Posts and returns the posted map; raises on a refusal."
-  def post!(%Capability{} = cap) do
-    {:ok, posted} = post_tx(cap)
+  # REQ-686: the engine writes a `ledger.posted` audit entry beside every entry it posts; the
+  # fixture does the same (option `audit: false` omits it) so `Reconcile` finds a clean ledger.
+  defp audit_posted!(cap, %{duplicate: false} = posted) do
+    %{rows: [[cause, leg_count]]} =
+      Repo.query!(
+        ~s|SELECT cause, leg_count FROM "#{cap.prefix}".ledger_entry WHERE id = $1|,
+        [Ecto.UUID.dump!(posted.entry_id)]
+      )
+
+    summary = %{
+      entry_id: posted.entry_id,
+      ledger_id: posted.ledger_id,
+      posting_seq: posted.posting_seq,
+      cause: cause,
+      leg_count: leg_count,
+      chain_hash: posted.chain_hash
+    }
+
+    {:ok, _entry} =
+      Letflow.Audit.insert_entry(
+        Repo,
+        Letflow.Audit.LedgerPosted.attrs(summary, cap.actor_id),
+        cap.prefix
+      )
+  end
+
+  defp audit_posted!(_cap, _duplicate), do: :ok
+
+  @doc "Posts and returns the posted map; raises on a refusal. Options as `post_tx/2`."
+  def post!(%Capability{} = cap, opts \\ []) do
+    {:ok, posted} = post_tx(cap, opts)
     posted
+  end
+
+  @doc """
+  A reversal capability for `target_id` (REQ-637 part A). The target and reason are also put in
+  the command, so a changed target is `idempotency_key_reuse`. Options as `capability/4` plus
+  `:reason` (default "r1"); `:posting` is merged over the reversal posting.
+  """
+  @spec reversal_capability(String.t(), String.t() | nil, keyword()) :: Capability.t()
+  def reversal_capability(schema, target_id, opts \\ []) do
+    {reason, opts} = Keyword.pop(opts, :reason, "r1")
+
+    posting =
+      Map.merge(
+        %{reverses_entry_id: target_id, reason_code: reason},
+        Keyword.get(opts, :posting, %{})
+      )
+
+    command =
+      Map.merge(%{reverses: target_id, reason: reason}, Keyword.get(opts, :command, %{}))
+
+    capability(schema, "reversal", [], Keyword.merge(opts, posting: posting, command: command))
+  end
+
+  @doc "The entry row of `entry_id` as a map (columns used by the reversal tests)."
+  def entry_row(schema, entry_id) do
+    %{rows: [row]} =
+      Repo.query!(
+        ~s|SELECT cause, sign_rule, reverses_entry_id::text, ledger_id, posting_seq, reason_code, document_type, document_id, correlation_id, chain_hash, entry_digest FROM "#{schema}".ledger_entry WHERE id = $1|,
+        [Ecto.UUID.dump!(entry_id)]
+      )
+
+    keys =
+      ~w(cause sign_rule reverses_entry_id ledger_id posting_seq reason_code document_type document_id correlation_id chain_hash entry_digest)a
+
+    Map.new(Enum.zip(keys, row))
+  end
+
+  @doc "The legs of `entry_id` ordered by leg_no: `{leg_no, [k1..k8], quantity, unit_ref, attrs}`."
+  def leg_rows(schema, entry_id) do
+    %{rows: rows} =
+      Repo.query!(
+        ~s|SELECT leg_no, ARRAY[k1,k2,k3,k4,k5,k6,k7,k8], quantity, unit_ref, attrs FROM "#{schema}".ledger_leg WHERE entry_id = $1 ORDER BY leg_no|,
+        [Ecto.UUID.dump!(entry_id)]
+      )
+
+    Enum.map(rows, &List.to_tuple/1)
+  end
+
+  @doc "Sum of `on_hand` over every balance row of `ledger_id` (one SQL aggregate)."
+  def total_on_hand(schema, ledger_id \\ @ledger_id) do
+    %{rows: [[total]]} =
+      Repo.query!(
+        ~s|SELECT COALESCE(sum(on_hand), 0) FROM "#{schema}".ledger_balance WHERE ledger_id = $1|,
+        [ledger_id]
+      )
+
+    total
   end
 
   @doc "Seeds `quantity` on_hand for `k` by posting a receipt through `post/1`."
@@ -163,6 +292,64 @@ defmodule Letflow.LedgerFixture do
     end
   end
 
+  @doc "An authorized value as part B will mint it (REQ-637 part C builds the literal)."
+  def authorized(schema, purpose \\ :reconcile, ledger_id \\ @ledger_id) do
+    %Ledger.Authorized{
+      prefix: schema,
+      tenant_id: nil,
+      ledger_id: ledger_id,
+      registration_name: "test",
+      purpose: purpose,
+      slot_names: Enum.map(registration().slots, & &1.name)
+    }
+  end
+
+  @doc "Every result of a reconciliation run, chunk by chunk (stops on an error tuple)."
+  def reconcile_chunks(authorized, opts \\ %{}) do
+    case Ledger.reconcile(authorized, opts) do
+      {:ok, %{next_cursor: nil} = result} ->
+        [result]
+
+      {:ok, %{next_cursor: cursor} = result} ->
+        [result | reconcile_chunks(authorized, Map.put(opts, :cursor, cursor))]
+
+      {:error, _} = error ->
+        [error]
+    end
+  end
+
+  @doc "The last result of a run with the mismatches of all its chunks."
+  def reconcile_all(authorized, opts \\ %{}) do
+    case reconcile_chunks(authorized, opts) do
+      [{:error, _} = error] ->
+        error
+
+      results ->
+        last = List.last(results)
+        {:ok, %{last | mismatches: Enum.flat_map(results, & &1.mismatches)}}
+    end
+  end
+
+  @doc "True when the connection role owns the ledger tables (owner-tamper tests need it)."
+  def table_owner?(schema) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT tableowner = current_user FROM pg_tables WHERE schemaname = $1 AND tablename = 'ledger_entry'",
+        [schema]
+      )
+
+    rows == [[true]]
+  end
+
+  @doc "Disables the user triggers of a ledger table as its owner (residual D-L2a of decision 0073)."
+  def disable_guards!(schema, table) when table in ~w(ledger_entry ledger_leg ledger_counter) do
+    Repo.query!(~s|ALTER TABLE "#{schema}".#{table} DISABLE TRIGGER USER|)
+    :ok
+  end
+
+  @doc "Runs a statement as the table owner with its bound parameters (test tampering)."
+  def exec!(sql, params \\ []), do: Repo.query!(sql, params)
+
   @doc "Row count of a ledger table in `schema`."
   def count(schema, table)
       when table in ~w(ledger_entry ledger_leg ledger_counter ledger_balance) do
@@ -202,5 +389,83 @@ defmodule Letflow.LedgerFixture do
     after
       0 -> Enum.reverse(acc)
     end
+  end
+
+  # ---- read side (REQ-637 part B) --------------------------------------------------------------
+
+  @doc """
+  The test registry value of `Ledger.registration_for/1`: the test ledger id with the test
+  registration and two EXISTING tenant-scope permission atoms (read: TENANT_ADMIN and
+  PROCESS_DESIGNER; reconcile: TENANT_ADMIN only).
+  """
+  def registry(opts \\ []) do
+    %{
+      @ledger_id => %{
+        name: "test",
+        registration: registration(opts),
+        read_permission: :ScriptsWrite,
+        reconcile_permission: :ScriptsPublish
+      }
+    }
+  end
+
+  @doc "Installs `registry` (default `registry/0`) as the ledger registry for the test; restored on exit."
+  def put_registry!(registry \\ registry()) do
+    previous = Application.fetch_env(:letflow, :ledger_registry)
+    Application.put_env(:letflow, :ledger_registry, registry)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:letflow, :ledger_registry, value)
+        :error -> Application.delete_env(:letflow, :ledger_registry)
+      end
+    end)
+
+    :ok
+  end
+
+  @doc "A committed tenant with the default role groups seeded; returns `%{tenant_id, schema_name}`."
+  def tenant_fixture! do
+    tenant = TenantFixture.provisioned_tenant!(slug_prefix: "ledger", teardown: false)
+    on_exit(fn -> EntityWritesFixture.drop_committed_tenant!(tenant.tenant_id) end)
+
+    {:ok, _roles} =
+      Letflow.Identity.RoleRegistry.seed_default_platform_role_groups(prefix: tenant.schema_name)
+
+    tenant
+  end
+
+  @doc "A real active user of the tenant holding `roles` by group membership."
+  def user!(fx, roles),
+    do: Letflow.Support.TokenMintFixture.role_holder!(fx.schema_name, roles)
+
+  @doc "A conn as the auth plug leaves it for `user` (claiming `roles`) with `credential`."
+  def conn_for(fx, user, roles, credential \\ :oidc) do
+    :get
+    |> Plug.Test.conn("/")
+    |> Plug.Conn.assign(:auth_context, %{
+      user_id: user.id,
+      tenant_id: fx.tenant_id,
+      roles: roles,
+      credential: credential
+    })
+    |> Plug.Conn.assign(:scoped_opts, prefix: fx.schema_name)
+  end
+
+  @doc "Writes `settings` (string keys) straight into the tenant record, past the settings cast."
+  def put_tenant_settings!(fx, settings) do
+    Repo.query!("UPDATE tenants SET settings = $1 WHERE id = $2", [
+      settings,
+      Ecto.UUID.dump!(fx.tenant_id)
+    ])
+
+    :ok
+  end
+
+  @doc "An `Authorized` value for `fx` built through `Ledger.authorize/3` as a TENANT_ADMIN."
+  def authorized!(fx, purpose \\ :read) do
+    user = user!(fx, ["TENANT_ADMIN"])
+    {:ok, auth} = Ledger.authorize(conn_for(fx, user, ["TENANT_ADMIN"]), @ledger_id, purpose)
+    auth
   end
 end

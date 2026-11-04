@@ -306,6 +306,7 @@ defmodule Letflow.Ledger.OfflineFieldsTest do
     ]
 
     placeholders = Enum.map_join(1..(length(columns) + 1), ", ", &"$#{&1}")
+    Fx.ensure_storage!(schema, "raw_ledger")
 
     sql =
       ~s|INSERT INTO "#{schema}".ledger_entry (#{Enum.join(columns, ", ")}, #{column}) VALUES (#{placeholders})|

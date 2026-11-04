@@ -233,6 +233,7 @@ defmodule Letflow.Api.PermissionMatrix do
         for {_method, _path, permission} <- manifest.route_policies,
             do: {Atom.to_string(permission), manifest.id}
       end)
+      |> Kernel.++(ledger_refs(manifests))
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
       |> Map.new(fn {permission, ids} -> {permission, ids |> Enum.uniq() |> Enum.sort()} end)
 
@@ -255,6 +256,22 @@ defmodule Letflow.Api.PermissionMatrix do
       declarations: declarations,
       module_dirs_present: module_dirs_present
     }
+  end
+
+  # REQ-687: an atom named in the owner's own :ledger registration counts as referenced by it
+  # (StockPost and StockReverse have no route). Malformed registrations count as none
+  # (Catalog.validate/1 reports them).
+  defp ledger_refs(manifests) do
+    for manifest <- manifests,
+        ledger = Map.get(manifest, :ledger),
+        is_map(ledger),
+        {_name, registration} <- ledger,
+        is_map(registration),
+        permissions = Map.get(registration, :permissions),
+        is_map(permissions),
+        {_purpose, permission} <- permissions,
+        is_atom(permission) and not is_nil(permission),
+        do: {Atom.to_string(permission), manifest.id}
   end
 
   defp declared_list(entries) when is_list(entries), do: entries
@@ -961,6 +978,12 @@ defmodule Letflow.Api.PermissionMatrix do
   end
 
   # Walks the AST carrying the nearest enclosing line (a 2-tuple has no meta).
+  #
+  # REQ-684: a ledger registration also has a `permissions:` key, a MAP naming the post, reverse,
+  # read and reconcile atoms. It is not the manifest's permission list; every atom it names must
+  # be in that list (Catalog rule 18), which this scan already reads, so the map is skipped.
+  defp collect_permissions({:permissions, {:%{}, _meta, _pairs}}, _line, acc), do: {:ok, acc}
+
   defp collect_permissions({:permissions, value}, line, acc) do
     if is_list(value) and Enum.all?(value, &is_atom/1),
       do: {:ok, value ++ acc},

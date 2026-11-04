@@ -103,6 +103,10 @@ defmodule Letflow.Modules.Module do
       module itself (`Catalog` rule 14). Resolved by `Letflow.Modules.Catalog.import_function/2`
       and called by `Catalog.call_import_function/5`. NOT part of the manifest hash (it holds
       code, not definitions).
+    * `:ledger` - **optional** (REQ-684, decision 0073); `%{registration_name => registration}`, the
+      ledgers the module registers (fixed ledger ids, slots, causes, permissions, policy). Validated by
+      `Letflow.Modules.LedgerRegistration` (`Catalog` rule 18); read by `Catalog.fetch_ledger/2`. The
+      manifest hash covers it only when present.
     * `:min_upgradable_from` - **optional** (GH #3578 / REQ-640, decision 0055 D1); a strict semver
       string not higher than `:version`. Absent means the module's own `:version` (no older version
       is upgradable). Not part of the manifest hash.
@@ -126,6 +130,7 @@ defmodule Letflow.Modules.Module do
           optional(:document_org_resolver) => module(),
           optional(:extension_points) => [extension_point()],
           optional(:import_functions) => [%{entity_type: String.t(), function: atom()}],
+          optional(:ledger) => %{String.t() => map()},
           optional(:min_upgradable_from) => String.t(),
           optional(:migrations) => [Letflow.Modules.Step.t()]
         }
@@ -207,6 +212,7 @@ defmodule Letflow.Modules.Module do
   | `:document_org_resolver` (optional) | module atom implementing `Letflow.Documents.OrgResolver` (REQ-542); at most one module may declare it |
   | `:extension_points` (optional) | `[t:extension_point/0]` literal list of string-keyed maps (REQ-574); rule 13 of `Catalog.validate/2` |
   | `:import_functions` (optional) | `[%{entity_type: String.t(), function: atom()}]` literal list (REQ-651); rule 14 of `Catalog.validate/2` |
+  | `:ledger` (optional) | `%{String.t() => map()}` literal map of ledger registrations (REQ-684); rule 18 of `Catalog.validate/2` |
 
   If any `role_grants` value atom is absent from `permissions`, a
   `CompileError` is raised at the call site during compilation. Non-literal

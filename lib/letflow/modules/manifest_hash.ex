@@ -11,9 +11,11 @@ defmodule Letflow.Modules.ManifestHash do
   ## Hashed surface
 
   `id`, `version`, the sorted `manages_entity_types`, the `scope_declarations` map (REQ-518;
-  only when the key is present, so existing hashes are unchanged), and per write handler
+  only when the key is present, so existing hashes are unchanged), the whole `ledger` registration
+  map (REQ-684, again only when present: ledger ids, slots, causes, key bounds, permission atoms,
+  scope slot, lateness, aliases, units, policy module and function), and per write handler
   (sorted by `name`) `name`, `inspect(module)`, the function name, the sorted
-  unique `targets` and `args`. It does NOT cover permissions, routes,
+  unique `targets`, `args` and, only for a posting handler, `posts_ledger`. It does NOT cover permissions, routes,
   settings, pack content or handler CODE: a change of handler behaviour
   without a manifest change is not detected, so the discipline is to bump
   `:version` whenever handler code changes.
@@ -59,8 +61,15 @@ defmodule Letflow.Modules.ManifestHash do
     }
 
     # REQ-518: covered only when present, so every existing module hash is unchanged.
-    case Map.fetch(manifest, :scope_declarations) do
-      {:ok, decls} -> Map.put(base, "scope_declarations", decls)
+    base =
+      case Map.fetch(manifest, :scope_declarations) do
+        {:ok, decls} -> Map.put(base, "scope_declarations", decls)
+        :error -> base
+      end
+
+    # REQ-684 (decision 0073): the whole `:ledger` registration map, again only when present.
+    case Map.fetch(manifest, :ledger) do
+      {:ok, ledger} -> Map.put(base, "ledger", ledger)
       :error -> base
     end
   end
@@ -75,13 +84,19 @@ defmodule Letflow.Modules.ManifestHash do
         other -> {other, nil}
       end
 
-    %{
+    base = %{
       "name" => Map.get(handler, :name),
       "module" => inspect(module),
       "function" => fun,
       "targets" => handler |> Map.get(:targets, []) |> sorted_list() |> Enum.uniq(),
       "args" => Map.get(handler, :args, %{})
     }
+
+    # REQ-684: covered only for a posting handler, so every existing handler hash is unchanged.
+    case Map.get(handler, :posts_ledger) do
+      nil -> base
+      name -> Map.put(base, "posts_ledger", name)
+    end
   end
 
   defp handler_surface(other), do: %{"name" => inspect(other)}

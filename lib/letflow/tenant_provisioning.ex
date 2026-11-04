@@ -945,7 +945,18 @@ defmodule Letflow.TenantProvisioning do
      "20261031200001_create_ledger_triggers.exs"},
     # REQ-640 / GH #3578: empty per-tenant journal table, no existing row altered.
     {20_261_101_100_001, Letflow.Repo.Migrations.CreateTenantModuleUpgrades,
-     "20261101100001_create_tenant_module_upgrades.exs"}
+     "20261101100001_create_tenant_module_upgrades.exs"},
+    # REQ-692 / GH #3725: the four entry unique keys gain ledger_id first. No table or column added, no row altered.
+    {20_261_104_100_001, Letflow.Repo.Migrations.CreateLedgerPerLedgerIdKeys,
+     "20261104100001_create_ledger_per_ledger_id_keys.exs"},
+    # REQ-710: replaces the four ledger tables with the partitioned shape (b); refuses to run when a
+    # ledger table has a row, so no existing row is altered.
+    {20_261_104_200_001, Letflow.Repo.Migrations.CreateLedgerPartitionedTables,
+     "20261104200001_create_ledger_partitioned_tables.exs"},
+    # REQ-711: the two ledger foreign keys move from the parents to the partitions, so ATTACH PARTITION
+    # takes no SHARE ROW EXCLUSIVE lock on the parents. No table, column or row is altered.
+    {20_261_104_300_001, Letflow.Repo.Migrations.MoveLedgerFksToPartitions,
+     "20261104300001_move_ledger_fks_to_partitions.exs"}
   ]
 
   @doc """

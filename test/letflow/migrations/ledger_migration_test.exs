@@ -35,6 +35,7 @@ defmodule Letflow.LedgerMigrationTest do
   # One transaction: counter bump to `seq`, entry, legs (k1, quantity, extra columns), balance rows.
   defp post(schema, seq, legs, balances) do
     id = Ecto.UUID.generate()
+    Letflow.LedgerFixture.ensure_storage!(schema, "wh")
 
     {:ok, _} =
       Repo.transaction(fn ->

@@ -719,6 +719,10 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
     do: :entity_write_landing_failed
 
   defp classify_advance_failure({:entity_write_refused, _, _}), do: :entity_write_refused
+
+  defp classify_advance_failure({:entity_write_refused_detailed, _, _, _, _}),
+    do: :entity_write_refused
+
   defp classify_advance_failure({:entity_write_failed, _, _}), do: :entity_write_failed
 
   defp classify_advance_failure(:entity_write_needs_reactivation),

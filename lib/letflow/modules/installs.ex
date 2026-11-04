@@ -56,6 +56,15 @@ defmodule Letflow.Modules.Installs do
   installed before R2 has no installed hash (NULL, OQ-R7: no backfill); it is reinstalled or
   upgraded, not reconstructed. Nothing consumes the stamp yet (activation checks are R3).
 
+  ## Ledger storage (REQ-711, decision 0073 A6)
+
+  When the compiled manifest has the `:ledger` key, `install/3` and `reactivate/3` create the
+  partitions of every ledger id it declares through `Letflow.Ledger.Storage.ensure/2`, in the same
+  transaction (install: after the `tenant_modules` row and before `on_install`; reactivate: after the
+  status change and before the audit entry). It is never done inside a posting. A refusal makes
+  install return `{:error, :module_install_ddl_failed}` and reactivate return
+  `{:error, {:ledger_contract, reason}}`, with everything rolled back. Uninstall drops nothing.
+
   OUT OF SCOPE (0039 D5, REQ-402's own BUILDS): installing several modules
   in dependency order in one request (solution install, REQ-415); settings
   writes to an already-installed module (REQ-414); purging an uninstalled module's data.
@@ -158,6 +167,7 @@ defmodule Letflow.Modules.Installs do
              {:open_work_exists,
               %{open_instances: non_neg_integer(), open_tasks: non_neg_integer()}}}
           | {:error, {:dependency_not_installed, module_id :: String.t()}}
+          | {:error, {:ledger_contract, atom()}}
 
   @doc """
   Soft-uninstalls `module_id` (decision 0066 D2): the row stays, its status becomes
@@ -214,6 +224,7 @@ defmodule Letflow.Modules.Installs do
       |> Multi.update(:status, fn %{row: row} -> TenantModule.status_changeset(row, to) end,
         prefix: prefix
       )
+      |> maybe_ledger_storage_step(module_id, prefix, to)
       |> Multi.run(:audit, fn repo, %{row: row} ->
         Audit.insert_entry(
           repo,
@@ -237,6 +248,55 @@ defmodule Letflow.Modules.Installs do
         {:ok, %{status: tenant_module}} -> {:ok, tenant_module}
         {:error, _step, reason, _changes} -> {:error, reason}
       end
+    end
+  end
+
+  # REQ-711: reactivation (never uninstall) makes sure the module's ledger partitions exist; they
+  # normally do, and `ensure/2` is then a catalog read without DDL.
+  defp maybe_ledger_storage_step(multi, module_id, prefix, :active) do
+    Multi.run(multi, :ledger_storage, fn _repo, _changes ->
+      with {:ok, entry_module} <- Catalog.fetch(module_id),
+           :ok <- ensure_ledger_storage(entry_module, prefix) do
+        {:ok, :done}
+      else
+        {:error, :not_found} -> {:error, :upgrade_required}
+        {:error, {:ledger_contract, _}} = error -> error
+      end
+    end)
+  end
+
+  defp maybe_ledger_storage_step(multi, _module_id, _prefix, _to), do: multi
+
+  # The ledger ids come only from the compiled manifest (Catalog rule 18 validated them), the prefix
+  # only from `opts[:prefix]`. A manifest without the `:ledger` key runs no statement. Ids are unique
+  # and sorted byte-wise, so two installs create them in the same order. Never called from a posting.
+  defp ensure_ledger_storage(entry_module, prefix) do
+    entry_module.manifest()
+    |> Map.get(:ledger, %{})
+    |> Map.values()
+    |> Enum.flat_map(fn %{ledger_ids: {:fixed, ids}} -> ids end)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.reduce_while(:ok, fn ledger_id, :ok ->
+      case Letflow.Ledger.Storage.ensure(prefix, ledger_id) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp install_ledger_storage(module_id, entry_module, prefix) do
+    case ensure_ledger_storage(entry_module, prefix) do
+      :ok ->
+        :ok
+
+      {:error, {:ledger_contract, reason}} ->
+        Logger.error(
+          "module install failed: ledger storage refused " <>
+            "(trace_id=#{Logger.metadata()[:trace_id]} module_id=#{module_id} reason=#{reason})"
+        )
+
+        {:error, :module_install_ddl_failed}
     end
   end
 
@@ -345,6 +405,7 @@ defmodule Letflow.Modules.Installs do
                maybe_install_pack(entry_module, actor_id, opts, owner),
              :ok <- check_managed_types_in_pack(owner, pack_entity_definition_ids),
              {:ok, tenant_module} <- insert_tenant_module(entry_module, owner, prefix),
+             :ok <- install_ledger_storage(module_id, entry_module, prefix),
              ctx = %InstallContext{
                actor_id: actor_id,
                rationale: rationale,

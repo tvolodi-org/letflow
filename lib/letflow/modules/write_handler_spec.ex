@@ -15,19 +15,26 @@ defmodule Letflow.Modules.WriteHandlerSpec do
   Errors, first one returned: `{:not_a_spec, value}` (neither a map nor a
   keyword list), `{:unknown_keys, keys}`, `{:missing_keys, keys}`,
   `{:invalid_field, key}`.
+
+  `posts_ledger` (REQ-684, decision 0073) is the one optional key: the name of a registration of the
+  same manifest's `:ledger` map, or `nil` (default). A handler that carries it is a posting handler;
+  `Letflow.Modules.Catalog` rule 10 checks the name exists. It is not in `@enforce_keys`.
   """
 
   @enforce_keys [:name, :function, :targets, :args]
-  defstruct [:name, :function, :targets, :args]
+  defstruct [:name, :function, :targets, :args, posts_ledger: nil]
 
   @type t :: %__MODULE__{
           name: String.t(),
           function: {module(), atom()},
           targets: [String.t()],
-          args: %{String.t() => %{required: boolean()}}
+          args: %{String.t() => %{required: boolean()}},
+          posts_ledger: String.t() | nil
         }
 
-  @keys [:name, :function, :targets, :args]
+  @required_keys [:name, :function, :targets, :args]
+  @optional_keys [:posts_ledger]
+  @keys @required_keys ++ @optional_keys
 
   @doc "Builds a spec from a map or keyword list, rejecting missing, unknown or ill-typed fields."
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, {atom(), term()}}
@@ -56,13 +63,15 @@ defmodule Letflow.Modules.WriteHandlerSpec do
 
     cond do
       (unknown = keys -- @keys) != [] -> {:error, {:unknown_keys, unknown}}
-      (missing = @keys -- keys) != [] -> {:error, {:missing_keys, missing}}
+      (missing = @required_keys -- keys) != [] -> {:error, {:missing_keys, missing}}
       true -> :ok
     end
   end
 
   defp check_fields(attrs) do
-    case Enum.find(@keys, fn key -> not valid_field?(key, Map.fetch!(attrs, key)) end) do
+    present = Enum.filter(@keys, &Map.has_key?(attrs, &1))
+
+    case Enum.find(present, fn key -> not valid_field?(key, Map.fetch!(attrs, key)) end) do
       nil -> :ok
       key -> {:error, {:invalid_field, key}}
     end
@@ -70,6 +79,8 @@ defmodule Letflow.Modules.WriteHandlerSpec do
 
   defp valid_field?(:name, name),
     do: is_binary(name) and Letflow.Entities.ManagedTypes.managed_name?(name)
+
+  defp valid_field?(:posts_ledger, value), do: is_nil(value) or is_binary(value)
 
   defp valid_field?(:function, {module, fun}), do: is_atom(module) and is_atom(fun)
   defp valid_field?(:function, _other), do: false

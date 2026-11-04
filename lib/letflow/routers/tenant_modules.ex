@@ -145,6 +145,10 @@ defmodule Letflow.Routers.TenantModules do
 
       {:error, {:dependency_not_installed, dep_id}} ->
         Response.unprocessable(conn, "missing dependency: #{dep_id}")
+
+      # Reactivate re-ensures the ledger partitions; a damaged set is the typed ddl-failed problem, no detail.
+      {:error, {:ledger_contract, _reason}} ->
+        Response.module_install_ddl_failed(conn)
     end
   end
 

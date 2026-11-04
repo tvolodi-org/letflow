@@ -45,6 +45,17 @@
       "name": "external_ref_id",
       "type": "string",
       "queried": true
+    },
+    {
+      "name": "tracking_policy",
+      "type": "enum",
+      "queried": true,
+      "enum_values": [
+        "none",
+        "lot",
+        "serial",
+        "expiry"
+      ]
     }
   ],
   "constraints": [
