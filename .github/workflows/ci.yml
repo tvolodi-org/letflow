@@ -68,16 +68,16 @@
 #      MIX_ENV=test by design. Locally: `MIX_ENV=dev mix letflow.permission_matrix --check`.
 #    - THE ONE KNOB: `matrix.shard` in `backend_shard`. M comes from
 #      `strategy.job-total`; edit only that list to change the shard count.
-#    - Concurrency: with M=6 (current; was 4, 3) a PR run keeps 9 long jobs busy (frontend, mobile, static,
-#      6 shards) plus two seconds-long ones (`changes`, the aggregator) against the GitHub
-#      free plan's 20 concurrent jobs: 3 PRs in flight is ~27 long jobs, above the 20 limit;
-#      a PR run can queue behind the others. A plan or runner-size change is the owner's decision.
+#    - Concurrency: with M=8 (current; was 6, 4, 3) a PR run keeps 11 long jobs busy (frontend, mobile, static,
+#      8 shards) plus two seconds-long ones (`changes`, the aggregator) against the GitHub
+#      Team plan (60 concurrent jobs on standard runners; was the free plan's 20): ~33 long jobs for 3 PRs in flight fit;
+#      a plan or runner-size change is the owner's decision.
 #
 # 5. T-1249: docs-only change. When EVERY changed file is under docs/ (job `changes`, step
 #    "Decide whether the change is docs-only", rule in scripts/ci_docs_only.sh; pull_request and
 #    merge_group only), `backend_static` still runs (register consistency checks), shard 1 runs
 #    only the docs-related test files (`scripts/ci_docs_only.sh files`, step "Run docs tests")
-#    and shards 2-6 skip their expensive steps and report success. Job and check names do not
+#    and shards 2-8 skip their expensive steps and report success. Job and check names do not
 #    change, so the aggregator is unchanged. Any path outside docs/ gives the full shards.
 #
 # Toolchain versions: read from .tool-versions (elixir 1.20.3-otp-29,
@@ -712,7 +712,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
 
     # Same service as backend_static (see the ISS-0779 note there), one per leg.
     services:
@@ -832,7 +832,7 @@ jobs:
           TEST_PARALLEL_PRINT_SLOWEST: 1
 
       # T-1249: docs-only change: shard 1 runs only the test files that read docs/ (list from
-      # scripts/ci_docs_only.sh files); shards 2-6 skip every expensive step and report success.
+      # scripts/ci_docs_only.sh files); shards 2-8 skip every expensive step and report success.
       # The register consistency checks (requirements registration, handoff lint) run in
       # `backend_static`, which is not skipped by docs_only.
       - name: Run docs tests (docs-only change)
