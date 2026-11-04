@@ -42,6 +42,7 @@ defmodule Letflow.Modules.Stock.CountSheet do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Ledger
+  alias Letflow.Modules.Codes
   alias Letflow.Modules.CatalogItems
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Locations.Tree
@@ -301,18 +302,29 @@ defmodule Letflow.Modules.Stock.CountSheet do
     end
   end
 
-  defp append_entry(prefix, order, line_no, before, after_text, employee, actor) do
+  defp append_entry(
+         prefix,
+         order,
+         line_no,
+         before,
+         after_text,
+         employee,
+         actor,
+         method \\ "typed",
+         extra \\ %{}
+       ) do
     fv =
-      %{
+      extra
+      |> Map.merge(%{
         "count_order_id" => order["record_id"],
         "entry_no" => next_number(prefix, "count_entry", order["record_id"], "entry_no"),
         "line_no" => line_no,
         "org_unit_id" => order["org_unit_id"],
-        "method" => "typed",
+        "method" => method,
         "quantity_after" => after_text,
         "entered_by" => actor,
         "entered_at" => DateTime.to_iso8601(DateTime.truncate(DateTime.utc_now(), :microsecond))
-      }
+      })
       |> put_present("quantity_before", qty_text(before))
       |> put_present("entered_by_employee_id", employee)
 
@@ -320,6 +332,228 @@ defmodule Letflow.Modules.Stock.CountSheet do
       {:ok, _} -> :ok
       {:error, _} = error -> error
     end
+  end
+
+  # --- scanner input (REQ-716 / GH #3765, decision 0079 sections 5 and 6) ---------------------------
+  #
+  # Assumptions, owner may change at GATE B: one scan adds exactly one unit in the line's own unit; the
+  # status check comes before the duplicate check (a retry on a closed count answers
+  # `count_state_invalid`); a duplicate answers the quantity of the first scan, not today's; the input
+  # `location_id` of a location scan is not checked (the answer is the scanned location itself).
+
+  @scan_keys ["scanned_text", "location_id", "scan_id"]
+  @countable %{"catalog_item" => :item, "catalog_lot" => :lot}
+
+  @doc """
+  A commission member scans a code. The text is resolved through `Letflow.Modules.Codes.resolve/2`; a
+  location in the count answers `kind: location` and records nothing; an item or lot code adds one
+  unit to its single matching line of `location_id` and appends a `count_entry` with `method: scan`.
+  A `scan_id` is counted once per order: a retry answers the first result with `duplicate: true`.
+  """
+  @spec scan(String.t(), term(), term(), map()) :: {:ok, map()} | {:error, term()}
+  def scan(prefix, id, input, opts) when is_binary(prefix) and is_map(opts) do
+    {actor, scope} = opts!(opts)
+
+    with {:ok, doc} <- scan_input(input),
+         {:ok, header} <- fetch(prefix, id, scope),
+         {:ok, employee} <- commission_member(prefix, header, actor),
+         :ok <- status(header, "counting") do
+      case scan_duplicate(prefix, header["record_id"], doc) do
+        {:done, result} ->
+          result
+
+        :none ->
+          with {:ok, target} <- scan_target(prefix, header, doc.scanned_text),
+               :ok <- scan_location_check(prefix, header, doc, target) do
+            scan_apply(prefix, header, doc, target, employee, actor, scope)
+          end
+      end
+    end
+  end
+
+  defp scan_input(input) when is_map(input) do
+    with :ok <- no_extra(input, @scan_keys),
+         text when is_binary(text) and text != "" <- Map.get(input, "scanned_text"),
+         {:ok, location_id} <- uuid_field(input, "location_id", true),
+         {:ok, scan_id} <- uuid_field(input, "scan_id", true) do
+      {:ok, %{scanned_text: text, location_id: location_id, scan_id: scan_id}}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, {:field_invalid, "scanned_text"}}
+    end
+  end
+
+  defp scan_input(_), do: {:error, {:field_invalid, "body"}}
+
+  # The first answer wins: same scan_id and same text and location -> the first quantity; else conflict.
+  defp scan_duplicate(prefix, order_id, doc) do
+    case entry_by_scan_id(prefix, order_id, doc.scan_id) do
+      nil ->
+        :none
+
+      %{"scanned_text" => text, "location_id" => loc} = entry
+      when text == doc.scanned_text and loc == doc.location_id ->
+        case find_line(prefix, order_id, entry["line_no"]) do
+          {:ok, line} ->
+            view =
+              line
+              |> line_view()
+              |> Map.put("counted_quantity", qty_text(entry["quantity_after"]))
+
+            {:done, {:ok, Map.put(view, "duplicate", true)}}
+
+          {:error, _} = error ->
+            {:done, error}
+        end
+
+      _ ->
+        {:done, {:error, :scan_id_conflict}}
+    end
+  end
+
+  defp entry_by_scan_id(prefix, order_id, scan_id) do
+    row =
+      Repo.one(
+        from(l in Latest,
+          where:
+            l.entity_type == "count_entry" and l.deleted == false and
+              fragment("?->>'count_order_id' = ?", l.field_values, ^order_id) and
+              fragment("?->>'scan_id' = ?", l.field_values, ^scan_id),
+          limit: 1
+        ),
+        prefix: prefix
+      )
+
+    row && to_map(row)
+  end
+
+  # decision 0079 section 5: what a resolved code means for this count.
+  defp scan_target(prefix, header, text) do
+    case Codes.resolve(prefix, text) do
+      {:error, :not_found} ->
+        {:error, :code_unknown}
+
+      {:error, :code_retired} ->
+        {:error, :code_retired}
+
+      {:error, :assignment_conflict} ->
+        {:error, :code_assignment_conflict}
+
+      {:ok, %{"target_type" => nil}} ->
+        {:error, :code_not_assigned}
+
+      {:ok, %{"target_type" => "location_node", "target_id" => target}} ->
+        # Out of scope answers like an unknown code (decision 0076 R7 ruling 2, INV-5).
+        if target in locations(prefix, header["record_id"]) and
+             Locations.linked?(prefix, header["org_unit_id"], target),
+           do: {:ok, {:location, target}},
+           else: {:error, :code_unknown}
+
+      {:ok, %{"target_type" => type, "target_id" => target, "code_id" => code_id}}
+      when is_map_key(@countable, type) ->
+        {:ok, {Map.fetch!(@countable, type), target, code_id}}
+
+      {:ok, _other} ->
+        {:error, :code_not_countable}
+    end
+  end
+
+  # An item or lot scan needs the place the unit was found in; same predicate as `surplus_checks/3`.
+  defp scan_location_check(_prefix, _header, _doc, {:location, _}), do: :ok
+
+  defp scan_location_check(prefix, header, doc, _target) do
+    if doc.location_id in locations(prefix, header["record_id"]) and
+         Locations.linked?(prefix, header["org_unit_id"], doc.location_id),
+       do: :ok,
+       else: {:error, :location_not_in_count}
+  end
+
+  defp scan_apply(_prefix, _header, doc, {:location, loc}, _employee, _actor, _scope),
+    do: {:ok, %{"kind" => "location", "location_id" => loc, "scanned_text" => doc.scanned_text}}
+
+  defp scan_apply(prefix, header, doc, {kind, target, code_id}, employee, actor, scope) do
+    Repo.transaction(fn ->
+      lock_order!(prefix, header["record_id"])
+
+      with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
+           :ok <- status(fresh, "counting") do
+        case scan_duplicate(prefix, fresh["record_id"], doc) do
+          {:done, {:ok, view}} -> view
+          {:done, {:error, reason}} -> Repo.rollback(reason)
+          :none -> scan_count(prefix, fresh, doc, {kind, target, code_id}, employee, actor)
+        end
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp scan_count(prefix, order, doc, {kind, target, code_id}, employee, actor) do
+    lines =
+      all_lines(prefix, order["record_id"]) |> Enum.filter(&scan_match?(&1, doc, kind, target))
+
+    with {:ok, line} <- scan_single(lines),
+         before = line["counted_quantity"],
+         after_text = scan_add_one(before),
+         {:ok, _} <-
+           update_record(
+             prefix,
+             line["record_id"],
+             "count_sheet_line",
+             line |> Map.drop(@kept) |> Map.put("counted_quantity", after_text),
+             actor
+           ),
+         :ok <-
+           append_entry(
+             prefix,
+             order,
+             line["line_no"],
+             before,
+             after_text,
+             employee,
+             actor,
+             "scan",
+             %{
+               "scan_id" => doc.scan_id,
+               "code_id" => code_id,
+               "scanned_text" => doc.scanned_text,
+               "location_id" => doc.location_id
+             }
+           ),
+         :ok <-
+           audit(
+             prefix,
+             actor,
+             "line_scanned",
+             order["record_id"],
+             "counting",
+             "counting",
+             line["line_no"]
+           ),
+         {:ok, stored} <- find_line(prefix, order["record_id"], line["line_no"]) do
+      stored |> line_view() |> Map.put("duplicate", false)
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp scan_match?(line, doc, :item, target),
+    do:
+      line["location_id"] == doc.location_id and line["catalog_item_id"] == target and
+        line["catalog_lot_id"] in [nil, ""]
+
+  defp scan_match?(line, doc, :lot, target),
+    do: line["location_id"] == doc.location_id and line["catalog_lot_id"] == target
+
+  defp scan_single([line]), do: {:ok, line}
+  defp scan_single([]), do: {:error, :scan_no_line}
+  defp scan_single(_many), do: {:error, :scan_ambiguous}
+
+  defp scan_add_one(nil), do: "1"
+
+  defp scan_add_one(value) do
+    {d, ""} = Decimal.parse(qty_text(value))
+    d |> Decimal.add(1) |> Decimal.to_string(:normal)
   end
 
   # --- surplus lines ----------------------------------------------------------------------------

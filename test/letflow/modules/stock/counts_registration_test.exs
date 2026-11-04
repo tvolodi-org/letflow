@@ -63,10 +63,29 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
     end
 
     assert Map.keys(m.scope_declarations) |> Enum.sort() == Enum.sort(m.manages_entity_types)
-    assert m.depends_on == ["catalog_items", "locations", "org"]
+    assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
 
     for {_method, _path, permission} <- m.route_policies,
         do: assert(permission in m.permissions)
+  end
+
+  test "R1a (REQ-716) count_entry accepts typed and scan and has the four optional scan fields" do
+    pack = "priv/modules/stock/pack.json" |> File.read!() |> Jason.decode!()
+
+    definition =
+      pack["entity_definitions"]
+      |> Enum.find(&(&1["name"] == "count_entry"))
+      |> Map.fetch!("definition_json")
+
+    by_name = Map.new(definition["fields"], &{&1["name"], &1})
+    assert by_name["method"]["enum_values"] == ["typed", "scan"]
+
+    for name <- ~w(scan_id code_id scanned_text location_id) do
+      assert by_name[name]["type"] == "string" and by_name[name]["required"] != true, name
+    end
+
+    assert by_name["scan_id"]["queried"] == true
+    assert Enum.any?(definition["indexes"], &(&1["fields"] == ["count_order_id", "scan_id"]))
   end
 
   test "R-INSTALL the install activates the types and registers the four document types" do

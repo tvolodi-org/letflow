@@ -35,8 +35,8 @@ grants).
    later slices. "Signed" means a paper signature on the printout; count paperwork in phase B is xlsx
    with signer lines.
 7. The routes take no client idempotency key: a retried create makes a second draft, which cancel
-   removes. `depends_on` of the module stays empty, so a tenant without `org` or `locations` gets
-   `org_unit_inactive` or `employee_inactive` instead of a crash.
+   removes. `depends_on` of the module is `catalog_items`, `codes`, `locations` and `org` (REQ-716 added `codes`):
+   a tenant without one of them cannot install `stock`.
 
 ## The count sheet (REQ-701, GH #3736; module `stock` 0.4.0)
 
@@ -53,6 +53,7 @@ permission `StockCountRecord` (TENANT_ADMIN and PLATFORM_ADMIN only).
 | `POST /counts/:id/surplus-lines` | `StockCountRecord` | 201 line |
 | `POST /counts/:id/close` (empty body) | `StockCountRecord` | 200 order view with `sheet_document_id` |
 | `GET /counts/:id/sheet-document` | `StockRead` | 200 issued summary, no content bytes |
+| `POST /counts/:id/scan` (REQ-716; body `scanned_text`, `location_id`, `scan_id`) | `StockCountRecord` | 200 line with `duplicate`, or `kind: location` |
 
 1. **Open**: the chair, an `ordered` count, inside the planned period (`count_not_due`). The cut-off is now.
    Book quantities are read from the stock ledger only through `Ledger.balances/4`: the first read fixes
@@ -67,8 +68,15 @@ permission `StockCountRecord` (TENANT_ADMIN and PLATFORM_ADMIN only).
    `unit_invalid`, `lot_invalid`, `employee_inactive`, `count_line_exists`. The line has kind `surplus`, book 0.
 4. **Close**: the chair, every `stock` line counted (`lines_uncounted` issues nothing and takes no number). The
    `count.sheet` document is created and issued, the order becomes `counted`. Cancel still works afterwards.
-5. Every write takes one advisory lock per order first (also `Counts.cancel/3`). Not in this slice: the freeze of
-   postings after the cut-off, scanner input, differences, signing and posting.
+5. **Scanner input** (REQ-716, assumptions, owner may change at GATE B): the text goes to `Codes.resolve/2`. An
+   item or lot code adds one unit to its single line at `location_id` and appends an entry with `method: scan`;
+   a location code in the count answers `kind: location` and records nothing. Refusals: `code_unknown` (404, the
+   same body as an unknown count; also a location outside the count), `code_retired`, `code_assignment_conflict`,
+   `code_not_assigned`, `code_not_countable`, `location_not_in_count`, `scan_no_line`, `scan_ambiguous`,
+   `scan_id_conflict`. A `scan_id` is counted once per order: a retry answers the first quantity with
+   `duplicate: true`. Audit action `stock.count.line_scanned` (ids, status, line number only).
+6. Every write takes one advisory lock per order first (also `Counts.cancel/3`). Not in this slice: the freeze of
+   postings after the cut-off, differences, signing and posting.
 
 ## Org units and the document service
 

@@ -22,6 +22,7 @@ defmodule Letflow.CountsFixture do
   def tenant! do
     t = L.installed_tenant!("req700")
     L.install_module!(t.tenant_id, "catalog_items")
+    L.install_module!(t.tenant_id, "codes")
     L.install_module!(t.tenant_id, "stock")
     t
   end
@@ -35,7 +36,9 @@ defmodule Letflow.CountsFixture do
 
   @doc "Installs org, locations and stock in a tenant built by another fixture."
   def install_all!(tenant_id) do
-    for m <- ["org", "catalog_items", "locations", "stock"], do: L.install_module!(tenant_id, m)
+    for m <- ["org", "catalog_items", "locations", "codes", "stock"],
+        do: L.install_module!(tenant_id, m)
+
     :ok
   end
 

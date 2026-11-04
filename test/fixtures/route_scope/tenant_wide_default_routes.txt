@@ -153,6 +153,7 @@ POST /modules/stock/counts/:id/cancel StockCountOrder
 POST /modules/stock/counts/:id/close StockCountRecord
 POST /modules/stock/counts/:id/issue StockCountOrder
 POST /modules/stock/counts/:id/open StockCountRecord
+POST /modules/stock/counts/:id/scan StockCountRecord
 POST /modules/stock/counts/:id/surplus-lines StockCountRecord
 POST /modules/stock/documents StockPost
 POST /modules/stock/documents/:id/cancel StockReverse
