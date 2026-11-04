@@ -157,6 +157,60 @@ defmodule Letflow.CiSelectTestsTest do
     assert kv["skip_shards"] == "1 2 3 4 5 6 7 8"
   end
 
+  describe "pull-request diff range (T-1303)" do
+    @tag :tmp_dir
+    test "three dots list only the PR's files when the base branch moved", %{tmp_dir: dir} do
+      git = fn args ->
+        {out, 0} =
+          System.cmd("git", ["-c", "user.name=t", "-c", "user.email=t@example.com" | args],
+            cd: dir,
+            stderr_to_stdout: true
+          )
+
+        String.trim(out)
+      end
+
+      git.(["init", "-q", "-b", "main"])
+      File.write!(Path.join(dir, "a.txt"), "a")
+      git.(["add", "."])
+      git.(["commit", "-qm", "root"])
+      git.(["checkout", "-qb", "pr"])
+      File.write!(Path.join(dir, "pr_only.txt"), "p")
+      git.(["add", "."])
+      git.(["commit", "-qm", "pr"])
+      pr_head = git.(["rev-parse", "HEAD"])
+      git.(["checkout", "-q", "main"])
+      File.write!(Path.join(dir, "main_moved.txt"), "m")
+      git.(["add", "."])
+      git.(["commit", "-qm", "main moved"])
+      base_tip = git.(["rev-parse", "HEAD"])
+
+      two = git.(["diff", "--name-only", base_tip, pr_head]) |> String.split("\n", trim: true)
+
+      three =
+        git.(["diff", "--name-only", base_tip <> "..." <> pr_head])
+        |> String.split("\n", trim: true)
+
+      assert Enum.sort(two) == ["main_moved.txt", "pr_only.txt"]
+      assert three == ["pr_only.txt"]
+
+      # the script, fed the three-dot list, counts the PR's own files only
+      {kv, _} =
+        select(["lib/letflow/modules/locations/tree.ex" | three], ["--event", "pull_request"])
+
+      assert kv["reason"] =~ "2 changed" or kv["mode"] == "selective"
+    end
+
+    test "every pull_request diff in ci.yml is a merge-base diff" do
+      yml = File.read!(@ci_yml)
+      assert yml =~ ~s(DOTS="...")
+      assert yml =~ ~s(git diff --name-only "${BASE_SHA}${DOTS}${HEAD_SHA}")
+      assert yml =~ ~s(git diff --name-only --no-renames "${BASE}${DOTS}${HEAD}")
+      refute yml =~ ~s(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+      assert yml =~ "Changed files: ${nfiles:-unknown}"
+    end
+  end
+
   describe "ci.yml contract (criterion 4)" do
     setup do
       {:ok, yml: File.read!(@ci_yml)}
