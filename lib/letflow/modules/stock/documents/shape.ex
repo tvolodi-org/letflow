@@ -3,7 +3,7 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   REQ-712 / GH #3749: the pure shape check of a stock document request body (save and replace).
   No database, no clock. `parse/2` returns the normalised document or the first refusal, in the order
   of the entry: `unknown_kind`, `field_not_allowed`, `field_required`, `field_invalid`,
-  `event_time_invalid`, `lines_count`, `quantity_invalid`, `price_invalid`.
+  `reason_invalid`, `reason_invalid`, `event_time_invalid`, `lines_count`, `quantity_invalid`, `price_invalid`.
 
   A refusal is `{:error, {reason, extras}}` with `reason` one of the strings above and `extras` a
   map of fixed keys (`"field"`, `"line_no"`); a supplied value is never echoed. `field_invalid` and
@@ -23,20 +23,34 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   `line_value` (non-negative decimal strings, at most 9 decimals, zero accepted, else `price_invalid` with
   `"field"` and `"line_no"`). An absent key is the only "not given": `null` is refused. The comparison of
   `received_on` with the event day is not here (it needs a time zone: `Checks.received_on/2`).
+
+  REQ-715 / GH #3746: the kinds come from `Letflow.Modules.Stock.Documents.Kinds`. `counterparty_id` is
+  receipt-only. A line of an issue or a write-off has no `unit_price` or `line_value` (`field_not_allowed`).
+  A write-off needs `reason_code` (`lost`, `damaged`, `used_up`, `other`) and may carry `reason_text`
+  (1..500 characters); `other` needs the text; a wrong value is `reason_invalid`. An issue may carry
+  `reason_text`, wrong values there are `field_invalid`. Assumption, owner may change at GATE B.
   """
 
-  @kinds ["receipt"]
+  alias Letflow.Modules.Stock.Documents.Kinds
+
+  @kinds Kinds.kinds()
   @max_lines 100
   @note_max 500
   @header_required ~w(org_unit_id location_id responsible_id event_time)
-  @header_optional ~w(counterparty_id note)
+  @header_optional ~w(note)
   @header_keys @header_required ++ @header_optional
   @id_keys ~w(org_unit_id location_id responsible_id counterparty_id)
   @line_required ~w(catalog_item_id catalog_uom_id quantity)
   @line_keys @line_required ++ ["catalog_lot_id"]
-  @header_extra %{"receipt" => ~w(supplier_document_ref received_on)}
+  @header_extra %{
+    "receipt" => ~w(counterparty_id supplier_document_ref received_on),
+    "issue" => ~w(reason_text),
+    "write_off" => ~w(reason_code reason_text)
+  }
   @line_extra %{"receipt" => ~w(unit_price line_value)}
   @ref_max 200
+  @write_off_reasons ~w(lost damaged used_up other)
+  @reason_text_max 500
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
   @received_on ~r/\A[0-9]{4}-[0-9]{2}-[0-9]{2}\z/
 
@@ -59,7 +73,7 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   def parse(body, mode) when is_map(body) and not is_struct(body) do
     with {:ok, kind} <- kind(body, mode),
          :ok <- allowed(body, kind),
-         :ok <- required(body),
+         :ok <- required(body, kind),
          {:ok, header} <- header(body, kind),
          {:ok, event_time} <- event_time(body["event_time"]),
          {:ok, raw_lines} <- raw_lines(body["lines"]),
@@ -101,8 +115,10 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
     end
   end
 
-  defp required(body) do
-    case Enum.find(@header_required ++ ["lines"], &(not Map.has_key?(body, &1))) do
+  defp required(body, kind) do
+    keys = @header_required ++ if(kind == "write_off", do: ["reason_code"], else: []) ++ ["lines"]
+
+    case Enum.find(keys, &(not Map.has_key?(body, &1))) do
       nil -> :ok
       key -> refuse("field_required", %{"field" => key})
     end
@@ -111,13 +127,52 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   # -- header -------------------------------------------------------------------------------------
 
   defp header(body, kind) do
-    Enum.reduce_while(header_keys(kind) -- ["event_time"], {:ok, %{}}, fn key, {:ok, acc} ->
+    header_keys(kind)
+    |> Kernel.--(["event_time"])
+    |> Enum.reduce_while({:ok, %{}}, fn key, {:ok, acc} ->
       case Map.fetch(body, key) do
         :error -> {:cont, {:ok, acc}}
-        {:ok, value} -> header_value(key, value, acc)
+        {:ok, value} -> header_value(key, value, acc, kind)
       end
     end)
+    |> reason_pair(kind)
   end
+
+  # A write-off reason `other` needs a reason text (REQ-715).
+  defp reason_pair({:ok, %{"reason_code" => "other"} = acc}, "write_off") do
+    if Map.has_key?(acc, "reason_text"),
+      do: {:ok, acc},
+      else: refuse("reason_invalid")
+  end
+
+  defp reason_pair(result, _kind), do: result
+
+  # reason_code and reason_text exist only on write_off (reason_code) and issue / write_off (reason_text).
+  defp header_value("reason_code", value, acc, "write_off") do
+    if value in @write_off_reasons,
+      do: {:cont, {:ok, Map.put(acc, "reason_code", value)}},
+      else: {:halt, refuse("reason_invalid")}
+  end
+
+  defp header_value("reason_text", value, acc, kind) do
+    case reason_text(value) do
+      {:ok, text} -> {:cont, {:ok, Map.put(acc, "reason_text", text)}}
+      :error when kind == "write_off" -> {:halt, refuse("reason_invalid")}
+      :error -> {:halt, refuse("field_invalid", %{"field" => "reason_text"})}
+    end
+  end
+
+  defp header_value(key, value, acc, _kind), do: header_value(key, value, acc)
+
+  defp reason_text(value) when is_binary(value) do
+    text = String.valid?(value) && :unicode.characters_to_nfc_binary(value)
+
+    if is_binary(text) and String.trim(text) != "" and String.length(text) <= @reason_text_max,
+      do: {:ok, text},
+      else: :error
+  end
+
+  defp reason_text(_other), do: :error
 
   defp header_value(key, value, acc) when key in @id_keys do
     case uuid(value) do

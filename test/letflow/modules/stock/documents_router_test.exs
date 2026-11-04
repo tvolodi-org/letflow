@@ -146,7 +146,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
       line = %{"catalog_item_id" => m.item, "catalog_uom_id" => m.uom, "quantity" => "1"}
 
       cases = [
-        {"unknown_kind", D.body(m, nil, %{"kind" => "issue"})},
+        {"unknown_kind", D.body(m, nil, %{"kind" => "transfer"})},
         {"unknown_kind", D.body(m, nil, %{"kind" => 1})},
         {"field_required", Map.delete(D.body(m), "kind")},
         {"field_not_allowed", D.body(m, nil, %{"document_id" => Ecto.UUID.generate()})},
@@ -237,7 +237,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
                  :put,
                  "/documents/#{doc["id"]}",
                  ctx.tok_a,
-                 D.body(ctx.ma, nil, %{"kind" => "issue"})
+                 D.body(ctx.ma, nil, %{"kind" => "transfer"})
                ),
                422
              ) ==
@@ -311,7 +311,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
             "limit=101",
             "limit=abc",
             "state=nope",
-            "kind=issue",
+            "kind=transfer",
             "org_unit_id=nope",
             "cursor=garbage",
             "cursor=1.not-a-uuid",
@@ -327,7 +327,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
       D.request(:post, "/documents/#{doc["id"]}/issue", ctx.tok_a)
 
       assert doc |> Map.keys() |> Enum.sort() ==
-               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posting_check received_on responsible_id reversed_at reversed_by state supplier_document_ref)
+               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posting_check reason_code reason_text received_on responsible_id reversed_at reversed_by state supplier_document_ref)
 
       assert doc["lines"] |> hd() |> Map.keys() |> Enum.sort() ==
                ~w(catalog_item_id catalog_lot_id catalog_uom_id line_id line_no line_value quantity unit_price)

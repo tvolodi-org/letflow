@@ -48,6 +48,18 @@ defmodule Letflow.Modules.Stock do
   No route, permission or migration. Assumptions, owner may change at GATE B: the constant zone, the
   date check at issue, serial-tracked goods refused.
 
+  ## Issue and write off (REQ-715 / GH #3746; version 0.5.0)
+
+  Two more document kinds on the same routes, `issue` and `write_off` (`Documents.Kinds` is the kind
+  table): the managed types `stock_issue`, `stock_issue_line`, `stock_writeoff`, `stock_writeoff_line`
+  (all scoped by `org_unit_id`), the document types `stock_issue` (ISS) and `stock_writeoff` (WOF),
+  numbered per year, and the process definitions `stock_issue` and `stock_writeoff`. They post with the
+  same `post_document` handler; the legs are negative and the ledger refuses a posting below zero
+  (`insufficient_stock`). A line has no price or value. A write-off carries `reason_code` (`lost`,
+  `damaged`, `used_up`, `other`) and an optional `reason_text`. An existing installation gets the new
+  types and definitions by reinstalling the module; there is no upgrade hook. No route, permission or
+  migration. Assumptions, owner may change at GATE B: the prefixes, the reason list, no counterparty.
+
   ## Slots and their order (append-only, rule 12)
 
   `sku, location, org_unit, responsible, lot`, all uuid text. `sku` is slot 1 because the sign rule
@@ -80,6 +92,10 @@ defmodule Letflow.Modules.Stock do
   @types [
     "stock_receipt",
     "stock_receipt_line",
+    "stock_issue",
+    "stock_issue_line",
+    "stock_writeoff",
+    "stock_writeoff_line",
     "count_order",
     "count_order_scope",
     "count_commission_member",
@@ -96,6 +112,10 @@ defmodule Letflow.Modules.Stock do
     legal_entity_required: false,
     declared_fields: %{}
   }
+
+  # REQ-715: the issue and the write-off document types; assumptions, owner may change at GATE B.
+  @issue_type %{@receipt_type | key: "stock_issue", number_prefix: "ISS"}
+  @writeoff_type %{@receipt_type | key: "stock_writeoff", number_prefix: "WOF"}
 
   # The four count document types (decision 0079 section 9); numbering restarts each year.
   @count_document_types for {key, prefix} <- [
@@ -114,12 +134,12 @@ defmodule Letflow.Modules.Stock do
                               declared_fields: %{}
                             }
 
-  @document_types [@receipt_type | @count_document_types]
+  @document_types [@receipt_type, @issue_type, @writeoff_type | @count_document_types]
 
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.4.0",
+    version: "0.5.0",
     depends_on: ["catalog_items", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [:StockPost, :StockReverse, :StockRead, :StockReconcile, :StockCountOrder],
@@ -150,6 +170,10 @@ defmodule Letflow.Modules.Stock do
     manages_entity_types: [
       "stock_receipt",
       "stock_receipt_line",
+      "stock_issue",
+      "stock_issue_line",
+      "stock_writeoff",
+      "stock_writeoff_line",
       "count_order",
       "count_order_scope",
       "count_commission_member",
@@ -158,6 +182,10 @@ defmodule Letflow.Modules.Stock do
     scope_declarations: %{
       "stock_receipt" => {:column, "org_unit_id"},
       "stock_receipt_line" => {:column, "org_unit_id"},
+      "stock_issue" => {:column, "org_unit_id"},
+      "stock_issue_line" => {:column, "org_unit_id"},
+      "stock_writeoff" => {:column, "org_unit_id"},
+      "stock_writeoff_line" => {:column, "org_unit_id"},
       "count_order" => {:column, "org_unit_id"},
       "count_order_scope" => {:column, "org_unit_id"},
       "count_commission_member" => {:column, "org_unit_id"},

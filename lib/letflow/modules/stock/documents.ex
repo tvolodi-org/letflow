@@ -58,13 +58,11 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.Entities.Records
   alias Letflow.Modules.Stock
   alias Letflow.Modules.Stock.Documents.Checks
+  alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Documents.Shape
   alias Letflow.Repo
 
-  @type_key "stock_receipt"
-  @header_type "stock_receipt"
-  @line_type "stock_receipt_line"
   @states ~w(draft issued posted reversed cancelled)
   @status_atoms %{"draft" => :draft, "issued" => :issued, "cancelled" => :cancelled}
   @default_limit 50
@@ -90,7 +88,7 @@ defmodule Letflow.Modules.Stock.Documents do
         unit = doc.header["org_unit_id"]
 
         draft_attrs = %{
-          type_key: @type_key,
+          type_key: Kinds.get(doc.kind).type_key,
           issuing_org_unit_id: unit,
           content: content(doc)
         }
@@ -146,8 +144,9 @@ defmodule Letflow.Modules.Stock.Documents do
             {:error, reason} -> Repo.rollback(draft_error(reason))
           end
 
-          Enum.each(locked.lines, &delete!(prefix, @line_type, &1.line_id, actor))
-          delete!(prefix, @header_type, locked.header_id, actor)
+          kind = Kinds.get(locked.kind)
+          Enum.each(locked.lines, &delete!(prefix, kind.line_type, &1.line_id, actor))
+          delete!(prefix, kind.header_type, locked.header_id, actor)
           :ok
         end)
 
@@ -170,15 +169,15 @@ defmodule Letflow.Modules.Stock.Documents do
          :ok <- Checks.event_time(view.event_time, now()),
          :ok <- Checks.received_on(view.received_on, view.event_time),
          :ok <- Checks.masters(prefix, view),
-         :ok <- activate(prefix, Keyword.get(opts, :activator)),
+         :ok <- activate(prefix, view.kind, Keyword.get(opts, :activator)),
          {:ok, _issued} <- issue_once(prefix, id, actor) do
       start_posting(prefix, id, actor)
       fetch(prefix, id, Keyword.get(opts, :authorized))
     end
   end
 
-  defp activate(prefix, activator) do
-    case Posting.ensure_active(prefix, "stock_receipt", activator) do
+  defp activate(prefix, kind, activator) do
+    case Posting.ensure_active(prefix, Kinds.get(kind).process, activator) do
       :ok -> :ok
       :error -> {:error, :definition_not_active}
     end
@@ -217,7 +216,7 @@ defmodule Letflow.Modules.Stock.Documents do
     header_id = write_header!(prefix, :create, nil, document_id, doc, actor)
 
     for line <- doc.lines do
-      create_line!(prefix, header_id, doc.header["org_unit_id"], line, actor)
+      create_line!(prefix, doc.kind, header_id, doc.header["org_unit_id"], line, actor)
     end
 
     fetch!(prefix, document_id)
@@ -225,7 +224,7 @@ defmodule Letflow.Modules.Stock.Documents do
 
   defp write_header!(prefix, :create, _record_id, document_id, doc, actor) do
     attrs = %{
-      entity_type: @header_type,
+      entity_type: Kinds.get(doc.kind).header_type,
       field_values: header_values(doc, document_id),
       actor_id: actor,
       idempotency_key: Ecto.UUID.generate()
@@ -240,7 +239,7 @@ defmodule Letflow.Modules.Stock.Documents do
 
   defp write_header!(prefix, :update, record_id, document_id, doc, actor) do
     attrs = %{
-      entity_type: @header_type,
+      entity_type: Kinds.get(doc.kind).header_type,
       record_id: record_id,
       field_values: header_values(doc, document_id),
       actor_id: actor,
@@ -254,9 +253,9 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
-  defp create_line!(prefix, header_id, unit, line, actor) do
+  defp create_line!(prefix, kind, header_id, unit, line, actor) do
     attrs = %{
-      entity_type: @line_type,
+      entity_type: Kinds.get(kind).line_type,
       field_values: line_values(line, header_id, unit),
       actor_id: actor,
       idempotency_key: Ecto.UUID.generate()
@@ -269,9 +268,9 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
-  defp update_line!(prefix, line_id, header_id, unit, line, actor) do
+  defp update_line!(prefix, kind, line_id, header_id, unit, line, actor) do
     attrs = %{
-      entity_type: @line_type,
+      entity_type: Kinds.get(kind).line_type,
       record_id: line_id,
       field_values: line_values(line, header_id, unit),
       actor_id: actor,
@@ -309,13 +308,16 @@ defmodule Letflow.Modules.Stock.Documents do
 
     for line <- doc.lines do
       case Map.fetch(existing, line["line_no"]) do
-        {:ok, old} -> update_line!(prefix, old.line_id, locked.header_id, unit, line, actor)
-        :error -> create_line!(prefix, locked.header_id, unit, line, actor)
+        {:ok, old} ->
+          update_line!(prefix, doc.kind, old.line_id, locked.header_id, unit, line, actor)
+
+        :error ->
+          create_line!(prefix, doc.kind, locked.header_id, unit, line, actor)
       end
     end
 
     for old <- locked.lines, old.line_no > count do
-      delete!(prefix, @line_type, old.line_id, actor)
+      delete!(prefix, Kinds.get(doc.kind).line_type, old.line_id, actor)
     end
 
     :ok
@@ -391,10 +393,11 @@ defmodule Letflow.Modules.Stock.Documents do
   @spec fetch(String.t(), term(), term()) :: {:ok, map()} | {:error, :not_found}
   def fetch(prefix, id, authorized \\ nil) when is_binary(prefix) do
     with {:ok, id} <- cast(id),
-         %Document{type_key: @type_key} = document <- Repo.get(Document, id, prefix: prefix),
+         %Document{} = document <- Repo.get(Document, id, prefix: prefix),
+         %{} = kind <- Kinds.by_type_key(document.type_key),
          %DocumentVersion{} = version <- live_version(prefix, id),
-         {:ok, header} <- header(prefix, id) do
-      base = view(prefix, document, version, header)
+         {:ok, header} <- header(prefix, kind, id) do
+      base = view(prefix, kind, document, version, header)
       {:ok, Map.merge(base, Posting.state_fields(prefix, base, authorized))}
     else
       _none -> {:error, :not_found}
@@ -419,11 +422,11 @@ defmodule Letflow.Modules.Stock.Documents do
     )
   end
 
-  defp header(prefix, document_id) do
+  defp header(prefix, kind, document_id) do
     query =
       from(r in Latest,
         where:
-          r.entity_type == ^@header_type and not r.deleted and
+          r.entity_type == ^kind.header_type and not r.deleted and
             fragment("?->>'document_id' = ?", r.field_values, ^document_id),
         select: {r.record_id, r.field_values},
         limit: 1
@@ -435,11 +438,11 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
-  defp lines(prefix, header_id) do
+  defp lines(prefix, kind, header_id) do
     query =
       from(r in Latest,
         where:
-          r.entity_type == ^@line_type and not r.deleted and
+          r.entity_type == ^kind.line_type and not r.deleted and
             fragment("?->>'header_id' = ?", r.field_values, ^header_id),
         select: {r.record_id, r.field_values}
       )
@@ -461,10 +464,10 @@ defmodule Letflow.Modules.Stock.Documents do
     |> Enum.sort_by(& &1.line_no)
   end
 
-  defp view(prefix, document, version, {header_id, fv}) do
+  defp view(prefix, kind, document, version, {header_id, fv}) do
     %{
       id: document.id,
-      kind: "receipt",
+      kind: kind.kind,
       state: state(version.status),
       number: number_label(prefix, document),
       issued_at: iso(version.issued_at),
@@ -477,7 +480,9 @@ defmodule Letflow.Modules.Stock.Documents do
       received_on: fv["received_on"],
       event_time: fv["event_time"],
       note: fv["note"],
-      lines: lines(prefix, header_id)
+      reason_code: fv["reason_code"],
+      reason_text: fv["reason_text"],
+      lines: lines(prefix, kind, header_id)
     }
   end
 
@@ -492,8 +497,8 @@ defmodule Letflow.Modules.Stock.Documents do
   # scope, padded number); the type row is the source of prefix and pad.
   defp number_label(_prefix, %Document{number: nil}), do: nil
 
-  defp number_label(prefix, %Document{number: number, period: period}) do
-    type = Repo.get!(DocumentType, @type_key, prefix: prefix)
+  defp number_label(prefix, %Document{number: number, period: period} = document) do
+    type = Repo.get!(DocumentType, document.type_key, prefix: prefix)
     padded = number |> Integer.to_string() |> String.pad_leading(type.number_pad, "0")
 
     case type.numbering_scope do
@@ -515,14 +520,24 @@ defmodule Letflow.Modules.Stock.Documents do
       {page, rest} = Enum.split(rows, filters.limit)
       headers = headers_for(prefix, Enum.map(page, & &1.id))
       states = Posting.states_for(prefix, Enum.map(page, &%{id: &1.id, state: state(&1.status)}))
-      type = if page == [], do: nil, else: Repo.get!(DocumentType, @type_key, prefix: prefix)
+      types = number_types(prefix, page)
 
       {:ok,
        %{
-         rows: Enum.map(page, &row(&1, headers, type, states)),
+         rows: Enum.map(page, &row(&1, headers, types, states)),
          next_cursor: if(rest != [], do: cursor_of(List.last(page)))
        }}
     end
+  end
+
+  defp number_types(_prefix, []), do: %{}
+
+  defp number_types(prefix, page) do
+    keys = page |> Enum.map(& &1.type_key) |> Enum.uniq()
+
+    prefix
+    |> then(&Repo.all(from(t in DocumentType, where: t.key in ^keys), prefix: &1))
+    |> Map.new(&{&1.key, &1})
   end
 
   defp list_filters(params) do
@@ -581,11 +596,12 @@ defmodule Letflow.Modules.Stock.Documents do
         as: :doc,
         join: v in DocumentVersion,
         on: v.document_id == d.id and v.status in [:draft, :issued, :cancelled],
-        where: d.type_key == ^@type_key,
+        where: d.type_key in ^Kinds.type_keys(),
         order_by: [desc: d.inserted_at, desc: d.id],
         limit: ^(filters.limit + 1),
         select: %{
           id: d.id,
+          type_key: d.type_key,
           inserted_at: d.inserted_at,
           number: d.number,
           period: d.period,
@@ -596,10 +612,16 @@ defmodule Letflow.Modules.Stock.Documents do
       )
 
     base
+    |> filter_kind(filters.kind)
     |> filter_state(filters.state)
     |> filter_unit(filters.unit)
     |> filter_cursor(filters.cursor)
   end
+
+  defp filter_kind(query, nil), do: query
+
+  defp filter_kind(query, kind),
+    do: from([d] in query, where: d.type_key == ^Kinds.get(kind).type_key)
 
   defp filter_state(query, nil), do: query
 
@@ -658,7 +680,7 @@ defmodule Letflow.Modules.Stock.Documents do
     query =
       from(r in Latest,
         where:
-          r.entity_type == ^@header_type and not r.deleted and
+          r.entity_type in ^Kinds.header_types() and not r.deleted and
             fragment("?->>'document_id' = ANY(?)", r.field_values, type(^ids, {:array, :string})),
         select: r.field_values
       )
@@ -666,7 +688,9 @@ defmodule Letflow.Modules.Stock.Documents do
     prefix |> then(&Repo.all(query, prefix: &1)) |> Map.new(&{&1["document_id"], &1})
   end
 
-  defp row(r, headers, type, states) do
+  defp row(r, headers, types, states) do
+    type = Map.get(types, r.type_key)
+
     number =
       if r.number do
         padded = r.number |> Integer.to_string() |> String.pad_leading(type.number_pad, "0")
@@ -678,7 +702,7 @@ defmodule Letflow.Modules.Stock.Documents do
 
     %{
       id: r.id,
-      kind: "receipt",
+      kind: Kinds.by_type_key(r.type_key).kind,
       state: Map.fetch!(states, r.id),
       number: number,
       issued_at: iso(r.issued_at),
