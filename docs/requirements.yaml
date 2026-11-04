@@ -50982,7 +50982,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-689 -- the C4 file specifies the import of the asset card that the C1 file (REQ-689, pending) defines
+    gh: 3792
     # Source: ai-dala-portfolio/architectures/assets.md (table under "The model": amortization "an info field, imported or typed, not calculated in the first version"; section "Reports and import": "Excel import and export (as Qoimeks has) for the catalog, opening balances, and asset lists including amortization"; section "Decisions of 2026-10-31": xlsx import and export in the first version); letflow-team/project/assets-gap-analysis.md sections 3 ("Excel": CSV import built, no .xlsx, import refuses module-managed types) and 6 (order item 6, "Excel .xlsx (new)"); owner decisions D-061 (depreciation is an info field, imported, not calculated), D-062 (xlsx in the first version), D-063 (phase gates), D-085 point (3) (phase C specifications released before GATE B, specs only) and D-086 (prototype mode) in ai-dala-portfolio/DECISIONS.md.
     description: >
       Phase C item C4 of the assets and stock application (owner decisions D-061, D-062, D-063, D-085). ONE change,
