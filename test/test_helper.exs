@@ -1,3 +1,6 @@
+# GH #2498: fail fast on a test DB that drifted from the schemas (see the module).
+Letflow.Test.SchemaDriftPreflight.check!(Letflow.Repo)
+
 Letflow.TenantSchemaReaper.sweep_orphans()
 
 # ISS-0414: suite-boundary safety net against leftover `service_catalog` rows -- see
