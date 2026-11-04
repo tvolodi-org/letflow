@@ -146,7 +146,7 @@ Order: A and B are independent and either may go first; then C; then D.
 1. **Q1 Scope declaration route (D3).** Recommended: (a) core table, set by TENANT_ADMIN, `:undeclared` default. Alternatives: (b) fixed tenant-wide, rejected above; (c) never declare.
 2. **Q2 Write model (D2).** Recommended: option (1), second table pair. Alternatives: (2) mode column, (3) definition JSON.
 3. **Q3 Permission for write grants (D2).** Recommended: reuse `EntitiesRestrictionsManage`. Alternative: a new permission, which also moves `effective.golden` and the tenant-auditor refused set.
-4. **Q4 Reference registration (D4).** Recommended: manifest key `:reference_targets`, opt-in per module type.
+4. **Q4 Reference registration (D4).** Recommended: manifest key `:reference_targets`, opt-in per module type. Slice C (REQ-636, T-1277) took this recommended default (no written owner answer on the issue yet); only the manifest rule and the field attribute change if the owner decides otherwise.
 
 ## Tests the implementation slices must add
 

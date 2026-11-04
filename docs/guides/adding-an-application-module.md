@@ -156,6 +156,16 @@ fallback, `endpoint_policy_key/2`'s Catalog clause (`authorization.ex:883-895`,
 `module_route_permission/3`), which matches the request's method and
 sub-path against the module's own `route_policies` list.
 
+### 3a. Offering your records as reference targets (`:reference_targets`, REQ-636, decision 0070 D4)
+
+A tenant-owned record type may have a string field that declares `reference: {module_id, entity_type}`. Such a
+field is stored only when its value is the id of a live, active record of that type in the caller's tenant. A
+module is referenceable only when it opts in: set the optional manifest key `reference_targets: ["my_type"]`, each
+name a member of your own `manages_entity_types`, without duplicates (`Catalog.validate/2` rule 19). Your entry
+module must export `lookup/2` and `active?/2` (`Letflow.Modules.ReadApi` implements both over a type list; the
+check reads nothing else, never a module table). The key is part of the manifest hash only when present, so a
+module without it keeps its hash. No production module opts in yet.
+
 ## 4. Router mounting and the 404 gate
 
 `Letflow.Plugs.ApiPipeline` mounts `Letflow.Routers.Modules` at `/modules`

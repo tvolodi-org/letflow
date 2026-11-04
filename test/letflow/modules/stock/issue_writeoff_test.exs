@@ -133,7 +133,7 @@ defmodule Letflow.Modules.Stock.IssueWriteoffTest do
 
   test "G1 no route and no permission was added" do
     m = Letflow.Modules.Stock.manifest()
-    assert length(m.route_policies) == 26
+    assert length(m.route_policies) == 31
 
     assert m.permissions == [
              :StockPost,
