@@ -39,9 +39,9 @@ defmodule Letflow.Modules.Codes.RunbookTest do
     assert @runbook |> File.read!() |> String.split("\n") |> Enum.member?(@heading)
   end
 
-  test "B-2: the section is a numbered list 1..18 with the known limits" do
+  test "B-2: the section is a numbered list 1..19 with the known limits" do
     numbers = Enum.map(items(), &elem(&1, 0))
-    assert numbers == Enum.to_list(1..18)
+    assert numbers == Enum.to_list(1..19)
 
     text = items() |> Enum.map_join("\n", &elem(&1, 1))
 
@@ -94,5 +94,12 @@ defmodule Letflow.Modules.Codes.RunbookTest do
     assert text =~ "CodesWrite"
     assert text =~ "/api/v1/modules/codes/"
     assert text =~ "#3611"
+  end
+
+  test "REQ-730 P1: the runbook names the scan route and its permission" do
+    text = items() |> Enum.map_join("\n", &elem(&1, 1))
+    assert text =~ "CodesRead"
+    assert text =~ "/resolve"
+    assert text =~ "#3797"
   end
 end

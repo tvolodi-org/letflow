@@ -176,7 +176,7 @@ Module `org` (GH #3613, REQ-665) declares `OrgStructureWrite` (legal companies, 
 TENANT_ADMIN and PLATFORM_ADMIN hold them; giving either to another role is a later widening that needs per-tenant grant snapshots.
 Module `catalog_items` (GH #3610, REQ-668) declares `CatalogLotsWrite` (create, change and retire lots), tenant scope. It declares no `role_grants`, so only
 TENANT_ADMIN and PLATFORM_ADMIN hold it.
-Module `codes` (GH #3611, REQ-667) declares `CodesWrite` (receive, assign, release, retire and rewrite codes), tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.
+Module `codes` (GH #3611, REQ-667; GH #3797, REQ-730) declares `CodesWrite` (receive, assign, release, retire and rewrite codes) and `CodesRead` (scan lookup, `POST /resolve`), tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.
 
 Module `stock` (GH #3707, REQ-687) declares `StockPost`, `StockReverse`, `StockRead` and `StockReconcile`, tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold them; OQ-11 of decision 0073 (grants for other roles) stays open for the owner.
 Module `locations` (GH #3612, REQ-666) declares `LocationsWrite` (location nodes: create, change, move, retire; links of org units to locations: link, unlink), tenant scope. It declares no `role_grants`, so only
