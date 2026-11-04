@@ -14,15 +14,9 @@ defmodule Letflow.CountsFixture do
          +- a11
   """
 
-  import Ecto.Query, only: [from: 2]
-
-  alias Letflow.Definitions.SolutionPackArtefactBase
-  alias Letflow.Definitions.SolutionPackInstall
   alias Letflow.LocationsFixture, as: L
   alias Letflow.OrgFixture
-  alias Letflow.Repo
   alias Letflow.ScopeNodePaths
-  alias Letflow.TenantProvisioning.ColumnPromotion
 
   @doc "A sandboxed tenant (DataCase) with org, locations and stock installed."
   def tenant! do
