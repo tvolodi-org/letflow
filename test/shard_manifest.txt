@@ -938,7 +938,6 @@
 25 test/mix/tasks/letflow.seed.exam_fixtures_test.exs 25231.05
 25 test/mix/tasks/letflow_check_issue_refs_test.exs 1623.91
 25 test/scripts/uat_preflight_bare_jwt_test.exs 12016.08
-25 test/letflow/modules/stock/pack_drift_test.exs 7346.89
 26 test/letflow/definitions/schemas_test.exs 6.07
 26 test/letflow/docs/roles_on_flip_docs_test.exs 13030.46
 26 test/letflow/engine/complete_task_form_hook_crash_test.exs 5835.87
