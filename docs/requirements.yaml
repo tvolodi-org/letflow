@@ -49784,3 +49784,260 @@ requirements:
       - "2. Whether a scoped reader keeps seeing the movements of a unit after it is retired or moved away (0073 S10; criterion 9 builds the current rule: hidden). Default, owner may change at GATE B."
       - "3. Whether the GATE A check changes phase A (D-073); if it does, this entry is amended."
     depends_on: [REQ-637, REQ-682, REQ-684, REQ-620, REQ-621, REQ-642]
+  - id: REQ-725
+    title: "Assets B3 opening balances part 1: the opening balance document in module stock (header and line types, drafts with lines of their own location, responsible and receipt date, a check of all lines with per-line results, issue), no posting yet"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-712 -- the opening document is a new kind on the stock document foundation of REQ-712 and the receipt-only checks of REQ-714
+    # Source: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (REQ-677, merged in #3729; sections D1, D2, D3, D4, D6, D9 and Open owner questions Q1 to Q3), decision 0073 (D-T, D-P with D9 OQ-20, the PILOT GATE of the slice table) with its section Amended by REQ-676, decision 0076 (R7 scope declarations, D-067), decision 0078 (D5 order of issue and posting); entries REQ-712 (document foundation, its routes, checks and reasons), REQ-714 (validate_capture/3 call and its reasons), REQ-687 (declare/2 line cap of 100 lines) on origin/main de23767f1. Functions read on origin/main: Letflow.Modules.CatalogItems.item_uom_valid?/3 (true only for the item's base_uom_id), item_lot_valid?/3 and validate_capture/3 (lib/letflow/modules/catalog_items/catalog_items.ex); Letflow.Modules.Locations.linked?/3 (lib/letflow/modules/locations/locations.ex); Letflow.Modules.Org.active_employee?/2 (lib/letflow/modules/org/org.ex); Letflow.Documents.create_draft/3, edit_draft/4, discard_draft/3, issue/2 (lib/letflow/documents.ex). Owner decisions D-085, D-086, D-087 (2026-11-04: build fast; defaults for open questions, owner may change at GATE B). Written by the business analyst (T-1235) 2026-11-04.
+    description: >
+      Phase B item B3 of the assets and stock application, implementation part 1 of 4 (REQ-725 to REQ-728). It adds the
+      opening balance document of decision 0079 to the stock module as a new kind of the stock documents of REQ-712, and
+      stops before the ledger: no posting, no process definition, no cause. Part 2 (REQ-726) posts it after a second
+      person approves; part 3 (REQ-727) imports its lines from xlsx; part 4 (REQ-728) exports balances and movements.
+
+      Why a document of its own (0079 sections 0 and D1). A customer that moves to the product brings stock it already
+      holds. The ledger refuses an event time more than 96 hours back (0073 D-T, no override), so the opening posting
+      carries its posting time as event time and the real receipt date is a field of each line (0079 D1). Unlike the
+      receipt of REQ-712, location, responsible employee and receipt date are per line (0079 D2 line table), and the
+      document has one org unit for all lines (0079 D4 step 1: a document type has one scope column, decision 0051 D6).
+
+      What it is. A header record type stock_opening and a line record type stock_opening_line, module-managed by
+      stock, with the scope declaration {:column, "org_unit_id"} each (decision 0076 R7, D-067; the line carries a copy
+      of the header's org_unit_id as in REQ-712), and a versioned document type stock_opening created as a draft with the
+      header and issued at the issue step, exactly as REQ-712 does for the receipt. The header has no event_time field:
+      the event time is set by the ledger at posting (0079 D1; REQ-726). The header has an optional external ref pair so
+      that the xlsx import of REQ-727 can name the document by an external id (0079 D5: the document cell holds an
+      external id).
+
+      Line cap. 0079 D2 says at most 200 lines per document because a posting has at most 200 legs (note 7.6). The
+      stock policy declare/2 of REQ-687 (criterion 3) refuses more than 100 lines for every cause (the cap of note 16.3),
+      and REQ-712 uses 100 lines for every stock document. This entry takes 100 lines, the stricter value that the
+      posting path accepts; a larger stock is entered as several documents (0079 D2). This is a deviation from the
+      number in 0079 D2, stated here for the owner at GATE B.
+
+      Check of all lines (0079 D4 step 3: "a check of all lines answers per-line results and posts nothing"). The issue
+      step of REQ-712 stops at the first failure; the opening document also gets a check route that runs every line
+      check on every line and answers the result per line, writing nothing. The checks are those of 0079 D3, with the
+      functions REQ-712 and REQ-714 already use: org unit and location linked, responsible employee active, unit equal
+      to the item's base unit (item_uom_valid?/3 is true only for base_uom_id), lot of the item, lot present or absent
+      as the item's tracking policy says (validate_capture/3 as REQ-714 criterion 4 calls it), and the receipt date not
+      in the future. Quantity greater than zero is checked at save (REQ-712 criterion 3). Master checks of the ledger
+      (0073 D6) are slice L7; the module's own checks run again at issue.
+
+      Access in phase B (assumption, owner may change at GATE B; D-086, D-087): the routes of REQ-712 with their atoms,
+      no new atom: drafting, checking and issuing need StockPost, reading needs StockRead; only TENANT_ADMIN and
+      PLATFORM_ADMIN hold them (REQ-687 grants no role). Which role may post an opening document is 0079 Q1, left open.
+
+      Defaults (default, owner may change at GATE B, D-087): document type stock_opening numbered per calendar year
+      (numbering_scope :year) with prefix OPN and pad 6, legal_entity_required false; the receipt date is any date not
+      after today in the default tenant time zone Asia/Almaty (assumption, owner may change at GATE B; the module
+      constant of REQ-714 criterion 5, named in one place); unit price and value optional and non-negative, never
+      computed (0079 D2; the rule of REQ-714 criterion 2); an opening document is accepted for a balance key that already
+      has a balance (0079 D6 and Q3, UAT assumption, to be confirmed by the process owner).
+
+      Size: one change in lib/letflow/modules/stock/ (manifest version bump, two managed types, one document type in
+      on_install/3, the kind in the documents context, one route), priv/modules/stock/ (entity definitions and the pack
+      built by generate_pack.exs), the runbook section of REQ-687 and tests. No migration, no ledger file, no new
+      permission atom.
+
+      Pins (moves from the value on origin/main at implement time; today's numbers are examples only): one new tenant
+      route without a scope key (the check route of criterion 5) moves test/fixtures/route_scope/tenant_wide_default_routes.txt
+      by +1 line and the three length(snapshot) == N pins named in REQ-687's description by +1; the two new managed types
+      move the pins that REQ-712 lists for a managed type (the design step greps stock_receipt_line across test/ and lists
+      each hit); the stock runbook item count moves by the items of criterion 8.
+    acceptance_criteria:
+      - "1. Types and registration (test file test/letflow/modules/stock/opening_registration_test.exs): Letflow.Modules.Stock moves one minor version step above its value on origin/main at implement time; manages_entity_types gains stock_opening and stock_opening_line, each with scope_declarations {:column, org_unit_id}; on_install/3 activates and promotes both types and registers the versioned document type with Letflow.Documents.register_type/3: key stock_opening, owner_module stock, numbering_scope :year, number_prefix OPN, number_pad 6, legal_entity_required false, declared_fields %{}. Catalog.validate/1 passes; a test installs the module on a fresh committed tenant and asserts both types are active and managed_by stock and the document type is registered; a second install is a no-op."
+      - "2. Fields (same test file; field types from @field_types of lib/letflow/entities/definition/validator.ex): stock_opening has exactly document_id (string, required), org_unit_id (string, required, queried), note (string, optional), external_ref_system and external_ref_id (string, optional, queried); stock_opening_line has exactly header_id (string, required, a foreign_keys entry to stock_opening as REQ-712 criterion 2 declares the receipt line's), org_unit_id (string, required, queried, the header's value copied by the module), line_no (integer, required), location_id, responsible_id, catalog_item_id, catalog_uom_id (string, required), catalog_lot_id (string, optional), quantity (decimal, required, decimal_strict true), received_on (date, required), unit_price and line_value (decimal, optional, decimal_strict true), external_ref_system and external_ref_id (string, optional, queried). Neither type has event_time, number, status, posted_at or posted_by. A test asserts the exact field name set of each type."
+      - "3. Save (documents router test file of REQ-712, test/letflow/modules/stock/documents_router_test.exs, real OIDC bearer tokens): POST /api/v1/modules/stock/documents accepts kind opening (the closed kind set gains opening) and PUT and DELETE of REQ-712 criterion 3 work on an opening draft unchanged; the body keys of kind opening are the header fields and the line fields of criterion 2 except document_id, header_id and the line's org_unit_id, which the module sets. The save refusals of REQ-712 criterion 3 apply with the same reasons (field_not_allowed for event_time, location_id or responsible_id on the header, field_required, quantity_invalid, lines_count for zero lines or more than 100 lines); a unit_price or line_value that is not a decimal string, is negative or is finer than scale 9 answers 422 price_invalid with line_no (the rule of REQ-714 criterion 2); a received_on that is not YYYY-MM-DD answers 422 field_invalid with line_no; external_ref_system without external_ref_id or the other way round answers 422 external_ref_pair; a pair already held by another live stock_opening header of the tenant answers 409 external_ref_taken. Every refusal writes nothing. A test per reason."
+      - "4. Read (same test file): GET /api/v1/modules/stock/documents/:id answers for an opening document the key set of REQ-712 criterion 4 with the opening header fields and lines in line_no order; the list filter kind accepts opening. A test asserts the exact key sets of an opening document and an opening line."
+      - "5. Check of all lines (0079 D4 step 3; test file test/letflow/modules/stock/opening_check_test.exs): POST /api/v1/modules/stock/documents/:id/check (StockPost) on a draft opening document answers 200 with exactly the keys ok (true when no line has a reason) and lines, a list with one map per line in line_no order with exactly line_no and reasons; reasons is the list of every failing check of that line, in this order and each at most once: not_linked (Letflow.Modules.Locations.linked?/3 of the header's org_unit_id and the line's location_id is false), employee_not_active (Letflow.Modules.Org.active_employee?/2 of the line's responsible_id is false), unit_not_valid (Letflow.Modules.CatalogItems.item_uom_valid?/3 is false), tracking_policy_not_supported, lot_required, lot_not_allowed or lot_expiry_missing (validate_capture/3 called and mapped as REQ-714 criterion 4), lot_not_valid (a given lot for which item_lot_valid?/3 is false), received_on_in_future (received_on after today in Asia/Almaty). It writes nothing, takes no document number and does not change the version (a repo query-event handler sees no INSERT or UPDATE). On an issued document it answers 409 document_not_draft; on a document of another kind it answers 422 unknown_kind. A test per reason with master records written through their owner paths, and a test with two failing lines asserting both are reported."
+      - "6. Issue (0078 D5; same test file as criterion 5): POST /api/v1/modules/stock/documents/:id/issue of REQ-712 criterion 7 issues an opening document only when the check of criterion 5 has no reason for any line; otherwise it answers 422 with the reason and line_no of the first failing line in line_no order (the stop-at-first rule of REQ-712 criterion 5) and issues nothing. The event-time checks of REQ-712 criterion 6 do not apply to an opening document (it has no event_time). The issued content equals the saved header and lines field by field and the number has the prefix OPN; a second issue answers 409 document_not_draft. A test issues a document whose lines have received_on 400 days back and it is issued."
+      - "7. Tenancy and refusals (INV-1, INV-2, INV-5, INV-10; documents router test file): the opening kind and the check route follow REQ-712 criterion 8: (a) a TENANT_ADMIN with an API token and a TENANT_ADMIN whose grant is not tenant-wide (Letflow.Support.ScopedGrantsFixture) get the 404 body of a tenant without the module on the check route and on save, read and issue of an opening document (trace_id dropped before the compare); (b) a TASK_WORKER gets the 403 problem document of Letflow.Plugs.Authorize deny/2 and nothing is written; (c) a document id of another tenant, a malformed id and an unknown id give the same 404 body on the check route; (d) cross-tenant negative test: tenants A and B both have the module; a TENANT_ADMIN of B checking, saving or issuing A's opening document id gets 404 and A's document is unchanged; an external ref pair held by A's opening header is accepted on B's header (the 409 external_ref_taken of criterion 3 never answers for another tenant's pair)."
+      - "8. Runbook (docs/runbooks/wms-foundation.md, section Stock module limits of REQ-687, test test/letflow/modules/stock/runbook_test.exs): the section gains numbered items that state: an opening document exists as draft and issued but nothing posts until REQ-726; the opening posting carries its posting time as event time and the real receipt date only as a line field, so a balance as of an earlier time shows no opening quantity (0079 D1); at most 100 lines per opening document, a deviation from the 200 of 0079 D2 because declare/2 caps 100 lines; the opening document is not offered on a customer tenant before the PILOT GATE of 0073 (0079 D3); the defaults of the description are owner-changeable at GATE B. The runbook test's item count pin moves accordingly."
+      - "9. Gate and scope: a tenant-data-path change (one route, two managed types, a versioned document type) that passes a SECURITY-REVIEWER gate as a stated step, verdict and evidence quoted in the PR. The diff adds no write handler, no process definition, no ledger cause, no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no new permission atom (priv/permission_matrix/effective.golden unchanged), no seed and no installation of the module on any QA tenant. mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_requirements_registration and the test files of criteria 1 to 8 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "The 100-line cap (declare/2 of REQ-687) against the 200 lines of decision 0079 D2: this entry takes 100; the owner may raise it at GATE B, which then needs an amendment of REQ-687's declare/2 cap."
+      - "Which role may post an opening document (0079 Q1) and the numbering prefix OPN per year: defaults, owner may change at GATE B."
+      - "An opening document accepted for a key that already has a balance (0079 D6, Q3): UAT assumption, to be confirmed by the process owner."
+    depends_on: [REQ-712, REQ-714, REQ-687, REQ-677, REQ-641, REQ-643, REQ-644, REQ-647, REQ-681]
+  - id: REQ-726
+    title: "Assets B3 opening balances part 2: posting an issued opening document after a second person approves (process definition with a submit task and an approve task kept apart by distinct_from, cause opening with sign rule positive, no event time from the client), its reversal and cancel"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-725 -- posts the opening document of REQ-725 through the posting machinery of REQ-713
+    # Source: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (D1 no backdating, D2 one posting with cause opening and sign rule positive, D4 steps 4 and 5 and its UAT assumption on the approver, D6 corrections and repeats, D7 no service path before L5, Q1, Q2); decision 0073 (D-T, D-C, D-L12) with its section Amended by REQ-676; decision 0078 (D4, D5); entries REQ-713 (posting, posting mark, retry, idempotency, binding check, reversal, cancel), REQ-687 (registration causes and declare/2) and REQ-685 (authority step) on origin/main de23767f1. Code read on origin/main: Letflow.Ledger.post/1 and stamp_event_times (lib/letflow/ledger.ex: event_time is client_event_time or, online, the posting time), Letflow.Ledger.Validate (lib/letflow/ledger/validate.ex: a posting that carries event_time is posting_shape); Letflow.Engine.SeparationOfDuties (lib/letflow/engine/separation_of_duties.ex, HUMAN_TASK attribute distinct_from, user id, no role exempt); the graph checks of distinct_from in lib/letflow/definitions/graph.ex (CHK-26, CHK-27: the named node must be upstream); Letflow.Routers.Tasks POST /:id/complete answering Letflow.Api.Response.separation_of_duties/1 (403); Letflow.Engine.create/2 and complete_task/3 (lib/letflow/engine.ex). Written by the business analyst (T-1235) 2026-11-04.
+    description: >
+      Phase B item B3, implementation part 2 of 4. It posts an issued opening document of REQ-725 to the stock ledger
+      after a second person approves (0079 D4 steps 4 and 5), with the machinery of REQ-713 (post_document write handler,
+      stock_posting_mark, retry, idempotency, binding check on read, reversal and cancel routes).
+
+      Cause (0079 D2). The stock registration of REQ-687 criterion 2 gains the cause opening %{sign_rule: :positive,
+      reason_required: false} (the sign rules are those of 0073 D-C; the cause name is 0079's). declare/2 of REQ-687
+      criterion 3 accepts cause opening and builds one leg of +quantity per line from the to side (org_unit the header's,
+      location and responsible the line's), as for receipt, with document_line_id the line's record id.
+
+      No backdating (0079 D1, 0073 D-T). The opening command has no event_time key, so the posting has no
+      client_event_time and the ledger stamps event_time equal to posting_time (Letflow.Ledger stamp_event_times: the
+      client time or, online, the posting time). The real receipt date stays on the line (received_on) and never reaches
+      the ledger; neither do unit_price and line_value (0079 D2, review finding 4 of architectures/assets.md).
+
+      Second person (0079 D4 step 4; "the approver is not the user who started the document" is a UAT assumption, to be
+      confirmed by the process owner; Q2 default yes). The module ships a process definition stock_opening: start, a
+      HUMAN_TASK submit with no module_writes, a HUMAN_TASK approve with distinct_from ["submit"] and one module_writes
+      line calling post_document, end. The engine refuses a completion of approve by the user who completed submit in the
+      same instance (Letflow.Engine.SeparationOfDuties; identity is the user id, no role is exempt). The issue step of an
+      opening document, after Documents.issue/2 has committed, starts one stock_opening instance with
+      Letflow.Engine.create/2 and then completes its submit task with Letflow.Engine.complete_task/3 as the issuing user
+      (credential :oidc), so the issuer is the preparer. If that completion fails, the submit task stays pending; whoever
+      completes it is the preparer for distinct_from, which the runbook states. The approver needs StockPost (the
+      authority step of REQ-685 refuses a completer without it); only TENANT_ADMIN and PLATFORM_ADMIN hold it in phase B
+      (REQ-687), so the second person is a second tenant administrator. Which role approves is 0079 Q1, left open.
+
+      Repeats and corrections (0079 D6). The client_op_id is the issued version id, as REQ-713 binds it, so a repeated
+      approval of the same document (a second instance) answers the first posting's result and posts nothing more. A
+      posted opening is never edited: it is corrected by the reversal of its whole entry through the reversal route of
+      REQ-713 criterion 7 and a new document; the cancel route of REQ-713 criterion 8 applies unchanged.
+
+      Service path (0079 D7). A posting from a service task stays refused with ledger_origin_not_supported until slice L5
+      (0073 D-L12); this entry adds no SERVICE_TASK node and no background posting.
+
+      Binding gap (REQ-713 description): the handler reads nothing and output_variables are merged without a per-node
+      allowlist, so a StockPost holder could complete approve with changed posting variables; it is detected by the
+      posting_check of REQ-713 criterion 6, and closed only by slice L7. The same gap holds for opening documents.
+
+      Pins (moves from the value on origin/main at implement time): the stock registration's causes and the pack's
+      definitions change (ManifestHash changes; the module version moves one minor step); REQ-687 criterion 2's exact
+      cause set test and REQ-687 criterion 3's per-cause test gain cause opening; no route is added; the stock runbook item
+      count moves.
+    acceptance_criteria:
+      - "1. Registration and policy (test files test/letflow/modules/stock/registration_test.exs and test/letflow/modules/stock/ledger_policy_test.exs of REQ-687): the registration's causes are exactly those of REQ-687 criterion 2 plus opening %{sign_rule: :positive, reason_required: false}; Catalog.validate/1 passes and Letflow.Modules.ManifestHash.compute/1 changes. declare/2 for cause opening gives one leg of +quantity per line from the to side, k = [sku, location, org_unit, responsible or empty string, lot or empty string], unit_ref the line's unit, document_line_id the line's line_id, and an output with no client_event_time; a command with cause opening that carries an event_time key is refused {:error, {:invalid_posting, %{leg_no: nil}}} (a key of the whole command, no leg), and a command whose line n has a from side is refused {:error, {:invalid_posting, %{leg_no: n}}} (the leg rule of REQ-687 criterion 3). A test per case asserts the exact posting map or the tuple."
+      - "2. Process definition (test file test/letflow/modules/stock/opening_posting_test.exs, fresh committed tenant): the pack gains the definition stock_opening with exactly the nodes start, submit (HUMAN_TASK, no module_writes), approve (HUMAN_TASK, distinct_from [\"submit\"], exactly one module_writes line calling post_document) and end; activation of the stamped definition passes Letflow.Definitions.Graph checks and Letflow.Definitions.ModuleWrites. Issuing an opening document (REQ-725 criterion 6) by user U1 starts exactly one stock_opening instance, the submit task is completed by U1 and the approve task is pending."
+      - "3. Second person (same test file, through POST /api/v1/tasks/:id/complete with real OIDC bearer tokens): U1 completing approve gets status 403 with the body of Letflow.Api.Response.separation_of_duties/1, and no ledger entry and no posting mark are written; a second TENANT_ADMIN U2 completing approve commits one ledger entry on ledger id stock with cause opening, one leg per line with +quantity, document_type stock_opening, document_id the versioned document id, client_op_id the issued version id, and one stock_posting_mark with mark posted, in one transaction; Letflow.Ledger.balances/4 then shows the quantities. A TASK_WORKER completing approve is refused by the authority step of REQ-685 and nothing is written. A test per case."
+      - "4. No backdating (0079 D1): the posted entry's event_time equals its posting_time (Letflow.Ledger.entries/3); a document whose lines have received_on 400 days back posts, and its legs and the balance rows carry no received_on, unit_price or line_value key and no attrs holding them. A balance read on the basis event_time with as_of one hour before the posting shows no quantity for the opened keys, and with as_of after the posting shows them. A test asserts each."
+      - "5. Repeats (0079 D6, REQ-621): a second stock_opening instance for the same issued version, started through the generic instance start route by a TENANT_ADMIN holding InstancesStart, whose approve task U2 completes, returns the ledger's duplicate result and makes no second entry and no second posted mark (the entry count of the document stays 1); an opening for a balance key that already has a balance from a receipt is accepted and adds its quantity (UAT assumption, to be confirmed by the process owner)."
+      - "6. State, retry, reversal and cancel (REQ-713 criteria 3, 4, 7 and 8 applied to kind opening): the document read answers state posted with posted_at, posted_by (U2) and entry_id, and posting_check ok; the retry route POST /api/v1/modules/stock/documents/:id/post on an issued opening document with no pending approve task and no posted mark starts one stock_opening instance and completes its submit task as the caller; the reversal route reverses a posted opening (cause reversal, reverses_entry_id the opening entry) and the balances return to their value before the opening; the cancel route then cancels the issued version. A test per route."
+      - "7. Tenancy, runbook and gate: the routes reached by kind opening follow REQ-712 criterion 8 and REQ-713 criterion 9 (404 for API tokens and scoped principals, 403 for a TASK_WORKER, cross-tenant negative test with a TENANT_ADMIN of tenant B approving through the task route, retrying, reversing and cancelling A's opening and getting 404 with A unchanged). The stock runbook section gains items for: the second-person rule built with distinct_from, and that whoever completes a pending submit task is the preparer; the event time of an opening is its posting time; no service posting of opening balances before slice L5 (0079 D7). The change is a ledger-posting change and passes the SECURITY-REVIEWER deep review as a stated step (credential :oidc only, authority before any deferred refusal, no ledger SQL in module code, Rule 8), verdict and evidence quoted in the PR; mix letflow.check.static, mix letflow.check_boundaries, mix letflow.permission_matrix --check and the test files of criteria 1 to 6 pass, real output quoted. The diff adds no route, no permission atom, no SERVICE_TASK node and no edit of lib/letflow/ledger.ex or lib/letflow/ledger/. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Whether a second person must approve (0079 Q2) and which role approves (Q1): defaults (yes; StockPost holders), owner may change at GATE B."
+      - "A pending submit task completed by someone other than the issuer makes that person the preparer for distinct_from: stated in the runbook; if the security review wants the issuer bound, the submit task needs an assignee rule first."
+      - "When the service path of 0079 D7 is wanted (Q5): not before the PILOT GATE and slice L5 (REQ-688)."
+    depends_on: [REQ-725, REQ-713, REQ-687, REQ-685, REQ-621, REQ-637, REQ-677]
+  - id: REQ-727
+    title: "Assets B3 opening balances part 3: xlsx import of opening lines into a draft opening document through the managed import path, with references by external id, draft lines only and no posting"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-725 -- imports lines into the opening document of REQ-725 through the managed import of REQ-651
+    # Source: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (D5 xlsx import of opening lines, D3 line checks, D2 line fields); decision 0077 (D1 reader, D2 limits, D3 mapping: each header is exactly a field name, D7 dry run); entries REQ-651 (managed import path, import functions), REQ-650 (xlsx import), REQ-675 (import screen) and REQ-725 on origin/main de23767f1. Code read on origin/main: Letflow.Entities.ManagedImport.run/8 (lib/letflow/entities/managed_import.ex: one row per call, partial success, dry run in one rolled-back transaction); Letflow.Routers.Entities.RecordImport (lib/letflow/routers/entities/record_import.ex: POST /api/v1/entities/records/:entity_type/import with EntitiesRecordsImport, the xlsx media type, ?upsert_by=external_ref, ?dry_run=true, @import_record_cap 200, import_scope_check refusing scoped principals in upsert mode, and import_reason_json with its closed reason lists); the import functions of the master modules (lib/letflow/modules/org/import.ex @references and find/4, lib/letflow/modules/catalog_items/import.ex, lib/letflow/modules/locations/import.ex: a reference cell holds the external id of the target under the SAME external-ref system as the row, {:reference_not_found, field} and {:reference_inactive, field}); Letflow.Modules.ReadApi (lib/letflow/modules/read_api.ex, lookup/3 and active?/3); the external_ref_system and external_ref_id fields of the master types in priv/modules/org, priv/modules/locations and priv/modules/catalog_items entity definitions; Letflow.Modules.Module :import_functions (lib/letflow/modules/module.ex, Catalog rule 14). Written by the business analyst (T-1235) 2026-11-04.
+    description: >
+      Phase B item B3, implementation part 3 of 4. It lets a user fill a draft opening document of REQ-725 from an xlsx
+      file (0079 D5), through the managed import path of REQ-651: the stock module registers an import function for the
+      line type stock_opening_line, the route is the existing record import route, upsert by external ref only. The
+      reader, limits and mapping are those of 0077 D1 to D3 unchanged (first worksheet only, at most 200 data rows,
+      2_097_152 bytes body, 26_214_400 bytes uncompressed) and the dry run is 0077 D7. An import writes draft lines only
+      and never posts (0079 D5); only the approval of REQ-726 posts.
+
+      Columns. 0077 D3 says each header is exactly a field name, so the template columns are the field names of
+      stock_opening_line (REQ-725 criterion 2), one per column of 0079 D5 in its order: org_unit_id (0079 org_unit),
+      location_id (location), responsible_id (responsible_employee), catalog_item_id (item), catalog_lot_id (lot),
+      quantity, catalog_uom_id (unit), received_on (receipt_date), unit_price, line_value (value), header_id (document),
+      external_ref_system and external_ref_id. line_no is not a column: the module gives a new line the next line_no of
+      its document.
+
+      References by external id (0079 D5, as in REQ-651). Each reference cell holds the external id of the target under
+      the SAME external-ref system as the row, as the master modules' import functions resolve references: header_id an
+      opening header (its external ref pair of REQ-725), org_unit_id an org_unit, location_id a location_node,
+      responsible_id an org_employee, catalog_item_id a catalog_item, catalog_uom_id a catalog_uom, catalog_lot_id a
+      catalog_lot. The stock module may not query tables (REQ-687 criterion 8 (e): no file of lib/letflow/modules/stock/
+      names Repo or Ecto.Query), so this change adds one read function to Letflow.Modules.ReadApi and a public wrapper
+      in each master module that owns the type, and the stock import function calls those wrappers.
+
+      What a row does. It resolves the references, finds the opening header and refuses the row unless the header's
+      document is a draft, then creates the line (a new external ref) or replaces it (an existing external ref of a line
+      of that document) through the same draft-save path as PUT of REQ-712 criterion 3, which also replaces the versioned
+      draft content with Letflow.Documents.edit_draft/4, so the draft's content always equals its header and lines. Each
+      row is its own transaction (partial success, ManagedImport); a refused row writes nothing. The line checks of 0079
+      D3 are not run by the import; the check route of REQ-725 criterion 5 runs them on the whole document.
+
+      Access (assumption, owner may change at GATE B). The import route needs EntitiesRecordsImport, held by
+      TENANT_ADMIN and PLATFORM_ADMIN only (docs/roles.md matrix), the same holders as StockPost in phase B (REQ-687 grants
+      no role). A principal whose grant is not tenant-wide is refused by the route in upsert mode (import_scope_check).
+      The route accepts an API token of a TENANT_ADMIN, which the stock document routes refuse (REQ-712 criterion 8 (a)):
+      such a token can write draft lines, never post (REQ-726 needs an OIDC completion). This difference is stated in
+      the runbook and left to the security review (open question 1).
+
+      Pins (moves from the value on origin/main at implement time): the stock manifest gains :import_functions (not part
+      of the manifest hash, lib/letflow/modules/module.ex) and the module version moves one minor step; the closed reason
+      lists of import_reason_json in lib/letflow/routers/entities/record_import.ex gain the reasons of criterion 5; no
+      route, no permission atom.
+    acceptance_criteria:
+      - "1. Read by external ref (test file test/letflow/modules/read_api_external_ref_test.exs, fresh committed tenant): Letflow.Modules.ReadApi gains lookup_by_external_ref(prefix, type, system, id, types) answering {:ok, record_map} (the map shape of lookup/3) for the live record of entity type type, a member of types, whose stored external_ref_system equals system and external_ref_id equals id, and {:error, :not_found} for no such record, a soft-deleted record, a type outside types, a non-text system or id and a non-text prefix, never a raise; isolation by prefix alone. Letflow.Modules.Org, Letflow.Modules.Locations and Letflow.Modules.CatalogItems each gain lookup_by_external_ref/4 (prefix, type, system, id) delegating with their own type list. A test per case, including a record of tenant B with the same pair not found from tenant A's prefix."
+      - "2. Import function (test file test/letflow/modules/stock/opening_import_test.exs, fresh committed tenant, through POST /api/v1/entities/records/stock_opening_line/import with the xlsx media type and ?upsert_by=external_ref and a real OIDC bearer token): the stock manifest :import_functions holds exactly %{entity_type: stock_opening_line, function: :import_opening_line}; Catalog.validate/1 passes. A file of three rows naming a draft opening document by its external id creates three lines with line_no 1, 2 and 3, each reference cell stored as the record id of its target, and the document read of REQ-725 criterion 4 shows them; the versioned draft content equals the header and the three lines. Re-importing the same file changes nothing (outcome unchanged per row); a file with a changed quantity for one external ref replaces that line only."
+      - "3. References (same test file): each reference cell is resolved through lookup_by_external_ref/4 of the owning module under the row's external_ref_system; a cell naming no live record of its target type, a record id instead of an external id, or a record of another tenant answers the row error {\"type\": \"reference_not_found\", \"header\": <field>}, and a target whose active field is false answers {\"type\": \"reference_inactive\", \"header\": <field>}, with field one of header_id, org_unit_id, location_id, responsible_id, catalog_item_id, catalog_uom_id, catalog_lot_id (a constant of the module, never cell text). A test per field."
+      - "4. Draft only and no posting (0079 D5): a row whose header_id names an issued, posted or cancelled opening document answers the row error document_not_draft and writes nothing; a row whose org_unit_id differs from the header's answers org_unit_mismatch; a row that would make its document hold more than 100 lines answers lines_count; a quantity that is zero, negative or not a decimal answers quantity_invalid; a unit_price or line_value that is negative answers price_invalid. After any import no ledger entry, no process instance and no posting mark exist for the document (a test asserts Letflow.Ledger.entries/3 with filter document_id returns no row)."
+      - "5. Reasons on the wire: import_reason_json in lib/letflow/routers/entities/record_import.ex renders document_not_draft, org_unit_mismatch, lines_count, quantity_invalid and price_invalid as {\"type\": <reason>} (a closed list, as the REQ-654 list is), never internal_error; a test per reason asserts the row result in the 200 body."
+      - "6. Dry run (0077 D7): with ?dry_run=true the same file answers the same per-row results as the real import and afterwards the document has no line, its versioned draft content is unchanged and no document number was taken. A test asserts it, including a file whose second row is refused and whose third row refers to nothing written by the first."
+      - "7. Tenancy (INV-1, INV-5, INV-10; same test file): a TENANT_ADMIN of tenant B importing a file whose header_id names the external id of A's opening header gets reference_not_found for header_id and A's document is unchanged; a TENANT_ADMIN whose grant is not tenant-wide (Letflow.Support.ScopedGrantsFixture) is refused by the route as import_scope_check refuses a scoped upsert, and nothing is written; a TASK_WORKER gets the 403 of the route's EntitiesRecordsImport check. A test per case."
+      - "8. Runbook and gate: the stock runbook section (docs/runbooks/wms-foundation.md, Stock module limits) gains items that state: opening lines can be imported from xlsx into a draft only, the import never posts and does not run the line checks (use the check route); the template columns are the line field names; an API token of a TENANT_ADMIN can import draft lines although the stock document routes refuse API tokens; the runbook test's item count pin moves. The change is a tenant-data-path change and passes a SECURITY-REVIEWER gate as a stated step, verdict and evidence quoted in the PR. The diff adds no route, no permission atom, no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, and no file under lib/letflow/modules/stock/ names Repo or Ecto.Query. mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the test files of criteria 1 to 7 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "1. The generic import route accepts an API token of a TENANT_ADMIN and needs EntitiesRecordsImport, not StockPost; in phase B both atoms have the same holders. If StockPost is later granted to another role, or the security review refuses API tokens here, the import function needs its own permission check first."
+      - "2. The column names are the line field names (0077 D3), not the business names of 0079 D5; the import screen of REQ-675 shows the field labels."
+      - "3. An exported balance file is not promised to re-import as an opening document (0079 D8, UAT assumption, to be confirmed by the process owner)."
+    depends_on: [REQ-725, REQ-651, REQ-650, REQ-654, REQ-712, REQ-687, REQ-677]
+  - id: REQ-728
+    title: "Assets B3 opening balances part 4: xlsx export of stock balances and stock movements from the stock read routes, one page per file with a report sheet of the time basis, only the rows the caller may read"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-687 -- adds the xlsx format to the two read routes of slice L4 and renders the masked legs of REQ-693
+    # Source: docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md (D8 xlsx export of balances and movements, D1 consequence for reports); the ledger design note lib/letflow/design/gh2657-wms-stock-ledger-core.md sections 8.4 (what every report states: basis, cutoff_seq, as_of, timezone, filters, ledger_seq) and 16.3 (export neutralisation); decision 0077 D8 (writer dependency elixlsx); entries REQ-687 (criteria 5, 6 and 8: the balances and movements routes, their closed query keys, views and refusals; out-of-scope item (3) names this export), REQ-693 (criterion 6: masked legs of a scoped reader) and REQ-714 (criterion 5: the Asia/Almaty module constant) on origin/main de23767f1. Code read on origin/main: Letflow.Entities.XlsxExport.build/3 (lib/letflow/entities/xlsx_export.ex: text cells are string cells, never formulas; a decimal through a float, its text form when too large) and the records export's send_xlsx/3 in lib/letflow/routers/entities.ex (content type, content-disposition attachment, cache-control no-store). Written by the business analyst (T-1235) 2026-11-04.
+    description: >
+      Phase B item B3, implementation part 4 of 4: the two xlsx exports of the stock register of 0079 D8, for the read
+      routes of slice L4 (REQ-687 criteria 5 and 6). REQ-687 leaves the export out of its scope and names this item
+      (REQ-687 out-of-scope item (3)).
+
+      One implementation. The balances and movements routes gain the query key format with the values json (the default)
+      and xlsx; with xlsx the route runs the same authorize/3 call and the same read with the same query keys as the JSON
+      answer, and renders that page as a workbook instead of JSON. One file holds one page (limit and cursor as for
+      JSON); the next page is exported by passing next_cursor, which the report sheet shows. So a file holds exactly the
+      rows the caller's read answers, never more (0079 D8, D-067): for a scoped reader after REQ-693, the rows of its
+      units and the masked legs of a hidden side.
+
+      Renderer. A pure function in lib/letflow/modules/stock/xlsx_export.ex (Letflow.Modules.Stock.XlsxExport) on the
+      elixlsx dependency of 0077 D8: no new dependency (0079 D8 allows a sibling renderer of
+      Letflow.Entities.XlsxExport.build/3; build/3 renders record pages, not ledger rows). It keeps the cell rules of
+      build/3: a text value is a string cell, never a formula, so a value starting with =, +, - or @ is shown and not
+      evaluated (note 16.3 export neutralisation); a decimal is a number cell through a float, or its text form when too
+      large for a float (the exact value is in the JSON answer); a missing value is an empty cell.
+
+      Report sheet (0079 D8, note 8.4, CS-01: the time basis on each report). Balances: the report keys of the JSON body
+      of REQ-687 criterion 5 (basis, cutoff_seq, as_of, timezone, filters, ledger_seq) and next_cursor, plus coverage
+      when the body holds it (REQ-693). Movements: the JSON body of REQ-687 criterion 6 has rows and next_cursor only, so
+      the sheet gives basis posting_seq, cutoff_seq the to_seq filter or empty, as_of empty, timezone Asia/Almaty (the
+      module constant of REQ-714 criterion 5; assumption, owner may change at GATE B), filters, ledger_seq empty and
+      next_cursor. The empty ledger_seq of the movements file is a gap of 0079 D8 stated for GATE B (open question 1).
+      Each file also states that a balance as of an event time before an opening posting shows no opening quantity
+      (0079 D1: B2 reports must say so).
+
+      Price and value are not in these files (0079 D8; they are on documents, and REQ-714 criterion 3 keeps them off the
+      ledger). An exported balance file is not promised to re-import as an opening document (0079 D8, UAT assumption, to
+      be confirmed by the process owner).
+
+      Pins: no route is added (the routes of REQ-687 gain one query key), so no route-count pin moves; REQ-687's
+      closed query key tests of criteria 5, 6 and 8 (c) gain format; the stock runbook item that says there is no export
+      of ledger data yet (REQ-687 criterion 9) is replaced and the item count pin moves accordingly.
+    acceptance_criteria:
+      - "1. Query key (router test file test/letflow/modules/stock/router_test.exs of REQ-687, real OIDC bearer tokens): GET /api/v1/modules/stock/balances and GET /api/v1/modules/stock/movements accept the query key format with the values json and xlsx; absent means json and the JSON answers are byte-identical to those without the key (trace_id dropped); any other value answers 422 with reason invalid_filter before any ledger query (a repo query-event handler sees none). A test per route and value."
+      - "2. Balances file (test file test/letflow/modules/stock/xlsx_export_test.exs; the test unzips the workbook in memory as test/letflow/entities/xlsx_export_test.exs does): with format xlsx the balances route answers 200 with content type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, content-disposition attachment with filename stock-balances.xlsx and cache-control no-store; the first sheet balances has the header row sku, location, org_unit, responsible, lot, unit_ref, quantity, last_posting_seq and one row per row of the JSON answer for the same query keys, in the same order and with the same values (null as an empty cell); the second sheet report has two columns, key and value, with the rows basis, cutoff_seq, as_of, timezone, filters (the JSON text of the filters), ledger_seq and next_cursor, equal to the JSON answer's values, and coverage when the JSON answer has that key. A test posts receipts through the fixture and asserts both sheets against the JSON answer of the same request without format."
+      - "3. Movements file (same test file): with format xlsx the movements route answers the headers of criterion 2 with filename stock-movements.xlsx; the first sheet movements has the header row entry_id, posting_seq, posting_time, event_time, cause, reverses_entry_id, reason_code, document_type, document_id, related_document_id, correlation_id, leg_no, sku, location, org_unit, responsible, lot, quantity, unit_ref, document_line_id, masked and one row per leg of the JSON answer, in posting_seq then leg_no order, the entry columns repeated on each leg; masked is false for a full leg, and for a masked leg of REQ-693 criterion 6 it is true and the slot cells and document_line_id are empty. The report sheet has the rows basis (posting_seq), cutoff_seq (the to_seq filter or empty), as_of (empty), timezone (Asia/Almaty), filters, ledger_seq (empty) and next_cursor. A test with a receipt, an issue and the reversal of the receipt asserts the rows and that the reversal row's reverses_entry_id is the receipt's entry_id."
+      - "4. Cells (pure test of Letflow.Modules.Stock.XlsxExport in the same test file): a text value starting with =, +, - or @ is written as a string cell and no cell of either file has a formula element; a quantity is a number cell, or its text form when it is too large for a float; no cell holds a price, a value, an actor id, a subject id, a client_op_id or a payload hash (the key sets are those of the views of REQ-687 criteria 5 and 6). A test asserts each."
+      - "5. Same rows only (0079 D8, INV-1, INV-2, INV-5, INV-10; router test file): the refusals of REQ-687 criterion 8 hold with format xlsx unchanged: an API token and a principal whose grant is not tenant-wide get the 404 body (until REQ-693 lets a scoped reader in, after which a scoped reader's file holds exactly the rows and masked legs of its JSON answer, asserted by a test that is part of this change once REQ-693 is merged), a TASK_WORKER gets 403, a query key outside the closed set answers 422 invalid_filter; cross-tenant negative test: a TENANT_ADMIN of tenant B exporting balances and movements gets files with no row of tenant A, also when it passes A's document_id or A's slot values; a PLATFORM_ADMIN token exports only its own tenant's ledger. A following of next_cursor through the xlsx pages returns every balance key once."
+      - "6. Runbook and gate: the stock runbook section replaces the item of REQ-687 criterion 9 that says no export of ledger data exists by an item that states: one page per file, the report sheet gives the time basis, the movements file has no ledger_seq, and a balance as of a time before an opening posting shows no opening quantity (0079 D1); the runbook test's item count pin moves accordingly. The change is a tenant-data-path change and passes a SECURITY-REVIEWER gate as a stated step against the note 16.5 L4 item export neutralisation, verdict and evidence quoted in the PR. The diff adds no route, no new dependency in mix.exs, no permission atom and no edit of lib/letflow/ledger.ex or lib/letflow/ledger/; no file under lib/letflow/modules/stock/ names Repo or Ecto.Query. mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the test files of criteria 1 to 5 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "1. The movements read of REQ-687 answers no snapshot counter, so the movements file has an empty ledger_seq, which 0079 D8 lists as a report field; adding it needs a change of entries/3 or of the movements route; owner may decide at GATE B."
+      - "2. One page per file (no whole-register export in one file): default, owner may change at GATE B; a whole-register file needs a page cap and a time limit from the speed test of 0073 A7."
+      - "3. Times in the files are UTC ISO 8601 text as in the JSON answer; the timezone row names Asia/Almaty only as the report basis (assumption, owner may change at GATE B)."
+    depends_on: [REQ-687, REQ-693, REQ-714, REQ-653, REQ-677, REQ-637]
