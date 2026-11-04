@@ -168,6 +168,7 @@ defmodule Letflow.Modules.Stock.Documents do
          {:ok, view} <- fetch(prefix, id),
          :ok <- draft?(view),
          :ok <- Checks.event_time(view.event_time, now()),
+         :ok <- Checks.received_on(view.received_on, view.event_time),
          :ok <- Checks.masters(prefix, view),
          :ok <- activate(prefix, Keyword.get(opts, :activator)),
          {:ok, _issued} <- issue_once(prefix, id, actor) do
@@ -452,7 +453,9 @@ defmodule Letflow.Modules.Stock.Documents do
         catalog_item_id: fv["catalog_item_id"],
         catalog_uom_id: fv["catalog_uom_id"],
         catalog_lot_id: fv["catalog_lot_id"],
-        quantity: fv["quantity"]
+        quantity: fv["quantity"],
+        unit_price: fv["unit_price"],
+        line_value: fv["line_value"]
       }
     end)
     |> Enum.sort_by(& &1.line_no)
@@ -470,6 +473,8 @@ defmodule Letflow.Modules.Stock.Documents do
       location_id: fv["location_id"],
       responsible_id: fv["responsible_id"],
       counterparty_id: fv["counterparty_id"],
+      supplier_document_ref: fv["supplier_document_ref"],
+      received_on: fv["received_on"],
       event_time: fv["event_time"],
       note: fv["note"],
       lines: lines(prefix, header_id)

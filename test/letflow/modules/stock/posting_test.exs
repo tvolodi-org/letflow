@@ -121,7 +121,7 @@ defmodule Letflow.Modules.Stock.PostingTest do
              } = l1
 
       assert {sku, loc, unit, resp, lot, uom} ==
-               {m.item, m.location, m.unit, m.employee, m.lot, m.uom}
+               {m.lot_item, m.location, m.unit, m.employee, m.lot, m.uom}
 
       assert Decimal.equal?(Decimal.new(l1["quantity"]), Decimal.new("10.5"))
       assert l2["lot"] == nil and Decimal.equal?(Decimal.new(l2["quantity"]), 2)
@@ -143,10 +143,12 @@ defmodule Letflow.Modules.Stock.PostingTest do
       assert mark["mark"] == "posted" and mark["org_unit_id"] == m.unit
       assert mark["version_no"] == version.version_no and mark["document_type"] == "stock_receipt"
 
-      balances = S.get("/balances?sku=#{m.item}", ctx.tok_a) |> P.status!(200)
+      rows =
+        for sku <- [m.lot_item, m.item],
+            row <- (S.get("/balances?sku=#{sku}", ctx.tok_a) |> P.status!(200))["rows"],
+            do: row
 
-      total =
-        balances["rows"] |> Enum.map(&Decimal.new(&1["quantity"])) |> Enum.reduce(&Decimal.add/2)
+      total = rows |> Enum.map(&Decimal.new(&1["quantity"])) |> Enum.reduce(&Decimal.add/2)
 
       assert Decimal.equal?(total, Decimal.new("12.5"))
     end
@@ -497,7 +499,7 @@ defmodule Letflow.Modules.Stock.PostingTest do
       posted = P.post_and_complete!(ctx, doc["id"])
 
       assert posted |> Map.keys() |> Enum.sort() ==
-               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posting_check responsible_id reversed_at reversed_by state)
+               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posting_check received_on responsible_id reversed_at reversed_by state supplier_document_ref)
 
       assert posted["posting_check"] in ["ok", "mismatch", nil]
     end
