@@ -64,7 +64,32 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
   * **Rule 7b — no module reference.** The only `Letflow.Modules.*` name the ledger files may
     use is `Letflow.Modules.LedgerRegistration`.
 
-  Rule 8 is not built here (slice L3).
+  ## Ledger call-site rule and policy allowlist (REQ-684, slice L3a)
+
+  Both are pure functions over `[{path, source}]` parsed with `Code.string_to_quoted/2`; comments and
+  strings never match because only AST nodes are inspected, and `alias` directives (plain, `as:` and
+  the `A.{B, C}` form) are resolved file-wide before the scan.
+
+  * **Rule 8 — single call site, no forgery** (`rule_8_violations/1`, files from `rule_8_paths/0`:
+    `lib/letflow/modules/<id>/**`, `lib/letflow/scripts/**`, `lib/letflow/engine/wasm/**`; the
+    registration module and `lib/letflow/ledger/**` are exempt by construction). Clause `:a`: a call
+    of `Letflow.Ledger.post` or `Letflow.Ledger.Capability.mint`. `:b`: any other `Letflow.Ledger`
+    function than the reads `authorize`, `balances`, `entries`, `reconcile`, any call on another
+    `Letflow.Ledger.*` module except `Letflow.Ledger.Policy`, and an `import`/`use`/`require` of
+    them. `:c`: an alias, struct literal, struct pattern or `%{__struct__: ...}` map of
+    `Letflow.Ledger.Capability`, `Letflow.Ledger.Authorized` or `Letflow.Api.Scope.Principal`.
+    `:d`: `apply`, `Kernel.apply`, `:erlang.apply`, `Module.concat`, `Module.safe_concat`,
+    `String.to_existing_atom` (a name could be built at run time). `:e`: a policy file (under
+    `ledger_policy/`) naming a `Letflow.*` module other than `Letflow.Ledger.Policy` and the modules
+    its own files define. `@rule_8_exemptions` is the reviewed list of real-tree `:d` sites whose
+    argument is a closed value; `run/1` applies it, the pure function does not.
+  * **Policy allowlist** (`policy_violations/1`, files from `policy_paths/0`, i.e.
+    `lib/letflow/modules/<id>/ledger_policy/**`): a posting policy is pure, so only `Enum`, `Map`,
+    `List`, `String`, `Integer`, `Keyword`, `MapSet`, `Tuple`, `Access`, `Decimal`,
+    `Letflow.Ledger.Policy` and modules defined in the same files are allowed (by omission, so
+    `Repo`, `Process`, `Regex`, `DateTime`, `Kernel.*` remote calls and every Erlang module are
+    refused), plus no atom creation from text, no `send`/`spawn`/`self`/`apply`/`receive` and no
+    call on a non-literal module.
 
   ## Permitted exceptions (Rules 0–3)
 
@@ -149,11 +174,24 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
       IO.puts("VIOLATION: #{path} (#{rule}: #{detail})")
     end
 
+    rule_8_files = Enum.map(rule_8_paths(), &{&1, File.read!(&1)})
+    policy_files = Enum.map(policy_paths(), &{&1, File.read!(&1)})
+
+    call_site_violations =
+      apply_rule_8_exemptions(rule_8_violations(rule_8_files)) ++ policy_violations(policy_files)
+
+    for {path, rule, detail} <- call_site_violations do
+      IO.puts("VIOLATION: #{path} (#{rule}: #{inspect(detail)})")
+    end
+
+    ledger_violations = ledger_violations ++ call_site_violations
+
     if violations == [] and ledger_violations == [] do
       IO.puts("mix letflow.check_boundaries: OK -- #{length(edges)} edges checked, 0 violations")
 
       IO.puts(
-        "mix letflow.check_boundaries: ledger rules 7/7b OK -- #{length(ledger_paths)} files"
+        "mix letflow.check_boundaries: ledger rules 7/7b OK -- #{length(ledger_paths)} files; " <>
+          "rule 8 -- #{length(rule_8_files)} files; policy allowlist -- #{length(policy_files)} files"
       )
 
       :ok
@@ -407,6 +445,389 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
           Enum.uniq(alias_hits ++ string_hits)
       end
     end)
+  end
+
+  # ── Rule 8 and the policy allowlist (REQ-684) ──────────────────────────────────────────────
+
+  @rule_8_reads [:authorize, :balances, :entries, :reconcile]
+  @rule_8_forged [
+    "Letflow.Ledger.Capability",
+    "Letflow.Ledger.Authorized",
+    "Letflow.Api.Scope.Principal"
+  ]
+  @policy_module "Letflow.Ledger.Policy"
+
+  # Reviewed `{path, {clause, detail}}` pairs of the real tree that clause :d flags and that are
+  # allowed because the argument is a closed value, read at implement time (REQ-684):
+  #   * procurement/decisions.ex: String.to_existing_atom(input.decision), after the decision
+  #     text was matched against a fixed list of names;
+  #   * procurement/router.ex: apply(LineEvents, operation, ...) with a literal module alias and an
+  #     operation chosen from a fixed list of function names in the same file;
+  #   * scripts/policy.ex: String.to_existing_atom(sod), after the value was matched against a fixed
+  #     list of names.
+  # A new pair is a reviewed diff; a test pins this list and that each pair still raw-violates.
+  @rule_8_exemptions [
+    {"lib/letflow/modules/procurement/decisions.ex", {:d, "String.to_existing_atom"}},
+    {"lib/letflow/modules/procurement/router.ex", {:d, "apply"}},
+    {"lib/letflow/scripts/policy.ex", {:d, "String.to_existing_atom"}}
+  ]
+
+  @doc "The reviewed exemptions of Rule 8 clause d (see the comment above the attribute)."
+  @spec rule_8_exemptions() :: [{String.t(), {atom(), String.t()}}]
+  def rule_8_exemptions, do: @rule_8_exemptions
+
+  @doc "Drops the Rule 8 violations that `rule_8_exemptions/0` lists. Pure."
+  @spec apply_rule_8_exemptions([{String.t(), atom(), term()}]) :: [{String.t(), atom(), term()}]
+  def apply_rule_8_exemptions(violations) do
+    Enum.reject(violations, fn
+      {path, :rule_8, form} -> {path, form} in @rule_8_exemptions
+      _other -> false
+    end)
+  end
+
+  @doc "The files Rule 8 scans: module subdirectories, scripts and the WASM host code."
+  @spec rule_8_paths() :: [String.t()]
+  def rule_8_paths do
+    Enum.sort(
+      Path.wildcard("lib/letflow/modules/*/**/*.ex") ++
+        Path.wildcard("lib/letflow/scripts/**/*.ex") ++
+        Path.wildcard("lib/letflow/engine/wasm/**/*.ex")
+    )
+  end
+
+  @doc "The files the policy allowlist scans: every file under a module's `ledger_policy/`."
+  @spec policy_paths() :: [String.t()]
+  def policy_paths,
+    do: Enum.sort(Path.wildcard("lib/letflow/modules/*/ledger_policy/**/*.ex"))
+
+  @doc """
+  Rule 8 over `[{path, source}]`: `[{path, :rule_8, {clause, detail}}]`, clause `:a` to `:e`, or
+  `{path, :parse_error, detail}`. Pure. A file under `lib/letflow/ledger/` and the registration
+  module are skipped (exempt by construction).
+  """
+  @spec rule_8_violations([{String.t(), String.t()}]) :: [{String.t(), atom(), term()}]
+  def rule_8_violations(files) when is_list(files) do
+    files = Enum.reject(files, fn {path, _} -> rule_8_exempt_path?(path) end)
+    parsed = Enum.map(files, fn {path, source} -> {path, parse_source(source)} end)
+
+    defined =
+      for {path, {:ok, ast}} <- parsed, policy_file?(path), name <- defined_modules(ast), do: name
+
+    Enum.flat_map(parsed, fn
+      {path, {:error, detail}} ->
+        [{path, :parse_error, detail}]
+
+      {path, {:ok, ast}} ->
+        env = alias_env(ast)
+        {_, hits} = Macro.prewalk(ast, [], &rule_8_node(&1, &2, env))
+
+        hits =
+          if policy_file?(path),
+            do: hits ++ policy_reference_hits(ast, env, defined),
+            else: hits
+
+        hits |> Enum.uniq() |> Enum.map(&{path, :rule_8, &1})
+    end)
+  end
+
+  defp rule_8_exempt_path?(path) do
+    String.starts_with?(path, "lib/letflow/ledger/") or
+      path == "lib/letflow/modules/ledger_registration.ex"
+  end
+
+  defp policy_file?(path) do
+    case Path.split(path) do
+      ["lib", "letflow", "modules", _id, "ledger_policy" | _] -> true
+      _ -> false
+    end
+  end
+
+  defp parse_source(source) do
+    case Code.string_to_quoted(source, emit_warnings: false) do
+      {:ok, ast} ->
+        {:ok, ast}
+
+      {:error, {meta, message, token}} ->
+        line = if is_list(meta), do: Keyword.get(meta, :line), else: meta
+        {:error, "cannot parse (line #{inspect(line)}): #{inspect(message)}#{inspect(token)}"}
+    end
+  end
+
+  # File-wide alias table `short => [full parts]` (not lexically scoped: it can only flag more).
+  defp alias_env(ast) do
+    {_, env} = Macro.prewalk(ast, %{}, &collect_alias/2)
+    env
+  end
+
+  defp collect_alias({:alias, _, [{:__aliases__, _, parts} | rest]} = node, env) do
+    if Enum.all?(parts, &is_atom/1) do
+      short =
+        case rest do
+          [[as: {:__aliases__, _, [as]}]] when is_atom(as) -> as
+          _ -> List.last(parts)
+        end
+
+      {node, Map.put(env, short, parts)}
+    else
+      {node, env}
+    end
+  end
+
+  defp collect_alias(
+         {:alias, _, [{{:., _, [{:__aliases__, _, prefix}, :{}]}, _, subs}]} = node,
+         env
+       ) do
+    env =
+      Enum.reduce(subs, env, fn
+        {:__aliases__, _, sub}, acc ->
+          if Enum.all?(prefix ++ sub, &is_atom/1),
+            do: Map.put(acc, List.last(sub), prefix ++ sub),
+            else: acc
+
+        _other, acc ->
+          acc
+      end)
+
+    {node, env}
+  end
+
+  defp collect_alias(node, env), do: {node, env}
+
+  # The full dotted name of an alias node, or nil when a part is not a plain atom.
+  defp resolve_alias([first | rest] = parts, env) do
+    if Enum.all?(parts, &is_atom/1) do
+      full = Map.get(env, first, [first]) ++ rest
+      Enum.map_join(full, ".", &Atom.to_string/1)
+    end
+  end
+
+  defp resolve_alias(_parts, _env), do: nil
+
+  defp defined_modules(ast) do
+    {_, names} =
+      Macro.prewalk(ast, [], fn
+        {:defmodule, _, [{:__aliases__, _, parts} | _]} = node, acc ->
+          name = resolve_alias(parts, %{})
+          {node, if(name, do: [name | acc], else: acc)}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    names
+  end
+
+  # Clauses a to d.
+  defp rule_8_node({:__aliases__, _, parts} = node, acc, env) do
+    name = resolve_alias(parts, env)
+    {node, if(name in @rule_8_forged, do: [{:c, name} | acc], else: acc)}
+  end
+
+  defp rule_8_node({:%{}, _, kv} = node, acc, _env) when is_list(kv) do
+    # A bare variable as the value only binds a module in a pattern (exception tagging in the real
+    # tree); a literal or computed value builds or matches a chosen struct, which is refused.
+    forged_map? =
+      Enum.any?(kv, fn
+        {:__struct__, {name, _, ctx}} when is_atom(name) and is_atom(ctx) -> false
+        {:__struct__, _value} -> true
+        _other -> false
+      end)
+
+    {node, if(forged_map?, do: [{:c, "%{__struct__: ...}"} | acc], else: acc)}
+  end
+
+  # The same names written as atoms, `:"Elixir.Letflow.Ledger.Capability"`.
+  defp rule_8_node(atom, acc, _env) when is_atom(atom) and not is_nil(atom) do
+    case Atom.to_string(atom) do
+      "Elixir." <> name when name in @rule_8_forged -> {atom, [{:c, name} | acc]}
+      _other -> {atom, acc}
+    end
+  end
+
+  defp rule_8_node({kind, _, [{:__aliases__, _, parts} | _]} = node, acc, env)
+       when kind in [:import, :use, :require] do
+    name = resolve_alias(parts, env)
+
+    hit? =
+      is_binary(name) and name != @policy_module and
+        (name == "Letflow.Ledger" or String.starts_with?(name, "Letflow.Ledger."))
+
+    {node, if(hit?, do: [{:b, "#{kind} #{name}"} | acc], else: acc)}
+  end
+
+  defp rule_8_node({:apply, _, args} = node, acc, _env)
+       when is_list(args) and length(args) in [2, 3],
+       do: {node, [{:d, "apply"} | acc]}
+
+  defp rule_8_node({{:., _, [target, fun]}, _, _args} = node, acc, env) when is_atom(fun) do
+    {node, remote_hits(target, fun, env) ++ acc}
+  end
+
+  defp rule_8_node(node, acc, _env), do: {node, acc}
+
+  defp remote_hits(target, fun, env) do
+    case remote_module(target, env) do
+      nil -> remote_erlang_hits(target, fun)
+      name -> module_hits(name, fun)
+    end
+  end
+
+  # The dotted name of a call target written as an alias or as an Elixir module atom (the parser
+  # turns `x[:a]` into a call on the atom `Access`); nil for anything else.
+  defp remote_module({:__aliases__, _, parts}, env), do: resolve_alias(parts, env)
+
+  defp remote_module(atom, _env) when is_atom(atom) and not is_nil(atom) do
+    case Atom.to_string(atom) do
+      "Elixir." <> name -> name
+      _erlang -> nil
+    end
+  end
+
+  defp remote_module(_target, _env), do: nil
+
+  defp module_hits(name, fun) do
+    case name do
+      "Letflow.Ledger" ->
+        cond do
+          fun == :post -> [{:a, "Letflow.Ledger.post"}]
+          fun in @rule_8_reads -> []
+          true -> [{:b, "Letflow.Ledger.#{fun}"}]
+        end
+
+      "Letflow.Ledger.Capability" when fun == :mint ->
+        [{:a, "Letflow.Ledger.Capability.mint"}]
+
+      @policy_module ->
+        []
+
+      "Letflow.Ledger." <> _ = name ->
+        [{:b, "#{name}.#{fun}"}]
+
+      "Kernel" when fun == :apply ->
+        [{:d, "Kernel.apply"}]
+
+      "Module" when fun in [:concat, :safe_concat] ->
+        [{:d, "Module.#{fun}"}]
+
+      "String" when fun == :to_existing_atom ->
+        [{:d, "String.to_existing_atom"}]
+
+      _other ->
+        []
+    end
+  end
+
+  defp remote_erlang_hits(:erlang, :apply), do: [{:d, ":erlang.apply"}]
+  defp remote_erlang_hits(_target, _fun), do: []
+
+  # Clause e: a policy file may name only Letflow.Ledger.Policy and the modules its files define.
+  defp policy_reference_hits(ast, env, defined) do
+    {_, hits} =
+      Macro.prewalk(ast, [], fn
+        {:__aliases__, _, parts} = node, acc ->
+          name = resolve_alias(parts, env)
+
+          if is_binary(name) and String.starts_with?(name, "Letflow.") and name != @policy_module and
+               not defined_here?(name, defined),
+             do: {node, [{:e, name} | acc]},
+             else: {node, acc}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    hits
+  end
+
+  defp defined_here?(name, defined),
+    do: Enum.any?(defined, &(name == &1 or String.starts_with?(name, &1 <> ".")))
+
+  @policy_allowed ~w(Enum Map List String Integer Keyword MapSet Tuple Access Decimal) ++
+                    [@policy_module]
+  @policy_banned_calls [
+    {"String", :to_atom},
+    {"String", :to_existing_atom},
+    {"List", :to_atom},
+    {"List", :to_existing_atom}
+  ]
+  @policy_banned_locals [
+    :send,
+    :spawn,
+    :spawn_link,
+    :spawn_monitor,
+    :self,
+    :make_ref,
+    :node,
+    :apply
+  ]
+
+  @doc """
+  The policy allowlist over `[{path, source}]` (the caller selects the files, normally
+  `policy_paths/0`): `[{path, :policy_allowlist, detail}]` or `{path, :parse_error, detail}`. Pure.
+  Detail is `{:module, name}`, `{:erlang, atom}`, `{:call, "String.to_atom"}`, `{:local, name}` or
+  `:dynamic_call`.
+  """
+  @spec policy_violations([{String.t(), String.t()}]) :: [{String.t(), atom(), term()}]
+  def policy_violations(files) when is_list(files) do
+    parsed = Enum.map(files, fn {path, source} -> {path, parse_source(source)} end)
+    defined = for {_path, {:ok, ast}} <- parsed, name <- defined_modules(ast), do: name
+
+    Enum.flat_map(parsed, fn
+      {path, {:error, detail}} ->
+        [{path, :parse_error, detail}]
+
+      {path, {:ok, ast}} ->
+        env = alias_env(ast)
+        {_, hits} = Macro.prewalk(ast, [], &policy_node(&1, &2, env, defined))
+        hits |> Enum.uniq() |> Enum.map(&{path, :policy_allowlist, &1})
+    end)
+  end
+
+  defp policy_node({:__aliases__, _, parts} = node, acc, env, defined) do
+    name = resolve_alias(parts, env)
+
+    if is_binary(name) and name not in @policy_allowed and not defined_here?(name, defined),
+      do: {node, [{:module, name} | acc]},
+      else: {node, acc}
+  end
+
+  defp policy_node({:receive, _, _} = node, acc, _env, _defined),
+    do: {node, [{:local, :receive} | acc]}
+
+  defp policy_node({name, _, args} = node, acc, _env, _defined)
+       when name in @policy_banned_locals and is_list(args),
+       do: {node, [{:local, name} | acc]}
+
+  defp policy_node({:&, _, [{:/, _, [{name, _, ctx}, _arity]}]} = node, acc, _env, _defined)
+       when name in @policy_banned_locals and is_atom(ctx),
+       do: {node, [{:local, name} | acc]}
+
+  defp policy_node({{:., _, [target, fun]}, meta, _args} = node, acc, env, defined)
+       when is_atom(fun) do
+    {node, policy_remote(target, fun, meta, env, defined) ++ acc}
+  end
+
+  defp policy_node(node, acc, _env, _defined), do: {node, acc}
+
+  defp policy_remote({:__MODULE__, _, _}, _fun, _meta, _env, _defined), do: []
+
+  defp policy_remote(target, fun, meta, env, defined) do
+    case {remote_module(target, env), target} do
+      {name, _} when is_binary(name) ->
+        cond do
+          {name, fun} in @policy_banned_calls -> [{:call, "#{name}.#{fun}"}]
+          # an Elixir module atom (for example the `Access` of `x[:a]`) is judged like an alias
+          name in @policy_allowed or defined_here?(name, defined) -> []
+          true -> [{:module, name}]
+        end
+
+      {nil, atom} when is_atom(atom) and atom not in [nil, true, false] ->
+        [{:erlang, atom}]
+
+      _dynamic ->
+        # `map.field` carries no_parens: true; anything else is a call on a computed module.
+        if Keyword.get(meta, :no_parens, false), do: [], else: [:dynamic_call]
+    end
   end
 
   defp scan_tokens(source) do
