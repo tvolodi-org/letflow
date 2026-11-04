@@ -39,7 +39,8 @@ defmodule Letflow.Routers.Entities.RecordAttachments do
     do: RecordAccess.attachment(conn.assigns.auth_context.user_id, entity_type, prefix!(conn))
 
   # GH #2582: the WRITE routes (upload, delete) add the managed stamp; `:managed` is the same
-  # constant 403 as the record routes, decided before the record id is read.
+  # constant 403 as the record routes, decided before the record id is read. `:write_denied`
+  # (REQ-577, a write restriction without a grant) is the route-level constant 403.
   @spec record_attachment_write_access(Plug.Conn.t(), String.t()) ::
           RecordAccess.attachment_write_decision()
   defp record_attachment_write_access(conn, entity_type),
@@ -102,6 +103,9 @@ defmodule Letflow.Routers.Entities.RecordAttachments do
     case record_attachment_write_access(conn, entity_type) do
       :managed ->
         Response.send_problem(conn, Error.entity_type_managed())
+
+      :write_denied ->
+        Response.forbidden(conn, "insufficient permissions")
 
       access ->
         create_record_attachment_with_access(
@@ -404,6 +408,9 @@ defmodule Letflow.Routers.Entities.RecordAttachments do
     case record_attachment_write_access(conn, entity_type) do
       :managed ->
         Response.send_problem(conn, Error.entity_type_managed())
+
+      :write_denied ->
+        Response.forbidden(conn, "insufficient permissions")
 
       access ->
         delete_record_attachment_with_access(

@@ -70,6 +70,9 @@ defmodule Letflow.Routers.Entities.RecordWrites do
       :managed ->
         Response.send_problem(conn, Error.entity_type_managed())
 
+      :write_denied ->
+        Response.forbidden(conn, "insufficient permissions")
+
       access ->
         case write_type_gate(access, entity_type, scope, prefix) do
           {:ok, declaration} ->
@@ -226,6 +229,7 @@ defmodule Letflow.Routers.Entities.RecordWrites do
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> Response.send_problem(conn, Error.entity_type_managed())
+      :write_denied -> Response.forbidden(conn, "insufficient permissions")
       access -> update_record_with_access(conn, entity_type, raw_record_id, access, scope)
     end
   end
@@ -361,6 +365,7 @@ defmodule Letflow.Routers.Entities.RecordWrites do
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> Response.send_problem(conn, Error.entity_type_managed())
+      :write_denied -> Response.forbidden(conn, "insufficient permissions")
       access -> delete_record_with_access(conn, entity_type, raw_record_id, access, scope)
     end
   end

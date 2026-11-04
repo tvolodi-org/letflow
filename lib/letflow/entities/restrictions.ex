@@ -14,9 +14,16 @@ defmodule Letflow.Entities.Restrictions do
   module (any named type the caller is denied is a constant 403 and nothing is written); this
   module itself stays ungated for system callers. `entity_types/1` names the types a body carries.
 
+  REQ-577 / GH #3261 (decision 0070 D2, slice A) adds two more optional lists, `write_restrictions`
+  and `write_grants`, into `entity_type_write_restrictions` and `user_entity_type_write_grants`
+  (`Letflow.Entities.WriteAccess`). Their counts and the `write_lost` report (users who lose write
+  ability, see `WriteAccess.lost_writers/2`) appear in the result ONLY when the body carried the
+  corresponding key, so a request without them gets exactly the old result. The route refuses a
+  module-managed type in these lists before calling this module; this module stays ungated.
+
   Public functions: `import_restrictions/2`: a per-table upsert
   (`on_conflict: :nothing` against each table's existing unique index) for
-  up to four caller-supplied row lists -- `field_restrictions`,
+  up to four (six since REQ-577) caller-supplied row lists -- `field_restrictions`,
   `field_grants`, `type_restrictions`, `type_grants`. An absent (or empty)
   list for a given table is "insert nothing for that table," never an
   error.
@@ -57,6 +64,7 @@ defmodule Letflow.Entities.Restrictions do
   change is a worse failure mode than a half-applied content import).
   """
 
+  alias Letflow.Entities.WriteAccess
   alias Letflow.Identity.User
   alias Letflow.Repo
 
@@ -65,21 +73,41 @@ defmodule Letflow.Entities.Restrictions do
 
   @typedoc "Per-table inserted-row counts (an on_conflict:-matched row is not counted)."
   @type counts :: %{
-          field_restrictions: non_neg_integer(),
-          field_grants: non_neg_integer(),
-          type_restrictions: non_neg_integer(),
-          type_grants: non_neg_integer()
+          required(:field_restrictions) => non_neg_integer(),
+          required(:field_grants) => non_neg_integer(),
+          required(:type_restrictions) => non_neg_integer(),
+          required(:type_grants) => non_neg_integer(),
+          optional(:write_restrictions) => non_neg_integer(),
+          optional(:write_grants) => non_neg_integer(),
+          optional(:write_lost) => [%{String.t() => term()}],
+          optional(:write_lost_truncated) => boolean()
         }
 
+  @write_keys ["write_restrictions", "write_grants"]
+
   @doc """
-  The distinct binary `"entity_type"` values named by the entries of the four row lists of
+  The distinct binary `"entity_type"` values named by the entries of the six row lists of
   `attrs` (GH #2808: the route gates the request on these via `TypeAccess.denied_types/3`). A
   non-list list value, a non-map entry or a non-binary `entity_type` contributes nothing; the row
   validation of `import_restrictions/2` answers those with 422.
   """
   @spec entity_types(attrs :: map()) :: [String.t()]
   def entity_types(attrs) when is_map(attrs) do
-    ["field_restrictions", "field_grants", "type_restrictions", "type_grants"]
+    types_of(
+      attrs,
+      ["field_restrictions", "field_grants", "type_restrictions", "type_grants"] ++ @write_keys
+    )
+  end
+
+  @doc """
+  The distinct binary `"entity_type"` values of the two write lists of `attrs` (REQ-577): the types
+  the route checks for module ownership before anything is stored.
+  """
+  @spec write_entity_types(attrs :: map()) :: [String.t()]
+  def write_entity_types(attrs) when is_map(attrs), do: types_of(attrs, @write_keys)
+
+  defp types_of(attrs, keys) do
+    keys
     |> Enum.flat_map(fn key ->
       case Map.get(attrs, key) do
         rows when is_list(rows) -> rows
@@ -108,6 +136,8 @@ defmodule Letflow.Entities.Restrictions do
     field_grants = Map.get(attrs, "field_grants", [])
     type_restrictions = Map.get(attrs, "type_restrictions", [])
     type_grants = Map.get(attrs, "type_grants", [])
+    write_restrictions = Map.get(attrs, "write_restrictions", [])
+    write_grants = Map.get(attrs, "write_grants", [])
 
     errors =
       validate_rows("field_restrictions", field_restrictions, [:entity_type, :field_name], prefix) ++
@@ -118,7 +148,9 @@ defmodule Letflow.Entities.Restrictions do
           prefix
         ) ++
         validate_rows("type_restrictions", type_restrictions, [:entity_type], prefix) ++
-        validate_rows("type_grants", type_grants, [:user_id, :entity_type], prefix)
+        validate_rows("type_grants", type_grants, [:user_id, :entity_type], prefix) ++
+        validate_rows("write_restrictions", write_restrictions, [:entity_type], prefix) ++
+        validate_rows("write_grants", write_grants, [:user_id, :entity_type], prefix)
 
     if errors == [] do
       now = NaiveDateTime.utc_now()
@@ -162,10 +194,76 @@ defmodule Letflow.Entities.Restrictions do
           )
       }
 
-      {:ok, counts}
+      {:ok, put_write_results(counts, attrs, write_restrictions, write_grants, now, prefix)}
     else
       {:error, {:invalid_rows, errors}}
     end
+  end
+
+  # REQ-577: the write lists are inserted, and reported, only when the body carried their key.
+  # The report is computed after both inserts, so a grant of the same request keeps its user out.
+  defp put_write_results(counts, attrs, write_restrictions, write_grants, now, prefix) do
+    counts =
+      if Map.has_key?(attrs, "write_restrictions") do
+        {count, new_types} = insert_new_types(write_restrictions, now, prefix)
+        counts |> Map.put(:write_restrictions, count) |> Map.put(:new_write_types, new_types)
+      else
+        counts
+      end
+
+    counts =
+      if Map.has_key?(attrs, "write_grants") do
+        Map.put(
+          counts,
+          :write_grants,
+          insert_rows(
+            "user_entity_type_write_grants",
+            write_grants,
+            [:user_id, :entity_type],
+            [:user_id, :entity_type],
+            now,
+            prefix
+          )
+        )
+      else
+        counts
+      end
+
+    case Map.pop(counts, :new_write_types) do
+      {nil, counts} ->
+        counts
+
+      {new_types, counts} ->
+        {:ok, lost, truncated?} = WriteAccess.lost_writers(new_types, prefix)
+
+        report =
+          lost
+          |> Enum.chunk_by(fn {_user_id, type} -> type end)
+          |> Enum.map(fn [{_u, type} | _] = group ->
+            %{
+              "entity_type" => type,
+              "user_ids" => Enum.map(group, fn {user_id, _t} -> user_id end)
+            }
+          end)
+
+        counts |> Map.put(:write_lost, report) |> Map.put(:write_lost_truncated, truncated?)
+    end
+  end
+
+  defp insert_new_types([], _now, _prefix), do: {0, []}
+
+  defp insert_new_types(rows, now, prefix) do
+    entries = Enum.map(rows, &row_to_entry(&1, [:entity_type], now))
+
+    {count, inserted} =
+      Repo.insert_all("entity_type_write_restrictions", entries,
+        on_conflict: :nothing,
+        conflict_target: [:entity_type],
+        returning: [:entity_type],
+        prefix: prefix
+      )
+
+    {count, Enum.map(inserted, & &1.entity_type)}
   end
 
   # ── Validation ──────────────────────────────────────────────────────────

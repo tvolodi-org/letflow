@@ -260,4 +260,81 @@ defmodule Letflow.Entities.RecordAccessTest do
       assert calls == [{Letflow.Entities.TypeAccess, :authorized?, 3}]
     end
   end
+
+  describe "write restriction (REQ-577, W10)" do
+    defp write_restrict!(schema, type) do
+      Repo.insert_all(
+        "entity_type_write_restrictions",
+        [
+          %{
+            id: Ecto.UUID.bingenerate(),
+            entity_type: type,
+            inserted_at: NaiveDateTime.utc_now(),
+            updated_at: NaiveDateTime.utc_now()
+          }
+        ],
+        prefix: schema
+      )
+    end
+
+    defp write_grant!(schema, user_id, type) do
+      Repo.insert_all(
+        "user_entity_type_write_grants",
+        [
+          %{
+            id: Ecto.UUID.bingenerate(),
+            user_id: Ecto.UUID.dump!(user_id),
+            entity_type: type,
+            inserted_at: NaiveDateTime.utc_now()
+          }
+        ],
+        prefix: schema
+      )
+    end
+
+    test "precedence hidden > managed > write_denied > open", ctx do
+      write_restrict!(ctx.schema, "customer")
+      assert RecordAccess.write(ctx.user_id, "customer", ctx.schema) == :write_denied
+
+      write_grant!(ctx.schema, ctx.user_id, "customer")
+      assert RecordAccess.write(ctx.user_id, "customer", ctx.schema) == {:open, MapSet.new()}
+
+      # a write grant never opens a type TypeAccess denies
+      insert_type_restriction!(ctx.schema, "customer")
+      assert RecordAccess.write(ctx.user_id, "customer", ctx.schema) == :hidden
+
+      # managed beats write_denied
+      EntityWritesFixture.install_managed_fixture!(ctx.schema)
+      write_restrict!(ctx.schema, "fxm_unit")
+      assert RecordAccess.write(ctx.user_id, "fxm_unit", ctx.schema) == :managed
+    end
+
+    test "attachment_write/3 follows the same precedence", ctx do
+      assert RecordAccess.attachment_write(ctx.user_id, "customer", ctx.schema) == :open
+      write_restrict!(ctx.schema, "customer")
+      assert RecordAccess.attachment_write(ctx.user_id, "customer", ctx.schema) == :write_denied
+      write_grant!(ctx.schema, ctx.user_id, "customer")
+      assert RecordAccess.attachment_write(ctx.user_id, "customer", ctx.schema) == :open
+      insert_type_restriction!(ctx.schema, "customer")
+      assert RecordAccess.attachment_write(ctx.user_id, "customer", ctx.schema) == :hidden
+      assert RecordAccess.attachment_write(ctx.user_id, "customer", "no_such_schema") == :hidden
+    end
+
+    test "write/3 makes the fifth read after the four gate calls", ctx do
+      write_restrict!(ctx.schema, "customer")
+      all = @gate_calls ++ [{Letflow.Entities.WriteAccess, :authorized?, 3}]
+      Code.ensure_loaded!(Letflow.Entities.WriteAccess)
+
+      tracer = spawn_link(fn -> tracer_loop([]) end)
+      for mfa <- all, do: :erlang.trace_pattern(mfa, true, [])
+      :erlang.trace(self(), true, [:call, {:tracer, tracer}])
+      RecordAccess.write(ctx.user_id, "customer", ctx.schema)
+      :erlang.trace(self(), false, [:call])
+      for mfa <- all, do: :erlang.trace_pattern(mfa, false, [])
+      send(tracer, {:collect, self()})
+
+      assert_receive {:calls, calls}, 5_000
+      assert calls == all
+    end
+  end
 end

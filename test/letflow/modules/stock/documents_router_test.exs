@@ -310,7 +310,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
             "limit=0",
             "limit=101",
             "limit=abc",
-            "state=posted",
+            "state=nope",
             "kind=issue",
             "org_unit_id=nope",
             "cursor=garbage",
@@ -327,7 +327,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
       D.request(:post, "/documents/#{doc["id"]}/issue", ctx.tok_a)
 
       assert doc |> Map.keys() |> Enum.sort() ==
-               ~w(counterparty_id event_time header_id id issued_at kind lines location_id note number org_unit_id responsible_id state)
+               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posting_check responsible_id reversed_at reversed_by state)
 
       assert doc["lines"] |> hd() |> Map.keys() |> Enum.sort() ==
                ~w(catalog_item_id catalog_lot_id catalog_uom_id line_id line_no quantity)
@@ -503,6 +503,9 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
         {:put, "/documents/#{id}", D.body(ctx.ma)},
         {:delete, "/documents/#{id}", nil},
         {:post, "/documents/#{id}/issue", nil},
+        {:post, "/documents/#{id}/post", nil},
+        {:post, "/documents/#{id}/reverse", %{"reason_code" => "wrong_document"}},
+        {:post, "/documents/#{id}/cancel", %{"reason" => "x"}},
         {:get, "/documents", nil},
         {:get, "/documents/#{id}", nil}
       ]
@@ -532,6 +535,9 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
             {:put, "/documents/#{id}", D.body(ctx.ma)},
             {:delete, "/documents/#{id}", nil},
             {:post, "/documents/#{id}/issue", nil},
+            {:post, "/documents/#{id}/post", nil},
+            {:post, "/documents/#{id}/reverse", %{"reason_code" => "wrong_document"}},
+            {:post, "/documents/#{id}/cancel", %{"reason" => "x"}},
             {:get, "/documents", nil},
             {:get, "/documents/#{id}", nil}
           ] do
@@ -555,7 +561,10 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
             {:get, "", nil},
             {:put, "", D.body(ctx.mb)},
             {:delete, "", nil},
-            {:post, "/issue", nil}
+            {:post, "/issue", nil},
+            {:post, "/post", nil},
+            {:post, "/reverse", %{"reason_code" => "wrong_document"}},
+            {:post, "/cancel", %{"reason" => "x"}}
           ] do
         conn = D.request(method, "/documents/#{id}" <> suffix, ctx.tok_b, body)
         assert conn.status == 404, "#{method} #{id}#{suffix}"
@@ -570,6 +579,16 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
       D.request(:put, "/documents/#{doc["id"]}", ctx.tok_b, D.body(ctx.mb)) |> status!(404)
       D.request(:delete, "/documents/#{doc["id"]}", ctx.tok_b) |> status!(404)
       D.request(:post, "/documents/#{doc["id"]}/issue", ctx.tok_b) |> status!(404)
+      D.request(:post, "/documents/#{doc["id"]}/post", ctx.tok_b) |> status!(404)
+
+      D.request(:post, "/documents/#{doc["id"]}/reverse", ctx.tok_b, %{
+        "reason_code" => "wrong_document"
+      })
+      |> status!(404)
+
+      D.request(:post, "/documents/#{doc["id"]}/cancel", ctx.tok_b, %{"reason" => "x"})
+      |> status!(404)
+
       assert D.request(:get, "/documents/#{doc["id"]}", ctx.tok_a) |> status!(200) == before
 
       assert (D.request(:get, "/documents", ctx.tok_b) |> status!(200))["rows"] == []
