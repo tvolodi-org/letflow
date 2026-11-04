@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { THEME_STORAGE_KEY, currentTheme, readStoredTheme, setTheme } from '../theme'
@@ -29,8 +29,7 @@ describe('theme', () => {
     const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1]
     expect(script).toBeTruthy()
     expect(script).toContain(`'${THEME_STORAGE_KEY}'`)
-    // the script must come before any stylesheet and the module entry
-    expect(html.indexOf('<script>')).toBeLessThan(html.indexOf('stylesheet'))
+    // the script must come before the module entry (styles are imported by it; no external stylesheet link)
     expect(html.indexOf('<script>')).toBeLessThan(html.indexOf('src="/src/main.tsx"'))
 
     window.localStorage.setItem(THEME_STORAGE_KEY, 'dark')
@@ -46,10 +45,14 @@ describe('theme', () => {
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
   })
 
-  it('index.html preconnects and loads Geologica, Onest and IBM Plex Mono', () => {
+  it('index.html names no external font host; the self-hosted @font-face rules cover the three families', () => {
     const html = readFileSync(join(__dirname, '../../../index.html'), 'utf8')
-    expect(html).toContain('rel="preconnect" href="https://fonts.googleapis.com"')
-    expect(html).toContain('rel="preconnect" href="https://fonts.gstatic.com"')
-    for (const f of ['Geologica', 'Onest', 'IBM+Plex+Mono']) expect(html).toContain(`family=${f}`)
+    expect(html).not.toMatch(/fonts\.(googleapis|gstatic)\.com/)
+    const css = readFileSync(join(__dirname, '../../styles/components.css'), 'utf8')
+    expect(css).not.toMatch(/fonts\.(googleapis|gstatic)\.com/)
+    for (const f of ['Geologica', 'Onest', 'IBM Plex Mono']) expect(css).toContain(`font-family: '${f}'`)
+    for (const m of css.matchAll(/url\("\.\.\/fonts\/([^"]+\.woff2)"\)/g)) {
+      expect(existsSync(join(__dirname, '../../fonts', m[1]))).toBe(true)
+    }
   })
 })
