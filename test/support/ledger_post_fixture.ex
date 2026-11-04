@@ -87,6 +87,11 @@ defmodule Letflow.LedgerPostFixture do
         rationale: "REQ-685 fixture"
       )
 
+    # REQ-710: the posting path never makes partitions.
+    for ledger_id <- ["fixture_ledger_post", "fixture_ledger_post:beta"] do
+      Letflow.LedgerFixture.ensure_storage!(schema, ledger_id)
+    end
+
     {:ok, _active} =
       Letflow.Entities.Definitions.activate_definition(
         "fxlp_note",
