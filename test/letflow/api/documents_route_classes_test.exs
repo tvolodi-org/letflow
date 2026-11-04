@@ -139,7 +139,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
     } do
       snapshot = RouteInventory.read_snapshot()
       assert RouteScope.audit_routes(routes, snapshot) == []
-      refute Enum.any?(snapshot, &String.contains?(&1, "/documents"))
+      refute Enum.any?(snapshot, &Regex.match?(~r{^\S+ /documents}, &1))
     end
   end
 

@@ -1,0 +1,20 @@
+{
+  "name": "stock_receipt_line",
+  "display_name": "Stock receipt (line)",
+  "description": "GH #3749 / REQ-712, docs/assets/stock-workflow-documents.md sections 1.4 and 9.3. One line of a stock receipt. header_id is the record_id of the stock_receipt header (not the document id); the foreign_keys entry fk_stock_receipt_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict). catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (another pack: no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+  "fields": [
+    {"name": "header_id", "type": "string", "required": true, "queried": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "line_no", "type": "integer", "required": true},
+    {"name": "catalog_item_id", "type": "string", "required": true},
+    {"name": "catalog_uom_id", "type": "string", "required": true},
+    {"name": "catalog_lot_id", "type": "string"},
+    {"name": "quantity", "type": "decimal", "required": true, "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_stock_receipt_line_header_id", "field": "header_id", "references_entity": "stock_receipt"}
+  ],
+  "indexes": [
+    {"name": "idx_stock_receipt_line_header_id", "fields": ["header_id"]}
+  ]
+}
