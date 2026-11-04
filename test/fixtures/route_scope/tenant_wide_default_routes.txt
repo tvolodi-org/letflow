@@ -4,6 +4,7 @@ DELETE /entity-type-hooks/:entity_type EntityTypeHooksManage
 DELETE /instances/:id/attachments/:attachment_id AttachmentsManage
 DELETE /integration-mappings/:id IntegrationMappingsManage
 DELETE /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
+DELETE /modules/stock/documents/:id StockPost
 DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
 DELETE /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 DELETE /script-rules/:key/versions/:version ScriptsWrite
@@ -41,6 +42,8 @@ GET /modules/stock/balances StockRead
 GET /modules/stock/counts StockRead
 GET /modules/stock/counts/:id StockRead
 GET /modules/stock/counts/:id/document StockRead
+GET /modules/stock/documents StockRead
+GET /modules/stock/documents/:id StockRead
 GET /modules/stock/movements StockRead
 GET /modules/stock/reconcile StockReconcile
 GET /onboarding TenantsManage
@@ -144,6 +147,8 @@ POST /modules/procurement/purchase-requests/:id/submit ProcurementRequestWrite
 POST /modules/stock/counts StockCountOrder
 POST /modules/stock/counts/:id/cancel StockCountOrder
 POST /modules/stock/counts/:id/issue StockCountOrder
+POST /modules/stock/documents StockPost
+POST /modules/stock/documents/:id/issue StockPost
 POST /onboarding TenantsManage
 POST /onboarding/:id/bind-realm TenantsManage
 POST /platform-migrations/rollouts TenantsManage
@@ -190,6 +195,7 @@ PUT /integration-mappings/:id IntegrationMappingsManage
 PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
 PUT /modules/stock/counts/:id StockCountOrder
+PUT /modules/stock/documents/:id StockPost
 PUT /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 PUT /script-policy/kill-switch ScriptPolicyManage
 PUT /script-policy/readable-masters/:entity_type ScriptPolicyManage

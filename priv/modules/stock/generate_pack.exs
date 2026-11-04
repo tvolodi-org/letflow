@@ -1,5 +1,5 @@
 # Generates priv/modules/stock/pack.json from the entity-definition documents under
-# priv/modules/stock/entity_definitions/ (REQ-700 / GH #3737). Same provenance choice as the exam
+# priv/modules/stock/entity_definitions/ (GH #3749 / REQ-712, GH #3737 / REQ-700). Same provenance choice as the exam
 # pack (priv/modules/exam/generate_pack.exs): pack.json is committed and this script is the only
 # thing that may write it. A drift-guard test that re-reads the sources and compares is at
 # test/letflow/modules/stock/pack_drift_test.exs.
@@ -13,7 +13,11 @@ definitions_dir = Path.join(pack_dir, "entity_definitions")
 
 # Emitted order; install is order-insensitive, activation order is on_install/3's list.
 entity_types = ~w(
-  count_order count_order_scope count_commission_member
+  stock_receipt
+  stock_receipt_line
+  count_order
+  count_order_scope
+  count_commission_member
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole

@@ -1,8 +1,12 @@
 defmodule Letflow.Modules.Stock.PackDriftTest do
   @moduledoc """
-  REQ-700 / GH #3737 (P-DRIFT): `pack.json` is the committed output of `priv/modules/stock/generate_pack.exs`;
-  this test re-reads the sources and proves the pack says exactly what they say (definition, content-derived
-  id, logical-shape digest). Pure file reads, no database.
+  GH #3749 / REQ-712 criterion 1 (extended by REQ-700 / GH #3737 with the count types) (tests P-01..P-04): the drift guard named
+  in the header of `priv/modules/stock/generate_pack.exs`. `pack.json` is committed output of that
+  script; this test re-reads the source document and proves the committed pack still says
+  exactly what they say: `definition_json` equal to the decoded source, the content-derived
+  `entity_definition_id`, and the logical-shape digest.
+
+  Pure file reads plus the pure `Shape.logical_shape_of/1`: no database. `async: true`.
   """
 
   use ExUnit.Case, async: true
@@ -11,13 +15,16 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
   alias Letflow.Entities.Definition.Shape
 
   @dir Path.join([File.cwd!(), "priv", "modules", "stock"])
-  @types ~w(count_order count_order_scope count_commission_member)
+  @types ~w(stock_receipt stock_receipt_line count_order count_order_scope count_commission_member)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 
   defp source(type),
     do: @dir |> Path.join("entity_definitions/#{type}.json") |> File.read!() |> Jason.decode!()
 
+  defp entry(type), do: Enum.find(pack()["entity_definitions"], &(&1["name"] == type))
+
+  # Same derivation as the generator: a SHA-256 prefix laid out as UUID text.
   defp expected_id(type) do
     h =
       :crypto.hash(:sha256, "letflow-stock:" <> type)
@@ -36,28 +43,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
     )
   end
 
-  test "P-DRIFT the pack lists exactly the three types, in the activation order" do
-    assert Enum.map(pack()["entity_definitions"], & &1["name"]) == @types
-    assert pack()["pack_id"] == "letflow-stock"
-    assert pack()["manifest"] == %{"required_roles" => []}
-  end
-
-  for type <- @types do
-    test "P-DRIFT #{type}: definition, id and digest equal the source" do
-      type = unquote(type)
-      entry = Enum.find(pack()["entity_definitions"], &(&1["name"] == type))
-      raw = source(type)
-      assert entry["definition_json"] == raw
-      assert entry["entity_definition_id"] == expected_id(type)
-
-      atomised = atomise(raw)
-      assert :ok = Letflow.Entities.Definition.Validator.validate(atomised)
-
-      assert entry["logical_shape_version"] ==
-               atomised |> Shape.logical_shape_of() |> Base.encode16(case: :lower)
-    end
-  end
-
+  # Atom-keyed Definition document from the source JSON (the keys and types the location document uses).
   defp atomise(raw) do
     raw
     |> Map.new(fn {k, v} -> {String.to_existing_atom(k), v} end)
@@ -67,21 +53,59 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
         Map.update!(f, :type, &String.to_existing_atom/1)
       end)
     end)
-    |> atomise_list(:foreign_keys)
-    |> atomise_list(:indexes)
+    |> maybe_update(:indexes, fn ix -> Enum.map(ix, &atom_keys/1) end)
+    |> maybe_update(:foreign_keys, fn fks -> Enum.map(fks, &atom_keys/1) end)
+    |> maybe_update(:constraints, fn cs ->
+      Enum.map(cs, fn c -> c |> atom_keys() |> Map.update!(:type, &String.to_existing_atom/1) end)
+    end)
   end
 
-  defp atomise_list(doc, key) do
-    case Map.fetch(doc, key) do
-      {:ok, list} ->
-        Map.put(
-          doc,
-          key,
-          Enum.map(list, &Map.new(&1, fn {k, v} -> {String.to_existing_atom(k), v} end))
-        )
+  defp maybe_update(map, key, fun) do
+    if Map.has_key?(map, key), do: Map.update!(map, key, fun), else: map
+  end
 
-      :error ->
-        doc
+  defp atom_keys(map), do: Map.new(map, fn {k, v} -> {String.to_existing_atom(k), v} end)
+
+  test "P-01: the pack holds exactly the five entity definitions, in the source set, and nothing else" do
+    document = pack()
+
+    assert document["pack_id"] == "letflow-stock"
+
+    assert document["entity_definitions"] |> Enum.map(& &1["name"]) |> Enum.sort() ==
+             Enum.sort(@types)
+
+    assert document["definitions"] == []
+    assert document["variable_schemas"] == []
+    assert document["service_catalog_entries"] == []
+    assert document["manifest"] == %{"required_roles" => []}
+  end
+
+  test "P-02: every packed definition_json equals the decoded source document" do
+    for type <- @types do
+      entry = entry(type)
+
+      assert entry["definition_json"] == source(type),
+             "#{type}: pack.json drifted from its source"
+
+      assert entry["display_name"] == source(type)["display_name"]
+    end
+  end
+
+  test "P-03: every entity_definition_id is the content-derived id, so regeneration is stable" do
+    for type <- @types do
+      assert entry(type)["entity_definition_id"] == expected_id(type)
+    end
+
+    ids = Enum.map(pack()["entity_definitions"], & &1["entity_definition_id"])
+    assert ids == Enum.uniq(ids)
+  end
+
+  test "P-04: every logical_shape_version is the digest of the source's logical shape" do
+    for type <- @types do
+      digest =
+        type |> source() |> atomise() |> Shape.logical_shape_of() |> Base.encode16(case: :lower)
+
+      assert entry(type)["logical_shape_version"] == digest, "#{type}: shape digest drifted"
     end
   end
 end

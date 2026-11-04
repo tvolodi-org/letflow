@@ -439,8 +439,9 @@ names the GH issue or the code that holds it; paths are cited without line numbe
    QA fixture installs the module (`docs/migration/decisions/0073-domain-neutral-ledger-primitive.md`).
 3. **OQ-13 and OQ-23 are not decided.** There is no serial slot and no warehouse or zone scoping of
    postings; serial-tracked goods stay out of the pilot (GH #3707).
-4. **No posting path in the product yet.** The stock documents of REQ-679 are not built, so nothing posts
-   to ledger id `stock`; the SERVICE origin is refused until slice L5 (REQ-688, GH #3705).
+4. **Nothing posts until REQ-713.** The stock documents of REQ-679 exist as drafts and issued documents (REQ-712,
+   GH #3749), but no posting path is built, so nothing posts to ledger id `stock`; the SERVICE origin is refused until
+   slice L5 (REQ-688, GH #3705).
 5. **API tokens get 404 from every read route; a scoped reader reads its own units.** `Letflow.Ledger.authorize/3`
    answers `:error` for an API token. A reader granted on org units (REQ-682, REQ-693) gets the balances and
    movements of those units only; the query key `scope_subtree` (one org unit id) narrows to a subtree and
@@ -454,8 +455,11 @@ names the GH issue or the code that holds it; paths are cited without line numbe
    on `next_cursor` until it is null, and only the last result carries `chain_check` and `audit_check`
    (`lib/letflow/ledger/reconcile.ex`). A statement timeout is 503 `ledger_read_timeout`, a busy lock 409
    `reconcile_busy`.
-8. **No export of ledger data.** CSV or XLSX export and its cell neutralisation are a later requirement
-   (REQ-677, GH #3707).
+8. **Export is one page per xlsx file.** `format=xlsx` on `balances` and `movements` renders the page the JSON answer
+   holds (follow `next_cursor` for the next file); the `report` sheet gives the time basis and a note that a balance
+   as of a time before an opening posting shows no opening quantity (decision 0079 D1). The movements file has
+   no `ledger_seq` (GATE B open question) and its timezone is Asia/Almaty (assumption, owner may change at GATE B)
+   (GH #3772, `lib/letflow/modules/stock/xlsx_export.ex`).
 9. **The T-LD-1 throughput floor is a pilot condition.** The floor of note 7.6 (REQ-686 criterion 9) is not
    checked by this module (`lib/letflow/design/gh2657-wms-stock-ledger-core.md`, GH #3707).
 10. **Event time of an entry follows the core rule.** The policy ignores an `event_time` key; the entry time
@@ -466,3 +470,16 @@ names the GH issue or the code that holds it; paths are cited without line numbe
 12. **Assumptions, owner may change at GATE B:** the default tenant time zone Asia/Almaty, the speed-test
     volumes and p95 targets, the 96-hour lateness, the six causes and the slot order
     `sku, location, org_unit, responsible, lot` (`lib/letflow/modules/stock/stock.ex`).
+13. **Master checks of a document run at issue only.** `POST /api/v1/modules/stock/documents/:id/issue` checks the
+    link of org unit and location, the employee, the counterparty and each line's unit and lot
+    (`lib/letflow/modules/stock/documents/checks.ex`); a master retired between issue and posting is not caught
+    until the ledger's own master validation, slice L7 (decision 0073 D6, GH #3749).
+14. **Scoped principals and API tokens get 404 from the document routes.** The six routes of
+    `lib/letflow/modules/stock/router.ex` under `/documents` serve an interactive tenant-wide principal only, the
+    guard is `lib/letflow/modules/stock/access.ex`; scoped posting (L6) is not part of phase B (GH #3749).
+15. **Document defaults are owner-changeable at GATE B.** Receipt numbered per year with prefix RCP and pad 6, no
+    legal entity, at most 100 lines, the responsible employee not bound to the org unit, no approval step, the
+    org unit of a draft cannot change (discard and create anew) (`lib/letflow/modules/stock/documents.ex`, GH #3749).
+16. **Installing the new version is an explicit step.** Version 0.2.0 of the module adds the two record types and the
+    document type `stock_receipt`; a tenant that installed 0.1.0 takes them through the module upgrade path
+    (`lib/letflow/modules/tenant_module_upgrade.ex`), no tenant is upgraded or seeded by the change (GH #3749).

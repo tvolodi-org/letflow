@@ -3,7 +3,7 @@ Code.require_file("../org/org_fixture.exs", __DIR__)
 
 defmodule Letflow.CountsFixture do
   @moduledoc """
-  REQ-700 / GH #3737: shared setup of the count order tests. A tenant with `org`, `locations` and
+  REQ-700 / GH #3737: shared setup of the count order tests. A tenant with `org`, `catalog_items`, `locations` and
   `stock` installed through the real install router, an org unit with a chair (an employee linked to
   a user), members, and a small location tree linked to the unit:
 
@@ -21,6 +21,7 @@ defmodule Letflow.CountsFixture do
   @doc "A sandboxed tenant (DataCase) with org, locations and stock installed."
   def tenant! do
     t = L.installed_tenant!("req700")
+    L.install_module!(t.tenant_id, "catalog_items")
     L.install_module!(t.tenant_id, "stock")
     t
   end
@@ -34,7 +35,7 @@ defmodule Letflow.CountsFixture do
 
   @doc "Installs org, locations and stock in a tenant built by another fixture."
   def install_all!(tenant_id) do
-    for m <- ["org", "locations", "stock"], do: L.install_module!(tenant_id, m)
+    for m <- ["org", "catalog_items", "locations", "stock"], do: L.install_module!(tenant_id, m)
     :ok
   end
 

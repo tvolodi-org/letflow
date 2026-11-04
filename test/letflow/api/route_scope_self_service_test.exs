@@ -490,8 +490,9 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       # REQ-565 (GH #3201) added the five integration-mappings lines (123).
       # REQ-633 (GH #3530) added the entity-type-hooks dry-run line (160).
       # GH #3610 (REQ-668) added the three catalog_items lot lines and GH #3611 (REQ-667) the five codes write lines (183 -> 191).
-      # REQ-700 (GH #3737) added the seven stock count lines (194 -> 201).
-      assert length(snapshot) == 201
+      # REQ-712 (GH #3749) added the six stock document lines (194 -> 200).
+      # REQ-700 (GH #3737) added the seven stock count lines (200 -> 207).
+      assert length(snapshot) == 207
 
       for l <- @removed_lines, do: refute(l in snapshot, l)
     end

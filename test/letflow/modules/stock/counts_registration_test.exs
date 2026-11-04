@@ -27,7 +27,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
     refute :StockCountRecord in m.permissions
     assert m.role_grants == %{}
 
-    assert m.manages_entity_types == [
+    assert Enum.take(m.manages_entity_types, -3) == [
              "count_order",
              "count_order_scope",
              "count_commission_member"
@@ -35,7 +35,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
 
     assert Map.values(m.scope_declarations) |> Enum.uniq() == [{:column, "org_unit_id"}]
     assert Map.keys(m.scope_declarations) |> Enum.sort() == Enum.sort(m.manages_entity_types)
-    assert m.depends_on == ["org", "locations"]
+    assert m.depends_on == ["catalog_items", "locations", "org"]
 
     for {_method, _path, permission} <- m.route_policies,
         do: assert(permission in m.permissions)
@@ -51,7 +51,10 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
         prefix: s
       )
 
-    assert Enum.filter(rows, &(elem(&1, 1) == "stock")) ==
+    assert Enum.filter(
+             rows,
+             &(elem(&1, 1) == "stock" and String.starts_with?(elem(&1, 0), "count_"))
+           ) ==
              Enum.map(
                ~w(count_commission_member count_order count_order_scope),
                &{&1, "stock", :active}
@@ -76,7 +79,11 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
       assert conn.status == 403 and conn.resp_body =~ "entity_type_managed", type
     end
 
-    types = Repo.all(from(d in DocumentType, order_by: d.key), prefix: s)
+    types =
+      Repo.all(
+        from(d in DocumentType, where: like(d.key, "count.%"), order_by: d.key),
+        prefix: s
+      )
 
     assert Enum.map(types, &{&1.key, &1.number_prefix}) ==
              [
@@ -109,6 +116,6 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
       assert {:ok, _} = Letflow.Documents.register_type(s, attrs, ctx)
     end
 
-    assert length(Repo.all(DocumentType, prefix: s)) == 4
+    assert length(Repo.all(DocumentType, prefix: s)) == 5
   end
 end

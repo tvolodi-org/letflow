@@ -10,6 +10,26 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /movements` | `StockRead` | `authorize(:read)`, `entries/3` | `rows, next_cursor` |
   | `GET /reconcile` | `StockReconcile` | `authorize(:reconcile)`, `reconcile/2` | `ledger_id, checked_through_seq, mismatches, gap_check, chain_check, audit_check, next_cursor` |
 
+  REQ-712 / GH #3749 adds six document routes over `Letflow.Modules.Stock.Documents` (no SQL here):
+
+  | Route | Permission | Ok |
+  |---|---|---|
+  | `POST /documents` | `StockPost` | 201 document |
+  | `PUT /documents/:id` | `StockPost` | 200 document (replaces the whole draft) |
+  | `DELETE /documents/:id` | `StockPost` | 204 |
+  | `POST /documents/:id/issue` | `StockPost` | 200 document |
+  | `GET /documents` | `StockRead` | 200 `rows, next_cursor` |
+  | `GET /documents/:id` | `StockRead` | 200 document |
+
+  `:id` is the id of the versioned document. The guard is `Letflow.Modules.Stock.Access`: an interactive
+  tenant-wide principal only; an API token or a scoped principal gets the same 404 as a tenant without the
+  module. Refusals: 404 (unknown, malformed or another tenant's id), 409 `document_not_draft`, 422 with a
+  `reason` (shape reasons, `invalid_filter`, the issue checks), 503 `busy`.
+
+  Both read routes take `format=json|xlsx` (REQ-728 / GH #3772; default `json`). `xlsx` renders the same
+  body through `Letflow.Modules.Stock.XlsxExport` (one page per file, a `report` sheet with the time basis);
+  any other value is 422 `invalid_filter` before the ledger is read.
+
   The tenant comes only from `conn.assigns.scoped_opts` (through `authorize/3`); a tenant key in the
   query is refused 422 `invalid_filter` and never read. `authorize/3` runs first: a caller who may not
   read gets the same 404 as an unknown path (INV-5) and never learns which query keys exist.
@@ -56,8 +76,11 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Api.Response
   alias Letflow.Api.Scope
   alias Letflow.Ledger
+  alias Letflow.Modules.Stock.Access
   alias Letflow.Modules.Stock.Counts
+  alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Views
+  alias Letflow.Modules.Stock.XlsxExport
 
   @ledger "stock"
   @uint ~r/\A(0|[1-9][0-9]{0,14})\z/
@@ -66,19 +89,25 @@ defmodule Letflow.Modules.Stock.Router do
   @slots ~w(sku location org_unit responsible lot)
   @optional_empty ~w(responsible lot)
   @text_filters ~w(cause document_type document_id correlation_id)
-  @balance_keys ~w(basis cutoff_seq as_of limit cursor scope_subtree) ++ @slots
-  @movement_keys ~w(from_seq to_seq limit cursor scope_subtree) ++ @text_filters
+  @balance_keys ~w(basis cutoff_seq as_of limit cursor format scope_subtree) ++ @slots
+  @movement_keys ~w(from_seq to_seq limit cursor format scope_subtree) ++ @text_filters
 
   authz_get "/balances", :StockRead do
     with_read(conn, fn conn, authorized ->
       with {:ok, params} <- params(conn, @balance_keys),
+           {:ok, format} <- format(params),
            {:ok, basis} <- basis(params),
            {:ok, filters} <- slot_filters(params),
            {:ok, filters} <- subtree_filter(params, filters),
            {:ok, page} <- page(params, :text) do
         case Ledger.balances(authorized, basis, filters, page) do
-          {:ok, report} -> Response.ok(conn, balances_body(report))
-          {:error, reason} -> refuse(conn, reason)
+          {:ok, report} ->
+            body = balances_body(report)
+
+            respond(conn, format, body, "stock-balances.xlsx", fn -> XlsxExport.balances(body) end)
+
+          {:error, reason} ->
+            refuse(conn, reason)
         end
       else
         {:error, reason} -> refuse(conn, reason)
@@ -89,15 +118,20 @@ defmodule Letflow.Modules.Stock.Router do
   authz_get "/movements", :StockRead do
     with_read(conn, fn conn, authorized ->
       with {:ok, params} <- params(conn, @movement_keys),
+           {:ok, format} <- format(params),
            {:ok, filters} <- entry_filters(params),
            {:ok, filters} <- subtree_filter(params, filters),
            {:ok, page} <- page(params, :integer) do
         case Ledger.entries(authorized, filters, page) do
           {:ok, %{rows: rows, next_cursor: next}} ->
-            Response.ok(conn, %{
+            body = %{
               rows: Enum.map(rows, &Views.stock_movement/1),
               next_cursor: if(next, do: Integer.to_string(next))
-            })
+            }
+
+            respond(conn, format, body, "stock-movements.xlsx", fn ->
+              XlsxExport.movements(body, filters)
+            end)
 
           {:error, reason} ->
             refuse(conn, reason)
@@ -121,6 +155,53 @@ defmodule Letflow.Modules.Stock.Router do
           {:error, reason} -> refuse(conn, reason)
         end
     end
+  end
+
+  authz_post "/documents", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      render_document(conn, Documents.save(access.prefix, body(conn), access.actor_id), 201)
+    end)
+  end
+
+  authz_put "/documents/:id", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      result = Documents.replace(access.prefix, conn.params["id"], body(conn), access.actor_id)
+      render_document(conn, result, 200)
+    end)
+  end
+
+  authz_delete "/documents/:id", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      case Documents.discard(access.prefix, conn.params["id"], access.actor_id) do
+        :ok -> Response.no_content(conn)
+        {:error, reason} -> refuse_document(conn, reason)
+      end
+    end)
+  end
+
+  authz_post "/documents/:id/issue", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      render_document(
+        conn,
+        Documents.issue(access.prefix, conn.params["id"], access.actor_id),
+        200
+      )
+    end)
+  end
+
+  authz_get "/documents", :StockRead do
+    with_access(conn, :read, fn conn, access ->
+      case Documents.list(access.prefix, list_params(conn)) do
+        {:ok, page} -> Response.ok(conn, page)
+        {:error, reason} -> refuse_document(conn, reason)
+      end
+    end)
+  end
+
+  authz_get "/documents/:id", :StockRead do
+    with_access(conn, :read, fn conn, access ->
+      render_document(conn, Documents.fetch(access.prefix, conn.params["id"]), 200)
+    end)
   end
 
   # -- count orders (REQ-700) ---------------------------------------------------------------------
@@ -172,6 +253,56 @@ defmodule Letflow.Modules.Stock.Router do
   end
 
   authz_unmatched(:ordinary)
+
+  # -- document handlers ---------------------------------------------------------------------------
+
+  defp with_access(conn, purpose, fun) do
+    case Access.check(conn, purpose) do
+      {:ok, access} -> fun.(conn, access)
+      :error -> Response.not_found(conn)
+    end
+  end
+
+  # A repeated query key is refused: the parsed map would keep only the last value.
+  defp list_params(conn) do
+    pairs = URI.query_decoder(conn.query_string) |> Enum.to_list()
+    keys = Enum.map(pairs, &elem(&1, 0))
+
+    if keys == Enum.uniq(keys),
+      do: Plug.Conn.fetch_query_params(conn).query_params,
+      else: %{"limit" => "repeated"}
+  end
+
+  # A body that is not a JSON object arrives as `%{"_json" => ...}`; the shape check refuses it.
+  defp body(conn) do
+    case conn.body_params do
+      %{"_json" => _} -> :not_an_object
+      %Plug.Conn.Unfetched{} -> :not_an_object
+      params -> params
+    end
+  end
+
+  defp render_document(conn, {:ok, document}, status),
+    do: Response.send_json(conn, status, document)
+
+  defp render_document(conn, {:error, reason}, _status), do: refuse_document(conn, reason)
+
+  defp refuse_document(conn, :not_found), do: Response.not_found(conn)
+
+  defp refuse_document(conn, :document_not_draft),
+    do: problem(conn, Error.conflict("request refused"), "document_not_draft")
+
+  defp refuse_document(conn, :busy),
+    do: problem(conn, Error.service_unavailable("request refused"), "busy")
+
+  defp refuse_document(conn, :invalid_filter), do: unprocessable(conn, "invalid_filter")
+
+  defp refuse_document(conn, {reason, extras}) when is_binary(reason) and is_map(extras) do
+    problem = Error.unprocessable("request refused")
+    Response.send_problem(conn, %{problem | extensions: Map.put(extras, "reason", reason)})
+  end
+
+  defp refuse_document(conn, _internal), do: Response.internal_error(conn)
 
   # -- count order handlers (REQ-700) -------------------------------------------------------------
 
@@ -264,6 +395,37 @@ defmodule Letflow.Modules.Stock.Router do
   defp check({:gap, seqs}), do: %{gap: seqs}
   defp check({:broken_at, n}), do: %{broken_at: n}
   defp check({:mismatch_at, n}), do: %{mismatch_at: n}
+
+  defp respond(conn, :json, body, _name, _render), do: Response.ok(conn, body)
+
+  defp respond(conn, :xlsx, _body, name, render) do
+    case render.() do
+      {:ok, binary} ->
+        send_xlsx(conn, binary, name)
+
+      {:error, :xlsx_write_failed} ->
+        Logger.error("stock xlsx write failed")
+        Response.internal_error(conn)
+    end
+  end
+
+  @xlsx_content_type "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+  defp send_xlsx(conn, binary, name) do
+    conn
+    |> Plug.Conn.put_resp_content_type(@xlsx_content_type, nil)
+    |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="#{name}"))
+    |> Plug.Conn.put_resp_header("cache-control", "no-store")
+    |> Plug.Conn.send_resp(200, binary)
+  end
+
+  defp format(params) do
+    case Map.get(params, "format", "json") do
+      "json" -> {:ok, :json}
+      "xlsx" -> {:ok, :xlsx}
+      _other -> {:error, :invalid_filter}
+    end
+  end
 
   defp balances_body(report) do
     %{

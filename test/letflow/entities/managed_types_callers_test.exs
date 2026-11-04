@@ -63,6 +63,8 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   # REQ-662: the link writers write under the locations Owner.
   @locations_links "lib/letflow/modules/locations/links.ex"
   @locations_tree "lib/letflow/modules/locations/tree.ex"
+  # REQ-712: the stock document context writes the receipt header and line records under the stock Owner.
+  @stock_documents "lib/letflow/modules/stock/documents.ex"
   # REQ-660: the org legal company and site writers write under the org Owner.
   @org_masters "lib/letflow/modules/org/masters.ex"
   # REQ-664: the catalog lot writers (create/update/retire) write under the catalog_items Owner.
@@ -113,6 +115,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                          @locations_tree,
                          @org_masters,
                          @stock_counts,
+                         @stock_documents,
                          @fixture_managed
                        ]
   # R3 / R4 allow-lists (unchanged from REQ-496 T-34).
@@ -710,6 +713,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                    @locations_tree,
                    @org_masters,
                    @stock_counts,
+                   @stock_documents,
                    @fixture_managed
                  ]
     end
