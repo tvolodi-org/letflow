@@ -26,6 +26,7 @@ entity_types = ~w(
   count_commission_member
   count_sheet_line
   count_entry
+  count_signature
   stock_posting_mark
 )
 
