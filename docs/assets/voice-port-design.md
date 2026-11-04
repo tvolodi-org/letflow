@@ -155,7 +155,7 @@ Instructions ported from Qoimeks, in Letflow's terms:
   Qoimeks has no Letflow field and is not sent.
 * Kind words in Russian and Kazakh for each draft kind (receipt: приход / кіріс, қабылдадым; issue: расход,
   выдал / шығыс, бердім; transfer: переместил / ауыстырдым; count: инвентаризация, пересчитал / түгендеу,
-  санадым). The word list is taken from Qoimeks `parse.go` and is checked by a Kazakh speaker (section 8).
+  санадым). The word list is taken from Qoimeks `parse.go` and is checked by a Kazakh speaker (section 9).
 * A general name shared by several items: return the best three.
 * Never guess a quantity. Never copy a usual location. Use only codes from the given lists.
 * `catalog_items.ex` and `locations.ex` on `origin/main` have `lookup/2` and `active?/2` and **no list
@@ -258,7 +258,117 @@ Kazakh lines are marked for a native speaker to check. Once recorded they are ke
 Qoimeks's drafts on the same phrases**, with the same model class where possible. This is a measurement with real
 provider accounts, not a unit test.
 
-## 8. What the owner must provide
+## 8. Voice regression tests with generated speech
+
+Design only: no code, no key, nothing signed up or paid. Ties to REQ-731 and retirement criterion 3. Section 7
+tests the server's handling of a given model answer; this section measures whether the whole chain (audio,
+speech to text, model, check) gives the right draft, across languages and voices, without a person recording
+every case.
+
+### 8.1 Phrase list
+
+The list is one data file per language (proposal: `test/fixtures/voice/phrases.yaml`), each phrase with an id, a
+text, the language, a `split` (`tune` or `heldout`, see 8.3) and the expected draft: kind, SKU codes, location
+(with the words said), quantity. The fixture tenant is the one of section 7 (items `NUT-M8`, `NUT-M10`,
+`BLT-M8-40`, `BLT-M10-60`, `WSH-8`, `CBL-3x2.5`, `CBL-3x1.5`; locations `A-01`, `B-02`, `LA3` "Слева A 3", `LN2`).
+Target: 20 phrases per language, 80 in all. The table shows the shape with one or two phrases per hard case; the
+full lists are written by the implementing entry and checked by a native speaker per language (Kazakh and Uzbek
+wording is not final here).
+
+| Id | Lang | Phrase (text to speak) | Expected draft | Case |
+|---|---|---|---|---|
+| Q1 | ru | приход замок восемьдесят штук слева а три | receipt; BLT-M8-40; LA3; 80 | zone word (Qoimeks #1) |
+| Q2 | ru | переместил пятнадцать гаек из а один в бэ два | transfer; NUT-M8, NUT-M10; A-01 → B-02; 15 | transfer, general name (Qoimeks #2) |
+| Q3 | ru | расход кнопка выхода двадцать шесть штук | issue; location dropped; 26 | location not said (Qoimeks #3) |
+| Q4 | ru | переместил семь гаек эм восемь из а один в бэ два | transfer; NUT-M8; A-01 → B-02; 7 | letter-spelled article (Qoimeks #4) |
+| Q5 | ru | приход гайки двадцать штук на а один | receipt; NUT-M8, NUT-M10; A-01; 20 | shared general name (Qoimeks #5) |
+| Q6 | ru | приход | kind receipt or unknown; no SKU, no quantity; flagged as missing | missing quantity (Qoimeks #6, speech only) |
+| Q7 | ru | что-то | unknown | noise (Qoimeks #7) |
+| E1 | en | receipt of eighty M8 bolts, left side A 3 | receipt; BLT-M8-40; LA3; 80 | zone word |
+| E2 | en | move fifteen nuts from A one to B two | transfer; NUT-M8, NUT-M10; A-01 → B-02; 15 | transfer, shared name |
+| E3 | en | issue M eight nuts, E L three fifty | issue; NUT-M8; no location | letter-spelled article |
+| E4 | en | receipt of washers at A one | receipt; WSH-8; A-01; no quantity | missing quantity |
+| K1 | kk | қабылдау сексен болт сол жақ эн екі | receipt; BLT-M8-40; LN2; 80 | zone word |
+| K2 | kk | А бірден Б екіге он бес гайка көшірдім | transfer; NUT-M8, NUT-M10; A-01 → B-02; 15 | transfer, shared name |
+| K3 | kk | шығын эм сегіз гайка жиырма | issue; NUT-M8; 20 | letter-spelled article |
+| K4 | kk | қабылдау шайба | receipt; WSH-8; no quantity | missing quantity |
+| U1 | uz | qabul sakson dona bolt chap tomon A uch | receipt; BLT-M8-40; LA3; 80 | zone word, new language |
+| U2 | uz | o'n beshta gaykani A birdan B ikkiga ko'chirdim | transfer; NUT-M8, NUT-M10; A-01 → B-02; 15 | transfer, shared name |
+| U3 | uz | chiqim em sakkiz gayka yigirma | issue; NUT-M8; 20 | letter-spelled article |
+| U4 | uz | qabul shayba | receipt; WSH-8; no quantity | missing quantity |
+
+Rows E1..U4 are examples of the cases, not final texts (the Uzbek and Kazakh lines are drafts for a native
+speaker). The hard cases each language must carry at least twice: letter-spelled articles, zone words, shared
+general names (two or more SKUs fit, all expected), transfer with two locations, missing quantity (draft has no
+quantity and the app asks). The seven Qoimeks phrases are reused as Q1..Q7 in Russian; Kazakh, English and Uzbek
+get the same seven meanings translated, so one meaning can be compared across four languages.
+
+### 8.2 Generated audio
+
+* Audio is generated **once**, by a one-time script run by the owner's key, through the ElevenLabs
+  text-to-speech API, with several voices per language, male and female (proposal: three male and three female
+  voices per language, fewer where the provider has no voice for a language; the voice ids are listed in a
+  manifest). All voices on all phrases would be too much (80 × 6 = 480 files); proposal: all 20 phrases of a language with 2
+  voices each, plus the 7 reused meanings with all 6 voices. Order of size: about 200 files.
+* The files are saved in the repo (proposal: `test/fixtures/voice/audio/<lang>/<voice>/<phrase id>.mp3`) with a
+  manifest (`manifest.yaml`: file, phrase id, language, voice id, voice gender, sha256, generation date). Size:
+  a spoken phrase of 4 to 8 seconds is about 30 to 60 KB as 64 kbit/s MP3, so about 200 files are 6 to 12 MB.
+  Budget: under 15 MB in git, no large binaries beyond that; if the set grows, it moves to a release asset (open
+  question 9 in section 10).
+* Tests **play the saved files**; no test calls ElevenLabs, and the generation script is not part of any test or
+  CI run. The manifest hash check fails a test run if a file changed without a manifest update.
+* Synthesised speech is cleaner than a field recording (no noise, no accents, no radio). It finds regressions and
+  compares languages and voices; it does **not** replace the 20 real recordings of section 7, which stay the
+  acceptance measure of retirement criterion 3.
+
+### 8.3 Two layers
+
+| Layer | When | Speech to text | Model | What it checks | Cost |
+|---|---|---|---|---|---|
+| 1. stubbed | every PR (ordinary CI) | stubbed: a table maps each audio file's manifest id to its transcript | stubbed: the answer for the phrase id | the whole path from upload to the checked draft: limits, route, check rules of section 5, expected draft per phrase; every file is found and plays | none, seconds |
+| 2. real | nightly or on demand (a separate workflow, never a required PR check) | the real provider (section 2.3) on the saved audio | the real model on the transcript | accuracy of the chain | provider calls, per run: about 200 transcripts and 200 model calls |
+
+* Layer 1 asserts the expected draft for every phrase, so a change to the draft check or the routes fails a PR.
+  It does not measure model accuracy (as in section 7).
+* Layer 2 writes a report (file in the run artifacts, not in git): a phrase is **correct** when the draft has the
+  right kind, the same set of SKU codes, the right location and quantity. Accuracy is reported **per language
+  and per voice**, per hard case, and as speech-to-text word error rate against the phrase text. A drop of a
+  language or a voice below its last reported value by a stated margin (proposal: 10 points) marks the run red;
+  it is a report first, a gate only when the owner decides.
+* **Held-out part:** each language's phrases are split once, by a fixed id list, into `tune` (about 60%) and
+  `heldout` (about 40%, never opened while the prompt is edited). The prompt's examples and rules are tuned only on
+  `tune`; the figure that counts is on `heldout`. Both are reported. The split is recorded in `phrases.yaml` and
+  changed only with a written reason, otherwise the held-out figure means nothing.
+
+### 8.4 Language coverage and unknown quality
+
+* **Voice today covers only Russian and Kazakh** (Qoimeks, section 1; the route of section 2.2 accepts `ru` and
+  `kk`). **English and Uzbek are new**: the prompt rules, letter names and zone words for them do not exist and
+  must be written, and the route must accept `en` and `uz` (an addition to section 2.2, a proposal for the
+  implementing entry).
+* **Speech-to-text quality for Kazakh and Uzbek is unknown.** Qoimeks has no measure of it (its tests stub the
+  model; the 20 phrases were never recorded). It is measured by layer 2: word error rate and draft accuracy per
+  language and per voice, on the held-out phrases, repeated on the real recordings when they exist. A language
+  whose held-out accuracy is far below Russian is reported to the owner as a result, not hidden by the prompt
+  tuning; the owner decides whether to ship it, to ship it with typed entry as the main way, or to try another
+  speech provider.
+* Synthesised Kazakh and Uzbek speech may itself be of lower quality than Russian (fewer voices, accent). The
+  report therefore shows the figures per voice, so a bad voice is told apart from a bad speech model.
+
+### 8.5 What the owner must provide for this section
+
+1. An **ElevenLabs account and API key** for the one-time voice generation. The owner signs up and pays; the key is
+   used once from the owner's machine and is never committed or put in CI.
+2. The **key for the nightly speech-to-text** (and the model key of section 2.3). The portfolio manager is
+   checking whether Qoimeks already has one; until that is answered, layer 2 cannot run. Held as a secret
+   reference in the nightly workflow (INV-4), not in git.
+3. The **recorded phrases** of the first part (the 20 Russian and Kazakh phrases of section 7), and a native
+   speaker each for Kazakh and Uzbek to check the phrase texts and expected drafts.
+4. The choice of the voices (or consent to the proposal), and the decision whether layer 2 may become a gate.
+
+Nothing is signed up, generated or paid by the team before the owner provides these.
+
+## 9. What the owner must provide
 
 1. The **20 recorded phrases** (10 Russian, 10 Kazakh) with the expected drafts; a native Kazakh speaker to check
    the Kazakh kind words and the phrases.
@@ -267,8 +377,12 @@ provider accounts, not a unit test.
 3. **Accounts and keys** for those providers (sign-ups and purchases are the owner's, D-086), and whether keys
    are one platform key or per tenant, and who pays (D-022).
 4. The phase D gate decision on the draft kinds.
+5. For the regression tests of section 8: an ElevenLabs account and key for the one-time voice generation, the
+   key for the nightly speech-to-text (the portfolio manager is checking whether Qoimeks already has one), a native
+   Kazakh and a native Uzbek speaker, and the choice of voices (section 8.5). Nothing is signed up or paid without
+   the owner.
 
-## 9. Open questions (no answer given here)
+## 10. Open questions (no answer given here)
 
 1. Per-tenant provider keys or one platform key, and who pays for the calls (D-022; retirement criterion 9).
    Per-tenant keys need a tenant-facing secrets route that does not exist today.
@@ -283,8 +397,12 @@ provider accounts, not a unit test.
 7. Does a saved document keep the source "voice" and the transcript (a Qoimeks movement does)? Today the design
    stores nothing.
 8. Is a rate limit per user or tenant needed to bound provider cost?
+9. Do the generated audio files (about 6 to 12 MB) stay in git or move to a release asset (section 8.2)?
+10. English and Uzbek are new languages: are they wanted in the first slice, given that speech-to-text quality for
+    Kazakh and Uzbek is unknown until layer 2 of section 8 has run?
 
-## 10. Not in this design
+## 11. Not in this design
 
-The phone side (recording, language hint, the form showing the draft, the choice among several items) is item D3;
+The generation of the test audio (a one-time script, run with the owner's key), the nightly workflow and the
+files of section 8 are also not built here: the implementing entry does that. The phone side (recording, language hint, the form showing the draft, the choice among several items) is item D3;
 camera scan is item D1. No code, no dependency, no secret, no sign-up and no purchase is part of this file.
