@@ -176,6 +176,7 @@ defmodule Letflow.RiskTierTest do
 
       assert docs == [
                "docs/agents/shared/HANDOFF_PROTOCOL.md",
+               "docs/assets/stock-workflow-documents.md",
                "docs/frontend/x-ui-widget-vocabulary.md",
                "docs/issues/[^/]+.yaml",
                "docs/migration/decisions/0061-engine-lock-order-platform-invariant.md",
@@ -191,6 +192,7 @@ defmodule Letflow.RiskTierTest do
 
       for path <- [
             "docs/agents/shared/HANDOFF_PROTOCOL.md",
+            "docs/assets/stock-workflow-documents.md",
             "docs/frontend/x-ui-widget-vocabulary.md",
             "docs/issues/ISS-1.yaml",
             "docs/migration/decisions/0061-engine-lock-order-platform-invariant.md",

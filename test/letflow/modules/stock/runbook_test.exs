@@ -41,8 +41,8 @@ defmodule Letflow.Modules.Stock.RunbookTest do
              Enum.find_index(lines, &(&1 == @heading))
   end
 
-  test "T-RUN-2: the section is a numbered list 1..12 with the required limits" do
-    assert Enum.map(items(), &elem(&1, 0)) == Enum.to_list(1..12)
+  test "T-RUN-2: the section is a numbered list 1..16 with the required limits" do
+    assert Enum.map(items(), &elem(&1, 0)) == Enum.to_list(1..16)
     text = items() |> Enum.map_join("\n", &elem(&1, 1))
 
     for word <-
@@ -50,7 +50,10 @@ defmodule Letflow.Modules.Stock.RunbookTest do
             [
               "NOT enabled for a customer tenant until L6",
               "one chunk",
-              "owner may change at GATE B"
+              "owner may change at GATE B",
+              "REQ-713",
+              "retired between issue and posting",
+              "document routes"
             ] do
       assert text =~ word, "missing #{word}"
     end
