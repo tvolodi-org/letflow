@@ -15,7 +15,7 @@
  *
  * Infrastructure:
  *   - Frontend:  http://127.0.0.1:4173 (Vite preview, started by playwright.config.ts)
- *   - Backend:   BPM_TEST_URL (default: http://127.0.0.1:8080)
+ *   - Backend:   BPM_TEST_URL (default: http://127.0.0.1:4000)
  *   - Keycloak:  BPM_IDP_BASE_URL (default: http://localhost:8082)
  *   - Test user: admin-user / admin-pass (PLATFORM_ADMIN, BPM_E2E_ADMIN_USERNAME/PASSWORD env vars)
  *   - Test DB:   BPM_TEST_DB_URL (required for test-tenant seeding)
@@ -35,7 +35,7 @@ import { getKeycloakToken, loginWithToken, assertServiceReadiness, getMasterAdmi
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const SCREENSHOTS_DIR = 'tests/screenshots'
-const API_BASE_URL = (process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080').replace(/\/$/, '')
+const API_BASE_URL = (process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '')
 
 // ── Screenshot helper ─────────────────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ import { assertServiceReadiness } from '../helpers'
 // Saga completion may take up to 90 s
 test.setTimeout(120_000)
 
-const API_BASE_URL       = process.env.BPM_TEST_URL     ?? 'http://127.0.0.1:8080'
+const API_BASE_URL       = process.env.BPM_TEST_URL     ?? 'http://127.0.0.1:4000'
 
 /**
  * Run the full form → progress → result flow and return the final URL parts.

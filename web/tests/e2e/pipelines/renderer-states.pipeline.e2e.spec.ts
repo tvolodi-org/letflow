@@ -106,7 +106,7 @@ import * as path from 'path'
 import { test, expect, type Page, type Locator } from '@playwright/test'
 import { getKeycloakToken, loginWithToken, resolveCredential, assertServiceReadiness } from '../helpers'
 
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 const SCREENSHOTS_DIR = 'tests/screenshots/pipelines'
 
 const OPERATOR_USERNAME = 'operator-user'
