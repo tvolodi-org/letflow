@@ -91,7 +91,12 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
   # The AST inventory runs over ALL of lib/**; docs and comments are not AST nodes.
   # REQ-685: the build side of `HandlerWrites.post/3` lives in the ledger scan scope (rule 7) and
   # names `HandlerWrites` for the per-call token seam; the two files are pinned, not a new class.
-  @ledger_post_holders ["lib/letflow/ledger/handler_post.ex", "lib/letflow/ledger/capability.ex"]
+  @ledger_post_holders [
+    "lib/letflow/ledger/handler_post.ex",
+    "lib/letflow/ledger/capability.ex",
+    # REQ-713: the stock module's handlers build the posting through the same seam
+    "lib/letflow/modules/stock/handlers.ex"
+  ]
 
   describe "port inventory over lib/** (SEC F8)" do
     test "T-F8-5a only the pinned files name a holder or reach the port's accessors" do
