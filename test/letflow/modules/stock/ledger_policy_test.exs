@@ -189,4 +189,49 @@ defmodule Letflow.Modules.Stock.LedgerPolicyTest do
   end
 
   defp bad(n), do: {:error, {:invalid_posting, %{leg_no: n}}}
+
+  @entry "77777777-7777-4777-8777-777777777777"
+
+  test "L-U1: a uom uuid is a valid unit (36 bytes); 65 bytes and an upper-case unit are refused" do
+    uuid_unit = "99999999-9999-4999-8999-999999999999"
+
+    assert {:ok, %{legs: [leg]}} =
+             declare(cmd("receipt", [line(nil, side(), %{unit: uuid_unit})]))
+
+    assert leg.unit_ref == uuid_unit
+
+    long = String.duplicate("a", 64)
+    assert {:ok, _} = declare(cmd("receipt", [line(nil, side(), %{unit: long})]))
+    assert refused(cmd("receipt", [line(nil, side(), %{unit: long <> "a"})])) == bad(1)
+    assert refused(cmd("receipt", [line(nil, side(), %{unit: "BAD UNIT"})])) == bad(1)
+  end
+
+  test "B-REV-4: a reversal command is accepted without lines and refused with lines" do
+    command = %{
+      cause: "reversal",
+      reverses_entry_id: @entry,
+      reason_code: "wrong_document",
+      document_type: "stock_receipt",
+      document_id: "d1",
+      extra: "ignored"
+    }
+
+    assert {:ok, posting} = declare(command)
+
+    assert posting == %{
+             ledger_id: "stock",
+             cause: "reversal",
+             legs: [],
+             reverses_entry_id: @entry,
+             reason_code: "wrong_document",
+             document_type: "stock_receipt",
+             document_id: "d1"
+           }
+
+    assert {:ok, _} = declare(Map.put(command, :lines, []))
+    assert refused(Map.put(command, :lines, [line(nil, side())])) == bad(1)
+    assert refused(Map.delete(command, :reverses_entry_id)) == bad(1)
+    assert refused(%{command | reverses_entry_id: "nope"}) == bad(1)
+    assert refused(Map.delete(command, :reason_code)) == bad(1)
+  end
 end

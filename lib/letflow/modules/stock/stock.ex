@@ -15,9 +15,21 @@ defmodule Letflow.Modules.Stock do
   routes (`Letflow.Modules.Stock.Router`, context `Letflow.Modules.Stock.Documents`). A document is
   a draft (editable, discardable) or issued (fixed); number, state and issued time are read from the
   versioned document, not stored on the header. Master checks (linked location, active employee,
-  counterparty, unit and lot of each line) and the event-time window run at issue only. Nothing posts
-  to the ledger yet (REQ-713). Assumptions, owner may change at GATE B: numbering, no legal entity,
-  100 lines at most, the responsible employee is not bound to the org unit.
+  counterparty, unit and lot of each line) and the event-time window run at issue only.
+  Assumptions, owner may change at GATE B: numbering, no legal entity, 100 lines at most, the
+  responsible employee is not bound to the org unit.
+
+  ## Posting and reversal (REQ-713 / GH #3748, assets B4 part 2)
+
+  Version 0.3.0 adds the bookkeeping type `stock_posting_mark`, the write handlers `post_document`
+  and `reverse_document` (`Letflow.Modules.Stock.Handlers`, both `posts_ledger: "stock"`), the
+  process definitions `stock_receipt` and `stock_reversal` (one HUMAN_TASK each, shipped in the pack
+  and stamped at install) and the routes `post`, `reverse` and `cancel`. The issue step starts one
+  `stock_receipt` instance; completing its task posts the receipt and writes a `posted` mark in one
+  transaction. Install leaves the definitions as stamped drafts; the issue and reverse routes
+  activate them lazily with the request's own activator (`Letflow.Modules.Stock.Documents.Posting`).
+  A unique constraint on (`document_id`, `mark`) of the mark type allows one posted and one reversed
+  mark per document, so a second completion is refused and nothing is written.
 
   ## Counts (REQ-700 / GH #3737, assets phase B counts; version 0.3.0)
 
@@ -72,7 +84,8 @@ defmodule Letflow.Modules.Stock do
     "count_order_scope",
     "count_commission_member",
     "count_sheet_line",
-    "count_entry"
+    "count_entry",
+    "stock_posting_mark"
   ]
 
   # Same shape as the procurement registration; assumptions, owner may change at GATE B.
@@ -132,6 +145,9 @@ defmodule Letflow.Modules.Stock do
       {"POST", "/documents/:id/issue", :StockPost},
       {"GET", "/documents", :StockRead},
       {"GET", "/documents/:id", :StockRead},
+      {"POST", "/documents/:id/post", :StockPost},
+      {"POST", "/documents/:id/reverse", :StockReverse},
+      {"POST", "/documents/:id/cancel", :StockReverse},
       {"POST", "/counts", :StockCountOrder},
       {"PUT", "/counts/:id", :StockCountOrder},
       {"POST", "/counts/:id/issue", :StockCountOrder},
@@ -154,7 +170,8 @@ defmodule Letflow.Modules.Stock do
       "count_order_scope",
       "count_commission_member",
       "count_sheet_line",
-      "count_entry"
+      "count_entry",
+      "stock_posting_mark"
     ],
     scope_declarations: %{
       "stock_receipt" => {:column, "org_unit_id"},
@@ -163,8 +180,40 @@ defmodule Letflow.Modules.Stock do
       "count_order_scope" => {:column, "org_unit_id"},
       "count_commission_member" => {:column, "org_unit_id"},
       "count_sheet_line" => {:column, "org_unit_id"},
-      "count_entry" => {:column, "org_unit_id"}
+      "count_entry" => {:column, "org_unit_id"},
+      "stock_posting_mark" => {:column, "org_unit_id"}
     },
+    write_handlers: [
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "post_document",
+        function: {Letflow.Modules.Stock.Handlers, :post_document},
+        targets: ["stock_posting_mark"],
+        args: %{
+          "document_id" => %{required: true},
+          "document_type" => %{required: true},
+          "version_no" => %{required: true},
+          "org_unit_id" => %{required: true},
+          "mark" => %{required: true},
+          "posting" => %{required: true}
+        },
+        posts_ledger: "stock"
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "reverse_document",
+        function: {Letflow.Modules.Stock.Handlers, :reverse_document},
+        targets: ["stock_posting_mark"],
+        args: %{
+          "document_id" => %{required: true},
+          "document_type" => %{required: true},
+          "version_no" => %{required: true},
+          "org_unit_id" => %{required: true},
+          "mark" => %{required: true},
+          "reason_code" => %{required: true},
+          "posting" => %{required: true}
+        },
+        posts_ledger: "stock"
+      }
+    ],
     ledger: %{
       "stock" => %{
         ledger_ids: {:fixed, ["stock"]},

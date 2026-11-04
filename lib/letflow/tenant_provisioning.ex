@@ -956,7 +956,10 @@ defmodule Letflow.TenantProvisioning do
     # REQ-711: the two ledger foreign keys move from the parents to the partitions, so ATTACH PARTITION
     # takes no SHARE ROW EXCLUSIVE lock on the parents. No table, column or row is altered.
     {20_261_104_300_001, Letflow.Repo.Migrations.MoveLedgerFksToPartitions,
-     "20261104300001_move_ledger_fks_to_partitions.exs"}
+     "20261104300001_move_ledger_fks_to_partitions.exs"},
+    # REQ-577 / GH #3261 (decision 0070 D2, slice A): per-type write restriction and write grants.
+    {20_261_105_100_001, Letflow.Repo.Migrations.CreateEntityTypeWriteAccessTables,
+     "20261105100001_create_entity_type_write_access_tables.exs"}
   ]
 
   @doc """

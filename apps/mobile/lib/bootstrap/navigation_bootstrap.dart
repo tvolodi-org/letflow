@@ -33,6 +33,7 @@ import '../definitions/sembast_pinned_form_cache_repository.dart'
     show openProductionPinnedFormCache;
 import '../definitions/tenant_home_screen.dart'
     show definitionCacheHolderProvider;
+import '../features/codes/codes.dart' show codesRoutes, kCodesScanPath;
 import '../i18n/i18n.dart';
 import 'bootstrap_models.dart';
 import 'error_screens.dart';
@@ -375,7 +376,10 @@ Future<BootstrapResult?> switchTenant(
   if (previousRealmUrl != null) {
     String? newRealmUrl;
     try {
-      newRealmUrl = (await fetchTenantConfig(enteredSlug, client: client)).realmUrl;
+      newRealmUrl = (await fetchTenantConfig(
+        enteredSlug,
+        client: client,
+      )).realmUrl;
     } catch (_) {
       newRealmUrl = null;
     }
@@ -440,6 +444,20 @@ _switchTenantTopLevel = switchTenant;
 
 // ── §5.4. Route table construction ────────────────────────────────────────
 
+/// The real route registry: one entry per feature module under
+/// `lib/features/`. This file is the only one allowed to import `features/`.
+final Map<String, List<RouteBase>> kFeatureRegistry = {'codes': codesRoutes()};
+
+/// Route of the codes scan screen, re-exported as a plain constant so screens
+/// outside `features/` can link to it without importing the feature.
+const String kCodesScanRoutePath = kCodesScanPath;
+
+/// True when [moduleId] is among the tenant's [installedModules].
+bool isModuleInstalled(
+  List<InstalledModule> installedModules,
+  String moduleId,
+) => installedModules.any((m) => m.moduleId == moduleId);
+
 /// Builds the tenant-content route list for the currently
 /// [installedModules] (design §5.4). A `moduleId` absent from
 /// [installedModules] has no route entry at all — not a route that then
@@ -449,8 +467,9 @@ _switchTenantTopLevel = switchTenant;
 /// [registry].
 List<RouteBase> buildRouteTable(
   List<InstalledModule> installedModules, {
-  Map<String, List<RouteBase>> registry = const {},
+  Map<String, List<RouteBase>>? registry,
 }) {
+  registry ??= kFeatureRegistry;
   final routes = <RouteBase>[];
   for (final module in installedModules) {
     final moduleRoutes = registry[module.moduleId];
@@ -467,7 +486,13 @@ List<RouteBase> buildRouteTable(
 /// value as `success`: a resumed-without-verification session has not
 /// re-confirmed membership or re-fetched the installed-module list. Never
 /// silently merged with `success`.
-enum BootstrapPhase { unauthenticated, loading, success, resumedOffline, failure }
+enum BootstrapPhase {
+  unauthenticated,
+  loading,
+  success,
+  resumedOffline,
+  failure,
+}
 
 @immutable
 class BootstrapUiState {
@@ -731,19 +756,23 @@ final Provider<ApiClient> apiClientProvider = Provider<ApiClient>((ref) {
   );
 });
 
-final ChangeNotifierProvider<BootstrapController> bootstrapControllerProvider =
-    ChangeNotifierProvider<BootstrapController>(
-  (ref) {
-    return BootstrapController(
-      client: ref.watch(apiClientProvider),
-      tokenStore: ref.watch(tenantTokenStoreProvider),
-      activeRealm: ref.watch(activeRealmHolderProvider),
-      definitionCache: ref.watch(definitionCacheHolderProvider),
-      pinnedFormCache: ref.watch(pinnedFormCacheHolderProvider),
-      tenantLocale: ref.watch(activeTenantLocaleHolderProvider),
+/// The tenant's installed modules, as last resolved by the bootstrap.
+final Provider<List<InstalledModule>> installedModulesProvider =
+    Provider<List<InstalledModule>>(
+      (ref) => ref.watch(bootstrapControllerProvider).state.installedModules,
     );
-  },
-);
+
+final ChangeNotifierProvider<BootstrapController> bootstrapControllerProvider =
+    ChangeNotifierProvider<BootstrapController>((ref) {
+      return BootstrapController(
+        client: ref.watch(apiClientProvider),
+        tokenStore: ref.watch(tenantTokenStoreProvider),
+        activeRealm: ref.watch(activeRealmHolderProvider),
+        definitionCache: ref.watch(definitionCacheHolderProvider),
+        pinnedFormCache: ref.watch(pinnedFormCacheHolderProvider),
+        tenantLocale: ref.watch(activeTenantLocaleHolderProvider),
+      );
+    });
 
 /// Renders the dedicated screen for [reason] (design §6) — the single
 /// dispatch point; never a generic fallback for one of the four named

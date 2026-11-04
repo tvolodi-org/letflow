@@ -767,7 +767,11 @@ defmodule Letflow.Tasks do
     )
   end
 
-  @type reassign_attrs :: %{required(:user_id) => String.t()}
+  @type reassign_attrs :: %{
+          required(:user_id) => String.t(),
+          optional(:actor_id) => String.t(),
+          optional(:actor_roles) => [String.t()]
+        }
   @type reassign_opts :: opts()
 
   @type reassign_error ::
@@ -776,6 +780,8 @@ defmodule Letflow.Tasks do
           | {:error, :task_not_found}
           | {:error, {:task_not_pending, status :: :completed | :cancelled}}
           | {:error, :not_currently_assigned}
+          | {:error, :assignee_role_not_held}
+          | {:error, :assignee_group_not_member}
           | {:error, Ecto.Changeset.t()}
           | {:error, term()}
 
@@ -798,8 +804,13 @@ defmodule Letflow.Tasks do
       |> Multi.run(:task, fn repo, _changes -> fetch_and_lock_task(repo, task_id, prefix) end)
       |> Multi.run(:apply, fn _repo, %{task: task} ->
         case task do
-          %Task{assignee_ref: nil} -> {:error, :not_currently_assigned}
-          %Task{} -> write_assignment(task, "USER", user_id, prefix)
+          %Task{assignee_ref: nil} ->
+            {:error, :not_currently_assigned}
+
+          %Task{} ->
+            with :ok <- authorize_reassign(task, attrs, prefix) do
+              write_assignment(task, "USER", user_id, prefix)
+            end
         end
       end)
       |> Multi.merge(fn changes -> record_task_assign_audit(changes, "task.reassign", prefix) end)
@@ -808,6 +819,43 @@ defmodule Letflow.Tasks do
       |> notify_assigned(user_id, prefix)
     end
   end
+
+  # GH #2931: a ROLE- or GROUP-routed task may be taken away from its routing only by a caller
+  # who holds that role / is in that group (token roles or tenant-role groups), or by a
+  # TENANT_ADMIN. `:TasksReassign` alone (PROCESS_OPERATOR) is not enough: otherwise the operator
+  # reassigns the task to themselves and completes it without the routing role. A missing
+  # `:actor_id` (key present, value nil) fails closed. A trusted in-process caller that passes no
+  # `:actor_id` key at all (no HTTP caller; the router always sets it) is not checked.
+  # USER-assigned tasks are unchanged.
+  defp authorize_reassign(%Task{assignee_type: type, assignee_ref: ref}, attrs, prefix)
+       when type in ["ROLE", "GROUP"] and is_map_key(attrs, :actor_id) do
+    actor_id = Map.get(attrs, :actor_id)
+    token_roles = Map.get(attrs, :actor_roles, [])
+
+    cond do
+      "TENANT_ADMIN" in token_roles ->
+        :ok
+
+      not is_binary(actor_id) ->
+        reassign_refusal(type)
+
+      type == "ROLE" ->
+        scope = resolve_principal_scope(actor_id, prefix: prefix)
+
+        if ref in token_roles or ref in scope.role_names,
+          do: :ok,
+          else: reassign_refusal(type)
+
+      true ->
+        scope = resolve_principal_scope(actor_id, prefix: prefix)
+        if ref in scope.group_ids, do: :ok, else: reassign_refusal(type)
+    end
+  end
+
+  defp authorize_reassign(_task, _attrs, _prefix), do: :ok
+
+  defp reassign_refusal("ROLE"), do: {:error, :assignee_role_not_held}
+  defp reassign_refusal("GROUP"), do: {:error, :assignee_group_not_member}
 
   # ── claim/assign/reassign shared helpers ────────────────────────────────
 

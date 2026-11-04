@@ -366,8 +366,13 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
           path = compile_source(mod),
           do: path
 
+    # The entry file, each handler module's file and a helper directory named after a handler file
+    # (`handlers/` next to `handlers.ex`). NOT the whole directory of the entry module (GH #3748): a
+    # module with real handlers (stock) also holds routers and contexts that legitimately use `Repo`.
     sources
-    |> Enum.flat_map(fn path -> Path.wildcard(Path.join(Path.dirname(path), "**/*.ex")) end)
+    |> Enum.flat_map(fn path ->
+      [path | Path.wildcard(Path.join(Path.rootname(path), "**/*.ex"))]
+    end)
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -430,6 +435,10 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
       assert "test/support/modules/fixture_ledger/handlers.ex" in files
       assert "test/support/modules/fixture_ledger_other/fixture_ledger_other.ex" in files
       assert @rogue in files
+
+      # GH #3748: the real stock handlers are scanned; its contexts and routers are not handler files
+      assert "lib/letflow/modules/stock/handlers.ex" in files
+      refute "lib/letflow/modules/stock/documents.ex" in files
 
       for path <- files, path != @rogue do
         assert purity_violations(File.read!(path)) == [], path

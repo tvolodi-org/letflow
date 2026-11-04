@@ -19,7 +19,8 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
   # before_state/after_state (entities.ex: field NAMES of an export; exam/snapshot.ex:
   # origin, timestamps and ids; instances.ex: moduledoc text only; stock/counts.ex and
   # stock/count_sheet.ex: field_values appears only in list/filter query fragments, audit state holds ids,
-  # statuses and a line number).
+  # statuses and a line number; record_triggers/apply.ex: field_values is the line write path, the dead-row
+  # audit holds only ids, closed codes and run metadata).
   @audit_writers_mentioning_field_values [
     "letflow/modules/catalog_items/import.ex",
     "letflow/modules/catalog_items/lots.ex",
@@ -30,6 +31,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
     "letflow/modules/org/masters.ex",
     "letflow/modules/stock/count_sheet.ex",
     "letflow/modules/stock/counts.ex",
+    "letflow/record_triggers/apply.ex",
     "letflow/routers/entities.ex",
     "letflow/routers/instances.ex"
   ]

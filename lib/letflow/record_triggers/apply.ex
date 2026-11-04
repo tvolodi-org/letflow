@@ -17,7 +17,8 @@ defmodule Letflow.RecordTriggers.Apply do
     4. the row is set `done`, again checked on (id, attempt, status = running).
 
   Any refused line rolls the whole transaction back and emits `[:letflow, :record_trigger, :write_refused]`
-  with the decision 0067 D7 reason (`last_code` stays `trigger_write_refused`). `finish/3` is the second, terminal
+  with the decision 0067 D7 reason (`last_code` stays `trigger_write_refused`; the row's DLQ entry carries
+  that same closed code, REQ-638). `finish/3` is the second, terminal
   transaction: `dead`, or back to `pending` with `Worker.backoff_ms/1`, or `dead`
   (`retries_exhausted`) once the retry would pass `max_attempts` (`claim_next/1` does not filter on
   `attempt`, so the cap is enforced here as well as in the sweep). Only closed codes are stored.
@@ -25,10 +26,14 @@ defmodule Letflow.RecordTriggers.Apply do
 
   import Ecto.Query
 
+  require Logger
+
+  alias Letflow.Audit
   alias Letflow.Entities.EntityTypeInstance
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.EventStore.InstanceSequence
+  alias Letflow.Obs.Alerts
   alias Letflow.RecordTriggers.OutboxRow
   alias Letflow.RecordTriggers.Worker
   alias Letflow.Repo
@@ -87,7 +92,7 @@ defmodule Letflow.RecordTriggers.Apply do
   def line_failure_class(_reason), do: {:dead, "trigger_write_refused"}
 
   # The reason of a refused line (decision 0067 D7). `last_code` stays `trigger_write_refused`: the
-  # row has one code column, so the reason is a telemetry counter until T-5 gives it a DLQ entry.
+  # row has one code column, so the reason is a telemetry counter (the DLQ entry carries `last_code`).
   defp emit_refused(reason) when reason in @retriable_reasons, do: :ok
 
   defp emit_refused(reason) do
@@ -203,19 +208,159 @@ defmodule Letflow.RecordTriggers.Apply do
   `dead`; `{:retry, code}` returns it to `pending` after `Worker.backoff_ms/1`, or makes it `dead`
   with `retries_exhausted` when its `attempt` has reached `max_attempts`. Returns `:dead`, `:retry`
   or `:stale` (no longer this claim).
-  """
-  @spec finish(OutboxRow.t(), String.t(), {:dead | :retry, String.t()}) ::
-          :dead | :retry | :stale
-  def finish(%OutboxRow{} = row, prefix, {:dead, code}) when is_binary(code),
-    do: cas(row, prefix, :dead, status: :dead, last_code: code)
 
-  def finish(%OutboxRow{} = row, prefix, {:retry, code}) when is_binary(code) do
+  **Dead rows are visible (REQ-638, decision 0067 D2/D7/D8).** The compare-and-set to `dead` and one
+  `record_trigger` DLQ entry (type, `reference_id` = the row id, `reason` = the closed code, nothing
+  else) are ONE transaction: a lost compare-and-set (`:stale`) enqueues nothing, and a failed DLQ insert
+  rolls the status back, so the row stays `running`, `finish/4` returns `:retry` and the lease sweep
+  returns it later. After the commit one metadata-only audit record (`record_trigger_dead`) is appended
+  and the edge-triggered `record_trigger_dead` alert fires; neither can raise or undo the dead row.
+  `facts` is the run metadata of `Runner.run_with_facts/2` (hmac, duration, stats) for the audit.
+  """
+  @spec finish(OutboxRow.t(), String.t(), {:dead | :retry, String.t()}, map()) ::
+          :dead | :retry | :stale
+  def finish(row, prefix, failure, facts \\ %{})
+
+  def finish(%OutboxRow{} = row, prefix, {:dead, code}, facts) when is_binary(code),
+    do: dead_outcome(finish_dead(row, prefix, code, facts))
+
+  def finish(%OutboxRow{} = row, prefix, {:retry, code}, facts) when is_binary(code) do
     if row.attempt >= Worker.config(:max_attempts) do
-      cas(row, prefix, :dead, status: :dead, last_code: "retries_exhausted")
+      dead_outcome(finish_dead(row, prefix, "retries_exhausted", facts))
     else
       wait = DateTime.add(now(), Worker.backoff_ms(row.attempt), :millisecond)
       cas(row, prefix, :retry, status: :pending, last_code: code, next_attempt_at: wait)
     end
+  end
+
+  # A failed DLQ insert leaves the row running; the sweep returns it.
+  defp dead_outcome(:dlq_failed), do: :retry
+  defp dead_outcome(outcome), do: outcome
+
+  # The dead transaction shared by `finish/4` and the lease sweep: compare-and-set to `dead` plus the
+  # DLQ entry, then (after commit) audit and alert. `row` needs `id` and `attempt`; the audit also uses
+  # `script_key`, `script_version`, `script_sha256` and `actor_id` when present. Returns `:dead`,
+  # `:stale` or `:dlq_failed`.
+  @doc false
+  @spec finish_dead(map(), String.t(), String.t(), map()) :: :dead | :stale | :dlq_failed
+  def finish_dead(row, prefix, code, facts \\ %{}) when is_binary(code) do
+    result =
+      Repo.transaction(fn ->
+        {count, _} =
+          from(r in OutboxRow,
+            where: r.id == ^row.id and r.attempt == ^row.attempt and r.status == :running
+          )
+          |> Repo.update_all([set: [status: :dead, last_code: code]], prefix: prefix)
+
+        if count != 1, do: Repo.rollback(:stale)
+
+        case dlq_enqueue_fun().(dlq_attrs(row, code), prefix: prefix) do
+          {:ok, _entry} -> :dead
+          _failed -> Repo.rollback(:dlq_failed)
+        end
+      end)
+
+    case result do
+      {:ok, :dead} ->
+        after_dead(row, prefix, code, facts)
+        :dead
+
+      {:error, :stale} ->
+        :stale
+
+      {:error, :dlq_failed} ->
+        log_dlq_failed(prefix, "failed")
+        :dlq_failed
+    end
+  rescue
+    _ ->
+      log_dlq_failed(prefix, "raised")
+      :dlq_failed
+  catch
+    kind, _ ->
+      log_dlq_failed(prefix, if(kind == :throw, do: "thrown", else: "exited"))
+      :dlq_failed
+  end
+
+  # No record value, no field name, no error text (0067 D8): ids and the closed code only.
+  defp dlq_attrs(row, code),
+    do: %{entry_type: "record_trigger", instance_id: nil, reference_id: row.id, reason: code}
+
+  # Test seam, honoured only under the scripts test hooks (same guard as `Runner.runner/0`).
+  defp dlq_enqueue_fun do
+    if Letflow.Scripts.Runtime.test_hooks?(),
+      do: Application.get_env(:letflow, :record_trigger_dlq_enqueue, &Letflow.Dlq.enqueue/2),
+      else: &Letflow.Dlq.enqueue/2
+  end
+
+  defp log_dlq_failed(prefix, tag) do
+    Logger.error("record trigger dead-letter entry failed",
+      component: "record_trigger",
+      tenant_schema: prefix,
+      tag: tag
+    )
+  end
+
+  # Audit then alert, after the dead transaction committed. Never raises, never undoes the row.
+  defp after_dead(row, prefix, code, facts) do
+    audit_dead(row, prefix, code, facts)
+    Alerts.notify_record_trigger_dead(prefix)
+    :ok
+  rescue
+    _ -> log_audit_failed(prefix, "raised")
+  catch
+    kind, _ -> log_audit_failed(prefix, if(kind == :throw, do: "thrown", else: "exited"))
+  end
+
+  defp audit_dead(row, prefix, code, facts) do
+    base = %{
+      "last_code" => code,
+      "outcome" => code,
+      "attempt" => row.attempt,
+      "outbox_id" => row.id
+    }
+
+    payload =
+      [:script_key, :script_version, :script_sha256]
+      |> Enum.reduce(base, fn key, acc ->
+        put_present(acc, Atom.to_string(key), Map.get(row, key))
+      end)
+      |> put_present("principal", Map.get(row, :actor_id))
+      |> put_present("hmac", Map.get(facts, :hmac))
+      |> put_present("duration_us", Map.get(facts, :duration_us))
+      |> put_present("instructions", Map.get(facts, :instructions_used))
+      |> put_present("heap_words", Map.get(facts, :heap_words))
+
+    case Audit.insert_entry(
+           Repo,
+           %{
+             actor_id: nil,
+             action: "record_trigger_dead",
+             resource_type: "record_trigger_outbox",
+             resource_id: row.id,
+             before_state: nil,
+             after_state: payload
+           },
+           prefix
+         ) do
+      {:ok, _entry} -> :ok
+      _failed -> log_audit_failed(prefix, "failed")
+    end
+  rescue
+    _ -> log_audit_failed(prefix, "raised")
+  catch
+    kind, _ -> log_audit_failed(prefix, if(kind == :throw, do: "thrown", else: "exited"))
+  end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  defp log_audit_failed(prefix, tag) do
+    Logger.error("record trigger audit failed",
+      component: "record_trigger",
+      tenant_schema: prefix,
+      tag: tag
+    )
   end
 
   defp cas(row, prefix, outcome, set) do

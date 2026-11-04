@@ -14,10 +14,10 @@ was written.
    403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
-   (`lib/letflow/entities/records.ex:2223`, delegating to `ManagedTypes.check_record_write/3`).
+   (`lib/letflow/entities/records.ex:1936`, delegating to `ManagedTypes.check_record_write/3`).
 2. **Writes go through the module's own Owner only, and nothing checks references.** Module
    code writes with the `/3` arity, `Records.create_record/3` with
-   `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:423`). The
+   `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:421`). The
    module has owner-path write functions for legal companies and sites (GH #3619 / REQ-660, item 12) and for units (GH #3618 / REQ-495: `create_unit/3`, `update_unit/4`, `move_unit/4`, `retire_unit/3` in `Letflow.Modules.Org.Units`, keeping the scope tree index through `Letflow.ScopeNodePaths.write/2` in the same transaction; the retire balance guard of D-065 is not built yet). References between the
    original four types (`legal_entity_id`, `site_id`, `parent`, `org_unit_id` of the membership) are
    declarative strings with no foreign keys and no reference check (the two newer types are item 8): a record can name a legal entity, site or unit that does
@@ -30,10 +30,10 @@ was written.
    entry points (`create_record`, `update_record`, `delete_record`) refuse, before any query, an
    `idempotency_key` that starts with the exact bytes `sys:step:` (or `record_trigger:` when no `:trigger_lineage` is passed, REQ-628) and return
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
-   `lib/letflow/entities/records.ex:1292`; prefix `@step_key_prefix`, line 368). Only
+   `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
    `lib/letflow/entities/step_writes.ex:813` and `lib/letflow/entities/handler_writes.ex:327`.
-   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1235`) is a separate check:
+   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
 5. **The read API is by record id only.** `Letflow.Modules.Org.lookup/2`, `active?/2` and
@@ -125,12 +125,12 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    generic entity routes answer 403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
-   (`lib/letflow/entities/records.ex:2223`, delegating to `ManagedTypes.check_record_write/3`).
+   (`lib/letflow/entities/records.ex:1936`, delegating to `ManagedTypes.check_record_write/3`).
    The one exception is the import route (item 2).
 2. **Writes go through the module's own Owner only; the three masters are imported through the
    managed import path (GH #3602, REQ-651).** Module code writes with the `/3` arity,
    `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.CatalogItems)`
-   (`lib/letflow/entities/records.ex:423`); the only such caller is
+   (`lib/letflow/entities/records.ex:421`); the only such caller is
    `lib/letflow/modules/catalog_items/import.ex`. `catalog_uom`, `catalog_item` and
    `catalog_counterparty` register `Letflow.Modules.CatalogItems.import_row/3` in the manifest key
    `:import_functions`; `POST /entities/records/:entity_type/import` calls it once per row through
@@ -157,10 +157,10 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    entry points (`create_record`, `update_record`, `delete_record`) refuse, before any query, an
    `idempotency_key` that starts with the exact bytes `sys:step:` (or `record_trigger:` when no `:trigger_lineage` is passed, REQ-628) and return
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
-   `lib/letflow/entities/records.ex:1292`; prefix `@step_key_prefix`, line 368). Only
+   `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
    `lib/letflow/entities/step_writes.ex:813` and `lib/letflow/entities/handler_writes.ex:327`.
-   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1235`) is a separate check:
+   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
 6. **The read API is by record id only; deleted is the same as absent.**
@@ -373,8 +373,8 @@ Each limit names the GH issue or the code that holds it; paths are cited without
    `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.Codes)`
    (`lib/letflow/modules/codes/codes.ex`); the tests do the same
    (`test/letflow/modules/codes/codes_fixture.exs`).
-3. **Write functions have write routes (item 18); the scan route is not built.** Receive, assign, release, retire and change value are
-   in `lib/letflow/modules/codes/writes.ex` (REQ-663, GH #3615); the routes are REQ-667 (GH #3611), the scan route is a later slice (GH #3588).
+3. **Write functions have write routes (item 18) and the scan has a route (item 19).** Receive, assign, release, retire and change value are
+   in `lib/letflow/modules/codes/writes.ex` (REQ-663, GH #3615); the routes are REQ-667 (GH #3611), the scan route is REQ-730 (GH #3797).
 4. **The target is not validated.** `target_type` and `target_id` are declarative strings, no
    foreign key is possible (decision 0050 D3.5 and D3.6, GH #3588); a code may name a type no module ships.
    The module that writes a code validates the target through the owning module's lookup.
@@ -422,7 +422,13 @@ Each limit names the GH issue or the code that holds it; paths are cited without
     `idempotency_key` and no other keys. An unknown code or target (also of another tenant) is 404, a bad
     batch entry is 422 `entry_invalid` with its `index` and `entry_reason`, any other refusal is 422 with a
     `reason`. A tenant that installed codes before 0.2.0 gets the routes without an upgrade (they come from the
-    code manifest); the scan route is not built (`lib/letflow/modules/codes/router.ex`).
+    code manifest); the scan route is item 19.
+19. **Scan lookup route (GH #3797, REQ-730, codes 0.3.0).** `POST /api/v1/modules/codes/resolve` (body `value`, no
+    `idempotency_key`, no other key) needs `CodesRead`; only TENANT_ADMIN and PLATFORM_ADMIN hold it (no
+    `role_grants`). It writes nothing. A not assigned code, or an assigned code whose target type is
+    `tenant_wide`, is 200 with the `resolve/2` map; a retired or conflicting code is 200 with the sent value and
+    null keys. An unknown code, and an assigned code whose target type is scoped or undeclared (fail closed),
+    are the same 404 (`lib/letflow/modules/codes/router.ex`).
 
 ## Stock module limits
 
@@ -439,9 +445,11 @@ names the GH issue or the code that holds it; paths are cited without line numbe
    QA fixture installs the module (`docs/migration/decisions/0073-domain-neutral-ledger-primitive.md`).
 3. **OQ-13 and OQ-23 are not decided.** There is no serial slot and no warehouse or zone scoping of
    postings; serial-tracked goods stay out of the pilot (GH #3707).
-4. **Nothing posts until REQ-713.** The stock documents of REQ-679 exist as drafts and issued documents (REQ-712,
-   GH #3749), but no posting path is built, so nothing posts to ledger id `stock`; the SERVICE origin is refused until
-   slice L5 (REQ-688, GH #3705).
+4. **Posting is built (REQ-713); only a human task posts.** The stock documents of REQ-679 post when the `post` task of the
+   `stock_receipt` instance of an issued receipt is completed with the OIDC credential by a holder of `StockPost`; a posted one is
+   reversed through the `reverse` task of a `stock_reversal` instance (`StockReverse`). The SERVICE origin is
+   refused until slice L5 (REQ-688, GH #3705); the posting code is `lib/letflow/modules/stock/handlers.ex`
+   (GH #3748).
 5. **API tokens get 404 from every read route; a scoped reader reads its own units.** `Letflow.Ledger.authorize/3`
    answers `:error` for an API token. A reader granted on org units (REQ-682, REQ-693) gets the balances and
    movements of those units only; the query key `scope_subtree` (one org unit id) narrows to a subtree and
@@ -483,3 +491,33 @@ names the GH issue or the code that holds it; paths are cited without line numbe
 16. **Installing the new version is an explicit step.** Version 0.2.0 of the module adds the two record types and the
     document type `stock_receipt`; a tenant that installed 0.1.0 takes them through the module upgrade path
     (`lib/letflow/modules/tenant_module_upgrade.ex`), no tenant is upgraded or seeded by the change (GH #3749).
+17. **Version 0.3.0 adds the posting parts.** The record type `stock_posting_mark`, the write handlers
+    `post_document` and `reverse_document`, the process definitions `stock_receipt` and `stock_reversal` and the
+    routes `post`, `reverse` and `cancel`; the module is installed on no tenant, so no upgrade of installed rows is
+    needed, and a tenant that installed 0.2.0 takes the new type and definitions through the module upgrade path
+    (`lib/letflow/modules/tenant_module_upgrade.ex`, GH #3748).
+18. **The binding gap: posting is detected, not enforced, until slice L7.** The handler reads nothing, and the
+    engine merges the `output_variables` of a completion without a per-node allowlist, so a holder of `StockPost`
+    could complete the post task with changed posting variables, or start the definition through the generic
+    instance start route with variables of its own, also for a draft or a cancelled document. The document read
+    answers `posting_check` `mismatch` (no detail) whenever the legs of its ledger entries differ from the issued
+    content, a draft has an entry, a mark has no entry, or a cancelled document has a receipt with no reversal;
+    prevention is slice L7 with its expected-document-version check (decision 0073 D6, decision 0078 D5, GH #3748).
+    A master retired between issue and posting is likewise caught only at L7 (item 13).
+19. **The post and reverse tasks have no assignee.** Both nodes carry the role label `TENANT_ADMIN` (the graph needs a
+    role), any user may open them, and the ledger authority step refuses a completer without `StockPost` or
+    `StockReverse`, an API token included; the task then stays pending (`lib/letflow/ledger/handler_post.ex`,
+    GH #3748).
+20. **One posted and one reversed mark per document.** The unique constraint `uq_stock_posting_mark_doc_mark` of
+    `stock_posting_mark` refuses a second completion for the same document: the whole completion rolls back before
+    any ledger write, so there is one entry and one mark, the second task stays pending and the answer is a typed
+    refusal, not the ledger's duplicate result. This also refuses a second completer and a changed quantity under
+    the same operation id (`priv/modules/stock/entity_definitions/stock_posting_mark.json`, GH #3748).
+21. **The definitions are activated lazily.** Install leaves `stock_receipt` and `stock_reversal` as stamped drafts;
+    the first issue (and the first reverse) of a tenant activates its definition with the activator of that request
+    (`DefinitionsActivate` and `EntitiesRecordsWrite`), and answers 409 `definition_not_active` before any number is
+    taken when it cannot, or when an active definition of that name is not the module's
+    (`lib/letflow/modules/stock/documents/posting.ex`, GH #3748).
+22. **`reason_text` of a reversal is kept on the instance only.** The ledger keeps the closed `reason_code`; the free
+    text (at most 500 characters) is the variable `reason_text` of the `stock_reversal` instance
+    (`lib/letflow/modules/stock/documents/posting.ex`, GH #3748).

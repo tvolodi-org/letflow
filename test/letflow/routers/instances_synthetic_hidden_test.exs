@@ -650,11 +650,11 @@ defmodule Letflow.Routers.InstancesSyntheticHiddenTest do
 
       assert {id in ids, ctx.widget_id in ids, ctx.gadget_id in ids} == {true, false, false}
 
-      get = request(ctx, :worker, "GET", api("/:id", id))
+      get = request(ctx, :auditor, "GET", api("/:id", id))
       assert get.status == 200
       assert Jason.decode!(get.resp_body)["instance_id"] == id
 
-      history = request(ctx, :worker, "GET", api("/:id/history", id))
+      history = request(ctx, :auditor, "GET", api("/:id/history", id))
       assert history.status == 200
 
       event_types =

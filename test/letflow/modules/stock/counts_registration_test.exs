@@ -33,7 +33,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
 
     assert m.role_grants == %{}
 
-    assert Enum.take(m.manages_entity_types, -5) == [
+    assert Enum.slice(m.manages_entity_types, 2, 5) == [
              "count_order",
              "count_order_scope",
              "count_commission_member",

@@ -116,6 +116,7 @@ POST /modules/codes/:id/release CodesWrite
 POST /modules/codes/:id/retire CodesWrite
 POST /modules/codes/:id/value CodesWrite
 POST /modules/codes/receive CodesWrite
+POST /modules/codes/resolve CodesRead
 POST /modules/exam/authoring/:entity_type ExamAuthoringWrite
 POST /modules/exam/exam-sessions ExamSessionStart
 POST /modules/exam/exam-sessions/:id/certificate ExamCertificateIssue
@@ -154,7 +155,10 @@ POST /modules/stock/counts/:id/issue StockCountOrder
 POST /modules/stock/counts/:id/open StockCountRecord
 POST /modules/stock/counts/:id/surplus-lines StockCountRecord
 POST /modules/stock/documents StockPost
+POST /modules/stock/documents/:id/cancel StockReverse
 POST /modules/stock/documents/:id/issue StockPost
+POST /modules/stock/documents/:id/post StockPost
+POST /modules/stock/documents/:id/reverse StockReverse
 POST /onboarding TenantsManage
 POST /onboarding/:id/bind-realm TenantsManage
 POST /platform-migrations/rollouts TenantsManage

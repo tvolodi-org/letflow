@@ -1,6 +1,134 @@
 {
   "bpm_export_schema_version": "bpm/definition/v1",
-  "definitions": [],
+  "definitions": [
+    {
+      "definition_id": "00501000-0000-0040-0080-000000003748",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_receipt",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000003749",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "reverse"
+          },
+          {
+            "id": "e2",
+            "source": "reverse",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "reason_code": {
+                      "var": "reason_code"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "reverse_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "reverse",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_reversal",
+      "version": "1.0.0"
+    }
+  ],
   "entity_definitions": [
     {
       "definition_json": {
@@ -511,6 +639,65 @@
       "entity_definition_id": "14b35543-6cb6-524e-1f4d-f90a3a120bf5",
       "logical_shape_version": "c5c9f7a071d20a9bdec8e58cec123fc2a0e6d1d4e7597cc6b3c8dcc6485a86e8",
       "name": "count_entry"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "document_id",
+              "mark"
+            ],
+            "name": "uq_stock_posting_mark_doc_mark",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #3748 / REQ-713, decision 0073 (Consequences, cost note), docs/assets/stock-workflow-documents.md section 9.2. The bookkeeping record that says a stock document was posted (mark posted) or reversed (mark reversed). It is written only by the write handlers post_document and reverse_document of module stock, in the same transaction as the ledger entry (HandlerWrites.create/3 and post/3). document_id is the id of the versioned document, document_type its type key, version_no the issued version, org_unit_id the issuing org unit (queried; the scope column of decision 0076 R7), reason_code the reversal reason (set on a reversed mark only). The unique constraint uq_stock_posting_mark_doc_mark allows one posted and one reversed mark per document: a second completion of a posting for the same document violates it, so the whole completion transaction rolls back before any ledger write.",
+        "display_name": "Stock posting mark",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "document_type",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "version_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "enum_values": [
+              "posted",
+              "reversed"
+            ],
+            "name": "mark",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "reason_code",
+            "type": "string"
+          }
+        ],
+        "name": "stock_posting_mark"
+      },
+      "display_name": "Stock posting mark",
+      "entity_definition_id": "90d68b14-3e26-d901-3bae-8df41d7ded1c",
+      "logical_shape_version": "158f5ad15f8ff031368fad400283663f06bf46ed2e05ee6dec54a818eb6d4ed3",
+      "name": "stock_posting_mark"
     }
   ],
   "exported_at": "2026-10-19T00:00:00Z",

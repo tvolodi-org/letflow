@@ -35,6 +35,7 @@ scenario file. A tenant-side actor holds TENANT_ADMIN or a tenant role, never PL
 - Scope: tenant.
 - Who holds it: ordinary staff who do assigned tasks.
 - Does: read and complete their tasks, read definitions, query entity data they may see.
+- Instance reads (GH #2932): `GET /instances/:id` and `/instances/:id/history` answer 404 unless the caller started the instance or holds one of its tasks (assigned to the user, one of their groups or one of their roles). Operators, designers, admins and auditors read tenant-wide.
 - Must not: start or cancel instances, assign tasks, change anything else.
 
 ## AGENT_RUNNER
@@ -176,7 +177,7 @@ Module `org` (GH #3613, REQ-665) declares `OrgStructureWrite` (legal companies, 
 TENANT_ADMIN and PLATFORM_ADMIN hold them; giving either to another role is a later widening that needs per-tenant grant snapshots.
 Module `catalog_items` (GH #3610, REQ-668) declares `CatalogLotsWrite` (create, change and retire lots), tenant scope. It declares no `role_grants`, so only
 TENANT_ADMIN and PLATFORM_ADMIN hold it.
-Module `codes` (GH #3611, REQ-667) declares `CodesWrite` (receive, assign, release, retire and rewrite codes), tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.
+Module `codes` (GH #3611, REQ-667; GH #3797, REQ-730) declares `CodesWrite` (receive, assign, release, retire and rewrite codes) and `CodesRead` (scan lookup, `POST /resolve`), tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.
 
 Module `stock` (GH #3707, REQ-687) declares `StockPost`, `StockReverse`, `StockRead` and `StockReconcile`, tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold them; OQ-11 of decision 0073 (grants for other roles) stays open for the owner.
 Module `locations` (GH #3612, REQ-666) declares `LocationsWrite` (location nodes: create, change, move, retire; links of org units to locations: link, unlink), tenant scope. It declares no `role_grants`, so only

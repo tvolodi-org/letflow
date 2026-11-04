@@ -56,12 +56,22 @@ defmodule Letflow.RecordTriggers.Runner do
   @doc "Runs the pinned script for `row` in tenant schema `prefix`; see the moduledoc."
   @spec run(OutboxRow.t(), String.t()) ::
           {:ok, [line()]} | {:retry, String.t()} | {:dead, String.t()}
-  def run(%OutboxRow{} = row, prefix) when is_binary(prefix) do
+  def run(%OutboxRow{} = row, prefix) when is_binary(prefix),
+    do: row |> run_with_facts(prefix) |> elem(0)
+
+  @doc """
+  `run/2` plus the run facts the dead-row audit needs (REQ-638): `hmac` once signing succeeded,
+  `duration_us` whenever the sandbox was called, `instructions_used` and `heap_words` only when the
+  sandbox returned stats (its error details carry none, so a failed run omits them). Only keys that
+  exist are present. Never raises.
+  """
+  @spec run_with_facts(OutboxRow.t(), String.t()) :: {term(), map()}
+  def run_with_facts(%OutboxRow{} = row, prefix) when is_binary(prefix) do
     do_run(row, prefix)
   rescue
-    _ -> {:dead, "script_error"}
+    _ -> {{:dead, "script_error"}, %{}}
   catch
-    _kind, _ -> {:dead, "script_error"}
+    _kind, _ -> {{:dead, "script_error"}, %{}}
   end
 
   defp do_run(row, prefix) do
@@ -69,9 +79,19 @@ defmodule Letflow.RecordTriggers.Runner do
          :ok <- check_r5(spec.manifest, prefix),
          {:ok, input} <- build_input(row, spec.manifest, prefix),
          {:ok, input} <- put_reads(input, spec, prefix),
-         :ok <- sign(row, input, spec),
-         {:ok, output} <- run_script(row, spec, input, prefix) do
-      check_lines(output, spec.manifest, row)
+         {:ok, hmac} <- sign(row, input, spec) do
+      facts = %{hmac: hmac}
+
+      case run_script(row, spec, input, prefix) do
+        {:ok, output, facts_run} ->
+          facts = Map.merge(facts, facts_run)
+          {check_lines(output, spec.manifest, row), facts}
+
+        {failure, facts_run} ->
+          {failure, Map.merge(facts, facts_run)}
+      end
+    else
+      failure -> {failure, %{}}
     end
   end
 
@@ -233,7 +253,8 @@ defmodule Letflow.RecordTriggers.Runner do
     }
 
     case spec.hmac_fun.(ScriptInput.canonical(input, ctx)) do
-      {:ok, _hmac} -> :ok
+      {:ok, {_key_version, hmac}} when is_binary(hmac) -> {:ok, hmac}
+      {:ok, hmac} when is_binary(hmac) -> {:ok, hmac}
       _failed -> {:dead, "script_rejected"}
     end
   end
@@ -241,6 +262,8 @@ defmodule Letflow.RecordTriggers.Runner do
   # ── sandbox ──────────────────────────────────────────────────────────────────
 
   defp run_script(row, spec, input, prefix) do
+    started = System.monotonic_time(:microsecond)
+
     result =
       runner().run(spec.source, input,
         tenant: prefix,
@@ -256,15 +279,42 @@ defmodule Letflow.RecordTriggers.Runner do
         heap_words: spec.limits.heap_words
       )
 
+    facts = %{duration_us: System.monotonic_time(:microsecond) - started}
+
     case result do
-      {:ok, %{output: output}} -> check_output(output, spec.manifest)
-      {:error, :script_busy, _detail} -> {:retry, "script_busy"}
-      {:error, :output_invalid, _detail} -> {:dead, "output_invalid"}
-      {:error, :script_failed, _detail} -> {:dead, "script_failed"}
-      {:error, code, _detail} when is_atom(code) -> {:dead, failure_code(code)}
-      _unexpected -> {:dead, "script_error"}
+      {:ok, %{output: output} = ok} ->
+        facts = Map.merge(facts, stats_facts(Map.get(ok, :stats)))
+
+        case check_output(output, spec.manifest) do
+          {:ok, declared} -> {:ok, declared, facts}
+          failure -> {failure, facts}
+        end
+
+      {:error, :script_busy, _detail} ->
+        {{:retry, "script_busy"}, facts}
+
+      {:error, :output_invalid, _detail} ->
+        {{:dead, "output_invalid"}, facts}
+
+      {:error, :script_failed, _detail} ->
+        {{:dead, "script_failed"}, facts}
+
+      {:error, code, _detail} when is_atom(code) ->
+        {{:dead, failure_code(code)}, facts}
+
+      _unexpected ->
+        {{:dead, "script_error"}, facts}
     end
   end
+
+  defp stats_facts(%{} = stats) do
+    for {key, fact} <- [instructions_used: :instructions_used, heap_words_at_end: :heap_words],
+        is_integer(Map.get(stats, key)),
+        into: %{},
+        do: {fact, Map.fetch!(stats, key)}
+  end
+
+  defp stats_facts(_none), do: %{}
 
   @known_failures ~w(script_error budget_exceeded memory_limit_exceeded timeout script_rejected)a
 
