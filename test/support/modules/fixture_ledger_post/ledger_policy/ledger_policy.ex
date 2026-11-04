@@ -12,11 +12,28 @@ defmodule Letflow.Modules.FixtureLedgerPost.LedgerPolicy do
 
   alias Letflow.Ledger.Policy
 
+  # Test hooks (build-time failure paths of REQ-685): the policy misbehaves on request.
   @impl Letflow.Ledger.Policy
+  def declare(%{explode: :raise}, _registration), do: raise("secret-policy-text")
+  def declare(%{explode: :exit}, _registration), do: exit(:secret_policy_text)
+  def declare(%{explode: :throw}, _registration), do: throw(:secret_policy_text)
+  def declare(%{explode: :other_code}, _registration), do: {:error, {:other_code, %{}}}
+  def declare(%{explode: :not_a_tuple}, _registration), do: :nope
+  def declare(%{explode: :bad_reason}, _registration), do: invalid(2, :weird_reason)
+
   def declare(%{ledger_id: ledger_id, cause: cause, legs: legs} = command, _registration)
       when is_list(legs) do
     with {:ok, built} <- build_legs(legs) do
-      header = Map.take(command, [:reason_code, :document_type, :document_id])
+      header =
+        Map.take(command, [
+          :reason_code,
+          :document_type,
+          :document_id,
+          :related_document_id,
+          :scope_ref,
+          :reverses_entry_id
+        ])
+
       {:ok, Policy.posting(Map.merge(header, %{ledger_id: ledger_id, cause: cause, legs: built}))}
     end
   end
