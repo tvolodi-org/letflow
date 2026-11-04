@@ -943,6 +943,38 @@ defmodule Letflow.Documents do
     outcome == :ok
   end
 
+  @doc """
+  REQ-700: the public read of the current issued version of a document: `{:ok, %{number_label,
+  version_no, issued_at, content_hash}}`, no content bytes. A malformed or unknown id, and a
+  document with no issued current version, are `{:error, :not_found}`. The caller has already
+  decided who may ask (this checks no permission); tenant from `prefix` alone.
+  """
+  @spec issued_summary(String.t(), term()) :: {:ok, map()} | {:error, :not_found}
+  def issued_summary(prefix, document_id) when is_binary(prefix) do
+    with {:ok, id} <- document_id(document_id),
+         {d, v} <-
+           Repo.one(
+             from(d in Document,
+               join: v in DocumentVersion,
+               on: v.id == d.current_version,
+               where: d.id == ^id and v.status == :issued,
+               select: {d, v}
+             ),
+             prefix: prefix
+           ),
+         %DocumentType{} = type <- Repo.get(DocumentType, d.type_key, prefix: prefix) do
+      {:ok,
+       %{
+         number_label: number_label(type, d.number, d.period),
+         version_no: v.version_no,
+         issued_at: v.issued_at,
+         content_hash: v.content_hash
+       }}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
   defp verify(prefix, document_id, version_no, content_hash)
        when is_binary(prefix) and is_binary(content_hash) do
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
