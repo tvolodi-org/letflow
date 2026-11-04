@@ -50,8 +50,9 @@ defmodule Letflow.ModuleUpgrade.Writer do
 
   @doc false
   @spec migrate_record(Capability.t(), String.t(), Ecto.UUID.t(), map(), String.t()) :: result()
-  def migrate_record(%Capability{} = capability, entity_type, record_id, after_values, step_id)
-      when is_binary(entity_type) and is_binary(record_id) and is_map(after_values) and
+  def migrate_record(capability, entity_type, record_id, after_values, step_id)
+      when is_struct(capability, Capability) and is_binary(entity_type) and is_binary(record_id) and
+             is_map(after_values) and
              is_binary(step_id) do
     if Enum.any?(Map.keys(after_values), &x_key?/1) do
       {:error, :x_key_not_writable}
