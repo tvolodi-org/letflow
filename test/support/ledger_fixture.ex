@@ -39,16 +39,25 @@ defmodule Letflow.LedgerFixture do
 
   @doc """
   The test registration (shape of note 14.3 restricted to slots, causes, key_bounds, units,
-  max_event_lateness_hours). Options: `:key_bounds`, `:units`.
+  max_event_lateness_hours). Options: `:key_bounds`, `:units`, and `:scope_slot` (REQ-693):
+  `scope_slot: "k_unit"` adds a fourth `:uuid` slot of that name and the registration key
+  `scope_slot`; without it the map is as before.
   """
   @spec registration(keyword()) :: map()
   def registration(opts \\ []) do
+    base = [
+      %{name: "k_primary", format: :token, required: true},
+      %{name: "k_second", format: :token, required: false},
+      %{name: "k_third", format: :token, required: false}
+    ]
+
+    scope_slot = Keyword.get(opts, :scope_slot)
+
+    slots =
+      if scope_slot, do: base ++ [%{name: scope_slot, format: :uuid, required: false}], else: base
+
     %{
-      slots: [
-        %{name: "k_primary", format: :token, required: true},
-        %{name: "k_second", format: :token, required: false},
-        %{name: "k_third", format: :token, required: false}
-      ],
+      slots: slots,
       causes: %{
         "receipt" => %{sign_rule: :positive, reason_required: false},
         "issue" => %{sign_rule: :negative, reason_required: false},
@@ -59,6 +68,7 @@ defmodule Letflow.LedgerFixture do
       units: Keyword.get(opts, :units),
       max_event_lateness_hours: 96
     }
+    |> then(&if(scope_slot, do: Map.put(&1, :scope_slot, scope_slot), else: &1))
   end
 
   @doc "A declared leg."
@@ -361,11 +371,11 @@ defmodule Letflow.LedgerFixture do
   registration and two EXISTING tenant-scope permission atoms (read: TENANT_ADMIN and
   PROCESS_DESIGNER; reconcile: TENANT_ADMIN only).
   """
-  def registry do
+  def registry(opts \\ []) do
     %{
       @ledger_id => %{
         name: "test",
-        registration: registration(),
+        registration: registration(opts),
         read_permission: :ScriptsWrite,
         reconcile_permission: :ScriptsPublish
       }

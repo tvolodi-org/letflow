@@ -71,6 +71,7 @@ defmodule Letflow.Identity.Tenant do
 
   alias Letflow.Identity.ColorContrast
   alias Letflow.Identity.TenantSettings
+  alias Letflow.Identity.TenantTimezone
 
   @primary_key {:id, :binary_id, autogenerate: true}
   schema "tenants" do
@@ -287,7 +288,7 @@ defmodule Letflow.Identity.Tenant do
 
   The closed top-level key vocabulary (exactly `app_name`, `logo_url`,
   `brand_colors`, `locales`, `default_locale`, `signatory_name`,
-  `signatory_title`) is enforced by
+  `signatory_title`, `timezone`) is enforced by
   `Letflow.Identity.TenantSettings`, the custom `Ecto.Type` used for this
   field — an unrecognized top-level key is rejected by `cast/3` itself,
   before this function's own per-key value validation ever runs.
@@ -312,6 +313,13 @@ defmodule Letflow.Identity.Tenant do
     * `signatory_name`, `signatory_title` (REQ-595) — a string that is not
       blank, at most 100 characters, with no control character (code points
       below 0x20 or 0x7F), or `nil` to clear it.
+    * `timezone` (REQ-703) — an IANA time zone name known to PostgreSQL
+      (`pg_catalog.pg_timezone_names`, bound parameter), 1 to 64 characters,
+      or `nil` to clear it (read as the default). The check runs only when the
+      key is present. The router shallow-merges the stored settings, so every
+      PATCH re-validates a stored zone; if PostgreSQL's tzdata ever drops a
+      stored name, later PATCHes return 422 until the admin resets it
+      (accepted, not handled).
   """
   @spec settings_changeset(t :: %__MODULE__{}, attrs :: map()) :: Ecto.Changeset.t()
   def settings_changeset(tenant, attrs) do
@@ -328,9 +336,23 @@ defmodule Letflow.Identity.Tenant do
     |> validate_locales_and_default_locale(settings)
     |> validate_signatory_name(settings)
     |> validate_signatory_title(settings)
+    |> validate_timezone(settings)
   end
 
   defp validate_settings_value(:settings, _nil_or_other), do: []
+
+  defp validate_timezone(errors, %{"timezone" => nil}), do: errors
+
+  defp validate_timezone(errors, %{"timezone" => v}) do
+    if is_binary(v) and String.valid?(v) and byte_size(v) in 1..64 and
+         TenantTimezone.known_zone?(v) do
+      errors
+    else
+      [{:settings, "timezone must be an IANA time zone name"} | errors]
+    end
+  end
+
+  defp validate_timezone(errors, _settings), do: errors
 
   @signatory_max_length 100
 

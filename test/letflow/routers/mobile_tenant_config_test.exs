@@ -564,6 +564,34 @@ defmodule Letflow.Routers.MobileTenantConfigTest do
     end
   end
 
+  describe "REQ-703 TZ-6b: the time zone does not reach the mobile config" do
+    test "the body is unchanged after storing a timezone" do
+      tenant =
+        insert_tenant!(%{
+          slug: unique_slug("req703-tz"),
+          display_name: "REQ-703 Tenant",
+          idp_realm_id: unique_realm("req703-tz")
+        })
+
+      assert {:ok, _} =
+               Identity.update_tenant_settings(tenant.slug, %{
+                 "settings" => %{"app_name" => "Acme"}
+               })
+
+      {_c, before} = get_mobile_config(tenant.slug)
+
+      assert {:ok, _} =
+               Identity.update_tenant_settings(tenant.slug, %{
+                 "settings" => %{"app_name" => "Acme", "timezone" => "Asia/Tokyo"}
+               })
+
+      {conn_after, after_body} = get_mobile_config(tenant.slug)
+      assert conn_after.status == 200
+      assert after_body == before
+      refute Jason.encode!(after_body) =~ "Asia/Tokyo"
+    end
+  end
+
   # ═══════════════════════════════════════════════════════════════════════════
   # REQ-282 AC3 -- a tenant WITH stored branding/locales gets its own values
   # (per-sub-key fallback), a tenant WITHOUT gets platform defaults

@@ -408,11 +408,48 @@ defmodule Letflow.Identity.TenantTest do
       assert %{settings: [_]} = errors_on(changeset)
     end
 
-    test "REQ-595 A1: the closed vocabulary is exactly the seven keys" do
+    test "REQ-595 A1 / REQ-703 TZ-1: the closed vocabulary is exactly the eight keys" do
       assert Enum.sort(Letflow.Identity.TenantSettings.allowed_keys()) ==
                Enum.sort(
-                 ~w(app_name logo_url brand_colors locales default_locale signatory_name signatory_title)
+                 ~w(app_name logo_url brand_colors locales default_locale signatory_name signatory_title timezone)
                )
+    end
+
+    test "REQ-703 TZ-2a..e: an unknown, malformed or non-string timezone is refused with one error" do
+      tenant = insert_tenant!()
+
+      for bad <- ["Mars/Olympus", "ALMT", "", String.duplicate("a", 65), 5] do
+        changeset = Tenant.settings_changeset(tenant, %{"settings" => %{"timezone" => bad}})
+        refute changeset.valid?
+        assert changeset.errors[:settings] |> elem(0) == "timezone must be an IANA time zone name"
+        assert [_] = Keyword.get_values(changeset.errors, :settings)
+      end
+    end
+
+    test "REQ-703 TZ-2f/g: known zones are accepted and nil clears" do
+      tenant = insert_tenant!()
+
+      for ok <- ["Asia/Almaty", "Asia/Tokyo", "Europe/Berlin", "UTC", nil] do
+        assert Tenant.settings_changeset(tenant, %{"settings" => %{"timezone" => ok}}).valid?
+      end
+    end
+
+    test "REQ-703 TZ-2h: no timezone key means no pg_timezone_names query" do
+      tenant = insert_tenant!()
+      test_pid = self()
+      id = {:tz_probe, make_ref()}
+
+      :telemetry.attach(
+        id,
+        [:letflow, :repo, :query],
+        fn _e, _m, meta, _c -> send(test_pid, {:q, meta[:query]}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(id) end)
+
+      assert Tenant.settings_changeset(tenant, %{"settings" => %{"app_name" => "Acme"}}).valid?
+      refute_received {:q, "SELECT EXISTS" <> _}
     end
 
     test "REQ-595 V1: valid signatory values are accepted, nil clears" do
