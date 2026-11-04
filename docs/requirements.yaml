@@ -50977,3 +50977,84 @@ requirements:
       - "Balance as of a date on the screen: needs a stock route over the core function of pending REQ-704 (task T-1222); a later entry."
       - "Zero balances shown, latest basis only, tenant time zone Asia/Almaty: UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
     depends_on: [REQ-687, REQ-693, REQ-722, REQ-669]
+  - id: REQ-729
+    title: "Assets C4: specification of the xlsx import and export of asset cards including depreciation: the managed import of assets_card with its template columns and row rules, the card export, the asset register balances export, and no placement or posting by the import (docs only)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-689 -- the C4 file specifies the import of the asset card that the C1 file (REQ-689, pending) defines
+    # Source: ai-dala-portfolio/architectures/assets.md (table under "The model": amortization "an info field, imported or typed, not calculated in the first version"; section "Reports and import": "Excel import and export (as Qoimeks has) for the catalog, opening balances, and asset lists including amortization"; section "Decisions of 2026-10-31": xlsx import and export in the first version); letflow-team/project/assets-gap-analysis.md sections 3 ("Excel": CSV import built, no .xlsx, import refuses module-managed types) and 6 (order item 6, "Excel .xlsx (new)"); owner decisions D-061 (depreciation is an info field, imported, not calculated), D-062 (xlsx in the first version), D-063 (phase gates), D-085 point (3) (phase C specifications released before GATE B, specs only) and D-086 (prototype mode) in ai-dala-portfolio/DECISIONS.md.
+    description: >
+      Phase C item C4 of the assets and stock application (owner decisions D-061, D-062, D-063, D-085). ONE change,
+      docs only: a new file docs/assets/asset-xlsx.md that specifies how asset lists, depreciation included, are
+      imported from and exported to xlsx files. No code, no migration, no definition JSON, no manifest key, no test,
+      no seed, no route, no screen; no edit of any decision record, design note or other entry of this file. The
+      assets module, its import function and its export reads are later requirements, written from this file after
+      the owner's gate of phase B (D-063, D-085).
+
+      WHY. architectures/assets.md asks for "Excel import and export (as Qoimeks has) for ... asset lists including
+      amortization" and says amortization is "an info field, imported or typed, not calculated in the first version";
+      D-061 says the same of depreciation. The asset card of item C1 (REQ-689, pending: docs/assets/asset-register.md,
+      not on origin/main at the time of this entry) carries acquisition_cost, accumulated_depreciation, book_value and
+      depreciation_as_of as decimal or date fields and keeps location, materially responsible person, actual user and
+      quantity only in the asset register (REQ-689 criteria 4, 5, 7 and 8). REQ-689 lists "xlsx import and export of
+      assets including depreciation (item C4)" as out of its scope, and decision 0079 open question Q4 leaves to phase
+      C whether the asset register reuses the opening document. Nothing on origin/main says which columns an asset
+      file has, which import path writes a card, or what an exported asset file holds.
+
+      FACTS THE FILE RESTS ON (each checked on origin/main for this entry). Decision 0077
+      (docs/migration/decisions/0077-xlsx-import-export.md): D1 reader xlsx_reader, D2 limits (request body 2_097_152
+      bytes, uncompressed 26_214_400 bytes, 200 data rows per file, first worksheet only, DOCTYPE refused), D3 mapping
+      through CsvImport.convert_row/5 (lib/letflow/entities/csv_import.ex; a decimal field with decimal_strict true
+      takes only the grammar @decimal_strict, else the row error csv_invalid_decimal) and the whole-file refusals
+      xlsx_unreadable, xlsx_too_large, xlsx_header_missing, xlsx_duplicate_header, xlsx_unknown_header and
+      xlsx_external_ref_pair, D4 tenant from the authenticated caller only, D5 managed import path (manifest key
+      :import_functions, Letflow.Modules.Catalog.import_function/2 and call_import_function/5 in
+      lib/letflow/modules/catalog.ex, Letflow.Entities.ManagedImport, upsert by external ref only, references by
+      external id answering reference_not_found or reference_inactive with a constant header), D6 re-import
+      (unchanged rows write no event), D7 dry run, D8 export (POST /entities/records/:entity_type/export?format=xlsx,
+      Letflow.Entities.XlsxExport.build/3 in lib/letflow/entities/xlsx_export.ex: sheet records with the field names
+      in definition order as row 1, sheet export with entity_type, exported_at and next_cursor; a decimal goes through
+      a float; a reference is its stored text). The scope rule of the import: import_scope_check/6 in
+      lib/letflow/routers/entities/record_import.ex offers upsert mode to no scoped caller (any mode but :create is
+      refused for a caller whose scope is not :all), so only a tenant-wide caller can run a managed import. The export
+      handler run_export/5 in lib/letflow/routers/entities.ex has no branch for module-managed types (a read, served
+      for every visible type). Import function precedents: Letflow.Modules.Org.Import
+      (lib/letflow/modules/org/import.ex) and Letflow.Modules.Locations.Import (lib/letflow/modules/locations/import.ex)
+      write only through their module's own write functions, call no Records, hold no Owner and take a row as the
+      full desired state of the importable fields; Org.Import also puts no cell text into an error tuple. A row
+      outcome is created, updated or unchanged (Letflow.Entities.ManagedImport). Decision 0079
+      (docs/migration/decisions/0079-opening-balances-and-ledger-xlsx.md) D5 (xlsx import of opening lines, draft
+      lines only, never posting) and D8 (xlsx export of balances and movements with a second sheet of the report fields
+      of note lib/letflow/design/gh2657-wms-stock-ledger-core.md section 8.4, only the rows the caller's read answers,
+      no price or value, not promised to re-import), and decision 0073 D-T and D-L12 (an event time at most 96 hours
+      back; a service posting refused until slice L5).
+
+      WHAT THE FILE DECIDES is limited to the shape of the asset files: columns, row rules and what each export holds.
+      The business meanings it gives (which fields an asset list carries, that an import never places an asset) are
+      the business analyst's proposal for UAT, to be confirmed by the owner at the gate of phase C. Money rules and the
+      open points of criterion 8 are not decided here.
+
+      OUT OF SCOPE: the asset card and the register registration themselves (item C1, REQ-689), the asset documents
+      (item C2, REQ-690), the change of kind (item C3, REQ-691), placing old assets into the register by a file (an
+      xlsx import of commission lines or an asset opening document: an open owner question, criterion 8), import of
+      historical movements, the import screen for asset files (the phase A import screen is REQ-675), printed forms and
+      government lists that join card and register values (phase E), depreciation calculation (not in the first
+      version, D-061), and period close (D-062).
+    acceptance_criteria:
+      - "1. Place: the implementing change adds one new file docs/assets/asset-xlsx.md; git diff --name-only origin/main...HEAD of that change lists exactly that file; the file names its sources: owner decisions D-061, D-062, D-063 and D-085 (ai-dala-portfolio/DECISIONS.md), ai-dala-portfolio/architectures/assets.md, letflow-team/project/assets-gap-analysis.md, decisions 0073, 0077 and 0079, the requirement of item C1 (REQ-689) with its file docs/assets/asset-register.md (or the words 'C1 not on origin/main' when that file is absent at implement time), and this entry REQ-729."
+      - "2. Import path: the file states that asset cards are imported only through the managed import path of decision 0077 D5: the assets module lists assets_card in its manifest key :import_functions, the file is read by the reader, limits and mapping of 0077 D1 to D3 unchanged (first worksheet only, at most 200 data rows, 2_097_152 bytes body, 26_214_400 bytes uncompressed), upsert by external ref only, the dry run of 0077 D7 offered, and the tenant taken only from the authenticated caller (0077 D4). It states that a scoped caller cannot run this import, because import_scope_check/6 of lib/letflow/routers/entities/record_import.ex offers upsert mode to no scoped caller, so only a tenant-wide caller imports asset cards. It states that the import function writes every card only through the assets module's own card write functions, calls no Records, holds no Owner and puts no cell text into an error, as Letflow.Modules.Org.Import does, so the card rules and the audit entry of a card write hold for imported rows."
+      - "3. Template columns: the file gives the header row of an asset import file as one column per field of the assets_card field table of the C1 file, in that table's order, as found at implement time; with the C1 entry as written (REQ-689 criterion 4) these are exactly inventory_number, name, kind, org_unit_id, acquisition_date, acquisition_cost, accumulated_depreciation, book_value, depreciation_as_of, valid_until, external_ref_system and external_ref_id, where the row's external ref is also written into the card's own external_ref_system and external_ref_id fields (as 0077 D5 point 4 says of the catalog module). It states that the file has no location, materially responsible person, actual user or quantity column, because those values live only in the asset register (REQ-689 criterion 4), and that any other header is the whole-file refusal xlsx_unknown_header of 0077 D3."
+      - "4. Row rules: the file states, one rule per line: the org_unit_id cell holds the external id of an org_unit under the same external-ref system as the row and is resolved in the same tenant to the record id of the live target, a missing or deleted target being reference_not_found and an inactive one reference_inactive, both with the constant header org_unit_id (0077 D5 point 4); a kind cell outside fixed, low_value and intangible is refused; a valid_until cell on a row whose kind is not intangible is refused; a row that changes the kind of a card that already has a posting is refused (REQ-689 criterion 4); each money cell follows the decimal_strict grammar of CsvImport and is otherwise the row error csv_invalid_decimal; the row is the full desired state of the importable fields, so an absent optional cell clears that field, as in Letflow.Modules.Org.Import; a row equal to the stored card is unchanged and writes no event (0077 D6); a refused row changes nothing. For each refusal the file introduces it names one constant reason code that carries no cell text."
+      - "5. No placement, no posting: the file states that an asset import writes asset cards only: it never posts to the asset ledger, never creates a balance row and never writes a document, so an imported card has quantity 0 in the register until a commission document of item C2 puts it there (REQ-689 criterion 8, REQ-690). It gives the two reasons: the ledger refuses an event time more than 96 hours back (0073 D-T), which is why the real acquisition date is the card field acquisition_date, and a posting from a service task is refused until slice L5 (0073 D-L12)."
+      - "6. Depreciation by import: the file states that acquisition_cost, accumulated_depreciation, book_value and depreciation_as_of are set by the import or typed, never calculated (D-061, REQ-689 criterion 7); that a re-import of a file with new depreciation values updates the card, answers that row updated and is a card update in the audit trail, not a posting; and, as a UAT assumption to be confirmed by the process owner, that the import checks no sign of a money cell and no relation between the money fields (for example that book_value equals acquisition_cost minus accumulated_depreciation)."
+      - "7. Exports: the file states two xlsx exports and adds no route and no dependency for either. (a) Asset cards: through the existing record export POST /entities/records/:entity_type/export?format=xlsx with entity_type assets_card (0077 D8, Letflow.Entities.XlsxExport.build/3), whose sheet records has the card fields in definition order and whose handler run_export/5 in lib/letflow/routers/entities.ex has no branch refusing a module-managed type (checked again at implement time); the export applies the field redaction and the scope filter of the export route, so a scoped reader gets only the cards of its units (REQ-689 criterion 9); org_unit_id is the stored record id, not the external id, so an exported card file is not promised to re-import as it is (a UAT assumption to be confirmed by the process owner, as in decision 0079 D8). (b) Asset register balances: one row per balance key with the slot values asset, org_unit, location, material_responsible and actual_user named by slot name, the quantity and the unit, and a second sheet holding the report fields of note section 8.4, in the shape of decision 0079 D8; only the rows the caller's read of the asset ledger answers, never more; no money column (money is never in the register, REQ-689 criterion 7). It states that its read route belongs to the later asset register read requirement and is not specified here."
+      - "8. Open owner questions: the file has a section listing, each with its source and no answer of its own: how old assets are placed into the register in bulk, by an xlsx import of commission lines into draft commission documents or by an asset opening document reusing decision 0079 D1 to D6 (0079 Q4; this entry proposes commission documents typed one by one in the first version, as a UAT assumption); whether one asset list file that joins card and register values (the government list of assets.md) is an export of this item or a report of phase E; whether 200 rows per file (0077 D2, a UAT assumption) is enough for an asset list; the currency of the money fields (REQ-689 criterion 10); and whether an exported card file should re-import with external ids instead of record ids."
+      - "9. Checks: docs/requirements.yaml still parses, mix letflow.check_requirements_registration passes and mix letflow.check.static passes (real output quoted in the PR). No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Bulk placement of old assets into the register: xlsx import of commission lines, or an asset opening document (decision 0079 Q4). Proposed: commission documents typed one by one in the first version (UAT assumption, to be confirmed by the process owner)."
+      - "UAT assumption, to be confirmed by the process owner: the import checks no sign of a money cell and no relation between acquisition_cost, accumulated_depreciation and book_value."
+      - "UAT assumption, to be confirmed by the process owner: an exported card file is not promised to re-import as it is (org_unit_id is a record id)."
+      - "Whether a joined asset list (card plus register values, the government list) belongs here or to phase E."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-650, REQ-651, REQ-653, REQ-677, REQ-689, REQ-690]
