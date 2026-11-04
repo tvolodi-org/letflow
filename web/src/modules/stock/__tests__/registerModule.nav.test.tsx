@@ -63,18 +63,25 @@ const STK = [{ module_id: 'stock', version: '1.0.0' }]
 const LINKS: [string, string][] = [
   ['Balances', '/admin/stock/balances'],
   ['Movements', '/admin/stock/movements'],
+  ['Counts', '/admin/stock/counts'],
 ]
 
 describe('N1 definition', () => {
-  it('has the two routes and nav items on StockRead and is registered', async () => {
+  it('has the routes and nav items on StockRead and is registered', async () => {
     const { stockModuleDefinition } = await import('../index')
     const { REGISTERED_MODULES } = await import('@/modules/registry')
     expect(REGISTERED_MODULES.map((m) => m.id)).toContain('stock')
     expect(stockModuleDefinition.id).toBe('stock')
-    expect(stockModuleDefinition.routeObjects.map((r) => r.path)).toEqual(['admin/stock/balances', 'admin/stock/movements'])
+    expect(stockModuleDefinition.routeObjects.map((r) => r.path)).toEqual([
+      'admin/stock/balances',
+      'admin/stock/movements',
+      'admin/stock/counts',
+      'admin/stock/counts/:id',
+    ])
     expect(stockModuleDefinition.navItems.map((n) => [n.label, n.to, n.permission])).toEqual([
       ['Balances', '/admin/stock/balances', 'StockRead'],
       ['Movements', '/admin/stock/movements', 'StockRead'],
+      ['Counts', '/admin/stock/counts', 'StockRead'],
     ])
   })
 })

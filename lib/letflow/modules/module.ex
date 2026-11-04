@@ -103,6 +103,10 @@ defmodule Letflow.Modules.Module do
       module itself (`Catalog` rule 14). Resolved by `Letflow.Modules.Catalog.import_function/2`
       and called by `Catalog.call_import_function/5`. NOT part of the manifest hash (it holds
       code, not definitions).
+    * `:reference_targets` - **optional** (REQ-636, decision 0070 slice C); a list of managed entity
+      types of this module (each also in `:manages_entity_types`) that a field of a tenant-owned record
+      type may refer to by record id. The module must export `lookup/2` and `active?/2`. Rule 19 of
+      `Catalog.validate/2`; hashed only when present.
     * `:ledger` - **optional** (REQ-684, decision 0073); `%{registration_name => registration}`, the
       ledgers the module registers (fixed ledger ids, slots, causes, permissions, policy). Validated by
       `Letflow.Modules.LedgerRegistration` (`Catalog` rule 18); read by `Catalog.fetch_ledger/2`. The
@@ -131,6 +135,7 @@ defmodule Letflow.Modules.Module do
           optional(:extension_points) => [extension_point()],
           optional(:import_functions) => [%{entity_type: String.t(), function: atom()}],
           optional(:ledger) => %{String.t() => map()},
+          optional(:reference_targets) => [String.t()],
           optional(:min_upgradable_from) => String.t(),
           optional(:migrations) => [Letflow.Modules.Step.t()]
         }
@@ -212,6 +217,7 @@ defmodule Letflow.Modules.Module do
   | `:document_org_resolver` (optional) | module atom implementing `Letflow.Documents.OrgResolver` (REQ-542); at most one module may declare it |
   | `:extension_points` (optional) | `[t:extension_point/0]` literal list of string-keyed maps (REQ-574); rule 13 of `Catalog.validate/2` |
   | `:import_functions` (optional) | `[%{entity_type: String.t(), function: atom()}]` literal list (REQ-651); rule 14 of `Catalog.validate/2` |
+  | `:reference_targets` (optional) | `[String.t()]` literal list of managed type names (REQ-636); rule 19 of `Catalog.validate/2` |
   | `:ledger` (optional) | `%{String.t() => map()}` literal map of ledger registrations (REQ-684); rule 18 of `Catalog.validate/2` |
 
   If any `role_grants` value atom is absent from `permissions`, a
