@@ -12,7 +12,7 @@ defmodule Letflow.Ledger.ReportTest do
   alias Letflow.LedgerFixture, as: Fx
   alias Letflow.Repo
 
-  @report_keys ~w(as_of basis cutoff_seq filters ledger_id ledger_seq next_cursor rows timezone)a
+  @report_keys ~w(as_of basis coverage cutoff_seq filters ledger_id ledger_seq next_cursor rows timezone)a
   @row_keys ~w(k last_posting_seq quantity unit_ref)a
   @entry_keys ~w(cause correlation_id document_id document_type entry_id event_time ledger_id legs posting_seq posting_time reason_code related_document_id reverses_entry_id)a
   @leg_keys ~w(document_line_id k leg_no quantity unit_ref)a
@@ -32,7 +32,7 @@ defmodule Letflow.Ledger.ReportTest do
 
   defp sorted(list), do: Enum.sort(list)
 
-  test "T-RP-1 the report has exactly the nine keys and allowlisted plain rows", %{
+  test "T-RP-1 the report has exactly the ten keys and allowlisted plain rows", %{
     schema: s,
     auth: a
   } do

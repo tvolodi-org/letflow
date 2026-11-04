@@ -35,6 +35,19 @@ defmodule Letflow.Ledger.Read do
   row until commit, so entries become visible in `posting_seq` order, and an entry is written
   with all its legs and balances in one transaction.
 
+  ## Scoped reads (REQ-693, decision 0073 S3 to S7)
+
+  An `Authorized` value with `scope: {:nodes, ids}` filters on the registration's scope slot
+  column (`scope_col`) INSIDE the statement that carries the sums, the limit and the cursor: the
+  rows of units outside the set are never selected, counted or summed. Ids are bound `text[]`
+  parameters compared by byte equality with the `COLLATE "C"` column. The filter key
+  `scope_subtree` (one node id P) narrows to the subtree of P through a subquery on the tenant's
+  `scope_node_paths` in the same statement (P and retired descendants included), and the report
+  key `coverage` says whether the reader sees the whole subtree (`:complete`) or only its own
+  units in it (`:visible_only`). `entries/3` lists an entry only when one of its legs is visible
+  and returns the other legs masked: only `leg_no`, `quantity`, `unit_ref` and `masked: true`;
+  the key columns and `document_line_id` of a hidden leg are not selected from the database.
+
   ## What is never returned
 
   Rows are built field by field from an explicit select list: actor, subject, client op id,
@@ -57,17 +70,18 @@ defmodule Letflow.Ledger.Read do
   @max_value_bytes 200
   @default_timezone "Asia/Almaty"
   @timezone_form ~r/\A[A-Za-z0-9_+\-\/]{1,64}\z/
-  @entry_filters ~w(cause document_type document_id correlation_id from_seq to_seq)
+  @entry_filters ~w(cause document_type document_id correlation_id from_seq to_seq scope_subtree)
+  @subtree_key "scope_subtree"
 
   # ---- balances ------------------------------------------------------------------------------
 
   @doc false
   def balances(%Authorized{} = a, basis, filters, page) do
     with {:ok, kind, t, n} <- check_basis(basis),
-         {:ok, filt} <- check_slot_filters(a, filters),
+         {:ok, filt, subtree} <- check_slot_filters(a, filters),
          {:ok, limit, cursor} <- check_page(page, &decode_balance_cursor/1),
          {:ok, n, key} <- apply_cursor(n, cursor) do
-      run_balances(a, kind, t, n, filt, limit, key)
+      run_balances(a, kind, t, n, filt, subtree, limit, key)
     end
   end
 
@@ -81,7 +95,37 @@ defmodule Letflow.Ledger.Read do
 
   defp check_basis(_other), do: {:error, :invalid_filter}
 
-  defp check_slot_filters(%Authorized{slot_names: names}, filters) when is_map(filters) do
+  defp check_slot_filters(%Authorized{slot_names: names} = a, filters) when is_map(filters) do
+    {subtree_pairs, slot_filters} =
+      Enum.split_with(filters, fn {key, _value} -> key_name(key) == @subtree_key end)
+
+    with {:ok, subtree} <- check_subtree(a, subtree_pairs),
+         {:ok, filt} <- check_slot_pairs(names, slot_filters) do
+      {:ok, filt, subtree}
+    end
+  end
+
+  defp check_slot_filters(_a, _filters), do: {:error, :invalid_filter}
+
+  defp check_subtree(_a, []), do: {:ok, nil}
+
+  defp check_subtree(%Authorized{scope_col: col}, [{_key, id}])
+       when not is_nil(col) and is_binary(id) do
+    if valid_node_id?(id), do: {:ok, id}, else: {:error, :invalid_filter}
+  end
+
+  defp check_subtree(_a, _pairs), do: {:error, :invalid_filter}
+
+  # The rule of `Letflow.ScopeNodePaths` for a node id: 1..64 bytes, valid UTF-8, no "/" and no
+  # control character. A subtree filter is refused with the same rule before any statement.
+  defp valid_node_id?(id) when is_binary(id) do
+    byte_size(id) >= 1 and byte_size(id) <= 64 and String.valid?(id) and
+      not String.match?(id, ~r/[\/\p{Cc}]/u)
+  end
+
+  defp valid_node_id?(_other), do: false
+
+  defp check_slot_pairs(names, filters) do
     Enum.reduce_while(filters, {:ok, []}, fn {key, value}, {:ok, acc} ->
       with name when is_binary(name) <- key_name(key),
            idx when is_integer(idx) <- Enum.find_index(names, &(&1 == name)),
@@ -100,8 +144,6 @@ defmodule Letflow.Ledger.Read do
         error
     end
   end
-
-  defp check_slot_filters(_a, _filters), do: {:error, :invalid_filter}
 
   defp key_name(key) when is_binary(key), do: key
   defp key_name(key) when is_atom(key) and not is_nil(key), do: Atom.to_string(key)
@@ -158,8 +200,8 @@ defmodule Letflow.Ledger.Read do
   defp apply_cursor(n, {n, keys}), do: {:ok, n, keys}
   defp apply_cursor(_n, _cursor), do: {:error, :invalid_filter}
 
-  defp run_balances(a, kind, t, n, filt, limit, key) do
-    rows_q = rows_query(a.ledger_id, kind, t, n, filt, key, limit + 1)
+  defp run_balances(a, kind, t, n, filt, subtree, limit, key) do
+    rows_q = rows_query(a, kind, t, n, filt, subtree, key, limit + 1)
 
     query =
       from(c in "ledger_counter",
@@ -205,7 +247,8 @@ defmodule Letflow.Ledger.Read do
          cutoff_seq: cutoff,
          as_of: t,
          timezone: timezone(a.prefix),
-         filters: filters_echo(a, filt),
+         filters: filters_echo(a, filt, subtree),
+         coverage: coverage(a, subtree),
          ledger_seq: ledger_seq,
          rows: Enum.map(page_rows, &balance_row/1),
          next_cursor: next
@@ -213,11 +256,11 @@ defmodule Letflow.Ledger.Read do
     end
   end
 
-  defp rows_query(ledger_id, kind, t, n, filt, key, lim) do
+  defp rows_query(a, kind, t, n, filt, subtree, key, lim) do
     base =
       from(b in "ledger_balance",
         as: :b,
-        where: b.ledger_id == ^ledger_id,
+        where: b.ledger_id == ^a.ledger_id,
         order_by: [b.k1, b.k2, b.k3, b.k4, b.k5, b.k6, b.k7, b.k8],
         limit: ^lim,
         select: %{
@@ -237,6 +280,12 @@ defmodule Letflow.Ledger.Read do
       Enum.reduce(filt, base, fn {field, value}, q ->
         where(q, [b], field(b, ^field) == ^value)
       end)
+
+    base =
+      case scope_condition(a, subtree, :b) do
+        nil -> base
+        cond_ -> where(base, ^cond_)
+      end
 
     base =
       case key do
@@ -340,11 +389,60 @@ defmodule Letflow.Ledger.Read do
   defp basis_map(:posted, _t, n), do: %{type: "posting_seq", n: n}
   defp basis_map(:event, t, n), do: %{type: "event_time", t: t, n: n}
 
-  defp filters_echo(%Authorized{slot_names: names}, filt) do
-    for {field, value} <- filt, into: %{} do
-      {Enum.at(names, Enum.find_index(@k_fields, &(&1 == field))), value}
+  defp filters_echo(%Authorized{slot_names: names}, filt, subtree) do
+    echo =
+      for {field, value} <- filt, into: %{} do
+        {Enum.at(names, Enum.find_index(@k_fields, &(&1 == field))), value}
+      end
+
+    if subtree, do: Map.put(echo, @subtree_key, subtree), else: echo
+  end
+
+  # ---- scope (REQ-693) -----------------------------------------------------------------------
+
+  # The condition on the scope column of the binding named `as_name`, or nil when the reader is
+  # tenant-wide and no subtree is asked. Ids and the subtree are bound parameters only.
+  defp scope_condition(%Authorized{scope: scope, scope_col: col, prefix: _}, subtree, as_name) do
+    allowed =
+      case scope do
+        {:nodes, ids} ->
+          dynamic(
+            [{^as_name, x}],
+            fragment("? = ANY(?)", field(x, ^col), type(^ids, {:array, :string}))
+          )
+
+        :all ->
+          nil
+      end
+
+    sub =
+      if subtree do
+        nodes =
+          from(d in Letflow.ScopeNodePaths.Node,
+            join: p in Letflow.ScopeNodePaths.Node,
+            on: fragment("starts_with(?, ?)", d.path, p.path),
+            where: p.node_id == ^subtree,
+            select: d.node_id
+          )
+
+        dynamic([{^as_name, x}], field(x, ^col) in subquery(nodes))
+      end
+
+    case {allowed, sub} do
+      {nil, nil} -> nil
+      {a, nil} -> a
+      {nil, b} -> b
+      {a, b} -> dynamic(^a and ^b)
     end
   end
+
+  # `nil` without a subtree; `:complete` when the reader sees all of P's subtree (tenant-wide, or
+  # P itself is in the live expanded allowed set: equal to `Scope.allowed?/3` for `{:node, P}`).
+  defp coverage(_a, nil), do: nil
+  defp coverage(%Authorized{scope: :all}, _subtree), do: :complete
+
+  defp coverage(%Authorized{scope: {:nodes, ids}}, subtree),
+    do: if(subtree in ids, do: :complete, else: :visible_only)
 
   # The tenant timezone is only stated in the report (storage stays UTC). Read from the tenant
   # record's settings when present; the default is the owner's assumption (D-086/D-087).
@@ -363,17 +461,18 @@ defmodule Letflow.Ledger.Read do
 
   @doc false
   def entries(%Authorized{} = a, filters, page) do
-    with {:ok, filt} <- check_entry_filters(filters),
+    with {:ok, filt} <- check_entry_filters(a, filters),
          {:ok, limit, cursor} <- check_page(page, &decode_entry_cursor/1) do
       run_entries(a, filt, limit, cursor)
     end
   end
 
-  defp check_entry_filters(filters) when is_map(filters) do
+  defp check_entry_filters(a, filters) when is_map(filters) do
     Enum.reduce_while(filters, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
       name = key_name(key)
 
       if name in @entry_filters and valid_entry_value?(name, value) and
+           (name != @subtree_key or a.scope_col != nil) and
            not Map.has_key?(acc, name),
          do: {:cont, {:ok, Map.put(acc, name, value)}},
          else: {:halt, {:error, :invalid_filter}}
@@ -384,21 +483,24 @@ defmodule Letflow.Ledger.Read do
     end
   end
 
-  defp check_entry_filters(_filters), do: {:error, :invalid_filter}
+  defp check_entry_filters(_a, _filters), do: {:error, :invalid_filter}
 
   defp valid_entry_value?(name, value) when name in ["from_seq", "to_seq"],
     do: is_integer(value) and value >= 0
 
+  defp valid_entry_value?(@subtree_key, value), do: valid_node_id?(value)
   defp valid_entry_value?(_name, value), do: valid_value?(value, false)
 
   defp decode_entry_cursor(n) when is_integer(n) and n >= 0, do: {:ok, n}
   defp decode_entry_cursor(_other), do: :error
 
   defp run_entries(a, filt, limit, cursor) do
+    {subtree, filt} = Map.pop(filt, @subtree_key)
     lower = Enum.max([Map.get(filt, "from_seq", 0) - 1, cursor || 0, 0])
 
     query =
       from(e in "ledger_entry",
+        as: :e,
         where: e.ledger_id == ^a.ledger_id and e.posting_seq > ^lower,
         order_by: [asc: e.posting_seq],
         limit: ^(limit + 1),
@@ -428,6 +530,25 @@ defmodule Letflow.Ledger.Read do
         {"correlation_id", v}, q -> where(q, [e], e.correlation_id == ^v)
       end)
 
+    query =
+      case scope_condition(a, subtree, :l) do
+        nil ->
+          query
+
+        cond_ ->
+          visible_leg =
+            from(l in "ledger_leg",
+              as: :l,
+              where:
+                l.ledger_id == parent_as(:e).ledger_id and
+                  l.posting_seq == parent_as(:e).posting_seq,
+              where: ^cond_,
+              select: 1
+            )
+
+          where(query, exists(subquery(visible_leg)))
+      end
+
     found = Repo.all(query, prefix: a.prefix)
     {page_rows, more} = Enum.split(found, limit)
     legs = legs_by_seq(a, page_rows)
@@ -442,37 +563,78 @@ defmodule Letflow.Ledger.Read do
   defp legs_by_seq(_a, []), do: %{}
 
   defp legs_by_seq(a, page_rows) do
-    lo = hd(page_rows).posting_seq
-    hi = List.last(page_rows).posting_seq
+    seqs = Enum.map(page_rows, & &1.posting_seq)
 
     from(l in "ledger_leg",
-      where: l.ledger_id == ^a.ledger_id and l.posting_seq >= ^lo and l.posting_seq <= ^hi,
-      order_by: [asc: l.posting_seq, asc: l.leg_no],
-      select: %{
-        posting_seq: l.posting_seq,
-        leg_no: l.leg_no,
-        k1: l.k1,
-        k2: l.k2,
-        k3: l.k3,
-        k4: l.k4,
-        k5: l.k5,
-        k6: l.k6,
-        k7: l.k7,
-        k8: l.k8,
-        quantity: l.quantity,
-        unit_ref: l.unit_ref,
-        document_line_id: l.document_line_id
-      }
+      where: l.ledger_id == ^a.ledger_id and l.posting_seq in ^seqs,
+      order_by: [asc: l.posting_seq, asc: l.leg_no]
     )
+    |> leg_select(a)
     |> Repo.all(prefix: a.prefix)
-    |> Enum.group_by(& &1.posting_seq, fn leg ->
-      %{
-        leg_no: leg.leg_no,
-        k: balance_key(leg),
-        quantity: Digest.quantity_text(leg.quantity),
-        unit_ref: leg.unit_ref,
-        document_line_id: leg.document_line_id
-      }
-    end)
+    |> Enum.group_by(& &1.posting_seq, &leg_map/1)
+  end
+
+  # A tenant-wide reader selects the columns as they are. A scoped reader selects every key
+  # column and the document line id through a CASE on the scope column, so the values of a hidden
+  # leg never leave the database (REQ-693 criterion 6).
+  defp leg_select(query, %Authorized{scope: :all}) do
+    select(query, [l], %{
+      posting_seq: l.posting_seq,
+      leg_no: l.leg_no,
+      k1: l.k1,
+      k2: l.k2,
+      k3: l.k3,
+      k4: l.k4,
+      k5: l.k5,
+      k6: l.k6,
+      k7: l.k7,
+      k8: l.k8,
+      quantity: l.quantity,
+      unit_ref: l.unit_ref,
+      document_line_id: l.document_line_id
+    })
+  end
+
+  defp leg_select(query, %Authorized{scope: {:nodes, ids}, scope_col: col}) do
+    masked = fn column ->
+      dynamic(
+        [l],
+        fragment(
+          "CASE WHEN ? = ANY(?) THEN ? END",
+          field(l, ^col),
+          type(^ids, {:array, :string}),
+          field(l, ^column)
+        )
+      )
+    end
+
+    query
+    |> select([l], %{
+      posting_seq: l.posting_seq,
+      leg_no: l.leg_no,
+      quantity: l.quantity,
+      unit_ref: l.unit_ref,
+      visible: fragment("? = ANY(?)", field(l, ^col), type(^ids, {:array, :string}))
+    })
+    |> select_merge(^Map.new(@k_fields ++ [:document_line_id], &{&1, masked.(&1)}))
+  end
+
+  defp leg_map(%{visible: false} = leg) do
+    %{
+      leg_no: leg.leg_no,
+      quantity: Digest.quantity_text(leg.quantity),
+      unit_ref: leg.unit_ref,
+      masked: true
+    }
+  end
+
+  defp leg_map(leg) do
+    %{
+      leg_no: leg.leg_no,
+      k: balance_key(leg),
+      quantity: Digest.quantity_text(leg.quantity),
+      unit_ref: leg.unit_ref,
+      document_line_id: leg.document_line_id
+    }
   end
 end
