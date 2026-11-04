@@ -1,0 +1,16 @@
+{
+  "name": "count_commission_member",
+  "display_name": "Count commission member",
+  "description": "REQ-700 / GH #3737. One member (not the chair) of the commission of a count order. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column.",
+  "fields": [
+    {"name": "count_order_id", "type": "string", "required": true, "queried": true},
+    {"name": "employee_id", "type": "string", "required": true, "queried": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_count_commission_member_order_id", "field": "count_order_id", "references_entity": "count_order"}
+  ],
+  "indexes": [
+    {"name": "idx_count_commission_member_order_id", "fields": ["count_order_id"]}
+  ]
+}
