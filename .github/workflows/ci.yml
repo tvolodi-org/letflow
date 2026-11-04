@@ -615,7 +615,7 @@ jobs:
 
       # The baseline is the golden as committed at the BASE commit (never the PR's own copy):
       # pull_request -> HEAD^1 of the synthetic merge (2 parents required); merge_group ->
-      # base_sha; push -> before. The step computes ref_sha and head_sha itself and then
+      # base_sha; push -> before; schedule / workflow_dispatch -> HEAD^1 (previous commit). The step computes ref_sha and head_sha itself and then
       # requires, in the task output, the `# modules: ` header line and the exact
       # PERMISSION-MATRIX-REPORT marker for THOSE shas ending in ` result=pass`, so an alias
       # or stub task that shadows the real one and exits 0 still fails the step.
@@ -651,6 +651,18 @@ jobs:
                 exit 1
               fi
               ref="$PUSH_BEFORE"
+              ;;
+            schedule|workflow_dispatch)
+              # T-1259: the nightly (and a manual run) checks out the tip of the ref it runs
+              # on; there is no before/base sha. The baseline is the previous commit on that
+              # ref (HEAD^1; main is squash-merged, so linear): the check then answers "did
+              # the latest commit change the matrix without updating the golden".
+              parents=$(git rev-list --parents -n 1 HEAD | wc -w)
+              if [ "$parents" -lt 2 ]; then
+                echo "::error::$EVENT_NAME run: HEAD has no parent commit to use as the matrix baseline"
+                exit 1
+              fi
+              ref=$(git rev-parse HEAD^1)
               ;;
             *)
               echo "::error::permission matrix check: unsupported event '$EVENT_NAME'"
