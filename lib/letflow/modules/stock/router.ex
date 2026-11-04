@@ -10,6 +10,10 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /movements` | `StockRead` | `authorize(:read)`, `entries/3` | `rows, next_cursor` |
   | `GET /reconcile` | `StockReconcile` | `authorize(:reconcile)`, `reconcile/2` | `ledger_id, checked_through_seq, mismatches, gap_check, chain_check, audit_check, next_cursor` |
 
+  REQ-713 / GH #3748 adds three more (`post` retries a lost posting start, `reverse` starts the reversal
+  of a posted document, `cancel` cancels the issued version) and makes `issue` start the posting
+  instance; see `Letflow.Modules.Stock.Documents.Posting`.
+
   REQ-712 / GH #3749 adds six document routes over `Letflow.Modules.Stock.Documents` (no SQL here):
 
   | Route | Permission | Ok |
@@ -18,13 +22,19 @@ defmodule Letflow.Modules.Stock.Router do
   | `PUT /documents/:id` | `StockPost` | 200 document (replaces the whole draft) |
   | `DELETE /documents/:id` | `StockPost` | 204 |
   | `POST /documents/:id/issue` | `StockPost` | 200 document |
+  | `POST /documents/:id/post` | `StockPost` | 200 document (starts the posting instance) |
+  | `POST /documents/:id/reverse` | `StockReverse` | 200 document (starts the reversal instance) |
+  | `POST /documents/:id/cancel` | `StockReverse` | 200 document (state `cancelled`) |
   | `GET /documents` | `StockRead` | 200 `rows, next_cursor` |
   | `GET /documents/:id` | `StockRead` | 200 document |
 
   `:id` is the id of the versioned document. The guard is `Letflow.Modules.Stock.Access`: an interactive
   tenant-wide principal only; an API token or a scoped principal gets the same 404 as a tenant without the
-  module. Refusals: 404 (unknown, malformed or another tenant's id), 409 `document_not_draft`, 422 with a
-  `reason` (shape reasons, `invalid_filter`, the issue checks), 503 `busy`.
+  module. Refusals: 404 (unknown, malformed or another tenant's id), 409 with a `reason`
+  (`document_not_draft`, `definition_not_active`, `document_not_issued`, `document_cancelled`,
+  `document_posted`, `posting_pending`, `document_not_posted`, `document_reversed`, `reversal_pending`,
+  `posting_inconsistent`), 422 with a `reason` (shape reasons, `invalid_filter`, the issue checks,
+  `reason_invalid`, `reason_required`, `reason_too_long`), 503 `busy`.
 
   Both read routes take `format=json|xlsx` (REQ-728 / GH #3772; default `json`). `xlsx` renders the same
   body through `Letflow.Modules.Stock.XlsxExport` (one page per file, a `report` sheet with the time basis);
@@ -57,6 +67,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Ledger
   alias Letflow.Modules.Stock.Access
   alias Letflow.Modules.Stock.Documents
+  alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Views
   alias Letflow.Modules.Stock.XlsxExport
 
@@ -161,11 +172,47 @@ defmodule Letflow.Modules.Stock.Router do
 
   authz_post "/documents/:id/issue", :StockPost do
     with_access(conn, :post, fn conn, access ->
+      opts = [activator: Letflow.Api.Context.activator(conn), authorized: read_authorized(conn)]
+
       render_document(
         conn,
-        Documents.issue(access.prefix, conn.params["id"], access.actor_id),
+        Documents.issue(access.prefix, conn.params["id"], access.actor_id, opts),
         200
       )
+    end)
+  end
+
+  authz_post "/documents/:id/post", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      who = %{actor_id: access.actor_id, activator: Letflow.Api.Context.activator(conn)}
+      authorized = read_authorized(conn)
+      fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
+      render_document(conn, Posting.post(access.prefix, conn.params["id"], who, fetch), 200)
+    end)
+  end
+
+  authz_post "/documents/:id/reverse", :StockReverse do
+    with_access(conn, :reverse, fn conn, access ->
+      who = %{actor_id: access.actor_id, activator: Letflow.Api.Context.activator(conn)}
+      authorized = read_authorized(conn)
+      fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
+
+      result =
+        Posting.reverse(access.prefix, conn.params["id"], body(conn), who, authorized, fetch)
+
+      render_document(conn, result, 200)
+    end)
+  end
+
+  authz_post "/documents/:id/cancel", :StockReverse do
+    with_access(conn, :reverse, fn conn, access ->
+      authorized = read_authorized(conn)
+      fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
+
+      result =
+        Posting.cancel(access.prefix, conn.params["id"], body(conn), access.actor_id, fetch)
+
+      render_document(conn, result, 200)
     end)
   end
 
@@ -180,7 +227,8 @@ defmodule Letflow.Modules.Stock.Router do
 
   authz_get "/documents/:id", :StockRead do
     with_access(conn, :read, fn conn, access ->
-      render_document(conn, Documents.fetch(access.prefix, conn.params["id"]), 200)
+      authorized = read_authorized(conn)
+      render_document(conn, Documents.fetch(access.prefix, conn.params["id"], authorized), 200)
     end)
   end
 
@@ -192,6 +240,15 @@ defmodule Letflow.Modules.Stock.Router do
     case Access.check(conn, purpose) do
       {:ok, access} -> fun.(conn, access)
       :error -> Response.not_found(conn)
+    end
+  end
+
+  # The ledger read authorization of the caller (tenant-wide: `Access` has proved it) for
+  # `posting_check`; `nil` when the ledger refuses, and the check is then `nil` too.
+  defp read_authorized(conn) do
+    case Ledger.authorize(conn, @ledger, :read) do
+      {:ok, authorized} -> authorized
+      :error -> nil
     end
   end
 
@@ -223,6 +280,18 @@ defmodule Letflow.Modules.Stock.Router do
 
   defp refuse_document(conn, :document_not_draft),
     do: problem(conn, Error.conflict("request refused"), "document_not_draft")
+
+  @conflicts ~w(document_not_issued document_cancelled document_posted posting_pending
+                document_not_posted document_reversed reversal_pending posting_inconsistent
+                definition_not_active)a
+
+  defp refuse_document(conn, reason) when reason in @conflicts,
+    do: problem(conn, Error.conflict("request refused"), Atom.to_string(reason))
+
+  defp refuse_document(conn, :reason_invalid), do: unprocessable(conn, "reason_invalid")
+
+  defp refuse_document(conn, {:unprocessable, reason}) when is_atom(reason),
+    do: unprocessable(conn, Atom.to_string(reason))
 
   defp refuse_document(conn, :busy),
     do: problem(conn, Error.service_unavailable("request refused"), "busy")

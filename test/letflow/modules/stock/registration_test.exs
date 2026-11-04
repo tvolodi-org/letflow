@@ -45,17 +45,18 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.2.0"
+    assert m.version == "0.3.0"
     assert m.depends_on == ["catalog_items", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
-    assert m.manages_entity_types == ["stock_receipt", "stock_receipt_line"]
-    assert Map.get(m, :write_handlers, []) == []
+    assert m.manages_entity_types == ["stock_receipt", "stock_receipt_line", "stock_posting_mark"]
+    assert Enum.map(m.write_handlers, & &1.name) == ["post_document", "reverse_document"]
     assert m.permissions == [:StockPost, :StockReverse, :StockRead, :StockReconcile]
     assert m.role_grants == %{}
 
     assert m.scope_declarations == %{
              "stock_receipt" => {:column, "org_unit_id"},
-             "stock_receipt_line" => {:column, "org_unit_id"}
+             "stock_receipt_line" => {:column, "org_unit_id"},
+             "stock_posting_mark" => {:column, "org_unit_id"}
            }
 
     assert m.route_policies == [
@@ -67,7 +68,10 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"DELETE", "/documents/:id", :StockPost},
              {"POST", "/documents/:id/issue", :StockPost},
              {"GET", "/documents", :StockRead},
-             {"GET", "/documents/:id", :StockRead}
+             {"GET", "/documents/:id", :StockRead},
+             {"POST", "/documents/:id/post", :StockPost},
+             {"POST", "/documents/:id/reverse", :StockReverse},
+             {"POST", "/documents/:id/cancel", :StockReverse}
            ]
 
     assert Stock.router() == Letflow.Modules.Stock.Router
@@ -136,7 +140,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 9
+    assert length(files) == 11
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []

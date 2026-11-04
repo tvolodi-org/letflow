@@ -439,9 +439,11 @@ names the GH issue or the code that holds it; paths are cited without line numbe
    QA fixture installs the module (`docs/migration/decisions/0073-domain-neutral-ledger-primitive.md`).
 3. **OQ-13 and OQ-23 are not decided.** There is no serial slot and no warehouse or zone scoping of
    postings; serial-tracked goods stay out of the pilot (GH #3707).
-4. **Nothing posts until REQ-713.** The stock documents of REQ-679 exist as drafts and issued documents (REQ-712,
-   GH #3749), but no posting path is built, so nothing posts to ledger id `stock`; the SERVICE origin is refused until
-   slice L5 (REQ-688, GH #3705).
+4. **Posting is built (REQ-713); only a human task posts.** The stock documents of REQ-679 post when the `post` task of the
+   `stock_receipt` instance of an issued receipt is completed with the OIDC credential by a holder of `StockPost`; a posted one is
+   reversed through the `reverse` task of a `stock_reversal` instance (`StockReverse`). The SERVICE origin is
+   refused until slice L5 (REQ-688, GH #3705); the posting code is `lib/letflow/modules/stock/handlers.ex`
+   (GH #3748).
 5. **API tokens get 404 from every read route; a scoped reader reads its own units.** `Letflow.Ledger.authorize/3`
    answers `:error` for an API token. A reader granted on org units (REQ-682, REQ-693) gets the balances and
    movements of those units only; the query key `scope_subtree` (one org unit id) narrows to a subtree and
@@ -483,3 +485,33 @@ names the GH issue or the code that holds it; paths are cited without line numbe
 16. **Installing the new version is an explicit step.** Version 0.2.0 of the module adds the two record types and the
     document type `stock_receipt`; a tenant that installed 0.1.0 takes them through the module upgrade path
     (`lib/letflow/modules/tenant_module_upgrade.ex`), no tenant is upgraded or seeded by the change (GH #3749).
+17. **Version 0.3.0 adds the posting parts.** The record type `stock_posting_mark`, the write handlers
+    `post_document` and `reverse_document`, the process definitions `stock_receipt` and `stock_reversal` and the
+    routes `post`, `reverse` and `cancel`; the module is installed on no tenant, so no upgrade of installed rows is
+    needed, and a tenant that installed 0.2.0 takes the new type and definitions through the module upgrade path
+    (`lib/letflow/modules/tenant_module_upgrade.ex`, GH #3748).
+18. **The binding gap: posting is detected, not enforced, until slice L7.** The handler reads nothing, and the
+    engine merges the `output_variables` of a completion without a per-node allowlist, so a holder of `StockPost`
+    could complete the post task with changed posting variables, or start the definition through the generic
+    instance start route with variables of its own, also for a draft or a cancelled document. The document read
+    answers `posting_check` `mismatch` (no detail) whenever the legs of its ledger entries differ from the issued
+    content, a draft has an entry, a mark has no entry, or a cancelled document has a receipt with no reversal;
+    prevention is slice L7 with its expected-document-version check (decision 0073 D6, decision 0078 D5, GH #3748).
+    A master retired between issue and posting is likewise caught only at L7 (item 13).
+19. **The post and reverse tasks have no assignee.** Both nodes carry the role label `TENANT_ADMIN` (the graph needs a
+    role), any user may open them, and the ledger authority step refuses a completer without `StockPost` or
+    `StockReverse`, an API token included; the task then stays pending (`lib/letflow/ledger/handler_post.ex`,
+    GH #3748).
+20. **One posted and one reversed mark per document.** The unique constraint `uq_stock_posting_mark_doc_mark` of
+    `stock_posting_mark` refuses a second completion for the same document: the whole completion rolls back before
+    any ledger write, so there is one entry and one mark, the second task stays pending and the answer is a typed
+    refusal, not the ledger's duplicate result. This also refuses a second completer and a changed quantity under
+    the same operation id (`priv/modules/stock/entity_definitions/stock_posting_mark.json`, GH #3748).
+21. **The definitions are activated lazily.** Install leaves `stock_receipt` and `stock_reversal` as stamped drafts;
+    the first issue (and the first reverse) of a tenant activates its definition with the activator of that request
+    (`DefinitionsActivate` and `EntitiesRecordsWrite`), and answers 409 `definition_not_active` before any number is
+    taken when it cannot, or when an active definition of that name is not the module's
+    (`lib/letflow/modules/stock/documents/posting.ex`, GH #3748).
+22. **`reason_text` of a reversal is kept on the instance only.** The ledger keeps the closed `reason_code`; the free
+    text (at most 500 characters) is the variable `reason_text` of the `stock_reversal` instance
+    (`lib/letflow/modules/stock/documents/posting.ex`, GH #3748).

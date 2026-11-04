@@ -142,7 +142,10 @@ POST /modules/procurement/purchase-requests/:id/lines/:line_no/supplier Procurem
 POST /modules/procurement/purchase-requests/:id/revise ProcurementRequestWrite
 POST /modules/procurement/purchase-requests/:id/submit ProcurementRequestWrite
 POST /modules/stock/documents StockPost
+POST /modules/stock/documents/:id/cancel StockReverse
 POST /modules/stock/documents/:id/issue StockPost
+POST /modules/stock/documents/:id/post StockPost
+POST /modules/stock/documents/:id/reverse StockReverse
 POST /onboarding TenantsManage
 POST /onboarding/:id/bind-realm TenantsManage
 POST /platform-migrations/rollouts TenantsManage

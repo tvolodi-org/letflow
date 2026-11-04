@@ -15,9 +15,21 @@ defmodule Letflow.Modules.Stock do
   routes (`Letflow.Modules.Stock.Router`, context `Letflow.Modules.Stock.Documents`). A document is
   a draft (editable, discardable) or issued (fixed); number, state and issued time are read from the
   versioned document, not stored on the header. Master checks (linked location, active employee,
-  counterparty, unit and lot of each line) and the event-time window run at issue only. Nothing posts
-  to the ledger yet (REQ-713). Assumptions, owner may change at GATE B: numbering, no legal entity,
-  100 lines at most, the responsible employee is not bound to the org unit.
+  counterparty, unit and lot of each line) and the event-time window run at issue only.
+  Assumptions, owner may change at GATE B: numbering, no legal entity, 100 lines at most, the
+  responsible employee is not bound to the org unit.
+
+  ## Posting and reversal (REQ-713 / GH #3748, assets B4 part 2)
+
+  Version 0.3.0 adds the bookkeeping type `stock_posting_mark`, the write handlers `post_document`
+  and `reverse_document` (`Letflow.Modules.Stock.Handlers`, both `posts_ledger: "stock"`), the
+  process definitions `stock_receipt` and `stock_reversal` (one HUMAN_TASK each, shipped in the pack
+  and stamped at install) and the routes `post`, `reverse` and `cancel`. The issue step starts one
+  `stock_receipt` instance; completing its task posts the receipt and writes a `posted` mark in one
+  transaction. Install leaves the definitions as stamped drafts; the issue and reverse routes
+  activate them lazily with the request's own activator (`Letflow.Modules.Stock.Documents.Posting`).
+  A unique constraint on (`document_id`, `mark`) of the mark type allows one posted and one reversed
+  mark per document, so a second completion is refused and nothing is written.
 
   ## Slots and their order (append-only, rule 12)
 
@@ -46,7 +58,7 @@ defmodule Letflow.Modules.Stock do
   alias Letflow.Modules.EntityActivation
 
   # Must stay equal to `manages_entity_types` in the manifest below (defmanifest takes literals).
-  @types ["stock_receipt", "stock_receipt_line"]
+  @types ["stock_receipt", "stock_receipt_line", "stock_posting_mark"]
 
   # Same shape as the procurement registration; assumptions, owner may change at GATE B.
   @receipt_type %{
@@ -62,7 +74,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.2.0",
+    version: "0.3.0",
     depends_on: ["catalog_items", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [:StockPost, :StockReverse, :StockRead, :StockReconcile],
@@ -78,13 +90,48 @@ defmodule Letflow.Modules.Stock do
       {"DELETE", "/documents/:id", :StockPost},
       {"POST", "/documents/:id/issue", :StockPost},
       {"GET", "/documents", :StockRead},
-      {"GET", "/documents/:id", :StockRead}
+      {"GET", "/documents/:id", :StockRead},
+      {"POST", "/documents/:id/post", :StockPost},
+      {"POST", "/documents/:id/reverse", :StockReverse},
+      {"POST", "/documents/:id/cancel", :StockReverse}
     ],
-    manages_entity_types: ["stock_receipt", "stock_receipt_line"],
+    manages_entity_types: ["stock_receipt", "stock_receipt_line", "stock_posting_mark"],
     scope_declarations: %{
       "stock_receipt" => {:column, "org_unit_id"},
-      "stock_receipt_line" => {:column, "org_unit_id"}
+      "stock_receipt_line" => {:column, "org_unit_id"},
+      "stock_posting_mark" => {:column, "org_unit_id"}
     },
+    write_handlers: [
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "post_document",
+        function: {Letflow.Modules.Stock.Handlers, :post_document},
+        targets: ["stock_posting_mark"],
+        args: %{
+          "document_id" => %{required: true},
+          "document_type" => %{required: true},
+          "version_no" => %{required: true},
+          "org_unit_id" => %{required: true},
+          "mark" => %{required: true},
+          "posting" => %{required: true}
+        },
+        posts_ledger: "stock"
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "reverse_document",
+        function: {Letflow.Modules.Stock.Handlers, :reverse_document},
+        targets: ["stock_posting_mark"],
+        args: %{
+          "document_id" => %{required: true},
+          "document_type" => %{required: true},
+          "version_no" => %{required: true},
+          "org_unit_id" => %{required: true},
+          "mark" => %{required: true},
+          "reason_code" => %{required: true},
+          "posting" => %{required: true}
+        },
+        posts_ledger: "stock"
+      }
+    ],
     ledger: %{
       "stock" => %{
         ledger_ids: {:fixed, ["stock"]},

@@ -33,14 +33,15 @@ defmodule Letflow.Modules.Stock.DocumentsRegistrationTest do
 
   test "A-REG-1: the manifest literals and the catalog check" do
     m = Stock.manifest()
-    assert m.version == "0.2.0"
+    assert m.version == "0.3.0"
     assert m.pack == "modules/stock/pack.json"
     assert m.depends_on == ["catalog_items", "locations", "org"]
-    assert m.manages_entity_types == ["stock_receipt", "stock_receipt_line"]
+    assert m.manages_entity_types == ["stock_receipt", "stock_receipt_line", "stock_posting_mark"]
 
     assert m.scope_declarations == %{
              "stock_receipt" => {:column, "org_unit_id"},
-             "stock_receipt_line" => {:column, "org_unit_id"}
+             "stock_receipt_line" => {:column, "org_unit_id"},
+             "stock_posting_mark" => {:column, "org_unit_id"}
            }
 
     assert Catalog.validate(m) == :ok
@@ -51,13 +52,14 @@ defmodule Letflow.Modules.Stock.DocumentsRegistrationTest do
     rows =
       Letflow.Repo.all(
         from(d in Letflow.Entities.EntityDefinition,
-          where: d.name in ["stock_receipt", "stock_receipt_line"],
+          where: d.name in ["stock_receipt", "stock_receipt_line", "stock_posting_mark"],
           select: {d.name, d.status, d.managed_by}
         ),
         prefix: t.schema_name
       )
 
     assert Enum.sort(rows) == [
+             {"stock_posting_mark", :active, "stock"},
              {"stock_receipt", :active, "stock"},
              {"stock_receipt_line", :active, "stock"}
            ]
