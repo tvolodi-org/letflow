@@ -101,7 +101,9 @@ defmodule Letflow.Engine.EntityPort do
           required(:user_id) => Ecto.UUID.t(),
           required(:roles) => [String.t()],
           required(:entities_records_write?) => boolean(),
-          required(:permissions) => [String.t()]
+          required(:permissions) => [String.t()],
+          # REQ-688: the credential kind of the activating request ("oidc", "api_token", "none").
+          optional(:credential) => String.t()
         }
 
   @typedoc """
@@ -150,6 +152,8 @@ defmodule Letflow.Engine.EntityPort do
           optional(:variable_labels) => (map() -> map()),
           optional(:now_fun) => (-> integer()),
           optional(:module_writes) => [module_write_line()],
+          # REQ-688: the SERVICE origin only; both come from the VERIFIED `activated_by` document.
+          optional(:ledger_consent_nodes) => [String.t()],
           optional(:owner) => owner_stamp() | nil,
           optional(:entity_write_count) => non_neg_integer()
         }
@@ -252,6 +256,11 @@ defmodule Letflow.Engine.EntityPort do
   Optional so that test doubles of this behaviour keep compiling (`lock_types/4` below is then the
   identity); the PRODUCTION adapter must implement it: `@impl true`, `verify_adapter!/0` at boot
   and the wiring test `entity_port_prelock_wired_test.exs`.
+
+  REQ-688: `lock_ctx` may also carry `:service`, the facts of the service apply (origin, ids,
+  activator, the verified credential and consent of the node, the in-memory variables and
+  labels). With it, a node holding a ledger posting line gets one more lock-only step,
+  `:pre_ledger_lock`, after the type-lock group and before the task activation.
   """
   @callback lock_types(
               Ecto.Multi.t(),

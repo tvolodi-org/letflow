@@ -2837,9 +2837,23 @@ defmodule Letflow.Definitions do
           record = Activator.build_record(activator, pairs, now)
 
           # Additive (GH #2590 R3, design 5.2): `recorded_activator/2` ignores unknown keys.
-          case ModuleWrites.handler_names(module_declared) do
-            [] -> record
-            handlers -> Map.put(record, "module_handlers", handlers)
+          record =
+            case ModuleWrites.handler_names(module_declared) do
+              [] -> record
+              handlers -> Map.put(record, "module_handlers", handlers)
+            end
+
+          # REQ-688: consent nodes and the activating credential, only for a graph with a consented
+          # SERVICE posting node; every other document stays byte-identical.
+          case ModuleWrites.ledger_consent_nodes(module_declared) do
+            [] ->
+              record
+
+            ids ->
+              Map.merge(record, %{
+                "ledger_consent_nodes" => ids,
+                "credential" => Map.get(activator, :credential, "none")
+              })
           end
         end
 

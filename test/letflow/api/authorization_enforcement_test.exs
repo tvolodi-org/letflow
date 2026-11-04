@@ -90,6 +90,8 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Modules.Codes.Router,
     # GH #3612 (REQ-666) -- every Letflow.Modules.Locations.Router route declares a policy key (route_policies).
     Letflow.Modules.Locations.Router,
+    # GH #3707 (REQ-687) -- every Letflow.Modules.Stock.Router route declares a policy key (route_policies).
+    Letflow.Modules.Stock.Router,
     # REQ-366 §1 -- Letflow.Routers.Help's single route declares :HelpRead,
     # backed by a real endpoint_policy_key/2 clause, so it resolves through
     # the normal path above and is not (and may not be) added to @allowlist.
@@ -171,6 +173,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Modules.CatalogItems.Router => "/modules/catalog_items",
     Letflow.Modules.Codes.Router => "/modules/codes",
     Letflow.Modules.Locations.Router => "/modules/locations",
+    Letflow.Modules.Stock.Router => "/modules/stock",
     Letflow.Routers.Help => "/help",
     Letflow.Routers.Me => "/me",
     Letflow.Routers.Labels => "/labels",

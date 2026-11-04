@@ -39,8 +39,9 @@ defmodule Letflow.Definitions.ModuleWrites do
   A line whose handler registers `posts_ledger` is a posting line. A node with more than two of them
   is refused (`module_writes_too_many_ledger_postings`, once, at the third), a posting line whose
   ledger ids meet those of an earlier posting line is refused
-  (`module_writes_duplicate_ledger_posting`), and any posting line on a `SERVICE_TASK` is refused
-  (`module_writes_ledger_on_service_task`). These are activation-only checks in `violations/6`.
+  (`module_writes_duplicate_ledger_posting`), and a posting line on a `SERVICE_TASK` is refused
+  (`module_writes_ledger_on_service_task`) unless the node carries `ledger_post_consent: true`
+  (REQ-688). These are activation-only checks in `violations/6`.
 
   ## Hashes
 
@@ -116,7 +117,7 @@ defmodule Letflow.Definitions.ModuleWrites do
           String.t()
         ) :: [violation()]
   def violations(
-        %Graph.Node{node_type: node_type},
+        %Graph.Node{node_type: node_type} = node,
         writes,
         definition,
         entity_write_count,
@@ -136,7 +137,7 @@ defmodule Letflow.Definitions.ModuleWrites do
       if is_list(writes) and node_type in @node_types do
         {line_violations(writes, definition, entity_write_count, prefix),
          cap_violations(writes, entity_write_count),
-         ledger_violations(node_type, writes, entity_write_count)}
+         ledger_violations(node, writes, entity_write_count)}
       else
         {[], [], []}
       end
@@ -178,7 +179,7 @@ defmodule Letflow.Definitions.ModuleWrites do
   # not resolve is reported by `line_violations/4` already (unknown handler) and counts as a
   # non-posting line here. Activation only: the run-time two-posting check belongs to the posting
   # path (slice L3b), so `line_violations/4` stays shared and unchanged.
-  defp ledger_violations(node_type, writes, entity_write_count) do
+  defp ledger_violations(%Graph.Node{node_type: node_type} = node, writes, entity_write_count) do
     posting =
       writes
       |> Enum.with_index()
@@ -210,7 +211,7 @@ defmodule Letflow.Definitions.ModuleWrites do
       end)
 
     on_service_task =
-      if node_type == :SERVICE_TASK,
+      if node_type == :SERVICE_TASK and not ledger_consent?(node),
         do:
           for(
             {index, _ids} <- posting,
@@ -219,6 +220,29 @@ defmodule Letflow.Definitions.ModuleWrites do
         else: []
 
     too_many ++ duplicates ++ on_service_task
+  end
+
+  # REQ-688 (decision 0073 D-L12): a SERVICE_TASK posting line is accepted only with the explicit
+  # node attribute `ledger_post_consent` set to the boolean `true` (`"true"`, `1`, `false` and an
+  # absent attribute all refuse).
+  defp ledger_consent?(%Graph.Node{attributes: %{"ledger_post_consent" => true}}), do: true
+  defp ledger_consent?(_node), do: false
+
+  @doc """
+  REQ-688: the sorted ids of the SERVICE_TASK nodes among `declared` (`declared_nodes/1`) that have
+  a posting line AND the consent flag `ledger_post_consent == true`. Recorded in the signed
+  `activated_by` document as `ledger_consent_nodes`.
+  """
+  @spec ledger_consent_nodes([{Graph.Node.t(), term()}]) :: [String.t()]
+  def ledger_consent_nodes(declared) do
+    ids =
+      for {%Graph.Node{node_type: :SERVICE_TASK, id: id} = node, writes} <- declared,
+          is_list(writes),
+          ledger_consent?(node),
+          Enum.any?(writes, &(posting_ledger_ids(&1) != nil)),
+          do: id
+
+    ids |> Enum.uniq() |> Enum.sort()
   end
 
   # The ledger ids of a well-formed posting line, or nil for any other line.
