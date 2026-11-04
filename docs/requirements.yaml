@@ -49550,7 +49550,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-701 -- the scan adds units to the count sheet lines and the entry log that REQ-701 builds
+    gh: 3765
     # Source: docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680; sections 4, 5 with its outcome table, 6, 12 and the split plan row C4), docs/migration/decisions/0076-master-data-layer.md (R7 visibility table and additional ruling 2: a code-scan route checks the scope of the target and answers an out-of-scope target with the same 404 as an unknown code), entries REQ-700, REQ-701 and REQ-702 on origin/main 1f8b997e8. Code read on origin/main: Letflow.Modules.Codes.resolve/2 and its moduledoc (lib/letflow/modules/codes/codes.ex: results :not_found, :code_retired, :assignment_conflict, not_assigned with nil target; R6 resolve through the open assignment only), the closed target list @targets location_node, catalog_item, catalog_lot of Letflow.Modules.Codes.Writes.assign_code/5 (lib/letflow/modules/codes/writes.ex), the scope declarations of locations (location_node :tenant_wide) and catalog_items (catalog_item and catalog_lot :tenant_wide), Letflow.Modules.Locations.descendant_ids/2 (a delegate to Letflow.Modules.Locations.Tree, lib/letflow/modules/locations/tree.ex) and linked?/3, CatalogItems.item_lot_valid?/3, the test helper assign!/5 of test/letflow/modules/codes/codes_fixture.exs and its use with target type no_such_type in test/letflow/modules/codes/read_api_test.exs (AT-01). Written by the business analyst (T-1240) 2026-11-04.
     description: >
       Phase B item B5 of the assets and stock application (the stock register; owner decisions D-061, D-062, D-065,
@@ -49632,7 +49632,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-701 -- the differences are built from the count sheet that REQ-701 issues
+    gh: 3764
     # Source: docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680; sections 1, 2 with its state table, 3, 8, 9, 12 questions 2, 5 and 6, split plan row C5 and the line 'C1 is the only row that may start before GATE B'), docs/migration/decisions/0056-versioned-documents.md (D4 immutable issued versions, D6 signatures DIRECTION only), docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D-T lateness cap 96 hours, @max_legs 200 in lib/letflow/ledger/validate.ex), decision 0078 (REQ-681: D5 documents fixed once issued, D8 audit trail), entries REQ-700 and REQ-701 on origin/main 1f8b997e8, owner assumption D-086/D-087 'signed means a paper signature on the printout'. Code read on origin/main: Letflow.Documents.create_draft/3 and issue/2 (lib/letflow/documents.ex; no signing function exists), Letflow.Modules.Org.employee_for_user/2 (lib/letflow/modules/org/org.ex). Written by the business analyst (T-1240) 2026-11-04.
     description: >
       Phase B item B5 of the assets and stock application, split plan row C5 of decision 0079 ("differences sheet and
@@ -49713,7 +49713,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-717 -- the posting reads the signed differences sheet that REQ-717 issues
+    gh: 3763
     # Source: docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680; sections 1 posting record, 2 state posted, 4 freeze, 8 with causes, number of postings, event time, origin and undo, 9 access, split plan rows C6 and C7), docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D-C sign rules positive, negative, zero_sum_by_slot_1, any, reversal; D-T; D-L12; section Amended by REQ-676: A2 at most two postings per transaction with different ledger ids, A4 a reversal stays inside the ledger id of its entry), decision 0078 (REQ-681: D4, D5 order and binding by detection), entries REQ-637, REQ-684, REQ-685, REQ-686, REQ-687 (stock registration causes and declare/2 command keys, criterion 3) and REQ-700, REQ-701 on origin/main 1f8b997e8; REQ-712 and REQ-713 of task T-1226 (pending, on branch origin/team/T-1226 only: the stock_posting_mark type, the stock_reversal definition and reverse_document handler, the posting_check rule). Code read on origin/main: Letflow.Modules.LedgerRegistration (@sign_rules in lib/letflow/modules/ledger_registration.ex), Letflow.Ledger.Validate (@max_legs 200, check_sign(:any, _), @text_fields reason_code 64, lib/letflow/ledger/validate.ex), the lateness check of lib/letflow/ledger.ex (event_time_too_old), Letflow.Entities.HandlerWrites (create/3 only; no update function, lib/letflow/entities/handler_writes.ex). Written by the business analyst (T-1240) 2026-11-04.
     description: >
       Phase B item B5 of the assets and stock application, split plan row C6 of decision 0079 ("posting of the
@@ -49810,7 +49810,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-717 -- the differences paperwork renders the differences sheet and its signers that REQ-717 defines
+    gh: 3762
     # Source: docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680; sections 1, 9 signers, 10 paperwork format, split plan row C5), owner assumption D-086/D-087 'count paperwork in phase B is xlsx with signer lines (printed forms come in phase E)' and 'the default tenant time zone is Asia/Almaty', docs/migration/decisions/0077-xlsx-import-export.md (D8: writer dependency elixlsx, a text is always a string cell and never a formula), decision 0076 (owner answer 7: employee records are visible only where the employee's org unit is visible), entries REQ-700, REQ-701 on origin/main 1f8b997e8, REQ-703 of task T-1222 (pending: Letflow.Identity.TenantTimezone.of/1). Code read on origin/main: Letflow.Entities.XlsxExport.build/3 (lib/letflow/entities/xlsx_export.ex: takes definition fields, export record rows and meta; sheets records and export only), the xlsx response of lib/letflow/routers/entities.ex (@xlsx_content_type), mix.exs and mix.lock (elixlsx 0.6.0 already a dependency), the org_employee fields full_name and code, location_node code and name, catalog_item code and name, catalog_lot code (priv/modules/*/entity_definitions/). Written by the business analyst (T-1240) 2026-11-04.
     description: >
       Phase B item B5 of the assets and stock application: the count paperwork of owner decision D-062 (order,
@@ -49875,7 +49875,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-702 -- the screens extend the count screens of REQ-702
+    gh: 3761
     # Source: docs/migration/decisions/0079-counts-inventory-taking.md (REQ-680; sections 2, 5, 6, 8, 9, 10, split plan row C8), ai-dala-portfolio/architectures/assets.md phase table 'counts with typed or keyboard-scanner input on the web' (quoted in REQ-680), entry REQ-702 on origin/main 1f8b997e8 (its place, messages and style), and the routes of REQ-716, REQ-717, REQ-718 and REQ-719 (this batch). Files read on origin/main: web/src/modules/codes/ (index.ts, codesMessages.ts, CodesIntlProvider.tsx and its __tests__) as REQ-702 names them. Written by the business analyst (T-1240) 2026-11-04.
     description: >
       Phase B item B5 of the assets and stock application: the second part of split plan row C8 of decision 0079 (web
