@@ -368,7 +368,14 @@ defmodule Letflow.Routers.Tasks do
       }
 
       # GH #2616 part 2: the caller's hidden labels reach the sentinel check under the instance lock.
-      opts = opts |> Keyword.put(:f1, f1) |> Keyword.put(:hidden_labels, hidden)
+      # REQ-686: the credential kind of THIS request reaches the ledger authority step; an API
+      # token can never post. Set by the auth pipeline, never read from the request body; an
+      # auth context without it (a hand-built one) is `nil`, which the authority step refuses.
+      opts =
+        opts
+        |> Keyword.put(:f1, f1)
+        |> Keyword.put(:hidden_labels, hidden)
+        |> Keyword.put(:credential, Map.get(conn.assigns.auth_context, :credential))
 
       id
       |> Engine.complete_task(attrs, opts)
@@ -497,6 +504,14 @@ defmodule Letflow.Routers.Tasks do
   # GH #2587 PR B2: a declarative entity write was refused. One stable code and the declared
   # line index (null for contention); the status is a function of the code alone. Index 20 with
   # `validation_failed` means "the 20-line cap was exceeded", not a declared line.
+  defp handle_complete_result(
+         {:error, {:entity_write_refused_detailed, index, code, wire, details}},
+         conn
+       )
+       when is_integer(index) and is_atom(code) and is_binary(wire) and is_map(details) do
+    Response.entity_write_refused_detailed(conn, code, wire, index, details)
+  end
+
   defp handle_complete_result({:error, {:entity_write_refused, :contention, code}}, conn)
        when is_atom(code) do
     Response.entity_write_refused(conn, code, nil)

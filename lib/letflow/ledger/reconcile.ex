@@ -30,6 +30,13 @@ defmodule Letflow.Ledger.Reconcile do
       The first difference ends the run as `{:broken_at, posting_seq}`; a missing tail entry is
       `{:broken_at, last_walked_seq + 1}`.
 
+  REQ-686: while it walks an entry the chain phase also looks up the entry's `ledger.posted` audit
+  entry (ONE query per walked page, by resource type and id). The first entry, in posting order,
+  whose audit entry is missing or carries a different `chain_hash` than the stored one gives
+  `audit_check: {:mismatch_at, posting_seq}`. Only the entries the chain phase walked are
+  compared, the one that breaks the chain included; entries past a break are not. Like
+  `chain_check`, only the LAST result carries the verdict.
+
   The sequence check (`gap_check`) runs once, in the first chunk, and is repeated unchanged in every
   later result. Only the LAST result (`next_cursor: nil`) carries the verdict of `chain_check`;
   earlier results show `:ok` for it. The `mismatches` of a result are that chunk's only; the
@@ -64,6 +71,7 @@ defmodule Letflow.Ledger.Reconcile do
           mismatches: [%{key: [String.t()], balance: String.t() | nil, ledger_sum: String.t()}],
           gap_check: :ok | {:gap, [pos_integer()]},
           chain_check: :ok | {:broken_at, non_neg_integer()},
+          audit_check: :ok | {:mismatch_at, pos_integer()},
           next_cursor: String.t() | nil
         }
 
@@ -127,6 +135,7 @@ defmodule Letflow.Ledger.Reconcile do
       head: map["head"],
       gap: map["gap"],
       dl: map["dl"],
+      aud: map["aud"],
       chain: nil
     }
 
@@ -138,7 +147,8 @@ defmodule Letflow.Ledger.Reconcile do
   defp cursor_shape?(st) do
     st.ph in @phases and st.ph != "done" and nat?(st.n) and (st.n2 == nil or nat?(st.n2)) and
       (st.after == nil or key?(st.after)) and nat?(st.seq) and st.seq <= st.n and
-      hash_or_empty?(st.prev) and hash_or_empty?(st.head) and gap?(st.gap) and nat?(st.dl)
+      hash_or_empty?(st.prev) and hash_or_empty?(st.head) and gap?(st.gap) and nat?(st.dl) and
+      (st.aud == nil or nat?(st.aud))
   end
 
   defp nat?(v), do: is_integer(v) and v >= 0
@@ -169,7 +179,8 @@ defmodule Letflow.Ledger.Reconcile do
       "prev" => st.prev,
       "head" => st.head,
       "gap" => st.gap,
-      "dl" => st.dl
+      "dl" => st.dl,
+      "aud" => st.aud
     }
     |> Jason.encode!()
     |> Base.url_encode64(padding: false)
@@ -206,12 +217,16 @@ defmodule Letflow.Ledger.Reconcile do
           mismatches: mismatches,
           gap_check: if(state.gap == "ok", do: :ok, else: {:gap, state.gap}),
           chain_check: state.chain || :ok,
+          audit_check: audit_verdict(state),
           next_cursor: if(state.ph == "done", do: nil, else: encode_cursor(lid, state))
         }
       end)
 
     result
   end
+
+  defp audit_verdict(%{ph: "done", aud: aud}) when is_integer(aud), do: {:mismatch_at, aud}
+  defp audit_verdict(_state), do: :ok
 
   defp counter(prefix, lid) do
     from(c in "ledger_counter",
@@ -236,6 +251,7 @@ defmodule Letflow.Ledger.Reconcile do
       head: last_hash,
       gap: gap_check(ctx, cap),
       dl: System.system_time(:millisecond) + @run_ms,
+      aud: nil,
       chain: nil
     }
   end
@@ -519,12 +535,16 @@ defmodule Letflow.Ledger.Reconcile do
 
     legs = legs_by_seq(ctx, st.seq, entries)
 
-    case walk(entries, legs, st.prev) do
+    walked = walk(entries, legs, st.prev)
+
+    case walked do
       {:broken, seq} ->
+        st = audit_page(ctx, st, Enum.take_while(entries, &(&1.posting_seq <= seq)))
         {:done, %{st | chain: {:broken_at, seq}, seq: seq}}
 
       {:ok, prev, last} ->
         seq = if last == nil, do: st.seq, else: last
+        st = audit_page(ctx, st, entries)
         st = %{st | prev: prev, seq: seq}
 
         if length(entries) < budget or seq == st.n,
@@ -532,6 +552,34 @@ defmodule Letflow.Ledger.Reconcile do
           else: {:more, st}
     end
   end
+
+  # REQ-686: one query for the page. Both sides of the id comparison are text (the audit column is
+  # `:string`); the prefix is the authorised one, the chain hash key a literal.
+  defp audit_page(_ctx, %{aud: aud} = st, _entries) when aud != nil, do: st
+  defp audit_page(_ctx, st, []), do: st
+
+  defp audit_page(ctx, st, entries) do
+    ids = Enum.map(entries, &load_uuid(&1.id))
+
+    stored =
+      from(a in "audit_entries",
+        where:
+          a.resource_type == "ledger_entry" and a.action == "ledger.posted" and
+            a.resource_id in ^ids,
+        select: {a.resource_id, fragment("?->>'chain_hash'", a.after_state)}
+      )
+      |> Repo.all(prefix: ctx.prefix)
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+    first =
+      Enum.find(entries, fn entry ->
+        Map.get(stored, load_uuid(entry.id)) |> audit_differs?(entry.chain_hash)
+      end)
+
+    if first == nil, do: st, else: %{st | aud: first.posting_seq}
+  end
+
+  defp audit_differs?(hashes, chain_hash), do: hashes == nil or chain_hash not in hashes
 
   defp legs_by_seq(_ctx, _from_seq, []), do: %{}
 

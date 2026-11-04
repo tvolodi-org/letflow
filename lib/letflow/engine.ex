@@ -2869,6 +2869,9 @@ defmodule Letflow.Engine do
           # deactivated (the refusal stub, 409).
           | {:error,
              {:entity_write_refused, index :: non_neg_integer() | :contention, code :: atom()}}
+          # REQ-686: a typed ledger refusal (index, neutral core code, wire code, details).
+          | {:error,
+             {:entity_write_refused_detailed, non_neg_integer(), atom(), String.t(), map()}}
           | {:error, {:entity_write_failed, index :: non_neg_integer(), step :: atom()}}
           | {:error, :entity_write_needs_reactivation}
           | {:error, Ecto.Changeset.t()}
@@ -4110,7 +4113,7 @@ defmodule Letflow.Engine do
   # instance-event `metadata` is set (B3 SEC F3: nothing `_sys`-derived in metadata).
   defp append_entity_write_tail(
          multi,
-         %{applied: applied, lines_hash: lines_hash, sys_values: sys_values},
+         %{applied: applied, lines_hash: lines_hash, sys_values: sys_values} = result,
          plan,
          %Task{} = task,
          actor_id,
@@ -4120,6 +4123,7 @@ defmodule Letflow.Engine do
        when is_map(plan) do
     multi
     |> append_entity_write_audits(applied, lines_hash, plan, task, actor_id, prefix)
+    |> append_ledger_posted_audits(Map.get(result, :ledger_posts, []), actor_id, prefix)
     |> append_sys_variables_event(sys_values, task, actor_id, idempotency_key, prefix)
     |> append_entity_writes_applied_event(
       applied,
@@ -4170,6 +4174,20 @@ defmodule Letflow.Engine do
 
       Multi.run(acc, audit_step_name(line), fn repo, _changes ->
         Audit.insert_entry(repo, attrs, prefix)
+      end)
+    end)
+  end
+
+  # REQ-686 (decision 0073 D8): one `ledger.posted` audit entry per ledger entry written by this
+  # completion. The ledger lock merge ran before the tail, so the counter (class 5b) is taken
+  # before the audit chain row (class 6). The engine names no ledger module: the summaries arrive
+  # in the `:entity_writes` result. An audit failure raises and rolls the whole transaction back.
+  defp append_ledger_posted_audits(multi, [], _actor_id, _prefix), do: multi
+
+  defp append_ledger_posted_audits(multi, summaries, actor_id, prefix) do
+    Enum.reduce(summaries, multi, fn summary, acc ->
+      Multi.run(acc, {:ledger_posted_audit, summary.ledger_id}, fn repo, _changes ->
+        Audit.insert_entry(repo, Letflow.Audit.LedgerPosted.attrs(summary, actor_id), prefix)
       end)
     end)
   end
@@ -6690,6 +6708,9 @@ defmodule Letflow.Engine do
         {:final, {:ok, :already_final}}
 
       {:refused, index, code, detail} ->
+        {:refuse, code, index, detail}
+
+      {:refused_detailed, index, code, _wire, detail, _details} ->
         {:refuse, code, index, detail}
 
       {:failed, index, step} ->
@@ -9700,6 +9721,15 @@ defmodule Letflow.Engine do
         if code == :entity_write_contention,
           do: {:error, {:entity_write_refused, :contention, code}},
           else: {:error, {:entity_write_refused, index, code}}
+
+      # REQ-686: a typed ledger refusal. The audit stores the neutral core code and the closed
+      # detail atom; `wire` and `details` reach only the response, never the audit or the log.
+      {:refused_detailed, index, code, wire, detail, details} ->
+        task = Map.fetch!(changes, :task)
+
+        record_entity_write_refusal_audit(task, actor_id, index, code, detail, prefix)
+
+        {:error, {:entity_write_refused_detailed, index, code, wire, details}}
 
       {:failed, index, step} ->
         Logger.error(

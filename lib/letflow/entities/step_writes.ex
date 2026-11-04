@@ -920,11 +920,18 @@ defmodule Letflow.Entities.StepWrites do
         acc |> Map.put(var, id) |> Map.put(var <> ".seq", seq)
       end)
 
-    %{
+    result = %{
       applied: applied,
       lines_hash: lines_hash(hash_input(lines, module_lines)),
       sys_values: sys_values
     }
+
+    # REQ-686: the `ledger.posted` summaries ride in the result only when an entry was written, so
+    # the result of every other node is byte-identical.
+    case HandlerPost.posted_summaries(changes) do
+      [] -> result
+      summaries -> Map.put(result, :ledger_posts, summaries)
+    end
   end
 
   # `lines_hash` of a node WITHOUT `module_writes` stays the hash of the declarative list
@@ -1012,8 +1019,13 @@ defmodule Letflow.Entities.StepWrites do
   def interpret_failure({:pre_type_lock, type}, _reason) when is_binary(type),
     do: {:failed, 0, :type_lock}
 
-  # REQ-685: the one ledger lock step and the posting writes. A typed ledger refusal reaches the
-  # wire in slice L3c (REQ-686); until then it lands as the closed internal failure.
+  # REQ-685/686: the one ledger lock step and the posting writes. The reason is wrapped with the
+  # posting line's step key by `HandlerPost` (`{:ledger_at, key, inner}`); a typed refusal then
+  # reaches the wire through `Failure.map/2`, a contract failure is the closed internal failure.
+  def interpret_failure({tag, :all}, {:ledger_at, key, inner})
+      when tag in [:ledger_lock, :ledger_write] and is_integer(key),
+      do: HandlerPost.failure(public_index(key, :ledger), inner)
+
   def interpret_failure({tag, :all}, _reason) when tag in [:ledger_lock, :ledger_write],
     do: {:failed, 0, tag}
 
@@ -1050,7 +1062,7 @@ defmodule Letflow.Entities.StepWrites do
   defp interpret_line(i, _name, :ledger_post, {:ledger_denied, detail}),
     do: {:refused, i, :write_not_permitted, detail}
 
-  defp interpret_line(i, _name, :ledger_post, _reason), do: {:failed, i, :ledger_post}
+  defp interpret_line(i, _name, :ledger_post, reason), do: HandlerPost.failure(i, reason)
 
   defp interpret_line(i, _name, :build, reason) do
     case reason do
