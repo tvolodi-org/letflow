@@ -20,6 +20,9 @@ defmodule Letflow.LedgerTablesMigrationTest do
   setup do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "r620a-mig")
 
+    # REQ-710: the entry, leg and balance tables are partitioned by ledger id
+    for id <- ~w(wh w2 w3), do: Letflow.LedgerFixture.ensure_storage!(tenant.schema_name, id)
+
     # Part A checks the CHECK set with raw rows (no counter row, no legs). The part B triggers
     # (ledger_triggers_migration_test.exs) would refuse them, so user triggers are off per table here.
     for t <- ~w(ledger_counter ledger_entry ledger_leg ledger_balance) do
@@ -47,8 +50,11 @@ defmodule Letflow.LedgerTablesMigrationTest do
 
   defp ok!(sql), do: assert({:ok, _} = run(sql), sql)
 
+  # REQ-710: a violation raised inside a partition names the partition's renamed index
+  # (`<parent name>_<16 hex>`), so the name is matched with its optional suffix.
   defp refused(sql, code, constraint) do
-    assert {:error, %Postgrex.Error{postgres: %{code: ^code, constraint: ^constraint}}} = run(sql)
+    assert {:error, %Postgrex.Error{postgres: %{code: ^code, constraint: found}}} = run(sql)
+    assert found =~ ~r/\A#{Regex.escape(constraint)}(_[0-9a-f]{16})?\z/
   end
 
   defp entry(over) do
@@ -342,14 +348,14 @@ defmodule Letflow.LedgerTablesMigrationTest do
       Repo.query!(
         "SELECT conrelid::regclass::text, pg_get_constraintdef(oid) FROM pg_constraint " <>
           "WHERE contype = 'f' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = $1) " <>
-          "AND conrelid::regclass::text LIKE '%ledger_%' ORDER BY 1",
+          "AND conparentid = 0 AND conrelid::regclass::text LIKE '%ledger_%' ORDER BY 1",
         [schema]
       )
 
     assert [[entry_tbl, entry_def], [leg_tbl, leg_def]] = rows
     assert entry_tbl =~ "ledger_entry"
-    assert entry_def =~ "FOREIGN KEY (reverses_entry_id) REFERENCES"
-    assert entry_def =~ "ledger_entry(id)"
+    assert entry_def =~ "FOREIGN KEY (reverses_entry_id, ledger_id) REFERENCES"
+    assert entry_def =~ "ledger_entry(id, ledger_id)"
     assert leg_tbl =~ "ledger_leg"
     assert leg_def =~ "FOREIGN KEY (entry_id, ledger_id, posting_seq, event_time) REFERENCES"
     assert leg_def =~ "ledger_entry(id, ledger_id, posting_seq, event_time)"

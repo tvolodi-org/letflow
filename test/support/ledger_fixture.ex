@@ -14,6 +14,7 @@ defmodule Letflow.LedgerFixture do
   alias Letflow.EntityWritesFixture
   alias Letflow.Ledger
   alias Letflow.Ledger.Capability
+  alias Letflow.Ledger.Storage
   alias Letflow.Repo
   alias Letflow.TenantFixture
   alias Letflow.Test.SandboxAutoMode
@@ -34,7 +35,23 @@ defmodule Letflow.LedgerFixture do
   def tenant! do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "ledger", teardown: false)
     on_exit(fn -> EntityWritesFixture.drop_committed_tenant!(tenant.tenant_id) end)
+    ensure_storage!(tenant.schema_name, @ledger_id)
     tenant.schema_name
+  end
+
+  @doc """
+  REQ-710: makes the partition set of `ledger_id` (the posting path never does). Invalid input
+  and an absent schema are left to the caller's own assertion (the call is then a no-op).
+  """
+  @spec ensure_storage!(String.t(), String.t()) :: :ok
+  def ensure_storage!(schema, ledger_id) do
+    if Storage.missing(schema, [ledger_id]) != [] do
+      Repo.transaction(fn -> Storage.ensure(schema, ledger_id) end)
+    end
+
+    :ok
+  rescue
+    _error in [Postgrex.Error, ArgumentError] -> :ok
   end
 
   @doc """
@@ -89,6 +106,15 @@ defmodule Letflow.LedgerFixture do
   def capability(schema, cause, legs, opts \\ []) do
     unique = System.unique_integer([:positive])
 
+    ledger_id =
+      Map.get(
+        Keyword.get(opts, :posting, %{}),
+        :ledger_id,
+        Keyword.get(opts, :ledger_id, @ledger_id)
+      )
+
+    if Keyword.get(opts, :ensure_storage, true), do: ensure_storage!(schema, ledger_id)
+
     %Capability{
       prefix: schema,
       registration_name: "test",
@@ -96,7 +122,7 @@ defmodule Letflow.LedgerFixture do
       command: Map.merge(%{client_op_id: "op-#{unique}"}, Keyword.get(opts, :command, %{})),
       posting:
         Map.merge(
-          %{ledger_id: Keyword.get(opts, :ledger_id, @ledger_id), cause: cause, legs: legs},
+          %{ledger_id: ledger_id, cause: cause, legs: legs},
           Keyword.get(opts, :posting, %{})
         ),
       subject_id: Keyword.get(opts, :subject_id, Ecto.UUID.generate()),
