@@ -22,6 +22,8 @@ entity_types = ~w(
   count_order
   count_order_scope
   count_commission_member
+  count_sheet_line
+  count_entry
   stock_posting_mark
 )
 

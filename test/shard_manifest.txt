@@ -1224,3 +1224,8 @@
 32 test/letflow/tenant_onboarding_test.exs 6192.79
 32 test/letflow/tenant_provisioning_script_events_test.exs 3001.65
 32 test/scripts/test_parallel_pool_clamp_test.exs 1076.93
+19 test/letflow/modules/stock/count_sheet_test.exs 7346.89
+10 test/letflow/modules/stock/count_sheet_router_test.exs 7346.89
+6 test/letflow/modules/stock/receipt_fields_test.exs 7346.89
+6 test/letflow/modules/stock/receipt_tracking_test.exs 7346.89
+6 test/letflow/modules/stock/receipt_posting_test.exs 7346.89

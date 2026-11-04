@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.4.0
+# modules: catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.6.0
 # roles: 8
-# permissions: 79
-# rows: 632
+# permissions: 80
+# rows: 640
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -73,6 +73,7 @@ AGENT_RUNNER ScriptsPublish false core -
 AGENT_RUNNER ScriptsWrite false core -
 AGENT_RUNNER SolutionOverridesManage false core -
 AGENT_RUNNER StockCountOrder false module:stock -
+AGENT_RUNNER StockCountRecord false module:stock -
 AGENT_RUNNER StockPost false module:stock -
 AGENT_RUNNER StockRead false module:stock -
 AGENT_RUNNER StockReconcile false module:stock -
@@ -152,6 +153,7 @@ CANDIDATE ScriptsPublish false core -
 CANDIDATE ScriptsWrite false core -
 CANDIDATE SolutionOverridesManage false core -
 CANDIDATE StockCountOrder false module:stock -
+CANDIDATE StockCountRecord false module:stock -
 CANDIDATE StockPost false module:stock -
 CANDIDATE StockRead false module:stock -
 CANDIDATE StockReconcile false module:stock -
@@ -231,6 +233,7 @@ PLATFORM_ADMIN ScriptsPublish true core core
 PLATFORM_ADMIN ScriptsWrite true core core
 PLATFORM_ADMIN SolutionOverridesManage true core core
 PLATFORM_ADMIN StockCountOrder true module:stock core
+PLATFORM_ADMIN StockCountRecord true module:stock core
 PLATFORM_ADMIN StockPost true module:stock core
 PLATFORM_ADMIN StockRead true module:stock core
 PLATFORM_ADMIN StockReconcile true module:stock core
@@ -310,6 +313,7 @@ PROCESS_DESIGNER ScriptsPublish false core -
 PROCESS_DESIGNER ScriptsWrite true core core
 PROCESS_DESIGNER SolutionOverridesManage false core -
 PROCESS_DESIGNER StockCountOrder false module:stock -
+PROCESS_DESIGNER StockCountRecord false module:stock -
 PROCESS_DESIGNER StockPost false module:stock -
 PROCESS_DESIGNER StockRead false module:stock -
 PROCESS_DESIGNER StockReconcile false module:stock -
@@ -389,6 +393,7 @@ PROCESS_OPERATOR ScriptsPublish false core -
 PROCESS_OPERATOR ScriptsWrite false core -
 PROCESS_OPERATOR SolutionOverridesManage false core -
 PROCESS_OPERATOR StockCountOrder false module:stock -
+PROCESS_OPERATOR StockCountRecord false module:stock -
 PROCESS_OPERATOR StockPost false module:stock -
 PROCESS_OPERATOR StockRead false module:stock -
 PROCESS_OPERATOR StockReconcile false module:stock -
@@ -468,6 +473,7 @@ TASK_WORKER ScriptsPublish false core -
 TASK_WORKER ScriptsWrite false core -
 TASK_WORKER SolutionOverridesManage false core -
 TASK_WORKER StockCountOrder false module:stock -
+TASK_WORKER StockCountRecord false module:stock -
 TASK_WORKER StockPost false module:stock -
 TASK_WORKER StockRead false module:stock -
 TASK_WORKER StockReconcile false module:stock -
@@ -547,6 +553,7 @@ TENANT_ADMIN ScriptsPublish true core core
 TENANT_ADMIN ScriptsWrite true core core
 TENANT_ADMIN SolutionOverridesManage true core core
 TENANT_ADMIN StockCountOrder true module:stock core
+TENANT_ADMIN StockCountRecord true module:stock core
 TENANT_ADMIN StockPost true module:stock core
 TENANT_ADMIN StockRead true module:stock core
 TENANT_ADMIN StockReconcile true module:stock core
@@ -626,6 +633,7 @@ TENANT_AUDITOR ScriptsPublish false core -
 TENANT_AUDITOR ScriptsWrite false core -
 TENANT_AUDITOR SolutionOverridesManage false core -
 TENANT_AUDITOR StockCountOrder false module:stock -
+TENANT_AUDITOR StockCountRecord false module:stock -
 TENANT_AUDITOR StockPost false module:stock -
 TENANT_AUDITOR StockRead false module:stock -
 TENANT_AUDITOR StockReconcile false module:stock -
