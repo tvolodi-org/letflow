@@ -492,9 +492,9 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       # GH #3610 (REQ-668) added the three catalog_items lot lines and GH #3611 (REQ-667) the five codes write lines (183 -> 191).
       # REQ-712 (GH #3749) added the six stock document lines (194 -> 200).
       # REQ-700 (GH #3737) added the seven stock count lines (200 -> 207).
-      assert length(snapshot) == 219
-
-      # REQ-713 added the three stock post/reverse/cancel lines (208 -> 211); REQ-701 the seven count sheet lines (211 -> 218); REQ-639 F-5 added the form-validation-dry-run line (218 -> 219).
+      # REQ-713 added the three stock post/reverse/cancel lines (208 -> 211); REQ-701 the seven count sheet lines (211 -> 218).
+      # REQ-626 (GH #3503) part A added four attachment lines (218 -> 222); REQ-639 F-5 the form-validation-dry-run line (222 -> 223).
+      assert length(snapshot) == 223
 
       for l <- @removed_lines, do: refute(l in snapshot, l)
     end

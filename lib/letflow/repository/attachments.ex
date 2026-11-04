@@ -277,6 +277,14 @@ defmodule Letflow.Repository.Attachments do
   @spec allowed_content_types() :: MapSet.t(String.t())
   def allowed_content_types, do: @allowed_content_types
 
+  @doc """
+  Runs the configured attachment scanner on `raw_bytes` and returns its verdict, never raising
+  (REQ-626: lets a module scan before it opens its own transaction; same call `upload/2` makes).
+  """
+  @spec scan_content(binary(), String.t()) ::
+          {:ok, :clean} | {:ok, :infected, String.t()} | {:error, term()}
+  def scan_content(raw_bytes, content_type), do: run_attachment_scan(raw_bytes, content_type)
+
   # ISS-0399 design §2 step 3 / §6 INV-8 -- the adapter call is wrapped so a
   # raised exception from a future non-default adapter can never crash
   # upload/2's caller; the default adapter (SignatureHeuristic) is pure and

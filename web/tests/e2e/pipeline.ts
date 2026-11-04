@@ -116,7 +116,7 @@ export async function resolveTenantContext(
   const cached = tenantContextCache.get(companySlug)
   if (cached) return cached
 
-  const apiUrl = (process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080').replace(/\/$/, '')
+  const apiUrl = (process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '')
   const response = await request.get(`${apiUrl}/api/v1/tenants/${companySlug}`, {
     headers: { Authorization: `Bearer ${adminToken}` },
   })

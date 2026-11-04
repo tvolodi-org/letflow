@@ -16,7 +16,7 @@
  *
  * Infrastructure:
  *   - Frontend: http://127.0.0.1:4173 (Vite dev server, playwright.config.ts)
- *   - Backend API: http://127.0.0.1:8080 (env BPM_TEST_URL)
+ *   - Backend API: http://127.0.0.1:4000 (env BPM_TEST_URL)
  *   - Keycloak: http://localhost:8082 (env BPM_IDP_BASE_URL)
  *   - Test user: admin-user / admin-pass (PLATFORM_ADMIN, bpm-default realm)
  */
@@ -33,7 +33,7 @@ import { navigateSpa } from './pipeline'
 const SCREENSHOTS_DIR = 'tests/screenshots'
 const TEST_ADMIN_USER = process.env.TEST_ADMIN_USER ?? 'admin-user'
 const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD ?? 'admin-pass'
-const API_BASE_URL = (process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080').replace(/\/$/, '')
+const API_BASE_URL = (process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '')
 
 // ── Screenshot helper ─────────────────────────────────────────────────────────
 

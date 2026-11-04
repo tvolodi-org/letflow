@@ -37,6 +37,8 @@ GET /modules/exam/grading-queue ExamGradingRead
 GET /modules/exam/grading-queue/:session_id/:question_id ExamGradingRead
 GET /modules/fixture/items/:id FixtureRead
 GET /modules/procurement/purchase-requests/:id ProcurementRequestRead
+GET /modules/procurement/purchase-requests/:id/attachments ProcurementRequestRead
+GET /modules/procurement/purchase-requests/:id/attachments/:attachment_id/content ProcurementRequestRead
 GET /modules/procurement/purchase-requests/:id/lines/:line_no ProcurementRequestRead
 GET /modules/stock/balances StockRead
 GET /modules/stock/counts StockRead
@@ -141,6 +143,8 @@ POST /modules/org/units OrgStructureWrite
 POST /modules/org/units/:id/move OrgStructureWrite
 POST /modules/org/units/:id/retire OrgStructureWrite
 POST /modules/procurement/purchase-requests ProcurementRequestWrite
+POST /modules/procurement/purchase-requests/:id/attachments ProcurementRequestWrite
+POST /modules/procurement/purchase-requests/:id/attachments/:attachment_id/replace ProcurementRequestWrite
 POST /modules/procurement/purchase-requests/:id/decisions ProcurementRequestDecide
 POST /modules/procurement/purchase-requests/:id/lines/:line_no/cancel ProcurementLineRecord
 POST /modules/procurement/purchase-requests/:id/lines/:line_no/officer ProcurementLineRecord
