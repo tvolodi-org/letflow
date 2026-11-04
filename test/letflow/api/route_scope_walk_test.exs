@@ -335,6 +335,9 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"POST", "/", :tenant_wide},
                  {"GET", "/", :tenant_wide},
                  {"DELETE", "/:id", :tenant_wide},
+                 # REQ-635: the EntityScopeDeclarations router: set and list, both declared
+                 {"PUT", "/:entity_type", :tenant_wide},
+                 {"GET", "/", :tenant_wide},
                  # REQ-546: the two single-object definition reads
                  {"GET", "/active/:name", :self_service},
                  {"GET", "/:id", :self_service},
@@ -402,6 +405,8 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  Letflow.Routers.NumberSequences,
                  # REQ-609
                  Letflow.Routers.EntityTypeExtensions,
+                 # REQ-635
+                 Letflow.Routers.EntityScopeDeclarations,
                  Letflow.Routers.Me,
                  Letflow.Routers.Tasks
                ])
