@@ -48,14 +48,34 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert m.version == "0.3.0"
     assert m.depends_on == ["catalog_items", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
-    assert m.manages_entity_types == ["stock_receipt", "stock_receipt_line", "stock_posting_mark"]
+
+    assert m.manages_entity_types == [
+             "stock_receipt",
+             "stock_receipt_line",
+             "count_order",
+             "count_order_scope",
+             "count_commission_member",
+             "stock_posting_mark"
+           ]
+
     assert Enum.map(m.write_handlers, & &1.name) == ["post_document", "reverse_document"]
-    assert m.permissions == [:StockPost, :StockReverse, :StockRead, :StockReconcile]
+
+    assert m.permissions == [
+             :StockPost,
+             :StockReverse,
+             :StockRead,
+             :StockReconcile,
+             :StockCountOrder
+           ]
+
     assert m.role_grants == %{}
 
     assert m.scope_declarations == %{
              "stock_receipt" => {:column, "org_unit_id"},
              "stock_receipt_line" => {:column, "org_unit_id"},
+             "count_order" => {:column, "org_unit_id"},
+             "count_order_scope" => {:column, "org_unit_id"},
+             "count_commission_member" => {:column, "org_unit_id"},
              "stock_posting_mark" => {:column, "org_unit_id"}
            }
 
@@ -71,7 +91,14 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"GET", "/documents/:id", :StockRead},
              {"POST", "/documents/:id/post", :StockPost},
              {"POST", "/documents/:id/reverse", :StockReverse},
-             {"POST", "/documents/:id/cancel", :StockReverse}
+             {"POST", "/documents/:id/cancel", :StockReverse},
+             {"POST", "/counts", :StockCountOrder},
+             {"PUT", "/counts/:id", :StockCountOrder},
+             {"POST", "/counts/:id/issue", :StockCountOrder},
+             {"POST", "/counts/:id/cancel", :StockCountOrder},
+             {"GET", "/counts", :StockRead},
+             {"GET", "/counts/:id", :StockRead},
+             {"GET", "/counts/:id/document", :StockRead}
            ]
 
     assert Stock.router() == Letflow.Modules.Stock.Router
@@ -140,14 +167,15 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 11
+    assert length(files) == 12
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
 
     # REQ-712: the document context (documents.ex, documents/) reads and writes its own record and
     # document tables, so Repo and Ecto.Query are allowed there; the ledger names stay banned everywhere.
-    own_tables = fn path -> path =~ ~r{stock/documents(\.ex|/)} end
+    # REQ-700: counts.ex reads and writes the count record types (Repo, Ecto.Query), never a ledger table.
+    own_tables = fn path -> path =~ ~r{stock/(documents(\.ex|/)|counts\.ex)} end
 
     for {path, source} <- sources,
         word <-

@@ -31,6 +31,14 @@ defmodule Letflow.Modules.Stock do
   A unique constraint on (`document_id`, `mark`) of the mark type allows one posted and one reversed
   mark per document, so a second completion is refused and nothing is written.
 
+  ## Counts (REQ-700 / GH #3737, assets phase B counts; version 0.3.0)
+
+  The count order: three module-managed record types (`count_order`, `count_order_scope`,
+  `count_commission_member`), all scoped by the column `org_unit_id` (decision 0076 R7), the four
+  count document types registered by `on_install/3` and seven routes
+  (`Letflow.Modules.Stock.Counts`, `Letflow.Modules.Stock.Router`). No ledger call. `depends_on`
+  gains `org` and `locations` (the count functions read both; the boundary lint requires it).
+
   ## Slots and their order (append-only, rule 12)
 
   `sku, location, org_unit, responsible, lot`, all uuid text. `sku` is slot 1 because the sign rule
@@ -46,7 +54,8 @@ defmodule Letflow.Modules.Stock do
 
   ## Permissions
 
-  `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`; no role grants, so only TENANT_ADMIN and
+  `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`, `StockCountOrder` (REQ-700; the count
+  record permission `StockCountRecord` comes with REQ-701, the first route that uses it); no role grants, so only TENANT_ADMIN and
   PLATFORM_ADMIN hold them (OQ-11 of decision 0073 stays open for the owner).
   """
 
@@ -58,7 +67,15 @@ defmodule Letflow.Modules.Stock do
   alias Letflow.Modules.EntityActivation
 
   # Must stay equal to `manages_entity_types` in the manifest below (defmanifest takes literals).
-  @types ["stock_receipt", "stock_receipt_line", "stock_posting_mark"]
+  # The receipt pair first, then `count_order` (the two count children carry a foreign key onto it).
+  @types [
+    "stock_receipt",
+    "stock_receipt_line",
+    "count_order",
+    "count_order_scope",
+    "count_commission_member",
+    "stock_posting_mark"
+  ]
 
   # Same shape as the procurement registration; assumptions, owner may change at GATE B.
   @receipt_type %{
@@ -71,13 +88,32 @@ defmodule Letflow.Modules.Stock do
     declared_fields: %{}
   }
 
+  # The four count document types (decision 0079 section 9); numbering restarts each year.
+  @count_document_types for {key, prefix} <- [
+                              {"count.order", "CO"},
+                              {"count.sheet", "CS"},
+                              {"count.differences", "CD"},
+                              {"count.posting", "CP"}
+                            ],
+                            do: %{
+                              key: key,
+                              owner_module: "stock",
+                              numbering_scope: :year,
+                              number_prefix: prefix,
+                              number_pad: 4,
+                              legal_entity_required: false,
+                              declared_fields: %{}
+                            }
+
+  @document_types [@receipt_type | @count_document_types]
+
   @impl true
   defmanifest(
     id: "stock",
     version: "0.3.0",
     depends_on: ["catalog_items", "locations", "org"],
     pack: "modules/stock/pack.json",
-    permissions: [:StockPost, :StockReverse, :StockRead, :StockReconcile],
+    permissions: [:StockPost, :StockReverse, :StockRead, :StockReconcile, :StockCountOrder],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
@@ -93,12 +129,29 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/documents/:id", :StockRead},
       {"POST", "/documents/:id/post", :StockPost},
       {"POST", "/documents/:id/reverse", :StockReverse},
-      {"POST", "/documents/:id/cancel", :StockReverse}
+      {"POST", "/documents/:id/cancel", :StockReverse},
+      {"POST", "/counts", :StockCountOrder},
+      {"PUT", "/counts/:id", :StockCountOrder},
+      {"POST", "/counts/:id/issue", :StockCountOrder},
+      {"POST", "/counts/:id/cancel", :StockCountOrder},
+      {"GET", "/counts", :StockRead},
+      {"GET", "/counts/:id", :StockRead},
+      {"GET", "/counts/:id/document", :StockRead}
     ],
-    manages_entity_types: ["stock_receipt", "stock_receipt_line", "stock_posting_mark"],
+    manages_entity_types: [
+      "stock_receipt",
+      "stock_receipt_line",
+      "count_order",
+      "count_order_scope",
+      "count_commission_member",
+      "stock_posting_mark"
+    ],
     scope_declarations: %{
       "stock_receipt" => {:column, "org_unit_id"},
       "stock_receipt_line" => {:column, "org_unit_id"},
+      "count_order" => {:column, "org_unit_id"},
+      "count_order_scope" => {:column, "org_unit_id"},
+      "count_commission_member" => {:column, "org_unit_id"},
       "stock_posting_mark" => {:column, "org_unit_id"}
     },
     write_handlers: [
@@ -170,9 +223,13 @@ defmodule Letflow.Modules.Stock do
 
   @impl true
   def on_install(prefix, _settings, ctx) do
-    with :ok <- EntityActivation.activate_and_promote(prefix, ctx, @types),
-         {:ok, _type} <- Documents.register_type(prefix, @receipt_type, ctx) do
-      :ok
+    with :ok <- EntityActivation.activate_and_promote(prefix, ctx, @types) do
+      Enum.reduce_while(@document_types, :ok, fn attrs, :ok ->
+        case Documents.register_type(prefix, attrs, ctx) do
+          {:ok, _type} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
     end
   end
 end
