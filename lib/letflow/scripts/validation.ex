@@ -462,6 +462,20 @@ defmodule Letflow.Scripts.Validation do
 
   def dry_run_input(_input, _reads_fixture, _manifest), do: {:error, :invalid_input}
 
+  @doc """
+  REQ-639: the draft payload of the form-validation dry-run: a map whose canonical form is at
+  most 65 536 bytes (the cap of `dry_run_input/3`). `:invalid_body` (an extra body key) and any
+  non-map are `:invalid_input`.
+  """
+  @spec form_dry_run_variables(term()) :: {:ok, map()} | {:error, :invalid_input}
+  def form_dry_run_variables(variables) when is_map(variables) and not is_struct(variables) do
+    if byte_size(Hash.canon(variables)) <= @max_dry_run_input_bytes,
+      do: {:ok, variables},
+      else: {:error, :invalid_input}
+  end
+
+  def form_dry_run_variables(_variables), do: {:error, :invalid_input}
+
   @doc "Retire/revoke reason: trimmed 1..500 codepoints, no Cc/Cf/Zl/Zp character."
   @spec reason(term()) :: {:ok, String.t()} | {:error, :invalid_reason}
   def reason(reason) when is_binary(reason) do
