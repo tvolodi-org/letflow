@@ -81,6 +81,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> managed_import(conn, entity_type, scope)
+      :write_denied -> Response.forbidden(conn, "insufficient permissions")
       access -> import_records_with_access(conn, entity_type, access, scope, nil)
     end
   end

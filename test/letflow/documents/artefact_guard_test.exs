@@ -97,7 +97,7 @@ defmodule Letflow.Documents.ArtefactGuardTest do
 
   test "G6: the migration is in the replay manifest and the provisioned body has the branch",
        ctx do
-    assert {20_261_105_100_001, Letflow.Repo.Migrations.OpenDocumentArtefactHashWriteOnce} in TenantProvisioning.tenant_scoped_migrations()
+    assert {20_261_105_200_001, Letflow.Repo.Migrations.OpenDocumentArtefactHashWriteOnce} in TenantProvisioning.tenant_scoped_migrations()
 
     assert %{rows: [[true]]} =
              exec!(

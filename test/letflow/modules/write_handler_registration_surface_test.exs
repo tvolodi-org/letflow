@@ -46,7 +46,10 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
   @allowed_key_readers [
     "lib/letflow/modules/catalog.ex",
     "lib/letflow/modules/module.ex",
-    "lib/letflow/modules/manifest_hash.ex"
+    "lib/letflow/modules/manifest_hash.ex",
+    # REQ-713 (deliberate edit): the stock module manifest DECLARES its `write_handlers`
+    # (data in the compiled manifest, read by the Catalog); it never resolves or calls one.
+    "lib/letflow/modules/stock/stock.ex"
   ]
   # R2 (deliberate edit): `ManagedTypes.module_owner/1` calls `Catalog.manifest_hash/1` to
   # fill the `Owner` stamp inputs (`version`, `manifest_hash`); nothing else outside the

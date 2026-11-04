@@ -3,7 +3,8 @@ defmodule Letflow.Modules.Stock.Documents do
   REQ-712 / GH #3749 (assets B4 part 1): the stock document context. The one writer of the receipt
   header (`stock_receipt`) and line (`stock_receipt_line`) records and of the versioned document
   (`Letflow.Documents`, decision 0056) behind them. Public functions: `save/3`, `replace/4`,
-  `discard/3`, `issue/3` (writes) and `fetch/2`, `list/2` (reads). The tenant is the `prefix` argument
+  `discard/3`, `issue/4` (writes) and `fetch/3`, `list/2` (reads); posting, reversal and cancel live in
+  `Letflow.Modules.Stock.Documents.Posting` (REQ-713). The tenant is the `prefix` argument
   and nothing else (INV-1); the router derives it from the token.
 
   ## Two stores, one writer
@@ -30,6 +31,12 @@ defmodule Letflow.Modules.Stock.Documents do
     the lock decides `document_not_draft`.
   * Issue runs the checks first and calls `Letflow.Documents.issue/2` once, so a refused check takes no
     number. `{:error, :busy}` from it stays `:busy`. After issue replace and discard are refused.
+    REQ-713: before any number is taken the module's `stock_receipt` process definition is made
+    active with the request's activator (`{:error, :definition_not_active}` otherwise); after the
+    issue committed one posting instance is started, and a failed start is NOT an error (the
+    document stays issued; the retry route repairs it).
+  * The view carries `posted_at`, `posted_by`, `entry_id`, `reversed_at`, `reversed_by` and
+    `posting_check`; its `state` is `draft`, `issued`, `posted`, `reversed` or `cancelled`.
   * The clock of the event-time window is the app env `:stock_documents_clock` (a zero-arity function,
     default `DateTime.utc_now/0`); it exists only so a test can fix the time.
 
@@ -51,13 +58,14 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.Entities.Records
   alias Letflow.Modules.Stock
   alias Letflow.Modules.Stock.Documents.Checks
+  alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Documents.Shape
   alias Letflow.Repo
 
   @type_key "stock_receipt"
   @header_type "stock_receipt"
   @line_type "stock_receipt_line"
-  @states ~w(draft issued cancelled)
+  @states ~w(draft issued posted reversed cancelled)
   @status_atoms %{"draft" => :draft, "issued" => :issued, "cancelled" => :cancelled}
   @default_limit 50
   @max_limit 100
@@ -148,20 +156,49 @@ defmodule Letflow.Modules.Stock.Documents do
   end
 
   @doc """
-  Runs the event-time and master checks of draft `id`, then issues it once. A refused check issues
-  nothing and takes no number. Returns the issued document.
+  Runs the event-time and master checks of draft `id`, makes the `stock_receipt` process definition
+  active (`opts[:activator]`, the request's activator), then issues it once and starts its posting
+  instance. A refused check or a definition that cannot be activated issues nothing and takes no
+  number. Returns the issued document (`opts[:authorized]` is the ledger read authorization for
+  `posting_check`).
   """
-  @spec issue(String.t(), term(), String.t()) :: {:ok, map()} | {:error, term()}
-  def issue(prefix, id, actor) when is_binary(prefix) do
+  @spec issue(String.t(), term(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def issue(prefix, id, actor, opts \\ []) when is_binary(prefix) do
     with {:ok, id} <- cast(id),
          {:ok, view} <- fetch(prefix, id),
          :ok <- draft?(view),
          :ok <- Checks.event_time(view.event_time, now()),
          :ok <- Checks.masters(prefix, view),
+         :ok <- activate(prefix, Keyword.get(opts, :activator)),
          {:ok, _issued} <- issue_once(prefix, id, actor) do
-      fetch(prefix, id)
+      start_posting(prefix, id, actor)
+      fetch(prefix, id, Keyword.get(opts, :authorized))
     end
   end
+
+  defp activate(prefix, activator) do
+    case Posting.ensure_active(prefix, "stock_receipt", activator) do
+      :ok -> :ok
+      :error -> {:error, :definition_not_active}
+    end
+  end
+
+  # A failed start after the issue committed is not an error: the number is spent (gap-free
+  # numbering) and the retry route `post` starts the posting.
+  defp start_posting(prefix, id, actor) do
+    with {:ok, view} <- fetch(prefix, id),
+         %{} = version <- Posting.issued(prefix, id),
+         {:ok, _instance} <- Posting.start_post(prefix, view, version, actor) do
+      :ok
+    else
+      other ->
+        Logger.warning("stock posting not started after issue: #{inspect(start_tag(other))}")
+        :error
+    end
+  end
+
+  defp start_tag({:error, reason}), do: reason
+  defp start_tag(other), do: other
 
   defp issue_once(prefix, id, actor) do
     case Documents.issue(prefix, %{document_id: id, actor_id: actor}) do
@@ -350,13 +387,14 @@ defmodule Letflow.Modules.Stock.Documents do
   The document `id` with its header and lines, or `{:error, :not_found}` (a malformed id, an unknown
   id, a discarded draft and another tenant's id are all that one answer).
   """
-  @spec fetch(String.t(), term()) :: {:ok, map()} | {:error, :not_found}
-  def fetch(prefix, id) when is_binary(prefix) do
+  @spec fetch(String.t(), term(), term()) :: {:ok, map()} | {:error, :not_found}
+  def fetch(prefix, id, authorized \\ nil) when is_binary(prefix) do
     with {:ok, id} <- cast(id),
          %Document{type_key: @type_key} = document <- Repo.get(Document, id, prefix: prefix),
          %DocumentVersion{} = version <- live_version(prefix, id),
          {:ok, header} <- header(prefix, id) do
-      {:ok, view(prefix, document, version, header)}
+      base = view(prefix, document, version, header)
+      {:ok, Map.merge(base, Posting.state_fields(prefix, base, authorized))}
     else
       _none -> {:error, :not_found}
     end
@@ -471,11 +509,12 @@ defmodule Letflow.Modules.Stock.Documents do
       rows = Repo.all(list_query(filters), prefix: prefix)
       {page, rest} = Enum.split(rows, filters.limit)
       headers = headers_for(prefix, Enum.map(page, & &1.id))
+      states = Posting.states_for(prefix, Enum.map(page, &%{id: &1.id, state: state(&1.status)}))
       type = if page == [], do: nil, else: Repo.get!(DocumentType, @type_key, prefix: prefix)
 
       {:ok,
        %{
-         rows: Enum.map(page, &row(&1, headers, type)),
+         rows: Enum.map(page, &row(&1, headers, type, states)),
          next_cursor: if(rest != [], do: cursor_of(List.last(page)))
        }}
     end
@@ -534,6 +573,7 @@ defmodule Letflow.Modules.Stock.Documents do
   defp list_query(filters) do
     base =
       from(d in Document,
+        as: :doc,
         join: v in DocumentVersion,
         on: v.document_id == d.id and v.status in [:draft, :issued, :cancelled],
         where: d.type_key == ^@type_key,
@@ -558,8 +598,39 @@ defmodule Letflow.Modules.Stock.Documents do
 
   defp filter_state(query, nil), do: query
 
+  # Marks are `stock_posting_mark` rows matched on the text document id (both sides text: the
+  # document id is a uuid column, cast with `::text`; the JSON side is text).
+  defp filter_state(query, "issued") do
+    from([_d, v] in query, where: v.status == :issued)
+    |> where_mark("posted", false)
+    |> where_mark("reversed", false)
+  end
+
+  defp filter_state(query, "posted") do
+    from([_d, v] in query, where: v.status == :issued)
+    |> where_mark("posted", true)
+    |> where_mark("reversed", false)
+  end
+
+  defp filter_state(query, "reversed") do
+    from([_d, v] in query, where: v.status == :issued) |> where_mark("reversed", true)
+  end
+
   defp filter_state(query, state),
     do: from([_d, v] in query, where: v.status == ^Map.fetch!(@status_atoms, state))
+
+  defp where_mark(query, mark, true), do: from(query, where: exists(mark_query(mark)))
+  defp where_mark(query, mark, false), do: from(query, where: not exists(mark_query(mark)))
+
+  defp mark_query(mark) do
+    from(m in Latest,
+      where:
+        m.entity_type == "stock_posting_mark" and not m.deleted and
+          fragment("?->>'document_id' = ?::text", m.field_values, parent_as(:doc).id) and
+          fragment("?->>'mark' = ?", m.field_values, ^mark),
+      select: 1
+    )
+  end
 
   defp filter_unit(query, nil), do: query
   defp filter_unit(query, unit), do: from([d] in query, where: d.issuing_org_unit_id == ^unit)
@@ -590,7 +661,7 @@ defmodule Letflow.Modules.Stock.Documents do
     prefix |> then(&Repo.all(query, prefix: &1)) |> Map.new(&{&1["document_id"], &1})
   end
 
-  defp row(r, headers, type) do
+  defp row(r, headers, type, states) do
     number =
       if r.number do
         padded = r.number |> Integer.to_string() |> String.pad_leading(type.number_pad, "0")
@@ -603,7 +674,7 @@ defmodule Letflow.Modules.Stock.Documents do
     %{
       id: r.id,
       kind: "receipt",
-      state: state(r.status),
+      state: Map.fetch!(states, r.id),
       number: number,
       issued_at: iso(r.issued_at),
       org_unit_id: r.org_unit_id,

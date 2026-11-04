@@ -51,13 +51,14 @@ defmodule Letflow.Modules.Stock.DocumentsRegistrationTest do
     rows =
       Letflow.Repo.all(
         from(d in Letflow.Entities.EntityDefinition,
-          where: d.name in ["stock_receipt", "stock_receipt_line"],
+          where: d.name in ["stock_receipt", "stock_receipt_line", "stock_posting_mark"],
           select: {d.name, d.status, d.managed_by}
         ),
         prefix: t.schema_name
       )
 
     assert Enum.sort(rows) == [
+             {"stock_posting_mark", :active, "stock"},
              {"stock_receipt", :active, "stock"},
              {"stock_receipt_line", :active, "stock"}
            ]
