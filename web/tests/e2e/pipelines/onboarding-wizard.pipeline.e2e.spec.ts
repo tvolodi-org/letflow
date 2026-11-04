@@ -35,7 +35,7 @@ const INJECTED_DISPLAY_NAME: string | undefined   = process.env.ONBOARDING_PIPEL
 // Allow generous time for the Keycloak-backed saga
 test.setTimeout(300_000)
 
-const API_BASE_URL       = process.env.BPM_TEST_URL     ?? 'http://127.0.0.1:8080'
+const API_BASE_URL       = process.env.BPM_TEST_URL     ?? 'http://127.0.0.1:4000'
 
 interface OnboardingWizardState {
   adminToken:   string
