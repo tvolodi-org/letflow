@@ -5,7 +5,7 @@ import * as path from 'path'
 import { loginWithToken, assertServiceReadiness, BPM_IDP_BASE_URL, BPM_IDP_CLIENT_ID } from './helpers'
 
 const SCREENSHOTS_DIR = 'tests/screenshots'
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 const KEYCLOAK_TOKEN_URL = `${BPM_IDP_BASE_URL}/realms/bpm-default/protocol/openid-connect/token`
 const API_PREFIX = '/api/v1'
 const DLQ_ALERT_THRESHOLD = Number(process.env.VITE_DLQ_ALERT_THRESHOLD ?? '10')

@@ -68,7 +68,7 @@ import { typeIntoTestIdInput } from '../type-into-input'
 // waits/navigation), same rationale as the onboarding-wizard pipeline spec.
 test.setTimeout(300_000)
 
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 
 interface RollbackPipelineState {
   adminToken: string

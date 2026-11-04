@@ -65,7 +65,7 @@ export function aggregateBlockingViolations(
 export async function verifyBackendReachable(
   options: { apiBase?: string; idpBase?: string; dbUrl?: string } = {},
 ): Promise<void> {
-  const apiBase = options.apiBase ?? process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+  const apiBase = options.apiBase ?? process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
   const idpBase = options.idpBase ?? process.env.BPM_IDP_BASE_URL ?? 'http://localhost:8081'
   const dbUrl = options.dbUrl ?? process.env.BPM_TEST_DB_URL
 
