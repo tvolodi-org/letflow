@@ -11,16 +11,23 @@ defmodule Letflow.Ledger.Authorized do
 
   Elixir structs are not opaque at runtime. The control that nothing outside the ledger files
   builds one is a source scan test (`authorize_test.exs`, T-AZ-8).
+
+  `scope` is `:all` (tenant-wide reader) or `{:nodes, ids}` (REQ-693: the allowed org unit ids of
+  a scoped reader, taken from `Letflow.Api.Scope.allowed_set/2` inside `authorize/3` only), and
+  `scope_col` is the balance key column (`:k1`..`:k8`) of the registration's `scope_slot`, or `nil`
+  when it names none. A `{:nodes, _}` value always has a `scope_col`.
   """
 
   @enforce_keys [:prefix, :ledger_id, :registration_name, :purpose, :slot_names]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [scope: :all, scope_col: nil]
 
   @type t :: %__MODULE__{
           prefix: String.t(),
           ledger_id: String.t(),
           registration_name: String.t(),
           purpose: :read | :reconcile,
-          slot_names: [String.t()]
+          slot_names: [String.t()],
+          scope: :all | {:nodes, [String.t()]},
+          scope_col: nil | :k1 | :k2 | :k3 | :k4 | :k5 | :k6 | :k7 | :k8
         }
 end
