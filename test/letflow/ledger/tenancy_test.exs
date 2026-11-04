@@ -118,15 +118,16 @@ defmodule Letflow.Ledger.TenancyTest do
       assert Enum.count(found, &(&1 == :rescue)) == 2
     end
 
-    test "the ledger modules interpolate no SQL, rescue nothing, never log" do
+    test "the ledger modules interpolate no SQL, rescue only the reversal backstop, never log" do
       files = Path.wildcard("lib/letflow/ledger.ex") ++ Path.wildcard("lib/letflow/ledger/*.ex")
       assert length(files) >= 4
 
       findings = for file <- files, f <- scan(File.read!(file)), do: {file, f}
       assert Enum.reject(findings, &(elem(&1, 1) == :rescue)) == []
 
-      # REQ-692: the entry insert no longer rescues; write_posting/2 returns contract atoms only
-      assert for({file, :rescue} <- findings, do: file) == []
+      # REQ-637 part A: exactly one rescue, the entry insert's unique-index backstop of the reversal
+      # target (maps only that violation to posting_already_reversed, re-raises anything else)
+      assert for({file, :rescue} <- findings, do: file) == ["lib/letflow/ledger.ex"]
     end
 
     defp scan(source) do
