@@ -75,9 +75,12 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @stock_counts "lib/letflow/modules/stock/counts.ex"
   # REQ-701: the count sheet writers (lines, entries, the order header) write under the stock Owner.
   @stock_count_sheet "lib/letflow/modules/stock/count_sheet.ex"
+  @stock_count_differences "lib/letflow/modules/stock/count_differences.ex"
   # REQ-651: the catalog masters' import function.
   @catalog_import "lib/letflow/modules/catalog_items/import.ex"
   @fixture_managed "test/support/modules/fixture_managed/fixture_managed.ex"
+  # REQ-636: the reference-target fixture writes its own managed types through its Owner.
+  @fixture_ref_targets "test/support/modules/fixture_ref_targets/fixture_ref_targets.ex"
   @script_policy_fixture "test/support/script_policy_fixture.ex"
   # GH #2596: the exam module's own record writers; each passes the exam Owner (`exam_owner/0`).
   @exam_anti_cheat "lib/letflow/modules/exam/anti_cheat.ex"
@@ -116,10 +119,12 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                          @locations_links,
                          @locations_tree,
                          @org_masters,
+                         @stock_count_differences,
                          @stock_count_sheet,
                          @stock_counts,
                          @stock_documents,
-                         @fixture_managed
+                         @fixture_managed,
+                         @fixture_ref_targets
                        ]
   # R3 / R4 allow-lists (unchanged from REQ-496 T-34).
   @module_owner_callers [@managed_types, @installs]
@@ -715,10 +720,12 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                    @locations_links,
                    @locations_tree,
                    @org_masters,
+                   @stock_count_differences,
                    @stock_count_sheet,
                    @stock_counts,
                    @stock_documents,
-                   @fixture_managed
+                   @fixture_managed,
+                   @fixture_ref_targets
                  ]
     end
 
