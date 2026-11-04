@@ -514,6 +514,9 @@ additionally `GET /health/ready` (not implemented) for both backend and IDP
 
 ---
 
+> **Superseded (GH #2486):** the current local run recipe is `docs/runbooks/local-e2e.md`. The steps below are historical;
+> the Letflow dev backend port is `:4000` and the specs now default `BPM_TEST_URL` to it.
+
 ## What "BLOCKED-ON-INFRA" requires, concretely
 
 To re-run the 35 Keycloak-blocked specs, you need:

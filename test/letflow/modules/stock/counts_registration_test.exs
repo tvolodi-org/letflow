@@ -17,23 +17,51 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Stock
 
-  test "R-MANIFEST one new permission atom, three managed scoped types, no role grants" do
+  test "R-MANIFEST (REQ-701 R1, R2) the count permissions, five managed scoped types, decimal fields" do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
 
     assert m.permissions ==
-             [:StockPost, :StockReverse, :StockRead, :StockReconcile, :StockCountOrder]
+             [
+               :StockPost,
+               :StockReverse,
+               :StockRead,
+               :StockReconcile,
+               :StockCountOrder,
+               :StockCountRecord
+             ]
 
-    refute :StockCountRecord in m.permissions
     assert m.role_grants == %{}
 
-    assert Enum.slice(m.manages_entity_types, 2, 3) == [
+    assert Enum.slice(m.manages_entity_types, 8, 5) == [
              "count_order",
              "count_order_scope",
-             "count_commission_member"
+             "count_commission_member",
+             "count_sheet_line",
+             "count_entry"
            ]
 
     assert Map.values(m.scope_declarations) |> Enum.uniq() == [{:column, "org_unit_id"}]
+    # REQ-701 R2: the four quantity fields are exact decimals in the shipped pack
+    pack = "priv/modules/stock/pack.json" |> File.read!() |> Jason.decode!()
+
+    fields = fn type ->
+      pack["entity_definitions"]
+      |> Enum.find(&(&1["name"] == type))
+      |> get_in(["definition_json", "fields"])
+      |> Map.new(&{&1["name"], &1})
+    end
+
+    for {type, names} <- [
+          {"count_sheet_line", ~w(book_quantity counted_quantity)},
+          {"count_entry", ~w(quantity_before quantity_after)}
+        ],
+        name <- names do
+      f = Map.fetch!(fields.(type), name)
+      assert f["type"] == "decimal" and f["decimal_strict"] == true, "#{type}.#{name}"
+      assert f["decimal_scale"] == 9 and f["decimal_precision"] == 24
+    end
+
     assert Map.keys(m.scope_declarations) |> Enum.sort() == Enum.sort(m.manages_entity_types)
     assert m.depends_on == ["catalog_items", "locations", "org"]
 
@@ -56,14 +84,15 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
              &(elem(&1, 1) == "stock" and String.starts_with?(elem(&1, 0), "count_"))
            ) ==
              Enum.map(
-               ~w(count_commission_member count_order count_order_scope),
+               ~w(count_commission_member count_entry count_order count_order_scope count_sheet_line),
                &{&1, "stock", :active}
              )
 
     assert Letflow.Entities.ScopeDeclaration.for_type("count_order", s) ==
              {:column, "org_unit_id"}
 
-    for type <- ~w(count_order count_order_scope count_commission_member) do
+    for type <-
+          ~w(count_order count_order_scope count_commission_member count_sheet_line count_entry) do
       conn =
         Plug.Test.conn(:post, "/records/#{type}")
         |> Map.put(:body_params, %{"field_values" => %{"kind" => "full"}})
@@ -116,6 +145,6 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
       assert {:ok, _} = Letflow.Documents.register_type(s, attrs, ctx)
     end
 
-    assert length(Repo.all(DocumentType, prefix: s)) == 5
+    assert length(Repo.all(DocumentType, prefix: s)) == 8
   end
 end

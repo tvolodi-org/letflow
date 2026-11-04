@@ -73,6 +73,8 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @codes_writes "lib/letflow/modules/codes/writes.ex"
   # REQ-700: the count order writers write under the stock Owner.
   @stock_counts "lib/letflow/modules/stock/counts.ex"
+  # REQ-701: the count sheet writers (lines, entries, the order header) write under the stock Owner.
+  @stock_count_sheet "lib/letflow/modules/stock/count_sheet.ex"
   # REQ-651: the catalog masters' import function.
   @catalog_import "lib/letflow/modules/catalog_items/import.ex"
   @fixture_managed "test/support/modules/fixture_managed/fixture_managed.ex"
@@ -116,6 +118,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                          @locations_links,
                          @locations_tree,
                          @org_masters,
+                         @stock_count_sheet,
                          @stock_counts,
                          @stock_documents,
                          @fixture_managed,
@@ -715,6 +718,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                    @locations_links,
                    @locations_tree,
                    @org_masters,
+                   @stock_count_sheet,
                    @stock_counts,
                    @stock_documents,
                    @fixture_managed,

@@ -12,7 +12,7 @@ function decodeJwtPayload(token: string): { iss?: string } {
 }
 
 async function requireBackendReady(request: APIRequestContext): Promise<void> {
-  const apiBaseUrl = (process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080').replace(/\/$/, '')
+  const apiBaseUrl = (process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000').replace(/\/$/, '')
   await assertBackendHealthy(request, apiBaseUrl)
 }
 
