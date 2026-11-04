@@ -41,8 +41,8 @@ defmodule Letflow.Modules.Stock.RunbookTest do
              Enum.find_index(lines, &(&1 == @heading))
   end
 
-  test "T-RUN-2: the section is a numbered list 1..22 with the required limits" do
-    assert Enum.map(items(), &elem(&1, 0)) == Enum.to_list(1..22)
+  test "T-RUN-2: the section is a numbered list 1..23 with the required limits" do
+    assert Enum.map(items(), &elem(&1, 0)) == Enum.to_list(1..23)
     text = items() |> Enum.map_join("\n", &elem(&1, 1))
 
     for word <-

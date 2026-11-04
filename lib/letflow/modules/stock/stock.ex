@@ -39,6 +39,24 @@ defmodule Letflow.Modules.Stock do
   (`Letflow.Modules.Stock.Counts`, `Letflow.Modules.Stock.Router`). No ledger call. `depends_on`
   gains `org` and `locations` (the count functions read both; the boundary lint requires it).
 
+  ## Receipt fields (REQ-714 / GH #3747; version 0.4.0)
+
+  The receipt types gain optional `supplier_document_ref` and `received_on` (header) and `unit_price`
+  and `line_value` (line). Price and value live on the document only: the posting code reads literal
+  keys and never copies them to the ledger. At issue the lot is checked against the item's tracking
+  policy and `received_on` may not be after the event day in Asia/Almaty (`Documents.Checks`).
+  No route, permission or migration. Assumptions, owner may change at GATE B: the constant zone, the
+  date check at issue, serial-tracked goods refused.
+
+  ## Count sheet (REQ-701 / GH #3736; version 0.5.0)
+
+  Two more module-managed record types, `count_sheet_line` and `count_entry` (both scoped by the column
+  `org_unit_id`), a field `sheet_document_id` on `count_order`, the permission `StockCountRecord` and
+  seven routes (`Letflow.Modules.Stock.CountSheet`, delegated from `Counts`): open the count at the
+  cut-off (book quantities from the stock ledger through `Ledger.authorize/3` and `Ledger.balances/4`
+  only), typed input, surplus lines, the append-only entry log, close (issues the `count.sheet`
+  document). The stock module is installed on no tenant yet, so the changed pack touches no existing row.
+
   ## Slots and their order (append-only, rule 12)
 
   `sku, location, org_unit, responsible, lot`, all uuid text. `sku` is slot 1 because the sign rule
@@ -54,8 +72,8 @@ defmodule Letflow.Modules.Stock do
 
   ## Permissions
 
-  `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`, `StockCountOrder` (REQ-700; the count
-  record permission `StockCountRecord` comes with REQ-701, the first route that uses it); no role grants, so only TENANT_ADMIN and
+  `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`, `StockCountOrder` (REQ-700) and
+  `StockCountRecord` (REQ-701: open, count, add surplus lines, close); no role grants, so only TENANT_ADMIN and
   PLATFORM_ADMIN hold them (OQ-11 of decision 0073 stays open for the owner).
   """
 
@@ -74,6 +92,8 @@ defmodule Letflow.Modules.Stock do
     "count_order",
     "count_order_scope",
     "count_commission_member",
+    "count_sheet_line",
+    "count_entry",
     "stock_posting_mark"
   ]
 
@@ -110,10 +130,17 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.3.0",
+    version: "0.5.0",
     depends_on: ["catalog_items", "locations", "org"],
     pack: "modules/stock/pack.json",
-    permissions: [:StockPost, :StockReverse, :StockRead, :StockReconcile, :StockCountOrder],
+    permissions: [
+      :StockPost,
+      :StockReverse,
+      :StockRead,
+      :StockReconcile,
+      :StockCountOrder,
+      :StockCountRecord
+    ],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
@@ -136,7 +163,14 @@ defmodule Letflow.Modules.Stock do
       {"POST", "/counts/:id/cancel", :StockCountOrder},
       {"GET", "/counts", :StockRead},
       {"GET", "/counts/:id", :StockRead},
-      {"GET", "/counts/:id/document", :StockRead}
+      {"GET", "/counts/:id/document", :StockRead},
+      {"POST", "/counts/:id/open", :StockCountRecord},
+      {"GET", "/counts/:id/lines", :StockRead},
+      {"PUT", "/counts/:id/lines/:line_no/count", :StockCountRecord},
+      {"POST", "/counts/:id/surplus-lines", :StockCountRecord},
+      {"GET", "/counts/:id/entries", :StockRead},
+      {"POST", "/counts/:id/close", :StockCountRecord},
+      {"GET", "/counts/:id/sheet-document", :StockRead}
     ],
     manages_entity_types: [
       "stock_receipt",
@@ -144,6 +178,8 @@ defmodule Letflow.Modules.Stock do
       "count_order",
       "count_order_scope",
       "count_commission_member",
+      "count_sheet_line",
+      "count_entry",
       "stock_posting_mark"
     ],
     scope_declarations: %{
@@ -152,6 +188,8 @@ defmodule Letflow.Modules.Stock do
       "count_order" => {:column, "org_unit_id"},
       "count_order_scope" => {:column, "org_unit_id"},
       "count_commission_member" => {:column, "org_unit_id"},
+      "count_sheet_line" => {:column, "org_unit_id"},
+      "count_entry" => {:column, "org_unit_id"},
       "stock_posting_mark" => {:column, "org_unit_id"}
     },
     write_handlers: [
