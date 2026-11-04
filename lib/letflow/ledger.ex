@@ -32,7 +32,8 @@ defmodule Letflow.Ledger do
      the lookup a third time; the event-time check of each posting under the counter locks;
   6. `write_posting/2` per ledger id: sequence, digest and chain hash from the locked values; the
      counter update carries the locked `last_seq` in its WHERE term; the entry, its legs and the
-     balances are written. No refusal can follow the first write.
+     balances are written. The only refusal that can follow the counter update is
+     `posting_already_reversed` from the unique-index backstop of a reversal (see Reversal).
 
   Every ledger lock of every plan is taken in one ascending total order, so two plans (or a plan
   and a single posting) cannot form a cycle. Every statement carries the capability's prefix;
@@ -59,9 +60,10 @@ defmodule Letflow.Ledger do
   guard (so a retry never sees the balance the first posting left), and right after the counter
   locks (no `last_seq` change on a duplicate). A duplicate found at the second or third place may
   leave zero-quantity balance rows, or a counter row at `last_seq` 0 for a fresh ledger id; no
-  entry, leg or `last_seq` change is written. There is no `rescue` around the entry insert:
-  every key includes the ledger id and all writers of one ledger id serialize on its counter
-  row, so a unique violation after the third lookup is unreachable.
+  entry, leg or `last_seq` change is written. The entry insert rescues
+  only the reversal-target unique index (see Reversal): every other key includes the ledger id and
+  all writers of one ledger id serialize on its counter row, so a unique violation on them after
+  the third lookup is unreachable.
   `unique_violation_refusal/1` stays as a pure mapper of the three constraint names.
 
   ## Offline fields and event time (part C)
@@ -82,9 +84,26 @@ defmodule Letflow.Ledger do
   CHECK violation (23514, unreachable under the validation; its mapping is slice L3) propagate
   and leave the transaction.
 
-  ## Not in this part (L2b, L3)
+  ## Reversal (REQ-637 part A, slice L2b)
 
-  Reversal. No live caller exists before slice L3.
+  A reversal is a NEW posting (cause `reversal`, sign rule `reversal`, `reverses_entry_id`) in the
+  target's ledger id; its legs are derived here by negating the target's legs, never supplied. The
+  target and its legs are read before any lock (rows are immutable) and always filtered by the
+  posting's ledger id and the capability's prefix: an unknown id, a malformed id, a target of
+  another ledger id and a target of another tenant give the one refusal
+  `validation_failed` / `movement_not_found`. A target that is itself a reversal is
+  `posting_is_reversal`. `document_type`, `document_id` and `correlation_id` default to the
+  target's. The "already reversed" re-read (`posting_already_reversed`) runs in the lock step after
+  the second idempotency lookup and before the counter locks; the unique index on
+  `(ledger_id, reverses_entry_id)` is its backstop, mapped by `insert_entry/2` (the caller rolls
+  the transaction back on every refusal, so a refusal after the counter update leaves nothing).
+  The guard applies; for a reversal `insufficient_balance` carries only `leg_nos` and `count`.
+
+  Pairs (criterion 11): an entry is PAIRED when an entry of another ledger id, not a reversal, has
+  the same non-empty document_type, document_id and correlation_id. A single reversal of a paired
+  entry is `posting_is_paired`; a plan of two reversals whose targets are not siblings is
+  `ledger_document_mismatch`; both before any lock. The single-reversal sibling read is the only
+  read that crosses ledger ids. No live caller exists before slice L3.
 
   ## Pilot gate (note 17, quoted)
 
@@ -173,10 +192,14 @@ defmodule Letflow.Ledger do
   defp invalid, do: {:error, {:ledger_contract, :invalid_capability}}
 
   defp lock_in_transaction(caps) do
+    prefix = hd(caps).prefix
+
     with {:ok, parts} <- prepare_all(caps),
-         :ok <- check_plan_rules(parts) do
+         {:ok, parts} <- resolve_reversals(prefix, parts),
+         :ok <- check_plan_rules(parts),
+         :ok <- check_pairing(prefix, parts) do
       parts = Enum.sort_by(parts, & &1.ledger_id)
-      lock_parts(hd(caps).prefix, parts)
+      lock_parts(prefix, parts)
     end
   end
 
@@ -199,17 +222,150 @@ defmodule Letflow.Ledger do
     with {:ok, bounds} <- check_registration(cap.registration),
          {:ok, ids} <- check_identity(cap),
          {:ok, posting} <- Validate.posting(cap.posting, cap.command, cap.registration),
-         {:ok, groups} <- group_keys(posting.legs, bounds) do
+         {:ok, groups} <- prepare_groups(posting, bounds) do
       {:ok,
        %{
          cap: cap,
          ids: ids,
          posting: posting,
          groups: groups,
+         bounds: bounds,
+         reversal: posting.reversal,
          ledger_id: posting.ledger_id,
          payload_hash: Digest.payload_hash(cap.command, ids.subject_id)
        }}
     end
+  end
+
+  # A reversal has no legs yet: `resolve_reversals/2` derives them from the target.
+  defp prepare_groups(%{reversal: true}, _bounds), do: {:ok, []}
+  defp prepare_groups(posting, bounds), do: group_keys(posting.legs, bounds)
+
+  # -- reversal: target resolution and pairing (no lock) -----------------------------------------
+
+  # Reads each reversal's target and legs WITHOUT a lock (the rows are immutable) and derives the
+  # reversal's legs by negation. Every read carries the posting's ledger id, so a target of another
+  # ledger id or another tenant (the prefix) is "no row", the same refusal as an unknown id.
+  defp resolve_reversals(prefix, parts) do
+    parts
+    |> Enum.reduce_while({:ok, []}, fn part, {:ok, acc} ->
+      case resolve_reversal(prefix, part) do
+        {:ok, resolved} -> {:cont, {:ok, [resolved | acc]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, parts} -> {:ok, Enum.reverse(parts)}
+      error -> error
+    end
+  end
+
+  defp resolve_reversal(_prefix, %{reversal: false} = part), do: {:ok, part}
+
+  defp resolve_reversal(prefix, %{posting: posting} = part) do
+    ledger_id = posting.ledger_id
+    target_id = posting.reverses_entry_id
+
+    target =
+      from(e in "ledger_entry",
+        where: e.ledger_id == ^ledger_id and e.id == type(^target_id, Ecto.UUID),
+        select: %{
+          cause: e.cause,
+          reverses_entry_id: type(e.reverses_entry_id, Ecto.UUID),
+          document_type: e.document_type,
+          document_id: e.document_id,
+          correlation_id: e.correlation_id
+        }
+      )
+      |> Repo.one(prefix: prefix)
+
+    cond do
+      target == nil ->
+        Validate.movement_not_found()
+
+      target.cause == "reversal" or target.reverses_entry_id != nil ->
+        Validate.refuse(:posting_is_reversal, %{entry_id: target_id})
+
+      true ->
+        legs = derive_legs(prefix, ledger_id, target_id)
+
+        posting =
+          Map.merge(posting, %{
+            legs: legs,
+            document_type: posting.document_type || target.document_type,
+            document_id: posting.document_id || target.document_id,
+            correlation_id: posting.correlation_id || target.correlation_id
+          })
+
+        with {:ok, groups} <- group_keys(legs, part.bounds) do
+          {:ok, %{part | posting: posting, groups: groups, reversal: %{target: target}}}
+        end
+    end
+  end
+
+  # The exact negation of the target's legs: same slots, unit, attrs and line id, leg_no order kept.
+  defp derive_legs(prefix, ledger_id, target_id) do
+    from(l in "ledger_leg",
+      where: l.ledger_id == ^ledger_id and l.entry_id == type(^target_id, Ecto.UUID),
+      order_by: l.leg_no,
+      select: %{
+        leg_no: l.leg_no,
+        k: [l.k1, l.k2, l.k3, l.k4, l.k5, l.k6, l.k7, l.k8],
+        quantity: l.quantity,
+        unit_ref: l.unit_ref,
+        attrs: l.attrs,
+        document_line_id: l.document_line_id
+      }
+    )
+    |> Repo.all(prefix: prefix)
+    |> Enum.map(&%{&1 | quantity: Decimal.negate(&1.quantity)})
+  end
+
+  # Criterion 11 (two-posting document). An entry is PAIRED when another entry of the tenant, not a
+  # reversal, in a DIFFERENT ledger id, has the same non-empty document_type, document_id and
+  # correlation_id. A single reversal of a paired entry is refused; two reversals must target
+  # siblings of each other. Both refusals precede every lock. The single-reversal sibling read is
+  # the one read that crosses ledger ids (index on document_type, document_id); it runs once per
+  # single reversal, outside the lock step, and never for an ordinary posting.
+  defp check_pairing(prefix, parts) do
+    case Enum.filter(parts, & &1.reversal) do
+      [] ->
+        :ok
+
+      [single] ->
+        if paired?(prefix, single),
+          do: Validate.refuse(:posting_is_paired, %{entry_id: single.posting.reverses_entry_id}),
+          else: :ok
+
+      [a, b] ->
+        if siblings?(a.reversal.target, b.reversal.target),
+          do: :ok,
+          else: {:error, {:ledger_contract, :ledger_document_mismatch}}
+    end
+  end
+
+  defp siblings?(a, b) do
+    triple?(a) and triple?(b) and
+      {a.document_type, a.document_id, a.correlation_id} ==
+        {b.document_type, b.document_id, b.correlation_id}
+  end
+
+  defp triple?(target),
+    do: Enum.all?([target.document_type, target.document_id, target.correlation_id], &filled?/1)
+
+  defp filled?(value), do: is_binary(value) and value != ""
+
+  defp paired?(prefix, %{reversal: %{target: target}, ledger_id: ledger_id}) do
+    triple?(target) and
+      from(e in "ledger_entry",
+        where:
+          e.document_type == ^target.document_type and e.document_id == ^target.document_id and
+            e.correlation_id == ^target.correlation_id and e.ledger_id != ^ledger_id and
+            e.cause != "reversal",
+        select: 1,
+        limit: 1
+      )
+      |> Repo.one(prefix: prefix) != nil
   end
 
   defp check_plan_rules([_single]), do: :ok
@@ -241,6 +397,7 @@ defmodule Letflow.Ledger do
          :ok <- insert_all_balances(prefix, parts),
          {:ok, parts} <- lock_all_balances(prefix, parts),
          :none <- lookup_all(prefix, parts),
+         :ok <- check_not_reversed(prefix, parts),
          :ok <- guard_all(parts),
          {:ok, parts} <- lock_counters(prefix, parts),
          :none <- lookup_all(prefix, parts),
@@ -277,9 +434,31 @@ defmodule Letflow.Ledger do
      end)}
   end
 
+  # Step 8: the "already reversed" re-read, after the key locks and the second idempotency lookup
+  # (an identical retry is answered as a duplicate first) and before the counter lock (the loser of
+  # two concurrent reversals never touches `ledger_counter`). Read committed: a fresh snapshot.
+  defp check_not_reversed(prefix, parts) do
+    Enum.find_value(parts, :ok, fn
+      %{reversal: %{}, ledger_id: ledger_id, posting: %{reverses_entry_id: target_id}} ->
+        reversed? =
+          from(e in "ledger_entry",
+            where:
+              e.ledger_id == ^ledger_id and e.reverses_entry_id == type(^target_id, Ecto.UUID),
+            select: 1,
+            limit: 1
+          )
+          |> Repo.one(prefix: prefix)
+
+        if reversed?, do: Validate.refuse(:posting_already_reversed, %{entry_id: target_id})
+
+      _ordinary ->
+        nil
+    end)
+  end
+
   defp guard_all(parts) do
     Enum.find_value(parts, :ok, fn part ->
-      case guard(part.groups, part.locked, part.cap.registration.slots) do
+      case guard(part.groups, part.locked, part.cap.registration.slots, part.reversal != false) do
         :ok -> nil
         {:error, _} = refusal -> refusal
       end
@@ -466,13 +645,43 @@ defmodule Letflow.Ledger do
 
   def unique_violation_refusal(_other), do: :unknown
 
-  # No rescue: after the counter lock of the same ledger id and the third lookup, a unique
-  # violation is unreachable (every key includes the ledger id), and a refusal after the counter
-  # update would break "no refusal after the first write".
+  # The one rescue: the unique index of the reversal target (decision 0073 A5) is the backstop of
+  # the step 8 re-read. A violation on it is `posting_already_reversed`; any other error is
+  # re-raised. The caller rolls the whole transaction back on every refusal, so a refusal after
+  # the counter update leaves nothing. No message, constraint name or detail is copied out.
   defp insert_entry(prefix, entry_row) do
     Repo.insert_all("ledger_entry", [entry_row], prefix: prefix)
     :ok
+  rescue
+    e in Postgrex.Error ->
+      case reversal_unique_violation_refusal(e, entry_row) do
+        :unknown -> reraise e, __STACKTRACE__
+        refusal -> refusal
+      end
   end
+
+  @doc false
+  # Maps a unique violation on the reversal index of `entry_row` to `posting_already_reversed`;
+  # :unknown for anything else. Under a partitioned parent the index name may be generated, so the
+  # detail text is matched as well.
+  @spec reversal_unique_violation_refusal(Exception.t(), map()) :: {:error, refusal()} | :unknown
+  def reversal_unique_violation_refusal(
+        %Postgrex.Error{postgres: %{code: :unique_violation} = pg},
+        %{reverses_entry_id: target} = _row
+      )
+      when is_binary(target) do
+    constraint = to_string(Map.get(pg, :constraint))
+    detail = to_string(Map.get(pg, :detail))
+
+    if String.starts_with?(constraint, "ledger_entry_reverses_unique_index") or
+         String.contains?(detail, "reverses_entry_id") do
+      Validate.refuse(:posting_already_reversed, %{entry_id: Ecto.UUID.load!(target)})
+    else
+      :unknown
+    end
+  end
+
+  def reversal_unique_violation_refusal(_error, _row), do: :unknown
 
   # -- capability shape ------------------------------------------------------------------------
 
@@ -603,18 +812,29 @@ defmodule Letflow.Ledger do
 
   # -- guard -----------------------------------------------------------------------------------
 
-  defp guard(groups, locked, slots) do
+  defp guard(groups, locked, slots, reversal?) do
     groups
     |> Enum.zip(locked)
-    |> Enum.find_value(:ok, fn {group, row} -> refusal_for(group, row, length(slots)) end)
+    |> Enum.find_value(:ok, fn {group, row} ->
+      refusal_for(group, row, length(slots), reversal?)
+    end)
   end
 
-  defp refusal_for(%{legs: legs}, row, slot_count) do
+  defp refusal_for(%{legs: legs}, row, slot_count, reversal?) do
     new_on_hand = Enum.reduce(legs, row.on_hand, &Decimal.add(&2, &1.quantity))
 
     cond do
       leg = Enum.find(legs, &(&1.unit_ref != row.unit_ref)) ->
         Validate.refuse(:unit_mismatch, %{leg_no: leg.leg_no})
+
+      Decimal.lt?(new_on_hand, 0) and reversal? ->
+        # nothing of the target's contents: leg numbers and a count only
+        leg_nos = for leg <- legs, Decimal.lt?(leg.quantity, 0), do: leg.leg_no
+
+        Validate.refuse(:insufficient_balance, %{
+          leg_nos: Enum.sort(leg_nos),
+          count: length(leg_nos)
+        })
 
       Decimal.lt?(new_on_hand, 0) ->
         requested =
@@ -657,7 +877,7 @@ defmodule Letflow.Ledger do
 
   @doc false
   @spec write_posting(LockedPlan.t(), String.t()) ::
-          {:ok, posted()} | {:error, {:ledger_contract, atom()}}
+          {:ok, posted()} | {:error, refusal()} | {:error, {:ledger_contract, atom()}}
   def write_posting(%LockedPlan{prefix: prefix, postings: postings}, ledger_id) do
     case Map.fetch(postings, ledger_id) do
       :error -> {:error, {:ledger_contract, :not_in_plan}}
@@ -684,6 +904,7 @@ defmodule Letflow.Ledger do
       posting_seq: seq,
       cause: posting.cause,
       sign_rule: posting.sign_rule,
+      reverses_entry_id: posting.reverses_entry_id,
       reason_code: posting.reason_code,
       document_type: posting.document_type,
       document_id: posting.document_id,
@@ -721,17 +942,19 @@ defmodule Letflow.Ledger do
           id: Ecto.UUID.dump!(entry_id),
           actor_id: Ecto.UUID.dump!(ids.actor_id),
           subject_id: Ecto.UUID.dump!(ids.subject_id),
+          reverses_entry_id:
+            posting.reverses_entry_id && Ecto.UUID.dump!(posting.reverses_entry_id),
           entry_digest: entry_digest,
           chain_hash: chain_hash
         })
 
-      :ok = insert_entry(prefix, entry_row)
-
-      write_legs_and_balances(
-        {prefix, ledger_id, seq, {event_time, posting_time}},
-        {entry_id, chain_hash},
-        {posting, groups, locked, leg_maps}
-      )
+      with :ok <- insert_entry(prefix, entry_row) do
+        write_legs_and_balances(
+          {prefix, ledger_id, seq, {event_time, posting_time}},
+          {entry_id, chain_hash},
+          {posting, groups, locked, leg_maps}
+        )
+      end
     end
   end
 
