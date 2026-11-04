@@ -348,7 +348,10 @@ config :letflow, :modules, [
   Letflow.Modules.FixtureLedgerPost,
   # REQ-711 / GH #3751: ledger storage at install and reactivate
   # (test/support/modules/fixture_ledger_storage/).
-  Letflow.Modules.FixtureLedgerStorage
+  Letflow.Modules.FixtureLedgerStorage,
+  # REQ-636 / GH #3556: one opted-in reference target type
+  # (test/support/modules/fixture_ref_targets/).
+  Letflow.Modules.FixtureRefTargets
 ]
 
 # REQ-518 (SEC ruling R-3): the ONLY place this key may be set. Catalog rule 11 and

@@ -2,6 +2,7 @@
  *  Own copy of the locale type: module code may not import another module (0039 D3).
  *  The ru and kk texts are written by the developer and need a native-speaker check. */
 import type { UiLocale } from '@/i18n/uiLocaleStore'
+import { countsEn, countsKk, countsRu } from './counts/countsMessages'
 
 export const STOCK_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type StockUiLocale = UiLocale
@@ -207,4 +208,8 @@ const kk: Record<string, string> = {
   'stock.leg.hiddenUnit': 'Жасырын бөлімше',
 }
 
-export const stockMessages: Record<StockUiLocale, Record<string, string>> = { en, ru, kk }
+export const stockMessages: Record<StockUiLocale, Record<string, string>> = {
+  en: { ...en, ...countsEn },
+  ru: { ...ru, ...countsRu },
+  kk: { ...kk, ...countsKk },
+}

@@ -6,7 +6,7 @@ import path from 'node:path'
 const ROOT = path.resolve(__dirname, '..')
 const JSX_TEXT_NODE = />[A-Za-z][A-Za-z '.-]{2,}</g
 
-const files = [ROOT, path.join(ROOT, 'register')].flatMap((dir) =>
+const files = [ROOT, path.join(ROOT, 'register'), path.join(ROOT, 'counts')].flatMap((dir) =>
   readdirSync(dir)
     .filter((f) => f.endsWith('.tsx'))
     .map((f) => path.join(dir, f)),
@@ -14,7 +14,7 @@ const files = [ROOT, path.join(ROOT, 'register')].flatMap((dir) =>
 
 describe('I2 no hard-coded JSX text', () => {
   it('finds the screens', () => {
-    expect(files.map((f) => path.basename(f))).toEqual(expect.arrayContaining(['BalancesPage.tsx', 'MovementsPage.tsx']))
+    expect(files.map((f) => path.basename(f))).toEqual(expect.arrayContaining(['BalancesPage.tsx', 'MovementsPage.tsx', 'CountsPage.tsx', 'CountSheet.tsx']))
   })
   for (const f of files) {
     it(`${path.relative(ROOT, f)} has no bare JSX text node`, () => {
