@@ -203,4 +203,82 @@ defmodule Letflow.LedgerFixture do
       0 -> Enum.reverse(acc)
     end
   end
+
+  # ---- read side (REQ-637 part B) --------------------------------------------------------------
+
+  @doc """
+  The test registry value of `Ledger.registration_for/1`: the test ledger id with the test
+  registration and two EXISTING tenant-scope permission atoms (read: TENANT_ADMIN and
+  PROCESS_DESIGNER; reconcile: TENANT_ADMIN only).
+  """
+  def registry do
+    %{
+      @ledger_id => %{
+        name: "test",
+        registration: registration(),
+        read_permission: :ScriptsWrite,
+        reconcile_permission: :ScriptsPublish
+      }
+    }
+  end
+
+  @doc "Installs `registry` (default `registry/0`) as the ledger registry for the test; restored on exit."
+  def put_registry!(registry \\ registry()) do
+    previous = Application.fetch_env(:letflow, :ledger_registry)
+    Application.put_env(:letflow, :ledger_registry, registry)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:letflow, :ledger_registry, value)
+        :error -> Application.delete_env(:letflow, :ledger_registry)
+      end
+    end)
+
+    :ok
+  end
+
+  @doc "A committed tenant with the default role groups seeded; returns `%{tenant_id, schema_name}`."
+  def tenant_fixture! do
+    tenant = TenantFixture.provisioned_tenant!(slug_prefix: "ledger", teardown: false)
+    on_exit(fn -> EntityWritesFixture.drop_committed_tenant!(tenant.tenant_id) end)
+
+    {:ok, _roles} =
+      Letflow.Identity.RoleRegistry.seed_default_platform_role_groups(prefix: tenant.schema_name)
+
+    tenant
+  end
+
+  @doc "A real active user of the tenant holding `roles` by group membership."
+  def user!(fx, roles),
+    do: Letflow.Support.TokenMintFixture.role_holder!(fx.schema_name, roles)
+
+  @doc "A conn as the auth plug leaves it for `user` (claiming `roles`) with `credential`."
+  def conn_for(fx, user, roles, credential \\ :oidc) do
+    :get
+    |> Plug.Test.conn("/")
+    |> Plug.Conn.assign(:auth_context, %{
+      user_id: user.id,
+      tenant_id: fx.tenant_id,
+      roles: roles,
+      credential: credential
+    })
+    |> Plug.Conn.assign(:scoped_opts, prefix: fx.schema_name)
+  end
+
+  @doc "Writes `settings` (string keys) straight into the tenant record, past the settings cast."
+  def put_tenant_settings!(fx, settings) do
+    Repo.query!("UPDATE tenants SET settings = $1 WHERE id = $2", [
+      settings,
+      Ecto.UUID.dump!(fx.tenant_id)
+    ])
+
+    :ok
+  end
+
+  @doc "An `Authorized` value for `fx` built through `Ledger.authorize/3` as a TENANT_ADMIN."
+  def authorized!(fx, purpose \\ :read) do
+    user = user!(fx, ["TENANT_ADMIN"])
+    {:ok, auth} = Ledger.authorize(conn_for(fx, user, ["TENANT_ADMIN"]), @ledger_id, purpose)
+    auth
+  end
 end
