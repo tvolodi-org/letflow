@@ -72,9 +72,17 @@ defmodule Letflow.Ledger.BalanceReconcileTest do
       assert {:ok, result} = Fx.reconcile_all(a)
 
       assert Map.keys(result) |> Enum.sort() ==
-               ~w(chain_check checked_through_seq gap_check ledger_id mismatches next_cursor)a
+               ~w(audit_check chain_check checked_through_seq gap_check ledger_id mismatches next_cursor)a
 
-      assert %{mismatches: [], gap_check: :ok, chain_check: :ok, next_cursor: nil} = result
+      assert %{
+               mismatches: [],
+               gap_check: :ok,
+               chain_check: :ok,
+               audit_check: :ok,
+               next_cursor: nil
+             } =
+               result
+
       assert result.checked_through_seq == Fx.last_seq(schema)
       assert result.ledger_id == Fx.ledger_id()
     end
@@ -422,6 +430,55 @@ defmodule Letflow.Ledger.BalanceReconcileTest do
       Repo.transaction(fn ->
         assert_raise ArgumentError, fn -> Ledger.reconcile(Fx.authorized(schema), %{}) end
       end)
+    end
+  end
+
+  describe "REQ-686 criterion 6: audit check" do
+    test "C8e the stored chain hash differing from the audit entry is found at its sequence", %{
+      schema: schema
+    } do
+      if Fx.table_owner?(schema) do
+        Enum.each(["a", "b", "c", "d"], &receipt!(schema, [&1], 1))
+        assert {:ok, %{audit_check: :ok}} = Fx.reconcile_all(Fx.authorized(schema))
+
+        Fx.disable_guards!(schema, "ledger_entry")
+
+        Fx.exec!(
+          ~s|UPDATE "#{schema}".ledger_entry SET chain_hash = repeat('0', 64) WHERE posting_seq = 3|
+        )
+
+        # the chain breaks at 3 and the audit comparison names the same entry, also in chunks
+        for opts <- [%{}, %{chunk_size: 1}] do
+          assert {:ok, %{chain_check: {:broken_at, 3}, audit_check: {:mismatch_at, 3}}} =
+                   Fx.reconcile_all(Fx.authorized(schema), opts)
+        end
+      else
+        IO.puts("C8e skipped: the test role does not own the ledger tables (owner-tamper)")
+      end
+    end
+
+    test "C8f an entry posted without its audit entry is a mismatch at its sequence", %{
+      schema: schema
+    } do
+      receipt!(schema, ["a"], 1)
+      Fx.post!(Fx.capability(schema, "receipt", [Fx.leg(["b"], 1)]), audit: false)
+      receipt!(schema, ["c"], 1)
+
+      assert {:ok, %{chain_check: :ok, audit_check: {:mismatch_at, 2}}} =
+               Fx.reconcile_all(Fx.authorized(schema))
+    end
+
+    test "C8f a cursor without the audit field decodes as no mismatch", %{schema: schema} do
+      Enum.each(["a", "b", "c"], &receipt!(schema, [&1], 1))
+      a = Fx.authorized(schema)
+      {:ok, first} = Ledger.reconcile(a, %{chunk_size: 1})
+      assert is_binary(first.next_cursor)
+
+      stripped = edit_cursor(first.next_cursor, &Map.delete(&1, "aud"))
+      assert {:ok, _} = Ledger.reconcile(a, %{cursor: stripped, chunk_size: 1})
+
+      bad = edit_cursor(first.next_cursor, &Map.put(&1, "aud", "x"))
+      assert {:error, :invalid_cursor} = Ledger.reconcile(a, %{cursor: bad, chunk_size: 1})
     end
   end
 end

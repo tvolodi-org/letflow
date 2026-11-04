@@ -29,7 +29,20 @@ defmodule Letflow.Ledger.Authority do
   @type denial :: :credential_unsupported | :role_denied | :scoped_principal_unsupported
 
   @spec check(Capability.t()) :: :ok | {:error, denial()}
-  def check(cap) when is_struct(cap, Capability) and cap.credential == :oidc do
+  def check(cap) do
+    case check_with_read(cap) do
+      {:ok, _read?} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc """
+  `check/1` that also says whether some role of the subject holds the registration's read
+  permission (REQ-686: only such a subject is shown `available` in an `insufficient_balance`
+  refusal). Computed from the roles the check already read; no extra query.
+  """
+  @spec check_with_read(Capability.t()) :: {:ok, boolean()} | {:error, denial()}
+  def check_with_read(cap) when is_struct(cap, Capability) and cap.credential == :oidc do
     prefix = cap.prefix
     names = Identity.list_effective_role_names(cap.subject_id, prefix: prefix)
 
@@ -38,13 +51,24 @@ defmodule Letflow.Ledger.Authority do
          roles = Authorization.effective_roles(names, platform?),
          {:ok, atom} <- permission_atom(cap),
          true <- Enum.any?(roles, &Authorization.role_allows?(&1, atom)) do
-      check_scope(cap, roles, platform?, atom)
+      with :ok <- check_scope(cap, roles, platform?, atom), do: {:ok, read?(cap, roles)}
     else
       _denied -> {:error, :role_denied}
     end
   end
 
-  def check(cap) when is_struct(cap, Capability), do: {:error, :credential_unsupported}
+  def check_with_read(cap) when is_struct(cap, Capability),
+    do: {:error, :credential_unsupported}
+
+  defp read?(%{registration: %{permissions: permissions}}, roles) do
+    case Map.get(permissions, :read) do
+      atom when is_atom(atom) and not is_nil(atom) ->
+        Enum.any?(roles, &Authorization.role_allows?(&1, atom))
+
+      _none ->
+        false
+    end
+  end
 
   defp tenant_id(prefix) do
     case TenantProvisioning.tenant_id_for_schema_name(prefix) do

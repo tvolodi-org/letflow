@@ -81,7 +81,8 @@ defmodule Letflow.Ledger.TwoPostingTest do
         Fx.posting("issue", "b", "-3", %{"document_id" => "d1"})
       )
 
-    assert {:error, {:ledger_lock, :all}, {:ledger_refused, :insufficient_balance, _, _}, _} =
+    assert {:error, {:ledger_lock, :all},
+            {:ledger_at, _key, {:ledger_refused, :insufficient_balance, _, _}}, _} =
              Fx.run_lines(ctx, [alpha(), issue])
 
     assert {0, 0, 0, 0} = Fx.ledger_counts(ctx.schema)

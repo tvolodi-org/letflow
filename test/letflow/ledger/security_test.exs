@@ -128,7 +128,10 @@ defmodule Letflow.Ledger.SecurityTest do
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        assert {:error, {:entity_write_failed, 0, :ledger_post}} = Fx.complete(ctx)
+        # REQ-686: a build-time refusal released after authority is now the typed refusal
+        assert {:error,
+                {:entity_write_refused_detailed, 0, :invalid_posting, "invalid_posting", _}} =
+                 Fx.complete(ctx)
       end)
 
     refute log =~ "bogus"

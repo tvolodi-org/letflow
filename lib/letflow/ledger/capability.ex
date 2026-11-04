@@ -16,7 +16,10 @@ defmodule Letflow.Ledger.Capability do
   * `origin`, `instance_id`, `credential`: taken from the `HandlerContext` only, never from a
     command field; the run-time authority step reads them;
   * `deferred_refusal`: the first problem found at build time (nil when none), released only
-    after the authority check so an unauthorised caller learns nothing about its command.
+    after the authority check so an unauthorised caller learns nothing about its command;
+  * `read_disclosed` (REQ-686, not enforced, default false): set by the run-time authority step
+    when the subject's roles also hold the registration's read permission; only then does an
+    `insufficient_balance` refusal carry `available` per leg.
   """
 
   alias Letflow.Entities.HandlerContext
@@ -36,7 +39,7 @@ defmodule Letflow.Ledger.Capability do
     :credential,
     :deferred_refusal
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [read_disclosed: false]
 
   @type deferred_refusal ::
           nil
@@ -56,7 +59,8 @@ defmodule Letflow.Ledger.Capability do
           origin: HandlerContext.origin(),
           instance_id: Ecto.UUID.t(),
           credential: atom() | nil,
-          deferred_refusal: deferred_refusal()
+          deferred_refusal: deferred_refusal(),
+          read_disclosed: boolean()
         }
 
   @doc """

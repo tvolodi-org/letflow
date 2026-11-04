@@ -66,11 +66,20 @@ defmodule Letflow.LedgerPostFixture do
 
   @doc """
   The case for a node with `module_lines`. Options: `:holder_roles` (default `["TENANT_ADMIN"]`)
-  are the roles of the completing user, granted through group membership.
+  are the roles of the completing user, granted through group membership. `committed: true` (REQ-686,
+  for tests in Sandbox `:auto` mode) provisions a tenant that is really committed and dropped on exit.
   """
   @spec case!(String.t(), [map()], keyword()) :: map()
   def case!(slug_prefix, module_lines, opts \\ []) do
-    base = Fx.tenant_case!(slug_prefix)
+    base =
+      if Keyword.get(opts, :committed, false) do
+        committed = Fx.committed_tenant_case!(slug_prefix)
+        ExUnit.Callbacks.on_exit(fn -> Fx.drop_committed_tenant!(committed.tenant.tenant_id) end)
+        committed
+      else
+        Fx.tenant_case!(slug_prefix)
+      end
+
     schema = base.schema
     tenant_id = base.tenant.tenant_id
 
@@ -107,6 +116,17 @@ defmodule Letflow.LedgerPostFixture do
       instance_id: instance_id,
       task: task
     })
+  end
+
+  @doc """
+  REQ-686: another stamped definition with `module_lines` in the case's tenant, one instance of
+  it started; returns the case with that definition, instance and task (the completer is kept).
+  """
+  @spec more_task!(map(), [map()]) :: map()
+  def more_task!(ctx, module_lines) do
+    definition = activate!(ctx.schema, ctx.user, Fx.graph([]) |> put_lines(module_lines))
+    {instance_id, task} = Fx.start!(ctx.schema, definition)
+    %{ctx | definition: definition, instance_id: instance_id, task: task}
   end
 
   defp put_lines(graph, lines) do

@@ -103,19 +103,51 @@ defmodule Letflow.LedgerFixture do
   Runs `Ledger.post/1` in a transaction. A refusal rolls the transaction back (as the L3 Multi
   will), so it leaves nothing: returns `{:ok, posted}` or `{:error, refusal}`.
   """
-  @spec post_tx(Capability.t()) :: {:ok, map()} | {:error, term()}
-  def post_tx(%Capability{} = cap) do
+  @spec post_tx(Capability.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def post_tx(%Capability{} = cap, opts \\ []) do
     Repo.transaction(fn ->
       case Ledger.post(cap) do
-        {:ok, posted} -> posted
-        {:error, reason} -> Repo.rollback(reason)
+        {:ok, posted} ->
+          if Keyword.get(opts, :audit, true), do: audit_posted!(cap, posted)
+          posted
+
+        {:error, reason} ->
+          Repo.rollback(reason)
       end
     end)
   end
 
-  @doc "Posts and returns the posted map; raises on a refusal."
-  def post!(%Capability{} = cap) do
-    {:ok, posted} = post_tx(cap)
+  # REQ-686: the engine writes a `ledger.posted` audit entry beside every entry it posts; the
+  # fixture does the same (option `audit: false` omits it) so `Reconcile` finds a clean ledger.
+  defp audit_posted!(cap, %{duplicate: false} = posted) do
+    %{rows: [[cause, leg_count]]} =
+      Repo.query!(
+        ~s|SELECT cause, leg_count FROM "#{cap.prefix}".ledger_entry WHERE id = $1|,
+        [Ecto.UUID.dump!(posted.entry_id)]
+      )
+
+    summary = %{
+      entry_id: posted.entry_id,
+      ledger_id: posted.ledger_id,
+      posting_seq: posted.posting_seq,
+      cause: cause,
+      leg_count: leg_count,
+      chain_hash: posted.chain_hash
+    }
+
+    {:ok, _entry} =
+      Letflow.Audit.insert_entry(
+        Repo,
+        Letflow.Audit.LedgerPosted.attrs(summary, cap.actor_id),
+        cap.prefix
+      )
+  end
+
+  defp audit_posted!(_cap, _duplicate), do: :ok
+
+  @doc "Posts and returns the posted map; raises on a refusal. Options as `post_tx/2`."
+  def post!(%Capability{} = cap, opts \\ []) do
+    {:ok, posted} = post_tx(cap, opts)
     posted
   end
 

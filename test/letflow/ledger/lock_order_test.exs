@@ -6,11 +6,17 @@ defmodule Letflow.Ledger.LockOrderTest do
   timeout on the counter row propagates unrescued, nothing is committed, a retry posts). The counter-order
   assertions are statement-order recordings, not lock probes.
   Sandbox `:auto` with real commits, hence `async: false`.
+
+  REQ-686 (slice L3c) adds the engine-level cases of decision 0061's class 5b, ids `T-LK-1e`,
+  `T-LK-2`..`T-LK-6` ("e" = through the engine, to keep them apart from the core cases above):
+  completions of a module-stamped HUMAN_TASK on a committed tenant, forced overlaps by a held row.
   """
 
   use Letflow.DataCase, async: false
 
+  alias Letflow.Ledger.HandlerPost
   alias Letflow.LedgerFixture, as: Fx
+  alias Letflow.LedgerPostFixture, as: PFx
   alias Letflow.Ledger
   alias Letflow.LockOrderHelpers, as: H
   alias Letflow.Repo
@@ -126,5 +132,165 @@ defmodule Letflow.Ledger.LockOrderTest do
 
     assert {:ok, %{posting_seq: 2, duplicate: false}} = Fx.post_tx(cap)
     assert Decimal.eq?(Fx.balance(schema, ["a1"]).on_hand, 3)
+  end
+
+  # ---------------------------------------------------------------------------------------------
+  # REQ-686: engine-level cases
+  # ---------------------------------------------------------------------------------------------
+
+  defp post_lines(order, doc \\ "d1") do
+    for h <- order do
+      ledger = if h == "post_alpha", do: "a", else: "b"
+      PFx.post_line(h, PFx.posting("receipt", ledger, "5", %{"document_id" => doc}))
+    end
+  end
+
+  defp engine_case(slug, lines), do: PFx.case!(slug, lines, committed: true)
+
+  # Seeds one posting per ledger (key "a" in alpha, "b" in beta) so the barrier rows exist.
+  defp seed_ledgers!(ctx) do
+    seed = fn handler, key ->
+      PFx.post_line(handler, PFx.posting("receipt", key, "1", %{"client_op_id" => "seed-#{key}"}))
+    end
+
+    assert {:ok, _} =
+             PFx.run_lines(ctx, [seed.("post_alpha", "a"), seed.("post_beta", "b")],
+               origin: {:task, Ecto.UUID.generate()}
+             )
+  end
+
+  defp seqs(schema) do
+    %{rows: rows} =
+      Repo.query!(
+        ~s|SELECT ledger_id, last_seq FROM "#{schema}".ledger_counter ORDER BY ledger_id|
+      )
+
+    rows
+  end
+
+  test "T-LK-1e opposite line orders in forced overlap: both commit, no deadlock" do
+    ctx = engine_case("req686-lk1e", post_lines(["post_alpha", "post_beta"]))
+    other = PFx.more_task!(ctx, post_lines(["post_beta", "post_alpha"], "d2"))
+    seed_ledgers!(ctx)
+
+    %{first: r1, second: r2} =
+      H.forced_overlap(
+        ctx.schema,
+        {:ledger_counter, PFx.alpha()},
+        fn -> PFx.complete(ctx) end,
+        fn -> PFx.complete(other) end
+      )
+
+    assert {:ok, _} = r1
+    assert {:ok, _} = r2
+    assert seqs(ctx.schema) == [["fixture_ledger_post", 3], ["fixture_ledger_post:beta", 3]]
+  end
+
+  test "T-LK-2 a posting and a non-posting completion overlapping on the audit chain row" do
+    ctx = engine_case("req686-lk2", post_lines(["post_alpha", "post_beta"]))
+    plain = PFx.more_task!(ctx, [PFx.line("plain")])
+
+    # class order of one posting completion: the ledger rows and counter, then the audit chain row
+    {result, statements} = lf_record(fn -> PFx.complete(ctx) end)
+    assert {:ok, _} = result
+    sql = Enum.map(statements, &elem(&1, 0))
+    counter = Enum.find_index(sql, &(&1 =~ ~r/UPDATE "[^"]+"\."ledger_counter"/))
+    audit = Enum.find_index(sql, &(&1 =~ ~r/INSERT INTO "[^"]+"\."audit_chain_locks"/))
+    assert counter && audit && counter < audit
+
+    again = PFx.more_task!(ctx, post_lines(["post_alpha", "post_beta"], "d3"))
+
+    %{first: r1, second: r2} =
+      H.forced_overlap(
+        ctx.schema,
+        :audit_chain,
+        fn -> PFx.complete(again) end,
+        fn -> PFx.complete(plain) end
+      )
+
+    assert {:ok, _} = r1
+    assert {:ok, _} = r2
+  end
+
+  defp lf_record(fun), do: Fx.record(fun)
+
+  test "T-LK-3e a counter held beyond the lock timeout is the 503 contention, nothing committed" do
+    ctx = engine_case("req686-lk3e", post_lines(["post_alpha"]))
+    seed_ledgers!(ctx)
+    before = seqs(ctx.schema)
+    counts = PFx.ledger_counts(ctx.schema)
+
+    {holder, _backend} = H.hold_row(ctx.schema, {:ledger_counter, PFx.alpha()})
+
+    result = PFx.complete(ctx)
+    assert {:error, {:entity_write_refused, :contention, :entity_write_contention}} = result
+
+    send(holder.pid, :release)
+    Task.await(holder, H.await_ms())
+
+    assert seqs(ctx.schema) == before
+    assert PFx.ledger_counts(ctx.schema) == counts
+    # the task is still pending: the retry posts
+    assert {:ok, _} = PFx.complete(ctx)
+  end
+
+  test "T-LK-4 the SERVICE origin posting is refused write_not_permitted, nothing written" do
+    ctx = engine_case("req686-lk4", post_lines(["post_alpha"]))
+    lines = post_lines(["post_alpha"])
+
+    assert {:error, {:line, _key, :ledger_post} = step,
+            {:ledger_denied, :ledger_origin_not_supported}, _changes} =
+             PFx.run_lines(ctx, lines, origin: {:dispatch, Ecto.UUID.generate()})
+
+    assert {:refused, 0, :write_not_permitted, :ledger_origin_not_supported} =
+             Letflow.Entities.StepWrites.interpret_failure(
+               step,
+               {:ledger_denied, :ledger_origin_not_supported}
+             )
+
+    assert {0, 0, 0, 0} = PFx.ledger_counts(ctx.schema)
+  end
+
+  test "T-LK-5 a third posting line fails with nothing committed; one posting plus a plain line passes" do
+    ctx = engine_case("req686-lk5", post_lines(["post_alpha", "post_beta"]))
+    three = post_lines(["post_alpha", "post_beta", "post_alpha"])
+
+    assert {:error, _step, {:ledger_contract, :ledger_too_many_postings}, _} =
+             PFx.run_lines(ctx, three)
+
+    assert {0, 0, 0, 0} = PFx.ledger_counts(ctx.schema)
+
+    one = post_lines(["post_alpha"])
+    assert {:ok, _} = PFx.run_lines(ctx, one)
+    assert {1, 1, 1, 1} = PFx.ledger_counts(ctx.schema)
+
+    # one posting line plus a plain create line, through a real completion
+    mixed = [
+      PFx.line("plain"),
+      PFx.line("post_alpha", %{
+        "posting" => PFx.posting("receipt", "a", "5", %{"document_id" => "d9"})
+      })
+    ]
+
+    assert {:ok, _} = PFx.complete(PFx.more_task!(ctx, mixed))
+    assert {2, 2, 1, 1} = PFx.ledger_counts(ctx.schema)
+
+    # the lock step stays ONE merge placed once after the last handler call
+    source = File.read!("lib/letflow/ledger/handler_post.ex")
+    assert length(Regex.scan(~r/Multi\.merge\(/, source)) == 1
+
+    assert HandlerPost.lock_steps(PFx.build_lines(ctx, one), one)
+           |> Ecto.Multi.to_list()
+           |> List.last()
+           |> elem(0) == :merge
+  end
+
+  test "T-LK-6 two sequential transactions of one process both post" do
+    ctx = engine_case("req686-lk6", post_lines(["post_alpha"]))
+    second = PFx.more_task!(ctx, post_lines(["post_alpha"], "d2"))
+
+    assert {:ok, _} = PFx.complete(ctx)
+    assert {:ok, _} = PFx.complete(second)
+    assert [["fixture_ledger_post", 2]] = seqs(ctx.schema)
   end
 end

@@ -51,11 +51,15 @@ defmodule Letflow.Ledger.PostBalanceTest do
 
     keys = Capability.__struct__() |> Map.keys() |> List.delete(:__struct__) |> Enum.sort()
 
+    # REQ-686 adds the one NON-enforced field `read_disclosed` (default false); the twelve enforced
+    # keys stay the same.
     assert keys ==
              Enum.sort(
                ~w(prefix registration_name registration command posting subject_id actor_id origin_key
-                  origin instance_id credential deferred_refusal)a
+                  origin instance_id credential deferred_refusal read_disclosed)a
              )
+
+    assert Capability.__struct__().read_disclosed == false
   end
 
   test "T-AC1b2 outside a transaction post/1 raises and writes nothing", %{schema: schema} do
