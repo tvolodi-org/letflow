@@ -5,6 +5,10 @@ defmodule Letflow.Ledger.Authorized do
   (part C) `reconcile/2` accept nothing else, and take the tenant schema prefix and the ledger
   id from it, never from a caller map.
 
+  `tenant_id` (REQ-704) is the tenant id of the verified principal's `auth_context`, taken by
+  `authorize/3` only (never from a request parameter); it lets the read side find the tenant's time
+  zone without mapping the prefix back to a tenant. `nil` only in test fixtures without a tenant row.
+
   `slot_names` is the ordered list of the slot names of the registration of the ledger id; the
   closed filter key set of `balances/4` is derived from it, so a read never goes back to the
   registry. `purpose` is `:read` or `:reconcile`.
@@ -18,11 +22,12 @@ defmodule Letflow.Ledger.Authorized do
   when it names none. A `{:nodes, _}` value always has a `scope_col`.
   """
 
-  @enforce_keys [:prefix, :ledger_id, :registration_name, :purpose, :slot_names]
+  @enforce_keys [:prefix, :tenant_id, :ledger_id, :registration_name, :purpose, :slot_names]
   defstruct @enforce_keys ++ [scope: :all, scope_col: nil]
 
   @type t :: %__MODULE__{
           prefix: String.t(),
+          tenant_id: String.t() | nil,
           ledger_id: String.t(),
           registration_name: String.t(),
           purpose: :read | :reconcile,

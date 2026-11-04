@@ -1160,10 +1160,12 @@ defmodule Letflow.Ledger do
          {:ok, _conn, %Principal{kind: :user} = principal} <- Scope.principal_from_conn(conn),
          true <- Enum.any?(principal.roles, &Authorization.role_allows?(&1, permission)),
          {:ok, scope} <- read_scope(principal, permission, purpose, entry),
-         {:ok, names} <- slot_names(entry) do
+         {:ok, names} <- slot_names(entry),
+         tenant_id when is_binary(tenant_id) <- auth_tenant_id(conn) do
       {:ok,
        %Authorized{
          prefix: principal.prefix,
+         tenant_id: tenant_id,
          ledger_id: ledger_id,
          registration_name: entry.name,
          purpose: purpose,
@@ -1177,6 +1179,14 @@ defmodule Letflow.Ledger do
   end
 
   def authorize(_conn, _ledger_id, _purpose), do: :error
+
+  # The same value `Scope.principal_from_conn/1` verified the prefix against (REQ-704).
+  defp auth_tenant_id(conn) do
+    case conn.assigns do
+      %{auth_context: %{} = ctx} -> Map.get(ctx, :tenant_id)
+      _none -> nil
+    end
+  end
 
   defp permission_for(entry, purpose) do
     key = if purpose == :read, do: :read_permission, else: :reconcile_permission
@@ -1242,6 +1252,26 @@ defmodule Letflow.Ledger do
   @spec balances(Authorized.t(), tuple(), map(), map()) ::
           {:ok, map()} | {:error, :cutoff_in_future | :invalid_filter}
   defdelegate balances(authorized, basis, filters, page), to: Letflow.Ledger.Read
+
+  @doc """
+  REQ-704 / GH #3742: the balance of the register as of the end of the calendar day `date` in the
+  tenant time zone (`Letflow.Identity.TenantTimezone`, default Asia/Almaty: assumption, owner may
+  change at GATE B), read together with the cutoff posting number `known_through` (`:latest` or an
+  integer, the rule of `balances/4`). Day rule: the legs counted are those with `event_time` before
+  00:00 of the day after `date` in the tenant zone, passed to `balances/4` as that instant minus one
+  microsecond (`event_time <= b - 1us` is `event_time < b`). A future date equals the current
+  balance. The boundary is recomputed from `date` on every page (a zone change between two pages
+  can shift it; cursors are unsigned: honest replay only). The report is that of `balances/4`
+  plus `as_of_date` (ISO date), and `timezone` is the zone the boundary was computed with.
+  Errors: those of `balances/4`, `{:error, :invalid_filter}` for a non-`Date`, and
+  `{:error, :invalid_timezone}` when the tenant is unknown or its stored zone is not a zone
+  PostgreSQL knows (fail closed, no ledger statement). No new index, table or write.
+  """
+  @spec balances_on_date(Authorized.t(), Date.t(), :latest | non_neg_integer(), map(), map()) ::
+          {:ok, map()}
+          | {:error, :cutoff_in_future | :invalid_filter | :invalid_timezone}
+  defdelegate balances_on_date(authorized, date, known_through, filters, page),
+    to: Letflow.Ledger.Read
 
   @doc """
   REQ-637 criterion 6: the entries of an authorized ledger id in ascending `posting_seq` order.
