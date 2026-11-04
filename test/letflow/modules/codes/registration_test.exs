@@ -20,28 +20,32 @@ defmodule Letflow.Modules.Codes.RegistrationTest do
   test "R-02: id codes, no dependencies, the three managed types, one write permission, no grants" do
     m = Codes.manifest()
     assert m.id == "codes"
-    assert m.version == "0.2.0"
+    assert m.version == "0.3.0"
     assert m.depends_on == []
     assert m.manages_entity_types == @types
     assert m.pack == "modules/codes/pack.json"
-    assert m.permissions == [:CodesWrite]
+    assert m.permissions == [:CodesWrite, :CodesRead]
     assert m.role_grants == %{}
   end
 
   test "REQ-667 M1: one write permission, five route policies, the router, no role grants" do
     m = Codes.manifest()
-    assert m.permissions == [:CodesWrite]
+    assert m.permissions == [:CodesWrite, :CodesRead]
     assert m.role_grants == %{}
     assert m.depends_on == []
     assert Codes.router() == Letflow.Modules.Codes.Router
-    assert length(m.route_policies) == 5
-    assert length(Enum.uniq(m.route_policies)) == 5
+    assert length(m.route_policies) == 6
+    assert length(Enum.uniq(m.route_policies)) == 6
+    assert {"POST", "/resolve", :CodesRead} in m.route_policies
 
-    assert Enum.all?(m.route_policies, fn {method, _path, atom} ->
+    writes = Enum.reject(m.route_policies, &(elem(&1, 1) == "/resolve"))
+    assert length(writes) == 5
+
+    assert Enum.all?(writes, fn {method, _path, atom} ->
              method == "POST" and atom == :CodesWrite
            end)
 
-    assert Enum.sort(Enum.map(m.route_policies, &elem(&1, 1))) ==
+    assert Enum.sort(Enum.map(writes, &elem(&1, 1))) ==
              Enum.sort(["/receive", "/:id/assign", "/:id/release", "/:id/retire", "/:id/value"])
 
     assert Catalog.validate(m) == :ok

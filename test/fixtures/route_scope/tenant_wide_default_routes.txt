@@ -39,6 +39,9 @@ GET /modules/fixture/items/:id FixtureRead
 GET /modules/procurement/purchase-requests/:id ProcurementRequestRead
 GET /modules/procurement/purchase-requests/:id/lines/:line_no ProcurementRequestRead
 GET /modules/stock/balances StockRead
+GET /modules/stock/counts StockRead
+GET /modules/stock/counts/:id StockRead
+GET /modules/stock/counts/:id/document StockRead
 GET /modules/stock/documents StockRead
 GET /modules/stock/documents/:id StockRead
 GET /modules/stock/movements StockRead
@@ -110,6 +113,7 @@ POST /modules/codes/:id/release CodesWrite
 POST /modules/codes/:id/retire CodesWrite
 POST /modules/codes/:id/value CodesWrite
 POST /modules/codes/receive CodesWrite
+POST /modules/codes/resolve CodesRead
 POST /modules/exam/authoring/:entity_type ExamAuthoringWrite
 POST /modules/exam/exam-sessions ExamSessionStart
 POST /modules/exam/exam-sessions/:id/certificate ExamCertificateIssue
@@ -141,6 +145,9 @@ POST /modules/procurement/purchase-requests/:id/lines/:line_no/reference Procure
 POST /modules/procurement/purchase-requests/:id/lines/:line_no/supplier ProcurementLineRecord
 POST /modules/procurement/purchase-requests/:id/revise ProcurementRequestWrite
 POST /modules/procurement/purchase-requests/:id/submit ProcurementRequestWrite
+POST /modules/stock/counts StockCountOrder
+POST /modules/stock/counts/:id/cancel StockCountOrder
+POST /modules/stock/counts/:id/issue StockCountOrder
 POST /modules/stock/documents StockPost
 POST /modules/stock/documents/:id/issue StockPost
 POST /onboarding TenantsManage
@@ -188,6 +195,7 @@ PUT /entity-type-hooks/:entity_type EntityTypeHooksManage
 PUT /integration-mappings/:id IntegrationMappingsManage
 PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
+PUT /modules/stock/counts/:id StockCountOrder
 PUT /modules/stock/documents/:id StockPost
 PUT /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 PUT /script-policy/kill-switch ScriptPolicyManage

@@ -712,7 +712,7 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
       assert {:ok, %{registered: [], skipped: skipped}} = EventTypes.seed!(schema)
 
       assert Enum.sort(skipped) ==
-               ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_DELETED ENTITY_RECORD_UPDATED)
+               ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_DELETED ENTITY_RECORD_MIGRATED ENTITY_RECORD_UPDATED)
 
       assert rows(schema, "ENTITY_RECORD_CREATED") == [1, 2]
     end
