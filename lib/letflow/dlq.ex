@@ -14,6 +14,14 @@ defmodule Letflow.Dlq do
   and never calls, whatever would actually re-dispatch a `SERVICE_TASK` or
   resume an ERRORed instance (design §4).
 
+  ## Entry types
+
+  `entry_type` is an open string. `record_trigger` (REQ-638, decision 0067 D2) is written by
+  the record-trigger result module (`Apply`) for every dead `record_trigger_outbox` row: `reference_id` is the
+  outbox row id, `instance_id` is nil, `reason` is the closed `last_code`, and no payload is stored.
+  `retry/2` on such an entry only moves the entry's own state; it re-dispatches nothing (the requeue
+  of the outbox row is a separate, later route).
+
   ## Tenant scoping (INV-1)
 
   Every function below takes `opts :: [prefix: String.t()]`, `prefix` always
