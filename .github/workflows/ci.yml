@@ -689,26 +689,36 @@ jobs:
           PGPASSWORD: letflow
         run: |
           set -euo pipefail
-          psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -v ON_ERROR_STOP=1 \
-            -c "ALTER SYSTEM SET fsync = off" \
-            -c "ALTER SYSTEM SET synchronous_commit = off" \
-            -c "ALTER SYSTEM SET full_page_writes = off" \
-            -c "SELECT pg_reload_conf()"
-          # pg_reload_conf() only signals the postmaster, so poll (bounded: 10 x 1 s) until
-          # each setting reads back as `off` instead of trusting a fixed sleep.
-          for setting in fsync synchronous_commit full_page_writes; do
-            value=""
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              value=$(psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -At -c "SHOW $setting")
-              [ "$value" = "off" ] && break
-              sleep 1
+          # T-1305: the whole set-and-verify is tried up to 3 times (5 s apart) before the step
+          # fails: "did not take effect" was seen in several runs for reasons outside the code.
+          # pg_reload_conf() only signals the postmaster, so each try polls (bounded: 10 x 1 s)
+          # until each setting reads back as `off` instead of trusting a fixed sleep.
+          tune_postgres() {
+            psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -v ON_ERROR_STOP=1 \
+              -c "ALTER SYSTEM SET fsync = off" \
+              -c "ALTER SYSTEM SET synchronous_commit = off" \
+              -c "ALTER SYSTEM SET full_page_writes = off" \
+              -c "SELECT pg_reload_conf()" || return 1
+            for setting in fsync synchronous_commit full_page_writes; do
+              value=""
+              for attempt in 1 2 3 4 5 6 7 8 9 10; do
+                value=$(psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -At -c "SHOW $setting" || true)
+                [ "$value" = "off" ] && break
+                sleep 1
+              done
+              echo "postgres $setting = $value"
+              if [ "$value" != "off" ]; then
+                echo "::warning::Postgres setting $setting did not take effect (got '$value')"
+                return 1
+              fi
             done
-            echo "postgres $setting = $value"
-            if [ "$value" != "off" ]; then
-              echo "::error::Postgres setting $setting did not take effect (got '$value')"
-              exit 1
-            fi
+          }
+          for try in 1 2 3; do
+            tune_postgres && exit 0
+            [ "$try" -lt 3 ] && sleep 5
           done
+          echo "::error::Postgres setting did not take effect after 3 tries"
+          exit 1
 
       - name: Run static checks (mix letflow.check.static)
         if: needs.changes.outputs.backend != 'false'
@@ -914,26 +924,36 @@ jobs:
           PGPASSWORD: letflow
         run: |
           set -euo pipefail
-          psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -v ON_ERROR_STOP=1 \
-            -c "ALTER SYSTEM SET fsync = off" \
-            -c "ALTER SYSTEM SET synchronous_commit = off" \
-            -c "ALTER SYSTEM SET full_page_writes = off" \
-            -c "SELECT pg_reload_conf()"
-          # pg_reload_conf() only signals the postmaster, so poll (bounded: 10 x 1 s) until
-          # each setting reads back as `off` instead of trusting a fixed sleep.
-          for setting in fsync synchronous_commit full_page_writes; do
-            value=""
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              value=$(psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -At -c "SHOW $setting")
-              [ "$value" = "off" ] && break
-              sleep 1
+          # T-1305: the whole set-and-verify is tried up to 3 times (5 s apart) before the step
+          # fails: "did not take effect" was seen in several runs for reasons outside the code.
+          # pg_reload_conf() only signals the postmaster, so each try polls (bounded: 10 x 1 s)
+          # until each setting reads back as `off` instead of trusting a fixed sleep.
+          tune_postgres() {
+            psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -v ON_ERROR_STOP=1 \
+              -c "ALTER SYSTEM SET fsync = off" \
+              -c "ALTER SYSTEM SET synchronous_commit = off" \
+              -c "ALTER SYSTEM SET full_page_writes = off" \
+              -c "SELECT pg_reload_conf()" || return 1
+            for setting in fsync synchronous_commit full_page_writes; do
+              value=""
+              for attempt in 1 2 3 4 5 6 7 8 9 10; do
+                value=$(psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -At -c "SHOW $setting" || true)
+                [ "$value" = "off" ] && break
+                sleep 1
+              done
+              echo "postgres $setting = $value"
+              if [ "$value" != "off" ]; then
+                echo "::warning::Postgres setting $setting did not take effect (got '$value')"
+                return 1
+              fi
             done
-            echo "postgres $setting = $value"
-            if [ "$value" != "off" ]; then
-              echo "::error::Postgres setting $setting did not take effect (got '$value')"
-              exit 1
-            fi
+          }
+          for try in 1 2 3; do
+            tune_postgres && exit 0
+            [ "$try" -lt 3 ] && sleep 5
           done
+          echo "::error::Postgres setting did not take effect after 3 tries"
+          exit 1
 
       # T-1297: selective run: the plan (partition and test path lines from scripts/ci_select_tests.py)
       # goes to a file; scripts/test_parallel.sh runs only those files (TEST_PARALLEL_PLAN below).
