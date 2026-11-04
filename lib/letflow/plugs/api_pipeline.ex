@@ -166,6 +166,7 @@ defmodule Letflow.Plugs.ApiPipeline do
   forward("/notification-deliveries", to: Letflow.Routers.NotificationDeliveries)
   forward("/number-sequences", to: Letflow.Routers.NumberSequences)
   forward("/entity-type-extensions", to: Letflow.Routers.EntityTypeExtensions)
+  forward("/entity-scope-declarations", to: Letflow.Routers.EntityScopeDeclarations)
 
   # REQ-552 (GH #3177) -- export/import of the caller's own tenant configuration bundle.
   forward("/tenant/config-bundle", to: Letflow.Routers.TenantConfigBundle)

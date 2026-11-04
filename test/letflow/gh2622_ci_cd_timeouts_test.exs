@@ -19,7 +19,8 @@ defmodule Letflow.Gh2622CiCdTimeoutsTest do
     "backend_shard" => 45,
     "backend" => 15,
     "frontend" => 30,
-    "mobile" => 45
+    "mobile" => 45,
+    "full_run_marker" => 10
   }
 
   @cd_timeouts %{"deploy" => 20, "skip-log" => 5}
