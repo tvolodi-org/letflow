@@ -80,7 +80,10 @@ defmodule Letflow.StockDocsFixture do
 
     uom = Cat.uom!(schema, "PCS#{n}")
     item = Cat.item!(schema, "I#{n}", uom.record_id)
-    lot = Cat.lot!(schema, item.record_id, "LOT#{n}")
+    # REQ-714: the issue step checks the lot against the tracking policy, so the lot belongs to a
+    # lot-tracked item; `item` has no policy (= none) and takes no lot.
+    lot_item = Cat.item!(schema, "LI#{n}", uom.record_id, %{"tracking_policy" => "lot"})
+    lot = Cat.lot!(schema, lot_item.record_id, "LOT#{n}")
     supplier = Cat.counterparty!(schema, "SUP#{n}")
 
     %{
@@ -89,6 +92,7 @@ defmodule Letflow.StockDocsFixture do
       employee: employee.record_id,
       uom: uom.record_id,
       item: item.record_id,
+      lot_item: lot_item.record_id,
       lot: lot.record_id,
       supplier: supplier.record_id
     }
@@ -107,7 +111,7 @@ defmodule Letflow.StockDocsFixture do
         "note" => "delivery",
         "lines" => [
           %{
-            "catalog_item_id" => m.item,
+            "catalog_item_id" => m.lot_item,
             "catalog_uom_id" => m.uom,
             "catalog_lot_id" => m.lot,
             "quantity" => "10.5"

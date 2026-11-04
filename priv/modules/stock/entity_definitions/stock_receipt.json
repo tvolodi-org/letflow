@@ -9,7 +9,9 @@
     {"name": "location_id", "type": "string", "required": true},
     {"name": "responsible_id", "type": "string", "required": true},
     {"name": "counterparty_id", "type": "string"},
-    {"name": "note", "type": "string"}
+    {"name": "note", "type": "string"},
+    {"name": "supplier_document_ref", "type": "string"},
+    {"name": "received_on", "type": "date"}
   ],
   "indexes": [
     {"name": "idx_stock_receipt_document_id", "fields": ["document_id"]}

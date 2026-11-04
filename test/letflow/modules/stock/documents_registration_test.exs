@@ -18,8 +18,8 @@ defmodule Letflow.Modules.Stock.DocumentsRegistrationTest do
   alias Letflow.Modules.Stock
   alias Letflow.StockFixture, as: S
 
-  @header ~w(counterparty_id document_id event_time location_id note org_unit_id responsible_id)
-  @line ~w(catalog_item_id catalog_lot_id catalog_uom_id header_id line_no org_unit_id quantity)
+  @header ~w(counterparty_id document_id event_time location_id note org_unit_id received_on responsible_id supplier_document_ref)
+  @line ~w(catalog_item_id catalog_lot_id catalog_uom_id header_id line_no line_value org_unit_id quantity unit_price)
 
   setup do
     ctx = S.setup_oidc!([:a])
@@ -33,7 +33,7 @@ defmodule Letflow.Modules.Stock.DocumentsRegistrationTest do
 
   test "A-REG-1: the manifest literals and the catalog check" do
     m = Stock.manifest()
-    assert m.version == "0.3.0"
+    assert m.version == "0.4.0"
     assert m.pack == "modules/stock/pack.json"
     assert m.depends_on == ["catalog_items", "locations", "org"]
     assert Enum.take(m.manages_entity_types, 2) == ["stock_receipt", "stock_receipt_line"]
