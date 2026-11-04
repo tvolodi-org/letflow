@@ -110,9 +110,14 @@ defmodule Letflow.LedgerFkMoveMigrationTest do
     end
   end
 
-  test "MG-3 registered second to last in the tenant manifest" do
-    assert {@version, MoveLedgerFksToPartitions} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
+  test "MG-3 registered in the tenant manifest, after the partitioned-table migration" do
+    # Was "registered last"; a later migration (REQ-577) is appended after it, so the pin is the
+    # entry and its position behind the migration that creates the partitions.
+    manifest = TenantProvisioning.tenant_scoped_migrations()
+    assert {@version, MoveLedgerFksToPartitions} in manifest
+
+    assert Enum.find_index(manifest, &(&1 == {@version, MoveLedgerFksToPartitions})) ==
+             Enum.find_index(manifest, fn {v, _m} -> v == 20_261_104_200_001 end) + 1
   end
 
   # -- ST-9: the keys still hold across ledger ids ---------------------------------------------------

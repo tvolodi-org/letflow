@@ -153,7 +153,10 @@ POST /modules/stock/counts StockCountOrder
 POST /modules/stock/counts/:id/cancel StockCountOrder
 POST /modules/stock/counts/:id/issue StockCountOrder
 POST /modules/stock/documents StockPost
+POST /modules/stock/documents/:id/cancel StockReverse
 POST /modules/stock/documents/:id/issue StockPost
+POST /modules/stock/documents/:id/post StockPost
+POST /modules/stock/documents/:id/reverse StockReverse
 POST /onboarding TenantsManage
 POST /onboarding/:id/bind-realm TenantsManage
 POST /platform-migrations/rollouts TenantsManage

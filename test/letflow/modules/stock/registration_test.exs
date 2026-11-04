@@ -54,10 +54,11 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "stock_receipt_line",
              "count_order",
              "count_order_scope",
-             "count_commission_member"
+             "count_commission_member",
+             "stock_posting_mark"
            ]
 
-    assert Map.get(m, :write_handlers, []) == []
+    assert Enum.map(m.write_handlers, & &1.name) == ["post_document", "reverse_document"]
 
     assert m.permissions == [
              :StockPost,
@@ -74,7 +75,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "stock_receipt_line" => {:column, "org_unit_id"},
              "count_order" => {:column, "org_unit_id"},
              "count_order_scope" => {:column, "org_unit_id"},
-             "count_commission_member" => {:column, "org_unit_id"}
+             "count_commission_member" => {:column, "org_unit_id"},
+             "stock_posting_mark" => {:column, "org_unit_id"}
            }
 
     assert m.route_policies == [
@@ -87,6 +89,9 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"POST", "/documents/:id/issue", :StockPost},
              {"GET", "/documents", :StockRead},
              {"GET", "/documents/:id", :StockRead},
+             {"POST", "/documents/:id/post", :StockPost},
+             {"POST", "/documents/:id/reverse", :StockReverse},
+             {"POST", "/documents/:id/cancel", :StockReverse},
              {"POST", "/counts", :StockCountOrder},
              {"PUT", "/counts/:id", :StockCountOrder},
              {"POST", "/counts/:id/issue", :StockCountOrder},
@@ -162,7 +167,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 10
+    assert length(files) == 12
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []

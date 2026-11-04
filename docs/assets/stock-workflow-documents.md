@@ -247,7 +247,7 @@ org unit (section 11).
 ### 9.1 Life cycle
 
 States as read from the versioned document and the posting marks: **draft, issued, posted, reversed** (and
-**cancelled**, REQ-713). In REQ-712 only draft and issued exist; issue gives the number and fixes the content
+**cancelled**, REQ-713). REQ-712 built draft and issued, REQ-713 posted, reversed and cancelled; issue gives the number and fixes the content
 (decision 0078 D5: issue first, post second). The state is not a header field (section 1.4).
 
 * A draft may be edited, discarded and posts nothing.
@@ -273,6 +273,14 @@ node (0073 D-L12). The posting goes to the stock ledger id only, one posting per
 handler writes through `create/3` its bookkeeping target (0073 Consequences, cost note): the document
 header's posting record, a managed type `stock_posting_mark` of the stock module (proposal). No approval
 step is named (open question, section 11).
+
+REQ-713 builds the receipt's part of this (module version 0.3.0). The state of a document is read from the
+versioned document and from the posting marks: `posted` and `reversed` exist once a `stock_posting_mark` of
+that kind exists, and `cancelled` wins over both. A receipt entry carries the offline triple `device_id`
+`stock-receipt`, `client_seq` (year times 10,000,000 plus the issued number) and `client_event_time` (the
+header's `event_time`), so the entry's event time is the header's, not the posting time; a reversal is posted
+online, so its event time is its posting time. A unique rule on (`document_id`, `mark`) allows one posted and
+one reversed mark per document, which refuses a second completion of a posting.
 
 ### 9.3 Access
 

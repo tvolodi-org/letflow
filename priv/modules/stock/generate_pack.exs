@@ -18,6 +18,7 @@ entity_types = ~w(
   count_order
   count_order_scope
   count_commission_member
+  stock_posting_mark
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole
@@ -185,6 +186,59 @@ packed =
     }
   end)
 
+# One HUMAN_TASK with one module_writes line. The role label is only a label (graph check CHK-09 wants
+# one): the ledger authority step decides who may complete the task (StockPost / StockReverse).
+posting_args = fn names ->
+  Map.new(names, fn name -> {name, %{"var" => name}} end)
+end
+
+process_definition = fn id, key, node, handler, names ->
+  %{
+    "definition_id" => id,
+    "process_key" => key,
+    "version" => "1.0.0",
+    "graph" => %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => node,
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{
+            "role" => "TENANT_ADMIN",
+            "module_writes" => [
+              %{"module" => "stock", "handler" => handler, "args" => posting_args.(names)}
+            ]
+          }
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => node},
+        %{"id" => "e2", "source" => node, "target" => "end"}
+      ]
+    }
+  }
+end
+
+base_args = ~w(document_id document_type version_no org_unit_id mark posting)
+
+process_definitions = [
+  process_definition.(
+    "00501000-0000-0040-0080-000000003748",
+    "stock_receipt",
+    "post",
+    "post_document",
+    base_args
+  ),
+  process_definition.(
+    "00501000-0000-0040-0080-000000003749",
+    "stock_reversal",
+    "reverse",
+    "reverse_document",
+    base_args ++ ["reason_code"]
+  )
+]
+
 document = %{
   "pack_id" => "letflow-stock",
   "version" => "0.2.0",
@@ -194,8 +248,9 @@ document = %{
   # parses. Fixed, not DateTime.utc_now/0, so regeneration from unchanged
   # sources is byte-identical and a spurious diff never appears.
   "exported_at" => "2026-10-19T00:00:00Z",
-  # Process definitions are the next P2 deliverable, not this pack's.
-  "definitions" => [],
+  # REQ-713: the two posting process definitions (start -> one HUMAN_TASK -> end). Install leaves
+  # them as module-stamped drafts; the issue and reverse routes activate them lazily.
+  "definitions" => process_definitions,
   "variable_schemas" => [],
   # MUST stay []. decision 0027 makes a non-empty array permanently rejected by
   # check_unsupported_sections/1 with {:error, :unsupported_pack_section}.

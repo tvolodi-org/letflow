@@ -20,22 +20,26 @@ defmodule Letflow.Entities.RecordAccess do
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.TypeAccess
+  alias Letflow.Entities.WriteAccess
 
   @typedoc """
   `:hidden`: denied by TypeAccess, OR no active definition, OR any failed read (one value, no
   payload). `:managed`: visible but module-managed. `{:open, restricted}`: writable, with the
   caller's restricted field set (empty when the caller holds every grant or none is restricted).
+  `:write_denied` (REQ-577): visible and unmanaged, but the type carries a write restriction and
+  the caller holds no write grant.
   """
-  @type write_decision :: :hidden | :managed | {:open, MapSet.t(String.t())}
+  @type write_decision :: :hidden | :managed | :write_denied | {:open, MapSet.t(String.t())}
 
   @typedoc "The part of `t:write_decision/0` a handler body receives (`:managed` is answered earlier)."
   @type access :: :hidden | {:open, MapSet.t(String.t())}
 
   @doc """
-  Makes ALL four reads, in this order and with no short-circuit and no branching on an earlier
+  Makes ALL five reads, in this order and with no short-circuit and no branching on an earlier
   result: `ManagedTypes.owner_of/2`, `TypeAccess.authorized?/3`,
-  `Definitions.get_active_definition_by_name/2`, `FieldGrants.load_restrictions/3`; then decides
-  with the precedence hidden > managed > open. Total: a failed read is `:hidden` (fail closed).
+  `Definitions.get_active_definition_by_name/2`, `FieldGrants.load_restrictions/3`,
+  `WriteAccess.authorized?/3` (REQ-577); then decides with the precedence
+  hidden > managed > write_denied > open. Total: a failed read is `:hidden` (fail closed).
   Writes nothing, logs nothing, audits nothing (INV-8).
   """
   @spec write(user_id :: String.t(), entity_type :: String.t(), prefix :: String.t()) ::
@@ -46,8 +50,9 @@ defmodule Letflow.Entities.RecordAccess do
     access = TypeAccess.authorized?(user_id, entity_type, prefix)
     definition = Definitions.get_active_definition_by_name(entity_type, prefix)
     restrictions = FieldGrants.load_restrictions(user_id, entity_type, prefix)
+    write = WriteAccess.authorized?(user_id, entity_type, prefix)
 
-    decide(owner, access, definition, restrictions)
+    decide(owner, access, definition, restrictions, write)
   end
 
   @doc """
@@ -67,15 +72,16 @@ defmodule Letflow.Entities.RecordAccess do
   end
 
   # Denied, absent and any failed read are the one `:hidden`.
-  defp decide(owner, {:ok, :allowed}, {:ok, _definition}, {:ok, restricted}) do
-    case owner do
-      {:ok, _module_id} -> :managed
-      :unmanaged -> {:open, restricted}
+  defp decide(owner, {:ok, :allowed}, {:ok, _definition}, {:ok, restricted}, {:ok, write}) do
+    case {owner, write} do
+      {{:ok, _module_id}, _write} -> :managed
+      {:unmanaged, :denied} -> :write_denied
+      {:unmanaged, :allowed} -> {:open, restricted}
       _failed_read -> :hidden
     end
   end
 
-  defp decide(_owner, _access, _definition, _restrictions), do: :hidden
+  defp decide(_owner, _access, _definition, _restrictions, _write), do: :hidden
 
   @typedoc """
   `:hidden`: the type is denied to the caller, or the read failed (one value, no payload).
@@ -103,14 +109,16 @@ defmodule Letflow.Entities.RecordAccess do
 
   @typedoc """
   `:hidden`: denied by TypeAccess, or any failed read. `:managed`: visible but module-managed.
+  `:write_denied`: visible and unmanaged, but write-restricted for the caller (REQ-577).
   `:open`: the attachment write proceeds.
   """
-  @type attachment_write_decision :: :hidden | :managed | :open
+  @type attachment_write_decision :: :hidden | :managed | :write_denied | :open
 
   @doc """
   The gate of the record ATTACHMENT WRITE routes (upload, delete; GH #2582, decision 0050 D7):
-  `attachment/3` plus the managed stamp. Both reads are always made, then decided with the
-  precedence hidden > managed > open, so a managed refusal never reveals a type the caller may not
+  `attachment/3` plus the managed stamp and the write restriction. All three reads are always made, then decided with the
+  precedence hidden > managed > write_denied > open (the third read is
+  `WriteAccess.authorized?/3`, REQ-577), so a managed refusal never reveals a type the caller may not
   see. No definition-existence read (see `attachment/3`). Writes nothing, logs nothing, audits
   nothing (INV-8).
   """
@@ -120,10 +128,12 @@ defmodule Letflow.Entities.RecordAccess do
       when is_binary(user_id) and is_binary(entity_type) and is_binary(prefix) do
     owner = ManagedTypes.owner_of(entity_type, prefix)
     access = TypeAccess.authorized?(user_id, entity_type, prefix)
+    write = WriteAccess.authorized?(user_id, entity_type, prefix)
 
-    case {access, owner} do
-      {{:ok, :allowed}, {:ok, _module_id}} -> :managed
-      {{:ok, :allowed}, :unmanaged} -> :open
+    case {access, owner, write} do
+      {{:ok, :allowed}, {:ok, _module_id}, _write} -> :managed
+      {{:ok, :allowed}, :unmanaged, {:ok, :denied}} -> :write_denied
+      {{:ok, :allowed}, :unmanaged, {:ok, :allowed}} -> :open
       _denied_or_failed -> :hidden
     end
   end
