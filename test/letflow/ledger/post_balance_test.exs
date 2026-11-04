@@ -46,14 +46,15 @@ defmodule Letflow.Ledger.PostBalanceTest do
     assert statements == []
   end
 
-  test "T-AC1b the capability struct enforces its eight keys" do
+  test "T-AC1b the capability struct enforces its twelve keys" do
     assert_raise ArgumentError, fn -> struct!(Capability, %{prefix: "x"}) end
 
     keys = Capability.__struct__() |> Map.keys() |> List.delete(:__struct__) |> Enum.sort()
 
     assert keys ==
              Enum.sort(
-               ~w(prefix registration_name registration command posting subject_id actor_id origin_key)a
+               ~w(prefix registration_name registration command posting subject_id actor_id origin_key
+                  origin instance_id credential deferred_refusal)a
              )
   end
 
@@ -125,7 +126,7 @@ defmodule Letflow.Ledger.PostBalanceTest do
     post = fn cause, legs, opts -> Fx.post_tx(Fx.capability(schema, cause, legs, opts)) end
     ok = Fx.leg(["a"], 1)
 
-    invalid(post.("reversal", [ok], []), :reversal_not_available)
+    invalid(post.("reversal", [ok], []), :posting_shape)
     invalid(post.("nope", [ok], []), :unknown_cause)
     invalid(post.("receipt", [], []), :no_legs)
     invalid(post.("receipt", List.duplicate(ok, 201), []), :too_many_legs)

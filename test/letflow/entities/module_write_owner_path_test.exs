@@ -780,13 +780,22 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
       public = HandlerWrites.__info__(:functions) |> Enum.sort()
 
       # R4b adds the run-time authorization and the target resolution the engine's plan needs;
-      # handler files may call none of them (scan H4: only `HandlerWrites.create/3`)
+      # handler files may call none of them (scan H4: only `HandlerWrites.create/3`).
+      # REQ-685 adds `post/3` (the handler-facing ledger write) and the `__*__` hooks that
+      # `Letflow.Ledger.HandlerPost` calls (token, ordinal, registration, declare, record).
       assert public == [
+               __declare__: 2,
+               __next_ordinal__: 1,
+               __posts_ledger__: 2,
+               __record__: 2,
+               __registration__: 2,
+               __token__: 1,
                authorize_module_writes: 2,
                build_call: 4,
                create: 3,
                lock_types: 3,
                lock_types: 4,
+               post: 3,
                prepare_targets: 2,
                registered_targets: 1
              ]
@@ -797,7 +806,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
 
       assert keys ==
                Enum.sort(~w(prefix instance_id origin node_id definition_id definition_version
-                            line_index actor_id subject_id activator_id handler)a)
+                            line_index actor_id subject_id activator_id handler credential)a)
 
       refute Enum.any?(keys, &(&1 in [:authority, :owner, :repo, :manifest_hash]))
     end

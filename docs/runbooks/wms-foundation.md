@@ -32,7 +32,7 @@ was written.
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1292`; prefix `@step_key_prefix`, line 368). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:760` and `lib/letflow/entities/handler_writes.ex:248`.
+   `lib/letflow/entities/step_writes.ex:767` and `lib/letflow/entities/handler_writes.ex:300`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1235`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -139,6 +139,10 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `?dry_run=true` runs the file and rolls it back (decision 0077 D5 to D7). `catalog_lot` is imported
    through `Letflow.Modules.CatalogItems.LotImport` (GH #3599, REQ-654), which calls only `create_lot/3` and
    `update_lot/4` (item 20, GH #3614); its `item_id` cell is the external id of a `catalog_item`.
+   Each `:created` or `:updated` row also writes one audit entry in the same transaction (GH #3739,
+   REQ-706): `catalog_uom.created`, `catalog_uom.updated`, `catalog_item.created`, `catalog_item.updated`,
+   `catalog_counterparty.created` and `catalog_counterparty.updated`, with the stored field values before
+   and after; an `:unchanged` row, a refused row and a replay write none.
 3. **No reference check on `base_uom_id`.** A `catalog_item` can name a `base_uom_id` that is
    not a `catalog_uom` record, is inactive or is deleted: it is a declarative string with no
    foreign key (decision 0050 D3.6; the import path is the exception: `reference_not_found` and
@@ -155,7 +159,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1292`; prefix `@step_key_prefix`, line 368). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:760` and `lib/letflow/entities/handler_writes.ex:248`.
+   `lib/letflow/entities/step_writes.ex:767` and `lib/letflow/entities/handler_writes.ex:300`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1235`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -251,6 +255,21 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
     (field names only), a reused key with other input is 409. The routes come from the code
     manifest, so a tenant that installed the module earlier has them without an upgrade; its
     definitions are still not upgraded (items 13 and 18).
+22. **Tracking policy and `validate_capture/3` (GH #3581 / REQ-641, `catalog_items` 0.3.0).**
+    `catalog_item` has an optional `tracking_policy` enum (`none`, `lot`, `serial`, `expiry`; absent is
+    `none`) in `priv/modules/catalog_items/entity_definitions/catalog_item.json`. `validate_capture/3`
+    in `lib/letflow/modules/catalog_items/catalog_items.ex` checks a capture map against it: `none`
+    needs nothing, `lot` the lot, `serial` the serial, `expiry` the lot and the expiry date (the
+    receipt date is the posting time); a supplied value the policy does not require is refused. It is
+    called by no receipt or issue yet, so the MD-04 evidence stays open until the receipt and ledger
+    slices. Serial ownership and the refusal of a duplicate active serial stay in the stock ledger
+    (REQ-503 design `lib/letflow/design/gh2658-wms-stock-dimensions.md`, section 5). MD-01
+    synchronisation is not built (decision 0057 D1). The field is set only through the owner path,
+    because the generic import refuses a managed type (`entity_type_managed`). A tenant installed
+    before 0.3.0 keeps the old definition (no upgrade path, items 13 and 18): `lookup/2` works and
+    `validate_capture/3` reads the missing field as `none`; QA tenants are fresh-only. One policy per
+    item; a combined policy such as serial with expiry is an open owner question (assumption, owner
+    may change at GATE B).
 
 ## Locations module limits
 
@@ -266,6 +285,11 @@ limit names the GH issue or the code that holds it; paths are cited without line
    `move_node/4`, `update_node/4` and `retire_node/3` (`lib/letflow/modules/locations/tree.ex`, GH #3588)
    are the write functions; they write with `ManagedTypes.owner_for!(Letflow.Modules.Locations)`, each
    after the tenant tree lock. There is no un-retire and no delete function.
+   Each accepted write also appends one audit entry in the same transaction (GH #3741, REQ-705,
+   `Letflow.Audit.insert_entry/3`): `location_node.created`, `location_node.updated`,
+   `location_node.moved` and `location_node.retired`, with the stored field values before and after.
+   A refusal, a no-op and a replay write none; a failed entry rolls the write back
+   (`{:error, :audit_failed}`). Imported rows write through the same functions and are audited too.
 3. **Tree rules are enforced by the module functions.** `create_node/3` refuses a parent that is not
    found or inactive; `move_node/4` is one parent change of one record and refuses a cycle by walking
    the parent chain; `retire_node/3` refuses while a descendant is active. A subtree is read with
