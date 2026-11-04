@@ -223,7 +223,8 @@ process_definition = fn id, key, node, handler, names ->
 end
 
 # REQ-726: the opening balance process. A `submit` task (no module_writes, completed by the issuing
-# user at issue) and an `approve` task kept apart by distinct_from; completing `approve` posts.
+# user at issue; its role is a label that differs from approve's, so REQ-464 sees no single-member pair) and an
+# `approve` task kept apart by distinct_from; completing `approve` posts.
 two_step_definition = fn id, key, handler, names ->
   %{
     "definition_id" => id,
@@ -235,7 +236,7 @@ two_step_definition = fn id, key, handler, names ->
         %{
           "id" => "submit",
           "node_type" => "HUMAN_TASK",
-          "attributes" => %{"role" => "TENANT_ADMIN"}
+          "attributes" => %{"role" => "STOCK_OPENING_SUBMIT"}
         },
         %{
           "id" => "approve",

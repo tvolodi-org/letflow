@@ -155,7 +155,7 @@
           },
           {
             "attributes": {
-              "role": "TENANT_ADMIN"
+              "role": "STOCK_OPENING_SUBMIT"
             },
             "id": "submit",
             "node_type": "HUMAN_TASK"
