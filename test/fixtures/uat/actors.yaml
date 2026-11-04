@@ -143,7 +143,7 @@ actors:
     tenant: bilimbaga
     builtin_roles: [TENANT_ADMIN]
     routing_roles: []
-    note: "Seeded user bilimbaga-admin-user in realm bilimbaga (ai-dala-infra secrets-inventory; qa-login.sh bilimbaga-admin-user). TENANT_ADMIN only: ai-dala-infra T-0173 (done) removed PLATFORM_ADMIN from this user. The inventory line that still says PLATFORM_ADMIN is stale (T-0178). No credential in this file; minting a token needs a qa-login mapping for this name, which is UAT-class and not yet approved."
+    note: "Seeded user bilimbaga-admin-user in realm bilimbaga (ai-dala-infra secrets-inventory; qa-login.sh bilimbaga-admin-user). TENANT_ADMIN only: ai-dala-infra T-0173 (done) removed PLATFORM_ADMIN from this user. The inventory line that still says PLATFORM_ADMIN is stale (T-0178). No credential in this file. The alias actor-bilimbaga-admin resolves to account bilimbaga-admin-user and is available through the UAT credential source."
 
   actor-vortex-dirk:
     tenant: vortex
