@@ -11,6 +11,8 @@ defmodule Letflow.Modules.InstallsLedgerStorageTest do
   use Letflow.DataCase, async: false
 
   import ExUnit.CaptureLog
+  import Plug.Conn
+  import Plug.Test
 
   alias Letflow.Ledger
   alias Letflow.Ledger.Storage
@@ -42,7 +44,7 @@ defmodule Letflow.Modules.InstallsLedgerStorageTest do
 
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "r711", teardown: false)
     on_exit(fn -> Letflow.EntityWritesFixture.drop_committed_tenant!(tenant.tenant_id) end)
-    %{schema: tenant.schema_name}
+    %{schema: tenant.schema_name, tenant_id: tenant.tenant_id}
   end
 
   # -- helpers ---------------------------------------------------------------------------------------
@@ -237,6 +239,35 @@ defmodule Letflow.Modules.InstallsLedgerStorageTest do
     assert {:error, {:ledger_contract, :ledger_storage_inconsistent}} =
              Installs.reactivate(@module, Ecto.UUID.generate(), opts(schema))
 
+    assert module_rows(schema) == [["uninstalled"]]
+  end
+
+  test "IL-11 the reactivate route answers the typed ddl-failed problem for a damaged partition set",
+       %{
+         schema: schema,
+         tenant_id: tenant_id
+       } do
+    assert {:ok, _} = install(schema)
+    assert {:ok, _} = Installs.uninstall(@module, Ecto.UUID.generate(), opts(schema))
+
+    leg = Storage.partition_names(hd(@ids))["ledger_leg"]
+    Fx.exec!(~s|ALTER TABLE "#{schema}".ledger_leg DETACH PARTITION "#{schema}"."#{leg}"|)
+
+    conn =
+      conn(:post, "/#{@module}/reactivate")
+      |> Map.put(:body_params, %{"rationale" => @why})
+      |> put_req_header("content-type", "application/json")
+      |> assign(:auth_context, %{
+        user_id: Ecto.UUID.generate(),
+        tenant_id: tenant_id,
+        roles: ["TENANT_ADMIN"]
+      })
+      |> assign(:trace_id, "il11-trace")
+      |> Letflow.Routers.TenantModules.call(Letflow.Routers.TenantModules.init([]))
+
+    assert conn.status == 422
+    assert conn.resp_body =~ "module-install-ddl-failed"
+    refute conn.resp_body =~ "ledger_storage_inconsistent"
     assert module_rows(schema) == [["uninstalled"]]
   end
 
