@@ -148,11 +148,12 @@ defmodule Letflow.Entities.RecordsTest do
   # AC1 -- ENTITY_RECORD_CREATED/UPDATED/DELETED each registered exactly once.
   # ---------------------------------------------------------------------------------
 
-  describe "AC1 -- EventTypes.seed!/1 registers the three event types exactly once" do
-    test "each of the three event types is registered exactly once, verified against event_type_registry" do
+  describe "AC1 -- EventTypes.seed!/1 registers the four event types exactly once" do
+    test "each of the four event types is registered exactly once, verified against event_type_registry" do
       %{schema_name: schema} = provisioned_tenant()
 
-      for name <- ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_UPDATED ENTITY_RECORD_DELETED) do
+      for name <-
+            ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_UPDATED ENTITY_RECORD_DELETED ENTITY_RECORD_MIGRATED) do
         rows = Repo.all(from(e in EventType, where: e.name == ^name), prefix: schema)
         assert length(rows) == 1
         # GH #2659: CREATED is bumped IN PLACE to v2 (optional external_ref); no v1 row beside it.
@@ -167,17 +168,19 @@ defmodule Letflow.Entities.RecordsTest do
       assert {:ok, %{registered: [], skipped: skipped}} = EventTypes.seed!(schema)
 
       assert Enum.sort(skipped) ==
-               Enum.sort(~w(ENTITY_RECORD_CREATED ENTITY_RECORD_UPDATED ENTITY_RECORD_DELETED))
+               Enum.sort(
+                 ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_UPDATED ENTITY_RECORD_DELETED ENTITY_RECORD_MIGRATED)
+               )
 
       entity_event_type_count =
         EventType
         |> where(
           [e],
-          e.name in ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_UPDATED ENTITY_RECORD_DELETED)
+          e.name in ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_UPDATED ENTITY_RECORD_DELETED ENTITY_RECORD_MIGRATED)
         )
         |> Repo.aggregate(:count, prefix: schema)
 
-      assert entity_event_type_count == 3
+      assert entity_event_type_count == 4
     end
   end
 

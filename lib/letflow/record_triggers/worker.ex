@@ -16,8 +16,10 @@ defmodule Letflow.RecordTriggers.Worker do
   `attempt + 1`, `claimed_at` and the lease. No record row and no sequence row is touched.
 
   **Run.** `run_row/2` (REQ-628): `Runner.run/2` builds the input and runs the pinned script,
-  `Apply.apply_result/3` writes its lines and sets the row `done` in one transaction, `Apply.finish/3`
-  sets a closed failure code (`dead`, or `pending` with a backoff). A test-only hook
+  `Apply.apply_result/3` writes its lines and sets the row `done` in one transaction, `Apply.finish/4`
+  sets a closed failure code (`dead`, or `pending` with a backoff). Every `dead` row gets a
+  `record_trigger` DLQ entry in the same transaction, then one audit record and the edge-triggered
+  `record_trigger_dead` alert (REQ-638, see `Apply`). A test-only hook
   (`:record_trigger_run_fun`, honoured only while the scripts test hooks are on) can swap it.
 
   **Sweep, cap, backoff (part B).** Each tick first sweeps expired leases per tenant
@@ -411,7 +413,14 @@ defmodule Letflow.RecordTriggers.Worker do
         where: r.status == :running and r.lease_expires_at < ^now,
         order_by: [asc: r.lease_expires_at, asc: r.id],
         limit: ^limit,
-        select: %{id: r.id, attempt: r.attempt}
+        select: %{
+          id: r.id,
+          attempt: r.attempt,
+          script_key: r.script_key,
+          script_version: r.script_version,
+          script_sha256: r.script_sha256,
+          actor_id: r.actor_id
+        }
       )
       |> Repo.all(prefix: prefix)
 
@@ -436,24 +445,28 @@ defmodule Letflow.RecordTriggers.Worker do
     result
   end
 
-  defp sweep_row(%{id: id, attempt: attempt}, prefix, now) do
-    {outcome, set} =
-      if attempt >= config(:max_attempts) do
-        {:dead, [status: :dead, last_code: "retries_exhausted"]}
-      else
-        {:pending,
-         [
-           status: :pending,
-           last_code: "lease_expired",
-           next_attempt_at: DateTime.add(now, backoff_ms(attempt), :millisecond)
-         ]}
+  defp sweep_row(%{id: id, attempt: attempt} = row, prefix, now) do
+    if attempt >= config(:max_attempts) do
+      # the same dead transaction as `Apply.finish/4` (CAS + DLQ entry, then audit and alert)
+      case Apply.finish_dead(row, prefix, "retries_exhausted") do
+        :dlq_failed -> :error
+        outcome -> outcome
       end
+    else
+      set = [
+        status: :pending,
+        last_code: "lease_expired",
+        next_attempt_at: DateTime.add(now, backoff_ms(attempt), :millisecond)
+      ]
 
-    {count, _} =
-      from(r in OutboxRow, where: r.id == ^id and r.attempt == ^attempt and r.status == :running)
-      |> Repo.update_all([set: set], prefix: prefix)
+      {count, _} =
+        from(r in OutboxRow,
+          where: r.id == ^id and r.attempt == ^attempt and r.status == :running
+        )
+        |> Repo.update_all([set: set], prefix: prefix)
 
-    if count == 1, do: outcome, else: :stale
+      if count == 1, do: :pending, else: :stale
+    end
   rescue
     _ ->
       log_caught(prefix, "raised")
@@ -474,16 +487,21 @@ defmodule Letflow.RecordTriggers.Worker do
   """
   @spec run_row(OutboxRow.t(), String.t()) :: :done | :retry | :dead | :stale
   def run_row(%OutboxRow{} = row, prefix) when is_binary(prefix) do
+    {run_result, facts} = Runner.run_with_facts(row, prefix)
+
     result =
-      case Runner.run(row, prefix) do
+      case run_result do
         {:ok, lines} -> Apply.apply_result(row, lines, prefix)
         failure -> failure
       end
 
     outcome =
       case result do
-        {kind, _code} = failure when kind in [:dead, :retry] -> Apply.finish(row, prefix, failure)
-        outcome -> outcome
+        {kind, _code} = failure when kind in [:dead, :retry] ->
+          Apply.finish(row, prefix, failure, facts)
+
+        outcome ->
+          outcome
       end
 
     # the one stale counter: this claim lost to a sweep or a newer claim and wrote nothing

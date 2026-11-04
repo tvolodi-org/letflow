@@ -14,7 +14,7 @@ defmodule Letflow.Obs.Alerts do
   |---|---|---|
   | Audience | Platform operator diagnostics | Tenant-facing event delivery |
   | Configuration | Application config — no API, no route | Tenant API (`POST /webhooks/subscriptions`) |
-  | Triggers | Fixed set of five: `instance_error_stuck`, `dlq_depth_threshold`, `scheduler_lag_threshold`, `webhook_subscription_paused`, `script_hmac_secret_missing` (GH 2534 7c, fired by the script dispatcher, not by `run_detection/2`) | Any domain event type |
+  | Triggers | Fixed set of six: `instance_error_stuck`, `dlq_depth_threshold`, `scheduler_lag_threshold`, `webhook_subscription_paused`, `script_hmac_secret_missing` (GH 2534 7c, fired by the script dispatcher, not by `run_detection/2`), `record_trigger_dead` (REQ-638, fired by the record-trigger result module, not by `run_detection/2`) | Any domain event type |
   | Signing | None (optional `auth_secret_ref` via REQ-190) | HMAC-SHA256 `X-Letflow-Signature` mandatory |
   | Auto-pause | No | Yes — `consecutive_failures >= 5` → PAUSED |
   | Delivery failure terminal action | Log via REQ-193 and drop | Land in `dlq_entries` |
@@ -749,6 +749,88 @@ defmodule Letflow.Obs.Alerts do
           updated_at: DateTime.utc_now()
         },
         @script_hmac_trigger,
+        tenant_schema
+      )
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  # ---------------------------------------------------------------------------
+  # REQ-638 (GH #3561, decision 0067 D7): the sixth trigger, record_trigger_dead. Called ONLY by
+  # the record-trigger Apply module, after a row went dead and its DLQ entry committed. Same
+  # edge-triggered machinery as the HMAC pair above: ARMED -> one error line (+ hooks when
+  # alert_hooks is enabled) -> FIRED; FIRED -> nothing; clear_ re-arms (the requeue route, Part B).
+  # The payload and the log carry only the trigger name and the tenant schema. Never raises.
+  # ---------------------------------------------------------------------------
+
+  @record_trigger_dead_trigger "record_trigger_dead"
+
+  @doc """
+  A record-trigger row went dead: fires the edge-triggered operator alert once per tenant (log
+  line, plus the alert hooks when enabled) and disarms it until `clear_record_trigger_dead/1`.
+  Never raises.
+  """
+  @spec notify_record_trigger_dead(tenant_schema :: String.t()) :: :ok
+  def notify_record_trigger_dead(tenant_schema) when is_binary(tenant_schema) do
+    state = load_trigger_state(@record_trigger_dead_trigger, tenant_schema)
+
+    if state.is_armed do
+      now = DateTime.utc_now()
+
+      Logger.error("record trigger dead",
+        component: "record_trigger",
+        tenant_schema: tenant_schema,
+        trigger: @record_trigger_dead_trigger
+      )
+
+      cfg = Application.get_env(:letflow, :alert_hooks, [])
+
+      if Keyword.get(cfg, :enabled, false) do
+        fire_hooks(
+          build_hooks(cfg),
+          @record_trigger_dead_trigger,
+          %{"trigger" => @record_trigger_dead_trigger, "tenant_schema" => tenant_schema},
+          tenant_schema
+        )
+      end
+
+      upsert_trigger_state(
+        %{
+          trigger_key: @record_trigger_dead_trigger,
+          is_armed: false,
+          last_sample_value: 1,
+          last_fired_at: now,
+          last_correlation_id: nil,
+          updated_at: now
+        },
+        tenant_schema
+      )
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc "Re-arms the record_trigger_dead alert (a no-op when already armed). Never raises."
+  @spec clear_record_trigger_dead(tenant_schema :: String.t()) :: :ok
+  def clear_record_trigger_dead(tenant_schema) when is_binary(tenant_schema) do
+    state = load_trigger_state(@record_trigger_dead_trigger, tenant_schema)
+
+    unless state.is_armed do
+      rearm_and_clear_emissions(
+        %{
+          trigger_key: @record_trigger_dead_trigger,
+          is_armed: true,
+          last_sample_value: 0,
+          last_fired_at: state.last_fired_at,
+          last_correlation_id: nil,
+          updated_at: DateTime.utc_now()
+        },
+        @record_trigger_dead_trigger,
         tenant_schema
       )
     end
