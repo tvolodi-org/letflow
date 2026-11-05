@@ -861,7 +861,7 @@ defmodule Letflow.Modules.Stock.Router do
           {type, ext} = form_type(format)
 
           name =
-            CountPaperworkSource.file_name(to_string(issued.number_label) <> "_" <> suffix, ext)
+            CountPaperworkSource.file_name("#{issued.number_label}\u005F#{suffix}", ext)
 
           send_binary(conn, bin, type, name)
         else
