@@ -51549,7 +51549,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-689 -- assets phase C item C7, implementation part 1 of the asset register; the engine files its issue after the gate
+    gh: 3894
     # Source: docs/assets/asset-register.md (REQ-689, GH #3723, on origin/main d8d80ca18; sections 1, 3, 6, 7.2, 8), docs/assets/asset-workflow-documents.md (REQ-690, section 7 row 'Asset card active'), owner decision D-097 (2026-11-05, project/phase-cdef-plan.md 'Owner answers': inventory_number unique per tenant, one currency per tenant with KZT by default, the currency field stays), decisions 0050 D6 (module-id prefix), 0051 M4 (scope declaration immutable), 0076 R1, R6, R7, 0078 D8 (audit of master writes). Code read on origin/main: Letflow.Modules.Stock (lib/letflow/modules/stock/stock.ex, defmanifest, on_install/3), Letflow.Modules.Locations (lib/letflow/modules/locations/locations.ex, moduledoc on managed types and the generic routes), priv/modules/locations/entity_definitions/location_node.json (constraints, queried fields), priv/modules/stock/entity_definitions/stock_receipt_line.json (decimal_precision 24, decimal_scale 9, decimal_strict), Letflow.Modules.EntityActivation.activate_and_promote/3 (lib/letflow/modules/entity_activation.ex), Letflow.Modules.Installs.put_settings/3 and list_installed/1 (lib/letflow/modules/installs.ex), the settings validator Letflow.EventStore.Registry.JsonSchema (lib/letflow/event_store/registry/json_schema.ex: type, enum, minLength, maxLength), the module lists of config/config.exs and config/test.exs. Written by the business analyst (T-1325) 2026-11-05.
     description: >
       Assets phase C item C7 (project/phase-cdef-plan.md), part 1 of the asset register build (REQ-748 to REQ-757).
@@ -51604,7 +51604,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-748 -- assets phase C item C8, part 2 of the asset register; the engine files its issue after the gate
+    gh: 3893
     # Source: docs/assets/asset-register.md sections 4, 5, 7.2 (REQ-689), docs/assets/asset-workflow-documents.md sections 1.1, 1.2, 2 to 6 (REQ-690: causes, sign rules, legs), decision 0073 (D-L3, D-P, D-T, D9 OQ-21, slice table rows L4 and L6) with its section Amended (REQ-676, assets B1), decision 0076 R7. Precedent entry REQ-687 (stock slice L4) and its code on origin/main d8d80ca18: Letflow.Modules.Stock manifest key :ledger (lib/letflow/modules/stock/stock.ex), Letflow.Modules.Stock.LedgerPolicy (lib/letflow/modules/stock/ledger_policy/declare.ex, max 100 lines, refusal {:invalid_posting, %{leg_no: n}}), Letflow.Modules.Stock.Views (lib/letflow/modules/stock/views.ex), Letflow.Modules.Stock.Router routes balances, movements, reconcile (lib/letflow/modules/stock/router.ex, query keys, scope_subtree, coverage). Registration keys read in Letflow.Modules.LedgerRegistration (lib/letflow/modules/ledger_registration.ex: units, key_bounds, scope_slot, max_event_lateness_hours, error_aliases, policy); unit check in Letflow.Ledger.Validate (lib/letflow/ledger/validate.ex, unit_not_allowed); partitions at install by Letflow.Ledger.Storage.ensure/2 called from Letflow.Modules.Installs (REQ-711); test helper Letflow.LedgerFixture.capability/4 and post!/1 (test/support/ledger_fixture.ex). Written by the business analyst (T-1325) 2026-11-05.
     description: >
       Assets phase C item C8, part 2 of the asset register build. It gives module assets the asset register: the
@@ -51657,7 +51657,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-748 -- assets phase C item C9, part 3 of the asset register; the engine files its issue after the gate
+    gh: 3892
     # Source: docs/assets/asset-register.md sections 3, 5 (rule 6), 6, 7.2 (REQ-689), owner decision D-097 (2026-11-05, project/phase-cdef-plan.md 'Owner answers'), decisions 0076 R6 rule 5 (cross-pack ids checked in write logic), 0078 D8 (audit entry per master write, REQ-705). Code read on origin/main d8d80ca18: Letflow.Modules.Locations.Tree create_node/3, update_node/4, retire_node/3 (lib/letflow/modules/locations/tree.ex: Records.create_record/3 and update_record/3 with ManagedTypes.owner_for!/1, Letflow.Audit.insert_entry/3 in the write's transaction, refusal order, idempotency_key), Letflow.Modules.Locations.Router (lib/letflow/modules/locations/router.ex: body idempotency_key, 422 reasons field_not_allowed, field_invalid, record_payload_invalid, 409 idempotency_key_reuse, 500 audit_failed, 404 for not found), Letflow.Modules.Stock.Access.check/2 (lib/letflow/modules/stock/access.ex: interactive tenant-wide principal only, else 404), Letflow.Modules.Org.lookup/2, active?/2 (lib/letflow/modules/org/org.ex). Written by the business analyst (T-1325) 2026-11-05.
     description: >
       Assets phase C item C9, part 3 of the asset register build: the routes that create, change and retire an asset
@@ -51704,7 +51704,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-749 -- assets phase C item C10, first half; the engine files its issue after the gate
+    gh: 3891
     # Source: docs/assets/asset-workflow-documents.md (REQ-690, GH #3721; sections 1.1 to 1.4, 2, 7, 8.1, 8.3), docs/assets/asset-register.md sections 5 and 7.2 (REQ-689), decisions 0073 (D-T, D-P, D6, D9 OQ-21), 0076 R6, R7, 0078 D5 (issue first, post second). Precedent entry REQ-712 (stock documents part 1) and its code on origin/main d8d80ca18: Letflow.Modules.Stock.Documents (lib/letflow/modules/stock/documents.ex: save, replace, discard, issue), Letflow.Modules.Stock.Documents.Checks (lib/letflow/modules/stock/documents/checks.ex), Letflow.Modules.Stock.Router document routes, Letflow.Modules.Stock.Access. Functions read on origin/main: Letflow.Documents.register_type/3, create_draft/3, edit_draft/4, discard_draft/3, issue/2 (lib/letflow/documents.ex); Letflow.Modules.Locations.active?/2 and linked?/3 (lib/letflow/modules/locations/locations.ex); Letflow.Modules.Org.lookup/2, active?/2, active_employee?/2 (lib/letflow/modules/org/org.ex). Written by the business analyst (T-1325) 2026-11-05.
     description: >
       Assets phase C item C10, first half (the plan's C10 is split in two because the stock precedent needed two
@@ -51760,7 +51760,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-751 -- assets phase C item C10, second half; the engine files its issue after the gate
+    gh: 3890
     # Source: docs/assets/asset-workflow-documents.md sections 1.1, 2, 8.1, 8.2 (REQ-690), docs/assets/asset-register.md sections 3 (kind does not change once the card has a posting), 5, 7.1, 7.2 (REQ-689), decisions 0073 (D-L12 posting on a user task node, D9 OQ-21) and 0078 D5 (failure table: retry, reversal first, cancel second). Precedent entry REQ-713 (stock documents part 2) and its code on origin/main d8d80ca18: Letflow.Modules.Stock.Handlers post_document/3, reverse_document/3 (lib/letflow/modules/stock/handlers.ex), the manifest write_handlers entries with posts_ledger (lib/letflow/modules/stock/stock.ex), Letflow.Modules.Stock.Documents.Posting (lib/letflow/modules/stock/documents/posting.ex: start_post, post, reverse, cancel, ensure_active), stock_posting_mark.json; Letflow.Entities.HandlerWrites.post/3 (lib/letflow/entities/handler_writes.ex); Letflow.Ledger.authorize/3 and balances/4 (lib/letflow/ledger.ex, lib/letflow/ledger/read.ex: a key with a zero sum is returned). Written by the business analyst (T-1325) 2026-11-05.
     description: >
       Assets phase C item C10, second half. An issued commission is posted by completing a human task, as stock
@@ -51808,7 +51808,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-752 -- assets phase C item C11; the engine files its issue after the gate
+    gh: 3889
     # Source: docs/assets/asset-workflow-documents.md sections 3, 4, 5, 6, 7, 8 and 10 (REQ-690), docs/assets/asset-register.md sections 5, 7.1, 7.2 (REQ-689), decision 0073 D-T, D-L12. Precedent entries REQ-715 (stock issue and write off) and REQ-721 (stock transfer, hand over and return: two sides, two legs per line, master checks on both sides, the equal sides refusal) and their code on origin/main d8d80ca18: Letflow.Modules.Stock.Documents.Kinds (lib/letflow/modules/stock/documents/kinds.ex, the kind table), Letflow.Modules.Stock.Documents.Checks. Written by the business analyst (T-1325) 2026-11-05.
     description: >
       Assets phase C item C11: three more document kinds on the routes and the posting machinery of REQ-751 and
@@ -51856,7 +51856,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-753 -- assets phase C item C12; the engine files its issue after the gate
+    gh: 3888
     # Source: docs/assets/asset-workflow-documents.md section 9 and section 10 questions 2 and 3 (REQ-690), docs/assets/asset-register.md section 3 (valid_until only for intangible). Code read on origin/main d8d80ca18: Letflow.NotificationTemplates.Registry (lib/letflow/notification_templates/registry.ex: four keys, placeholders, subject, body; test test/letflow/notification_templates/registry_test.exs), Letflow.Modules.Exam.Notifications.send_reminders/2, enabled?/0 and reminded?/2 (lib/letflow/modules/exam/notifications.ex: default-off flag :exam_notifications_enabled in config/config.exs and config/test.exs, dedupe on template_key and trigger_ref, no caller), Letflow.Notifications.start_delivery/5 (lib/letflow/notifications.ex: trigger_ref must be a UUID, never raises), notification_deliveries.trigger_ref uuid NOT NULL (priv/repo/migrations/20261028400001_create_notification_deliveries.exs), Letflow.Scheduler.Poller, ScheduledJobSweep, RecordDeadlineSweep (lib/letflow/scheduler/), Letflow.Modules.Catalog.write_handler/2 (lib/letflow/modules/catalog.ex, manifest data resolved at run time), mix letflow.check_boundaries Rule 5 (lib/mix/tasks/letflow.check_boundaries.ex: a file outside lib/letflow/modules/<id>/ may not reference a module subdir file; catalog.ex is the exception), priv/modules/org/entity_definitions/org_employee.json (user_id). Written by the business analyst (T-1325) 2026-11-05.
     description: >
       Assets phase C item C12: a reminder before an intangible asset (a license or subscription) expires, in the one
@@ -51901,7 +51901,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-750 -- assets phase C item C13; the engine files its issue after the gate
+    gh: 3887
     # Source: entries REQ-748 (assets_card fields, generic record reads, currency), REQ-750 (routes POST cards, PATCH cards/:id, POST cards/:id/retire, AssetsCardWrite, the 422 reasons), REQ-669 (common screen rules), REQ-722 (the stock screen precedent); docs/assets/asset-register.md sections 2, 3, 6. Web code read on origin/main d8d80ca18: web/src/modules/registry.ts (REGISTERED_MODULES), web/src/modules/locations/ (index.ts, locationsRoutes.tsx, locationsMessages.ts, LocationsIntlProvider.tsx, locations.api.ts with entitiesApi), web/src/modules/stock/ (stockMessages.ts, stockPermissions.ts), web/src/api/entities.ts (entitiesApi.queryRecords), web/src/components/ui/MasterDetail.tsx, PageHeader.tsx, StatusPill.tsx, web/src/dev/harness/registry.tsx (...locationsScreens entries); the design-system rules of project skill letflow-design-system (rules 1 to 8). Written by the business analyst (T-1325) 2026-11-05.
     description: >
       Assets phase C item C13: the screens to keep the asset cards. Not a ledger path. The routes are those of
@@ -51937,7 +51937,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-753 -- assets phase C item C14, documents half; the engine files its issue after the gate
+    gh: 3886
     # Source: entries REQ-751 (document routes, fields, issue reasons), REQ-752 (post, reverse, cancel, states, reversal reasons, card locks kind_locked, org_unit_locked, asset_in_register, the task without assignee), REQ-753 (change, handover, writeoff fields and reasons), REQ-755 (the SPA module assets), REQ-722 and REQ-723 (the stock document screens precedent), REQ-669; docs/assets/asset-workflow-documents.md sections 2 to 5. Web code read on origin/main d8d80ca18: web/src/modules/stock/documents/ (DocumentsPage.tsx, DocumentPage.tsx, DocumentForm.tsx, LinesEditor.tsx, SideGroup.tsx, documents.api.ts), web/src/api/entities.ts, web/src/components/ui/MasterDetail.tsx, web/src/router.tsx (path tasks); the rules of project skill letflow-design-system. Written by the business analyst (T-1325) 2026-11-05.
     description: >
       Assets phase C item C14, first half (the plan's C14 is split as the stock screens were: documents here,
@@ -51974,7 +51974,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-749 -- assets phase C item C14, register half; the engine files its issue after the gate
+    gh: 3885
     # Source: entries REQ-749 (routes GET balances, movements of /api/v1/modules/assets, query keys, coverage, masked legs, AssetsRead), REQ-755 (module assets and the card panel), REQ-724 (the stock register screens precedent), REQ-682 (scoped read, coverage visible_only), REQ-669; docs/assets/asset-register.md sections 4 and 7. Web code read on origin/main d8d80ca18: web/src/modules/stock/register/ (BalancesPage.tsx, MovementsPage.tsx, RegisterShell.tsx, stock.api.ts, stockNames.ts, stockPickers.ts, stockQueryKeys.ts), web/src/api/entities.ts; the rules of project skill letflow-design-system. Written by the business analyst (T-1325) 2026-11-05.
     description: >
       Assets phase C item C14, second half: reading the asset register on screen. The screens only call the read
