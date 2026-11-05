@@ -156,14 +156,7 @@ defmodule Letflow.Definitions.ModuleWrites do
   @spec line_violations([term()], map(), non_neg_integer(), String.t()) :: [violation()]
   def line_violations(writes, definition, entity_write_count, prefix)
       when is_list(writes) and is_integer(entity_write_count) and is_binary(prefix) do
-    stamp_state = stamp_state(definition, prefix)
-
-    writes
-    |> Enum.with_index()
-    |> Enum.flat_map(fn {line, index} ->
-      for code <- line_codes(line, stamp_state),
-          do: %{index: entity_write_count + index, code: code}
-    end)
+    resolved_line_violations(writes, definition, entity_write_count, prefix, nil)
   end
 
   # Entity lines alone above the cap are reported by the entity validator already; this adds
@@ -259,25 +252,80 @@ defmodule Letflow.Definitions.ModuleWrites do
 
   defp posting_ledger_ids(_line), do: nil
 
+  @doc """
+  REQ-768: the violations of one node's `module_writes` as `violations/6` would report them with no
+  activator codes, but judged against the GIVEN install hashes instead of the tenant's stored ones
+  (`%{installed: binary, accepted: [binary]}`). Used only by `Letflow.Modules.UpgradePlan` to answer
+  "does this stamp still pass after the upgrade?" from the tenant row and the compiled manifest; the
+  hashes are never request-derived. Activation and run time call `violations/6` and
+  `line_violations/4`, which read the database as before.
+  """
+  @spec node_violations_with_hashes(
+          Graph.Node.t(),
+          term(),
+          map(),
+          non_neg_integer(),
+          String.t(),
+          %{installed: binary(), accepted: [binary()]}
+        ) :: [violation()]
+  def node_violations_with_hashes(
+        %Graph.Node{node_type: node_type} = node,
+        writes,
+        definition,
+        entity_write_count,
+        prefix,
+        %{installed: installed, accepted: accepted} = hashes
+      )
+      when is_binary(installed) and is_list(accepted) do
+    node_codes =
+      cond do
+        not is_list(writes) -> [:module_writes_not_a_list]
+        node_type not in @node_types -> [:module_writes_node_type_not_supported]
+        true -> []
+      end
+
+    if is_list(writes) and node_type in @node_types do
+      Enum.map(node_codes, &%{index: 0, code: &1}) ++
+        cap_violations(writes, entity_write_count) ++
+        resolved_line_violations(writes, definition, entity_write_count, prefix, hashes) ++
+        ledger_violations(node, writes, entity_write_count)
+    else
+      Enum.map(node_codes, &%{index: 0, code: &1})
+    end
+  end
+
+  defp resolved_line_violations(writes, definition, entity_write_count, prefix, hashes) do
+    stamp_state = stamp_state(definition, prefix, hashes)
+
+    writes
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {line, index} ->
+      for code <- line_codes(line, stamp_state),
+          do: %{index: entity_write_count + index, code: code}
+    end)
+  end
+
   # ── stamp-level state, resolved ONCE per node ────────────────────────────────────────────
 
   # {:ok, stamp, stamp_codes} | {:error, :module_write_stamp_missing}
   #
   # `stamp_codes` are the line-independent refusals (not installed, hash mismatch, body
   # changed), computed once; the handler-dependent ones are evaluated per line.
-  defp stamp_state(definition, prefix) do
+  #
+  # `hashes` is nil (read the tenant row) or the injected post-upgrade hashes (REQ-768).
+  defp stamp_state(definition, prefix, hashes) do
     case OwnerStamp.from_row(definition) do
       :none ->
         {:error, :module_write_stamp_missing}
 
       {:ok, stamp} ->
-        {:ok, stamp, stamp_codes(stamp, definition, prefix)}
+        {:ok, stamp, stamp_codes(stamp, definition, prefix, hashes)}
     end
   end
 
-  defp stamp_codes(stamp, definition, prefix) do
+  defp stamp_codes(stamp, definition, prefix, hashes) do
     install_codes =
-      case Installs.install_hashes(stamp.module_id, prefix: prefix) do
+      case install_hashes_for(stamp.module_id, prefix, hashes) do
         {:error, :not_installed} ->
           [:module_write_module_not_installed]
 
@@ -311,6 +359,12 @@ defmodule Letflow.Definitions.ModuleWrites do
 
     install_codes ++ body_codes
   end
+
+  defp install_hashes_for(module_id, prefix, nil),
+    do: Installs.install_hashes(module_id, prefix: prefix)
+
+  defp install_hashes_for(_module_id, _prefix, %{installed: _, accepted: _} = hashes),
+    do: {:ok, hashes}
 
   # Strict equality with the module compiled into THIS build. A module that is not compiled
   # in is reported by the per-line handler lookup instead, so it is not a hash difference.

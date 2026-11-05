@@ -81,10 +81,6 @@ defmodule Letflow.Modules.Assets.Router do
 
   @not_found [:card_not_found, :not_found]
 
-  alias Letflow.Modules.Assets.Cards
-
-  @not_found [:card_not_found, :not_found]
-
   authz_post "/cards", :AssetsCardWrite do
     with_request(conn, fn prefix, attrs, opts, conn ->
       render(conn, Cards.create_card(prefix, attrs, opts), 201)

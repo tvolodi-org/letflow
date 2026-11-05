@@ -36,6 +36,15 @@ or a change to a handler's name, function, targets or arguments, or to the manag
 rule 3 fail for every tenant that installed the older manifest, until the tenant is upgraded to
 the new manifest. The upgrade path (re-stamping) is decision 0055 and does not exist yet.
 
+### Plan before apply (REQ-768)
+
+`POST /api/v1/tenant/modules/:module_id/upgrade/plan` (`ModulesManage`) is the read-only dry run
+(`Letflow.Modules.UpgradePlan`): per managed type the change class A, B or C with a reason code,
+whether each stamped definition would pass the activation check after the upgrade, the upgrade steps,
+`upgrade_path_available` (false for an install below the module's `min_upgradable_from`; the later apply
+must refuse then), `applicable_on_boot` and a `plan_hash`. Its only write is one `planned` row in
+`tenant_module_upgrades`. The apply itself (REQ-770) does not exist yet.
+
 The manifest hash covers the DECLARED surface only, not handler code. Bump the module `version`
 whenever handler behaviour changes.
 
