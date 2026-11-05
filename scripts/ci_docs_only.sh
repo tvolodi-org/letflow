@@ -29,12 +29,18 @@ set -uo pipefail
 # Root cause is plausible, not proven: E1/C4 ran the same 173 files in 1-5 min, so the slow runs
 # (E2, C6) probably also depended on runner load or the shard split; the per-step timeout is a
 # separate task.
+# T-1404: the 79 files left after T-1363 still ran 575 s on main (a 600 s step timeout, PR #3858
+# attempt 2 failed with 124 although its E2 entry changes nothing: three DB suites, records_test,
+# help_test and instances_test, take 80 s each and were selected by a docs path in a moduledoc or
+# a `#` comment). A mention counts only when it sits in a string literal on a code line: a comment
+# line (first non-blank character `#`) and a backtick-quoted path in prose are prose, not a read.
 docs_tests() {
+  local pat='requirements\.yaml|docs/migration/decisions|docs/status/|docs/[a-z_/.-]+\.(md|yaml)'
   {
-    git grep -lE 'requirements\.yaml|docs/migration/decisions|docs/status/|"docs"' -- 'test/*_test.exs'
-    git grep -E 'docs/[a-z_/.-]+\.(md|yaml)' -- 'test/*_test.exs' |
-      grep -v 'docs/guides/test_developer_guide\.md' | cut -d: -f1
-  } | sort -u
+    git grep -nE "$pat|\"docs\"" -- 'test/*_test.exs'
+  } | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' |
+    grep -E "(\"|~[sS][|(/\\[{<])[^\"\`]*(${pat})|\"docs\"" |
+    grep -v 'docs/guides/test_developer_guide\.md' | cut -d: -f1 | sort -u
 }
 
 if [ "${1:-}" = "files" ]; then

@@ -1,0 +1,127 @@
+{
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [],
+  "entity_definitions": [
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "inventory_number"
+            ],
+            "name": "uq_assets_card_inventory_number",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_assets_card_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #3894 / REQ-748, docs/assets/asset-register.md section 3, owner decision D-097, decisions 0050 D6, 0051 M4, 0076 R7. The asset card of module assets (Russian: Карточка актива; Kazakh: Актив карточкасы). One row per asset; the card holds no location, no responsible person, no actual user and no quantity: those live only in the register. inventory_number is unique per tenant (uq_assets_card_inventory_number). org_unit_id is the record_id of an org_unit of module org; it is another pack, so it has no foreign key and the write logic checks it. It is the scope column of the card (scope declaration {:column, org_unit_id}, immutable). kind is fixed, low_value or intangible. currency is optional text; the tenant currency is the module setting currency (KZT by default). The decimals are exact strings (decimal_strict) and information only. valid_until is allowed only for kind intangible (write rule, a later step). active false retires the card; there is no delete. external_ref_system and external_ref_id are the nullable import key, unique as a pair.",
+        "display_name": "Asset card",
+        "fields": [
+          {
+            "name": "inventory_number",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "fixed",
+              "low_value",
+              "intangible"
+            ],
+            "name": "kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "acquisition_date",
+            "type": "date"
+          },
+          {
+            "name": "currency",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "acquisition_cost",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "accumulated_depreciation",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "book_value",
+            "type": "decimal"
+          },
+          {
+            "name": "depreciation_as_of",
+            "type": "date"
+          },
+          {
+            "name": "valid_until",
+            "queried": true,
+            "type": "date"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "name": "assets_card"
+      },
+      "display_name": "Asset card",
+      "entity_definition_id": "1cdfbd2c-8b56-31a6-5aab-9eec562480bd",
+      "logical_shape_version": "f1bf5a491e09c88f66d2a5bd18426e88bae98392a484d8fcff70f2bf59992381",
+      "name": "assets_card"
+    }
+  ],
+  "exported_at": "2026-10-19T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "pack_id": "letflow-assets",
+  "service_catalog_entries": [],
+  "variable_schemas": [],
+  "version": "0.1.0"
+}

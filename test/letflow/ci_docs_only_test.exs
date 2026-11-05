@@ -72,8 +72,12 @@ defmodule Letflow.CiDocsOnlyTest do
       "helper_test.exs" => ~s|{:ok, doc: read("docs/roles.md")}\n|,
       "piped_test.exs" => "\"docs/roles.md\" |> File.read!()\n",
       "guide_and_other_test.exs" =>
-        "# docs/guides/test_developer_guide.md\n# docs/runbooks/x-y.md\n",
-      "yaml_test.exs" => "# reads docs/requirements.yaml\n"
+        "# docs/guides/test_developer_guide.md\nread(\"docs/runbooks/x-y.md\")\n",
+      "yaml_test.exs" => ~s|File.read!("docs/requirements.yaml")\n|,
+      # T-1404: a mention in a comment line or in backtick prose is not a read
+      "comment_only_test.exs" => "# reads docs/requirements.yaml\n    # (docs/roles.md)\n",
+      "prose_only_test.exs" =>
+        "@moduledoc \"\"\"\nSee `docs/requirements.yaml` and \\`docs/roles.md\\`\n\"\"\"\n"
     }
 
     for {name, body} <- files, do: File.write!(Path.join([dir, "test", name]), body)
@@ -98,8 +102,14 @@ defmodule Letflow.CiDocsOnlyTest do
     files = String.split(out, "\n", trim: true)
     assert t < 10_000, "selector took #{t} ms"
     # 173 files (about 3000 s serial) before T-1363; the budget leaves room for new docs guards
-    assert length(files) < 110, "docs test list grew to #{length(files)} files"
+    assert length(files) < 70, "docs test list grew to #{length(files)} files"
     refute "test/letflow/engine_test.exs" in files
+    # T-1404: 79 files still ran 575 s on main; these DB suites (80 s each) only cite a docs
+    # path in a moduledoc or a comment and must stay out
+    for f <- ~w(entities/records_test.exs help_test.exs routers/instances_test.exs) do
+      refute "test/letflow/#{f}" in files
+    end
+
     # tests that read a docs file through a helper or a piped File.read! stay selected
     assert "test/letflow/docs/roles_scoped_approvers_test.exs" in files
     assert "test/letflow/identity/sync_scope_guard_test.exs" in files
