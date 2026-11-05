@@ -29,7 +29,7 @@ export function ApiConnectivityBanner(
       aria-live="polite"
       style={{
         position: 'sticky',
-        top: 0,
+        top: 'var(--topbar-height)',
         zIndex: 100,
         background: 'var(--color-warning-light)',
         borderBottom: '1px solid var(--color-warning)',

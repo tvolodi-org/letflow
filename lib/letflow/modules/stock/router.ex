@@ -159,6 +159,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.CountPrint
   alias Letflow.Modules.Stock.DocumentPrint
   alias Letflow.Modules.Stock.DocumentPrintSource
+  alias Letflow.Modules.Stock.DocumentNumbers
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Views
@@ -211,7 +212,11 @@ defmodule Letflow.Modules.Stock.Router do
         case Ledger.entries(authorized, filters, page) do
           {:ok, %{rows: rows, next_cursor: next}} ->
             body = %{
-              rows: Enum.map(rows, &Views.stock_movement/1),
+              rows:
+                DocumentNumbers.put_numbers(
+                  authorized.prefix,
+                  Enum.map(rows, &Views.stock_movement/1)
+                ),
               next_cursor: if(next, do: Integer.to_string(next))
             }
 

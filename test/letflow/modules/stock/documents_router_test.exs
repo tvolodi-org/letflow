@@ -327,7 +327,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
       D.request(:post, "/documents/#{doc["id"]}/issue", ctx.tok_a)
 
       assert doc |> Map.keys() |> Enum.sort() ==
-               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posting_check received_on responsible_id reversed_at reversed_by state supplier_document_ref)
+               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posted_by_label posting_check received_on responsible_id reversed_at reversed_by reversed_by_label state supplier_document_ref)
 
       assert doc["lines"] |> hd() |> Map.keys() |> Enum.sort() ==
                ~w(catalog_item_id catalog_lot_id catalog_uom_id line_id line_no line_value quantity unit_price)

@@ -42,6 +42,8 @@ defmodule Letflow.RecordTriggerRunFixture do
     {:ok, _seeded} = Letflow.Entities.EventTypes.seed!(schema)
     P.active_definition!(schema, @type_a, ["label", "note", "cid"])
     P.active_definition!(schema, @type_b, ["label", "cid"])
+    # the runner seam is honoured only under this flag; another test may have deleted it
+    put_env(:scripts_test_hooks, true)
     put_env(:record_trigger_script_runner, StubRunner)
     schema
   end
@@ -174,6 +176,8 @@ defmodule Letflow.RecordTriggerRunFixture do
     schema = F.tenant!(slug).schema_name
     {:ok, _seeded} = Letflow.Entities.EventTypes.seed!(schema)
     Enum.each(@chain, &P.active_definition!(schema, &1, ["label", "cid"]))
+    # the runner seam is honoured only under this flag; another test may have deleted it
+    put_env(:scripts_test_hooks, true)
     put_env(:record_trigger_script_runner, StubRunner)
     schema
   end

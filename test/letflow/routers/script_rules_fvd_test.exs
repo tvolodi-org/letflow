@@ -144,8 +144,16 @@ defmodule Letflow.Routers.ScriptRulesFvdTest do
   end
 
   defp hooks_on! do
+    previous = Application.fetch_env(:letflow, :scripts_test_hooks)
     Application.put_env(:letflow, :scripts_test_hooks, true)
-    on_exit(fn -> Application.delete_env(:letflow, :scripts_test_hooks) end)
+
+    # restore, never delete: config/test.exs sets it true for the whole VM
+    on_exit(fn ->
+      case previous do
+        {:ok, old} -> Application.put_env(:letflow, :scripts_test_hooks, old)
+        :error -> Application.delete_env(:letflow, :scripts_test_hooks)
+      end
+    end)
   end
 
   @ok_reply {:ok,

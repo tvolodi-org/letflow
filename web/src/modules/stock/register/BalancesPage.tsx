@@ -22,6 +22,7 @@ import { isUuid } from '@/lib/references/referenceLabel'
 import { useNames } from './stockNames'
 import { DateValueHint } from '@/components/ui/DateValueHint'
 import { formatLocalInput } from '@/i18n/format'
+import { formatQuantity } from '@/lib/formatQuantity'
 
 const ACTIVE_ONLY: never[] = []
 
@@ -67,7 +68,7 @@ function BalancesInner() {
     { key: 'responsible', label: t('stock.col.responsible'), render: (r) => name('org_employee', r.responsible) || dash },
     { key: 'lot', label: t('stock.col.lot'), render: (r) => name('catalog_lot', r.lot) || dash },
     { key: 'unit', label: t('stock.col.unit'), render: (r) => name('catalog_uom', r.unit_ref) },
-    { key: 'quantity', label: t('stock.col.quantity'), render: (r) => r.quantity, align: 'end', mono: true },
+    { key: 'quantity', label: t('stock.col.quantity'), render: (r) => formatQuantity(r.quantity), align: 'end', mono: true },
   ]
   const chips: { id: string; label: string }[] = (Object.keys(filterParams) as (keyof BalanceFilters)[]).map((k) => ({
     id: k,
