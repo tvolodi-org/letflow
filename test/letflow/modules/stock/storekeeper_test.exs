@@ -135,6 +135,21 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
       assert conn.status == 403
     end
 
+    test "T-5c import: a storekeeper cannot import locations, catalog or org types (403)", ctx do
+      tok = S.token(ctx, :a, ["STOREKEEPER"], sub: "keeper-4")
+
+      for type <-
+            ~w(location_node catalog_uom catalog_item catalog_counterparty catalog_lot org_unit org_position org_employee) do
+        conn =
+          Plug.Test.conn(:post, "/api/v1/entities/records/#{type}/import", "{}")
+          |> Plug.Conn.put_req_header("authorization", "Bearer " <> tok)
+          |> Plug.Conn.put_req_header("content-type", "application/json")
+          |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
+
+        assert conn.status == 403, "#{type} -> #{conn.status}"
+      end
+    end
+
     test "T-7 tenant isolation: B's storekeeper reads none of A's data and A's tokens do not cross",
          ctx do
       tok_b = S.token(ctx, :b, ["STOREKEEPER"], sub: "keeper-b")

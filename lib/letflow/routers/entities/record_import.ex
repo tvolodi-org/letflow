@@ -111,12 +111,26 @@ defmodule Letflow.Routers.Entities.RecordImport do
     prefix = prefix!(conn)
 
     with {:ok, module_id} <- ManagedTypes.owner_of(entity_type, prefix),
+         :ok <- storekeeper_managed_allowed(conn, module_id, entity_type),
          :ok <- Catalog.import_function(module_id, entity_type) do
       access = RecordAccess.managed_open(conn.assigns.auth_context.user_id, entity_type, prefix)
       import_records_with_access(conn, entity_type, access, scope, {:managed, module_id})
     else
-      _no_import_function -> Response.send_problem(conn, Error.entity_type_managed())
+      {:error, :storekeeper_managed_import} ->
+        Response.forbidden(conn, "insufficient permissions")
+
+      _no_import_function ->
+        Response.send_problem(conn, Error.entity_type_managed())
     end
+  end
+
+  # D-093 / decision 0081 D4: a STOREKEEPER-only caller imports the stock opening line and no
+  # other module-managed type (locations, catalog items and org data stay admin work).
+  defp storekeeper_managed_allowed(conn, module_id, entity_type) do
+    if storekeeper_only_import?(conn.assigns.auth_context) and
+         not (module_id == "stock" and entity_type == "stock_opening_line"),
+       do: {:error, :storekeeper_managed_import},
+       else: :ok
   end
 
   defp import_records_with_access(conn, entity_type, access, scope, managed) do

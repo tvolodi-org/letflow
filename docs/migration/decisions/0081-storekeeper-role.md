@@ -40,3 +40,8 @@ are not changed; the role reaches Letflow through group membership. Only the dev
 ## Security review
 
 RECORDED:
+ attempt 1 ruled one blocker: the generic import route let a STOREKEEPER-only caller import
+module-managed types of other modules (`location_node`, catalog types, org types). Ruling: for a STOREKEEPER-only caller
+the managed import is allowed only for module `stock`, type `stock_opening_line`; every other managed or
+non-managed type answers 403 (`record_import.ex`, `storekeeper_managed_allowed`). Test T-5c pins it.
+The role is closed, holds no platform-scope permission, `StockReconcile` is withheld, tenant scoping is unchanged.
