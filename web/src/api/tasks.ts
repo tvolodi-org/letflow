@@ -45,6 +45,10 @@ export const tasksApi = {
   complete: (id: string, body: CompleteTaskRequest) =>
     client.post<RawTask>(`/api/v1/tasks/${id}/complete`, body).then(normalizeTask),
 
+  /** Self-service claim (policy TasksComplete). `assign` below is the administrator reassign route and needs TasksAssign. */
+  claim: (id: string) =>
+    client.post<RawTask>(`/api/v1/tasks/${id}/claim`, {}).then(normalizeTask),
+
   assign: (id: string) =>
     client.post<RawTask>(`/api/v1/tasks/${id}/assign`, {}).then(normalizeTask),
 
