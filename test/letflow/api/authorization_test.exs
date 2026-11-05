@@ -1010,6 +1010,7 @@ defmodule Letflow.Api.AuthorizationTest do
         {"PUT", "/entity-type-hooks/:entity_type", :EntityTypeHooksManage},
         {"DELETE", "/entity-type-hooks/:entity_type", :EntityTypeHooksManage},
         {"POST", "/entity-type-hooks/:entity_type/dry-run", :EntityTypeHooksDryRun},
+        {"POST", "/script-rules/:key/form-validation-dry-run", :ScriptsWrite},
         {"GET", "/record-trigger-bindings", :RecordTriggerBindingsList},
         {"PUT", "/record-trigger-bindings/:entity_type/:event", :RecordTriggerBindingsManage},
         {"DELETE", "/record-trigger-bindings/:entity_type/:event", :RecordTriggerBindingsManage},
