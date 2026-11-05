@@ -26,6 +26,9 @@ set -uo pipefail
 # (engine, router, entity suites; measured one by one at 3000 s serial, none hangs), so the
 # docs-only step ran 24-36 min and, printing nothing until the end, looked hung. Every other docs
 # path mention (read through a helper, a multi-line call, a variable) is still selected.
+# Root cause is plausible, not proven: E1/C4 ran the same 173 files in 1-5 min, so the slow runs
+# (E2, C6) probably also depended on runner load or the shard split; the per-step timeout is a
+# separate task.
 docs_tests() {
   {
     git grep -lE 'requirements\.yaml|docs/migration/decisions|docs/status/|"docs"' -- 'test/*_test.exs'
