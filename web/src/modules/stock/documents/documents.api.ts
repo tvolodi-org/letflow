@@ -37,6 +37,13 @@ export interface StockDocument {
   location_id: string | null
   responsible_id: string | null
   counterparty_id?: string | null
+  /** REQ-721: the sides of a transfer, hand over or return (a return keeps its to org unit in `org_unit_id`). */
+  from_org_unit_id?: string | null
+  from_location_id?: string | null
+  from_responsible_id?: string | null
+  to_org_unit_id?: string | null
+  to_location_id?: string | null
+  to_responsible_id?: string | null
   event_time: string | null
   note?: string | null
   supplier_document_ref?: string | null

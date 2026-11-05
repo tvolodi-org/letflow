@@ -14,6 +14,7 @@ import { topbarLanguage } from './topbarFixtures'
 import { locationsScreens } from './fixtures/locations'
 import { stockScreens } from './fixtures/stock'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
+import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
 import { stockCountScreens } from './fixtures/stockCounts'
 import { queryStatesScreens } from './fixtures/queryStates'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
@@ -232,6 +233,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...locationsScreens,
     ...stockScreens,
     ...stockDocumentsScreens,
+    ...stockTwoSidesScreens,
     ...stockCountScreens,
     ...queryStatesScreens,
     masterDataImport,

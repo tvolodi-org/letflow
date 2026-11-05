@@ -2,7 +2,7 @@
 /** C2 — GH 3769 / REQ-722: the stock document list (network mocked). */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { DOCS, LIST, fakeMasters, queryBodies, refusal, renderStock, withAtom, withPost } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
@@ -37,6 +37,19 @@ describe('C2-a rows', () => {
     expect(screen.getByText('u-gone')).toBeInTheDocument()
     expect(screen.getAllByText('Draft').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Posted').length).toBeGreaterThan(0)
+  })
+})
+
+describe('C2-b0 kinds (REQ-723)', () => {
+  it('offers the six kinds and the new ones send only kind', async () => {
+    renderStock(LIST)
+    await screen.findByText('RC-1')
+    const opts = within(screen.getByLabelText('Kind')).getAllByRole('option').map((o) => (o as HTMLOptionElement).value)
+    expect(opts).toEqual(expect.arrayContaining(['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return']))
+    for (const k of ['transfer', 'hand_over', 'return']) {
+      fireEvent.change(screen.getByLabelText('Kind'), { target: { value: k } })
+      await waitFor(() => expect(listCalls().at(-1)).toEqual({ kind: k }))
+    }
   })
 })
 

@@ -8,8 +8,11 @@ import { STOCK_TIME_ZONE } from '../register/stockRegisterModel'
 import { STOCK_POST, STOCK_REVERSE } from '../stockPermissions'
 import type { DocumentLine, StockDocument } from './documents.api'
 
-export const DOC_KINDS = ['receipt', 'issue', 'write_off'] as const
+export const DOC_KINDS = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return'] as const
 export type DocKind = (typeof DOC_KINDS)[number]
+/** REQ-723: kinds with a from side and a to side. */
+export const TWO_SIDE_KINDS = ['transfer', 'hand_over', 'return'] as const
+export const isTwoSide = (kind: string): boolean => (TWO_SIDE_KINDS as readonly string[]).includes(kind)
 export const DOC_STATES = ['draft', 'issued', 'posted', 'reversed', 'cancelled'] as const
 export const WRITE_OFF_REASONS = ['lost', 'damaged', 'used_up', 'other'] as const
 export const REVERSE_REASONS = ['wrong_document', 'wrong_quantity', 'wrong_master_data', 'other'] as const
@@ -28,7 +31,9 @@ export const DOC_REASONS = [
 ] as const
 /** Real answers of main that the entry does not list (assumption: shown with their own message too). */
 export const DOC_EXTRA_REASONS = ['field_invalid', 'event_time_invalid', 'definition_not_active', 'posting_inconsistent'] as const
-const ALL_REASONS: readonly string[] = [...DOC_REASONS, ...DOC_EXTRA_REASONS]
+/** REQ-721/723: the two sides of a transfer, hand over or return are the same on every field (client check, also a server answer). */
+export const DOC_SIDE_REASONS = ['sides_equal'] as const
+const ALL_REASONS: readonly string[] = [...DOC_REASONS, ...DOC_EXTRA_REASONS, ...DOC_SIDE_REASONS]
 
 // ---- refusals ----------------------------------------------------------------------------------------------
 
@@ -37,6 +42,8 @@ export interface DocumentsErrorInfo {
   reason?: string
   field?: string
   lineNo?: number
+  /** REQ-721 criterion 3: which side (`from` or `to`) a not_linked / employee_not_active refusal names. */
+  side?: 'from' | 'to'
 }
 
 /** The reason, field and line number of a refusal (RFC 9457 members arrive in ApiError.details). */
@@ -50,6 +57,7 @@ export function documentErrorInfo(err: unknown): DocumentsErrorInfo {
       if (typeof d['reason'] === 'string') info.reason = d['reason']
       if (typeof d['field'] === 'string') info.field = d['field']
       if (typeof d['line_no'] === 'number') info.lineNo = d['line_no']
+      if (d['side'] === 'from' || d['side'] === 'to') info.side = d['side']
     }
   }
   return info
@@ -167,9 +175,18 @@ export interface LineForm {
   unitPrice: string
   lineValue: string
 }
+export interface SideForm {
+  orgUnitId: string
+  locationId: string
+  responsibleId: string
+}
+export const emptySide = (): SideForm => ({ orgUnitId: '', locationId: '', responsibleId: '' })
 export interface FormState {
   kind: DocKind
   eventTime: string
+  /** Two-side kinds only (REQ-723); the one-side fields below stay empty for them. */
+  from: SideForm
+  to: SideForm
   orgUnitId: string
   locationId: string
   responsibleId: string
@@ -186,7 +203,7 @@ export const emptyLine = (): LineForm => ({ itemId: '', uomId: '', lotId: '', qu
 
 export function emptyForm(kind: DocKind, eventTime: string = nowZonedLocal()): FormState {
   return {
-    kind, eventTime, orgUnitId: '', locationId: '', responsibleId: '', counterpartyId: '', note: '',
+    kind, eventTime, from: emptySide(), to: emptySide(), orgUnitId: '', locationId: '', responsibleId: '', counterpartyId: '', note: '',
     supplierRef: '', receivedOn: '', reasonCode: '', reasonText: '', lines: [emptyLine()],
   }
 }
@@ -200,12 +217,28 @@ export function lineFromDocument(l: DocumentLine): LineForm {
   }
 }
 
+/** The ids of the From side and the To side of a two-side document (header columns per kind, REQ-721 criterion 1). */
+export function sidesOf(doc: StockDocument): { from: SideForm; to: SideForm } {
+  if (doc.kind === 'return') {
+    return {
+      from: { orgUnitId: s(doc.from_org_unit_id), locationId: s(doc.from_location_id), responsibleId: s(doc.from_responsible_id) },
+      to: { orgUnitId: s(doc.org_unit_id), locationId: s(doc.to_location_id), responsibleId: s(doc.to_responsible_id) },
+    }
+  }
+  return {
+    from: { orgUnitId: s(doc.org_unit_id), locationId: s(doc.from_location_id), responsibleId: s(doc.from_responsible_id) },
+    to: { orgUnitId: s(doc.to_org_unit_id), locationId: s(doc.to_location_id), responsibleId: s(doc.to_responsible_id) },
+  }
+}
+
 export function formFromDocument(doc: StockDocument): FormState {
   const kind = (DOC_KINDS as readonly string[]).includes(doc.kind) ? (doc.kind as DocKind) : 'receipt'
   const lines = [...doc.lines].sort((a, b) => a.line_no - b.line_no).map(lineFromDocument)
+  const sides = isTwoSide(kind) ? sidesOf(doc) : { from: emptySide(), to: emptySide() }
   return {
     kind,
     eventTime: isoToZonedLocal(doc.event_time),
+    ...sides,
     orgUnitId: s(doc.org_unit_id), locationId: s(doc.location_id), responsibleId: s(doc.responsible_id),
     counterpartyId: s(doc.counterparty_id), note: s(doc.note),
     supplierRef: s(doc.supplier_document_ref), receivedOn: s(doc.received_on),
@@ -216,6 +249,9 @@ export function formFromDocument(doc: StockDocument): FormState {
 
 /** Header fields shown per kind (the form and the tests read the same table). */
 export function headerFields(kind: DocKind): string[] {
+  if (isTwoSide(kind)) {
+    return ['eventTime', 'note', ...['from', 'to'].flatMap((x) => ['orgUnitId', 'locationId', 'responsibleId'].map((k) => `${x}.${k}`))]
+  }
   const base = ['eventTime', 'orgUnitId', 'locationId', 'responsibleId', 'note']
   if (kind === 'receipt') return [...base, 'counterpartyId', 'supplierRef', 'receivedOn']
   if (kind === 'write_off') return [...base, 'reasonCode', 'reasonText']
@@ -232,10 +268,26 @@ export function validateForm(f: FormState): FormCheck {
   const req = (key: string, v: string) => {
     if (v.trim() === '') errors[`header.${key}`] = 'stock.doc.error.field_required'
   }
+  const two = isTwoSide(f.kind)
   if (zonedLocalToIso(f.eventTime) === null) errors['header.eventTime'] = 'stock.doc.error.field_required'
-  req('orgUnitId', f.orgUnitId)
-  req('locationId', f.locationId)
-  req('responsibleId', f.responsibleId)
+  if (two) {
+    for (const side of ['from', 'to'] as const) {
+      for (const k of ['orgUnitId', 'locationId', 'responsibleId'] as const) {
+        if (f[side][k].trim() === '') errors[`side.${side}.${k}`] = 'stock.doc.error.field_required'
+      }
+    }
+    const { from, to } = f
+    if (
+      from.orgUnitId !== '' && from.orgUnitId === to.orgUnitId && from.locationId === to.locationId &&
+      from.responsibleId === to.responsibleId
+    ) {
+      errors['sides'] = 'stock.doc.error.sides_equal'
+    }
+  } else {
+    req('orgUnitId', f.orgUnitId)
+    req('locationId', f.locationId)
+    req('responsibleId', f.responsibleId)
+  }
   if (f.note.length > TEXT_MAX) errors['header.note'] = 'stock.doc.error.textTooLong'
   if (f.kind === 'receipt') {
     if (f.supplierRef.length > REF_MAX) errors['header.supplierRef'] = 'stock.doc.error.textTooLong'
@@ -247,7 +299,7 @@ export function validateForm(f: FormState): FormCheck {
     if (!(WRITE_OFF_REASONS as readonly string[]).includes(f.reasonCode)) errors['header.reasonCode'] = 'stock.doc.error.field_required'
     else if (f.reasonCode === 'other' && f.reasonText.trim() === '') errors['header.reasonText'] = 'stock.doc.error.reasonTextRequired'
   }
-  if (f.kind !== 'receipt' && f.reasonText.length > TEXT_MAX) errors['header.reasonText'] = 'stock.doc.error.textTooLong'
+  if (!two && f.kind !== 'receipt' && f.reasonText.length > TEXT_MAX) errors['header.reasonText'] = 'stock.doc.error.textTooLong'
   if (f.lines.length < 1 || f.lines.length > MAX_LINES) errors['lines'] = 'stock.doc.error.lines_count'
   f.lines.forEach((l, i) => {
     const k = `lines.${i}`
@@ -265,18 +317,30 @@ export function validateForm(f: FormState): FormCheck {
 /** The exact body of a create (POST) and of an edit (PUT): `kind`, the whole header, the whole line list; an empty
  *  optional value is left out; nothing the server sets (line_id, line_no, header_id, number, state). */
 export function buildBody(f: FormState): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    kind: f.kind,
-    event_time: zonedLocalToIso(f.eventTime),
-    org_unit_id: f.orgUnitId,
-    location_id: f.locationId,
-    responsible_id: f.responsibleId,
+  const two = isTwoSide(f.kind)
+  const body: Record<string, unknown> = { kind: f.kind, event_time: zonedLocalToIso(f.eventTime) }
+  if (two) {
+    const { from, to } = f
+    if (f.kind === 'return') body['from_org_unit_id'] = from.orgUnitId
+    else body['org_unit_id'] = from.orgUnitId
+    body['from_location_id'] = from.locationId
+    body['from_responsible_id'] = from.responsibleId
+    if (f.kind === 'return') body['org_unit_id'] = to.orgUnitId
+    else body['to_org_unit_id'] = to.orgUnitId
+    body['to_location_id'] = to.locationId
+    body['to_responsible_id'] = to.responsibleId
+  } else {
+    body['org_unit_id'] = f.orgUnitId
+    body['location_id'] = f.locationId
+    body['responsible_id'] = f.responsibleId
   }
   const opt = (key: string, v: string) => {
     if (v.trim() !== '') body[key] = v
   }
   opt('note', f.note)
-  if (f.kind === 'receipt') {
+  if (two) {
+    // no reason, counterparty, price or value on these kinds (the server answers field_not_allowed)
+  } else if (f.kind === 'receipt') {
     opt('counterparty_id', f.counterpartyId)
     opt('supplier_document_ref', f.supplierRef)
     opt('received_on', f.receivedOn)
@@ -306,6 +370,8 @@ const FIELD_KEYS: Record<string, string> = {
   responsible_id: 'header.responsibleId', counterparty_id: 'header.counterpartyId', note: 'header.note',
   supplier_document_ref: 'header.supplierRef', received_on: 'header.receivedOn', reason_code: 'header.reasonCode',
   reason_text: 'header.reasonText',
+  from_org_unit_id: 'side.from.orgUnitId', from_location_id: 'side.from.locationId', from_responsible_id: 'side.from.responsibleId',
+  to_org_unit_id: 'side.to.orgUnitId', to_location_id: 'side.to.locationId', to_responsible_id: 'side.to.responsibleId',
 }
 const LINE_FIELD_KEYS: Record<string, string> = {
   catalog_item_id: 'itemId', catalog_uom_id: 'itemId', catalog_lot_id: 'lotId', quantity: 'quantity',
@@ -316,6 +382,10 @@ const LINE_FIELD_KEYS: Record<string, string> = {
 export function placeError(err: unknown): { key: string | null; messageId: string } {
   const info = documentErrorInfo(err)
   const messageId = documentErrorMessageId(err)
+  if (info.reason === 'sides_equal') return { key: 'sides', messageId }
+  if ((info.reason === 'not_linked' || info.reason === 'employee_not_active') && info.side !== undefined) {
+    return { key: `side.${info.side}`, messageId }
+  }
   if (info.lineNo !== undefined) {
     const field = info.field !== undefined ? (LINE_FIELD_KEYS[info.field] ?? 'itemId') : undefined
     const i = info.lineNo - 1
