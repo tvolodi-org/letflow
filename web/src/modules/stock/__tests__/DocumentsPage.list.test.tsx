@@ -33,7 +33,7 @@ describe('C2-a rows', () => {
     await screen.findByText('RC-1')
     expect(listCalls()).toEqual([{}])
     expect(screen.getByText('Nov 4, 2026 10:00')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getAllByTestId('datatable-cell-org')[0]).toHaveTextContent('Main store'))
+    await waitFor(() => expect(screen.getAllByTestId('document-row')[0]).toHaveTextContent('Main store'))
     expect(screen.getByText('u-gone')).toBeInTheDocument()
     expect(screen.getAllByText('Draft').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Posted').length).toBeGreaterThan(0)

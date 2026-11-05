@@ -149,9 +149,11 @@
   --tree-row-h: 34px;
   --tree-indent: 20px;
   --field-w-s: 160px;
-  --field-w-m: 320px;
+  --field-w-m: 304px;
   --field-w-l: 480px;
   --master-width: 360px;
+  --doc-list-width: 248px;
+  --doc-header-width: 304px;
   --dialog-w: 520px;
   --dialog-w-l: 760px;
   --z-nav: 100;

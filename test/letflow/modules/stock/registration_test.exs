@@ -47,7 +47,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.13.0"
+    assert m.version == "0.14.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
@@ -156,7 +156,9 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"POST", "/counts/:id/post", :StockPost},
              {"POST", "/counts/:id/reverse", :StockReverse},
              {"POST", "/counts/:id/posting-record", :StockCountRecord},
-             {"GET", "/counts/:id/posting-document", :StockRead}
+             {"GET", "/counts/:id/posting-document", :StockRead},
+             {"POST", "/voice/draft", :StockPost},
+             {"POST", "/voice/draft-text", :StockPost}
            ]
 
     assert Stock.router() == Letflow.Modules.Stock.Router
@@ -228,7 +230,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 29
+    assert length(files) == 30
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []

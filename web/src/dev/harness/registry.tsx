@@ -13,6 +13,7 @@ import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
 import { topbarLanguage } from './topbarFixtures'
 import { locationsScreens } from './fixtures/locations'
 import { stockR7Screens } from './fixtures/stockR7'
+import { sessionNoticeScreens } from './fixtures/sessionNotice'
 import { stockScreens } from './fixtures/stock'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
 import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
@@ -237,6 +238,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     codesScreen('codes-receive', { receive: true }),
     ...locationsScreens,
     ...stockR7Screens,
+    ...sessionNoticeScreens,
     ...stockScreens,
     ...stockDocumentsScreens,
     ...stockTwoSidesScreens,

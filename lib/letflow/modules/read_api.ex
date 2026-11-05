@@ -75,6 +75,35 @@ defmodule Letflow.Modules.ReadApi do
 
   def lookup_by_external_ref(_prefix, _type, _system, _id, _types), do: {:error, :not_found}
 
+  @doc """
+  Every live (not soft-deleted) record of entity type `type` in tenant schema `prefix` whose
+  `active` field is `true`, ordered by record id (REQ-741 / GH #3879). The same maps as `lookup/3`.
+  A non-text `prefix` or `type` and a prefix that is not a tenant schema are `{:error, :not_found}`,
+  never a raise. Isolation is by `prefix` alone (INV-1, INV-6); all values are bound (INV-7). The
+  list is not capped.
+  """
+  @spec list_active(prefix :: term(), type :: term()) :: {:ok, [map()]} | {:error, :not_found}
+  def list_active(prefix, type) when is_binary(prefix) and is_binary(type) do
+    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      rows =
+        Repo.all(
+          from(r in Latest,
+            where:
+              r.entity_type == ^type and not r.deleted and
+                fragment("?->>'active' = 'true'", r.field_values),
+            order_by: r.record_id
+          ),
+          prefix: prefix
+        )
+
+      {:ok, Enum.map(rows, &to_map/1)}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def list_active(_prefix, _type), do: {:error, :not_found}
+
   defp first_live(_prefix, _record_id, []), do: {:error, :not_found}
 
   defp first_live(prefix, record_id, [type | rest]) do

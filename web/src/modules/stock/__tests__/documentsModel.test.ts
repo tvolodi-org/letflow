@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DOC_EXTRA_REASONS, DOC_REASONS, DOC_SIDE_REASONS, actionsFor, buildBody, documentErrorMessageId, emptyForm, formFromDocument,
-  isDecimalAboveZero, isDecimalNonNegative, isoToZonedLocal, placeError, sidesOf, validateForm, zonedLocalToIso,
+  isDecimalAboveZero, isDecimalNonNegative, isoToZonedLocal, placeError, sidesOf, sumDecimals, validateForm, zonedLocalToIso,
   type FormState,
 } from '../documents/documentsModel'
 import type { StockDocument } from '../documents/documents.api'
@@ -141,5 +141,22 @@ describe('buildBody and validateForm', () => {
       { catalog_item_id: 'i2', catalog_uom_id: 'm1', catalog_lot_id: 't2', quantity: '5.000000000', unit_price: '2', line_value: '10' },
     ])
     expect(JSON.stringify(body)).not.toMatch(/line_id|line_no|header_id|"number"|"state"/)
+  })
+})
+
+describe('A9 sumDecimals (T-1379)', () => {
+  it('adds decimal strings without float drift', () => {
+    expect(sumDecimals(['1.5', '2.25'])).toBe('3.75')
+    expect(sumDecimals(['0.1', '0.2'])).toBe('0.3')
+    expect(sumDecimals(['10', '5'])).toBe('15')
+    expect(sumDecimals(['0.05'])).toBe('0.05')
+  })
+  it('skips empty and invalid values and returns null when nothing was summed', () => {
+    expect(sumDecimals(['1', '', 'abc', '-2', '2'])).toBe('3')
+    expect(sumDecimals([])).toBeNull()
+    expect(sumDecimals(['', 'x'])).toBeNull()
+  })
+  it('sums 100 lines exactly', () => {
+    expect(sumDecimals(Array.from({ length: 100 }, () => '0.1'))).toBe('10.0')
   })
 })
