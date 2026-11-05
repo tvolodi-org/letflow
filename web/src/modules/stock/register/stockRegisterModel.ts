@@ -1,5 +1,6 @@
 /** stockRegisterModel — GH 3767 / REQ-724. Pure helpers of the balances and movements screens: query keys of the
  *  routes, the cause and document-type words, the posting range check, error classes. */
+import type { ReferenceType } from '@/lib/references/referenceLabel'
 import type { BalanceRow, MovementLeg, MovementRow } from './stock.api'
 
 /** Tenant time zone until the tenant setting exists (REQ-703): assumption, owner may change at GATE B. */
@@ -19,7 +20,7 @@ export const DOCUMENT_TYPES = [
 ] as const
 
 /** Master entity types read for names. */
-export type MasterType = 'catalog_item' | 'location_node' | 'org_unit' | 'org_employee' | 'catalog_lot' | 'catalog_uom' | 'catalog_counterparty'
+export type MasterType = ReferenceType
 
 export interface BalanceFilters {
   sku: string
@@ -135,15 +136,4 @@ export function movementNameIds(rows: MovementRow[]): NameIds {
     }
   }
   return out
-}
-
-/** Label field per master type; the code is the fallback. */
-export const LABEL_FIELD: Record<MasterType, string> = {
-  catalog_item: 'name',
-  location_node: 'name',
-  org_unit: 'name',
-  org_employee: 'full_name',
-  catalog_lot: 'code',
-  catalog_uom: 'name',
-  catalog_counterparty: 'name',
 }

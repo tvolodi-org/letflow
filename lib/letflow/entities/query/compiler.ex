@@ -566,6 +566,40 @@ defmodule Letflow.Entities.Query.Compiler do
   # `column_atom` sourced only from `Allowlist.typed_columns/0`'s own fixed,
   # closed table -- never `String.to_atom/1` on caller input.
 
+  # T-1378: `record_id` is a `uuid` column on every entity table, so (like the FK-promoted columns of
+  # T-1367) its values are bound with the `Ecto.UUID` type; a text bind makes Postgrex raise
+  # `expected a binary of 16 bytes` (500). A value that is not a uuid can never equal a record id:
+  # dropped from a list, `false` for `eq`, "not null" for `neq`. Only the comparison ops reach here;
+  # `contains`/`starts_with` keep the generic clauses below.
+  defp typed_column_dynamic(op, :record_id, value)
+       when op in [:eq, :gt, :gte, :lt, :lte] do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> record_id_compare(op, uuid)
+      :error -> dynamic(false)
+    end
+  end
+
+  defp typed_column_dynamic(:neq, :record_id, value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> dynamic([r], field(r, :record_id) != type(^uuid, Ecto.UUID))
+      :error -> dynamic([r], not is_nil(field(r, :record_id)))
+    end
+  end
+
+  defp typed_column_dynamic(:in, :record_id, values) do
+    case scope_uuid_ids(values) do
+      [] -> dynamic(false)
+      uuids -> dynamic([r], field(r, :record_id) in type(^uuids, {:array, Ecto.UUID}))
+    end
+  end
+
+  defp typed_column_dynamic(:not_in, :record_id, values) do
+    case scope_uuid_ids(values) do
+      [] -> dynamic(true)
+      uuids -> dynamic([r], field(r, :record_id) not in type(^uuids, {:array, Ecto.UUID}))
+    end
+  end
+
   defp typed_column_dynamic(:eq, col, value), do: dynamic([r], field(r, ^col) == ^value)
   defp typed_column_dynamic(:neq, col, value), do: dynamic([r], field(r, ^col) != ^value)
   defp typed_column_dynamic(:gt, col, value), do: dynamic([r], field(r, ^col) > ^value)
@@ -594,6 +628,21 @@ defmodule Letflow.Entities.Query.Compiler do
   # then wants 16-byte binaries (`expected a binary of 16 bytes`), so values are bound with the
   # `Ecto.UUID` type. A value that is not a uuid can never equal a uuid column: dropped from a
   # list, `false` for `eq`, "not null" for `neq`. Text operators compare the column as text.
+
+  defp record_id_compare(:eq, uuid),
+    do: dynamic([r], field(r, :record_id) == type(^uuid, Ecto.UUID))
+
+  defp record_id_compare(:gt, uuid),
+    do: dynamic([r], field(r, :record_id) > type(^uuid, Ecto.UUID))
+
+  defp record_id_compare(:gte, uuid),
+    do: dynamic([r], field(r, :record_id) >= type(^uuid, Ecto.UUID))
+
+  defp record_id_compare(:lt, uuid),
+    do: dynamic([r], field(r, :record_id) < type(^uuid, Ecto.UUID))
+
+  defp record_id_compare(:lte, uuid),
+    do: dynamic([r], field(r, :record_id) <= type(^uuid, Ecto.UUID))
 
   defp uuid_column_dynamic(op, name, value) when op in [:eq, :gt, :gte, :lt, :lte] do
     case Ecto.UUID.cast(value) do
