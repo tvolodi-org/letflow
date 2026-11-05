@@ -68,6 +68,40 @@ describe('O1 create', () => {
       lines: [{ catalog_item_id: 'i1', catalog_uom_id: 'm1', quantity: '3', location_id: 'l1', responsible_id: 'e1', received_on: '2026-09-15' }],
     })
   })
+  it('W6 shows the external id fields on an opening form only, posts the pair and places a taken refusal', async () => {
+    const masters = clientMock.post.getMockImplementation()!
+    clientMock.post.mockImplementation(async (p: string, b: Record<string, unknown>) => {
+      if (p === DOCS) throw refusal(409, 'external_ref_taken', { field: 'external_ref_id' })
+      return masters(p, b)
+    })
+    renderStock(`${LIST}/new?kind=opening`, withPost)
+    await screen.findByRole('option', { name: 'Main store' })
+    expect(screen.getByLabelText(/External system/)).toBeInTheDocument()
+    pick('Org unit', 'u1')
+    pick(/External system/, 'erp')
+    const row = screen.getAllByTestId('line-editor-row')[0]
+    await within(row).findByRole('option', { name: 'Bolt M8' })
+    await within(row).findByRole('option', { name: 'Shelf A' })
+    await within(row).findByRole('option', { name: 'Aigul B.' })
+    pick('Item', 'i1', row)
+    pick('Quantity', '3', row)
+    pick('Location', 'l1', row)
+    pick('Responsible', 'e1', row)
+    pick('Real receipt date', '2026-09-15', row)
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    expect(await screen.findByText('Give both the external system and the external id, or neither.')).toBeInTheDocument()
+    expect(clientMock.post.mock.calls.filter(([p]) => p === DOCS)).toHaveLength(0)
+    pick(/External id/, 'OB-7')
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(clientMock.post.mock.calls.filter(([p]) => p === DOCS)).toHaveLength(1))
+    expect(clientMock.post.mock.calls.find(([p]) => p === DOCS)?.[1]).toMatchObject({ external_ref_system: 'erp', external_ref_id: 'OB-7' })
+    expect(await screen.findByText('This external reference is already used.')).toBeInTheDocument()
+  })
+  it('W6b a receipt form has no external id fields', async () => {
+    renderStock(`${LIST}/new?kind=receipt`, withPost)
+    await screen.findByRole('option', { name: 'Main store' })
+    expect(screen.queryByLabelText(/External system/)).not.toBeInTheDocument()
+  })
   it('sends nothing when the receipt date is missing', async () => {
     renderStock(`${LIST}/new?kind=opening`, withPost)
     await screen.findByRole('option', { name: 'Main store' })
@@ -75,6 +109,20 @@ describe('O1 create', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
     expect((await screen.findAllByText('This field is required.')).length).toBeGreaterThan(0)
     expect(clientMock.post.mock.calls.filter(([p]) => p === DOCS)).toHaveLength(0)
+  })
+})
+
+describe('W7 view', () => {
+  it('shows the external pair of an opening document and no rows without one', async () => {
+    fakeDocument(clientMock, OPENING({ external_ref_system: 'erp', external_ref_id: 'OB-7' }))
+    renderStock(`${LIST}/d1`, withPost)
+    expect(await screen.findByText('OB-7')).toBeInTheDocument()
+    expect(screen.getByText('External system')).toBeInTheDocument()
+    cleanup()
+    fakeDocument(clientMock, OPENING())
+    renderStock(`${LIST}/d1`, withPost)
+    await screen.findByText('Note')
+    expect(screen.queryByText('External system')).not.toBeInTheDocument()
   })
 })
 

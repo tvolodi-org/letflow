@@ -6,21 +6,28 @@ import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link, useParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
+import { Printer } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { actorLabel, tokenSubject } from '@/lib/references/actorLabel'
+import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
+import { getUiLocale } from '@/i18n/uiLocaleStore'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { RegisterError } from '../register/RegisterShell'
+import { usePdfDownload } from '../register/usePdfDownload'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { useNames } from '../register/stockNames'
 import { documentsApi, type StockDocument } from './documents.api'
 import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
-import { DOC_KINDS, DOC_STATES, formatEventTime, isOpening, isTwoSide, sidesOf } from './documentsModel'
+import { DOC_KINDS, DOC_STATES, documentPrintable, formatEventTime, isOpening, isTwoSide, printErrorMessageId, sidesOf } from './documentsModel'
 import { stateTone } from './stateTone'
+import { parseFilename } from '../counts/countsModel'
 import { movementsLinkFor, type NameIds } from '../register/stockRegisterModel'
 
 function nameIds(doc: StockDocument): NameIds {
@@ -56,7 +63,9 @@ function DocumentInner() {
   const { id = '' } = useParams()
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
+  const uiLocale = useUiLocale()
   const [editing, setEditing] = useState(false)
+  const pdf = usePdfDownload(parseFilename)
   // useQueries (like the pickers): the page draws its own loading and error states.
   const [query] = useQueries({ queries: [{
     queryKey: stockQueryKeys.document(tenantId, id),
@@ -98,6 +107,8 @@ function DocumentInner() {
     )
   }
 
+  const refMsg = REFERENCE_MESSAGES[uiLocale]
+  const actor = (ref: string | null | undefined) => actorLabel(ref, tokenSubject(session?.token), refMsg)
   const row = (label: string, value: string | null | undefined, mono = false) => (
     <div>
       <dt>{label}</dt>
@@ -134,6 +145,22 @@ function DocumentInner() {
         </Banner>
       )}
       <DocumentActions doc={doc} onEdit={() => setEditing(true)} />
+      {documentPrintable(doc) && (
+        <>
+          {pdf.error !== null && <Banner tone="danger">{t(pdf.error)}</Banner>}
+          <div className="lf-btn-row">
+            <Button
+              variant="secondary"
+              icon={<Printer className="lf-icon" aria-hidden="true" />}
+              loading={pdf.busyKey === 'print'}
+              onClick={() => void pdf.run('print', () => documentsApi.print(doc.id, getUiLocale()), `${doc.number ?? doc.id}.pdf`, printErrorMessageId)}
+              data-testid="document-print"
+            >
+              {t('stock.doc.print')}
+            </Button>
+          </div>
+        </>
+      )}
       <dl data-testid="document-header">
         {row(t('stock.doc.col.number'), doc.number, true)}
         {!opening && row(t('stock.col.time'), when(doc.event_time), true)}
@@ -146,11 +173,13 @@ function DocumentInner() {
         {doc.reason_code && row(t('stock.doc.field.reasonCode'), known(['lost', 'damaged', 'used_up', 'other'], 'stock.doc.writeOffReason', doc.reason_code))}
         {doc.reason_text && row(t('stock.doc.field.reasonText'), doc.reason_text)}
         {row(t('stock.doc.field.note'), doc.note)}
+        {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefSystem'), doc.external_ref_system, true)}
+        {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefId'), doc.external_ref_id, true)}
         {row(t('stock.doc.field.issuedAt'), doc.issued_at ? when(doc.issued_at) : null, true)}
         {row(t('stock.doc.field.postedAt'), doc.posted_at ? when(doc.posted_at) : null, true)}
-        {row(t('stock.doc.field.postedBy'), doc.posted_by, true)}
+        {row(t('stock.doc.field.postedBy'), actor(doc.posted_by))}
         {row(t('stock.doc.field.reversedAt'), doc.reversed_at ? when(doc.reversed_at) : null, true)}
-        {row(t('stock.doc.field.reversedBy'), doc.reversed_by, true)}
+        {row(t('stock.doc.field.reversedBy'), actor(doc.reversed_by))}
       </dl>
       {two && (['from', 'to'] as const).map((side) => (
         <section key={side} data-testid={`view-side-${side}`} aria-label={t(`stock.doc.side.${side}`)}>

@@ -9,6 +9,7 @@ export const STOCK_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type StockUiLocale = UiLocale
 
 const en: Record<string, string> = {
+  'import.type.stock_opening_line': 'Opening balance lines',
   'stock.eyebrow': 'Stock · Register',
   'stock.balances.title': 'Balances',
   'stock.balances.lede': 'How much of each item lies at each org unit, location, responsible employee and lot now.',
@@ -20,6 +21,7 @@ const en: Record<string, string> = {
   'stock.filter.asOf': 'As of date',
   'stock.filter.asOfHint': 'Balance at the end of the chosen day in the tenant time zone. Empty means now.',
   'stock.filter.asOfInvalid': 'Enter a full date.',
+  'stock.filter.asOfFuture': 'The date cannot be in the future.',
   'stock.balances.empty': 'No balances found.',
   'stock.balances.emptyText': 'Balances appear after the first stock document is posted. Change or clear the filters to see more.',
   'stock.movements.title': 'Movements',
@@ -79,6 +81,7 @@ const en: Record<string, string> = {
   'stock.docType.stock_handover': 'Hand over',
   'stock.docType.stock_return': 'Return',
   'stock.docType.stock_reversal': 'Reversal',
+  'stock.docType.count.differences': 'Count differences',
   'stock.legs.show': 'Show legs',
   'stock.legs.hide': 'Hide legs',
   'stock.legs.title': 'Legs of the entry',
@@ -87,6 +90,7 @@ const en: Record<string, string> = {
 }
 
 const ru: Record<string, string> = {
+  'import.type.stock_opening_line': 'Строки начальных остатков',
   'stock.eyebrow': 'Склад · Регистр',
   'stock.balances.title': 'Остатки',
   'stock.balances.lede': 'Сколько каждой позиции лежит сейчас в каждом подразделении, месте хранения, у ответственного и в каждой партии.',
@@ -98,6 +102,7 @@ const ru: Record<string, string> = {
   'stock.filter.asOf': 'На дату',
   'stock.filter.asOfHint': 'Остаток на конец выбранного дня в часовом поясе организации. Пусто — на сейчас.',
   'stock.filter.asOfInvalid': 'Введите дату полностью.',
+  'stock.filter.asOfFuture': 'Дата не может быть в будущем.',
   'stock.balances.empty': 'Остатков не найдено.',
   'stock.balances.emptyText': 'Остатки появятся после проведения первого складского документа. Измените или сбросьте фильтры.',
   'stock.movements.title': 'Движения',
@@ -157,6 +162,7 @@ const ru: Record<string, string> = {
   'stock.docType.stock_handover': 'Передача',
   'stock.docType.stock_return': 'Возврат',
   'stock.docType.stock_reversal': 'Сторно',
+  'stock.docType.count.differences': 'Расхождения инвентаризации',
   'stock.legs.show': 'Показать строки',
   'stock.legs.hide': 'Скрыть строки',
   'stock.legs.title': 'Строки записи',
@@ -165,6 +171,7 @@ const ru: Record<string, string> = {
 }
 
 const kk: Record<string, string> = {
+  'import.type.stock_opening_line': 'Бастапқы қалдық жолдары',
   'stock.eyebrow': 'Қойма · Тіркелім',
   'stock.balances.title': 'Қалдықтар',
   'stock.balances.lede': 'Әр позиция қазір әр бөлімшеде, сақтау орнында, жауапты адамда және партияда қанша жатыр.',
@@ -176,6 +183,7 @@ const kk: Record<string, string> = {
   'stock.filter.asOf': 'Күні бойынша',
   'stock.filter.asOfHint': 'Ұйымның уақыт белдеуіндегі таңдалған күн соңындағы қалдық. Бос болса — қазір.',
   'stock.filter.asOfInvalid': 'Күнді толық енгізіңіз.',
+  'stock.filter.asOfFuture': 'Күн болашақта болмауы керек.',
   'stock.balances.empty': 'Қалдық табылмады.',
   'stock.balances.emptyText': 'Қалдықтар алғашқы қойма құжаты өткізілгеннен кейін пайда болады. Сүзгілерді өзгертіңіз немесе тазалаңыз.',
   'stock.movements.title': 'Қозғалыстар',
@@ -235,6 +243,7 @@ const kk: Record<string, string> = {
   'stock.docType.stock_handover': 'Тапсыру',
   'stock.docType.stock_return': 'Қайтару',
   'stock.docType.stock_reversal': 'Қайта жазу',
+  'stock.docType.count.differences': 'Түгендеу айырмашылықтары',
   'stock.legs.show': 'Жолдарды көрсету',
   'stock.legs.hide': 'Жолдарды жасыру',
   'stock.legs.title': 'Жазба жолдары',

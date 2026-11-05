@@ -1,8 +1,9 @@
 /** M1–M4 — GH 3735 / REQ-702: pure helpers of the count screens. */
 import { describe, expect, it } from 'vitest'
-import { COUNT_CONFLICTS, COUNT_REASONS, canIssueDifferences, canIssuePostingRecord, canPost, canReverse, canSignDifferences, canSignSheet, paperworkAvailable, parseFilename, requiredSigners, buildOrderBody, formatInZone, isDecimalNonNegative, reasonMessageId, zonedToIso, isoToLocalInput, EMPTY_ORDER_FORM } from '../counts/countsModel'
+import { COUNT_CONFLICTS, COUNT_REASONS, canIssueDifferences, canIssuePostingRecord, canPost, canReverse, canSignDifferences, canSignSheet, paperworkAvailable, parseFilename, requiredSigners, buildOrderBody, formatInZone, isDecimalNonNegative, reasonMessageId, zonedToIso, isoToLocalInput, orderFormProblems, EMPTY_ORDER_FORM } from '../counts/countsModel'
 import type { CountOrder } from '../counts/counts.api'
 import { countsEn, countsKk, countsRu } from '../counts/countsMessages'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 
 describe('M1 isDecimalNonNegative', () => {
   it.each(['0', '0.5', '12', '3.250', '007'])('accepts %s', (s) => expect(isDecimalNonNegative(s)).toBe(true))
@@ -17,6 +18,14 @@ describe('M2 tenant zone', () => {
     expect(isoToLocalInput('2026-11-10T04:30:00Z')).toBe('2026-11-10T09:30')
     expect(formatInZone(null)).toBe('')
   })
+
+  it('R2 ru and kk show DD-MM-YYYY HH:mm in the tenant zone', () => {
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    expect(formatInZone('2026-11-10T04:30:00Z')).toBe('10-11-2026 09:30')
+    useUiLocaleStore.getState().setLocaleTransient('kk')
+    expect(formatInZone('2026-11-09T23:30:00Z')).toBe('10-11-2026 04:30')
+    useUiLocaleStore.getState().reloadFromEnvironment()
+  })
 })
 
 describe('M3 buildOrderBody', () => {
@@ -30,7 +39,7 @@ describe('M3 buildOrderBody', () => {
 
 describe('M4 reasonMessageId', () => {
   it('maps each reason, forbidden, not found and unknown', () => {
-    expect(COUNT_REASONS).toHaveLength(36)
+    expect(COUNT_REASONS).toHaveLength(37)
     for (const r of COUNT_REASONS) expect(reasonMessageId({ status: 422, details: { reason: r } })).toBe(`counts.reason.${r}`)
     expect(reasonMessageId({ status: 422, details: { reason: 'new_thing' } })).toBe('counts.error.generic')
     // REQ-718: the 409 reasons of the posting routes have their own messages; a 409 with another reason is generic
@@ -100,5 +109,28 @@ describe('M6 REQ-718 posting buttons', () => {
     expect(canIssuePostingRecord({ ...posted, posting_document_id: 'p' }, only('StockCountRecord'))).toBe(false)
     expect(canIssuePostingRecord({ ...posted, status: 'posted' }, only('StockCountRecord'))).toBe(false)
     expect(canIssuePostingRecord(signed, only('StockCountRecord'))).toBe(false)
+  })
+  it('W1 canIssuePostingRecord: a signed empty sheet with no pending post can be closed', () => {
+    const empty = { ...signed, posting_state: 'none' as const, differences_empty: true, post_pending: false }
+    expect(canIssuePostingRecord(empty, only('StockCountRecord'))).toBe(true)
+    expect(canIssuePostingRecord(empty, only('StockPost'))).toBe(false)
+    expect(canIssuePostingRecord({ ...empty, post_pending: true }, only('StockCountRecord'))).toBe(false)
+    expect(canIssuePostingRecord({ ...empty, posting_document_id: 'p' }, only('StockCountRecord'))).toBe(false)
+    expect(canIssuePostingRecord({ ...empty, differences_empty: false }, only('StockCountRecord'))).toBe(false)
+    expect(canIssuePostingRecord({ ...empty, posting_state: 'reversed' }, only('StockCountRecord'))).toBe(false)
+  })
+})
+
+describe('M5 zonedToIso and orderFormProblems (T-1382)', () => {
+  it('accepts seconds and a space, refuses a date without time', () => {
+    expect(zonedToIso('2026-11-10T09:00:30')).toBe('2026-11-10T09:00:00+05:00')
+    expect(zonedToIso('2026-11-10 09:00')).toBe('2026-11-10T09:00:00+05:00')
+    expect(zonedToIso('2026-11-10')).toBe('')
+  })
+  it('lists every invalid field in form order, and an end not after the start', () => {
+    expect(orderFormProblems(EMPTY_ORDER_FORM)).toEqual(['org_unit_id', 'planned_start', 'planned_end', 'chair_employee_id', 'location_ids'])
+    const ok = { ...EMPTY_ORDER_FORM, org_unit_id: 'u1', planned_start: '2026-11-10T09:00', planned_end: '2026-11-11T09:00', chair_employee_id: 'e1', location_ids: ['l1'] }
+    expect(orderFormProblems(ok)).toEqual([])
+    expect(orderFormProblems({ ...ok, planned_end: '2026-11-10T09:00' })).toEqual(['planned_end'])
   })
 })

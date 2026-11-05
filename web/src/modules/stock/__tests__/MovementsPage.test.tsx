@@ -123,6 +123,22 @@ describe('M5 paging', () => {
   })
 })
 
+describe('W5 REQ-718 the count.differences document type', () => {
+  const WORD = { en: 'Count differences', ru: 'Расхождения инвентаризации', kk: 'Түгендеу айырмашылықтары' } as const
+  afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
+
+  for (const lang of ['en', 'ru', 'kk'] as const) {
+    it(`the Document column shows the word, not the raw type, in ${lang}`, async () => {
+      useUiLocaleStore.getState().setLocaleTransient(lang)
+      clientMock.get.mockResolvedValue({ next_cursor: null, rows: [{ ...ENTRY, cause: 'count_difference', document_type: 'count.differences' }] })
+      renderStock(MOV)
+      const row = (await screen.findByText('17')).closest('tr')!
+      expect(within(row).getByText(WORD[lang])).toBeInTheDocument()
+      expect(within(row).queryByText('count.differences')).toBeNull()
+    })
+  }
+})
+
 describe('M6 REQ-718 the count_difference cause', () => {
   const EXPECTED = { en: 'Count difference', ru: 'Расхождение по инвентаризации', kk: 'Түгендеу айырмасы' } as const
   afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
@@ -136,6 +152,20 @@ describe('M6 REQ-718 the count_difference cause', () => {
       expect(within(row).getByText(EXPECTED[lang])).toBeInTheDocument()
       const option = screen.getAllByRole('option').find((o) => (o as HTMLOptionElement).value === 'count_difference')
       expect(option).toHaveTextContent(EXPECTED[lang])
+    })
+  }
+})
+
+describe('R1 date format per language (T-1381, real row shape)', () => {
+  afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
+  // event_time 2026-11-04T18:00:00Z is 23:00 on the same day in Asia/Almaty (UTC+5).
+  const EXPECTED = { en: '11/04/2026, 23:00:00', ru: '04-11-2026 23:00:00', kk: '04-11-2026 23:00:00' } as const
+  for (const lang of ['en', 'ru', 'kk'] as const) {
+    it(`${lang}: the time cell reads ${EXPECTED[lang]}`, async () => {
+      useUiLocaleStore.getState().setLocaleTransient(lang)
+      renderStock(MOV)
+      await screen.findByText('17')
+      expect(screen.getByText(EXPECTED[lang])).toBeInTheDocument()
     })
   }
 })

@@ -3,6 +3,7 @@
 import type { CountOrder, CountOrderBody, PaperworkKind } from './counts.api'
 import type { StatusTone } from '@/components/ui/StatusPill'
 import { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD, STOCK_POST, STOCK_REVERSE } from '../stockPermissions'
+import { formatDateTimeInZone } from '@/i18n/format'
 export { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD, STOCK_POST, STOCK_REVERSE }
 
 /** Tenant time zone until the tenant setting exists: assumption of REQ-702, owner may change at GATE B (UTC+5, no DST). */
@@ -52,6 +53,7 @@ export const COUNT_REASONS = [
   // REQ-718 (422)
   'no_differences',
   'reason_invalid',
+  'shortage_exceeds_balance',
 ] as const
 
 /** The 409 reasons of the posting routes (REQ-718); each has its own message `counts.reason.<reason>`. */
@@ -92,9 +94,11 @@ export const EMPTY_ORDER_FORM: OrderForm = {
   note: '',
 }
 
-/** `YYYY-MM-DDTHH:mm` typed in the tenant zone -> ISO 8601 with offset. Empty when the text is not a local time. */
+/** `YYYY-MM-DDTHH:mm` (also with seconds, or a space for the T) typed in the tenant zone -> ISO 8601 with offset
+ *  (seconds are dropped). Empty when the text is not a local time. */
 export function zonedToIso(local: string): string {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local) ? `${local}:00${TZ_OFFSET}` : ''
+  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(local.trim())
+  return m ? `${m[1]}T${m[2]}:00${TZ_OFFSET}` : ''
 }
 
 function parts(iso: string): Record<string, string> | null {
@@ -115,8 +119,7 @@ export function isoToLocalInput(iso: string | null | undefined): string {
 
 /** ISO instant -> `YYYY-MM-DD HH:mm` in the tenant zone, for tables and logs. */
 export function formatInZone(iso: string | null | undefined): string {
-  const p = iso ? parts(iso) : null
-  return p ? `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}` : ''
+  return formatDateTimeInZone(iso, { timeZone: TENANT_TIME_ZONE, enStyle: 'iso' })
 }
 
 /** The whole draft, every key every time; an empty note is null. */
@@ -146,11 +149,23 @@ export function formFromOrder(o: CountOrder): OrderForm {
   }
 }
 
+export type OrderField = 'org_unit_id' | 'planned_start' | 'planned_end' | 'chair_employee_id' | 'location_ids'
+
+/** The invalid fields of the order form, in form order. An end that is not after the start flags `planned_end`. */
+export function orderFormProblems(f: OrderForm): OrderField[] {
+  const out: OrderField[] = []
+  const start = zonedToIso(f.planned_start)
+  const end = zonedToIso(f.planned_end)
+  if (f.org_unit_id === '') out.push('org_unit_id')
+  if (start === '') out.push('planned_start')
+  if (end === '' || (start !== '' && new Date(end).getTime() <= new Date(start).getTime())) out.push('planned_end')
+  if (f.chair_employee_id === '') out.push('chair_employee_id')
+  if (f.location_ids.length === 0) out.push('location_ids')
+  return out
+}
+
 export function formComplete(f: OrderForm): boolean {
-  return (
-    f.org_unit_id !== '' && f.chair_employee_id !== '' && zonedToIso(f.planned_start) !== '' &&
-    zonedToIso(f.planned_end) !== '' && f.location_ids.length > 0
-  )
+  return orderFormProblems(f).length === 0
 }
 
 export function reasonOf(err: unknown): string | null {
@@ -163,6 +178,24 @@ export function fieldOf(err: unknown): string | null {
 }
 
 /** Message id of a failed call: its own reason, else forbidden / not found / generic. */
+/** The ids the shortage refusal carries (REQ-718 P50c): the item and the location, never a balance. */
+export function shortageOf(err: unknown): { item: string; location: string } | null {
+  if (reasonOf(err) !== 'shortage_exceeds_balance') return null
+  const d = (err as { details?: { catalog_item_id?: unknown; location_id?: unknown } }).details
+  return typeof d?.catalog_item_id === 'string' && typeof d.location_id === 'string' ? { item: d.catalog_item_id, location: d.location_id } : null
+}
+
+export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const
+
+/** REQ-738: message id of a refused print: its own 422 reason, 404 not found, anything else the generic message. */
+export function printReasonMessageId(err: unknown): string {
+  const status = (err as { status?: unknown } | null | undefined)?.status
+  const reason = reasonOf(err)
+  if (status === 422 && reason !== null && (PRINT_REASONS as readonly string[]).includes(reason)) return `counts.print.reason.${reason}`
+  if (status === 404) return 'counts.error.notFound'
+  return 'counts.error.generic'
+}
+
 export function reasonMessageId(err: unknown): string {
   const status = (err as { status?: unknown } | null | undefined)?.status
   const reason = reasonOf(err)
@@ -208,12 +241,13 @@ export const canSignDifferences = (o: CountOrder, can: Atoms) =>
 /** REQ-718. Post: a signed count that nothing posted yet and that has a differences sheet. The sheet may be empty:
  *  the server then answers 422 no_differences, shown as its own message. */
 export const canPost = (o: CountOrder, can: Atoms) =>
-  can(STOCK_POST) && o.status === 'signed' && o.posting_state === 'none' && !!o.differences_document_id
+  can(STOCK_POST) && o.status === 'signed' && o.posting_state === 'none' && !!o.differences_document_id && o.differences_empty !== true
 export const canReverse = (o: CountOrder, can: Atoms) =>
   can(STOCK_REVERSE) && o.posting_state === 'posted' && !o.reverse_pending
 /** The posting record: the chair's step once the posting is done (the server checks the chair). */
 export const canIssuePostingRecord = (o: CountOrder, can: Atoms) =>
-  can(STOCK_COUNT_RECORD) && o.status === 'signed' && o.posting_state === 'posted' && !o.posting_document_id
+  can(STOCK_COUNT_RECORD) && o.status === 'signed' && !o.posting_document_id &&
+  (o.posting_state === 'posted' || (o.posting_state === 'none' && o.differences_empty === true && !o.post_pending))
 export const canScan = (o: CountOrder, can: Atoms) => can(STOCK_COUNT_RECORD) && o.status === 'counting'
 
 /** One scan id per accepted Enter; a retry reuses the failed body, so the same id. */

@@ -1,6 +1,7 @@
 /** counts.api — GH 3735 / REQ-702. Calls of the count order (REQ-700) and count sheet (REQ-701) routes.
  *  No call sends a tenant identifier. issue/cancel/open/close take an empty body (a body is 422 field_not_allowed). */
 import { client } from '@/api/client'
+import type { UiLocale } from '@/i18n/uiLocaleStore'
 
 const BASE = '/api/v1/modules/stock/counts'
 
@@ -28,6 +29,8 @@ export interface CountOrder {
   /** REQ-718: present while the status is signed or posted. */
   posting_state?: 'none' | 'pending' | 'posted' | 'reversed'
   post_pending?: boolean
+  /** P50c: a signed count with no difference lines; the posting record can be issued at once. */
+  differences_empty?: boolean
   reverse_pending?: boolean
   entry_id?: string | null
   posted_at?: string | null
@@ -145,5 +148,6 @@ export const countsApi = {
   reverse: (id: string, body: ReverseBody) => client.post<CountOrder>(`${BASE}/${id}/reverse`, body),
   postingRecord: (id: string) => client.post<CountOrder>(`${BASE}/${id}/posting-record`),
   paperwork: (id: string, kind: PaperworkKind) => client.getBlob(`${BASE}/${id}/paperwork/${kind}`),
+  print: (id: string, kind: PaperworkKind, lang: UiLocale) => client.getBlob(`${BASE}/${id}/print/${kind}`, { lang }),
   entries: (id: string, params: Record<string, string>) => client.get<CountPage<CountEntry>>(`${BASE}/${id}/entries`, params),
 }

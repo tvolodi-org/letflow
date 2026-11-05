@@ -40,28 +40,44 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
 
   @type ctx :: %{scope: term(), principal: term(), tenant_id: term()}
 
-  @spec fetch(String.t(), term(), CountPaperwork.kind(), ctx()) ::
-          {:ok, binary(), String.t()}
-          | {:error, :not_found | :document_not_issued | :xlsx_write_failed}
-  def fetch(prefix, id, kind, %{scope: scope, principal: principal, tenant_id: tenant_id})
+  @doc """
+  The one read path (REQ-736): scope-checked header, ISSUED content and names, with no output built.
+  `fetch/4` (xlsx) and the PDF route both start here, so the scope and name rules exist once.
+  """
+  @spec read(String.t(), term(), CountPaperwork.kind(), ctx()) ::
+          {:ok, %{kind: CountPaperwork.kind(), issued: map(), names: map()}}
+          | {:error, :not_found | :document_not_issued}
+  def read(prefix, id, kind, %{scope: scope, principal: principal, tenant_id: tenant_id})
       when is_binary(prefix) and kind in [:order, :sheet, :differences] do
     with {:ok, header} <- Counts.header(prefix, id, scope),
          {:ok, issued} <- issued(prefix, header, kind),
          {:ok, order_content} <- order_content(prefix, header, kind, issued) do
       issued = Map.put(issued, :order_content, order_content)
-      names = names(prefix, kind, issued, principal, tenant_id)
 
-      with {:ok, binary} <- CountPaperwork.build(kind, issued, names) do
-        {:ok, binary, file_name(issued.number_label)}
-      end
+      {:ok,
+       %{kind: kind, issued: issued, names: names(prefix, kind, issued, principal, tenant_id)}}
+    end
+  end
+
+  @spec fetch(String.t(), term(), CountPaperwork.kind(), ctx()) ::
+          {:ok, binary(), String.t()}
+          | {:error, :not_found | :document_not_issued | :xlsx_write_failed}
+  def fetch(prefix, id, kind, ctx) do
+    with {:ok, %{issued: issued, names: names}} <- read(prefix, id, kind, ctx),
+         {:ok, binary} <- CountPaperwork.build(kind, issued, names) do
+      {:ok, binary, file_name(issued.number_label)}
     end
   end
 
   @doc "The download file name: the number label with unsafe characters replaced, plus `.xlsx`."
   @spec file_name(term()) :: String.t()
-  def file_name(label) do
+  def file_name(label), do: file_name(label, "xlsx")
+
+  @doc "Same, with the extension given (`\"pdf\"` for REQ-736)."
+  @spec file_name(term(), String.t()) :: String.t()
+  def file_name(label, ext) do
     safe = label |> to_string() |> String.replace(~r/[^A-Za-z0-9._-]/, "_")
-    if(safe == "", do: "count", else: safe) <> ".xlsx"
+    if(safe == "", do: "count", else: safe) <> "." <> ext
   end
 
   # -- issued content -------------------------------------------------------------------------
@@ -78,7 +94,8 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
   end
 
   # The version the summary named, so label, version number and content cannot disagree.
-  defp version(prefix, doc_id, version_no) do
+  @doc false
+  def version(prefix, doc_id, version_no) do
     with {:ok, id} <- Ecto.UUID.cast(doc_id) do
       Repo.one(
         from(v in DocumentVersion,
@@ -123,7 +140,8 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
       employees: employees(prefix, kind, order, lines, principal),
       locations: locations(prefix, order, lines),
       items: for_ids(lines, "catalog_item_id", &item(prefix, &1)),
-      lots: for_ids(lines, "catalog_lot_id", &lot(prefix, &1))
+      lots: for_ids(lines, "catalog_lot_id", &lot(prefix, &1)),
+      units: for_ids(lines, "unit_ref", &uom(prefix, &1))
     }
   end
 
@@ -150,6 +168,14 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
   end
 
   defp item(prefix, id) do
+    case CatalogItems.lookup(prefix, id) do
+      {:ok, r} -> %{code: r["code"], name: r["name"]}
+      _ -> nil
+    end
+  end
+
+  # The unit of measure master record (`catalog_uom`); nil when it is not found.
+  defp uom(prefix, id) do
     case CatalogItems.lookup(prefix, id) do
       {:ok, r} -> %{code: r["code"], name: r["name"]}
       _ -> nil
@@ -199,7 +225,8 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
 
   # -- time zone ------------------------------------------------------------------------------
 
-  defp zone(tenant_id) do
+  @doc false
+  def zone(tenant_id) do
     with {:ok, tenant} <- Identity.get_tenant(tenant_id),
          name = TenantTimezone.of(tenant),
          true <- TenantTimezone.known_zone?(name) do
@@ -221,7 +248,8 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
     end
   end
 
-  defp offset(zone, value) do
+  @doc false
+  def offset(zone, value) do
     with {:ok, at} <- instant(value),
          {:ok, %{rows: [[seconds]]}} when is_integer(seconds) <-
            Repo.query(

@@ -511,15 +511,18 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
 
   @doc """
   Cancel route: cancels the issued version when the document is reversed, or issued with no mark
-  and no pending task. Reasons: `:not_found`, `:document_not_issued`, `:posting_pending`,
+  and no pending task. An issued unposted document of a stock-consuming kind (`Kinds.withdrawable?/1`)
+  may also be cancelled while its post task is pending: the post instance is withdrawn first (T-1375). Reasons: `:not_found`, `:document_not_issued`, `:posting_pending`,
   `:reversal_pending`, `:document_posted`, `{:unprocessable, atom}`, `:internal`.
   """
   @spec cancel(String.t(), term(), map(), String.t(), term()) :: {:ok, map()} | {:error, term()}
   def cancel(prefix, id, body, actor, fetch) do
     with {:ok, view} <- fetch.(prefix, id),
+         {:ok, _reason} <- checked_reason(body),
          :ok <- cancellable(prefix, view),
          %{} = issued <- issued(prefix, view.id) || {:error, :internal},
-         {:ok, reason} <- cancel_reason(body),
+         :ok <- withdraw_post(prefix, view, actor),
+         {:ok, reason} <- checked_reason(body),
          {:ok, _version} <- do_cancel(prefix, view, issued, reason, actor) do
       fetch.(prefix, id)
     else
@@ -528,19 +531,63 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     end
   end
 
-  defp cancel_reason(%{} = body), do: {:ok, Map.get(body, "reason")}
-  defp cancel_reason(_body), do: {:error, :reason_invalid}
+  # The reason is checked before anything is changed: a bad request must leave a pending post task alone.
+  defp checked_reason(%{} = body), do: Documents.validate_cancel_reason(Map.get(body, "reason"))
+  defp checked_reason(_body), do: {:error, :reason_invalid}
 
+  # An issued, unposted document of a kind whose posting the ledger can refuse for stock may be
+  # cancelled while its post task is pending (T-1375): the task is withdrawn first.
   defp cancellable(prefix, view) do
     pending = pending(prefix, view.id)
 
     cond do
       view.state in ["draft", "cancelled"] -> {:error, :document_not_issued}
-      pending.post -> {:error, :posting_pending}
+      pending.post and not Kinds.withdrawable?(view.kind) -> {:error, :posting_pending}
       pending.reverse -> {:error, :reversal_pending}
       view.state == "posted" -> {:error, :document_posted}
       true -> :ok
     end
+  end
+
+  defp withdraw_post(prefix, view, actor) do
+    ids = pending_post_instance_ids(prefix, view.id)
+
+    Enum.reduce_while(ids, :ok, fn instance_id, :ok ->
+      attrs = %{actor_id: actor, idempotency_key: "stock-withdraw:#{instance_id}"}
+
+      case Engine.cancel_instance(instance_id, attrs, prefix: prefix) do
+        {:ok, _} -> {:cont, :ok}
+        {:error, {:instance_already_terminal, _}} -> {:halt, recheck(prefix, view)}
+        {:error, :busy} -> {:halt, {:error, :busy}}
+        {:error, other} -> {:halt, {:error, log_internal(other)}}
+        _other -> {:halt, {:error, :internal}}
+      end
+    end)
+  end
+
+  # The post finished meanwhile: the mark exists, so cancellable/2 now answers document_posted.
+  defp recheck(prefix, view) do
+    case cancellable(prefix, view) do
+      :ok -> {:error, :document_not_issued}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp pending_post_instance_ids(prefix, id) do
+    ids = Enum.flat_map(Kinds.definition_names(), &definition_ids(prefix, &1))
+
+    Repo.all(
+      from(t in Task,
+        join: p in InstanceProjection,
+        on: p.instance_id == t.instance_id,
+        where:
+          t.status == :pending and t.node_id in ^@post_nodes and p.status == :active and
+            p.definition_id in ^ids and fragment("?->>'document_id' = ?", p.variables, ^id),
+        select: t.instance_id,
+        distinct: true
+      ),
+      prefix: prefix
+    )
   end
 
   defp do_cancel(prefix, view, issued, reason, actor) do

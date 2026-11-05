@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/useToast'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { formatDate as formatLocaleDate } from '@/i18n/format'
+import { DateValueHint } from '@/components/ui/DateValueHint'
 
 // NOTE: the pre-existing hand-rolled table rendered 5 <th> over 7 <td>
 // per row (Name/Created/Expires/Status/Actions headers, but
@@ -255,6 +256,7 @@ export default function TokensPage() {
             <label style={{ display: 'block', marginBottom: '.25rem', fontSize: '.875rem', fontWeight: 500 }}>Expiry date</label>
             <input type="datetime-local" value={form.expires_at} onChange={(e) => setForm((p) => ({ ...p, expires_at: e.target.value }))}
               style={{ width: '100%', padding: '.45rem .7rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)', boxSizing: 'border-box' }} />
+            <DateValueHint value={form.expires_at} kind="datetime" />
           </div>
           <p style={{ marginTop: 0, color: 'var(--text-secondary)', fontSize: '.875rem' }}>The generated value is shown once and can be copied from the confirmation dialog.</p>
           <div style={{ display: 'flex', gap: '.5rem' }}>

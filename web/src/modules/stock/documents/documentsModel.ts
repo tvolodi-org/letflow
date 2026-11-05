@@ -7,6 +7,7 @@
 import { STOCK_TIME_ZONE } from '../register/stockRegisterModel'
 import { STOCK_POST, STOCK_REVERSE } from '../stockPermissions'
 import type { DocumentLine, StockDocument } from './documents.api'
+import { formatDateTimeInZone } from '@/i18n/format'
 
 export const DOC_KINDS = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'opening'] as const
 export type DocKind = (typeof DOC_KINDS)[number]
@@ -75,6 +76,23 @@ export function documentErrorMessageId(err: unknown): string {
   return 'stock.doc.error.generic'
 }
 
+export const PRINT_KINDS = ['transfer', 'hand_over', 'return'] as const
+export const PRINT_STATES = ['issued', 'posted', 'reversed'] as const
+export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const
+
+/** REQ-738: the PDF exists for a transfer, hand over or return that has been issued. */
+export function documentPrintable(doc: { kind: string; state: string }): boolean {
+  return (PRINT_KINDS as readonly string[]).includes(doc.kind) && (PRINT_STATES as readonly string[]).includes(doc.state)
+}
+
+/** Message id of a refused print: its own 422 reason, 404 not found, anything else (403 included) the generic message. */
+export function printErrorMessageId(err: unknown): string {
+  const info = documentErrorInfo(err)
+  if (info.status === 422 && info.reason !== undefined && (PRINT_REASONS as readonly string[]).includes(info.reason)) return `stock.doc.print.reason.${info.reason}`
+  if (info.status === 404) return 'stock.doc.error.notFound'
+  return 'stock.doc.error.generic'
+}
+
 // ---- numbers -----------------------------------------------------------------------------------------------
 
 /** The server's quantity text: up to 15 integer digits, up to 9 decimals, no sign, no exponent, no leading zeros. */
@@ -124,11 +142,7 @@ export function nowZonedLocal(tz: string = STOCK_TIME_ZONE): string {
 
 export function formatEventTime(iso: string | null | undefined, locale: string, dash: string, tz: string = STOCK_TIME_ZONE): string {
   if (!iso) return dash
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return new Intl.DateTimeFormat(locale, {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).format(d)
+  return formatDateTimeInZone(iso, { timeZone: tz, locale, intlLocale: locale, enStyle: 'intl' })
 }
 
 // ---- actions -----------------------------------------------------------------------------------------------
@@ -180,6 +194,10 @@ export interface LineForm {
   locationId: string
   responsibleId: string
   receivedOn: string
+  /** Opening balance: the pair an xlsx import set on the line. Not shown; carried and sent back, because a PUT
+   *  replaces every value of a line (Documents.update_line!). */
+  externalRefSystem: string
+  externalRefId: string
 }
 export interface SideForm {
   orgUnitId: string
@@ -202,15 +220,18 @@ export interface FormState {
   receivedOn: string
   reasonCode: string
   reasonText: string
+  /** Opening balance only: the external reference pair an xlsx import (REQ-727) names the draft by. */
+  externalRefSystem: string
+  externalRefId: string
   lines: LineForm[]
 }
 
-export const emptyLine = (): LineForm => ({ itemId: '', uomId: '', lotId: '', quantity: '', unitPrice: '', lineValue: '', locationId: '', responsibleId: '', receivedOn: '' })
+export const emptyLine = (): LineForm => ({ itemId: '', uomId: '', lotId: '', quantity: '', unitPrice: '', lineValue: '', locationId: '', responsibleId: '', receivedOn: '', externalRefSystem: '', externalRefId: '' })
 
 export function emptyForm(kind: DocKind, eventTime: string = nowZonedLocal()): FormState {
   return {
     kind, eventTime, from: emptySide(), to: emptySide(), orgUnitId: '', locationId: '', responsibleId: '', counterpartyId: '', note: '',
-    supplierRef: '', receivedOn: '', reasonCode: '', reasonText: '', lines: [emptyLine()],
+    supplierRef: '', receivedOn: '', reasonCode: '', reasonText: '', externalRefSystem: '', externalRefId: '', lines: [emptyLine()],
   }
 }
 
@@ -221,6 +242,7 @@ export function lineFromDocument(l: DocumentLine): LineForm {
     itemId: s(l.catalog_item_id), uomId: s(l.catalog_uom_id), lotId: s(l.catalog_lot_id),
     quantity: s(l.quantity), unitPrice: s(l.unit_price), lineValue: s(l.line_value),
     locationId: s(l.location_id), responsibleId: s(l.responsible_id), receivedOn: s(l.received_on),
+    externalRefSystem: s(l.external_ref_system), externalRefId: s(l.external_ref_id),
   }
 }
 
@@ -250,13 +272,14 @@ export function formFromDocument(doc: StockDocument): FormState {
     counterpartyId: s(doc.counterparty_id), note: s(doc.note),
     supplierRef: s(doc.supplier_document_ref), receivedOn: s(doc.received_on),
     reasonCode: s(doc.reason_code), reasonText: s(doc.reason_text),
+    externalRefSystem: s(doc.external_ref_system), externalRefId: s(doc.external_ref_id),
     lines: lines.length > 0 ? lines : [emptyLine()],
   }
 }
 
 /** Header fields shown per kind (the form and the tests read the same table). */
 export function headerFields(kind: DocKind): string[] {
-  if (isOpening(kind)) return ['orgUnitId', 'note']
+  if (isOpening(kind)) return ['orgUnitId', 'note', 'externalRefSystem', 'externalRefId']
   if (isTwoSide(kind)) {
     return ['eventTime', 'note', ...['from', 'to'].flatMap((x) => ['orgUnitId', 'locationId', 'responsibleId'].map((k) => `${x}.${k}`))]
   }
@@ -281,6 +304,9 @@ export function validateForm(f: FormState): FormCheck {
   if (!opening && zonedLocalToIso(f.eventTime) === null) errors['header.eventTime'] = 'stock.doc.error.field_required'
   if (opening) {
     req('orgUnitId', f.orgUnitId)
+    // server @ref_max is 128; the pair is both-or-neither (OpeningShape)
+    if ((f.externalRefSystem.trim() === '') !== (f.externalRefId.trim() === '')) errors['header.externalRefId'] = 'stock.doc.error.external_ref_pair'
+    else if (f.externalRefSystem.length > 128 || f.externalRefId.length > 128) errors['header.externalRefId'] = 'stock.doc.error.textTooLong'
   } else if (two) {
     for (const side of ['from', 'to'] as const) {
       for (const k of ['orgUnitId', 'locationId', 'responsibleId'] as const) {
@@ -337,9 +363,14 @@ export function buildBody(f: FormState): Record<string, unknown> {
   const two = isTwoSide(f.kind)
   const opening = isOpening(f.kind)
   const body: Record<string, unknown> = { kind: f.kind }
+  const opt = (key: string, v: string) => {
+    if (v.trim() !== '') body[key] = v
+  }
   if (!opening) body['event_time'] = zonedLocalToIso(f.eventTime)
   if (opening) {
     body['org_unit_id'] = f.orgUnitId
+    opt('external_ref_system', f.externalRefSystem)
+    opt('external_ref_id', f.externalRefId)
   } else if (two) {
     const { from, to } = f
     if (f.kind === 'return') body['from_org_unit_id'] = from.orgUnitId
@@ -354,9 +385,6 @@ export function buildBody(f: FormState): Record<string, unknown> {
     body['org_unit_id'] = f.orgUnitId
     body['location_id'] = f.locationId
     body['responsible_id'] = f.responsibleId
-  }
-  const opt = (key: string, v: string) => {
-    if (v.trim() !== '') body[key] = v
   }
   opt('note', f.note)
   if (two || opening) {
@@ -380,6 +408,10 @@ export function buildBody(f: FormState): Record<string, unknown> {
       line['location_id'] = l.locationId
       line['responsible_id'] = l.responsibleId
       line['received_on'] = l.receivedOn
+      if (l.externalRefSystem !== '' && l.externalRefId !== '') {
+        line['external_ref_system'] = l.externalRefSystem
+        line['external_ref_id'] = l.externalRefId
+      }
     }
     if (f.kind === 'receipt' || opening) {
       if (l.unitPrice !== '') line['unit_price'] = l.unitPrice
@@ -396,6 +428,7 @@ const FIELD_KEYS: Record<string, string> = {
   responsible_id: 'header.responsibleId', counterparty_id: 'header.counterpartyId', note: 'header.note',
   supplier_document_ref: 'header.supplierRef', received_on: 'header.receivedOn', reason_code: 'header.reasonCode',
   reason_text: 'header.reasonText',
+  external_ref_system: 'header.externalRefSystem', external_ref_id: 'header.externalRefId',
   from_org_unit_id: 'side.from.orgUnitId', from_location_id: 'side.from.locationId', from_responsible_id: 'side.from.responsibleId',
   to_org_unit_id: 'side.to.orgUnitId', to_location_id: 'side.to.locationId', to_responsible_id: 'side.to.responsibleId',
 }

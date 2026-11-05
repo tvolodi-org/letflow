@@ -36,7 +36,7 @@ defmodule Letflow.Modules.Stock.OpeningRegistrationTest do
        %{tenant: t} do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
-    assert m.version == "0.11.0"
+    assert m.version == "0.13.0"
 
     assert "stock_opening" in m.manages_entity_types and
              "stock_opening_line" in m.manages_entity_types

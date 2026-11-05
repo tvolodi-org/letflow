@@ -33,6 +33,7 @@ defmodule Letflow.Scripts do
   alias Letflow.Engine.Lua.ScriptRunner
   alias Letflow.Identity
   alias Letflow.Repo
+  alias Letflow.Scripts.FormValidation
   alias Letflow.Scripts.Hash
   alias Letflow.Scripts.Policy
   alias Letflow.Scripts.ScriptRule
@@ -757,6 +758,75 @@ defmodule Letflow.Scripts do
       end
     end
   end
+
+  @doc """
+  REQ-639 / GH #3567 (decision 0067 D9, slice F-5): dry-run of a published `form_validation`
+  version against a draft payload. Order of checks: API-token refusal (403, before the body is
+  looked at), body validation (`variables` must be a map of at most 65 536 canonical bytes; the
+  router passes `:invalid_body` for a body with a key other than `version`/`variables`), the
+  version lookup (404), the tenant kill switch (409), then `FormValidation.run_measured/4` on
+  constant synthetic facts (no task, instance, record or event is read), then one audit row.
+  Every run outcome is a map; the caller turns it into a 200.
+  """
+  @spec dry_run_form_validation(String.t(), String.t(), term(), term(), actor()) ::
+          {:ok, map()} | {:error, error()}
+  def dry_run_form_validation(prefix, key, version, variables, actor) do
+    with :ok <- require_interactive(actor),
+         {:ok, variables} <- Validation.form_dry_run_variables(variables),
+         {:ok, rule} <- get(prefix, key, version),
+         :ok <- scripts_enabled(prefix) do
+      pin = %{script_key: rule.key, script_version: rule.version, script_sha256: rule.sha256}
+
+      %{result: result, stats: stats} =
+        FormValidation.run_measured(prefix, pin, form_dry_run_facts(variables))
+
+      response = form_dry_run_response(result, stats)
+
+      attrs =
+        rule
+        |> audit_attrs("script_rule.form_validation_dry_run", nil, nil, actor)
+        |> Map.put(:after_state, %{
+          "outcome" => response.outcome,
+          "instructions_used" => stats.instructions_used,
+          "heap_words_at_end" => stats.heap_words_at_end,
+          "duration_us" => stats.duration_us
+        })
+
+      # `Audit.insert_entry/3` raises on a database failure; the verdict must not leak then.
+      try do
+        case Audit.insert_entry(Repo, attrs, prefix) do
+          {:ok, _entry} -> {:ok, response}
+          {:error, _reason} -> {:error, :audit_failed}
+        end
+      rescue
+        _ -> {:error, :audit_failed}
+      end
+    end
+  end
+
+  defp form_dry_run_facts(variables) do
+    %{
+      variables: variables,
+      variable_labels: %{},
+      instance_id: @zero_instance,
+      token_id: "dry-run",
+      form: %{
+        definition_id: "dry-run",
+        definition_version: 0,
+        node_id: "dry-run",
+        schema_version_hash: "dry-run"
+      },
+      task: %{id: "dry-run", node_id: "dry-run", assignee_kind: "dry-run", now: now()}
+    }
+  end
+
+  defp form_dry_run_response({:ok, :accepted}, stats), do: %{outcome: "accepted", stats: stats}
+
+  defp form_dry_run_response({:ok, {:refused, %{code: code, fields: fields}}}, stats),
+    do: %{outcome: "refused", code: code, fields: fields, stats: stats}
+
+  defp form_dry_run_response({:error, code, _stats}, stats),
+    do: %{outcome: Atom.to_string(code), stats: stats}
 
   # GH 2534 PR 7c-1 (C11, design 8.2): a top-level `$` key is `output_invalid` before the
   # schema check (the output is not echoed).

@@ -1,5 +1,6 @@
 /** stockRegisterModel — GH 3767 / REQ-724. Pure helpers of the balances and movements screens: query keys of the
  *  routes, the cause and document-type words, the posting range check, error classes. */
+import type { ReferenceType } from '@/lib/references/referenceLabel'
 import type { BalanceRow, MovementLeg, MovementRow } from './stock.api'
 
 /** Tenant time zone until the tenant setting exists (REQ-703): assumption, owner may change at GATE B. */
@@ -15,10 +16,11 @@ export const DOCUMENT_TYPES = [
   'stock_return',
   'stock_reversal',
   'stock_opening',
+  'count.differences',
 ] as const
 
 /** Master entity types read for names. */
-export type MasterType = 'catalog_item' | 'location_node' | 'org_unit' | 'org_employee' | 'catalog_lot' | 'catalog_uom' | 'catalog_counterparty'
+export type MasterType = ReferenceType
 
 export interface BalanceFilters {
   sku: string
@@ -54,10 +56,17 @@ export function balanceParams(f: BalanceFilters): Record<string, string> {
 /** The as-of day typed in the date input: sent only when it is a full YYYY-MM-DD (an incomplete value is not sent). */
 export const AS_OF_DATE = /^\d{4}-\d{2}-\d{2}$/
 
+/** The browser-local date as YYYY-MM-DD (the server decides by the tenant time zone and stays authoritative). */
+export function todayIso(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 /** Filters plus the as-of day. Never basis, as_of, cutoff_seq or a tenant: the server resolves the cutoff and states it. */
 export function balanceQuery(f: BalanceFilters, asOf: string): Record<string, string> {
   const day = asOf.trim()
-  return { ...balanceParams(f), ...(AS_OF_DATE.test(day) ? { as_of_date: day } : {}) }
+  return { ...balanceParams(f), ...(AS_OF_DATE.test(day) && day <= todayIso() ? { as_of_date: day } : {}) }
 }
 
 /** True when both bounds are numbers and from is above to: the range is not sent and the field is marked. */
@@ -127,15 +136,4 @@ export function movementNameIds(rows: MovementRow[]): NameIds {
     }
   }
   return out
-}
-
-/** Label field per master type; the code is the fallback. */
-export const LABEL_FIELD: Record<MasterType, string> = {
-  catalog_item: 'name',
-  location_node: 'name',
-  org_unit: 'name',
-  org_employee: 'full_name',
-  catalog_lot: 'code',
-  catalog_uom: 'name',
-  catalog_counterparty: 'name',
 }

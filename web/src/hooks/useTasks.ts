@@ -49,8 +49,7 @@ export function useClaimTask() {
   const qc = useQueryClient()
   const taskKeys = useTenantScopedQueryKeys().tasks
   return useMutation({
-    mutationFn: (id: string) =>
-      tasksApi.assign(id),
+    mutationFn: (id: string) => tasksApi.claim(id),
     onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: taskKeys.detail(id) })
       qc.invalidateQueries({ queryKey: taskKeys.inbox() })

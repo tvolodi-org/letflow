@@ -21,7 +21,8 @@ import '../bootstrap/navigation_bootstrap.dart'
         apiClientProvider,
         installedModulesProvider,
         isModuleInstalled,
-        kCodesScanRoutePath;
+        kCodesScanRoutePath,
+        kStockHomeRoutePath;
 import '../i18n/i18n.dart';
 import 'definitions.dart';
 
@@ -109,6 +110,11 @@ class _TenantHomeScreenState extends ConsumerState<TenantHomeScreen> {
       'codes',
     );
 
+    final stockInstalled = isModuleInstalled(
+      ref.watch(installedModulesProvider),
+      'stock',
+    );
+
     return Scaffold(
       key: const Key('tenant-home-screen'),
       appBar: AppBar(title: Text(tr('home.appBarTitle'))),
@@ -124,6 +130,13 @@ class _TenantHomeScreenState extends ConsumerState<TenantHomeScreen> {
               leading: const Icon(Icons.qr_code_scanner),
               title: Text(tr('home.codes.scan')),
               onTap: () => context.go(kCodesScanRoutePath),
+            ),
+          if (stockInstalled)
+            ListTile(
+              key: const Key('tenant-home-stock-entry'),
+              leading: const Icon(Icons.inventory_2_outlined),
+              title: Text(tr('home.stock.entry')),
+              onTap: () => context.go(kStockHomeRoutePath),
             ),
           Expanded(
             child: entries.isEmpty
