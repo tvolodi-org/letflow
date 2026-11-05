@@ -454,3 +454,20 @@ export function placeError(err: unknown): { key: string | null; messageId: strin
   if (info.field !== undefined && FIELD_KEYS[info.field]) return { key: FIELD_KEYS[info.field], messageId }
   return { key: null, messageId }
 }
+
+/** Sum of decimal strings without floats (BigInt over a common scale). Empty and invalid values are skipped.
+ *  Returns null when nothing was summed; the digits after the point are the longest scale seen (trailing zeros kept). */
+export function sumDecimals(values: readonly string[]): string | null {
+  const parsed: { int: bigint; scale: number }[] = []
+  for (const raw of values) {
+    const v = raw.trim()
+    if (!/^\d+(\.\d+)?$/.test(v)) continue
+    const [whole, frac = ''] = v.split('.')
+    parsed.push({ int: BigInt(whole + frac), scale: frac.length })
+  }
+  if (parsed.length === 0) return null
+  const scale = Math.max(...parsed.map((p) => p.scale))
+  const total = parsed.reduce((a, p) => a + p.int * 10n ** BigInt(scale - p.scale), 0n)
+  const digits = total.toString().padStart(scale + 1, '0')
+  return scale === 0 ? digits : `${digits.slice(0, -scale)}.${digits.slice(-scale)}`
+}

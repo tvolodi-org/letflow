@@ -55,7 +55,7 @@ describe('C6-a catalog', () => {
 describe('C6-a screens follow the language', () => {
   it('list, view and form headings change with the store', async () => {
     fakeDocument(clientMock, stockDoc())
-    for (const [path, key] of [[LIST, 'stock.doc.title'], [`${LIST}/d1`, 'stock.doc.viewLede'], [`${LIST}/new`, 'stock.doc.newTitle']] as const) {
+    for (const [path, key] of [[LIST, 'stock.doc.title'], [`${LIST}/d1`, 'stock.doc.header'], [`${LIST}/new`, 'stock.doc.newTitle']] as const) {
       renderStock(path, withPost)
       expect(await screen.findByText(stockMessages.en[key])).toBeInTheDocument()
       await act(async () => useUiLocaleStore.getState().setLocaleTransient('ru'))

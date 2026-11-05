@@ -48,3 +48,18 @@ samp {
 
 /* SkeletonLayout row (T-1185): bars share one line, shrinking to fit the gaps. */
 .lf-skeleton-row { display: flex; gap: var(--space-2); }
+
+/* Wide line set (opening balance: 8 columns). The released components.css has width rules only for the receipt columns
+   and a fixed table layout, so item, lot, location, responsible and received-on collapsed (T-1379 GATE B R2). Until the
+   design system adds this set (design-notes.md, wish 1) the table keeps its natural width and scrolls sideways inside
+   .lf-doc__scroll; headers may wrap so long ru/kk labels are not cut. */
+.lf-lines--wide { width: max-content; min-width: 100%; }
+.lf-lines--wide th.is-open-item, .lf-lines--wide th.is-loc, .lf-lines--wide th.is-responsible { width: calc(var(--field-w-s) * 1.4); }
+.lf-lines--wide th.is-open-lot { width: calc(var(--field-w-s) * 1.1); }
+.lf-lines--wide th.is-receivedOn { width: calc(var(--field-w-s) * 1.2); }
+.lf-lines--wide th.is-qty { width: calc(var(--field-w-s) * 1.1); }
+.lf-lines--wide th.is-price, .lf-lines--wide th.is-value { width: calc(var(--field-w-s) * 0.9); }
+.lf-lines--wide td.is-open-item, .lf-lines--wide td.is-open-lot { overflow: hidden; }
+
+/* Long ru/kk column labels wrap instead of being cut by the fixed table layout (rule 4). */
+.lf-lines th { white-space: normal; height: auto; min-height: var(--row-h-compact); padding-top: var(--space-1); padding-bottom: var(--space-1); vertical-align: bottom; }
