@@ -70,4 +70,21 @@ defmodule Letflow.Identity.TenantTimezone do
   end
 
   def start_of_next_day(_date, _zone), do: {:error, :invalid_timezone}
+
+  @doc """
+  The current local date in `zone` (a bound parameter, INV-7). An unknown zone returns
+  `{:error, :invalid_timezone}` before the statement is sent.
+  """
+  @spec today(String.t()) :: {:ok, Date.t()} | {:error, :invalid_timezone}
+  def today(zone) when is_binary(zone) do
+    with true <- known_zone?(zone),
+         {:ok, %{rows: [[%Date{} = date]]}} <-
+           SQL.query(Repo, "SELECT (now() AT TIME ZONE $1)::date", [zone]) do
+      {:ok, date}
+    else
+      _ -> {:error, :invalid_timezone}
+    end
+  end
+
+  def today(_zone), do: {:error, :invalid_timezone}
 end

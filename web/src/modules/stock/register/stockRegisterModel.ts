@@ -55,10 +55,17 @@ export function balanceParams(f: BalanceFilters): Record<string, string> {
 /** The as-of day typed in the date input: sent only when it is a full YYYY-MM-DD (an incomplete value is not sent). */
 export const AS_OF_DATE = /^\d{4}-\d{2}-\d{2}$/
 
+/** The browser-local date as YYYY-MM-DD (the server decides by the tenant time zone and stays authoritative). */
+export function todayIso(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 /** Filters plus the as-of day. Never basis, as_of, cutoff_seq or a tenant: the server resolves the cutoff and states it. */
 export function balanceQuery(f: BalanceFilters, asOf: string): Record<string, string> {
   const day = asOf.trim()
-  return { ...balanceParams(f), ...(AS_OF_DATE.test(day) ? { as_of_date: day } : {}) }
+  return { ...balanceParams(f), ...(AS_OF_DATE.test(day) && day <= todayIso() ? { as_of_date: day } : {}) }
 }
 
 /** True when both bounds are numbers and from is above to: the range is not sent and the field is marked. */

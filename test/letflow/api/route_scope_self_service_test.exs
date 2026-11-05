@@ -499,8 +499,9 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       # REQ-718 (GH #3884) added four count posting lines (230 -> 234).
       # REQ-639 F-5 added the form-validation-dry-run line (234 -> 235).
       # REQ-736 (GH #3861) added the count print route line (235 -> 236).
-      # REQ-741 (GH #3879) added the two stock voice draft lines (236 -> 238).
-      assert length(snapshot) == 238
+      # REQ-737 (GH #3860) added the document print route line (236 -> 237).
+      # REQ-741 (GH #3879) added the two stock voice draft lines (237 -> 239).
+      assert length(snapshot) == 239
 
       for l <- @removed_lines, do: refute(l in snapshot, l)
     end

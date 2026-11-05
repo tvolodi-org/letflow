@@ -53,7 +53,7 @@ cannot be resolved for a request of tenant A. Per-tenant keys stay an open quest
 | `ModelClient` (llm) | `:truncated` | `finish_reason` is `length` |
 | `ModelClient` (llm) | `:refused` | the answer carries a refusal |
 
-## Routes (REQ-741 / GH #3879; stock 0.13.0)
+## Routes (REQ-741 / GH #3879; stock 0.14.0)
 
 Both routes are in module `stock` (`/api/v1/modules/stock`), permission `StockPost` (no new atom), same guard
 as the document routes: a tenant-wide interactive user only; an API token or a scoped grant gets the same 404

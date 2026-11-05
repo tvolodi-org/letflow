@@ -204,6 +204,19 @@ defmodule Letflow.Modules.Stock.CountPaperworkTest do
     end
   end
 
+  describe "T4 the unit cell shows the unit of measure name" do
+    test "code and name when the master is known, the raw reference when it is not" do
+      content = sheet_content([line(1), line(2, %{"unit_ref" => "u-known"})])
+      units = %{"u-known" => %{code: "KG", name: "Kilogram"}}
+
+      {:ok, bin} = CountPaperwork.build(:sheet, issued(content), names(%{units: units}))
+      [header, first, second] = workbook_sheets(bin)["lines"] |> texts()
+      at = Enum.find_index(header, &(&1 == "unit"))
+      assert Enum.at(first, at) == "pcs"
+      assert Enum.at(second, at) == "KG Kilogram"
+    end
+  end
+
   describe "P2 quantities are exact text" do
     test "sheet and differences keep the stored decimal string" do
       for kind <- [:sheet, :differences] do
