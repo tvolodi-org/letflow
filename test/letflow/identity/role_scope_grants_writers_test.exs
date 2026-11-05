@@ -286,7 +286,7 @@ defmodule Letflow.Identity.RoleScopeGrantsWritersTest do
                TenantOnboarding.provision_and_migrate(tenant.id)
 
       expected = rows_match_bindings!(s)
-      assert length(expected) == 7
+      assert length(expected) == 8
       assert length(expected) == length(RoleRegistry.seedable_role_names(s))
       assert_t9_zero!(s)
 
@@ -333,7 +333,7 @@ defmodule Letflow.Identity.RoleScopeGrantsWritersTest do
       assert bare.tenant_id in seeded
 
       for s <- [bare.schema_name, gap.schema_name] do
-        assert length(rows_match_bindings!(s)) == 7
+        assert length(rows_match_bindings!(s)) == 8
         assert_t9_zero!(s)
       end
 

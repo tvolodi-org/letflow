@@ -12,6 +12,7 @@ export const ROLES = [
   'CANDIDATE',
   'TENANT_ADMIN',
   'TENANT_AUDITOR',
+  'STOREKEEPER',
 ] as const
 
 export type Role = (typeof ROLES)[number]

@@ -475,6 +475,24 @@ defmodule Letflow.Modules.Stock.OpeningImportTest do
     end
   end
 
+  describe "storekeeper (T-1317, decision 0081 D4)" do
+    test "T-11 a STOREKEEPER imports opening lines (dry run and real); the lines land in the draft",
+         ctx do
+      tok = Letflow.StockFixture.token(ctx, :a, ["STOREKEEPER"], sub: "keeper-imp")
+      id = ctx.im.doc["id"]
+      rows = [row(ctx.im, "SK1"), row(ctx.im, "SK2")]
+      base = length(lines(ctx, id))
+
+      dry = import_file(ctx, rows, "&dry_run=true", tok)
+      assert Enum.map(results(dry), & &1["status"]) == ["ok", "ok"]
+      assert length(lines(ctx, id)) == base
+
+      real = import_file(ctx, rows, "", tok)
+      assert Enum.map(results(real), & &1["status"]) == ["ok", "ok"]
+      assert length(lines(ctx, id)) == base + 2
+    end
+  end
+
   describe "tenancy" do
     test "I7-1 tenant B naming A's header gets reference_not_found and A is unchanged", ctx do
       %{b: b, tok_b: tok_b} = P.tenant_b!(ctx)

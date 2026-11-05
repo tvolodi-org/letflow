@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { P, useAccess, AccessPending } from '@/auth/access'
+import { P, useAccess, AccessPending, roleLabel, roleDescription } from '@/auth/access'
 import { DeactivateUserDialog } from '@/components/admin/users/DeactivateUserDialog'
 import { useAdminGroups, useAdminRoles, useAdminUser, useDeactivateAdminUser, useUpdateAdminUser } from '@/hooks/useAdminUsers'
 import type { User } from '@/types/api'
@@ -140,7 +140,12 @@ export default function UserDetailPage() {
                         })
                       }}
                     />
-                    {' '}{role.name}
+                    {' '}{roleLabel(role.name)}
+                    {roleDescription(role.name) && (
+                      <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                        {roleDescription(role.name)}
+                      </span>
+                    )}
                   </label>
                 )
               })}

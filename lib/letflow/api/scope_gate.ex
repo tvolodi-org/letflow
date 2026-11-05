@@ -136,6 +136,30 @@ defmodule Letflow.Api.ScopeGate do
   end
 
   @doc """
+  T-1317 / D-093: the allowed node set for `policy_key` computed as if the caller did not hold role
+  `excluded` (a role whose grant of the permission is narrower in purpose than the route, such as
+  STOREKEEPER's import). Not `on` -> `{conn, :all}`. Without the exclusion the tenant-wide scope of
+  that role would widen another role's scoped grant through the union (`Scope.combine/1`).
+  """
+  @spec scope_set_without_role(Plug.Conn.t(), policy_key :: atom(), excluded :: atom()) ::
+          {Plug.Conn.t(), Types.scope_set()}
+  def scope_set_without_role(%Plug.Conn{} = conn, policy_key, excluded)
+      when is_atom(policy_key) and is_atom(excluded) do
+    conn = Plug.Conn.put_private(conn, @marker, true)
+
+    case mode(conn) do
+      :on ->
+        memoised_set(
+          conn,
+          {:without_role, Authorization.required_permission(policy_key), excluded}
+        )
+
+      _not_on ->
+        {conn, :all}
+    end
+  end
+
+  @doc """
   REQ-518 PR 2d (design C.4): the principal the engine path hands to the in-transaction F1
   re-check: `:off` when the tenant is not `on` (the F1 branch is selected ONLY by the
   per-request flag, AC 16, and then no query is issued), `{:enforce, principal}` when it is.
@@ -183,6 +207,10 @@ defmodule Letflow.Api.ScopeGate do
       {:error, :no_principal} ->
         {conn, :none}
     end
+  end
+
+  defp set_for(principal, {:without_role, permission, excluded}) do
+    Scope.allowed_set(%{principal | roles: List.delete(principal.roles, excluded)}, permission)
   end
 
   defp set_for(principal, {permission, role}) do

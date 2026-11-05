@@ -97,6 +97,17 @@ describe('AppShell language switch', () => {
     expect(window.localStorage.getItem('lf-locale')).toBe('kk')
   })
 
+  it('the Sign out entry follows the language', async () => {
+    await renderShell()
+    expect(screen.getByTestId('logout-button')).toHaveTextContent('Sign out')
+    await userEvent.click(screen.getByTestId('language-switcher-trigger'))
+    await userEvent.click(screen.getByRole('menuitemradio', { name: /Русский/ }))
+    expect(screen.getByTestId('logout-button')).toHaveTextContent('Выйти')
+    await userEvent.click(screen.getByTestId('language-switcher-trigger'))
+    await userEvent.click(screen.getByRole('menuitemradio', { name: /Қазақша/ }))
+    expect(screen.getByTestId('logout-button')).toHaveTextContent('Шығу')
+  })
+
   it('keyboard: arrows and Escape work in the TopBar switcher', async () => {
     await renderShell()
     const user = userEvent.setup()
