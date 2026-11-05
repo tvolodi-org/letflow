@@ -43,6 +43,8 @@ export interface AccessInfo {
   roles: string[]
   permissions: string[]
   platform_tenant: boolean
+  /** The caller's tenant user record id; optional so an older server still type-checks. */
+  user_id?: string
 }
 
 export type AccessState =

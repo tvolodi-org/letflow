@@ -6,6 +6,7 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithAccess } from '@/auth/access/testing'
+import { accessState } from '@/auth/access/fixtures'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { noUuidInDom } from '@/test-utils/noUuidInDom'
@@ -67,6 +68,7 @@ function renderPage() {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={['/?filter=all']}><TaskInboxPage /></MemoryRouter>
     </QueryClientProvider>,
+    accessState('platformAdmin', '11111111-2222-4333-8444-555555555555'),
   )
 }
 
