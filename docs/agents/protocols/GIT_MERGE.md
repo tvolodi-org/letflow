@@ -119,6 +119,16 @@ The supervisor checks the block (`scripts/check_pr_gates.sh <PR>`) before it gra
 block or a line without evidence gets no slot. The supervisor never waives or overrides a gate verdict
 (`AGENT_SYSTEM.md` §10).
 
+### SHORT-chain tier line (REQ-523; advisory, audit #2874 R11)
+
+This subsection is the one place that holds the rule; `ORCHESTRATOR.md` §13 and the workflow files point here.
+
+- The `Tier:` line of a SHORT-chain PR body carries the literal output of `mix letflow.risk_tier` and the classified head sha: `Tier: SHORT — TIER: SHORT @ <40-hex head sha>`.
+- The PR is enqueued only with `gh pr merge --squash --match-head-commit <that sha>`; if the head moved, the helper is re-run first.
+- A SHORT-chain PR whose body lacks the helper's output is a defect, and the merging agent checks the body before merging.
+- A consumer that finds no line matching `^TIER: (SHORT|NOT-SHORT)$`, more than one, or a non-zero exit treats the result as NOT-SHORT (the FULL chain).
+- The result is advisory: a SHORT chain also needs the supervisor's go, after the supervisor re-runs the helper from `origin/main`.
+
 ## Procedure
 
 ```

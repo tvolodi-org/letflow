@@ -558,22 +558,27 @@ defmodule Letflow.Audit do
           {:ok, boolean()}
           | {:error, {:max_hops_exceeded, pos_integer()}}
           | {:error, {:broken_chain_link, chain_hash :: String.t()}}
-  def chain_precedes?(prefix, %Entry{} = earlier, %Entry{} = later) when is_binary(prefix) do
+  def chain_precedes?(prefix, %Entry{} = earlier, %Entry{} = later, opts \\ [])
+      when is_binary(prefix) and is_list(opts) do
+    # `:max_hops` exists so a test can prove the bound with a short chain
+    # instead of 10_000 rows (GH #2525); production callers use the default.
+    max_hops = Keyword.get(opts, :max_hops, @max_chain_walk_hops)
+
     if earlier.id == later.id do
       {:ok, false}
     else
-      walk_chain_for_ancestor(prefix, later.prev_chain_hash, earlier.id, 0)
+      walk_chain_for_ancestor(prefix, later.prev_chain_hash, earlier.id, 0, max_hops)
     end
   end
 
-  defp walk_chain_for_ancestor(_prefix, nil, _earlier_id, _hops), do: {:ok, false}
+  defp walk_chain_for_ancestor(_prefix, nil, _earlier_id, _hops, _max), do: {:ok, false}
 
-  defp walk_chain_for_ancestor(_prefix, _chain_hash, _earlier_id, hops)
-       when hops >= @max_chain_walk_hops do
-    {:error, {:max_hops_exceeded, @max_chain_walk_hops}}
+  defp walk_chain_for_ancestor(_prefix, _chain_hash, _earlier_id, hops, max)
+       when hops >= max do
+    {:error, {:max_hops_exceeded, max}}
   end
 
-  defp walk_chain_for_ancestor(prefix, chain_hash, earlier_id, hops) do
+  defp walk_chain_for_ancestor(prefix, chain_hash, earlier_id, hops, max) do
     case Repo.get_by(Entry, [chain_hash: chain_hash], prefix: prefix) do
       nil ->
         {:error, {:broken_chain_link, chain_hash}}
@@ -582,7 +587,7 @@ defmodule Letflow.Audit do
         {:ok, true}
 
       %Entry{prev_chain_hash: next_chain_hash} ->
-        walk_chain_for_ancestor(prefix, next_chain_hash, earlier_id, hops + 1)
+        walk_chain_for_ancestor(prefix, next_chain_hash, earlier_id, hops + 1, max)
     end
   end
 
