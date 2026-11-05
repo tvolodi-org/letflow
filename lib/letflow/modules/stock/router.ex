@@ -86,6 +86,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts/:id/lines` (`limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
   | `PUT /counts/:id/lines/:line_no/count` (body exactly `counted_quantity`, a decimal string) | `StockCountRecord` | 200 line |
   | `POST /counts/:id/surplus-lines` | `StockCountRecord` | 201 line |
+  | `POST /counts/:id/scan` (REQ-716; body `scanned_text`, `location_id`, `scan_id`) | `StockCountRecord` | 200 line with `duplicate`, or `kind: location` |
   | `GET /counts/:id/entries` (`limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
   | `POST /counts/:id/close` (empty body) | `StockCountRecord` | 200 order view |
   | `GET /counts/:id/sheet-document` | `StockRead` | 200 issued summary, no content bytes |
@@ -377,6 +378,15 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  authz_post "/counts/:id/scan", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      case conn.body_params do
+        %{"_json" => _} -> {:error, {:field_invalid, "body"}}
+        body -> Counts.scan(prefix, conn.params["id"], body, opts)
+      end
+    end)
+  end
+
   authz_post "/counts/:id/surplus-lines", :StockCountRecord do
     count_write(conn, :StockCountRecord, 201, fn prefix, opts ->
       case conn.body_params do
@@ -601,6 +611,9 @@ defmodule Letflow.Modules.Stock.Router do
 
   defp render(conn, {:ok, body}, status), do: Response.send_json(conn, status, body)
   defp render(conn, {:error, :not_found}, _status), do: Response.not_found(conn)
+
+  # REQ-716: an unknown code and a location outside the count look the same as an unknown count id.
+  defp render(conn, {:error, :code_unknown}, _status), do: Response.not_found(conn)
   defp render(conn, {:error, :audit_failed}, _status), do: Response.internal_error(conn)
 
   defp render(conn, {:error, {:field_not_allowed, key}}, _status) when is_binary(key),
