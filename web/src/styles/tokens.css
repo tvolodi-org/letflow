@@ -155,6 +155,7 @@
   --dialog-w: 520px;
   --dialog-w-l: 760px;
   --z-nav: 100;
+  --z-topbar: 250; /* above the test-environment banner (200), below popovers' own layer */
   --z-sticky: 50;
   --z-popover: 300;
   --z-modal: 500;

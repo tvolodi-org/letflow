@@ -23,13 +23,15 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('O1 list', () => {
-  it('shows number, org unit, kind, planned start, chair and status', async () => {
+  it('shows number, org unit, kind, planned start and status', async () => {
     fakeCounts(clientMock)
     renderCounts(LIST)
     const row = (await screen.findByText('CNT-0001')).closest('tr')!
-    for (const text of ['Main store', 'Full', '2026-11-10 09:00', 'Aigul B.', 'Draft']) {
+    for (const text of ['Nov 10, 2026 09:00', 'Draft']) {
       await waitFor(() => expect(within(row).getByText(text)).toBeInTheDocument())
     }
+    // the org unit and the kind share the muted second line of the Number cell (R7, wide list); the chair is in the detail
+    await waitFor(() => expect(row).toHaveTextContent('Main store · Full'))
   })
 })
 

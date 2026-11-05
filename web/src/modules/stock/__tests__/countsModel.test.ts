@@ -14,7 +14,7 @@ describe('M2 tenant zone', () => {
   it('converts local input to an offset ISO string and back (Asia/Almaty, UTC+5)', () => {
     expect(zonedToIso('2026-11-10T09:30')).toBe('2026-11-10T09:30:00+05:00')
     expect(zonedToIso('')).toBe('')
-    expect(formatInZone('2026-11-10T04:30:00Z')).toBe('2026-11-10 09:30')
+    expect(formatInZone('2026-11-10T04:30:00Z')).toBe('Nov 10, 2026 09:30')
     expect(isoToLocalInput('2026-11-10T04:30:00Z')).toBe('2026-11-10T09:30')
     expect(formatInZone(null)).toBe('')
   })

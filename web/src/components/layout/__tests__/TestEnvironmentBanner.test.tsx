@@ -16,6 +16,9 @@ vi.mock('@/auth/useTenantContext')
 
 import { TestEnvironmentBanner } from '../TestEnvironmentBanner'
 import { useTenantContext } from '@/auth/useTenantContext'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const mockUseTenantContext = vi.mocked(useTenantContext)
 
@@ -58,5 +61,31 @@ describe('ENV-04 — TestEnvironmentBanner', () => {
     const { container } = render(<TestEnvironmentBanner />)
 
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+describe('R7 — banner text and stacking', () => {
+  afterEach(() => useUiLocaleStore.getState().setLocaleTransient('en'))
+
+  it('L-4: the banner text follows the UI language', () => {
+    mockUseTenantContext.mockReturnValue(ctx('test'))
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    render(<TestEnvironmentBanner />)
+    expect(screen.getByText('ТЕСТОВАЯ СРЕДА')).toBeVisible()
+    cleanup()
+    useUiLocaleStore.getState().setLocaleTransient('kk')
+    render(<TestEnvironmentBanner />)
+    expect(screen.getByText('СЫНАҚ ОРТАСЫ')).toBeVisible()
+  })
+
+  it('L-3: the top bar sits above the banner, and the banner sticks below the bar', () => {
+    const css = readFileSync(join(__dirname, '../../../styles/components.css'), 'utf8')
+    const tokens = readFileSync(join(__dirname, '../../../styles/tokens.css'), 'utf8')
+    expect(css).toMatch(/\.lf-topbar \{[^}]*z-index: var\(--z-topbar\)/)
+    const z = Number(/--z-topbar:\s*(\d+)/.exec(tokens)?.[1])
+    expect(z).toBeGreaterThan(200)
+    mockUseTenantContext.mockReturnValue(ctx('test'))
+    render(<TestEnvironmentBanner />)
+    expect(screen.getByTestId('test-environment-banner').style.top).toBe('var(--topbar-height)')
   })
 })

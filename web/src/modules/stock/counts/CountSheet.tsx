@@ -21,6 +21,10 @@ import { countsApi, type CountEntry, type CountLine, type CountPage } from './co
 import { countsQueryKeys } from './countsQueryKeys'
 import { fieldOf, formatInZone, isDecimalNonNegative, reasonMessageId } from './countsModel'
 import { useCountsWrite } from './useCountsWrite'
+import { formatQuantity } from '@/lib/formatQuantity'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { actorLabel, tokenSubject } from '@/lib/references/actorLabel'
+import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 
 const NONE: never[] = []
 
@@ -194,13 +198,21 @@ function EntryLog({ orderId }: { orderId: string }) {
   )
   const rows = (query.data?.pages ?? []).flatMap((p) => p.rows)
   const dash = t('stock.common.dash')
+  const uiLocale = useUiLocale()
+  const name = useNames((query.data?.pages ?? []).map((p) => ({ org_employee: p.rows.map((r) => r.entered_by_employee_id).filter((v): v is string => !!v) })))
+  // The person's name, never the id: the server label, else the linked employee, else "You" / "Another user".
+  const entrant = (r: CountEntry): string =>
+    r.entered_by_label ||
+    (r.entered_by_employee_id ? name('org_employee', r.entered_by_employee_id) : '') ||
+    (r.entered_by ? actorLabel(r.entered_by, tokenSubject(session?.token), REFERENCE_MESSAGES[uiLocale]) : '') ||
+    dash
   const columns: DataTableColumn<CountEntry>[] = [
     { key: 'entry', label: t('counts.col.entryNo'), render: (r) => r.entry_no, mono: true },
-    { key: 'user', label: t('counts.col.user'), render: (r) => r.entered_by ?? dash },
+    { key: 'user', label: t('counts.col.user'), render: (r) => entrant(r) },
     { key: 'time', label: t('counts.col.time'), render: (r) => formatInZone(r.entered_at) || dash, mono: true },
     { key: 'line', label: t('counts.col.line'), render: (r) => r.line_no, mono: true },
-    { key: 'before', label: t('counts.col.before'), render: (r) => r.quantity_before ?? dash, mono: true, align: 'end' },
-    { key: 'after', label: t('counts.col.after'), render: (r) => r.quantity_after ?? dash, mono: true, align: 'end' },
+    { key: 'before', label: t('counts.col.before'), render: (r) => (r.quantity_before == null ? dash : formatQuantity(r.quantity_before)), mono: true, align: 'end' },
+    { key: 'after', label: t('counts.col.after'), render: (r) => (r.quantity_after == null ? dash : formatQuantity(r.quantity_after)), mono: true, align: 'end' },
     { key: 'method', label: t('counts.col.method'), render: (r) => r.method ?? dash },
   ]
   return (
@@ -264,7 +276,7 @@ export function CountSheet({ orderId, status, canRecord, highlightLine = null }:
     { key: 'lot', label: t('counts.col.lot'), render: (r) => name('catalog_lot', r.catalog_lot_id) || dash },
     { key: 'responsible', label: t('counts.col.responsible'), render: (r) => name('org_employee', r.responsible_employee_id) || dash },
     { key: 'unit', label: t('counts.col.unit'), render: (r) => name('catalog_uom', r.unit_ref) },
-    { key: 'book', label: t('counts.col.book'), render: (r) => r.book_quantity ?? dash, mono: true, align: 'end' },
+    { key: 'book', label: t('counts.col.book'), render: (r) => (r.book_quantity == null ? dash : formatQuantity(r.book_quantity)), mono: true, align: 'end' },
     {
       key: 'counted',
       label: t('counts.col.counted'),

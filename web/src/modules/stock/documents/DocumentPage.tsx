@@ -29,6 +29,7 @@ import { DOC_KINDS, DOC_STATES, documentPrintable, formatEventTime, isOpening, i
 import { stateTone } from './stateTone'
 import { parseFilename } from '../counts/countsModel'
 import { movementsLinkFor, type NameIds } from '../register/stockRegisterModel'
+import { formatQuantity } from '@/lib/formatQuantity'
 
 function nameIds(doc: StockDocument): NameIds {
   const out: NameIds = {}
@@ -108,7 +109,8 @@ function DocumentInner() {
   }
 
   const refMsg = REFERENCE_MESSAGES[uiLocale]
-  const actor = (ref: string | null | undefined) => actorLabel(ref, tokenSubject(session?.token), refMsg)
+  const actor = (ref: string | null | undefined, label?: string | null) =>
+    ref && ref === tokenSubject(session?.token) ? refMsg.you : label || actorLabel(ref, tokenSubject(session?.token), refMsg)
   const row = (label: string, value: string | null | undefined, mono = false) => (
     <div>
       <dt>{label}</dt>
@@ -177,9 +179,9 @@ function DocumentInner() {
         {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefId'), doc.external_ref_id, true)}
         {row(t('stock.doc.field.issuedAt'), doc.issued_at ? when(doc.issued_at) : null, true)}
         {row(t('stock.doc.field.postedAt'), doc.posted_at ? when(doc.posted_at) : null, true)}
-        {row(t('stock.doc.field.postedBy'), actor(doc.posted_by))}
+        {row(t('stock.doc.field.postedBy'), actor(doc.posted_by, doc.posted_by_label))}
         {row(t('stock.doc.field.reversedAt'), doc.reversed_at ? when(doc.reversed_at) : null, true)}
-        {row(t('stock.doc.field.reversedBy'), actor(doc.reversed_by))}
+        {row(t('stock.doc.field.reversedBy'), actor(doc.reversed_by, doc.reversed_by_label))}
       </dl>
       {two && (['from', 'to'] as const).map((side) => (
         <section key={side} data-testid={`view-side-${side}`} aria-label={t(`stock.doc.side.${side}`)}>
@@ -213,7 +215,7 @@ function DocumentInner() {
               <td>{name('catalog_item', l.catalog_item_id)}</td>
               <td>{name('catalog_lot', l.catalog_lot_id) || dash}</td>
               <td>{name('catalog_uom', l.catalog_uom_id)}</td>
-              <td className="mono">{l.quantity}</td>
+              <td className="mono">{formatQuantity(l.quantity)}</td>
               {opening && <td>{name('location_node', l.location_id) || dash}</td>}
               {opening && <td>{name('org_employee', l.responsible_id) || dash}</td>}
               {opening && <td className="mono">{l.received_on ?? dash}</td>}
