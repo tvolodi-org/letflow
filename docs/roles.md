@@ -186,6 +186,8 @@ TENANT_ADMIN and PLATFORM_ADMIN hold it.
 Module `codes` (GH #3611, REQ-667; GH #3797, REQ-730) declares `CodesWrite` (receive, assign, release, retire and rewrite codes) and `CodesRead` (scan lookup, `POST /resolve`), tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.
 
 Module `stock` (GH #3707, REQ-687) declares `StockPost`, `StockReverse`, `StockRead` and `StockReconcile`, tenant scope. TENANT_ADMIN and PLATFORM_ADMIN hold them all; STOREKEEPER holds all but `StockReconcile` (D-093, `role_grants` since stock 0.14.0).
+Module `assets` (GH #3892, REQ-750) declares `AssetsCardWrite` (asset cards: create, change, retire), tenant scope. It declares no `role_grants`, so only
+TENANT_ADMIN and PLATFORM_ADMIN hold it; the routes also require an interactive, tenant-wide caller.
 Module `locations` (GH #3612, REQ-666) declares `LocationsWrite` (location nodes: create, change, move, retire; links of org units to locations: link, unlink), tenant scope. It declares no `role_grants`, so only
 TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.
 Conditional cells: the 0046 D3 binding condition (source-tenant ownership proven) is met by REQ-446
