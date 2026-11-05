@@ -314,4 +314,6 @@ defmodule Letflow.Labels do
         {:ok, text}
     end
   end
+
+  # probe: selective-tests lib-only run, not for merge
 end
