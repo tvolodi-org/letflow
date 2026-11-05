@@ -12,7 +12,7 @@ function RoleList() {
       <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)' }}>
         {ROLES.map(name => (
           <label key={name} style={{ display: 'block', marginBottom: 'var(--space-2)' }}>
-            <input type="checkbox" defaultChecked={name === 'STOREKEEPER'} /> {roleLabel(name, locale)}
+            <input type="checkbox" defaultChecked={name === ROLES[ROLES.length - 1]} /> {roleLabel(name, locale)}
             <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
               {roleDescription(name, locale)}
             </span>
