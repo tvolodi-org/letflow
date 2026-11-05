@@ -572,11 +572,14 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     external id of its target under the same external-ref system as the row. The import never posts and does not run
     the line checks of decision 0079 D3: use the check route afterwards. A row for an issued, posted or cancelled
     document is refused (`document_not_draft`); a draft has at least one line at save, so imported lines start after it
-    (`lib/letflow/modules/stock/documents/opening_import.ex`, GH #3773).
+    (`lib/letflow/modules/stock/documents/opening_import.ex`, GH #3773). On screen: the type is on the Import data
+    screen (`/admin/import`, stock module installed) with its template download; the draft is named by the external
+    system and id entered on the opening draft form, and every row of the file repeats that system in
+    `external_ref_system` and the id in `header_id` (GH T-1364).
 36. **The template columns are the line field names.** `header_id`, `org_unit_id`, `location_id`, `responsible_id`,
     `catalog_item_id`, `catalog_uom_id`, `catalog_lot_id`, `quantity`, `received_on`, `unit_price`, `line_value`,
-    `external_ref_system`, `external_ref_id` (decision 0077 D3); `line_no` is not a column, a new line takes the next
-    number. The row's own external ref pair identifies the line inside its document. `line_invalid` is a sixth refusal
+    `external_ref_system`, `external_ref_id` (decision 0077 D3); `line_no` is a definition field, so the downloaded template has it as a
+    14th column, but the import ignores it: a new line takes the next number. The row's own external ref pair identifies the line inside its document. `line_invalid` is a sixth refusal
     beyond the five of the entry, for a cell the shape check refuses (GH #3773).
 37. **An API token of a TENANT_ADMIN can import draft lines** although the stock document routes refuse API tokens: the
     import route needs `EntitiesRecordsImport`, not `StockPost`. The token can only write draft lines, never post; if
