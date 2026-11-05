@@ -7,8 +7,11 @@ import { clearToken, setToken, tryRestoreE2eSession } from '@/api/client'
 import { decodeTokenPayload, resolveDisplayName, resolveTenantSlug } from './tokenUtils'
 import type { UserSession } from '@/types/api'
 import { AuthContext, type AuthContextValue, type SwitchTenantOutcome } from './AuthContext'
-import { getOidcManager } from './OidcManager'
+import { getOidcManager, resetOidcManager } from './OidcManager'
+import { ErrorResponse } from 'oidc-client-ts'
 import type { UserManager } from 'oidc-client-ts'
+import { registerRenewer, renewSession } from './sessionRenewal'
+import type { RenewOutcome } from './sessionRenewal'
 import { attemptSilentSwitch, getOrCreateManagerForTenant } from './tenantOidcRegistry'
 import { tenantRoot } from '@/api/queryKeys'
 import { tenantsApi } from '@/api/tenants'
@@ -18,6 +21,9 @@ import { resetTenantConfigCache, resolveRealmFromUrl } from './tenantConfig'
 import { fetchTenantTypeForSlug } from './tenantType'
 import { isEmailFirstLoginEnabled } from './emailFirstFlag'
 import { buildRedirectArgs } from './oidcRedirectArgs'
+
+/** sessionStorage key of the one-shot "your session expired" flag (read by SessionNotice). */
+const SESSION_NOTICE_KEY = 'bpm_session_notice'
 
 /** Shared by `login()` (authorization-code-flow callback) and
  *  `switchTenant()` (§5.3 — silent-auth outcome) — both produce the SAME
@@ -68,6 +74,24 @@ export async function buildSessionFromToken(token: string): Promise<UserSession>
   }
 }
 
+
+/** Refresh errors that mean the refresh token / SSO session is really gone. Everything
+ *  else (network failure, timeout, 5xx, non-JSON body) is transient: keep the credential. */
+const TERMINAL_ERRORS = new Set([
+  'invalid_grant',
+  'invalid_token',
+  'unauthorized_client',
+  'login_required',
+  'interaction_required',
+])
+function isTerminalRenewError(err: unknown): boolean {
+  return err instanceof ErrorResponse && err.error !== null && TERMINAL_ERRORS.has(err.error)
+}
+
+const RETRY_BACKOFF_MS = [5_000, 10_000, 20_000, 30_000]
+const RETRY_GRACE_MS = 5 * 60_000
+const WAKE_RENEW_WITHIN_S = 90
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient()
   const [session, setSessionState] = useState<UserSession | null>(() => {
@@ -92,7 +116,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // React to session-expired events dispatched by the API client.
   // Redirect to Keycloak login via OIDC.
   useEffect(() => {
-    const handle = () => {
+    const handle = (e: Event) => {
+      // A real expiry (refresh refused / replay still 401) leaves a one-shot,
+      // non-secret flag that SessionNotice shows after the sign-in redirect.
+      const reason = (e as CustomEvent<{ reason?: string } | undefined>).detail?.reason
+      if (reason === 'refresh_failed' || reason === 'replay_unauthorized') {
+        try {
+          sessionStorage.setItem(SESSION_NOTICE_KEY, 'expired')
+        } catch {
+          /* storage unavailable: no notice */
+        }
+      }
       clearToken()
       setSessionState(null)
       // REQ-438 (design req434 D4): with the email-first flag on and NO realm
@@ -117,8 +151,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // refresh token first (signinSilent uses it when the user has one), hidden
   // iframe as fallback. We deliberately do not call startSilentRenew(): its own
   // service also renews on that event, which would send two refresh requests per
-  // expiry. A renewal that fails here is left alone: the next API 401 raises
-  // 'auth:session-expired', the only redirect path.
+  // expiry. A terminal failure is left to the API client: its 401 path renews once
+  // more, then raises 'auth:session-expired', the only redirect path.
   //
   // Tenant isolation: exactly one manager is "active" (the one that issued the
   // current session's token). attachRenewal moves the handler to a new manager on
@@ -134,31 +168,108 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(newToken)
       setSessionState(prev => (prev ? { ...prev, token: newToken } : null))
     }
-    const renew = async () => {
+    const warn = (kind: string, err: unknown) => {
+      // Never the token: only the kind and the error message.
+      console.warn('[auth] silent renew failed', kind, err instanceof Error ? err.message : String(err))
+    }
+    // One refresh attempt, classified. Registered with sessionRenewal so the timer, the
+    // wake-up triggers and the API client's 401 path share one in-flight refresh.
+    const renewOnce = async (): Promise<RenewOutcome> => {
+      const stored = await manager.getUser()
+      if (!stored) return { kind: 'terminal' }
       try {
-        applyUser((await manager.signinSilent())?.access_token)
-        return
-      } catch {
-        // refresh-token grant failed: fall through to the iframe flow
-      }
-      try {
-        const stored = await manager.getUser()
-        if (stored?.refresh_token) {
-          // Intended: the store is in memory only; if the iframe also fails the
-          // user keeps no refresh token and the next 401 re-authenticates.
-          stored.refresh_token = undefined
-          await manager.storeUser(stored)
-          applyUser((await manager.signinSilent())?.access_token)
+        const token = (await manager.signinSilent())?.access_token
+        if (!token || !isActive()) return { kind: 'transient' }
+        applyUser(token)
+        return { kind: 'ok', token }
+      } catch (err) {
+        if (!isTerminalRenewError(err)) {
+          // Transient: the stored refresh token is NOT touched.
+          warn('transient', err)
+          return { kind: 'transient' }
         }
-      } catch {
-        // renewal failed; the next 401 raises session-expired
+        warn('terminal', err)
+      }
+      // Terminal refresh error: last try through the hidden frame (needs no refresh token).
+      try {
+        stored.refresh_token = undefined
+        await manager.storeUser(stored)
+        const token = (await manager.signinSilent())?.access_token
+        if (!token || !isActive()) return { kind: 'terminal' }
+        applyUser(token)
+        return { kind: 'ok', token }
+      } catch (err) {
+        warn('frame', err)
+        return { kind: 'terminal' }
       }
     }
-    const onExpiring = () => {
-      void renew().catch(() => {})
+    const unregister = registerRenewer(renewOnce)
+
+    // oidc-client-ts re-arms its expiring timer on every manager.getUser() (1 s when the
+    // token is already inside the 60 s window), so the event can fire every second while
+    // a renewal is failing. One retry cycle at a time owns the backoff; after a terminal
+    // answer we stop reacting until a renewal succeeds (the next 401 takes the client path).
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let cycleActive = false
+    let gaveUp = false
+    const renewWithRetry = async (attempt: number): Promise<void> => {
+      const outcome = await renewSession()
+      if (outcome.kind === 'ok') {
+        cycleActive = false
+        gaveUp = false
+        return
+      }
+      if (outcome.kind === 'terminal' || !isActive()) {
+        cycleActive = false
+        gaveUp = outcome.kind === 'terminal'
+        return
+      }
+      const user = await manager.getUser()
+      const expiresAtMs = (user?.expires_at ?? 0) * 1000
+      if (Date.now() > expiresAtMs + RETRY_GRACE_MS) {
+        cycleActive = false
+        return
+      }
+      retryTimer = setTimeout(
+        () => void renewWithRetry(attempt + 1).catch(() => { cycleActive = false }),
+        RETRY_BACKOFF_MS[Math.min(attempt, RETRY_BACKOFF_MS.length - 1)],
+      )
+    }
+    const startCycle = (force: boolean) => {
+      if (gaveUp || (cycleActive && !force)) return
+      if (retryTimer) clearTimeout(retryTimer)
+      retryTimer = null
+      cycleActive = true
+      void renewWithRetry(0).catch(() => { cycleActive = false })
+    }
+    const onExpiring = () => startCycle(false)
+    // Sleep / background tab: timers run late, so renew when the page wakes up and the
+    // token is close to (or past) its end of life.
+    const onWake = () => {
+      if (document.visibilityState === 'hidden' || !isActive()) return
+      void manager
+        .getUser()
+        .then(user => {
+          if (!user || !isActive()) return
+          if ((user.expires_at ?? 0) - Date.now() / 1000 < WAKE_RENEW_WITHIN_S) startCycle(true)
+        })
+        .catch(() => {})
     }
     manager.events.addAccessTokenExpiring(onExpiring)
-    renewalRef.current = { manager, off: () => manager.events.removeAccessTokenExpiring(onExpiring) }
+    document.addEventListener('visibilitychange', onWake)
+    window.addEventListener('online', onWake)
+    window.addEventListener('focus', onWake)
+    renewalRef.current = {
+      manager,
+      off: () => {
+        manager.events.removeAccessTokenExpiring(onExpiring)
+        document.removeEventListener('visibilitychange', onWake)
+        window.removeEventListener('online', onWake)
+        window.removeEventListener('focus', onWake)
+        if (retryTimer) clearTimeout(retryTimer)
+        unregister()
+      },
+    }
   }, [])
 
   useEffect(() => {
@@ -180,6 +291,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
+    // Take the manager BEFORE the reset: signout must use the session's own manager.
+    const managerPromise = getOidcManager()
+    renewalRef.current?.off()
+    renewalRef.current = null
     clearToken()
     setSessionState(null)
     // Security: clear same-tab tenant-selection residue (bpm_realm_slug in
@@ -188,7 +303,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // from the URL/hostname rather than inheriting this session's company.
     // See tenantConfig.ts's resetTenantConfigCache moduledoc.
     resetTenantConfigCache()
-    void getOidcManager().then(m => m.signoutRedirect())
+    resetOidcManager()
+    void managerPromise.then(m => m.signoutRedirect())
   }, [])
 
   const setSession = useCallback((s: UserSession) => {
