@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'documents/document_form_screen.dart';
 import 'documents/document_kinds.dart';
 import 'documents/documents_list_screen.dart';
+import 'count_detail_screen.dart';
+import 'count_list_screen.dart';
 import 'stock_home_screen.dart';
 
 const String kStockHomePath = '/stock';
@@ -14,6 +16,19 @@ List<RouteBase> stockRoutes() => [
   GoRoute(
     path: kStockHomePath,
     builder: (context, state) => const StockHomeScreen(),
+    routes: [
+      GoRoute(
+        path: 'counts',
+        builder: (context, state) => const CountListScreen(),
+        routes: [
+          GoRoute(
+            path: ':id',
+            builder: (context, state) =>
+                CountDetailScreen(countId: state.pathParameters['id']!),
+          ),
+        ],
+      ),
+    ],
   ),
   GoRoute(
     path: kStockDocumentsPath,

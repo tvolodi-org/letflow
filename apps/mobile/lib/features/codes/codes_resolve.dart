@@ -28,7 +28,8 @@ class CodeResolution {
   final String? kind;
   final String? targetType;
 
-  /// The id of the assigned target (null unless the code is assigned).
+  /// The id of the assigned target (null unless assigned); D3a: the place
+  /// id of a count.
   final String? targetId;
 
   CodeObjectKind get objectKind => switch (targetType) {

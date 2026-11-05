@@ -123,12 +123,15 @@ abstract class PostCapableHttpGateway implements HttpGateway {
   Future<Response<dynamic>> post(String path, {Object? data});
 }
 
-/// The narrow interface of the stock document draft screens (D3b): `PUT`
-/// replaces a draft, `DELETE` discards it. Like [post], neither is retried
-/// on a 5xx. Kept separate so every existing [PostCapableHttpGateway] double
-/// stays valid.
-abstract class WriteCapableHttpGateway implements PostCapableHttpGateway {
+/// Adds `PUT` (the stock count's typed quantity, D3a). Separate from
+/// [PostCapableHttpGateway] so existing test doubles keep compiling.
+abstract class PutCapableHttpGateway implements PostCapableHttpGateway {
   Future<Response<dynamic>> put(String path, {Object? data});
+}
+
+/// Adds `DELETE` (stock document drafts, D3b) on top of `PUT`. Like [post],
+/// neither is retried on a 5xx.
+abstract class WriteCapableHttpGateway implements PutCapableHttpGateway {
   Future<Response<dynamic>> delete(String path);
 }
 

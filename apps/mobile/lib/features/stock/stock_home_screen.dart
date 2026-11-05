@@ -4,8 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../i18n/i18n.dart';
 import 'documents/document_form_screen.dart' show kStockDocumentsPath;
 
-/// Home of the `stock` module: the entry to the movement drafts. Counts
-/// arrive in a later slice; no stock call is made here.
+/// Home of the `stock` module: entries to the counts and the movement drafts.
 class StockHomeScreen extends StatelessWidget {
   const StockHomeScreen({super.key});
 
@@ -17,6 +16,12 @@ class StockHomeScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
+          ListTile(
+            key: const Key('stock-home-counts'),
+            title: Text(tr('stock.counts.title')),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/stock/counts'),
+          ),
           ListTile(
             key: const Key('stock-home-documents-entry'),
             title: Text(tr('stock.home.documents')),
