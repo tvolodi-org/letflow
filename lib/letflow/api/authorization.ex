@@ -1213,6 +1213,7 @@ defmodule Letflow.Api.Authorization do
       do: :ScriptsPublish
 
   def endpoint_policy_key("POST", "/script-rules/:key/dry-run"), do: :ScriptsWrite
+  def endpoint_policy_key("POST", "/script-rules/:key/form-validation-dry-run"), do: :ScriptsWrite
 
   # GH 2534 PR 7b-2b (decision 0053 D6): confirming a self-published version. A distinct key
   # over :ScriptsPublish; 0051 (GH #2533) classifies it admin-plane.

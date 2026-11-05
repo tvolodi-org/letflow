@@ -17,6 +17,7 @@ defmodule Letflow.Routers.ScriptRules do
   | `POST /:key/versions/:version/revoke` | `:ScriptsPublish` |
   | `POST /:key/versions/:version/confirm` (7b-2b) | `:ScriptRulesConfirm` -> `:ScriptsPublish` |
   | `POST /:key/dry-run` | `:ScriptsWrite` |
+  | `POST /:key/form-validation-dry-run` (REQ-639) | `:ScriptsWrite` |
 
   The tenant comes only from `conn.assigns.scoped_opts` (INV-1); the actor and its credential
   only from `conn.assigns.auth_context`. Every write requires an OIDC credential (403
@@ -186,6 +187,30 @@ defmodule Letflow.Routers.ScriptRules do
     )
   end
 
+  # REQ-639 / GH #3567 (decision 0067 D9, F-5): dry-run of a published form_validation version
+  # against a draft payload. A body with a key other than version/variables is an invalid input
+  # (the function checks the API-token refusal first, so the 403 does not depend on the body).
+  authz_post "/:key/form-validation-dry-run", :ScriptsWrite do
+    body = conn.body_params
+
+    variables =
+      if is_map(body) and Enum.all?(Map.keys(body), &(&1 in ["version", "variables"])),
+        do: Map.get(body, "variables"),
+        else: :invalid_body
+
+    reply(
+      conn,
+      Scripts.dry_run_form_validation(
+        prefix(conn),
+        conn.params["key"],
+        Map.get(body, "version"),
+        variables,
+        actor(conn)
+      ),
+      &form_dry_run_map/1
+    )
+  end
+
   authz_unmatched(:ordinary)
 
   # ── list ───────────────────────────────────────────────────────────────────
@@ -312,6 +337,30 @@ defmodule Letflow.Routers.ScriptRules do
       "created_at" => rule.inserted_at,
       "updated_at" => rule.updated_at
     })
+  end
+
+  defp form_dry_run_map(result) do
+    stats = result.stats
+
+    base = %{
+      "outcome" => result.outcome,
+      "stats" => %{
+        "duration_us" => stats.duration_us,
+        "instructions_used" => stats.instructions_used,
+        "heap_words_at_end" => stats.heap_words_at_end
+      }
+    }
+
+    case result do
+      %{outcome: "refused", code: code, fields: fields} ->
+        Map.merge(base, %{
+          "code" => code,
+          "fields" => Enum.map(fields, &%{"field" => &1.field, "code" => &1.code})
+        })
+
+      _ ->
+        base
+    end
   end
 
   defp dry_run_map(result) do

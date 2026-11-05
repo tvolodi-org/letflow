@@ -95,14 +95,23 @@ class ApiFieldError {
 
 @immutable
 class ValidationError extends ApiError {
-  const ValidationError({required this.fieldErrors, this.reason});
+  const ValidationError({
+    required this.fieldErrors,
+    this.reason,
+    this.field,
+    this.lineNo,
+    this.side,
+  });
 
   /// RFC 9457 "errors" array — see [_parseFieldErrors].
   final List<ApiFieldError> fieldErrors;
 
-  /// The top-level `reason` member some module routes add to the problem
-  /// body (stock count refusals); null when absent or not a string.
+  /// Top-level refusal extension keys (`reason`, `field`, `line_no`, `side`)
+  /// of the stock routes; null when absent or of the wrong type.
   final String? reason;
+  final String? field;
+  final int? lineNo;
+  final String? side;
 
   @override
   String toString() => 'ValidationError(fieldErrors: $fieldErrors)';
@@ -110,10 +119,13 @@ class ValidationError extends ApiError {
 
 @immutable
 class ConflictError extends ApiError {
-  const ConflictError({this.reason});
+  const ConflictError({this.reason, this.field, this.lineNo, this.side});
 
-  /// Same top-level `reason` member as [ValidationError.reason].
+  /// See [ValidationError.reason].
   final String? reason;
+  final String? field;
+  final int? lineNo;
+  final String? side;
 
   @override
   String toString() => 'ConflictError()';
@@ -184,10 +196,28 @@ List<ApiFieldError> _parseFieldErrors(Object? responseBody) {
   return result;
 }
 
-String? _parseReason(Object? responseBody) {
-  if (responseBody is! Map) return null;
-  final reason = responseBody['reason'];
-  return reason is String ? reason : null;
+class _RefusalExtensions {
+  _RefusalExtensions({this.reason, this.field, this.lineNo, this.side});
+
+  final String? reason;
+  final String? field;
+  final int? lineNo;
+  final String? side;
+
+  /// Only values of the right type are kept; anything else is null.
+  factory _RefusalExtensions.of(Object? body) {
+    if (body is! Map) return _RefusalExtensions();
+    final reason = body['reason'];
+    final field = body['field'];
+    final lineNo = body['line_no'];
+    final side = body['side'];
+    return _RefusalExtensions(
+      reason: reason is String ? reason : null,
+      field: field is String ? field : null,
+      lineNo: lineNo is int ? lineNo : null,
+      side: side is String ? side : null,
+    );
+  }
 }
 
 /// The single status-code/exception → [ApiError] classification function
@@ -217,13 +247,23 @@ ApiError classifyError(
     );
   }
   if (statusCode == 422) {
+    final ext = _RefusalExtensions.of(responseBody);
     return ValidationError(
       fieldErrors: _parseFieldErrors(responseBody),
-      reason: _parseReason(responseBody),
+      reason: ext.reason,
+      field: ext.field,
+      lineNo: ext.lineNo,
+      side: ext.side,
     );
   }
   if (statusCode == 409) {
-    return ConflictError(reason: _parseReason(responseBody));
+    final ext = _RefusalExtensions.of(responseBody);
+    return ConflictError(
+      reason: ext.reason,
+      field: ext.field,
+      lineNo: ext.lineNo,
+      side: ext.side,
+    );
   }
   if (statusCode >= 500 && statusCode <= 599) {
     return ServerError(lastStatusCode: statusCode);
