@@ -51550,3 +51550,211 @@ requirements:
       - "Print language bound to the interface language, download instead of preview: UAT assumption, to be confirmed by the process owner; owner may change at the phase E gate."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-720, REQ-722, REQ-736, REQ-737]
+
+  - id: REQ-764
+    title: "Assets B5 counts K9a: an optional posting guard of a ledger registration, called by the platform inside the posting transaction under a shared hold lock, with the neutral refusal posting_held and an exclusive hold lock for the module (core prerequisite of the count freeze, owner decision D-094)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-685 -- core prerequisite of the count freeze REQ-765; written by T-1319
+    # Source: owner decision D-094 (2026-11-05, via the portfolio manager, task T-1319 text: a frozen location refuses stock documents, the check and the freeze flag change are atomic with the posting, lock order stated with the ledger lock step); docs/migration/decisions/0079-counts-inventory-taking.md section 4 (freeze method: the check runs in the stock module before HandlerWrites.post/3, the count's own posting is exempt by document_type and document_id, no ledger lock class) and split plan row C7; decision 0073 (Rule 7 neutral vocabulary of the ledger core). Code read on origin/main 777dd2442: Letflow.Entities.HandlerWrites moduledoc (a handler calls create/3 and post/3 and nothing else) and the H4 purity scan of test/letflow/entities/handler_writes_callers_test.exs (no Repo, no Ecto.Query in a handler file); Letflow.Ledger.HandlerPost (lib/letflow/ledger/handler_post.ex: run time step 1 run_plan_step/plan with Authority.check_with_read and the deferred refusal, then lock_steps/3 with Ledger.lock_postings/1); Letflow.Ledger.Failure.map/2 ({:ledger_refused, code, wire, details} to {:refused_detailed, ...}); Letflow.Ledger.Codes (@core, @aliasable); Letflow.Modules.LedgerRegistration (@registration_keys, error_aliases); mix letflow.check_boundaries Rule 7 and Rule 8 (lib/mix/tasks/letflow.check_boundaries.ex); Letflow.Api.Response.entity_write_refused_detailed/5; the ISS-0784 best-effort audit after a rollback in Letflow.Engine (interpret_create_result). Written by the business analyst (T-1319) 2026-11-05.
+    description: >
+      Core prerequisite of the count freeze (owner decision D-094; decision 0079 section 4 and split plan row C7). Decision
+      0079 section 4 places the freeze check "in the stock module, in its own write path before HandlerWrites.post/3",
+      reading the open counts "in the same transaction". That place does not exist on main: every stock posting is
+      made by a write handler during a HUMAN_TASK completion, and a handler is pure (Letflow.Entities.HandlerWrites: a
+      handler calls create/3 and post/3 and nothing else; scan H4 of
+      test/letflow/entities/handler_writes_callers_test.exs refuses Repo and Ecto.Query in a handler file). A check made
+      when the posting process starts (Letflow.Modules.Stock.Documents.Posting.start/7) is not atomic with the posting,
+      because the human task completes later in another transaction. So the module needs a hook that the PLATFORM
+      calls inside the completion transaction. This entry builds that hook, domain-neutral (Rule 7 of mix
+      letflow.check_boundaries: no stock or count word in the core); REQ-765 uses it for the freeze.
+
+      WHAT IS BUILT. (1) An optional key posting_guard of a ledger registration (Letflow.Modules.LedgerRegistration):
+      {module, function}, the module strictly nested under the registering entry module and exporting the function
+      with arity 2, as write handlers are nested. Absent means no guard, and behaviour stays exactly as today. (2) In
+      run time step 1 of Letflow.Ledger.HandlerPost (the plan step), after the origin check, the authority check and the
+      deferred refusal, and before the ledger lock step of lock_steps/3, the platform takes the SHARED hold lock of the
+      posting's ledger id (pg_advisory_xact_lock_shared on hashtextextended(prefix || ':ledger_hold:' || ledger_id, 0),
+      a bound parameter, INV-7) and calls the guard once per planned posting with the tenant prefix and a neutral
+      summary of the posting. The shared lock is held until the transaction ends. (3) A guard answer :ok lets the
+      posting go on; {:held, held_by} refuses it with the new core code posting_held; any other answer, a raise, a
+      throw or an exit fails closed. (4) Letflow.Ledger.hold_exclusive!/2 (prefix, ledger_id) takes the EXCLUSIVE
+      hold lock on the same key inside the caller's transaction. A module that changes what its guard reads takes it
+      first, so every posting transaction that already passed its guard has committed before the change is made, and
+      every later one reads the change. (5) One best-effort audit entry for a refused HUMAN_TASK completion.
+
+      LOCK ORDER (decision 0061 classes as listed in the Letflow.Engine moduledoc). A HUMAN_TASK completion with a
+      guarded posting takes: tasks, projection, ancestors, the entity-type rows of class (6), then the shared hold lock
+      and the guard's reads (no row lock), then the ledger lock step (balance rows ascending, counter rows), then the
+      tail (audit chain, sequences, projection updates). The SERVICE origin (REQ-688) takes its pre-ledger locks
+      first and the shared hold lock in the plan step after them. A module transaction that takes the exclusive hold
+      lock takes no ledger lock and no lock of a type that a posting handler of the same registration writes; REQ-765
+      states this for the stock module. Two postings never wait for each other on the hold lock (both shared).
+
+      DECIDED HERE as the simplest reasonable defaults (assumption, owner may change at GATE B; this is a platform
+      contract, so REVIEWER and SECURITY-REVIEWER sign-off is the gate): HTTP status 409 for posting_held (a state
+      conflict, like insufficient_balance in Letflow.Ledger.Codes); held_by is a short label, not an id, so the
+      refusal body names the holder without a link; the guard is not called in the dry build of REQ-688.
+
+      Pins (moves from origin/main at implement time; numbers are examples): Letflow.Ledger.Codes core list +1 and
+      aliasable list +1 (the golden test in test/letflow/ledger/codes_test.exs); the Rule 8 allowed Letflow.Ledger read
+      list of mix letflow.check_boundaries +1 (hold_exclusive!); the registration reasons +1 (:posting_guard). No
+      migration, no tenant table, no route, no permission atom, no module change.
+    acceptance_criteria:
+      - "1. Registration (test file test/letflow/modules/ledger_registration_test.exs): posting_guard is an optional key of a ledger registration; {module, function} with the module strictly nested under the registering entry module and the function exported with arity 2 is accepted; a module outside the entry module, the entry module itself, a missing export, another arity or a non-tuple is {:error, {:invalid_ledger_registration, name, :posting_guard}}; a registration without the key validates exactly as before (the existing registration tests pass unchanged)."
+      - "2. Call (test file test/letflow/ledger/posting_guard_test.exs, with a fixture module in test/support whose registration declares a guard): completing a HUMAN_TASK whose handler posts calls the guard exactly once per planned posting, inside the completion transaction, after the authority check and the deferred refusal and before Ledger.lock_postings/1; the second argument is exactly the map with keys ledger_id, cause, document_type, document_id and keys, where keys is the list of distinct balance keys of the posting's legs, each a map from the registration's slot names to the leg's slot values; for a reversal, keys are the keys of the legs of the reversed entry. The guard is not called when the authority check refuses, when a deferred refusal is released, or in a dry build (REQ-688). A registration without posting_guard makes no guard call and takes no hold lock (a test counts the calls and reads pg_locks)."
+      - "3. Refusal (same test file): a guard answer {:held, held_by} with held_by matching the pattern of 1 to 64 characters from letters, digits, dot, underscore, slash and hyphen refuses the posting as {:ledger_refused, :posting_held, wire, %{held_by: held_by}}, where wire is the module's error_aliases value for posting_held if it has one, else posting_held; Letflow.Ledger.Failure.map/2 turns it into refused_detailed; the task completion route answers 409 with error the wire code, line_index and details held_by; no ledger entry, no record and no event of the completion is written and the task stays pending. Any other answer, a held_by not matching the pattern, a raise, a throw or an exit gives the closed failure {:failed, index, :ledger_post} with nothing written and no text of the answer kept (fail closed, INV-8). A test per case."
+      - "4. Hold locks (same test file): the platform takes pg_advisory_xact_lock_shared on hashtextextended of prefix, the text :ledger_hold: and the ledger id, as a bound parameter, before the guard call; Letflow.Ledger.hold_exclusive!/2 takes pg_advisory_xact_lock on the same key and raises when called outside a transaction. Atomicity test on a committed fresh tenant: process A opens a transaction, takes hold_exclusive!, writes the fixture row that makes the fixture guard answer held, signals process B, waits 300 ms and commits; process B then completes a guarded posting task; B's completion answers 409 posting_held (it waited for A and read A's row), and the ledger has no entry of B. A second test with A rolling back instead asserts that B's posting commits."
+      - "5. Codes and boundaries: Letflow.Ledger.Codes core/0 gains exactly {posting_held, 409} and aliasable/0 gains posting_held (test/letflow/ledger/codes_test.exs updated for these two only); the Rule 8 list of Letflow.Ledger functions a module may call gains exactly hold_exclusive! (lib/mix/tasks/letflow.check_boundaries.ex and its test); mix letflow.check_boundaries passes, Rule 7 included, so no new core identifier or string contains a denylisted word."
+      - "6. Audit of a refusal (same test file): a HUMAN_TASK completion refused with posting_held writes one audit entry with action ledger.posting_held in a second transaction after the rollback, as the ISS-0784 path of Letflow.Engine does after a failed create; the entry carries the task id, the module id, the ledger id, the cause, document_type, document_id and held_by, and no quantity and no slot value; a failure of that audit write is logged by tag and does not change the 409 answer (a test forces it)."
+      - "7. Decision record and gate: the change adds a section 'Amended by REQ-764' to docs/migration/decisions/0073-domain-neutral-ledger-primitive.md that states the guard contract, the hold lock, the lock order of the description and the code posting_held; it passes the SECURITY-REVIEWER deep review (fail closed, no tenant crossing: the guard gets the prefix of the capability only, INV-1) and the REVIEWER gate as stated steps, with verdict and evidence quoted in the PR; mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the test files of criteria 1 to 6 pass, real output quoted."
+    open_questions:
+      - "Decision 0079 section 4 says the freeze check runs in the stock module's own write path before HandlerWrites.post/3 and adds no ledger lock class. Handler purity (scan H4) makes that path impossible for postings from a human task, so this entry places the module's check in the platform plan step and adds one advisory hold lock per ledger id. REVIEWER or the owner of 0079 may amend section 4 to match."
+      - "The defaults of the description (409, held_by as a label, no guard call in a dry build): assumption, owner may change at GATE B."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-685, REQ-686, REQ-684, REQ-688, REQ-680]
+
+  - id: REQ-765
+    title: "Assets B5 counts K9b: the freeze locations mode of a count order in module stock: the frozen set of locations from the cut-off, the guard that refuses every other stock posting into it with location_frozen naming the count order, the time limit with expiry, the end by posting or cancel, and the audit entries (owner decision D-094, decision 0079 split plan row C7)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-764 -- the guard hook comes first; build task T-1320
+    # Source: owner decision D-094 (2026-11-05, via the portfolio manager, task T-1319 text: freeze by location, short period, the count is done by that location; the no-freeze count of REQ-718 stays the default; freeze starts when counting starts, ends at posting, cancel or a time limit, default 2 hours, configurable per tenant; at the limit the freeze lifts and the order is marked freeze expired; storekeeper and tenant admin; unfreeze by cancel; frozen state visible; audit; atomic check), docs/migration/decisions/0079-counts-inventory-taking.md (sections 2 state table and cancel rule, 4 scope pairs, cut-off, freeze method with the exemption and overlap, 8 the no-negative remark, 12 question 1, split plan row C7), entries REQ-700, REQ-701, REQ-717, REQ-718 (FREEZE paragraph and known gaps a to c), REQ-713, REQ-715, REQ-721, REQ-726 and REQ-764 (this batch). Code read on origin/main 777dd2442: Letflow.Modules.Stock.Counts (create/3, update/3, cancel/3, @input_keys, @cancellable), Letflow.Modules.Stock.CountSheet (open/3 reads the book before its transaction, lock_order!/2), Letflow.Modules.Stock.CountPosting (post/3, the command from the issued differences), Letflow.Modules.Stock.Handlers (post_document, post_count, reverse_document), Letflow.Modules.Stock.Documents.Kinds (receipt, issue, write_off, transfer, hand_over, return, opening), Letflow.Modules.Stock.Documents.Posting.marks/2, Letflow.Modules.Locations.Tree.descendant_ids/2, Letflow.Modules.Installs.put_settings/3 and the route PUT /api/v1/tenant/modules/:module_id/settings (ModulesManage, lib/letflow/routers/tenant_modules.ex), the stock manifest (settings_schema nil, error_aliases, version 0.11.0, lib/letflow/modules/stock/stock.ex). Written by the business analyst (T-1319) 2026-11-05.
+    description: >
+      Owner decision D-094: in the owner's practice a LOCATION is frozen for a short time and counted by that
+      location. The no-freeze count of REQ-718 (differences posted as a delta, postings during counting allowed) stays
+      the DEFAULT and is not changed. This entry adds the second mode, freeze locations, as a flag of the count order
+      (decision 0079 section 4, split plan row C7). Backend only, module stock (lib/letflow/modules/stock/). The web
+      part is REQ-766.
+
+      WHAT IS FROZEN. The order already names one org unit and a set of root locations, and covers each root and
+      everything below it (REQ-700; 0079 section 4: the scope is a set of (org unit, location subtree) pairs). A frozen
+      location therefore INCLUDES its child locations: the frozen set is the order's roots and all their descendants
+      (Letflow.Modules.Locations.Tree.descendant_ids/2), taken once at the cut-off and stored as rows of a new
+      module-managed type count_freeze_location (count_order_id, org_unit_id, location_id). A balance key is frozen
+      when its org_unit slot is the order's org unit and its location slot is in that set (the pair rule of 0079
+      section 4, so stock of another org unit at the same place is not frozen and its users learn nothing about this
+      count). A location created under a root after the cut-off is not frozen.
+
+      WHAT IS REFUSED. While the freeze is in force, every posting on ledger id stock with at least one frozen key is
+      refused: receipt, issue, write off, transfer, hand over, return (both sides count), opening, and the reversal of
+      any of them or of an earlier count. The refusal is the posting_held refusal of REQ-764 with the stock alias
+      location_frozen and held_by the number label of the order's issued count.order document; the task stays pending
+      and can be completed after the freeze ends. The only exemption is the count's own posting: document_type
+      count.differences and document_id the order's differences_document_id (0079 section 4). The check is the stock
+      module's posting guard (REQ-764), Letflow.Modules.Stock.FreezeGuard, registered on the stock registration.
+
+      WHEN. The freeze starts when counting starts: open/3 of REQ-701 on an order with freeze_locations true (the
+      chair opens; the cut-off is the start). It ends at the first of: the count's posted mark is committed (the
+      posting of REQ-718; the mark commits in the same transaction as the ledger entry, so the end is atomic with the
+      posting); cancel/3 of the order (allowed in draft, ordered, counting and counted, refused from signed, 0079
+      section 2: a signed freeze count therefore ends only by posting or by the time limit); or the time limit.
+      The limit is the stock module setting count_freeze_limit_minutes (an integer from 1 to 5760, that is at most the
+      96 hours of a count, REQ-700; default 120 = the owner's 2 hours when the setting is absent), read at the open and
+      stored as freeze_until = cut-off + limit. At the limit the freeze lifts and the order reads freeze_state expired;
+      the sheet stays valid and is posted as a no-freeze difference (the delta of REQ-718).
+
+      STATE. The count order gains freeze_locations (boolean, default false, an input of create and update and part of
+      the issued count.order content) and freeze_state (none, active, ended, expired), freeze_started_at, freeze_until,
+      freeze_ended_at and freeze_end_reason (posted, cancelled, expired). The READ and the guard always compute the
+      state from the data: active while freeze_started_at is set, the clock is before freeze_until, the status is not
+      cancelled and no posted mark exists for the differences document. The stored fields and the end audit entry are
+      written by cancel/3 at once, and for posted or expired by the first count write after the end (any write of
+      REQ-700, REQ-701, REQ-717 or REQ-718 on that order); a late stored value never changes what is refused.
+
+      THE POSTING AGAINST THE FROZEN BALANCE (item 6 of D-094). The posting machinery of REQ-718 is reused unchanged:
+      the same process definition stock_count_posting, the same handler post_count, the same command (one leg per
+      difference line, quantity the difference of the issued line, cause count_difference). What differs is only what
+      the freeze guarantees: no other posting touched a frozen key between the cut-off and the posting, so the current
+      balance equals the book quantity of the sheet, the posted delta leaves each key at exactly its counted quantity,
+      and a shortage cannot meet insufficient_stock because of a movement after the cut-off (gaps b and c of REQ-718
+      do not occur while the freeze is in force). If the freeze expired before the posting, the posting is the plain
+      delta of REQ-718 and the order says freeze expired.
+
+      WHO. Setting the flag is part of the order: create and update (StockCountOrder, REQ-700). The freeze starts with
+      open (StockCountRecord, the chair, REQ-701). Unfreeze is cancel (StockCountOrder, the chair, REQ-700). Today
+      these atoms are held by TENANT_ADMIN (and PLATFORM_ADMIN on the platform tenant only); the storekeeper role of
+      task T-1317 (owner decision D-093, not on origin/main) is to hold them when it lands; this entry grants nothing.
+      The limit is set by a holder of ModulesManage through PUT /api/v1/tenant/modules/stock/settings.
+
+      CONCURRENCY AND LOCK ORDER. open/3 with freeze: (1) the per-order advisory lock of CountSheet.lock_order!/2 as the
+      first statement; (2) Letflow.Ledger.hold_exclusive!(prefix, stock) of REQ-764; (3) the re-read of the order and
+      the book quantities read INSIDE the transaction after (2) (for a no-freeze order the read stays where it is);
+      (4) the Records writes (lines, count_freeze_location rows, the order) and the Documents locks; (5) the audit
+      entry. No ledger lock is taken. A posting completion takes its entity-type rows, then the shared hold lock, then
+      the guard reads, then the ledger lock step (REQ-764). So a posting that passed the guard before the open has
+      committed and is inside cutoff_seq, and a posting after it reads the freeze. No posting handler of the stock
+      registration writes a type that open/3 writes (their only target is stock_posting_mark), so the two orders
+      cannot form a cycle. cancel/3 takes the order lock only: a posting that races a cancel is refused or waits,
+      never posts into a still-frozen key.
+
+      DECIDED HERE as the simplest reasonable defaults (UAT assumption, to be confirmed by the process owner;
+      assumption, owner may change at GATE B): the pair rule (org unit and location) of 0079 section 4 rather than
+      the whole physical place; the frozen set taken once at the cut-off; the refused task stays pending rather than
+      being cancelled; the setting in minutes with the bounds 1 to 5760; no scheduled job for the expiry (the clock
+      decides, the stored value follows at the next write); the flag cannot be changed after issue (the order is
+      read-only from issue, REQ-700).
+
+      Pins (moves from origin/main at implement time; numbers are examples): one new read route without scope (+1
+      line in test/fixtures/route_scope/tenant_wide_default_routes.txt and +1 on the three length(snapshot) pins named
+      in REQ-700); no new permission atom (effective.golden unchanged); the pack gains count_freeze_location in
+      manages_entity_types with {:column, org_unit_id}; the stock registration gains posting_guard and the alias
+      posting_held to location_frozen; the manifest gains a settings_schema; ManifestHash moves and the module version
+      moves one minor step from origin/main. No migration, no tenant table, no seed.
+    acceptance_criteria:
+      - "1. Order flag and setting (test files test/letflow/modules/stock/count_freeze_test.exs and counts_registration_test.exs of REQ-700): create/3 and update/3 accept freeze_locations, true or false, default false when absent, any other value field_invalid; the issued count.order content carries it; count_freeze_location is in manages_entity_types with {:column, org_unit_id}; the stock manifest's settings_schema has exactly count_freeze_limit_minutes, an integer from 1 to 5760; Installs.put_settings/3 accepts 120 and refuses 0, 5761 and a string with settings_validation_failed. An order with freeze_locations false behaves exactly as on origin/main: the REQ-701 and REQ-718 test files pass unchanged."
+      - "2. Freeze start (same freeze test file, committed fresh tenant): open/3 on an ordered order with freeze_locations true sets freeze_state active, freeze_started_at equal to cut_off_at and freeze_until equal to cut_off_at plus the setting (120 minutes when the setting is absent, 30 when the test sets 30), and creates one count_freeze_location per root and per descendant of a root (a tree root, child and grandchild give three rows, a location outside the roots none); one audit entry stock.count.freeze_started with the order id, the number of locations and freeze_until, and no quantity. A refused open writes none of this."
+      - "3. Guard refuses (same test file): while the freeze is in force, completing the posting task (post, or approve for opening) of each stock document kind, receipt, issue, write_off, transfer, hand_over, return and opening, whose lines touch a frozen key (for transfer, hand_over and return once with the frozen key on the from side and once on the to side), and the reverse task of a posted receipt on a frozen key, answers 409 with error location_frozen and details held_by the number label of the order's count.order document; the ledger and the marks are unchanged and the task stays pending; the same document completed after the freeze ended (cancel) posts. A posting on a key of the same location but another org unit, and on a location outside the frozen set, posts during the freeze. A test per kind."
+      - "4. The count's own posting is exempt and posts against the frozen balance (same test file): on a frozen count with a surplus line and a shortage line and a refused receipt in scope during counting, the post task of REQ-718 commits; Letflow.Ledger.balances/4 then shows on each counted key exactly its counted quantity; the posting command is equal to the command REQ-718 builds for the same issued differences (a test compares them); a posting with document_type count.differences of another count's differences document on a frozen key is refused location_frozen."
+      - "5. End by posting, cancel and limit (same test file): after the count's posted mark commits, the order reads freeze_state ended with freeze_end_reason posted and a receipt into the scope posts; cancel/3 of a frozen counting or counted order ends the freeze at once (freeze_state ended, freeze_end_reason cancelled, freeze_ended_at the cancel time, audit stock.count.freeze_ended with reason cancelled) and cancel of a signed frozen order stays refused count_state_invalid with the freeze still in force; with freeze_until set in the past by the test setup, the read answers freeze_state expired, a receipt into the scope posts, the next count write stores freeze_state expired and writes one audit stock.count.freeze_expired (a second write writes no second one), and the posting of that count is the plain delta of REQ-718 (the balance ends at balance now plus the differences). The ended-by-posting audit stock.count.freeze_ended with reason posted is written once by the first count write after the mark."
+      - "6. Lock order (test file test/letflow/modules/stock/count_freeze_lock_test.exs, committed fresh tenant, two processes): process A starts the freeze open/3 and is held after hold_exclusive! by a test seam read only by the stock module; process B completes the post task of a receipt into the scope; B does not commit before A ends; when A commits, B answers 409 location_frozen and the sheet has no line for B's quantity; when A fails after the lock (the seam), B's receipt posts. A third test holds a receipt completion after its guard call (a test seam read only by Letflow.Modules.Stock.FreezeGuard), so it holds the shared hold lock, while A opens, and asserts that A's cutoff_seq includes B's posting. The moduledoc of Letflow.Modules.Stock.FreezeGuard states the lock order of the description."
+      - "7. Reads and route (test file test/letflow/modules/stock/count_freeze_router_test.exs through Letflow.Router with real bearer tokens): GET /api/v1/modules/stock/counts/:id answers freeze_locations, freeze_state, freeze_started_at, freeze_until, freeze_ended_at and freeze_end_reason, computed as the description says; GET /api/v1/modules/stock/frozen-locations (StockRead; query keys location_id, limit and cursor) lists one row per location whose freeze is in force with exactly location_id, org_unit_id, count_order_id, count_number and freeze_until, ordered by location_id, and only for org units in the caller's scope. The route is in route_policies; times are ISO 8601 UTC strings."
+      - "8. Tenancy and scope (INV-1, INV-2, INV-5, INV-10; same router test file): a freeze of tenant B never refuses a posting of tenant A (a test on two tenants with the same location ids in the setup) and B's frozen locations are not in A's list; a TENANT_ADMIN whose grant covers org unit X but not Y does not see Y's frozen locations and gets 404 with the unknown-id body (trace_id dropped first) for Y's count; a user without StockRead gets 403 on the new route. No tenant user is granted PLATFORM_ADMIN (docs/roles.md)."
+      - "9. Audit and gate: every audit entry of this entry (stock.count.freeze_started, stock.count.freeze_ended, stock.count.freeze_expired) carries ids, status, times and counts only, no quantity; the refused documents are audited by the ledger.posting_held entry of REQ-764 (a test reads one after a refused receipt). A ledger and tenant-data-path change: it passes the SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. The stock runbook section states the freeze mode, the pair rule, the expiry and the lazy stored state. The diff adds no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no ledger SQL in module code (only the functions Rule 8 allows), no migration and no seed. The pins of the description move by the counts stated there; mix letflow.check.static, mix letflow.check_boundaries, mix letflow.permission_matrix --check, mix letflow.check_requirements_registration and the test files of criteria 1 to 8 pass, real output quoted."
+    open_questions:
+      - "Pair rule or whole place: decision 0079 section 4 freezes (org unit, location) pairs; the owner's words are 'a location is frozen'. This entry keeps the pair rule (no leak of another unit's count); if the owner wants the whole physical place frozen for every org unit, the guard drops the org unit condition and the refusal must not name a count the caller cannot read."
+      - "Storekeeper: the role of T-1317 (D-093) is not on origin/main; this entry relies on the atoms StockCountOrder and StockCountRecord, which that role is to hold."
+      - "The defaults of the description (frozen set at the cut-off, pending refused tasks, the minute bounds, no expiry job, no flag change after issue): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-764, REQ-700, REQ-701, REQ-717, REQ-718, REQ-713, REQ-715, REQ-721, REQ-726, REQ-687]
+
+  - id: REQ-766
+    title: "Assets B5 counts K9c: web screens for the count freeze: the freeze locations switch on the count order form, the freeze state on the count screen, the frozen mark on the location tree and detail, and the location_frozen refusal in the task inbox, in English, Russian and Kazakh (owner decision D-094)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-765 -- the routes and fields come from REQ-765
+    # Source: owner decision D-094 (task T-1319 text items 5 and 7: frozen state visible on the location tree and detail and on the count sheet; en, ru and kk texts for every refusal and label), entries REQ-702 (count screens, message file, style), REQ-718 criterion 10 (posting panel), REQ-671 (location tree screen) and REQ-765 (this batch: fields and the route frozen-locations). Code read on origin/main 777dd2442: web/src/modules/stock/counts/ (CountOrderForm.tsx, CountDetail.tsx, CountSheet.tsx, countsMessages.ts), web/src/modules/locations/ (LocationTreePage.tsx, locationsMessages.ts with LOCATIONS_UI_LOCALES en, ru, kk), web/src/pages/tasks/TaskInboxPage.tsx (completion errors; the separation-of-duties message is the only code it maps today). Written by the business analyst (T-1319) 2026-11-05.
+    description: >
+      Web part of the count freeze (owner decision D-094; backend REQ-765). It adds no route and no permission; it
+      reads the fields and the route of REQ-765 and the refusal location_frozen of REQ-764 and REQ-765.
+
+      Screens. (1) The count order form (web/src/modules/stock/counts/CountOrderForm.tsx) gains a switch Freeze
+      locations, off by default, with a help text saying that stock documents into the order's locations and the
+      locations below them are refused from the start of counting until the posting, a cancel or the time limit. (2)
+      The count screen (CountDetail.tsx and CountSheet.tsx) shows a freeze banner: active with the end time
+      freeze_until; expired with the time and the text that the differences will be posted as a difference against the
+      current balance; ended with the reason. (3) The location tree and the location detail of module locations
+      (web/src/modules/locations/LocationTreePage.tsx) show a Frozen mark on each location listed by GET
+      /api/v1/modules/stock/frozen-locations, with the count number and the end time; the list is read only when the
+      stock module is installed and the user holds StockRead, otherwise nothing is shown and nothing fails. (4) The
+      task inbox (web/src/pages/tasks/TaskInboxPage.tsx) shows, for a completion refused with error location_frozen,
+      a message naming details held_by (the count number), instead of the generic error.
+
+      DECIDED HERE as the simplest reasonable defaults (UAT assumption, to be confirmed by the process owner;
+      assumption, owner may change at GATE B): the location screens refresh the frozen list when the screen is opened
+      and on the default query refresh of web/src/main.tsx, with no push; the count number in the inbox message is
+      text, not a link; times in the tenant time zone (default Asia/Almaty) as the other count screens show them.
+    acceptance_criteria:
+      - "1. Order form (test file web/src/modules/stock/__tests__/CountsPage.freeze.test.tsx, network mocked): the create and edit form has the switch Freeze locations, off for a new order; the POST counts and PUT counts/:id bodies carry freeze_locations true or false together with every field of REQ-702 criterion 2 (a test checks the exact body of a create with the switch on and of an edit that turns it off); after issue the switch is read-only."
+      - "2. Count screen (same test file): with GET counts/:id answering freeze_state active, the banner shows the freeze end time from freeze_until; expired shows the expired text with its time; ended shows the reason posted or cancelled; none and freeze_locations false show no banner."
+      - "3. Location tree and detail (test file web/src/modules/locations/__tests__/LocationTree.frozen.test.tsx, network mocked): with the stock module installed and StockRead, each location row listed by GET frozen-locations shows the Frozen mark with count_number and freeze_until, and the detail of that location shows the same; with the stock module not installed, or without StockRead, the route is not called and no mark is shown; an error of that route leaves the tree working and shows no mark."
+      - "4. Task inbox (test file web/src/pages/tasks/__tests__/TaskInboxPage.frozenMessage.test.tsx, in the style of TaskInboxPage.sodMessage.test.tsx): a completion answered 409 with error location_frozen and details held_by CO-0001 shows the frozen message containing CO-0001 in the active language; another 409 shows no frozen message."
+      - "5. Three languages (test files web/src/modules/stock/__tests__/countsI18n.test.tsx and web/src/modules/locations/__tests__/locations-i18n-grep.test.ts, extended): every new message key (switch label and help, the three banners, the frozen mark, the inbox message) exists in en, ru and kk with a non-empty text; no new text is written in a component outside a message file; switching the platform language re-renders these texts."
+      - "6. Checks: the web gate npm run check passes in the engine's checks step; the change edits only files under web/; no backend file changes."
+    open_questions:
+      - "The defaults of the description (refresh on open and the default query refresh, the count number as text, the tenant time zone): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-765, REQ-764, REQ-702, REQ-718, REQ-671]
