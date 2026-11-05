@@ -51556,7 +51556,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-685 -- core prerequisite of the count freeze REQ-765; written by T-1319
+    gh: 3907
     # Source: owner decision D-094 (2026-11-05, via the portfolio manager, task T-1319 text: a frozen location refuses stock documents, the check and the freeze flag change are atomic with the posting, lock order stated with the ledger lock step); docs/migration/decisions/0079-counts-inventory-taking.md section 4 (freeze method: the check runs in the stock module before HandlerWrites.post/3, the count's own posting is exempt by document_type and document_id, no ledger lock class) and split plan row C7; decision 0073 (Rule 7 neutral vocabulary of the ledger core). Code read on origin/main 777dd2442: Letflow.Entities.HandlerWrites moduledoc (a handler calls create/3 and post/3 and nothing else) and the H4 purity scan of test/letflow/entities/handler_writes_callers_test.exs (no Repo, no Ecto.Query in a handler file); Letflow.Ledger.HandlerPost (lib/letflow/ledger/handler_post.ex: run time step 1 run_plan_step/plan with Authority.check_with_read and the deferred refusal, then lock_steps/3 with Ledger.lock_postings/1); Letflow.Ledger.Failure.map/2 ({:ledger_refused, code, wire, details} to {:refused_detailed, ...}); Letflow.Ledger.Codes (@core, @aliasable); Letflow.Modules.LedgerRegistration (@registration_keys, error_aliases); mix letflow.check_boundaries Rule 7 and Rule 8 (lib/mix/tasks/letflow.check_boundaries.ex); Letflow.Api.Response.entity_write_refused_detailed/5; the ISS-0784 best-effort audit after a rollback in Letflow.Engine (interpret_create_result). Written by the business analyst (T-1319) 2026-11-05.
     description: >
       Core prerequisite of the count freeze (owner decision D-094; decision 0079 section 4 and split plan row C7). Decision
@@ -51620,7 +51620,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-764 -- the guard hook comes first; build task T-1320
+    gh: 3906
     # Source: owner decision D-094 (2026-11-05, via the portfolio manager, task T-1319 text: freeze by location, short period, the count is done by that location; the no-freeze count of REQ-718 stays the default; freeze starts when counting starts, ends at posting, cancel or a time limit, default 2 hours, configurable per tenant; at the limit the freeze lifts and the order is marked freeze expired; storekeeper and tenant admin; unfreeze by cancel; frozen state visible; audit; atomic check), docs/migration/decisions/0079-counts-inventory-taking.md (sections 2 state table and cancel rule, 4 scope pairs, cut-off, freeze method with the exemption and overlap, 8 the no-negative remark, 12 question 1, split plan row C7), entries REQ-700, REQ-701, REQ-717, REQ-718 (FREEZE paragraph and known gaps a to c), REQ-713, REQ-715, REQ-721, REQ-726 and REQ-764 (this batch). Code read on origin/main 777dd2442: Letflow.Modules.Stock.Counts (create/3, update/3, cancel/3, @input_keys, @cancellable), Letflow.Modules.Stock.CountSheet (open/3 reads the book before its transaction, lock_order!/2), Letflow.Modules.Stock.CountPosting (post/3, the command from the issued differences), Letflow.Modules.Stock.Handlers (post_document, post_count, reverse_document), Letflow.Modules.Stock.Documents.Kinds (receipt, issue, write_off, transfer, hand_over, return, opening), Letflow.Modules.Stock.Documents.Posting.marks/2, Letflow.Modules.Locations.Tree.descendant_ids/2, Letflow.Modules.Installs.put_settings/3 and the route PUT /api/v1/tenant/modules/:module_id/settings (ModulesManage, lib/letflow/routers/tenant_modules.ex), the stock manifest (settings_schema nil, error_aliases, version 0.11.0, lib/letflow/modules/stock/stock.ex). Written by the business analyst (T-1319) 2026-11-05.
     description: >
       Owner decision D-094: in the owner's practice a LOCATION is frozen for a short time and counted by that
@@ -51725,7 +51725,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-765 -- the routes and fields come from REQ-765
+    gh: 3905
     # Source: owner decision D-094 (task T-1319 text items 5 and 7: frozen state visible on the location tree and detail and on the count sheet; en, ru and kk texts for every refusal and label), entries REQ-702 (count screens, message file, style), REQ-718 criterion 10 (posting panel), REQ-671 (location tree screen) and REQ-765 (this batch: fields and the route frozen-locations). Code read on origin/main 777dd2442: web/src/modules/stock/counts/ (CountOrderForm.tsx, CountDetail.tsx, CountSheet.tsx, countsMessages.ts), web/src/modules/locations/ (LocationTreePage.tsx, locationsMessages.ts with LOCATIONS_UI_LOCALES en, ru, kk), web/src/pages/tasks/TaskInboxPage.tsx (completion errors; the separation-of-duties message is the only code it maps today). Written by the business analyst (T-1319) 2026-11-05.
     description: >
       Web part of the count freeze (owner decision D-094; backend REQ-765). It adds no route and no permission; it
