@@ -781,6 +781,24 @@ defmodule Letflow.Routers.Entities.RecordImport do
     %{"type" => Atom.to_string(reason), "header" => key}
   end
 
+  # REQ-727: the stock opening line import's constant refusals (no cell text).
+  defp import_reason_json(reason)
+       when reason in [
+              :document_not_draft,
+              :org_unit_mismatch,
+              :lines_count,
+              :quantity_invalid,
+              :price_invalid
+            ] do
+    %{"type" => Atom.to_string(reason)}
+  end
+
+  defp import_reason_json({:line_invalid, nil}), do: %{"type" => "line_invalid"}
+
+  defp import_reason_json({:line_invalid, field}) when is_binary(field) do
+    %{"type" => "line_invalid", "header" => field}
+  end
+
   defp import_reason_json(other) do
     Logger.warning("entity record import entry failed: #{inspect(other)}")
     %{"type" => "internal_error"}

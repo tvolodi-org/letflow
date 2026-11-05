@@ -67,21 +67,21 @@ Status is derived, never set by a caller (`Letflow.Modules.Procurement.Fulfilmen
 - A Closed or Cancelled request refuses a new officer, supplier, reference or cancel with 409
   `request_closed`, the same body shape as `not_approved`. The cancel that closes the request succeeds.
 
-## Attachments (REQ-626 part A, GH #3503)
+## Attachments (REQ-626 part A and B, GH #3503)
 
 Files on a purchase request. The bytes are stored once per hash in `repository_artifacts`; the link table
 `procurement_attachments` is append-only (a trigger refuses UPDATE and DELETE) and holds one row per file per version.
 
 | Route | Permission | Who |
 |---|---|---|
-| `POST /purchase-requests/:id/attachments` | `ProcurementRequestWrite` | requester, open draft only |
-| `POST /purchase-requests/:id/attachments/:attachment_id/replace` | `ProcurementRequestWrite` | requester, open draft only (`:attachment_id` is the slot id) |
+| `POST /purchase-requests/:id/attachments` | `ProcurementRequestWrite` | requester, open draft, or a new version when submitted |
+| `POST /purchase-requests/:id/attachments/:attachment_id/replace` | `ProcurementRequestWrite` | requester, open draft, or a new version when submitted (`:attachment_id` is the slot id) |
 | `GET /purchase-requests/:id/attachments` | `ProcurementRequestRead` | requester or a holder of `ProcurementRequestDecide` (`?version_no=`) |
 | `GET /purchase-requests/:id/attachments/:attachment_id/content` | `ProcurementRequestRead` | same |
 
 - Body of the two POSTs: JSON `file_name`, `content_type`, `content_base64`. Refusals: type outside the allow-list 422
   `content_type_not_allowed`, infected 422 `infected`, scanner down 503, over 25 MiB 413, bad name or base64 422 `validation`.
-- A request that is submitted has no open draft: attach and replace answer 409 `not_draft` until part B (new version).
+- A request that is submitted has no open draft: attach and replace make a new issued version N+1 in one transaction (the files of N are copied, the new or replacing file is added, N+1 is issued). Version N, its files and its hash stay as they were, so the approver of N inspects exactly N (`?version_no=N`); an approval of N does not cover N+1, which needs its own decision. A request whose current version is cancelled still answers 409 `not_draft`.
 - A replace adds a row (same slot and version, `replaces_id` set); the old row and bytes stay and remain downloadable.
   Two partial unique indexes keep each slot a single chain. The literal unique index on
   `(document_id, version_no, slot_id)` of the requirement was **not** used, because it contradicts criterion 5.
