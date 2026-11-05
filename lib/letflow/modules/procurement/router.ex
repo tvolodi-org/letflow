@@ -22,7 +22,8 @@ defmodule Letflow.Modules.Procurement.Router do
   | `GET /purchase-requests/:id/attachments/:attachment_id/content` | `ProcurementRequestRead` | `Attachments.download/5` | 200 bytes / 404 |
   | `POST /purchase-requests/:id/attachments/:attachment_id/replace` | `ProcurementRequestWrite` | `Attachments.replace/5` | same as attach (`:attachment_id` is the slot id) |
 
-  GH #3503 / REQ-626 part A: the attachment routes take a JSON body of `file_name`, `content_type` and
+  GH #3503 / REQ-626 part A and B: on a submitted request attach and replace make a new issued version
+  (see `Attachments`); the attachment routes take a JSON body of `file_name`, `content_type` and
   `content_base64` only. The effective upload cap is the JSON body limit of `Letflow.Plugs.ApiPipeline`
   (2 MiB, about 1.5 MiB of file): the 25 MiB rule is enforced in `Attachments`, a larger body gets a
   413 from the parser first. List and download are open to the requester and to a holder of

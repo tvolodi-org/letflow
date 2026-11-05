@@ -2,7 +2,7 @@ Code.require_file("procurement_fixture.exs", __DIR__)
 
 defmodule Letflow.Modules.Procurement.AttachmentRoutesTest do
   @moduledoc """
-  GH #3503 / REQ-626 part A, the HTTP half of criteria 1, 2, 4, 9 and 10 (spec: state/tasks/T-0962/design.md,
+  GH #3503 / REQ-626 parts A and B (H1..H5 for the submitted branch), the HTTP half of criteria 1, 2, 4, 9 and 10 (spec: state/tasks/T-0962/design.md,
   tests A3, R2, D1..D3, S2, S3, S6, T1, P3): the four attachment routes through the full pipeline
   (`Letflow.Router`) with real tokens.
 
@@ -97,32 +97,111 @@ defmodule Letflow.Modules.Procurement.AttachmentRoutesTest do
     refute disposition =~ ~r/[\r\n]/
   end
 
-  test "replace by slot id, then P3: a submitted request is refused", ctx do
+  defp submit!(ctx) do
+    {:ok, _} =
+      Letflow.Modules.Procurement.PurchaseRequests.submit_for_bpm(
+        ctx.a.schema,
+        ctx.admin.user_id,
+        %{document_id: ctx.id, version_no: 1, content_hash: nil, idempotency_key: "s-1"}
+      )
+  end
+
+  test "replace by slot id on the open draft", ctx do
     view = attach(ctx) |> json()
     path = "#{@base}/#{ctx.id}/attachments/#{view["slot_id"]}/replace"
     conn = call(:post, path, ctx.admin, upload("b.pdf", "new"))
     assert conn.status == 201
     assert %{"replaces_id" => replaced, "slot_id" => slot} = json(conn)
     assert replaced == view["attachment_id"] and slot == view["slot_id"]
+  end
 
-    {:ok, _} =
-      Letflow.Modules.Procurement.PurchaseRequests.submit_for_bpm(
-        ctx.a.schema,
-        ctx.admin.user_id,
-        %{
-          document_id: ctx.id,
-          version_no: 1,
-          content_hash: nil,
-          idempotency_key: "s-1"
-        }
-      )
+  test "H1: replace on a submitted request makes version 2 and keeps version 1", ctx do
+    view = attach(ctx, nil, nil, upload("a.pdf", "original")) |> json()
+    submit!(ctx)
+    path = "#{@base}/#{ctx.id}/attachments/#{view["slot_id"]}/replace"
 
+    conn = call(:post, path, ctx.admin, upload("b.pdf", "newer"))
+    assert conn.status == 201
+    assert %{"version_no" => 2, "replaces_id" => replaced} = json(conn)
+    assert replaced == view["attachment_id"]
+
+    conn = call(:get, "#{@base}/#{ctx.id}/attachments?version_no=1", ctx.admin)
+    assert %{"version_no" => 1, "attachments" => [%{"attachment_id" => id}]} = json(conn)
+    assert id == view["attachment_id"]
+    conn = call(:get, "#{@base}/#{ctx.id}/attachments/#{id}/content", ctx.admin)
+    assert conn.status == 200 and conn.resp_body == "original"
+
+    conn = call(:get, "#{@base}/#{ctx.id}/attachments", ctx.admin)
+    assert %{"version_no" => 2, "attachments" => [%{"file_name" => "b.pdf"}]} = json(conn)
+  end
+
+  test "H2: attach on a submitted request makes version 2", ctx do
+    attach(ctx)
+    submit!(ctx)
+    conn = attach(ctx, nil, nil, upload("n.pdf", "n"))
+    assert conn.status == 201 and json(conn)["version_no"] == 2
+    assert rows(ctx) == 3
+  end
+
+  test "H3: the decider reads version 1 after the replace", ctx do
+    view = attach(ctx, nil, nil, upload("a.pdf", "original")) |> json()
+    submit!(ctx)
+    path = "#{@base}/#{ctx.id}/attachments/#{view["slot_id"]}/replace"
+    assert call(:post, path, ctx.admin, upload("b.pdf", "newer")).status == 201
+
+    conn = call(:get, "#{@base}/#{ctx.id}/attachments?version_no=1", ctx.decider)
+    assert %{"attachments" => [%{"attachment_id" => id}]} = json(conn)
+    assert id == view["attachment_id"]
+    conn = call(:get, "#{@base}/#{ctx.id}/attachments/#{id}/content", ctx.decider)
+    assert conn.status == 200 and conn.resp_body == "original"
+  end
+
+  test "H4: on a submitted request a worker gets 403 and a non-requester 404", ctx do
+    view = attach(ctx) |> json()
+    submit!(ctx)
+    path = "#{@base}/#{ctx.id}/attachments/#{view["slot_id"]}/replace"
     before = rows(ctx)
-    conn = call(:post, path, ctx.admin, upload("c.pdf", "newer"))
-    assert conn.status == 409 and json(conn)["reason"] == "not_draft"
-    conn = attach(ctx)
-    assert conn.status == 409 and json(conn)["reason"] == "not_draft"
+
+    assert attach(ctx, ctx.worker).status == 403
+    assert call(:post, path, ctx.worker, upload()).status == 403
+    assert call(:post, path, ctx.decider, upload()).status == 404
+    assert attach(ctx, ctx.decider).status == 404
     assert rows(ctx) == before
+    assert Repo.aggregate(Letflow.Documents.DocumentVersion, :count, prefix: ctx.a.schema) == 1
+  end
+
+  test "H5: tenant B cannot attach or replace on tenant A's submitted request", ctx do
+    view = attach(ctx) |> json()
+    submit!(ctx)
+    before = rows(ctx)
+    absent = Ecto.UUID.generate()
+
+    norm = fn conn ->
+      {conn.status, conn.resp_body |> Jason.decode!() |> Map.drop(["trace_id", "instance"])}
+    end
+
+    foreign_attach = call(:post, "#{@base}/#{ctx.id}/attachments", ctx.other, upload()) |> norm.()
+    absent_attach = call(:post, "#{@base}/#{absent}/attachments", ctx.other, upload()) |> norm.()
+    assert {404, _} = foreign_attach
+    assert foreign_attach == absent_attach
+
+    path = "#{@base}/#{ctx.id}/attachments/#{view["slot_id"]}/replace"
+    foreign_replace = call(:post, path, ctx.other, upload()) |> norm.()
+
+    absent_replace =
+      call(
+        :post,
+        "#{@base}/#{absent}/attachments/#{view["slot_id"]}/replace",
+        ctx.other,
+        upload()
+      )
+      |> norm.()
+
+    assert {404, _} = foreign_replace
+    assert foreign_replace == absent_replace
+
+    assert rows(ctx) == before
+    assert Repo.aggregate(Letflow.Documents.DocumentVersion, :count, prefix: ctx.a.schema) == 1
   end
 
   test "R2: refusals over HTTP: type, body, base64, over the parser limit", ctx do
