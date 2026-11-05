@@ -62,6 +62,8 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @handler_writes "lib/letflow/entities/handler_writes.ex"
   # REQ-662: the link writers write under the locations Owner.
   @locations_links "lib/letflow/modules/locations/links.ex"
+  # REQ-750: the asset card writers write under the assets Owner.
+  @assets_cards "lib/letflow/modules/assets/cards.ex"
   @locations_tree "lib/letflow/modules/locations/tree.ex"
   # REQ-712: the stock document context writes the receipt header and line records under the stock Owner.
   @stock_documents "lib/letflow/modules/stock/documents.ex"
@@ -113,7 +115,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
 
   # Static allow-list for R1: adding a file here is a reviewed diff (design 7.3). Kept in the
   # sorted order `r1_files/1` returns (the scan set is path-sorted).
-  @authority_callers [@handler_writes, @catalog_lots, @codes_writes] ++
+  @authority_callers [@handler_writes, @assets_cards, @catalog_lots, @codes_writes] ++
                        @exam_writers ++
                        [
                          @locations_links,
@@ -714,7 +716,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
       assert r2_violations(files) == []
       # GH #2596: the three exam writers join the fixture (directory rule, alias form).
       assert owner_for_callers(files) ==
-               [@catalog_import, @catalog_lots, @codes_writes] ++
+               [@assets_cards, @catalog_import, @catalog_lots, @codes_writes] ++
                  @exam_owner_callers ++
                  [
                    @locations_links,
