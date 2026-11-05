@@ -51762,6 +51762,7 @@ requirements:
       - "The defaults of the description (refresh on open and the default query refresh, the count number as text, the tenant time zone): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-765, REQ-764, REQ-702, REQ-718, REQ-671]
+
   - id: REQ-758
     title: "Assets C15 core: posting lines of a dependency module on one user task node (a definition stamped by module M may call a posting handler of a module in M's manifest depends_on), with a decision record"
     owner: ELIXIR-DEV
