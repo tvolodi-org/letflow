@@ -34,7 +34,8 @@ async function fillHeader() {
   await form().findByRole('option', { name: 'Main store' })
   await form().findByRole('option', { name: 'Shelf A' })
   await form().findByRole('option', { name: 'Aigul B.' })
-  fireEvent.change(form().getByLabelText('Event time'), { target: { value: '2026-11-04T10:00' } })
+  fireEvent.change(form().getByLabelText('Event time, date'), { target: { value: '2026-11-04' } })
+  fireEvent.change(form().getByLabelText('Event time, time'), { target: { value: '10:00' } })
   pick('Org unit', 'u1')
   pick('Location', 'l1')
   pick('Responsible', 'e1')
@@ -196,15 +197,22 @@ describe('C3-f pickers', () => {
   })
 })
 
-describe('R1 event time hint (T-1381)', () => {
+describe('typed dates (rule 10, T-1379)', () => {
   afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
-  it('ru: the typed event time is repeated as DD-MM-YYYY HH:mm; en shows no hint', async () => {
+  it('ru: the date and time fields are masked DD-MM-YYYY, never native inputs; en types YYYY-MM-DD', async () => {
     useUiLocaleStore.getState().setLocaleTransient('ru')
     renderStock(NEW, withPost)
-    await waitFor(() => expect(document.querySelector('input[type="datetime-local"]')).not.toBeNull())
-    fireEvent.change(document.querySelector('input[type="datetime-local"]') as HTMLInputElement, { target: { value: '2026-11-04T10:00' } })
-    expect(screen.getAllByTestId('date-value-hint')[0]).toHaveTextContent('04-11-2026 10:00')
+    const date = (await screen.findAllByRole('combobox')).find((e) => e.getAttribute('aria-label')?.endsWith(', дата')) as HTMLInputElement
+    expect(date).toBeDefined()
+    expect(date).toHaveAttribute('placeholder', 'ДД-ММ-ГГГГ')
+    expect(document.querySelector('input[type="datetime-local"], input[type="date"]')).toBeNull()
+    fireEvent.change(date, { target: { value: '04112026' } })
+    expect(date).toHaveValue('04-11-2026')
+    fireEvent.change(date, { target: { value: '31-02-2026' } })
+    expect(screen.getByText(/такой даты не существует/)).toBeInTheDocument()
     useUiLocaleStore.getState().setLocaleTransient('en')
-    await waitFor(() => expect(screen.queryByTestId('date-value-hint')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('Event time, date')).toHaveAttribute('placeholder', 'YYYY-MM-DD'))
+    fireEvent.change(screen.getByLabelText('Event time, date'), { target: { value: '20261104' } })
+    expect(screen.getByLabelText('Event time, date')).toHaveValue('2026-11-04')
   })
 })

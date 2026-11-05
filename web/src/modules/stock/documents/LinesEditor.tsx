@@ -9,7 +9,7 @@ import { useIntl } from 'react-intl'
 import { DocCard } from '@/components/ui/doc/DocLayout'
 import { DocLineItem, DocLinesAdd, DocLinesTable, DocLinesTotal, type DocColumn } from '@/components/ui/doc/DocLines'
 import { Select } from '@/components/ui/Select'
-import { DateValueHint } from '@/components/ui/DateValueHint'
+import { DateCell } from '@/components/ui/DateField'
 import { useNames } from '../register/stockNames'
 import { usePickerOptions, type PickerOption } from '../register/stockPickers'
 import { MAX_LINES, emptyLine, sumDecimals, type DocKind, type LineForm } from './documentsModel'
@@ -100,10 +100,13 @@ function LineRow({ index, line, items, locations, employees, errors, onChange, o
     location: <Select label={t('stock.col.location')} hideLabel value={line.locationId} onChange={(locationId) => patch({ locationId })} options={locations} placeholder={t('stock.doc.pick')} />,
     responsible: <Select label={t('stock.col.responsible')} hideLabel value={line.responsibleId} onChange={(responsibleId) => patch({ responsibleId })} options={employees} placeholder={t('stock.doc.pick')} />,
     receivedOn: (
-      <>
-        <input type="date" aria-label={t('stock.doc.field.receivedOnReal')} value={line.receivedOn} onChange={(e) => patch({ receivedOn: e.target.value })} />
-        <DateValueHint value={line.receivedOn} kind="date" />
-      </>
+      <DateCell
+        label={t('stock.doc.field.receivedOnReal')}
+        value={line.receivedOn}
+        onChange={(receivedOn) => patch({ receivedOn })}
+        invalid={bad('receivedOn')}
+        describedBy={bad('receivedOn') ? msgId : undefined}
+      />
     ),
     unitPrice: num('unitPrice', 'unitPrice', t('stock.doc.field.unitPrice')),
     lineValue: num('lineValue', 'lineValue', t('stock.doc.field.lineValue')),
@@ -117,6 +120,7 @@ function LineRow({ index, line, items, locations, employees, errors, onChange, o
       messageId={msgId}
       colSpan={columns.length + 2}
       testId="line-editor-row"
+      editing
       onRemove={canRemove ? onRemove : undefined}
       removeLabel={`${t('stock.doc.line.removeNamed')} ${index + 1}`}
     >
@@ -166,6 +170,7 @@ export function LinesEditor(props: {
     <DocCard area="lines" title={t('stock.doc.lines')} count={lines.length} data-testid="lines-editor">
       {props.errors['lines'] && <p role="alert" className="lf-error">{t(props.errors['lines'])}</p>}
       <DocLinesTable
+        wide={props.kind === 'opening'}
         columns={columns}
         lineLabel={t('stock.doc.col.lineNo')}
         editing

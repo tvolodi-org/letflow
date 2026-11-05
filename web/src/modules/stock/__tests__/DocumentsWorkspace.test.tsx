@@ -81,6 +81,14 @@ describe('A2 header card', () => {
 describe('A3/A4/A5 lines table in edit mode', () => {
   const firstRows = () => screen.getAllByTestId('line-editor-row')
 
+  it('a single line keeps its remove cell so every cell sits under its header (GATE B R2)', async () => {
+    renderStock(`${LIST}/new?kind=receipt`, withPost)
+    const table = (await screen.findByTestId('lines-editor')).querySelector('table.lf-lines') as HTMLElement
+    const heads = within(table).getAllByRole('columnheader').length
+    expect(firstRows()).toHaveLength(1)
+    expect(firstRows()[0].querySelectorAll('tr.lf-lines__row > td')).toHaveLength(heads)
+  })
+
   it('is a table with one row per line, add and remove, and Enter moves down then adds a row', async () => {
     renderStock(`${LIST}/new?kind=issue`, withPost)
     const table = (await screen.findByTestId('lines-editor')).querySelector('table.lf-lines')!

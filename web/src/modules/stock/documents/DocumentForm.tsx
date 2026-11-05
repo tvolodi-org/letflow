@@ -13,6 +13,7 @@ import { DocBar, DocCard, DocEdit, DocFields } from '@/components/ui/doc/DocLayo
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
+import { DateField, DateTimeField } from '@/components/ui/DateField'
 import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { Select } from '@/components/ui/Select'
 import { usePickerOptions } from '../register/stockPickers'
@@ -21,7 +22,6 @@ import { STOCK_POST } from '../stockPermissions'
 import { documentsApi, type StockDocument } from './documents.api'
 import { LinesEditor } from './LinesEditor'
 import { SideGroup } from './SideGroup'
-import { DateValueHint } from '@/components/ui/DateValueHint'
 import {
   DOC_KINDS,
   WRITE_OFF_REASONS,
@@ -153,10 +153,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
           )}
           {!opening && (
             <E full>
-              <Field label={t('stock.col.time')} error={err('eventTime')} mono>
-                <input type="datetime-local" value={form.eventTime} onChange={(e) => patch({ eventTime: e.target.value })} />
-              </Field>
-              <DateValueHint value={form.eventTime} kind="datetime" />
+              <DateTimeField label={t('stock.col.time')} error={err('eventTime')} value={form.eventTime} onChange={(eventTime) => patch({ eventTime })} />
             </E>
           )}
           {two && errors['sides'] && <p role="alert">{t(errors['sides'])}</p>}
@@ -228,10 +225,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
                 </Field>
               </E>
               <E full>
-                <Field label={t('stock.doc.field.receivedOn')} error={err('receivedOn')} optional mono>
-                  <input type="date" value={form.receivedOn} onChange={(e) => patch({ receivedOn: e.target.value })} />
-                </Field>
-                <DateValueHint value={form.receivedOn} kind="date" />
+                <DateField label={t('stock.doc.field.receivedOn')} error={err('receivedOn')} optional value={form.receivedOn} onChange={(receivedOn) => patch({ receivedOn })} />
               </E>
             </>
           )}

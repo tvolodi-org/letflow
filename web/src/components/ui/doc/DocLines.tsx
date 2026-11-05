@@ -23,13 +23,15 @@ export interface DocLinesTableProps {
   removeLabel?: string
   children: React.ReactNode
   footer?: React.ReactNode
+  /** Extra table hook for a wide column set (see base.css `lf-lines--wide`). */
+  wide?: boolean
   'data-testid'?: string
 }
 
-export function DocLinesTable({ columns, lineLabel, editing, removeLabel, children, footer, ...rest }: DocLinesTableProps) {
+export function DocLinesTable({ columns, lineLabel, editing, removeLabel, children, footer, wide, ...rest }: DocLinesTableProps) {
   return (
     <div className="lf-doc__scroll">
-      <table className="lf-lines lf-lines--zebra" data-testid={rest['data-testid']}>
+      <table className={wide ? 'lf-lines lf-lines--zebra lf-lines--wide' : 'lf-lines lf-lines--zebra'} data-testid={rest['data-testid']}>
         <thead>
           <tr>
             <th scope="col" className="is-idx">
@@ -64,12 +66,14 @@ export interface DocLineItemProps {
   colSpan: number
   testId: string
   children: React.ReactNode
+  /** Edit mode: keeps the remove column even when the button is hidden (the only line), so cells stay under their headers. */
+  editing?: boolean
   /** Edit mode: the remove button. */
   onRemove?: () => void
   removeLabel?: string
 }
 
-export function DocLineItem({ index, lineLabel, messages = [], messageId, colSpan, testId, children, onRemove, removeLabel }: DocLineItemProps) {
+export function DocLineItem({ index, lineLabel, messages = [], messageId, colSpan, testId, children, editing, onRemove, removeLabel }: DocLineItemProps) {
   const bad = messages.length > 0
   return (
     <tbody className="lf-lines__item" data-testid={testId}>
@@ -78,9 +82,9 @@ export function DocLineItem({ index, lineLabel, messages = [], messageId, colSpa
           {index + 1}
         </td>
         {children}
-        {onRemove && (
+        {(editing || onRemove) && (
           <td className="is-rm">
-            <Button variant="ghost" iconOnly label={removeLabel} icon={<X className="lf-icon" aria-hidden="true" />} onClick={onRemove} className="lf-lines__rm" />
+            {onRemove && <Button variant="ghost" iconOnly label={removeLabel} icon={<X className="lf-icon" aria-hidden="true" />} onClick={onRemove} className="lf-lines__rm" />}
           </td>
         )}
       </tr>

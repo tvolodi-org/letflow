@@ -49,7 +49,8 @@ async function ready() {
   await form().findAllByRole('option', { name: 'Branch store' })
   await form().findAllByRole('option', { name: 'Shelf B' })
   await form().findAllByRole('option', { name: 'Marat K.' })
-  fireEvent.change(form().getByLabelText('Event time'), { target: { value: '2026-11-04T10:00' } })
+  fireEvent.change(form().getByLabelText('Event time, date'), { target: { value: '2026-11-04' } })
+  fireEvent.change(form().getByLabelText('Event time, time'), { target: { value: '10:00' } })
 }
 async function fillSides(from: [string, string, string], to: [string, string, string]) {
   for (const [side, v] of [['from', from], ['to', to]] as const) {
