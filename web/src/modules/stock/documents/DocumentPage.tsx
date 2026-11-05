@@ -146,6 +146,8 @@ function DocumentInner() {
         {doc.reason_code && row(t('stock.doc.field.reasonCode'), known(['lost', 'damaged', 'used_up', 'other'], 'stock.doc.writeOffReason', doc.reason_code))}
         {doc.reason_text && row(t('stock.doc.field.reasonText'), doc.reason_text)}
         {row(t('stock.doc.field.note'), doc.note)}
+        {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefSystem'), doc.external_ref_system, true)}
+        {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefId'), doc.external_ref_id, true)}
         {row(t('stock.doc.field.issuedAt'), doc.issued_at ? when(doc.issued_at) : null, true)}
         {row(t('stock.doc.field.postedAt'), doc.posted_at ? when(doc.posted_at) : null, true)}
         {row(t('stock.doc.field.postedBy'), doc.posted_by, true)}
