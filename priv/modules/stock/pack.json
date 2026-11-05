@@ -64,6 +64,130 @@
       "version": "1.0.0"
     },
     {
+      "definition_id": "00501000-0000-0040-0080-000000003746",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_issue",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000071501",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_writeoff",
+      "version": "1.0.0"
+    },
+    {
       "definition_id": "00501000-0000-0040-0080-000000003749",
       "graph": {
         "edges": [
@@ -460,6 +584,263 @@
       "entity_definition_id": "450d0aee-6502-e643-a766-5d4bb96c2171",
       "logical_shape_version": "509883652a737faaea8278b6a3451037f19c774cde86b135e8872e4d36412837",
       "name": "stock_receipt_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3746 / REQ-715, docs/assets/stock-workflow-documents.md. The header of a stock issue document. Same shape as the stock_receipt header without counterparty_id, supplier_document_ref and received_on. document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). event_time is the time of the movement, ISO 8601 with offset, stored in UTC. location_id and responsible_id are record ids of modules locations and org (no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of the header changes.",
+        "display_name": "Stock issue (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          },
+          {
+            "name": "reason_text",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_stock_issue_document_id"
+          }
+        ],
+        "name": "stock_issue"
+      },
+      "display_name": "Stock issue (header)",
+      "entity_definition_id": "13a196af-ba74-f6d6-d767-7731b033976b",
+      "logical_shape_version": "c15d97113a32f5ba75053823efdb4769636e8d09c2e4a43caca7d594c8c9b90d",
+      "name": "stock_issue"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3746 / REQ-715. One line of a stock issue. header_id is the record_id of the stock_issue header (not the document id); the foreign_keys entry fk_stock_issue_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict), always positive: the ledger leg is negative. There is no price or value on this line. catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+        "display_name": "Stock issue (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_stock_issue_line_header_id",
+            "references_entity": "stock_issue"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_stock_issue_line_header_id"
+          }
+        ],
+        "name": "stock_issue_line"
+      },
+      "display_name": "Stock issue (line)",
+      "entity_definition_id": "d158315f-47b8-f984-60c6-6de233f295ff",
+      "logical_shape_version": "5c9da5fa234c4e742a996b3aa5f9ae99be25c990fa2762ee1ef805780d5195f3",
+      "name": "stock_issue_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3746 / REQ-715, docs/assets/stock-workflow-documents.md. The header of a stock write-off document. Same shape as the stock_receipt header without counterparty_id, supplier_document_ref and received_on. document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). event_time is the time of the movement, ISO 8601 with offset, stored in UTC. location_id and responsible_id are record ids of modules locations and org (no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of the header changes.",
+        "display_name": "Stock write-off (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "lost",
+              "damaged",
+              "used_up",
+              "other"
+            ],
+            "name": "reason_code",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "reason_text",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_stock_writeoff_document_id"
+          }
+        ],
+        "name": "stock_writeoff"
+      },
+      "display_name": "Stock write-off (header)",
+      "entity_definition_id": "2b3e0f57-1325-e841-afe9-e906778368f2",
+      "logical_shape_version": "5938117bf3f557980b086ee4c354a12b5ec6af4abf1468aa23ba4d1c9cad6084",
+      "name": "stock_writeoff"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3746 / REQ-715. One line of a stock write-off. header_id is the record_id of the stock_writeoff header (not the document id); the foreign_keys entry fk_stock_writeoff_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict), always positive: the ledger leg is negative. There is no price or value on this line. catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+        "display_name": "Stock write-off (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_stock_writeoff_line_header_id",
+            "references_entity": "stock_writeoff"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_stock_writeoff_line_header_id"
+          }
+        ],
+        "name": "stock_writeoff_line"
+      },
+      "display_name": "Stock write-off (line)",
+      "entity_definition_id": "cf6b30d6-ddc4-688a-180e-150cdd1f9280",
+      "logical_shape_version": "b5cdf9b4eb93ebf68303f8facead0f119c87db2b50d8615adf0889041d9ae749",
+      "name": "stock_writeoff_line"
     },
     {
       "definition_json": {
