@@ -50602,10 +50602,16 @@ requirements:
       subject to the 96-hour window of 0073 D-T. After a reversal the count reads posting state reversed; the count's
       documents stay issued (0078 D5: reversal first; no cancel of count documents is built here).
 
-      FREEZE (0079 section 4, row C7). Without the freeze, a stock posting inside the scope between the cut-off and the
-      count's posting would be counted twice by the difference (the book quantity is the balance at the cut-off). The
-      freeze check has no requirement entry yet; this entry depends on it and must not be implemented before it, and
-      the freeze's exemption for the count's own posting (document_type count.differences) is part of that entry.
+      FREEZE (0079 section 4, row C7): NOT BUILT here. Assumption, owner may change at GATE B (operator decision D-086,
+      2026-11-05): this entry is built WITHOUT the count freeze. A stock posting inside the scope between the cut-off and
+      the count's posting is NOT blocked, so a difference is posted as a delta (counted minus book at the cut-off, the
+      difference of the issued line) and the balance ends at balance-now plus delta. Known gaps, stated in the runbook:
+      (a) the freeze (row C7, count_in_progress, with the exemption for document_type count.differences) is not built;
+      (b) a shortage can exceed the current balance if goods left after the cut-off: the ledger refuses
+      insufficient_stock at completion and the count stays signed; (c) a count posted after later movements reports the
+      delta, not "counted = balance". Tests of criteria 2 to 8 are in test/letflow/modules/stock/count_posting_test.exs,
+      those of criterion 1 in registration_test.exs and ledger_policy_test.exs (one file each, not the split names
+      below). Criterion 10 is the web part (T-1315).
 
       DECIDED HERE as the simplest reasonable defaults (UAT assumption, to be confirmed by the process owner;
       assumption, owner may change at GATE B, D-086, D-087): the post and reverse tasks have no assignee (as REQ-713);
@@ -50633,13 +50639,14 @@ requirements:
       - "7. Routes (stock router; test file test/letflow/modules/stock/count_posting_router_test.exs through Letflow.Router with real bearer tokens): POST /api/v1/modules/stock/counts/:id/post (StockPost; no body), POST /api/v1/modules/stock/counts/:id/reverse (StockReverse), POST /api/v1/modules/stock/counts/:id/posting-record (StockCountRecord; no body) and GET /api/v1/modules/stock/counts/:id/posting-document (StockRead; the issued count.posting version: number label, version_no, issued_at, content_hash, no bytes; 422 count_not_posted before it is issued). Each is in route_policies; refusals render as in REQ-700 criterion 7."
       - "8. Tenancy and scope (INV-1, INV-2, INV-5, INV-10; same router test file): a count of tenant B posted, reversed or read with a token of tenant A answers 404 with the unknown-id body (trace_id dropped first) and B's ledger and count are unchanged; a TENANT_ADMIN whose grant covers org unit X but not Y gets 404 with that body on every route for a count of Y; a tenant user without StockPost gets 403 on post, without StockReverse 403 on reverse, without StockCountRecord 403 on posting-record, without StockRead 403 on the read route. No role other than TENANT_ADMIN holds StockPost and StockReverse (REQ-687: no role grants) and no tenant user is granted PLATFORM_ADMIN (docs/roles.md)."
       - "9. Gate, runbook and scope: a ledger and tenant-data-path change that passes the SECURITY-REVIEWER deep review as a stated step (credential :oidc only, authority before any deferred refusal, no ledger SQL in module code, Rule 8 of REQ-684, the handler contract scans on lib/letflow/modules/stock/handlers.ex), verdict and evidence quoted in the PR. The stock runbook section gains an item for the binding gap of criterion 5 until slice L7. The diff adds no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no migration, no tenant table, no seed and no installation of the stock module on any tenant. The pins of the description move by the counts stated there; mix letflow.check.static, mix letflow.check_boundaries, mix letflow.permission_matrix --check, mix letflow.check_requirements_registration and the test files of criteria 1 to 8 pass, real output quoted."
+      - "10. Web (T-1315, GH #3763; web/src/modules/stock/counts): the count screen of a signed or posted count shows a Posting panel with the posting state (none, pending, posted, reversed), the entry id and times, a Post button (atom StockPost, signed count with state none), an Issue posting record button (atom StockCountRecord, state posted, no record yet) and a Reverse button with a reason dialog (atom StockReverse, state posted, no reversal waiting); a waiting banner with a link to the task inbox while a post or reverse task is pending; a danger banner when posting_check is mismatch; every refusal of criterion 7 has its own message; every new text exists in en, ru and kk; the cause count_difference is an option of the Movements cause filter and has its label in the table in en, ru and kk."
     open_questions:
       - "One cause count_difference with sign rule any replaces the two causes count_surplus (positive) and count_shortage (negative) of 0079 section 8, because one entry has one cause and 0073 A2 refuses two postings to one ledger id in one transaction; REVIEWER or the owner may amend 0079 section 8 to match."
-      - "The freeze of 0079 section 4 (row C7, count_in_progress) has no requirement entry; this entry waits for it, since without it a movement inside the scope after the cut-off is corrected twice."
+      - "The freeze of 0079 section 4 (row C7, count_in_progress) has no requirement entry and is NOT built by this entry (D-086, assumption, owner may change at GATE B): a difference is posted as a delta and postings during counting are not blocked; the owner decides at GATE B whether the freeze is built."
       - "The binding gap of criterion 5 is detected, not prevented, until slice L7 (as REQ-713); if the security review asks for prevention, a core requirement comes first."
       - "The defaults of the description (unassigned tasks, the 200-line limit for count_difference, refused postings left pending, no cancel of count documents after a reversal): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
-    depends_on: [REQ-717, REQ-687, REQ-684, REQ-685, REQ-686, REQ-637, REQ-621, REQ-676, REQ-681, "REQ-713 of task T-1226 (pending, on origin/team/T-1226 only): stock_posting_mark, stock_reversal and reverse_document", "the freeze entry of decision 0079 split plan row C7 (count_in_progress in the stock document write path), not written yet"]
+    depends_on: [REQ-717, REQ-687, REQ-684, REQ-685, REQ-686, REQ-637, REQ-621, REQ-676, REQ-681, "REQ-713 of task T-1226 (pending, on origin/team/T-1226 only): stock_posting_mark, stock_reversal and reverse_document"]
 
   - id: REQ-719
     title: "Assets B5 counts K7: count paperwork output as xlsx files with signer lines for the issued count order, count sheet and differences sheet, rendered from the issued document versions (decision 0079 section 10, split plan row C5, paperwork part)"
@@ -50982,7 +50989,8 @@ requirements:
   - id: REQ-730
     title: "Assets D1a: scan lookup route of module codes: POST /resolve with the scanned text, a read permission CodesRead held by the tenant administrator only, the scope check of the target type and one 404 for an unknown code and a target the caller may not see"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
+    # Delivered: merged in PR #3815 (commit e8df61e8f, T-1282): POST /resolve in Letflow.Modules.Codes.Router. Status set by T-1361 from git log origin/main.
     stage: S7
     gh: 3797
     # Source: ai-dala-portfolio/architectures/assets.md (phase table row D "Camera scan in the generic client"; "The phone client starts as Letflow's generic mobile client, extended with camera scanning"); letflow-team/project/assets-gap-analysis.md (table row 3b "Barcode/QR codes", section 3 "Mobile", rough order step 7 "Mobile: camera scan, then offline writes, then voice port"); owner decisions D-058 points (4), (5), (7), (8), D-061, D-063, D-067 point (3), D-083 point (3), D-085 point (3) and D-086 in ai-dala-portfolio/DECISIONS.md; docs/migration/decisions/0076-master-data-layer.md (R7 visibility table, additional rulings 2 and 3); docs/migration/decisions/0055 D7 as implemented in lib/letflow/api/permission_matrix.ex (classify_added/5: a row true only through a manifest's role_grants is a refused widening; a new module atom held by a non-admin role is :new_atom_non_admin_role); docs/roles.md (module permissions paragraph of codes: only TENANT_ADMIN and PLATFORM_ADMIN hold CodesWrite, another role is a later widening). Code read on origin/main b0ff4fe7f: Letflow.Modules.Codes.resolve/2 and its moduledoc (lib/letflow/modules/codes/codes.ex; outcomes {:ok, map} with the seven keys, :not_found, :code_retired, :assignment_conflict), the codes manifest (version 0.2.0, permissions [:CodesWrite], role_grants %{}, five route_policies), Letflow.Modules.Codes.Router (lib/letflow/modules/codes/router.ex: render/3, Response.not_found/1 for code_not_found, check_keys/2, strip/1 in test/letflow/modules/codes/router_test.exs), Letflow.Entities.ScopeDeclaration.for_type/2 (lib/letflow/entities/scope_declaration.ex: :tenant_wide, {:column, field} or :undeclared, fail closed), Letflow.Modules.Catalog validate_route_policy_permissions_declared/1 (lib/letflow/modules/catalog.ex), assign!/5 of test/letflow/modules/codes/codes_fixture.exs. Written by the business analyst (T-1190) 2026-11-04.
@@ -51060,7 +51068,8 @@ requirements:
   - id: REQ-732
     title: "Assets D1b: camera scan of barcodes and QR codes in the generic mobile client: a scan screen of feature codes shown only when module codes is installed, the lookup through the resolve route, a typed code as fallback, online only, in English, Russian and Kazakh"
     owner: MOBILE-DEV
-    status: pending
+    status: done
+    # Delivered: merged in PR #3819 (commit dec72ebd8, T-1283): camera scan feature module codes in apps/mobile. Status set by T-1361 from git log origin/main.
     stage: S9
     gh: 3796
     # Source: ai-dala-portfolio/architectures/assets.md (phase table row D; "The phone client starts as Letflow's generic mobile client (owner decision 2026-10-31), extended with camera scanning"); letflow-team/project/assets-gap-analysis.md (row 3e "Mobile shell: Working v1 client (forms, lists, tasks), online only, no camera"; section 3 "No camera or scanner package in apps/mobile/pubspec.yaml"; rough order step 7); owner decisions D-058 points (5), (7), (8), D-061, D-062 (Russian and Kazakh in the first version), D-085 and D-086 in ai-dala-portfolio/DECISIONS.md; docs/mobile/requirements.md (MOB-4 six states, MOB-7 i18n, MOB-8 v1 boundary: no offline writes); docs/mobile/architecture.md (section 4 scope table and out-of-v1 list, section 6 application modules: feature folders lib/features/<id>/, module API base path, 404 on a module path is module not available, import boundary D3); decision 0039 D3 and D5. Code read on origin/main b0ff4fe7f: apps/mobile/pubspec.yaml (no camera package; REQ-419 comment on runtime dependencies), apps/mobile/lib/features/features.dart and module_manifest.json (empty, "the first module requirement populates both"), apps/mobile/lib/bootstrap/navigation_bootstrap.dart (buildRouteTable/2 with its registry keyed by module id, the one file allowed to import from features/), apps/mobile/lib/api/api_error.dart (ModuleNotAvailableError for any 404 on /api/v1/modules/<id>/, ValidationError keeps field errors only), apps/mobile/lib/renderers/renderer_state_view.dart, apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb, apps/mobile/README.md (sembast choice recorded there, REQ-423), the guards under apps/mobile/test/guards/ (forbidden_dependencies, module_boundary, single_api_client, text_literal, v1_scope_boundary, android_manifest_security, ios_ats), apps/mobile/android/app/src/main/AndroidManifest.xml (no uses-permission), apps/mobile/ios/Runner/Info.plist. Written by the business analyst (T-1190) 2026-11-04.
@@ -51210,6 +51219,7 @@ requirements:
     title: "Assets D2: specification of the voice input service ported into Letflow: speech to text, then a language model that turns a spoken or typed phrase in Russian or Kazakh into a stock draft the user confirms, checked against the tenant's catalog, with the test phrases (docs only)"
     owner: CODE-DESIGNER
     status: pending
+    # Design delivered, entry stays pending: PR #3813 (commit 50b6c39f6, T-1285) merged docs/assets/voice-port-design.md (the file name this entry names, docs/assets/voice-input.md, was not used; the design file is the deliverable). The voice service itself is not built: implementation tasks D2a..D2c remain. Updated by T-1361.
     stage: S7
     gh: 3794
     # Source: ai-dala-portfolio/architectures/assets.md (sections "Phone client", "Phases" row D, "Open questions" 3 closed by the owner: port, and "Next steps" item 2: the 20 voice phrases still need recording by a person); letflow-team/project/assets-gap-analysis.md section 3 ("Voice: absent") and section 6 order item 7; Qoimeks-team/project/features-to-port.md sections 2 (voice input and the language model) and 7 (the 20 voice phrases: not in the repo; 7 typed test phrases, all Russian); Qoimeks-team/project/retirement-criteria.md criterion 3 (20 recorded phrases, 10 ru and 10 kk; Letflow drafts correct at least as often as Qoimeks's; typed entry works without a speech key) and criterion 9 (AI cost per 100 voice entries); owner decisions D-022 (own keys or included), D-061 (voice is ported, the Go code is not reused), D-063, D-085 and D-086 in ai-dala-portfolio/DECISIONS.md. Product files read on origin/main 79ccc36cd: lib/letflow/secrets.ex (put/2, resolve/2; moduledoc: no tenant-facing secrets route exists today), lib/letflow/webhooks/url_validator.ex (validate/1: https only, private ranges refused after DNS), lib/letflow/webhooks.ex (outbound HTTP through :httpc.request/4, no HTTP client dependency in mix.exs), lib/letflow/plugs/api_pipeline.ex (Plug.Parsers multipart length 26_214_400, default length 2_097_152), priv/modules/catalog_items/entity_definitions/catalog_item.json (fields code, name, base_uom_id, active), priv/modules/locations/entity_definitions/location_node.json (fields code, name, active), lib/letflow/modules/catalog_items/catalog_items.ex and lib/letflow/modules/locations/locations.ex (lookup/2 and active?/2 only, no list function), docs/assets/stock-workflow-documents.md, entries REQ-687, REQ-701 and REQ-712. Written by the business analyst (T-1191) 2026-11-04. Not yet validated.
@@ -51333,7 +51343,8 @@ requirements:
   - id: REQ-733
     title: "Assets D3: specification of the phone flows for counts and movements in the generic mobile client: a stock feature that records a count by camera scan, typing or voice and drafts and issues a stock document by scan, typing or voice, online only, through the stock, codes and voice routes (docs only)"
     owner: CODE-DESIGNER
-    status: pending
+    status: done
+    # Delivered: merged in PR #3852 (commit 306e1c1ac, T-1284): phone flows for counts and movements, docs/assets/phone-flows.md and the generic mobile client. Status set by T-1361 from git log origin/main.
     stage: S7
     gh: 3806
     # Source: ai-dala-portfolio/architectures/assets.md (phase table row D "Do counts and movements by camera scan and voice"; section "Phone client": the client starts as Letflow's generic mobile client, extended with camera scanning; voice is ported); letflow-team/project/assets-gap-analysis.md (section 3 "Mobile": online writes only, no camera; risk 6 "Mobile is online only; counts in a warehouse often need offline"; rough order step 7 "Mobile: camera scan, then offline writes, then voice port"); owner decisions D-058 points (5), (7), (8), D-061, D-062, D-063, D-085 point (3), D-086 and D-087 in ai-dala-portfolio/DECISIONS.md; Qoimeks-team/project/features-to-port.md sections 1 (one form, idempotent posting by an id made on the phone, the negative-balance warning), 2 (recording, "Reliability: app rules": voice never posts by itself; several items fit, the user chooses) and 4 (find by code, camera denied then typing still works, no offline lookup); docs/mobile/requirements.md MOB-8 and docs/mobile/architecture.md sections 4 and 6; docs/migration/decisions/0079-counts-inventory-taking.md sections 5 and 6 and "Not decided here" (camera scan and offline counting on the phone are phase D); docs/assets/stock-workflow-documents.md section 9.3; the route lists of REQ-700 criterion 7, REQ-701 criterion 8, REQ-712 criteria 3 and 5 (with the kinds of REQ-714, REQ-715 and REQ-721), REQ-716 criterion 7, REQ-730 and REQ-732, and the voice draft of REQ-731 criteria 2 and 6.
@@ -51543,3 +51554,379 @@ requirements:
       - "Print language bound to the interface language, download instead of preview: UAT assumption, to be confirmed by the process owner; owner may change at the phase E gate."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-720, REQ-722, REQ-736, REQ-737]
+  - id: REQ-739
+    title: "Assets D2a: voice draft check and prompt builder of module stock as pure functions: the server check of a language model's answer against the tenant's active item and location lists, and the system prompt built from those lists, with no database, provider call or route"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3881
+    # Source: docs/assets/voice-port-design.md (T-1285, the design REQ-731 asked for; REQ-731's text names the file docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 1 (items 3 to 5), 3 (what the model sees), 4 (draft shape), 5 (the server check) and 7 (test material); owner decisions D-061 (the Qoimeks Go code is not reused), D-063, D-085, D-086 in ai-dala-portfolio/DECISIONS.md; entry REQ-731 on origin/main. Code read on origin/main 8e8658e3a: lib/letflow/modules/catalog_items/catalog_items.ex and lib/letflow/modules/locations/locations.ex (lookup/2, active?/2, no list function), priv/modules/catalog_items/entity_definitions/catalog_item.json (fields code, name, base_uom_id, active), priv/modules/locations/entity_definitions/location_node.json (fields code, name, active), test/letflow/documents/print_layout_test.exs (test SC1, the source scan of a pure module: no Repo, DateTime, System or :httpc).
+    description: >
+      Phase D item D2, part a, of the assets and stock application (plan key D2a). ONE change, backend only, two
+      pure modules and their tests: the server check that turns a language model's answer into a stock draft, and
+      the builder of the system prompt the model is given. No route, no manifest change, no migration, no provider
+      call, no database read, no setting, no dependency: the routes are REQ-741 and the provider clients REQ-740.
+      The Qoimeks Go code is the specification and the test material only (D-061); it is not copied.
+
+      Files: lib/letflow/modules/stock/voice/check.ex (module Letflow.Modules.Stock.Voice.Check) and
+      lib/letflow/modules/stock/voice/prompt.ex (module Letflow.Modules.Stock.Voice.Prompt), tests
+      test/letflow/modules/stock/voice/check_test.exs and test/letflow/modules/stock/voice/prompt_test.exs.
+      The functions take plain lists that the caller has already read for its own tenant: items as maps with
+      id, code, name and unit (unit a text or nil), locations as maps with id, code and name. Reading those lists
+      through the tenant prefix of the token is REQ-741's job.
+
+      Functions (names fixed here so REQ-741 can call them): Check.parse_answer/1 takes the model's raw text and
+      answers {:ok, map} or {:error, :bad_answer}; Check.draft/4 takes the parsed answer, the transcript, the
+      items and the locations and answers the draft map of design section 4; Prompt.build/3 takes the language
+      hint (ru, kk or nil), the items and the locations and answers the system prompt text.
+
+      DECIDED HERE (gaps in the design file; UAT assumption, to be confirmed by the process owner; owner may change
+      at the phase D gate): (1) a location whose words do not occur in the transcript is dropped as
+      location_not_said even when its code is also unknown, so the words are checked first (the expected result of
+      phrase 3 in design section 7 needs this order); (2) a quantity that is not a JSON number is dropped with the
+      reason invalid_quantity, an eighth reason the design's closed list of section 4 does not have (section 5 says
+      only "dropped"); (3) item and location codes match exactly, letter case included (codes are sent and kept
+      unchanged, D-058 point 8); (4) the Russian letter-name table and the zone words of the Qoimeks prompt stay in
+      the base prompt for every tenant (design open question 5 stays open for production).
+    acceptance_criteria:
+      - "1. Parsing the answer (check_test.exs): Check.parse_answer/1 answers {:ok, map} for a JSON object with exactly the seven keys kind, item_codes, location_words, location_code, to_location_words, to_location_code and quantity; the same object preceded by a <think>...</think> block, and the same object with prose before the first { and after the last }, answer the same map; text that is not JSON, a JSON array, an object with one of the seven keys missing, an object with an eighth key, and an item_codes value that is not a list each answer {:error, :bad_answer} (design sections 1 item 4 and 5, first rule)."
+      - "2. Kind (check_test.exs): Check.draft/4 keeps kind receipt, issue, transfer and count; any other value (write_off, an empty text, null, the number 7) gives kind unknown and one entry of dropped with field kind, the given value and reason unknown_kind."
+      - "3. Items (check_test.exs): each code of item_codes that is the code of an item in the given list adds that item to items as a map with exactly id, code and name, in the order of item_codes; a code not in the list is dropped with reason unknown_item, a repeat of a code already kept is dropped with reason duplicate_item, and an element that is not a text is dropped with reason unknown_item; a code that differs from a listed one only in letter case is unknown_item."
+      - "4. Locations (check_test.exs): location_code null gives location null and no dropped entry; otherwise the location is kept, as a map with exactly id, code and name, only when location_words is a non-empty text that occurs in the transcript after both are lowercased and all white space is removed, and the code is the code of a location in the given list; words that do not occur give reason location_not_said (checked first), a code not in the list gives reason unknown_location. to_location follows the same two rules and is kept only for kind transfer; with any other kind a non-null to_location_code is dropped with reason to_location_not_transfer."
+      - "5. Quantity (check_test.exs): a JSON number zero or above is answered as a decimal text (80 gives the text 80, 2.5 gives the text 2.5, 0 gives the text 0), never a float; a negative number gives quantity null and reason negative_quantity; a value that is not a number (the text 80, true) gives quantity null and reason invalid_quantity; null gives null and no dropped entry. The draft has exactly the keys kind, items, location, to_location, quantity, transcript and dropped; transcript is the given transcript unchanged; each dropped entry has exactly field, value and reason."
+      - "6. The test material of design section 7 (check_test.exs, one test per row, fixture lists items NUT-M8, NUT-M10, BLT-M8-40 and locations A-01, B-02 and LA3 named Слева A 3, with no NO-SUCH and no LE2): rows 1, 2, 3, 4, 5 and 7 with their stubbed answers give the expected drafts of the table (row 2: items NUT-M8 then NUT-M10, dropped NO-SUCH as unknown_item and the second NUT-M8 as duplicate_item; row 3: location dropped as location_not_said); row 6(b), an answer without JSON, gives {:error, :bad_answer} from parse_answer/1. A location code of another tenant is unknown_location because only the caller's list is given."
+      - "7. Prompt (prompt_test.exs): Prompt.build/3 answers a text that contains, for each given item, its code and name (and its unit when not nil) and, for each given location, its code and name; an item or location not in the lists does not occur; no id of the lists occurs (ids are never sent to the model); the text names the seven answer keys of criterion 1, the kind words of design section 3 (приход, кіріс, расход, шығыс, переместил, ауыстырдым, инвентаризация, түгендеу), the rules return the best three items for a general name, never guess a quantity, never copy a usual location and use only codes from the lists, the Russian letter-name table and the zone words слева, сол жақ, справа, оң жақ, прямо, тура; the same input gives the same text byte for byte, with items and locations in the order given; with hint ru or kk the text names that language, with nil it names none."
+      - "8. Purity (prompt_test.exs, a source scan as test SC1 of test/letflow/documents/print_layout_test.exs does): the files lib/letflow/modules/stock/voice/check.ex and lib/letflow/modules/stock/voice/prompt.ex contain none of Repo, :httpc, System., Application., Logger and DateTime."
+      - "9. Scope and gates: git diff --name-only origin/main...HEAD lists only the two lib files and the two test files of the description; the moduledoc of each module cites docs/assets/voice-port-design.md and the decisions of the description; mix format --check-formatted, mix letflow.check.static and the two test files pass, real output quoted. No route, manifest, migration, setting or dependency changes."
+    open_questions:
+      - "The four DECIDED HERE points of the description are UAT assumptions, to be confirmed by the process owner at the phase D gate."
+      - "The kinds write off, hand over and return stay out of the draft (design open question 6)."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-731, REQ-687, REQ-712]
+  - id: REQ-740
+    title: "Assets D2b: voice settings and provider clients: platform settings that default off, a speech-to-text client and a language model client over OpenAI-style endpoints through httpc, the base URL checked before each call, the API key never shown, no route"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3880
+    # Source: docs/assets/voice-port-design.md (T-1285; REQ-731's text names docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 1 (items 2, 4, 6, 7), 2.2 (60 s per provider call), 2.3 (settings and providers), 2.4 (where each step runs, privacy, logs) and 6 (failures); owner decisions D-022, D-061, D-086 in ai-dala-portfolio/DECISIONS.md; INV-4 and INV-9 of docs/agents/instructions/security-invariants.md. Code read on origin/main 8e8658e3a: Letflow.Webhooks.UrlValidator.validate/1 (lib/letflow/webhooks/url_validator.ex; :ok or {:error, :target_url_not_allowed}, https only, private ranges refused after DNS), lib/letflow/webhooks.ex (:httpc.request/4 with a timeout; the :webhook_ssrf_validation_enabled app env switched off only in delivery tests), test/letflow/webhooks_delivery_test.exs (a real local :gen_tcp HTTP server), Letflow.Secrets.resolve/2 (lib/letflow/secrets.ex; check_tenant_match binds a reference to the caller's own tenant, and its moduledoc says no tenant-facing secrets route exists), config/runtime.exs (LETFLOW_SMTP_PASSWORD read from the environment, the precedent of a platform secret held as an env var), test/support/runtime_config_eval.ex (Letflow.Test.RuntimeConfigEval), test/letflow/mail_runtime_config_test.exs, mix.exs (no HTTP client dependency added).
+    description: >
+      Phase D item D2, part b, of the assets and stock application (plan key D2b). ONE change, backend only: the
+      settings of the voice service and its two outbound clients, not yet called by any route (the routes are
+      REQ-741). The calls go from the Letflow server only; the phone never holds a key and never calls a provider
+      (design section 2.4).
+
+      Files: lib/letflow/voice/settings.ex (Letflow.Voice.Settings), lib/letflow/voice/speech_client.ex
+      (Letflow.Voice.SpeechClient), lib/letflow/voice/model_client.ex (Letflow.Voice.ModelClient), the voice block
+      of config/runtime.exs, a new runbook docs/runbooks/stock-voice.md, tests under test/letflow/voice/.
+
+      Settings (the names of design section 2.3, plus the two key names the design leaves open). Nine new
+      environment variables, all unset by default, each read into config :letflow, :voice by config/runtime.exs:
+      LETFLOW_VOICE_STT_PROVIDER (only openai_transcriptions is known), LETFLOW_VOICE_STT_MODEL,
+      LETFLOW_VOICE_STT_BASE_URL, LETFLOW_VOICE_STT_API_KEY, LETFLOW_VOICE_LLM_PROVIDER (only openai_chat is known),
+      LETFLOW_VOICE_LLM_MODEL, LETFLOW_VOICE_LLM_BASE_URL, LETFLOW_VOICE_LLM_API_KEY and LETFLOW_VOICE_LLM_JSON_MODE
+      (schema, object or prompt; unset means prompt). Reason for the new env vars: the voice service needs a
+      provider endpoint and key in QA, and an unset value turns its step off so typed and scanned entry keep working
+      without any provider (retirement criterion 3). The time limit per call is 60 seconds (design section 2.2) and
+      is the app env value :timeout_ms of the same block, default 60000, not an env var, so a test can lower it.
+
+      DECIDED HERE (UAT assumption, to be confirmed by the process owner; QA only, production keys are not
+      approved, D-086): the API keys are platform settings read from the environment, as LETFLOW_SMTP_PASSWORD is,
+      and not references of Letflow.Secrets. Reason: design section 2.3 says the keys are held by reference through
+      Letflow.Secrets, but Secrets.resolve/2 refuses a reference of another tenant (check_tenant_match), so one
+      platform key cannot be resolved for a request of tenant A; per-tenant keys need the tenant-facing secrets route
+      that does not exist (design open question 1). The INV-4 rules of the design apply unchanged: a key never
+      appears in a log, a response, an error, an inspect output or git.
+
+      Provider kinds: an OpenAI-style transcription endpoint (POST <base URL>/audio/transcriptions, multipart) and an
+      OpenAI-style chat endpoint (POST <base URL>/chat/completions, JSON), as design section 2.3 ports them;
+      ElevenLabs, Anthropic-native and any other provider are a later entry. Calls use :httpc as
+      lib/letflow/webhooks.ex does: no HTTP client dependency is added.
+    acceptance_criteria:
+      - "1. Settings (test file test/letflow/voice/settings_test.exs, app env set per test, async false): Settings.speech/0 answers {:ok, speech_settings} only when the provider is openai_transcriptions and the model, base URL and API key are all non-empty texts, and :off otherwise (one test per missing value and one for an unknown provider); Settings.model/0 answers {:ok, model_settings} only when the provider is openai_chat, model, base URL and key are non-empty and the JSON mode is schema, object, prompt or unset (unset gives prompt), and :off otherwise (one test for an unknown JSON mode); with nothing set, as in config/test.exs, both answer :off."
+      - "2. Runtime config (test file test/letflow/voice/voice_runtime_config_test.exs, using Letflow.Test.RuntimeConfigEval of test/support/runtime_config_eval.ex as test/letflow/mail_runtime_config_test.exs does): with the nine variables of the description set, config :letflow, :voice holds each value under its own key; with none set every value is nil and the app env :timeout_ms is 60000; no other configuration key changes."
+      - "3. Key never shown (INV-4; all client and settings tests): inspect/1 of the speech and model settings shows neither the API key nor its first four characters; no {:error, _} returned by a client contains the key, the word Bearer or any byte of the provider's answer body; ExUnit.CaptureLog around every client test captures neither the key, the audio bytes, the transcript, the system prompt, the user text nor the provider's answer body (the test server answers a sentinel text that is searched for)."
+      - "4. Outbound URL check (INV-9; test files test/letflow/voice/speech_client_test.exs and model_client_test.exs): each client calls Letflow.Webhooks.UrlValidator.validate/1 on the base URL inside every call, with no cached result, and answers {:error, :provider_error} without opening a connection when it refuses: a test with an http URL and one with https://127.0.0.1 shows the local test server receives no connection. The check is switched off only inside the client tests that use the local http test server, by an app env flag :voice_url_validation_enabled (default true), as :webhook_ssrf_validation_enabled is in lib/letflow/webhooks.ex."
+      - "5. Speech client (speech_client_test.exs, a real local :gen_tcp HTTP server as test/letflow/webhooks_delivery_test.exs uses): SpeechClient.transcribe/4 (settings, audio bytes, content type, language hint) sends exactly one POST to <base URL>/audio/transcriptions with the header authorization Bearer <key> and multipart parts model, language (the hint) and file (the bytes with the given content type); a 200 answer with a JSON text field gives {:ok, text}; a non-2xx status, a body that is not JSON and a JSON body without text each give {:error, :provider_error}; no answer within :timeout_ms (the test sets 200) gives {:error, :provider_timeout}; the client never retries."
+      - "6. Model client (model_client_test.exs, same test server): ModelClient.complete/3 (settings, system prompt, user text) sends exactly one POST to <base URL>/chat/completions with the bearer header and a JSON body with model and messages [system prompt, user text]; JSON mode schema adds response_format type json_schema, strict true, with the seven keys of design section 4 required and no other key allowed; object adds response_format type json_object; prompt sends no response_format key (one test per mode asserting the recorded body). Answers: choices[0].message.content gives {:ok, content}; finish_reason length gives {:error, :truncated}; a non-null message.refusal gives {:error, :refused}; a non-2xx status or an unreadable body gives {:error, :provider_error}; a timeout gives {:error, :provider_timeout}; no retry."
+      - "7. No dependency, no caller yet: mix.exs and mix.lock are unchanged; grep -rn 'Letflow.Voice' lib/ lists only the three new files (no route calls them yet); no route, manifest, migration or definition file changes."
+      - "8. Runbook and gates: docs/runbooks/stock-voice.md has a table of the nine variables with meaning, default and the rule that an unset value turns its step off, the reason for the env vars of the description, the rule that a key is never logged or answered, and that providers, accounts and who pays are the owner's (D-022, D-086); git diff --name-only origin/main...HEAD lists only the three lib files, config/runtime.exs, the runbook and test files under test/letflow/voice/; mix format --check-formatted, mix letflow.check.static and the four test files pass, real output quoted."
+    open_questions:
+      - "API keys as platform env settings instead of Letflow.Secrets references: UAT assumption, to be confirmed by the process owner; per-tenant keys and who pays stay open (design open question 1, D-022)."
+      - "Provider accounts for QA and production are a sign-up or purchase of the owner (D-086); the code works with none set."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-731]
+  - id: REQ-741
+    title: "Assets D2c: voice routes of module stock: POST /voice/draft for a recorded phrase and POST /voice/draft-text for a typed phrase answer a checked stock draft for the caller's own tenant, store nothing, and say which part failed"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3879
+    # Source: docs/assets/voice-port-design.md (T-1285; REQ-731's text names docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 2 (the flow), 2.1 (routes), 2.2 (audio limits), 2.4 (logs), 3 (the active lists, INV-6), 4 (draft shape), 6 (failures) and 7 (added Letflow cases); entries REQ-687 criterion 8, REQ-712 criterion 8 and REQ-730 criterion 7 on origin/main; owner decisions D-061, D-063, D-085, D-086. Code read on origin/main 8e8658e3a: Letflow.Modules.Stock manifest (lib/letflow/modules/stock/stock.ex: version 0.10.0, permissions with StockPost, role_grants %{}, route_policies), Letflow.Modules.Stock.Router (lib/letflow/modules/stock/router.ex, mounted at /api/v1/modules/stock by Letflow.Routers.Modules; with_access/3 calling Letflow.Modules.Stock.Access.check/2 with purpose :post, a refusal answers Response.not_found/1, as authz_post /documents does), lib/letflow/plugs/api_pipeline.ex (Plug.Parsers: multipart length 26_214_400, root length 2_097_152), Letflow.Api.Response (payload_too_large/2, unsupported_media_type/2, unprocessable/2), Letflow.Api.Error (extensions merged into the problem body), Letflow.Modules.ReadApi (lib/letflow/modules/read_api.ex: lookup/3, active?/3, isolation by prefix), test/fixtures/route_scope/tenant_wide_default_routes.txt (230 lines) and its pins length(snapshot) == 230 in test/letflow/api/route_scope_resolver_test.exs, route_scope_self_service_test.exs and tasks_route_classes_test.exs, the stock version pins in test/letflow/modules/stock/*_registration_test.exs and receipt_fields_test.exs.
+    description: >
+      Phase D item D2, part c, of the assets and stock application (plan key D2c). ONE change, backend: two routes
+      of module stock that turn a recorded or typed phrase into a stock draft the user checks on the form. Read
+      only: no record, no posting, no event, no audit entry, no audio and no transcript is stored (design section
+      2.1). Posting is never done here: the user saves the draft through the stock document routes of REQ-712 or the
+      count sheet of REQ-701.
+
+      Routes (mounted at /api/v1/modules/stock, permission StockPost, no new permission atom):
+      POST /voice/draft, multipart with the parts audio (the file) and lang (ru or kk); and POST /voice/draft-text,
+      JSON with exactly text and the optional lang. The access check is Access.check(conn, :post) through
+      with_access/3, the same as POST /documents, so a principal that may not draft a stock document gets the 404 of
+      REQ-712 criterion 8. The tenant comes only from the token (INV-1, INV-10).
+
+      Flow (design section 2): body and limit checks, then speech to text (audio route only, Letflow.Voice.SpeechClient
+      of REQ-740), then the active lists of the caller's tenant, then the language model (Letflow.Voice.ModelClient)
+      with the prompt of Letflow.Modules.Stock.Voice.Prompt.build/3, then Check.parse_answer/1 and Check.draft/4 of
+      REQ-739. The orchestration lives in lib/letflow/modules/stock/voice/service.ex
+      (Letflow.Modules.Stock.Voice.Service). The clients are chosen from the app env :voice_clients (default the two
+      REQ-740 modules), so the route tests use test doubles in test/support/ and no test calls a provider.
+
+      New reads (INV-6): Letflow.Modules.ReadApi.list_active/2 (prefix, entity type) answers the live records of that
+      type whose active field is true, in the tenant schema of the prefix only; Letflow.Modules.CatalogItems.list_active/1
+      (type catalog_item) and Letflow.Modules.Locations.list_active/1 (type location_node) delegate to it. The unit text
+      given to the prompt is the code of the item's base_uom_id record of type catalog_uom, read through
+      CatalogItems.lookup/2. No cap on the list size: the catalog size in the prompt is design open question 4.
+
+      DECIDED HERE (UAT assumption, to be confirmed by the process owner): the 10 MB cap of design section 2.2 is
+      10_485_760 bytes; the audio format is told from the file's first bytes, not from the part's content type
+      (AAC in .m4a: the four bytes ftyp at offset 4; Opus in WebM: the EBML header bytes 1A 45 DF A3 at offset 0), and
+      the speech client is sent audio/mp4 or audio/webm accordingly; lang is required on the audio route; English and
+      Uzbek hints (design section 8.4) are refused until the owner answers design open question 10; the typed text has
+      no length cap of its own beyond the 2_097_152-byte JSON body limit of api_pipeline.ex.
+    acceptance_criteria:
+      - "1. Manifest (test file test/letflow/modules/stock/registration_test.exs): route_policies are those of origin/main at implement time plus {\"POST\", \"/voice/draft\", :StockPost} and {\"POST\", \"/voice/draft-text\", :StockPost}; permissions and role_grants unchanged; version one minor step above origin/main at implement time, and every test of test/letflow/modules/stock/ that pins the stock version moves with it; mix letflow.permission_matrix --write after the last merge of origin/main and mix letflow.permission_matrix --check pass, output quoted."
+      - "2. Holders and refusals through the real router (test file test/letflow/modules/stock/voice_router_test.exs, Letflow.Router with real bearer tokens as test/letflow/modules/stock/documents_router_test.exs mints them): a TENANT_ADMIN gets 200 on both routes with the model double; a TASK_WORKER gets 403 with the problem document of Letflow.Plugs.Authorize deny/2, as REQ-687 criterion 8(b); a TENANT_ADMIN with an API token and a TENANT_ADMIN whose grant is not tenant-wide (Letflow.Support.ScopedGrantsFixture) each get 404 with a body equal, trace_id dropped first, to the dispatcher's 404 for a tenant without the module, as REQ-687 criterion 8(a); a tenant without stock installed gets the dispatcher's 404 for both paths."
+      - "3. Typed phrase body (same test file): a body without text, with an empty text or with a text that is not a string answers 422 reason field_invalid with field text; a body with any other key answers 422 reason field_not_allowed naming it; lang other than ru or kk (en, uz, RU, 7) answers 422 reason bad_language; none of these calls a client double. An accepted request answers 200 with exactly the keys kind, items, location, to_location, quantity, transcript and dropped, and transcript equals the sent text unchanged."
+      - "4. Audio body and limits (same test file): a body without the audio part answers 422 reason field_invalid with field audio; lang missing or other than ru or kk answers 422 reason bad_language; a file of 10_485_761 bytes and a file of 11 MB (under the multipart length 26_214_400 of api_pipeline.ex) answer 413 with reason audio_too_large and source speech; a file of exactly 10_485_760 bytes with the m4a header is accepted; a file whose first bytes are neither the m4a nor the WebM header of the description (an MP3 and a text file) answers 415 with reason audio_format and source speech; in every refused case the speech double records no call. An accepted m4a file reaches the speech double with content type audio/mp4 and the lang hint, a WebM file with audio/webm."
+      - "5. The chain (same test file): the model double receives the system prompt of Prompt.build/3 built from the caller's active catalog_item and location_node records only: an inactive item and a soft-deleted location of the same tenant are not in the prompt, and their codes in the stubbed answer are dropped as unknown_item and unknown_location; rows 1 and 2 of the table of design section 7 answer the drafts of that table through the real router, items and locations with their record ids."
+      - "6. Failures (same test file; each a problem document whose extension keys reason and source are asserted): speech step off (Settings.speech/0 is :off) on the audio route answers 503 reason speech_off source speech; model step off answers 200 with the transcript, kind unknown, items [], location null, to_location null, quantity null, dropped [] and notice llm_off; a client {:error, :provider_error} answers 502 reason provider_error and {:error, :provider_timeout} 504 reason provider_timeout, each with the source of the failed step; {:error, :bad_answer} from parse_answer/1 answers 502 reason bad_answer source llm; {:error, :refused} and {:error, :truncated} answer 502 reasons refused and truncated source llm; the typed route works with the speech step off. No error body contains the API key, the sentinel body text of the double or any code or name of the tenant's lists (INV-4)."
+      - "7. Nothing stored, nothing logged (same test file): after every request of criteria 2 to 6 the tenant's counts of entity records, events and audit entries are unchanged; ExUnit.CaptureLog over the accepted and failing requests captures neither the transcript, the typed text, the prompt, a catalog name nor the API key."
+      - "8. Tenancy (INV-1, INV-5, INV-6, INV-10; test files voice_router_test.exs and test/letflow/modules/read_api_test.exs): ReadApi.list_active/2 with tenant A's prefix never answers a record of tenant B; a TENANT_ADMIN of tenant B whose stubbed model answers the item code and location code that exist only in tenant A gets them dropped as unknown_item and unknown_location, and the prompt the double recorded contains no code or name of tenant A; a query parameter tenant_id or a header naming tenant A does not change the lists used."
+      - "9. Pins, docs and gates: the two routes are in test/fixtures/route_scope/tenant_wide_default_routes.txt with the three length(snapshot) pins moved by +2 from origin/main at implement time; the moduledoc of lib/letflow/modules/stock/router.ex lists both routes with permission and answers; docs/runbooks/stock-voice.md (REQ-740) gains a routes section with the limits, the failure table and the rule that nothing is stored; mix format --check-formatted, mix letflow.check.static, the stock and voice test files and the route scope tests pass, real output quoted."
+    open_questions:
+      - "The byte value of the 10 MB cap, the format check by leading bytes and the refusal of en and uz hints: UAT assumptions, to be confirmed by the process owner."
+      - "Catalog size cap of the prompt and a rate limit per user or tenant (design open questions 4 and 8) stay with the owner."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-739, REQ-740, REQ-687, REQ-712]
+  - id: REQ-742
+    title: "Assets D2d1: voice regression phrase list and generated speech files with the stubbed regression test of every PR: 20 Russian and 20 Kazakh phrases with expected drafts, audio files made once by the owner's text-to-speech run, and a test that plays each file through the audio route"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3878
+    # Source: docs/assets/voice-port-design.md (T-1285; REQ-731's text names docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 2.2 (accepted formats AAC in .m4a and Opus in WebM, 10 MB cap), 7 (test material), 8.1 (phrase list), 8.2 (generated audio), 8.3 (layer 1), 8.4 (language coverage), 8.5 and 9 (what the owner provides) and 10 (open questions 9 and 10); owner decisions D-061, D-086 (sign-ups and purchases are the owner's) in ai-dala-portfolio/DECISIONS.md; Qoimeks-team/project/retirement-criteria.md criterion 3.
+    description: >
+      Phase D item D2, part d1, of the assets and stock application (plan key D2d, layer 1 of design section 8.3).
+      ONE change: the phrase list, the generated audio files with their manifest, the one-time generation script, and
+      a regression test that runs in every PR with both providers stubbed. It measures no model accuracy (that is
+      REQ-743) and calls no provider.
+
+      Owner inputs before implementation (design sections 8.5 and 9; nothing is signed up, generated or paid by the
+      team): the owner runs the generation script once with the owner's own text-to-speech key and hands over the
+      files, a native Kazakh speaker checks the Kazakh phrases and expected drafts, and the owner chooses the voices or
+      accepts the proposal of design section 8.2. Until then this requirement cannot start.
+
+      Files: test/fixtures/voice/phrases.yaml (the fixture catalog and the phrases), test/fixtures/voice/audio/<lang>/<voice>/<phrase id>.m4a
+      with test/fixtures/voice/audio/manifest.yaml, the script scripts/voice/generate_audio.py (run by the owner only,
+      never by a test or CI), and the test test/letflow/modules/stock/voice/regression_test.exs.
+
+      DECIDED HERE (UAT assumption, to be confirmed by the process owner): (1) the files are AAC in .m4a, not MP3 as
+      design section 8.2 proposes, because the audio route of REQ-741 (design section 2.2) accepts only AAC in .m4a and
+      Opus in WebM; the script converts the provider's output when it is another format; (2) only Russian and Kazakh,
+      since the route accepts only ru and kk; English and Uzbek wait for the owner's answer to design open question 10;
+      (3) the files stay in git under a 15 MB budget (design section 8.2; open question 9 stays open for a larger set).
+    acceptance_criteria:
+      - "1. Phrase list (test file regression_test.exs reads test/fixtures/voice/phrases.yaml): the file holds the fixture catalog of design section 8.1 (items NUT-M8, NUT-M10, BLT-M8-40, BLT-M10-60, WSH-8, CBL-3x2.5, CBL-3x1.5; locations A-01, B-02, LA3 named Слева A 3, LN2) and exactly 20 phrases with lang ru and 20 with lang kk, each with a unique id, text, lang, split (tune or heldout), case, the stubbed model answer and the expected draft (kind, item codes, location code, to location code, quantity); the test asserts the counts, the uniqueness of the ids, that each of the cases letter-spelled article, zone word, shared general name, transfer with two locations and missing quantity occurs at least twice per language, that 8 phrases per language are heldout, and that ru phrases Q1 to Q7 carry the texts of design section 8.1 rows Q1 to Q7."
+      - "2. Audio and manifest (same test file): every manifest row names an existing file under test/fixtures/voice/audio/, a phrase id of phrases.yaml, its lang, voice id, voice gender, sha256 and generation date; the sha256 of every file equals its manifest value (a changed file without a manifest update fails the test); every phrase has at least one file; every file starts with the m4a header of REQ-741 and is at most 10_485_760 bytes; the files of test/fixtures/voice/audio/ total under 15 MB."
+      - "3. Layer 1 (same test file, the client doubles of REQ-741, no network): for every manifest row the file is sent through Letflow.Router to POST /api/v1/modules/stock/voice/draft with its lang by a TENANT_ADMIN of a tenant seeded with the fixture catalog; the speech double answers the phrase's text and the model double the phrase's stubbed answer; the answered draft's kind, item codes, location code, to location code and quantity equal the expected draft of the phrase."
+      - "4. Generation script (scripts/voice/generate_audio.py, Python standard library only): it reads the key from an environment variable and never writes it to a file or its output; it reads phrases.yaml and a voice list, writes the files and manifest.yaml in the layout of criterion 2, and is not called by any test, mix alias or workflow (grep -rn generate_audio over test/, .github/ and mix.exs prints nothing); a section of docs/runbooks/stock-voice.md says how the owner runs it and that the team never runs it."
+      - "5. Gates: git diff --name-only origin/main...HEAD lists only the files of the description and the runbook; mix format --check-formatted, mix letflow.check.static and regression_test.exs pass, real output quoted; the new fixture paths are matched by BACKEND_PATHS_RE of scripts/ci_changed_paths.sh."
+    open_questions:
+      - "Owner inputs: the one-time text-to-speech run with the owner's key, the voices, and a native Kazakh speaker (design sections 8.5 and 9). Until they exist the requirement cannot start."
+      - "m4a instead of MP3, Russian and Kazakh only, files in git: UAT assumptions, to be confirmed by the process owner (design open questions 9 and 10)."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-741]
+  - id: REQ-743
+    title: "Assets D2d2: nightly voice accuracy report with the real providers: a mix task that runs speech to text, the prompt, the model and the check on the saved phrase files and reports accuracy per language, voice, case and split, and a workflow that is never a required check"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3877
+    # Source: docs/assets/voice-port-design.md (T-1285; REQ-731's text names docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 8.3 (layer 2: when, what it checks, correct draft, per language and per voice, word error rate, held-out part, 10-point margin), 8.4 (unknown Kazakh quality is reported, not hidden), 8.5 (keys of the nightly run) and 10; owner decisions D-022, D-086; INV-4 of docs/agents/instructions/security-invariants.md; Qoimeks-team/project/retirement-criteria.md criteria 3 and 9.
+    description: >
+      Phase D item D2, part d2, of the assets and stock application (plan key D2d, layer 2 of design section 8.3).
+      ONE change: a mix task lib/mix/tasks/letflow.voice_report.ex (mix letflow.voice_report) and a workflow
+      .github/workflows/voice-nightly.yml. The task runs the real chain on the saved files of REQ-742 with the fixture
+      catalog of phrases.yaml held in memory (no database, no route, no tenant): Letflow.Voice.SpeechClient, then
+      Letflow.Modules.Stock.Voice.Prompt.build/3, Letflow.Voice.ModelClient, Check.parse_answer/1 and Check.draft/4.
+      It writes a report file; it is a report first, a gate only when the owner decides (design section 8.3).
+
+      The workflow runs nightly and on demand, reads the settings of REQ-740 from repository secrets (references
+      only, INV-4), uploads the report as a run artifact, and is never a required check of the main-queue ruleset.
+      With the settings absent it ends with a notice and runs nothing. The owner provides the keys (design section 8.5
+      item 2); nothing is signed up or paid by the team (D-086).
+
+      DECIDED HERE (UAT assumption, to be confirmed by the process owner): a run is marked red when a language's or a
+      voice's held-out accuracy falls 10 points or more below the last report given to the task (the proposal of
+      design section 8.3); red is a field of the report and the task still exits 0, since the owner has not made layer
+      2 a gate.
+    acceptance_criteria:
+      - "1. Correct draft and figures (test file test/mix/tasks/letflow.voice_report_test.exs, the client doubles of REQ-741, two phrases and three files): a phrase is correct when the draft's kind, set of item codes, location code and quantity equal the expected draft; the report gives correct and total, and the percentage, per language, per voice, per case and per split (tune and heldout); the word error rate per language and per voice is the word-level edit distance between the transcript and the phrase text divided by the number of words of the phrase text (a test with a known transcript asserts the value)."
+      - "2. Margin (same test file): given a previous report, a held-out figure 10 points or more below its previous value for a language or a voice sets red true and names that language or voice; less than 10 points keeps red false; with no previous report red is false; the task exits 0 in every case."
+      - "3. Errors are counted, not fatal (same test file): a speech or model error for one file (provider_error, provider_timeout, bad_answer, refused, truncated) counts that file as not correct with its reason in the report and the run goes on; with Settings.speech/0 or Settings.model/0 :off the task prints one line naming the missing step and writes no report."
+      - "4. No secret, no tenant data (INV-4; same test file): the report and the task's output contain no API key; a source scan of lib/mix/tasks/letflow.voice_report.ex finds no Repo and no Ecto, and the task reads no file outside test/fixtures/voice/ and the given previous report."
+      - "5. Workflow (.github/workflows/voice-nightly.yml): triggers schedule and workflow_dispatch only; the voice settings come from secrets references; the report is uploaded as an artifact and not committed; a step ends the job with a notice when the speech or model secrets are empty; the workflow name is not among the required checks (Backend gate (mix letflow.check), Frontend gate (npm run check)); every test of test/ that reads .github/workflows/ passes."
+      - "6. Gates: git diff --name-only origin/main...HEAD lists only the mix task, its test, the workflow and a section of docs/runbooks/stock-voice.md that says how to read the report and that layer 2 is not a gate; mix format --check-formatted, mix letflow.check.static and the new test pass, real output quoted."
+    open_questions:
+      - "The keys of the nightly run and who pays for the calls (design section 8.5 item 2, D-022): the owner's."
+      - "The 10-point margin and whether layer 2 becomes a gate: UAT assumption, to be confirmed by the process owner."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-742, REQ-740]
+  - id: REQ-744
+    title: "Assets D3s: mobile feature stock skeleton: the feature folder, its manifest entry depending on codes, a stock home screen reached from the tenant home only when the tenant has modules stock and codes, and its texts in English, Russian and Kazakh"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S7
+    gh: 3876
+    # Source: docs/assets/phone-flows.md (T-1284, delivered by REQ-733) sections 1 (where it lives) and 8 (split plan, part 0); docs/mobile/architecture.md section 6 (application modules); entry REQ-732 on origin/main; owner decisions D-061, D-062 (en, ru and kk texts), D-063, D-085. Code read on origin/main 8e8658e3a: apps/mobile/lib/features/module_manifest.json (one feature codes, depends_on []), apps/mobile/lib/bootstrap/navigation_bootstrap.dart (kFeatureRegistry, buildRouteTable/2, isModuleInstalled/2, kCodesScanRoutePath), apps/mobile/lib/definitions/tenant_home_screen.dart (the scan entry shown when codes is installed), apps/mobile/lib/features/codes/codes.dart (the feature barrel), apps/mobile/test/guards/module_boundary_guard_test.dart (rules 1 and 2), apps/mobile/test/guards/text_literal_guard_test.dart, apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb.
+    description: >
+      Phase D item D3, part 0, of the assets and stock application (plan key D3s). ONE change, mobile only: the place
+      the phone stock screens will live, with no stock route called yet. A feature folder apps/mobile/lib/features/stock/
+      with a barrel stock.dart (imported only by navigation_bootstrap.dart, as codes.dart is), a routes file, and a stock
+      home screen with two entries, Counts and Stock documents, that open the routes /stock/counts and /stock/documents.
+      Until REQ-745 and REQ-746 replace them, those two routes show one placeholder message. The feature is declared in
+      module_manifest.json with depends_on [codes] and registered in kFeatureRegistry; the tenant home screen shows the
+      stock entry only when the installed modules list both stock and codes (phone-flows.md section 1, points 1 and 2).
+      No new package, no platform file, no network call. So that the count screens (REQ-745) and the document
+      screens (REQ-746) can be built side by side without both editing lib/api/, this change also adds to
+      apps/mobile/lib/api/api_client.dart an interface WriteCapableHttpGateway that extends PostCapableHttpGateway with
+      put and delete, implemented by ApiClient (the existing HttpGateway and PostCapableHttpGateway test doubles stay
+      unchanged); nothing calls it yet.
+    acceptance_criteria:
+      - "1. Module place (test file apps/mobile/test/features/stock/stock_routes_test.dart and the existing guard tests): module_manifest.json declares stock with depends_on [codes] and codes unchanged; buildRouteTable/2 with an installed list holding stock and codes returns the routes /stock, /stock/counts and /stock/documents, and with a list holding only codes returns none of them; test/guards/module_boundary_guard_test.dart passes with navigation_bootstrap.dart as the only importer of lib/features/stock/ outside the folder."
+      - "2. Tenant home (widget test in the same folder): the stock entry is shown when the installed list holds stock and codes, and is absent for a list with only codes and for a list with only stock; tapping it opens /stock."
+      - "3. Stock home (widget test in the same folder): the screen shows the two entries of the description; each opens its route, which shows the placeholder message."
+      - "4. Languages: every new text is an ARB key present in app_en.arb, app_ru.arb and app_kk.arb with a non-empty value; test/guards/text_literal_guard_test.dart passes; a widget test shows the stock home texts in ru and kk."
+      - "5. Write gateway (test file apps/mobile/test/api/write_gateway_test.dart): ApiClient implements WriteCapableHttpGateway; put sends a PUT and delete a DELETE to the given path through the same _sendWithBackoff path as post, with no automatic retry on a 5xx (allowServerRetry false, as post), and a 401 goes through the same refresh flow (tests in the style of api_client_test.dart record method, path and body); test/guards/single_api_client_guard_test.dart passes unchanged."
+      - "6. Docs and gates: docs/mobile/architecture.md section 6 names lib/features/stock/ and its depends_on codes; pubspec.yaml and pubspec.lock are unchanged; the change edits only files under apps/mobile/ and docs/mobile/; flutter pub get, flutter analyze and flutter test in apps/mobile pass, real output quoted."
+    open_questions:
+      - "The folder name, depends_on [codes] and the rule shown only with both modules are proposals of phone-flows.md section 1 (assumption, owner may change at the phase D gate)."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-733, REQ-732]
+  - id: REQ-745
+    title: "Assets D3a: mobile count screens: pick a count, open it, set the place by scanning, record by camera scan with one unit per scan, type a counted quantity, add a surplus line and close counting, online only, in English, Russian and Kazakh"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S7
+    gh: 3875
+    # Source: docs/assets/phone-flows.md (T-1284, delivered by REQ-733) sections 2 (count flow), 3 (one scan, one unit; the scan refusal table), 6 (online only and failures), 7 (languages and texts) and 8 (part a); entries REQ-700, REQ-701, REQ-716, REQ-730 and REQ-732 on origin/main; decision 0079 section 6 (a typed number replaces the value); owner decisions D-058 point 8 (codes sent unchanged), D-062, D-063, D-085. Code read on origin/main 8e8658e3a: the route table of lib/letflow/modules/stock/router.ex moduledoc and the manifest route_policies of lib/letflow/modules/stock/stock.ex (counts routes, permissions StockRead and StockCountRecord), lib/letflow/modules/stock/counts.ex (@list_keys status, org_unit_id, limit, cursor; status one value), lib/letflow/modules/stock/count_sheet.ex (@surplus_keys location_id, catalog_item_id, unit_ref, counted_quantity, catalog_lot_id, responsible_employee_id; unit_ref required; line_view/1 and entry_view/1 carry ids, not names; reasons not_chair, count_not_due, count_state_invalid, not_commission_member, line_not_found), web/src/modules/stock/counts/CountSheet.tsx (the web surplus form picks the unit from catalog_uom), web/src/modules/stock/register/stockPickers.ts and stockNames.ts (POST /api/v1/entities/query with filters active, deleted and record_id in), apps/mobile/lib/renderers/list/list.dart (the mobile already calls POST /api/v1/entities/query), apps/mobile/lib/features/codes/codes_resolve.dart (CodesResolver.resolve/1), apps/mobile/lib/features/codes/scan_source.dart, apps/mobile/lib/renderers/renderer_state_view.dart, apps/mobile/lib/api/api_error.dart (ModuleNotAvailableError for a 404 on a module path).
+    description: >
+      Phase D item D3, part a, of the assets and stock application (plan key D3a). ONE change, mobile only, under
+      apps/mobile/lib/features/stock/ (replacing the counts placeholder of REQ-744): the count
+      screens of phone-flows.md sections 2 and 3, by camera scan and by typing. Voice is REQ-747. All routes are under
+      /api/v1/modules/stock unless named otherwise: GET /counts (query status counting by default, ordered on a switch),
+      POST /counts/:id/open, GET /counts/:id/lines and GET /counts/:id/entries (limit, cursor), POST /counts/:id/scan,
+      PUT /counts/:id/lines/:line_no/count, POST /counts/:id/surplus-lines, POST /counts/:id/close, and
+      POST /api/v1/modules/codes/resolve (REQ-730) for the current place. PUT goes through the WriteCapableHttpGateway of REQ-744. The camera and the
+      typed-code fallback are the ScanSource of the codes feature (REQ-732), not a second camera package.
+
+      DECIDED HERE (UAT assumption, to be confirmed by the process owner; owner may change at the phase D gate):
+      phone-flows.md point 1.4 lets the phone call only the routes of phase B, REQ-730 and REQ-731, and leaves the unit
+      of measure and the names a GAP. The surplus line needs unit_ref (count_sheet.ex) and the lines carry only ids,
+      so this part also calls POST /api/v1/entities/query, the route the web stock screens use for the same pickers and
+      names (stockPickers.ts, stockNames.ts) and the mobile list renderer already calls: the names of the items,
+      locations and units on the lines (filter record_id in the page's ids) and the active units for the surplus line
+      (type catalog_uom, filters active eq true and deleted eq false, page_size 200). No new route is added.
+      Choosing a count by org unit name and a place by name stay GAPs (phone-flows.md section 2, rows 10 and 11).
+    acceptance_criteria:
+      - "1. Count list and open (test file apps/mobile/test/features/stock/count_screens_test.dart, a fake network layer): the list sends GET /api/v1/modules/stock/counts with status counting, and with status ordered after the switch, and shows each row's number and status as answered; a next_cursor loads the next page with cursor; Open is shown on an ordered count and sends POST /counts/:id/open once with an empty body; the reasons not_chair, count_not_due and count_state_invalid each show their own message."
+      - "2. Current place (same test file, a fake scan source): a location code is resolved with POST /api/v1/modules/codes/resolve with the scanned text unchanged; an assigned answer with target_type location_node sets the current place shown on the screen; any other target type or status shows its message and keeps the earlier place; an item scan with no current place sends nothing and asks for the place first."
+      - "3. One scan, one unit (same test file): one detection sends exactly one POST /counts/:id/scan whose body is exactly scanned_text (unchanged, a trailing space kept), location_id (the current place) and scan_id; further detections before Scan again send nothing; after a network failure, Retry sends the same scan_id again, and an answer with duplicate true shows the same line and quantity; a new detection gets a new scan_id; the scan_id is never written to the device."
+      - "4. Scan refusals (same test file): each reason of the table of phone-flows.md section 3 (code_retired, code_assignment_conflict, code_not_assigned, code_not_countable, scan_no_line, scan_ambiguous, location_not_in_count, not_commission_member, count_state_invalid, scan_id_conflict) shows its own message; scan_no_line also opens the surplus line form with the place and the scanned item filled, and scan_ambiguous opens the typed quantity of the line list; a 404 on the scan route shows the one not-found-or-not-available message."
+      - "5. Lines, typed quantity and entries (same test file): the line list shows line_no, the item, location and unit names read with one POST /api/v1/entities/query per type of the page (filter record_id in the page's ids), book_quantity and counted_quantity as the decimal text answered; typing a quantity sends PUT /counts/:id/lines/:line_no/count with body exactly counted_quantity as a decimal string (12,5 typed with a comma is sent as 12.5; a negative or non-numeric value sends nothing and shows the invalid-number message); line_not_found and not_commission_member show their messages; the entry log shows entries in the order answered."
+      - "6. Surplus line and close (same test file): the surplus form sends POST /counts/:id/surplus-lines with location_id, catalog_item_id, unit_ref (picked from the active catalog_uom list of the description), counted_quantity and no other key unless a lot or responsible employee is chosen; Close sends POST /counts/:id/close once after a confirmation, and its refusals show their messages."
+      - "7. Online only and failures (same test file): a 403 shows the permission-denied state, a 429 the retry-after countdown, a network failure the fetch-failure state with a retry, each through RendererStateView; a 404 on any counts route shows the module-not-available state; no new code under lib/ writes to sembast, flutter_secure_storage or a file, and test/guards/v1_scope_boundary_guard_test.dart passes unchanged; leaving and reopening a count shows no earlier scan result."
+      - "8. Languages and gates: every new text is an ARB key in app_en.arb, app_ru.arb and app_kk.arb with a non-empty value and text_literal_guard_test.dart passes; quantities are sent as decimal strings and shown as answered (REQ-701 criterion 8); pubspec.yaml is unchanged; the change edits only files under apps/mobile/; flutter pub get, flutter analyze and flutter test pass, real output quoted."
+    open_questions:
+      - "The use of POST /api/v1/entities/query for names and units departs from phone-flows.md point 1.4 (an assumption of that file): UAT assumption, to be confirmed by the process owner."
+      - "Which tenant role counts on the phone (phone-flows.md open question 2); phase B grants the stock permissions to no role, so UAT on a phone needs a tenant administrator or the storekeeper role of a later task."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-744, REQ-700, REQ-701, REQ-716, REQ-730, REQ-732, REQ-733]
+  - id: REQ-746
+    title: "Assets D3b: mobile stock document draft screens: save, change, discard and issue a receipt, issue, write off, transfer, hand over or return draft by scan and typing, the whole draft sent on every change, never posted on the phone, in English, Russian and Kazakh"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S7
+    gh: 3874
+    # Source: docs/assets/phone-flows.md (T-1284, delivered by REQ-733) sections 4 (movement flow and the kinds table), 6, 7 and 8 (part b); entries REQ-712 (criteria 2 to 5 and 8), REQ-713 (posting is a human task), REQ-714, REQ-715, REQ-721 and REQ-730 on origin/main; docs/assets/stock-workflow-documents.md; owner decisions D-058 point 8, D-062, D-063, D-085. Code read on origin/main 8e8658e3a: the manifest route_policies of lib/letflow/modules/stock/stock.ex (documents routes, StockPost and StockRead), lib/letflow/modules/stock/documents.ex (@list_keys kind, state, org_unit_id, limit, cursor; the org unit of a draft cannot change), lib/letflow/modules/stock/documents/kinds.ex (required and optional header keys per kind), lib/letflow/modules/stock/documents/shape.ex (@line_required catalog_item_id, catalog_uom_id, quantity; quantity a decimal string above zero, at most 9 decimals; event_time ISO 8601 with an offset; reasons field_not_allowed, field_required, field_invalid, price_invalid, reason_invalid, sides_equal), lib/letflow/modules/stock/documents/checks.ex (not_linked, employee_not_active, counterparty_not_active, unit_not_valid, lot_not_valid, the extension key side), web/src/modules/stock/register/stockPickers.ts (POST /api/v1/entities/query for the pickers; the item's base_uom_id), apps/mobile/lib/api/api_client.dart (HttpGateway get, PostCapableHttpGateway post; no put or delete yet).
+    description: >
+      Phase D item D3, part b, of the assets and stock application (plan key D3b). ONE change, mobile only, under
+      apps/mobile/lib/features/stock/ (replacing the documents placeholder of REQ-744): the
+      draft screens of phone-flows.md section 4 for the six kinds receipt, issue, write_off, transfer, hand_over and
+      return (not opening). Routes under /api/v1/modules/stock: GET /documents (query state draft, optional kind) and
+      GET /documents/:id, POST /documents, PUT /documents/:id (replaces the whole draft), DELETE /documents/:id and
+      POST /documents/:id/issue; POST /api/v1/modules/codes/resolve (REQ-730) for scanned codes. The phone never posts:
+      posting is the human task of REQ-713 in the existing task renderer. PUT and DELETE go through the
+      WriteCapableHttpGateway of REQ-744. Voice is REQ-747.
+
+      DECIDED HERE (UAT assumption, to be confirmed by the process owner; owner may change at the phase D gate): the
+      header values phone-flows.md section 4 leaves a GAP (org unit, responsible employee, counterparty, the unit of a
+      line, the lot) are picked from POST /api/v1/entities/query, as the web stock document form does
+      (stockPickers.ts): the active records of the type (filters active eq true and deleted eq false, page_size 200;
+      a lot also filtered by item_id), and a line's unit is preset to the item's base_uom_id. This departs from
+      phone-flows.md point 1.4. If the change passes about 1500 changed lines, transfer, hand over and return move to a
+      follow-up requirement (plan row D3b).
+    acceptance_criteria:
+      - "1. Draft list (test file apps/mobile/test/features/stock/document_screens_test.dart, a fake network layer): the list sends GET /api/v1/modules/stock/documents with state draft, and with kind set when a kind filter is chosen, and pages with cursor; opening a row sends GET /documents/:id and fills the form; New offers exactly the six kinds of the description."
+      - "2. Save per kind (same test file, one test per kind): saving a new draft sends one POST /documents whose body holds kind, every required header key of that kind in lib/letflow/modules/stock/documents/kinds.ex, only the optional keys the user filled, and lines each with line_no, catalog_item_id, catalog_uom_id and quantity (plus catalog_lot_id when chosen, and unit_price and line_value only for receipt); no key outside the kind's set is ever sent; quantity is a decimal string (12,5 typed is sent as 12.5) and event_time is ISO 8601 with the device's offset; a write off with reason_code other requires reason_text before Save is enabled."
+      - "3. Pickers (same test file): org unit, responsible employee, counterparty, unit and lot options come from POST /api/v1/entities/query with the filters of the description; choosing an item presets the line unit to the item's base_uom_id; the org unit cannot be changed on a saved draft (the field is read-only after the first save)."
+      - "4. Scan fill (same test file, a fake scan source): a scanned code is resolved with POST /api/v1/modules/codes/resolve with the text unchanged; target_type location_node fills the location field being edited (from or to for the two-side kinds), catalog_item fills a new line's item and catalog_lot its lot and item; a target of another kind, or a status other than assigned, shows its message and fills nothing."
+      - "5. Change, discard, issue (same test file): changing a loaded draft of two lines and editing one quantity sends one PUT /documents/:id whose body holds the full header and both lines; Discard sends DELETE /documents/:id after a confirmation; Issue sends POST /documents/:id/issue after a save, and no screen of this change sends a request to POST /documents/:id/post."
+      - "6. Refusals (same test file): field_not_allowed, field_required and field_invalid name the field (and the line_no when given); price_invalid, reason_invalid, sides_equal, document_not_draft, not_linked, employee_not_active, counterparty_not_active, unit_not_valid and lot_not_valid each show their own message naming the line_no and the side (from or to) when the answer carries them; a 404 shows the one not-found-or-not-available message."
+      - "7. Online only and failures (same test file): a 403, a 429 and a network failure are shown through RendererStateView as in REQ-732 criterion 5; no draft, line or scan is written to the device (test/guards/v1_scope_boundary_guard_test.dart passes unchanged); test/guards/single_api_client_guard_test.dart passes, so package:dio stays inside lib/api/."
+      - "8. Languages and gates: every new text is an ARB key in app_en.arb, app_ru.arb and app_kk.arb with a non-empty value and text_literal_guard_test.dart passes; pubspec.yaml is unchanged; the change edits only files under apps/mobile/; flutter pub get, flutter analyze and flutter test pass, real output quoted."
+    open_questions:
+      - "Pickers through POST /api/v1/entities/query depart from phone-flows.md point 1.4: UAT assumption, to be confirmed by the process owner."
+      - "Which tenant role drafts documents on the phone (phone-flows.md open question 2)."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-744, REQ-712, REQ-713, REQ-714, REQ-715, REQ-721, REQ-730, REQ-733]
+  - id: REQ-747
+    title: "Assets D3c: mobile voice on the count and stock document screens: record a phrase or type it, send it to the voice routes, fill the form for the user to check, never save by itself, and say which part is down, in English, Russian and Kazakh"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S7
+    gh: 3873
+    # Source: docs/assets/phone-flows.md (T-1284, delivered by REQ-733) sections 1 point 5 (language hint), 5 (voice), 6 and 8 (part c); docs/assets/voice-port-design.md (T-1285; REQ-731's text names docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 1 item 1 (AAC in .m4a on the phone), 2.1, 4 and 6; entries REQ-731, REQ-732 (criterion 2, the platform-file precedent; criterion 5, the failure states) and REQ-741 (this batch); owner decisions D-061, D-062, D-063, D-085. Code read on origin/main 8e8658e3a: apps/mobile/pubspec.yaml (no recording package yet), apps/mobile/test/guards/forbidden_dependencies_guard_test.dart, android_manifest_security_guard_test.dart, ios_ats_guard_test.dart, apps/mobile/lib/api/api_client.dart (buildFileUploadFormData with bytes, fileName, contentType, partName; dio stays inside lib/api/), apps/mobile/test/guards/single_api_client_guard_test.dart.
+    description: >
+      Phase D item D3, part c, of the assets and stock application (plan key D3c). ONE change, mobile only: a voice
+      button on the count screen of REQ-745 and on the receipt, issue and transfer forms of REQ-746. The phone records
+      AAC in .m4a and sends it with the language hint to POST /api/v1/modules/stock/voice/draft, or sends a typed phrase
+      to POST /api/v1/modules/stock/voice/draft-text (REQ-741). The answered draft fills the form for the user to check;
+      voice never saves, issues or posts by itself (phone-flows.md section 5).
+
+      One new runtime package records the audio; its name and the reason are written in apps/mobile/README.md, as
+      REQ-732 did for the camera. The recording reaches the screen as bytes through a VoiceSource interface in the
+      stock feature (a fake in tests); the real source deletes its temporary file before it hands the bytes over, and on
+      cancel. buildFileUploadFormData of lib/api/api_client.dart gains an optional map of extra text fields, so the
+      lang part is sent with the file and package:dio stays inside lib/api/.
+
+      Language hint (phone-flows.md point 1.5): the app language when it is ru or kk; with the app in English the user
+      picks ru or kk on the voice button. DECIDED HERE (UAT assumption, to be confirmed by the process owner; owner may
+      change at the phase D gate): the write off, hand over and return forms show no voice button, since the voice draft
+      has only the kinds receipt, issue, transfer and count (design open question 6); a draft whose kind differs from the
+      open form's kind shows a message and fills nothing.
+    acceptance_criteria:
+      - "1. Package and platform files: pubspec.yaml and pubspec.lock add one recording package and no other new runtime package; apps/mobile/README.md names it and the reason; AndroidManifest.xml declares android.permission.RECORD_AUDIO and ios/Runner/Info.plist has NSMicrophoneUsageDescription; forbidden_dependencies_guard_test.dart, android_manifest_security_guard_test.dart, ios_ats_guard_test.dart and test/android/android_manifest_test.dart pass unchanged."
+      - "2. Requests (test file apps/mobile/test/features/stock/voice_test.dart, a fake VoiceSource and a fake network layer): one finished recording sends exactly one POST /api/v1/modules/stock/voice/draft, multipart with the part audio (file name voice.m4a, content type audio/mp4, the fake's bytes) and the part lang; a typed phrase sends one POST /api/v1/modules/stock/voice/draft-text with body exactly text (unchanged) and lang; the voice button is disabled while a request runs; with the app in ru or kk lang is the app language, with the app in en the user's choice of ru or kk, and nothing is sent before it is chosen."
+      - "3. Count screen (same test file): a draft of kind count with one item, a location (or none, then the current place) and a quantity marks the line whose location_id and catalog_item_id match and shows the proposed quantity; nothing is sent until the user confirms, then one PUT /counts/:id/lines/:line_no/count with counted_quantity equal to the draft's quantity text; no matching line shows a message and sends nothing; a draft of another kind shows the kind-mismatch message and fills nothing."
+      - "4. Document forms (same test file): on a receipt, issue or transfer form a draft of the same kind fills the location (and for transfer the from and to locations) and one line with the item and quantity; a draft with more than one item shows the items to choose from and Save stays disabled until one is chosen; a draft with a null quantity leaves the quantity empty; the arrival of a draft sends no POST, PUT or issue request (the fake network layer counts them); the write off, hand over and return forms show no voice button."
+      - "5. Failures (same test file): 503 with source speech shows the speech-part-down message and the typed phrase, scan and typing keep working; 502 or 504 with source llm shows the model-part-down message; a 200 with notice llm_off shows the transcript and leaves the form to be filled by hand; 413 audio_too_large, 415 audio_format and 422 bad_language show their messages; 403, 429 and a network failure are shown through RendererStateView as in REQ-732 criterion 5, and a 404 shows the module-not-available state."
+      - "6. Nothing kept on the device: no code of this change writes the recording, the transcript or the draft to sembast, flutter_secure_storage or a file other than the recorder's temporary file, which the real VoiceSource deletes in every path (a unit test of the real source with a fake recorder plugin asserts the delete on success, failure and cancel); test/guards/v1_scope_boundary_guard_test.dart and single_api_client_guard_test.dart pass unchanged."
+      - "7. Languages, docs and gates: every new text, including the microphone permission prompt texts kept in the app, is an ARB key in app_en.arb, app_ru.arb and app_kk.arb with a non-empty value and text_literal_guard_test.dart passes; docs/mobile/architecture.md section 6 names the microphone permission and section 4 says voice is online only; the change edits only files under apps/mobile/ and docs/mobile/; flutter pub get, flutter analyze and flutter test pass, real output quoted. Checks on a real device are manual and are not part of this gate."
+    open_questions:
+      - "No voice button on write off, hand over and return: UAT assumption, to be confirmed by the process owner (design open question 6, phone-flows.md open question 5)."
+      - "The store texts of the microphone permission (Info.plist) for the store listings are the owner's when the app is published."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-741, REQ-745, REQ-746, REQ-733]

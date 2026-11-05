@@ -48,6 +48,7 @@ GET /modules/stock/counts/:id/document StockRead
 GET /modules/stock/counts/:id/entries StockRead
 GET /modules/stock/counts/:id/lines StockRead
 GET /modules/stock/counts/:id/paperwork/:kind StockRead
+GET /modules/stock/counts/:id/posting-document StockRead
 GET /modules/stock/counts/:id/print/:kind StockRead
 GET /modules/stock/counts/:id/sheet-document StockRead
 GET /modules/stock/counts/:id/signatures StockRead
@@ -163,6 +164,9 @@ POST /modules/stock/counts/:id/differences StockCountRecord
 POST /modules/stock/counts/:id/differences-signatures StockCountRecord
 POST /modules/stock/counts/:id/issue StockCountOrder
 POST /modules/stock/counts/:id/open StockCountRecord
+POST /modules/stock/counts/:id/post StockPost
+POST /modules/stock/counts/:id/posting-record StockCountRecord
+POST /modules/stock/counts/:id/reverse StockReverse
 POST /modules/stock/counts/:id/scan StockCountRecord
 POST /modules/stock/counts/:id/sheet-signatures StockCountRecord
 POST /modules/stock/counts/:id/surplus-lines StockCountRecord
