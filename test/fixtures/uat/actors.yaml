@@ -116,7 +116,7 @@ actors:
     tenant: vortex
     builtin_roles: [TASK_WORKER]
     routing_roles: [role-quality-manager]
-    note: "seed_vortex_persona_actors.sh PERSONAS line; TASK_WORKER implicit per script header"
+    note: "seed_vortex_persona_actors.sh PERSONAS line; TASK_WORKER implicit per script header. T-1300: TASK_WORKER may read /entities (definitions, query, aggregate) but 403 is correct on record write/import/export; type denial of shipment_manifest is 404. A 403 on a read means no TASK_WORKER group membership on QA (see vortex_karl_entities_access_test.exs)"
   actor-vortex-anna:
     tenant: vortex
     builtin_roles: [TASK_WORKER]

@@ -250,4 +250,12 @@ defmodule Letflow.CiSelectTestsTest do
     assert {_, 0} = System.cmd("bash", ["-n", path], env: Letflow.Test.TestParallelEnv.cmd_env())
     assert File.read!(path) =~ "TEST_PARALLEL_PLAN"
   end
+
+  test "the plan output ends with a newline before its delimiter (GH Actions output)" do
+    yml = File.read!(@ci_yml)
+    # `printf '%s'` without a newline glues PLAN_EOF to the last plan line and the step fails
+    # with "Matching delimiter not found 'PLAN_EOF'".
+    assert yml =~ ~S|printf "%s\n" "$4"; echo "PLAN_EOF"|
+    refute yml =~ ~S|printf "%s" "$4"; echo "PLAN_EOF"|
+  end
 end
