@@ -470,6 +470,252 @@ defmodule Letflow.Modules.Stock.PostingTest do
     end
   end
 
+  defp api(ctx, method, path, body) do
+    conn =
+      case body do
+        nil -> Plug.Test.conn(method, "/api/v1" <> path)
+        body -> Plug.Test.conn(method, "/api/v1" <> path, Jason.encode!(body))
+      end
+      |> Plug.Conn.put_req_header("authorization", "Bearer " <> ctx.tok_a)
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+
+    Letflow.Router.call(conn, Letflow.Router.init([]))
+  end
+
+  defp api!(ctx, method, path, body) do
+    conn = api(ctx, method, path, body)
+    assert conn.status in [200, 201], "#{method} #{path}: #{conn.status} #{conn.resp_body}"
+    Jason.decode!(conn.resp_body)
+  end
+
+  defp rid!(map), do: map["record_id"] || map["id"]
+
+  # The masters of the QA seed (gate_b_demo_seed.sh), built through the same routes.
+  defp seed_masters!(ctx) do
+    k = fn -> Ecto.UUID.generate() end
+    n = System.unique_integer([:positive])
+    unit = ctx.ma.unit
+
+    country =
+      api!(ctx, :post, "/modules/locations/nodes", %{
+        "code" => "KZ#{n}",
+        "name" => "KZ",
+        "node_kind" => "country",
+        "idempotency_key" => k.()
+      })
+      |> rid!()
+
+    city =
+      api!(ctx, :post, "/modules/locations/nodes", %{
+        "code" => "AL#{n}",
+        "name" => "AL",
+        "node_kind" => "city",
+        "parent_id" => country,
+        "idempotency_key" => k.()
+      })
+      |> rid!()
+
+    wh =
+      api!(ctx, :post, "/modules/locations/nodes", %{
+        "code" => "WH#{n}",
+        "name" => "WH",
+        "node_kind" => "warehouse",
+        "parent_id" => city,
+        "segment" => "WH#{n}",
+        "address_pattern" => "segments",
+        "idempotency_key" => k.()
+      })
+      |> rid!()
+
+    rack =
+      api!(ctx, :post, "/modules/locations/nodes", %{
+        "code" => "R#{n}",
+        "name" => "Rack 01",
+        "node_kind" => "rack",
+        "parent_id" => wh,
+        "segment" => "01",
+        "address_pattern" => "segments",
+        "idempotency_key" => k.()
+      })
+      |> rid!()
+
+    for l <- [wh, rack],
+        do:
+          api!(ctx, :post, "/modules/locations/links", %{
+            "org_unit_id" => unit,
+            "location_id" => l,
+            "idempotency_key" => k.()
+          })
+
+    imp = fn type, records ->
+      api!(ctx, :post, "/entities/records/#{type}/import", %{
+        "record_export_schema_version" => "entities/record-export/v1",
+        "entity_type" => type,
+        "upsert_by" => "external_ref",
+        "records" => records
+      })["results"]
+    end
+
+    uoms =
+      imp.(
+        "catalog_uom",
+        for(
+          {c, nm} <- [{"PCS", "Piece"}, {"KG", "Kilogram"}, {"L", "Litre"}],
+          do: %{
+            "external_ref" => %{"system" => "gate-b#{n}", "id" => c},
+            "field_values" => %{"code" => "#{c}#{n}", "name" => nm, "active" => true}
+          }
+        )
+      )
+
+    uom = fn c -> Enum.find(uoms, &(&1["external_ref"]["id"] == c))["record_id"] end
+
+    items =
+      imp.(
+        "catalog_item",
+        for(
+          {c, u, tp} <- [
+            {"LAPTOP", "PCS", "none"},
+            {"CEMENT", "KG", "none"},
+            {"MILK", "L", "lot"}
+          ],
+          do: %{
+            "external_ref" => %{"system" => "gate-b#{n}", "id" => "ITM-#{c}"},
+            "field_values" => %{
+              "code" => "ITM#{c}#{n}",
+              "name" => c,
+              "base_uom_id" => u,
+              "kind" => "material",
+              "active" => true,
+              "tracking_policy" => tp
+            }
+          }
+        )
+      )
+
+    item = fn c -> Enum.find(items, &(&1["external_ref"]["id"] == "ITM-#{c}"))["record_id"] end
+
+    lot =
+      api!(ctx, :post, "/modules/catalog_items/lots", %{
+        "item_id" => item.("MILK"),
+        "code" => "MA#{n}",
+        "producer" => "Foodmaster",
+        "mark" => "2.5",
+        "expiry_date" => Date.to_iso8601(Date.add(Date.utc_today(), 60)),
+        "idempotency_key" => k.()
+      })
+      |> rid!()
+
+    codes = [
+      %{"value" => "BCL#{n}", "kind" => "barcode"},
+      %{"value" => "BCC#{n}", "kind" => "barcode"},
+      %{"value" => "BCM#{n}", "kind" => "barcode"},
+      %{"value" => "QR#{n}", "kind" => "qr"}
+    ]
+
+    api!(ctx, :post, "/modules/codes/receive", %{"entries" => codes, "idempotency_key" => k.()})
+
+    assign = fn value, type, target ->
+      q =
+        api!(ctx, :post, "/entities/query", %{
+          "entity_type" => "code_tag",
+          "filters" => [%{"field" => "value", "op" => "eq", "value" => value}]
+        })
+
+      id = hd(q["items"])["record_id"]
+
+      api!(ctx, :post, "/modules/codes/#{id}/assign", %{
+        "target_type" => type,
+        "target_id" => target,
+        "idempotency_key" => k.()
+      })
+    end
+
+    assign.("BCL#{n}", "catalog_item", item.("LAPTOP"))
+    assign.("BCC#{n}", "catalog_item", item.("CEMENT"))
+    assign.("BCM#{n}", "catalog_lot", lot)
+    assign.("QR#{n}", "location_node", rack)
+
+    # the admin's own user is the responsible employee
+    sub = "mock-subject-" <> ctx.names.a
+
+    %{rows: rows} =
+      Repo.query!(
+        ~s|SELECT id::text FROM "#{ctx.schema}".users WHERE username = $1 OR email LIKE $2|,
+        [sub, sub <> "@%"]
+      )
+
+    uid = with [[id]] <- rows, do: id
+
+    emp =
+      api!(ctx, :post, "/modules/org/employees", %{
+        "code" => "E#{n}",
+        "full_name" => "Keeper",
+        "org_unit_id" => unit,
+        "idempotency_key" => k.()
+      })
+      |> rid!()
+
+    if uid,
+      do:
+        api!(ctx, :patch, "/modules/org/employees/#{emp}", %{
+          "user_id" => uid,
+          "idempotency_key" => k.()
+        })
+
+    %{
+      rack: rack,
+      emp: emp,
+      lot: lot,
+      laptop: item.("LAPTOP"),
+      cement: item.("CEMENT"),
+      milk: item.("MILK"),
+      pcs: uom.("PCS"),
+      kg: uom.("KG"),
+      l: uom.("L")
+    }
+  end
+
+  describe "HTTP path with the QA seed masters (T-1367)" do
+    test "H-2 receipt 1 of the gate B seed posts through claim and complete", ctx do
+      s = seed_masters!(ctx)
+
+      body = %{
+        "kind" => "receipt",
+        "org_unit_id" => ctx.ma.unit,
+        "location_id" => s.rack,
+        "responsible_id" => s.emp,
+        "event_time" => DateTime.utc_now() |> DateTime.add(-7200) |> DateTime.to_iso8601(),
+        "received_on" => Date.utc_today() |> Date.add(-3) |> Date.to_iso8601(),
+        "supplier_document_ref" => "SUP-0001",
+        "note" => "gate-b",
+        "lines" => [
+          %{
+            "catalog_item_id" => s.laptop,
+            "catalog_uom_id" => s.pcs,
+            "quantity" => "20",
+            "unit_price" => "450000",
+            "line_value" => "9000000"
+          },
+          %{"catalog_item_id" => s.cement, "catalog_uom_id" => s.kg, "quantity" => "100"},
+          %{
+            "catalog_item_id" => s.milk,
+            "catalog_uom_id" => s.l,
+            "quantity" => "60",
+            "catalog_lot_id" => s.lot
+          }
+        ]
+      }
+
+      doc = P.issue!(ctx, body)
+      task = P.pending_task(ctx, doc["id"], "post")
+      assert task_route(ctx, task, "claim", "{}").status == 200
+      conn = task_route(ctx, task, "complete", ~s({"output_variables":{}}))
+      assert conn.status == 200, conn.resp_body
+      assert P.get!(ctx, doc["id"])["state"] == "posted"
+    end
+  end
+
   defp complete_route(ctx, task) do
     conn =
       Plug.Test.conn(:post, "/api/v1/tasks/#{task.id}/complete", "{}")
