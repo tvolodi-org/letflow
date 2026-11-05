@@ -7,13 +7,17 @@ import { useAuth } from '@/auth/AuthContext'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { FilterBar } from '@/components/ui/FilterBar'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { Button } from '@/components/ui/Button'
+import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
+import { Banner } from '@/components/ui/Banner'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { LoadMore, RegisterError } from './RegisterShell'
+import { saveBlob } from './saveBlob'
 import { stockApi, type BalanceRow, type BalancesPageBody } from './stock.api'
 import { usePickerOptions } from './stockPickers'
 import { stockQueryKeys } from './stockQueryKeys'
-import { EMPTY_BALANCE_FILTERS, balanceNameIds, balanceParams, type BalanceFilters } from './stockRegisterModel'
+import { EMPTY_BALANCE_FILTERS, AS_OF_DATE, balanceNameIds, balanceParams, balanceQuery, type BalanceFilters } from './stockRegisterModel'
 import { useNames } from './stockNames'
 
 const ACTIVE_ONLY: never[] = []
@@ -24,6 +28,9 @@ function BalancesInner() {
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   const [filters, setFilters] = useState<BalanceFilters>(EMPTY_BALANCE_FILTERS)
+  const [asOf, setAsOf] = useState('')
+  const [exporting, setExporting] = useState(false)
+  const [exportFailed, setExportFailed] = useState(false)
   const set = (key: keyof BalanceFilters) => (value: string) =>
     setFilters((f) => ({ ...f, [key]: value, ...(key === 'sku' ? { lot: '' } : {}) }))
 
@@ -33,7 +40,8 @@ function BalancesInner() {
   const people = usePickerOptions('org_employee', ACTIVE_ONLY)
   const lots = usePickerOptions('catalog_lot', [{ field: 'item_id', op: 'eq', value: filters.sku }], filters.sku !== '')
 
-  const params = balanceParams(filters)
+  const filterParams = balanceParams(filters)
+  const params = balanceQuery(filters, asOf)
   const query = useInfiniteQuery({
     queryKey: stockQueryKeys.balances(tenantId, JSON.stringify(params)),
     queryFn: ({ pageParam }) => stockApi.balances({ ...params, ...(pageParam ? { cursor: pageParam } : {}) }),
@@ -58,20 +66,46 @@ function BalancesInner() {
     { key: 'unit', label: t('stock.col.unit'), render: (r) => name('catalog_uom', r.unit_ref) },
     { key: 'quantity', label: t('stock.col.quantity'), render: (r) => r.quantity, align: 'end', mono: true },
   ]
-  const chips = (Object.keys(params) as (keyof BalanceFilters)[]).map((k) => ({
+  const chips = (Object.keys(filterParams) as (keyof BalanceFilters)[]).map((k) => ({
     id: k,
     label: `${t(`stock.filter.${k}`)}: ${
-      [...items, ...locations, ...units, ...people, ...lots].find((o) => o.value === params[k])?.label ?? params[k]
+      [...items, ...locations, ...units, ...people, ...lots].find((o) => o.value === filterParams[k])?.label ?? filterParams[k]
     }`,
   }))
+  if (params.as_of_date) chips.push({ id: 'as_of_date', label: `${t('stock.filter.asOf')}: ${params.as_of_date}` })
+
+  const onExport = async () => {
+    setExporting(true)
+    setExportFailed(false)
+    try {
+      const { blob } = await stockApi.balancesXlsx(params)
+      saveBlob(blob, 'stock-balances.xlsx')
+    } catch {
+      setExportFailed(true)
+    } finally {
+      setExporting(false)
+    }
+  }
+  const first = pages[0]
 
   return (
     <>
-      <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.balances.title')} lede={t('stock.balances.lede')} />
+      <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.balances.title')} lede={t('stock.balances.lede')}
+        actions={
+          <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
+            {t('stock.balances.export')}
+          </Button>
+        }
+      />
+      {exportFailed && <Banner tone="danger">{t('stock.balances.exportFailed')}</Banner>}
+      {query.hasNextPage && <p className="caption">{t('stock.balances.exportHint')}</p>}
       <FilterBar
         activeChips={chips}
-        onRemoveChip={(id) => set(id as keyof BalanceFilters)('')}
-        onClear={() => setFilters(EMPTY_BALANCE_FILTERS)}
+        onRemoveChip={(id) => (id === 'as_of_date' ? setAsOf('') : set(id as keyof BalanceFilters)(''))}
+        onClear={() => {
+          setFilters(EMPTY_BALANCE_FILTERS)
+          setAsOf('')
+        }}
         labels={{ clear: t('stock.common.clear'), remove: t('stock.common.remove') }}
       >
         <Select label={t('stock.filter.sku')} value={filters.sku} onChange={set('sku')} options={items} placeholder={t('stock.common.all')} />
@@ -87,11 +121,29 @@ function BalancesInner() {
           disabled={filters.sku === ''}
           hint={filters.sku === '' ? t('stock.filter.lotHint') : undefined}
         />
+        <Field
+          label={t('stock.filter.asOf')}
+          hint={t('stock.filter.asOfHint')}
+          error={asOf !== '' && !AS_OF_DATE.test(asOf) ? t('stock.filter.asOfInvalid') : undefined}
+          mono
+          width="m"
+        >
+          <input name="as-of-date" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+        </Field>
       </FilterBar>
-      {ledgerSeq != null && (
-        <p className="caption" data-testid="ledger-seq">
-          {intl.formatMessage({ id: 'stock.balances.readAt' }, { seq: ledgerSeq })}
+      {first?.as_of_date ? (
+        <p className="caption" data-testid="as-of-read">
+          {intl.formatMessage(
+            { id: 'stock.balances.asOfRead' },
+            { date: first.as_of_date, zone: first.timezone ?? '', seq: first.cutoff_seq ?? ledgerSeq ?? '' },
+          )}
         </p>
+      ) : (
+        ledgerSeq != null && (
+          <p className="caption" data-testid="ledger-seq">
+            {intl.formatMessage({ id: 'stock.balances.readAt' }, { seq: ledgerSeq })}
+          </p>
+        )
       )}
       {query.isError ? (
         <RegisterError error={query.error} onRetry={() => void query.refetch()} />
