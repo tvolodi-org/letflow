@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { BAL, fakeMasters, queryBodies, renderStock, routeCalls } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
@@ -146,6 +147,18 @@ describe('T1 as-of date', () => {
   })
 })
 
+describe('T7 future as-of date', () => {
+  it('shows the future message, sends no as_of_date and caps the input at today', async () => {
+    renderStock(BAL)
+    await within(await screen.findByRole('table')).findByText('Bolt M8')
+    const input = screen.getByLabelText('As of date')
+    expect(input).toHaveAttribute('max')
+    fireEvent.change(input, { target: { value: '2999-01-01' } })
+    expect(await screen.findByText('The date cannot be in the future.')).toBeInTheDocument()
+    await waitFor(() => expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({}))
+  })
+})
+
 describe('T3 export', () => {
   const download = () => {
     const create = vi.fn(() => 'blob:x')
@@ -173,5 +186,31 @@ describe('T3 export', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Export to Excel' }))
     expect(await screen.findByText('The file could not be exported. Try again.')).toBeInTheDocument()
     expect(click).not.toHaveBeenCalled()
+  })
+})
+
+describe('R1 as-of date per language (T-1381, real body shape)', () => {
+  afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
+  for (const lang of ['ru', 'kk'] as const) {
+    it(`${lang}: the chip, the read line and the hint show DD-MM-YYYY; the query stays ISO`, async () => {
+      useUiLocaleStore.getState().setLocaleTransient(lang)
+      clientMock.get.mockResolvedValue({ as_of_date: '2026-11-03', timezone: 'Asia/Almaty', cutoff_seq: 17, ledger_seq: 42, next_cursor: null, rows: [ROW] })
+      renderStock(BAL)
+      await within(await screen.findByRole('table')).findByText('Bolt M8')
+      expect(screen.queryByTestId('date-value-hint')).not.toBeInTheDocument()
+      fireEvent.change(document.querySelector('input[name="as-of-date"]') as HTMLInputElement, { target: { value: '2026-11-03' } })
+      await screen.findByTestId('as-of-read')
+      expect(screen.getByTestId('as-of-read').textContent).toContain('03-11-2026')
+      expect(screen.getByTestId('as-of-read').textContent).not.toContain('2026-11-03')
+      expect(screen.getByTestId('date-value-hint')).toHaveTextContent('03-11-2026')
+      expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({ as_of_date: '2026-11-03' })
+    })
+  }
+  it('en: no hint is shown', async () => {
+    useUiLocaleStore.getState().setLocaleTransient('en')
+    renderStock(BAL)
+    await within(await screen.findByRole('table')).findByText('Bolt M8')
+    fireEvent.change(screen.getByLabelText('As of date'), { target: { value: '2026-11-03' } })
+    expect(screen.queryByTestId('date-value-hint')).not.toBeInTheDocument()
   })
 })

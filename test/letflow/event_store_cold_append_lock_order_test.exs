@@ -401,7 +401,10 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
       assert is_integer(begin)
       assert Enum.at(statements, begin + 1) == "SELECT set_config('lock_timeout', $1, true)"
       assert %{params: ["300ms"]} = Enum.at(queries, begin + 1)
-      refute Enum.any?(statements, &(&1 =~ "300"))
+
+      # The timeout must travel as a bound parameter, never inlined as a literal. Match 300 only as a
+      # standalone token: random tenant schema names (hex) can contain the substring "300".
+      refute Enum.any?(statements, &(&1 =~ ~r/(?<![0-9A-Za-z_])300(?![0-9A-Za-z_])/))
       assert Enum.at(statements, begin + 2) =~ "FOR NO KEY UPDATE"
 
       {_, plain} = PlatformTenantFixture.capture_repo_queries(cold_append_fn(base, x))

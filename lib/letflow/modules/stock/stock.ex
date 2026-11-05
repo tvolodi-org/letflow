@@ -95,6 +95,13 @@ defmodule Letflow.Modules.Stock do
   order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
   `CountPaperworkSource`). No migration, record type or permission.
 
+  ## Document print (REQ-737 / GH #3860; version 0.13.0)
+
+  One more read route, `GET /documents/:id/print?lang=ru|kk|en` (`StockRead`, the guard of `GET /documents/:id`):
+  the printed act of an issued transfer, hand over or return as an A4 PDF with two signer rows
+  (`Letflow.Modules.Stock.DocumentPrint`, `DocumentPrintSource`), rendered from the issued version content.
+  No migration, record type or permission.
+
   ## Count print (REQ-736 / GH #3861; version 0.12.0)
 
   One more read route, `GET /counts/:id/print/:kind?lang=ru|kk|en` (`StockRead`): the same three issued
@@ -265,7 +272,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.12.0",
+    version: "0.13.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
@@ -290,6 +297,7 @@ defmodule Letflow.Modules.Stock do
       {"POST", "/documents/:id/check", :StockPost},
       {"GET", "/documents", :StockRead},
       {"GET", "/documents/:id", :StockRead},
+      {"GET", "/documents/:id/print", :StockRead},
       {"POST", "/documents/:id/post", :StockPost},
       {"POST", "/documents/:id/reverse", :StockReverse},
       {"POST", "/documents/:id/cancel", :StockReverse},

@@ -147,14 +147,14 @@ defmodule Letflow.Ledger.AsOfDateTest do
     assert {:error, :cutoff_in_future} = Ledger.balances_on_date(a, d, 5, %{}, %{})
   end
 
-  test "T-AD-8 a future date equals the current balance and reads no balance table", %{
+  test "T-AD-8 the tenant today equals the current balance and reads no balance table", %{
     schema: s,
     auth: a
   } do
     post_at!(s, "receipt", ["k", "l"], 2, DateTime.add(DateTime.utc_now(), -60))
 
     {{:ok, r}, sql} =
-      queries(fn -> Ledger.balances_on_date(a, tokyo_day(-1), :latest, %{}, %{}) end)
+      queries(fn -> Ledger.balances_on_date(a, tokyo_day(0), :latest, %{}, %{}) end)
 
     {:ok, current} = Ledger.balances(a, {:posting_seq, :latest}, %{}, %{})
     assert r.rows == current.rows
@@ -168,6 +168,14 @@ defmodule Letflow.Ledger.AsOfDateTest do
     refute Enum.any?(ledger_sql, &(&1 =~ ~r/\b(INSERT|UPDATE|DELETE|LOCK)\b/i))
   end
 
+  test "T2 a date after the tenant today is refused before any ledger read", %{auth: a} do
+    {result, sql} =
+      queries(fn -> Ledger.balances_on_date(a, tokyo_day(-1), :latest, %{}, %{}) end)
+
+    assert result == {:error, :as_of_date_in_future}
+    refute Enum.any?(sql, &(&1 =~ "ledger_"))
+  end
+
   test "T-AD-9 two tenants with two zones read only their own legs", %{schema: s, auth: a} do
     other = Fx.tenant_fixture!()
     :ok = Fx.put_tenant_settings!(other, %{"timezone" => "Europe/Berlin"})
@@ -177,7 +185,7 @@ defmodule Letflow.Ledger.AsOfDateTest do
     post_at!(other.schema_name, "receipt", ["same", "l"], 7, at)
     post_at!(other.schema_name, "receipt", ["only_b", "l"], 1, at)
 
-    day = tokyo_day(-1)
+    day = tokyo_day(0)
     {:ok, ra} = Ledger.balances_on_date(a, day, :latest, %{}, %{})
     {:ok, rb} = Ledger.balances_on_date(b, day, :latest, %{}, %{})
     assert qty(ra, "same") == [5] and qty(ra, "only_b") == []

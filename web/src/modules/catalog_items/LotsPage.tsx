@@ -34,6 +34,7 @@ import {
 } from './catalogItemsModel'
 import { CATALOG_LOTS_WRITE } from './catalogItemsPermissions'
 import { useCatalogItemsWrite } from './useCatalogItemsWrite'
+import { DateValueHint } from '@/components/ui/DateValueHint'
 
 type ExpirySort = 'none' | 'asc' | 'desc'
 type Translate = (id: string, values?: Record<string, string | number>) => string
@@ -221,6 +222,7 @@ function LotPanel(props: LotPanelProps) {
                 onChange={(e) => set('expiry_date')(e.target.value)}
               />
             </Field>
+            <DateValueHint value={form.expiry_date} kind="date" />
           </FormSection>
           <FormActions
             locale={locale}
