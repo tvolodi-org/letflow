@@ -14,10 +14,7 @@ import { screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import {
-  SEPARATION_OF_DUTIES_MESSAGE,
-  SEPARATION_OF_DUTIES_CLAIM_MESSAGE,
-} from '@/api/client'
+import { TASK_MESSAGES } from '@/pages/tasks/taskMessages'
 
 expect.extend(jestDomMatchers)
 
@@ -164,17 +161,18 @@ describe('TaskDetailPanel -- separation-of-duties refusal, end to end (GH 2355)'
     await user.click(await screen.findByTestId('task-complete-button'))
     const alert = await screen.findByTestId('task-sod-error')
     expect(alert).toHaveAttribute('role', 'alert')
-    expect(alert).toHaveTextContent(SEPARATION_OF_DUTIES_MESSAGE)
+    expect(alert).toHaveTextContent(TASK_MESSAGES.en.sod.approve)
   })
 
   it('claim refused with the backend SoD body shows the claim message', async () => {
     const { user } = await openPanel(row('some-group', 'GROUP'), {
-      suffix: `/api/v1/tasks/${TASK_ID}/assign`,
+      // T-1380: the self-service claim route (the old /assign is the administrator reassign and needs TasksAssign).
+      suffix: `/api/v1/tasks/${TASK_ID}/claim`,
       response: forbidden(SOD_BODY),
     })
     await user.click(await screen.findByTestId('task-claim-button'))
     const alert = await screen.findByTestId('task-sod-error')
-    expect(alert).toHaveTextContent(SEPARATION_OF_DUTIES_CLAIM_MESSAGE)
+    expect(alert).toHaveTextContent(TASK_MESSAGES.en.sod.approve)
   })
 
   it('a plain 403 {title: Forbidden} shows no SoD alert', async () => {
@@ -185,7 +183,7 @@ describe('TaskDetailPanel -- separation-of-duties refusal, end to end (GH 2355)'
     await user.click(await screen.findByTestId('task-complete-button'))
     await waitFor(() => expect(calls).toContain(`POST /api/v1/tasks/${TASK_ID}/complete`))
     await waitFor(() =>
-      expect(screen.getByTestId('task-complete-button')).toHaveTextContent('Complete Task'),
+      expect(screen.getByTestId('task-complete-button')).toHaveTextContent('Approve'),
     )
     expect(screen.queryByTestId('task-sod-error')).not.toBeInTheDocument()
   })
