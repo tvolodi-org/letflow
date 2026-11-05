@@ -8,6 +8,7 @@ import { classifyError, type RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
 import { fetchAllRecords } from './catalogItems.api'
 import { catalogItemsQueryKeys } from './catalogItemsQueryKeys'
+import { catalogItemsStockApi, type ItemBalancesBody, type ItemMovementsBody } from './catalogItemsStock.api'
 
 /** All rows of a type matching the filters. `scope` names the filter set in the cache key. */
 export function useLotRows(
@@ -23,6 +24,33 @@ export function useLotRows(
     queryFn: () => fetchAllRecords(type, filters, options.sortField, options.sortDir),
     enabled: options.enabled ?? true,
     placeholderData: keepPreviousData,
+    retry: false,
+  })
+}
+
+const RELATED_LIMIT = '200'
+const HISTORY_LIMIT = '20'
+
+/** Stock balances of one item (Items screen, Related). Off without the stock read permission. */
+export function useItemBalances(itemId: string, enabled: boolean): UseQueryResult<ItemBalancesBody> {
+  const { session } = useAuth()
+  const tenantId = session?.tenant_id ?? ''
+  return useQuery({
+    queryKey: catalogItemsQueryKeys.related(tenantId, itemId),
+    queryFn: () => catalogItemsStockApi.balances({ sku: itemId, limit: RELATED_LIMIT }),
+    enabled,
+    retry: false,
+  })
+}
+
+/** The last stock movements of one item (Items screen, History). */
+export function useItemMovements(itemId: string, enabled: boolean): UseQueryResult<ItemMovementsBody> {
+  const { session } = useAuth()
+  const tenantId = session?.tenant_id ?? ''
+  return useQuery({
+    queryKey: catalogItemsQueryKeys.history(tenantId, itemId),
+    queryFn: () => catalogItemsStockApi.movements({ sku: itemId, limit: HISTORY_LIMIT }),
+    enabled,
     retry: false,
   })
 }

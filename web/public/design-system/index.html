@@ -71,7 +71,7 @@
 </header>
 
 <nav class="sg-toc" aria-label="Sections">
-  <a href="#colors">Colours</a><a href="#type">Type</a><a href="#space">Spacing</a><a href="#themes">Light and dark</a><a href="#buttons">Buttons</a><a href="#fields">Fields</a><a href="#table">Data table</a><a href="#pills">Status pill</a><a href="#tabs">Tabs</a><a href="#tree">Tree</a><a href="#md">Master-detail</a><a href="#pagehead">Page header</a><a href="#import">Import wizard</a><a href="#dialog">Dialog</a><a href="#toast">Toast</a><a href="#nav">Side nav</a><a href="#lang">Language switch</a><a href="#tenant">Tenant brand</a><a href="#docform">Document form</a><a href="#datetime">Date and time</a>
+  <a href="#colors">Colours</a><a href="#type">Type</a><a href="#space">Spacing</a><a href="#themes">Light and dark</a><a href="#buttons">Buttons</a><a href="#fields">Fields</a><a href="#table">Data table</a><a href="#pills">Status pill</a><a href="#tabs">Tabs</a><a href="#tree">Tree</a><a href="#md">Master-detail</a><a href="#pagehead">Page header</a><a href="#import">Import wizard</a><a href="#dialog">Dialog</a><a href="#toast">Toast</a><a href="#nav">Side nav</a><a href="#lang">Language switch</a><a href="#tenant">Tenant brand</a><a href="#docform">Document form</a><a href="#datetime">Date and time</a><a href="#registry">Registry</a><a href="#journal">Journal</a>
 </nav>
 
 <!-- ============ COLOURS ============ -->
@@ -529,6 +529,62 @@ GATEA-BC-0006</textarea></div><span class="lf-hint">До 500 значений з
         <tr><td>kk</td><td class="mono">КК-АА-ЖЖЖЖ</td><td class="mono">СС:мм</td><td class="mono">05-11-2026 09:30</td><td>Жоспарлы басталуы: күнді КК-АА-ЖЖЖЖ пішімінде енгізіңіз</td></tr>
         <tr><td>uz</td><td class="mono">KK-OO-YYYY</td><td class="mono">SS:DD</td><td class="mono">05-11-2026 09:30</td><td>Rejalashtirilgan boshlanish: sanani KK-OO-YYYY shaklida kiriting</td></tr>
       </tbody></table></div></div>
+  </div>
+</section>
+
+<!-- ============ REGISTRY ============ -->
+<section class="sg-section" id="registry">
+  <div class="sg-head"><p class="eyebrow">21 — Registry</p><h2>A list of master data, the record on its right.</h2>
+    <p><code class="lf-code">lf-registry</code> (class <code class="lf-code">lf-reg</code>) is for items, org units, locations, employees, counterparties, lots and codes. The list pane is a compact table with search, filters, sortable headers, a status pill, "Show retired" and a pager, or a <code class="lf-code">TreeView</code> for hierarchies. The details pane is on the right: a header card (code, title, status, actions) and sections (Overview, Related, History). View, edit and create all happen in that pane, never in a modal. Under 900 px a selected record replaces the list and a Back button returns. Full preview with every state: Registry preview (standalone copy: registry.standalone.html).</p></div>
+  <div class="sg-demo">
+    <div><p class="sg-cap">Parts (split layout, view)</p>
+      <div class="lf-reg" data-layout="split" style="--registry-list-width:380px">
+        <section class="lf-card lf-reg__list"><div class="lf-reg__tools"><div class="lf-reg__listhead"><h3 class="lf-reg__sectitle">Items</h3><button type="button" class="lf-btn lf-btn--primary lf-btn--s"><svg class="lf-icon"><use href="#i-plus"/></svg>New item</button></div>
+          <div class="lf-reg__toolrow"><div class="lf-field"><div class="lf-control"><span class="lf-control__lead"><svg class="lf-icon"><use href="#i-search"/></svg></span><input placeholder="Search by code or title" aria-label="Search"></div></div></div>
+          <div class="lf-reg__chips"><span class="lf-chip">Tracking: By lot<button type="button" aria-label="Remove filter"><svg class="lf-icon"><use href="#i-x"/></svg></button></span><button type="button" class="lf-btn lf-btn--ghost lf-btn--s">Clear filters</button></div></div>
+          <div class="lf-reg__body lf-table-wrap"><table class="lf-table lf-table--compact"><thead><tr><th aria-sort="ascending"><button type="button" class="lf-sort">Code<svg class="lf-icon"><use href="#i-arrow-up"/></svg></button></th><th aria-sort="none"><button type="button" class="lf-sort">Title<svg class="lf-icon"><use href="#i-sort"/></svg></button></th><th aria-sort="none"><button type="button" class="lf-sort">Status<svg class="lf-icon"><use href="#i-sort"/></svg></button></th></tr></thead><tbody>
+            <tr class="lf-reg__row"><td class="mono">CEM-M400</td><td><span class="lf-reg__title">Cement M400</span></td><td><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Active</span></td></tr>
+            <tr class="lf-reg__row is-selected"><td class="mono">LAP-14</td><td><span class="lf-reg__title">Laptop 14 inch</span></td><td><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Active</span></td></tr>
+            <tr class="lf-reg__row"><td class="mono">HELM-01</td><td><span class="lf-reg__title">Safety helmet</span></td><td><span class="lf-pill lf-pill--warning"><span class="lf-glyph lf-glyph--triangle"></span>On hold</span></td></tr>
+            <tr class="lf-reg__row is-retired"><td class="mono">FAX-210</td><td><span class="lf-reg__title">Fax roll 210 mm</span></td><td><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--dash"></span>Retired</span></td></tr></tbody></table></div>
+          <div class="lf-table-foot lf-reg__foot"><span class="mono-s">1–4 of 7</span><nav class="lf-pager" aria-label="Pages"><button type="button" class="lf-pager__page" aria-current="page">1</button><button type="button" class="lf-pager__page">2</button></nav></div></section>
+        <div class="lf-reg__details"><div class="lf-reg__top"><div class="lf-reg__head"><div class="lf-reg__id"><h4 class="lf-reg__name"><span class="mono">LAP-14</span><span>Laptop 14 inch</span></h4><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Active</span></div><div class="lf-reg__actions"><button type="button" class="lf-btn lf-btn--secondary"><svg class="lf-icon"><use href="#i-pencil"/></svg>Edit</button><button type="button" class="lf-btn lf-btn--danger"><svg class="lf-icon"><use href="#i-archive"/></svg>Retire</button></div></div></div>
+          <section class="lf-card lf-reg__section"><div class="lf-reg__sechead"><h4 class="lf-reg__sectitle">Overview</h4></div><dl class="lf-reg__fields">
+            <div class="lf-reg__field"><dt class="lf-reg__label">Category</dt><dd class="lf-reg__value"><span class="lf-ref"><span class="lf-ref__code">CAT-IT</span><span class="lf-ref__sep" aria-hidden="true">–</span><span class="lf-ref__title">IT equipment</span></span></dd></div>
+            <div class="lf-reg__field"><dt class="lf-reg__label">Tracking</dt><dd class="lf-reg__value">By serial number</dd></div></dl></section></div>
+      </div></div>
+    <div><p class="sg-cap">Layouts (<code class="lf-code">data-layout</code> on <code class="lf-code">lf-reg</code>, registry <code class="lf-code">LFRegLayout</code>): split is the default; tabs puts Overview, Related and History in a tab block (default tab: Overview). Hierarchies (org units, locations) use <code class="lf-code">lf-tree</code> in the list pane (<code class="lf-code">lf-reg--tree</code>).</p>
+      <div class="sg-grid2">
+        <div><p class="lf-label">split: list | details (sections stacked)</p><div class="sg-wire sg-wire--row"><span class="sg-wire__list">list</span><span class="sg-wire__bar">header card</span><span class="sg-wire__a">overview</span><span class="sg-wire__b">related, history</span></div></div>
+        <div><p class="lf-label">tabs: list | header card, tab block, one panel</p><div class="sg-wire sg-wire--tabs"><span class="sg-wire__list">list</span><span class="sg-wire__bar">header card</span>
+          <div class="lf-tabs sg-wire__tabs" role="tablist" aria-label="Record sections"><button type="button" class="lf-tab" role="tab" aria-selected="true">Overview</button><button type="button" class="lf-tab" role="tab" aria-selected="false">Related <span class="lf-count">2</span></button><button type="button" class="lf-tab" role="tab" aria-selected="false">History</button></div>
+          <span class="sg-wire__panel">overview (or related, history)</span></div></div>
+      </div></div>
+    <div><p class="sg-cap">States, all in the preview: view, edit, create (form in the details pane), empty (text and action), loading (skeleton), load error (banner and Retry), validation errors (the message names the field, a write error stays next to its field), success toast, no permission (actions hidden, one info line). Keys: arrow Up/Down move through the list, Enter opens the record, Escape closes the details under 900 px; in a tree Left/Right collapse and expand.</p></div>
+  </div>
+</section>
+
+<!-- ============ JOURNAL ============ -->
+<section class="sg-section" id="journal">
+  <div class="sg-head"><p class="eyebrow">22 — Journal</p><h2>The movement register: operations and their legs.</h2>
+    <p><code class="lf-code">lf-journal</code> (class <code class="lf-code">lf-jrn</code>) is the accounting book of stock movements. The list shows one row per operation (time, kind, document, item, quantity with sign, location, status). The pane on the right shows the selected operation: header (kind, document as a link, status), times, who, cause, its LEGS (location, item, signed change, balance after; a transfer has two) and links to the document, the reversal or the original. It reuses the registry panes. Under 900 px there are three variants for the details (below). Full preview: Journal preview (standalone: journal.standalone.html).</p></div>
+  <div class="sg-demo">
+    <div><p class="sg-cap">One operation row, and the legs of a transfer (a sign glyph in the text, never colour alone)</p>
+      <div class="sg-grid2">
+        <div class="lf-card" style="overflow:hidden"><table class="lf-table lf-table--compact lf-jrn__table"><tbody>
+          <tr class="lf-reg__row is-selected"><td class="c-date">Nov 5, 2026 11:42</td><td class="c-kind"><span class="lf-jrn__kind"><svg class="lf-icon"><use href="#i-move"/></svg>Transfer</span></td><td class="c-qty">200&nbsp;kg</td><td class="c-st"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Posted</span></td></tr>
+          <tr class="lf-reg__row is-reversed"><td class="c-date">Nov 4, 2026 10:15</td><td class="c-kind"><span class="lf-jrn__kind"><svg class="lf-icon"><use href="#i-upload"/></svg>Issue</span></td><td class="c-qty"><span class="lf-jrn__sign lf-jrn__sign--neg">&minus;</span>10&nbsp;pair</td><td class="c-st"><span class="lf-pill lf-pill--warning"><span class="lf-glyph lf-glyph--dash"></span>Reversed</span><span class="lf-jrn__of">Reversed by REV-2026-000002</span></td></tr></tbody></table></div>
+        <div class="lf-card"><ul class="lf-jrn__legs" aria-label="Legs">
+          <li class="lf-jrn__leg"><div class="lf-jrn__leg-main"><span class="lf-ref"><span class="lf-ref__code">GATEB-LOC-R02</span><span class="lf-ref__sep" aria-hidden="true">–</span><span class="lf-ref__title">Rack 02</span></span><span class="lf-ref"><span class="lf-ref__code">CEM-M400</span><span class="lf-ref__sep" aria-hidden="true">–</span><span class="lf-ref__title">Cement M400</span></span></div><div class="lf-jrn__leg-num"><span class="lf-jrn__delta"><span class="lf-jrn__sign lf-jrn__sign--neg">&minus;</span>200&nbsp;kg</span><span class="lf-jrn__bal">Balance after: 1,200&nbsp;kg</span></div></li>
+          <li class="lf-jrn__leg"><div class="lf-jrn__leg-main"><span class="lf-ref"><span class="lf-ref__code">GATEB-LOC-SHOW</span><span class="lf-ref__sep" aria-hidden="true">–</span><span class="lf-ref__title">Showroom</span></span><span class="lf-ref"><span class="lf-ref__code">CEM-M400</span><span class="lf-ref__sep" aria-hidden="true">–</span><span class="lf-ref__title">Cement M400</span></span></div><div class="lf-jrn__leg-num"><span class="lf-jrn__delta"><span class="lf-jrn__sign lf-jrn__sign--pos">+</span>200&nbsp;kg</span><span class="lf-jrn__bal">Balance after: 200&nbsp;kg</span></div></li></ul></div>
+      </div></div>
+    <div><p class="sg-cap">Narrow variants (under 900 px, <code class="lf-code">data-variant</code> on <code class="lf-code">lf-jrn</code>); the preview has a switch. Recommended: V1 for the list, and V3 for the full details (the Details button of V1 opens it).</p>
+      <div class="sg-grid3">
+        <div><p class="lf-label">V1 inline legs (recommended for the list)</p><div class="sg-wire" style="grid-template-columns:1fr"><span>row: Receipt, 3 lines</span><span>legs in place: 3 compact lines</span><span>[Details] opens V3</span><span>row: Issue</span></div></div>
+        <div><p class="lf-label">V2 bottom sheet</p><div class="sg-wire" style="grid-template-columns:1fr"><span>list (dimmed)</span><span>sheet 85 %: handle, prev 3 of 11 next, close, details</span></div></div>
+        <div><p class="lf-label">V3 full screen (recommended for the details)</p><div class="sg-wire" style="grid-template-columns:1fr"><span>Back, prev 3 of 11 next</span><span>header, fields, legs, links</span></div></div>
+      </div>
+      <p class="lf-hint" style="margin-top:var(--space-3)">V1 fits because a movement has one or two legs; V3 is a plain screen (back button, previous/next, no drag against scrolling); V2 keeps the list visible but covers 85 % of a phone anyway. Rationale and how to add a layout: NOTES.md, "Narrow variants of the journal".</p></div>
   </div>
 </section>
 

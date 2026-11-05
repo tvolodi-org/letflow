@@ -3,6 +3,7 @@
  *  The ru and kk texts are written by the developer and need a native-speaker check. */
 
 import { getUiLocale } from '@/i18n/uiLocaleStore'
+import { catalogItemsItemsMessages } from './catalogItemsItemsMessages'
 
 export const CATALOG_ITEMS_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type CatalogItemsUiLocale = (typeof CATALOG_ITEMS_UI_LOCALES)[number]
@@ -229,4 +230,8 @@ const kk: Record<string, string> = {
   'catalog_items.toast.retired': '{code} партиясы шығарылды.',
 }
 
-export const catalogItemsMessages: Record<CatalogItemsUiLocale, Record<string, string>> = { en, ru, kk }
+export const catalogItemsMessages: Record<CatalogItemsUiLocale, Record<string, string>> = {
+  en: { ...en, ...catalogItemsItemsMessages.en },
+  ru: { ...ru, ...catalogItemsItemsMessages.ru },
+  kk: { ...kk, ...catalogItemsItemsMessages.kk },
+}
