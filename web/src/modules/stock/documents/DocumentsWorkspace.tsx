@@ -36,10 +36,12 @@ import { lineColumns } from './lineColumns'
 import {
   DOC_KINDS,
   DOC_STATES,
+  documentHasZ5,
   documentPrintable,
   formatEventTime,
   isOpening,
   isTwoSide,
+  officialFormLang,
   printErrorMessageId,
   sidesOf,
   sumDecimals,
@@ -210,6 +212,26 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
                 {t('stock.doc.print')}
               </Button>
             )}
+            {documentHasZ5(doc) &&
+              (['pdf', 'docx'] as const).map((format) => (
+                <Button
+                  key={format}
+                  variant="secondary"
+                  icon={<Printer className="lf-icon" aria-hidden="true" />}
+                  loading={pdf.busyKey === `z5-${format}`}
+                  onClick={() =>
+                    void pdf.run(
+                      `z5-${format}`,
+                      () => documentsApi.printForm(doc.id, 'z5', format, officialFormLang(getUiLocale())),
+                      `${doc.number ?? doc.id}_Z-5.${format}`,
+                      printErrorMessageId,
+                    )
+                  }
+                  data-testid={`document-print-z5-${format}`}
+                >
+                  {t(format === 'pdf' ? 'stock.doc.printZ5Pdf' : 'stock.doc.printZ5Docx')}
+                </Button>
+              ))}
           </>
         }
       >

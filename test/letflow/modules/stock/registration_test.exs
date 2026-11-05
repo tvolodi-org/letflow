@@ -136,6 +136,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"GET", "/documents", :StockRead},
              {"GET", "/documents/:id", :StockRead},
              {"GET", "/documents/:id/print", :StockRead},
+             {"GET", "/stock-card/print", :StockRead},
              {"POST", "/documents/:id/post", :StockPost},
              {"POST", "/documents/:id/reverse", :StockReverse},
              {"POST", "/documents/:id/cancel", :StockReverse},
@@ -239,7 +240,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
     # T-1416: form_z2.ex (pure Z-2 data map, no Repo) makes 31.
-    assert length(files) == 31
+    # T-1417: form_z3.ex, form_z5.ex (pure) and stock_card_source.ex (reads through Ledger) make 34.
+    assert length(files) == 34
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []

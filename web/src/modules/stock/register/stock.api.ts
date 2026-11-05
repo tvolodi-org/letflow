@@ -53,5 +53,7 @@ export const stockApi = {
   balances: (params: Record<string, string>) => client.get<BalancesPageBody>(`${BASE}/balances`, params),
   /** The xlsx file of the first page of the balances (one page per file); same filters and day as the screen. */
   balancesXlsx: (params: Record<string, string>) => client.getBlob(`${BASE}/balances`, { ...params, format: 'xlsx' }),
+  /** T-1417: the stock card (official form Z-3) of one item at one place; `lot` optional. */
+  stockCard: (params: Record<string, string>) => client.getBlob(`${BASE}/stock-card/print`, params),
   movements: (params: Record<string, string>) => client.get<MovementsPageBody>(`${BASE}/movements`, params),
 }

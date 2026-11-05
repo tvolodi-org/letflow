@@ -58,8 +58,12 @@ defmodule Letflow.Modules.Stock.FormZ2 do
     end)
   end
 
-  # `2026-11-05T12:00:00+06:00` -> `05.11.2026`; a text that is not that shape is kept as it is.
-  defp date(text) do
+  @doc """
+  `2026-11-05T12:00:00+06:00` -> `05.11.2026`; a text that is not that shape is kept as it is.
+  Shared with the other official forms (Z-3, Z-5).
+  """
+  @spec date(String.t()) :: String.t()
+  def date(text) do
     case Regex.run(~r/^(\d{4})-(\d{2})-(\d{2})/, text) do
       [_, y, m, d] -> "#{d}.#{m}.#{y}"
       _ -> text

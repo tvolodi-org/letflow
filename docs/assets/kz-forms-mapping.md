@@ -392,3 +392,33 @@ Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`). Q16 is reworded in
     50 exist only in kk here).
 * The proof is done in both languages and both formats by `test/letflow/modules/stock/form_z2_router_test.exs`
   (real router, real token) and `test/letflow/documents/form_print_test.exs` (kk title, kk labels, PDF non-empty).
+
+## 7. Z-3 and Z-5 on the print engine (E5c, T-1417)
+
+* **Built:** Z-5 (ru) / Q-5 (kk), annex 29, for an issued `transfer`: `GET /documents/:id/print?form=z5&format=pdf|docx&lang=ru|kk`
+  (permission `StockRead`; another kind answers 422 `print_not_available`; hand over and return keep the E1b act, open
+  question Q19). Z-3 (ru) / Q-3 (kk), annex 27, the stock card of one item at one place:
+  `GET /modules/stock/stock-card/print?sku&location[&lot]&format=pdf|docx&lang=ru|kk` (permission `StockRead`).
+  Buttons: "Form Z-5" PDF/Word next to the print button of a transfer; "Stock card Z-3" PDF/Word on the balances screen,
+  enabled once an item and a location are chosen. The English screen prints the Russian form (the forms exist in ru and kk).
+  All new catalog entries are `kk_status: official` (kk text copied from the Adilet edition).
+* **Z-5 filled from Letflow:** organisation name and BIN of the sending unit's legal entity, number, date, sending and
+  receiving structural unit (with the location name after a slash), responsible person (also the releaser), the
+  receiver's name on the "received" line, line number, item name and code, unit, issued quantity and its total.
+  **Blank:** basis (G7), planned quantity (G9), price and amount (G5), amounts in words (G10), "allowed by" and "checked
+  by", every signer position (G4), sort, brand and size (G13).
+* **Z-3 filled from Letflow** (built from the ledger movements the caller may read: income is a positive leg quantity,
+  expense a negative one, balance is the running sum; a scoped reader's masked legs are skipped): organisation name and
+  BIN, structural unit, item name and code, unit of measure, the lot's mark and expiry date when a lot is asked for, and
+  per movement the date (tenant zone), document number, line number, income, expense, balance. **Blank:** counterparty
+  ("from whom received or to whom issued"; available for receipts in principle, left out of this slice), accounting unit of
+  finished output, kind of production, sort, profile, size, account, price, person responsible, shop, executor, the control
+  signature and the precious-materials note. A card of more than 1000 entries answers 422 `card_too_long`; no visible
+  movement answers 404. The header is a list of plain lines, not the multi-cell arrangement of the official sheet.
+* **Differences found while reading annexes 27 and 29** (ru 2026 draft against the kk edition): the kk edition of Z-3 has
+  a "Қойма" (warehouse) line that the ru draft lacks (not printed); Z-5 signers are listed "allowed, checked, released,
+  received" in the ru draft and "allowed, released, checked, received" in the kk edition (one layout per form: the ru order
+  is used in both languages); the kk text of the "total quantity in words" line reads "саны атауы" and is kept as printed;
+  the annex 29 note in the kk edition says the annex was restated by order No. 402 of 19.08.2013.
+* The proof is `test/letflow/modules/stock/form_z5_router_test.exs` and `stock_card_router_test.exs` (real router, real
+  token, ru and kk, pdf and docx), with the pure mappers in `form_z5_test.exs` and `stock_card_source_test.exs`.

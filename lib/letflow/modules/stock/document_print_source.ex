@@ -105,11 +105,24 @@ defmodule Letflow.Modules.Stock.DocumentPrintSource do
   defp legal_entities(prefix, issued) do
     header = issued.content["header"] |> map()
 
-    with unit_id when is_binary(unit_id) <- header["org_unit_id"],
+    case legal_entity(prefix, header["org_unit_id"]) do
+      %{} = entity when map_size(entity) > 0 -> %{header["org_unit_id"] => entity}
+      _ -> %{}
+    end
+  end
+
+  @doc """
+  The legal entity (`%{name:, bin:}`) of an org unit id, two bound reads through the tenant
+  `prefix` (`Org.lookup` of the unit, then of its legal entity); `%{}` when any step is absent.
+  Shared with the stock card print (T-1417, Z-3).
+  """
+  @spec legal_entity(String.t(), term()) :: map()
+  def legal_entity(prefix, unit_id) when is_binary(prefix) do
+    with unit_id when is_binary(unit_id) <- unit_id,
          {:ok, unit} <- Org.lookup(prefix, unit_id),
          le_id when is_binary(le_id) <- unit["legal_entity_id"],
          {:ok, le} <- Org.lookup(prefix, le_id) do
-      %{unit_id => %{name: le["name"], bin: le["bin"]}}
+      %{name: le["name"], bin: le["bin"]}
     else
       _ -> %{}
     end

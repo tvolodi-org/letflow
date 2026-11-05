@@ -14,6 +14,10 @@ import { Banner } from '@/components/ui/Banner'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { LoadMore, RegisterError } from './RegisterShell'
 import { saveBlob } from './saveBlob'
+import { usePdfDownload } from './usePdfDownload'
+import { parseFilename } from '../counts/countsModel'
+import { getUiLocale } from '@/i18n/uiLocaleStore'
+import { officialFormLang, printErrorMessageId } from '../documents/documentsModel'
 import { stockApi, type BalanceRow, type BalancesPageBody } from './stock.api'
 import { usePickerOptions } from './stockPickers'
 import { stockQueryKeys } from './stockQueryKeys'
@@ -35,6 +39,7 @@ function BalancesInner() {
   const [asOf, setAsOf] = useState('')
   const [exporting, setExporting] = useState(false)
   const [exportFailed, setExportFailed] = useState(false)
+  const card = usePdfDownload(parseFilename)
   const set = (key: keyof BalanceFilters) => (value: string) =>
     setFilters((f) => ({ ...f, [key]: value, ...(key === 'sku' ? { lot: '' } : {}) }))
 
@@ -91,17 +96,49 @@ function BalancesInner() {
     }
   }
   const first = pages[0]
+  const cardReady = filters.sku !== '' && filters.location !== ''
+  const cardError = (err: unknown) => ((err as { status?: unknown } | null)?.status === 404 ? 'stock.balances.cardEmpty' : printErrorMessageId(err))
+  const onCard = (format: 'pdf' | 'docx') =>
+    void card.run(
+      `card-${format}`,
+      () =>
+        stockApi.stockCard({
+          sku: filters.sku,
+          location: filters.location,
+          ...(filters.lot !== '' ? { lot: filters.lot } : {}),
+          format,
+          lang: officialFormLang(getUiLocale()),
+        }),
+      `stock-card_Z-3.${format}`,
+      cardError,
+    )
 
   return (
     <>
       <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.balances.title')} lede={t('stock.balances.lede')}
         actions={
-          <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
-            {t('stock.balances.export')}
-          </Button>
+          <>
+            <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
+              {t('stock.balances.export')}
+            </Button>
+            {(['pdf', 'docx'] as const).map((format) => (
+              <Button
+                key={format}
+                variant="secondary"
+                loading={card.busyKey === `card-${format}`}
+                disabled={!cardReady}
+                onClick={() => onCard(format)}
+                data-testid={`stock-card-${format}`}
+              >
+                {t(format === 'pdf' ? 'stock.balances.cardPdf' : 'stock.balances.cardDocx')}
+              </Button>
+            ))}
+          </>
         }
       />
       {exportFailed && <Banner tone="danger">{t('stock.balances.exportFailed')}</Banner>}
+      {card.error !== null && <Banner tone="danger">{t(card.error)}</Banner>}
+      {!cardReady && <p className="caption" data-testid="stock-card-hint">{t('stock.balances.cardHint')}</p>}
       {query.hasNextPage && <p className="caption">{t('stock.balances.exportHint')}</p>}
       <FilterBar
         activeChips={chips}

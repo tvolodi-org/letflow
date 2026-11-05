@@ -14,7 +14,8 @@ Every default below is an **assumption, owner may change at GATE B**.
 | Document types `count.order`, `count.sheet`, `count.differences`, `count.posting` (prefixes CO, CS, CD, CP, numbering restarts each year) | registered by `Letflow.Modules.Stock.on_install/3` |
 | Functions | `Letflow.Modules.Stock.Counts`: `create/3`, `update/4`, `issue/3`, `cancel/3`, `get/3`, `list/3`, `document/3` |
 | Routes under `/api/v1/modules/stock` | `POST /counts`, `PUT /counts/:id`, `POST /counts/:id/issue`, `POST /counts/:id/cancel` (permission `StockCountOrder`); `GET /counts`, `GET /counts/:id`, `GET /counts/:id/document`, `GET /counts/:id/paperwork/:kind`, `GET /counts/:id/print/:kind?lang=ru|kk|en` (PDF, REQ-736) (permission `StockRead`) |
-| Printed act of a two-sided document | `GET /documents/:id/print?lang=ru|kk|en` (PDF of an issued transfer, hand over or return, from the issued version, two signer rows; REQ-737; permission `StockRead`, same guard as `GET /documents/:id`); with `form=z2&format=pdf|docx&lang=ru|kk` the official form Z-2 (ru) / Q-2 (kk) of an issued `issue` document, T-1416 |
+| Printed act of a two-sided document | `GET /documents/:id/print?lang=ru|kk|en` (PDF of an issued transfer, hand over or return, from the issued version, two signer rows; REQ-737; permission `StockRead`, same guard as `GET /documents/:id`); with `form=z2&format=pdf|docx&lang=ru|kk` the official form Z-2 (ru) / Q-2 (kk) of an issued `issue` document, T-1416; `form=z5` the form Z-5 / Q-5 of an issued `transfer`, T-1417 |
+| Stock card of one item at one place (official form Z-3 / Q-3) | `GET /stock-card/print?sku=<id>&location=<id>[&lot=<id>]&format=pdf|docx&lang=ru|kk` (T-1417; built from the ledger movements the caller may read, a masked leg is skipped; more than 1000 entries answers 422 `card_too_long`; permission `StockRead`) |
 
 `StockCountOrder` and `StockCountRecord` (REQ-701) are held by TENANT_ADMIN and PLATFORM_ADMIN only (no role
 grants).

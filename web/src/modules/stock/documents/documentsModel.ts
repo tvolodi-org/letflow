@@ -78,7 +78,21 @@ export function documentErrorMessageId(err: unknown): string {
 
 export const PRINT_KINDS = ['transfer', 'hand_over', 'return'] as const
 export const PRINT_STATES = ['issued', 'posted', 'reversed'] as const
-export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const
+export const PRINT_REASONS = [
+  'document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang', 'invalid_form', 'invalid_format', 'card_too_long',
+] as const
+
+export type OfficialFormat = 'pdf' | 'docx'
+
+/** T-1417: the official forms Z-3 and Z-5 exist in Russian and Kazakh only; an English screen prints the Russian form. */
+export function officialFormLang(locale: string): 'ru' | 'kk' {
+  return locale === 'kk' ? 'kk' : 'ru'
+}
+
+/** T-1417: Z-5 (internal movement invoice) exists for a transfer that has been issued. */
+export function documentHasZ5(doc: { kind: string; state: string }): boolean {
+  return doc.kind === 'transfer' && documentPrintable(doc)
+}
 
 /** REQ-738: the PDF exists for a transfer, hand over or return that has been issued. */
 export function documentPrintable(doc: { kind: string; state: string }): boolean {

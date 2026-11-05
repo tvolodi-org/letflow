@@ -95,6 +95,13 @@ defmodule Letflow.Modules.Stock do
   order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
   `CountPaperworkSource`). No migration, record type or permission.
 
+  ## Official forms Z-3 and Z-5 (T-1417, phase E5c; no version bump)
+
+  `GET /documents/:id/print?form=z5` prints the issued transfer on Z-5 / Q-5 (annex 29), and the new read
+  route `GET /stock-card/print?sku&location[&lot]&format&lang` (`StockRead`, the guard of `/movements`) prints
+  the stock card of one item at one place on Z-3 / Q-3 (annex 27), both on the E5b print engine
+  (`FormZ5`, `FormZ3`, `StockCardSource`). No migration, record type or permission.
+
   ## Document print (REQ-737 / GH #3860; version 0.13.0)
 
   One more read route, `GET /documents/:id/print?lang=ru|kk|en` (`StockRead`, the guard of `GET /documents/:id`):
@@ -308,6 +315,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/documents", :StockRead},
       {"GET", "/documents/:id", :StockRead},
       {"GET", "/documents/:id/print", :StockRead},
+      {"GET", "/stock-card/print", :StockRead},
       {"POST", "/documents/:id/post", :StockPost},
       {"POST", "/documents/:id/reverse", :StockReverse},
       {"POST", "/documents/:id/cancel", :StockReverse},
