@@ -10,7 +10,7 @@ import { Printer } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
-import { actorLabel, tokenSubject } from '@/lib/references/actorLabel'
+import { actorLabel } from '@/lib/references/actorLabel'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { formatQuantity } from '@/lib/formatQuantity'
 import { Banner } from '@/components/ui/Banner'
@@ -80,6 +80,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
   const intl = useIntl()
   const t = (m: string) => intl.formatMessage({ id: m })
   const { session } = useAuth()
+  const access = useAccess()
   const tenantId = session?.tenant_id ?? ''
   const uiLocale = useUiLocale()
   const [editing, setEditing] = useState(false)
@@ -151,7 +152,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
 
   const refMsg = REFERENCE_MESSAGES[uiLocale]
   const actor = (ref: string | null | undefined, label?: string | null) =>
-    ref && ref === tokenSubject(session?.token) ? refMsg.you : label || actorLabel(ref, tokenSubject(session?.token), refMsg)
+    ref && ref === access.userId ? refMsg.you : label || actorLabel(ref, access.userId, refMsg)
   const row = (label: string, value: string | null | undefined, mono = false, always = true) =>
     always || value ? <DocField label={label} value={value ? value : dash} mono={mono} empty={!value} /> : null
   const columns = lineColumns(doc.kind as DocKind, t)
