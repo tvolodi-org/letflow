@@ -41,8 +41,10 @@ test under test/letflow/engine/ and test/letflow/record_triggers/, on top of the
 
 Full suite when: event is not pull_request/merge_group/push (nightly, workflow_dispatch), kill
 switch `off`, the counter is unknown or >= --every, no changed files, more than --max-files files,
-a sensitive path (including, T-1403, lib/letflow/modules/{installs,ledger_registration,tenant_module*}
-and lib/letflow/entities/handler_writes: module-write authorization), a deleted lib file, an unclassifiable file, a module named in config/, a lib
+a sensitive path (including, T-1403, the module-write authorization and module-install files: lib/letflow/engine.ex
+(Engine.authorize_module_writes), engine/entity_port*, modules/{install*,ledger_registration,tenant_module*},
+entities/{handler_writes,entity_port*}, definitions/{module_writes,solution_pack_install}, routers/tenant_modules;
+other files under engine/ are floor-only: they do not hold the authorization), a deleted lib file, an unclassifiable file, a module named in config/, a lib
 file without a module, or the selection covers more than --max-share of all tests.
 """
 import argparse
@@ -67,7 +69,9 @@ SENSITIVE_LIB_NAME_RE = re.compile(
 # engine at runtime, a path the textual module graph does not see (T-1371 broke
 # record_triggers/apply_test.exs in the merge queue after a green selective PR run).
 SENSITIVE_LIB_PATH_RE = re.compile(
-    r"^lib/letflow/(modules/(installs|ledger_registration|tenant_module)|entities/handler_writes)"
+    r"^lib/letflow/(engine\.ex$|engine/entity_port|modules/(install|ledger_registration|tenant_module)|"
+    r"entities/(handler_writes|entity_port)|definitions/(module_writes|solution_pack_install)|"
+    r"routers/tenant_modules)"
 )
 # Floor: a change under these lib paths always also runs these test directories.
 FLOOR_LIB_RE = re.compile(r"^lib/letflow/(engine\.ex$|engine/|record_triggers(\.ex$|/)|entities/)")

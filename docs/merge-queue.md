@@ -40,7 +40,9 @@ and the reason.
 - **Full suite** when: a sensitive path changes (migrations, `priv/`, `config/`, `mix.exs`,
   `mix.lock`, `test/support`, `.github/`, `scripts/`, the shard manifest, permission, ledger,
   event-store and storage code, and, T-1403, module-write authorization and module installs:
-  `lib/letflow/modules/{installs,ledger_registration,tenant_module*}`, `entities/handler_writes`), more than 40 files change, the lib closure is over 300 files or
+  `lib/letflow/engine.ex`, `engine/entity_port*`, `modules/{install*,ledger_registration,tenant_module*}`,
+  `entities/{handler_writes,entity_port*}`, `definitions/{module_writes,solution_pack_install}`,
+  `routers/tenant_modules`; other files under `engine/` get only the floor above), more than 40 files change, the lib closure is over 300 files or
   the selection covers over 55% of the tests, a lib file is removed, the selection errors, the
   repository variable `CI_SELECTIVE` is `off` (kill switch), the event is the nightly schedule or
   `workflow_dispatch`, or 10 or more commits came in since the last green full run.
