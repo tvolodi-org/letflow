@@ -123,6 +123,10 @@ export interface SignatureRow {
   marked_at: string
 }
 export type PaperworkKind = 'order' | 'sheet' | 'differences'
+/** T-1418: the official count forms and their file formats and languages (forms exist in ru and kk only). */
+export type CountForm = 'inv18' | 'inv10'
+export type CountFormFormat = 'docx' | 'pdf'
+export type CountFormLang = 'ru' | 'kk'
 export interface CountPage<T> {
   rows: T[]
   next_cursor: string | null
@@ -153,5 +157,8 @@ export const countsApi = {
   postingRecord: (id: string) => client.post<CountOrder>(`${BASE}/${id}/posting-record`),
   paperwork: (id: string, kind: PaperworkKind) => client.getBlob(`${BASE}/${id}/paperwork/${kind}`),
   print: (id: string, kind: PaperworkKind, lang: UiLocale) => client.getBlob(`${BASE}/${id}/print/${kind}`, { lang }),
+  /** T-1418: the official form (Inv-18 on the differences, Inv-10 on the sheet) as .docx or PDF, ru or kk. */
+  printForm: (id: string, kind: PaperworkKind, form: CountForm, format: CountFormFormat, lang: CountFormLang) =>
+    client.getBlob(`${BASE}/${id}/print/${kind}`, { form, format, lang }),
   entries: (id: string, params: Record<string, string>) => client.get<CountPage<CountEntry>>(`${BASE}/${id}/entries`, params),
 }
