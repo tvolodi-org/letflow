@@ -25,6 +25,9 @@ defmodule Letflow.Modules.Assets do
 
   **Currency** (D-097): the tenant currency is the module setting `currency` (three characters),
   `KZT` when absent. See `currency/1`.
+
+  **Expiry reminder** (C12): the module setting `expiry_reminder_lead_days` (1..3650, no default) is the
+  lead time of `Letflow.Modules.Assets.Reminders`; absent means no reminder. See `expiry_lead_days/1`.
   """
 
   @behaviour Letflow.Modules.Module
@@ -44,7 +47,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.2.0",
+    version: "0.3.0",
     depends_on: ["locations", "org"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite],
@@ -53,7 +56,8 @@ defmodule Letflow.Modules.Assets do
     settings_schema: %{
       "type" => "object",
       "properties" => %{
-        "currency" => %{"type" => "string", "minLength" => 3, "maxLength" => 3}
+        "currency" => %{"type" => "string", "minLength" => 3, "maxLength" => 3},
+        "expiry_reminder_lead_days" => %{"type" => "integer", "minimum" => 1, "maximum" => 3650}
       },
       "additionalProperties" => false
     },
@@ -86,6 +90,22 @@ defmodule Letflow.Modules.Assets do
     case Repo.get_by(TenantModule, [module_id: "assets", status: :active], prefix: prefix) do
       %TenantModule{settings: %{"currency" => c}} when is_binary(c) and byte_size(c) == 3 -> c
       _ -> @default_currency
+    end
+  end
+
+  @doc """
+  The reminder lead time in days: the `expiry_reminder_lead_days` setting of the active `assets`
+  install of `prefix`, `nil` when absent, invalid or the module is not installed (no default).
+  """
+  @spec expiry_lead_days(prefix :: String.t()) :: pos_integer() | nil
+  def expiry_lead_days(prefix) when is_binary(prefix) do
+    case Repo.get_by(TenantModule, [module_id: "assets", status: :active], prefix: prefix) do
+      %TenantModule{settings: %{"expiry_reminder_lead_days" => d}}
+      when is_integer(d) and d >= 1 and d <= 3650 ->
+        d
+
+      _ ->
+        nil
     end
   end
 end
