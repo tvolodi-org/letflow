@@ -62,19 +62,35 @@ export function storeRealmSlug(slug: string): void {
   sessionStorage.setItem(REALM_STORAGE_KEY, slug)
 }
 
-export async function fetchTenantConfig(hostname: string): Promise<TenantConfig> {
-  if (_cachedConfig) return _cachedConfig
-  try {
-    const realmSlug = resolveRealmFromUrl()
-    const params = realmSlug ? { realm: realmSlug } : { host: hostname }
-    const data = await client.get<TenantConfig>('/api/tenant-config', params)
-    _cachedConfig = data
-    return data
-  } catch {
-    const fallback = { oidc_authority: DEFAULT_AUTHORITY, client_id: DEFAULT_CLIENT_ID }
-    _cachedConfig = fallback
-    return fallback
-  }
+let _inflight: Promise<TenantConfig> | null = null
+
+/** True once a real (successful) /api/tenant-config answer is cached. False after a
+ *  failed read: the default-realm fallback is returned but never cached, so the next
+ *  call retries instead of pinning the tab to a wrong realm (T-1400). */
+export function isTenantConfigCached(): boolean {
+  return _cachedConfig !== null
+}
+
+export function fetchTenantConfig(hostname: string): Promise<TenantConfig> {
+  if (_cachedConfig) return Promise.resolve(_cachedConfig)
+  // One shared request for the pre-warm in main.tsx and every concurrent caller.
+  if (_inflight) return _inflight
+  const p = (async (): Promise<TenantConfig> => {
+    try {
+      const realmSlug = resolveRealmFromUrl()
+      const params = realmSlug ? { realm: realmSlug } : { host: hostname }
+      const data = await client.get<TenantConfig>('/api/tenant-config', params)
+      _cachedConfig = data
+      return data
+    } catch {
+      // Not cached on purpose (T-1400): a transient failure must not stick for the tab.
+      return { oidc_authority: DEFAULT_AUTHORITY, client_id: DEFAULT_CLIENT_ID }
+    } finally {
+      if (_inflight === p) _inflight = null
+    }
+  })()
+  _inflight = p
+  return p
 }
 
 export function getCachedTenantConfig(): TenantConfig {
@@ -107,9 +123,8 @@ export async function fetchTenantConfigForSlug(slug: string): Promise<TenantConf
     _configBySlug.set(slug, data)
     return data
   } catch {
-    const fallback = { oidc_authority: DEFAULT_AUTHORITY, client_id: DEFAULT_CLIENT_ID }
-    _configBySlug.set(slug, fallback)
-    return fallback
+    // Not cached (T-1400): the next call retries.
+    return { oidc_authority: DEFAULT_AUTHORITY, client_id: DEFAULT_CLIENT_ID }
   }
 }
 
@@ -148,6 +163,7 @@ export async function fetchTenantConfigForSlug(slug: string): Promise<TenantConf
  */
 export function resetTenantConfigCache(): void {
   _cachedConfig = null
+  _inflight = null
   sessionStorage.removeItem(REALM_STORAGE_KEY)
 
   if (new URLSearchParams(window.location.search).has('realm')) {

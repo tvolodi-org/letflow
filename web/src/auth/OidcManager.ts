@@ -2,7 +2,7 @@
 
 import { UserManager, InMemoryWebStorage, WebStorageStateStore } from 'oidc-client-ts'
 import type { UserManagerSettings } from 'oidc-client-ts'
-import { fetchTenantConfig } from './tenantConfig'
+import { fetchTenantConfig, isTenantConfigCached } from './tenantConfig'
 
 /** Exported for `tenantOidcRegistry.ts` (REQ-384 §5.2) — the per-tenant
  *  registry builds `UserManagerSettings` the same way this file's own
@@ -42,15 +42,36 @@ const _defaultSettings: UserManagerSettings = buildOidcSettings(
 /** Backward-compat sync export using default (env-var) config. */
 export const oidcManager = new UserManager(_defaultSettings)
 
-/** Lazy-resolved manager using dynamic tenant config from /api/tenant-config. */
-let _resolvedManager: UserManager | null = null
+/** Lazy-resolved manager using dynamic tenant config from /api/tenant-config.
+ *
+ *  The PROMISE is cached, not the resolved value (T-1400): on /auth/callback
+ *  OidcCallbackPage and AuthProvider both call getOidcManager() while the config
+ *  request is pending. Caching after the await gave each its own UserManager, so the
+ *  one that received the token was not the one watching its expiry and background
+ *  renewal never ran. */
+let _managerPromise: Promise<UserManager> | null = null
 
-export async function getOidcManager(): Promise<UserManager> {
-  if (_resolvedManager) return _resolvedManager
-  const config = await fetchTenantConfig(window.location.hostname)
-  const settings: UserManagerSettings = buildOidcSettings(config.oidc_authority, config.client_id)
-  _resolvedManager = new UserManager(settings)
-  return _resolvedManager
+export function getOidcManager(): Promise<UserManager> {
+  if (_managerPromise) return _managerPromise
+  const p = (async () => {
+    const config = await fetchTenantConfig(window.location.hostname)
+    if (!isTenantConfigCached()) {
+      // Failure fallback: this round's callers share one manager, the next call retries.
+      console.warn('[auth] tenant-config unavailable, using defaults')
+      if (_managerPromise === p) _managerPromise = null
+    }
+    return new UserManager(buildOidcSettings(config.oidc_authority, config.client_id))
+  })()
+  _managerPromise = p
+  p.catch(() => {
+    if (_managerPromise === p) _managerPromise = null
+  })
+  return p
+}
+
+/** Drops the shared manager (sign-out: the next sign-in builds a fresh one). */
+export function resetOidcManager(): void {
+  _managerPromise = null
 }
 
 /** Start the automatic silent renew loop. Call once after a successful OIDC login. */
