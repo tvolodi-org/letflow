@@ -15,7 +15,12 @@ defmodule Letflow.Ledger.CredentialCallersTest do
 
   alias Letflow.LedgerPostFixture, as: Fx
 
-  @allowed %{"lib/letflow/routers/tasks.ex" => :request_credential}
+  # The stock opening posting completes its own `submit` node as the issuing user, after the
+  # route has passed StockPost; that node has no module write, so it carries no credential.
+  @allowed %{
+    "lib/letflow/routers/tasks.ex" => :request_credential,
+    "lib/letflow/modules/stock/documents/posting.ex" => :submit_node_no_write
+  }
 
   defp complete_calls(ast) do
     {_ast, calls} =

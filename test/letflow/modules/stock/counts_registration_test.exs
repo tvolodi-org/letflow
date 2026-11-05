@@ -17,7 +17,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Stock
 
-  test "R1 (REQ-717) count_signature, the five count_order fields, the five routes, version 0.6.0" do
+  test "R1 (REQ-717) count_signature, the five count_order fields, the five routes, version 0.7.0" do
     m = Stock.manifest()
     assert m.version == "0.7.0" and Catalog.validate(m) == :ok
     assert "count_signature" in m.manages_entity_types
