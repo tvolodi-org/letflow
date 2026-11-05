@@ -29,6 +29,10 @@ defmodule Letflow.Modules.Assets do
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
   declared by a tenant (decision 0051 M4), so it cannot be edited later.
 
+  **Shipped report**: install also creates the saved report "Asset list" (`Letflow.Modules.Assets.Reports`,
+  spec `docs/assets/government-lists.md` section 3). Installs made before this change do not get it
+  (no upgrade runner carries it).
+
   **Currency** (D-097): the tenant currency is the module setting `currency` (three characters),
   `KZT` when absent. See `currency/1`.
   """
@@ -37,6 +41,7 @@ defmodule Letflow.Modules.Assets do
 
   import Letflow.Modules.Module, only: [defmanifest: 1]
 
+  alias Letflow.Modules.Assets.Reports
   alias Letflow.Modules.EntityActivation
   alias Letflow.Modules.TenantModule
   alias Letflow.Repo
@@ -106,7 +111,9 @@ defmodule Letflow.Modules.Assets do
 
   @impl true
   def on_install(prefix, _settings, ctx) do
-    EntityActivation.activate_and_promote(prefix, ctx, @types)
+    with :ok <- EntityActivation.activate_and_promote(prefix, ctx, @types) do
+      Reports.ensure_asset_list(prefix, ctx.actor_id)
+    end
   end
 
   @doc """
