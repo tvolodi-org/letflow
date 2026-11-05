@@ -11,8 +11,9 @@ defmodule Letflow.Modules.Assets do
   The one record type `assets_card` is shipped by the pack `priv/modules/assets/pack.json`
   (generated from `priv/modules/assets/entity_definitions/` by
   `priv/modules/assets/generate_pack.exs`). It is a managed type: after install the generic write
-  routes answer 403 `entity_type_managed`. The module has no route, no permission, no ledger and no
-  write function yet (ledger: REQ-749, card writes: REQ-750).
+  routes answer 403 `entity_type_managed`. Cards are written only by `Letflow.Modules.Assets.Cards`
+  through the routes of `Letflow.Modules.Assets.Router` (REQ-750, permission `AssetsCardWrite`, no
+  role grants). The module has no ledger yet (REQ-749).
 
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
@@ -38,10 +39,10 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.1.0",
+    version: "0.2.0",
     depends_on: ["locations", "org"],
     pack: "modules/assets/pack.json",
-    permissions: [],
+    permissions: [:AssetsCardWrite],
     role_grants: %{},
     required_roles: [],
     settings_schema: %{
@@ -51,10 +52,17 @@ defmodule Letflow.Modules.Assets do
       },
       "additionalProperties" => false
     },
-    route_policies: [],
+    route_policies: [
+      {"POST", "/cards", :AssetsCardWrite},
+      {"PATCH", "/cards/:id", :AssetsCardWrite},
+      {"POST", "/cards/:id/retire", :AssetsCardWrite}
+    ],
     manages_entity_types: ["assets_card"],
     scope_declarations: %{"assets_card" => {:column, "org_unit_id"}}
   )
+
+  @impl true
+  def router, do: Letflow.Modules.Assets.Router
 
   @impl true
   def on_install(prefix, _settings, ctx) do

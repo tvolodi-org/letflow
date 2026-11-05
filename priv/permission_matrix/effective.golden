@@ -1,11 +1,12 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: assets@0.1.0,catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.14.0
+# modules: assets@0.2.0,catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.14.0
 # roles: 8
-# permissions: 80
-# rows: 640
+# permissions: 81
+# rows: 648
 # columns: role permission allowed owner via
+AGENT_RUNNER AssetsCardWrite false module:assets -
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
 AGENT_RUNNER AttachmentsRead false core -
@@ -86,6 +87,7 @@ AGENT_RUNNER TenantsManage false core -
 AGENT_RUNNER TokensManage false core -
 AGENT_RUNNER UsersGroupsRolesManage false core -
 AGENT_RUNNER WebhooksManage false core -
+CANDIDATE AssetsCardWrite false module:assets -
 CANDIDATE AttachmentLinksIssue false core -
 CANDIDATE AttachmentsManage false core -
 CANDIDATE AttachmentsRead false core -
@@ -166,6 +168,7 @@ CANDIDATE TenantsManage false core -
 CANDIDATE TokensManage false core -
 CANDIDATE UsersGroupsRolesManage false core -
 CANDIDATE WebhooksManage false core -
+PLATFORM_ADMIN AssetsCardWrite true module:assets core
 PLATFORM_ADMIN AttachmentLinksIssue true core core
 PLATFORM_ADMIN AttachmentsManage true core core
 PLATFORM_ADMIN AttachmentsRead true core core
@@ -246,6 +249,7 @@ PLATFORM_ADMIN TenantsManage true core core
 PLATFORM_ADMIN TokensManage true core core
 PLATFORM_ADMIN UsersGroupsRolesManage true core core
 PLATFORM_ADMIN WebhooksManage true core core
+PROCESS_DESIGNER AssetsCardWrite false module:assets -
 PROCESS_DESIGNER AttachmentLinksIssue true core core
 PROCESS_DESIGNER AttachmentsManage false core -
 PROCESS_DESIGNER AttachmentsRead true core core
@@ -326,6 +330,7 @@ PROCESS_DESIGNER TenantsManage false core -
 PROCESS_DESIGNER TokensManage false core -
 PROCESS_DESIGNER UsersGroupsRolesManage false core -
 PROCESS_DESIGNER WebhooksManage false core -
+PROCESS_OPERATOR AssetsCardWrite false module:assets -
 PROCESS_OPERATOR AttachmentLinksIssue true core core
 PROCESS_OPERATOR AttachmentsManage true core core
 PROCESS_OPERATOR AttachmentsRead true core core
@@ -406,6 +411,7 @@ PROCESS_OPERATOR TenantsManage false core -
 PROCESS_OPERATOR TokensManage false core -
 PROCESS_OPERATOR UsersGroupsRolesManage false core -
 PROCESS_OPERATOR WebhooksManage true core core
+TASK_WORKER AssetsCardWrite false module:assets -
 TASK_WORKER AttachmentLinksIssue true core core
 TASK_WORKER AttachmentsManage false core -
 TASK_WORKER AttachmentsRead true core core
@@ -486,6 +492,7 @@ TASK_WORKER TenantsManage false core -
 TASK_WORKER TokensManage false core -
 TASK_WORKER UsersGroupsRolesManage false core -
 TASK_WORKER WebhooksManage false core -
+TENANT_ADMIN AssetsCardWrite true module:assets core
 TENANT_ADMIN AttachmentLinksIssue true core core
 TENANT_ADMIN AttachmentsManage true core core
 TENANT_ADMIN AttachmentsRead true core core
@@ -566,6 +573,7 @@ TENANT_ADMIN TenantsManage false core -
 TENANT_ADMIN TokensManage true core core
 TENANT_ADMIN UsersGroupsRolesManage true core core
 TENANT_ADMIN WebhooksManage true core core
+TENANT_AUDITOR AssetsCardWrite false module:assets -
 TENANT_AUDITOR AttachmentLinksIssue false core -
 TENANT_AUDITOR AttachmentsManage false core -
 TENANT_AUDITOR AttachmentsRead true core core

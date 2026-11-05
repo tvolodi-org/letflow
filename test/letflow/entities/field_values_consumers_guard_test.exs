@@ -22,6 +22,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
   # statuses and a line number; record_triggers/apply.ex: field_values is the line write path, the dead-row
   # audit holds only ids, closed codes and run metadata).
   @audit_writers_mentioning_field_values [
+    "letflow/modules/assets/cards.ex",
     "letflow/modules/catalog_items/import.ex",
     "letflow/modules/catalog_items/lots.ex",
     "letflow/modules/codes/writes.ex",
