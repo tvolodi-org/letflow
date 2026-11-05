@@ -13,7 +13,8 @@ defmodule Letflow.Routers.TenantModules do
   Routes, all gated by `:ModulesManage` (tenant scope: `TENANT_ADMIN`, and the platform tenant's
   `PLATFORM_ADMIN`, per the roles matrix): `POST /` (full path `POST /api/v1/tenant/modules`),
   `PUT /:module_id/settings`, and (REQ-578) `POST /:module_id/uninstall` and
-  `POST /:module_id/reactivate`. The last two take `{"rationale": "<non-blank text>"}`, answer
+  `POST /:module_id/reactivate`. (REQ-768) `POST /:module_id/upgrade/plan` is the read-only upgrade plan report
+  (`Letflow.Modules.UpgradePlan`). The uninstall and reactivate routes take `{"rationale": "<non-blank text>"}`, answer
   200 `{module_id, status}`, 404 (not installed / not uninstalled), 409 with a `code`
   (`dependents_installed`, `open_work_exists`, `upgrade_required`) and 422. While `Installs.uninstall_enabled?/0` is
   false (default) they answer exactly what the same caller gets on an unknown path of this router.
@@ -50,6 +51,7 @@ defmodule Letflow.Routers.TenantModules do
   alias Letflow.Api.Response
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
+  alias Letflow.Modules.UpgradePlan
   alias Letflow.PlatformTenant
 
   authz_post "/", :ModulesManage do
@@ -66,6 +68,10 @@ defmodule Letflow.Routers.TenantModules do
 
   authz_post "/:module_id/reactivate", :ModulesManage do
     handle_transition(conn, conn.params["module_id"], :reactivate)
+  end
+
+  authz_post "/:module_id/upgrade/plan", :ModulesManage do
+    handle_upgrade_plan(conn, conn.params["module_id"])
   end
 
   authz_unmatched(:ordinary)
@@ -153,6 +159,27 @@ defmodule Letflow.Routers.TenantModules do
   end
 
   defp run_transition(conn, _module_id, _action), do: Response.not_found(conn)
+
+  # ── POST /:module_id/upgrade/plan (REQ-768, decision 0080) ─────────────
+  # Read-only report (one `planned` journal row). `prefix` and actor only from the auth context;
+  # the body is not read. Unknown module and not installed answer the same 404 (INV-5).
+  defp handle_upgrade_plan(conn, module_id) when is_binary(module_id) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+    actor_id = conn.assigns.auth_context.user_id
+
+    case UpgradePlan.plan(module_id, actor_id, prefix: prefix) do
+      {:ok, report} ->
+        Response.ok(conn, report)
+
+      {:error, reason} when reason in [:unknown_module, :not_installed] ->
+        Response.not_found(conn)
+
+      {:error, :plan_failed} ->
+        Response.internal_error(conn)
+    end
+  end
+
+  defp handle_upgrade_plan(conn, _module_id), do: Response.not_found(conn)
 
   # ── POST /tenant/modules (design §2.3/§2.4) ─────────────────────────────
 

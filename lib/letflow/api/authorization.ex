@@ -1363,6 +1363,9 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/tenant/modules/:module_id/uninstall"), do: :ModulesManage
   def endpoint_policy_key("POST", "/tenant/modules/:module_id/reactivate"), do: :ModulesManage
 
+  # REQ-768 — dry-run upgrade plan (read-only report, one planned journal row).
+  def endpoint_policy_key("POST", "/tenant/modules/:module_id/upgrade/plan"), do: :ModulesManage
+
   # REQ-415 — solution install: one atomic call installs a bundle of modules
   # in dependency order. Same :ModulesManage gate as the per-module install
   # route above (PLATFORM_ADMIN-only, per REQ-401/D5).
