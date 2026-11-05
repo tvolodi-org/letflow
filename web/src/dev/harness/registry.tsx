@@ -15,8 +15,10 @@ import { locationsScreens } from './fixtures/locations'
 import { stockScreens } from './fixtures/stock'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
 import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
+import { stockOpeningScreens } from './fixtures/stockOpening'
 import { stockCountScreens } from './fixtures/stockCounts'
 import { stockCountDiffScreens } from './fixtures/stockCountsDiff'
+import { stockCountPostingScreens } from './fixtures/stockCountsPosting'
 import { queryStatesScreens } from './fixtures/queryStates'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
@@ -235,8 +237,10 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockScreens,
     ...stockDocumentsScreens,
     ...stockTwoSidesScreens,
+    ...stockOpeningScreens,
     ...stockCountScreens,
     ...stockCountDiffScreens,
+    ...stockCountPostingScreens,
     ...queryStatesScreens,
     masterDataImport,
     masterDataImportResult,

@@ -8,11 +8,13 @@ import { STOCK_TIME_ZONE } from '../register/stockRegisterModel'
 import { STOCK_POST, STOCK_REVERSE } from '../stockPermissions'
 import type { DocumentLine, StockDocument } from './documents.api'
 
-export const DOC_KINDS = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return'] as const
+export const DOC_KINDS = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'opening'] as const
 export type DocKind = (typeof DOC_KINDS)[number]
 /** REQ-723: kinds with a from side and a to side. */
 export const TWO_SIDE_KINDS = ['transfer', 'hand_over', 'return'] as const
 export const isTwoSide = (kind: string): boolean => (TWO_SIDE_KINDS as readonly string[]).includes(kind)
+/** REQ-725: the opening balance kind (no event time, location and responsible per line, real receipt date per line). */
+export const isOpening = (kind: string): boolean => kind === 'opening'
 export const DOC_STATES = ['draft', 'issued', 'posted', 'reversed', 'cancelled'] as const
 export const WRITE_OFF_REASONS = ['lost', 'damaged', 'used_up', 'other'] as const
 export const REVERSE_REASONS = ['wrong_document', 'wrong_quantity', 'wrong_master_data', 'other'] as const
@@ -27,7 +29,7 @@ export const DOC_REASONS = [
   'unit_not_valid', 'lot_not_valid', 'lot_required', 'lot_not_allowed', 'lot_expiry_missing',
   'tracking_policy_not_supported', 'received_on_after_event', 'event_time_too_old', 'event_time_in_future',
   'busy', 'posting_pending', 'document_posted', 'document_cancelled', 'document_not_posted', 'document_reversed',
-  'reversal_pending', 'document_not_issued',
+  'reversal_pending', 'document_not_issued', 'received_on_in_future', 'external_ref_pair', 'external_ref_taken',
 ] as const
 /** Real answers of main that the entry does not list (assumption: shown with their own message too). */
 export const DOC_EXTRA_REASONS = ['field_invalid', 'event_time_invalid', 'definition_not_active', 'posting_inconsistent'] as const
@@ -174,6 +176,10 @@ export interface LineForm {
   quantity: string
   unitPrice: string
   lineValue: string
+  /** Opening balance only (REQ-725): per-line location, responsible and real receipt date. */
+  locationId: string
+  responsibleId: string
+  receivedOn: string
 }
 export interface SideForm {
   orgUnitId: string
@@ -199,7 +205,7 @@ export interface FormState {
   lines: LineForm[]
 }
 
-export const emptyLine = (): LineForm => ({ itemId: '', uomId: '', lotId: '', quantity: '', unitPrice: '', lineValue: '' })
+export const emptyLine = (): LineForm => ({ itemId: '', uomId: '', lotId: '', quantity: '', unitPrice: '', lineValue: '', locationId: '', responsibleId: '', receivedOn: '' })
 
 export function emptyForm(kind: DocKind, eventTime: string = nowZonedLocal()): FormState {
   return {
@@ -214,6 +220,7 @@ export function lineFromDocument(l: DocumentLine): LineForm {
   return {
     itemId: s(l.catalog_item_id), uomId: s(l.catalog_uom_id), lotId: s(l.catalog_lot_id),
     quantity: s(l.quantity), unitPrice: s(l.unit_price), lineValue: s(l.line_value),
+    locationId: s(l.location_id), responsibleId: s(l.responsible_id), receivedOn: s(l.received_on),
   }
 }
 
@@ -249,6 +256,7 @@ export function formFromDocument(doc: StockDocument): FormState {
 
 /** Header fields shown per kind (the form and the tests read the same table). */
 export function headerFields(kind: DocKind): string[] {
+  if (isOpening(kind)) return ['orgUnitId', 'note']
   if (isTwoSide(kind)) {
     return ['eventTime', 'note', ...['from', 'to'].flatMap((x) => ['orgUnitId', 'locationId', 'responsibleId'].map((k) => `${x}.${k}`))]
   }
@@ -269,8 +277,11 @@ export function validateForm(f: FormState): FormCheck {
     if (v.trim() === '') errors[`header.${key}`] = 'stock.doc.error.field_required'
   }
   const two = isTwoSide(f.kind)
-  if (zonedLocalToIso(f.eventTime) === null) errors['header.eventTime'] = 'stock.doc.error.field_required'
-  if (two) {
+  const opening = isOpening(f.kind)
+  if (!opening && zonedLocalToIso(f.eventTime) === null) errors['header.eventTime'] = 'stock.doc.error.field_required'
+  if (opening) {
+    req('orgUnitId', f.orgUnitId)
+  } else if (two) {
     for (const side of ['from', 'to'] as const) {
       for (const k of ['orgUnitId', 'locationId', 'responsibleId'] as const) {
         if (f[side][k].trim() === '') errors[`side.${side}.${k}`] = 'stock.doc.error.field_required'
@@ -299,14 +310,20 @@ export function validateForm(f: FormState): FormCheck {
     if (!(WRITE_OFF_REASONS as readonly string[]).includes(f.reasonCode)) errors['header.reasonCode'] = 'stock.doc.error.field_required'
     else if (f.reasonCode === 'other' && f.reasonText.trim() === '') errors['header.reasonText'] = 'stock.doc.error.reasonTextRequired'
   }
-  if (!two && f.kind !== 'receipt' && f.reasonText.length > TEXT_MAX) errors['header.reasonText'] = 'stock.doc.error.textTooLong'
+  if (!two && !opening && f.kind !== 'receipt' && f.reasonText.length > TEXT_MAX) errors['header.reasonText'] = 'stock.doc.error.textTooLong'
   if (f.lines.length < 1 || f.lines.length > MAX_LINES) errors['lines'] = 'stock.doc.error.lines_count'
   f.lines.forEach((l, i) => {
     const k = `lines.${i}`
     if (l.itemId === '') errors[`${k}.itemId`] = 'stock.doc.error.field_required'
     else if (l.uomId === '') errors[`${k}.itemId`] = 'stock.doc.error.unit_not_valid'
     if (!isDecimalAboveZero(l.quantity)) errors[`${k}.quantity`] = 'stock.doc.error.quantity_invalid'
-    if (f.kind === 'receipt') {
+    if (opening) {
+      if (l.locationId === '') errors[`${k}.locationId`] = 'stock.doc.error.field_required'
+      if (l.responsibleId === '') errors[`${k}.responsibleId`] = 'stock.doc.error.field_required'
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(l.receivedOn)) errors[`${k}.receivedOn`] = 'stock.doc.error.field_required'
+      else if (l.receivedOn > nowZonedLocal().slice(0, 10)) errors[`${k}.receivedOn`] = 'stock.doc.error.received_on_in_future'
+    }
+    if (f.kind === 'receipt' || opening) {
       if (l.unitPrice !== '' && !isDecimalNonNegative(l.unitPrice)) errors[`${k}.unitPrice`] = 'stock.doc.error.price_invalid'
       if (l.lineValue !== '' && !isDecimalNonNegative(l.lineValue)) errors[`${k}.lineValue`] = 'stock.doc.error.price_invalid'
     }
@@ -318,8 +335,12 @@ export function validateForm(f: FormState): FormCheck {
  *  optional value is left out; nothing the server sets (line_id, line_no, header_id, number, state). */
 export function buildBody(f: FormState): Record<string, unknown> {
   const two = isTwoSide(f.kind)
-  const body: Record<string, unknown> = { kind: f.kind, event_time: zonedLocalToIso(f.eventTime) }
-  if (two) {
+  const opening = isOpening(f.kind)
+  const body: Record<string, unknown> = { kind: f.kind }
+  if (!opening) body['event_time'] = zonedLocalToIso(f.eventTime)
+  if (opening) {
+    body['org_unit_id'] = f.orgUnitId
+  } else if (two) {
     const { from, to } = f
     if (f.kind === 'return') body['from_org_unit_id'] = from.orgUnitId
     else body['org_unit_id'] = from.orgUnitId
@@ -338,7 +359,7 @@ export function buildBody(f: FormState): Record<string, unknown> {
     if (v.trim() !== '') body[key] = v
   }
   opt('note', f.note)
-  if (two) {
+  if (two || opening) {
     // no reason, counterparty, price or value on these kinds (the server answers field_not_allowed)
   } else if (f.kind === 'receipt') {
     opt('counterparty_id', f.counterpartyId)
@@ -355,7 +376,12 @@ export function buildBody(f: FormState): Record<string, unknown> {
       quantity: l.quantity,
     }
     if (l.lotId !== '') line['catalog_lot_id'] = l.lotId
-    if (f.kind === 'receipt') {
+    if (opening) {
+      line['location_id'] = l.locationId
+      line['responsible_id'] = l.responsibleId
+      line['received_on'] = l.receivedOn
+    }
+    if (f.kind === 'receipt' || opening) {
       if (l.unitPrice !== '') line['unit_price'] = l.unitPrice
       if (l.lineValue !== '') line['line_value'] = l.lineValue
     }
@@ -375,7 +401,8 @@ const FIELD_KEYS: Record<string, string> = {
 }
 const LINE_FIELD_KEYS: Record<string, string> = {
   catalog_item_id: 'itemId', catalog_uom_id: 'itemId', catalog_lot_id: 'lotId', quantity: 'quantity',
-  unit_price: 'unitPrice', line_value: 'lineValue',
+  unit_price: 'unitPrice', line_value: 'lineValue', location_id: 'locationId', responsible_id: 'responsibleId',
+  received_on: 'receivedOn',
 }
 
 /** `{ key, messageId }` for a save refusal; `key` is null when it belongs to the whole form (banner). */

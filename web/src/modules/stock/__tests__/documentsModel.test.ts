@@ -106,7 +106,7 @@ function filled(kind: FormState['kind']): FormState {
   return {
     ...emptyForm(kind, '2026-11-04T10:00'),
     orgUnitId: 'u1', locationId: 'l1', responsibleId: 'e1',
-    lines: [{ itemId: 'i1', uomId: 'm1', lotId: '', quantity: '3', unitPrice: '', lineValue: '' }],
+    lines: [{ itemId: 'i1', uomId: 'm1', lotId: '', quantity: '3', unitPrice: '', lineValue: '', locationId: '', responsibleId: '', receivedOn: '' }],
   }
 }
 
@@ -117,7 +117,7 @@ describe('buildBody and validateForm', () => {
       lines: [{ catalog_item_id: 'i1', catalog_uom_id: 'm1', quantity: '3' }],
     })
     const r = { ...filled('receipt'), counterpartyId: 'c1', supplierRef: 'INV-1', receivedOn: '2026-11-03' }
-    r.lines = [{ itemId: 'i1', uomId: 'm1', lotId: 't1', quantity: '3', unitPrice: '2.5', lineValue: '7.5' }]
+    r.lines = [{ itemId: 'i1', uomId: 'm1', lotId: 't1', quantity: '3', unitPrice: '2.5', lineValue: '7.5', locationId: '', responsibleId: '', receivedOn: '' }]
     expect(Object.keys(buildBody(r)).sort()).toEqual(
       ['counterparty_id', 'event_time', 'kind', 'lines', 'location_id', 'org_unit_id', 'received_on', 'responsible_id', 'supplier_document_ref'],
     )
