@@ -140,3 +140,24 @@ describe('A3/A4/A5 lines table in edit mode', () => {
     expect(foot).toHaveTextContent('3.75')
   })
 })
+
+describe('T1410 B1 header hides empty fields', () => {
+  it('a draft shows no empty optional rows and no Posting group', async () => {
+    listAndDoc(stockDoc({ state: 'draft' }))
+    renderStock(`${LIST}/d1`, withPost)
+    const header = await screen.findByTestId('document-header')
+    await waitFor(() => expect(header).toHaveTextContent('Main store'))
+    for (const label of ['Supplier document', 'Counterparty', 'Posted at', 'Posted by', 'Reversed at', 'Posting']) {
+      expect(header).not.toHaveTextContent(label)
+    }
+  })
+
+  it('a posted receipt with a supplier reference shows that row and the Posting group', async () => {
+    listAndDoc(stockDoc({ state: 'posted', number: 'RC-1', supplier_document_ref: 'INV-77', posted_at: '2026-11-04T06:00:00Z', issued_at: '2026-11-04T05:30:00Z' }))
+    renderStock(`${LIST}/d1`, withPost)
+    const header = await screen.findByTestId('document-header')
+    await waitFor(() => expect(header).toHaveTextContent('INV-77'))
+    expect(header).toHaveTextContent('Posted at')
+    expect(header).toHaveTextContent('Posting')
+  })
+})

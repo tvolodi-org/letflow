@@ -42,6 +42,18 @@ const form = () => within(screen.getByTestId('document-form'))
 const pick = (label: string | RegExp, value: string, scope?: HTMLElement) =>
   fireEvent.change((scope ? within(scope) : form()).getByLabelText(label), { target: { value } })
 
+describe('T1410 line card title', () => {
+  it('the index cell label is the bare word, so the card reads Line 1 once', async () => {
+    renderStock(`${LIST}/new?kind=opening`, withPost)
+    await form().findByRole('option', { name: 'Main store' })
+    for (const row of screen.getAllByTestId('line-editor-row')) {
+      const idx = row.querySelector('td.is-idx')
+      expect(idx?.getAttribute('data-label')).toBe('Line')
+      expect(idx?.getAttribute('data-label')).not.toMatch(/\d/)
+    }
+  })
+})
+
 describe('O1 create', () => {
   it('shows the opening fields and posts exactly the opening body', async () => {
     const masters = clientMock.post.getMockImplementation()!
@@ -122,7 +134,7 @@ describe('W7 view', () => {
     cleanup()
     fakeDocument(clientMock, OPENING())
     renderStock(`${LIST}/d1`, withPost)
-    await screen.findByText('Note')
+    await screen.findByText('Org unit')
     expect(screen.queryByText('External system')).not.toBeInTheDocument()
   })
 })

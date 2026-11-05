@@ -63,7 +63,7 @@ function LineRow({ index, line, items, locations, employees, errors, onChange, o
   }
   const bad = (f: string) => errors[`${k}.${f}`] !== undefined
   const msgId = `ln-${index}-err`
-  const lineWord = `${t('stock.doc.col.lineNo')} ${index + 1}`
+  const lineWord = t('stock.doc.col.lineNo')
   const unitName = line.uomId ? name('catalog_uom', line.uomId) : ''
   const num = (col: string, field: 'quantity' | 'unitPrice' | 'lineValue', label: string) => (
     <div className="lf-control lf-control--num">

@@ -155,6 +155,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
     ref && ref === access.userId ? refMsg.you : label || actorLabel(ref, access.userId, refMsg)
   const row = (label: string, value: string | null | undefined, mono = false, always = true) =>
     always || value ? <DocField label={label} value={value ? value : dash} mono={mono} empty={!value} /> : null
+  const hasPosting = Boolean(doc.issued_at || doc.posted_at || doc.posted_by || doc.reversed_at || doc.reversed_by)
   const columns = lineColumns(doc.kind as DocKind, t)
   const withValue = isReceipt || opening
   const total = withValue ? sumDecimals(lines.map((l) => l.line_value ?? '')) : null
@@ -232,20 +233,20 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
           {!two && row(t('stock.col.orgUnit'), name('org_unit', doc.org_unit_id))}
           {!two && !opening && row(t('stock.col.location'), name('location_node', doc.location_id))}
           {!two && !opening && row(t('stock.col.responsible'), name('org_employee', doc.responsible_id))}
-          {isReceipt && row(t('stock.doc.field.counterparty'), name('catalog_counterparty', doc.counterparty_id))}
-          {isReceipt && row(t('stock.doc.field.supplierRef'), doc.supplier_document_ref, true)}
-          {isReceipt && row(t('stock.doc.field.receivedOn'), doc.received_on, true)}
+          {isReceipt && row(t('stock.doc.field.counterparty'), name('catalog_counterparty', doc.counterparty_id), false, false)}
+          {isReceipt && row(t('stock.doc.field.supplierRef'), doc.supplier_document_ref, true, false)}
+          {isReceipt && row(t('stock.doc.field.receivedOn'), doc.received_on, true, false)}
           {doc.reason_code && row(t('stock.doc.field.reasonCode'), known(['lost', 'damaged', 'used_up', 'other'], 'stock.doc.writeOffReason', doc.reason_code))}
           {doc.reason_text && row(t('stock.doc.field.reasonText'), doc.reason_text)}
-          {row(t('stock.doc.field.note'), doc.note)}
+          {row(t('stock.doc.field.note'), doc.note, false, false)}
           {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefSystem'), doc.external_ref_system, true)}
           {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefId'), doc.external_ref_id, true)}
-          <DocGroup>{t('stock.doc.group.posting')}</DocGroup>
-          {row(t('stock.doc.field.issuedAt'), doc.issued_at ? when(doc.issued_at) : null, true)}
-          {row(t('stock.doc.field.postedAt'), doc.posted_at ? when(doc.posted_at) : null, true)}
-          {row(t('stock.doc.field.postedBy'), actor(doc.posted_by, doc.posted_by_label))}
-          {row(t('stock.doc.field.reversedAt'), doc.reversed_at ? when(doc.reversed_at) : null, true)}
-          {row(t('stock.doc.field.reversedBy'), actor(doc.reversed_by, doc.reversed_by_label))}
+          {hasPosting && <DocGroup>{t('stock.doc.group.posting')}</DocGroup>}
+          {row(t('stock.doc.field.issuedAt'), doc.issued_at ? when(doc.issued_at) : null, true, false)}
+          {row(t('stock.doc.field.postedAt'), doc.posted_at ? when(doc.posted_at) : null, true, false)}
+          {row(t('stock.doc.field.postedBy'), actor(doc.posted_by, doc.posted_by_label), false, false)}
+          {row(t('stock.doc.field.reversedAt'), doc.reversed_at ? when(doc.reversed_at) : null, true, false)}
+          {row(t('stock.doc.field.reversedBy'), actor(doc.reversed_by, doc.reversed_by_label), false, false)}
         </DocFields>
         {two && (['from', 'to'] as const).map((side) => (
           <section key={side} data-testid={`view-side-${side}`} aria-label={t(`stock.doc.side.${side}`)}>
