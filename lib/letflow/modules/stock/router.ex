@@ -73,6 +73,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts` (`status`, `org_unit_id`, `limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
   | `GET /counts/:id` | `StockRead` | 200 order view |
   | `GET /counts/:id/document` | `StockRead` | 200 issued summary, no content bytes |
+  | `GET /counts/:id/paperwork/:kind` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document, 422 `document_not_issued` |
 
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
   so a scoped caller gets the same 404 for an order of another unit as for an unknown id. When the
@@ -123,6 +124,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Ledger
   alias Letflow.Modules.Stock.Access
   alias Letflow.Modules.Stock.Counts
+  alias Letflow.Modules.Stock.CountPaperworkSource
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Views
@@ -452,6 +454,16 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  # REQ-719: the count paperwork as xlsx, rendered from the issued document version.
+  @paperwork_kinds %{"order" => :order, "sheet" => :sheet, "differences" => :differences}
+
+  authz_get "/counts/:id/paperwork/:kind", :StockRead do
+    case Map.fetch(@paperwork_kinds, conn.params["kind"]) do
+      {:ok, kind} -> paperwork(conn, kind)
+      :error -> Response.not_found(conn)
+    end
+  end
+
   authz_unmatched(:ordinary)
 
   # -- document handlers ---------------------------------------------------------------------------
@@ -537,6 +549,35 @@ defmodule Letflow.Modules.Stock.Router do
          {:ok, conn, principal} <- Scope.principal_from_conn(conn),
          {:ok, scope} <- allowed_set(principal, permission) do
       render(conn, fun.(prefix, %{actor_id: actor, scope: scope}), status)
+    else
+      :none -> Response.not_found(conn)
+      _ -> Response.send_problem(conn, Error.forbidden("not permitted"))
+    end
+  end
+
+  # REQ-719: the same prologue as `count_write/4`, answering a workbook instead of JSON.
+  defp paperwork(conn, kind) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+
+    with {:ok, _actor} <- Ecto.UUID.cast(conn.assigns.auth_context.user_id),
+         {:ok, conn, principal} <- Scope.principal_from_conn(conn),
+         {:ok, scope} <- allowed_set(principal, :StockRead) do
+      ctx = %{scope: scope, principal: principal, tenant_id: conn.assigns.auth_context.tenant_id}
+
+      case CountPaperworkSource.fetch(prefix, conn.params["id"], kind, ctx) do
+        {:ok, binary, name} ->
+          send_xlsx(conn, binary, name)
+
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:error, :document_not_issued} ->
+          unprocessable(conn, "document_not_issued")
+
+        {:error, :xlsx_write_failed} ->
+          Logger.error("stock paperwork xlsx write failed")
+          Response.internal_error(conn)
+      end
     else
       :none -> Response.not_found(conn)
       _ -> Response.send_problem(conn, Error.forbidden("not permitted"))

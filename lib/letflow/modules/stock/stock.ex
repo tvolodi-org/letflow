@@ -77,7 +77,13 @@ defmodule Letflow.Modules.Stock do
   optional, so a `counted` count that exists already simply has none of them.
   Assumption, owner may change at GATE B: "signed" is a paper signature recorded by the chair.
 
-  ## Count scan (REQ-716 / GH #3765; version 0.7.0)
+  ## Count paperwork (REQ-719 / GH #3762; version 0.7.0)
+
+  One read route, `GET /counts/:id/paperwork/:kind` (`StockRead`), answers the `.xlsx` of an issued count
+  order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
+  `CountPaperworkSource`). No migration, record type or permission.
+
+  ## Count scan (REQ-716 / GH #3765; version 0.8.0)
 
   One more route, `POST /counts/:id/scan` (permission `StockCountRecord`, `CountSheet.scan/4`): a
   keyboard-scanner code is resolved with `Letflow.Modules.Codes.resolve/2`; an item or lot code adds one
@@ -183,7 +189,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.7.0",
+    version: "0.8.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
@@ -217,6 +223,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/counts", :StockRead},
       {"GET", "/counts/:id", :StockRead},
       {"GET", "/counts/:id/document", :StockRead},
+      {"GET", "/counts/:id/paperwork/:kind", :StockRead},
       {"POST", "/counts/:id/open", :StockCountRecord},
       {"POST", "/counts/:id/scan", :StockCountRecord},
       {"GET", "/counts/:id/lines", :StockRead},
