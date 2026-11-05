@@ -15,6 +15,7 @@ export const DOCUMENT_TYPES = [
   'stock_return',
   'stock_reversal',
   'stock_opening',
+  'count.differences',
 ] as const
 
 /** Master entity types read for names. */

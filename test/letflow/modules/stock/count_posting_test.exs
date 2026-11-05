@@ -197,6 +197,19 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
     id
   end
 
+  defp shortage_sku!(x) do
+    Repo.one!(
+      from(l in Letflow.Entities.Record.Latest,
+        where:
+          l.entity_type == "count_sheet_line" and
+            fragment("?->>'location_id' = ?", l.field_values, ^x.w.a),
+        select: fragment("?->>'catalog_item_id'", l.field_values),
+        limit: 1
+      ),
+      prefix: x.s
+    )
+  end
+
   defp movements(x, id) do
     S.get("/movements?document_id=#{diff_id(x, id)}", x.chair_tok)
     |> status!(200)
@@ -407,28 +420,46 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
     test "insufficient stock keeps the task pending and the count signed", ctx do
       x = world!(ctx, :a)
       id = signed!(x)
-
-      sku =
-        Repo.one!(
-          from(l in Letflow.Entities.Record.Latest,
-            where:
-              l.entity_type == "count_sheet_line" and
-                fragment("?->>'location_id' = ?", l.field_values, ^x.w.a),
-            select: fragment("?->>'catalog_item_id'", l.field_values),
-            limit: 1
-          ),
-          prefix: x.s
-        )
-
-      # goods leave after the cut-off: 9 of 10, the shortage of 7 now exceeds the balance
-      S.post!(x.s, "issue", %{lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)})]})
+      sku = shortage_sku!(x)
+      # the post starts while the balance is enough; then goods leave: 9 of 10, the shortage of 7
+      # now exceeds the balance (the race the early check cannot see)
       post!(x, id)
+      S.post!(x.s, "issue", %{lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)})]})
       task = task!(x, id, "post")
       assert {:error, _} = P.complete(x, task)
       assert Repo.get!(Task, task.id, prefix: x.s).status == :pending
       assert marks(x, id) == 0
       assert movements(x, id) == []
       assert count(x, id)["posting_state"] == "pending"
+    end
+
+    test "T2 a shortage above the balance is named at post time and nothing is written", ctx do
+      x = world!(ctx, :a)
+      id = signed!(x)
+      sku = shortage_sku!(x)
+      S.post!(x.s, "issue", %{lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)})]})
+      body = status!(call(:post, "/counts/#{id}/post", x.chair_tok, %{}), 422)
+      assert body["reason"] == "shortage_exceeds_balance"
+      ext = body["extensions"] || body
+      assert ext["catalog_item_id"] == sku
+      assert ext["location_id"] == x.w.a
+      assert is_integer(ext["line_no"])
+      refute inspect(body) =~ "quantity"
+      assert P.pending_task(x, diff_id(x, id), "post") == nil
+      assert marks(x, id) == 0
+      assert count(x, id)["posting_state"] == "none"
+    end
+
+    test "T3 without a ledger read the early check is skipped", ctx do
+      x = world!(ctx, :a)
+      id = signed!(x)
+      sku = shortage_sku!(x)
+      S.post!(x.s, "issue", %{lines: [S.line(sku, "9", %{from: S.side(x.w.unit, x.w.a)})]})
+      opts = %{actor_id: x.chair_user.id, scope: :all}
+
+      # no activator here, so the call stops at the definition step, i.e. after the early check
+      assert {:error, :definition_not_active} =
+               Letflow.Modules.Stock.CountPosting.post(x.s, id, Map.put(opts, :authorized, nil))
     end
 
     test "an old signing time is refused at completion (96 hours)", ctx do
@@ -461,6 +492,21 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       done = status!(call(:post, "/counts/#{id}/posting-record", x.chair_tok, %{}), 200)
       assert done["status"] == "posted" and done["posting_state"] == "none"
       assert movements(x, id) == [] and marks(x, id) == 0
+    end
+
+    test "T1 differences_empty is true only for a signed empty sheet", ctx do
+      x = world!(ctx, :a)
+      empty = signed!(x, exact: true)
+      assert count(x, empty)["differences_empty"] == true
+      assert count(x, empty)["posting_state"] == "none"
+
+      xb = world!(ctx, :b)
+      full = signed!(xb)
+      assert count(xb, full)["differences_empty"] == false
+
+      xs = world!(ctx, :s)
+      posted = posted!(xs)
+      assert count(xs, posted)["differences_empty"] == false
     end
   end
 

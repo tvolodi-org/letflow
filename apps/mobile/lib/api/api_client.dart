@@ -123,6 +123,13 @@ abstract class PostCapableHttpGateway implements HttpGateway {
   Future<Response<dynamic>> post(String path, {Object? data});
 }
 
+/// Adds `PUT` (the stock count's typed quantity, D3a). Separate from
+/// [PostCapableHttpGateway] for the same reason: existing test doubles that
+/// implement the narrower interface must keep compiling.
+abstract class PutCapableHttpGateway implements PostCapableHttpGateway {
+  Future<Response<dynamic>> put(String path, {Object? data});
+}
+
 /// Holds the `realm_url` of whichever tenant's bootstrap most recently
 /// completed successfully — the bearer-attach interceptor's source of
 /// truth for "the currently active tenant" (REQ-421 design §5.3/§7.2). A
@@ -333,7 +340,7 @@ class _RefreshCoordinator {
   }
 }
 
-class ApiClient implements PostCapableHttpGateway {
+class ApiClient implements PutCapableHttpGateway {
   ApiClient._(
     this._dio,
     this._refreshCoordinator,
@@ -474,6 +481,15 @@ class ApiClient implements PostCapableHttpGateway {
     );
   }
 
+  /// Like [post]: a single attempt, no 5xx auto-retry. Throws [ApiError].
+  @override
+  Future<Response<dynamic>> put(String path, {Object? data}) {
+    return _sendWithBackoff(
+      () => _dio.put<dynamic>(path, data: data),
+      allowServerRetry: false,
+    );
+  }
+
   /// Implements design §3's GET-only 5xx backoff and design §2's 401
   /// refresh-then-retry, for one logical call. [allowServerRetry] is `true`
   /// only for GET/`getUnauthenticated` (design §3.3).
@@ -577,7 +593,8 @@ class ApiClient implements PostCapableHttpGateway {
     // tenant B was already in flight and its refresh is what completed) --
     // never silently re-authenticate and re-serve this request as a
     // different tenant than the caller expects.
-    if (issuedForRealm != null && issuedForRealm != _activeRealm.currentRealmUrl) {
+    if (issuedForRealm != null &&
+        issuedForRealm != _activeRealm.currentRealmUrl) {
       throw const UnauthorizedError();
     }
 
@@ -777,13 +794,12 @@ class RedactingLogInterceptor extends Interceptor {
   }
 
   @override
-  void onRequest(
-    RequestOptions options,
-    RequestInterceptorHandler handler,
-  ) {
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     final headers = _redactHeaders(options.headers);
     final body = _isTokenEndpoint(options.path) ? _redacted : options.data;
-    logSink('--> ${options.method} ${options.path} headers=$headers body=$body');
+    logSink(
+      '--> ${options.method} ${options.path} headers=$headers body=$body',
+    );
     handler.next(options);
   }
 

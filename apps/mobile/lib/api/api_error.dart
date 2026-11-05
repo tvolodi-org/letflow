@@ -70,7 +70,8 @@ class BackpressureError extends ApiError {
   final int retryAfterSeconds;
 
   @override
-  String toString() => 'BackpressureError(retryAfterSeconds: $retryAfterSeconds)';
+  String toString() =>
+      'BackpressureError(retryAfterSeconds: $retryAfterSeconds)';
 }
 
 @immutable
@@ -94,10 +95,14 @@ class ApiFieldError {
 
 @immutable
 class ValidationError extends ApiError {
-  const ValidationError({required this.fieldErrors});
+  const ValidationError({required this.fieldErrors, this.reason});
 
   /// RFC 9457 "errors" array — see [_parseFieldErrors].
   final List<ApiFieldError> fieldErrors;
+
+  /// The top-level `reason` member some module routes add to the problem
+  /// body (stock count refusals); null when absent or not a string.
+  final String? reason;
 
   @override
   String toString() => 'ValidationError(fieldErrors: $fieldErrors)';
@@ -105,7 +110,10 @@ class ValidationError extends ApiError {
 
 @immutable
 class ConflictError extends ApiError {
-  const ConflictError();
+  const ConflictError({this.reason});
+
+  /// Same top-level `reason` member as [ValidationError.reason].
+  final String? reason;
 
   @override
   String toString() => 'ConflictError()';
@@ -176,6 +184,12 @@ List<ApiFieldError> _parseFieldErrors(Object? responseBody) {
   return result;
 }
 
+String? _parseReason(Object? responseBody) {
+  if (responseBody is! Map) return null;
+  final reason = responseBody['reason'];
+  return reason is String ? reason : null;
+}
+
 /// The single status-code/exception → [ApiError] classification function
 /// (design §1.2, exact evaluation order — first match wins).
 ApiError classifyError(
@@ -203,9 +217,14 @@ ApiError classifyError(
     );
   }
   if (statusCode == 422) {
-    return ValidationError(fieldErrors: _parseFieldErrors(responseBody));
+    return ValidationError(
+      fieldErrors: _parseFieldErrors(responseBody),
+      reason: _parseReason(responseBody),
+    );
   }
-  if (statusCode == 409) return const ConflictError();
+  if (statusCode == 409) {
+    return ConflictError(reason: _parseReason(responseBody));
+  }
   if (statusCode >= 500 && statusCode <= 599) {
     return ServerError(lastStatusCode: statusCode);
   }
