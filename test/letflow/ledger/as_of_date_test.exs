@@ -104,16 +104,15 @@ defmodule Letflow.Ledger.AsOfDateTest do
     schema: s,
     auth: a
   } do
-    # yesterday in Tokyo is never in the future of Almaty or Berlin, whatever the UTC hour
-    d = tokyo_day(1)
-    post_at!(s, "receipt", ["k", "l"], 1, DateTime.add(boundary(d), -3600))
-    assert {:ok, r} = Ledger.balances_on_date(a, d, :latest, %{}, %{})
+    post_at!(s, "receipt", ["k", "l"], 1, DateTime.add(DateTime.utc_now(), -3600))
+    assert {:ok, r} = Ledger.balances_on_date(a, tokyo_day(0), :latest, %{}, %{})
     assert r |> Map.keys() |> Enum.sort() == @report_keys
     assert r.timezone == "Asia/Tokyo"
 
     :ok = Fx.put_tenant_settings!(fx, %{})
-    assert {:ok, dz} = Ledger.balances_on_date(a, d, :latest, %{}, %{})
-    assert dz.timezone == "Asia/Almaty"
+    # Almaty is behind Tokyo: tokyo_day(0) is a future date there late in the UTC day.
+    assert {:ok, d} = Ledger.balances_on_date(a, tokyo_day(1), :latest, %{}, %{})
+    assert d.timezone == "Asia/Almaty"
   end
 
   test "T-AD-6 receipt then reversal: 10, 10, 0 and the zero row stays", %{schema: s, auth: a} do
@@ -180,19 +179,19 @@ defmodule Letflow.Ledger.AsOfDateTest do
 
   test "T-AD-9 two tenants with two zones read only their own legs", %{schema: s, auth: a} do
     other = Fx.tenant_fixture!()
-    :ok = Fx.put_tenant_settings!(other, %{"timezone" => "Europe/Berlin"})
+    :ok = Fx.put_tenant_settings!(other, %{"timezone" => "Asia/Vladivostok"})
     b = Fx.authorized!(other)
-    day = tokyo_day(1)
-    at = DateTime.add(boundary(day), -3600)
+    at = DateTime.add(DateTime.utc_now(), -3600)
     post_at!(s, "receipt", ["same", "l"], 5, at)
     post_at!(other.schema_name, "receipt", ["same", "l"], 7, at)
     post_at!(other.schema_name, "receipt", ["only_b", "l"], 1, at)
 
+    day = tokyo_day(0)
     {:ok, ra} = Ledger.balances_on_date(a, day, :latest, %{}, %{})
     {:ok, rb} = Ledger.balances_on_date(b, day, :latest, %{}, %{})
     assert qty(ra, "same") == [5] and qty(ra, "only_b") == []
     assert qty(rb, "same") == [7] and qty(rb, "only_b") == [1]
-    assert {ra.timezone, rb.timezone} == {"Asia/Tokyo", "Europe/Berlin"}
+    assert {ra.timezone, rb.timezone} == {"Asia/Tokyo", "Asia/Vladivostok"}
 
     for key <- ["prefix", "tenant", "tenant_id", "timezone"] do
       assert {:error, :invalid_filter} =
