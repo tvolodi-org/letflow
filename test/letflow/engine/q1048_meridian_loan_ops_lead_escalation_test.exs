@@ -34,7 +34,7 @@ defmodule Letflow.Engine.Q1048MeridianLoanOpsLeadEscalationTest do
   alias Letflow.SodSupport, as: S
 
   @opts Letflow.Routers.Tasks.init([])
-  @sod_body ~s({"detail":"separation of duties","status":403})
+  @sod_body Letflow.Api.Response.separation_of_duties_body()
   @escalation "escalate-disburse-loan-to-loan-ops-lead"
   @fixture Path.expand(
              "../../fixtures/qa/meridian_loan_origination_process_definition.json",
