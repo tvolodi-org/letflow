@@ -17,9 +17,9 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Stock
 
-  test "R1 (REQ-717) count_signature, the five count_order fields, the five routes, version 0.8.0" do
+  test "R1 (REQ-717) count_signature, the five count_order fields, the five routes, version 0.9.0" do
     m = Stock.manifest()
-    assert m.version == "0.8.0" and Catalog.validate(m) == :ok
+    assert m.version == "0.9.0" and Catalog.validate(m) == :ok
     assert "count_signature" in m.manages_entity_types
     assert m.scope_declarations["count_signature"] == {:column, "org_unit_id"}
 
@@ -196,6 +196,8 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
       assert {:ok, _} = Letflow.Documents.register_type(s, attrs, ctx)
     end
 
-    assert length(Repo.all(DocumentType, prefix: s)) == 10
+    # the receipt, the opening (REQ-725), issue and write-off (REQ-715), the three two-sided kinds
+    # and the four count types
+    assert length(Repo.all(DocumentType, prefix: s)) == 11
   end
 end
