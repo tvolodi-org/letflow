@@ -40,6 +40,12 @@
   .sg-space span { display: block; height: 12px; background: var(--current-tint); border: 1px solid var(--current); border-radius: 2px; }
   .sg-themes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--line); }
   .sg-themes > [data-theme] { padding: var(--space-6); display: grid; gap: var(--space-4); align-content: start; }
+  .sg-wire { display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); font: var(--type-mono-s); color: var(--ink-muted); }
+  .sg-wire > span { display: grid; place-items: center; min-height: var(--space-8); background: var(--paper-raised); border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); }
+  .sg-wire--row { grid-template-columns: 1fr 1.4fr 2fr; grid-template-areas: "l bar bar" "l a b"; }
+  .sg-wire--tabs { grid-template-columns: 1fr 3.4fr; grid-template-areas: "l bar" "l tabs" "l panel"; }
+  .sg-wire > .sg-wire__list { grid-area: l; min-height: var(--space-24); }
+  .sg-wire__bar { grid-area: bar; } .sg-wire > .sg-wire__a { grid-area: a; min-height: var(--space-16); } .sg-wire__b { grid-area: b; } .sg-wire__tabs { grid-area: tabs; } .sg-wire > .sg-wire__panel { grid-area: panel; min-height: var(--space-16); }
   .sg-shell { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
   .sg-shell .lf-app { min-height: 0; }
   .sg-shell .lf-sidenav { position: static; height: auto; }
@@ -51,7 +57,7 @@
 </head>
 <body>
 <main class="sg">
-<p class="eyebrow">Letflow platform design system, copy of 2026-11-04 of letflow-design</p>
+<p class="eyebrow">Letflow platform design system, copy of 2026-11-05 of letflow-design</p>
 
 <header class="sg-top">
   <div>
@@ -65,7 +71,7 @@
 </header>
 
 <nav class="sg-toc" aria-label="Sections">
-  <a href="#colors">Colours</a><a href="#type">Type</a><a href="#space">Spacing</a><a href="#themes">Light and dark</a><a href="#buttons">Buttons</a><a href="#fields">Fields</a><a href="#table">Data table</a><a href="#pills">Status pill</a><a href="#tabs">Tabs</a><a href="#tree">Tree</a><a href="#md">Master-detail</a><a href="#pagehead">Page header</a><a href="#import">Import wizard</a><a href="#dialog">Dialog</a><a href="#toast">Toast</a><a href="#nav">Side nav</a><a href="#lang">Language switch</a><a href="#tenant">Tenant brand</a>
+  <a href="#colors">Colours</a><a href="#type">Type</a><a href="#space">Spacing</a><a href="#themes">Light and dark</a><a href="#buttons">Buttons</a><a href="#fields">Fields</a><a href="#table">Data table</a><a href="#pills">Status pill</a><a href="#tabs">Tabs</a><a href="#tree">Tree</a><a href="#md">Master-detail</a><a href="#pagehead">Page header</a><a href="#import">Import wizard</a><a href="#dialog">Dialog</a><a href="#toast">Toast</a><a href="#nav">Side nav</a><a href="#lang">Language switch</a><a href="#tenant">Tenant brand</a><a href="#docform">Document form</a><a href="#datetime">Date and time</a>
 </nav>
 
 <!-- ============ COLOURS ============ -->
@@ -160,7 +166,7 @@
     <div class="lf-form__row">
       <div class="lf-field lf-field--m"><label class="lf-label" for="f4">Заңды тұлға</label><div class="lf-control"><select id="f4"><option>GATEA-LE2 · Demo Service LLP</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div><span class="lf-hint">Бірлік осы компанияға тиесілі болады.</span></div>
       <div class="lf-field lf-field--m"><label class="lf-label" for="f5">Тип партии кодов</label><div class="lf-control"><select id="f5"><option>Штрихкод</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div></div>
-      <div class="lf-field lf-field--s"><label class="lf-label" for="f6">Expiry date <span class="lf-label__opt">optional</span></label><div class="lf-control"><input id="f6" placeholder="DD.MM.YYYY"></div></div>
+      <div data-lf-date data-name="Expiry date" data-today="2026-11-05"></div>
     </div>
     <div class="lf-form__row">
       <div class="lf-field lf-field--l"><label class="lf-label" for="f7">Значения, по одному в строке</label><div class="lf-control lf-control--mono"><textarea id="f7" class="mono">GATEA-BC-0004
@@ -432,6 +438,100 @@ GATEA-BC-0006</textarea></div><span class="lf-hint">До 500 значений з
   </div>
 </section>
 
+<!-- ============ DOCUMENT FORM ============ -->
+<section class="sg-section" id="docform">
+  <div class="sg-head"><p class="eyebrow">19 — Document form</p><h2>List, header and lines on one wide screen.</h2>
+    <p><code class="lf-code">lf-doc</code> shows a document with lines (stock receipt, issue, transfer...). From 1440 px: list | header card | lines table. 900-1439 px: list and header side by side, lines below. Under 900 px: one column, the selected document replaces the list. A reference field always shows <code class="lf-code">CODE – Title</code>, never an id. Full interactive preview (language, theme and every state): Document form preview (standalone copy: document-form.standalone.html).</p></div>
+  <div class="sg-demo">
+    <div><p class="sg-cap">Layouts (<code class="lf-code">data-layout</code> on <code class="lf-code">lf-doc</code>): prepared templates, one registry (<code class="lf-code">LFDocLayout</code>). Same form, different arrangement. Open <code class="lf-code">preview/document-form.html?layout=tabs</code> to see it whole.</p>
+      <div class="sg-grid2">
+        <div><p class="lf-label">row (default): list | header | lines</p><div class="sg-wire sg-wire--row"><span class="sg-wire__list">list</span><span class="sg-wire__bar">action bar</span><span class="sg-wire__a">header</span><span class="sg-wire__b">lines</span></div></div>
+        <div><p class="lf-label">tabs: list | action bar, tabs, one panel (default tab: Header for a new document, Lines for an existing one)</p><div class="sg-wire sg-wire--tabs"><span class="sg-wire__list">list</span><span class="sg-wire__bar">action bar</span>
+          <div class="lf-tabs sg-wire__tabs" role="tablist" aria-label="Document sections"><button type="button" class="lf-tab" role="tab" aria-selected="false">Header <span class="lf-count lf-count--danger" role="img" aria-label="2 problems"><svg class="lf-icon"><use href="#i-alert"/></svg>2</span></button><button type="button" class="lf-tab" role="tab" aria-selected="true">Lines <span class="lf-count">3</span></button></div>
+          <span class="sg-wire__panel">lines (or header)</span></div></div>
+      </div>
+      <p class="lf-hint" style="margin-top:var(--space-3)">Under 900 px both layouts become one column with a back button; in tabs the tab block sits directly under the document title. Arrow keys, Home and End move between tabs; a problem in the hidden tab shows a badge with a glyph and the count on that tab, and in the summary. Adding a layout: NOTES.md, "Layouts of the document form".</p></div>
+    <div><p class="sg-cap">Reference field: read-only and as a picker (button opens a search list of code + title)</p>
+      <div class="sg-grid2">
+        <div class="lf-doc__field"><span class="lf-doc__label">Location</span><span class="lf-doc__value"><span class="lf-ref"><span class="lf-ref__code">GATEB-LOC-R01</span><span class="lf-ref__sep" aria-hidden="true">–</span><span class="lf-ref__title">Rack 01</span></span></span></div>
+        <div class="lf-field"><span class="lf-label">Location</span><div class="lf-ref-pick"><div class="lf-control"><button type="button" class="lf-ref-pick__btn" aria-haspopup="listbox" aria-expanded="false"><span class="lf-ref lf-ref--trunc"><span class="lf-ref__code">GATEB-LOC-R01</span><span class="lf-ref__sep" aria-hidden="true">–</span><span class="lf-ref__title">Rack 01</span></span></button><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div></div></div>
+      </div></div>
+    <div><p class="sg-cap">Picker list: options, empty result</p>
+      <div class="sg-grid2">
+        <div class="lf-ref-pop" style="position:static"><div class="lf-ref-pop__search"><svg class="lf-icon"><use href="#i-search"/></svg><input placeholder="Search by code or title" aria-label="Search"></div><div class="lf-ref-pop__list" role="listbox"><div class="lf-ref-opt is-active" role="option" aria-selected="false"><span class="lf-ref"><span class="lf-ref__code">GATEB-LOC-R01</span><span class="lf-ref__sep">–</span><span class="lf-ref__title">Rack 01</span></span><svg class="lf-icon"><use href="#i-check"/></svg></div><div class="lf-ref-opt" role="option" aria-selected="true"><span class="lf-ref"><span class="lf-ref__code">GATEB-LOC-R02</span><span class="lf-ref__sep">–</span><span class="lf-ref__title">Rack 02</span></span><svg class="lf-icon"><use href="#i-check"/></svg></div></div></div>
+        <div class="lf-ref-pop" style="position:static"><div class="lf-ref-pop__search"><svg class="lf-icon"><use href="#i-search"/></svg><input value="zzz" aria-label="Search"></div><div class="lf-ref-pop__list"><div class="lf-ref-pop__state">Nothing found: “zzz”</div></div></div>
+      </div></div>
+    <div><p class="sg-cap">Action bar: at most one primary; a disabled action says why</p>
+      <div class="lf-doc__bar"><div class="lf-doc__id"><h2 class="lf-doc__title"><span>Opening balance</span> <span class="lf-doc__num">OPN-2026-000001</span></h2><span class="lf-pill lf-pill--info"><span class="lf-glyph lf-glyph--half"></span>Issued</span></div>
+        <div class="lf-doc__actions"><button class="lf-btn lf-btn--secondary">Claim</button><button class="lf-btn lf-btn--danger">Cancel document</button><button class="lf-btn lf-btn--primary" aria-disabled="true" aria-describedby="sg-why">Approve</button></div>
+        <p class="lf-doc__reason" id="sg-why"><svg class="lf-icon"><use href="#i-alert"/></svg><span>A different person must approve</span></p></div></div>
+    <div><p class="sg-cap">Lines: row separators, optional zebra, numbers right in mono, a row error with its message, totals</p>
+      <div class="lf-card"><div class="lf-doc__scroll"><table class="lf-lines lf-lines--zebra" aria-label="Lines"><thead><tr><th class="is-idx">#</th><th class="is-item">Item</th><th class="is-lot">Lot</th><th class="is-qty is-num">Quantity</th><th class="is-price is-num">Unit price, ₸</th><th class="is-value is-num">Line value, ₸</th></tr></thead>
+        <tbody class="lf-lines__item"><tr class="lf-lines__row"><td class="is-idx" data-label="Line">1</td><td data-label="Item"><span class="lf-ref"><span class="lf-ref__code">LAP-14</span><span class="lf-ref__sep">–</span><span class="lf-ref__title">Laptop 14 inch</span></span></td><td data-label="Lot">—</td><td class="is-num" data-label="Quantity"><span class="lf-lines__qty"><span>20</span><span class="lf-lines__unit">pcs</span></span></td><td class="is-num" data-label="Unit price, ₸">450,000</td><td class="is-num" data-label="Line value, ₸">9,000,000</td></tr></tbody>
+        <tbody class="lf-lines__item"><tr class="lf-lines__row is-error"><td class="is-idx" data-label="Line">2</td><td data-label="Item"><span class="lf-ref"><span class="lf-ref__code">CEM-M400</span><span class="lf-ref__sep">–</span><span class="lf-ref__title">Cement M400</span></span></td><td data-label="Lot">—</td><td class="is-num is-invalid" data-label="Quantity"><div class="lf-control lf-control--num"><input aria-label="Quantity, line 2" aria-invalid="true"><span class="lf-affix">kg</span></div></td><td class="is-num" data-label="Unit price, ₸">75</td><td class="is-num" data-label="Line value, ₸">—</td></tr>
+        <tr class="lf-lines__msg"><td colspan="6"><div class="lf-error"><svg class="lf-icon"><use href="#i-alert"/></svg><span>The quantity must be a decimal number above zero.</span></div></td></tr></tbody>
+        <tbody class="lf-lines__item"><tr class="lf-lines__row"><td class="is-idx" data-label="Line">3</td><td data-label="Item"><span class="lf-ref"><span class="lf-ref__code">MILK-25</span><span class="lf-ref__sep">–</span><span class="lf-ref__title">Milk 2.5%</span></span></td><td data-label="Lot"><span class="lf-ref"><span class="lf-ref__code">GATEB-M-A</span><span class="lf-ref__sep">–</span><span class="lf-ref__title">Lot A</span></span></td><td class="is-num" data-label="Quantity"><span class="lf-lines__qty"><span>60</span><span class="lf-lines__unit">l</span></span></td><td class="is-num" data-label="Unit price, ₸">450</td><td class="is-num" data-label="Line value, ₸">27,000</td></tr></tbody>
+      <tfoot><tr><td colspan="5"><span class="lf-lines__total-label">Totals</span> · <span class="lf-lines__total-label">Lines</span> <span class="mono">3</span></td><td class="is-num">9,027,000 ₸</td></tr></tfoot></table></div></div></div>
+  </div>
+</section>
+
+<!-- ============ DATE AND TIME ============ -->
+<section class="sg-section" id="datetime">
+  <div class="sg-head"><p class="eyebrow">20 — Date and time</p><h2>Type it or pick it, and the error names the field.</h2>
+    <p><code class="lf-code">lf-date</code> is a text field with a mask and a calendar popup. <code class="lf-code">lf-time</code> is a 24-hour field with arrow-key stepping and a list of 15-minute steps. <code class="lf-code">lf-datetime</code> puts both under one label with one error line. Typed format: <code class="lf-code">DD-MM-YYYY</code> in ru, kk and uz; <code class="lf-code">YYYY-MM-DD</code> in en (read-only views show <code class="lf-code">Nov 5, 2026</code> in en). Weeks start on Monday. Ru, kk and uz texts are machine drafts.</p></div>
+  <div class="sg-demo">
+    <div><p class="sg-cap">Date field states: empty, filled, focus, invalid (format), invalid (no such day), disabled, read-only</p>
+      <div class="sg-grid3">
+        <div data-lf-date data-name="Planned start" data-today="2026-11-05"></div>
+        <div data-lf-date data-name="Planned start" data-value="2026-11-18" data-today="2026-11-05"></div>
+        <div data-lf-date data-name="Planned start" data-value="2026-11-18" data-focus-ring data-today="2026-11-05"></div>
+        <div data-lf-date data-name="Planned start" data-raw="18/11" data-show-errors data-today="2026-11-05"></div>
+        <div data-lf-date data-name="Плановое начало" data-raw="31-02-2026" data-lang="ru" data-show-errors data-today="2026-11-05"></div>
+        <div data-lf-date data-name="Planned start" data-value="2026-11-18" data-disabled></div>
+        <div data-lf-date data-name="Planned start" data-value="2026-11-18" data-readonly data-hint="Set when the order was issued."></div>
+        <div data-lf-date data-name="Planned end" data-raw="2026-11-04" data-min="2026-11-06" data-min-msg="must be after the planned start" data-show-errors data-lang="en" data-today="2026-11-05" data-required></div>
+        <div data-lf-date data-name="Жоспарлы басталуы" data-raw="" data-lang="kk" data-required data-show-errors data-today="2026-11-05"></div>
+      </div></div>
+    <div><p class="sg-cap">Calendar open: selected day (filled, bold), today (ring and dot), days outside min and max (struck through), other-month days (faint). en, ru, kk</p>
+      <div class="sg-grid3">
+        <div data-lf-date data-name="Planned start" data-value="2026-11-18" data-min="2026-11-03" data-max="2026-11-26" data-today="2026-11-05" data-open data-static data-lang="en"></div>
+        <div data-lf-date data-name="Плановое начало" data-value="2026-11-18" data-today="2026-11-05" data-open data-static data-lang="ru"></div>
+        <div data-lf-date data-name="Жоспарлы басталуы" data-value="2026-12-02" data-today="2026-11-05" data-open data-static data-lang="kk"></div>
+      </div>
+      <p class="lf-hint" style="margin-top:var(--space-3)">Under 640 px the popup becomes a bottom sheet with a scrim and a Close button (see the 390 px screenshots of the document form preview). Keys: arrows move by day and week, Home and End go to the start and end of the week, PageUp and PageDown change the month (Shift: year), Enter selects, Escape closes and returns to the field, Tab stays inside the popup.</p></div>
+    <div><p class="sg-cap">Time field states: empty, filled, invalid, disabled, read-only, list open (15-minute steps; arrows step 1 minute, PageUp and PageDown 15)</p>
+      <div class="sg-grid3">
+        <div data-lf-time data-name="Start time"></div>
+        <div data-lf-time data-name="Start time" data-value="09:30"></div>
+        <div data-lf-time data-name="Start time" data-raw="25:00" data-show-errors></div>
+        <div data-lf-time data-name="Start time" data-value="09:30" data-disabled></div>
+        <div data-lf-time data-name="Start time" data-value="09:30" data-readonly></div>
+        <div data-lf-time data-name="Start time" data-value="09:30" data-open data-static data-now="600"></div>
+      </div></div>
+    <div><p class="sg-cap">Date and time in one field: one label, one hint, one error line that names the field (stacked under 640 px, or with <code class="lf-code">lf-datetime--stack</code> in a narrow column)</p>
+      <div class="sg-grid3">
+        <div data-lf-datetime data-name="Event time" data-date="2026-11-05" data-time="09:30" data-today="2026-11-05"></div>
+        <div data-lf-datetime data-name="Event time" data-required data-today="2026-11-05"></div>
+        <div data-lf-datetime data-name="Event time" data-raw-date="2026-02-31" data-date="" data-time="09:30" data-lang="en" data-show-errors data-today="2026-11-05"></div>
+        <div data-lf-datetime data-name="Время события" data-lang="ru" data-date="2026-11-05" data-raw-time="25:00" data-show-errors data-today="2026-11-05"></div>
+        <div data-lf-datetime data-name="Оқиға уақыты" data-lang="kk" data-date="2026-11-05" data-time="09:30" data-today="2026-11-05"></div>
+        <div data-lf-datetime class="lf-datetime--stack" data-name="Event time" data-date="2026-11-05" data-time="09:30" data-today="2026-11-05" style="max-width:var(--field-w-s)"></div>
+      </div></div>
+    <div><p class="sg-cap">Two dates that depend on each other (try it: pick an end date before the start)</p>
+      <div class="lf-form__row">
+        <div id="sg-start" data-lf-date data-name="Planned start" data-value="2026-11-10" data-today="2026-11-05" data-required></div>
+        <div id="sg-end" data-lf-date data-name="Planned end" data-value="2026-11-12" data-today="2026-11-05" data-required></div>
+      </div></div>
+    <div><p class="sg-cap">Typed format and error text per language</p>
+      <div class="lf-card"><table class="lf-table" aria-label="Date and time formats"><thead><tr><th>Language</th><th>Typed date</th><th>Typed time</th><th>Read-only view</th><th>Error example</th></tr></thead><tbody>
+        <tr><td>en</td><td class="mono">YYYY-MM-DD</td><td class="mono">HH:mm</td><td class="mono">Nov 5, 2026 09:30</td><td>Planned start: enter a date as YYYY-MM-DD</td></tr>
+        <tr><td>ru</td><td class="mono">ДД-ММ-ГГГГ</td><td class="mono">ЧЧ:мм</td><td class="mono">05-11-2026 09:30</td><td>Плановое начало: введите дату в формате ДД-ММ-ГГГГ</td></tr>
+        <tr><td>kk</td><td class="mono">КК-АА-ЖЖЖЖ</td><td class="mono">СС:мм</td><td class="mono">05-11-2026 09:30</td><td>Жоспарлы басталуы: күнді КК-АА-ЖЖЖЖ пішімінде енгізіңіз</td></tr>
+        <tr><td>uz</td><td class="mono">KK-OO-YYYY</td><td class="mono">SS:DD</td><td class="mono">05-11-2026 09:30</td><td>Rejalashtirilgan boshlanish: sanani KK-OO-YYYY shaklida kiriting</td></tr>
+      </tbody></table></div></div>
+  </div>
+</section>
+
 </main>
 <script src="demo.js"></script>
 <script>
@@ -452,6 +552,13 @@ GATEA-BC-0006</textarea></div><span class="lf-hint">До 500 значений з
       box.insertAdjacentHTML('beforeend', '<div>' + n + ' · ' + v + '<span style="width:var(--' + n + ')"></span></div>');
     });
   });
+  // Date and time demos: mount the components from their data-attributes, and wire the start/end pair.
+  LFDT.mountAll(document, { lang: new URLSearchParams(location.search).get('lang') || undefined });
+  (function () {
+    var a = document.getElementById('sg-start'), b = document.getElementById('sg-end');
+    function link() { var v = a._lf.getValue(); b._lf.setMin(v ? LFDT.addDays(v, 1) : '', 'must be after the planned start'); }
+    a.addEventListener('lf-change', link); link();
+  })();
   // ?only=colors,type shows just those sections (used for review screenshots)
   var only = new URLSearchParams(location.search).get('only');
   if (only) { var keep = only.split(',');
