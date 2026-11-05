@@ -9,6 +9,7 @@ export const STOCK_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type StockUiLocale = UiLocale
 
 const en: Record<string, string> = {
+  'import.type.stock_opening_line': 'Opening balance lines',
   'stock.eyebrow': 'Stock · Register',
   'stock.balances.title': 'Balances',
   'stock.balances.lede': 'How much of each item lies at each org unit, location, responsible employee and lot now.',
@@ -69,6 +70,7 @@ const en: Record<string, string> = {
   'stock.cause.hand_over': 'Hand over',
   'stock.cause.return': 'Return',
   'stock.cause.reversal': 'Reversal',
+  'stock.cause.count_difference': 'Count difference',
   'stock.cause.opening': 'Opening balance',
   'stock.docType.stock_opening': 'Opening balance',
   'stock.docType.stock_receipt': 'Receipt',
@@ -78,6 +80,7 @@ const en: Record<string, string> = {
   'stock.docType.stock_handover': 'Hand over',
   'stock.docType.stock_return': 'Return',
   'stock.docType.stock_reversal': 'Reversal',
+  'stock.docType.count.differences': 'Count differences',
   'stock.legs.show': 'Show legs',
   'stock.legs.hide': 'Hide legs',
   'stock.legs.title': 'Legs of the entry',
@@ -86,6 +89,7 @@ const en: Record<string, string> = {
 }
 
 const ru: Record<string, string> = {
+  'import.type.stock_opening_line': 'Строки начальных остатков',
   'stock.eyebrow': 'Склад · Регистр',
   'stock.balances.title': 'Остатки',
   'stock.balances.lede': 'Сколько каждой позиции лежит сейчас в каждом подразделении, месте хранения, у ответственного и в каждой партии.',
@@ -146,6 +150,7 @@ const ru: Record<string, string> = {
   'stock.cause.hand_over': 'Передача',
   'stock.cause.return': 'Возврат',
   'stock.cause.reversal': 'Сторно',
+  'stock.cause.count_difference': 'Расхождение по инвентаризации',
   'stock.cause.opening': 'Начальный остаток',
   'stock.docType.stock_opening': 'Начальный остаток',
   'stock.docType.stock_receipt': 'Приход',
@@ -155,6 +160,7 @@ const ru: Record<string, string> = {
   'stock.docType.stock_handover': 'Передача',
   'stock.docType.stock_return': 'Возврат',
   'stock.docType.stock_reversal': 'Сторно',
+  'stock.docType.count.differences': 'Расхождения инвентаризации',
   'stock.legs.show': 'Показать строки',
   'stock.legs.hide': 'Скрыть строки',
   'stock.legs.title': 'Строки записи',
@@ -163,6 +169,7 @@ const ru: Record<string, string> = {
 }
 
 const kk: Record<string, string> = {
+  'import.type.stock_opening_line': 'Бастапқы қалдық жолдары',
   'stock.eyebrow': 'Қойма · Тіркелім',
   'stock.balances.title': 'Қалдықтар',
   'stock.balances.lede': 'Әр позиция қазір әр бөлімшеде, сақтау орнында, жауапты адамда және партияда қанша жатыр.',
@@ -223,6 +230,7 @@ const kk: Record<string, string> = {
   'stock.cause.hand_over': 'Тапсыру',
   'stock.cause.return': 'Қайтару',
   'stock.cause.reversal': 'Қайта жазу',
+  'stock.cause.count_difference': 'Түгендеу айырмасы',
   'stock.cause.opening': 'Бастапқы қалдық',
   'stock.docType.stock_opening': 'Бастапқы қалдық',
   'stock.docType.stock_receipt': 'Кіріс',
@@ -232,6 +240,7 @@ const kk: Record<string, string> = {
   'stock.docType.stock_handover': 'Тапсыру',
   'stock.docType.stock_return': 'Қайтару',
   'stock.docType.stock_reversal': 'Қайта жазу',
+  'stock.docType.count.differences': 'Түгендеу айырмашылықтары',
   'stock.legs.show': 'Жолдарды көрсету',
   'stock.legs.hide': 'Жолдарды жасыру',
   'stock.legs.title': 'Жазба жолдары',

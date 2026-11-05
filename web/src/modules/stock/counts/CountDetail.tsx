@@ -18,6 +18,7 @@ import { classifyError } from '@/utils/classifyError'
 import { useNames } from '../register/stockNames'
 import { countsApi, type CountOrder } from './counts.api'
 import { CountOrderForm } from './CountOrderForm'
+import { CountPostingPanel } from './CountPostingPanel'
 import { CountSheet } from './CountSheet'
 import { DifferencesPanel } from './DifferencesPanel'
 import { PaperworkButtons } from './PaperworkButtons'
@@ -138,6 +139,7 @@ export function CountDetail({ id, onClose }: { id: string; onClose: () => void }
               <CountSheet orderId={order.id} status={order.status} canRecord={can(STOCK_COUNT_RECORD)} highlightLine={highlight} />
             )}
             <DifferencesPanel order={order} />
+            <CountPostingPanel order={order} />
           </div>
           {confirm !== null && (
             <ConfirmDialog

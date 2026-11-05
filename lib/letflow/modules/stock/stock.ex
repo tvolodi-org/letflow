@@ -95,6 +95,13 @@ defmodule Letflow.Modules.Stock do
   order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
   `CountPaperworkSource`). No migration, record type or permission.
 
+  ## Count print (REQ-736 / GH #3861; version 0.12.0)
+
+  One more read route, `GET /counts/:id/print/:kind?lang=ru|kk|en` (`StockRead`): the same three issued
+  documents as an A4 PDF with signer lines (`Letflow.Modules.Stock.CountPrint`, rendered by
+  `Letflow.Documents.PrintLayout`). It shares `CountPaperworkSource.read/4` with the xlsx route. No
+  migration, record type or permission.
+
   ## Count scan (REQ-716 / GH #3765; version 0.8.0)
 
   One more route, `POST /counts/:id/scan` (permission `StockCountRecord`, `CountSheet.scan/4`): a
@@ -114,6 +121,27 @@ defmodule Letflow.Modules.Stock do
   task kept apart by `distinct_from`; completing `approve` posts). The entry's event time is its
   posting time. Assumptions, owner may change at GATE B: 100 lines, `OPN` per year, the second person.
 
+  ## Posting a count (REQ-718 / GH #3763; version 0.11.0)
+
+  The cause `count_difference` (sign rule `any`, a reason required), the write handler `post_count`
+  (`posts_ledger: "stock"`), the process definition `stock_count_posting` (one HUMAN_TASK `post`) and
+  four routes over `Letflow.Modules.Stock.CountPosting`: `POST /counts/:id/post`, `POST
+  /counts/:id/reverse`, `POST /counts/:id/posting-record` and `GET /counts/:id/posting-document`. One
+  ledger entry per signed differences sheet, one leg per difference line, posted as a DELTA (counted
+  minus book at the cut-off). Reversal reuses `stock_reversal` and `reverse_document`. No migration,
+  no new permission. Assumption, owner may change at GATE B (D-086): the count freeze (decision 0079
+  section 4, split plan row C7) is NOT built; postings during counting are not blocked. The module is
+  installed on no tenant yet; the new pack definition and the new `count_order` fields reach an
+  existing install through the module-upgrade path.
+
+  ## Opening line import (REQ-727 / GH #3773; version 0.10.0)
+
+  The manifest registers `import_opening_line/3` for `stock_opening_line` (`:import_functions`): an xlsx
+  file of lines goes through the record import route (`?upsert_by=external_ref`) into a DRAFT opening
+  document named by the header's external id; it never posts and does not run the line checks (the
+  check route does). See `Letflow.Modules.Stock.Documents.OpeningImport`. No route, permission or
+  migration. Assumptions, owner may change at GATE B: reference cells use the row's external-ref system.
+
   ## Slots and their order (append-only, rule 12)
 
   `sku, location, org_unit, responsible, lot`, all uuid text. `sku` is slot 1 because the sign rule
@@ -124,8 +152,8 @@ defmodule Letflow.Modules.Stock do
   ## Causes
 
   `receipt` and `opening` (positive), `issue` and `write_off` (negative; write_off needs a reason), `transfer`,
-  `hand_over` and `return` (zero sum per sku). Assumption, owner may change at GATE B: the six
-  causes, the 96-hour lateness, the slot order.
+  `hand_over` and `return` (zero sum per sku), `count_difference` (REQ-718, sign rule `any`, a reason
+  required). Assumption, owner may change at GATE B: the seven causes, the 96-hour lateness, the slot order.
 
   ## Permissions
 
@@ -237,7 +265,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.9.0",
+    version: "0.12.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
@@ -273,6 +301,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/counts/:id", :StockRead},
       {"GET", "/counts/:id/document", :StockRead},
       {"GET", "/counts/:id/paperwork/:kind", :StockRead},
+      {"GET", "/counts/:id/print/:kind", :StockRead},
       {"POST", "/counts/:id/open", :StockCountRecord},
       {"POST", "/counts/:id/scan", :StockCountRecord},
       {"GET", "/counts/:id/lines", :StockRead},
@@ -285,7 +314,11 @@ defmodule Letflow.Modules.Stock do
       {"POST", "/counts/:id/differences", :StockCountRecord},
       {"POST", "/counts/:id/differences-signatures", :StockCountRecord},
       {"GET", "/counts/:id/differences", :StockRead},
-      {"GET", "/counts/:id/signatures", :StockRead}
+      {"GET", "/counts/:id/signatures", :StockRead},
+      {"POST", "/counts/:id/post", :StockPost},
+      {"POST", "/counts/:id/reverse", :StockReverse},
+      {"POST", "/counts/:id/posting-record", :StockCountRecord},
+      {"GET", "/counts/:id/posting-document", :StockRead}
     ],
     manages_entity_types: [
       "stock_receipt",
@@ -362,8 +395,23 @@ defmodule Letflow.Modules.Stock do
           "posting" => %{required: true}
         },
         posts_ledger: "stock"
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "post_count",
+        function: {Letflow.Modules.Stock.Handlers, :post_count},
+        targets: ["stock_posting_mark"],
+        args: %{
+          "document_id" => %{required: true},
+          "document_type" => %{required: true},
+          "version_no" => %{required: true},
+          "org_unit_id" => %{required: true},
+          "mark" => %{required: true},
+          "posting" => %{required: true}
+        },
+        posts_ledger: "stock"
       }
     ],
+    import_functions: [%{entity_type: "stock_opening_line", function: :import_opening_line}],
     ledger: %{
       "stock" => %{
         ledger_ids: {:fixed, ["stock"]},
@@ -381,7 +429,8 @@ defmodule Letflow.Modules.Stock do
           "write_off" => %{sign_rule: :negative, reason_required: true},
           "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "hand_over" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
-          "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false}
+          "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
+          "count_difference" => %{sign_rule: :any, reason_required: true}
         },
         key_bounds: [],
         permissions: %{
@@ -400,6 +449,15 @@ defmodule Letflow.Modules.Stock do
 
   @impl true
   def router, do: Letflow.Modules.Stock.Router
+
+  @doc """
+  The import function of `stock_opening_line` (REQ-727, manifest `:import_functions`): one row of a
+  file, called by the core import route. See `Letflow.Modules.Stock.Documents.OpeningImport`.
+  """
+  @spec import_opening_line(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_opening_line(prefix, entry, ctx),
+    do: Letflow.Modules.Stock.Documents.OpeningImport.row(prefix, entry, ctx)
 
   @impl true
   def on_install(prefix, _settings, ctx) do

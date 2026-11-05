@@ -1,7 +1,7 @@
 {
   "name": "count_order",
   "display_name": "Count order",
-  "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled when the count is opened and sheet_document_id when it is closed (REQ-701). REQ-717: sheet_signed_at, differences_document_id, differences_number, differences_issued_at and differences_signed_at are filled by the signing and differences steps; old rows lack them.",
+  "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled when the count is opened and sheet_document_id when it is closed (REQ-701). REQ-717: sheet_signed_at, differences_document_id, differences_number, differences_issued_at and differences_signed_at are filled by the signing and differences steps; old rows lack them. REQ-718: posting_document_id, posting_number and posting_issued_at are filled when the chair issues the posting record; old rows lack them.",
   "fields": [
     {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
     {"name": "kind", "type": "enum", "required": true, "queried": true, "enum_values": ["full", "selective"]},
@@ -23,7 +23,10 @@
     {"name": "differences_document_id", "type": "string"},
     {"name": "differences_number", "type": "string"},
     {"name": "differences_issued_at", "type": "datetime"},
-    {"name": "differences_signed_at", "type": "datetime"}
+    {"name": "differences_signed_at", "type": "datetime"},
+    {"name": "posting_document_id", "type": "string"},
+    {"name": "posting_number", "type": "string"},
+    {"name": "posting_issued_at", "type": "datetime"}
   ],
   "indexes": [
     {"name": "idx_count_order_org_unit_status", "fields": ["org_unit_id", "status"]}

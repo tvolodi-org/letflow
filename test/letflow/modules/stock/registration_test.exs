@@ -27,7 +27,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
       "write_off" => %{sign_rule: :negative, reason_required: true},
       "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
       "hand_over" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
-      "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false}
+      "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
+      "count_difference" => %{sign_rule: :any, reason_required: true}
     },
     key_bounds: [],
     permissions: %{
@@ -46,7 +47,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.9.0"
+    assert m.version == "0.12.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
@@ -74,7 +75,11 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "stock_opening_line"
            ]
 
-    assert Enum.map(m.write_handlers, & &1.name) == ["post_document", "reverse_document"]
+    assert Enum.map(m.write_handlers, & &1.name) == [
+             "post_document",
+             "reverse_document",
+             "post_count"
+           ]
 
     assert m.permissions == [
              :StockPost,
@@ -133,6 +138,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"GET", "/counts/:id", :StockRead},
              {"GET", "/counts/:id/document", :StockRead},
              {"GET", "/counts/:id/paperwork/:kind", :StockRead},
+             {"GET", "/counts/:id/print/:kind", :StockRead},
              {"POST", "/counts/:id/open", :StockCountRecord},
              {"POST", "/counts/:id/scan", :StockCountRecord},
              {"GET", "/counts/:id/lines", :StockRead},
@@ -145,7 +151,11 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"POST", "/counts/:id/differences", :StockCountRecord},
              {"POST", "/counts/:id/differences-signatures", :StockCountRecord},
              {"GET", "/counts/:id/differences", :StockRead},
-             {"GET", "/counts/:id/signatures", :StockRead}
+             {"GET", "/counts/:id/signatures", :StockRead},
+             {"POST", "/counts/:id/post", :StockPost},
+             {"POST", "/counts/:id/reverse", :StockReverse},
+             {"POST", "/counts/:id/posting-record", :StockCountRecord},
+             {"GET", "/counts/:id/posting-document", :StockRead}
            ]
 
     assert Stock.router() == Letflow.Modules.Stock.Router
@@ -170,7 +180,10 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert Enum.all?(r.slots, &(&1.format == :uuid))
 
     assert Map.keys(r.causes) |> Enum.sort() ==
-             ~w(hand_over issue opening receipt return transfer write_off)
+             ~w(count_difference hand_over issue opening receipt return transfer write_off)
+
+    # REQ-718: one cause, sign rule any, a reason required
+    assert r.causes["count_difference"] == %{sign_rule: :any, reason_required: true}
 
     assert r.causes["write_off"] == %{sign_rule: :negative, reason_required: true}
     assert r.causes["receipt"].sign_rule == :positive
@@ -214,7 +227,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 20
+    assert length(files) == 25
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
@@ -224,6 +237,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # REQ-701: count_sheet.ex does the same for the sheet lines and the entry log.
     # REQ-717: count_differences.ex reads the order children and writes the signature rows.
     # REQ-719: count_paperwork_source.ex reads issued versions and one offset statement (own tables only).
+    # REQ-736: count_print.ex is pure (no Repo, no query); it is only counted here.
     # REQ-700: counts.ex reads and writes the count record types (Repo, Ecto.Query), never a ledger table.
     own_tables = fn path ->
       path =~

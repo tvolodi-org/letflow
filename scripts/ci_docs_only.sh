@@ -19,8 +19,22 @@
 
 set -uo pipefail
 
+# T-1363: a test file is docs-related when it names docs/requirements.yaml, a decision record,
+# docs/status/ or the "docs" dir, or any other docs/<x>.md|yaml path EXCEPT the boilerplate
+# `docs/guides/test_developer_guide.md`. Nearly every DB-backed suite cites that guide in its
+# moduledoc ("Uses DataCase per ..."); counting those mentions selected 173 of ~1100 test files
+# (engine, router, entity suites; measured one by one at 3000 s serial, none hangs), so the
+# docs-only step ran 24-36 min and, printing nothing until the end, looked hung. Every other docs
+# path mention (read through a helper, a multi-line call, a variable) is still selected.
+# Root cause is plausible, not proven: E1/C4 ran the same 173 files in 1-5 min, so the slow runs
+# (E2, C6) probably also depended on runner load or the shard split; the per-step timeout is a
+# separate task.
 docs_tests() {
-  git grep -lE 'requirements\.yaml|docs/migration/decisions|docs/[a-z_/-]+\.(md|yaml)|"docs"' -- 'test/*_test.exs' | sort -u
+  {
+    git grep -lE 'requirements\.yaml|docs/migration/decisions|docs/status/|"docs"' -- 'test/*_test.exs'
+    git grep -E 'docs/[a-z_/.-]+\.(md|yaml)' -- 'test/*_test.exs' |
+      grep -v 'docs/guides/test_developer_guide\.md' | cut -d: -f1
+  } | sort -u
 }
 
 if [ "${1:-}" = "files" ]; then

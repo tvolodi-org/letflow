@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { MOV, fakeMasters, renderStock, routeCalls } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
@@ -120,4 +121,37 @@ describe('M5 paging', () => {
     expect(routeCalls(clientMock, 'movements').at(-1)).toEqual({ cursor: 'c2' })
     expect(screen.queryByTestId('load-more')).not.toBeInTheDocument()
   })
+})
+
+describe('W5 REQ-718 the count.differences document type', () => {
+  const WORD = { en: 'Count differences', ru: 'Расхождения инвентаризации', kk: 'Түгендеу айырмашылықтары' } as const
+  afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
+
+  for (const lang of ['en', 'ru', 'kk'] as const) {
+    it(`the Document column shows the word, not the raw type, in ${lang}`, async () => {
+      useUiLocaleStore.getState().setLocaleTransient(lang)
+      clientMock.get.mockResolvedValue({ next_cursor: null, rows: [{ ...ENTRY, cause: 'count_difference', document_type: 'count.differences' }] })
+      renderStock(MOV)
+      const row = (await screen.findByText('17')).closest('tr')!
+      expect(within(row).getByText(WORD[lang])).toBeInTheDocument()
+      expect(within(row).queryByText('count.differences')).toBeNull()
+    })
+  }
+})
+
+describe('M6 REQ-718 the count_difference cause', () => {
+  const EXPECTED = { en: 'Count difference', ru: 'Расхождение по инвентаризации', kk: 'Түгендеу айырмасы' } as const
+  afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
+
+  for (const lang of ['en', 'ru', 'kk'] as const) {
+    it(`is a filter option and a table label in ${lang}`, async () => {
+      useUiLocaleStore.getState().setLocaleTransient(lang)
+      clientMock.get.mockResolvedValue({ next_cursor: null, rows: [{ ...ENTRY, cause: 'count_difference', document_type: 'count.differences' }] })
+      renderStock(MOV)
+      const row = (await screen.findByText('17')).closest('tr')!
+      expect(within(row).getByText(EXPECTED[lang])).toBeInTheDocument()
+      const option = screen.getAllByRole('option').find((o) => (o as HTMLOptionElement).value === 'count_difference')
+      expect(option).toHaveTextContent(EXPECTED[lang])
+    })
+  }
 })

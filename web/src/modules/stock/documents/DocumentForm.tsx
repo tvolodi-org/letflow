@@ -199,6 +199,16 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
       <Field label={t('stock.doc.field.note')} error={err('note')} optional>
         <textarea rows={2} value={form.note} onChange={(e) => patch({ note: e.target.value })} />
       </Field>
+      {opening && (
+        <>
+          <Field label={t('stock.doc.field.externalRefSystem')} error={err('externalRefSystem')} optional mono>
+            <input type="text" value={form.externalRefSystem} onChange={(e) => patch({ externalRefSystem: e.target.value })} />
+          </Field>
+          <Field label={t('stock.doc.field.externalRefId')} hint={t('stock.doc.field.externalRefHint')} error={err('externalRefId')} optional mono>
+            <input type="text" value={form.externalRefId} onChange={(e) => patch({ externalRefId: e.target.value })} />
+          </Field>
+        </>
+      )}
       <LinesEditor kind={form.kind} lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} />
       <div className="lf-btn-row">
         <Button variant="primary" type="submit" loading={save.isPending}>
