@@ -1217,3 +1217,5 @@
 6 test/letflow/modules/stock/receipt_fields_test.exs 7346.89
 6 test/letflow/modules/stock/receipt_tracking_test.exs 7346.89
 6 test/letflow/modules/stock/receipt_posting_test.exs 7346.89
+27 test/letflow/modules/stock/issue_writeoff_shape_test.exs 7346.89
+30 test/letflow/modules/stock/issue_writeoff_test.exs 7346.89
