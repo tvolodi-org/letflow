@@ -225,7 +225,8 @@ defmodule Letflow.Modules.Exam.GradingMarkTest do
         |> String.split(~r/\r?\n/)
         |> Enum.filter(&String.contains?(&1, "ExamGradingWrite"))
 
-      assert length(lines) == 8
+      # one row per role; 9 since STOREKEEPER (#3952)
+      assert length(lines) == length(Letflow.Api.Authorization.roles())
 
       for role <- ~w(TENANT_ADMIN PLATFORM_ADMIN),
           do: assert(Enum.any?(lines, &(&1 =~ ~r/#{role}\b.*\btrue/)))
