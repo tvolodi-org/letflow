@@ -2,8 +2,8 @@
  *  check, tenant-zone times, refusal reasons -> message ids, which buttons a status and the atoms allow. */
 import type { CountOrder, CountOrderBody, PaperworkKind } from './counts.api'
 import type { StatusTone } from '@/components/ui/StatusPill'
-import { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD } from '../stockPermissions'
-export { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD }
+import { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD, STOCK_POST, STOCK_REVERSE } from '../stockPermissions'
+export { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD, STOCK_POST, STOCK_REVERSE }
 
 /** Tenant time zone until the tenant setting exists: assumption of REQ-702, owner may change at GATE B (UTC+5, no DST). */
 export const TENANT_TIME_ZONE = 'Asia/Almaty'
@@ -49,6 +49,22 @@ export const COUNT_REASONS = [
   'differences_too_many',
   'count_window_expired',
   'document_not_issued',
+  // REQ-718 (422)
+  'no_differences',
+  'reason_invalid',
+  'shortage_exceeds_balance',
+] as const
+
+/** The 409 reasons of the posting routes (REQ-718); each has its own message `counts.reason.<reason>`. */
+export const COUNT_CONFLICTS = [
+  'posting_pending',
+  'count_posted',
+  'count_not_posted',
+  'count_reversed',
+  'reversal_pending',
+  'posting_inconsistent',
+  'definition_not_active',
+  'posting_record_exists',
 ] as const
 
 /** A decimal string at least 0: digits, optional fraction; no sign, exponent, comma or space. */
@@ -148,10 +164,20 @@ export function fieldOf(err: unknown): string | null {
 }
 
 /** Message id of a failed call: its own reason, else forbidden / not found / generic. */
+/** The ids the shortage refusal carries (REQ-718 P50c): the item and the location, never a balance. */
+export function shortageOf(err: unknown): { item: string; location: string } | null {
+  if (reasonOf(err) !== 'shortage_exceeds_balance') return null
+  const d = (err as { details?: { catalog_item_id?: unknown; location_id?: unknown } }).details
+  return typeof d?.catalog_item_id === 'string' && typeof d.location_id === 'string' ? { item: d.catalog_item_id, location: d.location_id } : null
+}
+
 export function reasonMessageId(err: unknown): string {
   const status = (err as { status?: unknown } | null | undefined)?.status
   const reason = reasonOf(err)
   if (status === 422 && reason !== null && (COUNT_REASONS as readonly string[]).includes(reason)) return `counts.reason.${reason}`
+  if (status === 409 && reason !== null && (COUNT_CONFLICTS as readonly string[]).includes(reason)) return `counts.reason.${reason}`
+  // 422 count_not_posted: the posting document is read before it exists
+  if (status === 422 && reason === 'count_not_posted') return 'counts.reason.count_not_posted'
   if (status === 403) return 'counts.error.forbidden'
   if (status === 404) return 'counts.error.notFound'
   return 'counts.error.generic'
@@ -186,6 +212,17 @@ export const canIssueDifferences = (o: CountOrder, can: Atoms) =>
   can(STOCK_COUNT_RECORD) && o.status === 'counted' && !!o.sheet_signed_at && !o.differences_document_id
 export const canSignDifferences = (o: CountOrder, can: Atoms) =>
   can(STOCK_COUNT_RECORD) && o.status === 'counted' && !!o.differences_document_id && !o.differences_signed_at
+
+/** REQ-718. Post: a signed count that nothing posted yet and that has a differences sheet. The sheet may be empty:
+ *  the server then answers 422 no_differences, shown as its own message. */
+export const canPost = (o: CountOrder, can: Atoms) =>
+  can(STOCK_POST) && o.status === 'signed' && o.posting_state === 'none' && !!o.differences_document_id && o.differences_empty !== true
+export const canReverse = (o: CountOrder, can: Atoms) =>
+  can(STOCK_REVERSE) && o.posting_state === 'posted' && !o.reverse_pending
+/** The posting record: the chair's step once the posting is done (the server checks the chair). */
+export const canIssuePostingRecord = (o: CountOrder, can: Atoms) =>
+  can(STOCK_COUNT_RECORD) && o.status === 'signed' && !o.posting_document_id &&
+  (o.posting_state === 'posted' || (o.posting_state === 'none' && o.differences_empty === true && !o.post_pending))
 export const canScan = (o: CountOrder, can: Atoms) => can(STOCK_COUNT_RECORD) && o.status === 'counting'
 
 /** One scan id per accepted Enter; a retry reuses the failed body, so the same id. */

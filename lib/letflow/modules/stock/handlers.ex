@@ -14,6 +14,10 @@ defmodule Letflow.Modules.Stock.Handlers do
   `prefix`, `subject_id` or `credential` in the arguments is never copied: the platform fills
   them from the context. The platform scans (`handler_writes_callers_test.exs`, H4) cover this file.
 
+  The cause `count_difference` (REQ-718, process definition `stock_count_posting`) has its own handler
+  `post_count`; `post_document` refuses that cause and `post_count` refuses every other. A posting
+  carries `related_document_id` (the `count.order` document id) and `correlation_id`.
+
   The cause `opening` (REQ-726, process definition `stock_opening`, node `approve`) is built without
   the offline keys `device_id`, `client_seq` and `client_event_time`.
 
@@ -26,7 +30,26 @@ defmodule Letflow.Modules.Stock.Handlers do
   @type result :: {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
 
   @spec post_document(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
+  def post_document(_multi, _ctx, %{"posting" => %{"cause" => "count_difference"}}),
+    do: {:error, :invalid_arguments}
+
   def post_document(multi, ctx, args), do: run(multi, ctx, args, "posted", [])
+
+  # REQ-718: the posting of a signed count. Only a `count.differences` document and the cause
+  # `count_difference` are accepted; `post_document` refuses that cause in return.
+  @spec post_count(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
+  def post_count(
+        multi,
+        ctx,
+        %{"document_type" => "count.differences", "posting" => posting} = args
+      )
+      when is_map(posting) do
+    if Map.get(posting, "cause") == "count_difference",
+      do: run(multi, ctx, args, "posted", []),
+      else: {:error, :invalid_arguments}
+  end
+
+  def post_count(_multi, _ctx, _args), do: {:error, :invalid_arguments}
 
   @spec reverse_document(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
   def reverse_document(multi, ctx, args), do: run(multi, ctx, args, "reversed", ["reason_code"])
@@ -87,6 +110,7 @@ defmodule Letflow.Modules.Stock.Handlers do
        cause: "reversal",
        document_type: Map.get(posting, "document_type"),
        document_id: Map.get(posting, "document_id"),
+       related_document_id: Map.get(posting, "related_document_id"),
        client_op_id: Map.get(posting, "client_op_id"),
        reverses_entry_id: Map.get(posting, "reverses_entry_id"),
        reason_code: Map.get(posting, "reason_code")
@@ -118,6 +142,8 @@ defmodule Letflow.Modules.Stock.Handlers do
          cause: cause,
          document_type: Map.get(posting, "document_type"),
          document_id: Map.get(posting, "document_id"),
+         related_document_id: Map.get(posting, "related_document_id"),
+         correlation_id: Map.get(posting, "correlation_id"),
          client_op_id: Map.get(posting, "client_op_id"),
          reason_code: Map.get(posting, "reason_code"),
          device_id: Map.get(posting, "device_id"),

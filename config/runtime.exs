@@ -337,6 +337,36 @@ mail_secret_present? = fn name ->
   end
 end
 
+# REQ-740 (assets D2b): voice service settings. ALL nine variables are OPTIONAL and unset by
+# default; an unset value turns that step off (Letflow.Voice.Settings answers :off), so typed
+# and scanned entry work with no provider. Blank is treated as unset. The API keys are platform
+# env settings like LETFLOW_SMTP_PASSWORD (INV-4: never logged, answered or inspected; the
+# settings structs hide them). :timeout_ms is app env, not an env var, so a test can lower it.
+voice_get = fn name ->
+  case System.get_env(name) do
+    value when is_binary(value) ->
+      case String.trim(value) do
+        "" -> nil
+        trimmed -> trimmed
+      end
+
+    _unset ->
+      nil
+  end
+end
+
+config :letflow, :voice,
+  stt_provider: voice_get.("LETFLOW_VOICE_STT_PROVIDER"),
+  stt_model: voice_get.("LETFLOW_VOICE_STT_MODEL"),
+  stt_base_url: voice_get.("LETFLOW_VOICE_STT_BASE_URL"),
+  stt_api_key: voice_get.("LETFLOW_VOICE_STT_API_KEY"),
+  llm_provider: voice_get.("LETFLOW_VOICE_LLM_PROVIDER"),
+  llm_model: voice_get.("LETFLOW_VOICE_LLM_MODEL"),
+  llm_base_url: voice_get.("LETFLOW_VOICE_LLM_BASE_URL"),
+  llm_api_key: voice_get.("LETFLOW_VOICE_LLM_API_KEY"),
+  llm_json_mode: voice_get.("LETFLOW_VOICE_LLM_JSON_MODE"),
+  timeout_ms: 60_000
+
 mail_env =
   ~w(LETFLOW_MAIL_ADAPTER LETFLOW_SMTP_HOST LETFLOW_SMTP_PORT LETFLOW_SMTP_TLS
      LETFLOW_MAIL_FROM LETFLOW_PUBLIC_BASE_URL LETFLOW_MAIL_TIMEOUT_MS)

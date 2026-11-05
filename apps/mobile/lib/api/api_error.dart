@@ -70,7 +70,8 @@ class BackpressureError extends ApiError {
   final int retryAfterSeconds;
 
   @override
-  String toString() => 'BackpressureError(retryAfterSeconds: $retryAfterSeconds)';
+  String toString() =>
+      'BackpressureError(retryAfterSeconds: $retryAfterSeconds)';
 }
 
 @immutable
@@ -94,10 +95,23 @@ class ApiFieldError {
 
 @immutable
 class ValidationError extends ApiError {
-  const ValidationError({required this.fieldErrors});
+  const ValidationError({
+    required this.fieldErrors,
+    this.reason,
+    this.field,
+    this.lineNo,
+    this.side,
+  });
 
   /// RFC 9457 "errors" array — see [_parseFieldErrors].
   final List<ApiFieldError> fieldErrors;
+
+  /// Top-level refusal extension keys (`reason`, `field`, `line_no`, `side`)
+  /// of the stock routes; null when absent or of the wrong type.
+  final String? reason;
+  final String? field;
+  final int? lineNo;
+  final String? side;
 
   @override
   String toString() => 'ValidationError(fieldErrors: $fieldErrors)';
@@ -105,7 +119,13 @@ class ValidationError extends ApiError {
 
 @immutable
 class ConflictError extends ApiError {
-  const ConflictError();
+  const ConflictError({this.reason, this.field, this.lineNo, this.side});
+
+  /// See [ValidationError.reason].
+  final String? reason;
+  final String? field;
+  final int? lineNo;
+  final String? side;
 
   @override
   String toString() => 'ConflictError()';
@@ -176,6 +196,30 @@ List<ApiFieldError> _parseFieldErrors(Object? responseBody) {
   return result;
 }
 
+class _RefusalExtensions {
+  _RefusalExtensions({this.reason, this.field, this.lineNo, this.side});
+
+  final String? reason;
+  final String? field;
+  final int? lineNo;
+  final String? side;
+
+  /// Only values of the right type are kept; anything else is null.
+  factory _RefusalExtensions.of(Object? body) {
+    if (body is! Map) return _RefusalExtensions();
+    final reason = body['reason'];
+    final field = body['field'];
+    final lineNo = body['line_no'];
+    final side = body['side'];
+    return _RefusalExtensions(
+      reason: reason is String ? reason : null,
+      field: field is String ? field : null,
+      lineNo: lineNo is int ? lineNo : null,
+      side: side is String ? side : null,
+    );
+  }
+}
+
 /// The single status-code/exception → [ApiError] classification function
 /// (design §1.2, exact evaluation order — first match wins).
 ApiError classifyError(
@@ -203,9 +247,24 @@ ApiError classifyError(
     );
   }
   if (statusCode == 422) {
-    return ValidationError(fieldErrors: _parseFieldErrors(responseBody));
+    final ext = _RefusalExtensions.of(responseBody);
+    return ValidationError(
+      fieldErrors: _parseFieldErrors(responseBody),
+      reason: ext.reason,
+      field: ext.field,
+      lineNo: ext.lineNo,
+      side: ext.side,
+    );
   }
-  if (statusCode == 409) return const ConflictError();
+  if (statusCode == 409) {
+    final ext = _RefusalExtensions.of(responseBody);
+    return ConflictError(
+      reason: ext.reason,
+      field: ext.field,
+      lineNo: ext.lineNo,
+      side: ext.side,
+    );
+  }
   if (statusCode >= 500 && statusCode <= 599) {
     return ServerError(lastStatusCode: statusCode);
   }

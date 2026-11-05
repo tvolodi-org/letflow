@@ -48,6 +48,7 @@ GET /modules/stock/counts/:id/document StockRead
 GET /modules/stock/counts/:id/entries StockRead
 GET /modules/stock/counts/:id/lines StockRead
 GET /modules/stock/counts/:id/paperwork/:kind StockRead
+GET /modules/stock/counts/:id/posting-document StockRead
 GET /modules/stock/counts/:id/sheet-document StockRead
 GET /modules/stock/counts/:id/signatures StockRead
 GET /modules/stock/documents StockRead
@@ -162,6 +163,9 @@ POST /modules/stock/counts/:id/differences StockCountRecord
 POST /modules/stock/counts/:id/differences-signatures StockCountRecord
 POST /modules/stock/counts/:id/issue StockCountOrder
 POST /modules/stock/counts/:id/open StockCountRecord
+POST /modules/stock/counts/:id/post StockPost
+POST /modules/stock/counts/:id/posting-record StockCountRecord
+POST /modules/stock/counts/:id/reverse StockReverse
 POST /modules/stock/counts/:id/scan StockCountRecord
 POST /modules/stock/counts/:id/sheet-signatures StockCountRecord
 POST /modules/stock/counts/:id/surplus-lines StockCountRecord
@@ -187,6 +191,7 @@ POST /scheduled-jobs/:id/disable ScheduledJobsManage
 POST /scheduled-jobs/:id/enable ScheduledJobsManage
 POST /script-policy/readable-masters/:entity_type/clear ScriptPolicyManage
 POST /script-rules/:key/dry-run ScriptsWrite
+POST /script-rules/:key/form-validation-dry-run ScriptsWrite
 POST /script-rules/:key/versions ScriptsWrite
 POST /script-rules/:key/versions/:version/confirm ScriptRulesConfirm
 POST /script-rules/:key/versions/:version/publish ScriptsPublish

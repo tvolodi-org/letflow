@@ -60,10 +60,15 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
              }
            ]
 
-    assert [post, reverse] = m.write_handlers
-    assert {post.name, reverse.name} == {"post_document", "reverse_document"}
+    # REQ-718 added `post_count` (same arguments as `post_document`)
+    assert [post, reverse, count] = m.write_handlers
 
-    for spec <- [post, reverse] do
+    assert {post.name, reverse.name, count.name} ==
+             {"post_document", "reverse_document", "post_count"}
+
+    assert count.args == post.args
+
+    for spec <- [post, reverse, count] do
       assert spec.targets == ["stock_posting_mark"]
       assert spec.posts_ledger == "stock"
       assert elem(spec.function, 0) == Letflow.Modules.Stock.Handlers
@@ -75,13 +80,13 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
     assert Enum.all?(Map.values(post.args) ++ Map.values(reverse.args), & &1.required)
   end
 
-  test "B-REG-2 the pack ships eight definitions (seven one-task), installed as stamped drafts",
+  test "B-REG-2 the pack ships nine definitions (eight one-task), installed as stamped drafts",
        ctx do
     defs =
       File.read!("priv/modules/stock/pack.json") |> Jason.decode!() |> Map.fetch!("definitions")
 
     assert defs |> Enum.map(& &1["process_key"]) |> Enum.sort() ==
-             ~w(stock_handover stock_issue stock_opening stock_receipt stock_return stock_reversal stock_transfer stock_writeoff)
+             ~w(stock_count_posting stock_handover stock_issue stock_opening stock_receipt stock_return stock_reversal stock_transfer stock_writeoff)
 
     # stock_opening (REQ-726) has two tasks and is pinned by opening_posting_test.exs
     for %{"graph" => graph} = definition <- defs, definition["process_key"] != "stock_opening" do
@@ -89,11 +94,14 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
       assert [%{"attributes" => %{"module_writes" => [line]}}] = tasks
       assert line["module"] == "stock"
 
-      assert line["handler"] ==
-               if(definition["process_key"] == "stock_reversal",
-                 do: "reverse_document",
-                 else: "post_document"
-               )
+      expected =
+        case definition["process_key"] do
+          "stock_reversal" -> "reverse_document"
+          "stock_count_posting" -> "post_count"
+          _ -> "post_document"
+        end
+
+      assert line["handler"] == expected
     end
 
     names = Enum.map(defs, & &1["process_key"])
@@ -103,7 +111,7 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
         prefix: ctx.schema
       )
 
-    assert length(rows) == 8
+    assert length(rows) == 9
 
     for row <- rows do
       assert row.status == :draft

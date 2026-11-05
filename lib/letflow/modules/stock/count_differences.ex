@@ -19,7 +19,9 @@ defmodule Letflow.Modules.Stock.CountDifferences do
       employees of the difference lines only); refused 96 hours after the cut-off; the count becomes
       `signed`. A `signed` count can no longer be cancelled (`Counts.cancel/3`).
 
-  This module makes no ledger call: the posting is REQ-718 and waits for the count freeze.
+  This module makes no ledger call: the posting is REQ-718 (`Letflow.Modules.Stock.CountPosting`,
+  built without the count freeze, assumption D-086). Its transaction shell and field helpers are
+  public (`@doc false`) for that module.
 
   Assumptions, owner may change at GATE B (D-086/D-087): "signed" is a paper signature on the printout,
   recorded by the chair as an acknowledgement (the system does not verify it); a signer without a user
@@ -216,7 +218,8 @@ defmodule Letflow.Modules.Stock.CountDifferences do
 
   # --- transaction shell ------------------------------------------------------------------------
 
-  defp run(prefix, header, scope, opts, fun) do
+  @doc false
+  def run(prefix, header, scope, opts, fun) do
     Repo.transaction(fn ->
       CountSheet.lock_order!(prefix, header["record_id"])
 
@@ -262,8 +265,9 @@ defmodule Letflow.Modules.Stock.CountDifferences do
 
   defp sheet_lines(%{content: content}), do: content_lines(content)
 
-  defp content_lines(%{"lines" => lines}) when is_list(lines), do: Enum.filter(lines, &is_map/1)
-  defp content_lines(_), do: []
+  @doc false
+  def content_lines(%{"lines" => lines}) when is_list(lines), do: Enum.filter(lines, &is_map/1)
+  def content_lines(_), do: []
 
   defp difference_lines(lines) do
     lines
@@ -500,17 +504,20 @@ defmodule Letflow.Modules.Stock.CountDifferences do
     end
   end
 
-  defp iso(%DateTime{} = at), do: DateTime.to_iso8601(at)
-  defp iso(other), do: other
+  @doc false
+  def iso(%DateTime{} = at), do: DateTime.to_iso8601(at)
+  def iso(other), do: other
 
   # Whole-document replace: every loaded field is sent back.
-  defp base(fresh), do: Map.drop(fresh, @kept)
+  @doc false
+  def base(fresh), do: Map.drop(fresh, @kept)
 
   defp put_present(map, _key, nil), do: map
   defp put_present(map, _key, ""), do: map
   defp put_present(map, key, value), do: Map.put(map, key, value)
 
-  defp fetch(prefix, id, scope) do
+  @doc false
+  def fetch(prefix, id, scope) do
     with {:ok, uuid} <- Ecto.UUID.cast(id),
          {:ok, header} <- ReadApi.lookup(prefix, uuid, ["count_order"]),
          :ok <- in_scope(scope, header["org_unit_id"]) do
@@ -527,7 +534,8 @@ defmodule Letflow.Modules.Stock.CountDifferences do
 
   defp in_scope(_, _), do: {:error, :not_found}
 
-  defp chair(prefix, header, actor) do
+  @doc false
+  def chair(prefix, header, actor) do
     chair = header["chair_employee_id"]
 
     case Org.employee_for_user(prefix, actor) do
@@ -546,7 +554,8 @@ defmodule Letflow.Modules.Stock.CountDifferences do
     end
   end
 
-  defp update_record(prefix, id, fv, actor) do
+  @doc false
+  def update_record(prefix, id, fv, actor) do
     attrs = %{
       entity_type: "count_order",
       record_id: id,
@@ -567,7 +576,8 @@ defmodule Letflow.Modules.Stock.CountDifferences do
   defp key, do: "stock.count_differences:" <> Ecto.UUID.generate()
 
   # INV-8: Audit raises on a database failure; the rescue turns the raise into a refusal.
-  defp audit(prefix, actor, action, order, before, after_status, signer_ids) do
+  @doc false
+  def audit(prefix, actor, action, order, before, after_status, signer_ids) do
     after_state = %{"status" => after_status}
 
     after_state =
@@ -592,7 +602,8 @@ defmodule Letflow.Modules.Stock.CountDifferences do
     _ -> {:error, :audit_failed}
   end
 
-  defp opts!(opts) do
+  @doc false
+  def opts!(opts) do
     actor = Map.get(opts, :actor_id)
     scope = Map.get(opts, :scope)
 

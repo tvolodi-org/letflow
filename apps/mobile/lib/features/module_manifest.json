@@ -2,6 +2,9 @@
   "features": {
     "codes": {
       "depends_on": []
+    },
+    "stock": {
+      "depends_on": ["codes"]
     }
   }
 }

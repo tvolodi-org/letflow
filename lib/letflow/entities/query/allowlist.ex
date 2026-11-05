@@ -44,7 +44,9 @@ defmodule Letflow.Entities.Query.Allowlist do
           required(:enum_values) => [String.t()] | nil,
           # GH #2654/#2774: the scale of a strict decimal field, nil for any other field. One
           # key, so "strict without a scale" is not representable.
-          required(:strict_decimal_scale) => non_neg_integer() | nil
+          required(:strict_decimal_scale) => non_neg_integer() | nil,
+          # T-1367: "uuid" on an FK-promoted column only; absent elsewhere.
+          optional(:pg_type) => String.t()
         }
 
   @typedoc """
@@ -302,13 +304,14 @@ defmodule Letflow.Entities.Query.Allowlist do
            }}
         end)
 
+      uuid_names = promoted_uuid_names(entity_definition)
+
       promoted_typed_column_entries =
         Map.new(promoted_typed_column_names, fn {name, type} ->
           {name,
-           Map.merge(
-             %{name: name, source: :typed_column, type: type, enum_values: nil},
-             decimal_keys(decimal_info, name)
-           )}
+           %{name: name, source: :typed_column, type: type, enum_values: nil}
+           |> Map.merge(decimal_keys(decimal_info, name))
+           |> put_uuid_marker(MapSet.member?(uuid_names, name))}
         end)
 
       json_field_entries =
@@ -516,6 +519,20 @@ defmodule Letflow.Entities.Query.Allowlist do
   @spec entity_type_typed_columns(definition_document()) :: %{
           String.t() => Definition.field_type()
         }
+  # T-1367: an FK-promoted column is a real `uuid` column although its field is `:string`. The
+  # entry carries `pg_type: "uuid"` (only then, so other entries keep their shape) and the compiler
+  # binds filter values for it as `Ecto.UUID`, not as text.
+  defp promoted_uuid_names(entity_definition) do
+    entity_definition
+    |> definition_document()
+    |> DDL.promoted_columns()
+    |> Enum.filter(&(&1.pg_type == "uuid"))
+    |> MapSet.new(& &1.name)
+  end
+
+  defp put_uuid_marker(entry, true), do: Map.put(entry, :pg_type, "uuid")
+  defp put_uuid_marker(entry, false), do: entry
+
   defp entity_type_typed_columns(document) do
     structural = Map.new(typed_columns(), fn {name, {_atom, type}} -> {name, type} end)
 
