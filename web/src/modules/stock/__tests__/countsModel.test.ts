@@ -1,6 +1,7 @@
 /** M1–M4 — GH 3735 / REQ-702: pure helpers of the count screens. */
 import { describe, expect, it } from 'vitest'
-import { COUNT_REASONS, buildOrderBody, formatInZone, isDecimalNonNegative, reasonMessageId, zonedToIso, isoToLocalInput, EMPTY_ORDER_FORM } from '../counts/countsModel'
+import { COUNT_REASONS, canIssueDifferences, canSignDifferences, canSignSheet, paperworkAvailable, parseFilename, requiredSigners, buildOrderBody, formatInZone, isDecimalNonNegative, reasonMessageId, zonedToIso, isoToLocalInput, EMPTY_ORDER_FORM } from '../counts/countsModel'
+import type { CountOrder } from '../counts/counts.api'
 import { countsEn, countsKk, countsRu } from '../counts/countsMessages'
 
 describe('M1 isDecimalNonNegative', () => {
@@ -29,7 +30,7 @@ describe('M3 buildOrderBody', () => {
 
 describe('M4 reasonMessageId', () => {
   it('maps each reason, forbidden, not found and unknown', () => {
-    expect(COUNT_REASONS).toHaveLength(19)
+    expect(COUNT_REASONS).toHaveLength(34)
     for (const r of COUNT_REASONS) expect(reasonMessageId({ status: 422, details: { reason: r } })).toBe(`counts.reason.${r}`)
     expect(reasonMessageId({ status: 422, details: { reason: 'new_thing' } })).toBe('counts.error.generic')
     expect(reasonMessageId({ status: 403 })).toBe('counts.error.forbidden')
@@ -38,5 +39,32 @@ describe('M4 reasonMessageId', () => {
   })
   it('has a message for every reason in every language', () => {
     for (const cat of [countsEn, countsRu, countsKk]) for (const r of COUNT_REASONS) expect(cat[`counts.reason.${r}`]?.trim()).toBeTruthy()
+  })
+})
+
+describe('M5 REQ-720 helpers', () => {
+  const o: CountOrder = { id: 'c', org_unit_id: 'u', kind: 'full', status: 'counted', planned_start: null, planned_end: null, chair_employee_id: 'e1', member_employee_ids: ['e2', 'e1'], location_ids: [], note: null }
+  it('requiredSigners: chair, members, responsibles once each; no chair row without a chair', () => {
+    const lines = [{ responsible_employee_id: 'e2' }, { responsible_employee_id: 'e4' }, { responsible_employee_id: null }, { responsible_employee_id: 'e4' }]
+    expect(requiredSigners(o, lines)).toEqual([
+      { id: 'e1', role: 'chair' }, { id: 'e2', role: 'member' }, { id: 'e4', role: 'responsible' },
+    ])
+    expect(requiredSigners({ ...o, chair_employee_id: null, member_employee_ids: [] }, [])).toEqual([])
+  })
+  it('parseFilename reads filename, filename* and falls back', () => {
+    expect(parseFilename('attachment; filename="a b.xlsx"', 'f.xlsx')).toBe('a b.xlsx')
+    expect(parseFilename("attachment; filename*=UTF-8''%D0%B0.xlsx", 'f.xlsx')).toBe('а.xlsx')
+    expect(parseFilename(null, 'f.xlsx')).toBe('f.xlsx')
+    expect(parseFilename('attachment', 'f.xlsx')).toBe('f.xlsx')
+  })
+  it('paperworkAvailable and the can* helpers follow the order fields', () => {
+    const rec = () => true
+    expect(paperworkAvailable({ ...o, member_employee_ids: [] }, 'sheet')).toBe(false)
+    expect(paperworkAvailable({ ...o, member_employee_ids: [], sheet_document_id: 'd' }, 'sheet')).toBe(true)
+    expect(canSignSheet({ ...o, member_employee_ids: [] }, rec)).toBe(true)
+    expect(canSignSheet({ ...o, member_employee_ids: [], sheet_signed_at: 'x' }, rec)).toBe(false)
+    expect(canIssueDifferences({ ...o, member_employee_ids: [], sheet_signed_at: 'x' }, rec)).toBe(true)
+    expect(canSignDifferences({ ...o, member_employee_ids: [], differences_document_id: 'd' }, rec)).toBe(true)
+    expect(canSignDifferences({ ...o, member_employee_ids: [], differences_document_id: 'd' }, () => false)).toBe(false)
   })
 })

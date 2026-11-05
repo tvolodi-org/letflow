@@ -124,6 +124,25 @@ describe('C4-d posted and reversed', () => {
   })
 })
 
+describe('T4 movements link', () => {
+  it('posted and reversed link to the movements of the document; other states do not', async () => {
+    for (const state of ['posted', 'reversed']) {
+      fakeDocument(clientMock, stockDoc({ state }))
+      renderStock(VIEW)
+      const link = await screen.findByRole('link', { name: 'Movements' })
+      expect(link).toHaveAttribute('href', '/admin/stock/movements?document_id=d1')
+      cleanup()
+    }
+    for (const state of ['draft', 'issued', 'cancelled']) {
+      fakeDocument(clientMock, stockDoc({ state }))
+      renderStock(VIEW)
+      await screen.findByTestId('document-lines')
+      expect(screen.queryByRole('link', { name: 'Movements' })).not.toBeInTheDocument()
+      cleanup()
+    }
+  })
+})
+
 describe('C4-e matrix', () => {
   const sets = { read: withAtom, post: withPost, reverse: withReverse } as const
   const want: Record<string, Record<keyof typeof sets, string[]>> = {
