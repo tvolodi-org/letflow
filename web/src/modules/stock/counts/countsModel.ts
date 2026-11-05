@@ -171,6 +171,17 @@ export function shortageOf(err: unknown): { item: string; location: string } | n
   return typeof d?.catalog_item_id === 'string' && typeof d.location_id === 'string' ? { item: d.catalog_item_id, location: d.location_id } : null
 }
 
+export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const
+
+/** REQ-738: message id of a refused print: its own 422 reason, 404 not found, anything else the generic message. */
+export function printReasonMessageId(err: unknown): string {
+  const status = (err as { status?: unknown } | null | undefined)?.status
+  const reason = reasonOf(err)
+  if (status === 422 && reason !== null && (PRINT_REASONS as readonly string[]).includes(reason)) return `counts.print.reason.${reason}`
+  if (status === 404) return 'counts.error.notFound'
+  return 'counts.error.generic'
+}
+
 export function reasonMessageId(err: unknown): string {
   const status = (err as { status?: unknown } | null | undefined)?.status
   const reason = reasonOf(err)

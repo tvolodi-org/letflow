@@ -75,6 +75,23 @@ export function documentErrorMessageId(err: unknown): string {
   return 'stock.doc.error.generic'
 }
 
+export const PRINT_KINDS = ['transfer', 'hand_over', 'return'] as const
+export const PRINT_STATES = ['issued', 'posted', 'reversed'] as const
+export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const
+
+/** REQ-738: the PDF exists for a transfer, hand over or return that has been issued. */
+export function documentPrintable(doc: { kind: string; state: string }): boolean {
+  return (PRINT_KINDS as readonly string[]).includes(doc.kind) && (PRINT_STATES as readonly string[]).includes(doc.state)
+}
+
+/** Message id of a refused print: its own 422 reason, 404 not found, anything else (403 included) the generic message. */
+export function printErrorMessageId(err: unknown): string {
+  const info = documentErrorInfo(err)
+  if (info.status === 422 && info.reason !== undefined && (PRINT_REASONS as readonly string[]).includes(info.reason)) return `stock.doc.print.reason.${info.reason}`
+  if (info.status === 404) return 'stock.doc.error.notFound'
+  return 'stock.doc.error.generic'
+}
+
 // ---- numbers -----------------------------------------------------------------------------------------------
 
 /** The server's quantity text: up to 15 integer digits, up to 9 decimals, no sign, no exponent, no leading zeros. */
