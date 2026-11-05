@@ -168,6 +168,35 @@ defmodule Letflow.Routers.EntitiesScopeHttpTest do
       end
     end
 
+    test "T-1378: record_id in / eq through the real router answers 200 (uuid bound), unknown ids match nothing",
+         %{fx: fx} do
+      store!(fx, :off)
+      path = "/api/v1/entities/query"
+
+      all = request(fx, :post, path, %{"entity_type" => "scoped_item"})
+      assert all.status == 200
+      ids = all.resp_body |> Jason.decode!() |> Map.fetch!("items") |> Enum.map(& &1["record_id"])
+      [id1, id2 | _] = ids
+
+      query = fn op, value ->
+        conn =
+          request(fx, :post, path, %{
+            "entity_type" => "scoped_item",
+            "filters" => [%{"field" => "record_id", "op" => op, "value" => value}]
+          })
+
+        assert conn.status == 200, conn.resp_body
+        conn.resp_body |> Jason.decode!() |> Map.fetch!("items")
+      end
+
+      got = query.("in", [id1, id2, Ecto.UUID.generate(), "i1"])
+      assert Enum.sort(Enum.map(got, & &1["record_id"])) == Enum.sort([id1, id2])
+      assert [%{"record_id" => ^id1}] = query.("eq", id1)
+      # an id of no record of this tenant (a foreign tenant's id is exactly this): nothing
+      assert [] = query.("in", [Ecto.UUID.generate()])
+      assert [] = query.("eq", "not-a-uuid")
+    end
+
     test "under off and shadow the same user gets the full data, even while the node table is unreadable (the set is never read)",
          %{fx: fx} do
       for mode <- [:off, :shadow] do

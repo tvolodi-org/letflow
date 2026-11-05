@@ -77,10 +77,17 @@ defmodule Letflow.RecordTriggers.ApplyTest do
         prefix: s
       )
 
+      # the tick budget is wall clock: under CI load a 10 s default can run out before the claim
+      Application.put_env(:letflow, :record_trigger_worker, tick_budget_ms: 600_000)
+
       {summary, _} = Worker.run_tick([s], 0)
 
-      assert summary.claimed == 1 and summary.done == 1
-      assert R.fetch(s, row.id).status == :done
+      stored = R.fetch(s, row.id)
+
+      assert stored.status == :done,
+             "row #{inspect(stored.status)} last_code=#{inspect(stored.last_code)} summary=#{inspect(summary)}"
+
+      assert summary.claimed == 1 and summary.done == 1, "summary=#{inspect(summary)}"
       assert R.fields(s, R.type_a(), id) == %{"label" => "L1", "note" => "N2", "cid" => "c1"}
     end
   end
