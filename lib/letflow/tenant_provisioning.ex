@@ -972,7 +972,10 @@ defmodule Letflow.TenantProvisioning do
      "20261105300001_open_document_artefact_hash_write_once.exs"},
     # REQ-624: document_versions pins the print override it was issued under (four nullable columns).
     {20_261_105_400_001, Letflow.Repo.Migrations.AddPrintOverridePinToDocumentVersions,
-     "20261105400001_add_print_override_pin_to_document_versions.exs"}
+     "20261105400001_add_print_override_pin_to_document_versions.exs"},
+    # REQ-603 part A (decision 0074 P2, P6): purge_requests table and guarded delete triggers.
+    {20_261_105_500_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards,
+     "20261105500001_create_purge_requests_and_delete_guards.exs"}
   ]
 
   @doc """

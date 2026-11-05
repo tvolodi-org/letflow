@@ -75,7 +75,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
              Enum.sort(@types)
 
     assert document["definitions"] |> Enum.map(& &1["process_key"]) |> Enum.sort() ==
-             ~w(stock_handover stock_issue stock_opening stock_receipt stock_return stock_reversal stock_transfer stock_writeoff)
+             ~w(stock_count_posting stock_handover stock_issue stock_opening stock_receipt stock_return stock_reversal stock_transfer stock_writeoff)
 
     assert document["variable_schemas"] == []
     assert document["service_catalog_entries"] == []
