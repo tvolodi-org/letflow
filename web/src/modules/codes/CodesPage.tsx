@@ -44,6 +44,7 @@ import {
 } from './codesModel'
 import { CODES_WRITE } from './codesPermissions'
 import { useCodesWrite } from './useCodesWrite'
+import { formatDate } from '@/i18n/format'
 
 type Cmd =
   | { op: 'assign'; id: string; targetType: string; targetId: string }
@@ -630,8 +631,7 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
 
 function stamp(intl: ReturnType<typeof useIntl>, iso: string, dash: string): string {
   if (iso === '') return dash
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : intl.formatDate(d, { dateStyle: 'medium', timeStyle: 'short' })
+  return formatDate(iso, { dateStyle: 'medium', timeStyle: 'short' }, intl.locale)
 }
 
 export default function CodesPage({ locale, initial }: { locale?: CodesUiLocale; initial?: CodesInitial }) {

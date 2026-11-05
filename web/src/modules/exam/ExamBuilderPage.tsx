@@ -24,6 +24,7 @@ import { EXAM_AUTHORING_WRITE } from './bilimbagaWrites'
 import { ExamIntlProvider } from './ExamIntlProvider'
 import { builderQueryKeys } from './builderQueryKeys'
 import { CheckField, LocalizedField, Panel, SelectField, TextField } from './ExamBuilderFields'
+import { DateValueHint } from '@/components/ui/DateValueHint'
 import {
   EXAM_STATUSES,
   RULE_MODES,
@@ -430,6 +431,7 @@ function ExamBuilderPageInner() {
                     error={err(examKey('available_from'))}
                     onChange={(v) => setExamField('available_from', v)}
                   />
+                  <DateValueHint value={state.exam.available_from} kind="datetime" />
                   <TextField
                     id="eb-exam-until"
                     testId="exam-builder-exam-available_until"
@@ -439,6 +441,7 @@ function ExamBuilderPageInner() {
                     error={err(examKey('available_until'))}
                     onChange={(v) => setExamField('available_until', v)}
                   />
+                  <DateValueHint value={state.exam.available_until} kind="datetime" />
                   <SelectField
                     id="eb-exam-show"
                     testId="exam-builder-exam-show_answers"

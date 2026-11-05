@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select'
 import { useNames } from '../register/stockNames'
 import { usePickerOptions, type PickerOption } from '../register/stockPickers'
 import { MAX_LINES, emptyLine, type DocKind, type LineForm } from './documentsModel'
+import { DateValueHint } from '@/components/ui/DateValueHint'
 
 interface RowProps {
   index: number
@@ -89,6 +90,7 @@ function LineRow({ index, line, kind, items, locations, employees, errors, onCha
           <Field label={t('stock.doc.field.receivedOnReal')} error={err('receivedOn')} mono>
             <input type="date" value={line.receivedOn} onChange={(e) => patch({ receivedOn: e.target.value })} />
           </Field>
+          <DateValueHint value={line.receivedOn} kind="date" />
         </>
       )}
       {(kind === 'receipt' || kind === 'opening') && (
