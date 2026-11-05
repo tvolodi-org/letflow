@@ -51543,3 +51543,461 @@ requirements:
       - "Print language bound to the interface language, download instead of preview: UAT assumption, to be confirmed by the process owner; owner may change at the phase E gate."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-720, REQ-722, REQ-736, REQ-737]
+
+  - id: REQ-748
+    title: "Assets C7: module assets skeleton with the asset card record type assets_card (fields, unique inventory number per tenant, scope by org unit), the tenant currency setting and install; no route, no ledger"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-689 -- assets phase C item C7, implementation part 1 of the asset register; the engine files its issue after the gate
+    # Source: docs/assets/asset-register.md (REQ-689, GH #3723, on origin/main d8d80ca18; sections 1, 3, 6, 7.2, 8), docs/assets/asset-workflow-documents.md (REQ-690, section 7 row 'Asset card active'), owner decision D-097 (2026-11-05, project/phase-cdef-plan.md 'Owner answers': inventory_number unique per tenant, one currency per tenant with KZT by default, the currency field stays), decisions 0050 D6 (module-id prefix), 0051 M4 (scope declaration immutable), 0076 R1, R6, R7, 0078 D8 (audit of master writes). Code read on origin/main: Letflow.Modules.Stock (lib/letflow/modules/stock/stock.ex, defmanifest, on_install/3), Letflow.Modules.Locations (lib/letflow/modules/locations/locations.ex, moduledoc on managed types and the generic routes), priv/modules/locations/entity_definitions/location_node.json (constraints, queried fields), priv/modules/stock/entity_definitions/stock_receipt_line.json (decimal_precision 24, decimal_scale 9, decimal_strict), Letflow.Modules.EntityActivation.activate_and_promote/3 (lib/letflow/modules/entity_activation.ex), Letflow.Modules.Installs.put_settings/3 and list_installed/1 (lib/letflow/modules/installs.ex), the settings validator Letflow.EventStore.Registry.JsonSchema (lib/letflow/event_store/registry/json_schema.ex: type, enum, minLength, maxLength), the module lists of config/config.exs and config/test.exs. Written by the business analyst (T-1325) 2026-11-05.
+    description: >
+      Assets phase C item C7 (project/phase-cdef-plan.md), part 1 of the asset register build (REQ-748 to REQ-757).
+      It creates the module assets with its one master record type, the asset card, and stops there: no route, no
+      permission atom, no ledger registration (REQ-749), no card write route (REQ-750), no document (REQ-751 on).
+      SENSITIVE: the scope declaration of assets_card is a permission path and is immutable once set (decision 0051
+      M4), so a wrong first choice cannot be edited later; the change passes a SECURITY-REVIEWER deep review.
+
+      Module (asset-register.md section 1): module id assets, entry module Letflow.Modules.Assets in
+      lib/letflow/modules/assets/assets.ex, manifest depends_on exactly [locations, org] (decision 0076 R1: no consumer
+      module), pack modules/assets/pack.json built by priv/modules/assets/generate_pack.exs from
+      priv/modules/assets/entity_definitions/ as priv/modules/stock/ does, manages_entity_types [assets_card],
+      scope_declarations %{assets_card => {:column, org_unit_id}} (decision 0076 R7, D-067), permissions [],
+      role_grants %{}, no router/0 (an optional callback of Letflow.Modules.Module). The module is added to the module
+      lists of config/config.exs and config/test.exs where Letflow.Modules.Stock is listed.
+
+      The card (asset-register.md section 3, with D-097): the fields of the section 3 table, plus one field the table
+      does not list: active (boolean, required). Reason: asset-workflow-documents.md section 7 checks 'Asset card
+      active' before every posting, and the master precedent location_node retires a record with active false and has
+      no delete; the implementing change adds the row to section 3 of asset-register.md so the spec and the code agree.
+      inventory_number is unique per tenant (D-097) through a pack constraint; since every tenant has its own schema
+      (decision 0006), a unique constraint of the pack is per tenant.
+
+      Currency (D-097; asset-register.md section 6 'Reading chosen here', whose confirmation by the owner is open
+      question 1 of section 8): the tenant currency is the setting currency of the module assets
+      (tenant_modules.settings, written through the existing Letflow.Modules.Installs.put_settings/3), and KZT when the
+      setting is absent. No ninth key is added to the closed tenant settings of Letflow.Identity.TenantSettings. The
+      card field currency stays optional; the check that a card's currency equals the tenant currency is REQ-750.
+
+      Size: one change in lib/letflow/modules/assets/ (assets.ex), priv/modules/assets/ (generator, pack,
+      assets_card.json), the two config lists, docs/assets/asset-register.md section 3 (the active row), and tests. No
+      migration of core tables, no route, no permission, no ledger key, no seed, no install on a QA tenant.
+
+      Pins (moves from the value on origin/main at implement time): a new managed pack and a new module in the config
+      lists move the pins that the last new module (stock, REQ-687) moved; the design step greps the module list
+      literal and a stock managed type name (for example stock_receipt) across test/ and lists each hit.
+    acceptance_criteria:
+      - "1. Manifest (test file test/letflow/modules/assets/assets_registration_test.exs): Letflow.Modules.Assets.manifest() has id assets, version 0.1.0, depends_on [locations, org], pack modules/assets/pack.json, permissions [], role_grants %{}, manages_entity_types [assets_card], scope_declarations %{assets_card => {:column, org_unit_id}}, no ledger key and no write handler; Letflow.Modules.Assets does not export router/0. The settings_schema is exactly an object with one property currency (type string, minLength 3, maxLength 3) and additionalProperties false. A test asserts each value."
+      - "2. Card fields (same test file; field types from @field_types of lib/letflow/entities/definition/validator.ex): the packed definition assets_card has exactly the fields inventory_number (string, required, queried), name (string, required, queried), kind (enum fixed, low_value, intangible, required, queried), org_unit_id (string, required, queried), acquisition_date (date), currency (string), acquisition_cost, accumulated_depreciation, book_value (each decimal, decimal_precision 24, decimal_scale 9, decimal_strict true), depreciation_as_of (date), valid_until (date, queried), active (boolean, required, queried), external_ref_system and external_ref_id (string, queried); no location, responsible, actual user or quantity field; the constraints uq_assets_card_inventory_number (unique, fields [inventory_number]) and uq_assets_card_external_ref (unique, fields [external_ref_system, external_ref_id]). docs/assets/asset-register.md section 3 has a row for active. A test asserts the exact field set and the two constraints."
+      - "3. Install (same test file, fresh committed tenant): installing assets on a tenant that has org and locations installed activates and promotes assets_card (Letflow.Modules.EntityActivation.activate_and_promote/3 inside on_install/3); installing it on a tenant without org or without locations is refused by the dependency check of Letflow.Modules.Installs.install/3 and nothing is installed. After install the generic record write routes refuse assets_card as a managed type (403 entity_type_managed, as for location_node) and two records with the same inventory_number written through the module's own authority (Letflow.Entities.Records.create_record/3 with Letflow.Entities.ManagedTypes.owner_for!(Letflow.Modules.Assets), test only) are refused at the second write; the same inventory_number in two tenants is accepted."
+      - "4. Currency (test file test/letflow/modules/assets/currency_test.exs): Letflow.Modules.Assets.currency/1 (argument the tenant prefix) answers KZT when the module's settings have no currency key and the stored value after Letflow.Modules.Installs.put_settings/3 with currency USD; put_settings with a currency of 2 or 4 characters, a non-string value or any other key is refused with settings_validation_failed and the stored settings are unchanged. currency/1 never raises for a provisioned tenant without the module installed and then answers KZT."
+      - "5. Scoped read (test file test/letflow/modules/assets/card_scope_test.exs; INV-1, INV-6, REQ-519): with two cards in org units U1 and U2 written as in criterion 3, a principal whose grant is scoped to U1 (Letflow.Support.ScopedGrantsFixture) reading assets_card through the generic record query route sees the U1 card only, also when it filters on the U2 card's record id; a TENANT_ADMIN of another tenant reading the same ids gets no row (cross-tenant negative test, INV-10)."
+      - "6. Gate and scope: a permission-path change (a new scope declaration that cannot be edited later) that passes a SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. The diff adds no route, no permission atom (priv/permission_matrix/effective.golden unchanged), no :ledger key, no migration, no seed and no install on any QA tenant. mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries and the test files of criteria 1 to 5 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Currency stored as the assets module setting with KZT as default (asset-register.md section 8 question 1): UAT assumption, to be confirmed by the process owner."
+      - "The active field added to the card (not in the section 3 table of asset-register.md): UAT assumption, to be confirmed by the process owner; the change adds the row to that file."
+      - "Which org unit holds a low-value card whose quantity is split over several org units (asset-register.md section 8 question 3): not decided here; the card keeps one org_unit_id."
+    depends_on: [REQ-689, REQ-690, REQ-519, REQ-644, REQ-643]
+
+  - id: REQ-749
+    title: "Assets C8: the asset ledger registration of module assets (five slots, four causes, unit pcs, four permission atoms), its pure declare/2 policy, the asset_balance and asset_movement views and the read routes balances, movements and reconcile"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-748 -- assets phase C item C8, part 2 of the asset register; the engine files its issue after the gate
+    # Source: docs/assets/asset-register.md sections 4, 5, 7.2 (REQ-689), docs/assets/asset-workflow-documents.md sections 1.1, 1.2, 2 to 6 (REQ-690: causes, sign rules, legs), decision 0073 (D-L3, D-P, D-T, D9 OQ-21, slice table rows L4 and L6) with its section Amended (REQ-676, assets B1), decision 0076 R7. Precedent entry REQ-687 (stock slice L4) and its code on origin/main d8d80ca18: Letflow.Modules.Stock manifest key :ledger (lib/letflow/modules/stock/stock.ex), Letflow.Modules.Stock.LedgerPolicy (lib/letflow/modules/stock/ledger_policy/declare.ex, max 100 lines, refusal {:invalid_posting, %{leg_no: n}}), Letflow.Modules.Stock.Views (lib/letflow/modules/stock/views.ex), Letflow.Modules.Stock.Router routes balances, movements, reconcile (lib/letflow/modules/stock/router.ex, query keys, scope_subtree, coverage). Registration keys read in Letflow.Modules.LedgerRegistration (lib/letflow/modules/ledger_registration.ex: units, key_bounds, scope_slot, max_event_lateness_hours, error_aliases, policy); unit check in Letflow.Ledger.Validate (lib/letflow/ledger/validate.ex, unit_not_allowed); partitions at install by Letflow.Ledger.Storage.ensure/2 called from Letflow.Modules.Installs (REQ-711); test helper Letflow.LedgerFixture.capability/4 and post!/1 (test/support/ledger_fixture.ex). Written by the business analyst (T-1325) 2026-11-05.
+    description: >
+      Assets phase C item C8, part 2 of the asset register build. It gives module assets the asset register: the
+      ledger registration of asset-register.md section 4, a pure posting policy, the two views and three read routes,
+      as REQ-687 did for stock. Nothing in the product posts to it yet: postings come with the documents (REQ-752,
+      REQ-753); the tests post through Letflow.LedgerFixture.
+      SENSITIVE: a ledger registration, permission atoms and tenant-data read routes. Ledger slot order is
+      append-only and cannot change later (design note lib/letflow/design/gh2657-wms-stock-ledger-core.md section 4.5,
+      rule 12 of section 14.3). The change passes a SECURITY-REVIEWER deep review.
+
+      Registration (asset-register.md section 4, exactly): ledger key assets with ledger_ids {:fixed, [assets]}; slots
+      in this order asset, org_unit, location, material_responsible, actual_user, all format :uuid, required true for
+      asset, org_unit and material_responsible and false for location and actual_user; scope_slot org_unit; key_bounds
+      []; units [pcs]; max_event_lateness_hours 96; error_aliases %{}; permissions post AssetsPost, reverse
+      AssetsReverse, read AssetsRead, reconcile AssetsReconcile, with no role grants (only TENANT_ADMIN and
+      PLATFORM_ADMIN hold them; the grants to the storekeeper role of D-097 are item C19). Causes
+      (asset-workflow-documents.md sections 2 to 5): commission (positive), change (zero_sum_by_slot_1), handover
+      (zero_sum_by_slot_1), writeoff (negative, reason required). reversal is the core's own cause.
+      asset-workflow-documents.md section 1.2 mentions a key_bounds entry and an actual user that is required; the
+      later register file (asset-register.md sections 4 and 5, REQ-689) decides no key bound and an optional actual
+      user slot, and this entry follows the register file.
+
+      Policy: Letflow.Modules.Assets.LedgerPolicy, declare/2 in lib/letflow/modules/assets/ledger_policy/declare.ex,
+      pure (it uses Letflow.Ledger.Policy and stdlib only, the allowlist scan of mix letflow.check_boundaries). Command
+      keys cause, lines, document_type, document_id, correlation_id, reason_code (and reverses_entry_id for a
+      reversal, as the stock policy); a line has line_id, asset, quantity, from and to, where from and to are maps of
+      org_unit, location, material_responsible and actual_user. Legs follow the leg tables of
+      asset-workflow-documents.md sections 2 to 5: commission +q at to; writeoff -q at from; change and handover -q at
+      from and +q at to, both legs from the same line's asset and quantity. unit_ref is pcs on every leg. The kind of
+      the card (one asset per row, quantity 1, location empty for intangible) is not known to the pure policy and is
+      checked by the documents (asset-register.md section 5).
+
+      Not in this change: master checks (they are the documents' issue step, REQ-751); xlsx format of the read
+      routes (item C18); scoped posting (slice L6). The module is installed on no tenant.
+    acceptance_criteria:
+      - "1. Registration (test file test/letflow/modules/assets/ledger_registration_test.exs): Letflow.Modules.Assets gets a version one minor step above its value on origin/main at implement time, permissions [AssetsPost, AssetsReverse, AssetsRead, AssetsReconcile], role_grants %{}, and the :ledger key of the description, compared as one literal map; Letflow.Modules.Catalog.fetch_ledger(assets, assets) answers it. Installing the module on a fresh committed tenant (with org and locations) makes ledger id assets accept a commission posting made with Letflow.LedgerFixture.capability/4 and post!/1, and a leg whose unit_ref is not pcs is refused with unit_not_allowed."
+      - "2. Policy (test file test/letflow/modules/assets/ledger_policy_test.exs, no database): declare/2 turns a commission command into one leg per line with +quantity at the key [asset, to.org_unit, to.location, to.material_responsible, to.actual_user] (an absent location or actual user is the empty text), a writeoff into -quantity at the from key, and change and handover into -quantity at from and +quantity at to; every leg has unit_ref pcs. It refuses with {:error, {:invalid_posting, %{leg_no: n}}} and no other detail: an unknown cause, a quantity that is not a decimal text above zero with no fractional part (2.5 and 0 refused, 200 accepted), a missing asset or org_unit or material_responsible, more than 100 lines (n the first leg of line 101), a change whose from and to differ in org_unit or location or whose material_responsible and actual_user are both equal, a handover whose from and to have the same org_unit and the same location, a writeoff without reason_code, and a reversal with lines. A test per refusal asserts n."
+      - "3. Views (test file test/letflow/modules/assets/views_test.exs): Letflow.Modules.Assets.Views (lib/letflow/modules/assets/views.ex) renders asset_balance with exactly asset, org_unit, location, material_responsible, actual_user (empty as null), unit_ref, quantity, last_posting_seq, and asset_movement with the keys Letflow.Modules.Stock.Views.stock_movement/1 renders and legs whose slot keys are the five asset slot names; a leg masked by the core keeps exactly leg_no, quantity, unit_ref, masked true. Each map is built field by field; a test adds an unknown key to the input row and asserts it is absent."
+      - "4. Read routes (router lib/letflow/modules/assets/router.ex; test file test/letflow/modules/assets/register_router_test.exs through Letflow.Router with real OIDC bearer tokens, in the style of the REQ-687 router test): GET /api/v1/modules/assets/balances (AssetsRead; query keys a closed set: basis, cutoff_seq, as_of, as_of_date, limit, cursor, scope_subtree and the five slot names), GET /api/v1/modules/assets/movements (AssetsRead; from_seq, to_seq, limit, cursor, scope_subtree, cause, document_type, document_id, correlation_id) and GET /api/v1/modules/assets/reconcile (AssetsReconcile; cursor) call Letflow.Ledger.authorize/3 first and then balances/4 (balances_on_date/5 for as_of_date), entries/3 or reconcile/2; any other query key, a tenant key and a format key are 422 invalid_filter. A scoped reader granted on U1 sees only rows of U1, scope_subtree gives coverage complete or visible_only as the stock balances route does, and a leg in a hidden unit is masked. No SQL in module code (boundary Rule 8)."
+      - "5. Tenancy and refusals (INV-1, INV-5, INV-10; same test file): the tenant comes only from the token. A caller without the read permission and an API token get the same 404 as an unknown path; a TASK_WORKER gets the 403 problem document of Letflow.Plugs.Authorize; cross-tenant negative test: tenants A and B both have the module and a posting each, and a TENANT_ADMIN of B reads only B's rows from all three routes, also when A's asset id or org unit id is passed as a filter."
+      - "6. Pins and docs: three new tenant routes move test/fixtures/route_scope/tenant_wide_default_routes.txt by +3 lines and each length(snapshot) == N pin by +3 from its value on origin/main at implement time; priv/permission_matrix/effective.golden is regenerated with mix letflow.permission_matrix --write after the last merge of origin/main; docs/roles.md names the four atoms as module codes with no role grants; docs/runbooks/wms-foundation.md gains a section Assets module limits (no posting path until REQ-752, no master checks in the ledger until slice L7, scoped posting not built, the module installed on no tenant) with a test test/letflow/modules/assets/runbook_test.exs."
+      - "7. Gate: a ledger and tenant-data-path change that passes a SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. No edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no migration, no seed and no install on any QA tenant. mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries, permission_matrix_test.exs and the test files of criteria 1 to 6 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Unit token pcs for every leg (asset-register.md section 4): UAT assumption, to be confirmed by the process owner."
+      - "Role grants of the four atoms (asset-register.md section 8 question 6; D-097 answers storekeeper reads and posts): not granted here, item C19."
+    depends_on: [REQ-748, REQ-687, REQ-682, REQ-693, REQ-711, REQ-684, REQ-637]
+
+  - id: REQ-750
+    title: "Assets C9: the asset card write path of module assets (create, update and retire routes, org unit check, per-kind rules, tenant currency check, audit entry per write), permission AssetsCardWrite"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-748 -- assets phase C item C9, part 3 of the asset register; the engine files its issue after the gate
+    # Source: docs/assets/asset-register.md sections 3, 5 (rule 6), 6, 7.2 (REQ-689), owner decision D-097 (2026-11-05, project/phase-cdef-plan.md 'Owner answers'), decisions 0076 R6 rule 5 (cross-pack ids checked in write logic), 0078 D8 (audit entry per master write, REQ-705). Code read on origin/main d8d80ca18: Letflow.Modules.Locations.Tree create_node/3, update_node/4, retire_node/3 (lib/letflow/modules/locations/tree.ex: Records.create_record/3 and update_record/3 with ManagedTypes.owner_for!/1, Letflow.Audit.insert_entry/3 in the write's transaction, refusal order, idempotency_key), Letflow.Modules.Locations.Router (lib/letflow/modules/locations/router.ex: body idempotency_key, 422 reasons field_not_allowed, field_invalid, record_payload_invalid, 409 idempotency_key_reuse, 500 audit_failed, 404 for not found), Letflow.Modules.Stock.Access.check/2 (lib/letflow/modules/stock/access.ex: interactive tenant-wide principal only, else 404), Letflow.Modules.Org.lookup/2, active?/2 (lib/letflow/modules/org/org.ex). Written by the business analyst (T-1325) 2026-11-05.
+    description: >
+      Assets phase C item C9, part 3 of the asset register build: the routes that create, change and retire an asset
+      card. Cards are read through the generic record query route (scoped by the declaration of REQ-748); this change
+      adds no read route. SENSITIVE: a new permission atom and a tenant-data write path; the change passes a
+      SECURITY-REVIEWER deep review.
+
+      Permission (decided here, UAT assumption, to be confirmed by the process owner): a fifth atom AssetsCardWrite
+      for the card write routes, with no role grants, so only TENANT_ADMIN and PLATFORM_ADMIN hold it. A separate atom
+      keeps open whether the storekeeper, who reads and posts assets under D-097, also edits cards (item C19).
+      Access as the stock document routes in phase B: an interactive principal whose AssetsCardWrite grant is
+      tenant-wide; an API token or a scoped principal gets the 404 of a tenant without the module (scoped writes need
+      slice L6 for postings and are not built for cards either).
+
+      Write functions in lib/letflow/modules/assets/cards.ex: create_card/3, update_card/4, retire_card/3, in the
+      shape of Letflow.Modules.Locations.Tree (one transaction, one Letflow.Audit.insert_entry/3 entry after the record
+      write, an idempotency_key per body). Rules, checked in this order, nothing written on a refusal: (1) the body's
+      keys are card fields; create takes every field of REQ-748 criterion 2 except active (set true), update takes the
+      same set except active, any other key is field_not_allowed; (2) org_unit_id is a live active org unit:
+      Letflow.Modules.Org.lookup/2 answers entity_type org_unit and Letflow.Modules.Org.active?/2 is true
+      (org_unit_not_active; active?/2 alone accepts any of the six org types); (3) valid_until is set only when kind is
+      intangible (valid_until_not_allowed), also when an update changes the kind of a card that has a valid_until and
+      does not clear it in the same body; (4) currency, when not empty, equals Letflow.Modules.Assets.currency/1 of
+      REQ-748 (currency_mismatch); (5) the record errors of Records (a duplicate inventory_number or external ref pair
+      and a decimal that is not a strict decimal text are record_payload_invalid, as the locations router answers a
+      duplicate code). Retire sets active false; a retired card is not changed again (card_inactive) and is never
+      deleted. The money fields are information only (asset-register.md section 6): no route computes them.
+
+      Not here: the locks that come with postings (kind and org unit of a card with a posting, retire of a card in the
+      register) are REQ-752; xlsx import of cards is item C17.
+    acceptance_criteria:
+      - "1. Routes and permission (router lib/letflow/modules/assets/router.ex; test file test/letflow/modules/assets/cards_router_test.exs through Letflow.Router with real OIDC bearer tokens): POST /api/v1/modules/assets/cards answers 201 with the card, PATCH /api/v1/modules/assets/cards/:id answers 200 with the card, POST /api/v1/modules/assets/cards/:id/retire answers 200 with the card (active false); each needs AssetsCardWrite. The manifest gains the atom AssetsCardWrite with no role grant and a version one minor step above origin/main at implement time. Every body needs an idempotency_key; a replay with the same key and body returns the first answer and writes nothing, the same key with another body is 409 idempotency_key_reuse."
+      - "2. Card rules (test file test/letflow/modules/assets/cards_test.exs): one test per refusal of the description, each answering 422 with the reason and nothing written: field_not_allowed (active in a create or update body, and an unknown key), org_unit_not_active (an unknown id, a retired org unit, and an active org_site id), valid_until_not_allowed (kind fixed with valid_until; an update from intangible to low_value that keeps valid_until), currency_mismatch (currency USD while the tenant currency is KZT), record_payload_invalid (a second card with the same inventory_number, a duplicate external ref pair, acquisition_cost as the text 1e3), card_inactive (update and retire of a retired card). Accepted cases: an empty currency, currency KZT, an intangible card with valid_until and an empty location, an update that changes the kind of a card from fixed to intangible and adds valid_until."
+      - "3. Audit (same test file; decision 0078 D8): each accepted create, update and retire appends exactly one audit entry in the same transaction naming the card id and the actor, and a change of acquisition_cost, accumulated_depreciation, book_value or depreciation_as_of is such an update with no ledger call; a forced audit failure answers 500 audit_failed and the card is unchanged."
+      - "4. Tenancy and refusals (INV-1, INV-2, INV-5, INV-10; router test file): the tenant comes only from the token, and no route takes a tenant id. (a) A TENANT_ADMIN with an API token and a TENANT_ADMIN whose grant is not tenant-wide (Letflow.Support.ScopedGrantsFixture) get on all three routes the 404 body of a tenant without the module, compared with trace_id dropped. (b) A TASK_WORKER gets the 403 problem document of Letflow.Plugs.Authorize and nothing is written. (c) An unknown, a malformed and another tenant's card id give the same 404 body. (d) Cross-tenant negative test: tenants A and B both have the module; a TENANT_ADMIN of B updating or retiring A's card id gets 404 and A's card is unchanged, and creating a card with A's org unit id is refused org_unit_not_active."
+      - "5. Pins and gate: three new routes move test/fixtures/route_scope/tenant_wide_default_routes.txt by +3 lines and each length(snapshot) == N pin by +3 from origin/main at implement time; priv/permission_matrix/effective.golden is regenerated with mix letflow.permission_matrix --write after the last merge of origin/main; docs/roles.md names AssetsCardWrite. A tenant-data and permission-path change that passes a SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, permission_matrix_test.exs and the test files of criteria 1 to 4 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "The separate atom AssetsCardWrite with no role grant: UAT assumption, to be confirmed by the process owner (item C19 decides grants)."
+      - "inventory_number can be changed by an update while it stays unique per tenant: UAT assumption, to be confirmed by the process owner."
+    depends_on: [REQ-748, REQ-705, REQ-643, REQ-662]
+
+  - id: REQ-751
+    title: "Assets C10 part 1: the asset document foundation in module assets on the commission (header and line record types, drafts, master and per-kind checks at issue, issue through the versioned documents service), no posting yet"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-749 -- assets phase C item C10, first half; the engine files its issue after the gate
+    # Source: docs/assets/asset-workflow-documents.md (REQ-690, GH #3721; sections 1.1 to 1.4, 2, 7, 8.1, 8.3), docs/assets/asset-register.md sections 5 and 7.2 (REQ-689), decisions 0073 (D-T, D-P, D6, D9 OQ-21), 0076 R6, R7, 0078 D5 (issue first, post second). Precedent entry REQ-712 (stock documents part 1) and its code on origin/main d8d80ca18: Letflow.Modules.Stock.Documents (lib/letflow/modules/stock/documents.ex: save, replace, discard, issue), Letflow.Modules.Stock.Documents.Checks (lib/letflow/modules/stock/documents/checks.ex), Letflow.Modules.Stock.Router document routes, Letflow.Modules.Stock.Access. Functions read on origin/main: Letflow.Documents.register_type/3, create_draft/3, edit_draft/4, discard_draft/3, issue/2 (lib/letflow/documents.ex); Letflow.Modules.Locations.active?/2 and linked?/3 (lib/letflow/modules/locations/locations.ex); Letflow.Modules.Org.lookup/2, active?/2, active_employee?/2 (lib/letflow/modules/org/org.ex). Written by the business analyst (T-1325) 2026-11-05.
+    description: >
+      Assets phase C item C10, first half (the plan's C10 is split in two because the stock precedent needed two
+      entries, REQ-712 and REQ-713, for the same work). It builds the shared document machinery of module assets on its
+      first document, the commission, and stops before the ledger: no posting, no process definition, no write
+      handler (REQ-752). SENSITIVE: tenant-data write path and the master checks that guard every later posting; the
+      change passes a SECURITY-REVIEWER deep review.
+
+      Document shape (asset-workflow-documents.md sections 1.3, 1.4, 2 and REQ-712's reading of decision 0078 D5): a
+      header record type assets_commission and a line record type assets_commission_line, module-managed by assets,
+      plus a versioned document of Letflow.Documents created as a draft with the header and issued at the issue step
+      (the gap-free number and the fixed content). Number, state and issued time are read from the versioned document,
+      not stored on the header. The document type key is assets_commission, numbered per calendar year, prefix ACM, pad
+      6, no legal entity (UAT assumption, to be confirmed by the process owner). Lines at most 100 (the policy cap of
+      REQ-749). No price or value field on any document (section 1.3).
+
+      Header fields: document_id, event_time, org_unit_id, location_id (optional), material_responsible_id,
+      actual_user_id (optional: asset-register.md section 4 slot 5 is not required and its open question 2 proposes
+      optional; section 2 of the documents file says required, and the later register file is followed), note. Line
+      fields: header_id (foreign key in the pack to the header), org_unit_id (the header's value copied by the module,
+      the scope column), line_no, asset_id, quantity (decimal, decimal_strict).
+
+      Checks at issue (asset-workflow-documents.md section 7 and asset-register.md section 5), in this order, stopping
+      at the first failure, issuing nothing: the event time window of 0073 D-T; the org unit is a live active org unit
+      (Org.lookup/2 with entity_type org_unit and Org.active?/2); the material responsible and, when set, the actual user
+      are active employees (Org.active_employee?/2); then per line in line_no order: the card exists in this tenant and
+      is active; the same asset is on no other line of the document; the quantity is a whole number above zero, and
+      exactly 1 for kind fixed and intangible; the card's org_unit_id equals the header's org_unit_id (UAT assumption,
+      to be confirmed by the process owner: asset-register.md section 7.2 keeps them equal); kind intangible needs an
+      empty header location and kinds fixed and low_value a header location that is active (Locations.active?/2) and
+      linked to the org unit (Locations.linked?/3); a fixed or intangible asset is not already in the register: no
+      other commission line names it in a document that is issued or posted and neither reversed nor cancelled. The quantity of a low-value
+      card is not bounded by the module.
+
+      Access: drafting and issuing need AssetsPost, reading needs AssetsRead (no approval step, asset-workflow-documents.md
+      section 10 question 4: UAT assumption, to be confirmed by the process owner). As in REQ-712, an API token and a
+      principal whose grant is not tenant-wide get the 404 of a tenant without the module.
+    acceptance_criteria:
+      - "1. Manifest and pack (test file test/letflow/modules/assets/documents_registration_test.exs): the module version moves one minor step above origin/main at implement time; manages_entity_types gains assets_commission and assets_commission_line, each with scope declaration {:column, org_unit_id}; the line declares a foreign_keys entry from header_id to assets_commission as location_node.json declares fk_location_node_parent_id; on_install/3 registers the versioned document type with Letflow.Documents.register_type/3: key assets_commission, owner_module assets, numbering_scope :year, number_prefix ACM, number_pad 6, legal_entity_required false, declared_fields %{}. The field sets of the description are asserted exactly, and no document type has a price, value, number, status or posted_at field."
+      - "2. Draft routes (router lib/letflow/modules/assets/router.ex; test file test/letflow/modules/assets/documents_router_test.exs through Letflow.Router with real OIDC bearer tokens): POST /api/v1/modules/assets/documents (AssetsPost) with kind (the closed set commission in this part), the header fields and the lines creates the header, the lines and the versioned draft (Letflow.Documents.create_draft/3, type_key assets_commission, issuing_org_unit_id the header's org_unit_id) and answers 201; PUT /api/v1/modules/assets/documents/:id (AssetsPost) replaces the whole draft, a line left out is deleted and the versioned content is replaced with Letflow.Documents.edit_draft/4; DELETE /api/v1/modules/assets/documents/:id (AssetsPost) discards a draft with Letflow.Documents.discard_draft/3 and answers 204. An unknown kind is 422 unknown_kind, a key that is not a field 422 field_not_allowed, a missing required field 422 field_required, more than 100 lines 422 lines_count."
+      - "3. Read routes (same test file): GET /api/v1/modules/assets/documents (AssetsRead; query keys a closed set: kind, state, org_unit_id, limit, cursor; any other key 422 invalid_filter) lists documents newest first with a cursor the route produced; GET /api/v1/modules/assets/documents/:id (AssetsRead) answers the header, the lines in line_no order, kind, state (draft or issued in this part), number (null while draft) and issued_at (null while draft). A test asserts the exact key sets of a list row, a document and a line."
+      - "4. Checks at issue (test file test/letflow/modules/assets/issue_checks_test.exs): POST /api/v1/modules/assets/documents/:id/issue (AssetsPost) runs the checks of the description in the stated order and answers 422 with the reason (and line_no for a line check), issuing nothing: event_time_too_old, event_time_in_future, org_unit_not_active, employee_not_active (with the field name), card_not_active (unknown, retired or another tenant's card), duplicate_asset, quantity_invalid (0, 1.5, and 2 for a fixed card), org_unit_mismatch, location_not_allowed (intangible with a location), location_required (fixed or low_value without one), not_linked (location retired or not linked to the unit), asset_already_in_register (a fixed card on another issued or posted commission that is neither reversed nor cancelled). The event time boundaries are tested with a fixed clock seam at exactly 96 hours (accepted), 96 hours and 1 second (refused), 5 minutes (accepted) and 5 minutes and 1 second (refused); event_time is accepted only as ISO 8601 with an offset. Accepted: a low_value line with quantity 200, an intangible line with an empty location and an empty actual user."
+      - "5. Issue binding (decision 0078 D5; same test file): when every check passes the step calls Letflow.Documents.issue/2 once; the issued version's content equals the saved header and lines field by field and its number starts with ACM. A second issue is 409 document_not_draft; {:error, :busy} from issue/2 is 503 busy with nothing issued; after issue a PUT and a DELETE are 409 document_not_draft and no field changed."
+      - "6. Tenancy and refusals (INV-1, INV-2, INV-5, INV-10; documents router test file): (a) a TENANT_ADMIN with an API token and a TENANT_ADMIN whose grant is not tenant-wide (Letflow.Support.ScopedGrantsFixture) get on every route of criteria 2 to 5 the 404 body of a tenant without the module, compared with trace_id dropped; (b) a TASK_WORKER gets the 403 problem document of Letflow.Plugs.Authorize and nothing is written; (c) another tenant's, a malformed and an unknown document id give the same 404 body; (d) cross-tenant negative test: a TENANT_ADMIN of B reading, saving, discarding or issuing A's document id gets 404 and A's document is unchanged, B's list shows none of A's documents also with A's org unit id as a filter, and a B draft naming A's card id is refused card_not_active at issue."
+      - "7. Pins, runbook and gate: six new routes move test/fixtures/route_scope/tenant_wide_default_routes.txt by +6 lines and each length(snapshot) == N pin by +6 from origin/main at implement time; the Assets module limits section of docs/runbooks/wms-foundation.md gains items stating that documents are drafts and issued documents but nothing posts until REQ-752, that checks run at issue only (a master retired between issue and posting is not caught until slice L7), and the UAT assumptions of the description; its runbook test count pin moves. A tenant-data-path change that passes a SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. No write handler, no process definition, no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no new permission atom, no seed. mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries and the test files of criteria 1 to 6 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Numbering ACM per year, no legal entity, 100 lines, no approval step, header org unit equal to the card's: UAT assumptions, to be confirmed by the process owner."
+      - "Whether the material responsible must belong to the asset's org unit (asset-workflow-documents.md section 10 question 5): not required here; UAT assumption, to be confirmed by the process owner."
+    depends_on: [REQ-748, REQ-749, REQ-750, REQ-712, REQ-542, REQ-543]
+
+  - id: REQ-752
+    title: "Assets C10 part 2: posting an issued commission from a human task (process definition, write handler with posts_ledger, posting mark), its reversal and cancel, and the card locks that come with a posting"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-751 -- assets phase C item C10, second half; the engine files its issue after the gate
+    # Source: docs/assets/asset-workflow-documents.md sections 1.1, 2, 8.1, 8.2 (REQ-690), docs/assets/asset-register.md sections 3 (kind does not change once the card has a posting), 5, 7.1, 7.2 (REQ-689), decisions 0073 (D-L12 posting on a user task node, D9 OQ-21) and 0078 D5 (failure table: retry, reversal first, cancel second). Precedent entry REQ-713 (stock documents part 2) and its code on origin/main d8d80ca18: Letflow.Modules.Stock.Handlers post_document/3, reverse_document/3 (lib/letflow/modules/stock/handlers.ex), the manifest write_handlers entries with posts_ledger (lib/letflow/modules/stock/stock.ex), Letflow.Modules.Stock.Documents.Posting (lib/letflow/modules/stock/documents/posting.ex: start_post, post, reverse, cancel, ensure_active), stock_posting_mark.json; Letflow.Entities.HandlerWrites.post/3 (lib/letflow/entities/handler_writes.ex); Letflow.Ledger.authorize/3 and balances/4 (lib/letflow/ledger.ex, lib/letflow/ledger/read.ex: a key with a zero sum is returned). Written by the business analyst (T-1325) 2026-11-05.
+    description: >
+      Assets phase C item C10, second half. An issued commission is posted by completing a human task, as stock
+      documents are (REQ-713), and can be reversed and cancelled. SENSITIVE: the first posting path into the asset
+      ledger; the change passes a SECURITY-REVIEWER deep review.
+
+      Posting: the pack gains the bookkeeping type assets_posting_mark (fields as stock_posting_mark: document_id,
+      document_type, version_no, mark posted or reversed, org_unit_id, reason_code; unique on document_id and mark),
+      the write handlers post_document and reverse_document in Letflow.Modules.Assets.Handlers
+      (lib/letflow/modules/assets/handlers.ex), both posts_ledger assets, targets [assets_posting_mark], and the process
+      definitions assets_commission and assets_reversal, one HUMAN_TASK each with no assignee, shipped in the pack
+      (posting on a user task node, 0073 D-L12). Issue (REQ-751) starts one assets_commission instance; completing its
+      task posts the commission (cause commission, one leg per line, slots from the header and the line, unit_ref pcs,
+      document_line_id the line's record id, document_type assets_commission, document_id the versioned document id)
+      and writes the posted mark in one transaction. In the same transaction the handler refuses, writing nothing,
+      when a fixed or intangible line names an asset that already has a posted, not reversed commission
+      (asset_already_in_register: the second of two commissions issued before either was posted).
+
+      Reversal and cancel as REQ-713: POST documents/:id/reverse (AssetsReverse) with reason_code from wrong_document,
+      wrong_quantity, wrong_master_data, other (reason_text required for other, at most 500 characters; UAT assumption,
+      to be confirmed by the process owner, the stock list); POST documents/:id/cancel (AssetsReverse) cancels the
+      issued version after a reversal, or when nothing was posted; POST documents/:id/post (AssetsPost) retries a lost
+      posting start.
+
+      Card locks (asset-register.md sections 3 and 7.2), added to the card routes of REQ-750: an update that changes
+      kind or org_unit_id of a card named on a line of a commission with a posted mark (reversed or not) is refused,
+      kind_locked or org_unit_locked (the org unit of a posted fixed or intangible asset changes only by hand over,
+      REQ-753); a retire of a card whose balance rows on ledger assets sum above zero is refused asset_in_register
+      (read with Letflow.Ledger.authorize/3 purpose read and balances/4 filtered on the slot asset; a caller who may not
+      read the ledger gets the 404 of the read routes).
+    acceptance_criteria:
+      - "1. Manifest additions (test file test/letflow/modules/assets/posting_registration_test.exs): the version moves one minor step above origin/main at implement time; manages_entity_types gains assets_posting_mark (scope {:column, org_unit_id}) with the fields of the description and a unique constraint on document_id and mark; write_handlers gains post_document and reverse_document (Letflow.Modules.WriteHandlerSpec, targets [assets_posting_mark], posts_ledger assets); the pack gains the process definitions assets_commission and assets_reversal, each with one HUMAN_TASK without assignee."
+      - "2. Post (test file test/letflow/modules/assets/posting_test.exs, fresh committed tenant, OIDC credential): issuing a commission starts exactly one assets_commission instance whose task is pending; completing it through Letflow.Engine.complete_task/3 by a TENANT_ADMIN commits one ledger entry with cause commission on ledger id assets, one leg per line with +quantity at [asset, org_unit, location, material_responsible, actual_user] from the line and the header (empty location and actual user as empty text), unit_ref pcs, document_type assets_commission and the versioned document id, and one posted mark; GET documents/:id then answers state posted with posted_at and posted_by. A second completion of a second instance with the same variables gives the ledger's duplicate result and no second entry or mark."
+      - "3. In the register once (same test file): two commissions of the same fixed card are issued before either is posted (the second issue is refused asset_already_in_register, so the test issues the second through the module function with the check seam of REQ-751 disabled, test only); completing the first posts; completing the second is refused asset_already_in_register, writes no entry and no mark, and the balance of the asset stays 1. A low_value card commissioned twice with 150 and 50 has balance rows summing to 200."
+      - "4. Reverse, cancel and retry (test file test/letflow/modules/assets/reversal_test.exs): POST /api/v1/modules/assets/documents/:id/reverse (AssetsReverse) with a reason from the closed list starts one assets_reversal instance whose completion posts the core reversal of the commission entry and writes the reversed mark; it answers 409 document_not_posted for a draft or issued document, 409 document_reversed when reversed, 409 reversal_pending when a reverse task is pending, 422 reason_invalid, reason_required (other without text) and reason_too_long (501 characters). POST documents/:id/cancel (AssetsReverse) answers state cancelled for a reversed document or an issued one with no posting and no pending task, and 409 document_posted for a posted document that is not reversed; POST documents/:id/post (AssetsPost) starts the posting of an issued document whose start was lost (a seam forces it), and answers 409 posting_pending, document_posted or document_cancelled otherwise. After a reversal the asset's balance is 0 and a new commission of the card can be issued and posted."
+      - "5. Card locks (test file test/letflow/modules/assets/card_locks_test.exs, card routes of REQ-750): after a posted commission of the card, PATCH with another kind is 422 kind_locked and with another org_unit_id is 422 org_unit_locked, also after its reversal; a card on a draft or issued commission only can still change both. POST cards/:id/retire of a card whose balance sum is above zero is 422 asset_in_register; after the reversal (sum 0) the retire is accepted. A caller without AssetsRead retiring a card gets the 404 of the read routes."
+      - "6. Tenancy, pins, runbook and gate: the three new routes follow REQ-751 criterion 6 (404 for API tokens and scoped principals, 403 for a TASK_WORKER, cross-tenant negative test with tenant B posting, reversing and cancelling A's document id and getting 404 with A unchanged) and move tenant_wide_default_routes.txt and each length(snapshot) == N pin by +3 from origin/main at implement time. The Assets module limits section replaces its 'nothing posts' item with items for the task without assignee, the stale-master window between issue and posting until slice L7, and the binding gap REQ-713 criterion 6 describes for stock (detected by a posting_check of ok or mismatch on the document read, not prevented). A ledger and tenant-data-path change that passes a SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries and the test files of criteria 1 to 5 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "The reversal reason list (the stock list) and the task without assignee: UAT assumptions, to be confirmed by the process owner."
+      - "The binding gap (a holder of AssetsPost can complete the task with content that differs from the issued version) is detected, not prevented, until slice L7 (0073 D6, 0078 D5), as for stock in REQ-713; if the security review asks for prevention, a core requirement comes first and this entry waits for it."
+    depends_on: [REQ-751, REQ-713, REQ-685, REQ-686]
+
+  - id: REQ-753
+    title: "Assets C11: the change of responsible or user, hand over and write off documents of module assets (two-leg and one-leg postings, master checks on both sides, the card org unit kept equal on hand over)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-752 -- assets phase C item C11; the engine files its issue after the gate
+    # Source: docs/assets/asset-workflow-documents.md sections 3, 4, 5, 6, 7, 8 and 10 (REQ-690), docs/assets/asset-register.md sections 5, 7.1, 7.2 (REQ-689), decision 0073 D-T, D-L12. Precedent entries REQ-715 (stock issue and write off) and REQ-721 (stock transfer, hand over and return: two sides, two legs per line, master checks on both sides, the equal sides refusal) and their code on origin/main d8d80ca18: Letflow.Modules.Stock.Documents.Kinds (lib/letflow/modules/stock/documents/kinds.ex, the kind table), Letflow.Modules.Stock.Documents.Checks. Written by the business analyst (T-1325) 2026-11-05.
+    description: >
+      Assets phase C item C11: three more document kinds on the routes and the posting machinery of REQ-751 and
+      REQ-752, through a kind table as Letflow.Modules.Stock.Documents.Kinds does for stock. SENSITIVE: postings into
+      the asset ledger and a card write inside the posting transaction; the change passes a SECURITY-REVIEWER deep
+      review. If the diff passes 1500 lines, write off is split off into its own requirement (plan note of C11).
+
+      Kinds, types and fields (asset-workflow-documents.md sections 3 to 5; actual user fields optional as in REQ-751):
+      change (assets_change, assets_change_line; header location_id, from_material_responsible_id,
+      from_actual_user_id, to_material_responsible_id, to_actual_user_id; cause change; prefix ACH), handover
+      (assets_handover, assets_handover_line; header from_location_id, from_material_responsible_id,
+      from_actual_user_id, to_org_unit_id, to_location_id, to_material_responsible_id, to_actual_user_id; cause
+      handover; prefix AHO), writeoff (assets_writeoff, assets_writeoff_line; header location_id,
+      material_responsible_id, actual_user_id, reason_code enum disposed, lost, broken, expired, other, reason_text
+      required when other; cause writeoff, the ledger reason from reason_code and reason_text; prefix AWO). Each type
+      numbered per year, pad 6, no legal entity; prefixes are a UAT assumption, to be confirmed by the process owner.
+      Lines: the common line fields of section 1.4.
+
+      Checks at issue, in addition to those of REQ-751 that apply (event time, card active, quantity whole and 1 for
+      fixed and intangible, location rules by kind, duplicate asset): every side's org unit is active (handover: both
+      units), every set employee is active, every non-empty location is active and linked to its side's unit
+      (handover: both sides); change is refused sides_equal when both to employees equal the from ones; handover is
+      refused sides_equal when to_org_unit_id and to_location_id equal the from side. A from side that does not match
+      the asset's balance row is refused by the ledger at posting (insufficient_balance, no alias; shown by the task
+      inbox), not at issue. A write off of part of a low-value quantity is allowed (asset-workflow-documents.md
+      section 10 question 6: UAT assumption, to be confirmed by the process owner).
+
+      Card org unit (asset-register.md section 7.2): when a handover of a fixed or intangible asset is posted with a
+      to_org_unit_id other than the card's org_unit_id, the post_document handler sets the card's org_unit_id to it in
+      the same transaction as the ledger entry and the mark (the handler targets gain assets_card). A low-value card
+      keeps its org_unit_id (asset-register.md section 8 question 3 stays open).
+    acceptance_criteria:
+      - "1. Manifest and pack (test file test/letflow/modules/assets/kinds_registration_test.exs): the version moves one minor step above origin/main at implement time; manages_entity_types gains the six types of the description, each with scope {:column, org_unit_id}; on_install/3 registers the document types assets_change (ACH), assets_handover (AHO) and assets_writeoff (AWO) with numbering_scope :year, number_pad 6, legal_entity_required false; the pack gains the process definitions assets_change, assets_handover and assets_writeoff (one HUMAN_TASK without assignee each); post_document's targets are [assets_posting_mark, assets_card]. The field sets are asserted exactly; no type has a price or value field."
+      - "2. Draft and issue (test file test/letflow/modules/assets/kinds_test.exs, routes of REQ-751): kind accepts change, handover and writeoff; the issue checks answer 422 with their reason and nothing issued: org_unit_not_active (also the to unit of a handover), employee_not_active (each of the from and to fields, by name), not_linked (each side), location_required and location_not_allowed by kind, sides_equal (a change with equal employees, a handover with the same unit and location), reason_invalid (an unknown reason_code), reason_required (other without reason_text), quantity_invalid (2 for a fixed card). A test per reason."
+      - "3. Posting (test file test/letflow/modules/assets/kinds_posting_test.exs, fresh committed tenant): after a posted commission, a posted change gives one entry with cause change and two legs per line (-q at the from key, +q at the to key, same asset and quantity, unit_ref pcs) and the asset's balance moves to the to key; a posted handover to another unit gives cause handover the same way and the fixed card's org_unit_id becomes the to unit in the same transaction; a posted writeoff gives cause writeoff with -q and the ledger reason from reason_code, and the asset's balance is 0. A handover or writeoff whose from side does not match the balance row is refused insufficient_balance at completion with no entry, no mark and the card unchanged. A writeoff of 50 of a low-value asset with 200 leaves 150."
+      - "4. Reversal (same test file): reversing a posted handover restores the balance at the from key; the card's org_unit_id is not changed back by the reversal, and the runbook states it (UAT assumption, to be confirmed by the process owner: a new handover corrects it)."
+      - "5. Tenancy, runbook and gate: the cross-tenant negative test of REQ-751 criterion 6 (d) is repeated for a handover whose to_org_unit_id is another tenant's unit (refused org_unit_not_active). The Assets module limits section gains items for the from-side refusal at posting, partial write off of low-value assets and the card org unit after a reversed handover. A ledger and tenant-data-path change that passes a SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. No new route, permission or migration. mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries and the test files of criteria 1 to 4 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "The meaning of the four documents (asset-workflow-documents.md section 10 question 1) and an approval step (question 4): proposals for UAT, to be confirmed by the owner at GATE C."
+      - "Whether the receiving unit of a hand over sees the document (asset-workflow-documents.md section 8.3, open item): the document is scoped by the handing-over unit only."
+    depends_on: [REQ-752, REQ-715, REQ-721]
+
+  - id: REQ-754
+    title: "Assets C12: expiry reminder of intangible assets (template key asset_expiry_reminder, reminder function in module assets, a per-tenant sweep reaching module reminder functions through the module catalog, default off)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-753 -- assets phase C item C12; the engine files its issue after the gate
+    # Source: docs/assets/asset-workflow-documents.md section 9 and section 10 questions 2 and 3 (REQ-690), docs/assets/asset-register.md section 3 (valid_until only for intangible). Code read on origin/main d8d80ca18: Letflow.NotificationTemplates.Registry (lib/letflow/notification_templates/registry.ex: four keys, placeholders, subject, body; test test/letflow/notification_templates/registry_test.exs), Letflow.Modules.Exam.Notifications.send_reminders/2, enabled?/0 and reminded?/2 (lib/letflow/modules/exam/notifications.ex: default-off flag :exam_notifications_enabled in config/config.exs and config/test.exs, dedupe on template_key and trigger_ref, no caller), Letflow.Notifications.start_delivery/5 (lib/letflow/notifications.ex: trigger_ref must be a UUID, never raises), notification_deliveries.trigger_ref uuid NOT NULL (priv/repo/migrations/20261028400001_create_notification_deliveries.exs), Letflow.Scheduler.Poller, ScheduledJobSweep, RecordDeadlineSweep (lib/letflow/scheduler/), Letflow.Modules.Catalog.write_handler/2 (lib/letflow/modules/catalog.ex, manifest data resolved at run time), mix letflow.check_boundaries Rule 5 (lib/mix/tasks/letflow.check_boundaries.ex: a file outside lib/letflow/modules/<id>/ may not reference a module subdir file; catalog.ex is the exception), priv/modules/org/entity_definitions/org_employee.json (user_id). Written by the business analyst (T-1325) 2026-11-05.
+    description: >
+      Assets phase C item C12: a reminder before an intangible asset (a license or subscription) expires, in the one
+      shape of asset-workflow-documents.md section 9. Not a ledger path; it sends mail to a Letflow user, so the
+      change passes the SECURITY-REVIEWER gate (INV-4: placeholders are display values only; INV-1: per tenant).
+
+      Caller (the new part; the exam reminder has no caller): the Poller is core code and may not name a module file
+      (check_boundaries Rule 5). The change adds an optional manifest key reminder_function, an
+      {module, function} pair of the module itself, collected by a new Letflow.Modules.Catalog function in the way
+      write_handler/2 resolves handlers, and a per-tenant sweep Letflow.Scheduler.ModuleReminderSweep in the shape of
+      ScheduledJobSweep, run by the Poller, that calls the function of every module installed in the tenant as
+      function(prefix, now), at most once per hour per tenant (UAT assumption, to be confirmed by the process owner),
+      and never raises (INV-8). Module assets declares Letflow.Modules.Assets.Notifications.send_reminders/2.
+
+      Reminder (lib/letflow/modules/assets/notifications.ex): default off through config :letflow,
+      :asset_notifications_enabled, false in config/config.exs and config/test.exs (a new flag, default off: with the
+      flag off it touches nothing). Due cards: kind intangible, active, valid_until set and within the lead time from
+      the tenant's today (the tenant time zone of Letflow.Identity.TenantTimezone.of/1, lib/letflow/identity/tenant_timezone.ex) and not before it, and in the register: a posted, not reversed commission names the card and
+      no posted, not reversed writeoff does (records of the module only: the sweep has no request to authorize a ledger
+      read). Lead time: the assets module setting expiry_reminder_days (integer, minimum 1), 30 when absent (UAT
+      assumption, to be confirmed by the process owner; section 10 question 2). One reminder per expiry date, no second
+      reminder (UAT assumption). Recipient: the Letflow user named by user_id of the card's current material
+      responsible employee (the to side of the card's latest posted, not reversed commission, change or handover); an
+      employee without user_id gets no delivery and no row; the actual user gets nothing (UAT assumption; section 10
+      question 3). Dedupe (the open design question of section 9, decided here): trigger_ref is a name-based UUID
+      (RFC 9562 version 5) of the card id and the valid_until text, so a renewed expiry date gets its own reminder and
+      the same date never a second; a delivery row with template_key asset_expiry_reminder and that trigger_ref, in any
+      state, means already reminded.
+    acceptance_criteria:
+      - "1. Template (test file test/letflow/notification_templates/registry_test.exs): Letflow.NotificationTemplates.Registry.keys() gains asset_expiry_reminder with placeholders exactly asset_name, asset_code, expiry_date, responsible_name, tenant_name, a subject and a body using them; the registry's existing no-secret-name test passes for the new names."
+      - "2. Sweep hook (test files test/letflow/modules/catalog_reminder_test.exs and test/letflow/scheduler/module_reminder_sweep_test.exs): a manifest with reminder_function {mod, fun} is resolved by the new Catalog function, which skips and logs an entry whose module is not the declaring module or a module under its namespace, or whose function is not exported with arity 2; the sweep calls the function only for tenants where the module is installed and active, with that tenant's prefix, at most once per hour per tenant, and a raising function is logged and does not stop the sweep or the next tenant. mix letflow.check_boundaries passes (no file edge from lib/letflow/scheduler/ into lib/letflow/modules/assets/)."
+      - "3. Due cards and recipient (test file test/letflow/modules/assets/notifications_test.exs, fresh committed tenant, flag on in the test, a fixed clock): send_reminders/2 starts exactly one Letflow.Notifications.start_delivery/5 per due card with template asset_expiry_reminder, the recipient's user id, the trigger_ref of the description and values asset_name (card name), asset_code (inventory_number), expiry_date, responsible_name (the employee's full_name), tenant_name. Boundaries: valid_until equal to today and equal to today plus the lead time are due; yesterday and today plus the lead time plus one day are not. Not due: a fixed or low_value card, a retired card, a card never commissioned, a reversed commission, a written-off card. An employee without user_id gives no call. With expiry_reminder_days 10 the window is 10 days."
+      - "4. Dedupe and flag (same test file): a second run after the delivery row exists starts nothing; changing valid_until to a later date and running again starts one new delivery with another trigger_ref; with the flag off nothing is read and nothing is started; a failure inside never raises (INV-8). Cross-tenant negative test: a due card of tenant A never produces a delivery for a user of tenant B when the sweep runs for B."
+      - "5. Pins and gate: the settings_schema of module assets gains expiry_reminder_days (integer, minimum 1) beside currency; the module version moves one minor step above origin/main at implement time; tests that pin the registry key list and the Poller sweep list move. The SECURITY-REVIEWER gate passes as a stated step, verdict and evidence quoted in the PR. No route, permission or migration. mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries and the test files of criteria 1 to 4 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Lead time 30 days, one reminder per expiry date, the material responsible as the only recipient, the hourly sweep: UAT assumptions, to be confirmed by the process owner (asset-workflow-documents.md section 10 questions 2 and 3)."
+      - "The manifest key reminder_function is a new core extension point of the module contract; the design step checks whether decision 0039 or 0050 needs an amendment section for it and says so before implementation."
+    depends_on: [REQ-750, REQ-752, REQ-753, REQ-563]
+
+  - id: REQ-755
+    title: "Assets C13: web screens of module assets for asset cards (list, detail panel, create, edit, retire) in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-750 -- assets phase C item C13; the engine files its issue after the gate
+    # Source: entries REQ-748 (assets_card fields, generic record reads, currency), REQ-750 (routes POST cards, PATCH cards/:id, POST cards/:id/retire, AssetsCardWrite, the 422 reasons), REQ-669 (common screen rules), REQ-722 (the stock screen precedent); docs/assets/asset-register.md sections 2, 3, 6. Web code read on origin/main d8d80ca18: web/src/modules/registry.ts (REGISTERED_MODULES), web/src/modules/locations/ (index.ts, locationsRoutes.tsx, locationsMessages.ts, LocationsIntlProvider.tsx, locations.api.ts with entitiesApi), web/src/modules/stock/ (stockMessages.ts, stockPermissions.ts), web/src/api/entities.ts (entitiesApi.queryRecords), web/src/components/ui/MasterDetail.tsx, PageHeader.tsx, StatusPill.tsx, web/src/dev/harness/registry.tsx (...locationsScreens entries); the design-system rules of project skill letflow-design-system (rules 1 to 8). Written by the business analyst (T-1325) 2026-11-05.
+    description: >
+      Assets phase C item C13: the screens to keep the asset cards. Not a ledger path. The routes are those of
+      REQ-750; card lists and reads use the generic record query (entitiesApi.queryRecords of type assets_card), which
+      applies the scope of REQ-748. The screens add no route and no permission.
+
+      Place: a new SPA module assets, web/src/modules/assets/ (ModuleDefinition id assets, one line in
+      web/src/modules/registry.ts), card files in web/src/modules/assets/cards/. Path admin/assets/cards; nav item
+      Asset cards with permission AssetsRead (REQ-749). Messages in en, ru and kk in the module's own message file.
+      Style: the platform design system (tokens only; list and record in the detail panel of MasterDetail, never in a
+      modal; Retire is a short ConfirmDialog; every state: loading, empty, load error, write error next to the field,
+      success toast, hidden action without permission, retired cards behind Show retired; StatusPill for active and
+      retired). Harness: the screens in a fixture file of their own, web/src/dev/harness/fixtures/assets.tsx, and one
+      line ...assetsScreens in web/src/dev/harness/registry.tsx.
+
+      Defaults (UAT assumption, to be confirmed by the process owner): write buttons only for a user whose access lists
+      AssetsCardWrite; valid_until shown and editable only for kind intangible; money fields typed as decimal text and
+      sent unchanged; currency a free optional text with the hint that empty means the tenant currency; org unit picker
+      lists active org units only.
+    acceptance_criteria:
+      - "1. Module and navigation (test file web/src/modules/assets/__tests__/assetsModule.nav.test.tsx, in the style of web/src/modules/codes/__tests__/codesModule.nav.test.tsx): the assets ModuleDefinition has the route admin/assets/cards and the nav item Asset cards with permission AssetsRead; with the module not installed the nav item is absent and the path renders the module guard's not-installed state; without AssetsRead the nav item is absent."
+      - "2. List and panel (test file web/src/modules/assets/__tests__/CardsPage.list.test.tsx, network mocked): the list calls entitiesApi.queryRecords of assets_card and shows per row inventory number, name, kind, org unit name and valid until; filters kind and org unit; retired cards hidden until Show retired; clicking a row opens the card in the MasterDetail panel, which stays open while another row is clicked and closes on Escape. Org unit names are read with one queryRecords of org_unit per page (record_id in the ids of the page); an id with no readable record shows the id text."
+      - "3. Create, edit, retire (test file web/src/modules/assets/__tests__/CardForm.test.tsx, network mocked): create sends POST /api/v1/modules/assets/cards with the typed fields and an idempotency_key; edit sends PATCH /api/v1/modules/assets/cards/:id with the changed fields and an idempotency_key; retire sends POST /api/v1/modules/assets/cards/:id/retire after a confirm dialog. A test checks the exact body of each; valid_until is absent from the form for kind fixed and low_value; a money value that is not a decimal text is not sent and marks the field; the buttons are absent for a user without AssetsCardWrite and on a retired card."
+      - "4. Refusals (test file web/src/modules/assets/__tests__/cardsErrors.test.tsx): each reason of REQ-750 shows its own message in the active language next to the field it names where it names one: field_not_allowed, org_unit_not_active, valid_until_not_allowed, currency_mismatch, record_payload_invalid (shown at inventory number as already used when the violation names that field), card_inactive, idempotency_key_reuse; 404 shows the not-found state, 403 that the action is not permitted, 500 audit_failed a try-again message."
+      - "5. Three languages (test files web/src/modules/assets/__tests__/cardsI18n.test.tsx and cards-i18n-grep.test.ts, in the style of web/src/modules/codes/__tests__/codesI18n.test.tsx and codes-i18n-grep.test.ts): every message key exists in en, ru and kk with a non-empty text, no text is written in the components outside the message file, and switching the platform language re-renders the screens."
+      - "6. Checks: the web gate npm run check (type-check, lint, unit tests, guards) passes in the engine's checks step; screenshots of the list, the open panel, the create form and the retire dialog are taken and compared with the style guide as the letflow-design-system skill rule 8 asks, and listed in the summary; the change edits only files under web/, adds exactly one line to web/src/modules/registry.ts and one line to web/src/dev/harness/registry.tsx; no backend file changes. REVIEWER verdict recorded."
+    open_questions:
+      - "The defaults of the description (buttons by permission, valid_until only for intangible, decimal text, currency hint, active org units only): UAT assumption, to be confirmed by the process owner."
+    depends_on: [REQ-750, REQ-748, REQ-749, REQ-669]
+
+  - id: REQ-756
+    title: "Assets C14 part 1: web screens of module assets for asset documents (list, view with issue, retry posting, reverse and cancel, draft forms of commission, change, hand over and write off) in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-753 -- assets phase C item C14, documents half; the engine files its issue after the gate
+    # Source: entries REQ-751 (document routes, fields, issue reasons), REQ-752 (post, reverse, cancel, states, reversal reasons, card locks kind_locked, org_unit_locked, asset_in_register, the task without assignee), REQ-753 (change, handover, writeoff fields and reasons), REQ-755 (the SPA module assets), REQ-722 and REQ-723 (the stock document screens precedent), REQ-669; docs/assets/asset-workflow-documents.md sections 2 to 5. Web code read on origin/main d8d80ca18: web/src/modules/stock/documents/ (DocumentsPage.tsx, DocumentPage.tsx, DocumentForm.tsx, LinesEditor.tsx, SideGroup.tsx, documents.api.ts), web/src/api/entities.ts, web/src/components/ui/MasterDetail.tsx, web/src/router.tsx (path tasks); the rules of project skill letflow-design-system. Written by the business analyst (T-1325) 2026-11-05.
+    description: >
+      Assets phase C item C14, first half (the plan's C14 is split as the stock screens were: documents here,
+      balances and movements in REQ-757). Not a ledger path: the screens only call the routes of REQ-751 to REQ-753.
+
+      Place: web/src/modules/assets/documents/ in the module of REQ-755. Paths admin/assets/documents,
+      admin/assets/documents/new (query key kind) and admin/assets/documents/:id; nav item Asset documents with
+      permission AssetsRead. Messages in en, ru and kk. Style and states as REQ-755. Harness screens in the fixture
+      file of REQ-755 (no new registry line).
+
+      Posting: completing the post task (no assignee) happens in the task inbox (path tasks); an issued document with
+      no posting says it waits for the post task and links there; a ledger refusal at completion (for example
+      insufficient_balance) is shown by the task inbox. The card panel of REQ-755 also gets the messages of the card
+      locks of REQ-752.
+
+      Defaults (UAT assumption, to be confirmed by the process owner): buttons by the route's atom (AssetsPost for
+      save, discard, issue and retry; AssetsReverse for reverse and cancel) and the state; event time shown and
+      entered in the tenant time zone and sent as ISO 8601 with its offset; quantity typed as whole-number text, fixed
+      and intangible lines fixed at 1; the location field hidden for an intangible-only document; pickers list active
+      records only; the asset picker lists active cards of the header's org unit.
+    acceptance_criteria:
+      - "1. Navigation (test file web/src/modules/assets/__tests__/documentsModule.nav.test.tsx): the three paths and the nav item Asset documents with permission AssetsRead exist; without the module or without AssetsRead the nav item is absent."
+      - "2. List (test file web/src/modules/assets/__tests__/DocumentsPage.list.test.tsx, network mocked): GET /api/v1/modules/assets/documents with filters kind (commission, change, handover, writeoff), state (draft, issued, posted, reversed, cancelled) and org unit sends only the query keys kind, state and org_unit_id; rows show number (a draft mark while null), kind, event time, org unit name, state; Load more follows next_cursor."
+      - "3. Draft forms (test file web/src/modules/assets/__tests__/DocumentForm.test.tsx, network mocked): each kind shows exactly its header fields from REQ-751 and REQ-753 (writeoff also reason code from disposed, lost, broken, expired, other and reason text required for other before sending) and lines of asset and quantity; create sends POST /api/v1/modules/assets/documents with kind and the whole body; edit sends PUT documents/:id with the whole header and the whole line list, a removed line left out. A test per kind checks the exact create body and one test the exact body of an edit that removes one line of three."
+      - "4. View and actions (test file web/src/modules/assets/__tests__/DocumentPage.actions.test.tsx, network mocked): GET documents/:id shows header, lines with card names, state, number, issued_at, posted_at and posted_by, reversed_at and reversed_by, and a warning when posting_check is mismatch. Draft: Edit, Discard (DELETE after confirm), Issue (POST issue after confirm); issued without posting: the waiting text, a link to the path tasks, Retry posting (POST post) and Cancel; posted: Reverse (POST reverse with a reason from wrong_document, wrong_quantity, wrong_master_data, other, reason text required for other, at most 500 characters); reversed: Cancel; cancelled: none. Tests check each call and body and that buttons are absent without the route's atom and in other states."
+      - "5. Refusals (test file web/src/modules/assets/__tests__/documentsErrors.test.tsx): each reason the routes of REQ-751 to REQ-753 answer shows its own message in the active language, a reason with line_no marks that line and one with a field name marks that field: unknown_kind, field_not_allowed, field_required, lines_count, invalid_filter, event_time_too_old, event_time_in_future, org_unit_not_active, employee_not_active, card_not_active, duplicate_asset, quantity_invalid, org_unit_mismatch, location_not_allowed, location_required, not_linked, asset_already_in_register, sides_equal, reason_invalid, reason_required, reason_too_long, document_not_draft, document_not_posted, document_posted, document_reversed, document_cancelled, document_not_issued, posting_pending, reversal_pending, busy; and in the card panel kind_locked, org_unit_locked, asset_in_register. 404 shows the not-found state, 403 not permitted, 503 try again."
+      - "6. Three languages and checks: i18n tests as REQ-755 criterion 5 for the document screens; npm run check passes in the engine's checks step; screenshots of the list, a view per state group and each form are listed in the summary; only files under web/ change and neither registry file gains a line. REVIEWER verdict recorded."
+    open_questions:
+      - "The defaults of the description: UAT assumption, to be confirmed by the process owner."
+    depends_on: [REQ-751, REQ-752, REQ-753, REQ-755, REQ-722, REQ-669]
+
+  - id: REQ-757
+    title: "Assets C14 part 2: web screens of module assets for the asset register (balances by asset, org unit, location, material responsible and actual user; movements with masked hidden legs) and the register rows in the card panel"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-749 -- assets phase C item C14, register half; the engine files its issue after the gate
+    # Source: entries REQ-749 (routes GET balances, movements of /api/v1/modules/assets, query keys, coverage, masked legs, AssetsRead), REQ-755 (module assets and the card panel), REQ-724 (the stock register screens precedent), REQ-682 (scoped read, coverage visible_only), REQ-669; docs/assets/asset-register.md sections 4 and 7. Web code read on origin/main d8d80ca18: web/src/modules/stock/register/ (BalancesPage.tsx, MovementsPage.tsx, RegisterShell.tsx, stock.api.ts, stockNames.ts, stockPickers.ts, stockQueryKeys.ts), web/src/api/entities.ts; the rules of project skill letflow-design-system. Written by the business analyst (T-1325) 2026-11-05.
+    description: >
+      Assets phase C item C14, second half: reading the asset register on screen. The screens only call the read
+      routes of REQ-749; no route, no permission, no write.
+
+      Place: web/src/modules/assets/register/. Paths admin/assets/balances and admin/assets/movements; nav items Asset
+      balances and Asset movements with permission AssetsRead. Messages in en, ru and kk; style and states as REQ-755;
+      harness screens in the fixture file of REQ-755.
+
+      Balances: filters by the five slots (asset, org unit, location, material responsible, actual user) and an org
+      unit subtree; rows show the card's inventory number and name, org unit, location, material responsible, actual
+      user (empty shown as none) and quantity; with a subtree filter, coverage visible_only is shown as 'your units in
+      the chosen unit', never as the total. Movements: filters cause (commission, change, handover, writeoff,
+      reversal), document, posting range; legs with names, a masked leg shown as hidden with its quantity only. The
+      card panel of REQ-755 shows the card's balance rows (balances filtered on asset) for a user with AssetsRead.
+      Names are read with queryRecords of assets_card, org_unit, location_node and org_employee, one call per type per
+      page.
+    acceptance_criteria:
+      - "1. Navigation (test file web/src/modules/assets/__tests__/registerModule.nav.test.tsx): the two paths and nav items exist with permission AssetsRead; without the module or without AssetsRead the nav items are absent."
+      - "2. Balances (test file web/src/modules/assets/__tests__/BalancesPage.test.tsx, network mocked): each filter sends only its slot query key (asset, org_unit, location, material_responsible, actual_user) or scope_subtree; rows show the names of the description and the quantity unchanged as text; coverage visible_only shows its text and complete none; Load more follows next_cursor; an id with no readable record shows the id text."
+      - "3. Movements (test file web/src/modules/assets/__tests__/MovementsPage.test.tsx, network mocked): filters send only cause, document_id, from_seq and to_seq; each entry shows cause, document, event time and its legs; a leg with masked true shows the hidden text and its quantity and no slot names. A test per filter and one for a masked leg."
+      - "4. Card panel (test file web/src/modules/assets/__tests__/CardRegister.test.tsx, network mocked): the panel of a card calls GET /api/v1/modules/assets/balances with asset equal to the card id and lists its rows; for a user without AssetsRead the section is absent and no call is made."
+      - "5. Three languages and checks: i18n tests as REQ-755 criterion 5 for these screens; npm run check passes in the engine's checks step; screenshots of both pages and the card panel section are listed in the summary; only files under web/ change and neither registry file gains a line. REVIEWER verdict recorded."
+    open_questions:
+      - "Whether a quantity of a low-value asset split over several units should be summed per card on screen: not here (asset-register.md section 8 question 3)."
+    depends_on: [REQ-749, REQ-755, REQ-724, REQ-682, REQ-693, REQ-669]
