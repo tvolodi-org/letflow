@@ -115,6 +115,7 @@ const GROUPS_BY_ROLE: Record<AccessFixtureName, string[]> = {
   operator: [WORK, TENANT_ADMIN],
   taskWorker: [WORK],
   auditor: [WORK, TENANT_ADMIN],
+  storekeeper: [WORK],
   agentRunner: [],
   candidate: [],
 }
