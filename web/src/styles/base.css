@@ -77,3 +77,5 @@ samp {
 }
 /* T-1399 R7: the count sheet has seven columns; tighter cell padding keeps Counted whole in the detail panel. */
 .lf-count-sheet .lf-table th, .lf-count-sheet .lf-table td { padding-inline: var(--space-2); }
+/* T-1399 R7 gui_review: the last cell of a master list keeps the table's right padding so a status pill ends inside the row. */
+.lf-md__master .lf-table th:last-child, .lf-md__master .lf-table td:last-child { padding-inline-end: var(--space-4); }
