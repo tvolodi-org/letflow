@@ -22,6 +22,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     ],
     causes: %{
       "receipt" => %{sign_rule: :positive, reason_required: false},
+      "opening" => %{sign_rule: :positive, reason_required: false},
       "issue" => %{sign_rule: :negative, reason_required: false},
       "write_off" => %{sign_rule: :negative, reason_required: true},
       "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
@@ -45,7 +46,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.8.0"
+    assert m.version == "0.9.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
@@ -68,7 +69,9 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "count_sheet_line",
              "count_entry",
              "count_signature",
-             "stock_posting_mark"
+             "stock_posting_mark",
+             "stock_opening",
+             "stock_opening_line"
            ]
 
     assert Enum.map(m.write_handlers, & &1.name) == ["post_document", "reverse_document"]
@@ -103,7 +106,9 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "count_sheet_line" => {:column, "org_unit_id"},
              "count_entry" => {:column, "org_unit_id"},
              "count_signature" => {:column, "org_unit_id"},
-             "stock_posting_mark" => {:column, "org_unit_id"}
+             "stock_posting_mark" => {:column, "org_unit_id"},
+             "stock_opening" => {:column, "org_unit_id"},
+             "stock_opening_line" => {:column, "org_unit_id"}
            }
 
     assert m.route_policies == [
@@ -114,6 +119,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"PUT", "/documents/:id", :StockPost},
              {"DELETE", "/documents/:id", :StockPost},
              {"POST", "/documents/:id/issue", :StockPost},
+             {"POST", "/documents/:id/check", :StockPost},
              {"GET", "/documents", :StockRead},
              {"GET", "/documents/:id", :StockRead},
              {"POST", "/documents/:id/post", :StockPost},
@@ -164,7 +170,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert Enum.all?(r.slots, &(&1.format == :uuid))
 
     assert Map.keys(r.causes) |> Enum.sort() ==
-             ~w(hand_over issue receipt return transfer write_off)
+             ~w(hand_over issue opening receipt return transfer write_off)
 
     assert r.causes["write_off"] == %{sign_rule: :negative, reason_required: true}
     assert r.causes["receipt"].sign_rule == :positive
@@ -208,7 +214,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 17
+    assert length(files) == 20
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []

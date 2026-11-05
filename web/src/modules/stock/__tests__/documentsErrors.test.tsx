@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
-import { DOC_EXTRA_REASONS, DOC_REASONS } from '../documents/documentsModel'
+import { DOC_EXTRA_REASONS, DOC_REASONS, DOC_SIDE_REASONS } from '../documents/documentsModel'
 import { stockMessages } from '../stockMessages'
 import { LIST, fakeDocument, fakeMasters, refusal, renderStock, stockDoc, withAll, withPost } from './stockTestKit'
 
@@ -17,7 +17,7 @@ const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const VIEW = `${LIST}/d1`
-const ALL = [...DOC_REASONS, ...DOC_EXTRA_REASONS]
+const ALL = [...DOC_REASONS, ...DOC_EXTRA_REASONS, ...DOC_SIDE_REASONS]
 
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()

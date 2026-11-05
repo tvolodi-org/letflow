@@ -124,6 +124,48 @@ describe('C4-d posted and reversed', () => {
   })
 })
 
+describe('C4-f two sides (REQ-723)', () => {
+  const sided = (kind: string) =>
+    stockDoc({
+      kind, state: 'posted', number: 'X-1', org_unit_id: kind === 'return' ? 'u2' : 'u1', from_org_unit_id: 'u1', to_org_unit_id: 'u2',
+      from_location_id: 'l1', from_responsible_id: 'e1', to_location_id: 'l1', to_responsible_id: 'e1',
+    })
+  it.each(['transfer', 'hand_over', 'return'])('%s: From and To groups with names, Reverse posts', async (kind) => {
+    fakeDocument(clientMock, sided(kind))
+    renderStock(VIEW, withReverse)
+    const from = await screen.findByTestId('view-side-from')
+    const to = screen.getByTestId('view-side-to')
+    await waitFor(() => expect(within(from).getByText('Main store')).toBeInTheDocument())
+    expect(from).toHaveTextContent('From')
+    expect(to).toHaveTextContent('To')
+    expect(within(from).getByText('Shelf A')).toBeInTheDocument()
+    expect(within(to).getByText('Aigul B.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reverse' }))
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'wrong_quantity' } })
+    fireEvent.click(screen.getByTestId('reason-dialog-confirm'))
+    await waitFor(() => expect(postsTo(clientMock, 'd1/reverse')).toEqual([[`${DOCS}/d1/reverse`, { reason_code: 'wrong_quantity' }]]))
+  })
+})
+
+describe('T4 movements link', () => {
+  it('posted and reversed link to the movements of the document; other states do not', async () => {
+    for (const state of ['posted', 'reversed']) {
+      fakeDocument(clientMock, stockDoc({ state }))
+      renderStock(VIEW)
+      const link = await screen.findByRole('link', { name: 'Movements' })
+      expect(link).toHaveAttribute('href', '/admin/stock/movements?document_id=d1')
+      cleanup()
+    }
+    for (const state of ['draft', 'issued', 'cancelled']) {
+      fakeDocument(clientMock, stockDoc({ state }))
+      renderStock(VIEW)
+      await screen.findByTestId('document-lines')
+      expect(screen.queryByRole('link', { name: 'Movements' })).not.toBeInTheDocument()
+      cleanup()
+    }
+  })
+})
+
 describe('C4-e matrix', () => {
   const sets = { read: withAtom, post: withPost, reverse: withReverse } as const
   const want: Record<string, Record<keyof typeof sets, string[]>> = {

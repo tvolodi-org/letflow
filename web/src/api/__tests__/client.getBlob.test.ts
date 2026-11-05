@@ -16,6 +16,7 @@ function mockFetchOnce(response: {
   status: number
   blob?: Blob
   contentType?: string | null
+  contentDisposition?: string | null
   jsonBody?: unknown
 }): void {
   vi.stubGlobal(
@@ -27,7 +28,8 @@ function mockFetchOnce(response: {
       blob: async () => response.blob ?? new Blob([]),
       json: async () => response.jsonBody ?? {},
       headers: {
-        get: (name: string) => (name === 'Content-Type' ? (response.contentType ?? null) : null),
+        get: (name: string) =>
+          name === 'Content-Type' ? (response.contentType ?? null) : name === 'Content-Disposition' ? (response.contentDisposition ?? null) : null,
       },
     }),
   )
@@ -38,6 +40,13 @@ describe('client.getBlob', () => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
     clearToken()
+  })
+
+  it('returns the Content-Disposition header (REQ-720 P3), null when absent', async () => {
+    mockFetchOnce({ ok: true, status: 200, contentType: 'x', contentDisposition: 'attachment; filename="a.xlsx"' })
+    expect((await client.getBlob('/x')).contentDisposition).toBe('attachment; filename="a.xlsx"')
+    mockFetchOnce({ ok: true, status: 200, contentType: 'x' })
+    expect((await client.getBlob('/x')).contentDisposition).toBeNull()
   })
 
   it('attaches Authorization/x-bpm-user-id headers, same as request()', async () => {

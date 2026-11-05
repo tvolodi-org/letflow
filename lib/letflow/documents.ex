@@ -46,6 +46,9 @@ defmodule Letflow.Documents do
   alias Letflow.Documents.DocumentType
   alias Letflow.Documents.DocumentVersion
   alias Letflow.Documents.OrgResolver
+  alias Letflow.Documents.OverrideRender
+  alias Letflow.Documents.PrintOverride
+  alias Letflow.Documents.PrintOverrides
   alias Letflow.Documents.Renderers
   alias Letflow.Modules.Catalog
   alias Letflow.Repo
@@ -518,6 +521,12 @@ defmodule Letflow.Documents do
       moves to it; `document.superseded` and `document.issued` are audited without field values.
 
   The period year is the calendar year at UTC+5 (decision 0056 open point 11, Asia/Almaty).
+  After the other refusals and before the number, the tenant's active print override for the type
+  (REQ-624: the draft's `locale` when `ru` or `kk`, else `default`, else the default-locale row) is
+  resolved and its layout re-validated; a layout that no longer validates is
+  `{:error, :print_override_invalid}` with nothing written. The override's id, version and layout
+  hash, and a `template_version`, are pinned on the issued version and, only when an override
+  applies, put in the `document.issued` audit entry; `attach_artefact/2` prints the pinned row.
   No caller supplies a number, a period, a time or a hash. Nothing here renders or stores bytes.
   A lock or statement timeout gives `{:error, :busy}` and rolls everything back.
   """
@@ -539,6 +548,7 @@ defmodule Letflow.Documents do
         type = type_of!(prefix, document)
 
         check_issuable!(prefix, resolver, document, type, draft)
+        override = resolve_override!(prefix, type, draft)
 
         {number, period} = number_of!(prefix, document, type)
         issued_at = now()
@@ -549,7 +559,11 @@ defmodule Letflow.Documents do
 
         from(v in DocumentVersion, where: v.id == ^draft.id)
         |> Repo.update_all(
-          [set: [status: :issued, issued_at: issued_at, issued_by: actor_id, content_hash: hash]],
+          [
+            set:
+              [status: :issued, issued_at: issued_at, issued_by: actor_id, content_hash: hash] ++
+                override_pin(override)
+          ],
           prefix: prefix
         )
 
@@ -567,14 +581,25 @@ defmodule Letflow.Documents do
           })
         end
 
-        audit!(prefix, actor_id, "document.issued", "document", document_id, nil, %{
-          "type_key" => type.key,
-          "version_no" => draft.version_no,
-          "number" => number,
-          "period" => period,
-          "number_label" => number_label(type, number, period),
-          "content_hash" => hash
-        })
+        audit!(
+          prefix,
+          actor_id,
+          "document.issued",
+          "document",
+          document_id,
+          nil,
+          Map.merge(
+            %{
+              "type_key" => type.key,
+              "version_no" => draft.version_no,
+              "number" => number,
+              "period" => period,
+              "number_label" => number_label(type, number, period),
+              "content_hash" => hash
+            },
+            override_audit(override)
+          )
+        )
 
         %{
           document: Repo.get!(Document, document_id, prefix: prefix),
@@ -583,6 +608,82 @@ defmodule Letflow.Documents do
       end)
     end
     |> count_refusal(:issue, prefix)
+  end
+
+  # REQ-624 (decision 0068 D8 S3): the tenant's active print override for the document's type and
+  # locale, else the default-locale one, else nil. The locale is the draft content key "locale"
+  # when it is "ru" or "kk"; anything else is "default". Read after the other refusals and before
+  # the number, so an override whose layout no longer validates refuses the issue with no number
+  # spent and no fallback to the module default. Only an id, a version and a hash reach the pin and
+  # the audit entry; the refusal carries no layout text and no violation.
+  defp resolve_override!(prefix, type, draft) do
+    case safe_find_override(prefix, type.key, draft.content) do
+      nil ->
+        nil
+
+      %PrintOverride{} = row ->
+        case safe_check_layout(prefix, type.declared_fields, row.layout) do
+          :ok -> row
+          :error -> Repo.rollback(:print_override_invalid)
+        end
+
+      :error ->
+        Repo.rollback(:print_override_invalid)
+    end
+  end
+
+  # A stored row that cannot even be loaded (a layout that is not a JSON object) is as unusable as
+  # one that does not validate: the issue is refused (INV-8), not crashed.
+  defp safe_find_override(prefix, type_key, content) do
+    find_override(prefix, type_key, content)
+  rescue
+    _error -> :error
+  end
+
+  defp find_override(prefix, type_key, content) do
+    locales = Enum.uniq([override_locale(content), "default"])
+
+    from(o in PrintOverride,
+      where: o.type_key == ^type_key and o.locale in ^locales and o.status == "active",
+      order_by: [asc: fragment("(? = 'default')", o.locale)],
+      limit: 1
+    )
+    |> Repo.one(prefix: prefix)
+  end
+
+  defp override_locale(%{"locale" => locale}) when locale in ["ru", "kk"], do: locale
+  defp override_locale(_content), do: "default"
+
+  defp safe_check_layout(prefix, declared_fields, layout) do
+    case PrintOverrides.check_layout(prefix, declared_fields, layout) do
+      :ok -> :ok
+      _other -> :error
+    end
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
+  end
+
+  defp override_pin(nil), do: []
+
+  defp override_pin(%PrintOverride{} = row) do
+    [
+      template_version: "print-layout-v" <> Integer.to_string(row.layout_schema_version),
+      print_override_id: row.id,
+      print_override_version: row.version_no,
+      print_override_layout_hash: row.layout_hash
+    ]
+  end
+
+  defp override_audit(nil), do: %{}
+
+  defp override_audit(%PrintOverride{} = row) do
+    %{
+      "print_override_id" => row.id,
+      "print_override_version" => row.version_no,
+      "print_override_layout_hash" => row.layout_hash
+    }
   end
 
   defp type_of!(prefix, document) do
@@ -1139,8 +1240,15 @@ defmodule Letflow.Documents do
   # No lock and no transaction is open here (checked on entry). Failure codes are a closed set of
   # atoms: nothing a renderer returns or raises is passed on.
   defp render_artefact(prefix, document, version, type) do
-    with :ok <- restriction_free(prefix, type),
-         {:ok, renderer} <- renderer_of(type) do
+    with :ok <- restriction_free(prefix, type) do
+      if version.print_override_id,
+        do: OverrideRender.render(prefix, version, type) |> checked_render(),
+        else: render_with_module(document, version, type)
+    end
+  end
+
+  defp render_with_module(document, version, type) do
+    with {:ok, renderer} <- renderer_of(type) do
       projection = Map.take(version.content, declared_names(type))
 
       meta = %{

@@ -295,8 +295,9 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # REQ-713 added the three stock post/reverse/cancel lines (208 -> 211); REQ-701 the seven count sheet lines (211 -> 218).
       # REQ-626 (GH #3503) part A added four attachment lines (218 -> 222).
       # REQ-717 (GH #3764) added five count differences lines (222 -> 228); REQ-716 the count scan line (228 -> 229).
-      # REQ-639 F-5 added the form-validation-dry-run line (229 -> 230).
-      assert length(snapshot) == 230
+      # REQ-725 (GH #3775) added the stock document check line (229 -> 230).
+      # REQ-639 F-5 added the form-validation-dry-run line (230 -> 231).
+      assert length(snapshot) == 231
 
       for line <- @resolver_lines ++ @tenant_wide_lines do
         refute line in snapshot, line

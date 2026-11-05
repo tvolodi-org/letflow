@@ -1,8 +1,8 @@
 /** M1 — GH 3769 / REQ-722: pure logic of the stock document screens. */
 import { describe, expect, it } from 'vitest'
 import {
-  DOC_EXTRA_REASONS, DOC_REASONS, actionsFor, buildBody, documentErrorMessageId, emptyForm, formFromDocument,
-  isDecimalAboveZero, isDecimalNonNegative, isoToZonedLocal, placeError, validateForm, zonedLocalToIso,
+  DOC_EXTRA_REASONS, DOC_REASONS, DOC_SIDE_REASONS, actionsFor, buildBody, documentErrorMessageId, emptyForm, formFromDocument,
+  isDecimalAboveZero, isDecimalNonNegative, isoToZonedLocal, placeError, sidesOf, validateForm, zonedLocalToIso,
   type FormState,
 } from '../documents/documentsModel'
 import type { StockDocument } from '../documents/documents.api'
@@ -47,7 +47,40 @@ describe('actionsFor', () => {
       const a = actionsFor(s, none)
       expect([a.edit, a.discard, a.issue, a.retry, a.cancel, a.reverse]).toEqual([false, false, false, false, false, false])
     }
-    expect(actionsFor('draft', all, 'transfer').edit).toBe(false)
+    expect(actionsFor('draft', all, 'transfer').edit).toBe(true)
+    expect(actionsFor('draft', all, 'unknown_kind').edit).toBe(false)
+  })
+})
+
+describe('two sides (REQ-723)', () => {
+  const sideDoc = (kind: string) =>
+    ({
+      ...stockDoc({ kind, org_unit_id: 'A', from_org_unit_id: 'F', to_org_unit_id: 'T' }),
+      from_location_id: 'fl', from_responsible_id: 'fr', to_location_id: 'tl', to_responsible_id: 'tr',
+    }) as unknown as StockDocument
+  it('sidesOf and the round trip per kind', () => {
+    expect(sidesOf(sideDoc('transfer'))).toEqual({
+      from: { orgUnitId: 'A', locationId: 'fl', responsibleId: 'fr' }, to: { orgUnitId: 'T', locationId: 'tl', responsibleId: 'tr' },
+    })
+    expect(sidesOf(sideDoc('return'))).toEqual({
+      from: { orgUnitId: 'F', locationId: 'fl', responsibleId: 'fr' }, to: { orgUnitId: 'A', locationId: 'tl', responsibleId: 'tr' },
+    })
+    for (const kind of ['transfer', 'hand_over', 'return']) {
+      const body = buildBody(formFromDocument(sideDoc(kind)))
+      expect(body).toMatchObject({ kind, from_location_id: 'fl', from_responsible_id: 'fr', to_location_id: 'tl', to_responsible_id: 'tr' })
+      expect(body).not.toHaveProperty('location_id')
+      expect(body).not.toHaveProperty('reason_text')
+    }
+    expect(buildBody(formFromDocument(sideDoc('return')))).toMatchObject({ from_org_unit_id: 'F', org_unit_id: 'A' })
+    expect(buildBody(formFromDocument(sideDoc('hand_over')))).toMatchObject({ org_unit_id: 'A', to_org_unit_id: 'T' })
+  })
+  it('places side refusals', () => {
+    expect(placeError({ status: 422, details: { reason: 'not_linked', side: 'to' } }).key).toBe('side.to')
+    expect(placeError({ status: 422, details: { reason: 'employee_not_active', side: 'from' } }).key).toBe('side.from')
+    expect(placeError({ status: 422, details: { reason: 'not_linked' } }).key).toBeNull()
+    expect(placeError({ status: 422, details: { reason: 'not_linked', side: 'x' } }).key).toBeNull()
+    expect(placeError({ status: 422, details: { reason: 'sides_equal' } }).key).toBe('sides')
+    expect(placeError({ status: 422, details: { reason: 'field_required', field: 'to_location_id' } }).key).toBe('side.to.locationId')
   })
 })
 
@@ -55,7 +88,7 @@ describe('errors', () => {
   it('maps status and reason to a message id', () => {
     expect(documentErrorMessageId({ status: 403 })).toBe('stock.doc.error.forbidden')
     expect(documentErrorMessageId({ status: 404 })).toBe('stock.doc.error.notFound')
-    for (const r of [...DOC_REASONS, ...DOC_EXTRA_REASONS]) {
+    for (const r of [...DOC_REASONS, ...DOC_EXTRA_REASONS, ...DOC_SIDE_REASONS]) {
       expect(documentErrorMessageId({ status: 422, details: { reason: r } })).toBe(`stock.doc.error.${r}`)
     }
     expect(documentErrorMessageId({ status: 422, details: { reason: 'brand_new' } })).toBe('stock.doc.error.unknown')

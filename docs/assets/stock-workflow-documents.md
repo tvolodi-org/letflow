@@ -145,6 +145,23 @@ Open owner questions, with defaults (default, owner may change at GATE B):
   checked only to be a non-negative decimal; no rounding rule is applied by the module.
 * Do issue or write off documents need a value? Default: no.
 
+## 4a. Opening balance document (REQ-725, REQ-726)
+
+* A second document kind `opening` (records `stock_opening` header and `stock_opening_line`, versioned document
+  type `stock_opening`, number `OPN-<year>-<6 digits>`) carries the stock a customer already holds when it
+  starts. The header has an org unit, a note and an optional external reference pair; there is no event time,
+  no location and no responsible employee on the header.
+* Each line has its own `location_id`, `responsible_id`, item, unit, `quantity`, the real receipt date
+  `received_on` (a field only), optional lot, `unit_price`, `line_value` and an optional external reference pair.
+  At most 100 lines.
+* `POST /documents/:id/check` runs every line check and answers the reasons per line (`not_linked`,
+  `employee_not_active`, `unit_not_valid`, the tracking reasons of the receipt, `lot_not_valid`,
+  `received_on_in_future`); it writes nothing. Issue runs the same checks and stops at the first failing line.
+* Posting needs two people. The issue step starts the process `stock_opening` and completes its `submit` task
+  as the issuing user; the `approve` task (`distinct_from ["submit"]`) posts cause `opening` (one `+quantity` leg
+  per line). The entry's event time is its posting time: a client event time is refused by the handler, the
+  policy and the read-side check. Reversal and cancel are those of the receipt.
+
 ## 5. Transfer
 
 **Meaning (proposal):** a transfer moves a quantity from one org unit and location to another.

@@ -15,6 +15,8 @@ definitions_dir = Path.join(pack_dir, "entity_definitions")
 entity_types = ~w(
   stock_receipt
   stock_receipt_line
+  stock_opening
+  stock_opening_line
   stock_issue
   stock_issue_line
   stock_writeoff
@@ -233,6 +235,44 @@ process_definition = fn id, key, node, handler, names ->
   }
 end
 
+# REQ-726: the opening balance process. A `submit` task (no module_writes, completed by the issuing
+# user at issue; its role is a label that differs from approve's, so REQ-464 sees no single-member pair) and an
+# `approve` task kept apart by distinct_from; completing `approve` posts.
+two_step_definition = fn id, key, handler, names ->
+  %{
+    "definition_id" => id,
+    "process_key" => key,
+    "version" => "1.0.0",
+    "graph" => %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "submit",
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{"role" => "STOCK_OPENING_SUBMIT"}
+        },
+        %{
+          "id" => "approve",
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{
+            "role" => "TENANT_ADMIN",
+            "distinct_from" => ["submit"],
+            "module_writes" => [
+              %{"module" => "stock", "handler" => handler, "args" => posting_args.(names)}
+            ]
+          }
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "submit"},
+        %{"id" => "e2", "source" => "submit", "target" => "approve"},
+        %{"id" => "e3", "source" => "approve", "target" => "end"}
+      ]
+    }
+  }
+end
+
 base_args = ~w(document_id document_type version_no org_unit_id mark posting)
 
 process_definitions = [
@@ -283,6 +323,12 @@ process_definitions = [
     "00501000-0000-0040-0080-000000003772",
     "stock_return",
     "post",
+    "post_document",
+    base_args
+  ),
+  two_step_definition.(
+    "00501000-0000-0040-0080-000000003774",
+    "stock_opening",
     "post_document",
     base_args
   )

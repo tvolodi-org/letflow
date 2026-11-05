@@ -3,7 +3,9 @@ defmodule Letflow.Modules.Stock.Documents do
   REQ-712 / GH #3749 (assets B4 part 1): the stock document context. The one writer of the receipt
   header and line records of every kind (`Letflow.Modules.Stock.Documents.Kinds`: receipt, and since REQ-721 transfer,
   hand over and return; the receipt types are `stock_receipt` and `stock_receipt_line`) and of the versioned document
-  (`Letflow.Documents`, decision 0056) behind them. Public functions: `save/3`, `replace/4`,
+  (`Letflow.Documents`, decision 0056) behind them. REQ-725 adds the kind `opening` (header
+  `stock_opening`, line `stock_opening_line`, per-line location, responsible and real receipt date, no event time);
+  `check/2` (opening only) runs every line check and writes nothing. Public functions: `save/3`, `replace/4`,
   `discard/3`, `issue/4` (writes) and `fetch/3`, `list/2` (reads); posting, reversal and cancel live in
   `Letflow.Modules.Stock.Documents.Posting` (REQ-713). The tenant is the `prefix` argument
   and nothing else (INV-1); the router derives it from the token.
@@ -36,6 +38,9 @@ defmodule Letflow.Modules.Stock.Documents do
     active with the request's activator (`{:error, :definition_not_active}` otherwise); after the
     issue committed one posting instance is started, and a failed start is NOT an error (the
     document stays issued; the retry route repairs it).
+  * An opening's external reference pair (`external_ref_system`, `external_ref_id`) may be held by one
+    live opening header only: save and replace check it in their transaction after a transaction-scoped
+    advisory lock on the pair (`{:error, :external_ref_taken}`).
   * The view carries `posted_at`, `posted_by`, `entry_id`, `reversed_at`, `reversed_by` and
     `posting_check`; its `state` is `draft`, `issued`, `posted`, `reversed` or `cancelled`.
   * The clock of the event-time window is the app env `:stock_documents_clock` (a zero-arity function,
@@ -60,6 +65,7 @@ defmodule Letflow.Modules.Stock.Documents do
   alias Letflow.Modules.Stock
   alias Letflow.Modules.Stock.Documents.Checks
   alias Letflow.Modules.Stock.Documents.Kinds
+  alias Letflow.Modules.Stock.Documents.OpeningChecks
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Documents.Shape
   alias Letflow.Repo
@@ -84,7 +90,7 @@ defmodule Letflow.Modules.Stock.Documents do
   """
   @spec save(String.t(), map(), String.t()) :: {:ok, map()} | {:error, term()}
   def save(prefix, body, actor) when is_binary(prefix) do
-    with {:ok, doc} <- Shape.parse(body, :create) do
+    with {:ok, doc} <- Kinds.parse(body, :create) do
       spec = Kinds.get(doc.kind)
 
       tx(prefix, fn ->
@@ -110,7 +116,7 @@ defmodule Letflow.Modules.Stock.Documents do
     with {:ok, id} <- cast(id),
          {:ok, current} <- fetch(prefix, id),
          :ok <- draft?(current),
-         {:ok, doc} <- Shape.parse(body, {:replace, current.kind}),
+         {:ok, doc} <- Kinds.parse(body, {:replace, current.kind}),
          :ok <- same_unit(current, doc) do
       tx(prefix, fn ->
         lock!(prefix, id)
@@ -118,6 +124,7 @@ defmodule Letflow.Modules.Stock.Documents do
         if locked.state != "draft", do: Repo.rollback(:document_not_draft)
 
         spec = Kinds.get(doc.kind)
+        ref_free!(prefix, spec, id, doc)
         write_header!(prefix, spec, :update, locked.header_id, id, doc, actor)
         write_lines!(prefix, spec, locked, doc, actor)
 
@@ -170,15 +177,53 @@ defmodule Letflow.Modules.Stock.Documents do
     with {:ok, id} <- cast(id),
          {:ok, view} <- fetch(prefix, id),
          :ok <- draft?(view),
-         :ok <- Checks.event_time(view.event_time, now()),
-         :ok <- Checks.received_on(Map.get(view, :received_on), view.event_time),
-         :ok <- Checks.masters(prefix, view),
+         :ok <- issue_checks(prefix, view),
          :ok <- activate(prefix, Kinds.get(view.kind), Keyword.get(opts, :activator)),
          {:ok, _issued} <- issue_once(prefix, id, actor) do
       start_posting(prefix, id, actor)
       fetch(prefix, id, Keyword.get(opts, :authorized))
     end
   end
+
+  # The receipt and the two-sided kinds stop at their first failure (REQ-712/REQ-714/REQ-721). The
+  # opening runs every line check (`OpeningChecks`) and stops at the first failing line in line order.
+  defp issue_checks(prefix, %{kind: "opening"} = view) do
+    with {:ok, today} <- today() do
+      case prefix |> OpeningChecks.check_all(view, today) |> OpeningChecks.first_failure() do
+        :ok -> :ok
+        {reason, line_no} -> {:error, {reason, %{"line_no" => line_no}}}
+      end
+    end
+  end
+
+  defp issue_checks(prefix, view) do
+    with :ok <- Checks.event_time(view.event_time, now()),
+         :ok <- Checks.received_on(Map.get(view, :received_on), view.event_time) do
+      Checks.masters(prefix, view)
+    end
+  end
+
+  defp today, do: Checks.event_day(DateTime.to_iso8601(now()))
+
+  @doc """
+  The result of every line check of the opening draft `id`: `{:ok, %{ok: boolean, lines: [%{line_no,
+  reasons}]}}`. Writes nothing, takes no lock and no number. Other kinds are `unknown_kind` (422), an
+  issued or cancelled document `:document_not_draft`.
+  """
+  @spec check(String.t(), term()) :: {:ok, map()} | {:error, term()}
+  def check(prefix, id) when is_binary(prefix) do
+    with {:ok, id} <- cast(id),
+         {:ok, view} <- fetch(prefix, id),
+         :ok <- opening?(view),
+         :ok <- draft?(view),
+         {:ok, today} <- today() do
+      lines = OpeningChecks.check_all(prefix, view, today)
+      {:ok, %{ok: Enum.all?(lines, &(&1.reasons == [])), lines: lines}}
+    end
+  end
+
+  defp opening?(%{kind: "opening"}), do: :ok
+  defp opening?(_view), do: {:error, {"unknown_kind", %{}}}
 
   defp activate(prefix, spec, activator) do
     case Posting.ensure_active(prefix, spec.definition, activator) do
@@ -217,6 +262,7 @@ defmodule Letflow.Modules.Stock.Documents do
   # -- write helpers ------------------------------------------------------------------------------
 
   defp write_new(prefix, spec, document_id, doc, actor) do
+    ref_free!(prefix, spec, document_id, doc)
     header_id = write_header!(prefix, spec, :create, nil, document_id, doc, actor)
 
     for line <- doc.lines do
@@ -323,6 +369,40 @@ defmodule Letflow.Modules.Stock.Documents do
 
     :ok
   end
+
+  # REQ-725: the external reference pair of an opening header may be held by one live opening header.
+  # Two saves of the same pair serialise on a transaction-scoped advisory lock (a bound parameter,
+  # the tenant prefix in the text), then the live headers are searched. A table constraint cannot do
+  # this: soft-deleted rows would keep the pair taken.
+  defp ref_free!(prefix, %{kind: "opening"} = kind, document_id, doc) do
+    with system when is_binary(system) <- doc.header["external_ref_system"],
+         ref when is_binary(ref) <- doc.header["external_ref_id"] do
+      lock_text = "stock_opening_ref:" <> prefix <> ":" <> system <> ":" <> ref
+
+      case Repo.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lock_text]) do
+        {:ok, _result} -> :ok
+        {:error, reason} -> Repo.rollback(log_internal(reason))
+      end
+
+      taken? =
+        Repo.exists?(
+          from(r in Latest,
+            where:
+              r.entity_type == ^kind.type_key and not r.deleted and
+                fragment("?->>'external_ref_system' = ?", r.field_values, ^system) and
+                fragment("?->>'external_ref_id' = ?", r.field_values, ^ref) and
+                fragment("?->>'document_id' <> ?", r.field_values, ^document_id)
+          ),
+          prefix: prefix
+        )
+
+      if taken?, do: Repo.rollback(:external_ref_taken), else: :ok
+    else
+      _no_pair -> :ok
+    end
+  end
+
+  defp ref_free!(_prefix, _kind, _document_id, _doc), do: :ok
 
   defp header_values(doc, document_id) do
     Map.put(doc.header, "document_id", document_id)
@@ -450,19 +530,39 @@ defmodule Letflow.Modules.Stock.Documents do
 
     prefix
     |> then(&Repo.all(query, prefix: &1))
-    |> Enum.map(fn {record_id, fv} ->
-      %{
-        line_id: record_id,
-        line_no: fv["line_no"],
-        catalog_item_id: fv["catalog_item_id"],
-        catalog_uom_id: fv["catalog_uom_id"],
-        catalog_lot_id: fv["catalog_lot_id"],
-        quantity: fv["quantity"],
-        unit_price: fv["unit_price"],
-        line_value: fv["line_value"]
-      }
-    end)
+    |> Enum.map(&line_view(spec.kind, &1))
     |> Enum.sort_by(& &1.line_no)
+  end
+
+  defp line_view("opening", {record_id, fv}) do
+    %{
+      line_id: record_id,
+      line_no: fv["line_no"],
+      location_id: fv["location_id"],
+      responsible_id: fv["responsible_id"],
+      catalog_item_id: fv["catalog_item_id"],
+      catalog_uom_id: fv["catalog_uom_id"],
+      catalog_lot_id: fv["catalog_lot_id"],
+      quantity: fv["quantity"],
+      received_on: fv["received_on"],
+      unit_price: fv["unit_price"],
+      line_value: fv["line_value"],
+      external_ref_system: fv["external_ref_system"],
+      external_ref_id: fv["external_ref_id"]
+    }
+  end
+
+  defp line_view(_kind, {record_id, fv}) do
+    %{
+      line_id: record_id,
+      line_no: fv["line_no"],
+      catalog_item_id: fv["catalog_item_id"],
+      catalog_uom_id: fv["catalog_uom_id"],
+      catalog_lot_id: fv["catalog_lot_id"],
+      quantity: fv["quantity"],
+      unit_price: fv["unit_price"],
+      line_value: fv["line_value"]
+    }
   end
 
   # The keys of the header fields of the kind come from `Kinds.view_fields/2` (receipt: location,
@@ -536,7 +636,7 @@ defmodule Letflow.Modules.Stock.Documents do
 
   defp list_filters(params) do
     with true <- Enum.all?(params, fn {k, v} -> k in @list_keys and is_binary(v) end),
-         {:ok, kind} <- one_of(params, "kind", Shape.kinds()),
+         {:ok, kind} <- one_of(params, "kind", Kinds.kinds()),
          {:ok, state} <- one_of(params, "state", @states),
          {:ok, unit} <- unit_filter(params),
          {:ok, limit} <- limit_filter(params),

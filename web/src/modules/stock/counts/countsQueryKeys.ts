@@ -5,4 +5,6 @@ export const countsQueryKeys = {
   detail: (tenantId: string, id: string) => ['stock', tenantId, 'counts', 'detail', id] as const,
   lines: (tenantId: string, id: string) => ['stock', tenantId, 'counts', 'lines', id] as const,
   entries: (tenantId: string, id: string) => ['stock', tenantId, 'counts', 'entries', id] as const,
+  differences: (tenantId: string, id: string) => ['stock', tenantId, 'counts', 'differences', id] as const,
+  signatures: (tenantId: string, id: string) => ['stock', tenantId, 'counts', 'signatures', id] as const,
 }
