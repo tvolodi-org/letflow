@@ -8,11 +8,13 @@ export type NavGroupId = 'work' | 'tenantAdmin' | 'platform'
 export interface NavCatalog {
   groups: Record<NavGroupId, string>
   items: Record<string, string>
+  signOut: string
 }
 
 export const navMessages: Record<UiLocale, NavCatalog> = {
   en: {
     groups: { work: 'Work', tenantAdmin: 'Tenant administration', platform: 'Platform' },
+    signOut: 'Sign out',
     items: {
       '/instances': 'Instances',
       '/tasks': 'My Tasks',
@@ -56,6 +58,7 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
   },
   ru: {
     groups: { work: 'Работа', tenantAdmin: 'Администрирование', platform: 'Платформа' },
+    signOut: 'Выйти',
     items: {
       '/instances': 'Экземпляры',
       '/tasks': 'Мои задачи',
@@ -99,6 +102,7 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
   },
   kk: {
     groups: { work: 'Жұмыс', tenantAdmin: 'Әкімшілік', platform: 'Платформа' },
+    signOut: 'Шығу',
     items: {
       '/instances': 'Орындалып жатқан процестер',
       '/tasks': 'Менің тапсырмаларым',

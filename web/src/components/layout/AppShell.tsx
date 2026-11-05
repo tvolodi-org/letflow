@@ -173,7 +173,7 @@ export function AppShell() {
           <div data-testid="user-roles">{access.roles.join(', ')}</div>
           <div className="lf-btn-row">
             <button type="button" data-testid="logout-button" className="lf-btn lf-btn--ghost lf-btn--s" onClick={logout}>
-              Sign out
+              {navMessages[uiLocale].signOut}
             </button>
             <ThemeToggle />
           </div>
