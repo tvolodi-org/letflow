@@ -57,15 +57,6 @@ defmodule Letflow.Modules.Stock do
   No route, permission or migration. Assumptions, owner may change at GATE B: the constant zone, the
   date check at issue, serial-tracked goods refused.
 
-  ## Opening balances (REQ-725 / GH #3775 and REQ-726 / GH #3774; version 0.7.0)
-
-  The managed types `stock_opening` (header) and `stock_opening_line` (per-line location, responsible and
-  real receipt date; no event time), the versioned document type `stock_opening` (prefix `OPN`, per
-  year, pad 6), the route `POST /documents/:id/check` (all line checks, nothing written), the cause
-  `opening` (positive) and the process definition `stock_opening` (a `submit` task and an `approve`
-  task kept apart by `distinct_from`; completing `approve` posts). The entry's event time is its
-  posting time. Assumptions, owner may change at GATE B: 100 lines, `OPN` per year, the second person.
-
   ## Count sheet (REQ-701 / GH #3736; version 0.5.0)
 
   Two more module-managed record types, `count_sheet_line` and `count_entry` (both scoped by the column
@@ -91,6 +82,15 @@ defmodule Letflow.Modules.Stock do
   One read route, `GET /counts/:id/paperwork/:kind` (`StockRead`), answers the `.xlsx` of an issued count
   order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
   `CountPaperworkSource`). No migration, record type or permission.
+
+  ## Opening balances (REQ-725 / GH #3775 and REQ-726 / GH #3774; version 0.8.0)
+
+  The managed types `stock_opening` (header) and `stock_opening_line` (per-line location, responsible and
+  real receipt date; no event time), the versioned document type `stock_opening` (prefix `OPN`, per
+  year, pad 6), the route `POST /documents/:id/check` (all line checks, nothing written), the cause
+  `opening` (positive) and the process definition `stock_opening` (a `submit` task and an `approve`
+  task kept apart by `distinct_from`; completing `approve` posts). The entry's event time is its
+  posting time. Assumptions, owner may change at GATE B: 100 lines, `OPN` per year, the second person.
 
   ## Slots and their order (append-only, rule 12)
 
@@ -201,7 +201,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.7.0",
+    version: "0.8.0",
     depends_on: ["catalog_items", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [

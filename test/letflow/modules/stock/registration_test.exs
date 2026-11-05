@@ -46,7 +46,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.7.0"
+    assert m.version == "0.8.0"
     assert m.depends_on == ["catalog_items", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 

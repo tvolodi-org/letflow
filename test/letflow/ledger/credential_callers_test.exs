@@ -73,6 +73,31 @@ defmodule Letflow.Ledger.CredentialCallersTest do
     assert found, "tasks.ex must put :credential from the request's auth context"
   end
 
+  # The reason of the posting.ex entry: it completes only `submit` nodes, and no `submit` node of the
+  # stock pack carries a module write (so a missing credential refuses nothing it would need).
+  test "T-SEC-3e posting.ex completes only submit, and no submit node of the stock pack writes" do
+    source = File.read!("lib/letflow/modules/stock/documents/posting.ex")
+
+    assert Regex.scan(~r/t\.node_id == "(\w+)"/, source) == [
+             [~s(t.node_id == "submit"), "submit"]
+           ]
+
+    submits =
+      for d <-
+            "priv/modules/stock/pack.json"
+            |> File.read!()
+            |> Jason.decode!()
+            |> Map.fetch!("definitions"),
+          node <- d["graph"]["nodes"],
+          node["id"] == "submit",
+          do: {d["process_key"], node}
+
+    assert [{"stock_opening", _}] = submits
+
+    for {_key, node} <- submits,
+        do: refute(Map.has_key?(node["attributes"] || %{}, "module_writes"))
+  end
+
   # `Keyword.put(opts, :credential, Map.get(conn.assigns.auth_context, :credential))`, in or out of a pipe
   defp credential_from_context?(node),
     do: Macro.to_string(node) == "Map.get(conn.assigns.auth_context, :credential)"

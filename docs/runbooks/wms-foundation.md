@@ -540,10 +540,12 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     price, value, reason or counterparty field; a return needs no earlier hand over; equal sides (same unit, location
     and employee) are refused at save as `sides_equal` (`priv/modules/stock/entity_definitions/stock_transfer.json`,
     GH #3770).
-27. **Opening balance document.** Version 0.5.0 adds the second document kind `opening` (records `stock_opening` and
+27. **Opening balance document.** Version 0.8.0 adds the second document kind `opening` (records `stock_opening` and
     `stock_opening_line`, number prefix `OPN` per year, pad 6). It posts only through the two-person process
     `stock_opening` (GH #3774); a larger stock than 100 lines is entered as several documents
-    (`lib/letflow/modules/stock/documents/opening_shape.ex`, GH #3775).
+    (`lib/letflow/modules/stock/documents/opening_shape.ex`, GH #3775). A tenant that installed 0.7.0 takes the new
+    types and definitions through the module upgrade path (`lib/letflow/modules/tenant_module_upgrade.ex`); no tenant
+    is upgraded or seeded by the change.
 28. **The entry's event time is its posting time.** An opening carries no event time; the real receipt date is a field of
     each line (`received_on`) and never reaches the ledger. A balance as of an earlier time therefore shows no opening
     quantity, and the posting handler, the policy and the read-side check all refuse a client event time
