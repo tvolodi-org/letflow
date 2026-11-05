@@ -27,6 +27,7 @@ import {
   type MovementFilters,
 } from './stockRegisterModel'
 import { useNames } from './stockNames'
+import { formatDateTimeInZone } from '@/i18n/format'
 
 const digits = (v: string) => v.replace(/\D/g, '')
 
@@ -63,18 +64,7 @@ function MovementsInner({ initialOpenId = null }: { initialOpenId?: string | nul
   const dash = t('stock.common.dash')
   const when = (iso: string | null | undefined) => {
     if (!iso) return dash
-    const d = new Date(iso)
-    if (Number.isNaN(d.getTime())) return iso
-    return new Intl.DateTimeFormat(intl.locale, {
-      timeZone: STOCK_TIME_ZONE,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hourCycle: 'h23',
-    }).format(d)
+    return formatDateTimeInZone(iso, { timeZone: STOCK_TIME_ZONE, locale: intl.locale, intlLocale: intl.locale, enStyle: 'intl', seconds: true })
   }
   const known = (list: readonly string[], prefix: string, v: string) => (list.includes(v) ? t(`${prefix}.${v}`) : v)
 

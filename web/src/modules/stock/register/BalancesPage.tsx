@@ -19,6 +19,8 @@ import { usePickerOptions } from './stockPickers'
 import { stockQueryKeys } from './stockQueryKeys'
 import { EMPTY_BALANCE_FILTERS, AS_OF_DATE, balanceNameIds, balanceParams, balanceQuery, type BalanceFilters } from './stockRegisterModel'
 import { useNames } from './stockNames'
+import { DateValueHint } from '@/components/ui/DateValueHint'
+import { formatLocalInput } from '@/i18n/format'
 
 const ACTIVE_ONLY: never[] = []
 
@@ -72,7 +74,7 @@ function BalancesInner() {
       [...items, ...locations, ...units, ...people, ...lots].find((o) => o.value === filterParams[k])?.label ?? filterParams[k]
     }`,
   }))
-  if (params.as_of_date) chips.push({ id: 'as_of_date', label: `${t('stock.filter.asOf')}: ${params.as_of_date}` })
+  if (params.as_of_date) chips.push({ id: 'as_of_date', label: `${t('stock.filter.asOf')}: ${formatLocalInput(params.as_of_date, 'date', intl.locale)}` })
 
   const onExport = async () => {
     setExporting(true)
@@ -130,12 +132,13 @@ function BalancesInner() {
         >
           <input name="as-of-date" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
         </Field>
+        <DateValueHint value={asOf} kind="date" />
       </FilterBar>
       {first?.as_of_date ? (
         <p className="caption" data-testid="as-of-read">
           {intl.formatMessage(
             { id: 'stock.balances.asOfRead' },
-            { date: first.as_of_date, zone: first.timezone ?? '', seq: first.cutoff_seq ?? ledgerSeq ?? '' },
+            { date: formatLocalInput(first.as_of_date, 'date', intl.locale), zone: first.timezone ?? '', seq: first.cutoff_seq ?? ledgerSeq ?? '' },
           )}
         </p>
       ) : (
