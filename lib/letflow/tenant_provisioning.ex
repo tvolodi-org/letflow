@@ -975,7 +975,10 @@ defmodule Letflow.TenantProvisioning do
      "20261105400001_add_print_override_pin_to_document_versions.exs"},
     # REQ-603 part A (decision 0074 P2, P6): purge_requests table and guarded delete triggers.
     {20_261_105_500_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards,
-     "20261105500001_create_purge_requests_and_delete_guards.exs"}
+     "20261105500001_create_purge_requests_and_delete_guards.exs"},
+    # REQ-769 (decision 0055 Q1): tenant_modules.accepted_manifest_hashes (earlier hashes whose stamps stay valid).
+    {20_261_106_100_001, Letflow.Repo.Migrations.AddAcceptedManifestHashesToTenantModules,
+     "20261106100001_add_accepted_manifest_hashes_to_tenant_modules.exs"}
   ]
 
   @doc """
