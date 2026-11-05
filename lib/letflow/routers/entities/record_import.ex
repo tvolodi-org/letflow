@@ -21,6 +21,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
   alias Letflow.Modules.Catalog
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.RecordAccess
+  alias Letflow.Entities.ReferenceCheck
   alias Letflow.Entities.Records
   alias Letflow.Entities.ScopedLookup
   alias Letflow.Entities.ScopedWrites
@@ -81,6 +82,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> managed_import(conn, entity_type, scope)
+      :write_denied -> Response.forbidden(conn, "insufficient permissions")
       access -> import_records_with_access(conn, entity_type, access, scope, nil)
     end
   end
@@ -602,7 +604,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
         {:open, restricted} ->
           if RecordAccess.names_restricted?(field_values, restricted),
             do: {:error, :field_restricted},
-            else: Records.create_record(command_attrs, prefix)
+            else: create_checked(command_attrs, prefix)
       end
 
     case result do
@@ -611,6 +613,15 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
       {:error, _reason} = error ->
         {:error, source_record_id, error}
+    end
+  end
+
+  # REQ-636: the reference check sits between the access decision and the store; a refused line
+  # stores nothing and the other lines are unchanged (import is per-line partial success).
+  defp create_checked(command_attrs, prefix) do
+    case ReferenceCheck.check(command_attrs.entity_type, command_attrs.field_values, prefix) do
+      :ok -> Records.create_record(command_attrs, prefix)
+      {:error, {:reference_invalid, _names}} = refused -> refused
     end
   end
 
@@ -674,6 +685,11 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
   defp import_reason_json({:definition_not_found, entity_type}) do
     %{"type" => "definition_not_found", "entity_type" => entity_type}
+  end
+
+  # REQ-636: names the first failing field only; no received value, no case split (INV-5).
+  defp import_reason_json({:reference_invalid, [field | _]}) do
+    %{"type" => "reference_invalid", "field" => field}
   end
 
   defp import_reason_json({:payload_validation_failed, _errors}) do

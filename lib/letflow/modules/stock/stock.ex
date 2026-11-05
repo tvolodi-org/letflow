@@ -31,6 +31,27 @@ defmodule Letflow.Modules.Stock do
   A unique constraint on (`document_id`, `mark`) of the mark type allows one posted and one reversed
   mark per document, so a second completion is refused and nothing is written.
 
+  ## Transfer, hand over and return (REQ-721 / GH #3770, assets phase B P37; version 0.5.0)
+
+  Three more document kinds with two sides per line, built on the same code as the receipt through
+  the kind table `Letflow.Modules.Stock.Documents.Kinds`: the managed types `stock_transfer`,
+  `stock_handover`, `stock_return` (each with a `_line` type, all scoped by the column `org_unit_id`),
+  the document types `TRF`, `HOV`, `RET` (year numbering, pad 6) and the process definitions of the
+  same names. Posting writes one ledger entry with two legs per line (`-q` at the from side, `+q` at
+  the to side). No new route, permission or ledger rule.
+
+  ## Issue and write off (REQ-715 / GH #3746; version 0.6.0)
+
+  Two more document kinds on the same routes, `issue` and `write_off` (`Documents.Kinds` is the kind
+  table): the managed types `stock_issue`, `stock_issue_line`, `stock_writeoff`, `stock_writeoff_line`
+  (all scoped by `org_unit_id`), the document types `stock_issue` (ISS) and `stock_writeoff` (WOF),
+  numbered per year, and the process definitions `stock_issue` and `stock_writeoff`. They post with the
+  same `post_document` handler; the legs are negative and the ledger refuses a posting below zero
+  (`insufficient_stock`). A line has no price or value. A write-off carries `reason_code` (`lost`,
+  `damaged`, `used_up`, `other`) and an optional `reason_text`. An existing installation gets the new
+  types and definitions by reinstalling the module; there is no upgrade hook. No route, permission or
+  migration. Assumptions, owner may change at GATE B: the prefixes, the reason list, no counterparty.
+
   ## Counts (REQ-700 / GH #3737, assets phase B counts; version 0.3.0)
 
   The count order: three module-managed record types (`count_order`, `count_order_scope`,
@@ -38,6 +59,51 @@ defmodule Letflow.Modules.Stock do
   count document types registered by `on_install/3` and seven routes
   (`Letflow.Modules.Stock.Counts`, `Letflow.Modules.Stock.Router`). No ledger call. `depends_on`
   gains `org` and `locations` (the count functions read both; the boundary lint requires it).
+
+  ## Receipt fields (REQ-714 / GH #3747; version 0.4.0)
+
+  The receipt types gain optional `supplier_document_ref` and `received_on` (header) and `unit_price`
+  and `line_value` (line). Price and value live on the document only: the posting code reads literal
+  keys and never copies them to the ledger. At issue the lot is checked against the item's tracking
+  policy and `received_on` may not be after the event day in Asia/Almaty (`Documents.Checks`).
+  No route, permission or migration. Assumptions, owner may change at GATE B: the constant zone, the
+  date check at issue, serial-tracked goods refused.
+
+  ## Count sheet (REQ-701 / GH #3736; version 0.5.0)
+
+  Two more module-managed record types, `count_sheet_line` and `count_entry` (both scoped by the column
+  `org_unit_id`), a field `sheet_document_id` on `count_order`, the permission `StockCountRecord` and
+  seven routes (`Letflow.Modules.Stock.CountSheet`, delegated from `Counts`): open the count at the
+  cut-off (book quantities from the stock ledger through `Ledger.authorize/3` and `Ledger.balances/4`
+  only), typed input, surplus lines, the append-only entry log, close (issues the `count.sheet`
+  document). The stock module is installed on no tenant yet, so the changed pack touches no existing row.
+
+  ## Signing and the differences sheet (REQ-717 / GH #3764; version 0.6.0)
+
+  One more module-managed record type, `count_signature` (append-only, scoped by the column
+  `org_unit_id`), five optional fields on `count_order` and five routes
+  (`Letflow.Modules.Stock.CountDifferences`, delegated from `Counts`): the chair records the signers
+  of the count sheet, the differences sheet is issued from the issued sheet content, the chair records
+  its signers and the count becomes `signed`. No ledger call (the posting is REQ-718). Existing tenants
+  with `stock` installed take the new type through the module-upgrade path; the new header fields are
+  optional, so a `counted` count that exists already simply has none of them.
+  Assumption, owner may change at GATE B: "signed" is a paper signature recorded by the chair.
+
+  ## Count paperwork (REQ-719 / GH #3762; version 0.7.0)
+
+  One read route, `GET /counts/:id/paperwork/:kind` (`StockRead`), answers the `.xlsx` of an issued count
+  order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
+  `CountPaperworkSource`). No migration, record type or permission.
+
+  ## Count scan (REQ-716 / GH #3765; version 0.8.0)
+
+  One more route, `POST /counts/:id/scan` (permission `StockCountRecord`, `CountSheet.scan/4`): a
+  keyboard-scanner code is resolved with `Letflow.Modules.Codes.resolve/2`; an item or lot code adds one
+  unit to its single line, a `count_entry` with `method: scan` is appended, and a `scan_id` is counted
+  once. `count_entry` gains the optional fields `scan_id`, `code_id`, `scanned_text`, `location_id`. No
+  migration, no new permission; `depends_on` gains `codes` (the scan reads `Codes.resolve/2`; the boundary
+  lint requires it); the stock module is installed on no tenant yet. Assumptions, owner may
+  change at GATE B: see the `CountSheet` scanner section.
 
   ## Slots and their order (append-only, rule 12)
 
@@ -54,8 +120,8 @@ defmodule Letflow.Modules.Stock do
 
   ## Permissions
 
-  `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`, `StockCountOrder` (REQ-700; the count
-  record permission `StockCountRecord` comes with REQ-701, the first route that uses it); no role grants, so only TENANT_ADMIN and
+  `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`, `StockCountOrder` (REQ-700) and
+  `StockCountRecord` (REQ-701: open, count, add surplus lines, close); no role grants, so only TENANT_ADMIN and
   PLATFORM_ADMIN hold them (OQ-11 of decision 0073 stays open for the owner).
   """
 
@@ -71,9 +137,22 @@ defmodule Letflow.Modules.Stock do
   @types [
     "stock_receipt",
     "stock_receipt_line",
+    "stock_issue",
+    "stock_issue_line",
+    "stock_writeoff",
+    "stock_writeoff_line",
+    "stock_transfer",
+    "stock_transfer_line",
+    "stock_handover",
+    "stock_handover_line",
+    "stock_return",
+    "stock_return_line",
     "count_order",
     "count_order_scope",
     "count_commission_member",
+    "count_sheet_line",
+    "count_entry",
+    "count_signature",
     "stock_posting_mark"
   ]
 
@@ -105,15 +184,46 @@ defmodule Letflow.Modules.Stock do
                               declared_fields: %{}
                             }
 
-  @document_types [@receipt_type | @count_document_types]
+  # REQ-715: issue and write-off (prefixes ISS, WOF; assumption, owner may change at GATE B).
+  @one_side_document_types for {key, prefix} <- [
+                                 {"stock_issue", "ISS"},
+                                 {"stock_writeoff", "WOF"}
+                               ],
+                               do: %{@receipt_type | key: key, number_prefix: prefix}
+
+  # REQ-721: transfer, hand over and return (prefixes TRF, HOV, RET; assumption, owner may change at GATE B).
+  @two_side_document_types for {key, prefix} <- [
+                                 {"stock_transfer", "TRF"},
+                                 {"stock_handover", "HOV"},
+                                 {"stock_return", "RET"}
+                               ],
+                               do: %{
+                                 key: key,
+                                 owner_module: "stock",
+                                 numbering_scope: :year,
+                                 number_prefix: prefix,
+                                 number_pad: 6,
+                                 legal_entity_required: false,
+                                 declared_fields: %{}
+                               }
+
+  @document_types [@receipt_type | @one_side_document_types ++ @two_side_document_types] ++
+                    @count_document_types
 
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.3.0",
-    depends_on: ["catalog_items", "locations", "org"],
+    version: "0.8.0",
+    depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
-    permissions: [:StockPost, :StockReverse, :StockRead, :StockReconcile, :StockCountOrder],
+    permissions: [
+      :StockPost,
+      :StockReverse,
+      :StockRead,
+      :StockReconcile,
+      :StockCountOrder,
+      :StockCountRecord
+    ],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
@@ -136,22 +246,62 @@ defmodule Letflow.Modules.Stock do
       {"POST", "/counts/:id/cancel", :StockCountOrder},
       {"GET", "/counts", :StockRead},
       {"GET", "/counts/:id", :StockRead},
-      {"GET", "/counts/:id/document", :StockRead}
+      {"GET", "/counts/:id/document", :StockRead},
+      {"GET", "/counts/:id/paperwork/:kind", :StockRead},
+      {"POST", "/counts/:id/open", :StockCountRecord},
+      {"POST", "/counts/:id/scan", :StockCountRecord},
+      {"GET", "/counts/:id/lines", :StockRead},
+      {"PUT", "/counts/:id/lines/:line_no/count", :StockCountRecord},
+      {"POST", "/counts/:id/surplus-lines", :StockCountRecord},
+      {"GET", "/counts/:id/entries", :StockRead},
+      {"POST", "/counts/:id/close", :StockCountRecord},
+      {"GET", "/counts/:id/sheet-document", :StockRead},
+      {"POST", "/counts/:id/sheet-signatures", :StockCountRecord},
+      {"POST", "/counts/:id/differences", :StockCountRecord},
+      {"POST", "/counts/:id/differences-signatures", :StockCountRecord},
+      {"GET", "/counts/:id/differences", :StockRead},
+      {"GET", "/counts/:id/signatures", :StockRead}
     ],
     manages_entity_types: [
       "stock_receipt",
       "stock_receipt_line",
+      "stock_issue",
+      "stock_issue_line",
+      "stock_writeoff",
+      "stock_writeoff_line",
+      "stock_transfer",
+      "stock_transfer_line",
+      "stock_handover",
+      "stock_handover_line",
+      "stock_return",
+      "stock_return_line",
       "count_order",
       "count_order_scope",
       "count_commission_member",
+      "count_sheet_line",
+      "count_entry",
+      "count_signature",
       "stock_posting_mark"
     ],
     scope_declarations: %{
       "stock_receipt" => {:column, "org_unit_id"},
       "stock_receipt_line" => {:column, "org_unit_id"},
+      "stock_issue" => {:column, "org_unit_id"},
+      "stock_issue_line" => {:column, "org_unit_id"},
+      "stock_writeoff" => {:column, "org_unit_id"},
+      "stock_writeoff_line" => {:column, "org_unit_id"},
+      "stock_transfer" => {:column, "org_unit_id"},
+      "stock_transfer_line" => {:column, "org_unit_id"},
+      "stock_handover" => {:column, "org_unit_id"},
+      "stock_handover_line" => {:column, "org_unit_id"},
+      "stock_return" => {:column, "org_unit_id"},
+      "stock_return_line" => {:column, "org_unit_id"},
       "count_order" => {:column, "org_unit_id"},
       "count_order_scope" => {:column, "org_unit_id"},
       "count_commission_member" => {:column, "org_unit_id"},
+      "count_sheet_line" => {:column, "org_unit_id"},
+      "count_entry" => {:column, "org_unit_id"},
+      "count_signature" => {:column, "org_unit_id"},
       "stock_posting_mark" => {:column, "org_unit_id"}
     },
     write_handlers: [

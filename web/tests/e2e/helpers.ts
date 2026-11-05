@@ -98,27 +98,49 @@ export async function getKeycloakToken(
 }
 
 /**
- * Obtain a JWT access token from Keycloak's MASTER realm via the built-in
- * admin-cli client (password grant). Distinct from `getKeycloakToken`, which
- * authenticates against the `bpm-default`/tenant realm as an application user.
+ * Obtain an admin access token for ONE realm from the UAT-only `uat-seed-admin`
+ * client (client_credentials grant; ISS-0888 / ISS-0896). The client id and secret
+ * come only from `UAT_KC_ADMIN_CLIENT_ID` / `UAT_KC_ADMIN_CLIENT_SECRET` in the
+ * environment (.env.uat): there is no fallback literal, the secret is never put in
+ * an argv or an error message. Each realm has its own client, so the token is good
+ * for `/admin/realms/<realm>/...` of that realm only.
  *
- * Username/password resolve via `resolveCredential`:
- *   - `KC_ADMIN_USER`     (fallback: 'admin')
- *   - `KC_ADMIN_PASSWORD` (fallback: 'admin')
- *
- * Throws (does not return a boolean/undefined) when the token request does
- * not return 2xx.
+ * Throws when either variable is unset or the token request is not 2xx.
+ */
+export async function getRealmAdminToken(request: APIRequestContext, realm: string): Promise<string> {
+  const clientId = resolveCredential('UAT_KC_ADMIN_CLIENT_ID', '')
+  const clientSecret = resolveCredential('UAT_KC_ADMIN_CLIENT_SECRET', '')
+  if (!clientId || !clientSecret) {
+    throw new Error('UAT_KC_ADMIN_CLIENT_ID and UAT_KC_ADMIN_CLIENT_SECRET must be set (.env.uat)')
+  }
+  const response = await request.post(`${BPM_IDP_BASE_URL}/realms/${encodeURIComponent(realm)}/protocol/openid-connect/token`, {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    form: { grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret },
+  })
+  if (!response.ok()) {
+    // The body of a failed token request does not echo the secret; the status is enough to diagnose.
+    throw new Error(`Keycloak realm ${realm} admin token request failed: ${response.status()}`)
+  }
+  const body = await response.json() as { access_token: string }
+  return body.access_token
+}
+
+/**
+ * Master-realm admin token for the local dev stack only (specs that still create whole
+ * realms). Credentials come from `KC_ADMIN_USER` / `KC_ADMIN_PASSWORD`; there is no
+ * default, so an environment without them (QA) fails with a clear message instead of
+ * trying a well-known password. UAT specs use `getRealmAdminToken` instead.
  */
 export async function getMasterAdminToken(request: APIRequestContext): Promise<string> {
+  const username = resolveCredential('KC_ADMIN_USER', '')
+  const password = resolveCredential('KC_ADMIN_PASSWORD', '')
+  if (!username || !password) {
+    throw new Error('KC_ADMIN_USER and KC_ADMIN_PASSWORD must be set to create realms (local dev stack only)')
+  }
   const masterTokenUrl = `${BPM_IDP_BASE_URL}/realms/master/protocol/openid-connect/token`
   const response = await request.post(masterTokenUrl, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: {
-      client_id: 'admin-cli',
-      username: resolveCredential('KC_ADMIN_USER', 'admin'),
-      password: resolveCredential('KC_ADMIN_PASSWORD', 'admin'),
-      grant_type: 'password',
-    },
+    form: { client_id: 'admin-cli', username, password, grant_type: 'password' },
   })
 
   if (!response.ok()) {

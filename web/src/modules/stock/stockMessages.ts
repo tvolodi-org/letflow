@@ -3,6 +3,7 @@
  *  The ru and kk texts are written by the developer and need a native-speaker check. */
 import type { UiLocale } from '@/i18n/uiLocaleStore'
 import { docEn, docKk, docRu } from './documents/documentsMessages'
+import { countsEn, countsKk, countsRu } from './counts/countsMessages'
 
 export const STOCK_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type StockUiLocale = UiLocale
@@ -211,4 +212,8 @@ const kk: Record<string, string> = {
   ...docKk,
 }
 
-export const stockMessages: Record<StockUiLocale, Record<string, string>> = { en, ru, kk }
+export const stockMessages: Record<StockUiLocale, Record<string, string>> = {
+  en: { ...en, ...countsEn },
+  ru: { ...ru, ...countsRu },
+  kk: { ...kk, ...countsKk },
+}

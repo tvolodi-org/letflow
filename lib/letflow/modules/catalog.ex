@@ -340,6 +340,34 @@ defmodule Letflow.Modules.Catalog do
   def declare_posting(_registration, _command), do: {:error, :declare_refused}
 
   @doc """
+  The entry module of `module_id` when it opted `entity_type` in as a reference target (REQ-636,
+  rule 19), else `:error`. Pure, no tenant. Resolution is binary comparison against the compiled
+  manifest list (no atom is created); rule 19 is re-validated for the manifest, and the entry must
+  export `lookup/2` and `active?/2`, so a module without them (Codes) can never be a target.
+  """
+  @spec reference_target(module_id :: term(), entity_type :: term()) ::
+          {:ok, module()} | :error
+  def reference_target(module_id, entity_type)
+      when is_binary(module_id) and is_binary(entity_type) do
+    with [entry] <-
+           Enum.filter(entry_modules(), fn entry_module ->
+             entry_module.manifest().id == module_id
+           end),
+         manifest = entry.manifest(),
+         :ok <- validate_reference_targets(manifest),
+         true <- entity_type in Map.get(manifest, :reference_targets, []),
+         true <- Code.ensure_loaded?(entry),
+         true <- function_exported?(entry, :lookup, 2),
+         true <- function_exported?(entry, :active?, 2) do
+      {:ok, entry}
+    else
+      _ -> :error
+    end
+  end
+
+  def reference_target(_module_id, _entity_type), do: :error
+
+  @doc """
   Whether module `module_id` registered an import function for `entity_type` (REQ-651). Resolution
   is binary comparison against the compiled manifest list only (no atom is created): exactly one
   entry carries the id, rule 14 is re-validated for it, and a spec with that name exists. Anything
@@ -563,6 +591,13 @@ defmodule Letflow.Modules.Catalog do
   Absent is valid. The manifest hash covers `:ledger` only when present. Rule 10 also gains
   `{:write_handler_ledger_missing, handler_name}`: a handler whose `posts_ledger` names no
   registration of the same manifest.
+
+  Rule 19 (REQ-636, decision 0070 slice C) runs last, after rule 18: the optional
+  `:reference_targets` key, a list of managed-format entity type names, each a member of the
+  manifest's own `:manages_entity_types`, without duplicates. Error
+  `{:invalid_reference_targets, value}` (the whole offered value). Absent is valid. The manifest
+  hash covers the key only when present. A tenant-owned type's field may refer to a record of
+  such a type (`Letflow.Entities.ReferenceCheck`, resolved by `reference_target/2`).
   """
   @spec validate(Module.manifest(), [Module.manifest()]) :: :ok | {:error, {atom(), term()}}
   def validate(manifest, known_manifests) do
@@ -587,8 +622,9 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_import_functions(manifest, entry_module),
          :ok <- validate_version(manifest),
          :ok <- validate_min_upgradable_from(manifest),
-         :ok <- validate_migrations(manifest) do
-      LedgerRegistration.validate(manifest, known_manifests, entry_module)
+         :ok <- validate_migrations(manifest),
+         :ok <- LedgerRegistration.validate(manifest, known_manifests, entry_module) do
+      validate_reference_targets(manifest)
     end
   end
 
@@ -707,6 +743,28 @@ defmodule Letflow.Modules.Catalog do
 
       {_method, _path_pattern, bad_permission} ->
         {:error, {:undeclared_route_permission, bad_permission}}
+    end
+  end
+
+  # Rule 19 (REQ-636): the optional `:reference_targets` list. Never raises on a non-list.
+  defp validate_reference_targets(manifest) do
+    case Map.fetch(manifest, :reference_targets) do
+      :error ->
+        :ok
+
+      {:ok, names} when is_list(names) ->
+        managed = Map.get(manifest, :manages_entity_types, [])
+
+        if Enum.all?(names, &ManagedTypes.managed_name?/1) and
+             length(Enum.uniq(names)) == length(names) and
+             Enum.all?(names, &(&1 in List.wrap(managed))) do
+          :ok
+        else
+          {:error, {:invalid_reference_targets, names}}
+        end
+
+      {:ok, other} ->
+        {:error, {:invalid_reference_targets, other}}
     end
   end
 

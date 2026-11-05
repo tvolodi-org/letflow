@@ -16,5 +16,6 @@ export const stockModuleDefinition: ModuleDefinition = {
     { to: '/admin/stock/documents', label: 'Stock documents', permission: STOCK_READ },
     { to: '/admin/stock/balances', label: 'Balances', permission: STOCK_READ },
     { to: '/admin/stock/movements', label: 'Movements', permission: STOCK_READ },
+    { to: '/admin/stock/counts', label: 'Counts', permission: STOCK_READ },
   ],
 }

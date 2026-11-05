@@ -6,6 +6,7 @@ import MovementsPage from './register/MovementsPage'
 import DocumentsPage from './documents/DocumentsPage'
 import DocumentPage from './documents/DocumentPage'
 import DocumentNewPage from './documents/DocumentNewPage'
+import CountsPage from './counts/CountsPage'
 import { STOCK_READ } from './stockPermissions'
 
 export const stockRouteObjects: RouteObject[] = [
@@ -49,4 +50,12 @@ export const stockRouteObjects: RouteObject[] = [
       </RequirePermission>
     ),
   },
+  ...['admin/stock/counts', 'admin/stock/counts/:id'].map((path) => ({
+    path,
+    element: (
+      <RequirePermission permission={STOCK_READ}>
+        <CountsPage />
+      </RequirePermission>
+    ),
+  })),
 ]

@@ -1,0 +1,28 @@
+{
+  "name": "count_entry",
+  "display_name": "Count entry",
+  "description": "REQ-701 / GH #3736. One entry of the append-only log of a count order: who typed which quantity on which sheet line and when. entry_no is 1..n per order (a total order for the log and its cursor). No function of module stock updates or deletes an entry. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column (decision 0076 R7). method is typed now; scan is the keyboard scanner (REQ-716): scan_id (one per scan, counted once per order), code_id, scanned_text and location_id are set only for it.",
+  "fields": [
+    {"name": "count_order_id", "type": "string", "required": true, "queried": true},
+    {"name": "entry_no", "type": "integer", "required": true, "queried": true},
+    {"name": "line_no", "type": "integer", "required": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "method", "type": "enum", "required": true, "enum_values": ["typed", "scan"]},
+    {"name": "quantity_before", "type": "decimal", "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true},
+    {"name": "quantity_after", "type": "decimal", "required": true, "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true},
+    {"name": "entered_by", "type": "string", "required": true},
+    {"name": "entered_by_employee_id", "type": "string"},
+    {"name": "entered_at", "type": "datetime", "required": true},
+    {"name": "scan_id", "type": "string", "queried": true},
+    {"name": "code_id", "type": "string"},
+    {"name": "scanned_text", "type": "string"},
+    {"name": "location_id", "type": "string"}
+  ],
+  "foreign_keys": [
+    {"name": "fk_count_entry_count_order_id", "field": "count_order_id", "references_entity": "count_order"}
+  ],
+  "indexes": [
+    {"name": "idx_count_entry_order_entry", "fields": ["count_order_id", "entry_no"]},
+    {"name": "idx_count_entry_order_scan", "fields": ["count_order_id", "scan_id"]}
+  ]
+}

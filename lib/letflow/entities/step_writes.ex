@@ -110,6 +110,7 @@ defmodule Letflow.Entities.StepWrites do
   alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.RecordAccess
+  alias Letflow.Entities.ReferenceCheck
   alias Letflow.Entities.Records
   alias Letflow.Entities.StepSource
   alias Letflow.Entities.TypeAccess
@@ -790,6 +791,8 @@ defmodule Letflow.Entities.StepWrites do
          :ok <- check_restrictions(normalized.fields, normalized.entity_type, ctx),
          :ok <- check_taint(normalized, labels, ctx),
          values = resolve_values(normalized.fields, variables),
+         # REQ-636: field values exist only here (prepare/2 and validate_lines/2 see sources).
+         :ok <- ReferenceCheck.check(normalized.entity_type, values, ctx.prefix),
          {:ok, source} <-
            StepSource.new(
              Map.merge(origin_attrs(origin), %{
@@ -878,8 +881,15 @@ defmodule Letflow.Entities.StepWrites do
   # a type that is not writable by process, so denied and absent are one answer.
   @spec check_type_access(String.t(), map()) :: :ok | {:error, :type_denied}
   def check_type_access(entity_type, ctx) do
-    case TypeAccess.authorized?(subject_id(ctx), entity_type, ctx.prefix) do
-      {:ok, :allowed} -> :ok
+    subject = subject_id(ctx)
+
+    # REQ-577: a write restriction (`Letflow.Entities.WriteAccess`) without a grant for the subject
+    # refuses like a denied type; activation validation stays TypeAccess-only.
+    with {:ok, :allowed} <- TypeAccess.authorized?(subject, entity_type, ctx.prefix),
+         {:ok, :allowed} <-
+           Letflow.Entities.WriteAccess.authorized?(subject, entity_type, ctx.prefix) do
+      :ok
+    else
       _denied_or_failed -> {:error, :type_denied}
     end
   end
@@ -1140,6 +1150,10 @@ defmodule Letflow.Entities.StepWrites do
 
       :entity_type_managed ->
         {:refused, i, :write_not_permitted, :managed}
+
+      # REQ-636: a reference field names no available record; the detail atom is audit-only.
+      {:reference_invalid, _names} ->
+        {:refused, i, :validation_failed, :reference}
 
       # GH #2808: a type TypeAccess hides from the subject answers as a non-writable type.
       :type_denied ->

@@ -64,6 +64,130 @@
       "version": "1.0.0"
     },
     {
+      "definition_id": "00501000-0000-0040-0080-000000003746",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_issue",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000071501",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_writeoff",
+      "version": "1.0.0"
+    },
+    {
       "definition_id": "00501000-0000-0040-0080-000000003749",
       "graph": {
         "edges": [
@@ -127,6 +251,192 @@
       },
       "process_key": "stock_reversal",
       "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000003770",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_transfer",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000003771",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_handover",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000003772",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "stock"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "stock_return",
+      "version": "1.0.0"
     }
   ],
   "entity_definitions": [
@@ -169,6 +479,14 @@
           {
             "name": "note",
             "type": "string"
+          },
+          {
+            "name": "supplier_document_ref",
+            "type": "string"
+          },
+          {
+            "name": "received_on",
+            "type": "date"
           }
         ],
         "indexes": [
@@ -183,13 +501,150 @@
       },
       "display_name": "Stock receipt (header)",
       "entity_definition_id": "0c25df3d-6843-d3bc-fd43-d9562afe1966",
-      "logical_shape_version": "b816d2c1b026a5bf7f9845e050027ee908aae6f5212f26ef0a505a5dc2192c91",
+      "logical_shape_version": "5cb6483f8fa7cf3a5f01cd08a70068824c5a87da591c917451b2dc84de8bdff0",
       "name": "stock_receipt"
     },
     {
       "definition_json": {
-        "description": "GH #3749 / REQ-712, docs/assets/stock-workflow-documents.md sections 1.4 and 9.3. One line of a stock receipt. header_id is the record_id of the stock_receipt header (not the document id); the foreign_keys entry fk_stock_receipt_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict). catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (another pack: no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+        "description": "GH #3749 / REQ-712, docs/assets/stock-workflow-documents.md sections 1.4 and 9.3. One line of a stock receipt. header_id is the record_id of the stock_receipt header (not the document id); the foreign_keys entry fk_stock_receipt_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict). catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (another pack: no foreign key; the module checks them at issue). GH #3747 / REQ-714: unit_price and line_value are optional exact decimals kept on the document only (never posted to the ledger). Written only by module stock; after issue nothing of a line changes.",
         "display_name": "Stock receipt (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "unit_price",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "line_value",
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_stock_receipt_line_header_id",
+            "references_entity": "stock_receipt"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_stock_receipt_line_header_id"
+          }
+        ],
+        "name": "stock_receipt_line"
+      },
+      "display_name": "Stock receipt (line)",
+      "entity_definition_id": "450d0aee-6502-e643-a766-5d4bb96c2171",
+      "logical_shape_version": "509883652a737faaea8278b6a3451037f19c774cde86b135e8872e4d36412837",
+      "name": "stock_receipt_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3746 / REQ-715, docs/assets/stock-workflow-documents.md. The header of a stock issue document. Same shape as the stock_receipt header without counterparty_id, supplier_document_ref and received_on. document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). event_time is the time of the movement, ISO 8601 with offset, stored in UTC. location_id and responsible_id are record ids of modules locations and org (no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of the header changes.",
+        "display_name": "Stock issue (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          },
+          {
+            "name": "reason_text",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_stock_issue_document_id"
+          }
+        ],
+        "name": "stock_issue"
+      },
+      "display_name": "Stock issue (header)",
+      "entity_definition_id": "13a196af-ba74-f6d6-d767-7731b033976b",
+      "logical_shape_version": "c15d97113a32f5ba75053823efdb4769636e8d09c2e4a43caca7d594c8c9b90d",
+      "name": "stock_issue"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3746 / REQ-715. One line of a stock issue. header_id is the record_id of the stock_issue header (not the document id); the foreign_keys entry fk_stock_issue_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict), always positive: the ledger leg is negative. There is no price or value on this line. catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+        "display_name": "Stock issue (line)",
         "fields": [
           {
             "name": "header_id",
@@ -234,8 +689,8 @@
         "foreign_keys": [
           {
             "field": "header_id",
-            "name": "fk_stock_receipt_line_header_id",
-            "references_entity": "stock_receipt"
+            "name": "fk_stock_issue_line_header_id",
+            "references_entity": "stock_issue"
           }
         ],
         "indexes": [
@@ -243,19 +698,555 @@
             "fields": [
               "header_id"
             ],
-            "name": "idx_stock_receipt_line_header_id"
+            "name": "idx_stock_issue_line_header_id"
           }
         ],
-        "name": "stock_receipt_line"
+        "name": "stock_issue_line"
       },
-      "display_name": "Stock receipt (line)",
-      "entity_definition_id": "450d0aee-6502-e643-a766-5d4bb96c2171",
-      "logical_shape_version": "ff0b60bedec9880289aa52307b99e642c83997794a2277798f726f612940722b",
-      "name": "stock_receipt_line"
+      "display_name": "Stock issue (line)",
+      "entity_definition_id": "d158315f-47b8-f984-60c6-6de233f295ff",
+      "logical_shape_version": "5c9da5fa234c4e742a996b3aa5f9ae99be25c990fa2762ee1ef805780d5195f3",
+      "name": "stock_issue_line"
     },
     {
       "definition_json": {
-        "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled by REQ-701.",
+        "description": "GH #3746 / REQ-715, docs/assets/stock-workflow-documents.md. The header of a stock write-off document. Same shape as the stock_receipt header without counterparty_id, supplier_document_ref and received_on. document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). event_time is the time of the movement, ISO 8601 with offset, stored in UTC. location_id and responsible_id are record ids of modules locations and org (no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of the header changes.",
+        "display_name": "Stock write-off (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "lost",
+              "damaged",
+              "used_up",
+              "other"
+            ],
+            "name": "reason_code",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "reason_text",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_stock_writeoff_document_id"
+          }
+        ],
+        "name": "stock_writeoff"
+      },
+      "display_name": "Stock write-off (header)",
+      "entity_definition_id": "2b3e0f57-1325-e841-afe9-e906778368f2",
+      "logical_shape_version": "5938117bf3f557980b086ee4c354a12b5ec6af4abf1468aa23ba4d1c9cad6084",
+      "name": "stock_writeoff"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3746 / REQ-715. One line of a stock write-off. header_id is the record_id of the stock_writeoff header (not the document id); the foreign_keys entry fk_stock_writeoff_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict), always positive: the ledger leg is negative. There is no price or value on this line. catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+        "display_name": "Stock write-off (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_stock_writeoff_line_header_id",
+            "references_entity": "stock_writeoff"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_stock_writeoff_line_header_id"
+          }
+        ],
+        "name": "stock_writeoff_line"
+      },
+      "display_name": "Stock write-off (line)",
+      "entity_definition_id": "cf6b30d6-ddc4-688a-180e-150cdd1f9280",
+      "logical_shape_version": "b5cdf9b4eb93ebf68303f8facead0f119c87db2b50d8615adf0889041d9ae749",
+      "name": "stock_writeoff_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3770 / REQ-721, docs/assets/stock-workflow-documents.md sections 1.4 and 9.1. The header of a transfer of stock between two locations (and possibly org units and responsible employees). Written only by module stock (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: nothing of that is stored here. org_unit_id is the filing org unit (queried; the scope column of decision 0076 R7): the from unit for a transfer or hand over, the unit the stock goes back to for a return. event_time is ISO 8601 with offset, stored in UTC. The from_* and to_* fields are record ids of modules org and locations (other packs: no foreign key; the module checks them at issue). After issue nothing of the header changes. No counterparty, price or reason field.",
+        "display_name": "Stock transfer (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_org_unit_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_stock_transfer_document_id"
+          }
+        ],
+        "name": "stock_transfer"
+      },
+      "display_name": "Stock transfer (header)",
+      "entity_definition_id": "c55712c6-ad41-b1c0-fd2f-df0adac4629a",
+      "logical_shape_version": "16c50c41bca5c7903024d57e4f80183e9e52edf3bad4963f5d4633d955d01776",
+      "name": "stock_transfer"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3770 / REQ-721, docs/assets/stock-workflow-documents.md sections 1.4 and 9.3. One line of a transfer of stock between two locations (and possibly org units and responsible employees). header_id is the record_id of the stock_transfer header (not the document id); the foreign_keys entry fk_stock_transfer_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict). catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (another pack: no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+        "display_name": "Stock transfer (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_stock_transfer_line_header_id",
+            "references_entity": "stock_transfer"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_stock_transfer_line_header_id"
+          }
+        ],
+        "name": "stock_transfer_line"
+      },
+      "display_name": "Stock transfer (line)",
+      "entity_definition_id": "75b839fd-b0d2-43b0-44d8-6aa4abdfe1de",
+      "logical_shape_version": "82f7139fde0e8d91e141339c25e3ebb4f110b4da077f0192430413571fcdc8ec",
+      "name": "stock_transfer_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3770 / REQ-721, docs/assets/stock-workflow-documents.md sections 1.4 and 9.1. The header of a hand over of stock from one responsible employee to another. Written only by module stock (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: nothing of that is stored here. org_unit_id is the filing org unit (queried; the scope column of decision 0076 R7): the from unit for a transfer or hand over, the unit the stock goes back to for a return. event_time is ISO 8601 with offset, stored in UTC. The from_* and to_* fields are record ids of modules org and locations (other packs: no foreign key; the module checks them at issue). After issue nothing of the header changes. No counterparty, price or reason field.",
+        "display_name": "Stock hand over (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_org_unit_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_stock_handover_document_id"
+          }
+        ],
+        "name": "stock_handover"
+      },
+      "display_name": "Stock hand over (header)",
+      "entity_definition_id": "68ec983e-bdcd-2835-1e55-2822e216d7a4",
+      "logical_shape_version": "a90a3d9b6a1269f97a76edaf6d6094920123d33edb6cfa34f04e7a15cf0651b5",
+      "name": "stock_handover"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3770 / REQ-721, docs/assets/stock-workflow-documents.md sections 1.4 and 9.3. One line of a hand over of stock from one responsible employee to another. header_id is the record_id of the stock_handover header (not the document id); the foreign_keys entry fk_stock_handover_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict). catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (another pack: no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+        "display_name": "Stock hand over (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_stock_handover_line_header_id",
+            "references_entity": "stock_handover"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_stock_handover_line_header_id"
+          }
+        ],
+        "name": "stock_handover_line"
+      },
+      "display_name": "Stock hand over (line)",
+      "entity_definition_id": "5463e25f-836e-2d6e-659a-aa62ae83651d",
+      "logical_shape_version": "bc157fd2fba0412447e8dd694f2ef8b7dc8f2ed06024ba49a1df2c7197dee4b9",
+      "name": "stock_handover_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3770 / REQ-721, docs/assets/stock-workflow-documents.md sections 1.4 and 9.1. The header of a return of stock from a responsible employee back to a location. Written only by module stock (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: nothing of that is stored here. org_unit_id is the filing org unit (queried; the scope column of decision 0076 R7): the from unit for a transfer or hand over, the unit the stock goes back to for a return. event_time is ISO 8601 with offset, stored in UTC. The from_* and to_* fields are record ids of modules org and locations (other packs: no foreign key; the module checks them at issue). After issue nothing of the header changes. No counterparty, price or reason field.",
+        "display_name": "Stock return (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_org_unit_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_stock_return_document_id"
+          }
+        ],
+        "name": "stock_return"
+      },
+      "display_name": "Stock return (header)",
+      "entity_definition_id": "e9b232d5-ecd4-1da8-b6a3-f4e53695cf54",
+      "logical_shape_version": "b2aac018ca9178f68e7e4536eb8d4e266055f263a19a05a4e7f86c7c405f6c54",
+      "name": "stock_return"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3770 / REQ-721, docs/assets/stock-workflow-documents.md sections 1.4 and 9.3. One line of a return of stock from a responsible employee back to a location. header_id is the record_id of the stock_return header (not the document id); the foreign_keys entry fk_stock_return_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. quantity is an exact decimal (precision 24, scale 9, decimal_strict). catalog_item_id, catalog_uom_id and catalog_lot_id are record ids of module catalog_items (another pack: no foreign key; the module checks them at issue). Written only by module stock; after issue nothing of a line changes.",
+        "display_name": "Stock return (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_stock_return_line_header_id",
+            "references_entity": "stock_return"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_stock_return_line_header_id"
+          }
+        ],
+        "name": "stock_return_line"
+      },
+      "display_name": "Stock return (line)",
+      "entity_definition_id": "6f668f90-76d9-d459-e2d6-550d6b9369fc",
+      "logical_shape_version": "da9628546eae5981a960ba74764f4446aa8b9c86457b6f1d173d247703462002",
+      "name": "stock_return_line"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled when the count is opened and sheet_document_id when it is closed (REQ-701). REQ-717: sheet_signed_at, differences_document_id, differences_number, differences_issued_at and differences_signed_at are filled by the signing and differences steps; old rows lack them.",
         "display_name": "Count order",
         "fields": [
           {
@@ -343,6 +1334,30 @@
           {
             "name": "cutoff_seq",
             "type": "integer"
+          },
+          {
+            "name": "sheet_document_id",
+            "type": "string"
+          },
+          {
+            "name": "sheet_signed_at",
+            "type": "datetime"
+          },
+          {
+            "name": "differences_document_id",
+            "type": "string"
+          },
+          {
+            "name": "differences_number",
+            "type": "string"
+          },
+          {
+            "name": "differences_issued_at",
+            "type": "datetime"
+          },
+          {
+            "name": "differences_signed_at",
+            "type": "datetime"
           }
         ],
         "indexes": [
@@ -358,7 +1373,7 @@
       },
       "display_name": "Count order",
       "entity_definition_id": "45573d30-45d7-3626-82e0-0b0f034df9ac",
-      "logical_shape_version": "675de2c0d92d7c97e64ced95882d837831491cc85e56ab46c1c4f4ed7f4db7dc",
+      "logical_shape_version": "3f7878a0a5098b0ca490cb08fec094cd8cc77124632030bbbe945e9bdb8d656f",
       "name": "count_order"
     },
     {
@@ -452,6 +1467,301 @@
       "entity_definition_id": "38bb9992-f3dc-8b51-b6ab-1e4b4a9a97ea",
       "logical_shape_version": "0f88c0dd502f7d1cefcaa1a77d8deff4faa5d801f799f7553819470d3d5c28f5",
       "name": "count_commission_member"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-701 / GH #3736. One line of the count sheet of a count order: a ledger balance key as of the cut-off (kind stock, book_quantity from the stock ledger) or a surplus line the commission added (kind surplus, book_quantity 0). count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column (decision 0076 R7). counted_quantity is empty until the commission has counted the line. Quantities are exact decimals (precision 24, scale 9, decimal_strict). Master references are record ids checked in code (0076 R6).",
+        "display_name": "Count sheet line",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "queried": true,
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "enum_values": [
+              "stock",
+              "surplus"
+            ],
+            "name": "kind",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "responsible_employee_id",
+            "type": "string"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "name": "unit_ref",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "book_quantity",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "counted_quantity",
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_count_sheet_line_count_order_id",
+            "references_entity": "count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "line_no"
+            ],
+            "name": "idx_count_sheet_line_order_line"
+          }
+        ],
+        "name": "count_sheet_line"
+      },
+      "display_name": "Count sheet line",
+      "entity_definition_id": "a65f3994-b33a-c9cc-a095-ec02499efa99",
+      "logical_shape_version": "3e7986f79541a473ad7c81be52436ad87f372e57c96411b88b62b533cf1e1e1d",
+      "name": "count_sheet_line"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-701 / GH #3736. One entry of the append-only log of a count order: who typed which quantity on which sheet line and when. entry_no is 1..n per order (a total order for the log and its cursor). No function of module stock updates or deletes an entry. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column (decision 0076 R7). method is typed now; scan is the keyboard scanner (REQ-716): scan_id (one per scan, counted once per order), code_id, scanned_text and location_id are set only for it.",
+        "display_name": "Count entry",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "entry_no",
+            "queried": true,
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "typed",
+              "scan"
+            ],
+            "name": "method",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity_before",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity_after",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "name": "entered_by",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "entered_by_employee_id",
+            "type": "string"
+          },
+          {
+            "name": "entered_at",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "scan_id",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "code_id",
+            "type": "string"
+          },
+          {
+            "name": "scanned_text",
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_count_entry_count_order_id",
+            "references_entity": "count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "entry_no"
+            ],
+            "name": "idx_count_entry_order_entry"
+          },
+          {
+            "fields": [
+              "count_order_id",
+              "scan_id"
+            ],
+            "name": "idx_count_entry_order_scan"
+          }
+        ],
+        "name": "count_entry"
+      },
+      "display_name": "Count entry",
+      "entity_definition_id": "14b35543-6cb6-524e-1f4d-f90a3a120bf5",
+      "logical_shape_version": "024dc352f48866b3d059f80b6f31ce75fba742e0df640f4ba0ca58a8c47d1f5c",
+      "name": "count_entry"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-717 / GH #3764. One row per signer of a count document: the chair records, for the printout of the count sheet or of the differences sheet, that the person signed on paper (assumption, owner may change at GATE B: the system does not verify the signature). Append-only: no function of module stock updates or deletes a row. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column (decision 0076 R7). document_id and version_no name the issued document version that was signed.",
+        "display_name": "Count signature",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "sheet",
+              "differences"
+            ],
+            "name": "document_kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "document_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "version_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "employee_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "chair",
+              "member",
+              "responsible"
+            ],
+            "name": "signer_role",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "marked_by",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "marked_at",
+            "required": true,
+            "type": "datetime"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_count_signature_count_order_id",
+            "references_entity": "count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id",
+              "document_kind"
+            ],
+            "name": "idx_count_signature_order_kind"
+          }
+        ],
+        "name": "count_signature"
+      },
+      "display_name": "Count signature",
+      "entity_definition_id": "6b56a708-c09a-ee8c-c55e-8c256520139d",
+      "logical_shape_version": "27e319e942eb7eaf90dc86d7b392072d3d9dfbbc5c0a91605237c88bd66a498f",
+      "name": "count_signature"
     },
     {
       "definition_json": {

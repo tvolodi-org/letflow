@@ -66,6 +66,10 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     "lib/letflow/modules/stock/documents.ex" => 5,
     # REQ-700: the count order writers (create, update, delete of the child rows) of module stock
     "lib/letflow/modules/stock/counts.ex" => 3,
+    # REQ-701: the count sheet writers (create and update of lines, entries and the order header)
+    "lib/letflow/modules/stock/count_sheet.ex" => 2,
+    # REQ-717: count_signature rows and the order header update (signing, differences)
+    "lib/letflow/modules/stock/count_differences.ex" => 2,
     "lib/letflow/record_triggers/apply.ex" => 3,
     "lib/letflow/scheduler/record_deadline_sweep.ex" => 1,
     "lib/mix/tasks/letflow.seed.exam_fixtures.ex" => 1

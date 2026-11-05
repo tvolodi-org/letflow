@@ -5,6 +5,8 @@ migration, no definition JSON, no route, no screen. The module, its types, its p
 ledger registration are later requirements, written after GATE A from this file. GATE B still needs the
 owner's check with the portfolio manager (D-063, D-073).
 
+Built so far: the receipt (REQ-712..714), the issue and write-off documents (REQ-715, GH #3746) and transfer, hand over and return (REQ-721); module stock 0.6.0.
+
 Sources: owner decisions D-061 (only workflows write to the registers; registers are read-only and corrected
 by new entries), D-062 (documents are fixed once signed; balance as of a date; backdating limit; audit
 trail), D-065 (employees, links, codes, Inventory Object as its own record), D-066 (storage and trees),
@@ -94,6 +96,7 @@ Header fields (beyond 1.4):
 | `responsible_id` | string | yes | org_employee |
 | `counterparty_id` | string | no ("from none") | catalog_counterparty |
 | `supplier_document_ref` | string | no | none |
+| `received_on` | date | no | none (real receipt date, decision 0078 D7; never `event_time`) |
 
 Line fields (beyond 1.4): `unit_price` (decimal, `decimal_strict` true, optional), `line_value` (decimal,
 `decimal_strict` true, optional). These two are the only price and value fields in the six documents

@@ -236,6 +236,12 @@ jobs:
       mobile: ${{ steps.filter.outputs.mobile || steps.fallback.outputs.mobile }}
       heavy: ${{ steps.heavy.outputs.heavy }}
       docs_only: ${{ steps.docs.outputs.docs_only }}
+      # T-1297: selective or full backend run, why, shards with nothing to do, the plan, red main.
+      mode: ${{ steps.select.outputs.mode }}
+      reason: ${{ steps.select.outputs.reason }}
+      skip_shards: ${{ steps.select.outputs.skip_shards }}
+      plan: ${{ steps.select.outputs.plan }}
+      main_red: ${{ steps.redguard.outputs.main_red }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -278,9 +284,14 @@ jobs:
             exit 0
           fi
 
+          # T-1303: a pull request diffs against the merge base (three dots): its base.sha is the
+          # moving tip of the base branch, and a two-dot diff would list what main gained since the
+          # branch was last updated as the PR's own changes. A merge-group head contains its base.
+          DOTS=".."
           if [ "$EVENT_NAME" = "pull_request" ]; then
             BASE_SHA="$PR_BASE_SHA"
             HEAD_SHA="$PR_HEAD_SHA"
+            DOTS="..."
           elif [ "$EVENT_NAME" = "merge_group" ]; then
             # Merge queue (A3): the same path regex as for a PR decides which gates run,
             # over this queue entry's own range. With stacked entries base_sha is the
@@ -317,11 +328,11 @@ jobs:
             exit 0
           fi
 
-          if ! CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA"); then
-            echo "::error::git diff $BASE_SHA..$HEAD_SHA failed -- the fail-safe step will run every gate."
+          if ! CHANGED=$(git diff --name-only "${BASE_SHA}${DOTS}${HEAD_SHA}"); then
+            echo "::error::git diff ${BASE_SHA}${DOTS}${HEAD_SHA} failed -- the fail-safe step will run every gate."
             exit 1
           fi
-          echo "Changed files ($BASE_SHA..$HEAD_SHA):"
+          echo "Changed files (${BASE_SHA}${DOTS}${HEAD_SHA}): $(grep -c . <<<"$CHANGED") file(s)"
           echo "$CHANGED"
 
           # GH #2622: the path rules are in scripts/ci_changed_paths.sh, the one source; its
@@ -380,13 +391,14 @@ jobs:
           heavy=true
           reason="full suite (event $EVENT_NAME)"
           BASE_SHA=""; HEAD_SHA=""
-          if [ "$EVENT_NAME" = "pull_request" ]; then BASE_SHA="$PR_BASE_SHA"; HEAD_SHA="$PR_HEAD_SHA"; fi
+          DOTS=".."
+          if [ "$EVENT_NAME" = "pull_request" ]; then BASE_SHA="$PR_BASE_SHA"; HEAD_SHA="$PR_HEAD_SHA"; DOTS="..."; fi
           if [ "$EVENT_NAME" = "merge_group" ]; then BASE_SHA="$MG_BASE_SHA"; HEAD_SHA="$MG_HEAD_SHA"; fi
           if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
             if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
               git fetch --no-tags --depth=50 origin "$BASE_SHA" || true
             fi
-            if CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA") && RESULT=$(bash scripts/ci_heavy_paths.sh <<<"$CHANGED") && [[ $RESULT =~ ^heavy=(true|false)$ ]]; then
+            if CHANGED=$(git diff --name-only "${BASE_SHA}${DOTS}${HEAD_SHA}") && RESULT=$(bash scripts/ci_heavy_paths.sh <<<"$CHANGED") && [[ $RESULT =~ ^heavy=(true|false)$ ]]; then
               heavy="${BASH_REMATCH[1]}"
               reason="path rule (scripts/ci_heavy_paths.sh)"
             else
@@ -417,13 +429,14 @@ jobs:
           docs_only=false
           reason="full shards (event $EVENT_NAME)"
           BASE_SHA=""; HEAD_SHA=""
-          if [ "$EVENT_NAME" = "pull_request" ]; then BASE_SHA="$PR_BASE_SHA"; HEAD_SHA="$PR_HEAD_SHA"; fi
+          DOTS=".."
+          if [ "$EVENT_NAME" = "pull_request" ]; then BASE_SHA="$PR_BASE_SHA"; HEAD_SHA="$PR_HEAD_SHA"; DOTS="..."; fi
           if [ "$EVENT_NAME" = "merge_group" ]; then BASE_SHA="$MG_BASE_SHA"; HEAD_SHA="$MG_HEAD_SHA"; fi
           if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
             if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
               git fetch --no-tags --depth=50 origin "$BASE_SHA" || true
             fi
-            if CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA") && RESULT=$(bash scripts/ci_docs_only.sh <<<"$CHANGED") && [[ $RESULT =~ ^docs_only=(true|false)$ ]]; then
+            if CHANGED=$(git diff --name-only "${BASE_SHA}${DOTS}${HEAD_SHA}") && RESULT=$(bash scripts/ci_docs_only.sh <<<"$CHANGED") && [[ $RESULT =~ ^docs_only=(true|false)$ ]]; then
               docs_only="${BASH_REMATCH[1]}"
               reason="path rule (scripts/ci_docs_only.sh)"
             else
@@ -435,6 +448,112 @@ jobs:
           if [ "$docs_only" = "true" ]; then
             echo "Docs-only change: shard 1 runs the docs-related tests only, shards 2-6 skip their work. The merge queue and main run the same rule / the full suite as configured." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # T-1297: stop the queue on a red main. The marker is the tag `ci-main-red`, written by job
+      # `full_run_marker` when a run of main fails. A merge-group run fails fast here with that
+      # message, EXCEPT a group whose commit subjects start with `fix` (or carry `[main-fix]`):
+      # that group is the way a fix lands, so it runs the FULL suite (forced below) and its green
+      # push run on main clears the marker. Pull-request runs are not blocked. Operator escape:
+      # delete the tag (`git push origin :refs/tags/ci-main-red`).
+      - name: Main red guard (merge queue)
+        id: redguard
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -uo pipefail
+          echo "main_red=false" >> "$GITHUB_OUTPUT"
+          echo "force_full=" >> "$GITHUB_OUTPUT"
+          [ "$EVENT_NAME" = "merge_group" ] || exit 0
+          git rev-parse -q --verify refs/tags/ci-main-red >/dev/null || exit 0
+          red=$(git rev-parse refs/tags/ci-main-red)
+          subjects=$(git log --format=%s "$MG_BASE_SHA..$MG_HEAD_SHA" 2>/dev/null || true)
+          if grep -qiE '^fix([(:!]|$)|\[main-fix\]' <<<"$subjects"; then
+            echo "force_full=main full CI is red at $red; this group claims a fix, so it runs the full suite" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "main_red=true" >> "$GITHUB_OUTPUT"
+          echo "::error::main full CI red (since $red): the merge queue is stopped until a fix lands. A queue entry whose title starts with fix( or has [main-fix] runs the full suite and may land; see docs/merge-queue.md."
+          echo "### main full CI red" >> "$GITHUB_STEP_SUMMARY"
+          echo "Failing commit on main: $red. Merge-group runs fail fast until a fix lands." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      # T-1297 (L-24): selective or full backend run. Rules and the file map: scripts/ci_select_tests.py.
+      # Counter (stateless, no database): commits on the run's head since the tag `ci-full-green`,
+      # which job `full_run_marker` moves to a main commit after a GREEN FULL run. Missing tag, or a
+      # tag that is not an ancestor, means unknown, which means full. Any failure of this step runs
+      # everything (mode full), as does the kill switch (repository variable CI_SELECTIVE = off).
+      - name: Select backend tests (selective or full)
+        id: select
+        if: always()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+          KILL: ${{ vars.CI_SELECTIVE }}
+          FORCE_FULL: ${{ steps.redguard.outputs.force_full }}
+          DOCS_ONLY: ${{ steps.docs.outputs.docs_only }}
+        run: |
+          set -uo pipefail
+          emit() { # mode reason skip plan
+            echo "mode=$1" >> "$GITHUB_OUTPUT"
+            echo "reason=$2" >> "$GITHUB_OUTPUT"
+            echo "skip_shards=$3" >> "$GITHUB_OUTPUT"
+            { echo "plan<<PLAN_EOF"; printf "%s\n" "$4"; echo "PLAN_EOF"; } >> "$GITHUB_OUTPUT"
+            echo "### Backend tests: $1" >> "$GITHUB_STEP_SUMMARY"
+            echo "$2" >> "$GITHUB_STEP_SUMMARY"
+            echo "Changed files: ${nfiles:-unknown}" >> "$GITHUB_STEP_SUMMARY"
+            echo "backend tests mode=$1 reason=$2 changed_files=${nfiles:-unknown}"
+          }
+          full() { emit full "$1" "" ""; exit 0; }
+          if [ "$DOCS_ONLY" = "true" ]; then
+            emit docs-only "docs-only change: shard 1 runs the docs-related tests (scripts/ci_docs_only.sh)" "" ""
+            exit 0
+          fi
+          BASE=""; HEAD=""; DOTS=".."
+          nfiles=""
+          case "$EVENT_NAME" in
+            pull_request) BASE="$PR_BASE_SHA"; HEAD="$PR_HEAD_SHA"; DOTS="..." ;;
+            merge_group) BASE="$MG_BASE_SHA"; HEAD="$MG_HEAD_SHA" ;;
+            push) BASE="$PUSH_BEFORE"; HEAD="$PUSH_AFTER" ;;
+          esac
+          ZERO=0000000000000000000000000000000000000000
+          if [ -n "$BASE" ] && [ "$BASE" != "$ZERO" ] && ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=50 origin "$BASE" || true
+          fi
+          if [ -z "$BASE" ] || [ -z "$HEAD" ] || [ "$BASE" = "$ZERO" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            full "event $EVENT_NAME: no usable base commit"
+          fi
+          if ! CHANGED=$(git diff --name-only --no-renames "${BASE}${DOTS}${HEAD}"); then full "git diff failed"; fi
+          nfiles=$(grep -c . <<<"$CHANGED" || true)
+          since=""
+          if git rev-parse -q --verify refs/tags/ci-full-green >/dev/null && git merge-base --is-ancestor refs/tags/ci-full-green HEAD 2>/dev/null; then
+            since=$(git rev-list --count refs/tags/ci-full-green..HEAD) || since=""
+          fi
+          args=(--event "$EVENT_NAME" --kill-switch "${KILL:-}" --plan-out "$RUNNER_TEMP/ci_plan.txt")
+          [ -n "$since" ] && args+=(--commits-since-full "$since")
+          [ -n "$FORCE_FULL" ] && args+=(--force-full "$FORCE_FULL")
+          if ! OUT=$(python3 -I scripts/ci_select_tests.py "${args[@]}" <<<"$CHANGED") ; then
+            full "selection step failed (scripts/ci_select_tests.py)"
+          fi
+          mode=$(sed -n 's/^mode=\(selective\|full\)$/\1/p' <<<"$OUT")
+          reason=$(sed -n 's/^reason=//p' <<<"$OUT" | head -n 1)
+          skip=$(sed -n 's/^skip_shards=//p' <<<"$OUT" | head -n 1)
+          [[ $skip =~ ^[0-9\ ]*$ ]] || full "selection output malformed"
+          case "$mode" in
+            full) full "$reason" ;;
+            selective)
+              [ -f "$RUNNER_TEMP/ci_plan.txt" ] || full "selection wrote no plan"
+              emit selective "$reason (counter: ${since:-unknown} commit(s) since the last green full run)" "$skip" "$(cat "$RUNNER_TEMP/ci_plan.txt")"
+              ;;
+            *) full "selection output malformed" ;;
+          esac
+
 
   # Q-1037 / GH #2364 (backend-gate sharding): the static half of the old single `backend`
   # job. NOT a required status check (only the aggregator `backend` below is). Runs the
@@ -454,7 +573,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' && needs.changes.outputs.main_red != 'true' }}
 
     # ISS-0779: `--health-cmd "pg_isready -U letflow"` (no `-d`) was NOT a check that
     # the target database exists -- it was not even a check that the specific
@@ -570,26 +689,36 @@ jobs:
           PGPASSWORD: letflow
         run: |
           set -euo pipefail
-          psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -v ON_ERROR_STOP=1 \
-            -c "ALTER SYSTEM SET fsync = off" \
-            -c "ALTER SYSTEM SET synchronous_commit = off" \
-            -c "ALTER SYSTEM SET full_page_writes = off" \
-            -c "SELECT pg_reload_conf()"
-          # pg_reload_conf() only signals the postmaster, so poll (bounded: 10 x 1 s) until
-          # each setting reads back as `off` instead of trusting a fixed sleep.
-          for setting in fsync synchronous_commit full_page_writes; do
-            value=""
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              value=$(psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -At -c "SHOW $setting")
-              [ "$value" = "off" ] && break
-              sleep 1
+          # T-1305: the whole set-and-verify is tried up to 3 times (5 s apart) before the step
+          # fails: "did not take effect" was seen in several runs for reasons outside the code.
+          # pg_reload_conf() only signals the postmaster, so each try polls (bounded: 10 x 1 s)
+          # until each setting reads back as `off` instead of trusting a fixed sleep.
+          tune_postgres() {
+            psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -v ON_ERROR_STOP=1 \
+              -c "ALTER SYSTEM SET fsync = off" \
+              -c "ALTER SYSTEM SET synchronous_commit = off" \
+              -c "ALTER SYSTEM SET full_page_writes = off" \
+              -c "SELECT pg_reload_conf()" || return 1
+            for setting in fsync synchronous_commit full_page_writes; do
+              value=""
+              for attempt in 1 2 3 4 5 6 7 8 9 10; do
+                value=$(psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -At -c "SHOW $setting" || true)
+                [ "$value" = "off" ] && break
+                sleep 1
+              done
+              echo "postgres $setting = $value"
+              if [ "$value" != "off" ]; then
+                echo "::warning::Postgres setting $setting did not take effect (got '$value')"
+                return 1
+              fi
             done
-            echo "postgres $setting = $value"
-            if [ "$value" != "off" ]; then
-              echo "::error::Postgres setting $setting did not take effect (got '$value')"
-              exit 1
-            fi
+          }
+          for try in 1 2 3; do
+            tune_postgres && exit 0
+            [ "$try" -lt 3 ] && sleep 5
           done
+          echo "::error::Postgres setting did not take effect after 3 tries"
+          exit 1
 
       - name: Run static checks (mix letflow.check.static)
         if: needs.changes.outputs.backend != 'false'
@@ -720,7 +849,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' && needs.changes.outputs.main_red != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -749,27 +878,27 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Elixir/OTP (from .tool-versions)
-        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
+        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         uses: erlef/setup-beam@v1
         with:
           version-file: .tool-versions
           version-type: strict
 
       - name: Read pinned Rust version from .tool-versions
-        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
+        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         id: rust_pin
         run: |
           version=$(grep -E '^rust ' .tool-versions | awk '{print $2}')
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Rust (pinned via .tool-versions)
-        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
+        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ steps.rust_pin.outputs.version }}
 
       - name: Cache deps and _build
-        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
+        if: (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         uses: actions/cache@v4
         with:
           path: |
@@ -780,7 +909,7 @@ jobs:
             ${{ runner.os }}-mix-
 
       - name: Install dependencies
-        if: needs.changes.outputs.backend != 'false' && (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
+        if: needs.changes.outputs.backend != 'false' && (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         run: mix deps.get
 
       # Step 3 of the backend-gate speed-up (Q-1037 / GH #2364): the service database is a
@@ -790,34 +919,52 @@ jobs:
       # header of this file). The step fails unless the three values really read back as `off`,
       # so a silent no-op cannot masquerade as a tuned run.
       - name: Tune Postgres for CI (durability off, throwaway database)
-        if: needs.changes.outputs.backend != 'false' && (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1)
+        if: needs.changes.outputs.backend != 'false' && (needs.changes.outputs.docs_only != 'true' || matrix.shard == 1) && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         env:
           PGPASSWORD: letflow
         run: |
           set -euo pipefail
-          psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -v ON_ERROR_STOP=1 \
-            -c "ALTER SYSTEM SET fsync = off" \
-            -c "ALTER SYSTEM SET synchronous_commit = off" \
-            -c "ALTER SYSTEM SET full_page_writes = off" \
-            -c "SELECT pg_reload_conf()"
-          # pg_reload_conf() only signals the postmaster, so poll (bounded: 10 x 1 s) until
-          # each setting reads back as `off` instead of trusting a fixed sleep.
-          for setting in fsync synchronous_commit full_page_writes; do
-            value=""
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              value=$(psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -At -c "SHOW $setting")
-              [ "$value" = "off" ] && break
-              sleep 1
+          # T-1305: the whole set-and-verify is tried up to 3 times (5 s apart) before the step
+          # fails: "did not take effect" was seen in several runs for reasons outside the code.
+          # pg_reload_conf() only signals the postmaster, so each try polls (bounded: 10 x 1 s)
+          # until each setting reads back as `off` instead of trusting a fixed sleep.
+          tune_postgres() {
+            psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -v ON_ERROR_STOP=1 \
+              -c "ALTER SYSTEM SET fsync = off" \
+              -c "ALTER SYSTEM SET synchronous_commit = off" \
+              -c "ALTER SYSTEM SET full_page_writes = off" \
+              -c "SELECT pg_reload_conf()" || return 1
+            for setting in fsync synchronous_commit full_page_writes; do
+              value=""
+              for attempt in 1 2 3 4 5 6 7 8 9 10; do
+                value=$(psql -h 127.0.0.1 -p 5462 -U letflow -d letflow_dev -At -c "SHOW $setting" || true)
+                [ "$value" = "off" ] && break
+                sleep 1
+              done
+              echo "postgres $setting = $value"
+              if [ "$value" != "off" ]; then
+                echo "::warning::Postgres setting $setting did not take effect (got '$value')"
+                return 1
+              fi
             done
-            echo "postgres $setting = $value"
-            if [ "$value" != "off" ]; then
-              echo "::error::Postgres setting $setting did not take effect (got '$value')"
-              exit 1
-            fi
+          }
+          for try in 1 2 3; do
+            tune_postgres && exit 0
+            [ "$try" -lt 3 ] && sleep 5
           done
+          echo "::error::Postgres setting did not take effect after 3 tries"
+          exit 1
+
+      # T-1297: selective run: the plan (partition and test path lines from scripts/ci_select_tests.py)
+      # goes to a file; scripts/test_parallel.sh runs only those files (TEST_PARALLEL_PLAN below).
+      - name: Write selective test plan
+        if: needs.changes.outputs.mode == 'selective' && needs.changes.outputs.docs_only != 'true' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
+        env:
+          PLAN: ${{ needs.changes.outputs.plan }}
+        run: printf '%s\n' "$PLAN" > "$RUNNER_TEMP/ci_plan.txt"
 
       - name: Run test shard
-        if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only != 'true' && !contains(format(' {0} ', needs.changes.outputs.skip_shards), format(' {0} ', matrix.shard))
         run: mix letflow.check.test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           MIX_ENV: test
@@ -832,6 +979,8 @@ jobs:
           # must be N*M = 16), plus any unlisted test file whose path hashes to it. Unset, the
           # partitions use Mix's round-robin over the file list.
           TEST_PARALLEL_MANIFEST: test/shard_manifest.txt
+          # T-1297: set only on a selective run (job `changes`, mode); unset runs the manifest as before.
+          TEST_PARALLEL_PLAN: ${{ needs.changes.outputs.mode == 'selective' && format('{0}/ci_plan.txt', runner.temp) || '' }}
           # T-1139: "false" from the `changes` job drops the exam and :slow test files from the
           # partitions' file lists (scripts/test_parallel.sh logs "skipped by path"). Any other
           # value, including empty, runs the full suite.
@@ -888,8 +1037,11 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           STATIC: ${{ needs.backend_static.result }}
           SHARDS: ${{ needs.backend_shard.result }}
+          MODE: ${{ needs.changes.outputs.mode }}
+          REASON: ${{ needs.changes.outputs.reason }}
         run: |
           set -euo pipefail
+          echo "Backend tests: ${MODE:-unknown} (${REASON:-no reason})" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "filter(backend)=[$FILTER] changes=[$CHANGES] static=[$STATIC] shards=[$SHARDS]"
           fail=0
           require() {
@@ -909,6 +1061,56 @@ jobs:
             require 'backend_shard' "$SHARDS" success
           fi
           exit "$fail"
+
+  # T-1297: the two markers of the selective-CI scheme, both tags, written only by runs on main
+  # (push, nightly, workflow_dispatch). NOT a required check. Tags are moved with the job's own
+  # token (contents: write); a tag push does not start workflows.
+  #   ci-full-green  the last commit whose FULL backend run was green. The counter in job `changes`
+  #                  counts commits since it; >= 10 means the next run is full. Moved only forward.
+  #   ci-main-red    a commit of main whose backend run failed. Merge-group runs fail fast while it
+  #                  exists (job `changes`, step "Main red guard"). Deleted by the next green run of a
+  #                  descendant commit. A failed or timed-out run counts; a cancelled one does not.
+  full_run_marker:
+    name: Selective CI markers (main)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [changes, backend]
+    if: ${{ always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Move the markers
+        env:
+          RESULT: ${{ needs.backend.result }}
+          MODE: ${{ needs.changes.outputs.mode }}
+        run: |
+          set -uo pipefail
+          sha=$(git rev-parse HEAD)
+          newer() { # tag: absent or an ancestor of HEAD
+            ! git rev-parse -q --verify "refs/tags/$1" >/dev/null || git merge-base --is-ancestor "refs/tags/$1" HEAD
+          }
+          case "$RESULT" in
+            success)
+              if git rev-parse -q --verify refs/tags/ci-main-red >/dev/null && git merge-base --is-ancestor refs/tags/ci-main-red HEAD; then
+                git push origin :refs/tags/ci-main-red && echo "cleared ci-main-red" | tee -a "$GITHUB_STEP_SUMMARY"
+              fi
+              if [ "$MODE" = "full" ] && newer ci-full-green; then
+                git tag -f ci-full-green "$sha" && git push -f origin refs/tags/ci-full-green \
+                  && echo "ci-full-green -> $sha (green full run)" | tee -a "$GITHUB_STEP_SUMMARY"
+              fi
+              ;;
+            failure)
+              if newer ci-main-red; then
+                git tag -f ci-main-red "$sha" && git push -f origin refs/tags/ci-main-red \
+                  && echo "main full CI red: ci-main-red -> $sha" | tee -a "$GITHUB_STEP_SUMMARY"
+              fi
+              ;;
+            *) echo "backend result '$RESULT': markers unchanged" ;;
+          esac
 
   frontend:
     # This job's `name:` string is a required-status-check `context` on main's branch
@@ -948,7 +1150,7 @@ jobs:
     # under the same name, so the required context is satisfied. `!cancelled()` keeps the
     # fail-open rule: a failed `changes` job leaves the output empty (!= 'false'), so the
     # job runs; a cancelled run still stops. A failed or cancelled gate stays red.
-    if: ${{ !cancelled() && needs.changes.outputs.frontend != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.frontend != 'false' && needs.changes.outputs.main_red != 'true' }}
     defaults:
       run:
         working-directory: web
@@ -1003,7 +1205,7 @@ jobs:
     # running when `changes` merely *fails* (fail open), while still letting a genuinely
     # cancelled/superseded run (this workflow's own `cancel-in-progress`) actually stop.
     # GH #2412: also skipped at job level when the mobile filter is `false` (see `frontend`).
-    if: ${{ !cancelled() && needs.changes.outputs.mobile != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.mobile != 'false' && needs.changes.outputs.main_red != 'true' }}
     defaults:
       run:
         working-directory: apps/mobile

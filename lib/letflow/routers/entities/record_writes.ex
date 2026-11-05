@@ -17,6 +17,7 @@ defmodule Letflow.Routers.Entities.RecordWrites do
   alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.RecordAccess
+  alias Letflow.Entities.ReferenceCheck
   alias Letflow.Entities.Records
   alias Letflow.Entities.ScopedLookup
   alias Letflow.Entities.ScopedWrites
@@ -69,6 +70,9 @@ defmodule Letflow.Routers.Entities.RecordWrites do
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix) do
       :managed ->
         Response.send_problem(conn, Error.entity_type_managed())
+
+      :write_denied ->
+        Response.forbidden(conn, "insufficient permissions")
 
       access ->
         case write_type_gate(access, entity_type, scope, prefix) do
@@ -156,12 +160,19 @@ defmodule Letflow.Routers.Entities.RecordWrites do
 
       case write_point(access, Map.fetch!(attrs, "field_values")) do
         {:run, restricted} ->
-          render_record_command(
-            conn,
-            Records.create_record(command_attrs, prefix),
-            :created,
-            restricted
-          )
+          # REQ-636: after the access decision, before the store.
+          case ReferenceCheck.check(entity_type, command_attrs.field_values, prefix) do
+            :ok ->
+              render_record_command(
+                conn,
+                Records.create_record(command_attrs, prefix),
+                :created,
+                restricted
+              )
+
+            {:error, {:reference_invalid, names}} ->
+              reference_refusal(conn, names)
+          end
 
         {:refuse, :restricted_field} ->
           restricted_fields_refusal(conn)
@@ -226,6 +237,7 @@ defmodule Letflow.Routers.Entities.RecordWrites do
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> Response.send_problem(conn, Error.entity_type_managed())
+      :write_denied -> Response.forbidden(conn, "insufficient permissions")
       access -> update_record_with_access(conn, entity_type, raw_record_id, access, scope)
     end
   end
@@ -271,12 +283,19 @@ defmodule Letflow.Routers.Entities.RecordWrites do
         {:run, restricted} ->
           command_attrs = put_preserve_keys(command_attrs, restricted)
 
-          render_record_command(
-            conn,
-            Records.update_record(command_attrs, prefix),
-            :ok,
-            restricted
-          )
+          # REQ-636: every non-empty reference field is checked, also an unchanged stored value.
+          case ReferenceCheck.check(entity_type, command_attrs.field_values, prefix) do
+            :ok ->
+              render_record_command(
+                conn,
+                Records.update_record(command_attrs, prefix),
+                :ok,
+                restricted
+              )
+
+            {:error, {:reference_invalid, names}} ->
+              reference_refusal(conn, names)
+          end
 
         {:refuse, :restricted_field} ->
           restricted_fields_refusal(conn)
@@ -310,6 +329,11 @@ defmodule Letflow.Routers.Entities.RecordWrites do
       {:error, :idempotency_key_invalid} ->
         Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:body)]))
     end
+  end
+
+  # REQ-636: one 422 with constant text per failing field (no received value, no case split).
+  defp reference_refusal(conn, names) do
+    Response.send_problem(conn, Validation.problem(ReferenceCheck.field_errors(names)))
   end
 
   # The write point of POST: what to do with the access decision once the request validated.
@@ -361,6 +385,7 @@ defmodule Letflow.Routers.Entities.RecordWrites do
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> Response.send_problem(conn, Error.entity_type_managed())
+      :write_denied -> Response.forbidden(conn, "insufficient permissions")
       access -> delete_record_with_access(conn, entity_type, raw_record_id, access, scope)
     end
   end

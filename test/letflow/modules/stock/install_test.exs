@@ -46,7 +46,7 @@ defmodule Letflow.Modules.Stock.InstallTest do
   defp install_stock!(ctx) do
     on_exit(fn -> Letflow.StockFixture.drop_pack_rows!(ctx.fx.tenant_id) end)
 
-    for module_id <- ["org", "catalog_items", "locations", "stock"] do
+    for module_id <- ["org", "catalog_items", "locations", "codes", "stock"] do
       assert {:ok, _} = Installs.install(module_id, Ecto.UUID.generate(), opts(ctx.s))
     end
   end

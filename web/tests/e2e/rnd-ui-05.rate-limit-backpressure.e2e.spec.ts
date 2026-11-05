@@ -7,7 +7,7 @@
  *  the UI behaviour per the design §5.1 + §12.1.
  *
  *  Design §0: every E2E hits the real backend (Keycloak
- *  http://localhost:8082/realms/bpm-default, BPM API http://127.0.0.1:8080,
+ *  http://localhost:8082/realms/bpm-default, BPM API http://127.0.0.1:4000,
  *  PostgreSQL localhost:5432). Zero HTTP mocking, zero page.route()
  *  interception of API or auth endpoints.
  */
