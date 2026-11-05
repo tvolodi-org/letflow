@@ -713,6 +713,13 @@ defmodule Letflow.Modules.Stock.PostingTest do
       conn = task_route(ctx, task, "complete", ~s({"output_variables":{}}))
       assert conn.status == 200, conn.resp_body
       assert P.get!(ctx, doc["id"])["state"] == "posted"
+
+      # the three balances at Rack 01
+      for {sku, qty} <- [{s.laptop, "20"}, {s.cement, "100"}, {s.milk, "60"}] do
+        rows = (S.get("/balances?sku=#{sku}", ctx.tok_a) |> P.status!(200))["rows"]
+        total = rows |> Enum.map(&Decimal.new(&1["quantity"])) |> Enum.reduce(&Decimal.add/2)
+        assert Decimal.equal?(total, Decimal.new(qty)), "#{sku}: #{inspect(rows)}"
+      end
     end
   end
 
