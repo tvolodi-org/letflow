@@ -301,7 +301,8 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # REQ-736 (GH #3861) added the count print route line (235 -> 236).
       # REQ-737 (GH #3860) added the document print route line (236 -> 237).
       # REQ-741 (GH #3879) added the two stock voice draft lines (237 -> 239).
-      assert length(snapshot) == 239
+      # REQ-749 (GH #3893) added the three assets register read lines (239 -> 242).
+      assert length(snapshot) == 242
 
       for line <- @resolver_lines ++ @tenant_wide_lines do
         refute line in snapshot, line

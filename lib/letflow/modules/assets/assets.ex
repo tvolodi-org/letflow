@@ -11,8 +11,19 @@ defmodule Letflow.Modules.Assets do
   The one record type `assets_card` is shipped by the pack `priv/modules/assets/pack.json`
   (generated from `priv/modules/assets/entity_definitions/` by
   `priv/modules/assets/generate_pack.exs`). It is a managed type: after install the generic write
-  routes answer 403 `entity_type_managed`. The module has no route, no permission, no ledger and no
-  write function yet (ledger: REQ-749, card writes: REQ-750).
+  routes answer 403 `entity_type_managed`. The module has no write function yet (card writes:
+  REQ-750).
+
+  **Asset ledger** (REQ-749 / GH #3893, version 0.2.0; `docs/assets/asset-register.md` section 4):
+  ledger id `assets`, slots `asset, org_unit, location, material_responsible, actual_user` (all uuid
+  text; location and actual user may be empty; the order is append-only), scope slot `org_unit`,
+  causes `commission` (positive), `change` and `handover` (zero sum per asset), `writeoff` (negative,
+  a reason required), unit `pcs`. The pure policy is `Letflow.Modules.Assets.LedgerPolicy`, the read
+  names are `Letflow.Modules.Assets.Views`, and three read routes (`balances`, `movements`,
+  `reconcile`) live in `Letflow.Modules.Assets.Router`. The permissions `AssetsPost`, `AssetsReverse`,
+  `AssetsRead` and `AssetsReconcile` have no role grants, so only TENANT_ADMIN and PLATFORM_ADMIN hold
+  them. Nothing posts to the ledger yet (documents: REQ-752, REQ-753). The storage is created at
+  install by `Letflow.Modules.Installs`. The module is installed on no tenant, so there is no upgrade.
 
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
@@ -38,10 +49,10 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.1.0",
+    version: "0.2.0",
     depends_on: ["locations", "org"],
     pack: "modules/assets/pack.json",
-    permissions: [],
+    permissions: [:AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
     role_grants: %{},
     required_roles: [],
     settings_schema: %{
@@ -51,10 +62,47 @@ defmodule Letflow.Modules.Assets do
       },
       "additionalProperties" => false
     },
-    route_policies: [],
+    route_policies: [
+      {"GET", "/balances", :AssetsRead},
+      {"GET", "/movements", :AssetsRead},
+      {"GET", "/reconcile", :AssetsReconcile}
+    ],
     manages_entity_types: ["assets_card"],
-    scope_declarations: %{"assets_card" => {:column, "org_unit_id"}}
+    scope_declarations: %{"assets_card" => {:column, "org_unit_id"}},
+    ledger: %{
+      "assets" => %{
+        ledger_ids: {:fixed, ["assets"]},
+        slots: [
+          %{name: "asset", format: :uuid, required: true},
+          %{name: "org_unit", format: :uuid, required: true},
+          %{name: "location", format: :uuid, required: false},
+          %{name: "material_responsible", format: :uuid, required: true},
+          %{name: "actual_user", format: :uuid, required: false}
+        ],
+        causes: %{
+          "commission" => %{sign_rule: :positive, reason_required: false},
+          "change" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
+          "handover" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
+          "writeoff" => %{sign_rule: :negative, reason_required: true}
+        },
+        key_bounds: [],
+        permissions: %{
+          post: :AssetsPost,
+          reverse: :AssetsReverse,
+          read: :AssetsRead,
+          reconcile: :AssetsReconcile
+        },
+        scope_slot: "org_unit",
+        max_event_lateness_hours: 96,
+        error_aliases: %{},
+        units: ["pcs"],
+        policy: {Letflow.Modules.Assets.LedgerPolicy, :declare}
+      }
+    }
   )
+
+  @impl true
+  def router, do: Letflow.Modules.Assets.Router
 
   @impl true
   def on_install(prefix, _settings, ctx) do

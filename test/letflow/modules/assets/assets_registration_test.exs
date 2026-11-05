@@ -18,16 +18,22 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.1.0"
+    assert m.version == "0.2.0"
     assert m.depends_on == ["locations", "org"]
     assert m.pack == "modules/assets/pack.json"
-    assert m.permissions == []
+    assert m.permissions == [:AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile]
     assert m.role_grants == %{}
-    assert m.route_policies == []
+
+    assert m.route_policies == [
+             {"GET", "/balances", :AssetsRead},
+             {"GET", "/movements", :AssetsRead},
+             {"GET", "/reconcile", :AssetsReconcile}
+           ]
+
     assert m.manages_entity_types == ["assets_card"]
     assert m.scope_declarations == %{"assets_card" => {:column, "org_unit_id"}}
     keys = Map.keys(m)
-    refute :ledger in keys
+    assert :ledger in keys
     refute :write_handlers in keys
 
     assert m.settings_schema == %{
@@ -38,7 +44,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              "additionalProperties" => false
            }
 
-    refute function_exported?(Assets, :router, 0)
+    assert function_exported?(Assets, :router, 0)
     assert Catalog.fetch("assets") == {:ok, Assets}
     assert Catalog.validate(m, Catalog.all_manifests()) == :ok
 
