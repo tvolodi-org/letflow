@@ -123,7 +123,8 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
       employees: employees(prefix, kind, order, lines, principal),
       locations: locations(prefix, order, lines),
       items: for_ids(lines, "catalog_item_id", &item(prefix, &1)),
-      lots: for_ids(lines, "catalog_lot_id", &lot(prefix, &1))
+      lots: for_ids(lines, "catalog_lot_id", &lot(prefix, &1)),
+      units: for_ids(lines, "unit_ref", &uom(prefix, &1))
     }
   end
 
@@ -150,6 +151,14 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
   end
 
   defp item(prefix, id) do
+    case CatalogItems.lookup(prefix, id) do
+      {:ok, r} -> %{code: r["code"], name: r["name"]}
+      _ -> nil
+    end
+  end
+
+  # The unit of measure master record (`catalog_uom`); nil when it is not found.
+  defp uom(prefix, id) do
     case CatalogItems.lookup(prefix, id) do
       {:ok, r} -> %{code: r["code"], name: r["name"]}
       _ -> nil

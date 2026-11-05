@@ -121,6 +121,10 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
 
   defp unit_text(_), do: ""
 
+  # The unit of measure shows its name; the raw reference only when the master record is not found.
+  defp unit_cell(nil, ref), do: text(ref)
+  defp unit_cell(unit, ref), do: with("" <- unit_text(unit), do: text(ref))
+
   defp time(nil, _names, _key), do: ""
 
   defp time(value, names, key) do
@@ -173,6 +177,7 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
     locations = Map.get(names, :locations, %{})
     items = Map.get(names, :items, %{})
     lots = Map.get(names, :lots, %{})
+    units = Map.get(names, :units, %{})
     employees = Map.get(names, :employees, %{})
 
     header =
@@ -195,7 +200,7 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
           text(Map.get(lots, line["catalog_lot_id"])),
           text(emp[:full_name]),
           text(emp[:code]),
-          text(line["unit_ref"]),
+          unit_cell(Map.get(units, line["unit_ref"]), line["unit_ref"]),
           text(line["book_quantity"]),
           text(line["counted_quantity"])
         ] ++
