@@ -231,9 +231,9 @@ defmodule Letflow.LedgerPartitionedTablesMigrationTest do
 
   test "PM-4 registered last; a replay on an empty tenant restores the partitioned shape",
        %{schema: schema, tenant_id: tenant_id} do
-    # REQ-711, REQ-626, REQ-577, REQ-635 and REQ-623 and REQ-624 register later migrations after it
+    # REQ-711, REQ-626, REQ-577, REQ-635 and REQ-623, REQ-624 and T-1389 register later migrations after it
     assert {@version, CreateLedgerPartitionedTables} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -8)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -9)
 
     q!(~s|DELETE FROM "#{schema}".schema_migrations WHERE version = $1|, [@version])
     assert {:ok, _} = TenantProvisioning.replay_migrations(tenant_id)

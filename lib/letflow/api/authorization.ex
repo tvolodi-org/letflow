@@ -283,6 +283,13 @@ defmodule Letflow.Api.Authorization do
   effective role list is empty (no groups, or only a dropped `PLATFORM_ADMIN`)
   still gets its own, empty, answer instead of a 403.
 
+  ## `:MyPreferencesSet` (T-1389) — role-agnostic, granted to every role including CANDIDATE
+
+  The write of `PUT /me/preferences` (the caller's own display settings, rows keyed by the
+  authenticated user id). Granted like `:MyAccessRead`. The name deliberately does not end in
+  `Write`/`Manage`: a TENANT_AUDITOR may set its own layout, and the auditor test that refuses
+  every write-class permission does not apply. The read of the same path reuses `:MyAccessRead`.
+
   ## Catalog-sourced permissions and role grants (REQ-401, D4)
 
   `permissions/0` and `role_allows?/2` are both widened by REQ-401 to also
@@ -342,6 +349,7 @@ defmodule Letflow.Api.Authorization do
           | :ModulesManage
           | :MyModulesRead
           | :MyAccessRead
+          | :MyPreferencesSet
           | :PlatformServicesManage
           | :TenantSettingsManage
           | :PromotionsRead
@@ -415,6 +423,7 @@ defmodule Letflow.Api.Authorization do
           | :ModulesManage
           | :MyModulesRead
           | :MyAccessRead
+          | :MyPreferencesSet
           | :ScopeNodePathsConsistencyRead
           | :ScopeEnforcementRead
           | :ScopeEnforcementManage
@@ -505,6 +514,7 @@ defmodule Letflow.Api.Authorization do
     :ModulesManage,
     :MyModulesRead,
     :MyAccessRead,
+    :MyPreferencesSet,
     :EntitiesRestrictionsManage,
     # ISS-0993 (design iss0993-platform-scope-separation.md section 5)
     :PlatformServicesManage,
@@ -560,7 +570,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All fifty-five core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All fifty-six core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -1406,6 +1416,11 @@ defmodule Letflow.Api.Authorization do
   # /api/v1/me/access). See this module's moduledoc "MyAccessRead" section.
   def endpoint_policy_key("GET", "/me/access"), do: :MyAccessRead
 
+  # T-1389: per-user preferences store (Letflow.Routers.Me). The read reuses the role-agnostic
+  # :MyAccessRead; the write is the role-agnostic :MyPreferencesSet (own rows only).
+  def endpoint_policy_key("GET", "/me/preferences"), do: :MyAccessRead
+  def endpoint_policy_key("PUT", "/me/preferences"), do: :MyPreferencesSet
+
   # REQ-401 §4 — the Catalog-module route fallback. Every module route is
   # mounted at `/modules/<id>/<rest>` (relative to `/api/v1`, same convention
   # every clause above uses). Resolves to the permission atom the module's
@@ -1651,6 +1666,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:RecordTriggerBindingsManage), do: :ScriptsPublish
   def required_permission(:MyModulesRead), do: :MyModulesRead
   def required_permission(:MyAccessRead), do: :MyAccessRead
+  def required_permission(:MyPreferencesSet), do: :MyPreferencesSet
 
   # REQ-496 (design D11): same holders as the tree-write permission (0050 D7);
   # tenant scope, so no new permission atom.
@@ -1765,6 +1781,9 @@ defmodule Letflow.Api.Authorization do
   # REQ-449 — same shape, second clause (the first one above must stay first).
   def role_allows?(_role, :MyAccessRead), do: true
 
+  # T-1389 — third clause, same shape: the caller's own display preferences.
+  def role_allows?(_role, :MyPreferencesSet), do: true
+
   def role_allows?(role, permission) do
     core_role_allows?(role, permission) or permission in Letflow.Modules.Catalog.role_grants(role)
   end
@@ -1773,6 +1792,7 @@ defmodule Letflow.Api.Authorization do
   @spec role_allows_without_module_grants?(role(), permission() | atom()) :: boolean()
   def role_allows_without_module_grants?(_role, :MyModulesRead), do: true
   def role_allows_without_module_grants?(_role, :MyAccessRead), do: true
+  def role_allows_without_module_grants?(_role, :MyPreferencesSet), do: true
 
   def role_allows_without_module_grants?(role, permission),
     do: core_role_allows?(role, permission)

@@ -40,7 +40,9 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
     "GET /help/resolved HelpRead",
     "GET /me/memberships MembershipsRead",
     "GET /me/modules MyModulesRead",
-    "GET /me/access MyAccessRead"
+    "GET /me/access MyAccessRead",
+    "GET /me/preferences MyAccessRead",
+    "PUT /me/preferences MyPreferencesSet"
     | @filter_lines
   ]
 
@@ -396,6 +398,19 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
                    key: :MyAccessRead,
                    class: :self_service,
                    ruling: "SEC-REQ-449-access"
+                 },
+                 # T-1389: the first non-GET self_service entry (the caller's own preferences)
+                 %{
+                   route: "GET /me/preferences",
+                   key: :MyAccessRead,
+                   class: :self_service,
+                   ruling: "SEC-T1389-prefs-get"
+                 },
+                 %{
+                   route: "PUT /me/preferences",
+                   key: :MyPreferencesSet,
+                   class: :self_service,
+                   ruling: "SEC-T1389-prefs-put"
                  }
                ]
                |> Enum.sort_by(& &1.route)

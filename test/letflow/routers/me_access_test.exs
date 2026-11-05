@@ -98,7 +98,7 @@ defmodule Letflow.Routers.MeAccessTest do
       assert conn.status == 200
       body = json(conn)
       assert body["roles"] == []
-      assert body["permissions"] == ["MyAccessRead", "MyModulesRead"]
+      assert body["permissions"] == ["MyAccessRead", "MyModulesRead", "MyPreferencesSet"]
       assert body["platform_tenant"] == false
     end
 
@@ -109,7 +109,7 @@ defmodule Letflow.Routers.MeAccessTest do
 
       assert json(conn) == %{
                "roles" => [],
-               "permissions" => ["MyAccessRead", "MyModulesRead"],
+               "permissions" => ["MyAccessRead", "MyModulesRead", "MyPreferencesSet"],
                "platform_tenant" => false
              }
 

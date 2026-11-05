@@ -975,7 +975,10 @@ defmodule Letflow.TenantProvisioning do
      "20261105400001_add_print_override_pin_to_document_versions.exs"},
     # REQ-603 part A (decision 0074 P2, P6): purge_requests table and guarded delete triggers.
     {20_261_105_500_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards,
-     "20261105500001_create_purge_requests_and_delete_guards.exs"}
+     "20261105500001_create_purge_requests_and_delete_guards.exs"},
+    # T-1389: user_preferences table (per-user JSON preferences, whitelisted keys).
+    {20_261_105_600_001, Letflow.Repo.Migrations.CreateUserPreferences,
+     "20261105600001_create_user_preferences.exs"}
   ]
 
   @doc """
