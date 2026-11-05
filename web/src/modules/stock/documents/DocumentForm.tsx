@@ -25,6 +25,7 @@ import {
   buildBody,
   emptyForm,
   formFromDocument,
+  isOpening,
   isTwoSide,
   placeError,
   validateForm,
@@ -99,6 +100,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
   const err = (key: string) => (errors[`header.${key}`] ? t(errors[`header.${key}`]) : undefined)
   const receipt = form.kind === 'receipt'
   const two = isTwoSide(form.kind)
+  const opening = isOpening(form.kind)
   const orgFixedSide = form.kind === 'return' ? 'to' : 'from'
 
   return (
@@ -111,9 +113,11 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
     >
       <p>{t(`stock.doc.kind.${form.kind}`)}</p>
       {banner && <Banner tone="danger">{banner}</Banner>}
-      <Field label={t('stock.col.time')} error={err('eventTime')} mono>
-        <input type="datetime-local" value={form.eventTime} onChange={(e) => patch({ eventTime: e.target.value })} />
-      </Field>
+      {!opening && (
+        <Field label={t('stock.col.time')} error={err('eventTime')} mono>
+          <input type="datetime-local" value={form.eventTime} onChange={(e) => patch({ eventTime: e.target.value })} />
+        </Field>
+      )}
       {two && errors['sides'] && <p role="alert">{t(errors['sides'])}</p>}
       {two && (['from', 'to'] as const).map((side) => (
         <SideGroup
@@ -139,6 +143,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
         disabled={edit}
         hint={edit ? t('stock.doc.orgUnitFixed') : undefined}
       />
+      {!opening && (<>
       <Select
         label={t('stock.col.location')}
         value={form.locationId}
@@ -155,6 +160,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
         placeholder={t('stock.doc.pick')}
         error={err('responsibleId')}
       />
+      </>)}
       </>)}
       {receipt && (
         <>
@@ -185,7 +191,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
           error={err('reasonCode')}
         />
       )}
-      {!receipt && !two && (
+      {!receipt && !two && !opening && (
         <Field label={t('stock.doc.field.reasonText')} error={err('reasonText')} optional={form.reasonCode !== 'other'}>
           <textarea rows={2} value={form.reasonText} onChange={(e) => patch({ reasonText: e.target.value })} />
         </Field>
