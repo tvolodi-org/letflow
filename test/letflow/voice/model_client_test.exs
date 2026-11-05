@@ -169,11 +169,15 @@ defmodule Letflow.Voice.ModelClientTest do
     for s <- [@key, @system, @user], do: refute(log2 =~ s)
   end
 
+  # D2c (REQ-741): the stock voice service is the one sanctioned consumer.
+  @voice_consumers ["lib/letflow/modules/stock/voice_service.ex"]
+
   test "X2 no module outside lib/letflow/voice references Letflow.Voice" do
     hits =
       "lib/**/*.ex"
       |> Path.wildcard()
       |> Enum.reject(&String.starts_with?(&1, "lib/letflow/voice/"))
+      |> Enum.reject(&(&1 in @voice_consumers))
       |> Enum.filter(&(File.read!(&1) =~ "Letflow.Voice"))
 
     assert hits == []

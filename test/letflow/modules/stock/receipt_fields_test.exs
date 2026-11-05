@@ -45,7 +45,7 @@ defmodule Letflow.Modules.Stock.ReceiptFieldsTest do
 
   test "RF-1 version and the field sets of both types" do
     m = Stock.manifest()
-    assert m.version == "0.13.0"
+    assert m.version == "0.14.0"
     assert Catalog.validate(m) == :ok
 
     header = names("stock_receipt")

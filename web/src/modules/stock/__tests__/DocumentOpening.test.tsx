@@ -38,8 +38,9 @@ afterEach(() => {
   useUiLocaleStore.getState().reloadFromEnvironment()
 })
 
+const form = () => within(screen.getByTestId('document-form'))
 const pick = (label: string | RegExp, value: string, scope?: HTMLElement) =>
-  fireEvent.change((scope ? within(scope) : screen).getByLabelText(label), { target: { value } })
+  fireEvent.change((scope ? within(scope) : form()).getByLabelText(label), { target: { value } })
 
 describe('O1 create', () => {
   it('shows the opening fields and posts exactly the opening body', async () => {
@@ -47,9 +48,9 @@ describe('O1 create', () => {
     clientMock.post.mockImplementation(async (p: string, b: Record<string, unknown>) =>
       p === DOCS ? stockDoc({ id: 'dn', kind: 'opening' }) : masters(p, b))
     renderStock(`${LIST}/new?kind=opening`, withPost)
-    await screen.findByRole('option', { name: 'Main store' })
-    expect(screen.queryByLabelText('Event time')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Org unit')).toBeInTheDocument()
+    await form().findByRole('option', { name: 'Main store' })
+    expect(form().queryByLabelText('Event time')).not.toBeInTheDocument()
+    expect(form().getByLabelText('Org unit')).toBeInTheDocument()
     expect(screen.getAllByLabelText('Location')).toHaveLength(1)
     pick('Org unit', 'u1')
     const row = screen.getAllByTestId('line-editor-row')[0]
@@ -75,8 +76,8 @@ describe('O1 create', () => {
       return masters(p, b)
     })
     renderStock(`${LIST}/new?kind=opening`, withPost)
-    await screen.findByRole('option', { name: 'Main store' })
-    expect(screen.getByLabelText(/External system/)).toBeInTheDocument()
+    await form().findByRole('option', { name: 'Main store' })
+    expect(form().getByLabelText(/External system/)).toBeInTheDocument()
     pick('Org unit', 'u1')
     pick(/External system/, 'erp')
     const row = screen.getAllByTestId('line-editor-row')[0]
@@ -99,12 +100,12 @@ describe('O1 create', () => {
   })
   it('W6b a receipt form has no external id fields', async () => {
     renderStock(`${LIST}/new?kind=receipt`, withPost)
-    await screen.findByRole('option', { name: 'Main store' })
-    expect(screen.queryByLabelText(/External system/)).not.toBeInTheDocument()
+    await form().findByRole('option', { name: 'Main store' })
+    expect(form().queryByLabelText(/External system/)).not.toBeInTheDocument()
   })
   it('sends nothing when the receipt date is missing', async () => {
     renderStock(`${LIST}/new?kind=opening`, withPost)
-    await screen.findByRole('option', { name: 'Main store' })
+    await form().findByRole('option', { name: 'Main store' })
     pick('Org unit', 'u1')
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
     expect((await screen.findAllByText('This field is required.')).length).toBeGreaterThan(0)

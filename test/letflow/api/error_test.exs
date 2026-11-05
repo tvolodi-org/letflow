@@ -140,6 +140,15 @@ defmodule Letflow.Api.ErrorTest do
         "partition not yet attached"
       )
     end
+
+    # REQ-741 (GH #3879) V-ERR-1.
+    test "bad_gateway/1 and gateway_timeout/1 build the 502 and 504 documents" do
+      Error.bad_gateway("upstream provider failed")
+      |> assert_problem("bad-gateway", "Bad Gateway", 502, "upstream provider failed")
+
+      Error.gateway_timeout("upstream provider timed out")
+      |> assert_problem("gateway-timeout", "Gateway Timeout", 504, "upstream provider timed out")
+    end
   end
 
   describe "idempotency_key_reuse/0 (GH #2543)" do
