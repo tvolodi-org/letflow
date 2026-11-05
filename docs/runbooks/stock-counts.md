@@ -85,7 +85,7 @@ reached as `Counts.mark_sheet_signed/4`, `issue_differences/3`, `mark_difference
 `signatures/3`. Record type `count_signature` (append-only, scoped by `org_unit_id`); five optional fields on the
 count order (`sheet_signed_at`, `differences_document_id`, `differences_number`, `differences_issued_at`,
 `differences_signed_at`). "Signed" is a paper signature on the printout: the chair records it, the system does not
-verify it. No ledger call: the posting is REQ-718 and waits for the count freeze.
+verify it. No ledger call here: the posting is REQ-718 (next section).
 
 | Route | Permission | Ok |
 |---|---|---|
@@ -105,6 +105,52 @@ verify it. No ledger call: the posting is REQ-718 and waits for the count freeze
 3. **Differences signing**: the same exact-set rule (responsible employees of the difference lines only); refused
    `count_window_expired` more than 96 hours after the cut-off (the count stays `counted` and can be cancelled). The
    count becomes `signed`, and `Counts.cancel/3` then answers `count_state_invalid`.
+
+## Posting a count (REQ-718, GH #3763; module `stock` 0.10.0)
+
+Functions: `Letflow.Modules.Stock.CountPosting`, reached as `Counts.post/3`, `reverse/4`, `issue_posting_record/3`
+and `posting_document/3`. The signed differences sheet is posted to the stock ledger as ONE entry (cause
+`count_difference`, sign rule `any`, a reason required: `count`), one leg per difference line (a surplus is `+q` at the
+`to` side, a shortage `-q` at the `from` side, quantity the absolute difference). It replaces the pair
+`count_surplus` / `count_shortage` of decision 0079 section 8: an entry has one cause and a sheet usually has both signs.
+
+**Assumption, owner may change at GATE B (D-086): the count freeze is NOT built** (decision 0079 section 4, split plan
+row C7, no requirement yet). Stock postings inside the count scope between the cut-off and the posting are NOT blocked.
+A difference is therefore posted as a delta (counted minus book at the cut-off, the `difference` of the issued line), so
+that a movement made meanwhile stays valid and the balance ends at balance-now plus delta. Known gaps:
+
+1. The freeze is not built. Nothing stops a movement during counting.
+2. A shortage can exceed the current balance if goods left after the cut-off: the ledger refuses `insufficient_stock`
+   when the post task is completed, the task stays pending and the count stays `signed`.
+3. A count posted after later movements reports the delta, not "counted = balance".
+4. The event time of the entry is `differences_signed_at`; completing the post task more than 96 hours later is refused
+   (`event_time_too_old`), with no override (0079 section 8). The same holds for a reversal.
+5. The binding of the posting to the issued sheet is by workflow order and detected on read (`posting_check`), not
+   enforced, until slice L7 (decision 0078 D5), as for stock documents.
+
+| Route | Permission | Ok | Refusals |
+|---|---|---|---|
+| `POST /counts/:id/post` (empty body) | `StockPost` | 200 order view, `posting_state` `pending` | 404; 409 `posting_pending`, `count_posted`, `definition_not_active`; 422 `count_state_invalid`, `no_differences` |
+| `POST /counts/:id/reverse` (`reason_code`, `reason_text`) | `StockReverse` | 200 order view, `reverse_pending` | 404; 409 `count_not_posted`, `count_reversed`, `reversal_pending`, `posting_inconsistent`, `definition_not_active`; 422 `reason_invalid` |
+| `POST /counts/:id/posting-record` (empty body) | `StockCountRecord` | 200 order view, status `posted` | 404; 409 `count_not_posted`, `count_reversed`, `posting_record_exists`; 422 `not_chair`, `count_state_invalid` |
+| `GET /counts/:id/posting-document` | `StockRead` | 200 number label, version, time, hash | 404; 422 `count_not_posted` |
+
+Flow: **Post** starts one `stock_count_posting` instance (activated lazily with the caller's own activator) with a
+pending `post` task, built only from the issued differences version. Whoever holds the ledger posting authority
+(`StockPost`, OIDC credential) completes the task in the task inbox: the entry and one `stock_posting_mark` commit
+together. Handlers create records only, so the stored status stays `signed`; the read shows `posting_state` (`none`,
+`pending`, `posted`, `reversed`), `entry_id`, `posted_at`, `posted_by` and `posting_check` (`ok`, `mismatch` or null,
+never a detail). The chair then issues the **posting record** (`count.posting`: entry id, posting sequence and time,
+no quantity) and the status becomes `posted`; this needs the caller's ledger read (otherwise 404). A signed count with no
+difference line makes no ledger call: `post` is `no_differences`, the posting record is issued without an entry.
+**Reverse** starts `stock_reversal`; completing its `reverse` task reverses the whole entry and writes a `reversed`
+mark; the count documents stay issued. A reversal before the posting record leaves the status `signed` and the record is
+then refused `count_reversed`; a count cannot be cancelled from `signed`, so a new count is ordered. Needs the caller's
+tenant-wide ledger read, else 404 (fail closed). The posting and the reversal carry `related_document_id` (the
+`count.order` document id) and `correlation_id` (the count order record id).
+
+The stock module is installed on no tenant yet; an existing install takes the new pack definition and the three new
+optional `count_order` fields through the module-upgrade path (old rows lack them, all reads tolerate that).
 
 ## Org units and the document service
 

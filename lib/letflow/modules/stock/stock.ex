@@ -114,6 +114,19 @@ defmodule Letflow.Modules.Stock do
   task kept apart by `distinct_from`; completing `approve` posts). The entry's event time is its
   posting time. Assumptions, owner may change at GATE B: 100 lines, `OPN` per year, the second person.
 
+  ## Posting a count (REQ-718 / GH #3763; version 0.10.0)
+
+  The cause `count_difference` (sign rule `any`, a reason required), the write handler `post_count`
+  (`posts_ledger: "stock"`), the process definition `stock_count_posting` (one HUMAN_TASK `post`) and
+  four routes over `Letflow.Modules.Stock.CountPosting`: `POST /counts/:id/post`, `POST
+  /counts/:id/reverse`, `POST /counts/:id/posting-record` and `GET /counts/:id/posting-document`. One
+  ledger entry per signed differences sheet, one leg per difference line, posted as a DELTA (counted
+  minus book at the cut-off). Reversal reuses `stock_reversal` and `reverse_document`. No migration,
+  no new permission. Assumption, owner may change at GATE B (D-086): the count freeze (decision 0079
+  section 4, split plan row C7) is NOT built; postings during counting are not blocked. The module is
+  installed on no tenant yet; the new pack definition and the new `count_order` fields reach an
+  existing install through the module-upgrade path.
+
   ## Slots and their order (append-only, rule 12)
 
   `sku, location, org_unit, responsible, lot`, all uuid text. `sku` is slot 1 because the sign rule
@@ -124,8 +137,8 @@ defmodule Letflow.Modules.Stock do
   ## Causes
 
   `receipt` and `opening` (positive), `issue` and `write_off` (negative; write_off needs a reason), `transfer`,
-  `hand_over` and `return` (zero sum per sku). Assumption, owner may change at GATE B: the six
-  causes, the 96-hour lateness, the slot order.
+  `hand_over` and `return` (zero sum per sku), `count_difference` (REQ-718, sign rule `any`, a reason
+  required). Assumption, owner may change at GATE B: the seven causes, the 96-hour lateness, the slot order.
 
   ## Permissions
 
@@ -237,7 +250,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.9.0",
+    version: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
@@ -285,7 +298,11 @@ defmodule Letflow.Modules.Stock do
       {"POST", "/counts/:id/differences", :StockCountRecord},
       {"POST", "/counts/:id/differences-signatures", :StockCountRecord},
       {"GET", "/counts/:id/differences", :StockRead},
-      {"GET", "/counts/:id/signatures", :StockRead}
+      {"GET", "/counts/:id/signatures", :StockRead},
+      {"POST", "/counts/:id/post", :StockPost},
+      {"POST", "/counts/:id/reverse", :StockReverse},
+      {"POST", "/counts/:id/posting-record", :StockCountRecord},
+      {"GET", "/counts/:id/posting-document", :StockRead}
     ],
     manages_entity_types: [
       "stock_receipt",
@@ -362,6 +379,20 @@ defmodule Letflow.Modules.Stock do
           "posting" => %{required: true}
         },
         posts_ledger: "stock"
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "post_count",
+        function: {Letflow.Modules.Stock.Handlers, :post_count},
+        targets: ["stock_posting_mark"],
+        args: %{
+          "document_id" => %{required: true},
+          "document_type" => %{required: true},
+          "version_no" => %{required: true},
+          "org_unit_id" => %{required: true},
+          "mark" => %{required: true},
+          "posting" => %{required: true}
+        },
+        posts_ledger: "stock"
       }
     ],
     ledger: %{
@@ -381,7 +412,8 @@ defmodule Letflow.Modules.Stock do
           "write_off" => %{sign_rule: :negative, reason_required: true},
           "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "hand_over" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
-          "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false}
+          "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
+          "count_difference" => %{sign_rule: :any, reason_required: true}
         },
         key_bounds: [],
         permissions: %{

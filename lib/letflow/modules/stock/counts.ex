@@ -6,7 +6,7 @@ defmodule Letflow.Modules.Stock.Counts do
   commission (a chair and members, all employees). This module only keeps the order; the cut-off, the
   book quantities and the count sheet are REQ-701 (`Letflow.Modules.Stock.CountSheet`, delegated from
   here: `open/3`, `record_count/5`, `add_surplus_line/4`, `close_counting/3`, `lines/4`, `entries/4`,
-  `sheet_document/3`), posting is a later slice. This module makes no ledger call.
+  `sheet_document/3`), posting is REQ-718 (`Letflow.Modules.Stock.CountPosting`). This module makes no ledger call.
 
   Three module-managed record types (pack `priv/modules/stock/pack.json`): `count_order` (header),
   `count_order_scope` (one row per root) and `count_commission_member` (one row per member), all
@@ -48,6 +48,7 @@ defmodule Letflow.Modules.Stock.Counts do
   alias Letflow.Modules.Org
   alias Letflow.Modules.ReadApi
   alias Letflow.Modules.Stock.CountDifferences
+  alias Letflow.Modules.Stock.CountPosting
   alias Letflow.Modules.Stock.CountSheet
   alias Letflow.Repo
 
@@ -244,6 +245,13 @@ defmodule Letflow.Modules.Stock.Counts do
   defdelegate differences(prefix, id, opts), to: CountDifferences
   defdelegate signatures(prefix, id, opts), to: CountDifferences
 
+  # --- posting and reversal of a signed count (REQ-718): `Letflow.Modules.Stock.CountPosting` -----
+
+  defdelegate post(prefix, id, opts), to: CountPosting
+  defdelegate reverse(prefix, id, body, opts), to: CountPosting
+  defdelegate issue_posting_record(prefix, id, opts), to: CountPosting
+  defdelegate posting_document(prefix, id, opts), to: CountPosting
+
   defp chair?(prefix, header, actor) do
     chair = header["chair_employee_id"]
 
@@ -263,8 +271,15 @@ defmodule Letflow.Modules.Stock.Counts do
   def get(prefix, id, opts) when is_binary(prefix) and is_map(opts) do
     {_actor, scope} = opts!(opts)
 
-    with {:ok, header} <- fetch(prefix, id, scope), do: {:ok, view(prefix, header)}
+    with {:ok, header} <- fetch(prefix, id, scope) do
+      {:ok, Map.merge(view(prefix, header), posting_fields(prefix, header, opts))}
+    end
   end
+
+  # REQ-718: the posting state of a `signed` or `posted` count; `opts[:authorized]` is the caller's
+  # ledger read authorization (absent: `posting_check` is nil).
+  defp posting_fields(prefix, header, opts),
+    do: CountPosting.state_fields(prefix, header, Map.get(opts, :authorized))
 
   @doc """
   The orders visible to the caller, newest planned start first (then record id). `params` (string

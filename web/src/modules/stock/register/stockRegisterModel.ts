@@ -5,7 +5,7 @@ import type { BalanceRow, MovementLeg, MovementRow } from './stock.api'
 /** Tenant time zone until the tenant setting exists (REQ-703): assumption, owner may change at GATE B. */
 export const STOCK_TIME_ZONE = 'Asia/Almaty'
 
-export const CAUSES = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'reversal'] as const
+export const CAUSES = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'reversal', 'count_difference'] as const
 export const DOCUMENT_TYPES = [
   'stock_receipt',
   'stock_issue',

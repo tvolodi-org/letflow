@@ -25,6 +25,22 @@ export interface CountOrder {
   differences_issued_at?: string | null
   differences_signed_at?: string | null
   differences_number?: string | null
+  /** REQ-718: present while the status is signed or posted. */
+  posting_state?: 'none' | 'pending' | 'posted' | 'reversed'
+  post_pending?: boolean
+  reverse_pending?: boolean
+  entry_id?: string | null
+  posted_at?: string | null
+  posted_by?: string | null
+  reversed_at?: string | null
+  reversed_by?: string | null
+  posting_check?: 'ok' | 'mismatch' | null
+  posting_document_id?: string | null
+  posting_number?: string | null
+}
+export interface ReverseBody {
+  reason_code: string
+  reason_text?: string
 }
 export interface CountOrderBody {
   org_unit_id: string
@@ -125,6 +141,9 @@ export const countsApi = {
     client.post<CountOrder>(`${BASE}/${id}/differences-signatures`, { signer_employee_ids: ids }),
   differences: (id: string) => client.get<Differences>(`${BASE}/${id}/differences`),
   signatures: (id: string) => client.get<{ rows: SignatureRow[] }>(`${BASE}/${id}/signatures`),
+  post: (id: string) => client.post<CountOrder>(`${BASE}/${id}/post`),
+  reverse: (id: string, body: ReverseBody) => client.post<CountOrder>(`${BASE}/${id}/reverse`, body),
+  postingRecord: (id: string) => client.post<CountOrder>(`${BASE}/${id}/posting-record`),
   paperwork: (id: string, kind: PaperworkKind) => client.getBlob(`${BASE}/${id}/paperwork/${kind}`),
   entries: (id: string, params: Record<string, string>) => client.get<CountPage<CountEntry>>(`${BASE}/${id}/entries`, params),
 }
