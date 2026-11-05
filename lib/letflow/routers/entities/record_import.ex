@@ -9,6 +9,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
   require Logger
 
+  alias Letflow.Api.Authorization
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.ScopeGate
@@ -79,12 +80,27 @@ defmodule Letflow.Routers.Entities.RecordImport do
   @doc false
   def handle_import_records(conn, entity_type) do
     {conn, scope} = ScopeGate.scope_set(conn, :EntitiesRecordsImport)
+    storekeeper_only? = storekeeper_only_import?(conn.assigns.auth_context)
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> managed_import(conn, entity_type, scope)
       :write_denied -> Response.forbidden(conn, "insufficient permissions")
+      # D-093 / decision 0081 D4: a caller who holds Import only through STOREKEEPER imports
+      # module-managed types with a registered import function and nothing else.
+      _access when storekeeper_only? -> Response.forbidden(conn, "insufficient permissions")
       access -> import_records_with_access(conn, entity_type, access, scope, nil)
     end
+  end
+
+  # True when no held role other than STOREKEEPER allows the import permission.
+  defp storekeeper_only_import?(auth_context) do
+    roles = Authorization.roles_from_strings(Map.get(auth_context, :roles, []))
+
+    :STOREKEEPER in roles and
+      not Enum.any?(
+        roles -- [:STOREKEEPER],
+        &Authorization.role_allows?(&1, :EntitiesRecordsImport)
+      )
   end
 
   # REQ-651 (decision 0077 D5): a managed type imports only when its owning module registered an

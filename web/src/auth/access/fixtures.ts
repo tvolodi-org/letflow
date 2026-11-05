@@ -254,6 +254,27 @@ const auditor: AccessInfo = {
   ],
 }
 
+const storekeeper: AccessInfo = {
+  roles: ['STOREKEEPER'],
+  platform_tenant: false,
+  permissions: [
+    'EntitiesDefinitionsRead',
+    'EntitiesQuery',
+    'EntitiesRecordsImport',
+    'HelpRead',
+    'MembershipsRead',
+    'MyAccessRead',
+    'MyModulesRead',
+    'StockCountOrder',
+    'StockCountRecord',
+    'StockPost',
+    'StockRead',
+    'StockReverse',
+    'TasksComplete',
+    'TasksRead',
+  ],
+}
+
 export const ACCESS_FIXTURES = {
   platformAdmin,
   designer,
@@ -263,6 +284,7 @@ export const ACCESS_FIXTURES = {
   candidate,
   tenantAdmin,
   auditor,
+  storekeeper,
 } as const satisfies Record<string, AccessInfo>
 
 export type AccessFixtureName = keyof typeof ACCESS_FIXTURES

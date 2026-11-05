@@ -165,8 +165,9 @@ defmodule Letflow.Modules.Stock do
   ## Permissions
 
   `StockPost`, `StockReverse`, `StockRead`, `StockReconcile`, `StockCountOrder` (REQ-700) and
-  `StockCountRecord` (REQ-701: open, count, add surplus lines, close); no role grants, so only TENANT_ADMIN and
-  PLATFORM_ADMIN hold them (OQ-11 of decision 0073 stays open for the owner).
+  `StockCountRecord` (REQ-701: open, count, add surplus lines, close). TENANT_ADMIN, PLATFORM_ADMIN and
+  STOREKEEPER (D-093, decision 0081) hold them; STOREKEEPER holds all but `StockReconcile` (an administrative
+  reconciliation view; one line in `role_grants` if the owner wants it). OQ-11 of decision 0073 stays open.
   """
 
   @behaviour Letflow.Modules.Module
@@ -272,7 +273,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.13.0",
+    version: "0.14.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
@@ -283,7 +284,9 @@ defmodule Letflow.Modules.Stock do
       :StockCountOrder,
       :StockCountRecord
     ],
-    role_grants: %{},
+    role_grants: %{
+      STOREKEEPER: [:StockRead, :StockPost, :StockReverse, :StockCountOrder, :StockCountRecord]
+    },
     required_roles: [],
     settings_schema: nil,
     route_policies: [

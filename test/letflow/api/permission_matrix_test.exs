@@ -149,8 +149,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
         |> Enum.sort()
 
       assert golden.permissions == expected
-      assert length(golden.roles) == 8
-      assert map_size(golden.rows) == 8 * length(expected)
+      assert length(golden.roles) == 9
+      assert map_size(golden.rows) == 9 * length(expected)
 
       assert golden.modules == %{
                "exam" => Letflow.Modules.Exam.manifest().version,
@@ -232,6 +232,44 @@ defmodule Letflow.Api.PermissionMatrixTest do
 
   describe "T6 AC4a: an existing atom granted to a role that lacked it" do
     test "another module's existing atom gained via grant is a :module_grant widening" do
+      computed = mx(%{"m" => "2"}, base_owners(), Map.put(base_trues(), {@cand, "ModX"}, :grant))
+      report = PermissionMatrix.classify(baseline(), computed, ctx())
+
+      assert report.failures == [{:widening, @cand, "ModX", :module_grant}]
+    end
+  end
+
+  describe "T-12 (T-1317, decision 0081): a role absent from the baseline" do
+    defp with_new_role(computed, role, grants) do
+      rows =
+        for perm <- computed.permissions, into: computed.rows do
+          case Map.fetch(grants, perm) do
+            {:ok, via} ->
+              {{role, perm}, %{allowed: true, owner: computed.rows[{@pa, perm}].owner, via: via}}
+
+            :error ->
+              {{role, perm},
+               %{allowed: false, owner: computed.rows[{@pa, perm}].owner, via: :none}}
+          end
+        end
+
+      %{computed | roles: Enum.sort([role | computed.roles]), rows: rows}
+    end
+
+    test "its module-grant and core rows are core changes for review, never failures" do
+      computed =
+        with_new_role(baseline(), "STOREKEEPER", %{"ModX" => :grant, "CoreA" => :core})
+
+      report = PermissionMatrix.classify(baseline(), computed, ctx())
+
+      assert report.failures == []
+      assert :core_change in report.labels
+
+      assert {:added_new_role, "STOREKEEPER", "ModX"} in report.core_changes
+      assert {:added_new_role, "STOREKEEPER", "CoreA"} in report.core_changes
+    end
+
+    test "mutation: the same grant to a role already in the baseline still fails" do
       computed = mx(%{"m" => "2"}, base_owners(), Map.put(base_trues(), {@cand, "ModX"}, :grant))
       report = PermissionMatrix.classify(baseline(), computed, ctx())
 
@@ -399,15 +437,21 @@ defmodule Letflow.Api.PermissionMatrixTest do
       assert refs(manifests) == %{}
     end
 
-    test "T-PM-5: the golden holds the six stock atoms for TENANT_ADMIN and PLATFORM_ADMIN only" do
+    test "T-PM-5: the golden holds the stock atoms for the admins, and STOREKEEPER for all but StockReconcile" do
       golden = File.read!("priv/permission_matrix/effective.golden")
 
       for atom <-
             ~w(StockPost StockReverse StockRead StockReconcile StockCountOrder StockCountRecord) do
         rows = golden |> String.split("\n") |> Enum.filter(&String.contains?(&1, " #{atom} "))
         allowed = for row <- rows, String.contains?(row, " true "), do: hd(String.split(row, " "))
-        assert Enum.sort(allowed) == ["PLATFORM_ADMIN", "TENANT_ADMIN"]
-        assert length(rows) == 8
+
+        expected =
+          if atom == "StockReconcile",
+            do: ["PLATFORM_ADMIN", "TENANT_ADMIN"],
+            else: ["PLATFORM_ADMIN", "STOREKEEPER", "TENANT_ADMIN"]
+
+        assert Enum.sort(allowed) == expected
+        assert length(rows) == 9
       end
     end
   end

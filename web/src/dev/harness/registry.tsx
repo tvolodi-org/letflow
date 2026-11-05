@@ -11,6 +11,7 @@ import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 // not carry); the module boundary rule is about modules importing each other, not about this dev-only file.
 import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
 import { topbarLanguage } from './topbarFixtures'
+import { roleLabelsScreens } from './roleLabelsFixtures'
 import { locationsScreens } from './fixtures/locations'
 import { stockScreens } from './fixtures/stock'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
@@ -243,6 +244,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockCountDiffScreens,
     ...stockCountPostingScreens,
     ...queryStatesScreens,
+    ...roleLabelsScreens,
     ...taskInboxScreens,
     masterDataImport,
     masterDataImportResult,
