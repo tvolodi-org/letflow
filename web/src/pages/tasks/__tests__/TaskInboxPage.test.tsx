@@ -21,6 +21,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { screen, cleanup, waitFor } from '@testing-library/react'
 import { renderWithAccess } from '@/auth/access/testing'
+import { accessState } from '@/auth/access/fixtures'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -120,6 +121,7 @@ function renderPage() {
         <TaskInboxPage />
       </MemoryRouter>
     </QueryClientProvider>,
+    accessState('platformAdmin', 'marco-id'),
   )
 }
 
