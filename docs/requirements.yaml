@@ -49319,7 +49319,7 @@ requirements:
       - "10. Route (assumption, owner may change at GATE B; added by task T-1224 / plan task P30): GET /api/v1/modules/stock/balances accepts the query key as_of_date=YYYY-MM-DD (not with basis or as_of; cutoff_seq optional, absent means :latest and the answer states the resolved cutoff_seq) and answers through balances_on_date/5 with the body of the balances route plus as_of_date; a bad date format is 422 invalid_filter, a stored zone PostgreSQL does not know is 422 invalid_timezone, a cutoff above the counter is 422 cutoff_in_future; a request without as_of_date answers with unchanged keys; a cross-tenant negative test (INV-10) and the existing role refusals hold."
     open_questions:
       - "Assumption, owner may change at GATE B: the speed numbers in the description (p95 under 500 ms with 100 concurrent readers at the speed-test volumes) are measured by the speed test of decision 0073 A7, not by this entry."
-      - "A future date is answered like any date (its boundary lies after the newest leg, so it equals the current balance). No source asks for a refusal; none is built."
+      - "A future date is refused (PM decision 2026-11-05, T-1376 P4): 422 as_of_date_in_future, decided by the tenant time zone; the balances screen offers no date after today. Criterion 7 therefore compares the current balance with a date of today, not a later one."
       - "Whether as-of balances are read per org unit for a scoped user is decision 0073 amendment REQ-682 (item B6) and slice L6, not this entry."
     depends_on: [REQ-703, REQ-637, REQ-621, REQ-681, REQ-687]
 

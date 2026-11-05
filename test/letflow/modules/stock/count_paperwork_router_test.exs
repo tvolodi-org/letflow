@@ -193,6 +193,33 @@ defmodule Letflow.Modules.Stock.CountPaperworkRouterTest do
       end
     end
 
+    test "T3 the unit column of the sheet and the differences shows the unit name, not its id",
+         ctx do
+      x = world!(ctx, :a)
+      uom = Letflow.CatalogItemsFixture.uom!(x.s, "KGX#{System.unique_integer([:positive])}")
+
+      for {loc, q} <- [{x.w.a, "10"}, {x.w.a1, "4"}] do
+        S.post!(x.s, "receipt", %{
+          lines: [S.line(S.uuid(), q, %{to: S.side(x.w.unit, loc)}, %{unit: uom.record_id})]
+        })
+      end
+
+      id = ordered!(x)
+      counted!(x, id)
+      conn = download(id, "sheet", x.chair_tok)
+      assert conn.status == 200
+
+      [header | rows] = sheets(conn.resp_body)["lines"]
+      at = Enum.find_index(header, &(&1 == "unit"))
+      assert rows != []
+
+      for row <- rows do
+        cell = Enum.at(row, at)
+        assert cell =~ ~r/\AKGX\d+ /
+        refute cell =~ uom.record_id
+      end
+    end
+
     test "R4 the route is a StockRead route of the module" do
       assert {"GET", "/counts/:id/paperwork/:kind", :StockRead} in Letflow.Modules.Stock.manifest().route_policies
     end

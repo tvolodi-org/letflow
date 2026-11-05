@@ -84,6 +84,8 @@ defmodule Letflow.Ledger.Read do
   def balances_on_date(%Authorized{} = a, %Date{} = date, known_through, filters, page) do
     with {:ok, tenant} <- fetch_tenant(a),
          zone = TenantTimezone.of(tenant),
+         {:ok, today} <- TenantTimezone.today(zone),
+         :ok <- not_in_future(date, today),
          {:ok, boundary} <- TenantTimezone.start_of_next_day(date, zone),
          as_of = DateTime.add(boundary, -1, :microsecond),
          {:ok, report} <-
@@ -93,6 +95,10 @@ defmodule Letflow.Ledger.Read do
   end
 
   def balances_on_date(_a, _date, _known_through, _filters, _page), do: {:error, :invalid_filter}
+
+  defp not_in_future(date, today) do
+    if Date.compare(date, today) == :gt, do: {:error, :as_of_date_in_future}, else: :ok
+  end
 
   defp fetch_tenant(%Authorized{tenant_id: id}) when is_binary(id) do
     case Identity.get_tenant(id) do
@@ -106,9 +112,9 @@ defmodule Letflow.Ledger.Read do
   defp balances_in_zone(%Authorized{} = a, basis, filters, page, zone) do
     with {:ok, kind, t, n} <- check_basis(basis),
          {:ok, filt, subtree} <- check_slot_filters(a, filters),
-         {:ok, limit, cursor} <- check_page(page, &decode_balance_cursor/1),
+         {:ok, limit, cursor, nonzero?} <- check_balance_page(page),
          {:ok, n, key} <- apply_cursor(n, cursor) do
-      run_balances(a, kind, t, n, filt, subtree, limit, key, zone)
+      run_balances(a, kind, t, n, filt, subtree, limit, key, zone, nonzero?)
     end
   end
 
@@ -183,6 +189,22 @@ defmodule Letflow.Ledger.Read do
 
   defp valid_value?(_value, _allow_empty?), do: false
 
+  # `nonzero` is an opt-in page key (the stock router's GET /balances sets it): the count sheet and
+  # count posting read the zero balances too.
+  defp check_balance_page(page) when is_map(page) do
+    nonzero = fetch_either(page, :nonzero)
+
+    with true <- is_nil(nonzero) or is_boolean(nonzero),
+         {:ok, limit, cursor} <-
+           check_page(Map.drop(page, [:nonzero, "nonzero"]), &decode_balance_cursor/1) do
+      {:ok, limit, cursor, nonzero == true}
+    else
+      _bad -> {:error, :invalid_filter}
+    end
+  end
+
+  defp check_balance_page(_page), do: {:error, :invalid_filter}
+
   defp check_page(page, cursor_decoder) when is_map(page) do
     with true <- Enum.all?(Map.keys(page), &(key_name(&1) in ["limit", "cursor"])),
          {:ok, limit} <- page_limit(fetch_either(page, :limit)),
@@ -227,8 +249,8 @@ defmodule Letflow.Ledger.Read do
   defp apply_cursor(n, {n, keys}), do: {:ok, n, keys}
   defp apply_cursor(_n, _cursor), do: {:error, :invalid_filter}
 
-  defp run_balances(a, kind, t, n, filt, subtree, limit, key, zone) do
-    rows_q = rows_query(a, kind, t, n, filt, subtree, key, limit + 1)
+  defp run_balances(a, kind, t, n, filt, subtree, limit, key, zone, nonzero?) do
+    rows_q = rows_query(a, kind, t, n, filt, subtree, key, limit + 1, nonzero?)
 
     query =
       from(c in "ledger_counter",
@@ -283,7 +305,7 @@ defmodule Letflow.Ledger.Read do
     end
   end
 
-  defp rows_query(a, kind, t, n, filt, subtree, key, lim) do
+  defp rows_query(a, kind, t, n, filt, subtree, key, lim, nonzero?) do
     base =
       from(b in "ledger_balance",
         as: :b,
@@ -351,6 +373,7 @@ defmodule Letflow.Ledger.Read do
       {:posted, nil} ->
         base
         |> where([b], b.last_posting_seq >= 1)
+        |> then(&if(nonzero?, do: where(&1, [b], b.on_hand != 0), else: &1))
         |> select_merge([b], %{quantity: b.on_hand, last_posting_seq: b.last_posting_seq})
 
       {:posted, n} ->
@@ -361,6 +384,12 @@ defmodule Letflow.Ledger.Read do
         |> where(
           [b, g],
           (b.last_posting_seq >= 1 and b.last_posting_seq <= ^n) or not is_nil(g.s)
+        )
+        |> then(
+          &if(nonzero?,
+            do: where(&1, [b, g], coalesce(g.q, b.on_hand) != 0),
+            else: &1
+          )
         )
         |> select_merge([b, g], %{
           quantity: coalesce(g.q, b.on_hand),
@@ -373,6 +402,7 @@ defmodule Letflow.Ledger.Read do
         base
         |> join(:inner_lateral, [b], g in subquery(legs), as: :g, on: true)
         |> where([b, g], not is_nil(g.s))
+        |> then(&if(nonzero?, do: where(&1, [b, g], g.q != 0), else: &1))
         |> select_merge([b, g], %{quantity: g.q, last_posting_seq: g.s})
     end
   end
