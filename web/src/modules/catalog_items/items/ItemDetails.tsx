@@ -12,7 +12,9 @@ import {
 } from '@/components/ui/registry'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { formatDateTimeInZone } from '@/i18n/format'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { useReferenceLabels } from '@/lib/references'
+import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { classifyError } from '@/utils/classifyError'
 import { useItemBalances, useItemMovements } from '../CatalogItemsShell'
 import { STOCK_READ_ATOM } from '../catalogItemsPermissions'
@@ -27,6 +29,7 @@ export function ItemDetails(props: { item: ItemRow; onBack: () => void }) {
   const access = useAccess()
   const canStock = access.can(STOCK_READ_ATOM)
   const uid = useId()
+  const docTypes = REFERENCE_MESSAGES[useUiLocale()].docType
 
   const balances = useItemBalances(item.id, canStock)
   const movements = useItemMovements(item.id, canStock)
@@ -106,7 +109,7 @@ export function ItemDetails(props: { item: ItemRow; onBack: () => void }) {
           text: (
             <>
               {t(`cause.${causeKey(m.cause)}`)}
-              {m.document_type ? <span className="lf-reg__who"> · {m.document_type}</span> : null}
+              {m.document_type ? <span className="lf-reg__who"> · {docTypes[m.document_type] ?? m.document_type}</span> : null}
             </>
           ),
         }))}
