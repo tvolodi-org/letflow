@@ -60,16 +60,19 @@ defmodule Letflow.CiDocsOnlyTest do
     assert Enum.all?(files, &String.ends_with?(&1, "_test.exs"))
   end
 
-  test "D5: a bare docs path in a comment does not select a test file, a read of it does", %{
-    tmp_dir: dir
-  } do
+  test "D5: the boilerplate guide mention does not select a test file, any other docs path does",
+       %{
+         tmp_dir: dir
+       } do
     File.mkdir_p!(Path.join(dir, "test"))
 
     files = %{
-      "mention_test.exs" => "# see docs/roles.md for the table\ndefmodule A do\nend\n",
-      "error_msg_test.exs" => ~s|assert msg == "update docs/roles.md first"\n|,
-      "reads_test.exs" => ~s|@doc_path Path.join(root, "docs/roles.md")\n|,
-      "file_read_test.exs" => ~s|File.read!("docs/runbooks/x-y.md")\n|,
+      "guide_only_test.exs" =>
+        "@moduledoc \"\"\"\nUses DataCase per `docs/guides/test_developer_guide.md`\n\"\"\"\n",
+      "helper_test.exs" => ~s|{:ok, doc: read("docs/roles.md")}\n|,
+      "piped_test.exs" => "\"docs/roles.md\" |> File.read!()\n",
+      "guide_and_other_test.exs" =>
+        "# docs/guides/test_developer_guide.md\n# docs/runbooks/x-y.md\n",
       "yaml_test.exs" => "# reads docs/requirements.yaml\n"
     }
 
@@ -80,14 +83,26 @@ defmodule Letflow.CiDocsOnlyTest do
     {out, 0} = System.cmd("bash", [@script, "files"], cd: dir)
     selected = String.split(out, "\n", trim: true)
 
-    assert selected == ["test/file_read_test.exs", "test/reads_test.exs", "test/yaml_test.exs"]
+    assert selected == [
+             "test/guide_and_other_test.exs",
+             "test/helper_test.exs",
+             "test/piped_test.exs",
+             "test/yaml_test.exs"
+           ]
   end
 
-  test "D6: the docs test list stays bounded (T-1363: 172 files ran ~27 min in CI)" do
-    {out, 0} = System.cmd("bash", [@script, "files"], cd: @root)
+  test "D6: the real docs test list stays bounded and is computed fast (T-1363)" do
+    {t, {out, 0}} =
+      :timer.tc(fn -> System.cmd("bash", [@script, "files"], cd: @root) end, :millisecond)
+
     files = String.split(out, "\n", trim: true)
-    assert length(files) < 100, "docs test list grew to #{length(files)} files"
+    assert t < 10_000, "selector took #{t} ms"
+    # 173 files (about 3000 s serial) before T-1363; the budget leaves room for new docs guards
+    assert length(files) < 110, "docs test list grew to #{length(files)} files"
     refute "test/letflow/engine_test.exs" in files
+    # tests that read a docs file through a helper or a piped File.read! stay selected
+    assert "test/letflow/docs/roles_scoped_approvers_test.exs" in files
+    assert "test/letflow/identity/sync_scope_guard_test.exs" in files
   end
 
   test "D4: ci.yml wires the rule: shards keep their names, full test step is skipped when docs-only" do

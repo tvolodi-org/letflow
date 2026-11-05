@@ -19,15 +19,18 @@
 
 set -uo pipefail
 
-# T-1363: a test file is docs-related when it names docs/requirements.yaml, a decision record or the
-# "docs" dir anywhere, or when it READS a docs file (a File./Path. call or a module attribute on the
-# same line as the docs/<x>.md|yaml literal). A bare mention of a docs path in a comment, moduledoc or
-# error message no longer counts: that alternative matched 162 of the 1100 test files, among them the
-# engine, router and entity suites, and the docs-only step then ran ~27 min instead of a few.
+# T-1363: a test file is docs-related when it names docs/requirements.yaml, a decision record,
+# docs/status/ or the "docs" dir, or any other docs/<x>.md|yaml path EXCEPT the boilerplate
+# `docs/guides/test_developer_guide.md`. Nearly every DB-backed suite cites that guide in its
+# moduledoc ("Uses DataCase per ..."); counting those mentions selected 173 of ~1100 test files
+# (engine, router, entity suites; measured one by one at 3000 s serial, none hangs), so the
+# docs-only step ran 24-36 min and, printing nothing until the end, looked hung. Every other docs
+# path mention (read through a helper, a multi-line call, a variable) is still selected.
 docs_tests() {
   {
     git grep -lE 'requirements\.yaml|docs/migration/decisions|docs/status/|"docs"' -- 'test/*_test.exs'
-    git grep -lE '(File\.|Path\.|read_doc|@[a-z_]+ +).*"[^"]*docs/[a-z_/.-]+\.(md|yaml)' -- 'test/*_test.exs'
+    git grep -E 'docs/[a-z_/.-]+\.(md|yaml)' -- 'test/*_test.exs' |
+      grep -v 'docs/guides/test_developer_guide\.md' | cut -d: -f1
   } | sort -u
 }
 
