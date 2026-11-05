@@ -26,6 +26,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>The camera reads barcodes and QR codes so the app can look up what a code names.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The microphone records a spoken phrase so the app can fill a count or a stock document for you to check.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

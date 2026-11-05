@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { P, useAccess, type Permission } from '@/auth/access'
 import { ApiConnectivityBanner } from './ApiConnectivityBanner'
+import { SessionNotice } from './SessionNotice'
 import { TestEnvironmentBanner } from './TestEnvironmentBanner'
 import { SkipLink } from './SkipLink'
 import { TenantHeader } from './TenantHeader'
@@ -195,6 +196,7 @@ export function AppShell() {
         />
         <main id="main-content" className="lf-content" tabIndex={-1}>
           <TestEnvironmentBanner />
+          <SessionNotice />
           <ApiConnectivityBanner />
           <Outlet />
         </main>

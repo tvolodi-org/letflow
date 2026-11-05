@@ -7,6 +7,7 @@
  */
 
 import type { ApiError } from '@/types/api'
+import { renewSession } from '@/auth/sessionRenewal'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -100,14 +101,10 @@ export function isSeparationOfDuties(err: unknown): boolean {
  *  (binary). Throws the same ApiError shape either way — callers branch on
  *  err.status, not on a blob-specific error type (design §2.2). Returns
  *  normally (does not throw) when response.ok. */
-async function throwOnErrorResponse(
-  response: Response,
-  behavior: { suppressSessionExpiredEvent?: boolean } = {},
-): Promise<void> {
+async function throwOnErrorResponse(response: Response): Promise<void> {
   if (response.status === 401) {
-    if (!behavior.suppressSessionExpiredEvent) {
-      window.dispatchEvent(new CustomEvent('auth:session-expired'))
-    }
+    // The session-expired event (and the refresh-and-replay before it) is owned by
+    // authedFetch(); a 401 that reaches this point is final.
     throw buildError(response, { status: 401, message: 'Session expired', code: 'UNAUTHORIZED' })
   }
 
@@ -176,6 +173,61 @@ async function throwOnErrorResponse(
   }
 }
 
+// ── 401 handling: refresh once, replay once (T-1400) ───────────────────────────
+
+const SESSION_EXPIRED_DEDUPE_MS = 5000
+let _lastExpiredEventAt = 0
+
+/** Raises `auth:session-expired` at most once per 5 s, so N parallel 401s cause one redirect. */
+function dispatchSessionExpired(reason: 'refresh_failed' | 'replay_unauthorized'): void {
+  const now = Date.now()
+  if (_lastExpiredEventAt !== 0 && now - _lastExpiredEventAt < SESSION_EXPIRED_DEDUPE_MS) return
+  _lastExpiredEventAt = now
+  window.dispatchEvent(new CustomEvent('auth:session-expired', { detail: { reason } }))
+}
+
+/** Test hook: forget the dedupe timestamp. */
+export function _resetSessionExpiredDedupe(): void {
+  _lastExpiredEventAt = 0
+}
+
+/**
+ * Sends a request with the session token. A 401 does not log the user out at once:
+ * the session is renewed (single-flight) and the request replayed ONCE. Only a terminal
+ * refresh failure, or a 401 on the replay, raises the session-expired event. A transient
+ * refresh failure surfaces as the plain 401 error without the event.
+ *
+ * Replay is safe for every method: a 401 is answered before the handler runs, so nothing
+ * was applied. Bodies are strings, FormData or Blobs and can be sent twice.
+ *
+ * With no token sent there is nothing to expire: no renewal, no event (no loop on /login).
+ * Explicit-token calls (getWithToken) use `explicit: true` and never renew.
+ */
+async function authedFetch(
+  url: string,
+  init: RequestInit,
+  extraHeaders: Record<string, string> | undefined,
+  explicit = false,
+): Promise<Response> {
+  const sent = explicit ? null : getToken()
+  const response = await window.fetch(url, { ...init, headers: buildRequestHeaders(extraHeaders) })
+  if (response.status !== 401 || explicit || !sent) return response
+
+  if (getToken() === sent) {
+    const outcome = await renewSession()
+    if (outcome.kind === 'terminal') {
+      dispatchSessionExpired('refresh_failed')
+      return response
+    }
+    if (outcome.kind === 'transient') return response
+  }
+  // A renewal landed (ours or a concurrent one): replay once with the current token.
+  if (!getToken()) return response
+  const replay = await window.fetch(url, { ...init, headers: buildRequestHeaders(extraHeaders) })
+  if (replay.status === 401) dispatchSessionExpired('replay_unauthorized')
+  return replay
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -184,14 +236,14 @@ async function request<T>(
 ): Promise<T> {
   const isFormData = options.body instanceof FormData
 
-  const headers: Record<string, string> = buildRequestHeaders({
+  const extra: Record<string, string> = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string>),
-  })
+  }
 
-  const response = await window.fetch(`${BASE_URL}${path}`, { ...options, headers })
+  const response = await authedFetch(`${BASE_URL}${path}`, options, extra, !!behavior.suppressSessionExpiredEvent)
 
-  await throwOnErrorResponse(response, behavior)
+  await throwOnErrorResponse(response)
 
   if (response.status === 204) {
     return (parseAs === 'text' ? '' : undefined) as T
@@ -258,8 +310,7 @@ export const client = {
           ),
         )}`
       : path
-    const headers = buildRequestHeaders()
-    const response = await window.fetch(`${BASE_URL}${url}`, { headers })
+    const response = await authedFetch(`${BASE_URL}${url}`, {}, undefined)
     await throwOnErrorResponse(response)
     const blob = await response.blob()
     const contentType = response.headers.get('Content-Type') ?? blob.type ?? 'application/octet-stream'
@@ -318,8 +369,11 @@ export const client = {
   /** POST with a JSON body and a binary answer (REQ-675 template: the export route). Throws the same
    *  ApiError as the other calls. */
   async postBlob(path: string, body: unknown): Promise<{ blob: Blob; contentType: string }> {
-    const headers = buildRequestHeaders({ 'Content-Type': 'application/json' })
-    const response = await window.fetch(`${BASE_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
+    const response = await authedFetch(
+      `${BASE_URL}${path}`,
+      { method: 'POST', body: JSON.stringify(body) },
+      { 'Content-Type': 'application/json' },
+    )
     await throwOnErrorResponse(response)
     const blob = await response.blob()
     const contentType = response.headers.get('Content-Type') ?? blob.type ?? 'application/octet-stream'

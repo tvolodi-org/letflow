@@ -15,6 +15,7 @@ import 'count_api.dart';
 import 'count_models.dart';
 import 'count_refusal.dart';
 import 'scan_id.dart';
+import 'voice/voice_models.dart';
 
 final RegExp _uuidPattern = RegExp(
   r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
@@ -47,6 +48,21 @@ class SurplusDraft {
   /// The refused code could not name an item or lot (unknown, retired, a
   /// place, ...): the ids stay empty and the sheet says so.
   final bool codeNotUsable;
+}
+
+/// A counted quantity heard from a voice phrase, waiting for the user to
+/// confirm it (REQ-747). Nothing is sent until then.
+@immutable
+class VoiceCountProposal {
+  const VoiceCountProposal({
+    required this.lineNo,
+    required this.item,
+    this.quantity,
+  });
+
+  final int lineNo;
+  final VoiceItem item;
+  final String? quantity;
 }
 
 class CountDetailController extends ChangeNotifier {
@@ -90,6 +106,14 @@ class CountDetailController extends ChangeNotifier {
   String? _refusedText;
   Future<void> Function()? _retry;
   bool _disposed = false;
+
+  /// Voice (REQ-747), screen only: the proposal to check, the items to choose
+  /// among, and the message of the last draft that could not be used.
+  VoiceCountProposal? voiceProposal;
+  List<VoiceItem>? voiceChoices;
+  String? voiceNoticeKey;
+  String? _voicePlace;
+  String? _voiceQuantity;
 
   bool get canSurplus => refusal == CountRefusal.scanNoLine;
 
@@ -362,6 +386,88 @@ class CountDetailController extends ChangeNotifier {
       lastLineNo = line.lineNo;
       lastDuplicate = false;
     });
+  }
+
+  // -- voice (REQ-747) -----------------------------------------------------------
+
+  /// Reads a voice draft: marks the line and proposes the quantity for the
+  /// user to confirm. Sends nothing; the confirm is the typed [setCount].
+  Future<void> applyVoiceDraft(VoiceDraft d) async {
+    voiceProposal = null;
+    voiceChoices = null;
+    voiceNoticeKey = null;
+    if (d.kind != 'count') {
+      voiceNoticeKey = 'stock.voice.kindMismatch';
+    } else if (d.items.isEmpty) {
+      voiceNoticeKey = 'stock.voice.noItem';
+    } else {
+      _voicePlace = d.location?.id ?? placeId;
+      _voiceQuantity = d.quantity;
+      if (d.items.length > 1) {
+        voiceChoices = d.items;
+      } else {
+        await _proposeVoiceLine(d.items.first);
+        return;
+      }
+    }
+    _notify();
+  }
+
+  Future<void> chooseVoiceItem(VoiceItem item) async {
+    voiceChoices = null;
+    await _proposeVoiceLine(item);
+  }
+
+  void dismissVoice() {
+    voiceProposal = null;
+    voiceChoices = null;
+    voiceNoticeKey = null;
+    _notify();
+  }
+
+  Future<void> _proposeVoiceLine(VoiceItem item) async {
+    final place = _voicePlace;
+    if (place == null) {
+      voiceNoticeKey = 'stock.voice.noPlace';
+      _notify();
+      return;
+    }
+    bool matches(CountLine l) =>
+        l.locationId == place && l.catalogItemId == item.id;
+    try {
+      final first = await _findLine(matches);
+      if (_disposed) return;
+      final all = lines.where(matches).toList();
+      if (first == null) {
+        voiceNoticeKey = 'stock.voice.noLine';
+      } else if (all.length > 1) {
+        voiceNoticeKey = 'stock.voice.ambiguousLine';
+      } else {
+        voiceProposal = VoiceCountProposal(
+          lineNo: first.lineNo,
+          item: item,
+          quantity: _voiceQuantity,
+        );
+      }
+    } on ApiError catch (e) {
+      failure = rendererStateForError<Object?>(e);
+    } on MalformedStockAnswer {
+      failure = const RendererFetchFailure();
+    }
+    _notify();
+  }
+
+  /// The user confirmed the proposal: exactly one typed-count call.
+  Future<bool> confirmVoice() async {
+    final p = voiceProposal;
+    final q = p?.quantity;
+    if (p == null || q == null || !isQuantityText(q)) return false;
+    final ok = await setCount(p.lineNo, q);
+    if (ok) {
+      voiceProposal = null;
+      _notify();
+    }
+    return ok;
   }
 
   // -- failures ------------------------------------------------------------------

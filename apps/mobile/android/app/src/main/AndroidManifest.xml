@@ -3,6 +3,9 @@
          Not required: a device without one still installs and uses the typed field. -->
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <!-- REQ-747: the stock count and document screens record a spoken phrase.
+         Not required: a device without a microphone still installs and types. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <application
         android:label="letflow"
         android:name="${applicationName}"
