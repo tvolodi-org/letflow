@@ -17,6 +17,7 @@ import { Select } from '@/components/ui/Select'
 import { useToast } from '@/hooks/useToast'
 import { REVERSE_REASONS, TEXT_MAX, reasonTextError } from '../documents/documentsModel'
 import { countsApi, type CountOrder } from './counts.api'
+import { isUuid } from '@/lib/references/referenceLabel'
 import { shortageOf, canIssuePostingRecord, canPost, canReverse, formatInZone, reasonMessageId } from './countsModel'
 import { useNames } from '../register/stockNames'
 import { useCountsWrite } from './useCountsWrite'
@@ -98,7 +99,7 @@ function PostingBody({ order }: { order: CountOrder }) {
           <dl className="lf-dl" data-testid="posting-facts">
             <dt>{t('counts.posting.state')}</dt>
             <dd data-testid="posting-state">{t(`counts.posting.state.${state}`)}</dd>
-            {order.entry_id && (
+            {order.entry_id && !isUuid(order.entry_id) && (
               <>
                 <dt>{t('counts.posting.entry')}</dt>
                 <dd><span className="mono">{order.entry_id}</span></dd>

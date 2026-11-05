@@ -1,13 +1,15 @@
 /** PaperworkButtons — GH 3761 / REQ-720 criterion 4. One download button per issued paperwork document (order, sheet,
  *  differences). The xlsx comes through client.getBlob (bearer header) and is saved under the file name of the
  *  Content-Disposition header, else count-<kind>.xlsx. */
-import { useState } from 'react'
+import { Fragment } from 'react'
 import { useIntl } from 'react-intl'
-import { Download } from 'lucide-react'
+import { Download, Printer } from 'lucide-react'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
+import { getUiLocale } from '@/i18n/uiLocaleStore'
+import { usePdfDownload } from '../register/usePdfDownload'
 import { countsApi, type CountOrder, type PaperworkKind } from './counts.api'
-import { paperworkAvailable, parseFilename, reasonMessageId } from './countsModel'
+import { paperworkAvailable, parseFilename, printReasonMessageId, reasonMessageId } from './countsModel'
 
 const KINDS: PaperworkKind[] = ['order', 'sheet', 'differences']
 
@@ -25,40 +27,43 @@ export function saveBlob(blob: Blob, filename: string) {
 export function PaperworkButtons({ order }: { order: CountOrder }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
-  const [busy, setBusy] = useState<PaperworkKind | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { busyKey, error, run } = usePdfDownload(parseFilename)
   const shown = KINDS.filter((k) => paperworkAvailable(order, k))
   if (shown.length === 0) return null
 
-  async function download(kind: PaperworkKind) {
-    if (busy !== null) return
-    setBusy(kind)
-    setError(null)
-    try {
-      const { blob, contentDisposition } = await countsApi.paperwork(order.id, kind)
-      saveBlob(blob, parseFilename(contentDisposition, `count-${order.number ?? order.id}-${kind}.xlsx`))
-    } catch (err) {
-      setError(t(reasonMessageId(err)))
-    } finally {
-      setBusy(null)
-    }
-  }
+  const label = order.number ?? order.id
+  // REQ-738: the print language is the UI language at the moment of the click.
+  const print = (k: PaperworkKind) =>
+    run(`print-${k}`, () => countsApi.print(order.id, k, getUiLocale()), `count-${label}-${k}.pdf`, printReasonMessageId)
+  const download = (k: PaperworkKind) =>
+    run(k, () => countsApi.paperwork(order.id, k), `count-${label}-${k}.xlsx`, reasonMessageId)
   return (
     <div className="lf-form" data-testid="paperwork">
-      {error !== null && <Banner tone="danger">{error}</Banner>}
+      {error !== null && <Banner tone="danger">{t(error)}</Banner>}
       <div className="lf-form__actions">
         {shown.map((k) => (
-          <Button
-            key={k}
-            variant="secondary"
-            size="sm"
-            icon={<Download className="lf-icon" aria-hidden="true" />}
-            loading={busy === k}
-            onClick={() => void download(k)}
-            data-testid={`paperwork-${k}`}
-          >
-            {t(`counts.paperwork.${k}`)}
-          </Button>
+          <Fragment key={k}>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Download className="lf-icon" aria-hidden="true" />}
+              loading={busyKey === k}
+              onClick={() => void download(k)}
+              data-testid={`paperwork-${k}`}
+            >
+              {t(`counts.paperwork.${k}`)}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Printer className="lf-icon" aria-hidden="true" />}
+              loading={busyKey === `print-${k}`}
+              onClick={() => void print(k)}
+              data-testid={`print-${k}`}
+            >
+              {t(`counts.print.${k}`)}
+            </Button>
+          </Fragment>
         ))}
       </div>
     </div>

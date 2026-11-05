@@ -18,6 +18,7 @@ import { stockApi, type BalanceRow, type BalancesPageBody } from './stock.api'
 import { usePickerOptions } from './stockPickers'
 import { stockQueryKeys } from './stockQueryKeys'
 import { EMPTY_BALANCE_FILTERS, AS_OF_DATE, balanceNameIds, balanceParams, balanceQuery, todayIso, type BalanceFilters } from './stockRegisterModel'
+import { isUuid } from '@/lib/references/referenceLabel'
 import { useNames } from './stockNames'
 import { DateValueHint } from '@/components/ui/DateValueHint'
 import { formatLocalInput } from '@/i18n/format'
@@ -71,7 +72,7 @@ function BalancesInner() {
   const chips: { id: string; label: string }[] = (Object.keys(filterParams) as (keyof BalanceFilters)[]).map((k) => ({
     id: k,
     label: `${t(`stock.filter.${k}`)}: ${
-      [...items, ...locations, ...units, ...people, ...lots].find((o) => o.value === filterParams[k])?.label ?? filterParams[k]
+      [...items, ...locations, ...units, ...people, ...lots].find((o) => o.value === filterParams[k])?.label ?? (isUuid(filterParams[k]) ? dash : filterParams[k])
     }`,
   }))
   if (params.as_of_date) chips.push({ id: 'as_of_date', label: `${t('stock.filter.asOf')}: ${formatLocalInput(params.as_of_date, 'date', intl.locale)}` })
