@@ -95,6 +95,22 @@ defmodule Letflow.CiSelectTestsTest do
     end
   end
 
+  test "S3d: role and permission seeding runs the full suite (T-1428)" do
+    for p <- [
+          "priv/permission_matrix/effective.golden",
+          "test/support/tenant_fixture.ex",
+          "lib/letflow/identity.ex",
+          "lib/letflow/identity/role_registry.ex",
+          "lib/letflow/identity/role_backfill.ex",
+          "lib/letflow/identity_migration.ex",
+          "lib/letflow/modules/stock/stock.ex",
+          "lib/letflow/modules/exam/exam.ex"
+        ] do
+      {kv, _} = select([p])
+      assert kv["mode"] == "full", "#{p}: #{inspect(kv)}"
+    end
+  end
+
   test "S3c: an engine change also selects the record-trigger and engine tests (T-1403)" do
     {kv, plan} = select(["lib/letflow/engine/join_counter.ex"])
 
