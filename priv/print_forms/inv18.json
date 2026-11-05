@@ -1,0 +1,24 @@
+{
+  "form_layout_version": 1,
+  "form": "inv18",
+  "annex": 49,
+  "blocks": [
+    {"type": "text", "label": "inv18.annex"},
+    {"type": "text", "label": "inv18.form_code"},
+    {"type": "field", "label": "inv18.org", "key": "org_name"},
+    {"type": "field", "label": "inv18.bin", "key": "org_bin"},
+    {"type": "field", "label": "inv18.number", "key": "number"},
+    {"type": "field", "label": "inv18.date", "key": "date"},
+    {"type": "title", "label": "inv18.title"},
+    {"type": "field", "label": "inv18.count_date", "key": "count_date"},
+    {"type": "field", "label": "inv18.order", "key": "order"},
+    {"type": "signature", "label": "inv18.responsible", "key": "responsible", "parts": ["position", "signature", "name"]},
+    {"type": "text", "label": "inv18.found"},
+    {"type": "table", "rows": "lines", "totals": {"label": "inv18.total", "sum": ["surplus_qty", "shortage_qty"], "skip_blank": true}, "columns": [{"key": "no", "label": "inv18.c1"}, {"key": "name", "label": "inv18.c2"}, {"key": "nom", "label": "inv18.c3"}, {"key": "unit", "label": "inv18.c4"}, {"key": "surplus_qty", "label": "inv18.qty", "group": "inv18.g_res_surplus"}, {"key": "surplus_sum", "label": "inv18.sum", "group": "inv18.g_res_surplus"}, {"key": "shortage_qty", "label": "inv18.qty", "group": "inv18.g_res_shortage"}, {"key": "shortage_sum", "label": "inv18.sum", "group": "inv18.g_res_shortage"}, {"key": "adj_surplus_qty", "label": "inv18.qty", "group": "inv18.g_adj_surplus"}, {"key": "adj_surplus_sum", "label": "inv18.sum", "group": "inv18.g_adj_surplus"}, {"key": "adj_surplus_acct", "label": "inv18.acct", "group": "inv18.g_adj_surplus"}, {"key": "adj_shortage_qty", "label": "inv18.qty", "group": "inv18.g_adj_shortage"}, {"key": "adj_shortage_sum", "label": "inv18.sum", "group": "inv18.g_adj_shortage"}, {"key": "adj_shortage_acct", "label": "inv18.acct", "group": "inv18.g_adj_shortage"}]},
+    {"type": "text", "label": "inv18.back"},
+    {"type": "table", "rows": "regrade", "columns": [{"key": "r15", "label": "inv18.qty", "group": "inv18.g_resort_a", "no": 15}, {"key": "r16", "label": "inv18.sum", "group": "inv18.g_resort_a", "no": 16}, {"key": "r17", "label": "inv18.c_ser_short", "group": "inv18.g_resort_a", "no": 17}, {"key": "r18", "label": "inv18.qty", "group": "inv18.g_resort_b", "no": 18}, {"key": "r19", "label": "inv18.sum", "group": "inv18.g_resort_b", "no": 19}, {"key": "r20", "label": "inv18.c_ser_surp", "group": "inv18.g_resort_b", "no": 20}, {"key": "r21", "label": "inv18.qty", "group": "inv18.g_final_surplus", "no": 21}, {"key": "r22", "label": "inv18.sum", "group": "inv18.g_final_surplus", "no": 22}, {"key": "r23", "label": "inv18.acct", "group": "inv18.g_final_surplus", "no": 23}, {"key": "r24", "label": "inv18.qty", "group": "inv18.g_final_shortage", "no": 24}, {"key": "r25", "label": "inv18.sum", "group": "inv18.g_final_shortage", "no": 25}, {"key": "r26", "label": "inv18.acct", "group": "inv18.g_final_shortage", "no": 26}]},
+    {"type": "signature", "label": "inv18.accountant", "key": "accountant", "parts": ["signature", "name"]},
+    {"type": "text", "label": "inv18.acquainted"},
+    {"type": "signature", "label": "inv18.mol", "key": "mol", "parts": ["position", "signature", "name"]}
+  ]
+}
