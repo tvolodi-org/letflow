@@ -162,6 +162,11 @@ Open owner questions, with defaults (default, owner may change at GATE B):
   per line). The entry's event time is its posting time: a client event time is refused by the handler, the
   policy and the read-side check. Reversal and cancel are those of the receipt.
 
+* Cancel while posting is pending (T-1375): an issued, unposted document of a stock-consuming kind (issue,
+  write_off, transfer, hand_over, return) may be cancelled while its `post` task is pending, for example after
+  the ledger refused it with `insufficient_stock`; the post instance is withdrawn first, nothing was posted, the
+  balance is unchanged. Receipt and opening still answer `posting_pending`.
+
 ## 5. Transfer
 
 **Meaning (proposal):** a transfer moves a quantity from one org unit and location to another.
