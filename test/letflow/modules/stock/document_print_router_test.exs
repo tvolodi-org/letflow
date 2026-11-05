@@ -60,7 +60,7 @@ defmodule Letflow.Modules.Stock.DocumentPrintRouterTest do
     r["full_name"]
   end
 
-  defp plain_body(ctx, kind, extra \\ %{}) do
+  defp plain_body(ctx, kind, extra) do
     ctx.ma
     |> D.body(nil, %{
       "kind" => kind,
