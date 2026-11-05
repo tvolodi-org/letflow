@@ -95,6 +95,13 @@ defmodule Letflow.Modules.Stock do
   order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
   `CountPaperworkSource`). No migration, record type or permission.
 
+  ## Count print (REQ-736 / GH #3861; version 0.12.0)
+
+  One more read route, `GET /counts/:id/print/:kind?lang=ru|kk|en` (`StockRead`): the same three issued
+  documents as an A4 PDF with signer lines (`Letflow.Modules.Stock.CountPrint`, rendered by
+  `Letflow.Documents.PrintLayout`). It shares `CountPaperworkSource.read/4` with the xlsx route. No
+  migration, record type or permission.
+
   ## Count scan (REQ-716 / GH #3765; version 0.8.0)
 
   One more route, `POST /counts/:id/scan` (permission `StockCountRecord`, `CountSheet.scan/4`): a
@@ -114,7 +121,7 @@ defmodule Letflow.Modules.Stock do
   task kept apart by `distinct_from`; completing `approve` posts). The entry's event time is its
   posting time. Assumptions, owner may change at GATE B: 100 lines, `OPN` per year, the second person.
 
-  ## Voice draft routes (REQ-741 / GH #3879; version 0.12.0)
+  ## Voice draft routes (REQ-741 / GH #3879; version 0.13.0)
 
   Two read-only routes, `POST /voice/draft` (audio) and `POST /voice/draft-text` (typed), served by
   `Letflow.Modules.Stock.VoiceService` under the existing `StockPost` permission. They turn a phrase
@@ -265,7 +272,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.12.0",
+    version: "0.13.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
@@ -301,6 +308,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/counts/:id", :StockRead},
       {"GET", "/counts/:id/document", :StockRead},
       {"GET", "/counts/:id/paperwork/:kind", :StockRead},
+      {"GET", "/counts/:id/print/:kind", :StockRead},
       {"POST", "/counts/:id/open", :StockCountRecord},
       {"POST", "/counts/:id/scan", :StockCountRecord},
       {"GET", "/counts/:id/lines", :StockRead},
