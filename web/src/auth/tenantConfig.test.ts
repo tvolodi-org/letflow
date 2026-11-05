@@ -19,7 +19,7 @@ vi.mock('@/api/client', () => ({
   client: { get: (...args: unknown[]) => mockClientGet(...args) },
 }))
 
-import { resolveRealmFromUrl, resetTenantConfigCache, fetchTenantConfig, fetchTenantConfigForSlug } from './tenantConfig'
+import { resolveRealmFromUrl, resetTenantConfigCache, fetchTenantConfig, fetchTenantConfigForSlug, isTenantConfigCached } from './tenantConfig'
 
 describe('resolveRealmFromUrl', () => {
   beforeEach(() => {
@@ -201,5 +201,49 @@ describe('fetchTenantConfigForSlug — REQ-384 §5.2 (never touches _cachedConfi
     expect(mockClientGet).toHaveBeenCalledTimes(2)
     expect(y2).toEqual(y1)
     expect(y2).not.toEqual(x2)
+  })
+})
+
+describe('fetchTenantConfig failure handling (T-1400)', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    mockClientGet.mockReset()
+    resetTenantConfigCache()
+    vi.stubGlobal('location', { search: '' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    sessionStorage.clear()
+  })
+
+  it('TC-05a: a failed read is not cached; the next call fetches again', async () => {
+    mockClientGet.mockRejectedValueOnce(new Error('boom'))
+    const real = { oidc_authority: 'https://idp/realms/real', client_id: 'real' }
+    mockClientGet.mockResolvedValueOnce(real)
+
+    const first = await fetchTenantConfig('h')
+    expect(first.client_id).toBe('letflow-web')
+    expect(isTenantConfigCached()).toBe(false)
+
+    expect(await fetchTenantConfig('h')).toEqual(real)
+    expect(isTenantConfigCached()).toBe(true)
+    expect(mockClientGet).toHaveBeenCalledTimes(2)
+  })
+
+  it('TC-05b: concurrent calls share one request', async () => {
+    const real = { oidc_authority: 'https://idp/realms/real', client_id: 'real' }
+    mockClientGet.mockResolvedValue(real)
+    const [a, b] = await Promise.all([fetchTenantConfig('h'), fetchTenantConfig('h')])
+    expect(a).toBe(b)
+    expect(mockClientGet).toHaveBeenCalledTimes(1)
+  })
+
+  it('TC-05c: fetchTenantConfigForSlug does not cache a failure either', async () => {
+    mockClientGet.mockRejectedValueOnce(new Error('boom'))
+    const real = { oidc_authority: 'https://idp/realms/x', client_id: 'x' }
+    mockClientGet.mockResolvedValueOnce(real)
+    await fetchTenantConfigForSlug('x')
+    expect(await fetchTenantConfigForSlug('x')).toEqual(real)
   })
 })
