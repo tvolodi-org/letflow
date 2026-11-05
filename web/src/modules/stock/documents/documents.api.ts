@@ -26,6 +26,10 @@ export interface DocumentLine {
   quantity: string
   unit_price?: string | null
   line_value?: string | null
+  /** Opening balance (REQ-725). */
+  location_id?: string | null
+  responsible_id?: string | null
+  received_on?: string | null
 }
 export interface StockDocument {
   id: string
@@ -57,6 +61,10 @@ export interface StockDocument {
   reversed_by?: string | null
   posting_check?: string | null
 }
+export interface CheckResult {
+  ok: boolean
+  lines: { line_no: number; reasons: string[] }[]
+}
 /** The body of a create (POST) and of an edit (PUT, the whole document). */
 export type DocumentBody = Record<string, unknown>
 
@@ -70,6 +78,8 @@ export const documentsApi = {
   post: (id: string) => client.post<StockDocument>(`${BASE}/${encodeURIComponent(id)}/post`),
   reverse: (id: string, body: { reason_code: string; reason_text?: string }) =>
     client.post<StockDocument>(`${BASE}/${encodeURIComponent(id)}/reverse`, body),
+  /** REQ-726: dry check of a draft opening balance, nothing is written. */
+  check: (id: string) => client.post<CheckResult>(`${BASE}/${encodeURIComponent(id)}/check`),
   /** The server reads the key `reason` (Posting.cancel/5). */
   cancel: (id: string, body: { reason: string }) => client.post<StockDocument>(`${BASE}/${encodeURIComponent(id)}/cancel`, body),
 }

@@ -51387,3 +51387,159 @@ requirements:
       - "Which tenant role counts and moves stock on the phone: phase B grants the stock permissions to no role, so only a tenant administrator can use the flows; a role grant is an access change (criterion 9)."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-700, REQ-701, REQ-712, REQ-714, REQ-715, REQ-716, REQ-721, REQ-730, REQ-731, REQ-732]
+  - id: REQ-736
+    title: "Assets E1a: printed count paperwork as PDF in Russian, Kazakh and English: the count order with its commission, the count sheet and the differences sheet with signer lines, rendered from the issued document versions on the core print layout renderer"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3861
+    # Source: ai-dala-portfolio/architectures/assets.md (phase table row E 'Print count paperwork, hand-over documents ... in Russian and Kazakh'; decisions of 2026-10-31 'count paperwork (order, commission, count sheet, differences sheet, signatures), printed hand-over documents with signatures'), ai-dala-portfolio/DECISIONS.md D-062, D-063, D-085, D-086 and D-087 (O6 'signed' is a paper signature on the printout; O8 count paperwork in phase B as xlsx with signer lines, printed forms in phase E), letflow-team/project/assets-gap-analysis.md section 3 (print layout and renderer built, REQ-571), docs/migration/decisions/0079-counts-inventory-taking.md sections 9 (signers) and 10 (printed forms in Russian and Kazakh come in phase E), docs/migration/decisions/0068-per-tenant-print-template-overrides.md D1, D2, D6 (official Kazakhstan form wording held for the owner, Q1), docs/migration/decisions/0075-versioned-documents-render-after-numbering-commit.md R10 (artefact download route and its permission not decided), entries REQ-571 and REQ-719 on origin/main. Code read on origin/main: Letflow.Documents.PrintLayout.render/4 and its limits (lib/letflow/documents/print_layout.ex: blocks page, text, field, table, spacer; at most 1000 rows per table, 12 columns, 200 blocks, 500 bytes per literal; :unsupported_glyph; font dejavu-sans), Letflow.Modules.Stock.CountPaperwork.build/3 (lib/letflow/modules/stock/count_paperwork.ex), Letflow.Modules.Stock.CountPaperworkSource.fetch/4 and its names map (lib/letflow/modules/stock/count_paperwork_source.ex), the route GET /counts/:id/paperwork/:kind in lib/letflow/modules/stock/router.ex, the sheet cap @max_lines 2_000 (lib/letflow/modules/stock/count_sheet.ex) and the differences cap 200 (lib/letflow/modules/stock/count_differences.ex), the PDF text reader PdfProbe in test/letflow/documents/print_layout/render_test.exs. Written by the business analyst (T-1193) 2026-11-05.
+    description: >
+      Phase E item E1 of the assets and stock application, part a: the count paperwork of owner decision D-062
+      (order, commission, count sheet, differences sheet, signatures) as a printed PDF form in Russian, Kazakh and
+      English. Phase B gives the same three documents as xlsx with signer lines (REQ-719; 0079 section 10, D-087 O8:
+      printed forms in phase E). Backend only, module stock. The web buttons are REQ-738.
+
+      WHAT IS BUILT. A pure renderer Letflow.Modules.Stock.CountPrint (lib/letflow/modules/stock/count_print.ex:
+      build/4 with the kind order, sheet or differences, the issued content, the names map and the language ru, kk or
+      en; no database, no clock) that builds a print layout in code and renders it with
+      Letflow.Documents.PrintLayout.render/4 (REQ-571, the embedded Unicode font that prints Cyrillic and the Kazakh
+      letters), and one read route GET /api/v1/modules/stock/counts/:id/print/:kind that answers the PDF. The route
+      reads exactly what the xlsx route reads, in the same order and through the same code:
+      CountPaperworkSource is changed so that one read path (scope-checked order header, the ISSUED document version
+      content, the names map, the time zone offsets) feeds both CountPaperwork.build/3 and CountPrint.build/4; the
+      scope rule and the name rule are not copied. So the printout always equals the fixed document (D-062, 0056
+      D4), as the xlsx does.
+
+      LAYOUT (decided here as the simplest reasonable default; UAT assumption, to be confirmed by the process owner;
+      owner may change at the phase E gate). A4 portrait. Title (the document kind in the chosen language) and the
+      number label; a header block with version_no, issued_at, the org unit (code and name) and, for the sheet and the
+      differences, the cut-off time, every time in the tenant time zone with its offset as REQ-719 prints it. Order:
+      a table of the location roots (code, name) and a table of the commission (role chair or member, full name,
+      personnel code). Sheet: a lines table with line_no, location, item, lot, responsible, unit, book quantity,
+      counted quantity; differences: the same plus difference and direction. A quantity is the stored decimal text.
+      The print layout renderer takes at most 1000 rows per table (REQ-571), and a sheet may hold 2000 lines
+      (count_sheet.ex), so the lines are printed as consecutive tables of at most 1000 rows each. Last, a signatures
+      table: one row per required signer of 0079 section 9 (the same set and order as REQ-719: order the chair;
+      sheet and differences the chair, every member and every responsible person of the document's lines) with role,
+      full name, personnel code and an empty signature cell and an empty date cell, because 'signed' is a paper
+      signature on the printout (D-087 O6).
+
+      NOT AN OFFICIAL STATE FORM. 0068 D6 holds the official Kazakhstan form wording for the owner (Q1). These layouts
+      are working forms of the application with neutral labels, not a government form; the Russian and Kazakh label
+      texts are a machine draft for the native check, as the menu words of D-083 are. UAT assumption, to be confirmed
+      by the process owner.
+
+      WHY NOT THE DOCUMENT ARTEFACT. 0075 R10 leaves the download route of the stored artefact and its permission to a
+      later record, and the names on the paper depend on the caller's scope (decision 0076 owner answer 7), which one
+      stored artefact cannot follow. So this entry renders at request time from the issued content, as REQ-719 does,
+      registers no renderer in Letflow.Documents.Renderers, calls no attach_artefact/2 and stores no bytes. Stated in
+      findings for the record's owner.
+
+      Pins (moves from origin/main at implement time; numbers are examples): one new tenant route without scope (+1
+      line in test/fixtures/route_scope/tenant_wide_default_routes.txt and +1 on its three length(snapshot) pins); no
+      new permission atom (StockRead), so effective.golden does not change; the stock module version moves one minor
+      step (route_policies changes the manifest hash). No migration, no tenant table, no new dependency.
+    acceptance_criteria:
+      - "1. Renderer (test file test/letflow/modules/stock/count_print_test.exs, pure, no database; the PDF text is read back as the PdfProbe of test/letflow/documents/print_layout/render_test.exs does, the reader copied into the test file or moved to test/support/): Letflow.Modules.Stock.CountPrint.build/4 returns {:ok, binary} that starts with %PDF- for each kind order, sheet and differences and each language ru, kk and en; the recovered text holds the title of that kind in that language, the number label, the issued time in the given time zone with its offset (a test with Asia/Almaty shows +05:00), each line's stored decimal quantity unchanged (a test with 0.000000001 and 12345678901234.5) and one signatures row per required signer with role, full name and personnel code; an employee hidden by scope (nil in the names map) keeps the row with empty name and code."
+      - "2. Languages: CountPrint holds every label in ru, kk and en; a test enumerates the label keys and asserts each is a non-empty text in each language, that the ru and kk titles differ from the en titles, and that a kk sample containing the letters Ә Ғ Қ Ң Ө Ұ Ү Һ І renders with no error (no :unsupported_glyph)."
+      - "3. Long sheet: a count sheet of 2000 lines (the cap of count_sheet.ex) renders to one PDF whose text holds line_no 1 and line_no 2000, with no table of more than 1000 rows in the built layout (a test asserts both)."
+      - "4. Route (stock router; test file test/letflow/modules/stock/count_print_router_test.exs through Letflow.Router with real bearer tokens): GET /api/v1/modules/stock/counts/:id/print/:kind (StockRead; kind exactly order, sheet or differences, any other value 404; query lang exactly ru, kk or en, ru when absent, any other value 422 invalid_lang) answers 200 with Content-Type application/pdf and Content-Disposition attachment with the file name the document's number label plus .pdf; it answers 422 document_not_issued when that document of the count is not issued yet. The route is in route_policies."
+      - "5. Same source as the xlsx (same router test file): the lines, quantities and signer rows of the PDF equal the issued document version content: a test issues the count sheet, changes a live line record through the test setup and asserts the PDF still shows the issued value; for one count the PDF and the xlsx of REQ-719 name the same signers in the same order. CountPaperworkSource has one read path for both outputs (a reader checks that the scope and name rules are not duplicated)."
+      - "6. Names and scope (decision 0076 owner answer 7; same router test file): for a TENANT_ADMIN whose grant covers the count's org unit X but not org unit Z of one commission member (Letflow.Support.ScopedGrantsFixture), the signatures table shows that member's row with empty name and code and every other signer's full name; a tenant-wide TENANT_ADMIN sees all names."
+      - "7. Tenancy (INV-1, INV-2, INV-5, INV-10; same router test file): a count of tenant B asked for with a token of tenant A answers 404 with the unknown-id body (trace_id dropped first) and no PDF bytes; a TENANT_ADMIN whose grant does not cover the count's org unit gets the same 404; a tenant user without StockRead gets 403. A render error answers with no PDF bytes: :unsupported_glyph (a name with a character the font lacks, forced in a test) is 422 print_unsupported_character, any other violation is 500, and the log line carries the rule atom only, never a value or a name."
+      - "8. Gate and scope: a tenant-data-path change (a new export route of scoped records with employee names); it passes a SECURITY-REVIEWER gate as a stated step, verdict and evidence quoted in the PR. The diff adds no dependency (mix.lock unchanged), does not change lib/letflow/documents/print_layout.ex or anything under lib/letflow/documents/print_layout/, registers nothing in Letflow.Documents.Renderers, has no ledger call, no migration, no tenant table and no seed. The pins of the description move by the counts stated there; mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_requirements_registration and the new test files pass (real output quoted in the PR)."
+    open_questions:
+      - "Layout, neutral labels, the machine-draft Russian and Kazakh texts, ru as the default language and render at request time: UAT assumption, to be confirmed by the process owner; owner may change at the phase E gate."
+      - "Official Kazakhstan form wording stays with the owner (0068 D6, Q1); these are working forms, not official forms."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-719, REQ-571, REQ-717]
+  - id: REQ-737
+    title: "Assets E1b: printed hand-over documents as PDF in Russian, Kazakh and English: the transfer, hand over and return stock documents with their two sides, lines and the signer lines of the giver and the receiver, rendered from the issued document version"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3860
+    # Source: ai-dala-portfolio/architectures/assets.md (decisions of 2026-10-31 'printed hand-over documents with signatures'; phase table row E), ai-dala-portfolio/DECISIONS.md D-062, D-085, D-086, D-087 O6 ('signed' is a paper signature on the printout), docs/migration/decisions/0068-per-tenant-print-template-overrides.md D6 (official wording held for the owner), docs/migration/decisions/0075-versioned-documents-render-after-numbering-commit.md R10, entries REQ-571, REQ-690, REQ-712 and REQ-721 on origin/main, REQ-736 (this batch). Code read on origin/main: Letflow.Modules.Stock.Documents.Kinds (lib/letflow/modules/stock/documents/kinds.ex: kinds transfer, hand_over, return with type keys stock_transfer, stock_handover, stock_return and their header keys), the versioned content map kind, header, lines (content/1 in lib/letflow/modules/stock/documents.ex), the line keys catalog_item_id, catalog_uom_id, quantity, catalog_lot_id (lib/letflow/modules/stock/documents/shape.ex), Letflow.Modules.Stock.Access.check/2 (tenant-wide readers only), the route GET /documents/:id in lib/letflow/modules/stock/router.ex, Letflow.Documents.PrintLayout.render/4, Org.lookup/2, Locations.lookup/2 and CatalogItems.lookup/2 as CountPaperworkSource calls them, Letflow.Identity.TenantTimezone.of/1. Written by the business analyst (T-1193) 2026-11-05.
+    description: >
+      Phase E item E1 of the assets and stock application, part b: the printed hand-over documents with signatures of
+      owner decision D-062 for the stock register. The three two-sided stock documents of REQ-721 (transfer, hand
+      over, return) print as one PDF act each, in Russian, Kazakh or English. Asset hand-over documents are phase C
+      and only specified (REQ-690, docs only), not built; they are not in this entry. Backend only,
+      module stock. The web button is REQ-738.
+
+      WHAT IS BUILT. A pure renderer Letflow.Modules.Stock.DocumentPrint (lib/letflow/modules/stock/document_print.ex:
+      build/3 with the issued content, the names map and the language ru, kk or en; no database, no clock) that builds
+      a print layout in code and renders it with Letflow.Documents.PrintLayout.render/4 (REQ-571), and one read route
+      GET /api/v1/modules/stock/documents/:id/print behind the same guard as GET /documents/:id
+      (Letflow.Modules.Stock.Access.check/2 with purpose read: a tenant-wide reader only, any other principal 404). The
+      route reads the ISSUED version content of the document (the live version, status issued), never the header and
+      line records, so the paper equals the fixed document (D-062, 0056 D4). Names are looked up at request time
+      (org units and locations code and name, employees full name and personnel code, items code and name, units and
+      lots code) and printed next to the ids of the issued content; the reader is tenant-wide, so every name is shown.
+
+      LAYOUT (decided here as the simplest reasonable default; UAT assumption, to be confirmed by the process owner;
+      owner may change at the phase E gate). A4 portrait. Title by kind (act of transfer, act of hand over, act of
+      return, in the chosen language) and the number label; a header block with version_no, issued_at and event_time
+      in the tenant time zone with its offset, the note when present; a from side and a to side, each with org unit,
+      location and responsible person (the side keys of REQ-721: return's from side is from_org_unit_id,
+      from_location_id, from_responsible_id); a lines table with line number (position in the issued lines), item, lot,
+      unit and quantity as the stored decimal text; last, a signatures table with two rows, 'handed over by' (the from
+      side's responsible person) and 'received by' (the to side's responsible person), each with full name, personnel
+      code, an empty signature cell and an empty date cell (D-087 O6: a paper signature on the printout). Working forms
+      with neutral labels, not an official state form (0068 D6, Q1 with the owner); the Russian and Kazakh texts are a
+      machine draft for the native check. The other stock kinds (receipt, issue, write off) are not printed by this
+      entry.
+
+      Not the stored artefact, for the reason REQ-736 states (0075 R10: download route and permission not decided):
+      no renderer registered in Letflow.Documents.Renderers, no attach_artefact/2 call, no stored bytes.
+
+      Pins (moves from origin/main at implement time; numbers are examples): one new tenant route without scope (+1
+      line in test/fixtures/route_scope/tenant_wide_default_routes.txt and +1 on its three length(snapshot) pins); no
+      new permission atom (StockRead); the stock module version moves one minor step. No migration, no tenant table,
+      no new dependency. REQ-736 edits the same router and the same version line: the two are implemented one after the
+      other.
+    acceptance_criteria:
+      - "1. Renderer (test file test/letflow/modules/stock/document_print_test.exs, pure, no database; the PDF text read back as the PdfProbe of test/letflow/documents/print_layout/render_test.exs does): Letflow.Modules.Stock.DocumentPrint.build/3 returns {:ok, binary} that starts with %PDF- for each kind transfer, hand_over and return and each language ru, kk and en; the recovered text holds the title of that kind in that language, the number label, the event time and issued time in the given time zone with offset (Asia/Almaty shows +05:00), both sides' org unit, location and responsible names, each line's stored decimal quantity unchanged (a test with 0.000000001), and exactly two signature rows, the from side's responsible person under the handed-over label and the to side's under the received label."
+      - "2. Languages: DocumentPrint holds every label in ru, kk and en; a test enumerates the label keys and asserts each is a non-empty text in each language, that the ru and kk titles differ from the en titles, and that a kk sample with the letters Ә Ғ Қ Ң Ө Ұ Ү Һ І renders with no error."
+      - "3. Route (stock router; test file test/letflow/modules/stock/document_print_router_test.exs through Letflow.Router with real bearer tokens): GET /api/v1/modules/stock/documents/:id/print (StockRead; query lang exactly ru, kk or en, ru when absent, any other value 422 invalid_lang) answers 200 with Content-Type application/pdf and Content-Disposition attachment with the file name the number label plus .pdf for an issued, posted or reversed document of kind transfer, hand_over or return; a draft or cancelled document answers 422 document_not_issued; an issued receipt, issue or write off answers 422 print_not_available. The route is in route_policies."
+      - "4. Fixed content (D-062, 0056 D4; same router test file): the lines and quantities of the PDF equal the issued version content: a test issues a hand over, then changes a live line record through the test setup and asserts the PDF still shows the issued quantity."
+      - "5. Tenancy (INV-1, INV-5, INV-10; same router test file): a document of tenant B asked for with a token of tenant A answers 404 with the unknown-id body (trace_id dropped first) and no PDF bytes; a principal granted StockRead on org units only (not tenant-wide) gets the same 404 as GET /documents/:id gives it; a tenant user without StockRead gets 403. :unsupported_glyph (forced in a test) is 422 print_unsupported_character, any other render violation is 500, each with no PDF bytes and a log line with the rule atom only."
+      - "6. Gate and scope: a tenant-data-path change (a new export route with employee names); it passes a SECURITY-REVIEWER gate as a stated step, verdict and evidence quoted in the PR. The diff adds no dependency (mix.lock unchanged), does not change lib/letflow/documents/print_layout.ex or anything under lib/letflow/documents/print_layout/, registers nothing in Letflow.Documents.Renderers, has no ledger call, no migration, no tenant table and no seed. The pins of the description move by the counts stated there; mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_requirements_registration and the new test files pass (real output quoted in the PR)."
+    open_questions:
+      - "Layout, the two signer rows (giver and receiver only, no approver), the three printed kinds, the machine-draft Russian and Kazakh texts, ru as the default language: UAT assumption, to be confirmed by the process owner; owner may change at the phase E gate."
+      - "Printed asset hand-over documents follow the asset workflow documents of phase C; not in this entry."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-721, REQ-712, REQ-571, REQ-736]
+  - id: REQ-738
+    title: "Assets E1c: web print buttons of module stock: print the count order, count sheet and differences sheet and the transfer, hand over and return documents as PDF in the active interface language, in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 3859
+    # Source: ai-dala-portfolio/architectures/assets.md (phase table row E), ai-dala-portfolio/DECISIONS.md D-083 (one UI-language store en, ru, kk), D-085, D-086, entries REQ-720 (count screen paperwork downloads, criterion 4) and REQ-722 on origin/main, REQ-736 and REQ-737 (this batch). Files read on origin/main: web/src/modules/stock/counts/PaperworkButtons.tsx (saveBlob, parseFilename, paperworkAvailable), web/src/modules/stock/counts/counts.api.ts (paperwork via client.getBlob), web/src/modules/stock/counts/countsMessages.ts, web/src/modules/stock/documents/DocumentPage.tsx, documents.api.ts and documentsMessages.ts, web/src/i18n/uiLocaleStore.ts (getUiLocale, UI_LOCALES), web/src/modules/stock/__tests__/CountsPage.paperwork.test.tsx. Written by the business analyst (T-1193) 2026-11-05.
+    description: >
+      Phase E item E1 of the assets and stock application, part c: the web buttons for the printed forms of REQ-736
+      and REQ-737. The count screen (web/src/modules/stock/counts/, path admin/stock/counts/:id) already offers the
+      xlsx downloads of REQ-720 in PaperworkButtons.tsx; next to each one it gains a print button that requests the PDF
+      of the same document. The stock document view (web/src/modules/stock/documents/DocumentPage.tsx, path
+      admin/stock/documents/:id) gains one print button for a transfer, hand over or return that is issued, posted or
+      reversed. The language of the printout is the active interface language from getUiLocale() of
+      web/src/i18n/uiLocaleStore.ts (en, ru or kk, D-083), sent as the query lang. The file is fetched through
+      client.getBlob (bearer header) and saved with saveBlob under the file name of the Content-Disposition header, as
+      REQ-720 does. Messages in en, ru and kk in the existing message files (countsMessages.ts, documentsMessages.ts).
+      No backend change, no new route, no permission.
+
+      DECIDED HERE (simplest reasonable default; UAT assumption, to be confirmed by the process owner; owner may change
+      at the phase E gate): the print language follows the interface language with no separate picker; the button
+      downloads the file (no preview in the browser); the buttons show only where the xlsx download shows (count) or for
+      the three printable kinds in a printable state (document).
+    acceptance_criteria:
+      - "1. Count print buttons (test file web/src/modules/stock/__tests__/CountsPage.print.test.tsx, network mocked): for each kind order, sheet and differences, the print button shows exactly when the xlsx button of REQ-720 shows; clicking it requests GET counts/:id/print/<kind>?lang=<active locale> once (a test per locale en, ru and kk sets the locale through the uiLocaleStore) and saves the answer under the file name of its Content-Disposition, else count-<number>-<kind>.pdf; a second click while the request runs sends nothing."
+      - "2. Document print button (test file web/src/modules/stock/__tests__/DocumentPage.print.test.tsx, network mocked): the button shows for kinds transfer, hand_over and return in state issued, posted or reversed, and is absent for draft and cancelled documents and for receipt, issue and write off (a test per case); clicking it requests GET documents/:id/print?lang=<active locale> and saves the answer under the Content-Disposition file name."
+      - "3. Refusals and languages: a 422 answer with reason document_not_issued, print_not_available, print_unsupported_character or invalid_lang shows its own message, a 404 shows the not-found message, any other failure the generic error message, each in the active language; every new message key exists in en, ru and kk with a non-empty text (the i18n tests countsI18n.test.tsx and documentsI18n.test.tsx extended) and no text is written in the components outside the message files."
+      - "4. Checks: the web gate npm run check (type-check, lint, unit tests, guards) passes in the engine's checks step; the change edits only files under web/src/modules/stock/; no backend file changes and web/src/modules/registry.ts is not changed."
+    open_questions:
+      - "Print language bound to the interface language, download instead of preview: UAT assumption, to be confirmed by the process owner; owner may change at the phase E gate."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-720, REQ-722, REQ-736, REQ-737]
