@@ -5,7 +5,7 @@ migration, no definition JSON, no pack, no test, no seed, no route, no screen. T
 ledger registration and its documents are later requirements, written from this file after the owner's gate of
 phase B (D-063, D-085).
 
-Sources: owner decisions D-061, D-062, D-063, D-065, D-067 and D-085 in `ai-dala-portfolio/DECISIONS.md`;
+Sources: owner decisions D-061, D-062, D-063, D-065, D-067, D-085 and D-097 (2026-11-05) in `ai-dala-portfolio/DECISIONS.md`;
 `ai-dala-portfolio/architectures/assets.md` (table under "The model", section "The gray zone", review findings 3
 to 7); `letflow-team/project/assets-gap-analysis.md` (section 1); decisions 0050 (D6), 0051 (M4), 0073 (with its
 section "Amended (REQ-676, assets B1)") and 0076 (R1, R4, R6, R7) in `docs/migration/decisions/`; the design note
@@ -13,7 +13,9 @@ section "Amended (REQ-676, assets B1)") and 0076 (R1, R4, R6, R7) in `docs/migra
 REQ-689 in `docs/requirements.yaml`.
 
 Marks used below: **proposal** = the business analyst's proposal for UAT, to be confirmed by the owner at the
-gate of phase C. **UAT assumption** = an assumption to be confirmed by the process owner.
+gate of phase C. **UAT assumption** = an assumption to be confirmed by the process owner. **D-097** = a decision of the owner dated
+2026-11-05, later than REQ-689; where REQ-689 leaves the currency or the uniqueness scope of `inventory_number`
+open, D-097 supersedes that wording and is stated as decided below.
 
 ## 1. Module
 
@@ -59,11 +61,12 @@ localized_text).
 
 | Field | Type | Required | Refers to | Note |
 |---|---|---|---|---|
-| inventory_number | string | required | none | unique per tenant (open question, section 8) |
+| inventory_number | string | required | none | unique per tenant (decided, D-097) |
 | name | string | required | none | |
 | kind | enum | required | none | values `fixed`, `low_value`, `intangible` |
 | org_unit_id | string | required | org_unit record (module org) | the org unit that holds the card; a cross-pack declarative id checked in write logic (decision 0076 R6 rule 5) |
 | acquisition_date | date | optional | none | the real receipt date, kept as a field because the ledger refuses an event time older than 96 hours (0073 D-T) |
+| currency | string | optional | none | one currency per tenant, KZT by default (D-097); see section 6. Empty means the tenant currency |
 | acquisition_cost | decimal | optional | none | `decimal_strict` true; information only (section 6) |
 | accumulated_depreciation | decimal | optional | none | `decimal_strict` true; information only |
 | book_value | decimal | optional | none | `decimal_strict` true; information only |
@@ -135,8 +138,12 @@ A failed check posts nothing. These checks are run by the documents of item C2, 
 user or imported (item C4), never calculated by the product in the first version (assets.md, D-061). They are
 never a ledger slot, a leg column, a leg attrs key or a balance column (assets.md review finding 4). No process
 definition, trigger or script of the assets module writes them. A change of these fields is a card update recorded
-in the audit trail, not a posting. The currency of the money fields is an open owner question (section 8) with no
-answer here.
+in the audit trail, not a posting. Currency (D-097, which supersedes the
+REQ-689 criterion 7 wording that gives the currency no answer of its own): there is one currency per tenant, KZT by
+default. The `currency` field of the card is kept. Reading chosen here: the tenant holds the one currency in a
+setting with default KZT, the card field `currency` (string, optional) is kept for information and for the xlsx
+import (item C4), and write logic refuses a value that differs from the tenant currency; empty means the tenant
+currency. The product never converts between currencies. The money fields stay information only.
 
 ## 7. Quantity and access
 
@@ -162,15 +169,15 @@ not yet commissioned asset whose card stays (D-061: registers are read-only and 
 
 No answer is given here to any of them.
 
-1. Currency of `acquisition_cost`, `accumulated_depreciation` and `book_value` (section 6): a money rule for the
-   owner. Source: REQ-689 criterion 7.
+1. Decided by D-097: one currency per tenant, KZT by default, the `currency` field is kept (section 6). Only the
+   reading in section 6 (tenant setting plus a card field that must match it) is left for the owner to confirm.
 2. Whether the actual user may be empty. This file proposes optional (UAT assumption). Source: REQ-689 criterion 10.
 3. Which unit holds the card of a low-value asset whose quantity is split over balance rows of several org units,
    and whether the other unit sees the card. Source: section 7.1 and 0076 R7.
 4. Whether an intangible card may carry more than one seat. This file proposes at most 1 per card (UAT
    assumption). Source: REQ-689 criterion 10.
-5. Whether `inventory_number` is unique per tenant or per legal company (several BIN in one tenant, D-062). This
-   file proposes per tenant.
+5. Decided by D-097: `inventory_number` is unique per tenant (also with several BIN in one tenant, D-062). Old
+   assets come in by the xlsx import (item C4).
 6. The role grants of the four permission atoms (0073 OQ-11 decided no grants for the stock atoms in REQ-687).
 7. The meanings of the three kinds and the Inventory Object boundary (sections 2.1 to 2.4), to be confirmed at the
    gate of phase C.
