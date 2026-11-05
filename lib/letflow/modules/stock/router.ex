@@ -87,7 +87,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts/:id` | `StockRead` | 200 order view |
   | `GET /counts/:id/document` | `StockRead` | 200 issued summary, no content bytes |
   | `GET /counts/:id/paperwork/:kind` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document, 422 `document_not_issued` |
-  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; transfer, hand over, return; `lang` default `ru`) | `StockRead` | 200 `application/pdf` of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
+  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
   | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`) | `StockRead` | 200 `application/pdf` of the issued document, 422 `invalid_lang`, `document_not_issued`, `print_unsupported_character` |
 
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
@@ -152,6 +152,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.Scope
+  alias Letflow.Documents.FormPrint
   alias Letflow.Ledger
   alias Letflow.Modules.Stock.Access
   alias Letflow.Modules.Stock.Counts
@@ -162,6 +163,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.DocumentNumbers
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Documents.Posting
+  alias Letflow.Modules.Stock.FormZ2
   alias Letflow.Modules.Stock.Views
   alias Letflow.Modules.Stock.VoiceService
   alias Letflow.Modules.Stock.XlsxExport
@@ -359,9 +361,15 @@ defmodule Letflow.Modules.Stock.Router do
   # REQ-737: the printed act of an issued transfer, hand over or return; same guard as the read.
   authz_get "/documents/:id/print", :StockRead do
     with_access(conn, :read, fn conn, access ->
-      case print_lang(query_params(conn)["lang"]) do
-        {:ok, lang} -> print_document(conn, access.prefix, lang)
-        :invalid_lang -> unprocessable(conn, "invalid_lang")
+      query = query_params(conn)
+
+      if Map.has_key?(query, "form") do
+        print_form(conn, access.prefix, query)
+      else
+        case print_lang(query["lang"]) do
+          {:ok, lang} -> print_document(conn, access.prefix, lang)
+          :invalid_lang -> unprocessable(conn, "invalid_lang")
+        end
       end
     end)
   end
@@ -782,6 +790,61 @@ defmodule Letflow.Modules.Stock.Router do
     end
   end
 
+  # T-1416: `?form=z2&format=pdf|docx&lang=ru|kk`, the official form Z-2 / Q-2 of an issued `issue`.
+  defp print_form(conn, prefix, query) do
+    with {:ok, form} <- form_param(query["form"]),
+         {:ok, format} <- form_format(query["format"]),
+         {:ok, lang} <- form_lang(query["lang"]) do
+      tenant_id = conn.assigns |> Map.get(:auth_context, %{}) |> Map.get(:tenant_id)
+
+      with {:ok, %{issued: issued, names: names}} <-
+             DocumentPrintSource.read(prefix, conn.params["id"], tenant_id,
+               kinds: ["issue"],
+               legal_entities: true
+             ),
+           {:ok, bin} <- FormPrint.build(form, FormZ2.data(issued, names), lang, format) do
+        {type, ext} = form_type(format)
+        name = CountPaperworkSource.file_name(to_string(issued.number_label) <> "_Z-2", ext)
+        send_binary(conn, bin, type, name)
+      else
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:error, reason} when reason in [:print_not_available, :document_not_issued] ->
+          unprocessable(conn, Atom.to_string(reason))
+
+        {:error, :unsupported_glyph} ->
+          unprocessable(conn, "print_unsupported_character")
+
+        {:error, {:render_failed, rules}} ->
+          Logger.error(
+            "stock form print render failed: " <> Enum.map_join(rules, ",", &inspect/1)
+          )
+
+          Response.internal_error(conn)
+      end
+    else
+      {:invalid, reason} -> unprocessable(conn, reason)
+    end
+  end
+
+  defp form_param("z2"), do: {:ok, "z2"}
+  defp form_param(_), do: {:invalid, "invalid_form"}
+
+  defp form_format(nil), do: {:ok, :pdf}
+  defp form_format("pdf"), do: {:ok, :pdf}
+  defp form_format("docx"), do: {:ok, :docx}
+  defp form_format(_), do: {:invalid, "invalid_format"}
+
+  defp form_lang(nil), do: {:ok, "ru"}
+  defp form_lang(lang) when lang in ["ru", "kk"], do: {:ok, lang}
+  defp form_lang(_), do: {:invalid, "invalid_lang"}
+
+  defp form_type(:pdf), do: {"application/pdf", "pdf"}
+
+  defp form_type(:docx),
+    do: {"application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"}
+
   defp print_lang(nil), do: {:ok, :ru}
 
   defp print_lang(lang) when is_binary(lang) do
@@ -938,9 +1001,11 @@ defmodule Letflow.Modules.Stock.Router do
     |> Plug.Conn.send_resp(200, binary)
   end
 
-  defp send_pdf(conn, binary, name) do
+  defp send_pdf(conn, binary, name), do: send_binary(conn, binary, "application/pdf", name)
+
+  defp send_binary(conn, binary, type, name) do
     conn
-    |> Plug.Conn.put_resp_content_type("application/pdf", nil)
+    |> Plug.Conn.put_resp_content_type(type, nil)
     |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="#{name}"))
     |> Plug.Conn.put_resp_header("cache-control", "no-store")
     |> Plug.Conn.send_resp(200, binary)
