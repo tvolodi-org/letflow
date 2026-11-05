@@ -30,6 +30,9 @@ export interface DocumentLine {
   location_id?: string | null
   responsible_id?: string | null
   received_on?: string | null
+  /** Opening balance: the pair an xlsx import set (carried back on an edit). */
+  external_ref_system?: string | null
+  external_ref_id?: string | null
 }
 export interface StockDocument {
   id: string
@@ -54,6 +57,9 @@ export interface StockDocument {
   received_on?: string | null
   reason_code?: string | null
   reason_text?: string | null
+  /** Opening balance: the external reference an xlsx import names the draft by. */
+  external_ref_system?: string | null
+  external_ref_id?: string | null
   lines: DocumentLine[]
   posted_at?: string | null
   posted_by?: string | null
