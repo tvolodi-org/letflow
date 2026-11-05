@@ -65,7 +65,7 @@ function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return renderWithAccess(
     <QueryClientProvider client={qc}>
-      <MemoryRouter><TaskInboxPage /></MemoryRouter>
+      <MemoryRouter initialEntries={['/?filter=all']}><TaskInboxPage /></MemoryRouter>
     </QueryClientProvider>,
   )
 }
