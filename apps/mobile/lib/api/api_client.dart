@@ -123,6 +123,15 @@ abstract class PostCapableHttpGateway implements HttpGateway {
   Future<Response<dynamic>> post(String path, {Object? data});
 }
 
+/// The narrow interface of the stock document draft screens (D3b): `PUT`
+/// replaces a draft, `DELETE` discards it. Like [post], neither is retried
+/// on a 5xx. Kept separate so every existing [PostCapableHttpGateway] double
+/// stays valid.
+abstract class WriteCapableHttpGateway implements PostCapableHttpGateway {
+  Future<Response<dynamic>> put(String path, {Object? data});
+  Future<Response<dynamic>> delete(String path);
+}
+
 /// Holds the `realm_url` of whichever tenant's bootstrap most recently
 /// completed successfully — the bearer-attach interceptor's source of
 /// truth for "the currently active tenant" (REQ-421 design §5.3/§7.2). A
@@ -333,7 +342,7 @@ class _RefreshCoordinator {
   }
 }
 
-class ApiClient implements PostCapableHttpGateway {
+class ApiClient implements WriteCapableHttpGateway {
   ApiClient._(
     this._dio,
     this._refreshCoordinator,
@@ -474,6 +483,24 @@ class ApiClient implements PostCapableHttpGateway {
     );
   }
 
+  /// Single attempt, like [post]; still subject to the 401 refresh flow.
+  @override
+  Future<Response<dynamic>> put(String path, {Object? data}) {
+    return _sendWithBackoff(
+      () => _dio.put<dynamic>(path, data: data),
+      allowServerRetry: false,
+    );
+  }
+
+  /// Single attempt, like [post]; still subject to the 401 refresh flow.
+  @override
+  Future<Response<dynamic>> delete(String path) {
+    return _sendWithBackoff(
+      () => _dio.delete<dynamic>(path),
+      allowServerRetry: false,
+    );
+  }
+
   /// Implements design §3's GET-only 5xx backoff and design §2's 401
   /// refresh-then-retry, for one logical call. [allowServerRetry] is `true`
   /// only for GET/`getUnauthenticated` (design §3.3).
@@ -577,7 +604,8 @@ class ApiClient implements PostCapableHttpGateway {
     // tenant B was already in flight and its refresh is what completed) --
     // never silently re-authenticate and re-serve this request as a
     // different tenant than the caller expects.
-    if (issuedForRealm != null && issuedForRealm != _activeRealm.currentRealmUrl) {
+    if (issuedForRealm != null &&
+        issuedForRealm != _activeRealm.currentRealmUrl) {
       throw const UnauthorizedError();
     }
 
@@ -777,13 +805,12 @@ class RedactingLogInterceptor extends Interceptor {
   }
 
   @override
-  void onRequest(
-    RequestOptions options,
-    RequestInterceptorHandler handler,
-  ) {
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     final headers = _redactHeaders(options.headers);
     final body = _isTokenEndpoint(options.path) ? _redacted : options.data;
-    logSink('--> ${options.method} ${options.path} headers=$headers body=$body');
+    logSink(
+      '--> ${options.method} ${options.path} headers=$headers body=$body',
+    );
     handler.next(options);
   }
 

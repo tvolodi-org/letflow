@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../i18n/i18n.dart';
+import 'documents/document_form_screen.dart' show kStockDocumentsPath;
 
-/// Skeleton home of the `stock` module: an empty state only. Counts and
-/// movements arrive in later slices; no stock call is made here.
+/// Home of the `stock` module: the entry to the movement drafts. Counts
+/// arrive in a later slice; no stock call is made here.
 class StockHomeScreen extends StatelessWidget {
   const StockHomeScreen({super.key});
 
@@ -12,12 +14,21 @@ class StockHomeScreen extends StatelessWidget {
     return Scaffold(
       key: const Key('stock-home-screen'),
       appBar: AppBar(title: Text(tr('stock.home.title'))),
-      body: Center(
-        key: const Key('stock-home-empty'),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(tr('stock.home.empty'), textAlign: TextAlign.center),
-        ),
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          ListTile(
+            key: const Key('stock-home-documents-entry'),
+            title: Text(tr('stock.home.documents')),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push(kStockDocumentsPath),
+          ),
+          Padding(
+            key: const Key('stock-home-empty'),
+            padding: const EdgeInsets.only(top: 16),
+            child: Text(tr('stock.home.empty'), textAlign: TextAlign.center),
+          ),
+        ],
       ),
     );
   }

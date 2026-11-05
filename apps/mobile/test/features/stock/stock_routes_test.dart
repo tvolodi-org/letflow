@@ -31,11 +31,16 @@ void main() {
     expect(stock['depends_on'], ['codes']);
   });
 
-  test('S1b: stock installed gives the stock route', () {
+  test('S1b: stock installed gives the stock routes', () {
     final paths = buildRouteTable(const [
       _stock,
     ]).whereType<GoRoute>().map((r) => r.path).toList();
-    expect(paths, [kStockHomePath]);
+    expect(paths, [
+      kStockHomePath,
+      kStockDocumentsPath,
+      '$kStockDocumentsPath/new/:kind',
+      '$kStockDocumentsPath/:id',
+    ]);
     expect(kStockHomeRoutePath, kStockHomePath);
   });
 
