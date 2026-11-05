@@ -194,6 +194,7 @@ defmodule Letflow.TenantFixture do
     "procurement_lines",
     "promotion_assertion_runs",
     "promotion_reviews",
+    "purge_requests",
     "record_trigger_bindings",
     "record_trigger_outbox",
     "repository_artifacts",
