@@ -4,7 +4,8 @@ import { useAuth } from '@/auth/AuthContext'
 import { entitiesApi } from '@/api/entities'
 import type { EntityQueryFilterClause } from '@/types/api'
 import { stockQueryKeys } from './stockQueryKeys'
-import { LABEL_FIELD, type MasterType } from './stockRegisterModel'
+import { labelOfRecord } from '@/lib/references/referenceLabel'
+import type { MasterType } from './stockRegisterModel'
 
 export interface PickerOption {
   value: string
@@ -31,8 +32,7 @@ export function usePickerOptions(type: MasterType, extra: EntityQueryFilterClaus
         page_size: 200,
       })
       return res.items.map((r) => {
-        const v = r.field_values[LABEL_FIELD[type]] ?? r.field_values['name'] ?? r.field_values['code']
-        return { value: r.record_id, label: typeof v === 'string' && v !== '' ? v : r.record_id, fields: r.field_values }
+        return { value: r.record_id, label: labelOfRecord(type, r) ?? '', fields: r.field_values }
       })
     },
     enabled,
