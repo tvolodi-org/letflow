@@ -17,7 +17,7 @@ import { saveBlob } from './saveBlob'
 import { stockApi, type BalanceRow, type BalancesPageBody } from './stock.api'
 import { usePickerOptions } from './stockPickers'
 import { stockQueryKeys } from './stockQueryKeys'
-import { EMPTY_BALANCE_FILTERS, AS_OF_DATE, balanceNameIds, balanceParams, balanceQuery, type BalanceFilters } from './stockRegisterModel'
+import { EMPTY_BALANCE_FILTERS, AS_OF_DATE, balanceNameIds, balanceParams, balanceQuery, todayIso, type BalanceFilters } from './stockRegisterModel'
 import { isUuid } from '@/lib/references/referenceLabel'
 import { useNames } from './stockNames'
 
@@ -125,11 +125,17 @@ function BalancesInner() {
         <Field
           label={t('stock.filter.asOf')}
           hint={t('stock.filter.asOfHint')}
-          error={asOf !== '' && !AS_OF_DATE.test(asOf) ? t('stock.filter.asOfInvalid') : undefined}
+          error={
+            asOf !== '' && !AS_OF_DATE.test(asOf)
+              ? t('stock.filter.asOfInvalid')
+              : asOf > todayIso()
+                ? t('stock.filter.asOfFuture')
+                : undefined
+          }
           mono
           width="m"
         >
-          <input name="as-of-date" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+          <input name="as-of-date" type="date" max={todayIso()} value={asOf} onChange={(e) => setAsOf(e.target.value)} />
         </Field>
       </FilterBar>
       {first?.as_of_date ? (
