@@ -16,7 +16,7 @@ const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const NEW = `${LIST}/new`
-const TWO = {
+const TWO: Record<string, ReturnType<typeof rec>[]> = {
   ...MASTERS,
   org_unit: [rec('u1', { name: 'Main store' }), rec('u2', { name: 'Branch store' })],
   location_node: [rec('l1', { name: 'Shelf A' }), rec('l2', { name: 'Shelf B' })],
