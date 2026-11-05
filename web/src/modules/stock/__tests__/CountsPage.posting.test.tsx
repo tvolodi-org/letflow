@@ -5,7 +5,7 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
-import { countsEn } from '../counts/countsMessages'
+import { countsEn, countsKk, countsRu } from '../counts/countsMessages'
 import { BASE, LIST, accessOf, fakeCounts, order, problem, renderCounts, writes } from './countsTestKit'
 
 expect.extend(jestDomMatchers)
@@ -126,5 +126,55 @@ describe('W3 refusals and the posting check', () => {
     fakeCounts(clientMock, { orders: [{ ...POSTED, posting_check: 'mismatch' }] })
     renderCounts(`${LIST}/c1`, ALL)
     expect(await screen.findByText(countsEn['counts.posting.mismatch'])).toBeInTheDocument()
+  })
+})
+
+describe('P50c empty sheet, shortage and rules', () => {
+  const EMPTY = { ...SIGNED, differences_empty: true }
+
+  it('W2 a signed empty sheet shows the hint and the record button, which posts the record', async () => {
+    fakeCounts(clientMock, { orders: [EMPTY], postAnswers: { '/posting-record': { ...EMPTY, status: 'posted', posting_document_id: 'p1' } } })
+    renderCounts(`${LIST}/c1`, ALL)
+    expect(await screen.findByTestId('posting-empty-hint')).toHaveTextContent(countsEn['counts.posting.emptyHint'])
+    expect(screen.queryByTestId('count-post')).toBeNull()
+    await userEvent.click(await screen.findByTestId('count-posting-record'))
+    await waitFor(() => expect(writes(clientMock)).toEqual([['POST', `${BASE}/c1/posting-record`, undefined]]))
+  })
+
+  it('W2b a signed count with differences shows no empty hint and no record button before posting', async () => {
+    fakeCounts(clientMock, { orders: [{ ...SIGNED, differences_empty: false }] })
+    renderCounts(`${LIST}/c1`, ALL)
+    await screen.findByTestId('posting-panel')
+    expect(screen.queryByTestId('posting-empty-hint')).toBeNull()
+    expect(screen.queryByTestId('count-posting-record')).toBeNull()
+  })
+
+  it.each([
+    ['en', countsEn, 'The shortage of Bolt M8 at Shelf A is larger than the current balance.'],
+    ['ru', countsRu, 'Недостача по Bolt M8 в Shelf A больше текущего остатка.'],
+    ['kk', countsKk, 'Shelf A орнындағы Bolt M8 жетіспеушілігі ағымдағы қалдықтан көп.'],
+  ] as const)('W3 a shortage refusal names the item and the location in %s', async (lang, msgs, start) => {
+    useUiLocaleStore.getState().setLocaleTransient(lang)
+    const err = { status: 422, message: 'x', code: '422', details: { reason: 'shortage_exceeds_balance', line_no: 1, catalog_item_id: 'i1', location_id: 'l1' } }
+    fakeCounts(clientMock, { orders: [SIGNED], fail: { 'POST /c1/post': err } })
+    renderCounts(`${LIST}/c1`, ALL)
+    await userEvent.click(await screen.findByTestId('count-post'))
+    await userEvent.click(await screen.findByTestId('confirm-dialog-confirm'))
+    const box = await screen.findByTestId('confirm-dialog-error')
+    await waitFor(() => expect(box).toHaveTextContent(start))
+    expect(msgs['counts.reason.shortage_exceeds_balance']).toContain('{item}')
+  })
+
+  it.each([
+    ['en', countsEn],
+    ['ru', countsRu],
+    ['kk', countsKk],
+  ] as const)('W4 the signed rule is shown in %s; a reversed count shows its rule and no Post button', async (lang, msgs) => {
+    useUiLocaleStore.getState().setLocaleTransient(lang)
+    fakeCounts(clientMock, { orders: [{ ...POSTED, posting_state: 'reversed', reversed_at: '2026-11-10T12:00:00Z' }] })
+    renderCounts(`${LIST}/c1`, ALL)
+    expect(await screen.findByTestId('posting-reversed-rule')).toHaveTextContent(msgs['counts.posting.reversedRule'])
+    expect(screen.getByTestId('posting-no-cancel-rule')).toHaveTextContent(msgs['counts.posting.noCancelRule'])
+    expect(screen.queryByTestId('count-post')).toBeNull()
   })
 })

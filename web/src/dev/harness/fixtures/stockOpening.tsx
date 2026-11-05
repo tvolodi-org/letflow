@@ -35,7 +35,7 @@ const line = (n: number, item: string, extra: Record<string, unknown>) => ({
   location_id: 'l1', responsible_id: 'e1', received_on: '2026-09-15', unit_price: '450000.00', ...extra,
 })
 const base = {
-  kind: 'opening', org_unit_id: 'u1', location_id: null, responsible_id: null, event_time: null, note: 'Balances at the start of work',
+  kind: 'opening', org_unit_id: 'u1', location_id: null, responsible_id: null, event_time: null, note: 'Balances at the start of work', external_ref_system: 'erp', external_ref_id: 'OB-2026-01',
   lines: [line(1, 'i1', {}), line(2, 'i1', { location_id: 'l2', responsible_id: 'e2', received_on: '2026-10-02', unit_price: null })],
 }
 const DOCS: Record<string, Record<string, unknown>> = {

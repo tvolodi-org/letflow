@@ -530,6 +530,71 @@ defmodule Letflow.Modules.Stock.OpeningImportTest do
     end
   end
 
+  describe "the screen path (T-1364)" do
+    @form_line_keys ~w(catalog_item_id catalog_uom_id catalog_lot_id quantity location_id responsible_id
+                       received_on unit_price line_value external_ref_system external_ref_id)
+
+    test "I8-1 a form edit of a draft keeps the imported line refs, so a re-import adds nothing",
+         ctx do
+      id = ctx.im.doc["id"]
+      rows = [row(ctx.im, "A"), row(ctx.im, "B")]
+      assert outcomes(import_file(ctx, rows)) == ["created", "created"]
+      before = lines(ctx, id)
+
+      # the body the opening form builds from the loaded document (buildBody): header pair and every line value
+      doc = P.get!(ctx, id)
+
+      body = %{
+        "kind" => "opening",
+        "org_unit_id" => doc["org_unit_id"],
+        "external_ref_system" => doc["external_ref_system"],
+        "external_ref_id" => doc["external_ref_id"],
+        "lines" =>
+          Enum.map(doc["lines"], fn l ->
+            l |> Map.take(@form_line_keys) |> Enum.reject(fn {_, v} -> is_nil(v) end) |> Map.new()
+          end)
+      }
+
+      D.request(:put, "/documents/#{id}", ctx.tok_a, body) |> P.status!(200)
+
+      after_put = lines(ctx, id)
+      assert Enum.map(after_put, & &1["external_ref_id"]) == ["BASE", "A", "B"]
+      assert Enum.map(after_put, & &1["line_no"]) == Enum.map(before, & &1["line_no"])
+
+      assert outcomes(import_file(ctx, rows)) == ["unchanged", "unchanged"]
+      assert length(lines(ctx, id)) == 3
+    end
+
+    test "I8-2 the definition has 14 fields incl. line_no, and a line_no cell is ignored", ctx do
+      {:ok, def_json} =
+        File.read(
+          Path.expand(
+            "../../../../priv/modules/stock/entity_definitions/stock_opening_line.json",
+            __DIR__
+          )
+        )
+
+      names = def_json |> Jason.decode!() |> Map.fetch!("fields") |> Enum.map(& &1["name"])
+      assert length(names) == 14 and "line_no" in names
+
+      cols = ["line_no" | @cols]
+      cells = row(ctx.im, "LN") |> then(&["77" | &1])
+
+      conn =
+        Plug.Test.conn(
+          :post,
+          "/api/v1/entities/records/stock_opening_line/import?upsert_by=external_ref",
+          XlsxFixture.build([[cols, cells]])
+        )
+        |> put_req_header("content-type", @xlsx)
+        |> put_req_header("authorization", "Bearer " <> ctx.tok_a)
+        |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
+
+      assert outcomes(conn) == ["created"]
+      assert Enum.map(lines(ctx, ctx.im.doc["id"]), & &1["line_no"]) == [1, 2]
+    end
+  end
+
   # Masters and a draft opening for tenant B (its own schema), with header "HB".
   defp setup_doc_b!(ctx, b) do
     mb = masters!(b.schema_name)
