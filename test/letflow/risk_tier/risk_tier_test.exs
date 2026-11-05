@@ -175,6 +175,8 @@ defmodule Letflow.RiskTierTest do
         |> Enum.sort()
 
       assert docs == [
+               "docs/agents/ORCHESTRATOR.md",
+               "docs/agents/protocols/GIT_MERGE.md",
                "docs/agents/shared/HANDOFF_PROTOCOL.md",
                "docs/assets/stock-workflow-documents.md",
                "docs/frontend/x-ui-widget-vocabulary.md",
@@ -301,6 +303,30 @@ defmodule Letflow.RiskTierTest do
       end
 
       refute doc =~ ~r/^\s*TIER: (HIGH|DIRECT)/m
+    end
+
+    test "REQ-523: GIT_MERGE.md holds the SHORT tier-line rule, ORCHESTRATOR.md points to it" do
+      norm = fn p -> p |> File.read!() |> String.replace("\r\n", "\n") end
+      merge = norm.("docs/agents/protocols/GIT_MERGE.md")
+      [_, rule] = String.split(merge, "### SHORT-chain tier line", parts: 2)
+      [rule | _] = String.split(rule, "\n## ", parts: 2)
+
+      for needle <- [
+            "TIER: SHORT @ <40-hex head sha>",
+            "--match-head-commit",
+            "lacks the helper's output is a defect",
+            "merging agent checks the body",
+            "^TIER: (SHORT|NOT-SHORT)$",
+            "non-zero exit",
+            "advisory",
+            "supervisor's go"
+          ] do
+        assert rule =~ needle, needle
+      end
+
+      orch = norm.("docs/agents/ORCHESTRATOR.md")
+      assert orch =~ "`GIT_MERGE.md` (\"SHORT-chain tier line\")"
+      refute orch =~ "--match-head-commit"
     end
 
     test "REQ-522 and REQ-523 carry the R11 text and keep status and gh" do
