@@ -1,8 +1,11 @@
 /** Harness fixtures of the count screens (task T-1268, REQ-702). Invented data only. */
-import type { ReactElement } from 'react'
+import { useEffect, type ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import CountsPage from '@/modules/stock/counts/CountsPage'
+import { StockIntlProvider } from '@/modules/stock/StockIntlProvider'
+import { CountOrderForm } from '@/modules/stock/counts/CountOrderForm'
+import type { CountOrder } from '@/modules/stock/counts/counts.api'
 import type { EntityRecord, UserSession } from '@/types/api'
 import type { FixtureRoute, HarnessScreen } from '../types'
 
@@ -91,7 +94,24 @@ function withAuth(page: ReactElement): ReactElement {
   )
 }
 
+/** The order form after a failed save: clicks Save once the pickers have loaded, so the error state is on screen. */
+function FormAfterFailedSave({ order }: { order?: CountOrder }) {
+  useEffect(() => {
+    document.querySelector<HTMLButtonElement>('[data-testid="count-save"]')?.click()
+  }, [])
+  return (
+    <StockIntlProvider>
+      <div className="lf-card">
+        <CountOrderForm order={order} onSaved={() => undefined} onDiscard={() => undefined} />
+      </div>
+    </StockIntlProvider>
+  )
+}
+const PARTIAL = { ...ORDERS[0], chair_employee_id: '', location_ids: [], planned_end: '2026-11-09T12:00:00Z' } as unknown as CountOrder
+
 export const stockCountScreens: HarnessScreen[] = [
   { name: 'stock-counts', initialPath: '/admin/stock/counts/c1', routePattern: '/admin/stock/counts/:id', routes, render: () => withAuth(<CountsPage />) },
   { name: 'stock-count-sheet', initialPath: '/admin/stock/counts/c2', routePattern: '/admin/stock/counts/:id', routes, render: () => withAuth(<CountsPage />) },
+  { name: 'stock-count-form-errors', routes, render: () => withAuth(<FormAfterFailedSave />) },
+  { name: 'stock-count-form-partial', routes, render: () => withAuth(<FormAfterFailedSave order={PARTIAL} />) },
 ]
