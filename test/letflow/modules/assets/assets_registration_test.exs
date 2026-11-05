@@ -18,13 +18,24 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.2.0"
+    assert m.version == "0.3.0"
     assert m.depends_on == ["locations", "org"]
     assert m.pack == "modules/assets/pack.json"
-    assert m.permissions == [:AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile]
+
+    assert m.permissions == [
+             :AssetsCardWrite,
+             :AssetsPost,
+             :AssetsReverse,
+             :AssetsRead,
+             :AssetsReconcile
+           ]
+
     assert m.role_grants == %{}
 
     assert m.route_policies == [
+             {"POST", "/cards", :AssetsCardWrite},
+             {"PATCH", "/cards/:id", :AssetsCardWrite},
+             {"POST", "/cards/:id/retire", :AssetsCardWrite},
              {"GET", "/balances", :AssetsRead},
              {"GET", "/movements", :AssetsRead},
              {"GET", "/reconcile", :AssetsReconcile}
@@ -44,7 +55,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              "additionalProperties" => false
            }
 
-    assert function_exported?(Assets, :router, 0)
+    assert Assets.router() == Letflow.Modules.Assets.Router
     assert Catalog.fetch("assets") == {:ok, Assets}
     assert Catalog.validate(m, Catalog.all_manifests()) == :ok
 

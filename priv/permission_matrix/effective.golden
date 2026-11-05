@@ -1,11 +1,12 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: assets@0.2.0,catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.15.0
+# modules: assets@0.3.0,catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.15.0
 # roles: 9
-# permissions: 84
-# rows: 756
+# permissions: 85
+# rows: 765
 # columns: role permission allowed owner via
+AGENT_RUNNER AssetsCardWrite false module:assets -
 AGENT_RUNNER AssetsPost false module:assets -
 AGENT_RUNNER AssetsRead false module:assets -
 AGENT_RUNNER AssetsReconcile false module:assets -
@@ -90,6 +91,7 @@ AGENT_RUNNER TenantsManage false core -
 AGENT_RUNNER TokensManage false core -
 AGENT_RUNNER UsersGroupsRolesManage false core -
 AGENT_RUNNER WebhooksManage false core -
+CANDIDATE AssetsCardWrite false module:assets -
 CANDIDATE AssetsPost false module:assets -
 CANDIDATE AssetsRead false module:assets -
 CANDIDATE AssetsReconcile false module:assets -
@@ -174,6 +176,7 @@ CANDIDATE TenantsManage false core -
 CANDIDATE TokensManage false core -
 CANDIDATE UsersGroupsRolesManage false core -
 CANDIDATE WebhooksManage false core -
+PLATFORM_ADMIN AssetsCardWrite true module:assets core
 PLATFORM_ADMIN AssetsPost true module:assets core
 PLATFORM_ADMIN AssetsRead true module:assets core
 PLATFORM_ADMIN AssetsReconcile true module:assets core
@@ -258,6 +261,7 @@ PLATFORM_ADMIN TenantsManage true core core
 PLATFORM_ADMIN TokensManage true core core
 PLATFORM_ADMIN UsersGroupsRolesManage true core core
 PLATFORM_ADMIN WebhooksManage true core core
+PROCESS_DESIGNER AssetsCardWrite false module:assets -
 PROCESS_DESIGNER AssetsPost false module:assets -
 PROCESS_DESIGNER AssetsRead false module:assets -
 PROCESS_DESIGNER AssetsReconcile false module:assets -
@@ -342,6 +346,7 @@ PROCESS_DESIGNER TenantsManage false core -
 PROCESS_DESIGNER TokensManage false core -
 PROCESS_DESIGNER UsersGroupsRolesManage false core -
 PROCESS_DESIGNER WebhooksManage false core -
+PROCESS_OPERATOR AssetsCardWrite false module:assets -
 PROCESS_OPERATOR AssetsPost false module:assets -
 PROCESS_OPERATOR AssetsRead false module:assets -
 PROCESS_OPERATOR AssetsReconcile false module:assets -
@@ -426,6 +431,7 @@ PROCESS_OPERATOR TenantsManage false core -
 PROCESS_OPERATOR TokensManage false core -
 PROCESS_OPERATOR UsersGroupsRolesManage false core -
 PROCESS_OPERATOR WebhooksManage true core core
+STOREKEEPER AssetsCardWrite false module:assets -
 STOREKEEPER AssetsPost false module:assets -
 STOREKEEPER AssetsRead false module:assets -
 STOREKEEPER AssetsReconcile false module:assets -
@@ -510,6 +516,7 @@ STOREKEEPER TenantsManage false core -
 STOREKEEPER TokensManage false core -
 STOREKEEPER UsersGroupsRolesManage false core -
 STOREKEEPER WebhooksManage false core -
+TASK_WORKER AssetsCardWrite false module:assets -
 TASK_WORKER AssetsPost false module:assets -
 TASK_WORKER AssetsRead false module:assets -
 TASK_WORKER AssetsReconcile false module:assets -
@@ -594,6 +601,7 @@ TASK_WORKER TenantsManage false core -
 TASK_WORKER TokensManage false core -
 TASK_WORKER UsersGroupsRolesManage false core -
 TASK_WORKER WebhooksManage false core -
+TENANT_ADMIN AssetsCardWrite true module:assets core
 TENANT_ADMIN AssetsPost true module:assets core
 TENANT_ADMIN AssetsRead true module:assets core
 TENANT_ADMIN AssetsReconcile true module:assets core
@@ -678,6 +686,7 @@ TENANT_ADMIN TenantsManage false core -
 TENANT_ADMIN TokensManage true core core
 TENANT_ADMIN UsersGroupsRolesManage true core core
 TENANT_ADMIN WebhooksManage true core core
+TENANT_AUDITOR AssetsCardWrite false module:assets -
 TENANT_AUDITOR AssetsPost false module:assets -
 TENANT_AUDITOR AssetsRead false module:assets -
 TENANT_AUDITOR AssetsReconcile false module:assets -

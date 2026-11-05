@@ -586,6 +586,24 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     `StockPost` is later granted to another role the import function needs its own check first
     (`lib/letflow/routers/entities/record_import.ex`, GH #3773).
 
+## Assets module: asset cards
+
+GH #3892 / REQ-750. Module `assets` writes its one record type `assets_card` only through
+`Letflow.Modules.Assets.Cards` (`create_card/3`, `update_card/4`, `retire_card/3`); the generic record routes
+answer 403 `entity_type_managed`. Routes under `/api/v1/modules/assets`, permission `AssetsCardWrite` (no role
+grants: TENANT_ADMIN and PLATFORM_ADMIN), interactive tenant-wide callers only (`Assets.Access`; an API token or a
+scoped grant gets the 404 of a tenant without the module):
+
+- `POST /cards` (201), `PATCH /cards/:id` (200), `POST /cards/:id/retire` (200). Every body carries `idempotency_key`.
+- 422 `reason`: `field_not_allowed` (`active` and unknown keys), `field_invalid`, `org_unit_not_active`,
+  `valid_until_not_allowed` (only kind `intangible`), `currency_mismatch` (the tenant currency, setting `currency`,
+  `KZT` by default), `card_inactive` (update or second retire of a retired card), `record_payload_invalid`
+  (duplicate `inventory_number` or external reference pair, a decimal that is not strict text). 409
+  `idempotency_key_reuse`; 500 `audit_failed` (the write is rolled back).
+- Each accepted write appends one audit entry (`assets_card.created`, `.updated`, `.retired`). Money and depreciation
+  fields are stored as the given text, never calculated. Location, quantity and responsible person are not card
+  fields; they belong to the commission document (REQ-751).
+
 ## Assets module limits
 
 Module `assets` (GH #3893 / REQ-749, assets phase C item C8, owner decision D-097) as it is on main: one ledger

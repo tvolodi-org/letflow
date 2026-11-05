@@ -11,10 +11,11 @@ defmodule Letflow.Modules.Assets do
   The one record type `assets_card` is shipped by the pack `priv/modules/assets/pack.json`
   (generated from `priv/modules/assets/entity_definitions/` by
   `priv/modules/assets/generate_pack.exs`). It is a managed type: after install the generic write
-  routes answer 403 `entity_type_managed`. The module has no write function yet (card writes:
-  REQ-750).
+  routes answer 403 `entity_type_managed`. Cards are written only by `Letflow.Modules.Assets.Cards`
+  through the routes of `Letflow.Modules.Assets.Router` (REQ-750, permission `AssetsCardWrite`, no
+  role grants).
 
-  **Asset ledger** (REQ-749 / GH #3893, version 0.2.0; `docs/assets/asset-register.md` section 4):
+  **Asset ledger** (REQ-749 / GH #3893, version 0.3.0; `docs/assets/asset-register.md` section 4):
   ledger id `assets`, slots `asset, org_unit, location, material_responsible, actual_user` (all uuid
   text; location and actual user may be empty; the order is append-only), scope slot `org_unit`,
   causes `commission` (positive), `change` and `handover` (zero sum per asset), `writeoff` (negative,
@@ -54,10 +55,10 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.2.0",
+    version: "0.3.0",
     depends_on: ["locations", "org"],
     pack: "modules/assets/pack.json",
-    permissions: [:AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
+    permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
     role_grants: %{},
     required_roles: [],
     settings_schema: %{
@@ -68,6 +69,9 @@ defmodule Letflow.Modules.Assets do
       "additionalProperties" => false
     },
     route_policies: [
+      {"POST", "/cards", :AssetsCardWrite},
+      {"PATCH", "/cards/:id", :AssetsCardWrite},
+      {"POST", "/cards/:id/retire", :AssetsCardWrite},
       {"GET", "/balances", :AssetsRead},
       {"GET", "/movements", :AssetsRead},
       {"GET", "/reconcile", :AssetsReconcile}

@@ -26,7 +26,15 @@ defmodule Letflow.Modules.Assets.LedgerRegistrationTest do
 
   test "A8-REG-1 the manifest registration, as one literal map, and the catalog answer" do
     m = Assets.manifest()
-    assert m.permissions == [:AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile]
+
+    assert m.permissions == [
+             :AssetsCardWrite,
+             :AssetsPost,
+             :AssetsReverse,
+             :AssetsRead,
+             :AssetsReconcile
+           ]
+
     assert m.role_grants == %{}
 
     assert m.ledger == %{
