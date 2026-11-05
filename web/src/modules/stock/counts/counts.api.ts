@@ -18,6 +18,13 @@ export interface CountOrder {
   number?: string | null
   issued_at?: string | null
   cancelled_at?: string | null
+  sheet_document_id?: string | null
+  document_id?: string | null
+  sheet_signed_at?: string | null
+  differences_document_id?: string | null
+  differences_issued_at?: string | null
+  differences_signed_at?: string | null
+  differences_number?: string | null
 }
 export interface CountOrderBody {
   org_unit_id: string
@@ -58,6 +65,41 @@ export interface SurplusBody {
   catalog_lot_id?: string
   responsible_employee_id?: string
 }
+export interface ScanBody {
+  scanned_text: string
+  location_id: string
+  scan_id: string
+}
+/** The answer of a scan: a location code (kind location) or the counted line, `duplicate` true on a retry. */
+export type ScanAnswer = (Partial<CountLine> & { kind?: string | null; scanned_text?: string; duplicate?: boolean })
+export interface DifferenceLine {
+  line_no: number
+  kind?: string | null
+  location_id: string
+  catalog_item_id: string
+  catalog_lot_id?: string | null
+  responsible_employee_id?: string | null
+  unit_ref: string
+  book_quantity: string
+  counted_quantity: string
+  difference: string
+  direction: 'surplus' | 'shortage' | string
+}
+export interface Differences {
+  number: string | null
+  version_no: number
+  issued_at: string | null
+  content_hash: string
+  lines: DifferenceLine[]
+}
+export interface SignatureRow {
+  document_kind: string
+  version_no: number
+  employee_id: string
+  signer_role: string
+  marked_at: string
+}
+export type PaperworkKind = 'order' | 'sheet' | 'differences'
 export interface CountPage<T> {
   rows: T[]
   next_cursor: string | null
@@ -76,5 +118,13 @@ export const countsApi = {
   recordCount: (id: string, lineNo: number, quantity: string) =>
     client.put<CountLine>(`${BASE}/${id}/lines/${lineNo}/count`, { counted_quantity: quantity }),
   addSurplus: (id: string, body: SurplusBody) => client.post<CountLine>(`${BASE}/${id}/surplus-lines`, body),
+  scan: (id: string, body: ScanBody) => client.post<ScanAnswer>(`${BASE}/${id}/scan`, body),
+  signSheet: (id: string, ids: string[]) => client.post<CountOrder>(`${BASE}/${id}/sheet-signatures`, { signer_employee_ids: ids }),
+  issueDifferences: (id: string) => client.post<CountOrder>(`${BASE}/${id}/differences`),
+  signDifferences: (id: string, ids: string[]) =>
+    client.post<CountOrder>(`${BASE}/${id}/differences-signatures`, { signer_employee_ids: ids }),
+  differences: (id: string) => client.get<Differences>(`${BASE}/${id}/differences`),
+  signatures: (id: string) => client.get<{ rows: SignatureRow[] }>(`${BASE}/${id}/signatures`),
+  paperwork: (id: string, kind: PaperworkKind) => client.getBlob(`${BASE}/${id}/paperwork/${kind}`),
   entries: (id: string, params: Record<string, string>) => client.get<CountPage<CountEntry>>(`${BASE}/${id}/entries`, params),
 }
