@@ -19,7 +19,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
 
   test "R1 (REQ-717) count_signature, the five count_order fields, the five routes, version 0.9.0" do
     m = Stock.manifest()
-    assert m.version == "0.9.0" and Catalog.validate(m) == :ok
+    assert m.version == "0.10.0" and Catalog.validate(m) == :ok
     assert "count_signature" in m.manages_entity_types
     assert m.scope_declarations["count_signature"] == {:column, "org_unit_id"}
 

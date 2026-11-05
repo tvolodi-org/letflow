@@ -75,6 +75,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts/:id` | `StockRead` | 200 order view |
   | `GET /counts/:id/document` | `StockRead` | 200 issued summary, no content bytes |
   | `GET /counts/:id/paperwork/:kind` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document, 422 `document_not_issued` |
+  | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`) | `StockRead` | 200 `application/pdf` of the issued document, 422 `invalid_lang`, `document_not_issued`, `print_unsupported_character` |
 
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
   so a scoped caller gets the same 404 for an order of another unit as for an unknown id. When the
@@ -126,6 +127,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.Access
   alias Letflow.Modules.Stock.Counts
   alias Letflow.Modules.Stock.CountPaperworkSource
+  alias Letflow.Modules.Stock.CountPrint
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Views
@@ -474,6 +476,19 @@ defmodule Letflow.Modules.Stock.Router do
     end
   end
 
+  # REQ-736: the same three documents as an A4 PDF, same read path as the xlsx.
+  @print_langs %{"ru" => :ru, "kk" => :kk, "en" => :en}
+
+  authz_get "/counts/:id/print/:kind", :StockRead do
+    with {:ok, kind} <- Map.fetch(@paperwork_kinds, conn.params["kind"]),
+         {:ok, lang} <- print_lang(query_params(conn)["lang"]) do
+      print(conn, kind, lang)
+    else
+      :error -> Response.not_found(conn)
+      :invalid_lang -> unprocessable(conn, "invalid_lang")
+    end
+  end
+
   authz_unmatched(:ordinary)
 
   # -- document handlers ---------------------------------------------------------------------------
@@ -567,13 +582,7 @@ defmodule Letflow.Modules.Stock.Router do
 
   # REQ-719: the same prologue as `count_write/4`, answering a workbook instead of JSON.
   defp paperwork(conn, kind) do
-    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
-
-    with {:ok, _actor} <- Ecto.UUID.cast(conn.assigns.auth_context.user_id),
-         {:ok, conn, principal} <- Scope.principal_from_conn(conn),
-         {:ok, scope} <- allowed_set(principal, :StockRead) do
-      ctx = %{scope: scope, principal: principal, tenant_id: conn.assigns.auth_context.tenant_id}
-
+    with_paperwork_ctx(conn, fn prefix, ctx ->
       case CountPaperworkSource.fetch(prefix, conn.params["id"], kind, ctx) do
         {:ok, binary, name} ->
           send_xlsx(conn, binary, name)
@@ -588,6 +597,55 @@ defmodule Letflow.Modules.Stock.Router do
           Logger.error("stock paperwork xlsx write failed")
           Response.internal_error(conn)
       end
+    end)
+  end
+
+  # REQ-736: the PDF of the same issued document; `read/4` is the one scope and name path.
+  defp print(conn, kind, lang) do
+    with_paperwork_ctx(conn, fn prefix, ctx ->
+      with {:ok, %{issued: issued, names: names}} <-
+             CountPaperworkSource.read(prefix, conn.params["id"], kind, ctx),
+           {:ok, pdf} <- CountPrint.build(kind, issued, names, lang) do
+        send_pdf(conn, pdf, CountPaperworkSource.file_name(issued.number_label, "pdf"))
+      else
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:error, :document_not_issued} ->
+          unprocessable(conn, "document_not_issued")
+
+        {:error, :unsupported_glyph} ->
+          unprocessable(conn, "print_unsupported_character")
+
+        {:error, {:render_failed, rules}} ->
+          Logger.error(
+            "stock count print render failed: " <> Enum.map_join(rules, ",", &inspect/1)
+          )
+
+          Response.internal_error(conn)
+      end
+    end)
+  end
+
+  defp print_lang(nil), do: {:ok, :ru}
+
+  defp print_lang(lang) when is_binary(lang) do
+    case Map.fetch(@print_langs, lang) do
+      {:ok, l} -> {:ok, l}
+      :error -> :invalid_lang
+    end
+  end
+
+  defp print_lang(_), do: :invalid_lang
+
+  defp with_paperwork_ctx(conn, fun) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+
+    with {:ok, _actor} <- Ecto.UUID.cast(conn.assigns.auth_context.user_id),
+         {:ok, conn, principal} <- Scope.principal_from_conn(conn),
+         {:ok, scope} <- allowed_set(principal, :StockRead) do
+      ctx = %{scope: scope, principal: principal, tenant_id: conn.assigns.auth_context.tenant_id}
+      fun.(prefix, ctx)
     else
       :none -> Response.not_found(conn)
       _ -> Response.send_problem(conn, Error.forbidden("not permitted"))
@@ -706,6 +764,14 @@ defmodule Letflow.Modules.Stock.Router do
   defp send_xlsx(conn, binary, name) do
     conn
     |> Plug.Conn.put_resp_content_type(@xlsx_content_type, nil)
+    |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="#{name}"))
+    |> Plug.Conn.put_resp_header("cache-control", "no-store")
+    |> Plug.Conn.send_resp(200, binary)
+  end
+
+  defp send_pdf(conn, binary, name) do
+    conn
+    |> Plug.Conn.put_resp_content_type("application/pdf", nil)
     |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="#{name}"))
     |> Plug.Conn.put_resp_header("cache-control", "no-store")
     |> Plug.Conn.send_resp(200, binary)
