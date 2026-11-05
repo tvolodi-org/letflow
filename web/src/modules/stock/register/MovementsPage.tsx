@@ -64,7 +64,7 @@ function MovementsInner({ initialOpenId = null }: { initialOpenId?: string | nul
   const dash = t('stock.common.dash')
   const when = (iso: string | null | undefined) => {
     if (!iso) return dash
-    return formatStockDateTime(iso, { locale: intl.locale, seconds: true })
+    return formatStockDateTime(iso, { locale: intl.locale })
   }
   const known = (list: readonly string[], prefix: string, v: string) => (list.includes(v) ? t(`${prefix}.${v}`) : v)
 

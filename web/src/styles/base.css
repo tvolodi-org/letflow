@@ -55,8 +55,10 @@ samp {
 .lf-md__detail { min-width: 0; }
 .lf-md--wide { grid-template-columns: minmax(380px, 460px) minmax(0, 1fr); }
 @media (max-width: 1100px) {
-  .lf-md--wide { grid-template-columns: minmax(320px, 380px) minmax(0, 1fr); }
+  .lf-md--wide { grid-template-columns: minmax(440px, 470px) minmax(0, 1fr); }
 }
 @media (max-width: 900px) {
   .lf-md--wide { grid-template-columns: minmax(0, 1fr); }
 }
+/* T-1399 R7: the count sheet has seven columns; tighter cell padding keeps Counted whole in the detail panel. */
+.lf-count-sheet .lf-table th, .lf-count-sheet .lf-table td { padding-inline: var(--space-2); }

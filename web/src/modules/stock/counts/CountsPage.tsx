@@ -78,20 +78,17 @@ function CountsInner() {
     {
       key: 'number',
       label: t('counts.col.number'),
-      // The org unit and the kind ride on a second, muted line so the list keeps Planned start whole in the wide column.
+      // Org unit, kind and planned start ride on muted lines under the number, so the list is two columns (number,
+      // status) and no pill is cut off at 1024 px (T-1399 R7 gui_review).
       render: (r) => (
         <>
           <span className="mono">{r.number ?? dash}</span>
           <br />
           <span className="lf-hint">{[name('org_unit', r.org_unit_id), t(`counts.kind.${r.kind}`)].join(' · ')}</span>
+          <br />
+          <span className="lf-hint mono">{formatInZone(r.planned_start) || dash}</span>
         </>
       ),
-    },
-    {
-      key: 'start',
-      label: t('counts.col.plannedStart'),
-      render: (r) => formatInZone(r.planned_start) || dash,
-      mono: true,
     },
     {
       key: 'status',

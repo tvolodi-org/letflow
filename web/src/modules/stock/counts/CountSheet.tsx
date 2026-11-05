@@ -291,7 +291,7 @@ export function CountSheet({ orderId, status, canRecord, highlightLine = null }:
         {query.isError ? (
           <RegisterError error={query.error} onRetry={() => void query.refetch()} />
         ) : (
-          <div className="lf-field" data-testid="count-sheet">
+          <div className="lf-field lf-count-sheet" data-testid="count-sheet">
             <DataTable
               columns={columns}
               data={rows}
