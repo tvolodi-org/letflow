@@ -144,7 +144,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
            Letflow.Modules.CatalogItems.manifest().permissions ++
            Letflow.Modules.Locations.manifest().permissions ++
            Letflow.Modules.Codes.manifest().permissions ++
-           Letflow.Modules.Stock.manifest().permissions)
+           Letflow.Modules.Stock.manifest().permissions ++
+           Letflow.Modules.Assets.manifest().permissions)
         |> Enum.map(&Atom.to_string/1)
         |> Enum.sort()
 
@@ -159,7 +160,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
                "procurement" => Letflow.Modules.Procurement.manifest().version,
                "locations" => Letflow.Modules.Locations.manifest().version,
                "codes" => Letflow.Modules.Codes.manifest().version,
-               "stock" => Letflow.Modules.Stock.manifest().version
+               "stock" => Letflow.Modules.Stock.manifest().version,
+               "assets" => Letflow.Modules.Assets.manifest().version
              }
 
       for role <- golden.roles do
@@ -445,7 +447,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
              Letflow.Modules.CatalogItems,
              Letflow.Modules.Locations,
              Letflow.Modules.Codes,
-             Letflow.Modules.Stock
+             Letflow.Modules.Stock,
+             Letflow.Modules.Assets
            ])
         |> Enum.flat_map(& &1.manifest().permissions)
         |> MapSet.new(&Atom.to_string/1)
@@ -1106,7 +1109,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
                Letflow.Modules.Procurement,
                Letflow.Modules.Locations,
                Letflow.Modules.Codes,
-               Letflow.Modules.Stock
+               Letflow.Modules.Stock,
+               Letflow.Modules.Assets
              ]
 
       # The :dev read is done by the CI step itself: config/dev.exs raises when
@@ -1118,7 +1122,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
         Letflow.Modules.Procurement,
         Letflow.Modules.Locations,
         Letflow.Modules.Codes,
-        Letflow.Modules.Stock
+        Letflow.Modules.Stock,
+        Letflow.Modules.Assets
       ]
 
       assert PermissionMatrix.check_module_list(
