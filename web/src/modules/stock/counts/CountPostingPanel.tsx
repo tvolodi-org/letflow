@@ -17,7 +17,8 @@ import { Select } from '@/components/ui/Select'
 import { useToast } from '@/hooks/useToast'
 import { REVERSE_REASONS, TEXT_MAX, reasonTextError } from '../documents/documentsModel'
 import { countsApi, type CountOrder } from './counts.api'
-import { canIssuePostingRecord, canPost, canReverse, formatInZone, reasonMessageId } from './countsModel'
+import { shortageOf, canIssuePostingRecord, canPost, canReverse, formatInZone, reasonMessageId } from './countsModel'
+import { useNames } from '../register/stockNames'
 import { useCountsWrite } from './useCountsWrite'
 
 type Dlg = 'post' | 'reverse' | null
@@ -40,6 +41,17 @@ function PostingBody({ order }: { order: CountOrder }) {
   const record = useCountsWrite(() => countsApi.postingRecord(order.id))
   const dash = t('stock.common.dash')
   const state = order.posting_state ?? 'none'
+  const shortage = post.error !== null ? shortageOf(post.error) : null
+  const name = useNames(shortage ? [{ catalog_item: [shortage.item], location_node: [shortage.location] }] : [])
+  const postError =
+    post.error === null
+      ? null
+      : shortage
+        ? intl.formatMessage(
+            { id: 'counts.reason.shortage_exceeds_balance' },
+            { item: name('catalog_item', shortage.item) || shortage.item, location: name('location_node', shortage.location) || shortage.location },
+          )
+        : t(reasonMessageId(post.error))
 
   function closeDialog() {
     setDlg(null)
@@ -112,6 +124,9 @@ function PostingBody({ order }: { order: CountOrder }) {
             )}
           </dl>
           <p className="lf-hint">{t('counts.posting.noFreeze')}</p>
+          {order.differences_empty === true && <p className="lf-hint" data-testid="posting-empty-hint">{t('counts.posting.emptyHint')}</p>}
+          {state === 'reversed' && <p className="lf-hint" data-testid="posting-reversed-rule">{t('counts.posting.reversedRule')}</p>}
+          {order.status === 'signed' && <p className="lf-hint" data-testid="posting-no-cancel-rule">{t('counts.posting.noCancelRule')}</p>}
           <div className="lf-form__actions">
             {canPost(order, can) && (
               <Button variant="primary" size="sm" onClick={() => setDlg('post')} data-testid="count-post">
@@ -138,7 +153,7 @@ function PostingBody({ order }: { order: CountOrder }) {
         confirmText={t('counts.action.post')}
         cancelText={t('stock.doc.dialog.back')}
         isLoading={post.isPending}
-        error={post.error !== null ? t(reasonMessageId(post.error)) : null}
+        error={postError}
         onConfirm={() => void postNow()}
         onCancel={closeDialog}
       />

@@ -97,3 +97,24 @@ a `module_writes` node) is gone. A deleted stamped definition whose pinned insta
 running still fails closed: the node declares writes but the completion has no readable
 definition row, so it is refused as an internal failure (500, nothing committed) by the existing
 "lines but no plan" guard.
+
+## A deploy that changes a module manifest refuses post tasks of older installs (T-1367)
+
+The stamp and manifest hash of a module are written when the module is installed into a tenant. A
+deploy that changes the module's manifest (for example the stock module registering new import
+types) leaves a tenant installed from the older manifest with a different hash than the running
+build. Completing a handler-calling task there, such as the stock document `post` task, is then
+refused: 403 `write_not_permitted`, `line_index` 0, nothing committed. The cause is in the tenant
+audit entry written by `record_entity_write_refusal_audit` (`hash_mismatch` or `stamp_mismatch`; the
+other cause with the same shape is `event_schema_outdated`, see the rollout section above). There
+is no upgrade path for the stamp yet.
+
+QA operator recipe: read the audit entry to tell the causes apart. For `hash_mismatch` or
+`stamp_mismatch`, reinstall the module in the tenant, or use a fresh tenant created after the
+deploy. For `event_schema_outdated`, run `replay_all_pending/0` as described above. A 502 on a
+complete that coincides with a QA deploy is the app container restarting, not a code fault.
+
+Also found under T-1367: filtering `/entities/query` on an FK-promoted (`uuid`) column with
+`in`/`not_in`/`eq` crashed with `Postgrex expected a binary of 16 bytes` because the values were
+bound as text. The compiler now binds them as `Ecto.UUID` (allowlist entries of such columns carry
+`pg_type: "uuid"`).
