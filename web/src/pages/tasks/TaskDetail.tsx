@@ -9,6 +9,8 @@ import { useTaskCompletionAttachments } from '@/hooks/useAttachments'
 import { isSeparationOfDuties } from '@/api/client'
 import { useToast } from '@/hooks/useToast'
 import { P, useAccess } from '@/auth/access'
+import { Checkbox } from '@/components/ui/Checkbox'
+import { Field } from '@/components/ui/Field'
 import { Button } from '@/components/ui/Button'
 import { DetailHeader } from '@/components/ui/DetailHeader'
 import { StatusBadge } from '@/components/ui/StatusBadge'
@@ -245,27 +247,33 @@ export function TaskDetail({ taskId, onClose, m, locale, userId }: {
               const type = (def?.type as string) || 'string'
               const fieldTitle = (def?.title as string) || name
               return (
-                <div key={name} className="lf-field">
-                  <label className="lf-label" htmlFor={`task-field-${name}`}>
-                    {fieldTitle}
-                    {required.includes(name) && <span data-testid={`form-field-required-${name}`}> *</span>}
-                  </label>
-                  <input
-                    id={`task-field-${name}`}
-                    className="lf-control"
+                type === 'boolean' ? (
+                  <Checkbox
+                    key={name}
+                    label={fieldTitle}
                     data-testid={`form-field-${name}`}
-                    type={type === 'number' ? 'number' : type === 'boolean' ? 'checkbox' : 'text'}
-                    placeholder={fieldTitle}
-                    checked={type === 'boolean' ? Boolean(formValues[name]) : undefined}
-                    value={type === 'boolean' ? undefined : (formValues[name] as string | number | undefined) ?? ''}
-                    onChange={(e) =>
-                      setFormValues((prev) => ({
-                        ...prev,
-                        [name]: type === 'boolean' ? e.target.checked : type === 'number' ? (e.target.value === '' ? undefined : Number(e.target.value)) : e.target.value,
-                      }))
-                    }
+                    checked={Boolean(formValues[name])}
+                    onChange={(checked) => setFormValues((prev) => ({ ...prev, [name]: checked }))}
                   />
-                </div>
+                ) : (
+                  <Field
+                    key={name}
+                    label={required.includes(name) ? `${fieldTitle} *` : fieldTitle}
+                  >
+                    <input
+                      data-testid={`form-field-${name}`}
+                      type={type === 'number' ? 'number' : 'text'}
+                      placeholder={fieldTitle}
+                      value={(formValues[name] as string | number | undefined) ?? ''}
+                      onChange={(e) =>
+                        setFormValues((prev) => ({
+                          ...prev,
+                          [name]: type === 'number' ? (e.target.value === '' ? undefined : Number(e.target.value)) : e.target.value,
+                        }))
+                      }
+                    />
+                  </Field>
+                )
               )
             })}
           </div>

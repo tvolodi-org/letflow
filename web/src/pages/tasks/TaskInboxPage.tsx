@@ -1,6 +1,7 @@
 /** TaskInboxPage — T-1380 / GATE B R3. "My Tasks": the tasks a user has claimed or can claim, in a MasterDetail (list on
  *  the left, the task and its document on the right). The default view shows own tasks and the open ones (role, group or
  *  unassigned) — the server decides who may claim. Row data-testids are kept for the e2e suites (f4-task-inbox, a11y-gate). */
+import { ChevronDown, Search } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTaskInbox } from '@/hooks/useTasks'
@@ -13,6 +14,7 @@ import { P, useAccess } from '@/auth/access'
 import { useAuth } from '@/auth/AuthContext'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
+import { Field } from '@/components/ui/Field'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { MasterDetail } from '@/components/ui/MasterDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -111,19 +113,22 @@ export default function TaskInboxPage() {
         ))}
       </div>
       <div className="lf-btn-row">
-        <input
-          type="search"
-          className="lf-control"
-          data-testid="task-search-input"
-          aria-label={m.searchPlaceholder}
-          placeholder={m.searchPlaceholder}
-          value={search}
-          onChange={(e) => setParam('search', e.target.value)}
-        />
-        <select className="lf-control" data-testid="task-sort-control" aria-label={m.newest} value={sort} onChange={(e) => setParam('sort', e.target.value)}>
-          <option value="-created">{m.newest}</option>
-          <option value="created">{m.oldest}</option>
-        </select>
+        <Field label={m.searchPlaceholder} hideLabel leadingIcon={<Search className="lf-icon" aria-hidden="true" />}>
+          <input
+            type="search"
+            data-testid="task-search-input"
+            aria-label={m.searchPlaceholder}
+            placeholder={m.searchPlaceholder}
+            value={search}
+            onChange={(e) => setParam('search', e.target.value)}
+          />
+        </Field>
+        <Field label={m.newest} hideLabel trailing={<ChevronDown className="lf-icon lf-control__chev" aria-hidden="true" />}>
+          <select data-testid="task-sort-control" aria-label={m.newest} value={sort} onChange={(e) => setParam('sort', e.target.value)}>
+            <option value="-created">{m.newest}</option>
+            <option value="created">{m.oldest}</option>
+          </select>
+        </Field>
       </div>
     </>
   )
