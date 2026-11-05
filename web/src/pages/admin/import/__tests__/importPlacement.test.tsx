@@ -40,7 +40,7 @@ describe('P1 picker', () => {
 })
 
 describe('P2 module lists', () => {
-  it('the three modules list exactly the eight types in order', () => {
+  it('the modules list exactly the nine types in order', () => {
     const all = getInstalledImportTypes(REGISTERED_MODULES.map((m) => ({ module_id: m.id, version: '1' })))
     expect(all.map((t) => t.entityType)).toEqual([
       'org_unit',
@@ -51,6 +51,7 @@ describe('P2 module lists', () => {
       'catalog_item',
       'catalog_counterparty',
       'catalog_lot',
+      'stock_opening_line',
     ])
   })
 

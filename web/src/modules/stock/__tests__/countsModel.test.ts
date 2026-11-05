@@ -30,7 +30,7 @@ describe('M3 buildOrderBody', () => {
 
 describe('M4 reasonMessageId', () => {
   it('maps each reason, forbidden, not found and unknown', () => {
-    expect(COUNT_REASONS).toHaveLength(36)
+    expect(COUNT_REASONS).toHaveLength(37)
     for (const r of COUNT_REASONS) expect(reasonMessageId({ status: 422, details: { reason: r } })).toBe(`counts.reason.${r}`)
     expect(reasonMessageId({ status: 422, details: { reason: 'new_thing' } })).toBe('counts.error.generic')
     // REQ-718: the 409 reasons of the posting routes have their own messages; a 409 with another reason is generic
@@ -100,5 +100,14 @@ describe('M6 REQ-718 posting buttons', () => {
     expect(canIssuePostingRecord({ ...posted, posting_document_id: 'p' }, only('StockCountRecord'))).toBe(false)
     expect(canIssuePostingRecord({ ...posted, status: 'posted' }, only('StockCountRecord'))).toBe(false)
     expect(canIssuePostingRecord(signed, only('StockCountRecord'))).toBe(false)
+  })
+  it('W1 canIssuePostingRecord: a signed empty sheet with no pending post can be closed', () => {
+    const empty = { ...signed, posting_state: 'none' as const, differences_empty: true, post_pending: false }
+    expect(canIssuePostingRecord(empty, only('StockCountRecord'))).toBe(true)
+    expect(canIssuePostingRecord(empty, only('StockPost'))).toBe(false)
+    expect(canIssuePostingRecord({ ...empty, post_pending: true }, only('StockCountRecord'))).toBe(false)
+    expect(canIssuePostingRecord({ ...empty, posting_document_id: 'p' }, only('StockCountRecord'))).toBe(false)
+    expect(canIssuePostingRecord({ ...empty, differences_empty: false }, only('StockCountRecord'))).toBe(false)
+    expect(canIssuePostingRecord({ ...empty, posting_state: 'reversed' }, only('StockCountRecord'))).toBe(false)
   })
 })

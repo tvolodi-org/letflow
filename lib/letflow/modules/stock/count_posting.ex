@@ -22,6 +22,12 @@ defmodule Letflow.Modules.Stock.CountPosting do
   issued line). Known gaps: (a) no freeze; (b) a shortage can exceed the CURRENT balance if goods left
   after the cut-off: the ledger refuses `insufficient_stock` at completion and the count stays `signed`;
   (c) a count posted after later movements reports the delta, not "counted = balance".
+  `post/3` makes an advisory early check against the current balance (`{:shortage_exceeds_balance, ids}`,
+  422, ids only); goods that leave after the post started are still refused at completion.
+
+  Rules kept as they are (decision 0079): after a reversal the count cannot be posted again (the posted
+  mark stays, `count_posted`), and a `signed` count cannot be cancelled (`count_state_invalid`); a new
+  count is the way. A signed count with no differences is closed by `issue_posting_record/3` directly.
 
   The binding of the posting to the issued content is by workflow order and detection on read
   (`posting_check`, decision 0078 D5), not enforced, until slice L7. The tenant is the `prefix` argument
@@ -30,9 +36,11 @@ defmodule Letflow.Modules.Stock.CountPosting do
   """
 
   alias Letflow.Documents
+  alias Letflow.Ledger
   alias Letflow.Modules.Stock.CountDifferences
   alias Letflow.Modules.Stock.Counts
   alias Letflow.Modules.Stock.Documents.Posting
+  alias Letflow.Modules.Stock.Views
 
   @definition "stock_count_posting"
   @reversal_definition "stock_reversal"
@@ -56,6 +64,7 @@ defmodule Letflow.Modules.Stock.CountPosting do
          {:ok, issued} <- issued(prefix, diff_id),
          lines = CountDifferences.content_lines(issued.content),
          :ok <- some_lines(lines),
+         :ok <- shortage_check(Map.get(opts, :authorized), header, lines),
          :ok <- active(prefix, @definition, Map.get(opts, :activator)),
          {:ok, command} <- command(header, issued, lines),
          {:ok, _instance} <- start_post(prefix, header, issued, diff_id, command, actor) do
@@ -81,6 +90,64 @@ defmodule Letflow.Modules.Stock.CountPosting do
 
   defp some_lines([]), do: {:error, :no_differences}
   defp some_lines(_lines), do: :ok
+
+  # Advisory early check (P50c): a shortage larger than the CURRENT balance would be refused by the ledger
+  # at task completion, where only the task inbox shows it. Here the first such line (by line_no) is
+  # named with ids only, never the balance. A caller without a ledger read, a read error or a truncated
+  # page skips the check; the ledger refusal at completion stays the authority.
+  defp shortage_check(nil, _header, _lines), do: :ok
+
+  defp shortage_check(authorized, header, lines) do
+    lines
+    |> Enum.sort_by(& &1["line_no"])
+    |> Enum.find_value(:ok, fn line ->
+      with {:ok, diff} <- decimal(line["difference"]),
+           :lt <- Decimal.compare(diff, 0),
+           {:ok, balance} <- line_balance(authorized, header, line),
+           :lt <- Decimal.compare(balance, Decimal.abs(diff)) do
+        {:error,
+         {:shortage_exceeds_balance,
+          %{
+            "line_no" => line["line_no"],
+            "catalog_item_id" => line["catalog_item_id"],
+            "location_id" => line["location_id"]
+          }}}
+      else
+        _ -> nil
+      end
+    end)
+  end
+
+  defp line_balance(authorized, header, line) do
+    filters = %{
+      "org_unit" => header["org_unit_id"],
+      "location" => line["location_id"],
+      "sku" => line["catalog_item_id"]
+    }
+
+    case Ledger.balances(authorized, {:posting_seq, :latest}, filters, %{limit: 100}) do
+      {:ok, %{rows: rows, next_cursor: nil}} ->
+        total =
+          rows
+          |> Enum.map(&Views.stock_balance/1)
+          |> Enum.filter(&same_slot?(&1, line))
+          |> Enum.reduce(Decimal.new(0), &Decimal.add(Decimal.new(&1.quantity), &2))
+
+        {:ok, total}
+
+      _skip ->
+        :skip
+    end
+  end
+
+  defp same_slot?(row, line) do
+    row.lot == blank_nil(line["catalog_lot_id"]) and
+      row.responsible == blank_nil(line["responsible_employee_id"]) and
+      row.unit_ref == line["unit_ref"]
+  end
+
+  defp blank_nil(""), do: nil
+  defp blank_nil(value), do: value
 
   defp active(prefix, name, activator) do
     case Posting.ensure_active(prefix, name, activator) do
@@ -426,7 +493,9 @@ defmodule Letflow.Modules.Stock.CountPosting do
   The posting fields of a count view, only when the status is `signed` or `posted` (else `%{}`):
   `posting_state` (`none | pending | posted | reversed`), `post_pending`, `reverse_pending`, `entry_id`,
   `posted_at`, `posted_by`, `reversed_at`, `reversed_by`, `posting_check` (`ok | mismatch | nil`, never a
-  detail), `posting_document_id`, `posting_number` and `posting_issued_at`. `authorized` is the ledger read authorization or `nil`.
+  detail), `posting_document_id`, `posting_number`, `posting_issued_at` and `differences_empty` (true only for
+  a `signed` count with no mark and no difference lines: the posting record can be issued at once).
+  `authorized` is the ledger read authorization or `nil`.
   """
   @spec state_fields(String.t(), map(), term()) :: map()
   def state_fields(prefix, header, authorized) do
@@ -449,12 +518,22 @@ defmodule Letflow.Modules.Stock.CountPosting do
         "posting_check" => posting_check(prefix, header, diff_id, marks, rows),
         "posting_document_id" => header["posting_document_id"],
         "posting_number" => header["posting_number"],
-        "posting_issued_at" => header["posting_issued_at"]
+        "posting_issued_at" => header["posting_issued_at"],
+        "differences_empty" => differences_empty?(prefix, header, diff_id, marks)
       }
     else
       %{}
     end
   end
+
+  defp differences_empty?(prefix, %{"status" => "signed"}, diff_id, marks) when marks == %{} do
+    case issued(prefix, diff_id) do
+      {:ok, issued} -> CountDifferences.content_lines(issued.content) == []
+      {:error, _} -> false
+    end
+  end
+
+  defp differences_empty?(_prefix, _header, _diff_id, _marks), do: false
 
   defp state(marks, pending) do
     cond do
