@@ -158,7 +158,7 @@ function DocumentInner() {
           ))}
         </tbody>
       </table>
-      <div className="lf-form-actions">
+      <div className="lf-btn-row">
         <Button variant="ghost" onClick={() => void query.refetch()}>{t('stock.doc.reload')}</Button>
       </div>
     </>

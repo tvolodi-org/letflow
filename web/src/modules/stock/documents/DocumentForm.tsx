@@ -159,7 +159,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
         <textarea rows={2} value={form.note} onChange={(e) => patch({ note: e.target.value })} />
       </Field>
       <LinesEditor kind={form.kind} lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} />
-      <div className="lf-form-actions">
+      <div className="lf-btn-row">
         <Button variant="primary" type="submit" loading={save.isPending}>
           {t('stock.doc.save')}
         </Button>

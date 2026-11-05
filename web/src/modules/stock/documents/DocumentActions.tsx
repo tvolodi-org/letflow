@@ -80,7 +80,7 @@ export function DocumentActions({ doc, onEdit }: { doc: StockDocument; onEdit: (
 
   if (!acts.edit && !acts.discard && !acts.issue && !acts.retry && !acts.cancel && !acts.reverse) return null
   return (
-    <div className="lf-form-actions" data-testid="document-actions">
+    <div className="lf-btn-row" data-testid="document-actions">
       {acts.edit && <Button variant="secondary" onClick={onEdit}>{t('stock.doc.action.edit')}</Button>}
       {acts.issue && <Button variant="primary" onClick={() => setDlg('issue')}>{t('stock.doc.action.issue')}</Button>}
       {acts.discard && <Button variant="danger" onClick={() => setDlg('discard')}>{t('stock.doc.action.discard')}</Button>}
