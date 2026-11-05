@@ -7,7 +7,7 @@ defmodule Letflow.Engine.Req465MeridianRegulatoryDistinctFromTest do
   the findings does not also sign the findings off.
 
   Refusals are asserted on the HTTP surface (`Letflow.Routers.Tasks.call/2`): 403
-  `application/problem+json`, body exactly `{"detail":"separation of duties","status":403}`, the
+  `application/problem+json`, body exactly `Response.separation_of_duties_body/0` (detail, reason, status, title, type), the
   task still open, every instance row byte-for-byte unchanged. Accepted completions are 200.
   Real Postgres via `Letflow.SodSupport`; no mocks.
   """
@@ -22,7 +22,7 @@ defmodule Letflow.Engine.Req465MeridianRegulatoryDistinctFromTest do
   alias Letflow.SodSupport, as: S
 
   @opts Letflow.Routers.Tasks.init([])
-  @sod_body ~s({"detail":"separation of duties","status":403})
+  @sod_body Letflow.Api.Response.separation_of_duties_body()
   @fixture Path.expand(
              "../../fixtures/qa/meridian_regulatory_compliance_review_process_definition.json",
              __DIR__
