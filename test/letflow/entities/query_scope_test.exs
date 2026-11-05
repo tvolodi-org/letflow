@@ -634,6 +634,25 @@ actual:   #{inspect(actual)}"
       assert [%{"agg__count_none" => 1}] = aggregate!(fx, count, :all)
     end
 
+    test "T-1367: in/not_in/eq on a promoted fk (uuid) column binds typed ids, not text",
+         %{fx: fx, items: items} do
+      id = items.a.record_id
+      other = Ecto.UUID.generate()
+      base = %{entity_type: "plain_undeclared"}
+
+      in_req = Map.put(base, :filters, [%{field: "item_id", op: :in, value: [id, other]}])
+      assert [_one] = rows(fx, in_req, :all)
+
+      not_in = Map.put(base, :filters, [%{field: "item_id", op: :not_in, value: [other]}])
+      assert [_one] = rows(fx, not_in, :all)
+
+      eq = Map.put(base, :filters, [%{field: "item_id", op: :eq, value: id}])
+      assert [_one] = rows(fx, eq, :all)
+
+      neq = Map.put(base, :filters, [%{field: "item_id", op: :neq, value: other}])
+      assert [_one] = rows(fx, neq, :all)
+    end
+
     test "an undeclared joined TARGET: LEFT keeps the primary with a NULL target, INNER drops the row, tenant-wide sees it",
          %{fx: fx} do
       set = scoped_set(fx)

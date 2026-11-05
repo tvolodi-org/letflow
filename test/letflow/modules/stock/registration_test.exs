@@ -227,7 +227,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 23
+    assert length(files) == 25
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
