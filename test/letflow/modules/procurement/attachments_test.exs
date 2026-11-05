@@ -2,7 +2,7 @@ Code.require_file("procurement_fixture.exs", __DIR__)
 
 defmodule Letflow.Modules.Procurement.AttachmentsTest do
   @moduledoc """
-  GH #3503 / REQ-626 part A, the context half of criteria 1, 2, 3, 4, 5, 7 and 9 (spec:
+  GH #3503 / REQ-626 parts A and B (B1..B9 for the submitted branch, state/tasks/T-0963/design.md), the context half of criteria 1, 2, 3, 4, 5, 7 and 9 (spec:
   state/tasks/T-0962/design.md, tests A1..A3, R1..R6, L1, L2, D1, P1..P3, U1..U3, S1, S4, S5):
   `Letflow.Modules.Procurement.Attachments` on a real tenant.
 
@@ -17,8 +17,12 @@ defmodule Letflow.Modules.Procurement.AttachmentsTest do
 
   alias Ecto.Adapters.SQL
   alias Letflow.Audit.Entry
+  alias Letflow.Documents
+  alias Letflow.Documents.Document
+  alias Letflow.Documents.DocumentVersion
   alias Letflow.Modules.Procurement.Attachment
   alias Letflow.Modules.Procurement.Attachments
+  alias Letflow.Modules.Procurement.Decisions
   alias Letflow.Modules.Procurement.PurchaseRequests
   alias Letflow.ProcurementFixture, as: Fixture
   alias Letflow.Repo
@@ -29,6 +33,15 @@ defmodule Letflow.Modules.Procurement.AttachmentsTest do
     @behaviour Letflow.Repository.AttachmentScanner
     @impl true
     def scan(_bytes, _type), do: {:ok, :infected, "TEST-VIRUS"}
+  end
+
+  defmodule Retired do
+    @moduledoc false
+    @behaviour Letflow.Documents.OrgResolver
+    @impl true
+    def unit_exists?(_prefix, _unit), do: false
+    @impl true
+    def legal_entity_of(_prefix, _unit), do: {:error, :unit_not_found}
   end
 
   defmodule Down do
@@ -288,9 +301,17 @@ defmodule Letflow.Modules.Procurement.AttachmentsTest do
       assert rows(ctx) == 1
     end
 
-    test "P3: attach and replace on a submitted request answer not_draft", ctx do
-      old = attach!(ctx)
+    test "B8: a request whose current version is cancelled answers not_draft", ctx do
+      attach!(ctx)
       issue(ctx)
+
+      {:ok, _} =
+        Documents.cancel(
+          ctx.schema,
+          %{document_id: ctx.id, version_no: 1, reason: "no longer needed"},
+          ctx.requester
+        )
+
       before = {rows(ctx), blobs(ctx), audits(ctx)}
 
       assert {:error, :not_draft} =
@@ -301,11 +322,247 @@ defmodule Letflow.Modules.Procurement.AttachmentsTest do
                  ctx.schema,
                  ctx.requester,
                  ctx.id,
-                 old.slot_id,
+                 Ecto.UUID.generate(),
                  file("n.pdf", "n")
                )
 
       assert {rows(ctx), blobs(ctx), audits(ctx)} == before
+    end
+  end
+
+  describe "submitted request: new version (part B)" do
+    defp version_rows(ctx) do
+      Repo.all(
+        from(v in DocumentVersion, where: v.document_id == ^ctx.id, order_by: v.version_no),
+        prefix: ctx.schema
+      )
+    end
+
+    defp all_attachments(ctx),
+      do: Repo.all(from(a in Attachment, order_by: [a.version_no, a.id]), prefix: ctx.schema)
+
+    test "B1: replace after submission makes N+1 and keeps N", ctx do
+      old = attach!(ctx, "a.pdf", "original")
+      other = attach!(ctx, "b.pdf", "second")
+      issue(ctx)
+      [v1] = version_rows(ctx)
+      snapshot = Enum.filter(all_attachments(ctx), &(&1.version_no == 1))
+      blobs_before = blobs(ctx)
+
+      assert {:ok, view} =
+               Attachments.replace(
+                 ctx.schema,
+                 ctx.requester,
+                 ctx.id,
+                 old.slot_id,
+                 file("c.pdf", "replacement")
+               )
+
+      assert view.version_no == 2 and view.replaces_id == old.attachment_id
+      assert view.slot_id == old.slot_id
+
+      [n, n1] = version_rows(ctx)
+      assert n.status == :superseded and n.content_hash == v1.content_hash
+      assert n1.status == :issued and n1.content == n.content
+      assert Repo.get(Document, ctx.id, prefix: ctx.schema).current_version == n1.id
+
+      assert Enum.filter(all_attachments(ctx), &(&1.version_no == 1)) == snapshot
+
+      assert {:ok, %{version_no: 2, attachments: heads}} =
+               Attachments.list(ctx.schema, ctx.requester, ctx.id)
+
+      assert length(heads) == 2
+      copy = Enum.find(heads, &(&1.slot_id == other.slot_id))
+      assert copy.attachment_id != other.attachment_id and copy.replaces_id == nil
+      assert Enum.find(heads, &(&1.slot_id == old.slot_id)).file_name == "c.pdf"
+
+      assert {:ok, %{version_no: 1, attachments: [first, _second]}} =
+               Attachments.list(ctx.schema, ctx.requester, ctx.id, version_no: 1)
+
+      assert first.attachment_id == old.attachment_id
+
+      assert {:ok, %{content: "original"}} =
+               Attachments.download(ctx.schema, ctx.requester, ctx.id, old.attachment_id)
+
+      assert {:ok, %{content: "second"}} =
+               Attachments.download(ctx.schema, ctx.requester, ctx.id, copy.attachment_id)
+
+      assert blobs(ctx) == blobs_before + 1
+    end
+
+    test "B2: attach after submission adds a slot in N+1", ctx do
+      attach!(ctx, "a.pdf", "one")
+      attach!(ctx, "b.pdf", "two")
+      issue(ctx)
+
+      assert {:ok, view} =
+               Attachments.attach(ctx.schema, ctx.requester, ctx.id, file("n.pdf", "three"))
+
+      assert view.version_no == 2 and view.replaces_id == nil and
+               view.slot_id == view.attachment_id
+
+      assert {:ok, %{version_no: 2, attachments: heads}} =
+               Attachments.list(ctx.schema, ctx.requester, ctx.id)
+
+      assert length(heads) == 3
+
+      assert {:ok, %{version_no: 1, attachments: v1}} =
+               Attachments.list(ctx.schema, ctx.requester, ctx.id, version_no: 1)
+
+      assert length(v1) == 2
+    end
+
+    test "B3: a second replace gives N+2; every version lists its own files", ctx do
+      old = attach!(ctx, "a.pdf", "v1")
+      issue(ctx)
+
+      {:ok, two} =
+        Attachments.replace(ctx.schema, ctx.requester, ctx.id, old.slot_id, file("b.pdf", "v2"))
+
+      {:ok, three} =
+        Attachments.replace(ctx.schema, ctx.requester, ctx.id, old.slot_id, file("c.pdf", "v3"))
+
+      assert three.version_no == 3 and three.replaces_id == two.attachment_id
+
+      for {no, name} <- [{1, "a.pdf"}, {2, "b.pdf"}, {3, "c.pdf"}] do
+        assert {:ok, %{attachments: [%{file_name: ^name}]}} =
+                 Attachments.list(ctx.schema, ctx.requester, ctx.id, version_no: no)
+      end
+    end
+
+    test "B4: a refused issue rolls back the version, the rows and the bytes", ctx do
+      old = attach!(ctx)
+      issue(ctx)
+      before = {length(version_rows(ctx)), rows(ctx), blobs(ctx), audits(ctx)}
+      current = Repo.get(Document, ctx.id, prefix: ctx.schema).current_version
+
+      Process.put(:letflow_document_org_resolver, Retired)
+
+      assert {:error, :org_unit_not_found} =
+               Attachments.replace(
+                 ctx.schema,
+                 ctx.requester,
+                 ctx.id,
+                 old.slot_id,
+                 file("z.pdf", "zzz")
+               )
+
+      assert {length(version_rows(ctx)), rows(ctx), blobs(ctx), audits(ctx)} == before
+      assert Repo.get(Document, ctx.id, prefix: ctx.schema).current_version == current
+    end
+
+    test "B5: one audit entry with ids and counts, plus the document entries", ctx do
+      old = attach!(ctx, "secret-name.pdf", "secret-bytes")
+      attach!(ctx, "b.pdf", "b")
+      issue(ctx)
+
+      {:ok, _} =
+        Attachments.replace(
+          ctx.schema,
+          ctx.requester,
+          ctx.id,
+          old.slot_id,
+          file("secret2.pdf", "s2")
+        )
+
+      entries = Repo.all(from(e in Entry, order_by: e.inserted_at), prefix: ctx.schema)
+      replaced = Enum.filter(entries, &(&1.action == "procurement.attachment_replaced"))
+      assert [entry] = replaced
+      assert entry.after_state["version_no"] == 2
+      assert entry.after_state["previous_version_no"] == 1
+      assert entry.after_state["carried_count"] == 1
+
+      assert entry.after_state |> Map.keys() |> Enum.sort() ==
+               ~w(attachment_id byte_size carried_count previous_version_no replaces_id slot_id version_no)
+
+      refute inspect(entry) =~ "secret"
+      actions = Enum.map(entries, & &1.action)
+      assert "document.superseded" in actions and "document.issued" in actions
+    end
+
+    test "B6: a stranger, a decider and a malformed id get not_found", ctx do
+      old = attach!(ctx)
+      issue(ctx)
+      before = {length(version_rows(ctx)), rows(ctx), blobs(ctx), audits(ctx)}
+      stranger = Ecto.UUID.generate()
+
+      for who <- [stranger, ctx.requester],
+          id <- [ctx.id, "bad"],
+          who == stranger or id == "bad" do
+        assert {:error, :not_found} = Attachments.attach(ctx.schema, who, id, file("x.pdf", "x"))
+
+        assert {:error, :not_found} =
+                 Attachments.replace(ctx.schema, who, id, old.slot_id, file("x.pdf", "x"))
+      end
+
+      assert {length(version_rows(ctx)), rows(ctx), blobs(ctx), audits(ctx)} == before
+    end
+
+    test "B7: an unknown slot or a slot of another request writes nothing", ctx do
+      attach!(ctx)
+      issue(ctx)
+
+      {:ok, %{document_id: other_id}} =
+        PurchaseRequests.create(ctx.schema, ctx.requester, Fixture.params(ctx))
+
+      {:ok, foreign} = Attachments.attach(ctx.schema, ctx.requester, other_id, file("f.pdf", "f"))
+      before = {length(version_rows(ctx)), rows(ctx), blobs(ctx), audits(ctx)}
+
+      for slot <- [Ecto.UUID.generate(), foreign.slot_id, "nope"] do
+        assert {:error, :not_found} =
+                 Attachments.replace(ctx.schema, ctx.requester, ctx.id, slot, file("x.pdf", "x"))
+      end
+
+      assert {length(version_rows(ctx)), rows(ctx), blobs(ctx), audits(ctx)} == before
+    end
+
+    test "B9: an approval of N does not cover N+1; the decider still reads N", ctx do
+      old = attach!(ctx, "a.pdf", "original")
+      issue(ctx)
+      approver = Ecto.UUID.generate()
+      [v1] = version_rows(ctx)
+
+      decide = fn version_no, hash ->
+        Decisions.record(ctx.schema, approver, %{
+          document_id: ctx.id,
+          version_no: version_no,
+          content_hash: hash,
+          decision: "approve",
+          idempotency_key: "d-" <> Ecto.UUID.generate()
+        })
+      end
+
+      assert {:ok, _} = decide.(1, v1.content_hash)
+      assert Decisions.approved?(ctx.schema, ctx.id, 1)
+
+      {:ok, _} =
+        Attachments.replace(
+          ctx.schema,
+          ctx.requester,
+          ctx.id,
+          old.slot_id,
+          file("b.pdf", "changed")
+        )
+
+      assert {:ok,
+              %{approved: false, state: :submitted, current_version_no: 2, content_hash: hash2}} =
+               Decisions.status(ctx.schema, ctx.id)
+
+      refute Decisions.approved?(ctx.schema, ctx.id, 1)
+
+      assert {:ok, %{version_no: 1, attachments: [only]}} =
+               Attachments.list(ctx.schema, approver, ctx.id, decider?: true, version_no: 1)
+
+      assert only.attachment_id == old.attachment_id
+
+      assert {:ok, %{content: "original"}} =
+               Attachments.download(ctx.schema, approver, ctx.id, old.attachment_id,
+                 decider?: true
+               )
+
+      assert {:error, :binding_refused} = decide.(2, v1.content_hash)
+      assert {:ok, _} = decide.(2, hash2)
+      assert Decisions.approved?(ctx.schema, ctx.id, 2)
     end
   end
 
