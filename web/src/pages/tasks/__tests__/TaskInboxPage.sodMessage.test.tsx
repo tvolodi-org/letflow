@@ -56,7 +56,7 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
 
 import TaskInboxPage from '@/pages/tasks/TaskInboxPage'
 import { renderWithAccess } from '@/auth/access/testing'
-import type { AccessFixtureName } from '@/auth/access/fixtures'
+import { accessState, type AccessFixtureName } from '@/auth/access/fixtures'
 
 const TASK_ID = 'task-sod-1'
 
@@ -127,7 +127,7 @@ function renderPage(access: AccessFixtureName = 'platformAdmin') {
         <TaskInboxPage />
       </MemoryRouter>
     </QueryClientProvider>,
-    access,
+    accessState(access, 'marco-id'),
   )
 }
 
