@@ -42,6 +42,11 @@ and the reason.
   the selection covers over 55% of the tests, a lib file is removed, the selection errors, the
   repository variable `CI_SELECTIVE` is `off` (kill switch), the event is the nightly schedule or
   `workflow_dispatch`, or 10 or more commits came in since the last green full run.
+- **Probe PR** (T-1311): a pull request whose head branch starts with `selective-probe/` ignores
+  the kill switch, so selective mode is allowed for it while `CI_SELECTIVE` is `off`. Open one with
+  a one-line `lib/` change to see a real selective run pass before turning the variable back on.
+  The step writes its outputs with `scripts/ci_emit_outputs.sh` (the multi-line `plan` value ends
+  with a newline before its delimiter, which the runner requires).
 - **Counter** (no database): the tag `ci-full-green` points at the last main commit whose full
   backend run was green; job `full_run_marker` moves it forward after a green full run on main
   (push, nightly, dispatch). The runs count `git rev-list --count ci-full-green..HEAD`; a missing
