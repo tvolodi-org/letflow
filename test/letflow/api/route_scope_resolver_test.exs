@@ -299,7 +299,8 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # REQ-718 (GH #3884) added four count posting lines (230 -> 234).
       # REQ-639 F-5 added the form-validation-dry-run line (234 -> 235).
       # REQ-736 (GH #3861) added the count print route line (235 -> 236).
-      assert length(snapshot) == 236
+      # REQ-737 (GH #3860) added the document print route line (236 -> 237).
+      assert length(snapshot) == 237
 
       for line <- @resolver_lines ++ @tenant_wide_lines do
         refute line in snapshot, line

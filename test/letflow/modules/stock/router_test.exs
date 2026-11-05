@@ -124,7 +124,8 @@ defmodule Letflow.Modules.Stock.RouterTest do
 
       assert body["ledger_seq"] == 3 and body["next_cursor"] == nil and body["filters"] == %{}
       assert is_binary(body["timezone"])
-      assert length(body["rows"]) == 3
+      # the zero row (sku1 at l1, handed over in full) is not returned (P6); the movements keep it
+      assert length(body["rows"]) == 2
 
       for row <- body["rows"] do
         assert row |> Map.keys() |> Enum.sort() ==
@@ -138,7 +139,8 @@ defmodule Letflow.Modules.Stock.RouterTest do
         row && Decimal.new(row["quantity"])
       end
 
-      assert Decimal.equal?(qty.(body["rows"], @sku1, @l1), 0)
+      assert qty.(body["rows"], @sku1, @l1) == nil
+      assert length(ok!(S.get("/movements", ctx.tok_a))["rows"]) == 3
       assert Decimal.equal?(qty.(body["rows"], @sku1, @l2), 10)
       assert Decimal.equal?(qty.(body["rows"], @sku2, @l1), 4)
 
@@ -175,7 +177,7 @@ defmodule Letflow.Modules.Stock.RouterTest do
         |> Enum.to_list()
 
       keys = pages |> List.flatten() |> Enum.map(&{&1["sku"], &1["location"]})
-      assert length(keys) == 3 and length(Enum.uniq(keys)) == 3
+      assert length(keys) == 2 and length(Enum.uniq(keys)) == 2
 
       # the event-time basis
       as_of =
@@ -186,7 +188,7 @@ defmodule Letflow.Modules.Stock.RouterTest do
       assert event["basis"] == "event_time" and is_binary(event["as_of"]) and
                event["cutoff_seq"] == 4
 
-      assert length(event["rows"]) == 3
+      assert length(event["rows"]) == 2
     end
   end
 
@@ -218,7 +220,8 @@ defmodule Letflow.Modules.Stock.RouterTest do
       assert %{"basis" => "event_time", "as_of_date" => ^today, "timezone" => "Asia/Almaty"} =
                body
 
-      assert body["cutoff_seq"] == 3 and length(body["rows"]) == 3
+      # the event basis drops the zero row as well
+      assert body["cutoff_seq"] == 3 and length(body["rows"]) == 2
 
       latest = ok!(S.get("/balances?as_of_date=#{today}", ctx.tok_a))
       assert latest["cutoff_seq"] == latest["ledger_seq"] and latest["cutoff_seq"] == 3
@@ -253,6 +256,21 @@ defmodule Letflow.Modules.Stock.RouterTest do
         assert reason!(conn, 422) == "invalid_filter", path
         assert statements == [], path
       end
+    end
+
+    test "T1 a date after the tenant today is 422 as_of_date_in_future, today and past are 200",
+         ctx do
+      seed!(ctx.a.schema_name)
+      tomorrow = Date.utc_today() |> Date.add(2) |> Date.to_iso8601()
+
+      {conn, statements} =
+        ledger_statements(fn -> S.get("/balances?as_of_date=#{tomorrow}", ctx.tok_a) end)
+
+      assert reason!(conn, 422) == "as_of_date_in_future"
+      assert statements == []
+
+      assert ok!(S.get("/balances?as_of_date=#{almaty_today()}", ctx.tok_a))["rows"] != []
+      assert ok!(S.get("/balances?as_of_date=#{almaty_day(-1)}", ctx.tok_a))
     end
 
     test "T-AD-R4 a cutoff above the counter and an unknown stored zone are 422", ctx do

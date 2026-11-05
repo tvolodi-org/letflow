@@ -290,7 +290,11 @@ defmodule Letflow.Modules.Stock.CountPrint do
       "item" => CountPaperwork.unit_text(item),
       "lot" => text.(Map.get(Map.get(names, :lots, %{}), line["catalog_lot_id"])),
       "responsible" => text.(emp[:full_name]),
-      "unit" => text.(line["unit_ref"]),
+      "unit" =>
+        CountPaperwork.unit_cell(
+          Map.get(Map.get(names, :units, %{}), line["unit_ref"]),
+          line["unit_ref"]
+        ),
       "book_qty" => text.(line["book_quantity"]),
       "counted_qty" => text.(line["counted_quantity"])
     }
