@@ -22,6 +22,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     ],
     causes: %{
       "receipt" => %{sign_rule: :positive, reason_required: false},
+      "opening" => %{sign_rule: :positive, reason_required: false},
       "issue" => %{sign_rule: :negative, reason_required: false},
       "write_off" => %{sign_rule: :negative, reason_required: true},
       "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
@@ -45,17 +46,32 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.3.0"
-    assert m.depends_on == ["catalog_items", "locations", "org"]
+    assert m.version == "0.9.0"
+    assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
     assert m.manages_entity_types == [
              "stock_receipt",
              "stock_receipt_line",
+             "stock_issue",
+             "stock_issue_line",
+             "stock_writeoff",
+             "stock_writeoff_line",
+             "stock_transfer",
+             "stock_transfer_line",
+             "stock_handover",
+             "stock_handover_line",
+             "stock_return",
+             "stock_return_line",
              "count_order",
              "count_order_scope",
              "count_commission_member",
-             "stock_posting_mark"
+             "count_sheet_line",
+             "count_entry",
+             "count_signature",
+             "stock_posting_mark",
+             "stock_opening",
+             "stock_opening_line"
            ]
 
     assert Enum.map(m.write_handlers, & &1.name) == ["post_document", "reverse_document"]
@@ -65,7 +81,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              :StockReverse,
              :StockRead,
              :StockReconcile,
-             :StockCountOrder
+             :StockCountOrder,
+             :StockCountRecord
            ]
 
     assert m.role_grants == %{}
@@ -73,10 +90,25 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert m.scope_declarations == %{
              "stock_receipt" => {:column, "org_unit_id"},
              "stock_receipt_line" => {:column, "org_unit_id"},
+             "stock_issue" => {:column, "org_unit_id"},
+             "stock_issue_line" => {:column, "org_unit_id"},
+             "stock_writeoff" => {:column, "org_unit_id"},
+             "stock_writeoff_line" => {:column, "org_unit_id"},
+             "stock_transfer" => {:column, "org_unit_id"},
+             "stock_transfer_line" => {:column, "org_unit_id"},
+             "stock_handover" => {:column, "org_unit_id"},
+             "stock_handover_line" => {:column, "org_unit_id"},
+             "stock_return" => {:column, "org_unit_id"},
+             "stock_return_line" => {:column, "org_unit_id"},
              "count_order" => {:column, "org_unit_id"},
              "count_order_scope" => {:column, "org_unit_id"},
              "count_commission_member" => {:column, "org_unit_id"},
-             "stock_posting_mark" => {:column, "org_unit_id"}
+             "count_sheet_line" => {:column, "org_unit_id"},
+             "count_entry" => {:column, "org_unit_id"},
+             "count_signature" => {:column, "org_unit_id"},
+             "stock_posting_mark" => {:column, "org_unit_id"},
+             "stock_opening" => {:column, "org_unit_id"},
+             "stock_opening_line" => {:column, "org_unit_id"}
            }
 
     assert m.route_policies == [
@@ -87,6 +119,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"PUT", "/documents/:id", :StockPost},
              {"DELETE", "/documents/:id", :StockPost},
              {"POST", "/documents/:id/issue", :StockPost},
+             {"POST", "/documents/:id/check", :StockPost},
              {"GET", "/documents", :StockRead},
              {"GET", "/documents/:id", :StockRead},
              {"POST", "/documents/:id/post", :StockPost},
@@ -98,7 +131,21 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"POST", "/counts/:id/cancel", :StockCountOrder},
              {"GET", "/counts", :StockRead},
              {"GET", "/counts/:id", :StockRead},
-             {"GET", "/counts/:id/document", :StockRead}
+             {"GET", "/counts/:id/document", :StockRead},
+             {"GET", "/counts/:id/paperwork/:kind", :StockRead},
+             {"POST", "/counts/:id/open", :StockCountRecord},
+             {"POST", "/counts/:id/scan", :StockCountRecord},
+             {"GET", "/counts/:id/lines", :StockRead},
+             {"PUT", "/counts/:id/lines/:line_no/count", :StockCountRecord},
+             {"POST", "/counts/:id/surplus-lines", :StockCountRecord},
+             {"GET", "/counts/:id/entries", :StockRead},
+             {"POST", "/counts/:id/close", :StockCountRecord},
+             {"GET", "/counts/:id/sheet-document", :StockRead},
+             {"POST", "/counts/:id/sheet-signatures", :StockCountRecord},
+             {"POST", "/counts/:id/differences", :StockCountRecord},
+             {"POST", "/counts/:id/differences-signatures", :StockCountRecord},
+             {"GET", "/counts/:id/differences", :StockRead},
+             {"GET", "/counts/:id/signatures", :StockRead}
            ]
 
     assert Stock.router() == Letflow.Modules.Stock.Router
@@ -123,7 +170,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert Enum.all?(r.slots, &(&1.format == :uuid))
 
     assert Map.keys(r.causes) |> Enum.sort() ==
-             ~w(hand_over issue receipt return transfer write_off)
+             ~w(hand_over issue opening receipt return transfer write_off)
 
     assert r.causes["write_off"] == %{sign_rule: :negative, reason_required: true}
     assert r.causes["receipt"].sign_rule == :positive
@@ -167,15 +214,21 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 12
+    assert length(files) == 20
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
 
     # REQ-712: the document context (documents.ex, documents/) reads and writes its own record and
     # document tables, so Repo and Ecto.Query are allowed there; the ledger names stay banned everywhere.
+    # REQ-701: count_sheet.ex does the same for the sheet lines and the entry log.
+    # REQ-717: count_differences.ex reads the order children and writes the signature rows.
+    # REQ-719: count_paperwork_source.ex reads issued versions and one offset statement (own tables only).
     # REQ-700: counts.ex reads and writes the count record types (Repo, Ecto.Query), never a ledger table.
-    own_tables = fn path -> path =~ ~r{stock/(documents(\.ex|/)|counts\.ex)} end
+    own_tables = fn path ->
+      path =~
+        ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex|count_differences\.ex|count_paperwork_source\.ex)}
+    end
 
     for {path, source} <- sources,
         word <-

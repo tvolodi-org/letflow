@@ -22,6 +22,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `PUT /documents/:id` | `StockPost` | 200 document (replaces the whole draft) |
   | `DELETE /documents/:id` | `StockPost` | 204 |
   | `POST /documents/:id/issue` | `StockPost` | 200 document |
+  | `POST /documents/:id/check` | `StockPost` | 200 `ok, lines` (opening only, writes nothing) |
   | `POST /documents/:id/post` | `StockPost` | 200 document (starts the posting instance) |
   | `POST /documents/:id/reverse` | `StockReverse` | 200 document (starts the reversal instance) |
   | `POST /documents/:id/cancel` | `StockReverse` | 200 document (state `cancelled`) |
@@ -73,10 +74,42 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts` (`status`, `org_unit_id`, `limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
   | `GET /counts/:id` | `StockRead` | 200 order view |
   | `GET /counts/:id/document` | `StockRead` | 200 issued summary, no content bytes |
+  | `GET /counts/:id/paperwork/:kind` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document, 422 `document_not_issued` |
 
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
   so a scoped caller gets the same 404 for an order of another unit as for an unknown id. When the
   tenant's scope enforcement is `on`, the default-class route answers a scoped caller 403 first.
+  REQ-701 / GH #3736 adds seven routes over `Letflow.Modules.Stock.CountSheet` (the count sheet):
+
+  | Route | Permission | Ok |
+  |---|---|---|
+  | `POST /counts/:id/open` (empty body; `Ledger.authorize(:read)` here, a refusal is 404) | `StockCountRecord` | 200 order view |
+  | `GET /counts/:id/lines` (`limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
+  | `PUT /counts/:id/lines/:line_no/count` (body exactly `counted_quantity`, a decimal string) | `StockCountRecord` | 200 line |
+  | `POST /counts/:id/surplus-lines` | `StockCountRecord` | 201 line |
+  | `POST /counts/:id/scan` (REQ-716; body `scanned_text`, `location_id`, `scan_id`) | `StockCountRecord` | 200 line with `duplicate`, or `kind: location` |
+  | `GET /counts/:id/entries` (`limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
+  | `POST /counts/:id/close` (empty body) | `StockCountRecord` | 200 order view |
+  | `GET /counts/:id/sheet-document` | `StockRead` | 200 issued summary, no content bytes |
+
+  Extra refusal reasons: `not_commission_member`, `count_not_due`, `line_not_found`, `lines_uncounted`,
+  `location_not_in_count`, `item_inactive`, `unit_invalid`, `lot_invalid`, `count_line_exists`,
+  `count_too_large`, `ledger_read_failed`. Opening needs a tenant-wide reader: any other principal is 404.
+
+  REQ-717 / GH #3764 adds five routes over `Letflow.Modules.Stock.CountDifferences` (signing and the
+  differences sheet; the posting is REQ-718):
+
+  | Route | Permission | OK |
+  |---|---|---|
+  | `POST /counts/:id/sheet-signatures` (body exactly `signer_employee_ids`) | `StockCountRecord` | 200 order view |
+  | `POST /counts/:id/differences` (empty body) | `StockCountRecord` | 200 order view |
+  | `POST /counts/:id/differences-signatures` (body exactly `signer_employee_ids`) | `StockCountRecord` | 200 order view |
+  | `GET /counts/:id/differences` | `StockRead` | 200 number, version, hash, `lines` |
+  | `GET /counts/:id/signatures` | `StockRead` | 200 `rows` |
+
+  Extra refusal reasons: `not_chair`, `signers_incomplete`, `sheet_already_signed`, `sheet_not_signed`,
+  `differences_already_issued`, `differences_not_issued`, `differences_too_many`, `count_window_expired`.
+
   A refusal is 422 with `extensions.reason` (`count_state_invalid`, `count_scope_not_linked`,
   `count_scope_overlaps`, `count_scope_incomplete`, `count_too_long`, `org_unit_inactive`,
   `employee_inactive`, `chair_without_user`, `not_chair`, `field_not_allowed`, `field_invalid`).
@@ -92,6 +125,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Ledger
   alias Letflow.Modules.Stock.Access
   alias Letflow.Modules.Stock.Counts
+  alias Letflow.Modules.Stock.CountPaperworkSource
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Views
@@ -206,6 +240,15 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  authz_post "/documents/:id/check", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      case Documents.check(access.prefix, conn.params["id"]) do
+        {:ok, result} -> Response.ok(conn, result)
+        {:error, reason} -> refuse_document(conn, reason)
+      end
+    end)
+  end
+
   authz_post "/documents/:id/post", :StockPost do
     with_access(conn, :post, fn conn, access ->
       who = %{actor_id: access.actor_id, activator: Letflow.Api.Context.activator(conn)}
@@ -304,6 +347,133 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  # -- count sheet (REQ-701) ----------------------------------------------------------------------
+
+  # `Ledger.authorize/3` is done here; a refusal reaches the module as `authorized: nil` and answers 404.
+  authz_post "/counts/:id/open", :StockCountRecord do
+    authorized =
+      case Ledger.authorize(conn, @ledger, :read) do
+        {:ok, authorized} -> authorized
+        :error -> nil
+      end
+
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.open(prefix, conn.params["id"], Map.put(opts, :authorized, authorized)),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_get "/counts/:id/lines", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.lines(prefix, conn.params["id"], query_params(conn), opts)
+    end)
+  end
+
+  authz_put "/counts/:id/lines/:line_no/count", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      case conn.body_params do
+        %{"_json" => _} ->
+          {:error, {:field_invalid, "body"}}
+
+        %{"counted_quantity" => quantity} = body when map_size(body) == 1 ->
+          Counts.record_count(prefix, conn.params["id"], conn.params["line_no"], quantity, opts)
+
+        %{} = body when map_size(body) == 0 ->
+          {:error, {:field_invalid, "counted_quantity"}}
+
+        %{} = body ->
+          {:error, {:field_not_allowed, body |> Map.delete("counted_quantity") |> first_key()}}
+      end
+    end)
+  end
+
+  authz_post "/counts/:id/scan", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      case conn.body_params do
+        %{"_json" => _} -> {:error, {:field_invalid, "body"}}
+        body -> Counts.scan(prefix, conn.params["id"], body, opts)
+      end
+    end)
+  end
+
+  authz_post "/counts/:id/surplus-lines", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 201, fn prefix, opts ->
+      case conn.body_params do
+        %{"_json" => _} -> {:error, {:field_invalid, "body"}}
+        body -> Counts.add_surplus_line(prefix, conn.params["id"], body, opts)
+      end
+    end)
+  end
+
+  authz_get "/counts/:id/entries", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.entries(prefix, conn.params["id"], query_params(conn), opts)
+    end)
+  end
+
+  authz_post "/counts/:id/close", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.close_counting(prefix, conn.params["id"], opts),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_get "/counts/:id/sheet-document", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.sheet_document(prefix, conn.params["id"], opts)
+    end)
+  end
+
+  # -- signing and the differences sheet (REQ-717) -------------------------------------------------
+
+  authz_post "/counts/:id/sheet-signatures", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      with {:ok, ids} <- signer_body(conn.body_params) do
+        Counts.mark_sheet_signed(prefix, conn.params["id"], ids, opts)
+      end
+    end)
+  end
+
+  authz_post "/counts/:id/differences", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.issue_differences(prefix, conn.params["id"], opts),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_post "/counts/:id/differences-signatures", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      with {:ok, ids} <- signer_body(conn.body_params) do
+        Counts.mark_differences_signed(prefix, conn.params["id"], ids, opts)
+      end
+    end)
+  end
+
+  authz_get "/counts/:id/differences", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.differences(prefix, conn.params["id"], opts)
+    end)
+  end
+
+  authz_get "/counts/:id/signatures", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.signatures(prefix, conn.params["id"], opts)
+    end)
+  end
+
+  # REQ-719: the count paperwork as xlsx, rendered from the issued document version.
+  @paperwork_kinds %{"order" => :order, "sheet" => :sheet, "differences" => :differences}
+
+  authz_get "/counts/:id/paperwork/:kind", :StockRead do
+    case Map.fetch(@paperwork_kinds, conn.params["kind"]) do
+      {:ok, kind} -> paperwork(conn, kind)
+      :error -> Response.not_found(conn)
+    end
+  end
+
   authz_unmatched(:ordinary)
 
   # -- document handlers ---------------------------------------------------------------------------
@@ -355,7 +525,7 @@ defmodule Letflow.Modules.Stock.Router do
 
   @conflicts ~w(document_not_issued document_cancelled document_posted posting_pending
                 document_not_posted document_reversed reversal_pending posting_inconsistent
-                definition_not_active)a
+                definition_not_active external_ref_taken)a
 
   defp refuse_document(conn, reason) when reason in @conflicts,
     do: problem(conn, Error.conflict("request refused"), Atom.to_string(reason))
@@ -395,6 +565,35 @@ defmodule Letflow.Modules.Stock.Router do
     end
   end
 
+  # REQ-719: the same prologue as `count_write/4`, answering a workbook instead of JSON.
+  defp paperwork(conn, kind) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+
+    with {:ok, _actor} <- Ecto.UUID.cast(conn.assigns.auth_context.user_id),
+         {:ok, conn, principal} <- Scope.principal_from_conn(conn),
+         {:ok, scope} <- allowed_set(principal, :StockRead) do
+      ctx = %{scope: scope, principal: principal, tenant_id: conn.assigns.auth_context.tenant_id}
+
+      case CountPaperworkSource.fetch(prefix, conn.params["id"], kind, ctx) do
+        {:ok, binary, name} ->
+          send_xlsx(conn, binary, name)
+
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:error, :document_not_issued} ->
+          unprocessable(conn, "document_not_issued")
+
+        {:error, :xlsx_write_failed} ->
+          Logger.error("stock paperwork xlsx write failed")
+          Response.internal_error(conn)
+      end
+    else
+      :none -> Response.not_found(conn)
+      _ -> Response.send_problem(conn, Error.forbidden("not permitted"))
+    end
+  end
+
   defp allowed_set(principal, permission) do
     case Scope.allowed_set(principal, permission) do
       {:ok, :none} -> :none
@@ -404,6 +603,17 @@ defmodule Letflow.Modules.Stock.Router do
     Scope.ScopeSetError -> :none
   end
 
+  # The body is exactly `signer_employee_ids`; the shape of the value is checked in the context.
+  defp signer_body(%{"signer_employee_ids" => ids} = body) when map_size(body) == 1,
+    do: {:ok, ids}
+
+  defp signer_body(%{"signer_employee_ids" => _} = body),
+    do: {:error, {:field_not_allowed, body |> Map.delete("signer_employee_ids") |> first_key()}}
+
+  defp signer_body(_), do: {:error, {:field_invalid, "signer_employee_ids"}}
+
+  defp query_params(conn), do: Plug.Conn.fetch_query_params(conn).query_params
+
   defp empty_body?(conn), do: conn.body_params in [%{}, nil]
 
   defp first_key(%{} = body), do: body |> Map.keys() |> Enum.sort() |> List.first() |> to_string()
@@ -411,6 +621,9 @@ defmodule Letflow.Modules.Stock.Router do
 
   defp render(conn, {:ok, body}, status), do: Response.send_json(conn, status, body)
   defp render(conn, {:error, :not_found}, _status), do: Response.not_found(conn)
+
+  # REQ-716: an unknown code and a location outside the count look the same as an unknown count id.
+  defp render(conn, {:error, :code_unknown}, _status), do: Response.not_found(conn)
   defp render(conn, {:error, :audit_failed}, _status), do: Response.internal_error(conn)
 
   defp render(conn, {:error, {:field_not_allowed, key}}, _status) when is_binary(key),

@@ -957,12 +957,25 @@ defmodule Letflow.TenantProvisioning do
     # takes no SHARE ROW EXCLUSIVE lock on the parents. No table, column or row is altered.
     {20_261_104_300_001, Letflow.Repo.Migrations.MoveLedgerFksToPartitions,
      "20261104300001_move_ledger_fks_to_partitions.exs"},
+    # REQ-626 / GH #3503 part A: empty per-tenant link table for purchase request attachments. No
+    # existing row altered.
+    {20_261_104_400_001, Letflow.Repo.Migrations.CreateProcurementAttachments,
+     "20261104400001_create_procurement_attachments.exs"},
     # REQ-577 / GH #3261 (decision 0070 D2, slice A): per-type write restriction and write grants.
     {20_261_105_100_001, Letflow.Repo.Migrations.CreateEntityTypeWriteAccessTables,
      "20261105100001_create_entity_type_write_access_tables.exs"},
+    # REQ-635 / GH #3549 (decision 0070 D3, slice B): per-type scope declaration table.
+    {20_261_105_200_001, Letflow.Repo.Migrations.CreateEntityScopeDeclarations,
+     "20261105200001_create_entity_scope_declarations.exs"},
+    # REQ-623: guard_document_versions() lets an issued version set artefact_hash once (NULL to hex).
+    {20_261_105_300_001, Letflow.Repo.Migrations.OpenDocumentArtefactHashWriteOnce,
+     "20261105300001_open_document_artefact_hash_write_once.exs"},
+    # REQ-624: document_versions pins the print override it was issued under (four nullable columns).
+    {20_261_105_400_001, Letflow.Repo.Migrations.AddPrintOverridePinToDocumentVersions,
+     "20261105400001_add_print_override_pin_to_document_versions.exs"},
     # REQ-603 part A (decision 0074 P2, P6): purge_requests table and guarded delete triggers.
-    {20_261_105_200_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards,
-     "20261105200001_create_purge_requests_and_delete_guards.exs"}
+    {20_261_105_500_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards,
+     "20261105500001_create_purge_requests_and_delete_guards.exs"}
   ]
 
   @doc """

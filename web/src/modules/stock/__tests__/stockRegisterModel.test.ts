@@ -1,6 +1,16 @@
 /** L1 — GH 3767 / REQ-724: pure helpers. The document-view link itself (criterion 4) belongs to REQ-722. */
 import { describe, expect, it } from 'vitest'
-import { balanceParams, errorKind, isMasked, movementParams, movementsLinkFor, rangeError } from '../register/stockRegisterModel'
+import { EMPTY_BALANCE_FILTERS, balanceParams, balanceQuery, errorKind, isMasked, movementParams, movementsLinkFor, rangeError } from '../register/stockRegisterModel'
+
+describe('T2 balanceQuery', () => {
+  it('sends a full day, keeps the filters, never basis or cutoff', () => {
+    expect(balanceQuery({ ...EMPTY_BALANCE_FILTERS, sku: 'i1' }, '2026-11-03')).toEqual({ sku: 'i1', as_of_date: '2026-11-03' })
+  })
+  it('does not send an empty or partial day', () => {
+    expect(balanceQuery(EMPTY_BALANCE_FILTERS, '')).toEqual({})
+    expect(balanceQuery(EMPTY_BALANCE_FILTERS, '2026-11')).toEqual({})
+  })
+})
 
 describe('L1 model', () => {
   it('movementsLinkFor targets the movements screen with document_id', () => {

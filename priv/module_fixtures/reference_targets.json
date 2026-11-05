@@ -1,0 +1,58 @@
+{
+  "pack_id": "fixture-reference-targets",
+  "version": "0.1.0",
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "exported_at": "2026-11-05T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "definitions": [],
+  "variable_schemas": [],
+  "service_catalog_entries": [],
+  "entity_definitions": [
+    {
+      "entity_definition_id": "00636000-0000-0040-0080-000000000001",
+      "name": "frt_target",
+      "display_name": "frt_target",
+      "logical_shape_version": "1111111111111111111111111111111111111111111111111111111111111111",
+      "definition_json": {
+        "name": "frt_target",
+        "display_name": "frt_target",
+        "description": "REQ-636 test fixture (managed).",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "active",
+            "type": "boolean"
+          }
+        ]
+      }
+    },
+    {
+      "entity_definition_id": "00636000-0000-0040-0080-000000000002",
+      "name": "frt_other",
+      "display_name": "frt_other",
+      "logical_shape_version": "2222222222222222222222222222222222222222222222222222222222222222",
+      "definition_json": {
+        "name": "frt_other",
+        "display_name": "frt_other",
+        "description": "REQ-636 test fixture (managed).",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "active",
+            "type": "boolean"
+          }
+        ]
+      }
+    }
+  ]
+}

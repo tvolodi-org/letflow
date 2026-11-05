@@ -1,6 +1,15 @@
 /**
  * Pipeline: attachment-cross-tenant-probe (PW-09)
  *
+ * GH #1995 / ISS-0896 UPDATE: this spec NO LONGER creates realms or tenants and uses no
+ * master-realm credential. It runs against the pre-provisioned realms `swiftroute` and
+ * `vortex` (override: UAT_SWIFTROUTE_REALM / UAT_VORTEX_REALM) and creates its actor users
+ * with each realm's own `uat-seed-admin` client (UAT_KC_ADMIN_CLIENT_ID /
+ * UAT_KC_ADMIN_CLIENT_SECRET from the environment, `getRealmAdminToken`). The realm/
+ * onboarding notes below describe the earlier fresh-realm design and are history.
+ * Caveat: a pre-provisioned realm keeps its own access-token lifespan; if it is 300 s the
+ * step-07 expiry wait can end in a 401 instead of the expired-link screen.
+ *
  * Drives `test/fixtures/uat/scenarios/platform/attachment-cross-tenant-probe.yaml`'s
  * `pipeline_test:` key for UAT-RUNNER. Built per
  * `lib/letflow/design/req387-attachment-document-viewer.md` §4, following the
@@ -111,10 +120,9 @@ import {
   jwtSubject,
   shot,
 } from '../pipeline'
-import { assertServiceReadiness, resolveCredential, BPM_IDP_BASE_URL, getMasterAdminToken } from '../helpers'
-import { bindTenantIdpRealm } from '../db-exec'
+import { assertServiceReadiness, BPM_IDP_BASE_URL, getRealmAdminToken } from '../helpers'
 
-const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:8080'
+const API_BASE_URL = process.env.BPM_TEST_URL ?? 'http://127.0.0.1:4000'
 
 // A minimal, valid single-page PDF — enough for AttachmentSuccessView's
 // `contentType.startsWith('application/pdf')` branch to render an <iframe>.
@@ -127,15 +135,15 @@ const FIXTURE_FILE_NAME = 'delivery-note-hamburg.pdf'
 
 interface PipelineState {
   fixtureId: string
-  masterToken: string
-
+  swiftrouteAdminToken: string
+  swiftrouteUserIds: string[]
   swiftrouteSlug: string
-  swiftrouteTenantId: string
   dispatcherToken: string
   opsToken: string
 
+  vortexAdminToken: string
+  vortexUserIds: string[]
   vortexSlug: string
-  vortexTenantId: string
   vortexToken: string
 
   processDefName: string
@@ -143,96 +151,6 @@ interface PipelineState {
   swiftrouteAttachmentId: string
 
   expiredLinkUrl: string
-}
-
-/** Creates a fresh Keycloak realm for a just-onboarded tenant, mirroring
- *  `priv/keycloak/realms/bpm-default.json`'s own `letflow-web` client shape
- *  (public, `directAccessGrantsEnabled` for the password-grant technique
- *  `getKeycloakToken`/env-fixture helpers across this suite already use,
- *  plus the `realm-roles` claim-name-"roles" protocol mapper the backend's
- *  own `Letflow.Oidc.ClaimMappingConfig.default/1` reads by default) and a
- *  single `PLATFORM_ADMIN` realm role (sufficient on its own --
- *  `Letflow.Api.Authorization.role_allows?(:PLATFORM_ADMIN, _permission)`
- *  is unconditionally `true`, covering `:AttachmentsManage`/`:AttachmentsRead`
- *  without this file needing to enumerate every permission name).
- *
- *  Exists because `POST /api/v1/onboarding` itself never provisions
- *  Keycloak at all (confirmed live -- see this file's own top-of-file
- *  SETUP-BUG CORRECTION note); nothing else in this codebase creates a
- *  realm for a self-service-onboarded tenant, so this spec must.
- *
- *  `accessTokenLifespan: 3600` (not Keycloak's own 300s realm default,
- *  confirmed live -- a fresh realm created without this override inherits
- *  a 300s token lifespan) is required, not cosmetic: step 07 below
- *  deliberately waits ~310s for REQ-386's OWN, separate 300s
- *  `@link_expiry_seconds` link-token expiry to elapse while staying
- *  logged in as `opsToken`. Confirmed live the hard way -- without this
- *  override, the Keycloak-issued BEARER token backing `opsToken` also
- *  expires at the ~300s mark (same default as the link token, pure
- *  coincidence of Keycloak's own realm default), so `AuthPipeline`'s
- *  token verification 401s the reload BEFORE the route handler ever
- *  reaches `AttachmentLinks.verify/2`'s own 410 check -- `client.ts`'s
- *  `throwOnErrorResponse` dispatches `auth:session-expired` on any 401,
- *  which forces a REAL top-level Keycloak login redirect (to `bpm-default`,
- *  this app's hardcoded fallback realm, since this fake injected session
- *  carries no real `tenantConfig.ts` realm-slug cache) instead of ever
- *  showing `AttachmentLinkExpiredScreen`. Not a REQ-386/REQ-387 defect --
- *  a fixture-realm setting this spec must control so its OWN two
- *  different 300s-scale clocks (Keycloak token lifespan vs. REQ-386 link
- *  expiry) don't race each other. */
-async function createTenantRealm(request: APIRequestContext, masterToken: string, slug: string): Promise<void> {
-  const createResp = await request.post(`${BPM_IDP_BASE_URL}/admin/realms`, {
-    headers: { Authorization: `Bearer ${masterToken}`, 'Content-Type': 'application/json' },
-    data: {
-      realm: slug,
-      enabled: true,
-      accessTokenLifespan: 3600,
-      roles: { realm: [{ name: 'PLATFORM_ADMIN' }] },
-      clients: [
-        {
-          clientId: 'letflow-web',
-          enabled: true,
-          protocol: 'openid-connect',
-          publicClient: true,
-          directAccessGrantsEnabled: true,
-          standardFlowEnabled: true,
-          redirectUris: ['*'],
-          webOrigins: ['*'],
-          protocolMappers: [
-            {
-              name: 'realm-roles',
-              protocol: 'openid-connect',
-              protocolMapper: 'oidc-usermodel-realm-role-mapper',
-              consentRequired: false,
-              config: {
-                multivalued: 'true',
-                'userinfo.token.claim': 'true',
-                'id.token.claim': 'true',
-                'access.token.claim': 'true',
-                'claim.name': 'roles',
-                'jsonType.label': 'String',
-              },
-            },
-            {
-              name: 'letflow-web-audience',
-              protocol: 'openid-connect',
-              protocolMapper: 'oidc-audience-mapper',
-              consentRequired: false,
-              config: {
-                'included.client.audience': 'letflow-web',
-                'included.custom.audience': '',
-                'id.token.claim': 'false',
-                'access.token.claim': 'true',
-              },
-            },
-          ],
-        },
-      ],
-    },
-  })
-  if (!createResp.ok()) {
-    throw new Error(`create realm ${slug} failed: ${createResp.status()} ${await createResp.text()}`)
-  }
 }
 
 /** Creates the FIRST admin user in an already-created tenant realm, directly
@@ -243,14 +161,14 @@ async function createTenantRealm(request: APIRequestContext, masterToken: string
  *  (there is none yet): the roles are looked up and assigned directly. */
 async function createFirstRealmUser(
   request: APIRequestContext,
-  masterToken: string,
+  realmAdminToken: string,
   realm: string,
   username: string,
   password: string,
   roleNames: string[],
 ): Promise<string> {
   const createResp = await request.post(`${BPM_IDP_BASE_URL}/admin/realms/${realm}/users`, {
-    headers: { Authorization: `Bearer ${masterToken}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${realmAdminToken}`, 'Content-Type': 'application/json' },
     data: {
       username,
       email: `${username}@example.com`,
@@ -270,7 +188,7 @@ async function createFirstRealmUser(
   }
 
   const resetResp = await request.put(`${BPM_IDP_BASE_URL}/admin/realms/${realm}/users/${userId}/reset-password`, {
-    headers: { Authorization: `Bearer ${masterToken}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${realmAdminToken}`, 'Content-Type': 'application/json' },
     data: { type: 'password', value: password, temporary: false },
   })
   if (resetResp.status() !== 204) {
@@ -279,14 +197,14 @@ async function createFirstRealmUser(
 
   for (const roleName of roleNames) {
     const roleResp = await request.get(`${BPM_IDP_BASE_URL}/admin/realms/${realm}/roles/${roleName}`, {
-      headers: { Authorization: `Bearer ${masterToken}` },
+      headers: { Authorization: `Bearer ${realmAdminToken}` },
     })
     if (!roleResp.ok()) {
       throw new Error(`lookup role ${roleName} in realm ${realm} failed: ${roleResp.status()} ${await roleResp.text()}`)
     }
     const roleRep = await roleResp.json()
     const assignResp = await request.post(`${BPM_IDP_BASE_URL}/admin/realms/${realm}/users/${userId}/role-mappings/realm`, {
-      headers: { Authorization: `Bearer ${masterToken}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${realmAdminToken}`, 'Content-Type': 'application/json' },
       data: [roleRep],
     })
     if (!assignResp.ok()) {
@@ -297,66 +215,21 @@ async function createFirstRealmUser(
   return userId
 }
 
-/** Onboard a fresh, genuinely separate tenant: real Postgres schema via the
- *  real `POST /api/v1/onboarding` saga (provisioned+migrated synchronously —
- *  same shape tenant-cache.pipeline's own EO-001 step 02 already
- *  established), PLUS a real Keycloak realm + first admin user this spec
- *  creates itself (`createTenantRealm`/`createFirstRealmUser`/
- *  `bindTenantIdpRealm`, all above/imported) — `POST /api/v1/onboarding`
- *  never provisions either (confirmed live; see this file's top-of-file
- *  SETUP-BUG CORRECTION note). Returns the new tenant's id/slug and a real
- *  Keycloak token for its admin user, obtained the same reset-password +
- *  password-grant technique env04.e2e.spec.ts's `onboardTestTenantFixture`
- *  already established. */
-async function onboardTenantWithAdminToken(
+/** Create a fresh admin user (role `PLATFORM_ADMIN`, as before) in a PRE-PROVISIONED
+ *  tenant realm (swiftroute, vortex) with that realm's own `uat-seed-admin` token, and
+ *  return a real user token for it. The realm and its tenant already exist (infra
+ *  provisions them, ISS-0888); this spec no longer creates realms or tenants, so it
+ *  needs no master-realm credential. */
+async function createRealmAdminActor(
   request: APIRequestContext,
-  bpmAdminToken: string,
-  masterToken: string,
-  slug: string,
-  displayName: string,
-): Promise<{ tenantId: string; adminToken: string; adminUserId: string; adminUsername: string; adminPassword: string }> {
-  const adminUsername = `${slug}-admin`
-  const adminPassword = `TestPass1!${slug}`
-
-  const onboardResp = await request.post(`${API_BASE_URL}/api/v1/onboarding`, {
-    headers: {
-      Authorization: `Bearer ${bpmAdminToken}`,
-      'Content-Type': 'application/json',
-      'Idempotency-Key': randomUUID(),
-    },
-    data: {
-      slug,
-      display_name: displayName,
-      admin_email: `${adminUsername}@example.com`,
-      admin_username: adminUsername,
-      admin_display_name: `${displayName} Admin`,
-      hostname: `${slug}.example.com`,
-    },
-  })
-  if (!onboardResp.ok()) {
-    throw new Error(`onboarding ${slug} failed: ${onboardResp.status()} ${await onboardResp.text()}`)
-  }
-  // Letflow.Routers.Onboarding.handle_create/1 provisions+migrates the
-  // tenant's Postgres schema SYNCHRONOUSLY within this one POST (confirmed
-  // by tenant-cache.pipeline's own step 02 comment, re-checked here) -- no
-  // onboarding_id poll needed. It does NOT provision Keycloak at all
-  // (confirmed live -- see top-of-file SETUP-BUG CORRECTION note), so the
-  // response never carries an admin_user_id; that identity is created below
-  // by this spec itself instead.
-  const onboardBody = (await onboardResp.json()) as { tenant_id?: string }
-  if (!onboardBody.tenant_id) {
-    throw new Error(`onboarding ${slug} response missing tenant_id: ${JSON.stringify(onboardBody)}`)
-  }
-  const tenantId = onboardBody.tenant_id
-
-  await createTenantRealm(request, masterToken, slug)
-  bindTenantIdpRealm(tenantId, slug)
-  const adminUserId = await createFirstRealmUser(
-    request, masterToken, slug, adminUsername, adminPassword, ['PLATFORM_ADMIN'],
-  )
-
-  const adminToken = await getKeycloakToken(request, adminUsername, adminPassword, slug)
-  return { tenantId, adminToken, adminUserId, adminUsername, adminPassword }
+  realmAdminToken: string,
+  realm: string,
+  username: string,
+  password: string,
+): Promise<{ userId: string; token: string }> {
+  const userId = await createFirstRealmUser(request, realmAdminToken, realm, username, password, ['PLATFORM_ADMIN'])
+  const token = await getKeycloakToken(request, username, password, realm)
+  return { userId, token }
 }
 
 /** Create a SECOND Keycloak user in an already-onboarded tenant's realm,
@@ -369,14 +242,14 @@ async function onboardTenantWithAdminToken(
  *  direct-SQL techniques for a gap with no HTTP writer. */
 async function createSecondRealmUser(
   request: APIRequestContext,
-  masterToken: string,
+  realmAdminToken: string,
   realm: string,
   firstAdminUserId: string,
   username: string,
   password: string,
 ): Promise<string> {
   const createResp = await request.post(`${BPM_IDP_BASE_URL}/admin/realms/${realm}/users`, {
-    headers: { Authorization: `Bearer ${masterToken}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${realmAdminToken}`, 'Content-Type': 'application/json' },
     data: {
       username,
       email: `${username}@example.com`,
@@ -396,7 +269,7 @@ async function createSecondRealmUser(
   }
 
   const resetResp = await request.put(`${BPM_IDP_BASE_URL}/admin/realms/${realm}/users/${newUserId}/reset-password`, {
-    headers: { Authorization: `Bearer ${masterToken}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${realmAdminToken}`, 'Content-Type': 'application/json' },
     data: { type: 'password', value: password, temporary: false },
   })
   if (resetResp.status() !== 204) {
@@ -405,13 +278,13 @@ async function createSecondRealmUser(
 
   const roleMappingsResp = await request.get(
     `${BPM_IDP_BASE_URL}/admin/realms/${realm}/users/${firstAdminUserId}/role-mappings/realm`,
-    { headers: { Authorization: `Bearer ${masterToken}` } },
+    { headers: { Authorization: `Bearer ${realmAdminToken}` } },
   )
   if (roleMappingsResp.ok()) {
     const roles = await roleMappingsResp.json()
     if (Array.isArray(roles) && roles.length > 0) {
       await request.post(`${BPM_IDP_BASE_URL}/admin/realms/${realm}/users/${newUserId}/role-mappings/realm`, {
-        headers: { Authorization: `Bearer ${masterToken}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${realmAdminToken}`, 'Content-Type': 'application/json' },
         data: roles,
       })
     }
@@ -420,10 +293,10 @@ async function createSecondRealmUser(
   return newUserId
 }
 
-async function deleteRealmBestEffort(request: APIRequestContext, masterToken: string, realm: string): Promise<void> {
+async function deleteUserBestEffort(request: APIRequestContext, realmAdminToken: string, realm: string, userId: string): Promise<void> {
   try {
-    await request.delete(`${BPM_IDP_BASE_URL}/admin/realms/${realm}`, {
-      headers: { Authorization: `Bearer ${masterToken}` },
+    await request.delete(`${BPM_IDP_BASE_URL}/admin/realms/${realm}/users/${userId}`, {
+      headers: { Authorization: `Bearer ${realmAdminToken}` },
     })
   } catch { /* best-effort cleanup only */ }
 }
@@ -440,44 +313,44 @@ test.describe('Pipeline: attachment-cross-tenant-probe (PW-09)', () => {
     const fixtureId = randomUUID().slice(0, 8)
     const pl = createPipeline<PipelineState>('attachment-cross-tenant-probe', { page, request })
     pl.state.fixtureId = fixtureId
-    pl.state.swiftrouteSlug = `req387-swiftroute-${fixtureId}`
-    pl.state.vortexSlug = `req387-vortex-${fixtureId}`
+    // Pre-provisioned realms (infra, ISS-0888); override the names for another environment.
+    pl.state.swiftrouteSlug = process.env.UAT_SWIFTROUTE_REALM ?? 'swiftroute'
+    pl.state.vortexSlug = process.env.UAT_VORTEX_REALM ?? 'vortex'
     pl.state.processDefName = `req387-shipment-approval-${fixtureId}`
+    pl.state.swiftrouteUserIds = []
+    pl.state.vortexUserIds = []
 
     pl.onCleanup(async (s) => {
-      if (!s.masterToken) return
-      if (s.swiftrouteSlug) await deleteRealmBestEffort(request, s.masterToken, s.swiftrouteSlug)
-      if (s.vortexSlug) await deleteRealmBestEffort(request, s.masterToken, s.vortexSlug)
+      for (const id of s.swiftrouteUserIds ?? []) await deleteUserBestEffort(request, s.swiftrouteAdminToken, s.swiftrouteSlug, id)
+      for (const id of s.vortexUserIds ?? []) await deleteUserBestEffort(request, s.vortexAdminToken, s.vortexSlug, id)
     })
 
-    await pl.step('01: onboard SwiftRoute and Vortex, each a genuinely separate tenant', async (s) => {
-      const bpmAdminToken = await getKeycloakToken(
-        request, 'admin-user', resolveCredential('UAT_QA_ADMIN_PASSWORD', 'admin-pass'),
-      )
-      s.masterToken = await getMasterAdminToken(request)
+    await pl.step('01: create SwiftRoute and Vortex actors in their pre-provisioned realms', async (s) => {
+      // Each realm's own uat-seed-admin client (UAT_KC_ADMIN_CLIENT_ID / _SECRET): no master realm.
+      s.swiftrouteAdminToken = await getRealmAdminToken(request, s.swiftrouteSlug)
+      s.vortexAdminToken = await getRealmAdminToken(request, s.vortexSlug)
 
-      const swiftroute = await onboardTenantWithAdminToken(
-        request, bpmAdminToken, s.masterToken, s.swiftrouteSlug, `SwiftRoute Fixture ${fixtureId}`,
+      const dispatcherName = `req387-sr-${fixtureId}`
+      const dispatcher = await createRealmAdminActor(
+        request, s.swiftrouteAdminToken, s.swiftrouteSlug, dispatcherName, `TestPass1!${dispatcherName}`,
       )
-      s.swiftrouteTenantId = swiftroute.tenantId
-      s.dispatcherToken = swiftroute.adminToken
+      s.swiftrouteUserIds.push(dispatcher.userId)
+      s.dispatcherToken = dispatcher.token
 
-      const opsUsername = `${s.swiftrouteSlug}-ops`
-      const opsPassword = `TestPass1!${s.swiftrouteSlug}ops`
-      // sub of the already-obtained dispatcher token -- avoids a second
-      // Keycloak admin lookup-by-username round trip just to find the first
-      // admin user's id.
-      const dispatcherUserId = jwtSubject(s.dispatcherToken)
-      await createSecondRealmUser(
-        request, s.masterToken, s.swiftrouteSlug, dispatcherUserId, opsUsername, opsPassword,
+      const opsUsername = `req387-sr-ops-${fixtureId}`
+      const opsPassword = `TestPass1!${opsUsername}`
+      const opsUserId = await createSecondRealmUser(
+        request, s.swiftrouteAdminToken, s.swiftrouteSlug, dispatcher.userId, opsUsername, opsPassword,
       )
+      s.swiftrouteUserIds.push(opsUserId)
       s.opsToken = await getKeycloakToken(request, opsUsername, opsPassword, s.swiftrouteSlug)
 
-      const vortex = await onboardTenantWithAdminToken(
-        request, bpmAdminToken, s.masterToken, s.vortexSlug, `Vortex Fixture ${fixtureId}`,
+      const vortexName = `req387-vx-${fixtureId}`
+      const vortex = await createRealmAdminActor(
+        request, s.vortexAdminToken, s.vortexSlug, vortexName, `TestPass1!${vortexName}`,
       )
-      s.vortexTenantId = vortex.tenantId
-      s.vortexToken = vortex.adminToken
+      s.vortexUserIds.push(vortex.userId)
+      s.vortexToken = vortex.token
 
       pl.gate(!!s.dispatcherToken && !!s.opsToken && !!s.vortexToken, 'all three actor tokens must be obtained')
     })

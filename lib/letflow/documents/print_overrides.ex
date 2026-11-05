@@ -3,6 +3,9 @@ defmodule Letflow.Documents.PrintOverrides do
   Per-tenant print-layout overrides, part 1 of REQ-579 (GH #3289, decision 0068 D3, D7, D8 S2):
   storage and context only; the routes and the permission are part 2.
 
+  `Letflow.Documents.issue/2` reads the active rows of this table (REQ-624) and pins one on the issued
+  version; a later save, activation or retirement never changes an issued version.
+
   An override is one saved layout for a `(type_key, locale)` pair with a status
   `draft -> active -> retired`. `save_draft/3` always inserts a new draft with the next
   server-side `version_no`; `activate/4` turns a draft into the one active row of its pair and
@@ -330,23 +333,35 @@ defmodule Letflow.Documents.PrintOverrides do
         {:error, {:unprocessable, :unknown_type_key}}
 
       %DocumentType{declared_fields: declared} ->
-        # `declared_pairs` keeps list-valued entries only, so the map-valued "_free" entry is
-        # skipped: free fields cannot be named by a layout.
-        declared = if is_map(declared), do: declared, else: %{}
-        entity_types = declared |> Map.delete(@free) |> Map.keys()
-
-        restricted =
-          from(r in "entity_field_restrictions",
-            where: r.entity_type in ^entity_types,
-            select: {r.entity_type, r.field_name}
-          )
-          |> Repo.all(prefix: prefix)
-
-        case PrintLayout.validate(layout, declared, restricted: restricted) do
-          :ok -> :ok
-          {:error, violations} -> {:error, {:invalid_layout, violations}}
-        end
+        check_layout(prefix, declared, layout)
     end
+  end
+
+  @doc false
+  # Shared with `Letflow.Documents.issue/2` (REQ-624): validates `layout` against the declared
+  # fields and the tenant's restrictions. `declared_pairs` keeps list-valued entries only, so the
+  # map-valued "_free" entry is skipped: free fields cannot be named by a layout.
+  @spec check_layout(String.t(), term(), term()) :: :ok | {:error, {:invalid_layout, list()}}
+  def check_layout(prefix, declared, layout) do
+    declared = if is_map(declared), do: declared, else: %{}
+    restricted = restricted_pairs(prefix, declared)
+
+    case PrintLayout.validate(layout, declared, restricted: restricted) do
+      :ok -> :ok
+      {:error, violations} -> {:error, {:invalid_layout, violations}}
+    end
+  end
+
+  @doc false
+  # The `{entity_type, field}` pairs the tenant restricts, for the entity types `declared` names.
+  def restricted_pairs(prefix, declared) when is_map(declared) do
+    entity_types = declared |> Map.delete(@free) |> Map.keys()
+
+    from(r in "entity_field_restrictions",
+      where: r.entity_type in ^entity_types,
+      select: {r.entity_type, r.field_name}
+    )
+    |> Repo.all(prefix: prefix)
   end
 
   defp canonical(layout) do

@@ -22,7 +22,7 @@ defmodule Letflow.Migrations.PurgeRequestsMigrationTest do
   ]
 
   test "P-M1 the migration is the last manifest entry and the table is in the expected list" do
-    assert {20_261_105_200_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards} =
+    assert {20_261_105_500_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards} =
              List.last(TenantProvisioning.tenant_scoped_migrations())
 
     assert "purge_requests" in TenantFixture.expected_tenant_tables()

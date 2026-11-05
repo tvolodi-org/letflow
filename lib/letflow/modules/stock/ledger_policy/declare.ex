@@ -6,13 +6,15 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
 
   Command keys (atom keys): `cause`, `lines`, `document_type`, `document_id`, `correlation_id`,
   `reason_code`. Every other key is ignored, `event_time` included: the event time of an entry is the
-  core's `client_event_time` rule (the posting time when online), not a policy field. A line has
+  core's `client_event_time` rule (the posting time when online), not a policy field. The exception is
+  cause `opening` (REQ-726): it has NO event time from the client, so a non-nil `event_time`,
+  `client_event_time`, `device_id` or `client_seq` on an opening command is refused (leg 1). A line has
   `line_id`, `sku`, `lot`, `unit`, `quantity`, `from` and `to`; `from` and `to` are maps of
   `org_unit`, `location` and `responsible`.
 
   | cause | `from` | `to` | legs per line |
   |---|---|---|---|
-  | receipt | absent | required | `+q` at `to` |
+  | receipt, opening | absent | required | `+q` at `to` |
   | issue, write_off | required | absent | `-q` at `from` |
   | transfer, hand_over, return | required | required, different from `from` in org_unit, location or responsible | `-q` at `from`, `+q` at `to` |
 
@@ -34,7 +36,8 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   alias Letflow.Ledger.Policy
 
   @max_lines 100
-  @one_leg %{"receipt" => :to, "issue" => :from, "write_off" => :from}
+  @one_leg %{"receipt" => :to, "opening" => :to, "issue" => :from, "write_off" => :from}
+  @client_time_keys [:event_time, :client_event_time, :device_id, :client_seq]
   @two_leg ~w(transfer hand_over return)
   @header [:reason_code, :document_type, :document_id, :correlation_id]
 
@@ -75,6 +78,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
 
   defp ordinary(command) do
     with {:ok, cause, width} <- cause(Map.get(command, :cause)),
+         :ok <- no_client_time(cause, command),
          {:ok, lines} <- lines(Map.get(command, :lines), width),
          {:ok, legs} <- build(cause, lines, width) do
       header =
@@ -85,6 +89,13 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
       {:ok, Policy.posting(Map.merge(header, %{ledger_id: "stock", cause: cause, legs: legs}))}
     end
   end
+
+  # REQ-726: an opening carries no event time from the client (decision 0079 D1).
+  defp no_client_time("opening", command) do
+    if Enum.all?(@client_time_keys, &is_nil(Map.get(command, &1))), do: :ok, else: invalid(1)
+  end
+
+  defp no_client_time(_cause, _command), do: :ok
 
   defp cause(cause) when is_binary(cause) do
     cond do
@@ -131,7 +142,8 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
 
   defp line(_cause, _line), do: :error
 
-  defp legs(cause, base, _from, to) when cause == "receipt", do: [leg(base, to, false)]
+  defp legs(cause, base, _from, to) when cause in ["receipt", "opening"],
+    do: [leg(base, to, false)]
 
   defp legs(cause, base, from, _to) when cause in ["issue", "write_off"],
     do: [leg(base, from, true)]
@@ -158,8 +170,8 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
     end
   end
 
-  # receipt: no from, to required. issue/write_off: from required, no to. Two-leg: both, equal.
-  defp sides("receipt", from, to) when is_nil(from) do
+  # receipt, opening: no from, to required. issue/write_off: from required, no to. Two-leg: both, equal.
+  defp sides(cause, from, to) when cause in ["receipt", "opening"] and is_nil(from) do
     with {:ok, to} <- side(to), do: {:ok, nil, to}
   end
 

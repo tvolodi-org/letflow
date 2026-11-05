@@ -3,9 +3,37 @@ import type { RouteObject } from 'react-router-dom'
 import { RequirePermission } from '@/auth/access'
 import BalancesPage from './register/BalancesPage'
 import MovementsPage from './register/MovementsPage'
+import DocumentsPage from './documents/DocumentsPage'
+import DocumentPage from './documents/DocumentPage'
+import DocumentNewPage from './documents/DocumentNewPage'
+import CountsPage from './counts/CountsPage'
 import { STOCK_READ } from './stockPermissions'
 
 export const stockRouteObjects: RouteObject[] = [
+  {
+    path: 'admin/stock/documents',
+    element: (
+      <RequirePermission permission={STOCK_READ}>
+        <DocumentsPage />
+      </RequirePermission>
+    ),
+  },
+  {
+    path: 'admin/stock/documents/new',
+    element: (
+      <RequirePermission permission={STOCK_READ}>
+        <DocumentNewPage />
+      </RequirePermission>
+    ),
+  },
+  {
+    path: 'admin/stock/documents/:id',
+    element: (
+      <RequirePermission permission={STOCK_READ}>
+        <DocumentPage />
+      </RequirePermission>
+    ),
+  },
   {
     path: 'admin/stock/balances',
     element: (
@@ -22,4 +50,12 @@ export const stockRouteObjects: RouteObject[] = [
       </RequirePermission>
     ),
   },
+  ...['admin/stock/counts', 'admin/stock/counts/:id'].map((path) => ({
+    path,
+    element: (
+      <RequirePermission permission={STOCK_READ}>
+        <CountsPage />
+      </RequirePermission>
+    ),
+  })),
 ]

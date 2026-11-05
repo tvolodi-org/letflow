@@ -11,16 +11,27 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
   active (`employee_not_active`), a given counterparty is a live active `catalog_counterparty`
   (`counterparty_not_active`), then per line in `line_no` order the unit is valid for the item
   (`unit_not_valid`) and a given lot belongs to the item (`lot_not_valid`). A failure carries the
-  reason and, for a line check, its `line_no`. A master retired between this check and the posting is not
+  reason and, for a line check, its `line_no`; for a two-sided kind (REQ-721) the from side is checked
+  before the to side and a side failure carries `"side"` (`"from"` or `"to"`). A master retired between this check and the posting is not
   caught until L7 (runbook).
+
+  REQ-714 / GH #3747: `received_on/2` refuses a real receipt date after the event day (local date in the
+  constant zone `Asia/Almaty`, read from PostgreSQL because the project has no Elixir tz database;
+  assumption, owner may change at GATE B): `received_on_after_event`. Per line, after the unit check and
+  before the lot-belongs-to check, the lot is checked against the item's tracking policy: `lot_required`,
+  `lot_not_allowed`, `lot_expiry_missing`, `tracking_policy_not_supported` (serial), and `tracking_invalid`
+  as the INV-8 fallback. `received_on` never feeds `event_time`.
   """
 
   alias Letflow.Modules.CatalogItems
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Org
   alias Letflow.Modules.Stock
+  alias Letflow.Modules.Stock.Documents.Kinds
+  alias Letflow.Repo
 
   @future_seconds 300
+  @receipt_timezone Letflow.Identity.TenantTimezone.default()
 
   @type refusal :: {:error, {String.t(), map()}}
 
@@ -43,14 +54,77 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
     end
   end
 
+  @doc """
+  The real receipt date may not be after the event day in the module zone. `nil` is always fine.
+  A failed zone query is `{:error, :internal}` (nothing is issued).
+  """
+  @spec received_on(String.t() | nil, String.t()) :: :ok | refusal() | {:error, :internal}
+  def received_on(nil, _event_time), do: :ok
+
+  def received_on(received_on, event_time) when is_binary(received_on) do
+    with {:ok, wanted} <- Date.from_iso8601(received_on),
+         {:ok, day} <- event_day(event_time) do
+      if Date.compare(wanted, day) == :gt,
+        do: {:error, {"received_on_after_event", %{}}},
+        else: :ok
+    else
+      _failed -> {:error, :internal}
+    end
+  end
+
+  @doc """
+  The local date (module zone, the one constant of this module) of the UTC ISO text `event_time`,
+  read from PostgreSQL. The opening document (REQ-725) calls it with the clock's now.
+  """
+  @spec event_day(String.t()) :: {:ok, Date.t()} | {:error, :internal}
+  def event_day(event_time) when is_binary(event_time) do
+    with {:ok, at, _offset} <- DateTime.from_iso8601(event_time),
+         {:ok, %{rows: [[%Date{} = day]]}} <-
+           Repo.query("SELECT (($1::timestamptz) AT TIME ZONE $2)::date", [
+             at,
+             @receipt_timezone
+           ]) do
+      {:ok, day}
+    else
+      _failed -> {:error, :internal}
+    end
+  end
+
+  def event_day(_other), do: {:error, :internal}
+
   @doc "Runs the master checks of `view` (the document map of `Letflow.Modules.Stock.Documents`)."
   @spec masters(String.t(), map()) :: :ok | refusal()
-  def masters(prefix, view) do
+  def masters(prefix, %{kind: "receipt"} = view) do
     with :ok <- check(Locations.linked?(prefix, view.org_unit_id, view.location_id), "not_linked"),
          :ok <- check(Org.active_employee?(prefix, view.responsible_id), "employee_not_active"),
          :ok <- counterparty(prefix, view.counterparty_id) do
-      view.lines |> Enum.sort_by(& &1.line_no) |> Enum.reduce_while(:ok, &line(prefix, &1, &2))
+      lines(prefix, view)
     end
+  end
+
+  # REQ-721: a two-sided document checks the from side, then the to side (each: location linked to
+  # the side's org unit, responsible employee active; a failure names the side), then the lines. The
+  # sides come from `Kinds.sides/2`, the same function the posting command uses. No counterparty.
+  def masters(prefix, view) do
+    spec = Kinds.get(view.kind)
+    {from, to} = Kinds.sides(spec, Kinds.header_of(spec, view))
+
+    with :ok <- side(prefix, from, "from"),
+         :ok <- side(prefix, to, "to") do
+      lines(prefix, view)
+    end
+  end
+
+  defp side(_prefix, nil, _name), do: :ok
+
+  defp side(prefix, side, name) do
+    with :ok <-
+           check(Locations.linked?(prefix, side.org_unit, side.location), "not_linked", name),
+         do: check(Org.active_employee?(prefix, side.responsible), "employee_not_active", name)
+  end
+
+  defp lines(prefix, view) do
+    view.lines |> Enum.sort_by(& &1.line_no) |> Enum.reduce_while(:ok, &line(prefix, &1, &2))
   end
 
   defp counterparty(_prefix, nil), do: :ok
@@ -70,15 +144,75 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
       not CatalogItems.item_uom_valid?(prefix, line.catalog_item_id, line.catalog_uom_id) ->
         {:halt, {:error, {"unit_not_valid", %{"line_no" => line.line_no}}}}
 
-      is_binary(line.catalog_lot_id) and
-          not CatalogItems.item_lot_valid?(prefix, line.catalog_item_id, line.catalog_lot_id) ->
-        {:halt, {:error, {"lot_not_valid", %{"line_no" => line.line_no}}}}
-
       true ->
-        {:cont, :ok}
+        tracking_then_lot(prefix, line)
     end
   end
 
+  defp tracking_then_lot(prefix, line) do
+    with :ok <- tracking(prefix, line),
+         true <-
+           not is_binary(line.catalog_lot_id) or
+             CatalogItems.item_lot_valid?(prefix, line.catalog_item_id, line.catalog_lot_id) do
+      {:cont, :ok}
+    else
+      false -> {:halt, {:error, {"lot_not_valid", %{"line_no" => line.line_no}}}}
+      {:error, _} = error -> {:halt, error}
+    end
+  end
+
+  defp tracking(prefix, line) do
+    case tracking_result(prefix, line.catalog_item_id, line.catalog_lot_id) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {reason, %{"line_no" => line.line_no}}}
+    end
+  end
+
+  @doc """
+  The tracking-policy check of one line as a reason text: `:ok` or `{:error, reason}`. The receipt
+  (`masters/2`) and the opening document (REQ-725) both use it, so the mapping has one definition.
+  """
+  @spec tracking_result(String.t(), String.t(), String.t() | nil) :: :ok | {:error, String.t()}
+  def tracking_result(prefix, item_id, lot_id) do
+    policy =
+      case CatalogItems.lookup(prefix, item_id) do
+        {:ok, %{"tracking_policy" => policy}} when is_binary(policy) -> policy
+        _none -> "none"
+      end
+
+    if policy == "serial" do
+      {:error, "tracking_policy_not_supported"}
+    else
+      case CatalogItems.validate_capture(prefix, item_id, capture(prefix, policy, lot_id)) do
+        :ok -> :ok
+        other -> {:error, tracking_reason(other)}
+      end
+    end
+  end
+
+  defp capture(prefix, "expiry", lot_id) when is_binary(lot_id) do
+    expiry =
+      case CatalogItems.lookup(prefix, lot_id) do
+        {:ok, %{"entity_type" => "catalog_lot"} = lot} -> lot["expiry_date"]
+        _other -> nil
+      end
+
+    %{"lot" => lot_id, "expiry" => expiry}
+  end
+
+  defp capture(_prefix, _policy, lot_id), do: %{"lot" => lot_id}
+
+  @doc false
+  @spec tracking_reason(term()) :: String.t()
+  def tracking_reason({:error, {:capture_required, "lot"}}), do: "lot_required"
+  def tracking_reason({:error, {:capture_not_allowed, "lot"}}), do: "lot_not_allowed"
+  def tracking_reason({:error, {:capture_required, "expiry"}}), do: "lot_expiry_missing"
+  def tracking_reason({:error, {:capture_invalid, "expiry"}}), do: "lot_expiry_missing"
+  def tracking_reason(_other), do: "tracking_invalid"
+
   defp check(true, _reason), do: :ok
   defp check(false, reason), do: {:error, {reason, %{}}}
+
+  defp check(true, _reason, _side), do: :ok
+  defp check(false, reason, side), do: {:error, {reason, %{"side" => side}}}
 end

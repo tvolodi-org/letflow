@@ -90,7 +90,8 @@ defmodule Letflow.Entities.Definition.Validator do
             range_violations(definition) ++
             localized_text_violations(definition) ++
             search_strategy_violations(definition) ++
-            cardinality_violations(definition)
+            cardinality_violations(definition) ++
+            reference_violations(definition)
 
         case violations do
           [] -> :ok
@@ -462,6 +463,50 @@ defmodule Letflow.Entities.Definition.Validator do
       end
     end)
   end
+
+  # --- Rule (REQ-636) -- module reference on a field (:invalid_reference) -----
+
+  @module_id_regex ~r/\A[a-z][a-z0-9_]{0,63}\z/
+
+  defp reference_violations(definition) do
+    definition
+    |> get_list(:fields)
+    |> Enum.flat_map(fn field ->
+      case Map.fetch(field, :reference) do
+        :error -> []
+        {:ok, ref} -> reference_field_violations(Map.get(field, :name), field, ref)
+      end
+    end)
+  end
+
+  defp reference_field_violations(name, field, ref) do
+    path = [:fields, name, :reference]
+
+    cond do
+      Map.get(field, :type) != :string ->
+        [reference_violation(path, "reference is allowed only on a :string field")]
+
+      Map.get(field, :enum_values) != nil ->
+        [reference_violation(path, "reference cannot be combined with enum_values")]
+
+      not (is_map(ref) and Enum.sort(Map.keys(ref)) == ["entity_type", "module_id"]) ->
+        [reference_violation(path, "reference must be a map with module_id and entity_type")]
+
+      not valid_name?(ref["module_id"], @module_id_regex) ->
+        [reference_violation(path, "reference module_id has an invalid format")]
+
+      not valid_name?(ref["entity_type"], @name_format_regex) ->
+        [reference_violation(path, "reference entity_type has an invalid format")]
+
+      true ->
+        []
+    end
+  end
+
+  defp valid_name?(value, regex), do: is_binary(value) and Regex.match?(regex, value)
+
+  defp reference_violation(path, message),
+    do: %Violation{rule: :invalid_reference, path: path, message: message}
 
   # --- Rule 7 -- decimal-field validation (:invalid_decimal) -------------------
 

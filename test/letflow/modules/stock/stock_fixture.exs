@@ -65,7 +65,7 @@ defmodule Letflow.StockFixture do
       on_exit(fn -> drop_pack_rows!(tenant.tenant_id) end)
 
       # REQ-712: stock depends on org, catalog_items and locations (install order: org first).
-      for module_id <- ["org", "catalog_items", "locations", "stock"] do
+      for module_id <- ["org", "catalog_items", "locations", "codes", "stock"] do
         {:ok, _} =
           Installs.install(module_id, Ecto.UUID.generate(),
             prefix: tenant.schema_name,

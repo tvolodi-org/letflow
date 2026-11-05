@@ -4,7 +4,9 @@ defmodule Letflow.Modules.Stock.Counts do
   `stock`. A count order is issued by a clerk for ONE org unit: a kind (`full` or `selective`), a set of
   root locations (the order covers each root and everything below it), a planned period and a
   commission (a chair and members, all employees). This module only keeps the order; the cut-off, the
-  book quantities and the count sheet are REQ-701, posting is a later slice. No ledger call is made.
+  book quantities and the count sheet are REQ-701 (`Letflow.Modules.Stock.CountSheet`, delegated from
+  here: `open/3`, `record_count/5`, `add_surplus_line/4`, `close_counting/3`, `lines/4`, `entries/4`,
+  `sheet_document/3`), posting is a later slice. This module makes no ledger call.
 
   Three module-managed record types (pack `priv/modules/stock/pack.json`): `count_order` (header),
   `count_order_scope` (one row per root) and `count_commission_member` (one row per member), all
@@ -45,6 +47,8 @@ defmodule Letflow.Modules.Stock.Counts do
   alias Letflow.Modules.Locations.Tree
   alias Letflow.Modules.Org
   alias Letflow.Modules.ReadApi
+  alias Letflow.Modules.Stock.CountDifferences
+  alias Letflow.Modules.Stock.CountSheet
   alias Letflow.Repo
 
   @input_keys ~w(org_unit_id kind planned_start planned_end chair_employee_id member_employee_ids location_ids note)
@@ -197,6 +201,9 @@ defmodule Letflow.Modules.Stock.Counts do
          :ok <- chair?(prefix, header, actor),
          :ok <- cancellable?(header) do
       Repo.transaction(fn ->
+        # REQ-701: the same per-order lock as the sheet writes, so a cancel cannot be overwritten.
+        CountSheet.lock_order!(prefix, header["record_id"])
+
         with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
              :ok <- cancellable?(fresh),
              fv =
@@ -217,6 +224,25 @@ defmodule Letflow.Modules.Stock.Counts do
       end)
     end
   end
+
+  # --- count sheet (REQ-701): the logic lives in `Letflow.Modules.Stock.CountSheet` -----------------
+
+  defdelegate open(prefix, id, opts), to: CountSheet
+  defdelegate record_count(prefix, id, line_no, quantity, opts), to: CountSheet
+  defdelegate add_surplus_line(prefix, id, input, opts), to: CountSheet
+  defdelegate scan(prefix, id, input, opts), to: CountSheet
+  defdelegate close_counting(prefix, id, opts), to: CountSheet
+  defdelegate lines(prefix, id, params, opts), to: CountSheet
+  defdelegate entries(prefix, id, params, opts), to: CountSheet
+  defdelegate sheet_document(prefix, id, opts), to: CountSheet
+
+  # --- signing and the differences sheet (REQ-717): `Letflow.Modules.Stock.CountDifferences` ------
+
+  defdelegate mark_sheet_signed(prefix, id, signer_ids, opts), to: CountDifferences
+  defdelegate issue_differences(prefix, id, opts), to: CountDifferences
+  defdelegate mark_differences_signed(prefix, id, signer_ids, opts), to: CountDifferences
+  defdelegate differences(prefix, id, opts), to: CountDifferences
+  defdelegate signatures(prefix, id, opts), to: CountDifferences
 
   defp chair?(prefix, header, actor) do
     chair = header["chair_employee_id"]
@@ -394,6 +420,10 @@ defmodule Letflow.Modules.Stock.Counts do
 
   defp cursor_of(%{record_id: rid, field_values: fv}),
     do: Base.url_encode64(fv["planned_start"] <> "|" <> rid, padding: false)
+
+  @doc "The scope-checked order header (`count_order` record map), no view; not found, other tenant and out of scope are alike."
+  @spec header(String.t(), term(), term()) :: {:ok, map()} | {:error, :not_found}
+  def header(prefix, id, scope) when is_binary(prefix), do: fetch(prefix, id, scope)
 
   @doc "The issued document summary of an order (`number_label`, `version_no`, `issued_at`, `content_hash`)."
   @spec document(String.t(), term(), map()) :: {:ok, map()} | {:error, :not_found}
@@ -859,7 +889,15 @@ defmodule Letflow.Modules.Stock.Counts do
       "issued_at" => header["issued_at"],
       "issued_by" => header["issued_by"],
       "cancelled_at" => header["cancelled_at"],
-      "cancelled_by" => header["cancelled_by"]
+      "cancelled_by" => header["cancelled_by"],
+      "cut_off_at" => header["cut_off_at"],
+      "cutoff_seq" => header["cutoff_seq"],
+      "sheet_document_id" => header["sheet_document_id"],
+      "sheet_signed_at" => header["sheet_signed_at"],
+      "differences_document_id" => header["differences_document_id"],
+      "differences_number" => header["differences_number"],
+      "differences_issued_at" => header["differences_issued_at"],
+      "differences_signed_at" => header["differences_signed_at"]
     }
   end
 

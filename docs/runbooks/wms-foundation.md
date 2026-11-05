@@ -32,7 +32,7 @@ was written.
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:813` and `lib/letflow/entities/handler_writes.ex:327`.
+   `lib/letflow/entities/step_writes.ex:816` and `lib/letflow/entities/handler_writes.ex:331`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -159,7 +159,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:813` and `lib/letflow/entities/handler_writes.ex:327`.
+   `lib/letflow/entities/step_writes.ex:816` and `lib/letflow/entities/handler_writes.ex:331`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -521,3 +521,48 @@ names the GH issue or the code that holds it; paths are cited without line numbe
 22. **`reason_text` of a reversal is kept on the instance only.** The ledger keeps the closed `reason_code`; the free
     text (at most 500 characters) is the variable `reason_text` of the `stock_reversal` instance
     (`lib/letflow/modules/stock/documents/posting.ex`, GH #3748).
+23. **Receipt-only fields.** Version 0.4.0 adds `supplier_document_ref`, `received_on`, `unit_price` and `line_value`
+    to the receipt types. Price and value live on the document only: the posting reads literal keys and never copies
+    them to the ledger. At issue the lot is checked against the item's tracking policy (serial-tracked goods are
+    refused, `tracking_policy_not_supported`) and `received_on` may not be after the event day in Asia/Almaty
+    (assumption, owner may change at GATE B) (`lib/letflow/modules/stock/documents/checks.ex`, GH #3747).
+24. **A transfer, hand over or return is filed under one org unit only.** The filing unit is the from unit
+    (`org_unit_id`) of a transfer or hand over, and the unit the stock goes back to (`org_unit_id`) for a return; the
+    other unit does not see the document in phase B, and scoped (L6) posting is not part of phase B. The filing unit is
+    the scope column of the header and of every line (`Letflow.Modules.Stock.Documents.Kinds`, GH #3770).
+25. **The from side is checked by the ledger only, at the post task.** Issue checks that each side's location is
+    linked to its org unit and that each side's employee is active, but not the balance; a transfer, hand over or
+    return larger than the from side holds answers `insufficient_stock` at the post task, which then stays pending
+    with no entry and no mark until the document is cancelled, and a reversal after the to side's quantity left is
+    refused the same way (`lib/letflow/modules/stock/documents/posting.ex`, GH #3770).
+26. **Defaults of transfer, hand over and return, owner may change at GATE B.** Number prefixes `TRF`, `HOV`, `RET`
+    (year numbering, pad 6, no legal entity); the responsible employee is not bound to the side's org unit; no
+    price, value, reason or counterparty field; a return needs no earlier hand over; equal sides (same unit, location
+    and employee) are refused at save as `sides_equal` (`priv/modules/stock/entity_definitions/stock_transfer.json`,
+    GH #3770).
+27. **Opening balance document.** Version 0.9.0 adds the second document kind `opening` (records `stock_opening` and
+    `stock_opening_line`, number prefix `OPN` per year, pad 6). It posts only through the two-person process
+    `stock_opening` (GH #3774); a larger stock than 100 lines is entered as several documents
+    (`lib/letflow/modules/stock/documents/opening_shape.ex`, GH #3775). A tenant that installed 0.8.0 (or earlier) takes the new
+    types and definitions through the module upgrade path (`lib/letflow/modules/tenant_module_upgrade.ex`); no tenant
+    is upgraded or seeded by the change.
+28. **The entry's event time is its posting time.** An opening carries no event time; the real receipt date is a field of
+    each line (`received_on`) and never reaches the ledger. A balance as of an earlier time therefore shows no opening
+    quantity, and the posting handler, the policy and the read-side check all refuse a client event time
+    (`lib/letflow/modules/stock/handlers.ex`, GH #3774).
+29. **At most 100 lines.** The cap of the stock policy `declare/2` applies, a deviation from the 200 lines of decision
+    0079 D2 (owner may change at GATE B) (`lib/letflow/modules/stock/ledger_policy/declare.ex`, GH #3775).
+30. **Not offered on a customer tenant before the pilot gate.** Opening balances follow the NOT enabled for a customer
+    tenant rule of decision 0073 until slices L6 and L7 (decision 0079 D3, GH #3775).
+31. **Defaults the owner may change at GATE B.** The prefix `OPN`, numbering per year, pad 6, the time zone Asia/Almaty
+    for the receipt-date check, 100 lines, the external reference pair, and a second person for every opening (owner
+    may change at GATE B) (`lib/letflow/modules/stock/stock.ex`, GH #3775).
+32. **Who is the preparer.** The `approve` task has `distinct_from ["submit"]`; the issue step completes `submit` as the
+    issuing user. When that completion fails the `submit` task stays pending and whoever completes it is the preparer;
+    the retry route `post` answers `posting_pending` while a `submit` or `approve` task is pending
+    (`lib/letflow/modules/stock/documents/posting.ex`, GH #3774).
+33. **No service posting of opening balances.** A posting from a service task stays refused (`ledger_origin_not_supported`)
+    until slice L5; the process has no service task (decision 0079 D7, GH #3774).
+34. **A repeated approval is refused, not answered with the first result.** A second `stock_opening` instance for the
+    same issued version fails at `approve` on the unique mark of item 20: one entry, one mark, no second answer
+    (`priv/modules/stock/entity_definitions/stock_posting_mark.json`, GH #3774).
