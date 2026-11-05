@@ -96,6 +96,10 @@ v1 is **online-first with a read-through definition cache.**
 The camera scan of barcodes and QR codes (`REQ-732`) is **online only**: every scanned text is resolved by
 `POST /api/v1/modules/codes/resolve`, and there is no offline queue or local lookup for it.
 
+Voice on the stock count and document screens (`REQ-747`) is **online only** too: the recording is sent as bytes
+to `POST /api/v1/modules/stock/voice/draft` (a typed phrase to `.../draft-text`), is never stored on the device, and only
+fills a draft for the user to check.
+
 ### Scope table (added 2026-10-01, `REQ-430`)
 
 | Requirement | Scope | Delivered by |
@@ -179,6 +183,10 @@ The first module feature lives in `apps/mobile/lib/features/codes/` (scan screen
 `kFeatureRegistry`, so it is reachable only when `codes` is installed. It needs the camera permission: Android
 `CAMERA` (with `uses-feature camera required=false`) and iOS `NSCameraUsageDescription`. If the permission is refused
 the screen offers a typed-code fallback.
+
+The `stock` feature records a spoken phrase with the `record` package (only `voice/package_recorder_port.dart` imports it).
+It needs the microphone permission: Android `RECORD_AUDIO` and iOS `NSMicrophoneUsageDescription`. If the permission is
+refused, or a voice part is down, the typed phrase, typing and scanning keep working.
 
 ### Navigation and routes
 
