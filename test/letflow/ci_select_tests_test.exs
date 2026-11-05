@@ -77,6 +77,29 @@ defmodule Letflow.CiSelectTestsTest do
     end
   end
 
+  test "S3b: module-write authorization and module installs run the full suite (T-1403)" do
+    for p <- [
+          "lib/letflow/modules/installs.ex",
+          "lib/letflow/modules/ledger_registration.ex",
+          "lib/letflow/modules/tenant_module.ex",
+          "lib/letflow/entities/handler_writes.ex"
+        ] do
+      {kv, _} = select([p])
+      assert kv["mode"] == "full", "#{p}: #{inspect(kv)}"
+    end
+  end
+
+  test "S3c: an engine change also selects the record-trigger and engine tests (T-1403)" do
+    {kv, plan} = select(["lib/letflow/engine/join_counter.ex"])
+
+    if kv["mode"] == "selective" do
+      assert Enum.any?(plan, &String.contains?(&1, "test/letflow/record_triggers/"))
+      assert Enum.any?(plan, &String.contains?(&1, "test/letflow/engine/"))
+    else
+      assert kv["mode"] == "full"
+    end
+  end
+
   test "S4: more than 40 changed files run the full suite" do
     files = for i <- 1..41, do: "docs/note#{i}.md"
     {kv, _} = select(files)
