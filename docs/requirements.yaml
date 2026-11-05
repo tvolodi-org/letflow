@@ -51935,7 +51935,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- decision record first; no pending dependency (REQ-640 and REQ-683 are merged, #3687 and #3745)
+    gh: 3921
     # Source: task T-1370 (portfolio manager under owner decision D-086 of 2026-11-04, ai-dala-portfolio/DECISIONS.md: prototype mode, doubtful non-critical points decided by the portfolio manager, security and production not lifted); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md (D1, D2 including the ruling on open point 7 'process-definition drafts created by an upgrade are activated MANUALLY', D3, D5 'A deploy never auto-upgrades a tenant' and the three phases, D9, D10, D12); docs/migration/decisions/0054-process-step-writes-entity.md D6 (strict manifest-hash rule, OQ-R3); docs/runbooks/module-write-handlers-manifest-hash.md (sections 'The rule (strict equality)', 'What an operator sees after such a deploy', 'Recovery': 'The upgrade path (re-stamping) is decision 0055 and does not exist yet'); docs/runbooks/wms-foundation.md (Org module limits item 11: tenants that installed org before 0.2.0 are not upgraded). Code read on origin/main 18470c282: lib/letflow/definitions/module_writes.ex (stamp_codes/3: installed hash must equal the stamp AND the compiled hash; compiled_differs?/2), lib/letflow/entities/handler_writes.ex (authorize_module_writes/2), lib/letflow/engine.ex (authorize_module_writes/7 and check_applied_event_schema/5: one public 403 write_not_permitted for every cause, INV-5), lib/letflow/api/response.ex (entity_write_refused/3; module_upgrade_required/1), lib/letflow/api/error.ex (module_upgrade_required/0: 409, code upgrade_required, REQ-578), priv/repo/migrations/20261016100001_add_owner_stamp_to_process_definitions.exs (trigger process_definitions_owner_stamp_immutable: the owner_* columns of a row are never updated), lib/letflow/definitions/process_definition.ex (owner stamp fields), lib/letflow/modules/installs.ex (install/3, insert_tenant_module/3, ensure_ledger_storage/2, check_reactivatable/2 answers :upgrade_required, upgrade_entity_definition_version/6, fetch_rationale/1), lib/letflow/modules/catalog.ex (manifest_hash/1, upgrade_path/3, rules 16 and 17), lib/letflow/modules/tenant_module_upgrade.ex and priv/repo/migrations/20261101100001_create_tenant_module_upgrades.exs (the journal, no partial unique index yet), lib/letflow/module_upgrade/writer.ex and capability.ex (REQ-683), lib/letflow/modules/stock/documents/posting.ex (ensure_active/3: an active stock-stamped definition is kept, a draft is activated lazily only when none is active), lib/letflow/tenant_provisioning/migration_replay_boot.ex (boot child that never fails boot), lib/letflow/modules/exam/parent_rollout.ex (system actor 00000000-0000-0000-0000-000000000000 used for an installed-tenant rollout). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
     description: >
       Why. A deploy that changes a module manifest (for example stock installed at 0.10.0 while main compiles
@@ -52008,7 +52008,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-767 -- the plan's report sections and the stamp-acceptance list follow the record's rulings Q1, Q2 and Q5
+    gh: 3920
     # Source: docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D2 (the plan route, ModulesManage, tenant from the auth context, the class table A/B/C, plan_hash contents, preflight counts only, no count for a restricted field), D1 (journal row), D5 (one plan in flight per tenant and module); the record of REQ-767 (Q1, Q2, Q5, Q6); code read on origin/main 18470c282: lib/letflow/routers/tenant_modules.ex (authz_post routes under ModulesManage, prefix only from conn.assigns.scoped_opts), lib/letflow/api/authorization.ex (endpoint_policy_key/2 clause for POST /tenant/modules), lib/letflow/modules/catalog.ex (manifest_hash/1, upgrade_path/3), lib/letflow/modules/installs.ex (read_pack_document/1, ensure_ledger_storage/2), lib/letflow/definitions/module_writes.ex (violations/6, the activation validator), lib/letflow/modules/tenant_module_upgrade.ex (journal schema), test/fixtures/route_scope/tenant_wide_default_routes.txt (line POST /tenant/modules/:module_id/uninstall ModulesManage). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
     description: >
       The dry-run report of an upgrade (0055 D2, D12 step 1 part 1b). One new route in
@@ -52045,7 +52045,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-767 -- this entry is the BA default of Q1; another ruling amends it
+    gh: 3919
     # Source: the record of REQ-767 (Q1, BA default option a); docs/migration/decisions/0054-process-step-writes-entity.md D6; docs/runbooks/module-write-handlers-manifest-hash.md (sections 'The rule (strict equality)' and 'What an operator sees after such a deploy'); code read on origin/main 18470c282: lib/letflow/definitions/module_writes.ex (stamp_codes/3, compiled_differs?/2), lib/letflow/modules/installs.ex (installed_manifest_hash/2), lib/letflow/modules/tenant_module.ex, lib/letflow/tenant_provisioning.ex (the tenant migration list), priv/repo/migrations/20261101100001_create_tenant_module_upgrades.exs (the tenant-scoped migration shape), test/support/module_writes_fixture.ex (set_stamp_hash!/2, set_installed_hash!/3), test/letflow/engine/module_write_runtime_stamp_test.exs (the hash_mismatch tests). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
     description: >
       The storage and the check half of Q1 (REQ-767 record, BA default option a). A tenant migration adds
@@ -52072,7 +52072,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-768 -- needs the plan route and plan_hash, and REQ-769's accepted hashes
+    gh: 3918
     # Source: docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D2 (apply with plan_hash and a non-blank rationale through Installs.fetch_rationale/1, plan_mismatch 409), D5 (exclusion, xact lock, cutover with activate_definition/4, tenant_modules.version := to, journal done, a failure before cutover leaves the tenant on the old version), D8 item 7 (tenant id from the prefix), D10 (audit entry fields); the record of REQ-767 (Q1, Q2, Q5, Q6); owner request D-098 as quoted in task T-1370 (a test through the real HTTP path: claim and complete of the human task, expect 200); code read on origin/main 18470c282: lib/letflow/modules/installs.ex (install/3, insert_tenant_module/3, ensure_ledger_storage/2, fetch_rationale/1, upgrade_entity_definition_version/6, the audit actions module.uninstall and module.reactivate), lib/letflow/entities/definitions.ex (activate_definition/4), lib/letflow/audit.ex (append_multi/4), lib/letflow/api/error.ex, lib/letflow/routers/tasks.ex (POST /tasks/:id/claim and /tasks/:id/complete), test/letflow/modules/stock/posting_test.exs (B-POST-1 and its complete_route/2 helper), test/letflow/modules/stock/posting_fixture.exs (Letflow.StockPostingFixture setup!/1). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
     description: >
       The one admin action (0055 D2 apply, REQ-767 Q5 and Q6). New route POST
@@ -52110,7 +52110,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-767 -- the public answer for this cause is the record's Q4 ruling
+    gh: 3917
     # Source: the record of REQ-767 (Q4, BA default); lib/letflow/engine.ex (authorize_module_writes/7, the service twin near the comment 'The service twin of authorize_module_writes/7', record_entity_write_refusal_audit); lib/letflow/entities/handler_writes.ex (@authorize_details, authorize_module_writes/2); lib/letflow/definitions/module_writes.ex (stamp_codes/3, compiled_differs?/2); lib/letflow/api/error.ex (module_upgrade_required/0: 409, type module-upgrade-required, title 'Module Upgrade Required', detail 'the installed module differs from the current version; upgrade it instead', code upgrade_required, REQ-578); lib/letflow/api/response.ex (module_upgrade_required/1, entity_write_refused/3); docs/runbooks/module-write-handlers-manifest-hash.md (table 'What an operator sees after such a deploy'). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
     description: >
       During the window between a deploy that changes a module manifest and the tenant's upgrade, a human task
@@ -52134,7 +52134,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-770 -- reuses the apply; the flag name and the conditions are the record's Q3 ruling
+    gh: 3916
     # Source: the record of REQ-767 (Q3, BA default); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D5 ('A deploy never auto-upgrades a tenant', amended by the record of REQ-767 for Class-A-only plans); lib/letflow/tenant_provisioning/migration_replay_boot.ex (one-shot boot child, always returns :ignore, logs one line per failing tenant and one summary line, metadata not interpolated, ISS-0772); lib/letflow/supervisor/infrastructure.ex (child order); lib/letflow/tenant_provisioning.ex (replay_all_pending/0, list_replay_failures/0, Registration rows); lib/letflow/modules/exam/parent_rollout.ex (system actor 00000000-0000-0000-0000-000000000000). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
     description: >
       The on-deploy half of the task (REQ-767 Q3). A new one-shot boot child, placed in
@@ -52162,7 +52162,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-770 -- steps run inside the apply of REQ-770; the record-count setting is the record's Q5 ruling
+    gh: 3915
     # Source: docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D3 (closed declarative vocabulary; identifiers validated and quoted, values bound; 'only where unset' predicate; key-level writes; migration writes append ENTITY_RECORD_MIGRATED events; no x_ key; hooks and webhooks bypassed), D1 (migrations/0 %Step{} with id, from, to, kind, up, down, lossy), D8 item 1 (no lossy step); the record of REQ-767 (Q5); REQ-683 (the event type, the fold and Letflow.ModuleUpgrade.Writer migrate_record/5 behind Letflow.ModuleUpgrade.Capability new/4, merged in #3745); code read on origin/main 18470c282: lib/letflow/module_upgrade/writer.ex, lib/letflow/module_upgrade/capability.ex, lib/letflow/modules/catalog.ex (upgrade_path/3, rule 17 on migrations). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
     description: >
       The data migration hook of the task, for upgrades small enough for one transaction (REQ-767 Q5). The apply
