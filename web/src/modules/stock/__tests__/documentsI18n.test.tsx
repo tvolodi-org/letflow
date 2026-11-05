@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { act, cleanup, screen } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
-import { DOC_KINDS, DOC_REASONS, DOC_EXTRA_REASONS, DOC_STATES, REVERSE_REASONS, WRITE_OFF_REASONS } from '../documents/documentsModel'
+import { DOC_KINDS, DOC_REASONS, DOC_EXTRA_REASONS, DOC_SIDE_REASONS, DOC_STATES, REVERSE_REASONS, WRITE_OFF_REASONS } from '../documents/documentsModel'
 import { stockMessages } from '../stockMessages'
 import { LIST, fakeDocument, fakeMasters, renderStock, stockDoc, withPost } from './stockTestKit'
 
@@ -45,7 +45,7 @@ describe('C6-a catalog', () => {
   it('has a key for every kind, state, reason and enum word', () => {
     const need = [
       ...DOC_KINDS.map((k) => `kind.${k}`), ...DOC_STATES.map((s) => `state.${s}`),
-      ...[...DOC_REASONS, ...DOC_EXTRA_REASONS].map((r) => `error.${r}`),
+      ...[...DOC_REASONS, ...DOC_EXTRA_REASONS, ...DOC_SIDE_REASONS].map((r) => `error.${r}`), 'side.from', 'side.to',
       ...REVERSE_REASONS.map((r) => `reverseReason.${r}`), ...WRITE_OFF_REASONS.map((r) => `writeOffReason.${r}`),
     ]
     for (const k of need) expect(stockMessages.en[`stock.doc.${k}`], k).toBeTruthy()

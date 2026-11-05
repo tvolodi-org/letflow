@@ -3,7 +3,7 @@
  *  early; the server stays the authority and its refusals are shown next to the named field or line, else in a banner.
  *  Assumptions (owner may change at GATE B): event time is entered in the tenant time zone (Asia/Almaty until the
  *  tenant setting exists); pickers list active records, first 200; the unit is the item's base unit. */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -19,15 +19,18 @@ import { stockQueryKeys } from '../register/stockQueryKeys'
 import { STOCK_POST } from '../stockPermissions'
 import { documentsApi, type StockDocument } from './documents.api'
 import { LinesEditor } from './LinesEditor'
+import { SideGroup } from './SideGroup'
 import {
   WRITE_OFF_REASONS,
   buildBody,
   emptyForm,
   formFromDocument,
+  isTwoSide,
   placeError,
   validateForm,
   type DocKind,
   type FormState,
+  type SideForm,
 } from './documentsModel'
 
 export interface DocumentFormProps {
@@ -54,6 +57,20 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
   const employees = usePickerOptions('org_employee')
   const counterparties = usePickerOptions('catalog_counterparty', [], form.kind === 'receipt')
   const patch = (p: Partial<FormState>) => setForm((f) => ({ ...f, ...p }))
+  // Hand over (REQ-723, owner may change at GATE B): the To org unit and location start as the From ones until To is touched.
+  const toTouched = useRef(doc !== undefined)
+  const patchSide = (side: 'from' | 'to', p: Partial<SideForm>) =>
+    setForm((f) => {
+      if (side === 'to') toTouched.current = true
+      const next = { ...f, [side]: { ...f[side], ...p } }
+      if (side === 'from' && f.kind === 'hand_over' && !toTouched.current) {
+        const copy: Partial<SideForm> = {}
+        if (p.orgUnitId !== undefined) copy.orgUnitId = p.orgUnitId
+        if (p.locationId !== undefined) copy.locationId = p.locationId
+        next.to = { ...f.to, ...copy }
+      }
+      return next
+    })
   const edit = doc !== undefined
 
   const save = useMutation({
@@ -81,6 +98,8 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
   }
   const err = (key: string) => (errors[`header.${key}`] ? t(errors[`header.${key}`]) : undefined)
   const receipt = form.kind === 'receipt'
+  const two = isTwoSide(form.kind)
+  const orgFixedSide = form.kind === 'return' ? 'to' : 'from'
 
   return (
     <form
@@ -95,6 +114,21 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
       <Field label={t('stock.col.time')} error={err('eventTime')} mono>
         <input type="datetime-local" value={form.eventTime} onChange={(e) => patch({ eventTime: e.target.value })} />
       </Field>
+      {two && errors['sides'] && <p role="alert">{t(errors['sides'])}</p>}
+      {two && (['from', 'to'] as const).map((side) => (
+        <SideGroup
+          key={side}
+          side={side}
+          value={form[side]}
+          onChange={(p) => patchSide(side, p)}
+          errors={errors}
+          orgUnits={orgUnits}
+          locations={locations}
+          employees={employees}
+          orgUnitFixed={edit && side === orgFixedSide}
+        />
+      ))}
+      {!two && (<>
       <Select
         label={t('stock.col.orgUnit')}
         value={form.orgUnitId}
@@ -121,6 +155,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
         placeholder={t('stock.doc.pick')}
         error={err('responsibleId')}
       />
+      </>)}
       {receipt && (
         <>
           <Select
@@ -150,7 +185,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
           error={err('reasonCode')}
         />
       )}
-      {!receipt && (
+      {!receipt && !two && (
         <Field label={t('stock.doc.field.reasonText')} error={err('reasonText')} optional={form.reasonCode !== 'other'}>
           <textarea rows={2} value={form.reasonText} onChange={(e) => patch({ reasonText: e.target.value })} />
         </Field>

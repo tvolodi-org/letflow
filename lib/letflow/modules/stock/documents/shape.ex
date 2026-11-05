@@ -182,13 +182,10 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
       else: {:halt, refuse("field_invalid", %{"field" => "supplier_document_ref"})}
   end
 
-  defp header_value("received_on", value, acc, _spec) when is_binary(value) do
-    with true <- Regex.match?(@received_on, value),
-         {:ok, date} <- Date.from_iso8601(value),
-         true <- date.year in 2000..2100 do
-      {:cont, {:ok, Map.put(acc, "received_on", value)}}
-    else
-      _bad -> {:halt, refuse("field_invalid", %{"field" => "received_on"})}
+  defp header_value("received_on", value, acc, _spec) do
+    case received_on_text(value) do
+      {:ok, text} -> {:cont, {:ok, Map.put(acc, "received_on", text)}}
+      :error -> {:halt, refuse("field_invalid", %{"field" => "received_on"})}
     end
   end
 
@@ -202,6 +199,23 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
 
   defp header_value(key, _value, _acc, _spec),
     do: {:halt, refuse("field_invalid", %{"field" => key})}
+
+  @doc """
+  A real receipt date: `YYYY-MM-DD`, a valid date, year 2000..2100 (REQ-714). Shared with the opening
+  document (REQ-725) so there is one definition.
+  """
+  @spec received_on_text(term()) :: {:ok, String.t()} | :error
+  def received_on_text(value) when is_binary(value) do
+    with true <- Regex.match?(@received_on, value),
+         {:ok, date} <- Date.from_iso8601(value),
+         true <- date.year in 2000..2100 do
+      {:ok, value}
+    else
+      _bad -> :error
+    end
+  end
+
+  def received_on_text(_other), do: :error
 
   defp reason_text(value) when is_binary(value) do
     text = String.valid?(value) && :unicode.characters_to_nfc_binary(value)
@@ -308,13 +322,22 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
     end)
   end
 
-  defp quantity(text, no) when is_binary(text) do
-    if Regex.match?(@quantity, text) and Decimal.gt?(Decimal.new(text), 0),
-      do: {:ok, text |> Decimal.new() |> Decimal.round(9) |> Decimal.to_string(:normal)},
-      else: refuse("quantity_invalid", %{"line_no" => no})
+  defp quantity(text, no) do
+    case quantity_text(text) do
+      {:ok, value} -> {:ok, value}
+      :error -> refuse("quantity_invalid", %{"line_no" => no})
+    end
   end
 
-  defp quantity(_other, no), do: refuse("quantity_invalid", %{"line_no" => no})
+  @doc "A quantity text: greater than zero, at most 9 decimals, returned with exactly 9 decimals."
+  @spec quantity_text(term()) :: {:ok, String.t()} | :error
+  def quantity_text(text) when is_binary(text) do
+    if Regex.match?(@quantity, text) and Decimal.gt?(Decimal.new(text), 0),
+      do: {:ok, text |> Decimal.new() |> Decimal.round(9) |> Decimal.to_string(:normal)},
+      else: :error
+  end
+
+  def quantity_text(_other), do: :error
 
   defp prices(line, no) do
     Enum.reduce_while(~w(unit_price line_value), {:ok, %{}}, fn key, {:ok, acc} ->
@@ -323,7 +346,7 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
           {:cont, {:ok, acc}}
 
         {:ok, text} ->
-          case price(text) do
+          case price_text(text) do
             {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
             :error -> {:halt, refuse("price_invalid", %{"field" => key, "line_no" => no})}
           end
@@ -331,13 +354,15 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
     end)
   end
 
-  defp price(text) when is_binary(text) do
+  @doc "A unit price or line value text: not negative (zero accepted), at most 9 decimals, 9 decimals back."
+  @spec price_text(term()) :: {:ok, String.t()} | :error
+  def price_text(text) when is_binary(text) do
     if Regex.match?(@quantity, text),
       do: {:ok, text |> Decimal.new() |> Decimal.round(9) |> Decimal.to_string(:normal)},
       else: :error
   end
 
-  defp price(_other), do: :error
+  def price_text(_other), do: :error
 
   defp refuse(reason, extras \\ %{}), do: {:error, {reason, extras}}
 
