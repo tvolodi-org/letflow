@@ -28,12 +28,12 @@ defmodule Letflow.CreateEntityScopeDeclarationsTest do
     rows |> List.flatten() |> Enum.sort()
   end
 
-  test "G1 registered fifth to last (REQ-623, REQ-624, REQ-603, T-1389 follow); the table starts empty",
+  test "G1 registered sixth to last (later migrations follow); the table starts empty",
        %{
          schema: schema
        } do
     assert {@version, CreateEntityScopeDeclarations} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -5)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -6)
 
     assert %{rows: [[0]]} =
              Repo.query!(~s|SELECT count(*) FROM "#{schema}".entity_scope_declarations|)
