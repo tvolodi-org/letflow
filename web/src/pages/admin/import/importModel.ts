@@ -56,6 +56,12 @@ export const ROW_REASON_TYPES = [
   'csv_invalid_datetime',
   'csv_invalid_json',
   'csv_invalid_localized_text',
+  'document_not_draft',
+  'org_unit_mismatch',
+  'lines_count',
+  'quantity_invalid',
+  'price_invalid',
+  'line_invalid',
 ] as const
 
 export interface ImportViolation {
