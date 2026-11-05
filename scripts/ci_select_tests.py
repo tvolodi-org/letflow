@@ -36,9 +36,15 @@ accepted, bounded by the full run every 10th merge):
 Not visible to this map (hence the full-suite rules below): Postgres triggers, migrations, pins
 (permission matrix, route counts, table lists), config-selected modules, docs checks.
 
+Floor (T-1403): a change under lib/letflow/engine*, record_triggers* or entities/ also selects every
+test under test/letflow/engine/ and test/letflow/record_triggers/, on top of the closure.
+
 Full suite when: event is not pull_request/merge_group/push (nightly, workflow_dispatch), kill
 switch `off`, the counter is unknown or >= --every, no changed files, more than --max-files files,
-a sensitive path, a deleted lib file, an unclassifiable file, a module named in config/, a lib
+a sensitive path (including, T-1403, the module-write authorization and module-install files: lib/letflow/engine.ex
+(Engine.authorize_module_writes), engine/entity_port*, modules/{install*,ledger_registration,tenant_module*},
+entities/{handler_writes,entity_port*}, definitions/{module_writes,solution_pack_install}, routers/tenant_modules;
+other files under engine/ are floor-only: they do not hold the authorization), a deleted lib file, an unclassifiable file, a module named in config/, a lib
 file without a module, or the selection covers more than --max-share of all tests.
 """
 import argparse
@@ -59,6 +65,17 @@ SENSITIVE_LIB_NAME_RE = re.compile(
     r"permission|authoriz|scope_enforc|route_polic|tenant_schema|tenant_template|"
     r"migration|schema_registry|storage"
 )
+# T-1403: module-write authorization and module installs reach record triggers / handlers through the
+# engine at runtime, a path the textual module graph does not see (T-1371 broke
+# record_triggers/apply_test.exs in the merge queue after a green selective PR run).
+SENSITIVE_LIB_PATH_RE = re.compile(
+    r"^lib/letflow/(engine\.ex$|engine/entity_port|modules/(install|ledger_registration|tenant_module)|"
+    r"entities/(handler_writes|entity_port)|definitions/(module_writes|solution_pack_install)|"
+    r"routers/tenant_modules)"
+)
+# Floor: a change under these lib paths always also runs these test directories.
+FLOOR_LIB_RE = re.compile(r"^lib/letflow/(engine\.ex$|engine/|record_triggers(\.ex$|/)|entities/)")
+FLOOR_TEST_PREFIXES = ("test/letflow/engine/", "test/letflow/record_triggers/")
 
 TOKEN_RE = re.compile(r"[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*")
 DEFMODULE_RE = re.compile(r"^\s*defmodule\s+([A-Z][A-Za-z0-9_.]*)", re.M)
@@ -151,6 +168,8 @@ def decide(changed, root, args, manifest_weights):
         if p.startswith("lib/"):
             if not exists:
                 raise Full("lib file removed or renamed: %s" % p)
+            if SENSITIVE_LIB_PATH_RE.search(p):
+                raise Full("sensitive lib path %s (module-write authorization / module installs)" % p)
             if SENSITIVE_LIB_NAME_RE.search(p):
                 raise Full("sensitive lib path %s (permission / pins / tenant tables)" % p)
             lib_changed.append(p)
@@ -262,6 +281,9 @@ def decide(changed, root, args, manifest_weights):
                 selected.add(t)
         if not any(pat.search(d.text) for d in test_docs.values()) and p in other_changed:
             raise Full("fixture %s is read by no test we can find" % p)
+
+    if any(FLOOR_LIB_RE.search(p) for p in lib_changed):
+        selected.update(t for t in all_tests if t.startswith(FLOOR_TEST_PREFIXES))
 
     selected &= test_set
     if not selected:
