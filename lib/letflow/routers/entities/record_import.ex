@@ -79,8 +79,8 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
   @doc false
   def handle_import_records(conn, entity_type) do
-    {conn, scope} = ScopeGate.scope_set(conn, :EntitiesRecordsImport)
     storekeeper_only? = storekeeper_only_import?(conn.assigns.auth_context)
+    {conn, scope} = import_scope(conn, entity_type)
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> managed_import(conn, entity_type, scope)
@@ -91,6 +91,14 @@ defmodule Letflow.Routers.Entities.RecordImport do
       access -> import_records_with_access(conn, entity_type, access, scope, nil)
     end
   end
+
+  # D-093 / decision 0081 D4: STOREKEEPER's import covers `stock_opening_line` only, so its (tenant-wide)
+  # grant must not widen another role's scoped import of any other type through the union of roles.
+  defp import_scope(conn, "stock_opening_line"),
+    do: ScopeGate.scope_set(conn, :EntitiesRecordsImport)
+
+  defp import_scope(conn, _entity_type),
+    do: ScopeGate.scope_set_without_role(conn, :EntitiesRecordsImport, :STOREKEEPER)
 
   # True when no held role other than STOREKEEPER allows the import permission.
   defp storekeeper_only_import?(auth_context) do
