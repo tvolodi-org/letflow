@@ -17,7 +17,7 @@ export const DOCUMENT_TYPES = [
 ] as const
 
 /** Master entity types read for names. */
-export type MasterType = 'catalog_item' | 'location_node' | 'org_unit' | 'org_employee' | 'catalog_lot' | 'catalog_uom'
+export type MasterType = 'catalog_item' | 'location_node' | 'org_unit' | 'org_employee' | 'catalog_lot' | 'catalog_uom' | 'catalog_counterparty'
 
 export interface BalanceFilters {
   sku: string
@@ -127,4 +127,5 @@ export const LABEL_FIELD: Record<MasterType, string> = {
   org_employee: 'full_name',
   catalog_lot: 'code',
   catalog_uom: 'name',
+  catalog_counterparty: 'name',
 }
