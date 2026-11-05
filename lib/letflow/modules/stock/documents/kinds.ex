@@ -169,6 +169,15 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
   @spec definition_names() :: [String.t()]
   def definition_names, do: Enum.map(@table, & &1.definition)
 
+  @withdrawable ~w(issue write_off transfer hand_over return)
+
+  @doc """
+  True for the kinds whose posting the ledger can refuse for stock (negative or zero-sum legs): an
+  issued, unposted document of such a kind may be cancelled while its `post` task is pending (T-1375).
+  """
+  @spec withdrawable?(term()) :: boolean()
+  def withdrawable?(kind), do: kind in @withdrawable
+
   @doc "The spec of `kind`, or `nil`."
   @spec get(term()) :: spec() | nil
   def get(kind), do: Enum.find(@table, &(&1.kind == kind))
