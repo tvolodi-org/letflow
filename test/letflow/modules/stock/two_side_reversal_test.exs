@@ -4,12 +4,12 @@ defmodule Letflow.Modules.Stock.TwoSideReversalTest do
   @moduledoc """
   REQ-721 / GH #3770 criterion 6: reversal and cancel of transfer, hand over and return restore both
   sides, and a reversal after the to side's quantity left is refused by the ledger. Committed tenant,
-  Sandbox `:auto`, `async: false`. Tests: REV-1..4. The issue-document variant of REV-4 (REQ-715)
-  is deferred: REQ-715 is not on main; a second transfer drains the to side instead.
+  Sandbox `:auto`, `async: false`. Tests: REV-1..5. REV-4 drains the to side with a second transfer, REV-5 with an issue document (REQ-715).
   """
 
   use Letflow.DataCase, async: false
 
+  alias Letflow.StockDocsFixture, as: D
   alias Letflow.StockPostingFixture, as: P
   alias Letflow.StockTwoSideFixture, as: T
 
@@ -70,5 +70,39 @@ defmodule Letflow.Modules.Stock.TwoSideReversalTest do
     assert P.pending_task(ctx, first["id"], "reverse").id == task.id
     assert P.get!(ctx, first["id"])["state"] == "posted"
     assert qty(ctx, a) == "10"
+  end
+
+  test "REV-5 the to side issued out by an issue document: the reversal is refused", ctx do
+    a = ctx.ma
+    b = ctx.m2
+    T.receive!(ctx, a, "10")
+    first = T.issue!(ctx, body(ctx, "transfer", a, b, "4"))
+    P.post_and_complete!(ctx, first["id"])
+
+    out =
+      b
+      |> Map.put(:item, a.item)
+      |> Map.put(:uom, a.uom)
+      |> D.body(nil, %{
+        "kind" => "issue",
+        "org_unit_id" => b.unit,
+        "location_id" => b.location,
+        "responsible_id" => b.employee,
+        "lines" => T.plain(a, "4")
+      })
+      |> Map.delete("counterparty_id")
+
+    issued = P.issue!(ctx, out)
+    P.post_and_complete!(ctx, issued["id"])
+    assert qty(ctx, b) == "0"
+
+    reverse(ctx, first["id"]) |> P.status!(200)
+    task = P.pending_task(ctx, first["id"], "reverse")
+    assert {:error, _} = P.complete(ctx, task)
+
+    assert P.counts(ctx, first["id"]) == %{entries: %{"transfer" => 1}, marks: 1}
+    assert P.pending_task(ctx, first["id"], "reverse").id == task.id
+    assert P.get!(ctx, first["id"])["state"] == "posted"
+    assert qty(ctx, a) == "6"
   end
 end
