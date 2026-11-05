@@ -1564,7 +1564,7 @@
     },
     {
       "definition_json": {
-        "description": "REQ-701 / GH #3736. One entry of the append-only log of a count order: who typed which quantity on which sheet line and when. entry_no is 1..n per order (a total order for the log and its cursor). No function of module stock updates or deletes an entry. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column (decision 0076 R7). method is typed now; the scanner value comes with REQ-720.",
+        "description": "REQ-701 / GH #3736. One entry of the append-only log of a count order: who typed which quantity on which sheet line and when. entry_no is 1..n per order (a total order for the log and its cursor). No function of module stock updates or deletes an entry. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column (decision 0076 R7). method is typed now; scan is the keyboard scanner (REQ-716): scan_id (one per scan, counted once per order), code_id, scanned_text and location_id are set only for it.",
         "display_name": "Count entry",
         "fields": [
           {
@@ -1592,7 +1592,8 @@
           },
           {
             "enum_values": [
-              "typed"
+              "typed",
+              "scan"
             ],
             "name": "method",
             "required": true,
@@ -1626,6 +1627,23 @@
             "name": "entered_at",
             "required": true,
             "type": "datetime"
+          },
+          {
+            "name": "scan_id",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "code_id",
+            "type": "string"
+          },
+          {
+            "name": "scanned_text",
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "type": "string"
           }
         ],
         "foreign_keys": [
@@ -1642,13 +1660,20 @@
               "entry_no"
             ],
             "name": "idx_count_entry_order_entry"
+          },
+          {
+            "fields": [
+              "count_order_id",
+              "scan_id"
+            ],
+            "name": "idx_count_entry_order_scan"
           }
         ],
         "name": "count_entry"
       },
       "display_name": "Count entry",
       "entity_definition_id": "14b35543-6cb6-524e-1f4d-f90a3a120bf5",
-      "logical_shape_version": "c5c9f7a071d20a9bdec8e58cec123fc2a0e6d1d4e7597cc6b3c8dcc6485a86e8",
+      "logical_shape_version": "024dc352f48866b3d059f80b6f31ce75fba742e0df640f4ba0ca58a8c47d1f5c",
       "name": "count_entry"
     },
     {

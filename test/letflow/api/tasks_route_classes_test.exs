@@ -106,8 +106,8 @@ defmodule Letflow.Api.TasksRouteClassesTest do
       # GH #3162 (REQ-544 part 2) added the five procurement lines; with #3324 part B (grade POST) 149.
       # REQ-633 (GH #3530) added the entity-type-hooks dry-run line (160).
       # GH #3610 (REQ-668) added the three catalog_items lot lines and GH #3611 (REQ-667) the five codes write lines (183 -> 191).
-      # REQ-717 (GH #3764) added five count differences lines (222 -> 228).
-      assert length(snapshot) == 228
+      # REQ-717 (GH #3764) added five count differences lines (222 -> 228); REQ-716 the count scan line (228 -> 229).
+      assert length(snapshot) == 229
 
       for line <- @filter_lines ++ @resolver_lines do
         refute line in snapshot, line

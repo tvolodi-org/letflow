@@ -230,6 +230,7 @@ defmodule Letflow.Modules.Stock.Counts do
   defdelegate open(prefix, id, opts), to: CountSheet
   defdelegate record_count(prefix, id, line_no, quantity, opts), to: CountSheet
   defdelegate add_surplus_line(prefix, id, input, opts), to: CountSheet
+  defdelegate scan(prefix, id, input, opts), to: CountSheet
   defdelegate close_counting(prefix, id, opts), to: CountSheet
   defdelegate lines(prefix, id, params, opts), to: CountSheet
   defdelegate entries(prefix, id, params, opts), to: CountSheet
