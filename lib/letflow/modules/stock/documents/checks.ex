@@ -115,6 +115,8 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
     end
   end
 
+  defp side(_prefix, nil, _name), do: :ok
+
   defp side(prefix, side, name) do
     with :ok <-
            check(Locations.linked?(prefix, side.org_unit, side.location), "not_linked", name),

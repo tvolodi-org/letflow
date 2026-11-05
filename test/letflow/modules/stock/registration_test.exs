@@ -53,6 +53,10 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert m.manages_entity_types == [
              "stock_receipt",
              "stock_receipt_line",
+             "stock_issue",
+             "stock_issue_line",
+             "stock_writeoff",
+             "stock_writeoff_line",
              "stock_transfer",
              "stock_transfer_line",
              "stock_handover",
@@ -86,6 +90,10 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert m.scope_declarations == %{
              "stock_receipt" => {:column, "org_unit_id"},
              "stock_receipt_line" => {:column, "org_unit_id"},
+             "stock_issue" => {:column, "org_unit_id"},
+             "stock_issue_line" => {:column, "org_unit_id"},
+             "stock_writeoff" => {:column, "org_unit_id"},
+             "stock_writeoff_line" => {:column, "org_unit_id"},
              "stock_transfer" => {:column, "org_unit_id"},
              "stock_transfer_line" => {:column, "org_unit_id"},
              "stock_handover" => {:column, "org_unit_id"},

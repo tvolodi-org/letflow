@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
   alias Letflow.Entities.Definition.Shape
 
   @dir Path.join([File.cwd!(), "priv", "modules", "stock"])
-  @types ~w(stock_receipt stock_receipt_line stock_opening stock_opening_line stock_transfer stock_transfer_line stock_handover stock_handover_line stock_return stock_return_line count_order count_order_scope count_commission_member count_sheet_line count_entry count_signature stock_posting_mark)
+  @types ~w(stock_receipt stock_receipt_line stock_opening stock_opening_line stock_issue stock_issue_line stock_writeoff stock_writeoff_line stock_transfer stock_transfer_line stock_handover stock_handover_line stock_return stock_return_line count_order count_order_scope count_commission_member count_sheet_line count_entry count_signature stock_posting_mark)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 
@@ -66,7 +66,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
 
   defp atom_keys(map), do: Map.new(map, fn {k, v} -> {String.to_existing_atom(k), v} end)
 
-  test "P-01: the pack holds exactly the fourteen entity definitions, in the source set, and nothing else" do
+  test "P-01: the pack holds exactly the eighteen entity definitions, in the source set, and nothing else" do
     document = pack()
 
     assert document["pack_id"] == "letflow-stock"
@@ -75,7 +75,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
              Enum.sort(@types)
 
     assert document["definitions"] |> Enum.map(& &1["process_key"]) |> Enum.sort() ==
-             ~w(stock_handover stock_opening stock_receipt stock_return stock_reversal stock_transfer)
+             ~w(stock_handover stock_issue stock_opening stock_receipt stock_return stock_reversal stock_transfer stock_writeoff)
 
     assert document["variable_schemas"] == []
     assert document["service_catalog_entries"] == []

@@ -17,6 +17,10 @@ entity_types = ~w(
   stock_receipt_line
   stock_opening
   stock_opening_line
+  stock_issue
+  stock_issue_line
+  stock_writeoff
+  stock_writeoff_line
   stock_transfer
   stock_transfer_line
   stock_handover
@@ -275,6 +279,20 @@ process_definitions = [
   process_definition.(
     "00501000-0000-0040-0080-000000003748",
     "stock_receipt",
+    "post",
+    "post_document",
+    base_args
+  ),
+  process_definition.(
+    "00501000-0000-0040-0080-000000003746",
+    "stock_issue",
+    "post",
+    "post_document",
+    base_args
+  ),
+  process_definition.(
+    "00501000-0000-0040-0080-000000071501",
+    "stock_writeoff",
     "post",
     "post_document",
     base_args
