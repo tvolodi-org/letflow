@@ -495,16 +495,14 @@ jobs:
           MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
           PUSH_BEFORE: ${{ github.event.before }}
           PUSH_AFTER: ${{ github.sha }}
-          KILL: ${{ vars.CI_SELECTIVE }}
+          # T-1311: a pull request from a branch `selective-probe/*` ignores the kill switch (probe PR).
+          KILL: ${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'selective-probe/')) && '' || vars.CI_SELECTIVE }}
           FORCE_FULL: ${{ steps.redguard.outputs.force_full }}
           DOCS_ONLY: ${{ steps.docs.outputs.docs_only }}
         run: |
           set -uo pipefail
           emit() { # mode reason skip plan
-            echo "mode=$1" >> "$GITHUB_OUTPUT"
-            echo "reason=$2" >> "$GITHUB_OUTPUT"
-            echo "skip_shards=$3" >> "$GITHUB_OUTPUT"
-            { echo "plan<<PLAN_EOF"; printf '%s' "$4"; echo "PLAN_EOF"; } >> "$GITHUB_OUTPUT"
+            bash scripts/ci_emit_outputs.sh "$1" "$2" "$3" "$4"
             echo "### Backend tests: $1" >> "$GITHUB_STEP_SUMMARY"
             echo "$2" >> "$GITHUB_STEP_SUMMARY"
             echo "Changed files: ${nfiles:-unknown}" >> "$GITHUB_STEP_SUMMARY"
