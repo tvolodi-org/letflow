@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.2.0"
+    assert m.version == "0.3.0"
     assert m.depends_on == ["locations", "org"]
     assert m.pack == "modules/assets/pack.json"
     assert m.permissions == [:AssetsCardWrite]
@@ -39,7 +39,12 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     assert m.settings_schema == %{
              "type" => "object",
              "properties" => %{
-               "currency" => %{"type" => "string", "minLength" => 3, "maxLength" => 3}
+               "currency" => %{"type" => "string", "minLength" => 3, "maxLength" => 3},
+               "expiry_reminder_lead_days" => %{
+                 "type" => "integer",
+                 "minimum" => 1,
+                 "maximum" => 3650
+               }
              },
              "additionalProperties" => false
            }

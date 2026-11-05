@@ -253,6 +253,15 @@ One shape, built later by the implementing requirement:
   renewed expiry date needs a second reminder key. The choice of that key is an **open design question for the
   implementing requirement**.
 
+**Built by C12** (`Letflow.Modules.Assets.Reminders`): the lead time is the module setting
+`expiry_reminder_lead_days` (1..3650, no default; absent means no reminder); the flag is
+`:asset_notifications_enabled` (default off); the `trigger_ref` is a UUID derived from the card id and its
+`valid_until`, so a renewed date sends again; the call is the synchronous `Notifications.deliver/6` (the async
+`start_delivery/5` could double send between ticks). The material responsible employee is read through
+`Letflow.Modules.Assets.Responsible.employee_id/2`, which answers none until the asset register (C8, C10)
+exists: nothing is sent in production until that function is wired, and the "positive balance" condition
+moves there too.
+
 ## 10. Open owner questions
 
 Each has a source and no answer of its own here.
