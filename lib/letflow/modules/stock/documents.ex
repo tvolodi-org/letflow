@@ -138,6 +138,114 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
+  @opening_line_fields [
+    {"location_id", :location_id},
+    {"responsible_id", :responsible_id},
+    {"catalog_item_id", :catalog_item_id},
+    {"catalog_uom_id", :catalog_uom_id},
+    {"catalog_lot_id", :catalog_lot_id},
+    {"quantity", :quantity},
+    {"received_on", :received_on},
+    {"unit_price", :unit_price},
+    {"line_value", :line_value},
+    {"external_ref_system", :external_ref_system},
+    {"external_ref_id", :external_ref_id}
+  ]
+
+  @doc """
+  REQ-727 / GH #3773: creates or replaces ONE line of the draft opening document `document_id` (the xlsx
+  import path). `line` is a parsed line (string keys, `OpeningShape.parse/2` output; its `line_no` is
+  ignored). The line is found by its `external_ref_system` / `external_ref_id` pair within the document:
+  none is a new line with the next `line_no`, one whose stored values equal `line` writes nothing.
+  Under the document row lock, with the draft re-read; the versioned draft content is rebuilt from
+  the header and all lines (the content a PUT would store). Returns
+  `{:ok, {line_id, :created | :updated | :unchanged}}`, `{:error, :document_not_draft | :lines_count |
+  :not_found | :busy | :internal}`.
+  """
+  @spec upsert_opening_line(String.t(), String.t(), map(), String.t()) ::
+          {:ok, {String.t(), :created | :updated | :unchanged}} | {:error, term()}
+  def upsert_opening_line(prefix, document_id, line, actor) when is_binary(prefix) do
+    tx(prefix, fn ->
+      lock!(prefix, document_id)
+      locked = fetch!(prefix, document_id)
+      if locked.kind != "opening", do: Repo.rollback(:not_found)
+      if locked.state != "draft", do: Repo.rollback(:document_not_draft)
+
+      spec = Kinds.get("opening")
+      pair = {line["external_ref_system"], line["external_ref_id"]}
+      existing = Enum.find(locked.lines, &({&1.external_ref_system, &1.external_ref_id} == pair))
+
+      case existing do
+        nil -> create_opening_line!(prefix, spec, locked, line, actor)
+        old -> update_opening_line!(prefix, spec, locked, old, line, actor)
+      end
+    end)
+  end
+
+  defp create_opening_line!(prefix, spec, locked, line, actor) do
+    if length(locked.lines) >= Shape.max_lines(), do: Repo.rollback(:lines_count)
+
+    new = Map.put(line, "line_no", length(locked.lines) + 1)
+    line_id = create_line!(prefix, spec, locked.header_id, locked.org_unit_id, new, actor)
+
+    refresh_opening_content!(
+      prefix,
+      locked,
+      Enum.map(locked.lines, &stored_line/1) ++ [new],
+      actor
+    )
+
+    {line_id, :created}
+  end
+
+  defp update_opening_line!(prefix, spec, locked, old, line, actor) do
+    new = Map.put(line, "line_no", old.line_no)
+
+    if stored_line(old) == new do
+      {old.line_id, :unchanged}
+    else
+      update_line!(prefix, spec, old.line_id, locked.header_id, locked.org_unit_id, new, actor)
+
+      lines =
+        Enum.map(locked.lines, fn l ->
+          if l.line_id == old.line_id, do: new, else: stored_line(l)
+        end)
+
+      refresh_opening_content!(prefix, locked, lines, actor)
+      {old.line_id, :updated}
+    end
+  end
+
+  # The stored line as the shape check returns it (string keys, absent optional keys dropped).
+  defp stored_line(view) do
+    base = Map.new(@opening_line_fields, fn {key, atom} -> {key, Map.get(view, atom)} end)
+    base |> Map.put("line_no", view.line_no) |> Map.reject(fn {_k, v} -> is_nil(v) end)
+  end
+
+  defp refresh_opening_content!(prefix, locked, lines, actor) do
+    header =
+      %{
+        "kind" => "opening",
+        "org_unit_id" => locked.org_unit_id,
+        "note" => locked.note,
+        "external_ref_system" => locked.external_ref_system,
+        "external_ref_id" => locked.external_ref_id,
+        "lines" => Enum.map(lines, &Map.delete(&1, "line_no"))
+      }
+      |> Map.reject(fn {_k, v} -> is_nil(v) end)
+
+    case Kinds.parse(header, {:replace, "opening"}) do
+      {:ok, doc} ->
+        case Documents.edit_draft(prefix, locked.id, content(doc), actor) do
+          {:ok, _version} -> :ok
+          {:error, reason} -> Repo.rollback(draft_error(reason))
+        end
+
+      {:error, reason} ->
+        Repo.rollback(log_internal(reason))
+    end
+  end
+
   @doc "Discards draft `id`: the versioned draft is discarded, the header and lines are soft-deleted."
   @spec discard(String.t(), term(), String.t()) :: :ok | {:error, term()}
   def discard(prefix, id, actor) when is_binary(prefix) do

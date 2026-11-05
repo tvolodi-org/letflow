@@ -224,6 +224,9 @@ fi
 FIRST=$((OFFSET + 1))
 LAST=$((OFFSET + N))
 slice_suffix=""
+# Partitions this run launches (and so must report a Result: line). Equals N unless a selective plan
+# (TEST_PARALLEL_PLAN) lowers LAST below OFFSET+N; full mode always checks all N.
+expected_reports="$N"
 if [ "$TOTAL" -ne "$N" ] || [ "$OFFSET" -ne 0 ]; then
   slice_suffix=" (slice $FIRST..$LAST of $TOTAL)"
   echo "test_parallel: slice $FIRST..$LAST of $TOTAL (TOTAL=$TOTAL OFFSET=$OFFSET)"
@@ -324,6 +327,8 @@ if [ -n "$plan_path" ]; then
     exit 2
   fi
   LAST="$plan_last"
+  expected_reports=$((LAST - FIRST + 1))
+  # T-1318: the plan lowered LAST, so only FIRST..LAST partitions are launched and can report.
   echo "test_parallel: selective plan $plan_path: partitions $FIRST..$LAST, $(printf '%s\n' "$manifest_effective" | grep -c .) test file(s)"
 fi
 
@@ -1329,13 +1334,13 @@ total_all=$((total_properties + total_tests))
 # Printed BEFORE the combined summary line below, so this is the first
 # thing visible, not something a reader has to scroll up past a
 # misleadingly-clean-looking totals line to find.
-if [ "$reporting_count" -ne "$N" ]; then
-  echo "test_parallel: ERROR only $reporting_count/$N partitions reported a Result: line -- missing (never reported) partition(s): ${missing_partition_indices[*]}" >&2
+if [ "$reporting_count" -ne "$expected_reports" ]; then
+  echo "test_parallel: ERROR only $reporting_count/$expected_reports partitions reported a Result: line -- missing (never reported) partition(s): ${missing_partition_indices[*]}" >&2
   any_failed=1
 fi
 
 echo "---"
-echo "combined: $total_tests tests, $total_properties properties, $total_failures failures ($total_passed/$total_all passed) -- $reporting_count/$N partitions reported${slice_suffix}"
+echo "combined: $total_tests tests, $total_properties properties, $total_failures failures ($total_passed/$total_all passed) -- $reporting_count/$expected_reports partitions reported${slice_suffix}"
 
 # --- Step 5: exit-code contract (AC3) --------------------------------------
 #
