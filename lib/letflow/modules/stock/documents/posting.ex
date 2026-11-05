@@ -275,9 +275,16 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
          "client_seq" => seq,
          "client_event_time" => Map.get(header, "event_time"),
          "lines" => built
-       }}
+       }
+       |> with_reason(spec, header)}
     end
   end
+
+  # A write-off carries its reason code (the ledger cause demands one); other kinds carry none.
+  defp with_reason(command, %{kind: "write_off"}, header),
+    do: Map.put(command, "reason_code", Map.get(header, "reason_code"))
+
+  defp with_reason(command, _spec, _header), do: command
 
   defp client_seq(period, number) when is_binary(period) and is_integer(number) do
     with {year, ""} <- Integer.parse(period),
@@ -309,10 +316,10 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
       "sku" => Map.get(line, "catalog_item_id"),
       "lot" => Map.get(line, "catalog_lot_id"),
       "unit" => Map.get(line, "catalog_uom_id"),
-      "quantity" => Map.get(line, "quantity"),
-      "to" => side_map(to)
+      "quantity" => Map.get(line, "quantity")
     }
 
+    base = if to, do: Map.put(base, "to", side_map(to)), else: base
     if from, do: Map.put(base, "from", side_map(from)), else: base
   end
 
@@ -690,9 +697,11 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
           quantity = Map.get(line, "quantity")
           leg = &leg_key(line, &1, &2)
 
-          if from,
-            do: [leg.(from, negate(quantity)), leg.(to, quantity)],
-            else: [leg.(to, quantity)]
+          cond do
+            from && to -> [leg.(from, negate(quantity)), leg.(to, quantity)]
+            from -> [leg.(from, negate(quantity))]
+            true -> [leg.(to, quantity)]
+          end
         end)
         |> Enum.sort()
 
