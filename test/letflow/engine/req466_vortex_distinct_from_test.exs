@@ -9,7 +9,7 @@ defmodule Letflow.Engine.Req466VortexDistinctFromTest do
       node it names, so the shipped-definition guard (same-role pairs) stays unchanged.
 
   Refusals are asserted on the HTTP surface (`Letflow.Routers.Tasks.call/2`): 403
-  `application/problem+json` with the body exactly `{"detail":"separation of duties","status":403}`,
+  `application/problem+json` with the body exactly `Response.separation_of_duties_body/0` (detail, reason, status, title, type),
   the task still open, and every instance row byte-for-byte unchanged. Accepted completions are
   200. Real Postgres: tenant, users and role groups from `Letflow.SodSupport`; instance start,
   service-task outcomes and the escalation timer (no wall clock) from `Letflow.Req462Adoption`.
@@ -33,7 +33,7 @@ defmodule Letflow.Engine.Req466VortexDistinctFromTest do
   alias Letflow.SodSupport, as: S
 
   @opts Letflow.Routers.Tasks.init([])
-  @sod_body ~s({"detail":"separation of duties","status":403})
+  @sod_body Letflow.Api.Response.separation_of_duties_body()
   @fixture Path.expand(
              "../../fixtures/qa/vortex_production_order_release_process_definition.json",
              __DIR__
