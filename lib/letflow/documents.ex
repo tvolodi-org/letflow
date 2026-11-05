@@ -1010,6 +1010,13 @@ defmodule Letflow.Documents do
   defp version_no(n) when is_integer(n) and n > 0, do: {:ok, n}
   defp version_no(_other), do: {:error, :not_found}
 
+  @doc """
+  The cancel reason rule on its own (trimmed non-empty text, at most #{@reason_max} characters), so a
+  caller can refuse a bad request before it changes anything.
+  """
+  @spec validate_cancel_reason(term()) :: {:ok, String.t()} | {:error, {:unprocessable, atom()}}
+  def validate_cancel_reason(reason), do: cancel_reason(reason)
+
   defp cancel_reason(reason) when is_binary(reason) do
     cond do
       String.trim(reason) == "" -> {:error, {:unprocessable, :reason_required}}

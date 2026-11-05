@@ -94,7 +94,8 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
   end
 
   # The version the summary named, so label, version number and content cannot disagree.
-  defp version(prefix, doc_id, version_no) do
+  @doc false
+  def version(prefix, doc_id, version_no) do
     with {:ok, id} <- Ecto.UUID.cast(doc_id) do
       Repo.one(
         from(v in DocumentVersion,
@@ -215,7 +216,8 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
 
   # -- time zone ------------------------------------------------------------------------------
 
-  defp zone(tenant_id) do
+  @doc false
+  def zone(tenant_id) do
     with {:ok, tenant} <- Identity.get_tenant(tenant_id),
          name = TenantTimezone.of(tenant),
          true <- TenantTimezone.known_zone?(name) do
@@ -237,7 +239,8 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
     end
   end
 
-  defp offset(zone, value) do
+  @doc false
+  def offset(zone, value) do
     with {:ok, at} <- instant(value),
          {:ok, %{rows: [[seconds]]}} when is_integer(seconds) <-
            Repo.query(
