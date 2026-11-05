@@ -142,7 +142,7 @@ export function nowZonedLocal(tz: string = STOCK_TIME_ZONE): string {
 
 export function formatEventTime(iso: string | null | undefined, locale: string, dash: string, tz: string = STOCK_TIME_ZONE): string {
   if (!iso) return dash
-  return formatDateTimeInZone(iso, { timeZone: tz, locale, intlLocale: locale, enStyle: 'intl' })
+  return formatDateTimeInZone(iso, { timeZone: tz, locale })
 }
 
 // ---- actions -----------------------------------------------------------------------------------------------

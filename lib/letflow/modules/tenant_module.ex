@@ -37,6 +37,10 @@ defmodule Letflow.Modules.TenantModule do
 
     # REQ-578, decision 0066 D2: soft uninstall keeps the row. Written only by `status_changeset/2`.
     field(:status, Ecto.Enum, values: [:active, :uninstalled], default: :active)
+
+    # REQ-769: earlier manifest hashes whose owner stamps stay valid after an upgrade. Cast by NO
+    # changeset here; the upgrade apply (REQ-770) is its only future writer.
+    field(:accepted_manifest_hashes, {:array, :string}, default: [])
   end
 
   @type t :: %__MODULE__{
@@ -46,7 +50,8 @@ defmodule Letflow.Modules.TenantModule do
           installed_at: DateTime.t(),
           settings: map(),
           manifest_hash: String.t() | nil,
-          status: :active | :uninstalled
+          status: :active | :uninstalled,
+          accepted_manifest_hashes: [String.t()]
         }
 
   @doc """

@@ -318,7 +318,7 @@ defmodule Letflow.Modules.Stock.RouterTest do
       row = hd(body["rows"])
 
       assert row |> Map.keys() |> Enum.sort() ==
-               ~w(cause correlation_id document_id document_type entry_id event_time legs posting_seq posting_time reason_code related_document_id reverses_entry_id)
+               ~w(cause correlation_id document_id document_number document_type entry_id event_time legs posting_seq posting_time reason_code related_document_id reverses_entry_id)
 
       leg = hd(row["legs"])
 

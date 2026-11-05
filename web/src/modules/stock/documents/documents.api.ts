@@ -64,8 +64,10 @@ export interface StockDocument {
   lines: DocumentLine[]
   posted_at?: string | null
   posted_by?: string | null
+  posted_by_label?: string | null
   reversed_at?: string | null
   reversed_by?: string | null
+  reversed_by_label?: string | null
   posting_check?: string | null
 }
 export interface CheckResult {

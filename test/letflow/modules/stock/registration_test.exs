@@ -238,7 +238,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 28
+    assert length(files) == 30
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
@@ -250,9 +250,10 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # REQ-719: count_paperwork_source.ex reads issued versions and one offset statement (own tables only).
     # REQ-736: count_print.ex is pure (no Repo, no query); it is only counted here.
     # REQ-700: counts.ex reads and writes the count record types (Repo, Ecto.Query), never a ledger table.
+    # GH 3735 R7: document_numbers.ex reads the core document and type rows (own tables) for the movement number.
     own_tables = fn path ->
       path =~
-        ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex|count_differences\.ex|count_paperwork_source\.ex)}
+        ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex|count_differences\.ex|count_paperwork_source\.ex|document_numbers\.ex)}
     end
 
     for {path, source} <- sources,

@@ -57,6 +57,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   alias Letflow.Entities.Record.Latest
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Ledger
+  alias Letflow.Modules.Stock.ActorLabel
   alias Letflow.Modules.Stock.Documents.OpeningPosting
   alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Repo
@@ -689,8 +690,8 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   # -- read side ----------------------------------------------------------------------------------
 
   @doc """
-  The posting fields of one document view: `posted_at, posted_by, entry_id, reversed_at,
-  reversed_by, posting_check`, and the derived `state` for a live version status. `authorized` is
+  The posting fields of one document view: `posted_at, posted_by, posted_by_label, entry_id,
+  reversed_at, reversed_by, reversed_by_label, posting_check` (the `*_label` fields are display-only names, `ActorLabel`), and the derived `state` for a live version status. `authorized` is
   the caller's ledger read authorization (or `nil`: `posting_check` is then `nil`).
   """
   @spec state_fields(String.t(), map(), term()) :: map()
@@ -700,14 +701,18 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     rows = if authorized, do: entries(authorized, base.id), else: :error
     kind = Kinds.get(base.kind)
     receipt = receipt_row(rows, kind.cause)
+    posted_by = if(marks["posted"], do: completer(prefix, base.id, kind.completion_node))
+    reversed_by = if(marks["reversed"], do: completer(prefix, base.id, "reverse"))
 
     %{
       state: state,
       posted_at: marks |> Map.get("posted") |> mark_at(),
-      posted_by: if(marks["posted"], do: completer(prefix, base.id, kind.completion_node)),
+      posted_by: posted_by,
+      posted_by_label: ActorLabel.label(prefix, posted_by),
       entry_id: receipt && receipt.entry_id,
       reversed_at: marks |> Map.get("reversed") |> mark_at(),
-      reversed_by: if(marks["reversed"], do: completer(prefix, base.id, "reverse")),
+      reversed_by: reversed_by,
+      reversed_by_label: ActorLabel.label(prefix, reversed_by),
       posting_check: posting_check(base, state, marks, rows, prefix, kind)
     }
   end

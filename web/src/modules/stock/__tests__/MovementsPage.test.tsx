@@ -78,7 +78,7 @@ describe('M3 rows and legs', () => {
     const row = (await screen.findByText('17')).closest('tr')!
     expect(within(row).getAllByText('Transfer')).toHaveLength(2)
     expect(row).toHaveTextContent('wrong_quantity')
-    expect(row).toHaveTextContent('11/04/2026, 23:00:00')
+    expect(row).toHaveTextContent('Nov 4, 2026 23:00')
     fireEvent.click(within(row).getByRole('button', { name: 'Show legs' }))
     const legs = await screen.findAllByTestId('leg-row')
     expect(legs).toHaveLength(2)
@@ -88,6 +88,41 @@ describe('M3 rows and legs', () => {
     expect(legs[0]).toHaveTextContent('pcs')
     expect(legs[0]).toHaveTextContent('-5')
     expect(legs[1]).toHaveTextContent('5')
+  })
+})
+
+describe('M-2 document number and kind', () => {
+  it('shows "number - kind" as a link to the document; no number keeps the kind only', async () => {
+    clientMock.get.mockResolvedValue({
+      next_cursor: null,
+      rows: [
+        { ...ENTRY, document_type: 'stock_receipt', document_id: 'd1', document_number: 'RCP-2026-000001' },
+        { ...ENTRY, entry_id: 'en2', posting_seq: 18, document_type: 'stock_receipt', document_id: 'doc-1', document_number: null },
+      ],
+    })
+    renderStock(MOV)
+    const link = await screen.findByTestId('movement-doc-link')
+    expect(link).toHaveTextContent('RCP-2026-000001 - Receipt')
+    expect(link).toHaveAttribute('href', '/admin/stock/documents/d1')
+    const plain = (await screen.findByText('18')).closest('tr')!
+    expect(plain).toHaveTextContent('Receipt')
+    expect(within(plain).queryByTestId('movement-doc-link')).not.toBeInTheDocument()
+    expect(plain).not.toHaveTextContent('doc-1')
+  })
+
+  it('Q-2: a leg quantity shows at most 3 decimals, trailing zeros trimmed', async () => {
+    clientMock.get.mockResolvedValue({
+      next_cursor: null,
+      rows: [{ ...ENTRY, legs: [{ ...LEG, leg_no: 1, quantity: '40.000000000' }, { ...LEG, leg_no: 2, quantity: '-12.500000000' }] }],
+    })
+    renderStock(MOV)
+    const row = (await screen.findByText('17')).closest('tr')!
+    fireEvent.click(within(row).getByRole('button', { name: 'Show legs' }))
+    const legs = await screen.findAllByTestId('leg-row')
+    expect(legs[0]).toHaveTextContent(/pcs40$/)
+    expect(legs[0]).not.toHaveTextContent('40.0')
+    expect(legs[1]).toHaveTextContent('-12.5')
+    expect(legs[1]).not.toHaveTextContent('12.50')
   })
 })
 
@@ -159,7 +194,7 @@ describe('M6 REQ-718 the count_difference cause', () => {
 describe('R1 date format per language (T-1381, real row shape)', () => {
   afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
   // event_time 2026-11-04T18:00:00Z is 23:00 on the same day in Asia/Almaty (UTC+5).
-  const EXPECTED = { en: '11/04/2026, 23:00:00', ru: '04-11-2026 23:00:00', kk: '04-11-2026 23:00:00' } as const
+  const EXPECTED = { en: 'Nov 4, 2026 23:00', ru: '04-11-2026 23:00', kk: '04-11-2026 23:00' } as const
   for (const lang of ['en', 'ru', 'kk'] as const) {
     it(`${lang}: the time cell reads ${EXPECTED[lang]}`, async () => {
       useUiLocaleStore.getState().setLocaleTransient(lang)

@@ -48,6 +48,7 @@ defmodule Letflow.Modules.Stock.CountSheet do
   alias Letflow.Modules.Locations.Tree
   alias Letflow.Modules.Org
   alias Letflow.Modules.ReadApi
+  alias Letflow.Modules.Stock.ActorLabel
   alias Letflow.Modules.Stock.Counts
   alias Letflow.Modules.Stock.Views
   alias Letflow.Repo
@@ -811,17 +812,26 @@ defmodule Letflow.Modules.Stock.CountSheet do
 
     with {:ok, header} <- fetch(prefix, id, scope),
          {:ok, limit, after_n} <- read_params(params) do
-      {:ok,
-       page_of(
-         prefix,
-         "count_entry",
-         "entry_no",
-         header["record_id"],
-         limit,
-         after_n,
-         &entry_view/1
-       )}
+      page =
+        page_of(
+          prefix,
+          "count_entry",
+          "entry_no",
+          header["record_id"],
+          limit,
+          after_n,
+          &entry_view/1
+        )
+
+      {:ok, label_entries(prefix, page)}
     end
+  end
+
+  # R7: `entered_by_label` (display only, additive) once per distinct user id on the page.
+  defp label_entries(prefix, %{rows: rows} = page) do
+    labels = ActorLabel.labels(prefix, Enum.map(rows, & &1["entered_by"]))
+
+    %{page | rows: Enum.map(rows, &Map.put(&1, "entered_by_label", labels[&1["entered_by"]]))}
   end
 
   @doc "The issued `count.sheet` summary (number, version, time, hash; no content bytes)."

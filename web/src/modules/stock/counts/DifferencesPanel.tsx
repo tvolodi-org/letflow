@@ -22,6 +22,7 @@ import { countsQueryKeys } from './countsQueryKeys'
 import { canIssueDifferences, canSignDifferences, canSignSheet, formatInZone, reasonMessageId, requiredSigners } from './countsModel'
 import { SignersDialog } from './SignersDialog'
 import { useCountsWrite } from './useCountsWrite'
+import { formatQuantity } from '@/lib/formatQuantity'
 
 type Dlg = 'sheet' | 'differences' | null
 
@@ -52,9 +53,9 @@ function Differences({ orderId }: { orderId: string }) {
     { key: 'lot', label: t('counts.col.lot'), render: (r) => name('catalog_lot', r.catalog_lot_id) || dash },
     { key: 'responsible', label: t('counts.col.responsible'), render: (r) => name('org_employee', r.responsible_employee_id) || dash },
     { key: 'unit', label: t('counts.col.unit'), render: (r) => name('catalog_uom', r.unit_ref) },
-    { key: 'book', label: t('counts.col.book'), render: (r) => r.book_quantity, mono: true, align: 'end' },
-    { key: 'counted', label: t('counts.col.counted'), render: (r) => r.counted_quantity, mono: true, align: 'end' },
-    { key: 'difference', label: t('counts.differences.difference'), render: (r) => r.difference, mono: true, align: 'end' },
+    { key: 'book', label: t('counts.col.book'), render: (r) => formatQuantity(r.book_quantity), mono: true, align: 'end' },
+    { key: 'counted', label: t('counts.col.counted'), render: (r) => formatQuantity(r.counted_quantity), mono: true, align: 'end' },
+    { key: 'difference', label: t('counts.differences.difference'), render: (r) => formatQuantity(r.difference), mono: true, align: 'end' },
     {
       key: 'direction',
       label: t('counts.differences.direction'),
