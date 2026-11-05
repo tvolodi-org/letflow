@@ -76,6 +76,11 @@ form's "price" and "value" is the proposal above, a UAT assumption (section 7).
 
 ## 3. The asset list as one saved report
 
+> **Built (plan key E2b):** install of module `assets` creates this report (`Letflow.Modules.Assets.Reports`),
+> with the detail columns and sort below and no filter. The summary part is only a `count` with no `group_by`
+> (a report needs at least one aggregate); the sums by kind wait for `queried` on the money fields. Tenants that
+> installed `assets` 0.1.0 before this change do not get the report. The stock list (section 4) is not built.
+
 One saved report of kind `report` over `assets_card`, named **Asset list** (government list, provisional), in
 business terms:
 
