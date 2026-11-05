@@ -75,7 +75,7 @@ export const isDecimalAboveZero = (v: string): boolean => DECIMAL.test(v) && /[1
 // ---- time zone ---------------------------------------------------------------------------------------------
 
 function offsetMinutes(ms: number, tz: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
+  const parts = new Intl.DateTimeFormat('en', {
     timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   }).formatToParts(new Date(ms))
