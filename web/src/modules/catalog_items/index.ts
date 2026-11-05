@@ -1,15 +1,15 @@
 /** web/src/modules/catalog_items/index.ts — GH 3605 / REQ-673
  *
- *  The catalog_items module's ModuleDefinition (registered in web/src/modules/registry.ts). One admin screen
- *  of catalog lots: list by item, create, edit, retire.
+ *  The catalog_items module's ModuleDefinition (registered in web/src/modules/registry.ts). Two screens: Items
+ *  (catalog, lf-registry layout, read only, T-1402) and catalog lots (list by item, create, edit, retire).
  *
- *  SPA path: admin/catalog/lots. `depends_on` is empty on purpose: the SPA module imports no other module's
+ *  SPA paths: admin/catalog/items, admin/catalog/lots. `depends_on` is empty on purpose: the SPA module imports no other module's
  *  code (entities are read through the generic query route); the field only feeds the ESLint drift test.
  */
 import type { ModuleDefinition } from '@/modules/types'
 import { catalogItemsMessages } from './catalogItemsMessages'
 import { catalogItemsRouteObjects } from './catalogItemsRoutes'
-import { CATALOG_LOTS_WRITE } from './catalogItemsPermissions'
+import { CATALOG_LOTS_WRITE, STOCK_READ_ATOM } from './catalogItemsPermissions'
 
 function importLabels(entityType: string) {
   const id = `import.type.${entityType}`
@@ -26,5 +26,8 @@ export const catalogItemsModuleDefinition: ModuleDefinition = {
     { entityType: 'catalog_counterparty', labels: importLabels('catalog_counterparty') },
     { entityType: 'catalog_lot', labels: importLabels('catalog_lot') },
   ],
-  navItems: [{ to: '/admin/catalog/lots', label: 'Lots', permission: CATALOG_LOTS_WRITE }],
+  navItems: [
+    { to: '/admin/catalog/items', label: 'Items', permission: STOCK_READ_ATOM },
+    { to: '/admin/catalog/lots', label: 'Lots', permission: CATALOG_LOTS_WRITE },
+  ],
 }
