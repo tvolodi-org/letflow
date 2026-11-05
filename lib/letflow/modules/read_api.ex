@@ -10,7 +10,11 @@ defmodule Letflow.Modules.ReadApi do
   `prefix` alone (derived server-side from the authenticated tenant, never from HTTP input).
   """
 
+  import Ecto.Query, only: [from: 2]
+
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Repo
+  alias Letflow.TenantProvisioning
 
   @doc "The live record `id` in tenant schema `prefix`, searched across `types` in order."
   @spec lookup(prefix :: term(), id :: term(), types :: [String.t()]) ::
@@ -31,6 +35,45 @@ defmodule Letflow.Modules.ReadApi do
   def active?(prefix, id, types) do
     match?({:ok, %{"active" => true}}, lookup(prefix, id, types))
   end
+
+  @doc """
+  The live record of entity type `type` (a member of `types`) whose stored `external_ref_system`
+  field equals `system` and `external_ref_id` field equals `id` (GH #3773 / REQ-727). The same map
+  as `lookup/3`. No such record, a soft-deleted one, a type outside `types` and any non-text
+  argument are `{:error, :not_found}`, never a raise. Isolation is by `prefix` alone. All values
+  are bound parameters (INV-7); the field pair is the one the master import functions write.
+  """
+  @spec lookup_by_external_ref(
+          prefix :: term(),
+          type :: term(),
+          system :: term(),
+          id :: term(),
+          types :: [String.t()]
+        ) :: {:ok, map()} | {:error, :not_found}
+  def lookup_by_external_ref(prefix, type, system, id, types)
+      when is_binary(prefix) and is_binary(type) and is_binary(system) and is_binary(id) and
+             is_list(types) do
+    with true <- type in types,
+         true <- String.valid?(system) and String.valid?(id),
+         {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         %Latest{} = row <-
+           Repo.one(
+             from(r in Latest,
+               where:
+                 r.entity_type == ^type and not r.deleted and
+                   fragment("?->>'external_ref_system' = ?", r.field_values, ^system) and
+                   fragment("?->>'external_ref_id' = ?", r.field_values, ^id),
+               limit: 1
+             ),
+             prefix: prefix
+           ) do
+      {:ok, to_map(row)}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def lookup_by_external_ref(_prefix, _type, _system, _id, _types), do: {:error, :not_found}
 
   defp first_live(_prefix, _record_id, []), do: {:error, :not_found}
 

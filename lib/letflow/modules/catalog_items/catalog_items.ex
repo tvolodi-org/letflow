@@ -135,6 +135,16 @@ defmodule Letflow.Modules.CatalogItems do
   def lookup(prefix, id), do: ReadApi.lookup(prefix, id, @types)
 
   @doc """
+  The live record of the owned type `type` whose `external_ref_system` / `external_ref_id` fields
+  are `system` / `id` (GH #3773 / REQ-727); `{:error, :not_found}` otherwise. See
+  `Letflow.Modules.ReadApi.lookup_by_external_ref/5`.
+  """
+  @spec lookup_by_external_ref(term(), term(), term(), term()) ::
+          {:ok, map()} | {:error, :not_found}
+  def lookup_by_external_ref(prefix, type, system, id),
+    do: ReadApi.lookup_by_external_ref(prefix, type, system, id, @types)
+
+  @doc """
   True only for an existing, non-deleted record (any of the four types) whose `active` field is `true`. A
   non-uuid `id` is `false`.
   """
