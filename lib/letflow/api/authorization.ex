@@ -6,9 +6,9 @@ defmodule Letflow.Api.Authorization do
   no I/O, never raises on any input. See
   `lib/letflow/design/req069-authorization.md` for the full design.
 
-  ## Eight roles (REQ-448)
+  ## Nine roles (REQ-448, D-093)
 
-  `role/0` has eight members: `PLATFORM_ADMIN`, `PROCESS_DESIGNER`,
+  `role/0` has nine members: `PLATFORM_ADMIN`, `PROCESS_DESIGNER`,
   `PROCESS_OPERATOR`, `TASK_WORKER`, `AGENT_RUNNER`, `CANDIDATE`,
   `TENANT_ADMIN` (REQ-447) and `TENANT_AUDITOR` (REQ-448). `TENANT_ADMIN` is
   allowed a permission iff `permission_scope/1` of it is `:tenant`; never a
@@ -311,6 +311,7 @@ defmodule Letflow.Api.Authorization do
           | :CANDIDATE
           | :TENANT_ADMIN
           | :TENANT_AUDITOR
+          | :STOREKEEPER
 
   @type permission ::
           :DefinitionsWrite
@@ -475,7 +476,8 @@ defmodule Letflow.Api.Authorization do
     :AGENT_RUNNER,
     :CANDIDATE,
     :TENANT_ADMIN,
-    :TENANT_AUDITOR
+    :TENANT_AUDITOR,
+    :STOREKEEPER
   ]
 
   @permissions [
@@ -565,7 +567,7 @@ defmodule Letflow.Api.Authorization do
                       end
                     )
 
-  @doc "All eight `Role` values, R-Co's exact names plus ISS-0646's `CANDIDATE`, REQ-447's `TENANT_ADMIN` (every tenant-scope permission, never a platform-scope one) and REQ-448's read-only `TENANT_AUDITOR`. See `roles_from_strings/1` for untrusted-input conversion."
+  @doc "All nine `Role` values, R-Co's exact names plus ISS-0646's `CANDIDATE`, REQ-447's `TENANT_ADMIN` (every tenant-scope permission, never a platform-scope one) and REQ-448's read-only `TENANT_AUDITOR` and D-093's `STOREKEEPER` (decision 0081). See `roles_from_strings/1` for untrusted-input conversion."
   @spec roles() :: [role()]
   def roles, do: @roles
 
@@ -766,6 +768,7 @@ defmodule Letflow.Api.Authorization do
   defp role_from_string("CANDIDATE"), do: :CANDIDATE
   defp role_from_string("TENANT_ADMIN"), do: :TENANT_ADMIN
   defp role_from_string("TENANT_AUDITOR"), do: :TENANT_AUDITOR
+  defp role_from_string("STOREKEEPER"), do: :STOREKEEPER
   defp role_from_string(_other), do: nil
 
   @doc """
@@ -1970,5 +1973,24 @@ defmodule Letflow.Api.Authorization do
         :HelpRead,
         :MembershipsRead,
         :PromotionsRead
+      ]
+
+  # D-093 / decision 0081: STOREKEEPER holds the stock permissions through the
+  # stock manifest's role_grants (Catalog fallback in role_allows?/2). This is
+  # the closed CORE list: own tasks (count and approval tasks), reference-data
+  # reads for forms and pickers, and the xlsx import of opening lines (guarded
+  # in Routers.Entities.RecordImport to module-managed types). No write,
+  # manage, export, token, user, role, module, settings or audit permission,
+  # never a platform-scope one.
+  defp core_role_allows?(:STOREKEEPER, permission),
+    do:
+      permission in [
+        :HelpRead,
+        :MembershipsRead,
+        :TasksRead,
+        :TasksComplete,
+        :EntitiesDefinitionsRead,
+        :EntitiesQuery,
+        :EntitiesRecordsImport
       ]
 end

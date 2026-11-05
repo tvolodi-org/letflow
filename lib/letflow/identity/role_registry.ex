@@ -231,7 +231,7 @@ defmodule Letflow.Identity.RoleRegistry do
 
   @doc """
   ISS-0778 / REQ-447: seeds the group/role bindings for the platform roles the
-  tenant is entitled to, `seedable_role_names/1` (all eight roles of
+  tenant is entitled to, `seedable_role_names/1` (all nine roles of
   `Letflow.Api.Authorization.roles/0` in the platform tenant, every role except
   `PLATFORM_ADMIN` in any other tenant, so every tenant gets a `TENANT_ADMIN`
   binding; names come from this module's own

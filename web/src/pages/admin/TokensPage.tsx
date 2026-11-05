@@ -1,5 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react'
-import { P, useAccess } from '@/auth/access'
+import { P, useAccess, roleLabel } from '@/auth/access'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { tokensApi, usersApi } from '@/api/identity'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -75,7 +75,7 @@ function tokenUserLabel(token: TokenRow, usersById: Map<string, User>): string {
 }
 
 function tokenRoleLabel(token: TokenRow): string {
-  return (token.roles ?? []).join(', ')
+  return (token.roles ?? []).map((name) => roleLabel(name)).join(', ')
 }
 
 function formatDate(value?: string | null): string {

@@ -18,8 +18,12 @@ defmodule Letflow.Api.AuthorizationTest do
   alias Letflow.Api.Authorization
   alias Letflow.Api.Authorization.AccessContext
 
+  # The historical grids below were written for the eight roles that existed then. STOREKEEPER (T-1317,
+  # D-093) is covered by `Letflow.Modules.Stock.StorekeeperTest` (exact grant set) instead.
+  defp pre_storekeeper_roles, do: Authorization.roles() -- [:STOREKEEPER]
+
   describe "acceptance criterion 1 — exact Role and Permission enumeration" do
-    test "roles/0 returns exactly R-Co's five Role values plus ISS-0646's CANDIDATE plus REQ-447's TENANT_ADMIN plus REQ-448's TENANT_AUDITOR" do
+    test "roles/0 returns exactly R-Co's five Role values plus ISS-0646's CANDIDATE plus REQ-447's TENANT_ADMIN plus REQ-448's TENANT_AUDITOR plus D-093's STOREKEEPER" do
       assert Authorization.roles() == [
                :PLATFORM_ADMIN,
                :PROCESS_DESIGNER,
@@ -28,7 +32,8 @@ defmodule Letflow.Api.AuthorizationTest do
                :AGENT_RUNNER,
                :CANDIDATE,
                :TENANT_ADMIN,
-               :TENANT_AUDITOR
+               :TENANT_AUDITOR,
+               :STOREKEEPER
              ]
     end
 
@@ -689,14 +694,14 @@ defmodule Letflow.Api.AuthorizationTest do
 
     test "the grid covers every role x every new permission -- 32 pairs, none missing" do
       assert Map.keys(@new_permission_grid) |> Enum.sort() ==
-               Authorization.roles() |> Enum.sort()
+               pre_storekeeper_roles() |> Enum.sort()
 
       pairs =
         for {_role, by_permission} <- @new_permission_grid,
             {permission, _} <- by_permission,
             do: permission
 
-      assert length(pairs) == length(Authorization.roles()) * length(@req309_permissions)
+      assert length(pairs) == length(pre_storekeeper_roles()) * length(@req309_permissions)
 
       for {role, by_permission} <- @new_permission_grid do
         assert Enum.sort(Map.keys(by_permission)) == Enum.sort(@req309_permissions),
@@ -835,7 +840,7 @@ defmodule Letflow.Api.AuthorizationTest do
 
     test "the regression grid is complete: 8 roles x 19 pre-existing permissions = 152 pairs" do
       assert length(@pre_req309_permissions) == 19
-      assert Enum.sort(Map.keys(@pre_req309_allowed)) == Enum.sort(Authorization.roles())
+      assert Enum.sort(Map.keys(@pre_req309_allowed)) == Enum.sort(pre_storekeeper_roles())
 
       # Every expectation named is a real permission, and no pre-existing
       # permission was dropped from the module's own list by this change.
@@ -857,8 +862,8 @@ defmodule Letflow.Api.AuthorizationTest do
       expected_prefix = @pre_req309_permissions ++ @req309_permissions
       assert Enum.take(live, length(expected_prefix)) == expected_prefix
 
-      pair_count = length(Authorization.roles()) * length(@pre_req309_permissions)
-      assert pair_count == length(Authorization.roles()) * length(@pre_req309_permissions)
+      pair_count = length(pre_storekeeper_roles()) * length(@pre_req309_permissions)
+      assert pair_count == length(pre_storekeeper_roles()) * length(@pre_req309_permissions)
     end
 
     test "all 95 pre-existing role/permission pairs return exactly what they returned before REQ-309" do
@@ -1158,7 +1163,7 @@ defmodule Letflow.Api.AuthorizationTest do
     end
 
     test "every role holding :EntitiesQuery also holds :EntitiesAggregate, and vice versa" do
-      for role <- Authorization.roles() do
+      for role <- pre_storekeeper_roles() do
         assert Authorization.role_allows?(role, :EntitiesQuery) ==
                  Authorization.role_allows?(role, :EntitiesAggregate),
                "#{inspect(role)}'s :EntitiesQuery/:EntitiesAggregate grants disagree"
@@ -1284,7 +1289,7 @@ defmodule Letflow.Api.AuthorizationTest do
 
     test "the regression grid is complete: 8 roles x 23 pre-existing permissions = 184 pairs" do
       assert length(@pre_req315_permissions) == 23
-      assert Enum.sort(Map.keys(@pre_req315_allowed)) == Enum.sort(Authorization.roles())
+      assert Enum.sort(Map.keys(@pre_req315_allowed)) == Enum.sort(pre_storekeeper_roles())
 
       live = Authorization.permissions()
 
@@ -1303,8 +1308,8 @@ defmodule Letflow.Api.AuthorizationTest do
       expected_prefix = @pre_req315_permissions ++ [:EntitiesAggregate]
       assert Enum.take(live, length(expected_prefix)) == expected_prefix
 
-      pair_count = length(Authorization.roles()) * length(@pre_req315_permissions)
-      assert pair_count == length(Authorization.roles()) * length(@pre_req315_permissions)
+      pair_count = length(pre_storekeeper_roles()) * length(@pre_req315_permissions)
+      assert pair_count == length(pre_storekeeper_roles()) * length(@pre_req315_permissions)
     end
 
     test "all 115 pre-existing role/permission pairs return exactly what they returned before REQ-315" do
@@ -1684,14 +1689,14 @@ defmodule Letflow.Api.AuthorizationTest do
     }
 
     test "the grid covers every role x both new permissions -- 16 pairs, none missing" do
-      assert Map.keys(@req317_grid) |> Enum.sort() == Authorization.roles() |> Enum.sort()
+      assert Map.keys(@req317_grid) |> Enum.sort() == pre_storekeeper_roles() |> Enum.sort()
 
       pairs =
         for {_role, by_permission} <- @req317_grid,
             {permission, _} <- by_permission,
             do: permission
 
-      assert length(pairs) == length(Authorization.roles()) * length(@req317_permissions)
+      assert length(pairs) == length(pre_storekeeper_roles()) * length(@req317_permissions)
 
       for {role, by_permission} <- @req317_grid do
         assert Enum.sort(Map.keys(by_permission)) == Enum.sort(@req317_permissions),
@@ -1998,7 +2003,7 @@ defmodule Letflow.Api.AuthorizationTest do
 
     test "the regression grid is complete: 8 roles x 24 pre-existing permissions = 192 pairs" do
       assert length(@pre_req317_permissions) == 24
-      assert Enum.sort(Map.keys(@pre_req317_allowed)) == Enum.sort(Authorization.roles())
+      assert Enum.sort(Map.keys(@pre_req317_allowed)) == Enum.sort(pre_storekeeper_roles())
 
       live = Authorization.permissions()
 
@@ -2018,8 +2023,8 @@ defmodule Letflow.Api.AuthorizationTest do
       # present in permissions/0).
       assert Enum.take(live, length(@pre_req317_permissions)) == @pre_req317_permissions
 
-      pair_count = length(Authorization.roles()) * length(@pre_req317_permissions)
-      assert pair_count == length(Authorization.roles()) * length(@pre_req317_permissions)
+      pair_count = length(pre_storekeeper_roles()) * length(@pre_req317_permissions)
+      assert pair_count == length(pre_storekeeper_roles()) * length(@pre_req317_permissions)
     end
 
     test "all 120 pre-existing role/permission pairs return exactly what they returned before REQ-317" do
@@ -2094,7 +2099,7 @@ defmodule Letflow.Api.AuthorizationTest do
       # tenant-scope grant rule (not through the manifest's role_grants).
       assert Authorization.role_allows?(:TENANT_ADMIN, :FixtureRead)
 
-      for role <- Authorization.roles(),
+      for role <- pre_storekeeper_roles(),
           role not in [:TASK_WORKER, :PLATFORM_ADMIN, :TENANT_ADMIN] do
         refute Authorization.role_allows?(role, :FixtureRead),
                "expected #{inspect(role)} to be denied :FixtureRead (only :TASK_WORKER, " <>
@@ -2105,7 +2110,7 @@ defmodule Letflow.Api.AuthorizationTest do
 
   describe "REQ-401 AC3 — :ModulesManage grant" do
     test "role_allows?(role, :ModulesManage) == (role in [:PLATFORM_ADMIN, :TENANT_ADMIN]), for every role" do
-      for role <- Authorization.roles() do
+      for role <- pre_storekeeper_roles() do
         # REQ-447: :ModulesManage is tenant scope, so TENANT_ADMIN holds it too.
         expected = role in [:PLATFORM_ADMIN, :TENANT_ADMIN]
         actual = Authorization.role_allows?(role, :ModulesManage)
@@ -2119,7 +2124,7 @@ defmodule Letflow.Api.AuthorizationTest do
 
   describe "REQ-449 — :MyAccessRead grant and me/access policy" do
     test "role_allows?(role, :MyAccessRead) is true for every role, CANDIDATE included" do
-      for role <- Authorization.roles() do
+      for role <- pre_storekeeper_roles() do
         assert Authorization.role_allows?(role, :MyAccessRead),
                "expected #{inspect(role)} to hold :MyAccessRead"
 
@@ -2153,7 +2158,7 @@ defmodule Letflow.Api.AuthorizationTest do
 
   describe "REQ-403 — :MyModulesRead grant and me/modules policy" do
     test "role_allows?(role, :MyModulesRead) is true for every role" do
-      for role <- Authorization.roles() do
+      for role <- pre_storekeeper_roles() do
         assert Authorization.role_allows?(role, :MyModulesRead),
                "expected #{inspect(role)} to hold :MyModulesRead"
       end
@@ -2454,7 +2459,7 @@ defmodule Letflow.Api.AuthorizationTest do
 
     test "the regression grid is complete: 8 roles x 32 pre-existing core permissions = 256 pairs" do
       assert length(@pre_req401_permissions) == 32
-      assert Enum.sort(Map.keys(@pre_req401_allowed)) == Enum.sort(Authorization.roles())
+      assert Enum.sort(Map.keys(@pre_req401_allowed)) == Enum.sort(pre_storekeeper_roles())
 
       assert Authorization.core_permissions() ==
                @pre_req401_permissions ++
@@ -2491,12 +2496,12 @@ defmodule Letflow.Api.AuthorizationTest do
                    :EntitiesExtensionsManage
                  ]
 
-      pair_count = length(Authorization.roles()) * length(@pre_req401_permissions)
-      assert pair_count == length(Authorization.roles()) * length(@pre_req401_permissions)
+      pair_count = length(pre_storekeeper_roles()) * length(@pre_req401_permissions)
+      assert pair_count == length(pre_storekeeper_roles()) * length(@pre_req401_permissions)
     end
 
     test "all 228 pre-existing (role, permission) pairs return exactly what they returned before REQ-401" do
-      for role <- Authorization.roles(), permission <- @pre_req401_permissions do
+      for role <- pre_storekeeper_roles(), permission <- @pre_req401_permissions do
         expected = permission in Map.fetch!(@pre_req401_allowed, role)
         actual = Authorization.role_allows?(role, permission)
 
@@ -2666,7 +2671,7 @@ defmodule Letflow.Api.AuthorizationTest do
 
   describe "REQ-403 AC5 -- :MyModulesRead granted to every role" do
     test "role_allows?(role, :MyModulesRead) is true for every role in roles/0" do
-      for role <- Authorization.roles() do
+      for role <- pre_storekeeper_roles() do
         assert Authorization.role_allows?(role, :MyModulesRead),
                "expected role_allows?(#{inspect(role)}, :MyModulesRead) to be true"
       end
