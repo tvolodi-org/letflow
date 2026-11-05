@@ -26,14 +26,16 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 
+const form = () => within(screen.getByTestId('document-form'))
 const pick = (label: string | RegExp, value: string, scope?: HTMLElement) =>
-  fireEvent.change((scope ? within(scope) : screen).getByLabelText(label), { target: { value } })
+  fireEvent.change((scope ? within(scope) : form()).getByLabelText(label), { target: { value } })
 
 async function fillHeader() {
-  await screen.findByRole('option', { name: 'Main store' })
-  await screen.findByRole('option', { name: 'Shelf A' })
-  await screen.findByRole('option', { name: 'Aigul B.' })
-  fireEvent.change(screen.getByLabelText('Event time'), { target: { value: '2026-11-04T10:00' } })
+  await form().findByRole('option', { name: 'Main store' })
+  await form().findByRole('option', { name: 'Shelf A' })
+  await form().findByRole('option', { name: 'Aigul B.' })
+  fireEvent.change(form().getByLabelText('Event time, date'), { target: { value: '2026-11-04' } })
+  fireEvent.change(form().getByLabelText('Event time, time'), { target: { value: '10:00' } })
   pick('Org unit', 'u1')
   pick('Location', 'l1')
   pick('Responsible', 'e1')
@@ -52,16 +54,16 @@ describe('C3-a/b/c create per kind', () => {
       p === DOCS ? stockDoc({ id: 'dn' }) : { items: MASTERS[(b as { entity_type: string }).entity_type] ?? [], next_cursor: null })
     renderStock(NEW, withPost)
     await fillHeader()
-    for (const l of [/^Counterparty/, /^Supplier document reference/, /^Received on/]) expect(screen.getByLabelText(l)).toBeInTheDocument()
-    expect(screen.queryByLabelText(/^Reason$/)).not.toBeInTheDocument()
-    await screen.findByRole('option', { name: 'Acme Ltd' })
+    for (const l of [/^Counterparty/, /^Supplier document reference/, /^Received on/]) expect(form().getByLabelText(l)).toBeInTheDocument()
+    expect(form().queryByLabelText(/^Reason$/)).not.toBeInTheDocument()
+    await form().findByRole('option', { name: 'Acme Ltd' })
     pick(/^Counterparty/, 'c1')
     pick(/^Supplier document reference/, 'INV-7')
     pick(/^Received on/, '2026-11-03')
     pick(/^Note/, 'first batch')
     const row = firstRow()
     await fillLine(row, 'i1', '3.5')
-    await waitFor(() => expect(within(row).getByLabelText('Unit')).toHaveValue('pcs'))
+    await within(row).findByText('pcs')
     await within(row).findByRole('option', { name: 'LOT-7' })
     pick(/^Lot/, 't1', row)
     pick(/^Unit price/, '2.5', row)
@@ -78,7 +80,7 @@ describe('C3-a/b/c create per kind', () => {
   it('issue: no receipt or write off fields, exact body', async () => {
     renderStock(`${NEW}?kind=issue`, withPost)
     await fillHeader()
-    for (const l of [/^Counterparty/, /^Supplier document/, /^Received on/, /^Reason$/]) expect(screen.queryByLabelText(l)).not.toBeInTheDocument()
+    for (const l of [/^Counterparty/, /^Supplier document/, /^Received on/, /^Reason$/]) expect(form().queryByLabelText(l)).not.toBeInTheDocument()
     expect(within(firstRow()).queryByLabelText(/^Unit price/)).not.toBeInTheDocument()
     await fillLine(firstRow(), 'i2', '1')
     save()
@@ -103,7 +105,7 @@ describe('C3-a/b/c create per kind', () => {
     save()
     await waitFor(() => expect(created()).toHaveLength(1))
     expect(created()[0][1]).toMatchObject({ kind: 'write_off', reason_code: 'other', reason_text: 'burnt' })
-    expect(screen.queryByLabelText(/^Counterparty/)).not.toBeInTheDocument()
+    expect(form().queryByLabelText(/^Counterparty/)).not.toBeInTheDocument()
   })
 })
 
@@ -122,8 +124,8 @@ describe('C3-d edit', () => {
     renderStock(`${LIST}/d1`, withPost)
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     await screen.findByTestId('document-form')
-    expect(screen.getByLabelText('Org unit')).toBeDisabled()
-    fireEvent.click(within(screen.getAllByTestId('line-editor-row')[1]).getByRole('button', { name: 'Remove line' }))
+    expect(form().getByLabelText('Org unit')).toBeDisabled()
+    fireEvent.click(within(screen.getAllByTestId('line-editor-row')[1]).getByRole('button', { name: /^Remove line/ }))
     save()
     await waitFor(() => expect(clientMock.put).toHaveBeenCalledTimes(1))
     const [path, body] = clientMock.put.mock.calls[0]
@@ -151,14 +153,14 @@ describe('C3-e checks before sending', () => {
 
   it('changing the item sets its base unit and clears the lot', async () => {
     renderStock(NEW, withPost)
-    await screen.findByRole('option', { name: 'Bolt M8' })
     const row = firstRow()
+    await within(row).findByRole('option', { name: 'Bolt M8' })
     pick('Item', 'i1', row)
     await within(row).findByRole('option', { name: 'LOT-7' })
     pick(/^Lot/, 't1', row)
     pick('Item', 'i2', row)
     expect(within(row).getByLabelText(/^Lot/)).toHaveValue('')
-    await waitFor(() => expect(within(row).getByLabelText('Unit')).toHaveValue('pcs'))
+    await within(row).findByText('pcs')
   })
 
   it('the server refusal with a line number marks that line, a general one shows a banner', async () => {
@@ -195,15 +197,22 @@ describe('C3-f pickers', () => {
   })
 })
 
-describe('R1 event time hint (T-1381)', () => {
+describe('typed dates (rule 10, T-1379)', () => {
   afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
-  it('ru: the typed event time is repeated as DD-MM-YYYY HH:mm; en shows no hint', async () => {
+  it('ru: the date and time fields are masked DD-MM-YYYY, never native inputs; en types YYYY-MM-DD', async () => {
     useUiLocaleStore.getState().setLocaleTransient('ru')
     renderStock(NEW, withPost)
-    await waitFor(() => expect(document.querySelector('input[type="datetime-local"]')).not.toBeNull())
-    fireEvent.change(document.querySelector('input[type="datetime-local"]') as HTMLInputElement, { target: { value: '2026-11-04T10:00' } })
-    expect(screen.getAllByTestId('date-value-hint')[0]).toHaveTextContent('04-11-2026 10:00')
+    const date = (await screen.findAllByRole('combobox')).find((e) => e.getAttribute('aria-label')?.endsWith(', дата')) as HTMLInputElement
+    expect(date).toBeDefined()
+    expect(date).toHaveAttribute('placeholder', 'ДД-ММ-ГГГГ')
+    expect(document.querySelector('input[type="datetime-local"], input[type="date"]')).toBeNull()
+    fireEvent.change(date, { target: { value: '04112026' } })
+    expect(date).toHaveValue('04-11-2026')
+    fireEvent.change(date, { target: { value: '31-02-2026' } })
+    expect(screen.getByText(/такой даты не существует/)).toBeInTheDocument()
     useUiLocaleStore.getState().setLocaleTransient('en')
-    await waitFor(() => expect(screen.queryByTestId('date-value-hint')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('Event time, date')).toHaveAttribute('placeholder', 'YYYY-MM-DD'))
+    fireEvent.change(screen.getByLabelText('Event time, date'), { target: { value: '20261104' } })
+    expect(screen.getByLabelText('Event time, date')).toHaveValue('2026-11-04')
   })
 })

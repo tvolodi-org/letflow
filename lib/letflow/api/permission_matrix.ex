@@ -1141,6 +1141,7 @@ defmodule Letflow.Api.PermissionMatrix do
 
   defp format_core_change({:added, r, p}), do: "added #{r} #{p}"
   defp format_core_change({:removed, r, p}), do: "removed #{r} #{p}"
+  defp format_core_change({:added_new_role, r, p}), do: "added (new role) #{r} #{p}"
 
   defp format_core_change({:owner_changed, p, from, to}),
     do: "owner of #{p}: #{render_owner(from)} -> #{render_owner(to)}"

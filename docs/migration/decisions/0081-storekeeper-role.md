@@ -45,3 +45,8 @@ module-managed types of other modules (`location_node`, catalog types, org types
 the managed import is allowed only for module `stock`, type `stock_opening_line`; every other managed or
 non-managed type answers 403 (`record_import.ex`, `storekeeper_managed_allowed`). Test T-5c pins it.
 The role is closed, holds no platform-scope permission, `StockReconcile` is withheld, tenant scoping is unchanged.
+
+## Known limits (recorded in review)
+
+- STOREKEEPER holds `EntitiesQuery` without `EntitiesAggregate`; this is intended (no aggregate reads are needed for stock work).
+- Task list, get and complete use the TASK_WORKER-keyed scope set. Under `scope_enforcement :on` a STOREKEEPER-only user gets an empty or denied task set: it fails closed, but count and approval tasks may not reach such a user until the role is also given TASK_WORKER.

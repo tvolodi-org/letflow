@@ -64,6 +64,18 @@ defmodule Letflow.Modules.Stock.Router do
   but a test) can only lower the reconcile statement timeout; it is the seam that lets a test force 57014.
   The renderer idioms are copied from `Letflow.Modules.Codes.Router`.
 
+  ## Voice draft (REQ-741, GH #3879; `Letflow.Modules.Stock.VoiceService`)
+
+  | Route | Permission | Ok |
+  |---|---|---|
+  | `POST /voice/draft` (multipart `audio` m4a or WebM up to 10 MB, `lang` `ru` or `kk`) | `StockPost` | 200 `kind, items, location, to_location, quantity, transcript, dropped` |
+  | `POST /voice/draft-text` (JSON `text`, optional `lang`) | `StockPost` | 200 the same body |
+
+  Same guard as the document routes (`Access`). Read only: nothing is stored. Refusals carry `reason`
+  (and `source` `speech` or `llm` for a provider step): 413 `audio_too_large`, 415 `audio_format`, 422
+  `field_invalid` / `field_not_allowed` / `bad_language`, 502/504 provider failures, 503 `speech_off`.
+  Model step off answers 200 with `notice: "llm_off"`.
+
   ## Count orders (REQ-700, GH #3737; `Letflow.Modules.Stock.Counts`)
 
   | Route | Permission | Ok |
@@ -150,6 +162,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Views
+  alias Letflow.Modules.Stock.VoiceService
   alias Letflow.Modules.Stock.XlsxExport
 
   @ledger "stock"
@@ -320,6 +333,20 @@ defmodule Letflow.Modules.Stock.Router do
     with_access(conn, :read, fn conn, access ->
       authorized = read_authorized(conn)
       render_document(conn, Documents.fetch(access.prefix, conn.params["id"], authorized), 200)
+    end)
+  end
+
+  # -- voice draft (REQ-741) ----------------------------------------------------------------------
+
+  authz_post "/voice/draft", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      voice_render(conn, VoiceService.draft_audio(access.prefix, voice_params(conn)))
+    end)
+  end
+
+  authz_post "/voice/draft-text", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      voice_render(conn, VoiceService.draft_text(access.prefix, voice_params(conn)))
     end)
   end
 
@@ -589,6 +616,30 @@ defmodule Letflow.Modules.Stock.Router do
       params -> params
     end
   end
+
+  defp voice_params(conn) do
+    case body(conn) do
+      %{} = params when not is_struct(params) -> params
+      _ -> :not_an_object
+    end
+  end
+
+  defp voice_render(conn, {:ok, body}), do: Response.ok(conn, body)
+  defp voice_render(conn, {:error, :not_found}), do: Response.not_found(conn)
+
+  defp voice_render(conn, {:error, {:refuse, status, reason, extras}}) do
+    problem = voice_problem(status)
+    Response.send_problem(conn, %{problem | extensions: Map.put(extras, "reason", reason)})
+  end
+
+  defp voice_render(conn, {:error, _internal}), do: Response.internal_error(conn)
+
+  defp voice_problem(413), do: Error.payload_too_large("request refused")
+  defp voice_problem(415), do: Error.unsupported_media_type("request refused")
+  defp voice_problem(422), do: Error.unprocessable("request refused")
+  defp voice_problem(502), do: Error.bad_gateway("upstream provider failed")
+  defp voice_problem(503), do: Error.service_unavailable("request refused")
+  defp voice_problem(504), do: Error.gateway_timeout("upstream provider timed out")
 
   defp render_document(conn, {:ok, document}, status),
     do: Response.send_json(conn, status, document)

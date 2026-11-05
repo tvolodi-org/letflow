@@ -149,11 +149,15 @@
   --tree-row-h: 34px;
   --tree-indent: 20px;
   --field-w-s: 160px;
-  --field-w-m: 320px;
+  --field-w-m: 304px;
   --field-w-l: 480px;
   --master-width: 360px;
+  --doc-list-width: 248px;
+  --doc-header-width: 304px;
   --dialog-w: 520px;
   --dialog-w-l: 760px;
+  --registry-list-width: 520px;
+  --journal-details-width: 400px;
   --z-nav: 100;
   --z-sticky: 50;
   --z-popover: 300;

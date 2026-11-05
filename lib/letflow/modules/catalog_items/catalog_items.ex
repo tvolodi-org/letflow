@@ -134,6 +134,10 @@ defmodule Letflow.Modules.CatalogItems do
   @spec lookup(prefix :: String.t(), id :: term()) :: {:ok, map()} | {:error, :not_found}
   def lookup(prefix, id), do: ReadApi.lookup(prefix, id, @types)
 
+  @doc "The active, live `catalog_item` records of tenant `prefix` (REQ-741); see `ReadApi.list_active/2`."
+  @spec list_active(prefix :: term()) :: {:ok, [map()]} | {:error, :not_found}
+  def list_active(prefix), do: ReadApi.list_active(prefix, @item)
+
   @doc """
   The live record of the owned type `type` whose `external_ref_system` / `external_ref_id` fields
   are `system` / `id` (GH #3773 / REQ-727); `{:error, :not_found}` otherwise. See

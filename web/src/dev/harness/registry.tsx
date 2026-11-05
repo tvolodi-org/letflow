@@ -12,7 +12,9 @@ import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
 import { topbarLanguage } from './topbarFixtures'
 import { roleLabelsScreens } from './roleLabelsFixtures'
+import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
+import { sessionNoticeScreens } from './fixtures/sessionNotice'
 import { stockScreens } from './fixtures/stock'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
 import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
@@ -235,7 +237,9 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     codesScreen('codes-detail', { selectedId: 'c1' }),
     codesScreen('codes-assign', { assignId: 'c2' }),
     codesScreen('codes-receive', { receive: true }),
+    ...catalogItemsScreens,
     ...locationsScreens,
+    ...sessionNoticeScreens,
     ...stockScreens,
     ...stockDocumentsScreens,
     ...stockTwoSidesScreens,

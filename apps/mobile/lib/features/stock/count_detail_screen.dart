@@ -8,6 +8,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../api/api_client.dart' show PutCapableHttpGateway;
 import '../../i18n/i18n.dart';
 import '../../renderers/renderer_state.dart';
 import '../../renderers/renderer_state_view.dart';
@@ -18,6 +19,7 @@ import 'count_models.dart';
 import 'count_refusal.dart';
 import 'stock_providers.dart';
 import 'surplus_line_sheet.dart';
+import 'voice/voice_panel.dart';
 
 class CountDetailScreen extends ConsumerStatefulWidget {
   const CountDetailScreen({super.key, required this.countId});
@@ -31,6 +33,7 @@ class CountDetailScreen extends ConsumerStatefulWidget {
 class _CountDetailScreenState extends ConsumerState<CountDetailScreen> {
   late final ScanSource _source;
   late final CountDetailController _c;
+  late final PutCapableHttpGateway _gateway;
   final TextEditingController _typed = TextEditingController();
   bool _showEntries = false;
 
@@ -39,6 +42,7 @@ class _CountDetailScreenState extends ConsumerState<CountDetailScreen> {
     super.initState();
     _source = ref.read(scanSourceProvider);
     final gateway = ref.read(stockGatewayProvider);
+    _gateway = gateway;
     _c = CountDetailController(
       id: widget.countId,
       api: StockCountApi(gateway),
@@ -144,6 +148,7 @@ class _CountDetailScreenState extends ConsumerState<CountDetailScreen> {
             child: Text(tr('codes.scanAgain')),
           ),
         ..._messages(context),
+        if (order.status == 'counting') ..._voice(context),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -211,10 +216,88 @@ class _CountDetailScreenState extends ConsumerState<CountDetailScreen> {
     ];
   }
 
+  /// The voice block (REQ-747): shown only while counting is open. The draft
+  /// is a proposal; the count is written only by the confirm button.
+  List<Widget> _voice(BuildContext context) {
+    final c = _c;
+    final proposal = c.voiceProposal;
+    final choices = c.voiceChoices;
+    final notice = c.voiceNoticeKey;
+    return [
+      VoicePanel(
+        gateway: _gateway,
+        onDraft: (d) => unawaited(c.applyVoiceDraft(d)),
+      ),
+      if (notice != null)
+        Text(key: const Key('stock-voice-notice'), tr(notice)),
+      if (choices != null)
+        Card(
+          key: const Key('stock-voice-choices'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(tr('stock.voice.choose.title')),
+              for (var i = 0; i < choices.length; i++)
+                ListTile(
+                  key: Key('stock-voice-choice-$i'),
+                  title: Text(choices[i].label),
+                  onTap: () => unawaited(c.chooseVoiceItem(choices[i])),
+                ),
+              TextButton(
+                key: const Key('stock-voice-choice-dismiss'),
+                onPressed: c.dismissVoice,
+                child: Text(tr('stock.voice.choose.dismiss')),
+              ),
+            ],
+          ),
+        ),
+      if (proposal != null)
+        Card(
+          key: const Key('stock-voice-proposal'),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(tr('stock.voice.proposal.title')),
+                Text(
+                  '${proposal.lineNo} · ${proposal.item.label} · '
+                  '${proposal.quantity ?? tr('stock.voice.noQuantity')}',
+                ),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    FilledButton(
+                      key: const Key('stock-voice-confirm'),
+                      onPressed:
+                          proposal.quantity != null &&
+                              isQuantityText(proposal.quantity!) &&
+                              !c.busy
+                          ? () => unawaited(c.confirmVoice())
+                          : null,
+                      child: Text(tr('stock.voice.proposal.confirm')),
+                    ),
+                    TextButton(
+                      key: const Key('stock-voice-dismiss'),
+                      onPressed: c.dismissVoice,
+                      child: Text(tr('stock.voice.proposal.dismiss')),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+    ];
+  }
+
   List<Widget> _lines(BuildContext context) => [
     for (final l in _c.lines)
       ListTile(
         key: Key('stock-line-${l.lineNo}'),
+        leading: _c.voiceProposal?.lineNo == l.lineNo
+            ? Icon(Icons.mic, key: Key('stock-voice-mark-${l.lineNo}'))
+            : null,
         title: Text(
           '${l.lineNo} · ${l.catalogItemId}'
           '${l.catalogLotId == null ? '' : ' · ${l.catalogLotId}'}',

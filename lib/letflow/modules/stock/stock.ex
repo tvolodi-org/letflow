@@ -128,6 +128,13 @@ defmodule Letflow.Modules.Stock do
   task kept apart by `distinct_from`; completing `approve` posts). The entry's event time is its
   posting time. Assumptions, owner may change at GATE B: 100 lines, `OPN` per year, the second person.
 
+  ## Voice draft routes (REQ-741 / GH #3879; version 0.14.0)
+
+  Two read-only routes, `POST /voice/draft` (audio) and `POST /voice/draft-text` (typed), served by
+  `Letflow.Modules.Stock.VoiceService` under the existing `StockPost` permission. They turn a phrase
+  into a server-checked draft from the caller's own active items and locations; nothing is stored. No
+  migration, no new permission.
+
   ## Posting a count (REQ-718 / GH #3763; version 0.11.0)
 
   The cause `count_difference` (sign rule `any`, a reason required), the write handler `post_count`
@@ -273,7 +280,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.14.0",
+    version: "0.15.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
@@ -329,7 +336,9 @@ defmodule Letflow.Modules.Stock do
       {"POST", "/counts/:id/post", :StockPost},
       {"POST", "/counts/:id/reverse", :StockReverse},
       {"POST", "/counts/:id/posting-record", :StockCountRecord},
-      {"GET", "/counts/:id/posting-document", :StockRead}
+      {"GET", "/counts/:id/posting-document", :StockRead},
+      {"POST", "/voice/draft", :StockPost},
+      {"POST", "/voice/draft-text", :StockPost}
     ],
     manages_entity_types: [
       "stock_receipt",

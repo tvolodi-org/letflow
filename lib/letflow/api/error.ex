@@ -625,6 +625,28 @@ defmodule Letflow.Api.Error do
     }
   end
 
+  @doc "HTTP 502 — Bad Gateway (an upstream provider failed)."
+  @spec bad_gateway(String.t()) :: t()
+  def bad_gateway(detail) do
+    %__MODULE__{
+      type: @problems_base <> "bad-gateway",
+      title: "Bad Gateway",
+      status: 502,
+      detail: detail
+    }
+  end
+
+  @doc "HTTP 504 — Gateway Timeout (an upstream provider did not answer in time)."
+  @spec gateway_timeout(String.t()) :: t()
+  def gateway_timeout(detail) do
+    %__MODULE__{
+      type: @problems_base <> "gateway-timeout",
+      title: "Gateway Timeout",
+      status: 504,
+      detail: detail
+    }
+  end
+
   @doc """
   HTTP 410 — Cursor Expired. Promoted from a private literal in
   `Letflow.Routers.Tasks` (REQ-083) to this shared constructor by REQ-080,
