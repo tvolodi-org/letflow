@@ -61,6 +61,79 @@ samp {
 .lf-lines--wide th.is-price, .lf-lines--wide th.is-value { width: calc(var(--field-w-s) * 0.9); }
 .lf-lines--wide td.is-open-item, .lf-lines--wide td.is-open-lot { overflow: hidden; }
 
+/* T-1410 R9: the lines card is a size container, so a table cannot widen it. Inside the app shell the card is ~530 px at
+   1440: below 700 px (1000 px for the 8-column opening balance) each line becomes a card, with the same rules that
+   components.css has for phones (copied here because that file is an exact copy of the design release; the design repo
+   needs the same rules, design-notes.md "lf-lines container-query card mode"). */
+.lf-doc__lines { container: lf-lines / inline-size; }
+@container lf-lines (max-width: 700px) {
+  .lf-doc__lines .lf-lines--zebra tbody.lf-lines__item:nth-of-type(even) > tr:not(.is-error):not(.lf-lines__msg) > td { background: none; }
+  .lf-doc__lines .lf-lines { min-width: 0; }
+  .lf-doc__lines .lf-lines thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .lf-doc__lines .lf-lines, .lf-doc__lines .lf-lines tbody, .lf-doc__lines .lf-lines tfoot, .lf-doc__lines .lf-lines td { display: block; width: 100%; }
+  .lf-doc__lines .lf-lines tbody { margin: var(--space-3) 0 0; padding: 0 var(--space-3); }
+  .lf-doc__lines .lf-lines tbody:last-of-type { padding-bottom: var(--space-3); }
+  .lf-doc__lines .lf-lines__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; background: var(--paper-raised); border: 1px solid var(--line-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+  .lf-doc__lines .lf-lines tbody.lf-lines__item:hover > tr > td, .lf-doc__lines .lf-lines--zebra tbody.lf-lines__item:nth-of-type(even) > tr > td { background: none; }
+  .lf-doc__lines .lf-lines td, .lf-doc__lines .lf-lines th:first-child, .lf-doc__lines .lf-lines td:first-child, .lf-doc__lines .lf-lines td:last-child { height: auto; padding: 3px 0; border: 0; background: none; }
+  .lf-doc__lines .lf-lines__row > td { grid-column: 1 / -1; display: grid; grid-template-columns: calc(var(--field-w-s) * 0.6) minmax(0, 1fr); gap: var(--space-3); align-items: center; text-align: left; }
+  .lf-doc__lines .lf-lines__row > td::before { content: attr(data-label); color: var(--ink-muted); font: var(--type-label); }
+  .lf-doc__lines .lf-lines__row > td.is-idx { grid-column: 1; width: auto; padding-bottom: var(--space-2); color: var(--ink-muted); font: 500 13px/20px var(--font-mono); }
+  .lf-doc__lines .lf-lines__row > td.is-idx { display: block; }
+  .lf-doc__lines .lf-lines__row > td.is-idx::before { content: attr(data-label) " "; color: inherit; font: inherit; }
+  .lf-doc__lines .lf-lines__row > td.is-rm::before { display: none; }
+  .lf-doc__lines .lf-lines__row > td.is-rm { grid-column: 2; grid-row: 1; grid-template-columns: auto; width: auto; justify-self: end; padding: 0; }
+  .lf-doc__lines .lf-lines__row > td.is-num { text-align: left; }
+  .lf-doc__lines .lf-lines__qty { justify-content: flex-start; }
+  .lf-doc__lines .lf-lines td.is-num { text-align: left; }
+  .lf-doc__lines .lf-lines .lf-control--num input { text-align: left; }
+  .lf-doc__lines .lf-lines__row > td:nth-child(2) { border-top: 1px solid var(--line); padding-top: var(--space-2); }
+  .lf-doc__lines .lf-lines__row.is-error { background: var(--danger-tint); border-color: var(--danger); border-bottom: 0; border-radius: var(--radius-md) var(--radius-md) 0 0; --ink-faint: var(--ink-muted); }
+  .lf-doc__lines .lf-lines__row.is-error > td, .lf-doc__lines .lf-lines__row.is-error:hover > td, .lf-doc__lines .lf-lines__row.is-error > td:first-child { background: none; box-shadow: none; }
+  .lf-doc__lines .lf-lines__msg { display: block; background: var(--danger-tint); border: 1px solid var(--danger); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); padding: 0 var(--space-3) var(--space-3); }
+  .lf-doc__lines .lf-lines__msg > td { background: none; box-shadow: none; padding: 0; }
+  .lf-doc__lines .lf-lines__add > td { padding: 0; }
+  .lf-doc__lines .lf-lines tfoot tr { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-3); padding: var(--space-3); background: var(--paper-sunken); border-top: 1px solid var(--line-strong); }
+  .lf-doc__lines .lf-lines tfoot td { display: block; width: auto; height: auto; padding: 0; position: static; border: 0; background: none; }
+  .lf-doc__lines .lf-lines tfoot td.is-num { margin-left: auto; }
+  .lf-doc__lines .lf-lines tfoot td.is-rm { display: none; }
+  .lf-doc__lines .lf-lines__add { display: block; }
+}
+@container lf-lines (max-width: 1000px) {
+  .lf-doc__lines .lf-lines--zebra.lf-lines--wide tbody.lf-lines__item:nth-of-type(even) > tr:not(.is-error):not(.lf-lines__msg) > td { background: none; }
+  .lf-doc__lines .lf-lines.lf-lines--wide { width: 100%; min-width: 0; }
+  .lf-doc__lines .lf-lines.lf-lines--wide { min-width: 0; }
+  .lf-doc__lines .lf-lines.lf-lines--wide thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .lf-doc__lines .lf-lines.lf-lines--wide, .lf-doc__lines .lf-lines.lf-lines--wide tbody, .lf-doc__lines .lf-lines.lf-lines--wide tfoot, .lf-doc__lines .lf-lines.lf-lines--wide td { display: block; width: 100%; }
+  .lf-doc__lines .lf-lines.lf-lines--wide tbody { margin: var(--space-3) 0 0; padding: 0 var(--space-3); }
+  .lf-doc__lines .lf-lines.lf-lines--wide tbody:last-of-type { padding-bottom: var(--space-3); }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; background: var(--paper-raised); border: 1px solid var(--line-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+  .lf-doc__lines .lf-lines.lf-lines--wide tbody.lf-lines__item:hover > tr > td, .lf-doc__lines .lf-lines--zebra.lf-lines--wide tbody.lf-lines__item:nth-of-type(even) > tr > td { background: none; }
+  .lf-doc__lines .lf-lines.lf-lines--wide td, .lf-doc__lines .lf-lines.lf-lines--wide th:first-child, .lf-doc__lines .lf-lines.lf-lines--wide td:first-child, .lf-doc__lines .lf-lines.lf-lines--wide td:last-child { height: auto; padding: 3px 0; border: 0; background: none; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row > td { grid-column: 1 / -1; display: grid; grid-template-columns: calc(var(--field-w-s) * 0.6) minmax(0, 1fr); gap: var(--space-3); align-items: center; text-align: left; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row > td::before { content: attr(data-label); color: var(--ink-muted); font: var(--type-label); }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-idx { grid-column: 1; width: auto; padding-bottom: var(--space-2); color: var(--ink-muted); font: 500 13px/20px var(--font-mono); }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-idx { display: block; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-idx::before { content: attr(data-label) " "; color: inherit; font: inherit; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-rm::before { display: none; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-rm { grid-column: 2; grid-row: 1; grid-template-columns: auto; width: auto; justify-self: end; padding: 0; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-num { text-align: left; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__qty { justify-content: flex-start; }
+  .lf-doc__lines .lf-lines.lf-lines--wide td.is-num { text-align: left; }
+  .lf-doc__lines .lf-lines.lf-lines--wide .lf-control--num input { text-align: left; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row > td:nth-child(2) { border-top: 1px solid var(--line); padding-top: var(--space-2); }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row.is-error { background: var(--danger-tint); border-color: var(--danger); border-bottom: 0; border-radius: var(--radius-md) var(--radius-md) 0 0; --ink-faint: var(--ink-muted); }
+  .lf-doc__lines .lf-lines--wide .lf-lines__row.is-error > td, .lf-doc__lines .lf-lines--wide .lf-lines__row.is-error:hover > td, .lf-doc__lines .lf-lines--wide .lf-lines__row.is-error > td:first-child { background: none; box-shadow: none; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__msg { display: block; background: var(--danger-tint); border: 1px solid var(--danger); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); padding: 0 var(--space-3) var(--space-3); }
+  .lf-doc__lines .lf-lines--wide .lf-lines__msg > td { background: none; box-shadow: none; padding: 0; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__add > td { padding: 0; }
+  .lf-doc__lines .lf-lines.lf-lines--wide tfoot tr { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-3); padding: var(--space-3); background: var(--paper-sunken); border-top: 1px solid var(--line-strong); }
+  .lf-doc__lines .lf-lines.lf-lines--wide tfoot td { display: block; width: auto; height: auto; padding: 0; position: static; border: 0; background: none; }
+  .lf-doc__lines .lf-lines.lf-lines--wide tfoot td.is-num { margin-left: auto; }
+  .lf-doc__lines .lf-lines.lf-lines--wide tfoot td.is-rm { display: none; }
+  .lf-doc__lines .lf-lines--wide .lf-lines__add { display: block; }
+}
+
 /* Long ru/kk column labels wrap instead of being cut by the fixed table layout (rule 4). */
 .lf-lines th { white-space: normal; height: auto; min-height: var(--row-h-compact); padding-top: var(--space-1); padding-bottom: var(--space-1); vertical-align: bottom; }
 
