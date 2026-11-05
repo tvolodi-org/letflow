@@ -31,7 +31,7 @@ defmodule Letflow.Api.EntityViewsRouteClassesTest do
       assert Authorization.role_allows?(:TENANT_ADMIN, :EntitiesViewsManage)
 
       others = Authorization.roles() -- [:TENANT_ADMIN, :PLATFORM_ADMIN]
-      assert length(others) == 6
+      assert length(others) == 7
 
       for role <- others do
         refute Authorization.role_allows?(role, :EntitiesViewsManage), "#{role}"

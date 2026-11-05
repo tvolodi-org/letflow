@@ -28,6 +28,11 @@ defmodule Letflow.Api.PermissionMatrix do
   when it is false. That per-row split is how a module widening is told
   apart from a core change (design D5).
 
+  A role that is not in the baseline at all (a new built-in role, only
+  possible by editing `Authorization.roles/0`; decision 0081) gains its rows
+  as `{:added_new_role, role, perm}` core changes, never as failures. An
+  existing role keeps every rule.
+
   `core_policy_atoms` in the classification context is
   `Authorization.core_permissions/0`, a fail-closed superset of the atoms
   core route policies use (design D7, section 6); no separate list is kept.
@@ -626,7 +631,17 @@ defmodule Letflow.Api.PermissionMatrix do
                                                                                  acc ->
         row = Map.fetch!(computed.rows, {role, perm})
 
-        case classify_added(role, perm, row, baseline_atoms, ctx) do
+        # D-093 / decision 0081: a role absent from the baseline cannot have been
+        # "widened"; every row it gains is reported as a core change for the
+        # mandatory security review. A role already in the baseline keeps every rule.
+        classified =
+          if role in baseline.roles do
+            classify_added(role, perm, row, baseline_atoms, ctx)
+          else
+            {:core_change, {:added_new_role, role, perm}}
+          end
+
+        case classified do
           {:failure, failure} -> %{acc | failures: [failure | acc.failures]}
           {:pre_approved, entry} -> %{acc | pre_approved: [entry | acc.pre_approved]}
           {:core_change, change} -> %{acc | core_changes: [change | acc.core_changes]}
@@ -1126,6 +1141,7 @@ defmodule Letflow.Api.PermissionMatrix do
 
   defp format_core_change({:added, r, p}), do: "added #{r} #{p}"
   defp format_core_change({:removed, r, p}), do: "removed #{r} #{p}"
+  defp format_core_change({:added_new_role, r, p}), do: "added (new role) #{r} #{p}"
 
   defp format_core_change({:owner_changed, p, from, to}),
     do: "owner of #{p}: #{render_owner(from)} -> #{render_owner(to)}"

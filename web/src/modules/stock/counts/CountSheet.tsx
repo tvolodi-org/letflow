@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
+import { useAccess } from '@/auth/access/useAccess'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
@@ -23,7 +24,7 @@ import { fieldOf, formatInZone, isDecimalNonNegative, reasonMessageId } from './
 import { useCountsWrite } from './useCountsWrite'
 import { formatQuantity } from '@/lib/formatQuantity'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
-import { actorLabel, tokenSubject } from '@/lib/references/actorLabel'
+import { actorLabel } from '@/lib/references/actorLabel'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 
 const NONE: never[] = []
@@ -192,6 +193,7 @@ function EntryLog({ orderId }: { orderId: string }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { session } = useAuth()
+  const access = useAccess()
   const tenantId = session?.tenant_id ?? ''
   const query = usePagedList<CountEntry>(countsQueryKeys.entries(tenantId, orderId), (cursor) =>
     countsApi.entries(orderId, cursor ? { cursor } : {}),
@@ -204,7 +206,7 @@ function EntryLog({ orderId }: { orderId: string }) {
   const entrant = (r: CountEntry): string =>
     r.entered_by_label ||
     (r.entered_by_employee_id ? name('org_employee', r.entered_by_employee_id) : '') ||
-    (r.entered_by ? actorLabel(r.entered_by, tokenSubject(session?.token), REFERENCE_MESSAGES[uiLocale]) : '') ||
+    (r.entered_by ? actorLabel(r.entered_by, access.userId, REFERENCE_MESSAGES[uiLocale]) : '') ||
     dash
   const columns: DataTableColumn<CountEntry>[] = [
     { key: 'entry', label: t('counts.col.entryNo'), render: (r) => r.entry_no, mono: true },
