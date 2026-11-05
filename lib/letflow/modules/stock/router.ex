@@ -58,7 +58,7 @@ defmodule Letflow.Modules.Stock.Router do
   day in the tenant time zone through `Ledger.balances_on_date/5`; without `cutoff_seq` the cutoff is
   the current posting counter, stated in `cutoff_seq`. It is refused with `basis` or `as_of`.
 
-  Refusals: 422 `invalid_filter` / `cutoff_in_future` / `invalid_timezone` / `run_expired`, 409 `reconcile_busy`, 503
+  Refusals: 422 `invalid_filter` / `cutoff_in_future` / `as_of_date_in_future` / `invalid_timezone` / `run_expired`, 409 `reconcile_busy`, 503
   `ledger_read_timeout` (a statement timeout 57014 of the core). Each carries only the extension key
   `reason`. The optional app env `:stock_reconcile_statement_timeout_ms` (1..10000, unset everywhere
   but a test) can only lower the reconcile statement timeout; it is the seam that lets a test force 57014.
@@ -170,6 +170,9 @@ defmodule Letflow.Modules.Stock.Router do
            {:ok, filters} <- slot_filters(params),
            {:ok, filters} <- subtree_filter(params, filters),
            {:ok, page} <- page(params, :text) do
+        # Zero-quantity rows stay out of the JSON, the screen and the xlsx (not an HTTP parameter).
+        page = Map.put(page, :nonzero, true)
+
         case read_balances(authorized, basis, filters, page) do
           {:ok, report} ->
             body = balances_body(report)
@@ -1092,6 +1095,7 @@ defmodule Letflow.Modules.Stock.Router do
     do: problem(conn, Error.service_unavailable("request refused"), "ledger_read_timeout")
 
   defp refuse(conn, :cutoff_in_future), do: unprocessable(conn, "cutoff_in_future")
+  defp refuse(conn, :as_of_date_in_future), do: unprocessable(conn, "as_of_date_in_future")
   defp refuse(conn, :invalid_timezone), do: unprocessable(conn, "invalid_timezone")
   defp refuse(conn, :run_expired), do: unprocessable(conn, "run_expired")
   defp refuse(conn, _invalid), do: unprocessable(conn, "invalid_filter")

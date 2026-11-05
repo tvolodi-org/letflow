@@ -146,6 +146,18 @@ describe('T1 as-of date', () => {
   })
 })
 
+describe('T7 future as-of date', () => {
+  it('shows the future message, sends no as_of_date and caps the input at today', async () => {
+    renderStock(BAL)
+    await within(await screen.findByRole('table')).findByText('Bolt M8')
+    const input = screen.getByLabelText('As of date')
+    expect(input).toHaveAttribute('max')
+    fireEvent.change(input, { target: { value: '2999-01-01' } })
+    expect(await screen.findByText('The date cannot be in the future.')).toBeInTheDocument()
+    await waitFor(() => expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({}))
+  })
+})
+
 describe('T3 export', () => {
   const download = () => {
     const create = vi.fn(() => 'blob:x')

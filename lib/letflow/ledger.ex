@@ -1259,8 +1259,8 @@ defmodule Letflow.Ledger do
   change at GATE B), read together with the cutoff posting number `known_through` (`:latest` or an
   integer, the rule of `balances/4`). Day rule: the legs counted are those with `event_time` before
   00:00 of the day after `date` in the tenant zone, passed to `balances/4` as that instant minus one
-  microsecond (`event_time <= b - 1us` is `event_time < b`). A future date equals the current
-  balance. The boundary is recomputed from `date` on every page (a zone change between two pages
+  microsecond (`event_time <= b - 1us` is `event_time < b`). A date after the tenant's today is refused with
+  `{:error, :as_of_date_in_future}` before any ledger read. The boundary is recomputed from `date` on every page (a zone change between two pages
   can shift it; cursors are unsigned: honest replay only). The report is that of `balances/4`
   plus `as_of_date` (ISO date), and `timezone` is the zone the boundary was computed with.
   Errors: those of `balances/4`, `{:error, :invalid_filter}` for a non-`Date`, and
@@ -1269,7 +1269,8 @@ defmodule Letflow.Ledger do
   """
   @spec balances_on_date(Authorized.t(), Date.t(), :latest | non_neg_integer(), map(), map()) ::
           {:ok, map()}
-          | {:error, :cutoff_in_future | :invalid_filter | :invalid_timezone}
+          | {:error,
+             :cutoff_in_future | :as_of_date_in_future | :invalid_filter | :invalid_timezone}
   defdelegate balances_on_date(authorized, date, known_through, filters, page),
     to: Letflow.Ledger.Read
 
