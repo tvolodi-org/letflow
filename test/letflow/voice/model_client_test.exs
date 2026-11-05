@@ -32,7 +32,7 @@ defmodule Letflow.Voice.ModelClientTest do
     :ok
   end
 
-  defp settings(base, mode \\ :prompt),
+  defp settings(base, mode),
     do: %Settings.Model{model: "gpt-x", base_url: base, api_key: @key, json_mode: mode}
 
   defp base(server), do: "http://127.0.0.1:#{server.port}/v1"
