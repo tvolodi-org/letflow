@@ -62,7 +62,8 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
       header_keys: @issue_keys,
       required: ~w(org_unit_id location_id responsible_id event_time),
       id_keys: ~w(org_unit_id location_id responsible_id),
-      two_sided?: false
+      two_sided?: false,
+      completion_node: "post"
     },
     %{
       kind: "write_off",
@@ -75,7 +76,8 @@ defmodule Letflow.Modules.Stock.Documents.Kinds do
       header_keys: @write_off_keys,
       required: ~w(org_unit_id location_id responsible_id event_time reason_code),
       id_keys: ~w(org_unit_id location_id responsible_id),
-      two_sided?: false
+      two_sided?: false,
+      completion_node: "post"
     },
     %{
       kind: "transfer",

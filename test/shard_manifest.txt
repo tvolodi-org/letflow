@@ -1224,3 +1224,4 @@
 9 test/letflow/modules/stock/opening_posting_test.exs 7346.89
 27 test/letflow/modules/stock/issue_writeoff_shape_test.exs 7346.89
 30 test/letflow/modules/stock/issue_writeoff_test.exs 7346.89
+29 test/letflow/modules/stock/documents/kinds_test.exs 7346.89
