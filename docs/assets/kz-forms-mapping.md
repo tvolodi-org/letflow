@@ -10,9 +10,15 @@ written from this file after the owner has answered the questions in section 4.
   the annexes to order No. 562 of 20 December 2012 as the draft amending order has them. The folder is
   `/home/tvolodi/Documents/KZ-MinFin-DocTemplates/` (read only; the files are not copied into this repository).
   The catalog is `ai-dala-portfolio/inbox/kz-minfin-forms/CATALOG.md` (with `forms.json`).
-* The files are **Russian only**. The Kazakh versions of the annexes are not in the folder, so no Kazakh wording of
-  any form is known. The draft is not final: dates in the draft package are blank. **If the final order text
-  differs from these drafts, this file must be redone; ask the operator.**
+* The files in the folder are **Russian only** (41 of the 51 annexes). The official Kazakh text is known since
+  2026-11-06: the owner saved the current edition of order No. 562 in Kazakh from Adilet (adilet.zan.kz/kaz/docs/V1200008265)
+  with all 51 annexes; its plain-text extract is `ai-dala-portfolio/inbox/kz-minfin-forms/adilet-kk-562-text.txt` (read
+  only, not copied here; see "Kazakh versions FOUND" in the catalog). Section 3.7 gives the Kazakh code and title of
+  every form, section 3.8 the differences between the Russian 2026 drafts and the current Kazakh edition. The draft is
+  not final: dates in the draft package are blank. **If the final order text differs from these drafts, this file must
+  be redone; ask the operator.**
+* The Kazakh wording for printing (labels, layout, signer lines) is taken **only from the official text**, never from
+  machine translation. The existing E1a/E1b prints are machine drafts and are not that wording.
 * Method: every form was opened with a script (python3, `zipfile` and `xml.etree`, standard library only, read only)
   and its header block, table columns (with the column numbers printed in the form), free-text blanks and signature
   lines were listed. The titles below are read from the files; the catalog has no title for Z-1, Z-4, Z-6 and Z-7,
@@ -23,7 +29,9 @@ written from this file after the owner has answered the questions in section 4.
   (`lib/letflow/modules/stock/count_print.ex`, `document_print.ex`, `document_print_source.ex`).
 * Marks: **proposal** = the business analyst's proposal; **default** = what the print does until the owner answers
   (always: leave the field blank, never invent a value). No answer is given here to any owner question.
-* The forms are shown by their Russian names (Z = "З", Inv = "Инв", DA = "ДА"), as the catalog does.
+* The forms are shown by their Russian names (Z = "З", Inv = "Инв", DA = "ДА"), as the catalog does. The Kazakh code
+  of each form is in section 3.7: Z = Қ, Inv = Түг, DA = ҰМА, Т = Е, ОС = НҚ; КО, А, БА, С keep their letters;
+  annex numbers are equal in ru and kk.
 
 ## 1. What Letflow has today (the data a form can be filled from)
 
@@ -70,7 +78,7 @@ Each gap has an id, used in section 3. The default is the same for all: **leave 
 | G13 | **Stock card attributes** (Z-3): kind of production, brand (марка), sort, profile, size, shelf life, responsible for supply, structural unit, shop, executor, precious materials; the lot holds `producer`, `mark`, `expiry_date` | Q13 Which of these does the customer keep on the item? | `mark` from the lot, shelf life from `expiry_date`; the rest blank |
 | G14 | **Write-off attributes** (Z-6): date of acquisition and service life per line, reason per line (the header has one `reason_code`), amounts written off at the cost of guilty persons and of the organisation, scrap (утиль) lines with a receipt order number, commission decision | Q14 Does the customer write off with a commission and scrap? | header `reason_code` and `reason_text` for every line; the rest blank |
 | G15 | **Reconciliation of counts** (Inv-18): sums of surplus and shortage, accounting corrections (account, quantity, sum), regrading (пересортица: offsetting a surplus of one item against a shortage of another), final surplus and shortage | Q15 Does the customer need regrading and the accounting columns? | surplus and shortage **quantity** from `counted_quantity - book_quantity`; sums, accounts and regrading blank |
-| G16 | **Kazakh wording**: the Kazakh versions of the annexes are not in the folder | Q16 Where is the official Kazakh text of each annex? | a form prints in Russian and English only until it is supplied (the existing prints are Russian, Kazakh and English machine drafts, not official) |
+| G16 | **Kazakh wording of a printed form**: the official Kazakh text of all 51 annexes is now known (section 3.7, source `adilet-kk-562-text.txt`), but no print uses it yet; the existing prints are machine drafts, not official | Q16 Is the Adilet edition of order No. 562 (current) the wording to print, or the final text of the 2026 amending order once it is registered? Who checks a Kazakh print against the official text? | until a build copies the labels from the official text, a form prints in Russian and English only; Kazakh labels come from the official text, never from machine translation |
 | G17 | **Stamp** ("М.П.") and **date next to each signature** | Q17 Are stamp and date lines kept on the paper? | printed as a blank mark |
 
 Not a gap: **the number** of an item (nomenclature number) is proposed as `catalog_item.code`; **the unit** as
@@ -214,6 +222,104 @@ and no print yet.
 | Inv-8 (annex 39) | Инвентаризационная опись долгосрочных активов | asset count sheet (count of the asset register; count paperwork is specified for stock only) | org, BIN/IIN; number, date; object kind, location; receipt of responsible persons; order; accounts; start, end; lines: name, account, release date, acquisition date, inventory, factory, passport number, actual quantity and cost, accounting quantity and cost, note; totals; commission; statement; checker | the count mechanism (order, commission, signatures) is generic; card fields; location | counts of assets are not built for the asset register (phase C/D scope); factory and passport numbers, accounts, actual cost (G11, G6, G5), actual start and end (G12) |
 | Inv-16 (annex 47) | Сличительная ведомость результатов инвентаризации долгосрочных активов | asset differences sheet | org, BIN/IIN; number, date; count date; order; responsible person; start, end; lines: name, characteristic, release date, acquisition date, inventory, factory, passport number, surplus and shortage (quantity, cost); totals; accountant; responsible persons' agreement | as Inv-18: surplus and shortage quantity derived from book and counted quantity, responsible person, card fields | cost of surplus and shortage (G5), factory and passport numbers (G11), accountant (G4), actual start and end (G12) |
 
+### 3.7 Kazakh codes and titles (official text, order No. 562, current Kazakh edition)
+
+Source: `adilet-kk-562-text.txt` (the owner's saved Adilet page, 2026-11-06). Codes in the order's own list of annexes;
+titles as printed on the form (capitals kept, a footnote star dropped). Letter codes: З = **Қ-**, Инв = **Түг-**,
+ДА = **ҰМА-**, Т = **Е-**, ОС = **НҚ-**; КО-, А-, БА-, С- unchanged. The annex number is the key: the Kazakh code
+**А-1 is used twice** (annex 11 and annex 51) and **С-1 twice in meaning** (annex 6 in the Kazakh edition, annex 51 in
+the Russian draft folder). The Kazakh edition has the 10 annexes the Russian folder lacks (4, 6, 7, 14, 23, 36, 43,
+44, 46, 50). Where the extract found no title line, the table says so; open the annex in the official text.
+
+| Annex | Russian code | Kazakh code | Kazakh title (official text, as printed) | Form in this file |
+|---|---|---|---|---|
+| 1 | КО-1 | КО-1 | КІРІС КАССА ОРДЕРІ |  |
+| 2 | КО-2 | КО-2 | ШЫҒЫС КАССА ОРДЕРІ |  |
+| 3 | КО-3 | КО-3 | КІРІС ЖӘНЕ ШЫҒЫС КАССА ҚҰЖАТТАРЫН ТІРКЕУ ЖУРНАЛЫ |  |
+| 4 | КО-4 | КО-4 | КАССА КІТАБЫ |  |
+| 5 | КО-5 | КО-5 | КАССИР ҚАБЫЛДАҒАН ЖӘНЕ БЕРГЕН АҚШАНЫ ЖӘНЕ ОНЫҢ БАЛАМАЛАРЫН ЕСЕПКЕ АЛУ (КІТАБЫ) |  |
+| 6 | С-1 | С-1 | СЕНІМХАТ |  |
+| 7 | С-2 | С-2 | БЕРІЛГЕН СЕНІМХАТТАРДЫ ЕСЕПКЕ АЛУ ЖУРНАЛЫ |  |
+| 8 | Т-1 | Е-1 | ЕСЕП АЙЫРЫСУ ВЕДОМОСТІ (КІТАБЫ) |  |
+| 9 | Т-2 | Е-2 | (title line not detected by the text extract; open annex 9) |  |
+| 10 | Т-3 | Е-3 | АВАНСТЫҚ ЕСЕП |  |
+| 11 | А-1 | А-1 | АКТИВТЕРДі ҚАБЫЛДАУ ТУРАЛЫ АКТІ |  |
+| 12 | А-2 | А-2 | ОРНАТУ ҮШІН АКТИВТІ ҚАБЫЛДАП АЛУ АКТІ |  |
+| 13 | А-3 | А-3 | АКТИВТІ МОНТАЖДАУҒА ҚАБЫЛДАП АЛУ-БЕРУ АКТІСІ |  |
+| 14 | А-4 | А-4 | АКТИВТІҢ АНЫҚТАЛҒАН АҚАУЛАРЫ ТУРАЛЫ АКТІ |  |
+| 15 | А-5 | А-5 | (title line not detected by the text extract; open annex 15) |  |
+| 16 | ДА-1 | ҰМА-1 | ҰЗАҚ МЕРЗІМДІ АКТИВТЕРДІ ҚАБЫЛДАП АЛУ-БЕРУ АКТІСІ | DA-1 |
+| 17 | ДА-2 | ҰМА-2 | ҰЗАҚ МЕРЗІМДІ АКТИВТЕРДІ ЕСЕПКЕ АЛУДЫҢ ТҮГЕНДЕУ КАРТОЧКАСЫ | DA-2 |
+| 18 | ДА-3 | ҰМА-3 | ҰЗАҚ МЕРЗІМДІ АКТИВТЕРДІ ІСТЕН ШЫҒАРУ (ЕСЕПТЕН ШЫҒАРУ) АКТІСІ | DA-3 |
+| 19 | ДА-4 | ҰМА-4 | ҰЗАҚ МЕРЗІМДІ АКТИВТЕРДІ ІШКІ ӨТКІЗУГЕ БЕРІЛЕТІН ЖҮКҚҰЖАТ | DA-4 |
+| 20 | БА-1 | БА-1 | БИОЛОГИЯЛЫҚ АКТИВТЕРДІ ҚАБЫЛДАП АЛУ-БЕРУ АКТІСІ |  |
+| 21 | БА-2 | БА-2 | БИОЛОГИЯЛЫҚ АКТИВТЕРДІ ЕСЕПКЕ АЛУДЫ ТҮГЕНДЕУ КАРТОЧКАСЫ |  |
+| 22 | БА-3 | БА-3 | БИОЛОГИЯЛЫҚ АКТИВТЕРДІ ЕСЕПТЕН ШЫҒАРУ АКТІСІ |  |
+| 23 | ОС-1 | НҚ-1 | ЖАЛҒА АЛЫНҒАН (ҰЗАҚ МЕРЗІМДІ ЖАЛҒА АЛЫНҒАН) НЕГІЗГІ ҚҰРАЛДАРДЫ ЕСЕПКЕ АЛУ КАРТОЧКАСЫ |  |
+| 24 | ОС-2 | НҚ-2 | АВТОКӨЛІК ҚҰРАЛДАРЫН ЕСЕПТЕН ШЫҒАРУҒА АРНАЛҒАН АКТІ |  |
+| 25 | З-1 | Қ-1 | Қорлардың КІРІС ОРДЕРІ | Z-1 |
+| 26 | З-2 | Қ-2 | ҚОРЛАРДЫ ШЕТКЕ БЕРУГЕ АРНАЛҒАН ЖҮКҚҰЖАТ | Z-2 (3.1) |
+| 27 | З-3 | Қ-3 | ҚОРЛАРДЫ ЕСЕПКЕ АЛУ КАРТОЧКАСЫ | Z-3 |
+| 28 | З-4 | Қ-4 | НЕГІЗГІ ҚҰРАЛДАРДЫ БҰЗУ МЕН БӨЛШЕКТЕУ КЕЗІНДЕ АЛЫНҒАН ҚОРЛАРДЫ КІРІСКЕ АЛУ ТУРАЛЫ АКТІ | Z-4 |
+| 29 | З-5 | Қ-5 | ҚОРЛАРДЫ ІШКІ АУЫСТЫРУҒА АРНАЛҒАН ЖҮКҚҰЖАТ | Z-5 (3.2) |
+| 30 | З-6 | Қ-6 | ҚОРЛАРДЫ ЕСЕПТЕН ШЫҒАРУ АКТІСІ | Z-6 |
+| 31 | З-7 | Қ-7 | ҚОЙМАДАҒЫ ҚОРЛАРДЫҢ ҚАЛДЫҚТАРЫН ЕСЕПКЕ АЛУ ТІЗІМДЕМЕСІ | Z-7 |
+| 32 | Инв-1 | Түг-1 | ЖОЛДАҒЫ ҚОРЛАРДЫ ТҮГЕНДЕУ АКТІСІ | Inv-1 |
+| 33 | Инв-2 | Түг-2 | ИНВЕСТИЦИЯЛАРДЫ ТҮГЕНДЕУ АКТІСІ |  |
+| 34 | Инв-3 | Түг-3 | ТИЕЛГЕН ҚОРЛАРДЫ ТҮГЕНДЕУ АКТІСІ | Inv-3 |
+| 35 | Инв-4 | Түг-4 | ДЕБИТОРЛЫҚ ЖӘНЕ КРЕДИТОРЛЫҚ БЕРЕШЕКТІ ТҮГЕНДЕУ АКТІСІ |  |
+| 36 | Инв-5 | Түг-5 | БАҒАЛЫ МЕТАЛДАРДЫ ЖӘНЕ ОЛАРДАН ЖАСАЛҒАН БҰЙЫМДАРДЫ ТҮГЕНДЕУ АКТІСІ |  |
+| 37 | Инв-6 | Түг-6 | АҚША ҚАРАЖАТТАРЫ МЕН АҚША ҚАРАЖАТТАРЫНЫҢ БАЛАМАЛАРЫН ТҮГЕНДЕУ АКТІСІ |  |
+| 38 | Инв-7 | Түг-7 | ЖАУАПТЫ САҚТАУҒА ҚАБЫЛДАНҒАН (ТАПСЫРЫЛҒАН) ҚОРЛАРДЫҢ ТҮГЕНДЕУ ТІЗІМДЕМЕСІ | Inv-7 |
+| 39 | Инв-8 | Түг-8 | ҰЗАҚ МЕРЗІМДІ АКТИВТЕРДІ ТҮГЕНДЕУ ТІЗІМДЕМЕСІ | Inv-8 |
+| 40 | Инв-9 | Түг-9 | БИОЛОГИЯЛЫҚ АКТИВТЕРДІ ТҮГЕНДЕУ ТІЗІМДЕМЕСІ |  |
+| 41 | Инв-10 | Түг-10 | ҚОРЛАРДЫ ТҮГЕНДЕУ ТІЗІМДЕМЕСІ | Inv-10 |
+| 42 | Инв-11 | Түг-11 | ИНВЕСТИЦИЯЛАРДЫ ТҮГЕНДЕУ ТІЗІМДЕМЕСІ |  |
+| 43 | Инв-12 | Түг-12 | ҰЗАҚ МЕРЗІМДІ АКТИВТЕРДІ ТҮГЕНДЕУ ТІЗІМІ |  |
+| 44 | Инв-13 | Түг-13 | ҚОРЛАРДЫ ТҮГЕНДЕУ БЕЛГІСІ |  |
+| 45 | Инв-14 | Түг-14 | ҚАТАҢ ЕСЕПТІЛІК БЛАНКІЛЕРІНІҢ ТҮГЕНДЕУ ТІЗІМДЕМЕСІ |  |
+| 46 | Инв-15 | Түг-15 | БИОЛОГИЯЛЫҚ АКТИВТЕРДІ ЕСЕПКЕ АЛУ ЖӨНІНДЕГІ ТҮГЕНДЕУ КАРТОЧКАЛАРЫНЫҢ ТІЗІМДЕМЕСІ |  |
+| 47 | Инв-16 | Түг-16 | ҰЗАҚ МЕРЗІМДІ АКТИВТЕРДІ ТҮГЕНДЕУ НӘТИЖЕЛЕРІНІҢ САЛЫСТЫРМАЛЫ ВЕДОМОСІ | Inv-16 |
+| 48 | Инв-17 | Түг-17 | БИОЛОГИЯЛЫҚ АКТИВТЕРДІ ТҮГЕНДЕУ НӘТИЖЕЛЕРІНІҢ САЛЫСТЫРУ ТІЗІМДЕМЕСІ |  |
+| 49 | Инв-18 | Түг-18 | ҚОРЛАРДЫ ТҮГЕНДЕУ НӘТИЖЕЛЕРІНІҢ САЛЫСТЫРУ ВЕДОМОСІ | Inv-18 (3.3) |
+| 50 | Ж-1 | Ж-1 | ОРЫНДАЛҒАН ЖҰМЫСТАРДЫҢ (КӨРСЕТІЛГЕН ҚЫЗМЕТТЕРДІҢ) АКТІЛЕРІ |  |
+| 51 | С-1 (2026 draft folder) | А-1 | БУХГАЛТЕРЛІК АНЫҚТАМА |  |
+
+Kazakh terms the stock and count forms use, as printed (for the later build; no translation is made here):
+`Ұйым (жеке кәсіпкер)` organisation (individual entrepreneur), `ЖСН/БСН` IIN/BIN, `Құжат нөмірі` document number,
+`Жасалған күні` date of compilation, `Ретімен нөмірі` serial number, `Номенклатуралық нөмірі` nomenclature number,
+`Өлшем бірлігі` unit, `Саны` quantity, `беруге жатады` / `берілгені` to release / released, `Бірлігінің бағасы, теңгемен`
+price per unit in tenge, `ҚҚС-пен сомасы` / `ҚҚС сомасы` sum with VAT / VAT sum, `Жиыны` total, `Беруге рұқсат еткен`
+release authorised by, `Берген` released by, `Тексерді` checked by, `Алды` received by, `Бас бухгалтер` chief accountant,
+`лауазымы қолы қолды таратып жазу` position, signature, name, `М.П.` seal place (Қ-2).
+Field labels checked against the Kazakh text for the three starting forms: Қ-2 (= Z-2, annex 26), Қ-5 (= Z-5,
+annex 29), Түг-18 (= Inv-18, annex 49). Their column groups equal the Russian ones listed in 3.1 to 3.3
+(Қ-2: nine columns, quantity split into `беруге жатады` / `берілгені`; Қ-5: eight columns; Түг-18: fourteen front
+columns in surplus `артығы` / shortage `кемі` groups with quantity `саны` and sum `сомасы, теңгемен`, the accounting
+correction `шоты` columns, and a back side headed `Қайта сұрыптау` = regrading). The mapping tables 3.1 to 3.3 therefore stand for the Kazakh forms; only the labels
+differ. A check of every other form's columns against the Kazakh text is not done here.
+
+### 3.8 Differences: Russian 2026 drafts versus the current Kazakh edition
+
+Read from the Kazakh text and from the catalog (`CATALOG.md`, "Kazakh versions FOUND"). The catalog says the 2026 draft
+changes mostly wording; the points below are what is known, none is a decision.
+
+| # | Point | Russian 2026 draft folder | Current Kazakh edition (Adilet) | Effect on a build |
+|---|---|---|---|---|
+| D1 | **Annex 51** | form **С-1**, "Бухгалтерская справка" | form **А-1**, `БУХГАЛТЕРЛІК АНЫҚТАМА` (added to the order 2015, in force from 2016-01-01); in the Kazakh edition **С-1 is annex 6** (`СЕНІМХАТ`, power of attorney) | key forms by annex number, not by code; confirm the final code of annex 51 when the amending order is registered |
+| D2 | **IIN / BIN** | `ИИН / БИН` | `ЖСН/БСН` on every form with a header (58 places); Kazakh edition has no separate IIN-only field | same as gap G1: one printed identifier, the label follows the language |
+| D3 | **Currency** | "в теңге" (column headers) | `теңгемен` / `теңге`; four headers spell `тенгемен` (Түг-8 and Түг-16, columns of cost), a typo of the official text | print `теңгемен` as in the form; do not copy the typo |
+| D4 | **Seal place** | "Место печати" wording in the draft (catalog) | `М.П.` on Қ-2 (next to the chief accountant); `Мөрдың орны (бар болса)` on ҰМА-1 (seal place, if any); Түг-4 notes that the signature and seal are on the second side | gap G17: print the mark as the form has it; the wording differs by form |
+| D5 | **Entrepreneur wording** | `индивидуальный предприниматель` | `Ұйым (жеке кәсіпкер)` on most forms but `Ұйым (дара кәсіпкер)` on Түг-13, Түг-15, Түг-18 (and others, 9 places) | two Kazakh spellings of "individual entrepreneur" in the official text; copy each form's own |
+| D6 | **Form titles in Kazakh** | stock count lists are `опись`, comparison `сличительная ведомость`, internal movement `внутреннее перемещение` | `ТІЗІМДЕМЕСІ` (list), `САЛЫСТЫРУ ВЕДОМОСІ` (Түг-18) but `САЛЫСТЫРМАЛЫ ВЕДОМОСІ` (Түг-16), `ІШКІ АУЫСТЫРУҒА АРНАЛҒАН ЖҮКҚҰЖАТ` (Қ-5, stock) but `ІШКІ ӨТКІЗУГЕ БЕРІЛЕТІН ЖҮКҚҰЖАТ` (ҰМА-4, assets); the inventory card of assets is `ТҮГЕНДЕУ КАРТОЧКАСЫ` (ҰМА-2) | the term differs between forms of one kind; take the title from section 3.7 per form |
+| D7 | **Titles missing in the Russian catalog** | Z-1, Z-4, Z-6, Z-7 untitled in the catalog (the files give them, 3.4) | Қ-1 `Қорлардың КІРІС ОРДЕРІ`, Қ-4 `…БҰЗУ МЕН БӨЛШЕКТЕУ КЕЗІНДЕ АЛЫНҒАН ҚОРЛАРДЫ КІРІСКЕ АЛУ ТУРАЛЫ АКТІ`, Қ-6 `ҚОРЛАРДЫ ЕСЕПТЕН ШЫҒАРУ АКТІСІ`, Қ-7 `…ҚАЛДЫҚТАРЫН ЕСЕПКЕ АЛУ ТІЗІМДЕМЕСІ` (a list, not a `ведомость`) | titles agree in meaning with section 3.4 |
+| D8 | **Coverage** | 41 of 51 annexes | all 51 | annexes 4, 6, 7, 14, 23, 36, 43, 44, 46, 50 have a Kazakh text but no Russian draft in the folder; none is in scope here |
+| D9 | **Edition** | 2026 draft of an amending order (dates blank, public discussion ended 2026-06-17, no registered order found up to 2026-07) | the order as in force, with amendments up to the Adilet page date (for example annexes 6, 8, 10, 18, 19, 26, 29 re-issued by order No. 402 of 2013-08-19, annexes 16 by No. 411 of 2018-03-28) | layout and field lists in 3.1 to 3.6 come from the draft; if the amending order is registered, redo them (section 0) |
+
+Points not checked: whether every column and label of the other forms agrees between the draft and the Kazakh edition.
+The comparison above for Қ-2, Қ-5 and Түг-18 found no difference in the column groups; the differences found are those
+in the table. The Russian text of the current edition was not in the folder for a line-by-line comparison.
+
 ## 4. Summary table
 
 Form: the Russian form. Document: the Letflow document it prints. "Have": fields filled from data. "Missing": gap ids
@@ -242,7 +348,7 @@ of section 2 with the owner question.
 
 Extra owner questions raised in sections 3.1 to 3.6: Q14b (print the location on Z-2), Q18 (item code as the
 nomenclature number), Q19 (hand over and return on Z-5), Q20 (Z-4 in scope), Q21 (inter-organisation transfer on DA-1),
-Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`).
+Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`). Q16 is reworded in G16 (which edition to print).
 
 ## 5. Reading this file
 
@@ -252,6 +358,6 @@ Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`).
   they block the totals and the signature blocks of almost every stock form.
 * The "have" column is a proposal until a build proves it against the code; names of columns are those of the entity
   definitions and print code at the time of writing.
-* Out of scope: any print template or code, the Kazakh wording, the cash, labour, biological and general forms of the
+* Out of scope: any print template or code (the Kazakh labels are listed in 3.7, nothing is printed), the cash, labour, biological and general forms of the
   folder (КО, Т, БА, С, А, ОС), the draft package files (the order, the explanatory note, the comparison table), and
   the electronic exchange of any of these forms.
