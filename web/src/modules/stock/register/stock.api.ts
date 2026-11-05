@@ -15,6 +15,9 @@ export interface BalanceRow {
 }
 export interface BalancesPageBody {
   ledger_seq?: number | null
+  as_of_date?: string | null
+  timezone?: string | null
+  cutoff_seq?: number | null
   next_cursor: string | null
   rows: BalanceRow[]
 }
@@ -46,5 +49,7 @@ export interface MovementsPageBody {
 
 export const stockApi = {
   balances: (params: Record<string, string>) => client.get<BalancesPageBody>(`${BASE}/balances`, params),
+  /** The xlsx file of the first page of the balances (one page per file); same filters and day as the screen. */
+  balancesXlsx: (params: Record<string, string>) => client.getBlob(`${BASE}/balances`, { ...params, format: 'xlsx' }),
   movements: (params: Record<string, string>) => client.get<MovementsPageBody>(`${BASE}/movements`, params),
 }
