@@ -129,10 +129,6 @@ defmodule Letflow.Modules.Stock.Documents.Checks do
       not CatalogItems.item_uom_valid?(prefix, line.catalog_item_id, line.catalog_uom_id) ->
         {:halt, {:error, {"unit_not_valid", %{"line_no" => line.line_no}}}}
 
-      is_binary(line.catalog_lot_id) and
-          not CatalogItems.item_lot_valid?(prefix, line.catalog_item_id, line.catalog_lot_id) ->
-        {:halt, {:error, {"lot_not_valid", %{"line_no" => line.line_no}}}}
-
       true ->
         tracking_then_lot(prefix, line)
     end

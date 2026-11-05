@@ -9,6 +9,8 @@ import { LABEL_FIELD, type MasterType } from './stockRegisterModel'
 export interface PickerOption {
   value: string
   label: string
+  /** The record's field_values (the document form reads the item's base_uom_id from it). */
+  fields?: Record<string, unknown>
 }
 
 export function usePickerOptions(type: MasterType, extra: EntityQueryFilterClause[] = [], enabled = true): PickerOption[] {
@@ -30,7 +32,7 @@ export function usePickerOptions(type: MasterType, extra: EntityQueryFilterClaus
       })
       return res.items.map((r) => {
         const v = r.field_values[LABEL_FIELD[type]] ?? r.field_values['name'] ?? r.field_values['code']
-        return { value: r.record_id, label: typeof v === 'string' && v !== '' ? v : r.record_id }
+        return { value: r.record_id, label: typeof v === 'string' && v !== '' ? v : r.record_id, fields: r.field_values }
       })
     },
     enabled,
