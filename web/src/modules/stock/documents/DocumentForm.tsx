@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
+import { DocBar, DocCard, DocEdit, DocFields } from '@/components/ui/doc/DocLayout'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
@@ -22,6 +23,7 @@ import { LinesEditor } from './LinesEditor'
 import { SideGroup } from './SideGroup'
 import { DateValueHint } from '@/components/ui/DateValueHint'
 import {
+  DOC_KINDS,
   WRITE_OFF_REASONS,
   buildBody,
   emptyForm,
@@ -42,9 +44,16 @@ export interface DocumentFormProps {
   /** Called with the saved document. */
   onDone: (saved: StockDocument) => void
   onCancel: () => void
+  /** Title of the bar. */
+  title: string
+  /** Narrow screens: back to the list. */
+  onBack?: () => void
+  /** Create: shows the Kind select at the top of the header card. */
+  onKindChange?: (kind: DocKind) => void
 }
 
-export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: DocumentFormProps) {
+export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props }: DocumentFormProps) {
+  const onKindChange = props.onKindChange
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { can } = useAccess()
@@ -104,126 +113,170 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
   const opening = isOpening(form.kind)
   const orgFixedSide = form.kind === 'return' ? 'to' : 'from'
 
+  const E = DocEdit
   return (
-    <form
-      data-testid="document-form"
-      onSubmit={(e) => {
-        e.preventDefault()
-        submit()
-      }}
-    >
-      <p>{t(`stock.doc.kind.${form.kind}`)}</p>
-      {banner && <Banner tone="danger">{banner}</Banner>}
-      {!opening && (
-        <Field label={t('stock.col.time')} error={err('eventTime')} mono>
-          <input type="datetime-local" value={form.eventTime} onChange={(e) => patch({ eventTime: e.target.value })} />
-        </Field>
-      )}
-      {!opening && (
-        <DateValueHint value={form.eventTime} kind="datetime" />
-      )}
-      {two && errors['sides'] && <p role="alert">{t(errors['sides'])}</p>}
-      {two && (['from', 'to'] as const).map((side) => (
-        <SideGroup
-          key={side}
-          side={side}
-          value={form[side]}
-          onChange={(p) => patchSide(side, p)}
-          errors={errors}
-          orgUnits={orgUnits}
-          locations={locations}
-          employees={employees}
-          orgUnitFixed={edit && side === orgFixedSide}
-        />
-      ))}
-      {!two && (<>
-      <Select
-        label={t('stock.col.orgUnit')}
-        value={form.orgUnitId}
-        onChange={(orgUnitId) => patch({ orgUnitId })}
-        options={orgUnits}
-        placeholder={t('stock.doc.pick')}
-        error={err('orgUnitId')}
-        disabled={edit}
-        hint={edit ? t('stock.doc.orgUnitFixed') : undefined}
-      />
-      {!opening && (<>
-      <Select
-        label={t('stock.col.location')}
-        value={form.locationId}
-        onChange={(locationId) => patch({ locationId })}
-        options={locations}
-        placeholder={t('stock.doc.pick')}
-        error={err('locationId')}
-      />
-      <Select
-        label={t('stock.col.responsible')}
-        value={form.responsibleId}
-        onChange={(responsibleId) => patch({ responsibleId })}
-        options={employees}
-        placeholder={t('stock.doc.pick')}
-        error={err('responsibleId')}
-      />
-      </>)}
-      </>)}
-      {receipt && (
-        <>
-          <Select
-            label={t('stock.doc.field.counterparty')}
-            value={form.counterpartyId}
-            onChange={(counterpartyId) => patch({ counterpartyId })}
-            options={counterparties}
-            placeholder={t('stock.doc.pickNone')}
-            error={err('counterpartyId')}
-            optional
-          />
-          <Field label={t('stock.doc.field.supplierRef')} error={err('supplierRef')} optional>
-            <input type="text" value={form.supplierRef} onChange={(e) => patch({ supplierRef: e.target.value })} />
-          </Field>
-          <Field label={t('stock.doc.field.receivedOn')} error={err('receivedOn')} optional mono>
-            <input type="date" value={form.receivedOn} onChange={(e) => patch({ receivedOn: e.target.value })} />
-          </Field>
-          <DateValueHint value={form.receivedOn} kind="date" />
-        </>
-      )}
-      {form.kind === 'write_off' && (
-        <Select
-          label={t('stock.doc.field.reasonCode')}
-          value={form.reasonCode}
-          onChange={(reasonCode) => patch({ reasonCode })}
-          options={WRITE_OFF_REASONS.map((r) => ({ value: r, label: t(`stock.doc.writeOffReason.${r}`) }))}
-          placeholder={t('stock.doc.pick')}
-          error={err('reasonCode')}
-        />
-      )}
-      {!receipt && !two && !opening && (
-        <Field label={t('stock.doc.field.reasonText')} error={err('reasonText')} optional={form.reasonCode !== 'other'}>
-          <textarea rows={2} value={form.reasonText} onChange={(e) => patch({ reasonText: e.target.value })} />
-        </Field>
-      )}
-      <Field label={t('stock.doc.field.note')} error={err('note')} optional>
-        <textarea rows={2} value={form.note} onChange={(e) => patch({ note: e.target.value })} />
-      </Field>
-      {opening && (
-        <>
-          <Field label={t('stock.doc.field.externalRefSystem')} error={err('externalRefSystem')} optional mono>
-            <input type="text" value={form.externalRefSystem} onChange={(e) => patch({ externalRefSystem: e.target.value })} />
-          </Field>
-          <Field label={t('stock.doc.field.externalRefId')} hint={t('stock.doc.field.externalRefHint')} error={err('externalRefId')} optional mono>
-            <input type="text" value={form.externalRefId} onChange={(e) => patch({ externalRefId: e.target.value })} />
-          </Field>
-        </>
-      )}
+    <>
+      <DocBar
+        editing
+        title={<span>{props.title}</span>}
+        onBack={props.onBack}
+        backLabel={t('stock.doc.back')}
+        actions={
+          <>
+            <Button variant="primary" loading={save.isPending} onClick={submit}>
+              {t('stock.doc.save')}
+            </Button>
+            <Button variant="ghost" onClick={onCancel}>
+              {t('stock.doc.dialog.back')}
+            </Button>
+          </>
+        }
+      >
+        {banner && <Banner tone="danger">{banner}</Banner>}
+      </DocBar>
+      <DocCard area="header" title={t('stock.doc.header')} data-testid="document-form">
+        <DocFields editing>
+          {onKindChange && (
+            <E full>
+              <Select
+                label={t('stock.doc.col.kind')}
+                value={form.kind}
+                onChange={(k) => onKindChange(k as DocKind)}
+                options={DOC_KINDS.map((k) => ({ value: k, label: t(`stock.doc.kind.${k}`) }))}
+              />
+            </E>
+          )}
+          {!onKindChange && (
+            <E full>
+              <p>{t(`stock.doc.kind.${form.kind}`)}</p>
+            </E>
+          )}
+          {!opening && (
+            <E full>
+              <Field label={t('stock.col.time')} error={err('eventTime')} mono>
+                <input type="datetime-local" value={form.eventTime} onChange={(e) => patch({ eventTime: e.target.value })} />
+              </Field>
+              <DateValueHint value={form.eventTime} kind="datetime" />
+            </E>
+          )}
+          {two && errors['sides'] && <p role="alert">{t(errors['sides'])}</p>}
+          {two && (['from', 'to'] as const).map((side) => (
+            <SideGroup
+              key={side}
+              side={side}
+              value={form[side]}
+              onChange={(p) => patchSide(side, p)}
+              errors={errors}
+              orgUnits={orgUnits}
+              locations={locations}
+              employees={employees}
+              orgUnitFixed={edit && side === orgFixedSide}
+            />
+          ))}
+          {!two && (<>
+          <E full>
+            <Select
+              label={t('stock.col.orgUnit')}
+              value={form.orgUnitId}
+              onChange={(orgUnitId) => patch({ orgUnitId })}
+              options={orgUnits}
+              placeholder={t('stock.doc.pick')}
+              error={err('orgUnitId')}
+              disabled={edit}
+              hint={edit ? t('stock.doc.orgUnitFixed') : undefined}
+            />
+          </E>
+          {!opening && (<>
+          <E full>
+            <Select
+              label={t('stock.col.location')}
+              value={form.locationId}
+              onChange={(locationId) => patch({ locationId })}
+              options={locations}
+              placeholder={t('stock.doc.pick')}
+              error={err('locationId')}
+            />
+          </E>
+          <E full>
+            <Select
+              label={t('stock.col.responsible')}
+              value={form.responsibleId}
+              onChange={(responsibleId) => patch({ responsibleId })}
+              options={employees}
+              placeholder={t('stock.doc.pick')}
+              error={err('responsibleId')}
+            />
+          </E>
+          </>)}
+          </>)}
+          {receipt && (
+            <>
+              <E full>
+                <Select
+                  label={t('stock.doc.field.counterparty')}
+                  value={form.counterpartyId}
+                  onChange={(counterpartyId) => patch({ counterpartyId })}
+                  options={counterparties}
+                  placeholder={t('stock.doc.pickNone')}
+                  error={err('counterpartyId')}
+                  optional
+                />
+              </E>
+              <E full>
+                <Field label={t('stock.doc.field.supplierRef')} error={err('supplierRef')} optional>
+                  <input type="text" value={form.supplierRef} onChange={(e) => patch({ supplierRef: e.target.value })} />
+                </Field>
+              </E>
+              <E full>
+                <Field label={t('stock.doc.field.receivedOn')} error={err('receivedOn')} optional mono>
+                  <input type="date" value={form.receivedOn} onChange={(e) => patch({ receivedOn: e.target.value })} />
+                </Field>
+                <DateValueHint value={form.receivedOn} kind="date" />
+              </E>
+            </>
+          )}
+          {form.kind === 'write_off' && (
+            <E full>
+              <Select
+                label={t('stock.doc.field.reasonCode')}
+                value={form.reasonCode}
+                onChange={(reasonCode) => patch({ reasonCode })}
+                options={WRITE_OFF_REASONS.map((r) => ({ value: r, label: t(`stock.doc.writeOffReason.${r}`) }))}
+                placeholder={t('stock.doc.pick')}
+                error={err('reasonCode')}
+              />
+            </E>
+          )}
+          {!receipt && !two && !opening && (
+            <E full>
+              <Field label={t('stock.doc.field.reasonText')} error={err('reasonText')} optional={form.reasonCode !== 'other'}>
+                <textarea rows={2} value={form.reasonText} onChange={(e) => patch({ reasonText: e.target.value })} />
+              </Field>
+            </E>
+          )}
+          <E full>
+            <Field label={t('stock.doc.field.note')} error={err('note')} optional>
+              <textarea rows={2} value={form.note} onChange={(e) => patch({ note: e.target.value })} />
+            </Field>
+          </E>
+          {opening && (
+            <>
+              <E full>
+                <Field label={t('stock.doc.field.externalRefSystem')} error={err('externalRefSystem')} optional mono>
+                  <input type="text" value={form.externalRefSystem} onChange={(e) => patch({ externalRefSystem: e.target.value })} />
+                </Field>
+              </E>
+              <E full>
+                <Field label={t('stock.doc.field.externalRefId')} hint={t('stock.doc.field.externalRefHint')} error={err('externalRefId')} optional mono>
+                  <input type="text" value={form.externalRefId} onChange={(e) => patch({ externalRefId: e.target.value })} />
+                </Field>
+              </E>
+            </>
+          )}
+        </DocFields>
+      </DocCard>
       <LinesEditor kind={form.kind} lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} />
-      <div className="lf-btn-row">
-        <Button variant="primary" type="submit" loading={save.isPending}>
-          {t('stock.doc.save')}
-        </Button>
-        <Button variant="ghost" onClick={onCancel}>
-          {t('stock.doc.dialog.back')}
-        </Button>
-      </div>
-    </form>
+    </>
   )
 }
 
