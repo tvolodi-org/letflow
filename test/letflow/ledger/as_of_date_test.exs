@@ -104,14 +104,16 @@ defmodule Letflow.Ledger.AsOfDateTest do
     schema: s,
     auth: a
   } do
-    post_at!(s, "receipt", ["k", "l"], 1, DateTime.add(DateTime.utc_now(), -3600))
-    assert {:ok, r} = Ledger.balances_on_date(a, tokyo_day(0), :latest, %{}, %{})
+    # yesterday in Tokyo is never in the future of Almaty or Berlin, whatever the UTC hour
+    d = tokyo_day(1)
+    post_at!(s, "receipt", ["k", "l"], 1, DateTime.add(boundary(d), -3600))
+    assert {:ok, r} = Ledger.balances_on_date(a, d, :latest, %{}, %{})
     assert r |> Map.keys() |> Enum.sort() == @report_keys
     assert r.timezone == "Asia/Tokyo"
 
     :ok = Fx.put_tenant_settings!(fx, %{})
-    assert {:ok, d} = Ledger.balances_on_date(a, tokyo_day(0), :latest, %{}, %{})
-    assert d.timezone == "Asia/Almaty"
+    assert {:ok, dz} = Ledger.balances_on_date(a, d, :latest, %{}, %{})
+    assert dz.timezone == "Asia/Almaty"
   end
 
   test "T-AD-6 receipt then reversal: 10, 10, 0 and the zero row stays", %{schema: s, auth: a} do
@@ -180,12 +182,12 @@ defmodule Letflow.Ledger.AsOfDateTest do
     other = Fx.tenant_fixture!()
     :ok = Fx.put_tenant_settings!(other, %{"timezone" => "Europe/Berlin"})
     b = Fx.authorized!(other)
-    at = DateTime.add(DateTime.utc_now(), -3600)
+    day = tokyo_day(1)
+    at = DateTime.add(boundary(day), -3600)
     post_at!(s, "receipt", ["same", "l"], 5, at)
     post_at!(other.schema_name, "receipt", ["same", "l"], 7, at)
     post_at!(other.schema_name, "receipt", ["only_b", "l"], 1, at)
 
-    day = tokyo_day(0)
     {:ok, ra} = Ledger.balances_on_date(a, day, :latest, %{}, %{})
     {:ok, rb} = Ledger.balances_on_date(b, day, :latest, %{}, %{})
     assert qty(ra, "same") == [5] and qty(ra, "only_b") == []
