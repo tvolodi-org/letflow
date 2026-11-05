@@ -57,5 +57,8 @@
   "codes.status.notAssigned": "Этот код ни к чему не привязан",
   "codes.status.retired": "Этот код выведен из использования",
   "codes.status.conflict": "С привязкой этого кода есть проблема; обратитесь к администратору",
-  "codes.status.notKnown": "Этот код неизвестен"
+  "codes.status.notKnown": "Этот код неизвестен",
+  "home.stock.entry": "Склад",
+  "stock.home.title": "Склад",
+  "stock.home.empty": "Пока ничего нет. Здесь появятся инвентаризации и движения."
 }
