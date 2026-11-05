@@ -415,3 +415,8 @@ config :letflow, :allow_ledger_migration_down, true
 # handler is raised; the primary Logger level stays :debug, so ExUnit.CaptureLog and LoggerCollector
 # (their own handlers) still see debug/query events, and failing tests print their own output.
 config :logger, :default_handler, level: :warning
+
+# REQ-623 / GH #3474: lets tests replace the document renderer registry
+# (`Letflow.Documents.Renderers`). Set to true here and nowhere else; in every other build the
+# override is not compiled, so no runtime setting can choose a renderer module.
+config :letflow, :document_renderers_override_enabled, true

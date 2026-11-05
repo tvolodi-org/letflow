@@ -5,7 +5,8 @@ defmodule Letflow.Documents.DocumentVersion do
   A version moves through `draft`, `issued`, `superseded`, `cancelled` or `discarded`.
   Which columns may change on which transition is decided by the database
   (`guard_document_versions`); this shape does not repeat those rules. The writer is
-  the `Letflow.Documents` context (PR B).
+  the `Letflow.Documents` context (PR B). `artefact_hash` is NULL until
+  `Letflow.Documents.attach_artefact/2` sets it, once (REQ-623).
   """
 
   use Ecto.Schema

@@ -542,6 +542,7 @@ Mechanical, like §10: the tier is decided from the diff's paths and changed lin
 by judgement. Any ambiguous check means FULL (the same asymmetry rule as §10). The tier goes on
 the `Tier:` line of the Gates block (`GIT_MERGE.md`); this section defines SHORT and HIGH.
 Not in force until REQ-521, REQ-522 and REQ-523 are done; until then every change is FULL or DIRECT.
+The helper `mix letflow.risk_tier` (REQ-522) is advisory and decides SHORT vs NOT-SHORT only; the PR-body rule for its output is in `GIT_MERGE.md` ("SHORT-chain tier line").
 (HIGH is FULL plus an outside review and is in force now, by the auditor's decision of 2026-10-19.)
 
 **SHORT** applies only when EVERY changed file is under `test/` (test files, `test/specs`,

@@ -186,7 +186,7 @@ defmodule Letflow.Modules.Stock.TwoSideRouterTest do
       all = D.request(:get, "/documents", ctx.tok_a) |> P.status!(200) |> Map.fetch!("rows")
       assert all |> Enum.map(& &1["kind"]) |> Enum.sort() == ["hand_over", "return", "transfer"]
 
-      assert D.request(:get, "/documents?kind=issue", ctx.tok_a) |> reason(422) ==
+      assert D.request(:get, "/documents?kind=loan", ctx.tok_a) |> reason(422) ==
                "invalid_filter"
     end
 
