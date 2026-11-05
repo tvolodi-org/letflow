@@ -21,7 +21,7 @@ const UOM = 'bbbbbbbb-1111-4222-8333-000000000004'
 
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
 const tasks = [
-  { id: T1, instance_id: I1, token_id: 't1', node_id: 'post', node_name: 'post', status: 'PENDING', definition_name: 'Stock document flow', created_at: ago(7) },
+  { id: T1, instance_id: I1, token_id: 't1', node_id: 'post', node_name: 'post', status: 'PENDING', assignee_type: 'USER', assignee_ref: ME, definition_name: 'Stock document flow', created_at: ago(7) },
   { id: T2, instance_id: I2, token_id: 't2', node_id: 'approve', node_name: 'approve', status: 'PENDING', assignee_type: 'ROLE', assignee_ref: 'stock_keeper', definition_name: 'Stock document flow', created_at: ago(190) },
 ]
 const doc = (id: string, number: string) => ({
@@ -67,7 +67,7 @@ const AUTH = {
 } as unknown as AuthContextValue
 const ACCESS = {
   status: 'ready' as const,
-  info: { roles: [], platform_tenant: false, permissions: ['TasksRead', 'TasksComplete'] },
+  info: { roles: [], platform_tenant: false, user_id: ME, permissions: ['TasksRead', 'TasksComplete'] },
 }
 
 function withAuth(page: ReactElement): ReactElement {
