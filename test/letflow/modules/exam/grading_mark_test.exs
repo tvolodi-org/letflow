@@ -219,19 +219,7 @@ defmodule Letflow.Modules.Exam.GradingMarkTest do
 
       assert {"POST", "/grading-queue/:session_id/:question_id/grade", :ExamGradingWrite} in manifest.route_policies
 
-      lines =
-        "priv/permission_matrix/effective.golden"
-        |> File.read!()
-        |> String.split(~r/\r?\n/)
-        |> Enum.filter(&String.contains?(&1, "ExamGradingWrite"))
-
-      # one row per role; 9 since STOREKEEPER (#3952)
-      assert length(lines) == length(Letflow.Api.Authorization.roles())
-
-      for role <- ~w(TENANT_ADMIN PLATFORM_ADMIN),
-          do: assert(Enum.any?(lines, &(&1 =~ ~r/#{role}\b.*\btrue/)))
-
-      assert Enum.count(lines, &String.contains?(&1, "true")) == 2
+      Letflow.GoldenRows.assert_true_only_for("ExamGradingWrite", ~w(PLATFORM_ADMIN TENANT_ADMIN))
     end
   end
 
