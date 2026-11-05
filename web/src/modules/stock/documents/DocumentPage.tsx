@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link, useParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
+import { Printer } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { actorLabel, tokenSubject } from '@/lib/references/actorLabel'
@@ -15,15 +16,18 @@ import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
+import { getUiLocale } from '@/i18n/uiLocaleStore'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { RegisterError } from '../register/RegisterShell'
+import { usePdfDownload } from '../register/usePdfDownload'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { useNames } from '../register/stockNames'
 import { documentsApi, type StockDocument } from './documents.api'
 import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
-import { DOC_KINDS, DOC_STATES, formatEventTime, isOpening, isTwoSide, sidesOf } from './documentsModel'
+import { DOC_KINDS, DOC_STATES, documentPrintable, formatEventTime, isOpening, isTwoSide, printErrorMessageId, sidesOf } from './documentsModel'
 import { stateTone } from './stateTone'
+import { parseFilename } from '../counts/countsModel'
 import { movementsLinkFor, type NameIds } from '../register/stockRegisterModel'
 
 function nameIds(doc: StockDocument): NameIds {
@@ -61,6 +65,7 @@ function DocumentInner() {
   const tenantId = session?.tenant_id ?? ''
   const uiLocale = useUiLocale()
   const [editing, setEditing] = useState(false)
+  const pdf = usePdfDownload(parseFilename)
   // useQueries (like the pickers): the page draws its own loading and error states.
   const [query] = useQueries({ queries: [{
     queryKey: stockQueryKeys.document(tenantId, id),
@@ -140,6 +145,22 @@ function DocumentInner() {
         </Banner>
       )}
       <DocumentActions doc={doc} onEdit={() => setEditing(true)} />
+      {documentPrintable(doc) && (
+        <>
+          {pdf.error !== null && <Banner tone="danger">{t(pdf.error)}</Banner>}
+          <div className="lf-btn-row">
+            <Button
+              variant="secondary"
+              icon={<Printer className="lf-icon" aria-hidden="true" />}
+              loading={pdf.busyKey === 'print'}
+              onClick={() => void pdf.run('print', () => documentsApi.print(doc.id, getUiLocale()), `${doc.number ?? doc.id}.pdf`, printErrorMessageId)}
+              data-testid="document-print"
+            >
+              {t('stock.doc.print')}
+            </Button>
+          </div>
+        </>
+      )}
       <dl data-testid="document-header">
         {row(t('stock.doc.col.number'), doc.number, true)}
         {!opening && row(t('stock.col.time'), when(doc.event_time), true)}
