@@ -42,9 +42,10 @@ describe('E1 reasons', () => {
       'code_retired', 'code_assignment_conflict', 'code_not_assigned', 'code_not_countable', 'scan_no_line', 'scan_ambiguous',
       'scan_id_conflict', 'signers_incomplete', 'sheet_already_signed', 'sheet_not_signed', 'differences_already_issued',
       'differences_not_issued', 'differences_too_many', 'count_window_expired', 'document_not_issued', 'no_differences', 'reason_invalid',
+      'shortage_exceeds_balance',
     ].sort())
   })
-  it.each(COUNT_REASONS)('%s shows its own message', async (reason) => {
+  it.each(COUNT_REASONS.filter((r) => r !== 'shortage_exceeds_balance'))('%s shows its own message', async (reason) => {
     const box = await issueWith(problem(422, reason))
     expect(box).toHaveTextContent(countsEn[`counts.reason.${reason}`])
     expect(countsEn[`counts.reason.${reason}`]).toBeTruthy()

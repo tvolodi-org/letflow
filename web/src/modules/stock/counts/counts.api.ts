@@ -28,6 +28,8 @@ export interface CountOrder {
   /** REQ-718: present while the status is signed or posted. */
   posting_state?: 'none' | 'pending' | 'posted' | 'reversed'
   post_pending?: boolean
+  /** P50c: a signed count with no difference lines; the posting record can be issued at once. */
+  differences_empty?: boolean
   reverse_pending?: boolean
   entry_id?: string | null
   posted_at?: string | null

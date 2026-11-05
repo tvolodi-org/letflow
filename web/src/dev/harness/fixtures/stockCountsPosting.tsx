@@ -35,6 +35,7 @@ const ORDERS = [
   { ...BASE, id: 'c6', number: 'CNT-0006', status: 'posted', posting_state: 'posted', posting_check: 'ok', entry_id: ENTRY, posted_at: '2026-10-22T09:00:00Z', posting_document_id: 'd9', posting_number: 'POST-2026-000003' },
   { ...BASE, id: 'c7', number: 'CNT-0007', status: 'posted', posting_state: 'posted', posting_check: 'mismatch', entry_id: ENTRY, posted_at: '2026-10-22T09:00:00Z' },
   { ...BASE, id: 'c8', number: 'CNT-0008', status: 'posted', posting_state: 'reversed', posting_check: 'ok', entry_id: ENTRY, posted_at: '2026-10-22T09:00:00Z', reversed_at: '2026-10-23T10:00:00Z' },
+  { ...BASE, id: 'c9', number: 'CNT-0009', posting_state: 'none', post_pending: false, reverse_pending: false, differences_empty: true },
 ]
 
 const routes: FixtureRoute[] = [
@@ -91,4 +92,5 @@ export const stockCountPostingScreens: HarnessScreen[] = [
   screen('stock-count-post-posted', 'c6'),
   screen('stock-count-post-mismatch', 'c7'),
   screen('stock-count-post-reversed', 'c8'),
+  screen('stock-count-post-empty', 'c9'),
 ]
