@@ -95,7 +95,17 @@ defmodule Letflow.Modules.Stock do
   order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
   `CountPaperworkSource`). No migration, record type or permission.
 
-  ## Opening balances (REQ-725 / GH #3775 and REQ-726 / GH #3774; version 0.8.0)
+  ## Count scan (REQ-716 / GH #3765; version 0.8.0)
+
+  One more route, `POST /counts/:id/scan` (permission `StockCountRecord`, `CountSheet.scan/4`): a
+  keyboard-scanner code is resolved with `Letflow.Modules.Codes.resolve/2`; an item or lot code adds one
+  unit to its single line, a `count_entry` with `method: scan` is appended, and a `scan_id` is counted
+  once. `count_entry` gains the optional fields `scan_id`, `code_id`, `scanned_text`, `location_id`. No
+  migration, no new permission; `depends_on` gains `codes` (the scan reads `Codes.resolve/2`; the boundary
+  lint requires it); the stock module is installed on no tenant yet. Assumptions, owner may
+  change at GATE B: see the `CountSheet` scanner section.
+
+  ## Opening balances (REQ-725 / GH #3775 and REQ-726 / GH #3774; version 0.9.0)
 
   The managed types `stock_opening` (header) and `stock_opening_line` (per-line location, responsible and
   real receipt date; no event time), the versioned document type `stock_opening` (prefix `OPN`, per
@@ -227,8 +237,8 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.8.0",
-    depends_on: ["catalog_items", "locations", "org"],
+    version: "0.9.0",
+    depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
       :StockPost,
@@ -264,6 +274,7 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/counts/:id/document", :StockRead},
       {"GET", "/counts/:id/paperwork/:kind", :StockRead},
       {"POST", "/counts/:id/open", :StockCountRecord},
+      {"POST", "/counts/:id/scan", :StockCountRecord},
       {"GET", "/counts/:id/lines", :StockRead},
       {"PUT", "/counts/:id/lines/:line_no/count", :StockCountRecord},
       {"POST", "/counts/:id/surplus-lines", :StockCountRecord},
