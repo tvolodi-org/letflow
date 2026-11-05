@@ -32,6 +32,7 @@ vi.mock('@/api/client', () => ({
 }))
 
 vi.mock('../OidcManager', () => ({
+  resetOidcManager: vi.fn(),
   getOidcManager: vi.fn(async () => ({
     signinRedirect: mockSigninRedirect,
     signoutRedirect: mockSignoutRedirect,

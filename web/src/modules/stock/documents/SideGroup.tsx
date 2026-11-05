@@ -25,9 +25,10 @@ export function SideGroup({ side, value, onChange, errors, orgUnits, locations, 
   const group = errors[`side.${side}`]
   const label = t(`stock.doc.side.${side}`)
   return (
-    <fieldset data-testid={`side-${side}`} aria-label={label} className="lf-side-group">
+    <fieldset data-testid={`side-${side}`} aria-label={label} className="lf-doc__group">
       <legend>{label}</legend>
       {group && <p role="alert">{t(group)}</p>}
+      <div className="lf-doc__fields">
       <Select
         label={t('stock.col.orgUnit')}
         value={value.orgUnitId}
@@ -54,6 +55,7 @@ export function SideGroup({ side, value, onChange, errors, orgUnits, locations, 
         placeholder={t('stock.doc.pick')}
         error={err('responsibleId')}
       />
+      </div>
     </fieldset>
   )
 }

@@ -17,4 +17,10 @@ defmodule Letflow.Modules.ReadApiTest do
     refute ReadApi.active?("tenant_x", "not-a-uuid", ["org_site"])
     refute ReadApi.active?(nil, Ecto.UUID.generate(), ["org_site"])
   end
+
+  test "list_active/2 is not_found for inputs that can never name a tenant schema" do
+    assert {:error, :not_found} = ReadApi.list_active(nil, "catalog_item")
+    assert {:error, :not_found} = ReadApi.list_active("tenant_x", nil)
+    assert {:error, :not_found} = ReadApi.list_active(:nope, "catalog_item")
+  end
 end

@@ -39,16 +39,18 @@ afterEach(() => {
 })
 
 const group = (side: 'from' | 'to') => screen.getByTestId(`side-${side}`)
+const form = () => within(screen.getByTestId('document-form'))
 const pick = (side: 'from' | 'to', label: string, value: string) =>
   fireEvent.change(within(group(side)).getByLabelText(label), { target: { value } })
 const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
 const firstRow = () => screen.getAllByTestId('line-editor-row')[0]
 
 async function ready() {
-  await screen.findAllByRole('option', { name: 'Branch store' })
-  await screen.findAllByRole('option', { name: 'Shelf B' })
-  await screen.findAllByRole('option', { name: 'Marat K.' })
-  fireEvent.change(screen.getByLabelText('Event time'), { target: { value: '2026-11-04T10:00' } })
+  await form().findAllByRole('option', { name: 'Branch store' })
+  await form().findAllByRole('option', { name: 'Shelf B' })
+  await form().findAllByRole('option', { name: 'Marat K.' })
+  fireEvent.change(form().getByLabelText('Event time, date'), { target: { value: '2026-11-04' } })
+  fireEvent.change(form().getByLabelText('Event time, time'), { target: { value: '10:00' } })
 }
 async function fillSides(from: [string, string, string], to: [string, string, string]) {
   for (const [side, v] of [['from', from], ['to', to]] as const) {
@@ -62,7 +64,7 @@ async function fillLine() {
   await within(row).findByRole('option', { name: 'Bolt M8' })
   fireEvent.change(within(row).getByLabelText('Item'), { target: { value: 'i1' } })
   fireEvent.change(within(row).getByLabelText('Quantity'), { target: { value: '2' } })
-  await waitFor(() => expect(within(row).getByLabelText('Unit')).toHaveValue('pcs'))
+  await within(row).findByText('pcs')
 }
 const LINES = [{ catalog_item_id: 'i1', catalog_uom_id: 'm1', quantity: '2' }]
 
@@ -95,7 +97,7 @@ describe('T1 create per kind', () => {
   it('T1c return: exact body, the document org unit is the To one', async () => {
     renderStock(`${NEW}?kind=return`, withPost)
     await ready()
-    fireEvent.change(screen.getByLabelText(/^Note/), { target: { value: 'back' } })
+    fireEvent.change(form().getByLabelText(/^Note/), { target: { value: 'back' } })
     await fillSides(['u2', 'l2', 'e2'], ['u1', 'l1', 'e1'])
     await fillLine()
     save()
@@ -108,16 +110,16 @@ describe('T1 create per kind', () => {
   it('T1d shows event time, note, From and To groups and no counterparty, price or reason field', async () => {
     renderStock(`${NEW}?kind=transfer`, withPost)
     await ready()
-    expect(screen.getByLabelText('Event time')).toBeInTheDocument()
-    expect(screen.getByLabelText(/^Note/)).toBeInTheDocument()
+    expect(form().getByLabelText('Event time')).toBeInTheDocument()
+    expect(form().getByLabelText(/^Note/)).toBeInTheDocument()
     expect(group('from')).toHaveAccessibleName('From')
     expect(group('to')).toHaveAccessibleName('To')
     for (const side of ['from', 'to'] as const) {
       for (const l of ['Org unit', 'Location', 'Responsible']) expect(within(group(side)).getByLabelText(l)).toBeInTheDocument()
     }
-    for (const l of [/^Counterparty/, /^Supplier document/, /^Received on/, /^Reason/]) expect(screen.queryByLabelText(l)).not.toBeInTheDocument()
+    for (const l of [/^Counterparty/, /^Supplier document/, /^Received on/, /^Reason/]) expect(form().queryByLabelText(l)).not.toBeInTheDocument()
     expect(within(firstRow()).queryByLabelText(/^Unit price/)).not.toBeInTheDocument()
-    expect(within(firstRow()).getByLabelText('Unit')).toHaveAttribute('readonly')
+    expect(within(firstRow()).queryByRole('textbox', { name: /Unit/ })).toBeNull()
   })
   it('T1e hand over copies From org unit and location into To until To is touched', async () => {
     renderStock(`${NEW}?kind=hand_over`, withPost)
@@ -154,7 +156,7 @@ describe('T1 create per kind', () => {
     renderStock(`${LIST}/d9`, withPost)
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     await screen.findByTestId('document-form')
-    await screen.findAllByRole('option', { name: 'Branch store' })
+    await form().findAllByRole('option', { name: 'Branch store' })
     expect(within(group('to')).getByLabelText('Org unit')).toBeDisabled()
     expect(within(group('from')).getByLabelText('Org unit')).not.toBeDisabled()
     expect(within(group('from')).getByLabelText('Org unit')).toHaveValue('u2')
@@ -241,7 +243,7 @@ describe('T5 languages', () => {
       await screen.findByTestId('side-from')
       expect(group('from')).toHaveAccessibleName(stockMessages[locale]['stock.doc.side.from'])
       expect(group('to')).toHaveAccessibleName(stockMessages[locale]['stock.doc.side.to'])
-      expect(screen.getByText(stockMessages[locale]['stock.doc.kind.transfer'], { selector: 'p' })).toBeInTheDocument()
+      expect(form().getByLabelText(stockMessages[locale]['stock.doc.col.kind'])).toHaveDisplayValue(stockMessages[locale]['stock.doc.kind.transfer'])
       await act(async () => undefined)
     })
   }

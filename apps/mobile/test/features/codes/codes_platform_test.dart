@@ -5,29 +5,33 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('C2a: pubspec gains mobile_scanner as the only new runtime package', () {
-    final lines = File('pubspec.yaml').readAsLinesSync();
-    final start = lines.indexOf('dependencies:');
-    final end = lines.indexOf('dev_dependencies:');
-    final deps = lines
-        .sublist(start + 1, end)
-        .where((l) => RegExp(r'^  [a-z_]+:').hasMatch(l))
-        .map((l) => l.trim().split(':').first)
-        .toList();
-    expect(deps, [
-      'dio',
-      'flutter',
-      'flutter_appauth',
-      'flutter_riverpod',
-      'flutter_secure_storage',
-      'go_router',
-      'intl',
-      'mobile_scanner',
-      'path',
-      'path_provider',
-      'sembast',
-    ]);
-  });
+  test(
+    'C2a: mobile_scanner (REQ-732) and record (REQ-747) are the only additions',
+    () {
+      final lines = File('pubspec.yaml').readAsLinesSync();
+      final start = lines.indexOf('dependencies:');
+      final end = lines.indexOf('dev_dependencies:');
+      final deps = lines
+          .sublist(start + 1, end)
+          .where((l) => RegExp(r'^  [a-z_]+:').hasMatch(l))
+          .map((l) => l.trim().split(':').first)
+          .toList();
+      expect(deps, [
+        'dio',
+        'flutter',
+        'flutter_appauth',
+        'flutter_riverpod',
+        'flutter_secure_storage',
+        'go_router',
+        'intl',
+        'mobile_scanner',
+        'path',
+        'path_provider',
+        'record',
+        'sembast',
+      ]);
+    },
+  );
 
   test('C2b: README names the package and the reason', () {
     final readme = File('README.md').readAsStringSync();
