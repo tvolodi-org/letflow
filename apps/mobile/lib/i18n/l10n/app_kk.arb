@@ -57,5 +57,8 @@
   "codes.status.notAssigned": "Бұл код ешнәрсеге байланбаған",
   "codes.status.retired": "Бұл код қолданыстан шығарылған",
   "codes.status.conflict": "Бұл кодтың байланыстыруында мәселе бар; әкімшіге хабарласыңыз",
-  "codes.status.notKnown": "Бұл код белгісіз"
+  "codes.status.notKnown": "Бұл код белгісіз",
+  "home.stock.entry": "Қойма",
+  "stock.home.title": "Қойма",
+  "stock.home.empty": "Әзірге ештеңе жоқ. Мұнда түгендеулер мен қозғалыстар көрсетіледі."
 }
