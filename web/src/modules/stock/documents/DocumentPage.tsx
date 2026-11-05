@@ -19,7 +19,7 @@ import { useNames } from '../register/stockNames'
 import { documentsApi, type StockDocument } from './documents.api'
 import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
-import { DOC_KINDS, DOC_STATES, formatEventTime, isTwoSide, sidesOf } from './documentsModel'
+import { DOC_KINDS, DOC_STATES, formatEventTime, isOpening, isTwoSide, sidesOf } from './documentsModel'
 import { stateTone } from './stateTone'
 import { movementsLinkFor, type NameIds } from '../register/stockRegisterModel'
 
@@ -44,6 +44,8 @@ function nameIds(doc: StockDocument): NameIds {
     add('catalog_item', l.catalog_item_id)
     add('catalog_uom', l.catalog_uom_id)
     add('catalog_lot', l.catalog_lot_id)
+    add('location_node', l.location_id)
+    add('org_employee', l.responsible_id)
   }
   return out
 }
@@ -84,6 +86,7 @@ function DocumentInner() {
   const tone = stateTone(doc.state)
   const isReceipt = doc.kind === 'receipt'
   const two = isTwoSide(doc.kind)
+  const opening = isOpening(doc.kind)
   const sides = sidesOf(doc)
 
   if (editing) {
@@ -127,16 +130,16 @@ function DocumentInner() {
       )}
       {doc.state === 'issued' && (
         <Banner tone="info" action={<Link to="/tasks">{t('stock.doc.waiting.link')}</Link>}>
-          {t('stock.doc.waiting.text')}
+          {t(opening ? 'stock.doc.waiting.opening' : 'stock.doc.waiting.text')}
         </Banner>
       )}
       <DocumentActions doc={doc} onEdit={() => setEditing(true)} />
       <dl data-testid="document-header">
         {row(t('stock.doc.col.number'), doc.number, true)}
-        {row(t('stock.col.time'), when(doc.event_time), true)}
+        {!opening && row(t('stock.col.time'), when(doc.event_time), true)}
         {!two && row(t('stock.col.orgUnit'), name('org_unit', doc.org_unit_id))}
-        {!two && row(t('stock.col.location'), name('location_node', doc.location_id))}
-        {!two && row(t('stock.col.responsible'), name('org_employee', doc.responsible_id))}
+        {!two && !opening && row(t('stock.col.location'), name('location_node', doc.location_id))}
+        {!two && !opening && row(t('stock.col.responsible'), name('org_employee', doc.responsible_id))}
         {isReceipt && row(t('stock.doc.field.counterparty'), name('catalog_counterparty', doc.counterparty_id))}
         {isReceipt && row(t('stock.doc.field.supplierRef'), doc.supplier_document_ref, true)}
         {isReceipt && row(t('stock.doc.field.receivedOn'), doc.received_on, true)}
@@ -167,8 +170,11 @@ function DocumentInner() {
             <th>{t('stock.col.lot')}</th>
             <th>{t('stock.col.unit')}</th>
             <th>{t('stock.col.quantity')}</th>
-            {isReceipt && <th>{t('stock.doc.field.unitPrice')}</th>}
-            {isReceipt && <th>{t('stock.doc.field.lineValue')}</th>}
+            {opening && <th>{t('stock.col.location')}</th>}
+            {opening && <th>{t('stock.col.responsible')}</th>}
+            {opening && <th>{t('stock.doc.field.receivedOnReal')}</th>}
+            {(isReceipt || opening) && <th>{t('stock.doc.field.unitPrice')}</th>}
+            {(isReceipt || opening) && <th>{t('stock.doc.field.lineValue')}</th>}
           </tr>
         </thead>
         <tbody>
@@ -179,8 +185,11 @@ function DocumentInner() {
               <td>{name('catalog_lot', l.catalog_lot_id) || dash}</td>
               <td>{name('catalog_uom', l.catalog_uom_id)}</td>
               <td className="mono">{l.quantity}</td>
-              {isReceipt && <td className="mono">{l.unit_price ?? dash}</td>}
-              {isReceipt && <td className="mono">{l.line_value ?? dash}</td>}
+              {opening && <td>{name('location_node', l.location_id) || dash}</td>}
+              {opening && <td>{name('org_employee', l.responsible_id) || dash}</td>}
+              {opening && <td className="mono">{l.received_on ?? dash}</td>}
+              {(isReceipt || opening) && <td className="mono">{l.unit_price ?? dash}</td>}
+              {(isReceipt || opening) && <td className="mono">{l.line_value ?? dash}</td>}
             </tr>
           ))}
         </tbody>

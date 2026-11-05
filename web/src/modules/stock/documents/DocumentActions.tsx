@@ -15,7 +15,7 @@ import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { documentsApi, type StockDocument } from './documents.api'
-import { REVERSE_REASONS, TEXT_MAX, actionsFor, documentErrorMessageId, reasonTextError } from './documentsModel'
+import { REVERSE_REASONS, TEXT_MAX, actionsFor, documentErrorInfo, documentErrorMessageId, isOpening, reasonTextError } from './documentsModel'
 
 type Dlg = 'discard' | 'issue' | 'reverse' | 'cancel' | null
 
@@ -32,6 +32,7 @@ export function DocumentActions({ doc, onEdit }: { doc: StockDocument; onEdit: (
   const [code, setCode] = useState('')
   const [text, setText] = useState('')
   const [touched, setTouched] = useState(false)
+  const [checkMsgs, setCheckMsgs] = useState<string[] | null>(null)
   const acts = actionsFor(doc.state, can, doc.kind)
 
   const close = () => {
@@ -64,6 +65,27 @@ export function DocumentActions({ doc, onEdit }: { doc: StockDocument; onEdit: (
       }
       await refresh()
     },
+    onError: (e) => {
+      const line = documentErrorInfo(e).lineNo
+      const text = t(documentErrorMessageId(e))
+      setError(isOpening(doc.kind) && line !== undefined ? `${intl.formatMessage({ id: 'stock.doc.error.line' }, { line })} ${text}` : text)
+    },
+  })
+  const check = useMutation({
+    mutationFn: () => documentsApi.check(doc.id),
+    onSuccess: (r) => {
+      setError(null)
+      setCheckMsgs(
+        r.lines.flatMap((l) =>
+          l.reasons.map((reason) =>
+            intl.formatMessage(
+              { id: 'stock.doc.check.line' },
+              { line: l.line_no, reason: t(`stock.doc.error.${reason}`) },
+            ),
+          ),
+        ),
+      )
+    },
     onError: (e) => setError(t(documentErrorMessageId(e))),
   })
 
@@ -82,6 +104,11 @@ export function DocumentActions({ doc, onEdit }: { doc: StockDocument; onEdit: (
   return (
     <div className="lf-btn-row" data-testid="document-actions">
       {acts.edit && <Button variant="secondary" onClick={onEdit}>{t('stock.doc.action.edit')}</Button>}
+      {acts.issue && isOpening(doc.kind) && (
+        <Button variant="secondary" loading={check.isPending} onClick={() => { setError(null); check.mutate() }}>
+          {t('stock.doc.action.check')}
+        </Button>
+      )}
       {acts.issue && <Button variant="primary" onClick={() => setDlg('issue')}>{t('stock.doc.action.issue')}</Button>}
       {acts.discard && <Button variant="danger" onClick={() => setDlg('discard')}>{t('stock.doc.action.discard')}</Button>}
       {acts.retry && (
@@ -92,6 +119,15 @@ export function DocumentActions({ doc, onEdit }: { doc: StockDocument; onEdit: (
       {acts.reverse && <Button variant="danger" onClick={() => setDlg('reverse')}>{t('stock.doc.action.reverse')}</Button>}
       {acts.cancel && <Button variant="danger" onClick={() => setDlg('cancel')}>{t('stock.doc.action.cancel')}</Button>}
       {error && dlg === null && <span role="alert" data-testid="action-error">{error}</span>}
+      {checkMsgs !== null && (
+        <div role="status" data-testid="check-result">
+          {checkMsgs.length === 0 ? (
+            <p>{t('stock.doc.check.ok')}</p>
+          ) : (
+            <ul>{checkMsgs.map((m, i) => <li key={i}>{m}</li>)}</ul>
+          )}
+        </div>
+      )}
 
       <ConfirmDialog
         open={dlg === 'discard'}

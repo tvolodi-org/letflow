@@ -14,13 +14,15 @@ interface RowProps {
   line: LineForm
   kind: DocKind
   items: PickerOption[]
+  locations: PickerOption[]
+  employees: PickerOption[]
   errors: Record<string, string>
   onChange: (next: LineForm) => void
   onRemove: () => void
   canRemove: boolean
 }
 
-function LineRow({ index, line, kind, items, errors, onChange, onRemove, canRemove }: RowProps) {
+function LineRow({ index, line, kind, items, locations, employees, errors, onChange, onRemove, canRemove }: RowProps) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const lots = usePickerOptions(
@@ -66,7 +68,30 @@ function LineRow({ index, line, kind, items, errors, onChange, onRemove, canRemo
       <Field label={t('stock.col.quantity')} error={err('quantity')} mono>
         <input type="text" inputMode="decimal" value={line.quantity} onChange={(e) => patch({ quantity: e.target.value })} />
       </Field>
-      {kind === 'receipt' && (
+      {kind === 'opening' && (
+        <>
+          <Select
+            label={t('stock.col.location')}
+            value={line.locationId}
+            onChange={(locationId) => patch({ locationId })}
+            options={locations}
+            placeholder={t('stock.doc.pick')}
+            error={err('locationId')}
+          />
+          <Select
+            label={t('stock.col.responsible')}
+            value={line.responsibleId}
+            onChange={(responsibleId) => patch({ responsibleId })}
+            options={employees}
+            placeholder={t('stock.doc.pick')}
+            error={err('responsibleId')}
+          />
+          <Field label={t('stock.doc.field.receivedOnReal')} error={err('receivedOn')} mono>
+            <input type="date" value={line.receivedOn} onChange={(e) => patch({ receivedOn: e.target.value })} />
+          </Field>
+        </>
+      )}
+      {(kind === 'receipt' || kind === 'opening') && (
         <>
           <Field label={t('stock.doc.field.unitPrice')} error={err('unitPrice')} optional mono>
             <input type="text" inputMode="decimal" value={line.unitPrice} onChange={(e) => patch({ unitPrice: e.target.value })} />
@@ -94,6 +119,8 @@ export function LinesEditor(props: {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const items = usePickerOptions('catalog_item')
+  const locations = usePickerOptions('location_node', [], props.kind === 'opening')
+  const employees = usePickerOptions('org_employee', [], props.kind === 'opening')
   const { lines, onChange } = props
   return (
     <section aria-label={t('stock.doc.lines')} data-testid="lines-editor">
@@ -107,6 +134,8 @@ export function LinesEditor(props: {
           line={l}
           kind={props.kind}
           items={items}
+          locations={locations}
+          employees={employees}
           errors={props.errors}
           onChange={(next) => onChange(lines.map((x, j) => (j === i ? next : x)))}
           onRemove={() => onChange(lines.filter((_, j) => j !== i))}
