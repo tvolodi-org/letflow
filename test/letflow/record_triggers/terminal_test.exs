@@ -345,7 +345,7 @@ defmodule Letflow.RecordTriggers.TerminalTest do
         log =
           ExUnit.CaptureLog.capture_log([level: :warning], fn ->
             {summary, _} = Worker.run_tick([s], 0)
-            assert summary.claimed == 1 and summary.dead == 1
+            assert summary.claimed == 1 and summary.dead == 1, "summary=#{inspect(summary)}"
           end)
 
         stored = R.fetch(s, row.id)
