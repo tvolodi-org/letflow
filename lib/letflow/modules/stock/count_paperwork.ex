@@ -38,7 +38,7 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
           [
             sheet("document", document_rows(kind, issued, names)),
             sheet("scope", scope_rows(order, names)),
-            sheet("signatures", signature_rows(signers(kind, order, [])))
+            sheet("signatures", signature_rows(signer_rows(kind, order, [])))
             |> then(&resolve(&1, names))
           ]
 
@@ -48,7 +48,7 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
           [
             sheet("document", document_rows(kind, issued, names)),
             sheet("lines", line_rows(kind, lines, names)),
-            sheet("signatures", signature_rows(signers(kind, order, lines)))
+            sheet("signatures", signature_rows(signer_rows(kind, order, lines)))
             |> then(&resolve(&1, names))
           ]
       end
@@ -116,14 +116,16 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
     [["field", "value"] | base ++ extra]
   end
 
-  defp unit_text(%{} = unit),
+  @doc false
+  def unit_text(%{} = unit),
     do: [unit[:code], unit[:name]] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join(" ")
 
-  defp unit_text(_), do: ""
+  def unit_text(_), do: ""
 
-  defp time(nil, _names, _key), do: ""
+  @doc false
+  def time(nil, _names, _key), do: ""
 
-  defp time(value, names, key) do
+  def time(value, names, key) do
     case to_utc(value) do
       {:ok, dt} ->
         offset = names |> Map.get(:offsets, %{}) |> Map.get(key, 0)
@@ -161,10 +163,11 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
 
   # -- lines sheet ----------------------------------------------------------------------------
 
-  defp lines_of(:differences, content),
+  @doc false
+  def lines_of(:differences, content),
     do: list(content["lines"] || content["items"])
 
-  defp lines_of(_, content), do: list(content["lines"])
+  def lines_of(_, content), do: list(content["lines"])
 
   defp list(l) when is_list(l), do: Enum.sort_by(l, &(&1["line_no"] || 0))
   defp list(_), do: []
@@ -233,8 +236,14 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
     [~w(role code name)] ++ location_rows ++ chair ++ members
   end
 
-  defp list_ids(l) when is_list(l), do: l
-  defp list_ids(_), do: []
+  @doc false
+  def list_ids(l) when is_list(l), do: l
+  def list_ids(_), do: []
+
+  @doc false
+  def text(nil), do: ""
+  def text(v) when is_binary(v), do: v
+  def text(v), do: to_string(v)
 
   # -- signatures sheet -----------------------------------------------------------------------
 
@@ -243,7 +252,15 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
     [~w(role full_name personnel_code signature date) | signers]
   end
 
-  defp signers(kind, order, lines) do
+  defp signer_rows(kind, order, lines),
+    do: kind |> signers(order, lines) |> Enum.map(fn {role, id} -> {:signer, role, id} end)
+
+  @doc """
+  The signers of a document as `{role, employee_id}` pairs, in print order: shared by the xlsx and
+  the PDF (REQ-736) so both name the same people in the same order.
+  """
+  @spec signers(kind(), map(), [map()]) :: [{String.t(), term()}]
+  def signers(kind, order, lines) do
     chair = if order["chair_employee_id"], do: [{"chair", order["chair_employee_id"]}], else: []
 
     {members, responsible} =
@@ -260,7 +277,6 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
 
     (chair ++ members ++ responsible)
     |> Enum.uniq_by(fn {_role, id} -> id end)
-    |> Enum.map(fn {role, id} -> {:signer, role, id} end)
   end
 
   # Every line of a differences document is a difference line (REQ-717); a zero difference is skipped.
@@ -268,8 +284,4 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
   defp difference_line?(_), do: true
 
   defp zero?(d), do: d |> String.replace(~r/[-+.0]/, "") == ""
-
-  defp text(nil), do: ""
-  defp text(v) when is_binary(v), do: v
-  defp text(v), do: to_string(v)
 end
