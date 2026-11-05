@@ -1,0 +1,42 @@
+{
+  "form_layout_version": 1,
+  "form": "z2",
+  "annex": 26,
+  "blocks": [
+    {"type": "text", "label": "z2.annex"},
+    {"type": "text", "label": "z2.form_code"},
+    {"type": "field", "label": "z2.org", "key": "org_name"},
+    {"type": "field", "label": "z2.bin", "key": "org_bin"},
+    {"type": "field", "label": "z2.number", "key": "number"},
+    {"type": "field", "label": "z2.date", "key": "date"},
+    {"type": "title", "label": "z2.title"},
+    {"type": "field", "label": "z2.sender", "key": "sender"},
+    {"type": "field", "label": "z2.receiver", "key": "receiver"},
+    {"type": "field", "label": "z2.responsible", "key": "responsible"},
+    {"type": "field", "label": "z2.transport", "key": "transport"},
+    {"type": "field", "label": "z2.ttn", "key": "ttn"},
+    {
+      "type": "table",
+      "rows": "lines",
+      "totals": {"label": "z2.total", "sum": ["qty_issued"], "mark": ["qty_plan", "price", "sum_vat", "vat"]},
+      "columns": [
+        {"key": "no", "label": "z2.c1"},
+        {"key": "name", "label": "z2.c2"},
+        {"key": "nom", "label": "z2.c3"},
+        {"key": "unit", "label": "z2.c4"},
+        {"key": "qty_plan", "label": "z2.c5", "group": "z2.qty"},
+        {"key": "qty_issued", "label": "z2.c6", "group": "z2.qty"},
+        {"key": "price", "label": "z2.c7"},
+        {"key": "sum_vat", "label": "z2.c8"},
+        {"key": "vat", "label": "z2.c9"}
+      ]
+    },
+    {"type": "field", "label": "z2.words_qty", "key": "words_qty"},
+    {"type": "field", "label": "z2.words_sum", "key": "words_sum"},
+    {"type": "signature", "label": "z2.allowed_by", "key": "allowed_by", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "z2.chief_acc", "key": "chief_acc", "parts": ["signature", "name"], "stamp": "z2.mp"},
+    {"type": "signature", "label": "z2.released", "key": "released", "parts": ["signature", "name"]},
+    {"type": "proxy", "label": "z2.proxy"},
+    {"type": "signature", "label": "z2.received", "key": "received", "parts": ["signature", "name"]}
+  ]
+}
