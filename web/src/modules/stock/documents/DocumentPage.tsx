@@ -19,7 +19,7 @@ import { useNames } from '../register/stockNames'
 import { documentsApi, type StockDocument } from './documents.api'
 import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
-import { DOC_KINDS, DOC_STATES, formatEventTime } from './documentsModel'
+import { DOC_KINDS, DOC_STATES, formatEventTime, isTwoSide, sidesOf } from './documentsModel'
 import { stateTone } from './stateTone'
 import { movementsLinkFor, type NameIds } from '../register/stockRegisterModel'
 
@@ -32,6 +32,14 @@ function nameIds(doc: StockDocument): NameIds {
   add('location_node', doc.location_id)
   add('org_employee', doc.responsible_id)
   add('catalog_counterparty', doc.counterparty_id)
+  if (isTwoSide(doc.kind)) {
+    const { from, to } = sidesOf(doc)
+    for (const side of [from, to]) {
+      add('org_unit', side.orgUnitId)
+      add('location_node', side.locationId)
+      add('org_employee', side.responsibleId)
+    }
+  }
   for (const l of doc.lines) {
     add('catalog_item', l.catalog_item_id)
     add('catalog_uom', l.catalog_uom_id)
@@ -75,6 +83,8 @@ function DocumentInner() {
   const lines = [...doc.lines].sort((a, b) => a.line_no - b.line_no)
   const tone = stateTone(doc.state)
   const isReceipt = doc.kind === 'receipt'
+  const two = isTwoSide(doc.kind)
+  const sides = sidesOf(doc)
 
   if (editing) {
     return (
@@ -124,9 +134,9 @@ function DocumentInner() {
       <dl data-testid="document-header">
         {row(t('stock.doc.col.number'), doc.number, true)}
         {row(t('stock.col.time'), when(doc.event_time), true)}
-        {row(t('stock.col.orgUnit'), name('org_unit', doc.org_unit_id))}
-        {row(t('stock.col.location'), name('location_node', doc.location_id))}
-        {row(t('stock.col.responsible'), name('org_employee', doc.responsible_id))}
+        {!two && row(t('stock.col.orgUnit'), name('org_unit', doc.org_unit_id))}
+        {!two && row(t('stock.col.location'), name('location_node', doc.location_id))}
+        {!two && row(t('stock.col.responsible'), name('org_employee', doc.responsible_id))}
         {isReceipt && row(t('stock.doc.field.counterparty'), name('catalog_counterparty', doc.counterparty_id))}
         {isReceipt && row(t('stock.doc.field.supplierRef'), doc.supplier_document_ref, true)}
         {isReceipt && row(t('stock.doc.field.receivedOn'), doc.received_on, true)}
@@ -139,6 +149,16 @@ function DocumentInner() {
         {row(t('stock.doc.field.reversedAt'), doc.reversed_at ? when(doc.reversed_at) : null, true)}
         {row(t('stock.doc.field.reversedBy'), doc.reversed_by, true)}
       </dl>
+      {two && (['from', 'to'] as const).map((side) => (
+        <section key={side} data-testid={`view-side-${side}`} aria-label={t(`stock.doc.side.${side}`)}>
+          <h3>{t(`stock.doc.side.${side}`)}</h3>
+          <dl>
+            {row(t('stock.col.orgUnit'), name('org_unit', sides[side].orgUnitId))}
+            {row(t('stock.col.location'), name('location_node', sides[side].locationId))}
+            {row(t('stock.col.responsible'), name('org_employee', sides[side].responsibleId))}
+          </dl>
+        </section>
+      ))}
       <table className="lf-table" data-testid="document-lines">
         <thead>
           <tr>
