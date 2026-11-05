@@ -38,7 +38,7 @@ function data() {
   }
 }
 
-type Gets = { balances?: unknown; movements?: unknown; balancesError?: { status: number } }
+type Gets = { balances?: unknown; movements?: unknown; balancesError?: { status: number }; movementsError?: { status: number } }
 
 function setup(gets: Gets = {}) {
   clientMock.post.mockReset()
@@ -49,6 +49,7 @@ function setup(gets: Gets = {}) {
       if (gets.balancesError) throw { status: gets.balancesError.status, message: 'x', code: 'x' }
       return gets.balances ?? { rows: [], next_cursor: null }
     }
+    if (gets.movementsError) throw { status: gets.movementsError.status, message: 'x', code: 'x' }
     return gets.movements ?? { rows: [], next_cursor: null }
   })
 }
@@ -199,6 +200,20 @@ describe('A4/A6 details: references, Related, History', () => {
     setup({ balancesError: { status: 403 } })
     renderLots(`${ITEMS}?item=${I1}`)
     expect(await screen.findByTestId('registry-related-noperm')).toBeInTheDocument()
+  })
+
+  it('a 400 on the movements shows the history error line, not the empty line', async () => {
+    setup({ movementsError: { status: 400 } })
+    renderLots(`${ITEMS}?item=${I1}`)
+    expect(await screen.findByTestId('registry-history-error')).toBeInTheDocument()
+    expect(screen.queryByTestId('registry-history-empty')).not.toBeInTheDocument()
+  })
+
+  it('the Unit cell is mono so a code never wraps', async () => {
+    renderLots(ITEMS)
+    const tr = await row('BOLT')
+    const unit = Array.from(tr.querySelectorAll('td')).find((td) => td.textContent === 'PCS')
+    expect(unit).toHaveClass('mono')
   })
 
   it('a 500 on the balances shows a section error, not a crash', async () => {
