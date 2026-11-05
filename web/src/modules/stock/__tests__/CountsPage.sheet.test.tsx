@@ -104,13 +104,22 @@ describe('S5 surplus line', () => {
 
 describe('S6 entry log', () => {
   it('shows user and time in the tenant zone and loads more', async () => {
-    sheet({ entryPages: [[entry(1)], [entry(2, { entered_by: 'user-2', quantity_before: '4', quantity_after: '5' })]] })
+    const OTHER = '3f2b8c1e-5a7d-4e9a-8b6c-1d2e3f4a5b6c'
+    sheet({
+      entryPages: [
+        [entry(1, { entered_by_label: 'E-9 - Dana S.' })],
+        [entry(2, { entered_by: OTHER, entered_by_employee_id: null, quantity_before: '4', quantity_after: '5' })],
+      ],
+    })
     renderCounts(`${LIST}/c1`)
     const log = await screen.findByTestId('entry-log')
-    expect(await within(log).findByText('user-1')).toBeInTheDocument()
-    expect(within(log).getByText('2026-11-10 09:30')).toBeInTheDocument()
+    // A-4: the server label, never the user id
+    expect(await within(log).findByText('E-9 - Dana S.')).toBeInTheDocument()
+    expect(within(log).queryByText('user-1')).not.toBeInTheDocument()
+    expect(within(log).getByText('Nov 10, 2026 09:30')).toBeInTheDocument()
     await userEvent.click(within(log).getByTestId('load-more'))
-    expect(await within(log).findByText('user-2')).toBeInTheDocument()
+    expect(await within(log).findByText('Another user')).toBeInTheDocument()
+    expect(log).not.toHaveTextContent(OTHER)
   })
 })
 

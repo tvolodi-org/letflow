@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Stock.ReceiptPostingTest do
   alias Letflow.StockFixture, as: S
   alias Letflow.StockPostingFixture, as: P
 
-  @entry ~w(cause correlation_id document_id document_type entry_id event_time legs posting_seq posting_time reason_code related_document_id reverses_entry_id)
+  @entry ~w(cause correlation_id document_id document_number document_type entry_id event_time legs posting_seq posting_time reason_code related_document_id reverses_entry_id)
   @leg ~w(document_line_id leg_no location lot org_unit quantity responsible sku unit_ref)
   @balance ~w(last_posting_seq location lot org_unit quantity responsible sku unit_ref)
   @price "123.456000000"

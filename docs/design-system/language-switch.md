@@ -8,7 +8,9 @@ There is no `uz`.
 - One store: `web/src/i18n/uiLocaleStore.ts` (Zustand). `useUiLocale()` is the hook, `getUiLocale()` the plain accessor.
 - Priority: `?lang=xx` address parameter > saved choice (`localStorage`, key `lf-locale`) > browser language
   (`navigator.languages`, read live) > `en`. An unsupported value is ignored at each step.
-- `?lang` holds for that page load only and is not saved. Choosing a language in the switcher saves it.
+- `?lang` is not saved in `localStorage`. It is kept in `sessionStorage` (`lf-lang-param`) for the browser tab, because
+  sign-in leaves the page and returns to `/` without the query. Choosing a language in the switcher saves it and clears
+  the kept parameter. `<html lang>` follows the active language.
 - The tenant `default_locale` tier stays unused, and there is no per-user profile setting yet (later work).
 - The switcher (`LanguageSwitcher`, `web/src/components/ui/`) sits in the `TopBar` of `AppShell`. Choosing a language
   re-renders every area at once, without reload.
@@ -66,6 +68,12 @@ The ru and kk words below are a machine draft. Routes without a word keep the en
 | `/admin/org/sites` | Sites | Площадки | Алаңдар |
 | `/admin/org/units` | Org units | Подразделения | Бөлімшелер |
 | `/admin/org/positions` | Positions | Должности | Лауазымдар |
+| `/admin/locations` | Locations | Места хранения | Орындар |
+| `/admin/locations/links` | Location links | Связи мест | Орын байланыстары |
+| `/admin/stock/balances` | Balances | Остатки | Қалдықтар |
+| `/admin/stock/movements` | Movements | Движения | Қозғалыстар |
+| `/admin/stock/counts` | Counts | Инвентаризации | Түгендеулер |
+| banner | TEST ENVIRONMENT | ТЕСТОВАЯ СРЕДА | СЫНАҚ ОРТАСЫ |
 | `/admin/org/employees` | Employees | Сотрудники | Қызметкерлер |
 | `/admin/catalog/lots` | Lots | Партии | Партиялар |
 | `/exam` | Exams | Экзамены | Емтихандар |

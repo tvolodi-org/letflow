@@ -149,7 +149,13 @@ defmodule Letflow.Modules.Stock.CountSheetRouterTest do
       assert length(e1["rows"]) == 2 and e1["next_cursor"] == "2"
 
       assert Map.keys(hd(e1["rows"])) |> Enum.sort() ==
-               ~w(entered_at entered_by entered_by_employee_id entry_no line_no method quantity_after quantity_before)
+               ~w(entered_at entered_by entered_by_employee_id entered_by_label entry_no line_no method quantity_after quantity_before)
+
+      # R7 A-2: a person's name next to the id (employee linked to the user: "code - full_name"), never the id
+      assert Enum.all?(e1["rows"], fn r ->
+               is_binary(r["entered_by_label"]) and r["entered_by_label"] =~ " - Employee " and
+                 r["entered_by_label"] != r["entered_by"]
+             end)
 
       e2 = status!(call(:get, "/counts/#{id}/entries?cursor=2", x.chair_tok), 200)
       assert length(e2["rows"]) == 1 and e2["next_cursor"] == nil
