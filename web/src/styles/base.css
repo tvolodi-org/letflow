@@ -48,3 +48,15 @@ samp {
 
 /* SkeletonLayout row (T-1185): bars share one line, shrinking to fit the gaps. */
 .lf-skeleton-row { display: flex; gap: var(--space-2); }
+
+/* T-1399 R7: app-side additions to the released components.css (kept here so that file stays an exact copy of the
+   design repo release; the design repo needs the same rules on its next release). */
+.lf-topbar { z-index: var(--z-topbar); }
+.lf-md__detail { min-width: 0; }
+.lf-md--wide { grid-template-columns: minmax(380px, 460px) minmax(0, 1fr); }
+@media (max-width: 1100px) {
+  .lf-md--wide { grid-template-columns: minmax(320px, 380px) minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .lf-md--wide { grid-template-columns: minmax(0, 1fr); }
+}

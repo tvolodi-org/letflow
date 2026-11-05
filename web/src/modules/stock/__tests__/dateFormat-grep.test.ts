@@ -46,8 +46,8 @@ describe('D-3 no screen formats dates itself', () => {
   })
 
   it('self-test: a planted toLocaleDateString is caught', () => {
-    expect(banHits({ 'x.tsx': 'const a = d.toLocaleDateString()\n' })).toEqual({ 'x.tsx': 1 })
-    expect(banHits({ 'x.tsx': '// d.toLocaleDateString()\n' })).toEqual({})
+    expect(banHits({ 'x.tsx': 'const a = d.toLocale' + 'DateString()\n' })).toEqual({ 'x.tsx': 1 })
+    expect(banHits({ 'x.tsx': '// d.toLocale' + 'DateString()\n' })).toEqual({})
   })
 
   it('T-TZ: the zone literal is named once in the stock module', () => {

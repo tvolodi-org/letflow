@@ -79,7 +79,7 @@ describe('R7 — banner text and stacking', () => {
   })
 
   it('L-3: the top bar sits above the banner, and the banner sticks below the bar', () => {
-    const css = readFileSync(join(__dirname, '../../../styles/components.css'), 'utf8')
+    const css = readFileSync(join(__dirname, '../../../styles/base.css'), 'utf8')
     const tokens = readFileSync(join(__dirname, '../../../styles/tokens.css'), 'utf8')
     expect(css).toMatch(/\.lf-topbar \{[^}]*z-index: var\(--z-topbar\)/)
     const z = Number(/--z-topbar:\s*(\d+)/.exec(tokens)?.[1])
