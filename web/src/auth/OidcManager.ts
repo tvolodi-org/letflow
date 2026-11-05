@@ -53,7 +53,9 @@ let _managerPromise: Promise<UserManager> | null = null
 
 export function getOidcManager(): Promise<UserManager> {
   if (_managerPromise) return _managerPromise
-  const p = (async () => {
+  let p!: Promise<UserManager>
+  // eslint-disable-next-line prefer-const -- the async body compares against p
+  p = (async () => {
     const config = await fetchTenantConfig(window.location.hostname)
     if (!isTenantConfigCached()) {
       // Failure fallback: this round's callers share one manager, the next call retries.

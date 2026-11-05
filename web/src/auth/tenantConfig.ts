@@ -75,7 +75,9 @@ export function fetchTenantConfig(hostname: string): Promise<TenantConfig> {
   if (_cachedConfig) return Promise.resolve(_cachedConfig)
   // One shared request for the pre-warm in main.tsx and every concurrent caller.
   if (_inflight) return _inflight
-  const p = (async (): Promise<TenantConfig> => {
+  let p!: Promise<TenantConfig>
+  // eslint-disable-next-line prefer-const -- the async body compares against p
+  p = (async (): Promise<TenantConfig> => {
     try {
       const realmSlug = resolveRealmFromUrl()
       const params = realmSlug ? { realm: realmSlug } : { host: hostname }

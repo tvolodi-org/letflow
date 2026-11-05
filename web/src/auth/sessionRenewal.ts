@@ -31,7 +31,9 @@ export function renewSession(): Promise<RenewOutcome> {
   if (_inflight) return _inflight
   const renewer = _renewer
   if (!renewer) return Promise.resolve({ kind: 'terminal' })
-  const p = (async (): Promise<RenewOutcome> => {
+  let p!: Promise<RenewOutcome>
+  // eslint-disable-next-line prefer-const -- the async body compares against p
+  p = (async (): Promise<RenewOutcome> => {
     try {
       return await renewer()
     } catch {
