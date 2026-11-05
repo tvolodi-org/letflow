@@ -24,9 +24,19 @@ defmodule Letflow.Documents do
   that source entity type), plus the reserved key `"_free"` for fields of a document that has no
   source entity: given as a list in the input, each field marked `"public"` in `attrs.sensitivity`,
   and stored as the map `%{field_name => "public"}`. REQ-543 re-checks both forms at issue time.
+
+  Part 3 (REQ-623, GH #3474, decision 0075): `attach_artefact/2` renders the PDF of an issued
+  version after the numbering commit, outside every lock and transaction, from the declared fields
+  only, then stores the bytes and sets `artefact_hash` once; `fetch_artefact/3` returns the stored
+  bytes and hides a pending artefact. No route, permission or retry job is built here. Renderers
+  are registered in `Letflow.Documents.Renderers`, which is empty in this slice: outside tests
+  `attach_artefact/2` answers `{:error, :render_failed}` (log code `no_renderer`) until a module
+  registers one.
   """
 
   import Ecto.Query
+
+  require Logger
 
   alias Ecto.Adapters.SQL
   alias Letflow.Audit
@@ -36,12 +46,17 @@ defmodule Letflow.Documents do
   alias Letflow.Documents.DocumentType
   alias Letflow.Documents.DocumentVersion
   alias Letflow.Documents.OrgResolver
+  alias Letflow.Documents.Renderers
   alias Letflow.Modules.Catalog
   alias Letflow.Repo
+  alias Letflow.Repository
+  alias Letflow.Repository.Artifact
   alias Letflow.TenantProvisioning
 
   @key_re ~r/^[a-z][a-z0-9_.]{0,63}$/
   @free "_free"
+  # Upper bound of one rendered artefact (memory and the bytea row); REQ-623.
+  @artefact_max_bytes 25_000_000
   @type_columns [
     :owner_module,
     :numbering_scope,
@@ -1003,19 +1018,355 @@ defmodule Letflow.Documents do
     do: :not_issued
 
   defp verify_row(prefix, tenant_id, d, v, content_hash) do
+    with :ok <- content_intact(prefix, tenant_id, d, v) do
+      if byte_size(content_hash) == byte_size(v.content_hash) and
+           :crypto.hash_equals(content_hash, v.content_hash),
+         do: :ok,
+         else: :hash_mismatch
+    end
+  end
+
+  # The stored content hash against the one recomputed from the row (decision 0075 R8): shared by
+  # `verify_binding/4` and `fetch_artefact/3`, so there is one hash code.
+  defp content_intact(prefix, tenant_id, d, v) do
     recomputed = recompute_hash(d, v)
 
-    cond do
-      d.tenant_id != tenant_id or recomputed != {:ok, v.content_hash} ->
-        record_integrity_failure(prefix, d, v, recomputed)
-
-      byte_size(content_hash) == byte_size(v.content_hash) and
-          :crypto.hash_equals(content_hash, v.content_hash) ->
-        :ok
-
-      true ->
-        :hash_mismatch
+    if d.tenant_id != tenant_id or recomputed != {:ok, v.content_hash} do
+      record_integrity_failure(prefix, d, %{
+        "check" => "content",
+        "type_key" => d.type_key,
+        "version_no" => v.version_no,
+        "stored_hash" => v.content_hash,
+        "recomputed_hash" => recomputed_hash(recomputed)
+      })
+    else
+      :ok
     end
+  end
+
+  # ---------------------------------------------------------------------------------------
+  # attach_artefact/2, fetch_artefact/3 (REQ-623, decision 0075)
+  # ---------------------------------------------------------------------------------------
+
+  @doc """
+  Renders the PDF of an issued version and attaches it:
+  `attach_artefact(prefix, %{document_id:, version_no:, actor_id:})` (REQ-623, decision 0075).
+
+  Order: refuse inside a caller's transaction (`{:error, :in_transaction}`: the render must run
+  outside every lock); read the version without a lock; refuse a version that is not `:issued`
+  (`{:error, :not_issuable_for_artefact}`, nothing rendered or written); return an already
+  attached version unchanged; re-check the type's declared fields against
+  `entity_field_restrictions` (a restricted field gives `{:error, :render_failed}` and no renderer
+  call); render in the caller's process from the declared-field projection alone, with no lock and
+  no transaction; then, in a short transaction that locks the version row, store the bytes in
+  `repository_artifacts` keyed by their SHA-256, set `artefact_hash` once and audit
+  `document.artefact_attached` (ids, hashes, size and template names, no field value).
+
+  A renderer that is missing, returns an error or a malformed value, raises or exits, or returns
+  more than #{@artefact_max_bytes} bytes gives `{:error, :render_failed}`; the log line carries a
+  reason code only, never the error term or any content. The issued number and the version stay as
+  they were, and a later call can attach. A second call on an attached version returns it without
+  rendering. A lock or statement timeout is `{:error, :busy}`; a storage failure is
+  `{:error, :artefact_store_failed}`. No permission is checked here; the first caller owns that.
+  A restriction added during the render is not re-checked in the second transaction (accepted
+  residual risk). The render has no timeout in this slice; the retry job owns that bound.
+  """
+  @spec attach_artefact(String.t(), map()) :: {:ok, %{version: %DocumentVersion{}}} | error()
+  def attach_artefact(prefix, %{} = args) when is_binary(prefix) do
+    if Repo.in_transaction?() do
+      {:error, :in_transaction}
+    else
+      with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+           {:ok, document_id} <- document_id(Map.get(args, :document_id)),
+           {:ok, version_no} <- version_no(Map.get(args, :version_no)),
+           {:ok, actor_id} <- actor(Map.get(args, :actor_id)),
+           {:ok, document, version, type} <-
+             attach_target(prefix, tenant_id, document_id, version_no) do
+        attach_target_state(prefix, tenant_id, actor_id, document, version, type)
+      end
+    end
+    |> count_refusal(:attach_artefact, prefix)
+  end
+
+  def attach_artefact(_prefix, _args), do: {:error, :not_found}
+
+  defp attach_target(prefix, tenant_id, document_id, version_no) do
+    query =
+      from(v in DocumentVersion,
+        join: d in Document,
+        on: d.id == v.document_id,
+        where: d.id == ^document_id and v.version_no == ^version_no,
+        select: {d, v}
+      )
+
+    with {d, v} <- Repo.one(query, prefix: prefix),
+         true <- d.tenant_id == tenant_id,
+         %DocumentType{} = type <- Repo.get(DocumentType, d.type_key, prefix: prefix) do
+      {:ok, d, v, type}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp attach_target_state(_prefix, _tenant_id, _actor_id, _d, %{status: status}, _type)
+       when status != :issued,
+       do: {:error, :not_issuable_for_artefact}
+
+  defp attach_target_state(_prefix, _tenant_id, _actor_id, _d, %{artefact_hash: hash} = v, _type)
+       when is_binary(hash),
+       do: {:ok, %{version: v}}
+
+  defp attach_target_state(prefix, tenant_id, actor_id, document, version, type) do
+    case render_artefact(prefix, document, version, type) do
+      {:ok, bytes, template_version} ->
+        store_artefact(
+          prefix,
+          tenant_id,
+          actor_id,
+          document,
+          version,
+          type,
+          bytes,
+          template_version
+        )
+
+      {:error, code} ->
+        Logger.warning("documents: artefact render failed code=" <> Atom.to_string(code))
+        {:error, :render_failed}
+    end
+  end
+
+  # No lock and no transaction is open here (checked on entry). Failure codes are a closed set of
+  # atoms: nothing a renderer returns or raises is passed on.
+  defp render_artefact(prefix, document, version, type) do
+    with :ok <- restriction_free(prefix, type),
+         {:ok, renderer} <- renderer_of(type) do
+      projection = Map.take(version.content, declared_names(type))
+
+      meta = %{
+        number: document.number,
+        period: document.period,
+        version_no: version.version_no,
+        issued_at: version.issued_at
+      }
+
+      renderer |> call_renderer(type.template_ref, projection, meta) |> checked_render()
+    end
+  end
+
+  defp restriction_free(prefix, type) do
+    case check_restricted(prefix, declared_input(type.declared_fields), free_marks(type)) do
+      :ok -> :ok
+      {:error, _reason} -> {:error, :restricted_field}
+    end
+  end
+
+  defp renderer_of(type) do
+    case Renderers.fetch(type.template_ref) do
+      {:ok, renderer} -> {:ok, renderer}
+      :error -> {:error, :no_renderer}
+    end
+  end
+
+  defp declared_names(type) do
+    type.declared_fields
+    |> declared_input()
+    |> Map.values()
+    |> List.flatten()
+    |> Enum.filter(&is_binary/1)
+  end
+
+  defp call_renderer(renderer, template_ref, projection, meta) do
+    renderer.render(template_ref, projection, meta)
+  rescue
+    _error -> :renderer_raised
+  catch
+    _kind, _reason -> :renderer_raised
+  end
+
+  defp checked_render({:ok, bytes, template_version})
+       when is_binary(bytes) and is_binary(template_version) and template_version != "" do
+    size = byte_size(bytes)
+
+    cond do
+      size == 0 -> {:error, :bad_renderer_return}
+      size > @artefact_max_bytes -> {:error, :artefact_too_large}
+      true -> {:ok, bytes, template_version}
+    end
+  end
+
+  defp checked_render({:error, _reason}), do: {:error, :renderer_error}
+  defp checked_render(:renderer_raised), do: {:error, :renderer_raised}
+  defp checked_render(_other), do: {:error, :bad_renderer_return}
+
+  defp store_artefact(
+         prefix,
+         tenant_id,
+         actor_id,
+         document,
+         version,
+         type,
+         bytes,
+         template_version
+       ) do
+    result =
+      transact(fn ->
+        # constant SQL, no table: the timeouts of decision 0056 D2, scoped to this transaction
+        SQL.query!(Repo, "SET LOCAL lock_timeout = '2s'")
+        SQL.query!(Repo, "SET LOCAL statement_timeout = '15s'")
+
+        locked = version_for_update!(prefix, document.id, version.version_no)
+
+        cond do
+          locked.status != :issued ->
+            Repo.rollback(:not_issuable_for_artefact)
+
+          is_binary(locked.artefact_hash) ->
+            %{version: locked}
+
+          true ->
+            write_artefact!(
+              prefix,
+              tenant_id,
+              actor_id,
+              document,
+              locked,
+              type,
+              bytes,
+              template_version
+            )
+        end
+      end)
+
+    # A trigger refusal cannot occur after the row lock; it must not surface as a misleading atom.
+    case result do
+      {:error, :document_type_frozen} -> {:error, :artefact_store_failed}
+      other -> other
+    end
+  end
+
+  defp write_artefact!(
+         prefix,
+         tenant_id,
+         actor_id,
+         document,
+         version,
+         type,
+         bytes,
+         template_version
+       ) do
+    hash = :crypto.hash(:sha256, bytes)
+    hex = Base.encode16(hash, case: :lower)
+
+    case Repository.upsert_content(
+           prefix,
+           tenant_id,
+           hash,
+           "application/pdf",
+           byte_size(bytes),
+           bytes
+         ) do
+      {:ok, _artifact} -> :ok
+      {:error, _changeset} -> Repo.rollback(:artefact_store_failed)
+    end
+
+    {1, _} =
+      from(v in DocumentVersion, where: v.id == ^version.id and is_nil(v.artefact_hash))
+      |> Repo.update_all([set: [artefact_hash: hex]], prefix: prefix)
+
+    audit!(prefix, actor_id, "document.artefact_attached", "document", document.id, nil, %{
+      "document_id" => document.id,
+      "type_key" => type.key,
+      "version_no" => version.version_no,
+      "content_hash" => version.content_hash,
+      "artefact_hash" => hex,
+      "byte_size" => byte_size(bytes),
+      "template_ref" => type.template_ref,
+      "template_version" => template_version
+    })
+
+    %{version: Repo.get!(DocumentVersion, version.id, prefix: prefix)}
+  end
+
+  @doc """
+  The stored artefact of a version: `{:ok, %{bytes: pdf, content_type: "application/pdf"}}`
+  (REQ-623, decision 0075 R5, R8, R9). Every other case is the same `{:error, :not_found}`
+  (INV-5): a malformed or unknown id, another tenant's document, a version whose artefact is not
+  attached yet, and a version whose stored content or artefact fails its hash check (that one also
+  audits `document.integrity_failed`, once, with `check` `content` or `artefact`). Any version
+  with an `artefact_hash` is readable, also one superseded or cancelled after the attach. Never
+  renders, takes no lock, returns no hash, checks no permission (the first caller owns that).
+  """
+  @spec fetch_artefact(String.t(), term(), term()) ::
+          {:ok, %{bytes: binary(), content_type: String.t()}} | {:error, :not_found}
+  def fetch_artefact(prefix, document_id, version_no) when is_binary(prefix) do
+    case fetch_artefact_outcome(prefix, document_id, version_no) do
+      {:ok, _result} = ok ->
+        ok
+
+      reason ->
+        count_refusal({:error, reason}, :fetch_artefact, prefix)
+        {:error, :not_found}
+    end
+  end
+
+  def fetch_artefact(_prefix, _document_id, _version_no), do: {:error, :not_found}
+
+  defp fetch_artefact_outcome(prefix, document_id, version_no) do
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         {:ok, id} <- document_id(document_id),
+         {:ok, n} <- version_no(version_no) do
+      query =
+        from(v in DocumentVersion,
+          join: d in Document,
+          on: d.id == v.document_id,
+          where: d.id == ^id and v.version_no == ^n,
+          select: {d, v}
+        )
+
+      case Repo.one(query, prefix: prefix) do
+        {d, %{artefact_hash: hash} = v} when is_binary(hash) and d.tenant_id == tenant_id ->
+          with :ok <- content_intact(prefix, tenant_id, d, v), do: artefact_bytes(prefix, d, v)
+
+        {_d, %{artefact_hash: nil}} ->
+          :pending
+
+        _other ->
+          :absent
+      end
+    else
+      _invalid -> :invalid_input
+    end
+  end
+
+  defp artefact_bytes(prefix, d, v) do
+    stored =
+      case Base.decode16(v.artefact_hash, case: :lower) do
+        {:ok, key} -> {key, Repo.get(Artifact, key, prefix: prefix)}
+        :error -> :undecodable
+      end
+
+    case stored do
+      {key, %Artifact{content: content}} when is_binary(content) ->
+        recomputed = :crypto.hash(:sha256, content)
+
+        if :crypto.hash_equals(recomputed, key),
+          do: {:ok, %{bytes: content, content_type: "application/pdf"}},
+          else: artefact_failure(prefix, d, v, Base.encode16(recomputed, case: :lower))
+
+      _missing_or_undecodable ->
+        artefact_failure(prefix, d, v, nil)
+    end
+  end
+
+  defp artefact_failure(prefix, d, v, recomputed) do
+    record_integrity_failure(prefix, d, %{
+      "check" => "artefact",
+      "type_key" => d.type_key,
+      "version_no" => v.version_no,
+      "artefact_hash" => v.artefact_hash,
+      "recomputed_hash" => recomputed
+    })
   end
 
   defp recompute_hash(d, v) do
@@ -1032,14 +1383,7 @@ defmodule Letflow.Documents do
     end
   end
 
-  defp record_integrity_failure(prefix, d, v, recomputed) do
-    after_state = %{
-      "type_key" => d.type_key,
-      "version_no" => v.version_no,
-      "stored_hash" => v.content_hash,
-      "recomputed_hash" => recomputed_hash(recomputed)
-    }
-
+  defp record_integrity_failure(prefix, d, after_state) do
     write = fn ->
       audit!(prefix, nil, "document.integrity_failed", "document", d.id, nil, after_state)
     end
