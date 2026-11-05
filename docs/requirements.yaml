@@ -51548,7 +51548,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-731 -- implements sections 3 to 5 and 7 of the voice design file that REQ-731 delivered; phase D plan key D2a (project/phase-cdef-plan.md, D-095)
+    gh: 3881
     # Source: docs/assets/voice-port-design.md (T-1285, the design REQ-731 asked for; REQ-731's text names the file docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 1 (items 3 to 5), 3 (what the model sees), 4 (draft shape), 5 (the server check) and 7 (test material); owner decisions D-061 (the Qoimeks Go code is not reused), D-063, D-085, D-086 in ai-dala-portfolio/DECISIONS.md; entry REQ-731 on origin/main. Code read on origin/main 8e8658e3a: lib/letflow/modules/catalog_items/catalog_items.ex and lib/letflow/modules/locations/locations.ex (lookup/2, active?/2, no list function), priv/modules/catalog_items/entity_definitions/catalog_item.json (fields code, name, base_uom_id, active), priv/modules/locations/entity_definitions/location_node.json (fields code, name, active), test/letflow/documents/print_layout_test.exs (test SC1, the source scan of a pure module: no Repo, DateTime, System or :httpc).
     description: >
       Phase D item D2, part a, of the assets and stock application (plan key D2a). ONE change, backend only, two
@@ -51597,7 +51597,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-731 -- implements sections 2.3, 2.4 and 6 of the voice design file that REQ-731 delivered; phase D plan key D2b (project/phase-cdef-plan.md, D-095); providers, accounts and who pays stay owner decisions (D-086), so the code must work with nothing set
+    gh: 3880
     # Source: docs/assets/voice-port-design.md (T-1285; REQ-731's text names docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 1 (items 2, 4, 6, 7), 2.2 (60 s per provider call), 2.3 (settings and providers), 2.4 (where each step runs, privacy, logs) and 6 (failures); owner decisions D-022, D-061, D-086 in ai-dala-portfolio/DECISIONS.md; INV-4 and INV-9 of docs/agents/instructions/security-invariants.md. Code read on origin/main 8e8658e3a: Letflow.Webhooks.UrlValidator.validate/1 (lib/letflow/webhooks/url_validator.ex; :ok or {:error, :target_url_not_allowed}, https only, private ranges refused after DNS), lib/letflow/webhooks.ex (:httpc.request/4 with a timeout; the :webhook_ssrf_validation_enabled app env switched off only in delivery tests), test/letflow/webhooks_delivery_test.exs (a real local :gen_tcp HTTP server), Letflow.Secrets.resolve/2 (lib/letflow/secrets.ex; check_tenant_match binds a reference to the caller's own tenant, and its moduledoc says no tenant-facing secrets route exists), config/runtime.exs (LETFLOW_SMTP_PASSWORD read from the environment, the precedent of a platform secret held as an env var), test/support/runtime_config_eval.ex (Letflow.Test.RuntimeConfigEval), test/letflow/mail_runtime_config_test.exs, mix.exs (no HTTP client dependency added).
     description: >
       Phase D item D2, part b, of the assets and stock application (plan key D2b). ONE change, backend only: the
@@ -51650,7 +51650,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-739 -- the routes call the pure check and prompt of REQ-739 and the clients of REQ-740; phase D plan key D2c (project/phase-cdef-plan.md, D-095)
+    gh: 3879
     # Source: docs/assets/voice-port-design.md (T-1285; REQ-731's text names docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 2 (the flow), 2.1 (routes), 2.2 (audio limits), 2.4 (logs), 3 (the active lists, INV-6), 4 (draft shape), 6 (failures) and 7 (added Letflow cases); entries REQ-687 criterion 8, REQ-712 criterion 8 and REQ-730 criterion 7 on origin/main; owner decisions D-061, D-063, D-085, D-086. Code read on origin/main 8e8658e3a: Letflow.Modules.Stock manifest (lib/letflow/modules/stock/stock.ex: version 0.10.0, permissions with StockPost, role_grants %{}, route_policies), Letflow.Modules.Stock.Router (lib/letflow/modules/stock/router.ex, mounted at /api/v1/modules/stock by Letflow.Routers.Modules; with_access/3 calling Letflow.Modules.Stock.Access.check/2 with purpose :post, a refusal answers Response.not_found/1, as authz_post /documents does), lib/letflow/plugs/api_pipeline.ex (Plug.Parsers: multipart length 26_214_400, root length 2_097_152), Letflow.Api.Response (payload_too_large/2, unsupported_media_type/2, unprocessable/2), Letflow.Api.Error (extensions merged into the problem body), Letflow.Modules.ReadApi (lib/letflow/modules/read_api.ex: lookup/3, active?/3, isolation by prefix), test/fixtures/route_scope/tenant_wide_default_routes.txt (230 lines) and its pins length(snapshot) == 230 in test/letflow/api/route_scope_resolver_test.exs, route_scope_self_service_test.exs and tasks_route_classes_test.exs, the stock version pins in test/letflow/modules/stock/*_registration_test.exs and receipt_fields_test.exs.
     description: >
       Phase D item D2, part c, of the assets and stock application (plan key D2c). ONE change, backend: two routes
@@ -51704,7 +51704,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-741 -- layer 1 plays the files through the audio route of REQ-741; it also needs owner inputs (the one-time text-to-speech run with the owner's key, a native Kazakh speaker); phase D plan key D2d (project/phase-cdef-plan.md, D-095)
+    gh: 3878
     # Source: docs/assets/voice-port-design.md (T-1285; REQ-731's text names docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 2.2 (accepted formats AAC in .m4a and Opus in WebM, 10 MB cap), 7 (test material), 8.1 (phrase list), 8.2 (generated audio), 8.3 (layer 1), 8.4 (language coverage), 8.5 and 9 (what the owner provides) and 10 (open questions 9 and 10); owner decisions D-061, D-086 (sign-ups and purchases are the owner's) in ai-dala-portfolio/DECISIONS.md; Qoimeks-team/project/retirement-criteria.md criterion 3.
     description: >
       Phase D item D2, part d1, of the assets and stock application (plan key D2d, layer 1 of design section 8.3).
@@ -51742,7 +51742,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-742 -- the report reads the phrase files of REQ-742; it also needs the owner's provider keys for the nightly run (design section 8.5 item 2); phase D plan key D2d (project/phase-cdef-plan.md, D-095)
+    gh: 3877
     # Source: docs/assets/voice-port-design.md (T-1285; REQ-731's text names docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 8.3 (layer 2: when, what it checks, correct draft, per language and per voice, word error rate, held-out part, 10-point margin), 8.4 (unknown Kazakh quality is reported, not hidden), 8.5 (keys of the nightly run) and 10; owner decisions D-022, D-086; INV-4 of docs/agents/instructions/security-invariants.md; Qoimeks-team/project/retirement-criteria.md criteria 3 and 9.
     description: >
       Phase D item D2, part d2, of the assets and stock application (plan key D2d, layer 2 of design section 8.3).
@@ -51778,7 +51778,7 @@ requirements:
     owner: MOBILE-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-733 -- builds part 0 of the split plan of docs/assets/phone-flows.md (section 8) that REQ-733 delivered, on the codes feature of REQ-732; phase D plan key D3s (project/phase-cdef-plan.md, D-095)
+    gh: 3876
     # Source: docs/assets/phone-flows.md (T-1284, delivered by REQ-733) sections 1 (where it lives) and 8 (split plan, part 0); docs/mobile/architecture.md section 6 (application modules); entry REQ-732 on origin/main; owner decisions D-061, D-062 (en, ru and kk texts), D-063, D-085. Code read on origin/main 8e8658e3a: apps/mobile/lib/features/module_manifest.json (one feature codes, depends_on []), apps/mobile/lib/bootstrap/navigation_bootstrap.dart (kFeatureRegistry, buildRouteTable/2, isModuleInstalled/2, kCodesScanRoutePath), apps/mobile/lib/definitions/tenant_home_screen.dart (the scan entry shown when codes is installed), apps/mobile/lib/features/codes/codes.dart (the feature barrel), apps/mobile/test/guards/module_boundary_guard_test.dart (rules 1 and 2), apps/mobile/test/guards/text_literal_guard_test.dart, apps/mobile/lib/i18n/l10n/app_en.arb, app_ru.arb, app_kk.arb.
     description: >
       Phase D item D3, part 0, of the assets and stock application (plan key D3s). ONE change, mobile only: the place
@@ -51809,7 +51809,7 @@ requirements:
     owner: MOBILE-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-744 -- needs the stock feature folder of REQ-744; part a of the split plan of docs/assets/phone-flows.md section 8; phase D plan key D3a (project/phase-cdef-plan.md, D-095)
+    gh: 3875
     # Source: docs/assets/phone-flows.md (T-1284, delivered by REQ-733) sections 2 (count flow), 3 (one scan, one unit; the scan refusal table), 6 (online only and failures), 7 (languages and texts) and 8 (part a); entries REQ-700, REQ-701, REQ-716, REQ-730 and REQ-732 on origin/main; decision 0079 section 6 (a typed number replaces the value); owner decisions D-058 point 8 (codes sent unchanged), D-062, D-063, D-085. Code read on origin/main 8e8658e3a: the route table of lib/letflow/modules/stock/router.ex moduledoc and the manifest route_policies of lib/letflow/modules/stock/stock.ex (counts routes, permissions StockRead and StockCountRecord), lib/letflow/modules/stock/counts.ex (@list_keys status, org_unit_id, limit, cursor; status one value), lib/letflow/modules/stock/count_sheet.ex (@surplus_keys location_id, catalog_item_id, unit_ref, counted_quantity, catalog_lot_id, responsible_employee_id; unit_ref required; line_view/1 and entry_view/1 carry ids, not names; reasons not_chair, count_not_due, count_state_invalid, not_commission_member, line_not_found), web/src/modules/stock/counts/CountSheet.tsx (the web surplus form picks the unit from catalog_uom), web/src/modules/stock/register/stockPickers.ts and stockNames.ts (POST /api/v1/entities/query with filters active, deleted and record_id in), apps/mobile/lib/renderers/list/list.dart (the mobile already calls POST /api/v1/entities/query), apps/mobile/lib/features/codes/codes_resolve.dart (CodesResolver.resolve/1), apps/mobile/lib/features/codes/scan_source.dart, apps/mobile/lib/renderers/renderer_state_view.dart, apps/mobile/lib/api/api_error.dart (ModuleNotAvailableError for a 404 on a module path).
     description: >
       Phase D item D3, part a, of the assets and stock application (plan key D3a). ONE change, mobile only, under
@@ -51848,7 +51848,7 @@ requirements:
     owner: MOBILE-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-744 -- needs the stock feature folder of REQ-744; part b of the split plan of docs/assets/phone-flows.md section 8; phase D plan key D3b (project/phase-cdef-plan.md, D-095)
+    gh: 3874
     # Source: docs/assets/phone-flows.md (T-1284, delivered by REQ-733) sections 4 (movement flow and the kinds table), 6, 7 and 8 (part b); entries REQ-712 (criteria 2 to 5 and 8), REQ-713 (posting is a human task), REQ-714, REQ-715, REQ-721 and REQ-730 on origin/main; docs/assets/stock-workflow-documents.md; owner decisions D-058 point 8, D-062, D-063, D-085. Code read on origin/main 8e8658e3a: the manifest route_policies of lib/letflow/modules/stock/stock.ex (documents routes, StockPost and StockRead), lib/letflow/modules/stock/documents.ex (@list_keys kind, state, org_unit_id, limit, cursor; the org unit of a draft cannot change), lib/letflow/modules/stock/documents/kinds.ex (required and optional header keys per kind), lib/letflow/modules/stock/documents/shape.ex (@line_required catalog_item_id, catalog_uom_id, quantity; quantity a decimal string above zero, at most 9 decimals; event_time ISO 8601 with an offset; reasons field_not_allowed, field_required, field_invalid, price_invalid, reason_invalid, sides_equal), lib/letflow/modules/stock/documents/checks.ex (not_linked, employee_not_active, counterparty_not_active, unit_not_valid, lot_not_valid, the extension key side), web/src/modules/stock/register/stockPickers.ts (POST /api/v1/entities/query for the pickers; the item's base_uom_id), apps/mobile/lib/api/api_client.dart (HttpGateway get, PostCapableHttpGateway post; no put or delete yet).
     description: >
       Phase D item D3, part b, of the assets and stock application (plan key D3b). ONE change, mobile only, under
@@ -51886,7 +51886,7 @@ requirements:
     owner: MOBILE-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-741 -- calls the voice routes of REQ-741 from the screens of REQ-745 and REQ-746; part c of the split plan of docs/assets/phone-flows.md section 8; phase D plan key D3c (project/phase-cdef-plan.md, D-095)
+    gh: 3873
     # Source: docs/assets/phone-flows.md (T-1284, delivered by REQ-733) sections 1 point 5 (language hint), 5 (voice), 6 and 8 (part c); docs/assets/voice-port-design.md (T-1285; REQ-731's text names docs/assets/voice-input.md, the delivered file is docs/assets/voice-port-design.md) sections 1 item 1 (AAC in .m4a on the phone), 2.1, 4 and 6; entries REQ-731, REQ-732 (criterion 2, the platform-file precedent; criterion 5, the failure states) and REQ-741 (this batch); owner decisions D-061, D-062, D-063, D-085. Code read on origin/main 8e8658e3a: apps/mobile/pubspec.yaml (no recording package yet), apps/mobile/test/guards/forbidden_dependencies_guard_test.dart, android_manifest_security_guard_test.dart, ios_ats_guard_test.dart, apps/mobile/lib/api/api_client.dart (buildFileUploadFormData with bytes, fileName, contentType, partName; dio stays inside lib/api/), apps/mobile/test/guards/single_api_client_guard_test.dart.
     description: >
       Phase D item D3, part c, of the assets and stock application (plan key D3c). ONE change, mobile only: a voice
