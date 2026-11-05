@@ -110,7 +110,8 @@ defmodule Letflow.Ledger.AsOfDateTest do
     assert r.timezone == "Asia/Tokyo"
 
     :ok = Fx.put_tenant_settings!(fx, %{})
-    assert {:ok, d} = Ledger.balances_on_date(a, tokyo_day(0), :latest, %{}, %{})
+    # Almaty is behind Tokyo: tokyo_day(0) is a future date there late in the UTC day.
+    assert {:ok, d} = Ledger.balances_on_date(a, tokyo_day(1), :latest, %{}, %{})
     assert d.timezone == "Asia/Almaty"
   end
 
@@ -178,7 +179,7 @@ defmodule Letflow.Ledger.AsOfDateTest do
 
   test "T-AD-9 two tenants with two zones read only their own legs", %{schema: s, auth: a} do
     other = Fx.tenant_fixture!()
-    :ok = Fx.put_tenant_settings!(other, %{"timezone" => "Europe/Berlin"})
+    :ok = Fx.put_tenant_settings!(other, %{"timezone" => "Asia/Vladivostok"})
     b = Fx.authorized!(other)
     at = DateTime.add(DateTime.utc_now(), -3600)
     post_at!(s, "receipt", ["same", "l"], 5, at)
@@ -190,7 +191,7 @@ defmodule Letflow.Ledger.AsOfDateTest do
     {:ok, rb} = Ledger.balances_on_date(b, day, :latest, %{}, %{})
     assert qty(ra, "same") == [5] and qty(ra, "only_b") == []
     assert qty(rb, "same") == [7] and qty(rb, "only_b") == [1]
-    assert {ra.timezone, rb.timezone} == {"Asia/Tokyo", "Europe/Berlin"}
+    assert {ra.timezone, rb.timezone} == {"Asia/Tokyo", "Asia/Vladivostok"}
 
     for key <- ["prefix", "tenant", "tenant_id", "timezone"] do
       assert {:error, :invalid_filter} =
