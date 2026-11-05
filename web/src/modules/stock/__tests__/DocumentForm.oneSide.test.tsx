@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { DOCS, LIST, MASTERS, fakeDocument, fakeMasters, queryBodies, refusal, renderStock, stockDoc, withAtom, withPost } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
@@ -191,5 +192,18 @@ describe('C3-f pickers', () => {
     renderStock(NEW, withAtom)
     expect(await screen.findByText(/do not have access/i)).toBeInTheDocument()
     expect(screen.queryByTestId('document-form')).not.toBeInTheDocument()
+  })
+})
+
+describe('R1 event time hint (T-1381)', () => {
+  afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
+  it('ru: the typed event time is repeated as DD-MM-YYYY HH:mm; en shows no hint', async () => {
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    renderStock(NEW, withPost)
+    await waitFor(() => expect(document.querySelector('input[type="datetime-local"]')).not.toBeNull())
+    fireEvent.change(document.querySelector('input[type="datetime-local"]') as HTMLInputElement, { target: { value: '2026-11-04T10:00' } })
+    expect(screen.getAllByTestId('date-value-hint')[0]).toHaveTextContent('04-11-2026 10:00')
+    useUiLocaleStore.getState().setLocaleTransient('en')
+    await waitFor(() => expect(screen.queryByTestId('date-value-hint')).not.toBeInTheDocument())
   })
 })

@@ -20,6 +20,7 @@ import { STOCK_POST } from '../stockPermissions'
 import { documentsApi, type StockDocument } from './documents.api'
 import { LinesEditor } from './LinesEditor'
 import { SideGroup } from './SideGroup'
+import { DateValueHint } from '@/components/ui/DateValueHint'
 import {
   WRITE_OFF_REASONS,
   buildBody,
@@ -118,6 +119,9 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
           <input type="datetime-local" value={form.eventTime} onChange={(e) => patch({ eventTime: e.target.value })} />
         </Field>
       )}
+      {!opening && (
+        <DateValueHint value={form.eventTime} kind="datetime" />
+      )}
       {two && errors['sides'] && <p role="alert">{t(errors['sides'])}</p>}
       {two && (['from', 'to'] as const).map((side) => (
         <SideGroup
@@ -179,6 +183,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel }: Docume
           <Field label={t('stock.doc.field.receivedOn')} error={err('receivedOn')} optional mono>
             <input type="date" value={form.receivedOn} onChange={(e) => patch({ receivedOn: e.target.value })} />
           </Field>
+          <DateValueHint value={form.receivedOn} kind="date" />
         </>
       )}
       {form.kind === 'write_off' && (

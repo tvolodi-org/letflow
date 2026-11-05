@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { COUNT_CONFLICTS, COUNT_REASONS, canIssueDifferences, canIssuePostingRecord, canPost, canReverse, canSignDifferences, canSignSheet, paperworkAvailable, parseFilename, requiredSigners, buildOrderBody, formatInZone, isDecimalNonNegative, reasonMessageId, zonedToIso, isoToLocalInput, EMPTY_ORDER_FORM } from '../counts/countsModel'
 import type { CountOrder } from '../counts/counts.api'
 import { countsEn, countsKk, countsRu } from '../counts/countsMessages'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 
 describe('M1 isDecimalNonNegative', () => {
   it.each(['0', '0.5', '12', '3.250', '007'])('accepts %s', (s) => expect(isDecimalNonNegative(s)).toBe(true))
@@ -16,6 +17,14 @@ describe('M2 tenant zone', () => {
     expect(formatInZone('2026-11-10T04:30:00Z')).toBe('2026-11-10 09:30')
     expect(isoToLocalInput('2026-11-10T04:30:00Z')).toBe('2026-11-10T09:30')
     expect(formatInZone(null)).toBe('')
+  })
+
+  it('R2 ru and kk show DD-MM-YYYY HH:mm in the tenant zone', () => {
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    expect(formatInZone('2026-11-10T04:30:00Z')).toBe('10-11-2026 09:30')
+    useUiLocaleStore.getState().setLocaleTransient('kk')
+    expect(formatInZone('2026-11-09T23:30:00Z')).toBe('10-11-2026 04:30')
+    useUiLocaleStore.getState().reloadFromEnvironment()
   })
 })
 

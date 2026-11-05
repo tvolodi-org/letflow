@@ -3,6 +3,7 @@
 import type { CountOrder, CountOrderBody, PaperworkKind } from './counts.api'
 import type { StatusTone } from '@/components/ui/StatusPill'
 import { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD, STOCK_POST, STOCK_REVERSE } from '../stockPermissions'
+import { formatDateTimeInZone } from '@/i18n/format'
 export { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD, STOCK_POST, STOCK_REVERSE }
 
 /** Tenant time zone until the tenant setting exists: assumption of REQ-702, owner may change at GATE B (UTC+5, no DST). */
@@ -116,8 +117,7 @@ export function isoToLocalInput(iso: string | null | undefined): string {
 
 /** ISO instant -> `YYYY-MM-DD HH:mm` in the tenant zone, for tables and logs. */
 export function formatInZone(iso: string | null | undefined): string {
-  const p = iso ? parts(iso) : null
-  return p ? `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}` : ''
+  return formatDateTimeInZone(iso, { timeZone: TENANT_TIME_ZONE, enStyle: 'iso' })
 }
 
 /** The whole draft, every key every time; an empty note is null. */

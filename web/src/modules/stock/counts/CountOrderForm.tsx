@@ -14,6 +14,7 @@ import { usePickerOptions } from '../register/stockPickers'
 import { countsApi, type CountOrder } from './counts.api'
 import { COUNT_KINDS, EMPTY_ORDER_FORM, buildOrderBody, fieldOf, formComplete, formFromOrder, reasonMessageId, type OrderForm } from './countsModel'
 import { useCountsWrite } from './useCountsWrite'
+import { DateValueHint } from '@/components/ui/DateValueHint'
 
 const NONE: never[] = []
 
@@ -81,9 +82,11 @@ export function CountOrderForm({ order, onSaved, onDiscard }: { order?: CountOrd
         <Field label={t('counts.form.plannedStart')} hint={t('counts.form.timeHint')} width="m" error={err('planned_start')}>
           <input type="datetime-local" name="planned_start" value={form.planned_start} onChange={(e) => set('planned_start')(e.target.value)} />
         </Field>
+        <DateValueHint value={form.planned_start} kind="datetime" />
         <Field label={t('counts.form.plannedEnd')} width="m" error={err('planned_end')}>
           <input type="datetime-local" name="planned_end" value={form.planned_end} onChange={(e) => set('planned_end')(e.target.value)} />
         </Field>
+        <DateValueHint value={form.planned_end} kind="datetime" />
         <Select
           name="chair_employee_id"
           label={t('counts.form.chair')}

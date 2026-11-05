@@ -155,3 +155,17 @@ describe('M6 REQ-718 the count_difference cause', () => {
     })
   }
 })
+
+describe('R1 date format per language (T-1381, real row shape)', () => {
+  afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
+  // event_time 2026-11-04T18:00:00Z is 23:00 on the same day in Asia/Almaty (UTC+5).
+  const EXPECTED = { en: '11/04/2026, 23:00:00', ru: '04-11-2026 23:00:00', kk: '04-11-2026 23:00:00' } as const
+  for (const lang of ['en', 'ru', 'kk'] as const) {
+    it(`${lang}: the time cell reads ${EXPECTED[lang]}`, async () => {
+      useUiLocaleStore.getState().setLocaleTransient(lang)
+      renderStock(MOV)
+      await screen.findByText('17')
+      expect(screen.getByText(EXPECTED[lang])).toBeInTheDocument()
+    })
+  }
+})

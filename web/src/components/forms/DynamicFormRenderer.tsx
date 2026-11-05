@@ -11,6 +11,7 @@ import type { ZodSchema } from 'zod'
 import manifest from 'virtual:expr-manifest'
 import { useFormExpressions } from './useFormExpressions'
 import { ExpressionUnavailableBanner } from './ExpressionUnavailableBanner'
+import { DateValueHint } from '@/components/ui/DateValueHint'
 
 export interface DynamicFormRendererProps {
   formSchema: Record<string, unknown> | null
@@ -324,6 +325,9 @@ export function DynamicFormRenderer(props: DynamicFormRendererProps) {
                       borderColor: fieldError ? 'var(--border-error)' : 'var(--color-neutral-400)',
                     } as React.CSSProperties}
                   />
+                )}
+                {fieldType === 'date' && (
+                  <DateValueHint value={String((watchedValues as Record<string, unknown>)[fieldName] ?? '')} kind="date" />
                 )}
               </>
             )}

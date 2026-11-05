@@ -3,6 +3,7 @@ import { useInstanceEvents, useInstanceTimeline, type EventFilters } from '@/hoo
 import { EventJsonExpandable } from './EventJsonExpandable'
 import { RebindEventDetails } from './RebindEventDetails'
 import { formatDateTime } from '@/i18n/format'
+import { DateValueHint } from '@/components/ui/DateValueHint'
 
 interface EventHistoryPanelProps {
   instanceId: string
@@ -127,6 +128,7 @@ export function EventHistoryPanel({ instanceId }: EventHistoryPanelProps) {
 
         <label style={{ display: 'grid', gap: '.2rem', fontSize: '.82rem', color: 'var(--color-neutral-700)' }}>
           From
+          <DateValueHint value={draftFrom} kind="datetime" />
           <input
             type="datetime-local"
             value={draftFrom}
@@ -141,6 +143,7 @@ export function EventHistoryPanel({ instanceId }: EventHistoryPanelProps) {
 
         <label style={{ display: 'grid', gap: '.2rem', fontSize: '.82rem', color: 'var(--color-neutral-700)' }}>
           To
+          <DateValueHint value={draftTo} kind="datetime" />
           <input
             type="datetime-local"
             value={draftTo}
