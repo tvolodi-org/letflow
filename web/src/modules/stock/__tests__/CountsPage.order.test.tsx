@@ -156,3 +156,101 @@ describe('O8 pickers', () => {
     expect(paths.every((p) => p.startsWith(BASE))).toBe(true)
   })
 })
+
+async function openForm() {
+  fakeCounts(clientMock)
+  renderCounts(LIST)
+  await userEvent.click(await screen.findByTestId('count-new'))
+  const form = await screen.findByTestId('count-order-form')
+  await waitFor(() => expect(within(form).getByRole('option', { name: 'Main store' })).toBeInTheDocument())
+  return form
+}
+async function fill(form: HTMLElement, skip: string[] = [], start = '2026-11-10T09:00:30') {
+  if (!skip.includes('org_unit_id')) await userEvent.selectOptions(within(form).getByLabelText('Org unit'), 'u1')
+  if (!skip.includes('planned_start')) fireEvent.change(within(form).getByLabelText('Planned start'), { target: { value: start } })
+  if (!skip.includes('planned_end')) fireEvent.change(within(form).getByLabelText('Planned end'), { target: { value: '2026-11-11T18:30' } })
+  if (!skip.includes('chair_employee_id')) await userEvent.selectOptions(within(form).getByLabelText('Chair of the commission'), 'e1')
+  await userEvent.click(await within(screen.getByTestId('members')).findByLabelText('Marat K.'))
+  if (!skip.includes('location_ids')) await userEvent.click(await within(screen.getByTestId('locations')).findByLabelText('Shelf A'))
+}
+
+describe('O9 owner case (T-1382)', () => {
+  it('creates the order when the start carries seconds, as a browser can deliver it', async () => {
+    const form = await openForm()
+    await fill(form)
+    await userEvent.click(screen.getByTestId('count-save'))
+    await waitFor(() => expect(writes(clientMock)).toHaveLength(1))
+    expect(writes(clientMock)[0]).toEqual(['POST', BASE, {
+      org_unit_id: 'u1', kind: 'full', planned_start: '2026-11-10T09:00:00+05:00', planned_end: '2026-11-11T18:30:00+05:00',
+      chair_employee_id: 'e1', member_employee_ids: ['e2'], location_ids: ['l1'], note: null,
+    }])
+    expect(screen.queryByText(/Fill in the org unit/)).toBeNull()
+  })
+})
+
+describe('O10 each missing field is named', () => {
+  it.each([
+    ['org_unit_id', 'Org unit', 'This field is required: choose an org unit.'],
+    ['planned_start', 'Planned start', 'Enter a valid planned start (date and time).'],
+    ['planned_end', 'Planned end', 'Enter a valid planned end (date and time).'],
+    ['chair_employee_id', 'Chair of the commission', 'Choose the chair of the commission.'],
+  ])('%s', async (name, label, text) => {
+    const form = await openForm()
+    await fill(form, [name])
+    await userEvent.click(screen.getByTestId('count-save'))
+    expect(await within(form).findByText(text)).toBeInTheDocument()
+    expect(within(form).getByLabelText(label)).toHaveAttribute('aria-invalid', 'true')
+    expect(within(form).getByText(new RegExp(`Check: ${label}\\.`))).toBeInTheDocument()
+    expect(writes(clientMock)).toEqual([])
+  })
+
+  it('location_ids', async () => {
+    const form = await openForm()
+    await fill(form, ['location_ids'])
+    await userEvent.click(screen.getByTestId('count-save'))
+    expect(await within(screen.getByTestId('locations')).findByText('Choose at least one location root.')).toBeInTheDocument()
+    expect(within(form).getByText(/Check: Location roots\./)).toBeInTheDocument()
+    expect(writes(clientMock)).toEqual([])
+  })
+
+  it('end before start is named on the end field', async () => {
+    const form = await openForm()
+    await fill(form, [], '2026-11-12T09:00')
+    await userEvent.click(screen.getByTestId('count-save'))
+    expect(await within(form).findByText('The planned end must be after the planned start.')).toBeInTheDocument()
+    expect(writes(clientMock)).toEqual([])
+  })
+})
+
+describe('O11 locales', () => {
+  it.each([
+    ['ru', 'Проверьте: Подразделение, Плановое начало.', 'Обязательное поле: выберите подразделение.'],
+    ['kk', 'Тексеріңіз: Бөлімше, Жоспарлы басталуы.', 'Міндетті өріс: бөлімшені таңдаңыз.'],
+  ] as const)('%s', async (loc, summary, fieldText) => {
+    useUiLocaleStore.getState().setLocaleTransient(loc)
+    fakeCounts(clientMock)
+    renderCounts(LIST)
+    await userEvent.click(await screen.findByTestId('count-new'))
+    const form = await screen.findByTestId('count-order-form')
+    await waitFor(() => expect(form.querySelectorAll('select')[0]!.querySelectorAll('option').length).toBeGreaterThan(1))
+    await userEvent.selectOptions(form.querySelectorAll('select')[2]!, 'e1')
+    fireEvent.change(form.querySelector('input[name="planned_end"]')!, { target: { value: '2026-11-11T18:30' } })
+    await userEvent.click(await within(screen.getByTestId('locations')).findByLabelText('Shelf A'))
+    await userEvent.click(screen.getByTestId('count-save'))
+    expect(await within(form).findByText(new RegExp(summary.replace('.', '\\.')))).toBeInTheDocument()
+    expect(within(form).getByText(fieldText)).toBeInTheDocument()
+  })
+})
+
+describe('O12 error clears when fixed', () => {
+  it('then the save posts', async () => {
+    const form = await openForm()
+    await fill(form, ['org_unit_id'])
+    await userEvent.click(screen.getByTestId('count-save'))
+    await within(form).findByText('This field is required: choose an org unit.')
+    await userEvent.selectOptions(within(form).getByLabelText('Org unit'), 'u1')
+    expect(within(form).queryByText('This field is required: choose an org unit.')).toBeNull()
+    await userEvent.click(screen.getByTestId('count-save'))
+    await waitFor(() => expect(writes(clientMock)).toHaveLength(1))
+  })
+})

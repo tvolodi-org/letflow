@@ -176,7 +176,8 @@ defmodule Letflow.Modules.Stock.XlsxExportTest do
     test "X-5c following next_cursor through xlsx pages visits every balance key once", ctx do
       seed!(ctx.a.schema_name)
       all = ok!(S.get("/balances", ctx.tok_a))["rows"] |> Enum.map(&{&1["sku"], &1["location"]})
-      assert length(all) == 3
+      # the seed hands one key over in full: its zero row is in neither the JSON nor the xlsx (P6)
+      assert length(all) == 2
       assert collect(ctx, "/balances?format=xlsx&limit=1", []) |> Enum.sort() == Enum.sort(all)
     end
 
