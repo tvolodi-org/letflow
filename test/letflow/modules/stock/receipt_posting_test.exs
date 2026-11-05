@@ -112,7 +112,7 @@ defmodule Letflow.Modules.Stock.ReceiptPostingTest do
     ledger = Letflow.Modules.Stock.manifest().ledger["stock"]
     refute inspect(ledger) =~ ~r/price|value|amount/i
 
-    allowed = ~w(documents.ex shape.ex checks.ex stock.ex opening_shape.ex)
+    allowed = ~w(documents.ex shape.ex checks.ex stock.ex opening_shape.ex opening_import.ex)
 
     hits =
       "lib/letflow/modules/stock/**/*.ex"
