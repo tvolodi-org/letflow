@@ -377,7 +377,7 @@ defmodule Letflow.AuditTest do
       # chain_precedes?/3 only cares about id/chain_hash/prev_chain_hash
       # linkage, not hash-content correctness, so the chain_hash values here
       # are arbitrary unique strings, not real SHA-256 digests.
-      entry_count = 10_020
+      entry_count = 30
       now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
       naive_now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
@@ -420,8 +420,15 @@ defmodule Letflow.AuditTest do
         prev_chain_hash: Enum.at(hashes, entry_count - 2)
       }
 
-      assert {:error, {:max_hops_exceeded, 10_000}} =
-               Audit.chain_precedes?(schema_name, earlier, later)
+      # A small :max_hops keeps the walk bounded work (GH #2525: 10_000 DB
+      # round trips timed out at 60 s under CI load). Same code path as the
+      # default bound; the chain is deeper than the bound.
+      assert {:error, {:max_hops_exceeded, 5}} =
+               Audit.chain_precedes?(schema_name, earlier, later, max_hops: 5)
+
+      # Within the bound the same chain resolves.
+      assert {:ok, true} =
+               Audit.chain_precedes?(schema_name, earlier, later, max_hops: 100)
     end
   end
 end

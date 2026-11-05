@@ -1201,6 +1201,10 @@
 32 test/letflow/tenant_onboarding_test.exs 6192.79
 32 test/letflow/tenant_provisioning_script_events_test.exs 3001.65
 32 test/scripts/test_parallel_pool_clamp_test.exs 1076.93
+1 test/letflow/documents/attach_artefact_lock_test.exs 7346.89
+3 test/letflow/documents/attach_artefact_test.exs 7346.89
+16 test/letflow/documents/artefact_guard_test.exs 7346.89
+20 test/letflow/documents/fetch_artefact_test.exs 7346.89
 5 test/letflow/modules/stock/two_side_registration_test.exs 7346.89
 7 test/letflow/modules/stock/two_side_issue_test.exs 7346.89
 12 test/letflow/modules/stock/two_side_reversal_test.exs 7346.89
