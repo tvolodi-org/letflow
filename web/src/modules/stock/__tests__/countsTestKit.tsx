@@ -72,6 +72,8 @@ export interface Fake {
   postAnswers?: Record<string, unknown | ((body: unknown) => unknown)>
   differences?: Differences
   signatures?: SignatureRow[]
+  /** Master records the entity query answers from (default COUNT_MASTERS). */
+  masters?: Record<string, EntityRecord[]>
 }
 
 const paged = <T,>(pages: T[][], cursor?: string) => {
@@ -82,7 +84,7 @@ const paged = <T,>(pages: T[][], cursor?: string) => {
 /** Fakes the count routes on the mocked client; entity queries answer from COUNT_MASTERS. */
 export function fakeCounts(client: CountsClient, f: Fake = {}) {
   const orders = f.orders ?? [order()]
-  fakeMasters(client, COUNT_MASTERS)
+  fakeMasters(client, f.masters ?? COUNT_MASTERS)
   const masters = client.post.getMockImplementation()!
   const maybeFail = (key: string) => {
     if (f.fail && key in f.fail) throw f.fail[key]

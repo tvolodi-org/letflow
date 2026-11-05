@@ -7,6 +7,9 @@ import { useIntl } from 'react-intl'
 import { Link, useParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { actorLabel, tokenSubject } from '@/lib/references/actorLabel'
+import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -56,6 +59,7 @@ function DocumentInner() {
   const { id = '' } = useParams()
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
+  const uiLocale = useUiLocale()
   const [editing, setEditing] = useState(false)
   // useQueries (like the pickers): the page draws its own loading and error states.
   const [query] = useQueries({ queries: [{
@@ -98,6 +102,8 @@ function DocumentInner() {
     )
   }
 
+  const refMsg = REFERENCE_MESSAGES[uiLocale]
+  const actor = (ref: string | null | undefined) => actorLabel(ref, tokenSubject(session?.token), refMsg)
   const row = (label: string, value: string | null | undefined, mono = false) => (
     <div>
       <dt>{label}</dt>
@@ -150,9 +156,9 @@ function DocumentInner() {
         {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefId'), doc.external_ref_id, true)}
         {row(t('stock.doc.field.issuedAt'), doc.issued_at ? when(doc.issued_at) : null, true)}
         {row(t('stock.doc.field.postedAt'), doc.posted_at ? when(doc.posted_at) : null, true)}
-        {row(t('stock.doc.field.postedBy'), doc.posted_by, true)}
+        {row(t('stock.doc.field.postedBy'), actor(doc.posted_by))}
         {row(t('stock.doc.field.reversedAt'), doc.reversed_at ? when(doc.reversed_at) : null, true)}
-        {row(t('stock.doc.field.reversedBy'), doc.reversed_by, true)}
+        {row(t('stock.doc.field.reversedBy'), actor(doc.reversed_by))}
       </dl>
       {two && (['from', 'to'] as const).map((side) => (
         <section key={side} data-testid={`view-side-${side}`} aria-label={t(`stock.doc.side.${side}`)}>

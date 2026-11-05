@@ -1,6 +1,10 @@
 import { useState, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTaskInbox, useCompleteTask, useTask, useClaimTask } from '@/hooks/useTasks'
+import { useTaskSubjects } from '@/hooks/useTaskSubjects'
+import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
+import { actorLabel } from '@/lib/references/actorLabel'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { useTaskCompletionAttachments } from '@/hooks/useAttachments'
 import { P, useAccess } from '@/auth/access'
 import { useAuth } from '@/auth/AuthContext'
@@ -40,6 +44,15 @@ function decodeJwtPayload(token: string): { sub?: string; preferred_username?: s
   } catch {
     return {}
   }
+}
+
+/** T-1378: who a task is assigned to, as text (see actorLabel). */
+function assigneeLabel(
+  task: { assignee_ref?: string | null; assignee_name?: string },
+  userId: string | null,
+  msg: { you: string; anotherUser: string },
+): string {
+  return task.assignee_name || actorLabel(task.assignee_ref, userId, msg)
 }
 
 export default function TaskInboxPage() {
@@ -95,6 +108,11 @@ export default function TaskInboxPage() {
 
     return results
   }, [inboxData?.items, filter, sort, search, userId, isOperatorRole])
+
+  // T-1378: the task's subject (document number and kind) and assignee as text, never ids
+  const refMsg = REFERENCE_MESSAGES[useUiLocale()]
+  const subjectOf = useTaskSubjects(filteredTasks.map((t) => t.instance_id))
+  const assigneeText = (t: { assignee_ref?: string | null; assignee_name?: string }) => assigneeLabel(t, userId, refMsg)
 
   const handleFilterChange = (newFilter: FilterType) => {
     const params = new URLSearchParams(searchParams)
@@ -224,8 +242,8 @@ export default function TaskInboxPage() {
                 <div style={{ flex: 1 }}>
                   <div data-testid="task-name" style={{ fontWeight: 600, marginBottom: '.25rem' }}>{task.node_name}</div>
                   <div style={{ fontSize: '.85rem', color: 'var(--text-secondary)' }}>
-                    Instance: <code data-testid="task-instance-id" style={{ fontSize: '.8rem' }}>{task.instance_id.slice(0, 8)}…</code>
-                    {task.assignee_ref && <> · Assigned to: <span data-testid="task-assignee">{task.assignee_ref}</span></>}
+                    Instance: <code data-testid="task-instance-id" data-instance-id={task.instance_id} style={{ fontSize: '.8rem' }}>{subjectOf(task.instance_id)}</code>
+                    {task.assignee_ref && <> · Assigned to: <span data-testid="task-assignee">{assigneeText(task)}</span></>}
                   </div>
                   <div style={{ fontSize: '.8rem', color: 'var(--text-disabled)', marginTop: '.25rem' }}>
                     {formatDate(task.created_at)} {formatTime(task.created_at)}
@@ -285,6 +303,8 @@ function TaskDetailPanel({ taskId, onClose }: { taskId: string; onClose: () => v
     const payload = decodeJwtPayload(session.token)
     return payload.sub || null
   }, [session?.token])
+
+  const subjectOf = useTaskSubjects(task ? [task.instance_id] : [])
 
   if (isLoading) {
     return (
@@ -348,7 +368,7 @@ function TaskDetailPanel({ taskId, onClose }: { taskId: string; onClose: () => v
             <strong>Definition:</strong> <span data-testid="instance-definition-name">{task.definition_name ?? 'N/A'}</span>
           </p>
           <p style={{ margin: '.25rem 0' }}>
-            <strong>Instance ID:</strong> <span data-testid="instance-id">{task.instance_id}</span>
+            <strong>Instance:</strong> <span data-testid="instance-id" data-instance-id={task.instance_id}>{subjectOf(task.instance_id)}</span>
           </p>
           {task.correlation_key && (
             <p style={{ margin: '.25rem 0' }}>
