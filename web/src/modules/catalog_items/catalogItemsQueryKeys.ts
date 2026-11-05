@@ -3,4 +3,8 @@
 export const catalogItemsQueryKeys = {
   all: (tenantId: string) => ['catalog_items', tenantId] as const,
   list: (tenantId: string, type: string, scope: string) => ['catalog_items', tenantId, type, scope] as const,
+  /** Stock balances of one item (Items screen, Related). */
+  related: (tenantId: string, itemId: string) => ['catalog_items', tenantId, 'item-related', itemId] as const,
+  /** Last stock movements of one item (Items screen, History). */
+  history: (tenantId: string, itemId: string) => ['catalog_items', tenantId, 'item-history', itemId] as const,
 }

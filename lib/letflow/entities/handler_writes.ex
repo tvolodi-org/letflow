@@ -596,9 +596,11 @@ defmodule Letflow.Entities.HandlerWrites do
   # through to `:hash_mismatch` here.
   defp owner_recheck(module_id, prefix, stamp_hash)
        when is_binary(module_id) and is_binary(stamp_hash) do
-    with {:ok, installed} <- Installs.installed_manifest_hash(module_id, prefix: prefix),
+    # REQ-769: the stamp is the installed hash or an accepted earlier one; installed == compiled stays.
+    with {:ok, %{installed: installed, accepted: accepted}} <-
+           Installs.install_hashes(module_id, prefix: prefix),
          {:ok, compiled} <- Catalog.manifest_hash(module_id),
-         true <- installed == compiled and installed == stamp_hash do
+         true <- installed == compiled and (stamp_hash == installed or stamp_hash in accepted) do
       {:ok, :verified}
     else
       _mismatch -> {:error, :hash_mismatch}

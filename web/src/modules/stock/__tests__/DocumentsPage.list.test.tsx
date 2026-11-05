@@ -32,7 +32,7 @@ describe('C2-a rows', () => {
     renderStock(LIST)
     await screen.findByText('RC-1')
     expect(listCalls()).toEqual([{}])
-    expect(screen.getByText('11/04/2026, 10:00')).toBeInTheDocument()
+    expect(screen.getByText('Nov 4, 2026 10:00')).toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByTestId('document-row')[0]).toHaveTextContent('Main store'))
     expect(screen.getByText('u-gone')).toBeInTheDocument()
     expect(screen.getAllByText('Draft').length).toBeGreaterThan(0)

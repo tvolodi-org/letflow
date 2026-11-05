@@ -181,33 +181,32 @@ export interface ZonedOptions {
   timeZone: string
   seconds?: boolean
   locale?: string
-  /** What `en` (and other languages) show: `intl` = `Intl.DateTimeFormat(locale)` as before, `iso` = `YYYY-MM-DD HH:mm`. */
-  enStyle?: 'intl' | 'iso'
-  /** Locale tag handed to `Intl.DateTimeFormat` in the `intl` style (the page's react-intl locale). */
-  intlLocale?: string
 }
 
-/** A date-time in a fixed zone (the tenant zone of the stock screens). One formatter for the stock tables. */
+const EN_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** `Nov 5, 2026` from the zoned parts (the design-system date style of the other languages' `en`). */
+function enDate(p: Parts): string {
+  return `${EN_MONTHS[Number(p.month) - 1] ?? p.month} ${Number(p.day)}, ${p.year}`
+}
+
+/** A date-time in a fixed zone (the tenant zone of the stock screens), ONE format per language:
+ *  ru, kk, uz `DD-MM-YYYY HH:mm[:ss]`; every other language `Nov 5, 2026 16:24[:ss]`. ISO stays in edit fields only. */
 export function formatDateTimeInZone(value: Date | string | number | null | undefined, o: ZonedOptions): string {
   if (isBlank(value)) return ''
-  const v = value as Date | string | number
-  const p = partsOf(v, o.timeZone)
+  const p = partsOf(value as Date | string | number, o.timeZone)
   if (!p) return String(value)
-  if (usesDayFirstDashes(o.locale)) {
-    return `${p.day}-${p.month}-${p.year} ${p.hour}:${p.minute}${o.seconds ? `:${p.second}` : ''}`
-  }
-  if (o.enStyle === 'iso') return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`
-  const d = v instanceof Date ? v : new Date(v)
-  return new Intl.DateTimeFormat(o.intlLocale ?? o.locale ?? getUiLocale(), {
-    timeZone: o.timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    ...(o.seconds ? { second: '2-digit' as const } : {}),
-    hourCycle: 'h23',
-  }).format(d)
+  const time = `${p.hour}:${p.minute}${o.seconds ? `:${p.second}` : ''}`
+  if (usesDayFirstDashes(o.locale)) return `${p.day}-${p.month}-${p.year} ${time}`
+  return `${enDate(p)} ${time}`
+}
+
+/** A date (no time) in a fixed zone: ru, kk, uz `DD-MM-YYYY`, otherwise `Nov 5, 2026`. */
+export function formatDateInZone(value: Date | string | number | null | undefined, o: { timeZone: string; locale?: string }): string {
+  if (isBlank(value)) return ''
+  const p = partsOf(value as Date | string | number, o.timeZone)
+  if (!p) return String(value)
+  return usesDayFirstDashes(o.locale) ? `${p.day}-${p.month}-${p.year}` : enDate(p)
 }
 
 /** The raw value of a native date / datetime-local input (`YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`, already local) shown

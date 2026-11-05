@@ -39,7 +39,7 @@ describe('C4-a view', () => {
     const head = screen.getByTestId('document-header')
     expect(head).toHaveTextContent('u-poster')
     expect(head).toHaveTextContent('u-rev')
-    expect(head).toHaveTextContent('11/04/2026, 11:00')
+    expect(head).toHaveTextContent('Nov 4, 2026 11:00')
     expect(screen.queryByText('Posting check')).not.toBeInTheDocument()
   })
   it('warns when posting_check is mismatch only', async () => {

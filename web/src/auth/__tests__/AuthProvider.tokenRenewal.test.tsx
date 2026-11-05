@@ -169,6 +169,83 @@ describe("AuthProvider token renewal", () => {
   });
 });
 
+describe("AuthProvider token renewal: failures and long sessions (T-1400)", () => {
+  const tokenCallsOf = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.filter(([u]) => String(u).endsWith("/token"));
+
+  it("TR-04: a transient failure is retried with backoff and keeps the refresh token", async () => {
+    let n = 0;
+    const { fetchMock } = await setup(async () =>
+      ++n === 1 ? new Response("oops", { status: 500 }) : tokenResponse("a2"),
+    );
+    const onExpired = vi.fn();
+    window.addEventListener("auth:session-expired", onExpired);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(299_000);
+    });
+
+    const calls = tokenCallsOf(fetchMock);
+    // oidc-client-ts re-arms its expiring timer on every getUser() (1 s once inside
+    // the 60 s window); the retry cycle must ignore that and keep its own backoff.
+    expect(calls.length).toBe(2);
+    expect(String(calls[1][1]?.body)).toContain("refresh_token=r1");
+    expect(mockSetToken).toHaveBeenCalledWith("a2");
+    expect(onExpired).not.toHaveBeenCalled();
+    window.removeEventListener("auth:session-expired", onExpired);
+  });
+
+  it("TR-05: a terminal error (invalid_grant) is not retried in a loop", async () => {
+    const { fetchMock } = await setup(
+      async () =>
+        new Response('{"error":"invalid_grant"}', {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(299_000);
+    });
+    // refresh grant + at most the one frame fallback attempt, then nothing more
+    const before = tokenCallsOf(fetchMock).length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000);
+    });
+    expect(tokenCallsOf(fetchMock).length).toBe(before);
+    expect(mockSetToken).not.toHaveBeenCalled();
+  });
+
+  it("TR-06: 60 minutes of 300 s tokens: renewed every cycle, never signed out", async () => {
+    let n = 0;
+    const { fetchMock } = await setup(async () => tokenResponse(`a${++n + 1}`));
+    const onExpired = vi.fn();
+    window.addEventListener("auth:session-expired", onExpired);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_600_000);
+    });
+
+    expect(tokenCallsOf(fetchMock).length).toBeGreaterThanOrEqual(11);
+    expect(mockSetToken).toHaveBeenLastCalledWith(`a${n + 1}`);
+    expect(onExpired).not.toHaveBeenCalled();
+    window.removeEventListener("auth:session-expired", onExpired);
+  });
+
+  it("TR-07: after sleep (clock jumped past expiry) a visibilitychange renews at once", async () => {
+    const { fetchMock } = await setup(async () => tokenResponse("a2"));
+    vi.setSystemTime((NOW_S + 400) * 1000); // timers did not fire while asleep
+    expect(tokenCallsOf(fetchMock)).toHaveLength(0);
+
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(tokenCallsOf(fetchMock)).toHaveLength(1);
+    expect(mockSetToken).toHaveBeenCalledWith("a2");
+  });
+});
+
 describe("AuthProvider token renewal after a tenant switch", () => {
   it("TR-03: after switchTenant only the new tenant's manager is renewed and applied", async () => {
     const TOKEN_B =

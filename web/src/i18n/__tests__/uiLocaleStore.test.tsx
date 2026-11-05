@@ -27,6 +27,7 @@ function fresh() {
 
 beforeEach(() => {
   window.localStorage.clear()
+  window.sessionStorage.clear()
   setSearch('')
   setBrowser(['en-US'])
   fresh()
@@ -35,6 +36,7 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   window.localStorage.clear()
+  window.sessionStorage.clear()
   setSearch('')
   fresh()
 })
@@ -75,6 +77,37 @@ describe('uiLocaleStore', () => {
     setSearch('?lang=xx')
     fresh()
     expect(getUiLocale()).toBe('kk')
+  })
+
+  it('L-1: ?lang=ru survives a reload without the query (sign-in round trip) and the switcher clears it', () => {
+    setBrowser(['en'])
+    setSearch('?lang=ru')
+    fresh()
+    expect(getUiLocale()).toBe('ru')
+    expect(window.sessionStorage.getItem('lf-lang-param')).toBe('ru')
+    // sign-in leaves the page and comes back to '/' with no query
+    setSearch('')
+    fresh()
+    expect(getUiLocale()).toBe('ru')
+    expect(window.localStorage.getItem('lf-locale')).toBeNull()
+    // an explicit choice wins from then on
+    act(() => useUiLocaleStore.getState().setLocale('kk'))
+    expect(window.sessionStorage.getItem('lf-lang-param')).toBeNull()
+    fresh()
+    expect(getUiLocale()).toBe('kk')
+  })
+
+  it('L-1: an unsupported ?lang is not kept', () => {
+    setSearch('?lang=xx')
+    fresh()
+    expect(window.sessionStorage.getItem('lf-lang-param')).toBeNull()
+  })
+
+  it('L-2: <html lang> follows the language', () => {
+    act(() => useUiLocaleStore.getState().setLocale('ru'))
+    expect(document.documentElement.lang).toBe('ru')
+    act(() => useUiLocaleStore.getState().setLocale('kk'))
+    expect(document.documentElement.lang).toBe('kk')
   })
 
   it('setLocale saves under lf-locale', () => {

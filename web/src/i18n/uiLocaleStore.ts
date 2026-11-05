@@ -7,13 +7,16 @@
  *
  *  `choice` is the explicit choice (address parameter, saved or made in the switcher) or null. With null the
  *  language is the browser's, read at the time of the call, so a change of `navigator.languages` is seen too.
- *  `?lang` is not saved: it holds for that page load only. */
+ *  `?lang` is not saved for good (never written to localStorage). It is kept in sessionStorage (`lf-lang-param`) for
+ *  the browser tab, because sign-in leaves the page and returns with `location.replace('/')`, which drops the query;
+ *  an explicit choice in the switcher (`setLocale`) clears it, so the menu always wins afterwards. */
 import { create } from 'zustand'
 
 export const UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type UiLocale = (typeof UI_LOCALES)[number]
 export const UI_LOCALE_STORAGE_KEY = 'lf-locale'
 export const UI_LOCALE_PARAM = 'lang'
+export const UI_LOCALE_PARAM_SESSION_KEY = 'lf-lang-param'
 export const UI_LOCALE_LABELS: Record<UiLocale, string> = { en: 'English', ru: 'Русский', kk: 'Қазақша' }
 
 /** Base language tag of a BCP-47 string when it is a supported UI language, else null. */
@@ -52,9 +55,31 @@ function readParam(): UiLocale | null {
   }
 }
 
-/** The explicit choice from the environment: `?lang` first, then the saved one; null when neither is valid. */
+function readSessionParam(): UiLocale | null {
+  try {
+    return toUiLocale(window.sessionStorage.getItem(UI_LOCALE_PARAM_SESSION_KEY))
+  } catch {
+    return null
+  }
+}
+
+/** Remembers a valid `?lang` for the tab session (it is lost on the sign-in round trip). Returns it, else null. */
+export function captureLangParam(): UiLocale | null {
+  const fromAddress = readParam()
+  if (fromAddress) {
+    try {
+      window.sessionStorage.setItem(UI_LOCALE_PARAM_SESSION_KEY, fromAddress)
+    } catch {
+      // storage unavailable: the parameter holds for this page load only
+    }
+  }
+  return fromAddress
+}
+
+/** The explicit choice from the environment: `?lang`, then the one kept for this tab, then the saved one; null when
+ *  none is valid. */
 export function readInitialChoice(): UiLocale | null {
-  return readParam() ?? readSaved()
+  return captureLangParam() ?? readSessionParam() ?? readSaved()
 }
 
 interface UiLocaleStore {
@@ -75,6 +100,11 @@ export const useUiLocaleStore = create<UiLocaleStore>((set) => ({
     } catch {
       // storage unavailable (private mode): the choice lasts for this page load only
     }
+    try {
+      window.sessionStorage.removeItem(UI_LOCALE_PARAM_SESSION_KEY)
+    } catch {
+      // see above
+    }
     set({ choice: locale })
   },
   setLocaleTransient: (locale) => set({ choice: locale ?? readSaved() }),
@@ -90,4 +120,14 @@ export function getUiLocale(): UiLocale {
 export function useUiLocale(): UiLocale {
   const choice = useUiLocaleStore((s) => s.choice)
   return choice ?? browserUiLocale()
+}
+
+/** Keeps `<html lang>` on the active language (screen readers, hyphenation), on every page including sign-in. */
+function syncHtmlLang(): void {
+  if (typeof document === 'undefined') return
+  document.documentElement.lang = getUiLocale()
+}
+if (typeof document !== 'undefined') {
+  syncHtmlLang()
+  useUiLocaleStore.subscribe(syncHtmlLang)
 }

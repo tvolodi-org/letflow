@@ -102,13 +102,11 @@ describe('T-1381 — DD-MM-YYYY in ru, kk, uz; en unchanged', () => {
       useUiLocaleStore.getState().reloadFromEnvironment()
     }
   })
-  it('F2 en output is the pre-change output', () => {
+  it('F2 en date-time uses the design-system style (T-1399)', () => {
     setLocale('en')
     expect(formatDate(sample, { timeZone: 'UTC' }, 'en')).toBe('1/15/2026')
     expect(formatDateTime(sample, { timeZone: 'UTC' }, 'en')).toBe('1/15/2026, 1:30:00 PM')
-    expect(formatDateTimeInZone(instant, { timeZone: zone, locale: 'en', enStyle: 'iso' })).toBe('2026-11-10 09:30')
-    expect(formatDateTimeInZone(instant, { timeZone: zone, locale: 'en', intlLocale: 'en' })).toBe('11/10/2026, 09:30')
-    expect(formatDateTimeInZone(instant, { timeZone: zone, locale: 'en', intlLocale: 'en', seconds: true })).toBe('11/10/2026, 09:30:00')
+    expect(formatDateTimeInZone(instant, { timeZone: zone, locale: 'en' })).toBe('Nov 10, 2026 09:30')
   })
   it.each(['en', 'ru'])('F3 %s: null, undefined and empty give an empty string; garbage comes back as text', (loc) => {
     for (const fn of [
