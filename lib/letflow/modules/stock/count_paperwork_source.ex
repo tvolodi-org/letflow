@@ -40,28 +40,44 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
 
   @type ctx :: %{scope: term(), principal: term(), tenant_id: term()}
 
-  @spec fetch(String.t(), term(), CountPaperwork.kind(), ctx()) ::
-          {:ok, binary(), String.t()}
-          | {:error, :not_found | :document_not_issued | :xlsx_write_failed}
-  def fetch(prefix, id, kind, %{scope: scope, principal: principal, tenant_id: tenant_id})
+  @doc """
+  The one read path (REQ-736): scope-checked header, ISSUED content and names, with no output built.
+  `fetch/4` (xlsx) and the PDF route both start here, so the scope and name rules exist once.
+  """
+  @spec read(String.t(), term(), CountPaperwork.kind(), ctx()) ::
+          {:ok, %{kind: CountPaperwork.kind(), issued: map(), names: map()}}
+          | {:error, :not_found | :document_not_issued}
+  def read(prefix, id, kind, %{scope: scope, principal: principal, tenant_id: tenant_id})
       when is_binary(prefix) and kind in [:order, :sheet, :differences] do
     with {:ok, header} <- Counts.header(prefix, id, scope),
          {:ok, issued} <- issued(prefix, header, kind),
          {:ok, order_content} <- order_content(prefix, header, kind, issued) do
       issued = Map.put(issued, :order_content, order_content)
-      names = names(prefix, kind, issued, principal, tenant_id)
 
-      with {:ok, binary} <- CountPaperwork.build(kind, issued, names) do
-        {:ok, binary, file_name(issued.number_label)}
-      end
+      {:ok,
+       %{kind: kind, issued: issued, names: names(prefix, kind, issued, principal, tenant_id)}}
+    end
+  end
+
+  @spec fetch(String.t(), term(), CountPaperwork.kind(), ctx()) ::
+          {:ok, binary(), String.t()}
+          | {:error, :not_found | :document_not_issued | :xlsx_write_failed}
+  def fetch(prefix, id, kind, ctx) do
+    with {:ok, %{issued: issued, names: names}} <- read(prefix, id, kind, ctx),
+         {:ok, binary} <- CountPaperwork.build(kind, issued, names) do
+      {:ok, binary, file_name(issued.number_label)}
     end
   end
 
   @doc "The download file name: the number label with unsafe characters replaced, plus `.xlsx`."
   @spec file_name(term()) :: String.t()
-  def file_name(label) do
+  def file_name(label), do: file_name(label, "xlsx")
+
+  @doc "Same, with the extension given (`\"pdf\"` for REQ-736)."
+  @spec file_name(term(), String.t()) :: String.t()
+  def file_name(label, ext) do
     safe = label |> to_string() |> String.replace(~r/[^A-Za-z0-9._-]/, "_")
-    if(safe == "", do: "count", else: safe) <> ".xlsx"
+    if(safe == "", do: "count", else: safe) <> "." <> ext
   end
 
   # -- issued content -------------------------------------------------------------------------
