@@ -307,7 +307,7 @@ var LFDT = (function () {
 
   /* shared field shell. bare = no label, hint or error of its own (used inside lf-datetime) */
   function shell(o, id, kind, inputHtml, btnHtml) {
-    var opt = o.required || o.bare ? '' : ' <span class="lf-label__opt">' + esc(lg(o.lang).optional) + '</span>';
+    var opt = o.required || o.bare || o.noOptional ? '' : ' <span class="lf-label__opt">' + esc(lg(o.lang).optional) + '</span>';
     return (o.bare ? '' : '<label class="lf-label" id="' + id + '-l" for="' + id + '">' + esc(o.name || '') + opt + '</label>') +
       '<div class="lf-control lf-control--mono lf-' + kind + '__control' + (o.readOnly ? ' lf-control--readonly' : '') + '"' + (o.disabled ? ' aria-disabled="true"' : '') + '>' + inputHtml + btnHtml + '</div>' +
       (o.bare ? '' : (o.hint ? '<div class="lf-hint" id="' + id + '-h">' + esc(o.hint) + '</div>' : '') + '<div class="lf-error" id="' + id + '-e" hidden></div>');
@@ -872,3 +872,78 @@ var LFDocLayout = (function () {
   return { layouts: R, register: register, apply: apply, select: select, names: function () { return Object.keys(R); } };
 })();
 /* LFLAYOUT:end */
+
+/* LFREGLAYOUT:begin ------------------------------------------------------------------------------------------
+   Layout registry of the registry component (lf-registry), same idea as LFDocLayout: a layout is an entry in
+   LFRegLayout.layouts, its name is the value of data-layout on .lf-reg, its CSS hook is `.lf-reg[data-layout="<name>"]`.
+   `tabs` (optional) lists the details sections that share one place and are switched by a tab block; `defaultTab` is the first
+   tab shown (a PARAMETER; apply() takes `tab`). apply(el, name, {tab, labels, counts, badges, label, problems, onTab}) sets
+   data-layout and data-tab, inserts the tab block (role=tablist) after `.lf-reg__top`, links tabs and panels, wires the arrow keys.
+   Add a layout: register({...}) + CSS under its hook + a row in NOTES.md "Layouts of the registry". */
+var LFRegLayout = (function () {
+  'use strict';
+  var R = {};
+  function register(def) { R[def.name] = def; return def; }
+  register({ name: 'split', hook: '.lf-reg[data-layout="split"]', panes: ['list', 'details'], tabs: null,
+    breakpoints: '>= 901: list | details (sections stacked in the details pane); < 900: list, a selected record replaces it, back button' });
+  register({ name: 'tabs', hook: '.lf-reg[data-layout="tabs"]', panes: ['list', 'details'], defaultTab: 'overview',
+    tabs: [{ id: 'overview', panel: '[data-pane="overview"]' }, { id: 'related', panel: '[data-pane="related"]' }, { id: 'history', panel: '[data-pane="history"]' }],
+    breakpoints: '>= 901: narrow list on the left, details on the right with the sections as a tab block (Overview | Related | History); < 900: as split, tab block under the header card' });
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function select(el, id, focus) {
+    el.setAttribute('data-tab', id);
+    Array.prototype.forEach.call(el.querySelectorAll('.lf-reg__tablist [role=tab]'), function (b) {
+      var on = b.getAttribute('data-tab') === id; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; if (on && focus) b.focus();
+    });
+  }
+  function apply(el, name, o) {
+    o = o || {}; var lay = R[name] || R.split, old = el.querySelector('.lf-reg__tablist');
+    if (old) old.remove();
+    Array.prototype.forEach.call(el.querySelectorAll('[role=tabpanel]'), function (p) { p.removeAttribute('role'); p.removeAttribute('aria-labelledby'); p.removeAttribute('tabindex'); });
+    el.setAttribute('data-layout', lay.name);
+    if (!lay.tabs) { el.removeAttribute('data-tab'); return lay; }
+    var panels = lay.tabs.map(function (t) { return el.querySelector(t.panel); }), top = el.querySelector('.lf-reg__top');
+    if (!top || panels.some(function (p) { return !p; })) { el.removeAttribute('data-tab'); return lay; } // blank, loading, create: nothing to switch
+    var id = el.id || 'lf-reg', ids = lay.tabs.map(function (t) { return t.id; }), cur = ids.indexOf(o.tab) >= 0 ? o.tab : (lay.defaultTab || ids[0]);
+    var h = '<div class="lf-reg__tablist lf-tabs" role="tablist" aria-label="' + esc(o.label || '') + '">';
+    lay.tabs.forEach(function (t) {
+      var c = o.counts && o.counts[t.id], b = o.badges && o.badges[t.id];
+      h += '<button type="button" class="lf-tab" role="tab" id="' + id + '-tab-' + t.id + '" data-tab="' + t.id + '" aria-controls="' + id + '-panel-' + t.id + '" aria-selected="false" tabindex="-1">' + esc((o.labels || {})[t.id] || t.id) +
+        (c != null ? ' <span class="lf-count">' + c + '</span>' : '') +
+        (b ? ' <span class="lf-count lf-count--danger" role="img" aria-label="' + b + ' ' + esc(o.problems || '') + '"><svg class="lf-icon" aria-hidden="true"><use href="#i-alert"/></svg>' + b + '</span>' : '') + '</button>';
+    });
+    top.insertAdjacentHTML('afterend', h + '</div>');
+    lay.tabs.forEach(function (t, k) { var p = panels[k]; p.setAttribute('role', 'tabpanel'); p.id = id + '-panel-' + t.id; p.setAttribute('aria-labelledby', id + '-tab-' + t.id); p.tabIndex = 0; });
+    var list = el.querySelector('.lf-reg__tablist');
+    list.addEventListener('click', function (e) { var b = e.target.closest('[role=tab]'); if (!b) return; select(el, b.getAttribute('data-tab'), false); if (o.onTab) o.onTab(b.getAttribute('data-tab')); });
+    list.addEventListener('keydown', function (e) {
+      var k = e.key, n = ids.length, at = ids.indexOf(el.getAttribute('data-tab')), to = -1;
+      if (k === 'ArrowRight') to = (at + 1) % n; else if (k === 'ArrowLeft') to = (at - 1 + n) % n; else if (k === 'Home') to = 0; else if (k === 'End') to = n - 1;
+      if (to < 0) return; e.preventDefault(); select(el, ids[to], true); if (o.onTab) o.onTab(ids[to]);
+    });
+    select(el, cur, false);
+    return lay;
+  }
+  return { layouts: R, register: register, apply: apply, select: select, names: function () { return Object.keys(R); } };
+})();
+/* LFREGLAYOUT:end */
+
+/* LFJRNLAYOUT:begin ------------------------------------------------------------------------------------------
+   Layout registry of the movement register (lf-journal), same idea as LFDocLayout and LFRegLayout. A layout is an entry in
+   LFJrnLayout.layouts (name = value of data-layout on .lf-jrn, CSS hook `.lf-jrn[data-layout="<name>"]`); `split` = list | details.
+   `variants` are the NARROW (<= 900 px) behaviours chosen with data-variant on .lf-jrn: v1 inline legs, v2 bottom sheet,
+   v3 full screen. apply(el, name, variant) sets both attributes. Add a layout: register({...}) + CSS under its hook + a row in
+   NOTES.md "Narrow variants of the journal". */
+var LFJrnLayout = (function () {
+  'use strict';
+  var R = {}, V = {
+    v1: { name: 'v1', title: 'Inline legs', detailsAs: 'full screen (v3)', note: 'a row expands in place into its legs; the Details button opens the full screen with previous/next' },
+    v2: { name: 'v2', title: 'Bottom sheet', detailsAs: 'sheet', note: 'a tap opens the details in a sheet (85 % high) over the list, with previous/next, close, drag handle, Escape' },
+    v3: { name: 'v3', title: 'Full screen', detailsAs: 'full screen', note: 'a tap replaces the list with the details, back button and previous/next' }
+  };
+  function register(def) { R[def.name] = def; return def; }
+  register({ name: 'split', hook: '.lf-jrn[data-layout="split"]', panes: ['list', 'details'], breakpoints: '>= 1200: list | details; 901-1199: same, optional columns hidden; <= 900: narrow variant' });
+  function apply(el, name, variant) { el.setAttribute('data-layout', (R[name] || R.split).name); el.setAttribute('data-variant', (V[variant] || V.v1).name); return R[name] || R.split; }
+  return { layouts: R, variants: V, register: register, apply: apply };
+})();
+/* LFJRNLAYOUT:end */
