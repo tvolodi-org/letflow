@@ -63,3 +63,19 @@ samp {
 
 /* Long ru/kk column labels wrap instead of being cut by the fixed table layout (rule 4). */
 .lf-lines th { white-space: normal; height: auto; min-height: var(--row-h-compact); padding-top: var(--space-1); padding-bottom: var(--space-1); vertical-align: bottom; }
+
+/* T-1399 R7: app-side additions to the released components.css (kept here so that file stays an exact copy of the
+   design repo release; the design repo needs the same rules on its next release). */
+.lf-topbar { z-index: var(--z-topbar); }
+.lf-md__detail { min-width: 0; }
+.lf-md--wide { grid-template-columns: minmax(380px, 460px) minmax(0, 1fr); }
+@media (max-width: 1100px) {
+  .lf-md--wide { grid-template-columns: minmax(440px, 470px) minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .lf-md--wide { grid-template-columns: minmax(0, 1fr); }
+}
+/* T-1399 R7: the count sheet has seven columns; tighter cell padding keeps Counted whole in the detail panel. */
+.lf-count-sheet .lf-table th, .lf-count-sheet .lf-table td { padding-inline: var(--space-2); }
+/* T-1399 R7 gui_review: the last cell of a master list keeps the table's right padding so a status pill ends inside the row. */
+.lf-md__master .lf-table th:last-child, .lf-md__master .lf-table td:last-child { padding-inline-end: var(--space-4); }

@@ -314,6 +314,7 @@ config :letflow, :modules, [
   Letflow.Modules.Locations,
   Letflow.Modules.Codes,
   Letflow.Modules.Stock,
+  Letflow.Modules.Assets,
   Letflow.Modules.Fixture,
   Letflow.Modules.FixtureDependent,
   Letflow.Modules.FixtureFailingInstall,

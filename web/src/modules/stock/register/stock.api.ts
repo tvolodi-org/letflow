@@ -39,6 +39,8 @@ export interface MovementRow {
   reason_code?: string | null
   document_type?: string | null
   document_id?: string | null
+  /** Gap-free number of the document ("RCP-2026-000001"), when the row points at a numbered stock document. */
+  document_number?: string | null
   event_time?: string | null
   legs: MovementLeg[]
 }

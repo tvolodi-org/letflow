@@ -75,11 +75,21 @@ function CountsInner() {
   })
 
   const columns: DataTableColumn<CountOrder>[] = [
-    { key: 'number', label: t('counts.col.number'), render: (r) => r.number ?? dash, mono: true },
-    { key: 'org_unit', label: t('counts.col.orgUnit'), render: (r) => name('org_unit', r.org_unit_id) },
-    { key: 'kind', label: t('counts.col.kind'), render: (r) => t(`counts.kind.${r.kind}`) },
-    { key: 'start', label: t('counts.col.plannedStart'), render: (r) => formatInZone(r.planned_start) || dash, mono: true },
-    { key: 'chair', label: t('counts.col.chair'), render: (r) => name('org_employee', r.chair_employee_id) || dash },
+    {
+      key: 'number',
+      label: t('counts.col.number'),
+      // Org unit, kind and planned start ride on muted lines under the number, so the list is two columns (number,
+      // status) and no pill is cut off at 1024 px (T-1399 R7 gui_review).
+      render: (r) => (
+        <>
+          <span className="mono">{r.number ?? dash}</span>
+          <br />
+          <span className="lf-hint">{[name('org_unit', r.org_unit_id), t(`counts.kind.${r.kind}`)].join(' · ')}</span>
+          <br />
+          <span className="lf-hint mono">{formatInZone(r.planned_start) || dash}</span>
+        </>
+      ),
+    },
     {
       key: 'status',
       label: t('counts.col.status'),
@@ -143,6 +153,7 @@ function CountsInner() {
         }
       />
       <MasterDetail
+        masterWidth="wide"
         tools={
           <Select
             label={t('counts.filter.status')}

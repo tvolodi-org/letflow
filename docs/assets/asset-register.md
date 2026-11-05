@@ -24,8 +24,9 @@ not part of the stock module). Its manifest `depends_on` lists `org` and `locati
 (decision 0076 R1: consumers depend on master data, never the reverse; R4: master data is read through the owning
 module's read API). Its one record type is `assets_card` (the module-id prefix rule of decision 0050 D6).
 
-No assets module exists on origin/main: `priv/modules/` holds catalog_items, codes, exam, locations and org, and
-`lib/letflow/modules/` has no assets directory.
+The module skeleton exists since REQ-748 (GH #3894): `lib/letflow/modules/assets/assets.ex`, the pack under
+`priv/modules/assets/`, the record type `assets_card` and the `currency` setting. It has no ledger, no route and no
+permission yet.
 
 ## 2. The three kinds
 
@@ -72,6 +73,7 @@ localized_text).
 | book_value | decimal | optional | none | `decimal_strict` true; information only |
 | depreciation_as_of | date | optional | none | information only |
 | valid_until | date | optional | none | allowed only when kind is `intangible` |
+| active | boolean | required | none | false retires the card; there is no delete (REQ-748; asset-workflow-documents.md section 7 checks it before a posting) |
 | external_ref_system | string | optional | none | unique as a pair with external_ref_id |
 | external_ref_id | string | optional | none | unique as a pair with external_ref_system |
 

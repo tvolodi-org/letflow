@@ -174,7 +174,7 @@ describe('A4/A6 details: references, Related, History', () => {
     expect(related).toHaveTextContent('12 PCS')
     const hist = await screen.findByTestId('registry-history')
     expect(hist).toHaveTextContent('Count adjustment')
-    expect(hist).toHaveTextContent('2026-10-29 15:15')
+    expect(hist).toHaveTextContent('Oct 29, 2026 15:15')
     const overview = screen.getByTestId('registry-section-overview')
     await waitFor(() => expect(overview).toHaveTextContent('PCS'))
     expect(overview).toHaveTextContent('Lot')

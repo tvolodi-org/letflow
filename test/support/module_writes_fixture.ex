@@ -355,4 +355,17 @@ defmodule Letflow.ModuleWritesFixture do
 
     :ok
   end
+
+  @doc "REQ-769: set `tenant_modules.accepted_manifest_hashes` (the upgrade apply is not built yet)."
+  @spec set_accepted_hashes!(String.t(), String.t(), [String.t()]) :: :ok
+  def set_accepted_hashes!(schema, module_id, hashes) do
+    {1, _} =
+      Repo.update_all(
+        from(m in TenantModule, where: m.module_id == ^module_id),
+        [set: [accepted_manifest_hashes: hashes]],
+        prefix: schema
+      )
+
+    :ok
+  end
 end

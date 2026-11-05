@@ -3,7 +3,7 @@
  *  unit and the words hidden unit. Times are shown in the tenant time zone (constant until REQ-703). */
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { Button } from '@/components/ui/Button'
@@ -19,7 +19,7 @@ import { stockQueryKeys } from './stockQueryKeys'
 import {
   CAUSES,
   DOCUMENT_TYPES,
-  STOCK_TIME_ZONE,
+  formatStockDateTime,
   isMasked,
   movementNameIds,
   movementParams,
@@ -27,7 +27,7 @@ import {
   type MovementFilters,
 } from './stockRegisterModel'
 import { useNames } from './stockNames'
-import { formatDateTimeInZone } from '@/i18n/format'
+import { formatQuantity } from '@/lib/formatQuantity'
 
 const digits = (v: string) => v.replace(/\D/g, '')
 
@@ -64,7 +64,7 @@ function MovementsInner({ initialOpenId = null }: { initialOpenId?: string | nul
   const dash = t('stock.common.dash')
   const when = (iso: string | null | undefined) => {
     if (!iso) return dash
-    return formatDateTimeInZone(iso, { timeZone: STOCK_TIME_ZONE, locale: intl.locale, intlLocale: intl.locale, enStyle: 'intl', seconds: true })
+    return formatStockDateTime(iso, { locale: intl.locale })
   }
   const known = (list: readonly string[], prefix: string, v: string) => (list.includes(v) ? t(`${prefix}.${v}`) : v)
 
@@ -76,7 +76,13 @@ function MovementsInner({ initialOpenId = null }: { initialOpenId?: string | nul
     {
       key: 'doc',
       label: t('stock.col.document'),
-      render: (r) => (r.document_type ? known(DOCUMENT_TYPES, 'stock.docType', r.document_type) : dash),
+      render: (r) => {
+        if (!r.document_type) return dash
+        const kind = known(DOCUMENT_TYPES, 'stock.docType', r.document_type)
+        if (!r.document_number) return kind
+        const text = `${r.document_number} - ${kind}`
+        return r.document_id ? <Link to={`/admin/stock/documents/${r.document_id}`} data-testid="movement-doc-link">{text}</Link> : text
+      },
     },
     {
       key: 'legs',
@@ -170,7 +176,7 @@ function MovementsInner({ initialOpenId = null }: { initialOpenId?: string | nul
                         </>
                       )}
                       <td>{name('catalog_uom', l.unit_ref)}</td>
-                      <td className="mono">{l.quantity}</td>
+                      <td className="mono">{formatQuantity(l.quantity)}</td>
                     </tr>
                   ))}
                 </tbody>
