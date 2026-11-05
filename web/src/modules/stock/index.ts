@@ -1,7 +1,7 @@
 /** web/src/modules/stock/index.ts — GH 3767 / REQ-724
  *
- *  The stock module's ModuleDefinition (registered in web/src/modules/registry.ts). The register screens:
- *  current balances and movements. `depends_on` is empty on purpose: names of masters are read through the generic
+ *  The stock module's ModuleDefinition (registered in web/src/modules/registry.ts). The document screens
+ *  (REQ-722: list, view with actions, draft forms) and the register screens: current balances and movements. `depends_on` is empty on purpose: names of masters are read through the generic
  *  query route, no other module's code is imported (0039 D3).
  */
 import type { ModuleDefinition } from '@/modules/types'
@@ -13,6 +13,7 @@ export const stockModuleDefinition: ModuleDefinition = {
   depends_on: [],
   routeObjects: stockRouteObjects,
   navItems: [
+    { to: '/admin/stock/documents', label: 'Stock documents', permission: STOCK_READ },
     { to: '/admin/stock/balances', label: 'Balances', permission: STOCK_READ },
     { to: '/admin/stock/movements', label: 'Movements', permission: STOCK_READ },
   ],

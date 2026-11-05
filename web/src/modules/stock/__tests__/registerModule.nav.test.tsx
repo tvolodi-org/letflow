@@ -66,13 +66,20 @@ const LINKS: [string, string][] = [
 ]
 
 describe('N1 definition', () => {
-  it('has the two routes and nav items on StockRead and is registered', async () => {
+  it('has the document and register routes and nav items on StockRead and is registered', async () => {
     const { stockModuleDefinition } = await import('../index')
     const { REGISTERED_MODULES } = await import('@/modules/registry')
     expect(REGISTERED_MODULES.map((m) => m.id)).toContain('stock')
     expect(stockModuleDefinition.id).toBe('stock')
-    expect(stockModuleDefinition.routeObjects.map((r) => r.path)).toEqual(['admin/stock/balances', 'admin/stock/movements'])
+    expect(stockModuleDefinition.routeObjects.map((r) => r.path)).toEqual([
+      'admin/stock/documents',
+      'admin/stock/documents/new',
+      'admin/stock/documents/:id',
+      'admin/stock/balances',
+      'admin/stock/movements',
+    ])
     expect(stockModuleDefinition.navItems.map((n) => [n.label, n.to, n.permission])).toEqual([
+      ['Stock documents', '/admin/stock/documents', 'StockRead'],
       ['Balances', '/admin/stock/balances', 'StockRead'],
       ['Movements', '/admin/stock/movements', 'StockRead'],
     ])
