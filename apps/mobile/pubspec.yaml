@@ -41,6 +41,10 @@ environment:
 # REQ-732 (codes scan): `mobile_scanner`, the one package that reads barcodes
 # and QR codes from the camera on Android and iOS (see README, "Camera
 # scanning").
+#
+# REQ-747 (voice): `record`, the one package that records AAC-LC into an
+# `.m4a` on Android and iOS and asks for the microphone permission itself (see
+# README, "Voice recording").
 dependencies:
   dio: ^5.11.1
   flutter:
@@ -53,6 +57,7 @@ dependencies:
   mobile_scanner: ^7.5.0
   path: ^1.9.1
   path_provider: ^2.1.5
+  record: ^6.2.1
   sembast: ^3.8.5
 
 dev_dependencies:
