@@ -57,5 +57,8 @@
   "codes.status.notAssigned": "This code is not assigned to anything",
   "codes.status.retired": "This code is retired",
   "codes.status.conflict": "This code has an assignment problem; ask the administrator",
-  "codes.status.notKnown": "This code is not known"
+  "codes.status.notKnown": "This code is not known",
+  "home.stock.entry": "Stock",
+  "stock.home.title": "Stock",
+  "stock.home.empty": "Nothing here yet. Counts and movements will appear here."
 }
