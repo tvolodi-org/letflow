@@ -51392,7 +51392,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-719 -- phase E specification written before GATE B (D-085 exception); implemented after the phase E gate opens
+    gh: 3861
     # Source: ai-dala-portfolio/architectures/assets.md (phase table row E 'Print count paperwork, hand-over documents ... in Russian and Kazakh'; decisions of 2026-10-31 'count paperwork (order, commission, count sheet, differences sheet, signatures), printed hand-over documents with signatures'), ai-dala-portfolio/DECISIONS.md D-062, D-063, D-085, D-086 and D-087 (O6 'signed' is a paper signature on the printout; O8 count paperwork in phase B as xlsx with signer lines, printed forms in phase E), letflow-team/project/assets-gap-analysis.md section 3 (print layout and renderer built, REQ-571), docs/migration/decisions/0079-counts-inventory-taking.md sections 9 (signers) and 10 (printed forms in Russian and Kazakh come in phase E), docs/migration/decisions/0068-per-tenant-print-template-overrides.md D1, D2, D6 (official Kazakhstan form wording held for the owner, Q1), docs/migration/decisions/0075-versioned-documents-render-after-numbering-commit.md R10 (artefact download route and its permission not decided), entries REQ-571 and REQ-719 on origin/main. Code read on origin/main: Letflow.Documents.PrintLayout.render/4 and its limits (lib/letflow/documents/print_layout.ex: blocks page, text, field, table, spacer; at most 1000 rows per table, 12 columns, 200 blocks, 500 bytes per literal; :unsupported_glyph; font dejavu-sans), Letflow.Modules.Stock.CountPaperwork.build/3 (lib/letflow/modules/stock/count_paperwork.ex), Letflow.Modules.Stock.CountPaperworkSource.fetch/4 and its names map (lib/letflow/modules/stock/count_paperwork_source.ex), the route GET /counts/:id/paperwork/:kind in lib/letflow/modules/stock/router.ex, the sheet cap @max_lines 2_000 (lib/letflow/modules/stock/count_sheet.ex) and the differences cap 200 (lib/letflow/modules/stock/count_differences.ex), the PDF text reader PdfProbe in test/letflow/documents/print_layout/render_test.exs. Written by the business analyst (T-1193) 2026-11-05.
     description: >
       Phase E item E1 of the assets and stock application, part a: the count paperwork of owner decision D-062
@@ -51459,7 +51459,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-721 -- phase E specification written before GATE B (D-085 exception); implemented after the phase E gate opens
+    gh: 3860
     # Source: ai-dala-portfolio/architectures/assets.md (decisions of 2026-10-31 'printed hand-over documents with signatures'; phase table row E), ai-dala-portfolio/DECISIONS.md D-062, D-085, D-086, D-087 O6 ('signed' is a paper signature on the printout), docs/migration/decisions/0068-per-tenant-print-template-overrides.md D6 (official wording held for the owner), docs/migration/decisions/0075-versioned-documents-render-after-numbering-commit.md R10, entries REQ-571, REQ-690, REQ-712 and REQ-721 on origin/main, REQ-736 (this batch). Code read on origin/main: Letflow.Modules.Stock.Documents.Kinds (lib/letflow/modules/stock/documents/kinds.ex: kinds transfer, hand_over, return with type keys stock_transfer, stock_handover, stock_return and their header keys), the versioned content map kind, header, lines (content/1 in lib/letflow/modules/stock/documents.ex), the line keys catalog_item_id, catalog_uom_id, quantity, catalog_lot_id (lib/letflow/modules/stock/documents/shape.ex), Letflow.Modules.Stock.Access.check/2 (tenant-wide readers only), the route GET /documents/:id in lib/letflow/modules/stock/router.ex, Letflow.Documents.PrintLayout.render/4, Org.lookup/2, Locations.lookup/2 and CatalogItems.lookup/2 as CountPaperworkSource calls them, Letflow.Identity.TenantTimezone.of/1. Written by the business analyst (T-1193) 2026-11-05.
     description: >
       Phase E item E1 of the assets and stock application, part b: the printed hand-over documents with signatures of
@@ -51516,7 +51516,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-736 -- phase E specification written before GATE B (D-085 exception); implemented after the phase E gate opens
+    gh: 3859
     # Source: ai-dala-portfolio/architectures/assets.md (phase table row E), ai-dala-portfolio/DECISIONS.md D-083 (one UI-language store en, ru, kk), D-085, D-086, entries REQ-720 (count screen paperwork downloads, criterion 4) and REQ-722 on origin/main, REQ-736 and REQ-737 (this batch). Files read on origin/main: web/src/modules/stock/counts/PaperworkButtons.tsx (saveBlob, parseFilename, paperworkAvailable), web/src/modules/stock/counts/counts.api.ts (paperwork via client.getBlob), web/src/modules/stock/counts/countsMessages.ts, web/src/modules/stock/documents/DocumentPage.tsx, documents.api.ts and documentsMessages.ts, web/src/i18n/uiLocaleStore.ts (getUiLocale, UI_LOCALES), web/src/modules/stock/__tests__/CountsPage.paperwork.test.tsx. Written by the business analyst (T-1193) 2026-11-05.
     description: >
       Phase E item E1 of the assets and stock application, part c: the web buttons for the printed forms of REQ-736
