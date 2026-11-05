@@ -267,8 +267,9 @@ export const ACCESS_FIXTURES = {
 
 export type AccessFixtureName = keyof typeof ACCESS_FIXTURES
 
-export function accessState(name: AccessFixtureName): AccessState {
-  return { status: 'ready', info: ACCESS_FIXTURES[name] }
+/** `userId` stands for the caller's tenant user record id (`user_id` of GET /me/access). */
+export function accessState(name: AccessFixtureName, userId?: string): AccessState {
+  return { status: 'ready', info: userId ? { ...ACCESS_FIXTURES[name], user_id: userId } : ACCESS_FIXTURES[name] }
 }
 
 export const LOADING_STATE: AccessState = { status: 'loading' }

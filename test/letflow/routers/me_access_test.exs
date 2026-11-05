@@ -110,7 +110,8 @@ defmodule Letflow.Routers.MeAccessTest do
       assert json(conn) == %{
                "roles" => [],
                "permissions" => ["MyAccessRead", "MyModulesRead"],
-               "platform_tenant" => false
+               "platform_tenant" => false,
+               "user_id" => conn.assigns.auth_context.user_id
              }
 
       assert json(conn)["permissions"] == sorted_expected([], false)
@@ -170,7 +171,7 @@ defmodule Letflow.Routers.MeAccessTest do
   end
 
   describe "AC3: exact body shape" do
-    test "exactly roles, permissions, platform_tenant; full-body equality for TENANT_AUDITOR" do
+    test "exactly roles, permissions, platform_tenant, user_id; full-body equality for TENANT_AUDITOR" do
       Fixture.unpin!()
       %{a: tenant} = Fixture.two_tenants!()
       ctx = Fixture.auth_context(tenant, ["TENANT_AUDITOR"])
@@ -178,16 +179,16 @@ defmodule Letflow.Routers.MeAccessTest do
       conn = access(ctx)
       body = json(conn)
 
-      assert Enum.sort(Map.keys(body)) == ["permissions", "platform_tenant", "roles"]
+      assert Enum.sort(Map.keys(body)) == ["permissions", "platform_tenant", "roles", "user_id"]
 
       assert body == %{
                "roles" => ["TENANT_AUDITOR"],
                "permissions" => sorted_expected(["TENANT_AUDITOR"], false),
-               "platform_tenant" => false
+               "platform_tenant" => false,
+               "user_id" => ctx.user_id
              }
 
       assert body["permissions"] == Enum.sort(body["permissions"])
-      refute conn.resp_body =~ ctx.user_id
       refute conn.resp_body =~ tenant.tenant_id
     end
   end

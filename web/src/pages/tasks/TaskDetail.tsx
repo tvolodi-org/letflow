@@ -17,7 +17,8 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Banner } from '@/components/ui/Banner'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { useReferenceLabels, type ReferenceIds } from '@/lib/references/useReferenceLabels'
-import { formatDateTime } from '@/i18n/format'
+import { formatDateTimeInZone } from '@/i18n/format'
+import { TASKS_TIME_ZONE } from './taskTimeZone'
 import { actionKind, classify } from './taskInboxModel'
 import { taskErrorText } from './taskErrors'
 import type { TaskMessages } from './taskMessages'
@@ -37,7 +38,10 @@ function docIds(doc: TaskDoc | null): ReferenceIds {
   }
 }
 
-function DocumentSummary({ doc, m, refMsg, label }: {
+const fmt = (v: string, locale: string) => formatDateTimeInZone(v, { timeZone: TASKS_TIME_ZONE, locale })
+
+function DocumentSummary({ doc, m, refMsg, label, locale }: {
+  locale: string
   doc: TaskDoc
   m: TaskMessages
   refMsg: (typeof REFERENCE_MESSAGES)['en']
@@ -51,8 +55,8 @@ function DocumentSummary({ doc, m, refMsg, label }: {
   if (doc.fromLocationId) rows.push([m.from, label('location_node', doc.fromLocationId)])
   if (doc.toLocationId) rows.push([m.to, label('location_node', doc.toLocationId)])
   if (doc.locationIds.length > 0) rows.push([m.location, doc.locationIds.map((id) => label('location_node', id)).join(', ')])
-  if (doc.eventTime) rows.push([m.created, formatDateTime(doc.eventTime)])
-  if (doc.plannedStart && doc.plannedEnd) rows.push([m.plannedPeriod, `${formatDateTime(doc.plannedStart)} – ${formatDateTime(doc.plannedEnd)}`])
+  if (doc.eventTime) rows.push([m.created, fmt(doc.eventTime, locale)])
+  if (doc.plannedStart && doc.plannedEnd) rows.push([m.plannedPeriod, `${fmt(doc.plannedStart, locale)} – ${fmt(doc.plannedEnd, locale)}`])
   if (doc.note) rows.push([m.note, doc.note])
   return (
     <>
@@ -218,7 +222,7 @@ export function TaskDetail({ taskId, onClose, m, locale, userId }: {
       <div data-testid="instance-variables" className="lf-form__section">
         <h3 className="lf-form__title">{m.documentHeading}</h3>
         {doc ? (
-          <DocumentSummary doc={doc} m={m} refMsg={refMsg} label={label} />
+          <DocumentSummary doc={doc} m={m} refMsg={refMsg} label={label} locale={locale} />
         ) : (
           ctx !== undefined && <p className="lf-muted">{m.documentUnavailable}</p>
         )}
@@ -236,7 +240,7 @@ export function TaskDetail({ taskId, onClose, m, locale, userId }: {
           </>
         )}
         <dt>{m.created}</dt>
-        <dd>{formatDateTime(task.created_at)}</dd>
+        <dd>{fmt(task.created_at, locale)}</dd>
       </dl>
 
       {Object.keys(properties).length > 0 && (

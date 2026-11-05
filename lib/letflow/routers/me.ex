@@ -190,7 +190,10 @@ defmodule Letflow.Routers.Me do
     Response.ok(conn, %{
       "roles" => roles |> Enum.map(&Atom.to_string/1) |> Enum.uniq() |> Enum.sort(),
       "permissions" => permissions |> Enum.uniq() |> Enum.sort(),
-      "platform_tenant" => platform_tenant?
+      "platform_tenant" => platform_tenant?,
+      # The caller's own tenant user record id (what task assignee refs and actor refs hold);
+      # the SPA cannot derive it from the token `sub` (the IdP lookup key, not this id).
+      "user_id" => Map.get(auth_context, :user_id)
     })
   end
 
