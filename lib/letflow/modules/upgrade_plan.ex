@@ -18,7 +18,7 @@ defmodule Letflow.Modules.UpgradePlan do
     module's `min_upgradable_from` gets a normal 200 report with the marker and the apply slices
     must refuse on it), `applicable_on_boot` (decision 0080 Q3), and `plan_hash`.
 
-  The only write is one `planned` row of `tenant_module_upgrades` (reused when the hash repeats;
+  The only write is one `planned` row of the upgrade journal (`TenantModuleUpgrade`; reused when the hash repeats;
   older `planned` rows with another hash are set `abandoned`). A tenant already at the compiled
   version and hash gets an empty report and no row. No definition, record, event or audit row is
   touched or read. A DB failure rolls the whole plan back and is `{:error, :plan_failed}`.
