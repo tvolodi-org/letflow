@@ -51930,3 +51930,258 @@ requirements:
       - "The store texts of the microphone permission (Info.plist) for the store listings are the owner's when the app is published."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-741, REQ-745, REQ-746, REQ-733]
+  - id: REQ-767
+    title: "Module upgrade for installed tenants, slice 0: decision record that amends 0055 and 0054 for a working upgrade path (one admin action, upgrade on deploy behind a flag, stamp acceptance after an upgrade, a clear refusal during the window, one-transaction apply for plans without long data steps)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- decision record first; no pending dependency (REQ-640 and REQ-683 are merged, #3687 and #3745)
+    # Source: task T-1370 (portfolio manager under owner decision D-086 of 2026-11-04, ai-dala-portfolio/DECISIONS.md: prototype mode, doubtful non-critical points decided by the portfolio manager, security and production not lifted); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md (D1, D2 including the ruling on open point 7 'process-definition drafts created by an upgrade are activated MANUALLY', D3, D5 'A deploy never auto-upgrades a tenant' and the three phases, D9, D10, D12); docs/migration/decisions/0054-process-step-writes-entity.md D6 (strict manifest-hash rule, OQ-R3); docs/runbooks/module-write-handlers-manifest-hash.md (sections 'The rule (strict equality)', 'What an operator sees after such a deploy', 'Recovery': 'The upgrade path (re-stamping) is decision 0055 and does not exist yet'); docs/runbooks/wms-foundation.md (Org module limits item 11: tenants that installed org before 0.2.0 are not upgraded). Code read on origin/main 18470c282: lib/letflow/definitions/module_writes.ex (stamp_codes/3: installed hash must equal the stamp AND the compiled hash; compiled_differs?/2), lib/letflow/entities/handler_writes.ex (authorize_module_writes/2), lib/letflow/engine.ex (authorize_module_writes/7 and check_applied_event_schema/5: one public 403 write_not_permitted for every cause, INV-5), lib/letflow/api/response.ex (entity_write_refused/3; module_upgrade_required/1), lib/letflow/api/error.ex (module_upgrade_required/0: 409, code upgrade_required, REQ-578), priv/repo/migrations/20261016100001_add_owner_stamp_to_process_definitions.exs (trigger process_definitions_owner_stamp_immutable: the owner_* columns of a row are never updated), lib/letflow/definitions/process_definition.ex (owner stamp fields), lib/letflow/modules/installs.ex (install/3, insert_tenant_module/3, ensure_ledger_storage/2, check_reactivatable/2 answers :upgrade_required, upgrade_entity_definition_version/6, fetch_rationale/1), lib/letflow/modules/catalog.ex (manifest_hash/1, upgrade_path/3, rules 16 and 17), lib/letflow/modules/tenant_module_upgrade.ex and priv/repo/migrations/20261101100001_create_tenant_module_upgrades.exs (the journal, no partial unique index yet), lib/letflow/module_upgrade/writer.ex and capability.ex (REQ-683), lib/letflow/modules/stock/documents/posting.ex (ensure_active/3: an active stock-stamped definition is kept, a draft is activated lazily only when none is active), lib/letflow/tenant_provisioning/migration_replay_boot.ex (boot child that never fails boot), lib/letflow/modules/exam/parent_rollout.ex (system actor 00000000-0000-0000-0000-000000000000 used for an installed-tenant rollout). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
+    description: >
+      Why. A deploy that changes a module manifest (for example stock installed at 0.10.0 while main compiles
+      0.11.0, lib/letflow/modules/stock/stock.ex version "0.11.0") makes every write handler of a tenant installed
+      from the older manifest refuse: ModuleWrites stamp_codes/3 requires the stamp's manifest hash to equal the
+      installed hash and the installed hash to equal the compiled hash, so a completion answers 403
+      write_not_permitted (audit detail hash_mismatch) and an activation answers 422 module_write_hash_mismatch.
+      Decision 0055 decided the upgrade algorithm but none of its apply path is built (slices 1a, REQ-640, and 2b,
+      REQ-683, are merged: the journal table, the semver rules, the MIGRATED event and the writer). Install is
+      first-install only and uninstall is off (Installs.uninstall_enabled?/0), so every QA and demo tenant breaks
+      on each manifest change. The portfolio manager made the upgrade path a platform-core prio-2 item (task
+      T-1370, under D-086).
+      Three things the wanted behaviour needs are not settled by the records on main, and one contradicts them.
+      This record (docs only) rules on each, so the implementing entries REQ-768 to REQ-773 can be built. It is
+      written as a new decision record in docs/migration/decisions/ (the next free number at implement time; it
+      amends 0055 and 0054 by quoting the exact sentences it changes, as 0055 itself does in its header).
+      Questions the record rules on, each with the BA's proposed default (the implementing entries are written
+      to the default; if the record rules otherwise, the affected entries are amended before their feature task
+      starts):
+      Q1 Stamp after an upgrade. The owner_* columns of a stamped process definition are immutable (database
+      trigger) and 0055 D6 says an upgrade never edits an existing definition row, so re-stamping in place is out
+      unless the record lifts both. Options: (a) the tenant_modules row keeps a list of accepted earlier manifest
+      hashes of the module, which the upgrade fills with the hash it replaces; the run-time and activation checks
+      accept a stamp whose hash is the installed hash or in that list, while the installed hash must still equal
+      the compiled one and every per-line check (handler registered now, arguments, body hash) stays as today;
+      (b) re-stamp in place (drop or relax the trigger for the upgrade writer only); (c) strict rule kept, the
+      upgrade creates new stamped versions and old versions and their in-flight tasks stay refused. Default (a):
+      it keeps in-flight tasks completing (the runbook line 'Tasks are not lost: they complete after the module is
+      upgraded') and keeps the immutability trigger.
+      Q2 Process definitions the new pack ships. 0055 D2 (ruling on open point 7) keeps upgrade drafts manual.
+      Default: the ruling stands; the upgrade creates new stamped drafts only when the pack's graph differs from
+      every stamped version of that name in the tenant, activates nothing, and the plan lists them as 'draft,
+      activate by hand'. With Q1 (a) the old active version keeps working, so no write refuses meanwhile.
+      Q3 Upgrade on deploy. 0055 D5 says 'A deploy never auto-upgrades a tenant'. The task asks for an upgrade on
+      deploy. Default: lift it only for plans whose every change is Class A (0055 D2) and that have no data step;
+      a boot-time child placed after Letflow.TenantProvisioning.MigrationReplayBoot runs them as the system actor
+      behind a new flag that defaults off (set on QA only; production stays an owner decision); a plan with any
+      Class B or C change or any step is never applied on boot and is left for the admin action.
+      Q4 Refusal during the window between deploy and upgrade. Today one public 403 write_not_permitted for every
+      cause (INV-5; Response.entity_write_refused/3). Default: when the cause is that the tenant's installed hash
+      of the line's module differs from the compiled hash (the upgrade has not run), the completion answers the
+      existing 409 problem of Error.module_upgrade_required/0 (code upgrade_required); every other cause keeps
+      403 write_not_permitted. The record states why this reveals nothing the caller cannot already see (the
+      caller holds the task, and the module is installed for the caller's own tenant) or rules otherwise.
+      Q5 Apply shape. 0055 D5 runs the migrate phase in a supervised runner with fencing. Default: a plan whose
+      steps are all declarative and touch at most a configured number of records (the record names the setting
+      and its starting value) runs stage, migrate and cutover in ONE transaction under pg_advisory_xact_lock on
+      (tenant prefix, module_id), with no runner; any other plan answers 409 upgrade_needs_runner until 0055 D12
+      step 2c's runner exists. A failure rolls the whole transaction back; the journal row is then written in its
+      own transaction as failed with a stable error_code, and a failed row of a one-transaction apply does not
+      block a new plan (it is set abandoned by the next apply).
+      Q6 One admin action. 0055 D2 has a read-only plan route and an apply route that carries the plan_hash and a
+      rationale. Default: kept; the plan route is the dry-run report and the apply is the one admin action.
+      Out of scope for this entry: any code, the runner, code steps, the tripwire, rollback (0055 D9), the fleet
+      driver (0055 D12 step 4), the deploy-skew gate (min_data_version).
+    acceptance_criteria:
+      - "1. A new decision record exists under docs/migration/decisions/ with the next free number on origin/main at implement time, a Status line and a header that lists every sentence of 0055 (D2 open point 7 ruling if changed, D5 'A deploy never auto-upgrades a tenant', D5 three phases if changed) and of 0054 D6 / the strict rule of docs/runbooks/module-write-handlers-manifest-hash.md that it amends, quoted exactly."
+      - "2. The record has one section per question Q1 to Q6 of this entry's description; each section names the options listed here, states one ruling, and gives the reason and the files it read (the stamp trigger migration, ModuleWrites stamp_codes/3, Response.entity_write_refused/3, Error.module_upgrade_required/0, Stock Documents Posting ensure_active/3, MigrationReplayBoot as relevant)."
+      - "3. The Q3 section names the flag (config key and environment variable), states that its default is off, that it is set on QA only, and that turning it on in production is the owner's decision; and it lists the conditions under which a boot-time upgrade runs (every change Class A, no step) and what happens to any other plan (not applied, left for the admin action)."
+      - "4. The Q4 section states the public status and code for the not-yet-upgraded cause and for every other cause, and its INV-5 reasoning; if it keeps one public code, it says so and REQ-771 is amended."
+      - "5. The Q5 section names the record-count setting and its starting value, the error_code set of a failed one-transaction apply, and the lifecycle of a failed or planned journal row (which state blocks a new apply, which does not)."
+      - "6. A section 'Split plan' lists the implementing entries REQ-768 to REQ-773 with one line each and their order, and states which of them a ruling different from the default changes."
+      - "7. The record is reviewed under the security invariants for Q1 (stamp acceptance) and Q4 (a new public refusal): the PR states the security review verdict for both. docs/requirements.yaml still parses and mix letflow.check_requirements_registration passes (real output quoted). No file under lib/, priv/, test/, web/ or apps/ changes."
+    open_questions:
+      - "Q1 to Q6 of the description are open until the record rules; the BA's defaults are proposals, not rules."
+      - "Turning the upgrade on deploy on in production is the owner's decision (production is not lifted by D-086)."
+    depends_on: [REQ-640, REQ-683]
+  - id: REQ-768
+    title: "Module upgrade for installed tenants, slice 1: the dry-run report route POST /tenant/modules/:module_id/upgrade/plan (read-only diff of the tenant's state against the compiled module, change classes, plan_hash, planned journal row)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-767 -- the plan's report sections and the stamp-acceptance list follow the record's rulings Q1, Q2 and Q5
+    # Source: docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D2 (the plan route, ModulesManage, tenant from the auth context, the class table A/B/C, plan_hash contents, preflight counts only, no count for a restricted field), D1 (journal row), D5 (one plan in flight per tenant and module); the record of REQ-767 (Q1, Q2, Q5, Q6); code read on origin/main 18470c282: lib/letflow/routers/tenant_modules.ex (authz_post routes under ModulesManage, prefix only from conn.assigns.scoped_opts), lib/letflow/api/authorization.ex (endpoint_policy_key/2 clause for POST /tenant/modules), lib/letflow/modules/catalog.ex (manifest_hash/1, upgrade_path/3), lib/letflow/modules/installs.ex (read_pack_document/1, ensure_ledger_storage/2), lib/letflow/definitions/module_writes.ex (violations/6, the activation validator), lib/letflow/modules/tenant_module_upgrade.ex (journal schema), test/fixtures/route_scope/tenant_wide_default_routes.txt (line POST /tenant/modules/:module_id/uninstall ModulesManage). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
+    description: >
+      The dry-run report of an upgrade (0055 D2, D12 step 1 part 1b). One new route in
+      Letflow.Routers.TenantModules: POST /tenant/modules/:module_id/upgrade/plan (full path
+      /api/v1/tenant/modules/:module_id/upgrade/plan), policy ModulesManage, tenant only from the auth context.
+      It compares the tenant's CURRENT state (tenant_modules row: version, manifest_hash; the active and draft
+      entity definitions of the module's managed types; the module-stamped process definitions; the ledger
+      storage) with the module compiled into the running build and its pack file, and answers a report; it
+      writes only one journal row in state planned (0055 D1) carrying from_version, to_version and plan_hash.
+      It changes no definition, no tenant_modules row and no record.
+      Report sections: module_id, from_version, to_version; entity_types (one row per managed type: unchanged,
+      new type, new version, each with its 0055 D2 class A, B or C and, for B and C, the reason); process
+      definitions (one row per pack definition: unchanged, or new draft to activate by hand, Q2 of REQ-767);
+      stamped definitions of the tenant (one row per stamped version: name, version, whether its lines pass the
+      activation validator ModuleWrites.violations/6 under the compiled manifest, and the violation codes if
+      not; these are the definitions that keep working after the upgrade by Q1); ledger ids the compiled
+      manifest declares that the tenant has no storage for; permissions and routes as information only
+      (effective at deploy, 0055 D2); steps (the declared steps of Catalog.upgrade_path/3 between the two
+      versions, with kind); applicable_on_boot (true only when every change is Class A and there is no step,
+      Q3 of REQ-767); plan_hash. No record id, no record content and no field value appear in the report.
+      A tenant already at the compiled version and hash gets 200 with an empty change list and writes no row.
+    acceptance_criteria:
+      - "1. Route: POST /api/v1/tenant/modules/:module_id/upgrade/plan exists in lib/letflow/routers/tenant_modules.ex as an authz_post under ModulesManage, with an endpoint_policy_key/2 clause in lib/letflow/api/authorization.ex; the route-inventory pins move by +1 from their values on origin/main at implement time (tenant_wide_default_routes.txt gains one line, the length(snapshot) pins follow, platform_scope_inventory_test.exs as it requires). A TENANT_ADMIN token of the tenant gets 200; a token whose roles do not hold ModulesManage gets the router's 403; an unknown or not-installed module_id gets 404 (tests in test/letflow/routers/tenant_modules_upgrade_plan_test.exs)."
+      - "2. Report shape: for a tenant whose stock install is made older by the test (tenant_modules.version set to 0.10.0 and manifest_hash to a 64-hex value that is not the compiled hash, with the stock definitions' stamps set to the same value as Letflow.ModuleWritesFixture set_stamp_hash!/2 does), the body has from_version 0.10.0, to_version equal to the compiled stock version, a stamped-definitions section in which every stock definition passes the activation validator, applicable_on_boot true and a non-empty plan_hash (test)."
+      - "3. Classes: one test per class through the route: a managed type whose pack definition adds an optional field to the tenant's active definition is Class A; a pack definition that adds a required field without a covering step is Class B with reason; a type the tenant has that the pack renames or removes is Class C. The designer builds the tenant states (for example with Installs.upgrade_entity_definition_version/6) and names them in the design."
+      - "4. Read-only: before and after a plan call, the tenant's tenant_modules row, entity_definitions, process_definitions, event store and audit_entries row counts are equal; tenant_module_upgrades gains exactly one row in state planned with the plan_hash of the body; a second plan call for the same state answers the same plan_hash (test)."
+      - "5. Same plan_hash rule: the plan_hash is a lowercase hex SHA-256 over the inputs 0055 D2 lists that exist on main (target version, compiled manifest hash, the ordered step list, the content hash of every target entity and process definition, the tenant state fingerprint of active definition ids, applied version and settings hash); a change of any one of these changes the hash (one test per input class)."
+      - "6. INV-1 and INV-10: a cross-tenant negative test: a TENANT_ADMIN of tenant A calling the route for a module installed only in tenant B gets 404 and tenant B's tenant_module_upgrades and tenant_modules are unchanged; a tenant_id, tenant or prefix key in the body has no effect (test)."
+      - "7. No leak: the report holds no record id, no field value and no count over a field listed in entity_field_restrictions (0055 D2); a reader check of the serializer in the PR and one test that greps the body of criterion 2 for the uuid of a seeded record and finds none."
+      - "8. Checks: mix letflow.check.static passes and the test files of criteria 1 to 7 pass (real output quoted in the PR)."
+    depends_on: [REQ-640, REQ-767]
+  - id: REQ-769
+    title: "Module upgrade for installed tenants, slice 2: accepted earlier manifest hashes on the tenant_modules row, read by the activation and the run-time write-handler checks (record of REQ-767, Q1)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-767 -- this entry is the BA default of Q1; another ruling amends it
+    # Source: the record of REQ-767 (Q1, BA default option a); docs/migration/decisions/0054-process-step-writes-entity.md D6; docs/runbooks/module-write-handlers-manifest-hash.md (sections 'The rule (strict equality)' and 'What an operator sees after such a deploy'); code read on origin/main 18470c282: lib/letflow/definitions/module_writes.ex (stamp_codes/3, compiled_differs?/2), lib/letflow/modules/installs.ex (installed_manifest_hash/2), lib/letflow/modules/tenant_module.ex, lib/letflow/tenant_provisioning.ex (the tenant migration list), priv/repo/migrations/20261101100001_create_tenant_module_upgrades.exs (the tenant-scoped migration shape), test/support/module_writes_fixture.ex (set_stamp_hash!/2, set_installed_hash!/3), test/letflow/engine/module_write_runtime_stamp_test.exs (the hash_mismatch tests). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
+    description: >
+      The storage and the check half of Q1 (REQ-767 record, BA default option a). A tenant migration adds
+      accepted_manifest_hashes (text array, NOT NULL, default empty) to tenant_modules, registered in the tenant
+      provisioning migration list like 20261101100001_create_tenant_module_upgrades. Nothing in lib/ writes the
+      column in this change except the test fixtures; REQ-770's apply is its writer.
+      The stamp check in ModuleWrites stamp_codes/3 (used both at activation and at every completion through
+      HandlerWrites.authorize_module_writes/2) changes ONE condition: the stamp's manifest hash must equal the
+      installed hash OR be an element of accepted_manifest_hashes of that module's row. The second condition
+      (installed hash equals the compiled hash) and every per-line and body check stay as they are.
+      Installs.installed_manifest_hash/2 keeps its contract; a new function returns the accepted list.
+      The runbook docs/runbooks/module-write-handlers-manifest-hash.md section 'The rule (strict equality)' is
+      updated to say which hashes are accepted and who writes the list.
+    acceptance_criteria:
+      - "1. Migration: a tenant-scoped migration (if prefix() guard, registered in Letflow.TenantProvisioning's list) adds tenant_modules.accepted_manifest_hashes text[] NOT NULL DEFAULT '{}'; existing rows get the empty list; the tenant migration count pins move by +1 from origin/main at implement time; a test provisions a tenant and reads the column as []."
+      - "2. Run-time accept: on a Letflow.ModuleWritesFixture case whose stamp hash is set to X (set_stamp_hash!/2), whose installed hash equals the compiled hash and whose accepted list is [X], completing the pending task through POST /api/v1/tasks/:id/complete with a real token answers 200 and the handler's write is committed (test)."
+      - "3. Run-time refuse, unchanged causes: with stamp X, installed equal to compiled and an accepted list without X, the completion answers 403 write_not_permitted with audit detail hash_mismatch; with stamp X in the accepted list but installed hash different from the compiled hash, the same 403 and detail; the existing tests of test/letflow/engine/module_write_runtime_stamp_test.exs pass unchanged (tests)."
+      - "4. Activation: activating a new version of a stamped definition whose stamp hash is in the accepted list and whose lines pass succeeds; with the hash absent from the list it answers 422 entity_writes_invalid with code module_write_hash_mismatch as today (tests in test/letflow/definitions/module_write_activation_test.exs or a new file next to it)."
+      - "5. Tenant scope: the accepted list is read only from the tenant_modules row of the prefix the check runs in; a test with tenants A and B, X in B's list only, shows A's completion refused (INV-1)."
+      - "6. Docs and checks: the runbook section is updated; mix letflow.check.static passes; the test files of criteria 1 to 5 pass (real output quoted in the PR)."
+    depends_on: [REQ-767]
+  - id: REQ-770
+    title: "Module upgrade for installed tenants, slice 3: the admin action POST /tenant/modules/:module_id/upgrade applies a plan without long data steps in one transaction (new definitions, stamps accepted, version and hash re-written, ledger storage, journal, audit) and a real HTTP test posts a stock document after the upgrade"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-768 -- needs the plan route and plan_hash, and REQ-769's accepted hashes
+    # Source: docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D2 (apply with plan_hash and a non-blank rationale through Installs.fetch_rationale/1, plan_mismatch 409), D5 (exclusion, xact lock, cutover with activate_definition/4, tenant_modules.version := to, journal done, a failure before cutover leaves the tenant on the old version), D8 item 7 (tenant id from the prefix), D10 (audit entry fields); the record of REQ-767 (Q1, Q2, Q5, Q6); owner request D-098 as quoted in task T-1370 (a test through the real HTTP path: claim and complete of the human task, expect 200); code read on origin/main 18470c282: lib/letflow/modules/installs.ex (install/3, insert_tenant_module/3, ensure_ledger_storage/2, fetch_rationale/1, upgrade_entity_definition_version/6, the audit actions module.uninstall and module.reactivate), lib/letflow/entities/definitions.ex (activate_definition/4), lib/letflow/audit.ex (append_multi/4), lib/letflow/api/error.ex, lib/letflow/routers/tasks.ex (POST /tasks/:id/claim and /tasks/:id/complete), test/letflow/modules/stock/posting_test.exs (B-POST-1 and its complete_route/2 helper), test/letflow/modules/stock/posting_fixture.exs (Letflow.StockPostingFixture setup!/1). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
+    description: >
+      The one admin action (0055 D2 apply, REQ-767 Q5 and Q6). New route POST
+      /tenant/modules/:module_id/upgrade, policy ModulesManage, body {plan_hash, rationale}. The tenant comes only
+      from the auth context. The apply recomputes the plan (REQ-768) and refuses with 409 plan_mismatch when the
+      hash differs; refuses with 409 upgrade_needs_runner when the plan has a step that REQ-773 does not run in
+      one transaction or touches more records than the REQ-767 setting; refuses Class B without the
+      acknowledgement list and Class C always, with the codes of 0055 D2.
+      In ONE transaction under pg_advisory_xact_lock keyed on (tenant prefix, module_id): new entity definition
+      versions from the pack are inserted and activated (activate_definition/4, managed types in the order the
+      install uses); new process definitions are created as stamped drafts when the pack's graph differs from
+      every stamped version of that name (activated by nothing, Q2); the ledger storage of the compiled manifest
+      is ensured (ensure_ledger_storage/2, as install and reactivate do); the replaced manifest hash is appended
+      to accepted_manifest_hashes (REQ-769) when every stamped definition with that hash passed the activation
+      validator in the plan, else it is not appended and the plan's list of failing definitions is in the
+      response; tenant_modules.version and manifest_hash are set to the compiled values; the journal row moves
+      to done; one audit entry module.upgrade (0055 D10: module, from, to, plan_hash, step ids, actor,
+      rationale verbatim, counts only). A failure rolls everything back and the tenant stays on the old version;
+      the journal row is then written failed with a stable error_code in its own transaction (Q5).
+      A repeat POST with the plan_hash of a done row answers 200 with the same body and writes nothing.
+      The apply code lives in lib/letflow/module_upgrade/ (0055 D3 R3-2: not under lib/letflow/modules/, and the
+      only place allowed to call the writer of REQ-683, which REQ-773 needs); the router calls it.
+    acceptance_criteria:
+      - "1. Route: POST /api/v1/tenant/modules/:module_id/upgrade exists as an authz_post under ModulesManage with an endpoint_policy_key/2 clause; the route-inventory pins move by +1 from their values on origin/main at implement time; a missing or blank rationale answers 422 'rationale is required' and writes nothing; a token without ModulesManage gets the router's 403; an unknown or not-installed module id gets 404 (tests)."
+      - "2. End to end through the real HTTP path (D-098), in test/letflow/modules/stock/upgrade_http_test.exs: a tenant set up with Letflow.StockPostingFixture setup!/1 is made older (tenant_modules.version 0.10.0, manifest_hash and the stock definitions' stamps set to one 64-hex value that is not the compiled hash); a stock receipt is issued and the completion of its post task through POST /api/v1/tasks/:id/claim and POST /api/v1/tasks/:id/complete with a real token is refused (not 200) and posts nothing; then POST .../stock/upgrade/plan and POST .../stock/upgrade with that plan_hash and a rationale answer 200; then claim and complete of the same pending task answer 200, and one ledger entry and one stock_posting_mark exist for the document, as B-POST-1 of test/letflow/modules/stock/posting_test.exs asserts them."
+      - "3. Atomic re-write: after the apply of criterion 2 the tenant_modules row has the compiled version and manifest_hash and an accepted_manifest_hashes list containing the old value; the journal row is done with from_version 0.10.0; exactly one audit entry module.upgrade exists with the rationale verbatim and no record content (test)."
+      - "4. Failure leaves the old version working: a test forces a failure inside the transaction after the first definition activation (the designer names the trigger, for example a ledger storage refusal or a raising activation in a test-only stub); the answer is a stable error, the tenant_modules row, the active entity definitions and the accepted list are byte-identical to before, no module.upgrade audit entry exists, the journal row is failed with an error_code from the REQ-767 set, and a later plan and apply succeed (test)."
+      - "5. Idempotent and exclusive: a repeat POST with the plan_hash of the done row answers 200 with an equal body and changes no row count; a POST with a stale plan_hash after the tenant state changed answers 409 plan_mismatch and writes nothing; two concurrent applies for the same tenant and module end with one done row and the other refused (tests; the concurrent one in an auto-mode test with a committed tenant)."
+      - "6. Refusals by class: an apply whose plan has a Class C change answers 409 with the 0055 D2 code and writes nothing; Class B without ack_destructive answers 409 ack_mismatch; a plan with a step that is not runnable in one transaction answers 409 upgrade_needs_runner (tests)."
+      - "7. INV-1 and INV-10: a TENANT_ADMIN of tenant A applying a plan_hash of tenant B, or a module installed only in B, gets 404 and B's rows are unchanged; the tenant id written to any global table comes from TenantProvisioning.tenant_id_for_schema_name/1 of the auth-derived prefix (0055 D8 item 7; reader check) (test)."
+      - "8. Docs: docs/runbooks/module-write-handlers-manifest-hash.md section 'Recovery' names the upgrade action instead of 'revert the deploy or reinstall'; docs/runbooks/wms-foundation.md item 11 of the Org module limits says how an installed tenant is upgraded. mix letflow.check.static passes and the test files of criteria 1 to 7 pass (real output quoted in the PR)."
+    depends_on: [REQ-768, REQ-769]
+  - id: REQ-771
+    title: "Module upgrade for installed tenants, slice 4: a completion refused because the tenant's module is not upgraded yet answers the clear 409 upgrade_required problem instead of the bare 403 (record of REQ-767, Q4)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-767 -- the public answer for this cause is the record's Q4 ruling
+    # Source: the record of REQ-767 (Q4, BA default); lib/letflow/engine.ex (authorize_module_writes/7, the service twin near the comment 'The service twin of authorize_module_writes/7', record_entity_write_refusal_audit); lib/letflow/entities/handler_writes.ex (@authorize_details, authorize_module_writes/2); lib/letflow/definitions/module_writes.ex (stamp_codes/3, compiled_differs?/2); lib/letflow/api/error.ex (module_upgrade_required/0: 409, type module-upgrade-required, title 'Module Upgrade Required', detail 'the installed module differs from the current version; upgrade it instead', code upgrade_required, REQ-578); lib/letflow/api/response.ex (module_upgrade_required/1, entity_write_refused/3); docs/runbooks/module-write-handlers-manifest-hash.md (table 'What an operator sees after such a deploy'). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
+    description: >
+      During the window between a deploy that changes a module manifest and the tenant's upgrade, a human task
+      completion of a node that calls that module's write handler answers today a bare 403 write_not_permitted.
+      With this change, when the ONLY reason is that the tenant's installed manifest hash of the line's module
+      differs from the hash compiled into the running build, the completion answers the existing 409 problem of
+      Error.module_upgrade_required/0 (code upgrade_required, its fixed detail text), the task stays pending,
+      nothing is committed, and the tenant audit entry entity_write.refused keeps detail hash_mismatch. Every
+      other cause (stamp missing or mismatched, handler unknown, body changed, arguments, event_schema_outdated)
+      keeps 403 write_not_permitted. A SERVICE_TASK node keeps its ERROR + DLQ path; its DLQ entry code for this
+      cause is upgrade_required. The runbook table is updated.
+    acceptance_criteria:
+      - "1. Human task: on a Letflow.ModuleWritesFixture case whose installed hash equals the stamp but differs from the compiled hash (set_installed_hash!/3 and set_stamp_hash!/2 to the same value X), POST /api/v1/tasks/:id/complete with a real token answers 409 with a body equal to the problem of Error.module_upgrade_required/0 (trace_id dropped before the comparison); the task stays pending; no event and no record are added; one entity_write.refused audit entry with detail hash_mismatch exists (test)."
+      - "2. Other causes unchanged: a stamp hash that differs from an installed hash equal to the compiled one answers 403 write_not_permitted; stamp missing, handler unknown and event_schema_outdated answer 403 write_not_permitted as today (the existing tests of test/letflow/engine/module_write_runtime_stamp_test.exs pass, one new test for the first case)."
+      - "3. Service task: the same state on a SERVICE_TASK node puts the instance in ERROR with one DLQ entry whose code is upgrade_required (test next to test/letflow/engine/module_write_service_task_test.exs)."
+      - "4. No new leak: the 409 body holds no module id, hash, version or line index beyond the fixed problem fields (test asserts the exact key set)."
+      - "5. Docs and checks: the runbook table row for a completion after such a deploy names the 409 upgrade_required answer; mix letflow.check.static passes; the test files of criteria 1 to 4 pass (real output quoted in the PR)."
+    depends_on: [REQ-767]
+  - id: REQ-772
+    title: "Module upgrade for installed tenants, slice 5: upgrade on deploy behind a flag that defaults off: a boot-time child after MigrationReplayBoot applies every plan whose changes are all Class A with no step, as the system actor, never failing boot (record of REQ-767, Q3)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-770 -- reuses the apply; the flag name and the conditions are the record's Q3 ruling
+    # Source: the record of REQ-767 (Q3, BA default); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D5 ('A deploy never auto-upgrades a tenant', amended by the record of REQ-767 for Class-A-only plans); lib/letflow/tenant_provisioning/migration_replay_boot.ex (one-shot boot child, always returns :ignore, logs one line per failing tenant and one summary line, metadata not interpolated, ISS-0772); lib/letflow/supervisor/infrastructure.ex (child order); lib/letflow/tenant_provisioning.ex (replay_all_pending/0, list_replay_failures/0, Registration rows); lib/letflow/modules/exam/parent_rollout.ex (system actor 00000000-0000-0000-0000-000000000000). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
+    description: >
+      The on-deploy half of the task (REQ-767 Q3). A new one-shot boot child, placed in
+      Letflow.Supervisor.Infrastructure directly after Letflow.TenantProvisioning.MigrationReplayBoot (so every
+      tenant schema has the accepted_manifest_hashes column and the journal before it runs), does nothing unless
+      the flag named by the record is on (default off). When on, for every registered tenant and every
+      installed module whose applied version or manifest hash differs from the compiled one, it computes the
+      plan of REQ-768; when applicable_on_boot is true it applies it through the same code as REQ-770 with the
+      system actor 00000000-0000-0000-0000-000000000000 and the rationale 'upgrade on deploy to <version>';
+      otherwise it applies nothing and records the tenant and module as left for the admin action. Each tenant
+      and module is independent: one failure does not stop the loop, and the child always returns :ignore and
+      never raises, like MigrationReplayBoot. Outcomes are readable with one function
+      Letflow.ModuleUpgrade.Boot.list_outcomes/0 (tenant id, module id, outcome upgraded / left_for_admin /
+      failed, error_code, time), backed by the journal rows, never by logs alone.
+    acceptance_criteria:
+      - "1. Flag off: with the flag at its default, booting the child (a test calls its start_link/1) changes no tenant_modules row and writes no journal row for a tenant made older as in REQ-770 criterion 2; the flag's config key and environment variable are the record's and are documented in docs/runbooks/module-write-handlers-manifest-hash.md (test)."
+      - "2. Flag on, Class A only: the same older tenant is upgraded by start_link/1: tenant_modules has the compiled version and hash, the old hash is in accepted_manifest_hashes, the journal row is done with actor 00000000-0000-0000-0000-000000000000, one module.upgrade audit entry with the fixed rationale; then completing a stock post task through POST /api/v1/tasks/:id/complete with a real token answers 200 (test)."
+      - "3. Not applicable on boot: a tenant whose plan has a Class B change or a step is not changed; list_outcomes/0 lists it as left_for_admin (test)."
+      - "4. Never fails boot: a tenant whose apply raises (designer names the trigger) is listed as failed with a stable error_code, the next tenant is still upgraded, start_link/1 returns :ignore, and the log lines carry tenant id, module id and code as Logger metadata, not in the message (test with capture_log)."
+      - "5. Idempotent: a second start_link/1 after criterion 2 changes nothing and adds no journal row and no audit entry (test)."
+      - "6. Checks: the child order test of the infrastructure supervisor (grep test/ for MigrationReplayBoot) is updated; mix letflow.check.static passes; the test files of criteria 1 to 5 pass (real output quoted in the PR)."
+    depends_on: [REQ-767, REQ-770]
+  - id: REQ-773
+    title: "Module upgrade for installed tenants, slice 6: declarative data steps (set_default, copy_field, backfill_from_constant) run inside the one-transaction apply through Letflow.ModuleUpgrade.Writer, one ENTITY_RECORD_MIGRATED event per changed record, under the record-count setting (extends REQ-683)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-770 -- steps run inside the apply of REQ-770; the record-count setting is the record's Q5 ruling
+    # Source: docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D3 (closed declarative vocabulary; identifiers validated and quoted, values bound; 'only where unset' predicate; key-level writes; migration writes append ENTITY_RECORD_MIGRATED events; no x_ key; hooks and webhooks bypassed), D1 (migrations/0 %Step{} with id, from, to, kind, up, down, lossy), D8 item 1 (no lossy step); the record of REQ-767 (Q5); REQ-683 (the event type, the fold and Letflow.ModuleUpgrade.Writer migrate_record/5 behind Letflow.ModuleUpgrade.Capability new/4, merged in #3745); code read on origin/main 18470c282: lib/letflow/module_upgrade/writer.ex, lib/letflow/module_upgrade/capability.ex, lib/letflow/modules/catalog.ex (upgrade_path/3, rule 17 on migrations). Written by the business analyst (T-1370) 2026-11-05. Not yet validated.
+    description: >
+      The data migration hook of the task, for upgrades small enough for one transaction (REQ-767 Q5). The apply
+      of REQ-770 runs, between the insert of the new inactive definitions and their activation, every
+      declarative step of Catalog.upgrade_path/3 from the applied to the compiled version, in order. Vocabulary
+      in this change: set_default, copy_field (transform from the closed list identity, to_decimal, trim,
+      upcase), backfill_from_constant; rename_field and settings_map stay refused with upgrade_needs_runner.
+      Each step selects the records of its type where the target key is unset, and calls
+      Letflow.ModuleUpgrade.Writer migrate_record/5 with a capability built for the upgrade's journal id and
+      plan_hash, so each changed record gets one ENTITY_RECORD_MIGRATED event and its projection follows from
+      it. A plan whose steps would touch more records than the setting answers 409 upgrade_needs_runner at plan
+      and at apply. Code steps (kind code) are not run by this change (they need the 0055 D3 fence); a plan with
+      one answers upgrade_needs_runner.
+    acceptance_criteria:
+      - "1. Steps run: on a test module manifest (a fixture entry module under test/support, not a product module) at version 1.1.0 whose migrations/0 holds a set_default step from 1.0.0 for a new required field, a tenant installed at 1.0.0 with 3 records, plan and apply through the routes of REQ-768 and REQ-770 answer 200; each of the 3 records has the default value in its projection and exactly one ENTITY_RECORD_MIGRATED event with upgrade_id and step_id of the apply; the plan had classified the field as Class B covered by the step and the apply carried ack_destructive with that step id (test)."
+      - "2. Only where unset: a record that already holds a value for the target key keeps it and gets no MIGRATED event (test)."
+      - "3. copy_field and backfill_from_constant: one test each, including one transform from the closed list; an unknown transform name in the manifest fails Catalog.validate/1 (test)."
+      - "4. Rollback on failure: a step failure in the middle (the designer names the trigger) leaves every record's projection and event count as before, the old definitions active, and the journal row failed with an error_code from the REQ-767 set (test)."
+      - "5. Cap: a plan whose steps would touch more records than the setting answers 409 upgrade_needs_runner at plan and at apply and writes nothing; a plan with a kind code step or a rename_field or settings_map step answers the same (tests)."
+      - "6. Bypass and scope: the tenant write hook and record-trigger fixtures of REQ-683 criterion 8 show no hook run, no outbox row and no audit row per record for the migrated records; one module.upgrade audit entry carries the step ids and counts only (test). No function of this change takes a prefix other than through the capability (reader check)."
+      - "7. Checks: mix letflow.check.static passes (including the dedicated check_boundaries rule of REQ-683 for the writer's callers, which must be under lib/letflow/module_upgrade/); the test files of criteria 1 to 6 pass (real output quoted in the PR)."
+    depends_on: [REQ-683, REQ-767, REQ-770]
