@@ -6,7 +6,7 @@ import { vi } from 'vitest'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
 import type { EntityRecord } from '@/types/api'
-import type { CountEntry, CountLine, CountOrder } from '../counts/counts.api'
+import type { CountEntry, CountLine, CountOrder, Differences, SignatureRow } from '../counts/counts.api'
 import { stockRouteObjects } from '../stockRoutes'
 import { fakeMasters, rec } from './stockTestKit'
 
@@ -68,6 +68,10 @@ export interface Fake {
   entryPages?: CountEntry[][]
   /** Per call overrides: return or throw for a route (`POST issue` ...). */
   fail?: Record<string, unknown>
+  /** Answers of POST routes by suffix (`/scan`); a function can differ per call. */
+  postAnswers?: Record<string, unknown | ((body: unknown) => unknown)>
+  differences?: Differences
+  signatures?: SignatureRow[]
 }
 
 const paged = <T,>(pages: T[][], cursor?: string) => {
@@ -90,6 +94,8 @@ export function fakeCounts(client: CountsClient, f: Fake = {}) {
       const rows = orders.filter((o) => !params?.['status'] || o.status === params['status'])
       return { rows, next_cursor: null }
     }
+    if (path.endsWith('/differences')) return f.differences ?? { number: 'DIF-1', version_no: 1, issued_at: null, content_hash: 'h', lines: [] }
+    if (path.endsWith('/signatures')) return { rows: f.signatures ?? [] }
     const m = /^.*\/counts\/([^/]+)(\/lines|\/entries)?$/.exec(path)
     if (!m) return {}
     if (m[2] === '/lines') return paged(f.linePages ?? [[]], params?.['cursor'])
@@ -101,6 +107,11 @@ export function fakeCounts(client: CountsClient, f: Fake = {}) {
   client.post.mockImplementation(async (path: string, body?: Record<string, unknown>) => {
     if (path === '/api/v1/entities/query') return masters(path, body)
     maybeFail(`POST ${path.replace(BASE, '')}`)
+    const key = Object.keys(f.postAnswers ?? {}).find((k) => path.endsWith(k))
+    if (key) {
+      const a = f.postAnswers![key]
+      return typeof a === 'function' ? (a as (b: unknown) => unknown)(body) : a
+    }
     return order({ id: 'c-new' })
   })
   client.put.mockImplementation(async (path: string) => {

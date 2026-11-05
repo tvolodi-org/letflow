@@ -29,6 +29,11 @@ defmodule Letflow.Documents.DocumentVersion do
     field(:discarded_at, :utc_datetime_usec)
     field(:discarded_by, :binary_id)
     field(:artefact_hash, :string)
+    # REQ-624: the print override this version was issued under (all NULL when none applied).
+    field(:template_version, :string)
+    field(:print_override_id, :binary_id)
+    field(:print_override_version, :integer)
+    field(:print_override_layout_hash, :string)
     field(:inserted_at, :utc_datetime_usec)
   end
 end

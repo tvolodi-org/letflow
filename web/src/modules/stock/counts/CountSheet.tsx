@@ -24,7 +24,7 @@ import { useCountsWrite } from './useCountsWrite'
 
 const NONE: never[] = []
 
-function usePagedList<T>(key: readonly unknown[], load: (cursor: string) => Promise<CountPage<T>>) {
+export function usePagedList<T>(key: readonly unknown[], load: (cursor: string) => Promise<CountPage<T>>) {
   return useInfiniteQuery({
     queryKey: key,
     queryFn: ({ pageParam }) => load(pageParam),
@@ -225,7 +225,7 @@ function EntryLog({ orderId }: { orderId: string }) {
   )
 }
 
-export function CountSheet({ orderId, status, canRecord }: { orderId: string; status: string; canRecord: boolean }) {
+export function CountSheet({ orderId, status, canRecord, highlightLine = null }: { orderId: string; status: string; canRecord: boolean; highlightLine?: number | null }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { session } = useAuth()
@@ -239,7 +239,17 @@ export function CountSheet({ orderId, status, canRecord }: { orderId: string; st
   const name = useNames(pages.map((p) => lineNameIds(p.rows)))
   const dash = t('stock.common.dash')
   const columns: DataTableColumn<CountLine>[] = [
-    { key: 'line', label: t('counts.col.line'), render: (r) => r.line_no, mono: true },
+    {
+      key: 'line',
+      label: t('counts.col.line'),
+      render: (r) => (
+        <>
+          {r.line_no}
+          {r.line_no === highlightLine && <> <StatusPill tone="info" glyph="dot">{t('counts.scan.lastScanned')}</StatusPill></>}
+        </>
+      ),
+      mono: true,
+    },
     {
       key: 'location',
       label: t('counts.col.location'),

@@ -10,7 +10,7 @@ expect.extend(jestDomMatchers)
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-stock' }, isAuthenticated: true }),
 }))
-const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn() }))
+const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), getBlob: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const ROW = { sku: 'i1', location: 'l1', org_unit: 'u1', responsible: 'e1', lot: 't1', unit_ref: 'm1', quantity: '12.500' }
@@ -18,6 +18,7 @@ const ROW = { sku: 'i1', location: 'l1', org_unit: 'u1', responsible: 'e1', lot:
 beforeEach(() => {
   clientMock.post.mockReset()
   clientMock.get.mockReset()
+  clientMock.getBlob.mockReset()
   fakeMasters(clientMock)
   clientMock.get.mockResolvedValue({ ledger_seq: 42, next_cursor: null, rows: [ROW] })
 })
@@ -127,5 +128,50 @@ describe('B4 paging', () => {
     expect(within(screen.getByRole('table')).getByText('Bolt M8')).toBeInTheDocument()
     expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({ cursor: 'c1' })
     expect(screen.queryByTestId('load-more')).not.toBeInTheDocument()
+  })
+})
+
+describe('T1 as-of date', () => {
+  it('sends as_of_date only, shows the server day, zone and cutoff, and clearing drops it', async () => {
+    clientMock.get.mockResolvedValue({ as_of_date: '2026-11-03', timezone: 'Asia/Almaty', cutoff_seq: 17, ledger_seq: 42, next_cursor: null, rows: [ROW] })
+    renderStock(BAL)
+    await within(await screen.findByRole('table')).findByText('Bolt M8')
+    fireEvent.change(screen.getByLabelText('As of date'), { target: { value: '2026-11-03' } })
+    await screen.findByTestId('as-of-read')
+    expect(screen.getByTestId('as-of-read')).toHaveTextContent('Balance at the end of 2026-11-03 (Asia/Almaty), through ledger position 17')
+    const calls = routeCalls(clientMock, 'balances')
+    expect(calls[calls.length - 1]).toEqual({ as_of_date: '2026-11-03' })
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    await waitFor(() => expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({}))
+  })
+})
+
+describe('T3 export', () => {
+  const download = () => {
+    const create = vi.fn(() => 'blob:x')
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    return { create, click }
+  }
+  it('asks for the xlsx with the current filters and day, no cursor, and saves the file', async () => {
+    const { create, click } = download()
+    clientMock.getBlob.mockResolvedValue({ blob: new Blob(['x']), contentType: 'x' })
+    renderStock(BAL)
+    await within(await screen.findByRole('table')).findByText('Bolt M8')
+    fireEvent.change(screen.getByLabelText('As of date'), { target: { value: '2026-11-03' } })
+    await waitFor(() => expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({ as_of_date: '2026-11-03' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Export to Excel' }))
+    await waitFor(() => expect(click).toHaveBeenCalled())
+    expect(clientMock.getBlob).toHaveBeenCalledWith('/api/v1/modules/stock/balances', { as_of_date: '2026-11-03', format: 'xlsx' })
+    expect(create).toHaveBeenCalled()
+  })
+  it('shows an error and saves nothing when the export fails', async () => {
+    const { click } = download()
+    clientMock.getBlob.mockRejectedValue({ status: 403 })
+    renderStock(BAL)
+    await within(await screen.findByRole('table')).findByText('Bolt M8')
+    fireEvent.click(screen.getByRole('button', { name: 'Export to Excel' }))
+    expect(await screen.findByText('The file could not be exported. Try again.')).toBeInTheDocument()
+    expect(click).not.toHaveBeenCalled()
   })
 })
