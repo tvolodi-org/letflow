@@ -1,4 +1,5 @@
 export { ROLES, type Role } from './roles'
+export { roleLabel, roleDescription, ROLE_LABELS } from './roleLabels'
 export { P, type AccessInfo, type AccessState, type Permission } from './types'
 export { can, canManageTenants, isCandidate, isPlatformTenant } from './access'
 export { AccessProvider } from './AccessProvider'
