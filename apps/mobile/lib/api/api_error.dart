@@ -133,11 +133,16 @@ class ConflictError extends ApiError {
 
 @immutable
 class ServerError extends ApiError {
-  const ServerError({this.lastStatusCode});
+  const ServerError({this.lastStatusCode, this.reason, this.source});
 
   /// The final 5xx (or other unclassified) status after retries were
   /// exhausted, when known.
   final int? lastStatusCode;
+
+  /// The body's short machine words `reason` and `source` (REQ-747: the voice
+  /// routes name the failing part, `speech` or `llm`). Never a body text.
+  final String? reason;
+  final String? source;
 
   @override
   String toString() => 'ServerError(lastStatusCode: $lastStatusCode)';
@@ -197,8 +202,15 @@ List<ApiFieldError> _parseFieldErrors(Object? responseBody) {
 }
 
 class _RefusalExtensions {
-  _RefusalExtensions({this.reason, this.field, this.lineNo, this.side});
+  _RefusalExtensions({
+    this.reason,
+    this.field,
+    this.lineNo,
+    this.side,
+    this.source,
+  });
 
+  final String? source;
   final String? reason;
   final String? field;
   final int? lineNo;
@@ -211,7 +223,9 @@ class _RefusalExtensions {
     final field = body['field'];
     final lineNo = body['line_no'];
     final side = body['side'];
+    final source = body['source'];
     return _RefusalExtensions(
+      source: source is String ? source : null,
       reason: reason is String ? reason : null,
       field: field is String ? field : null,
       lineNo: lineNo is int ? lineNo : null,
@@ -266,11 +280,21 @@ ApiError classifyError(
     );
   }
   if (statusCode >= 500 && statusCode <= 599) {
-    return ServerError(lastStatusCode: statusCode);
+    final ext = _RefusalExtensions.of(responseBody);
+    return ServerError(
+      lastStatusCode: statusCode,
+      reason: ext.reason,
+      source: ext.source,
+    );
   }
   // Catch-all (design §1.2 item 10): any other status reaching this function
   // (an unmapped 3xx/4xx not covered above, e.g. a bare 400) folds into
   // ServerError as "something failed and none of our named categories fit" —
   // OQ-1, flagged for REVIEWER; not decided as a separate variant here.
-  return ServerError(lastStatusCode: statusCode);
+  final ext = _RefusalExtensions.of(responseBody);
+  return ServerError(
+    lastStatusCode: statusCode,
+    reason: ext.reason,
+    source: ext.source,
+  );
 }
