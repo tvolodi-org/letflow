@@ -752,7 +752,9 @@ defmodule Letflow.Modules.Installs do
     end
   end
 
-  defp read_pack_document(pack_path) do
+  @doc "REQ-768: the raw decoded pack document (string keys) at `pack_path` under `priv/`; read-only."
+  @spec read_pack_document(String.t()) :: {:ok, map()} | {:error, term()}
+  def read_pack_document(pack_path) do
     path = Path.join(Application.app_dir(:letflow, "priv"), pack_path)
 
     with {:ok, contents} <- File.read(path) do

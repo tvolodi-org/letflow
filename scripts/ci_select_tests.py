@@ -73,6 +73,11 @@ SENSITIVE_LIB_PATH_RE = re.compile(
     r"entities/(handler_writes|entity_port)|definitions/(module_writes|solution_pack_install)|"
     r"routers/tenant_modules)"
 )
+# T-1428: a new role or permission changes priv/permission_matrix/effective.golden, which other
+# modules' tests read (Storekeeper role PR, red main at c31490d0f). Identity role / permission seeding
+# and any lib file that defines role_grants (module manifests) therefore run the full suite.
+SENSITIVE_IDENTITY_RE = re.compile(r"^lib/letflow/(identity(\.ex$|_migration\.ex$|/))")
+ROLE_GRANTS_RE = re.compile(r"\brole_grants\b")
 # Floor: a change under these lib paths always also runs these test directories.
 FLOOR_LIB_RE = re.compile(r"^lib/letflow/(engine\.ex$|engine/|record_triggers(\.ex$|/)|entities/)")
 FLOOR_TEST_PREFIXES = ("test/letflow/engine/", "test/letflow/record_triggers/")
@@ -170,6 +175,12 @@ def decide(changed, root, args, manifest_weights):
                 raise Full("lib file removed or renamed: %s" % p)
             if SENSITIVE_LIB_PATH_RE.search(p):
                 raise Full("sensitive lib path %s (module-write authorization / module installs)" % p)
+            if SENSITIVE_IDENTITY_RE.search(p):
+                raise Full("sensitive lib path %s (identity role / permission seeding)" % p)
+            if not p.startswith("lib/letflow/design/") and ROLE_GRANTS_RE.search(
+                read(os.path.join(root, p)) or ""
+            ):
+                raise Full("sensitive lib path %s (defines role_grants)" % p)
             if SENSITIVE_LIB_NAME_RE.search(p):
                 raise Full("sensitive lib path %s (permission / pins / tenant tables)" % p)
             lib_changed.append(p)
