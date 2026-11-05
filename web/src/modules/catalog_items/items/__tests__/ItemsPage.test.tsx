@@ -192,6 +192,20 @@ describe('A4/A6 details: references, Related, History', () => {
     expect(await screen.findByTestId('registry-history')).toHaveTextContent('29-10-2026 15:15')
   })
 
+  it('History shows the translated document type in Russian, raw for an unknown one', async () => {
+    vi.stubGlobal('navigator', { ...navigator, languages: ['ru'], language: 'ru' })
+    const rows = [
+      { entry_id: 'e1', posting_seq: 5, cause: 'receipt', document_type: 'stock_receipt', event_time: '2026-10-29T10:15:00Z' },
+      { entry_id: 'e2', posting_seq: 6, cause: 'receipt', document_type: 'weird_type', event_time: '2026-10-29T10:16:00Z' },
+    ]
+    setup({ balances: BAL, movements: { rows, next_cursor: null } })
+    renderLots(`${ITEMS}?item=${I1}`)
+    const hist = await screen.findByTestId('registry-history')
+    expect(hist).toHaveTextContent('Приход')
+    expect(hist).not.toHaveTextContent('stock_receipt')
+    expect(hist).toHaveTextContent('weird_type')
+  })
+
   it('empty stock and history show their lines; a 403 shows the no-permission line', async () => {
     renderLots(`${ITEMS}?item=${I1}`)
     expect(await screen.findByTestId('registry-related-empty')).toBeInTheDocument()
