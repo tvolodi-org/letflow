@@ -5,11 +5,12 @@ defmodule Letflow.Modules.Stock.TwoSideIssueTest do
   REQ-721 / GH #3770 criterion 3: the issue step of transfer, hand over and return: numbers, the master
   checks of both sides (from before to, each failure names its side), the line checks and the event-time
   window. Committed tenant, Sandbox `:auto`, `async: false`.
-  Tests: ISS-1..6. LINE-2 (the tracking checks of REQ-714) is deferred: REQ-714 is not on main.
+  Tests: ISS-1..6, LINE-2a..c (the tracking checks of REQ-714: lot_required, lot_not_allowed, order).
   """
 
   use Letflow.DataCase, async: false
 
+  alias Letflow.CatalogItemsFixture, as: Cat
   alias Letflow.StockDocsFixture, as: D
   alias Letflow.StockPostingFixture, as: P
   alias Letflow.StockTwoSideFixture, as: T
@@ -130,5 +131,41 @@ defmodule Letflow.Modules.Stock.TwoSideIssueTest do
              "state"
            ] ==
              "issued"
+  end
+
+  defp one_line(ctx, item, lot \\ nil) do
+    base = %{"catalog_item_id" => item, "catalog_uom_id" => ctx.ma.uom, "quantity" => "1"}
+    if lot, do: Map.put(base, "catalog_lot_id", lot), else: base
+  end
+
+  test "LINE-2a a lot-tracked item without a lot is refused with lot_required", ctx do
+    for kind <- T.kinds() do
+      lines = [one_line(ctx, ctx.ma.item), one_line(ctx, ctx.ma.lot_item)]
+      {_doc, body} = refusal(ctx, T.body(kind, ctx.ma, ctx.ma, ctx.m2, %{"lines" => lines}))
+      assert %{"reason" => "lot_required", "line_no" => 2} = body
+    end
+  end
+
+  test "LINE-2b an item with no tracking takes no lot: lot_not_allowed", ctx do
+    plain =
+      Cat.item!(ctx.schema, "NT#{System.unique_integer([:positive])}", ctx.ma.uom, %{
+        "tracking_policy" => "none"
+      })
+
+    lot = Cat.lot!(ctx.schema, plain.record_id, "NL#{System.unique_integer([:positive])}")
+
+    for kind <- T.kinds() do
+      lines = [one_line(ctx, plain.record_id, lot.record_id)]
+      {_doc, body} = refusal(ctx, T.body(kind, ctx.ma, ctx.ma, ctx.m2, %{"lines" => lines}))
+      assert %{"reason" => "lot_not_allowed", "line_no" => 1} = body
+    end
+  end
+
+  test "LINE-2c order: tracking is reported before the lot of another item", ctx do
+    for kind <- T.kinds() do
+      lines = [one_line(ctx, ctx.ma.item, ctx.ma.lot)]
+      {_doc, body} = refusal(ctx, T.body(kind, ctx.ma, ctx.ma, ctx.m2, %{"lines" => lines}))
+      assert %{"reason" => "lot_not_allowed", "line_no" => 1} = body
+    end
   end
 end
