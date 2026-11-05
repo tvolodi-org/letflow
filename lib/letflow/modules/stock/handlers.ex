@@ -100,6 +100,7 @@ defmodule Letflow.Modules.Stock.Handlers do
          document_type: Map.get(posting, "document_type"),
          document_id: Map.get(posting, "document_id"),
          client_op_id: Map.get(posting, "client_op_id"),
+         reason_code: Map.get(posting, "reason_code"),
          device_id: Map.get(posting, "device_id"),
          client_seq: Map.get(posting, "client_seq"),
          client_event_time: Map.get(posting, "client_event_time"),
