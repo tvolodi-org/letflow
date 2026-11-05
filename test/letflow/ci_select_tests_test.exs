@@ -253,9 +253,12 @@ defmodule Letflow.CiSelectTestsTest do
 
   test "the plan output ends with a newline before its delimiter (GH Actions output)" do
     yml = File.read!(@ci_yml)
+    script = File.read!(Path.join(@root, "scripts/ci_emit_outputs.sh"))
     # `printf '%s'` without a newline glues PLAN_EOF to the last plan line and the step fails
-    # with "Matching delimiter not found 'PLAN_EOF'".
-    assert yml =~ ~S|printf "%s\n" "$4"; echo "PLAN_EOF"|
-    refute yml =~ ~S|printf "%s" "$4"; echo "PLAN_EOF"|
+    # with "Matching delimiter not found 'PLAN_EOF'". ci.yml delegates to the script (tested
+    # in ci_emit_outputs_test.exs), which prints the plan with a trailing newline.
+    assert yml =~ "bash scripts/ci_emit_outputs.sh"
+    refute yml =~ ~S|printf '%s'; echo "PLAN_EOF"|
+    assert script =~ ~S|printf '%s\n'|
   end
 end

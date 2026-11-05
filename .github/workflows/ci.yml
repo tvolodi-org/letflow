@@ -495,16 +495,15 @@ jobs:
           MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
           PUSH_BEFORE: ${{ github.event.before }}
           PUSH_AFTER: ${{ github.sha }}
+          # T-1311: a pull request from a branch `selective-probe/*` ignores the kill switch (probe PR).
           KILL: ${{ vars.CI_SELECTIVE }}
+          PROBE: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'selective-probe/') }}
           FORCE_FULL: ${{ steps.redguard.outputs.force_full }}
           DOCS_ONLY: ${{ steps.docs.outputs.docs_only }}
         run: |
           set -uo pipefail
           emit() { # mode reason skip plan
-            echo "mode=$1" >> "$GITHUB_OUTPUT"
-            echo "reason=$2" >> "$GITHUB_OUTPUT"
-            echo "skip_shards=$3" >> "$GITHUB_OUTPUT"
-            { echo "plan<<PLAN_EOF"; printf "%s\n" "$4"; echo "PLAN_EOF"; } >> "$GITHUB_OUTPUT"
+            bash scripts/ci_emit_outputs.sh "$1" "$2" "$3" "$4"
             echo "### Backend tests: $1" >> "$GITHUB_STEP_SUMMARY"
             echo "$2" >> "$GITHUB_STEP_SUMMARY"
             echo "Changed files: ${nfiles:-unknown}" >> "$GITHUB_STEP_SUMMARY"
@@ -535,7 +534,7 @@ jobs:
           if git rev-parse -q --verify refs/tags/ci-full-green >/dev/null && git merge-base --is-ancestor refs/tags/ci-full-green HEAD 2>/dev/null; then
             since=$(git rev-list --count refs/tags/ci-full-green..HEAD) || since=""
           fi
-          args=(--event "$EVENT_NAME" --kill-switch "${KILL:-}" --plan-out "$RUNNER_TEMP/ci_plan.txt")
+          args=(--event "$EVENT_NAME" --kill-switch "$(bash scripts/ci_kill_switch.sh "${KILL:-}" "${PROBE:-}")" --plan-out "$RUNNER_TEMP/ci_plan.txt")
           [ -n "$since" ] && args+=(--commits-since-full "$since")
           [ -n "$FORCE_FULL" ] && args+=(--force-full "$FORCE_FULL")
           if ! OUT=$(python3 -I scripts/ci_select_tests.py "${args[@]}" <<<"$CHANGED") ; then
