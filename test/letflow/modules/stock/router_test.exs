@@ -352,6 +352,47 @@ defmodule Letflow.Modules.Stock.RouterTest do
 
       assert reason!(S.get("/movements?from_seq=3&to_seq=2", ctx.tok_a), 422) == "invalid_filter"
     end
+
+    test "T-RM-2 sku filter: only entries with a leg on that item, honest empty, paging", ctx do
+      seed!(ctx.a.schema_name)
+
+      # seed: seq 1 sku1, seq 2 sku2, seq 3 sku1 (transfer). Before the filter existed this was a 400.
+      one = ok!(S.get("/movements?sku=#{@sku1}", ctx.tok_a))
+      assert Enum.map(one["rows"], & &1["posting_seq"]) == [1, 3]
+
+      two = ok!(S.get("/movements?sku=#{@sku2}", ctx.tok_a))
+      assert Enum.map(two["rows"], & &1["posting_seq"]) == [2]
+
+      none = ok!(S.get("/movements?sku=#{@p}", ctx.tok_a))
+      assert none == %{"rows" => [], "next_cursor" => nil}
+
+      page1 = ok!(S.get("/movements?sku=#{@sku1}&limit=1", ctx.tok_a))
+      assert Enum.map(page1["rows"], & &1["posting_seq"]) == [1]
+      assert page1["next_cursor"] == "1"
+      page2 = ok!(S.get("/movements?sku=#{@sku1}&limit=1&cursor=1", ctx.tok_a))
+      assert Enum.map(page2["rows"], & &1["posting_seq"]) == [3]
+      assert page2["next_cursor"] == nil
+    end
+
+    test "T-RM-3 a malformed sku is refused", ctx do
+      seed!(ctx.a.schema_name)
+
+      for q <- [
+            "sku=not-a-uuid",
+            "sku=",
+            "sku=Z" <> String.slice(@sku1, 1..-1//1)
+          ] do
+        conn = S.get("/movements?" <> q, ctx.tok_a)
+        assert conn.status in [400, 422], "#{q}: #{conn.status}"
+        assert S.json(conn)["reason"] == "invalid_filter"
+      end
+    end
+
+    test "T-RM-4 another tenant never sees the entries of this tenant's sku", ctx do
+      seed!(ctx.a.schema_name)
+      tok_b = S.token(ctx, :b, ["TENANT_ADMIN"])
+      assert ok!(S.get("/movements?sku=#{@sku1}", tok_b)) == %{"rows" => [], "next_cursor" => nil}
+    end
   end
 
   describe "reconcile" do

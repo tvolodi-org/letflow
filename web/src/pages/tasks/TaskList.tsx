@@ -4,7 +4,8 @@ import type { Task } from '@/types/api'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import type { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import type { ReferenceType } from '@/lib/references/referenceLabel'
-import { formatDateTime } from '@/i18n/format'
+import { formatDateTimeInZone } from '@/i18n/format'
+import { TASKS_TIME_ZONE } from './taskTimeZone'
 import { actionKind, ageText, fill } from './taskInboxModel'
 import type { TaskContext } from './useTaskDocument'
 import type { TaskMessages } from './taskMessages'
@@ -90,7 +91,7 @@ export function TaskList(p: TaskListProps) {
                     </div>
                   )}
                   {issuer !== '' && <div className="lf-muted" data-testid="task-issuer">{m.issuedBy}: {issuer}</div>}
-                  <div className="lf-muted" data-testid="task-age" title={formatDateTime(task.created_at)}>
+                  <div className="lf-muted" data-testid="task-age" title={formatDateTimeInZone(task.created_at, { timeZone: TASKS_TIME_ZONE, locale: p.locale })}>
                     {ageText(task.created_at, p.now, p.locale)}
                   </div>
                 </td>

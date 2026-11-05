@@ -323,6 +323,27 @@ defmodule Letflow.Ledger.ScopedReadTest do
       refute Enum.any?(params, &(&1 == ctx.h))
     end
 
+    test "T-SR-6d leg_slots filter: scoped reader cannot probe hidden legs; bad names refused",
+         ctx do
+      receipt!(ctx.s, ctx.a, 2, "skua")
+      receipt!(ctx.s, ctx.h, 3, "skuh")
+      auth = scoped!(ctx.fx, [ctx.a])
+
+      {:ok, %{rows: [seen]}} = Ledger.entries(auth, %{leg_slots: %{k_primary: "skua"}}, %{})
+      assert seen.legs != []
+
+      {:ok, hidden} = Ledger.entries(auth, %{leg_slots: %{k_primary: "skuh"}}, %{})
+      {:ok, absent} = Ledger.entries(auth, %{leg_slots: %{k_primary: "skunone"}}, %{})
+      assert hidden == absent
+      assert hidden.rows == []
+
+      assert {:error, :invalid_filter} = Ledger.entries(auth, %{leg_slots: %{nope: "x"}}, %{})
+      assert {:error, :invalid_filter} = Ledger.entries(auth, %{leg_slots: %{}}, %{})
+
+      assert {:error, :invalid_filter} =
+               Ledger.entries(auth, %{leg_slots: %{"k_primary" => "x", k_primary: "y"}}, %{})
+    end
+
     test "T-SR-6c subtree on entries and paging", ctx do
       transfer!(ctx.s, ctx.a, ctx.h, 1)
       receipt!(ctx.s, ctx.h, 2)

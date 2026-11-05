@@ -7,11 +7,10 @@ import { useSearchParams } from 'react-router-dom'
 import { useTaskInbox } from '@/hooks/useTasks'
 import { useTaskSubjects } from '@/hooks/useTaskSubjects'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
-import { actorLabel, tokenSubject } from '@/lib/references/actorLabel'
+import { actorLabel } from '@/lib/references/actorLabel'
 import { useReferenceLabels } from '@/lib/references/useReferenceLabels'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { P, useAccess } from '@/auth/access'
-import { useAuth } from '@/auth/AuthContext'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
@@ -29,13 +28,13 @@ import { useTaskContexts } from './useTaskDocument'
 type SortOrder = 'created' | '-created'
 
 export default function TaskInboxPage() {
-  const { session } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(searchParams.get('task'))
   const locale = useUiLocale()
   const m = TASK_MESSAGES[locale]
   const refMsg = REFERENCE_MESSAGES[locale]
-  const canAssign = useAccess().can(P.TasksAssign)
+  const access = useAccess()
+  const canAssign = access.can(P.TasksAssign)
 
   const requested = (searchParams.get('filter') ?? 'me') as FilterType
   const filter: FilterType = requested === 'all' && !canAssign ? 'me' : requested
@@ -43,7 +42,7 @@ export default function TaskInboxPage() {
   const search = searchParams.get('search') ?? ''
 
   const { data: inboxData, isLoading, isError, error, refetch } = useTaskInbox()
-  const userId = useMemo(() => tokenSubject(session?.token), [session?.token])
+  const userId = access.userId
   const items = inboxData?.items
 
   const filterCounts = useMemo(() => counts(items ?? [], userId), [items, userId])
