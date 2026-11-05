@@ -377,6 +377,19 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
                codes(check(t, stamped!(t.schema, graph([mline()]), stale)))
     end
 
+    test "REQ-769 A5: a stamp hash in the accepted list activates, one outside it is refused",
+         %{t: t} do
+      install_ledger!(t.schema)
+      stale_hash = String.duplicate("c", 64)
+      stale = owner(%{manifest_hash: stale_hash})
+      definition = stamped!(t.schema, graph([mline()]), stale)
+
+      assert [v(0, :module_write_hash_mismatch)] == codes(check(t, definition))
+
+      Letflow.ModuleWritesFixture.set_accepted_hashes!(t.schema, "fixture_ledger", [stale_hash])
+      refute v(0, :module_write_hash_mismatch) in List.wrap(codes(check(t, definition)))
+    end
+
     test "OQ-R7: an install with no recorded hash (pre-R2 install) cannot activate a handler caller",
          %{t: t} do
       install_ledger!(t.schema)

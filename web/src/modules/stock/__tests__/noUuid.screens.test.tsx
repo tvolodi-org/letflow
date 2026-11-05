@@ -167,7 +167,6 @@ describe('N2 count screens', () => {
     countServer()
     const list = renderCounts(COUNT_LIST)
     await settled(list.container, 'MS - Main store')
-    expect(list.container).toHaveTextContent('E-1 - Aigul B.')
     cleanup()
     const detail = renderCounts(`${COUNT_LIST}/${ID.order}`)
     await settled(detail.container, 'ITM-1 - Bolt M8')

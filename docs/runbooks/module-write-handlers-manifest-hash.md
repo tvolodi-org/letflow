@@ -24,7 +24,9 @@ and again at every completion (the pre-transaction authorization, plus a no-lock
 install row and both hashes inside the transaction):
 
 1. the definition version was created by that module's install (it carries the ownership stamp);
-2. the manifest hash recorded at install (`tenant_modules.manifest_hash`) equals the stamp;
+2. the manifest hash recorded at install (`tenant_modules.manifest_hash`) equals the stamp, or the
+   stamp is in `tenant_modules.accepted_manifest_hashes` (REQ-769; written only by the upgrade apply,
+   REQ-770, which is not built yet, so the list is empty everywhere until then);
 3. that installed hash equals the hash of the manifest compiled into the RUNNING build
    (`Letflow.Modules.Catalog.manifest_hash/1`);
 4. the handler is registered in the compiled manifest, and the graph still matches the stamped body.

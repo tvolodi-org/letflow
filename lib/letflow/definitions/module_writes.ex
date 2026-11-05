@@ -22,7 +22,7 @@ defmodule Letflow.Definitions.ModuleWrites do
     1. the row carries the ownership stamp an install put on it (`OwnerStamp.from_row/1`) and
        the line names the stamp's module;
     2. the module is installed in this tenant and its installed manifest hash equals the
-       stamp's `owner_manifest_hash` AND, strictly, the manifest hash of the module compiled
+       stamp's `owner_manifest_hash` (or the stamp is in `accepted_manifest_hashes`, REQ-769) AND, strictly, the manifest hash of the module compiled
        into this build (decision OQ-R3: no drift tolerance);
     3. the handler resolves in the compiled `Letflow.Modules.Catalog` now;
     4. the graph still hashes to the stamp's `owner_body_hash`;
@@ -277,18 +277,24 @@ defmodule Letflow.Definitions.ModuleWrites do
 
   defp stamp_codes(stamp, definition, prefix) do
     install_codes =
-      case Installs.installed_manifest_hash(stamp.module_id, prefix: prefix) do
+      case Installs.install_hashes(stamp.module_id, prefix: prefix) do
         {:error, :not_installed} ->
           [:module_write_module_not_installed]
 
         {:error, :no_installed_hash} ->
           [:module_write_hash_mismatch]
 
-        {:ok, installed} ->
+        {:ok, %{installed: installed, accepted: accepted}} ->
           cond do
-            installed != stamp.manifest_hash -> [:module_write_hash_mismatch]
-            compiled_differs?(stamp.module_id, installed) -> [:module_write_hash_mismatch]
-            true -> []
+            # REQ-769: the stamp is the installed hash or an accepted earlier one.
+            stamp.manifest_hash != installed and stamp.manifest_hash not in accepted ->
+              [:module_write_hash_mismatch]
+
+            compiled_differs?(stamp.module_id, installed) ->
+              [:module_write_hash_mismatch]
+
+            true ->
+              []
           end
       end
 

@@ -35,8 +35,10 @@ export interface CountOrder {
   entry_id?: string | null
   posted_at?: string | null
   posted_by?: string | null
+  posted_by_label?: string | null
   reversed_at?: string | null
   reversed_by?: string | null
+  reversed_by_label?: string | null
   posting_check?: 'ok' | 'mismatch' | null
   posting_document_id?: string | null
   posting_number?: string | null
@@ -74,6 +76,8 @@ export interface CountEntry {
   quantity_after: string | null
   entered_by?: string | null
   entered_by_employee_id?: string | null
+  /** Person name (employee "code - name", else the user's name), display only; absent when it cannot be resolved. */
+  entered_by_label?: string | null
   entered_at: string | null
 }
 export interface SurplusBody {

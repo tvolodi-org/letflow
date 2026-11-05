@@ -102,7 +102,7 @@ export function ItemDetails(props: { item: ItemRow; onBack: () => void }) {
         items={rows.map((m) => ({
           id: m.entry_id,
           iso: m.event_time ?? undefined,
-          when: formatDateTimeInZone(m.event_time, { timeZone: TIME_ZONE, locale: intl.locale, intlLocale: intl.locale, enStyle: 'iso' }),
+          when: formatDateTimeInZone(m.event_time, { timeZone: TIME_ZONE, locale: intl.locale }),
           text: (
             <>
               {t(`cause.${causeKey(m.cause)}`)}

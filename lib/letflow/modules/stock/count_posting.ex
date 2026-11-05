@@ -37,6 +37,7 @@ defmodule Letflow.Modules.Stock.CountPosting do
 
   alias Letflow.Documents
   alias Letflow.Ledger
+  alias Letflow.Modules.Stock.ActorLabel
   alias Letflow.Modules.Stock.CountDifferences
   alias Letflow.Modules.Stock.Counts
   alias Letflow.Modules.Stock.Documents.Posting
@@ -505,6 +506,8 @@ defmodule Letflow.Modules.Stock.CountPosting do
       marks = marks(prefix, diff_id)
       pending = Posting.pending(prefix, diff_id)
       rows = if authorized, do: Posting.entries(authorized, diff_id), else: :error
+      posted_by = if(marks["posted"], do: Posting.completer(prefix, diff_id, "post"))
+      reversed_by = if(marks["reversed"], do: Posting.completer(prefix, diff_id, "reverse"))
 
       %{
         "posting_state" => state(marks, pending),
@@ -512,9 +515,11 @@ defmodule Letflow.Modules.Stock.CountPosting do
         "reverse_pending" => pending.reverse,
         "entry_id" => entry_id(rows),
         "posted_at" => marks |> Map.get("posted") |> mark_at(),
-        "posted_by" => if(marks["posted"], do: Posting.completer(prefix, diff_id, "post")),
+        "posted_by" => posted_by,
+        "posted_by_label" => ActorLabel.label(prefix, posted_by),
         "reversed_at" => marks |> Map.get("reversed") |> mark_at(),
-        "reversed_by" => if(marks["reversed"], do: Posting.completer(prefix, diff_id, "reverse")),
+        "reversed_by" => reversed_by,
+        "reversed_by_label" => ActorLabel.label(prefix, reversed_by),
         "posting_check" => posting_check(prefix, header, diff_id, marks, rows),
         "posting_document_id" => header["posting_document_id"],
         "posting_number" => header["posting_number"],
