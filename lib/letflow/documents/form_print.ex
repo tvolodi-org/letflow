@@ -28,6 +28,14 @@ defmodule Letflow.Documents.FormPrint do
       line breaks become spaces, length is capped at #{500} characters, so a hostile value gives
       escaped text, not a crash (INV-8).
 
+  A column may carry `"no"`, its official column number, when the table does not start at 1 (the
+  back side of Inv-18 is columns 15 to 26); default is the position.
+
+  Wider than 12 columns (Inv-18 has 14): the layout allows #{14}, the `.docx` keeps them in one
+  table and the PDF cuts the table into column chunks (see `Pdf`). A signature block reads its
+  position part from the data key `<key>_position`; a totals block may set `"skip_blank": true`
+  so blank cells add nothing to a sum.
+
   The PDF side reuses `Letflow.Documents.PrintLayout` unchanged (closed one-row table header: a
   grouped header is flattened to `group: label`, the column number is a prefix); the `.docx` has
   the true merged header and the numbers row. No dependency is added: the `.docx` is a zip of
@@ -48,7 +56,7 @@ defmodule Letflow.Documents.FormPrint do
   }
   @parts ["position", "signature", "name"]
   @layout_keys ["form_layout_version", "form", "annex", "blocks"]
-  @max_columns 12
+  @max_columns 14
 
   @catalog_path Path.join([__DIR__, "..", "..", "..", "priv", "print_forms", "messages.json"])
                 |> Path.expand()
@@ -149,8 +157,9 @@ defmodule Letflow.Documents.FormPrint do
     |> Enum.reduce_while(:ok, fn {col, i}, :ok ->
       p = path ++ ["columns", i]
 
-      with :ok <- known_keys(col, ["key", "label", "group"], p),
+      with :ok <- known_keys(col, ["key", "label", "group", "no"], p),
            :ok <- check(is_binary(col["key"]), :bad_key, p),
+           :ok <- check(is_nil(col["no"]) or is_integer(col["no"]), :bad_column_no, p),
            :ok <- label_present(col["label"], catalog, p),
            :ok <- if(col["group"], do: label_present(col["group"], catalog, p), else: :ok) do
         {:cont, :ok}
@@ -163,7 +172,7 @@ defmodule Letflow.Documents.FormPrint do
   defp totals_rules(nil, _c, _p), do: :ok
 
   defp totals_rules(%{} = t, c, p) do
-    with :ok <- known_keys(t, ["label", "sum", "mark"], p ++ ["totals"]),
+    with :ok <- known_keys(t, ["label", "sum", "mark", "skip_blank"], p ++ ["totals"]),
          :ok <- label_present(t["label"], c, p ++ ["totals"]) do
       check(
         Enum.all?(t["sum"] || [], &is_binary/1) and Enum.all?(t["mark"] || [], &is_binary/1),
@@ -228,7 +237,15 @@ defmodule Letflow.Documents.FormPrint do
   defp item(%{"type" => "signature"} = b, d, lang, c) do
     parts = b["parts"]
     name = value(d, b["key"])
-    values = Enum.map(parts, fn p -> if p == "name", do: name, else: "" end)
+    position = value(d, b["key"] <> "_position")
+
+    values =
+      Enum.map(parts, fn
+        "name" -> name
+        "position" -> position
+        _ -> ""
+      end)
+
     captions = Enum.map(parts, &text(c, "cap." <> &1, lang))
     stamp = if b["stamp"], do: text(c, b["stamp"], lang)
     {:signature, text(c, b["label"], lang), values, captions, stamp}
@@ -242,9 +259,12 @@ defmodule Letflow.Documents.FormPrint do
       end
 
     columns =
-      Enum.map(b["columns"], fn col ->
+      b["columns"]
+      |> Enum.with_index(1)
+      |> Enum.map(fn {col, i} ->
         %{
           key: col["key"],
+          no: col["no"] || i,
           label: text(c, col["label"], lang),
           group: col["group"] && text(c, col["group"], lang)
         }
@@ -262,6 +282,7 @@ defmodule Letflow.Documents.FormPrint do
   defp total(t, columns, rows, lang, c) do
     sums = t["sum"] || []
     marks = t["mark"] || []
+    skip_blank = t["skip_blank"] == true
 
     cells =
       Map.new(columns, fn col ->
@@ -269,7 +290,7 @@ defmodule Letflow.Documents.FormPrint do
 
         v =
           cond do
-            k in sums -> sum(rows, k)
+            k in sums -> sum(rows, k, skip_blank)
             k in marks -> "x"
             true -> ""
           end
@@ -281,9 +302,18 @@ defmodule Letflow.Documents.FormPrint do
     Map.put(cells, label_col, text(c, t["label"], lang))
   end
 
-  defp sum([], _key), do: ""
+  # `skip_blank`: a blank cell adds nothing (a line holds a surplus or a shortage, not both); a
+  # non-blank invalid text still blanks the total; no non-blank cell at all gives a blank total.
+  defp sum(rows, key, skip_blank) do
+    rows = if skip_blank, do: Enum.reject(rows, &((&1[key] || "") == "")), else: rows
 
-  defp sum(rows, key) do
+    case rows do
+      [] -> ""
+      _ -> sum_rows(rows, key)
+    end
+  end
+
+  defp sum_rows(rows, key) do
     Enum.reduce_while(rows, Decimal.new(0), fn row, acc ->
       case Decimal.parse(row[key] || "") do
         {%Decimal{} = d, ""} -> {:cont, Decimal.add(acc, d)}

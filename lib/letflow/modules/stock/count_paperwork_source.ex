@@ -28,6 +28,7 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
   alias Letflow.Modules.CatalogItems
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Org
+  alias Letflow.Modules.Stock.DocumentPrintSource
   alias Letflow.Modules.Stock.Counts
   alias Letflow.Modules.Stock.CountPaperwork
   alias Letflow.Repo
@@ -38,6 +39,10 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
     differences: "differences_document_id"
   }
 
+  # The PDF engine refuses a table of more than 1000 rows (`PrintLayout.check_projection`). The
+  # official count forms add a totals row, so 999 lines is the most a PDF takes (T-1418).
+  @pdf_max_lines 999
+
   @type ctx :: %{scope: term(), principal: term(), tenant_id: term()}
 
   @doc """
@@ -47,16 +52,67 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
   @spec read(String.t(), term(), CountPaperwork.kind(), ctx()) ::
           {:ok, %{kind: CountPaperwork.kind(), issued: map(), names: map()}}
           | {:error, :not_found | :document_not_issued}
-  def read(prefix, id, kind, %{scope: scope, principal: principal, tenant_id: tenant_id})
+  def read(prefix, id, kind, ctx)
       when is_binary(prefix) and kind in [:order, :sheet, :differences] do
+    with {:ok, result, _header, _order} <- do_read(prefix, id, kind, ctx), do: {:ok, result}
+  end
+
+  @doc """
+  T-1418: `read/4` for the official forms: the same one scope-checked read, plus the order header
+  (`:header`), the order's issued summary (`names.order`: its number label and `issued_at`), the legal
+  entity of the count's org unit (`names.legal_entities`), the position names of the employees
+  already visible in `names.employees` (`names.positions`, so a hidden employee has no position
+  either, INV-2) and the offset of the order's `issued_at` (`names.offsets.order_issued_at`).
+  """
+  @spec read_form(String.t(), term(), CountPaperwork.kind(), ctx()) ::
+          {:ok, map()} | {:error, :not_found | :document_not_issued}
+  def read_form(prefix, id, kind, ctx)
+      when is_binary(prefix) and kind in [:order, :sheet, :differences] do
+    with {:ok, result, header, order} <- do_read(prefix, id, kind, ctx) do
+      %{issued: issued, names: names} = result
+      unit_id = issued.content["org_unit_id"] || issued.order_content["org_unit_id"]
+      zone = names.timezone
+
+      names =
+        names
+        |> Map.put(:legal_entities, DocumentPrintSource.legal_entity(prefix, unit_id))
+        |> Map.put(:positions, positions(prefix, names.employees))
+        |> Map.update!(:offsets, &Map.put(&1, :order_issued_at, offset(zone, order[:issued_at])))
+
+      {:ok, %{result | names: Map.put(names, :order, order)} |> Map.put(:header, header)}
+    end
+  end
+
+  # One scope-checked header read; returns the result, the header and the order's issued summary.
+  defp do_read(prefix, id, kind, %{scope: scope, principal: principal, tenant_id: tenant_id}) do
     with {:ok, header} <- Counts.header(prefix, id, scope),
          {:ok, issued} <- issued(prefix, header, kind),
-         {:ok, order_content} <- order_content(prefix, header, kind, issued) do
+         {:ok, order_content, order} <- order_content(prefix, header, kind, issued) do
       issued = Map.put(issued, :order_content, order_content)
 
       {:ok,
-       %{kind: kind, issued: issued, names: names(prefix, kind, issued, principal, tenant_id)}}
+       %{kind: kind, issued: issued, names: names(prefix, kind, issued, principal, tenant_id)},
+       header, order}
     end
+  end
+
+  # employee id => position name, for the employees the scope check already let through.
+  defp positions(prefix, employees) do
+    for {id, %{}} <- employees, into: %{} do
+      with {:ok, e} <- Org.lookup(prefix, id),
+           pid when is_binary(pid) <- e["position_id"],
+           {:ok, p} <- Org.lookup(prefix, pid) do
+        {id, p["name"]}
+      else
+        _ -> {id, nil}
+      end
+    end
+  end
+
+  @doc "True when the issued document has more lines than a form PDF can hold (`print_too_large`)."
+  @spec pdf_too_large?(map()) :: boolean()
+  def pdf_too_large?(%{content: content}) do
+    length(CountPaperwork.lines_of(:differences, content)) > @pdf_max_lines
   end
 
   @spec fetch(String.t(), term(), CountPaperwork.kind(), ctx()) ::
@@ -111,14 +167,14 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
     end
   end
 
-  defp order_content(_prefix, _header, :order, issued), do: {:ok, issued.content}
+  defp order_content(_prefix, _header, :order, issued), do: {:ok, issued.content, issued}
 
   defp order_content(prefix, header, _kind, _issued) do
     with doc_id when is_binary(doc_id) <- header["document_id"],
          {:ok, summary} <- Documents.issued_summary(prefix, doc_id),
          %DocumentVersion{content: content} when is_map(content) <-
            version(prefix, doc_id, summary.version_no) do
-      {:ok, content}
+      {:ok, content, summary}
     else
       _ -> {:error, :document_not_issued}
     end
