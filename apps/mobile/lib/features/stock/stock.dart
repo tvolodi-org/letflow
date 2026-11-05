@@ -2,4 +2,5 @@
 /// `lib/bootstrap/navigation_bootstrap.dart`.
 library;
 
+export 'documents/document_form_screen.dart' show kStockDocumentsPath;
 export 'stock_routes.dart' show stockRoutes, kStockHomePath;
