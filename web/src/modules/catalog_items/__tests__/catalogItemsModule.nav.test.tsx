@@ -60,22 +60,26 @@ async function renderShell(access: AccessState, installed: { module_id: string; 
 }
 
 const CAT = [{ module_id: 'catalog_items', version: '1.0.0' }]
-const LINKS: [string, string][] = [['Lots', '/admin/catalog/lots']]
+const LINKS: [string, string][] = [
+  ['Items', '/admin/catalog/items'],
+  ['Lots', '/admin/catalog/lots'],
+]
 
 describe('M1 definition', () => {
-  it('is registered with one nav item on CatalogLotsWrite', async () => {
+  it('is registered with the Items nav item on StockRead and the Lots one on CatalogLotsWrite', async () => {
     const { catalogItemsModuleDefinition } = await import('../index')
     const { REGISTERED_MODULES } = await import('@/modules/registry')
     expect(REGISTERED_MODULES.map((m) => m.id)).toContain('catalog_items')
     expect(catalogItemsModuleDefinition.id).toBe('catalog_items')
     expect(catalogItemsModuleDefinition.navItems.map((n) => [n.label, n.to, n.permission])).toEqual([
+      ['Items', '/admin/catalog/items', 'StockRead'],
       ['Lots', '/admin/catalog/lots', 'CatalogLotsWrite'],
     ])
   })
 })
 
 describe('M1 nav', () => {
-  it('shows the Lots link with the atom when catalog_items is installed', async () => {
+  it('shows the Items and Lots links with the atoms when catalog_items is installed', async () => {
     await renderShell(withAtom, CAT)
     for (const [name, href] of LINKS) {
       await waitFor(() => expect(screen.getByRole('link', { name })).toHaveAttribute('href', href))

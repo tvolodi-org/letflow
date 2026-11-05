@@ -10,7 +10,7 @@ import { catalogItemsRouteObjects } from '../catalogItemsRoutes'
 
 export const withAtom: AccessState = {
   status: 'ready',
-  info: { roles: [], platform_tenant: false, permissions: ['CatalogLotsWrite'] },
+  info: { roles: [], platform_tenant: false, permissions: ['CatalogLotsWrite', 'StockRead'] },
 }
 export const withoutAtom: AccessState = {
   status: 'ready',

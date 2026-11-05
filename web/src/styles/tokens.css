@@ -156,6 +156,8 @@
   --doc-header-width: 304px;
   --dialog-w: 520px;
   --dialog-w-l: 760px;
+  --registry-list-width: 520px;
+  --journal-details-width: 400px;
   --z-nav: 100;
   --z-sticky: 50;
   --z-popover: 300;
