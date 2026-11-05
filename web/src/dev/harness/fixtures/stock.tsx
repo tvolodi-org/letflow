@@ -17,14 +17,14 @@ const rec = (id: string, type: string, fields: Record<string, unknown>): EntityR
 
 const MASTERS: Record<string, EntityRecord[]> = {
   catalog_item: [
-    rec('i1', 'catalog_item', { name: 'Laptop 14 inch, aluminium case, 16 GB' }),
-    rec('i2', 'catalog_item', { name: 'Safety helmet' }),
+    rec('i1', 'catalog_item', { code: 'ITM-0001', name: 'Laptop 14 inch, aluminium case, 16 GB' }),
+    rec('i2', 'catalog_item', { code: 'ITM-0002', name: 'Safety helmet' }),
   ],
-  location_node: [rec('l1', 'location_node', { name: 'Almaty central warehouse' }), rec('l2', 'location_node', { name: 'Receiving dock' })],
-  org_unit: [rec('u1', 'org_unit', { name: 'Warehouse team' })],
-  org_employee: [rec('e1', 'org_employee', { full_name: 'Aigerim Sarsenova' })],
+  location_node: [rec('l1', 'location_node', { code: 'WH-ALA', name: 'Almaty central warehouse' }), rec('l2', 'location_node', { code: 'DOCK-1', name: 'Receiving dock' })],
+  org_unit: [rec('u1', 'org_unit', { code: 'WT', name: 'Warehouse team' })],
+  org_employee: [rec('e1', 'org_employee', { code: 'E-017', full_name: 'Aigerim Sarsenova' })],
   catalog_lot: [rec('t1', 'catalog_lot', { code: 'LOT-2026-001', item_id: 'i1' })],
-  catalog_uom: [rec('m1', 'catalog_uom', { name: 'pcs' })],
+  catalog_uom: [rec('m1', 'catalog_uom', { code: 'PCS', name: 'pcs' })],
 }
 
 const BALANCES = [

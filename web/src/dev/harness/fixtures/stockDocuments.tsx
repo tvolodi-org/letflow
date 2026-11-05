@@ -40,7 +40,7 @@ const base = {
   supplier_document_ref: 'INV-4471', received_on: '2026-11-03', lines,
 }
 const DOCS: Record<string, Record<string, unknown>> = {
-  'doc-posted': { id: 'doc-posted', kind: 'receipt', state: 'posted', number: 'RC-000042', posted_at: '2026-11-03T10:00:00Z', posted_by: 'e1', ...base },
+  'doc-posted': { id: 'doc-posted', kind: 'receipt', state: 'posted', number: 'RC-000042', posted_at: '2026-11-03T10:00:00Z', posted_by: '5c1f0d2e-7a3b-4c4d-8e9f-0a1b2c3d4e5f', ...base },
   'doc-draft': { id: 'doc-draft', kind: 'receipt', state: 'draft', number: null, ...base },
   'doc-issued': { id: 'doc-issued', kind: 'issue', state: 'issued', number: 'IS-000007', ...base, counterparty_id: null },
 }

@@ -653,6 +653,29 @@ actual:   #{inspect(actual)}"
       assert [_one] = rows(fx, neq, :all)
     end
 
+    test "T-1378: record_id in/not_in/eq/neq on a per-type table binds uuids, not text", %{fx: fx} do
+      base = %{entity_type: "plain_undeclared"}
+      [row] = rows(fx, base, :all)
+      id = row.record_id
+      other = Ecto.UUID.generate()
+
+      f = fn op, value ->
+        Map.put(base, :filters, [%{field: "record_id", op: op, value: value}])
+      end
+
+      assert [%{record_id: ^id}] = rows(fx, f.(:in, [id, other]), :all)
+      assert [] = rows(fx, f.(:in, [other]), :all)
+      # a value that is not a uuid is dropped, never a 500
+      assert [%{record_id: ^id}] = rows(fx, f.(:in, [id, "i1"]), :all)
+      assert [] = rows(fx, f.(:in, ["i1"]), :all)
+      assert [] = rows(fx, f.(:not_in, [id]), :all)
+      assert [_one] = rows(fx, f.(:not_in, [other, "x"]), :all)
+      assert [_one] = rows(fx, f.(:eq, id), :all)
+      assert [] = rows(fx, f.(:eq, "not-a-uuid"), :all)
+      assert [_one] = rows(fx, f.(:neq, other), :all)
+      assert [] = rows(fx, f.(:neq, id), :all)
+    end
+
     test "an undeclared joined TARGET: LEFT keeps the primary with a NULL target, INNER drops the row, tenant-wide sees it",
          %{fx: fx} do
       set = scoped_set(fx)

@@ -1,6 +1,7 @@
 /** documents.api — GH 3769 / REQ-722. Calls of the stock document routes (REQ-712, REQ-713). No call sends a tenant
  *  identifier; a body never carries a server-set value (line_id, line_no, header_id, number, state). */
 import { client } from '@/api/client'
+import type { UiLocale } from '@/i18n/uiLocaleStore'
 
 const BASE = '/api/v1/modules/stock/documents'
 
@@ -86,6 +87,8 @@ export const documentsApi = {
     client.post<StockDocument>(`${BASE}/${encodeURIComponent(id)}/reverse`, body),
   /** REQ-726: dry check of a draft opening balance, nothing is written. */
   check: (id: string) => client.post<CheckResult>(`${BASE}/${encodeURIComponent(id)}/check`),
+  /** REQ-738: the PDF of a transfer, hand over or return; the language is the UI language. */
+  print: (id: string, lang: UiLocale) => client.getBlob(`${BASE}/${encodeURIComponent(id)}/print`, { lang }),
   /** The server reads the key `reason` (Posting.cancel/5). */
   cancel: (id: string, body: { reason: string }) => client.post<StockDocument>(`${BASE}/${encodeURIComponent(id)}/cancel`, body),
 }
