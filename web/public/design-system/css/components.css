@@ -579,6 +579,224 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
   .lf-doc[data-layout="tabs"] { grid-template-areas: "top" "tabs" "panel"; row-gap: var(--space-3); }
 }
 
+/* ---------- Registry (platform): lf-registry ----------
+   Master data lists (items, org units, locations, employees, counterparties, lots, codes): a list pane and a DETAILS pane
+   to the RIGHT of it (rule 2a: viewing, editing and creating happen in the details pane, never in a modal).
+   Layouts (registry: LFRegLayout in demo.js, NOTES.md "Layouts of the registry"): split = list | details (default),
+   tabs = list | details whose sections (Overview, Related, History) are a tab block.
+   >= 901 px: two columns. <= 900 px: one column; a selected record REPLACES the list (data-detail="open", back button),
+   same rule as .lf-md and .lf-doc. The list is a compact table (lf-table--compact) or a TreeView (lf-tree) for hierarchies. */
+.lf-reg { display: grid; grid-template-columns: var(--registry-list-width) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.lf-reg > * { min-width: 0; }
+.lf-reg--tree, .lf-reg[data-layout="tabs"] { grid-template-columns: var(--master-width) minmax(0, 1fr); }
+.lf-reg__list { position: sticky; top: var(--space-4); max-height: calc(100vh - 2 * var(--space-4)); display: flex; flex-direction: column; overflow: hidden; }
+.lf-reg__tools { display: grid; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--line); }
+.lf-reg__listhead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.lf-reg__toolrow { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+.lf-reg__toolrow > .lf-field:first-child { flex: 1 1 var(--field-w-s); }
+.lf-reg__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.lf-reg__body { overflow: auto; min-height: 0; scrollbar-color: var(--line-strong) transparent; }
+.lf-reg__body.lf-table-wrap { border: 0; border-radius: 0; background: none; }
+.lf-reg__body .lf-tree { padding: var(--space-2); }
+.lf-reg__row { cursor: pointer; }
+.lf-reg__row:focus-visible, .lf-tree__row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.lf-reg__row td { height: var(--row-h-compact); }
+.lf-reg .lf-table th { top: 0; }
+.lf-reg .lf-table th, .lf-reg .lf-table td { padding-inline: var(--space-3); }
+.lf-reg[data-layout="tabs"] .lf-reg__title { max-width: 15ch; }
+.lf-reg__title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 26ch; }
+.lf-reg__foot { border-top: 1px solid var(--line); }
+.lf-reg__state { padding: var(--space-6) var(--space-4); }
+.lf-reg__skel { display: grid; gap: var(--space-3); padding: var(--space-4); }
+.lf-reg__skel .lf-skel { height: var(--space-4); }
+.lf-reg__skel--fields { grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(var(--field-w-s) * 1.5)), 1fr)); gap: var(--space-4) var(--space-6); }
+.lf-reg__skel--fields > div { display: grid; gap: var(--space-2); }
+
+/* Details pane */
+.lf-reg__details { display: grid; gap: var(--space-4); align-content: start; }
+.lf-reg__top { display: grid; gap: var(--space-3); }
+.lf-reg__head { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-4); align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.lf-reg__head.is-editing { border-color: var(--current); box-shadow: 0 0 0 1px var(--current); }
+.lf-reg__backrow { display: none; flex: 1 0 100%; }
+.lf-reg__back { margin-left: calc(var(--space-3) * -1); }
+.lf-reg__id { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); min-width: 0; }
+.lf-reg__name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-3); font: var(--type-heading-3); font-family: var(--font-display); min-width: 0; overflow-wrap: anywhere; }
+.lf-reg__name .mono { font: 500 16px/24px var(--font-mono); }
+.lf-reg__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: flex-end; }
+.lf-reg__reason { flex: 1 0 100%; display: flex; justify-content: flex-end; align-items: flex-start; gap: 6px; color: var(--ink-muted); font: 400 13px/18px var(--font-sans); }
+.lf-reg__section { overflow: hidden; }
+.lf-reg__sechead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--row-h-compact); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--line); }
+.lf-reg__sectitle { font: 500 12px/16px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); margin: 0; }
+.lf-reg__fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(var(--field-w-s) * 1.5)), 1fr)); gap: var(--space-4) var(--space-6); padding: var(--space-4); margin: 0; }
+.lf-reg__field { display: grid; gap: 4px; align-content: start; min-width: 0; margin: 0; }
+.lf-reg__field--full { grid-column: 1 / -1; }
+.lf-reg__label { margin: 0; font: var(--type-label); color: var(--ink-muted); }
+.lf-reg__value { margin: 0; min-height: 22px; color: var(--ink); font: var(--type-body-s); overflow-wrap: anywhere; }
+.lf-reg__value--mono { font: var(--type-mono); white-space: nowrap; }
+.lf-reg__value.is-empty { color: var(--ink-faint); }
+.lf-reg__field .lf-date:not(.lf-date--bare) { width: auto; }
+.lf-reg__field .lf-date:not(.lf-date--bare) .lf-control { max-width: var(--field-w-s); }
+.lf-reg__form { padding: var(--space-4); display: grid; gap: var(--space-4); }
+.lf-reg__form .lf-reg__fields { padding: 0; }
+.lf-reg__blank { padding: var(--space-6); }
+.lf-reg__blank .lf-empty { padding: var(--space-8) var(--space-4); }
+.lf-reg__history { list-style: none; margin: 0; padding: var(--space-2) var(--space-4); display: grid; }
+.lf-reg__history li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-1) var(--space-4); padding: var(--space-2) 0; border-bottom: 1px solid var(--line); font: var(--type-body-s); }
+.lf-reg__history li:last-child { border-bottom: 0; }
+.lf-reg__history time { font: var(--type-mono); color: var(--ink-muted); white-space: nowrap; }
+.lf-reg__who { color: var(--ink-muted); }
+.lf-reg .lf-table--rel td { height: var(--row-h-compact); }
+.lf-reg__tablist { grid-area: auto; }
+
+/* tabs layout: the sections of the details pane share one place */
+.lf-reg[data-layout="tabs"][data-tab="overview"] [data-pane="related"], .lf-reg[data-layout="tabs"][data-tab="overview"] [data-pane="history"],
+.lf-reg[data-layout="tabs"][data-tab="related"] [data-pane="overview"], .lf-reg[data-layout="tabs"][data-tab="related"] [data-pane="history"],
+.lf-reg[data-layout="tabs"][data-tab="history"] [data-pane="overview"], .lf-reg[data-layout="tabs"][data-tab="history"] [data-pane="related"] { display: none; }
+
+@media (max-width: 1100px) {
+  .lf-reg { grid-template-columns: var(--master-width) minmax(0, 1fr); }
+  .lf-reg .is-opt { display: none; }
+}
+.lf-reg[data-layout="tabs"] .is-opt { display: none; }
+@media (max-width: 900px) {
+  .lf-reg, .lf-reg--tree, .lf-reg[data-layout="tabs"] { grid-template-columns: minmax(0, 1fr); }
+  .lf-reg__list { position: static; max-height: none; }
+  .lf-reg .is-opt { display: table-cell; }
+  .lf-reg[data-layout="tabs"] .is-opt { display: none; }
+  .lf-reg:not([data-detail="open"]) > .lf-reg__details { display: none; }
+  .lf-reg[data-detail="open"] > .lf-reg__list { display: none; }
+  .lf-reg[data-detail="open"] .lf-reg__backrow { display: block; }
+}
+@media (max-width: 640px) {
+  .lf-reg__head { padding: var(--space-3); }
+  .lf-reg__actions { justify-content: flex-start; width: 100%; }
+  .lf-reg__actions .lf-btn { flex: 1 1 auto; }
+  .lf-reg__reason { justify-content: flex-start; }
+  .lf-reg__fields { padding: var(--space-4) var(--space-3); }
+  .lf-reg .is-opt { display: none; }
+  .lf-reg__form { padding: var(--space-4) var(--space-3); }
+}
+
+/* ---------- Journal (platform): lf-journal, the movement register ----------
+   A list of stock operations and, for the selected one, its LEGS (the balance lines: location, item, change, balance after).
+   Panes reuse the registry classes (lf-reg__list, __tools, __body, __foot, __head, __section, __fields...). Layout registry:
+   LFJrnLayout in demo.js (split = list | details). >= 1200 px: list | details. 901-1199 px: same, optional columns hidden.
+   <= 900 px: THREE VARIANTS of the narrow layout (data-variant on .lf-jrn), see NOTES.md "Narrow variants of the journal":
+   v1 = legs expand inside the list row, its Details button opens the full screen; v2 = bottom sheet over the list with previous/next;
+   v3 = full screen details with back button and previous/next. */
+.lf-jrn { display: grid; grid-template-columns: minmax(0, 1fr) var(--journal-details-width); gap: var(--space-4); align-items: start; }
+.lf-jrn > * { min-width: 0; }
+.lf-jrn__filters { display: grid; gap: var(--space-3); }
+.lf-jrn__details { display: grid; gap: var(--space-4); align-content: start; position: sticky; top: var(--space-4); }
+.lf-jrn__row-a > .lf-field { flex: 1 1 var(--field-w-s); }
+.lf-jrn__row-a > .lf-jrn__f-q { flex: 2 1 var(--field-w-m); }
+.lf-jrn .lf-reg__toolrow > .lf-date:not(.lf-date--bare) { width: var(--field-w-s); flex: 0 0 auto; }
+.lf-jrn__table { table-layout: auto; }
+.lf-jrn .lf-jrn__table th, .lf-jrn .lf-jrn__table td { padding-inline: var(--space-2); }
+.lf-jrn .lf-jrn__table th:first-child, .lf-jrn .lf-jrn__table td:first-child { padding-left: var(--space-4); }
+.lf-jrn .lf-jrn__table th:last-child, .lf-jrn .lf-jrn__table td:last-child { padding-right: var(--space-4); }
+.lf-jrn__table td { vertical-align: middle; }
+.lf-jrn__table .c-date { white-space: nowrap; font: var(--type-mono-s); }
+.lf-jrn__table .c-doc { white-space: nowrap; font: var(--type-mono-s); }
+.lf-jrn__table .c-qty { white-space: nowrap; text-align: right; font: var(--type-mono); }
+.lf-jrn__table .c-item .lf-ref, .lf-jrn__table .c-loc .lf-ref { flex-wrap: nowrap; max-width: 17ch; }
+.lf-jrn__table .c-loc, .lf-jrn__table .c-item { white-space: nowrap; }
+.lf-jrn__table .c-loc .lf-ref, .lf-jrn__table .c-item .lf-ref { display: inline-flex; vertical-align: middle; }
+.lf-jrn__table .c-item .lf-ref__title, .lf-jrn__table .c-loc .lf-ref__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-jrn__table .c-loc .lf-ref { max-width: 16ch; }
+.lf-jrn__kind { display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+.lf-jrn__kind .lf-icon { color: var(--ink-muted); flex: none; }
+.lf-jrn__table .c-kind { max-width: 17ch; }
+.lf-jrn__table .lf-jrn__kind { white-space: normal; }
+.lf-jrn__more { margin-left: var(--space-1); padding: 0 6px; border-radius: var(--radius-full); background: var(--paper-sunken); color: var(--ink-muted); font: 500 12px/18px var(--font-mono); white-space: nowrap; }
+.lf-jrn__sign { display: inline-block; min-width: 1ch; font-weight: 700; }
+.lf-jrn__sign--pos { color: var(--success); }
+.lf-jrn__sign--neg { color: var(--danger); }
+.lf-jrn__of { display: block; color: var(--ink-muted); font: var(--type-mono-s); }
+.lf-jrn__table tr.is-reversed td:not(.c-st) { color: var(--ink-muted); }
+.lf-jrn__expand { display: none; }
+.lf-jrn__legsrow { display: none; }
+
+/* Details: header, fields, legs, links */
+.lf-jrn__details { grid-auto-rows: max-content; }
+.lf-jrn__bar .lf-reg__backrow { flex: 0 0 auto; }
+.lf-jrn__bar { display: none; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.lf-jrn__nav { display: inline-flex; align-items: center; gap: var(--space-2); }
+.lf-jrn__nav .lf-btn { --h: var(--control-h-s); }
+.lf-jrn__pos { font: var(--type-mono); color: var(--ink-muted); white-space: nowrap; }
+.lf-jrn__handle { display: none; }
+.lf-jrn__doclink { font: 500 16px/24px var(--font-mono); }
+.lf-jrn__legs { list-style: none; margin: 0; padding: 0; display: grid; }
+.lf-jrn__leg { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1) var(--space-4); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); align-items: start; }
+.lf-jrn__leg:last-child { border-bottom: 0; }
+.lf-jrn__leg-main { display: grid; gap: var(--space-1); min-width: 0; }
+.lf-jrn__leg-main .lf-ref { flex-wrap: wrap; }
+.lf-jrn__holder { color: var(--ink-muted); font: var(--type-caption); }
+.lf-jrn__leg-num { text-align: right; display: grid; gap: 2px; white-space: nowrap; }
+.lf-jrn__delta { font: 600 15px/22px var(--font-mono); font-variant-numeric: tabular-nums; }
+.lf-jrn__bal { color: var(--ink-muted); font: var(--type-mono-s); }
+.lf-jrn__legs--compact .lf-jrn__leg { padding: var(--space-2) 0; border-bottom: 1px dashed var(--line); }
+.lf-jrn__legs--compact .lf-jrn__leg:last-child { border-bottom: 0; }
+.lf-jrn__legs--compact .lf-jrn__delta { font-size: 14px; }
+.lf-jrn__legs--compact .lf-ref { flex-wrap: nowrap; max-width: 100%; }
+.lf-jrn__legs--compact .lf-ref__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-jrn__links { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-4); }
+.lf-jrn__link { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: baseline; font: var(--type-body-s); }
+.lf-jrn__link > span:first-child { color: var(--ink-muted); min-width: 9em; }
+.lf-jrn__scrim { display: none; }
+.lf-jrn__filters-toggle { display: none; }
+
+@media (max-width: 1439px) {
+  .lf-jrn .is-opt { display: none; }
+}
+@media (max-width: 1199px) {
+  .lf-jrn { grid-template-columns: minmax(0, 1fr) calc(var(--journal-details-width) * 0.85); }
+}
+@media (max-width: 900px) {
+  .lf-jrn { grid-template-columns: minmax(0, 1fr); }
+  .lf-jrn__list { position: static; max-height: none; }
+  .lf-jrn__details { position: static; display: none; }
+  .lf-jrn[data-detail="open"] .lf-jrn__details { display: grid; }
+  .lf-jrn[data-detail="open"]:not([data-variant="v2"]) > .lf-jrn__list { display: none; }
+  .lf-jrn__bar { display: flex; }
+  .lf-jrn[data-detail="open"]:not([data-variant="v2"]) .lf-reg__backrow { display: block; }
+  .lf-jrn__filters-toggle { display: inline-flex; }
+  .lf-jrn:not([data-filters="open"]) .lf-jrn__filters { display: none; }
+  /* list rows become cards */
+  .lf-jrn__table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .lf-jrn__table, .lf-jrn__table tbody { display: block; width: 100%; }
+  .lf-jrn__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "kind qty" "item item" "date st" "doc st"; gap: 2px var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); }
+  .lf-jrn__row td { display: block; height: auto; padding: 0; border: 0; min-width: 0; }
+  .lf-jrn__row .c-kind { grid-area: kind; } .lf-jrn__row .c-qty { grid-area: qty; } .lf-jrn__row .c-item { grid-area: item; }
+  .lf-jrn__row .c-date { grid-area: date; color: var(--ink-muted); } .lf-jrn__row .c-doc { grid-area: doc; color: var(--ink-muted); }
+  .lf-jrn__row .c-st { grid-area: st; align-self: end; text-align: right; }
+  .lf-jrn__table .c-kind { max-width: none; }
+  .lf-jrn__table .lf-jrn__kind { white-space: nowrap; }
+  .lf-jrn__row .c-loc { display: none; }
+  .lf-jrn__table .c-item .lf-ref { max-width: none; }
+  .lf-jrn .is-opt { display: none; }
+  .lf-jrn__expand { display: inline-grid; place-items: center; width: var(--control-h-s); height: var(--control-h-s); border: 0; background: none; color: var(--ink-muted); cursor: pointer; border-radius: var(--radius-sm); }
+  .lf-jrn__expand .lf-icon { transition: transform var(--dur-fast) var(--ease-out); }
+  .lf-jrn__row[aria-expanded="true"] .lf-jrn__expand .lf-icon { transform: rotate(180deg); }
+  .lf-jrn__row .c-qty { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); }
+  .lf-jrn__table tr.lf-jrn__legsrow { display: none; }
+  .lf-jrn[data-variant="v1"] .lf-jrn__table tr.lf-jrn__legsrow.is-open { display: block; padding: 0 var(--space-4) var(--space-3); background: var(--paper); border-bottom: 1px solid var(--line); }
+  .lf-jrn__legsrow td { display: block; padding: 0; height: auto; border: 0; }
+  .lf-jrn__legsrow .lf-btn-row { padding-top: var(--space-2); }
+  /* v2: bottom sheet over the list */
+  .lf-jrn[data-variant="v2"][data-detail="open"] .lf-jrn__scrim { display: block; position: fixed; inset: 0; z-index: var(--z-popover); background: var(--scrim); }
+  .lf-jrn[data-variant="v2"][data-detail="open"] .lf-jrn__details { position: fixed; inset: auto 0 0 0; height: 85vh; z-index: var(--z-popover); overflow-y: auto; align-content: start; padding: var(--space-2) var(--space-4) var(--space-6); background: var(--paper); border-radius: var(--radius-lg) var(--radius-lg) 0 0; box-shadow: var(--shadow-float); border-top: 1px solid var(--line); }
+  .lf-jrn[data-variant="v2"] .lf-jrn__handle { display: block; justify-self: center; width: var(--space-12); height: var(--space-6); padding: var(--space-2) 0; cursor: grab; touch-action: none; }
+  .lf-jrn[data-variant="v2"] .lf-jrn__handle::before { content: ""; display: block; height: 4px; border-radius: var(--radius-full); background: var(--line-strong); }
+  .lf-jrn[data-variant="v2"] .lf-jrn__bar { position: sticky; top: calc(var(--space-2) * -1); z-index: 1; background: var(--paper); padding-block: var(--space-1); justify-content: space-between; }
+  .lf-jrn:not([data-variant="v2"]) .lf-jrn__close { display: none; }
+}
+@media (max-width: 640px) {
+  .lf-jrn__leg { padding-inline: var(--space-3); grid-template-columns: minmax(0, 1fr); }
+  .lf-jrn__leg-num { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--space-1) var(--space-3); text-align: left; }
+  .lf-jrn__link > span:first-child { min-width: 100%; }
+}
+
 /* ---------- Date and time (platform): lf-date, lf-time, lf-datetime ----------
    Typed entry with a mask plus a calendar popup (lf-cal) or a list of 15-minute steps (lf-timelist). The popup is fixed to the
    viewport, opens below the control and flips above when there is no room; under 640 px the calendar is a bottom sheet with
