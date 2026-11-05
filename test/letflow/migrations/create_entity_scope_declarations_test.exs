@@ -28,9 +28,10 @@ defmodule Letflow.CreateEntityScopeDeclarationsTest do
     rows |> List.flatten() |> Enum.sort()
   end
 
-  test "G1 registered fourth to last (REQ-623, REQ-624, REQ-603 follow); the table starts empty", %{
-    schema: schema
-  } do
+  test "G1 registered fourth to last (REQ-623, REQ-624, REQ-603 follow); the table starts empty",
+       %{
+         schema: schema
+       } do
     assert {@version, CreateEntityScopeDeclarations} =
              Enum.at(TenantProvisioning.tenant_scoped_migrations(), -4)
 
