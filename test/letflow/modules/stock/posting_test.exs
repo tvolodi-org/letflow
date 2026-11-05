@@ -441,6 +441,35 @@ defmodule Letflow.Modules.Stock.PostingTest do
     end
   end
 
+  defp task_route(ctx, task, action, body) do
+    conn =
+      Plug.Test.conn(:post, "/api/v1/tasks/#{task.id}/#{action}", body)
+      |> Plug.Conn.put_req_header("authorization", "Bearer " <> ctx.tok_a)
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+
+    Letflow.Router.call(conn, Letflow.Router.init([]))
+  end
+
+  describe "HTTP path: claim then complete (T-1367)" do
+    test "H-1 a claimed post task completes through the route and the balance shows", ctx do
+      doc = P.issue!(ctx)
+      id = doc["id"]
+      task = P.pending_task(ctx, id, "post")
+      # a real tenant runs with scope enforcement on
+      Repo.update_all(from(t in Letflow.Identity.Tenant, where: t.id == ^ctx.a.tenant_id),
+        set: [scope_enforcement: :on]
+      )
+
+      assert task_route(ctx, task, "claim", "{}").status == 200
+      conn = task_route(ctx, task, "complete", ~s({"output_variables":{}}))
+      assert conn.status == 200, conn.resp_body
+
+      assert P.get!(ctx, id)["state"] == "posted"
+      assert P.counts(ctx, id) == %{entries: %{"receipt" => 1}, marks: 1}
+      assert [_ | _] = P.movements(ctx, id)
+    end
+  end
+
   defp complete_route(ctx, task) do
     conn =
       Plug.Test.conn(:post, "/api/v1/tasks/#{task.id}/complete", "{}")
