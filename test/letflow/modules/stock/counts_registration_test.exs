@@ -17,9 +17,9 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Stock
 
-  test "R1 (REQ-717) count_signature, the five count_order fields, the five routes, version 0.6.0" do
+  test "R1 (REQ-717) count_signature, the five count_order fields, the five routes, version 0.9.0" do
     m = Stock.manifest()
-    assert m.version == "0.6.0" and Catalog.validate(m) == :ok
+    assert m.version == "0.9.0" and Catalog.validate(m) == :ok
     assert "count_signature" in m.manages_entity_types
     assert m.scope_declarations["count_signature"] == {:column, "org_unit_id"}
 
@@ -65,7 +65,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
 
     assert m.role_grants == %{}
 
-    assert Enum.slice(m.manages_entity_types, 8, 5) == [
+    assert Enum.slice(m.manages_entity_types, 12, 5) == [
              "count_order",
              "count_order_scope",
              "count_commission_member",
@@ -95,10 +95,29 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
     end
 
     assert Map.keys(m.scope_declarations) |> Enum.sort() == Enum.sort(m.manages_entity_types)
-    assert m.depends_on == ["catalog_items", "locations", "org"]
+    assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
 
     for {_method, _path, permission} <- m.route_policies,
         do: assert(permission in m.permissions)
+  end
+
+  test "R1a (REQ-716) count_entry accepts typed and scan and has the four optional scan fields" do
+    pack = "priv/modules/stock/pack.json" |> File.read!() |> Jason.decode!()
+
+    definition =
+      pack["entity_definitions"]
+      |> Enum.find(&(&1["name"] == "count_entry"))
+      |> Map.fetch!("definition_json")
+
+    by_name = Map.new(definition["fields"], &{&1["name"], &1})
+    assert by_name["method"]["enum_values"] == ["typed", "scan"]
+
+    for name <- ~w(scan_id code_id scanned_text location_id) do
+      assert by_name[name]["type"] == "string" and by_name[name]["required"] != true, name
+    end
+
+    assert by_name["scan_id"]["queried"] == true
+    assert Enum.any?(definition["indexes"], &(&1["fields"] == ["count_order_id", "scan_id"]))
   end
 
   test "R-INSTALL the install activates the types and registers the four document types" do
@@ -177,6 +196,8 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
       assert {:ok, _} = Letflow.Documents.register_type(s, attrs, ctx)
     end
 
-    assert length(Repo.all(DocumentType, prefix: s)) == 8
+    # the receipt, the opening (REQ-725), issue and write-off (REQ-715), the three two-sided kinds
+    # and the four count types
+    assert length(Repo.all(DocumentType, prefix: s)) == 11
   end
 end

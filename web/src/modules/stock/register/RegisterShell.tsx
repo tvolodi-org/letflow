@@ -24,7 +24,7 @@ export function LoadMore({ visible, loading, onClick }: { visible: boolean; load
   const intl = useIntl()
   if (!visible) return null
   return (
-    <div className="lf-form-actions">
+    <div className="lf-btn-row">
       <Button variant="secondary" loading={loading} onClick={onClick} data-testid="load-more">
         {intl.formatMessage({ id: 'stock.common.loadMore' })}
       </Button>

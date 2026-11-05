@@ -1,6 +1,6 @@
 /** countsModel — GH 3735 / REQ-702. Pure helpers of the count screens: the whole-draft request body, the quantity
  *  check, tenant-zone times, refusal reasons -> message ids, which buttons a status and the atoms allow. */
-import type { CountOrder, CountOrderBody } from './counts.api'
+import type { CountOrder, CountOrderBody, PaperworkKind } from './counts.api'
 import type { StatusTone } from '@/components/ui/StatusPill'
 import { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD } from '../stockPermissions'
 export { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD }
@@ -34,6 +34,21 @@ export const COUNT_REASONS = [
   'lines_uncounted',
   'line_not_found',
   'field_invalid',
+  'code_retired',
+  'code_assignment_conflict',
+  'code_not_assigned',
+  'code_not_countable',
+  'scan_no_line',
+  'scan_ambiguous',
+  'scan_id_conflict',
+  'signers_incomplete',
+  'sheet_already_signed',
+  'sheet_not_signed',
+  'differences_already_issued',
+  'differences_not_issued',
+  'differences_too_many',
+  'count_window_expired',
+  'document_not_issued',
 ] as const
 
 /** A decimal string at least 0: digits, optional fraction; no sign, exponent, comma or space. */
@@ -164,3 +179,58 @@ export const canOpen = (o: CountOrder, can: Atoms) => can(STOCK_COUNT_RECORD) &&
 export const canClose = (o: CountOrder, can: Atoms) => can(STOCK_COUNT_RECORD) && o.status === 'counting'
 /** The sheet exists from status counting on. */
 export const hasSheet = (o: CountOrder) => ['counting', 'counted', 'signed', 'posted'].includes(o.status)
+
+/** Sheet signing: the sheet is closed (counted) and not signed yet. */
+export const canSignSheet = (o: CountOrder, can: Atoms) => can(STOCK_COUNT_RECORD) && o.status === 'counted' && !o.sheet_signed_at
+export const canIssueDifferences = (o: CountOrder, can: Atoms) =>
+  can(STOCK_COUNT_RECORD) && o.status === 'counted' && !!o.sheet_signed_at && !o.differences_document_id
+export const canSignDifferences = (o: CountOrder, can: Atoms) =>
+  can(STOCK_COUNT_RECORD) && o.status === 'counted' && !!o.differences_document_id && !o.differences_signed_at
+export const canScan = (o: CountOrder, can: Atoms) => can(STOCK_COUNT_RECORD) && o.status === 'counting'
+
+/** One scan id per accepted Enter; a retry reuses the failed body, so the same id. */
+export function newScanId(): string {
+  return crypto.randomUUID()
+}
+
+/** A request that never got an answer (no HTTP status): the scan may be retried with the same scan_id. */
+export const isNetworkFailure = (err: unknown) => (err as { status?: unknown } | null | undefined)?.status === undefined
+
+/** Which paperwork downloads exist: the order from its number/issue, the sheet and the differences by their documents. */
+export function paperworkAvailable(o: CountOrder, kind: PaperworkKind): boolean {
+  if (kind === 'order') return !!o.document_id || !!o.issued_at
+  if (kind === 'sheet') return !!o.sheet_document_id
+  return !!o.differences_document_id
+}
+
+export type Signer = { id: string; role: 'chair' | 'member' | 'responsible' }
+/** Chair, members and the responsible employees of the lines, each once (chair, then members, then responsibles). */
+export function requiredSigners(o: CountOrder, lines: { responsible_employee_id?: string | null }[]): Signer[] {
+  const seen = new Set<string>()
+  const out: Signer[] = []
+  const add = (id: string | null | undefined, role: Signer['role']) => {
+    if (!id || seen.has(id)) return
+    seen.add(id)
+    out.push({ id, role })
+  }
+  add(o.chair_employee_id, 'chair')
+  for (const m of o.member_employee_ids) add(m, 'member')
+  for (const l of lines) add(l.responsible_employee_id, 'responsible')
+  return out
+}
+
+/** The file name of a Content-Disposition header (`filename*=UTF-8''x` first, then `filename="x"`), else the fallback. */
+export function parseFilename(header: string | null | undefined, fallback: string): string {
+  if (!header) return fallback
+  const star = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(header)
+  if (star?.[1]) {
+    try {
+      const v = decodeURIComponent(star[1].trim())
+      if (v !== '') return v
+    } catch {
+      /* fall through to the plain name */
+    }
+  }
+  const plain = /filename\s*=\s*"([^"]+)"/.exec(header) ?? /filename\s*=\s*([^;\s]+)/.exec(header)
+  return plain?.[1] ? plain[1] : fallback
+}

@@ -40,6 +40,18 @@ defmodule Letflow.Modules.Stock do
   same names. Posting writes one ledger entry with two legs per line (`-q` at the from side, `+q` at
   the to side). No new route, permission or ledger rule.
 
+  ## Issue and write off (REQ-715 / GH #3746; version 0.6.0)
+
+  Two more document kinds on the same routes, `issue` and `write_off` (`Documents.Kinds` is the kind
+  table): the managed types `stock_issue`, `stock_issue_line`, `stock_writeoff`, `stock_writeoff_line`
+  (all scoped by `org_unit_id`), the document types `stock_issue` (ISS) and `stock_writeoff` (WOF),
+  numbered per year, and the process definitions `stock_issue` and `stock_writeoff`. They post with the
+  same `post_document` handler; the legs are negative and the ledger refuses a posting below zero
+  (`insufficient_stock`). A line has no price or value. A write-off carries `reason_code` (`lost`,
+  `damaged`, `used_up`, `other`) and an optional `reason_text`. An existing installation gets the new
+  types and definitions by reinstalling the module; there is no upgrade hook. No route, permission or
+  migration. Assumptions, owner may change at GATE B: the prefixes, the reason list, no counterparty.
+
   ## Counts (REQ-700 / GH #3737, assets phase B counts; version 0.3.0)
 
   The count order: three module-managed record types (`count_order`, `count_order_scope`,
@@ -77,6 +89,31 @@ defmodule Letflow.Modules.Stock do
   optional, so a `counted` count that exists already simply has none of them.
   Assumption, owner may change at GATE B: "signed" is a paper signature recorded by the chair.
 
+  ## Count paperwork (REQ-719 / GH #3762; version 0.7.0)
+
+  One read route, `GET /counts/:id/paperwork/:kind` (`StockRead`), answers the `.xlsx` of an issued count
+  order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
+  `CountPaperworkSource`). No migration, record type or permission.
+
+  ## Count scan (REQ-716 / GH #3765; version 0.8.0)
+
+  One more route, `POST /counts/:id/scan` (permission `StockCountRecord`, `CountSheet.scan/4`): a
+  keyboard-scanner code is resolved with `Letflow.Modules.Codes.resolve/2`; an item or lot code adds one
+  unit to its single line, a `count_entry` with `method: scan` is appended, and a `scan_id` is counted
+  once. `count_entry` gains the optional fields `scan_id`, `code_id`, `scanned_text`, `location_id`. No
+  migration, no new permission; `depends_on` gains `codes` (the scan reads `Codes.resolve/2`; the boundary
+  lint requires it); the stock module is installed on no tenant yet. Assumptions, owner may
+  change at GATE B: see the `CountSheet` scanner section.
+
+  ## Opening balances (REQ-725 / GH #3775 and REQ-726 / GH #3774; version 0.9.0)
+
+  The managed types `stock_opening` (header) and `stock_opening_line` (per-line location, responsible and
+  real receipt date; no event time), the versioned document type `stock_opening` (prefix `OPN`, per
+  year, pad 6), the route `POST /documents/:id/check` (all line checks, nothing written), the cause
+  `opening` (positive) and the process definition `stock_opening` (a `submit` task and an `approve`
+  task kept apart by `distinct_from`; completing `approve` posts). The entry's event time is its
+  posting time. Assumptions, owner may change at GATE B: 100 lines, `OPN` per year, the second person.
+
   ## Slots and their order (append-only, rule 12)
 
   `sku, location, org_unit, responsible, lot`, all uuid text. `sku` is slot 1 because the sign rule
@@ -86,7 +123,7 @@ defmodule Letflow.Modules.Stock do
 
   ## Causes
 
-  `receipt` (positive), `issue` and `write_off` (negative; write_off needs a reason), `transfer`,
+  `receipt` and `opening` (positive), `issue` and `write_off` (negative; write_off needs a reason), `transfer`,
   `hand_over` and `return` (zero sum per sku). Assumption, owner may change at GATE B: the six
   causes, the 96-hour lateness, the slot order.
 
@@ -109,6 +146,10 @@ defmodule Letflow.Modules.Stock do
   @types [
     "stock_receipt",
     "stock_receipt_line",
+    "stock_issue",
+    "stock_issue_line",
+    "stock_writeoff",
+    "stock_writeoff_line",
     "stock_transfer",
     "stock_transfer_line",
     "stock_handover",
@@ -121,7 +162,9 @@ defmodule Letflow.Modules.Stock do
     "count_sheet_line",
     "count_entry",
     "count_signature",
-    "stock_posting_mark"
+    "stock_posting_mark",
+    "stock_opening",
+    "stock_opening_line"
   ]
 
   # Same shape as the procurement registration; assumptions, owner may change at GATE B.
@@ -152,6 +195,23 @@ defmodule Letflow.Modules.Stock do
                               declared_fields: %{}
                             }
 
+  @opening_type %{
+    key: "stock_opening",
+    owner_module: "stock",
+    numbering_scope: :year,
+    number_prefix: "OPN",
+    number_pad: 6,
+    legal_entity_required: false,
+    declared_fields: %{}
+  }
+
+  # REQ-715: issue and write-off (prefixes ISS, WOF; assumption, owner may change at GATE B).
+  @one_side_document_types for {key, prefix} <- [
+                                 {"stock_issue", "ISS"},
+                                 {"stock_writeoff", "WOF"}
+                               ],
+                               do: %{@receipt_type | key: key, number_prefix: prefix}
+
   # REQ-721: transfer, hand over and return (prefixes TRF, HOV, RET; assumption, owner may change at GATE B).
   @two_side_document_types for {key, prefix} <- [
                                  {"stock_transfer", "TRF"},
@@ -168,13 +228,17 @@ defmodule Letflow.Modules.Stock do
                                  declared_fields: %{}
                                }
 
-  @document_types [@receipt_type | @two_side_document_types] ++ @count_document_types
+  @document_types [
+                    @receipt_type,
+                    @opening_type | @one_side_document_types ++ @two_side_document_types
+                  ] ++
+                    @count_document_types
 
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.6.0",
-    depends_on: ["catalog_items", "locations", "org"],
+    version: "0.9.0",
+    depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
       :StockPost,
@@ -195,6 +259,7 @@ defmodule Letflow.Modules.Stock do
       {"PUT", "/documents/:id", :StockPost},
       {"DELETE", "/documents/:id", :StockPost},
       {"POST", "/documents/:id/issue", :StockPost},
+      {"POST", "/documents/:id/check", :StockPost},
       {"GET", "/documents", :StockRead},
       {"GET", "/documents/:id", :StockRead},
       {"POST", "/documents/:id/post", :StockPost},
@@ -207,7 +272,9 @@ defmodule Letflow.Modules.Stock do
       {"GET", "/counts", :StockRead},
       {"GET", "/counts/:id", :StockRead},
       {"GET", "/counts/:id/document", :StockRead},
+      {"GET", "/counts/:id/paperwork/:kind", :StockRead},
       {"POST", "/counts/:id/open", :StockCountRecord},
+      {"POST", "/counts/:id/scan", :StockCountRecord},
       {"GET", "/counts/:id/lines", :StockRead},
       {"PUT", "/counts/:id/lines/:line_no/count", :StockCountRecord},
       {"POST", "/counts/:id/surplus-lines", :StockCountRecord},
@@ -223,6 +290,10 @@ defmodule Letflow.Modules.Stock do
     manages_entity_types: [
       "stock_receipt",
       "stock_receipt_line",
+      "stock_issue",
+      "stock_issue_line",
+      "stock_writeoff",
+      "stock_writeoff_line",
       "stock_transfer",
       "stock_transfer_line",
       "stock_handover",
@@ -235,11 +306,17 @@ defmodule Letflow.Modules.Stock do
       "count_sheet_line",
       "count_entry",
       "count_signature",
-      "stock_posting_mark"
+      "stock_posting_mark",
+      "stock_opening",
+      "stock_opening_line"
     ],
     scope_declarations: %{
       "stock_receipt" => {:column, "org_unit_id"},
       "stock_receipt_line" => {:column, "org_unit_id"},
+      "stock_issue" => {:column, "org_unit_id"},
+      "stock_issue_line" => {:column, "org_unit_id"},
+      "stock_writeoff" => {:column, "org_unit_id"},
+      "stock_writeoff_line" => {:column, "org_unit_id"},
       "stock_transfer" => {:column, "org_unit_id"},
       "stock_transfer_line" => {:column, "org_unit_id"},
       "stock_handover" => {:column, "org_unit_id"},
@@ -252,7 +329,9 @@ defmodule Letflow.Modules.Stock do
       "count_sheet_line" => {:column, "org_unit_id"},
       "count_entry" => {:column, "org_unit_id"},
       "count_signature" => {:column, "org_unit_id"},
-      "stock_posting_mark" => {:column, "org_unit_id"}
+      "stock_posting_mark" => {:column, "org_unit_id"},
+      "stock_opening" => {:column, "org_unit_id"},
+      "stock_opening_line" => {:column, "org_unit_id"}
     },
     write_handlers: [
       %Letflow.Modules.WriteHandlerSpec{
@@ -297,6 +376,7 @@ defmodule Letflow.Modules.Stock do
         ],
         causes: %{
           "receipt" => %{sign_rule: :positive, reason_required: false},
+          "opening" => %{sign_rule: :positive, reason_required: false},
           "issue" => %{sign_rule: :negative, reason_required: false},
           "write_off" => %{sign_rule: :negative, reason_required: true},
           "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},

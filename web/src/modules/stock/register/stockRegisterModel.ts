@@ -5,7 +5,7 @@ import type { BalanceRow, MovementLeg, MovementRow } from './stock.api'
 /** Tenant time zone until the tenant setting exists (REQ-703): assumption, owner may change at GATE B. */
 export const STOCK_TIME_ZONE = 'Asia/Almaty'
 
-export const CAUSES = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'reversal'] as const
+export const CAUSES = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'reversal', 'opening'] as const
 export const DOCUMENT_TYPES = [
   'stock_receipt',
   'stock_issue',
@@ -14,10 +14,11 @@ export const DOCUMENT_TYPES = [
   'stock_handover',
   'stock_return',
   'stock_reversal',
+  'stock_opening',
 ] as const
 
 /** Master entity types read for names. */
-export type MasterType = 'catalog_item' | 'location_node' | 'org_unit' | 'org_employee' | 'catalog_lot' | 'catalog_uom'
+export type MasterType = 'catalog_item' | 'location_node' | 'org_unit' | 'org_employee' | 'catalog_lot' | 'catalog_uom' | 'catalog_counterparty'
 
 export interface BalanceFilters {
   sku: string
@@ -48,6 +49,15 @@ export function balanceParams(f: BalanceFilters): Record<string, string> {
     ['responsible', f.responsible],
     ['lot', f.lot],
   ])
+}
+
+/** The as-of day typed in the date input: sent only when it is a full YYYY-MM-DD (an incomplete value is not sent). */
+export const AS_OF_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Filters plus the as-of day. Never basis, as_of, cutoff_seq or a tenant: the server resolves the cutoff and states it. */
+export function balanceQuery(f: BalanceFilters, asOf: string): Record<string, string> {
+  const day = asOf.trim()
+  return { ...balanceParams(f), ...(AS_OF_DATE.test(day) ? { as_of_date: day } : {}) }
 }
 
 /** True when both bounds are numbers and from is above to: the range is not sent and the field is marked. */
@@ -127,4 +137,5 @@ export const LABEL_FIELD: Record<MasterType, string> = {
   org_employee: 'full_name',
   catalog_lot: 'code',
   catalog_uom: 'name',
+  catalog_counterparty: 'name',
 }

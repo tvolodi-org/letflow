@@ -20,6 +20,13 @@ defmodule Letflow.Release.IdempotencySquatsTest do
   defp tenant!(prefix \\ "gh2597-wrap"),
     do: TenantFixture.provisioned_tenant!(slug_prefix: prefix)
 
+  # A registered tenant whose schema is gone: its scan errors (undefined_table).
+  defp broken_tenant! do
+    t = tenant!("gh3842-broken")
+    Repo.query!(~s(DROP SCHEMA "#{t.schema_name}" CASCADE))
+    t
+  end
+
   defp lines(out), do: String.split(out, "\n", trim: true)
 
   describe "audit/0" do
@@ -28,10 +35,19 @@ defmodule Letflow.Release.IdempotencySquatsTest do
       F.insert_squat!(s, "script_run:flagged", actor_id: Ecto.UUID.generate())
       F.insert_squat!(s, "sys:reserved", actor_id: Ecto.UUID.generate())
       F.insert_squat!(s, "script_run:legit", actor_id: F.platform_actor())
+      # GH #3842: audit/0 scans EVERY registered tenant, and a foreign tenant that other tests
+      # of the same shard left broken (CI shard 3/8 partition 11) lands in `errored`. Model
+      # that here so the test proves its own tenant's output regardless of the neighbours.
+      %{tenant_id: foreign} = broken_tenant!()
 
       {result, out} = with_io(fn -> IdempotencySquats.audit() end)
 
-      assert {:ok, %{scanned: scanned, flagged: flagged, report_only: ro, errored: []}} = result
+      assert {:ok, %{scanned: scanned, flagged: flagged, report_only: ro, errored: errored}} =
+               result
+
+      assert foreign in errored
+      # this test's own tenant never errors
+      refute tid in errored
       assert scanned >= 3 and flagged >= 1 and ro >= 1
 
       ls = lines(out)
@@ -57,7 +73,7 @@ defmodule Letflow.Release.IdempotencySquatsTest do
              )
 
       assert List.last(ls) =~
-               ~r/^SUMMARY tenants=\d+ scanned=\d+ flagged=\d+ report_only=\d+ errored=0$/
+               ~r/^SUMMARY tenants=\d+ scanned=\d+ flagged=\d+ report_only=\d+ errored=#{length(errored)}$/
     end
 
     test "writes nothing" do

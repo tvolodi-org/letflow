@@ -2,6 +2,7 @@
  *  Own copy of the locale type: module code may not import another module (0039 D3).
  *  The ru and kk texts are written by the developer and need a native-speaker check. */
 import type { UiLocale } from '@/i18n/uiLocaleStore'
+import { docEn, docKk, docRu } from './documents/documentsMessages'
 import { countsEn, countsKk, countsRu } from './counts/countsMessages'
 
 export const STOCK_UI_LOCALES = ['en', 'ru', 'kk'] as const
@@ -12,6 +13,13 @@ const en: Record<string, string> = {
   'stock.balances.title': 'Balances',
   'stock.balances.lede': 'How much of each item lies at each org unit, location, responsible employee and lot now.',
   'stock.balances.readAt': 'Read at ledger position {seq}',
+  'stock.balances.asOfRead': 'Balance at the end of {date} ({zone}), through ledger position {seq}',
+  'stock.balances.export': 'Export to Excel',
+  'stock.balances.exportHint': 'The file holds the rows loaded on the first page only.',
+  'stock.balances.exportFailed': 'The file could not be exported. Try again.',
+  'stock.filter.asOf': 'As of date',
+  'stock.filter.asOfHint': 'Balance at the end of the chosen day in the tenant time zone. Empty means now.',
+  'stock.filter.asOfInvalid': 'Enter a full date.',
   'stock.balances.empty': 'No balances found.',
   'stock.balances.emptyText': 'Balances appear after the first stock document is posted. Change or clear the filters to see more.',
   'stock.movements.title': 'Movements',
@@ -61,6 +69,8 @@ const en: Record<string, string> = {
   'stock.cause.hand_over': 'Hand over',
   'stock.cause.return': 'Return',
   'stock.cause.reversal': 'Reversal',
+  'stock.cause.opening': 'Opening balance',
+  'stock.docType.stock_opening': 'Opening balance',
   'stock.docType.stock_receipt': 'Receipt',
   'stock.docType.stock_issue': 'Issue',
   'stock.docType.stock_writeoff': 'Write off',
@@ -72,6 +82,7 @@ const en: Record<string, string> = {
   'stock.legs.hide': 'Hide legs',
   'stock.legs.title': 'Legs of the entry',
   'stock.leg.hiddenUnit': 'Hidden unit',
+  ...docEn,
 }
 
 const ru: Record<string, string> = {
@@ -79,6 +90,13 @@ const ru: Record<string, string> = {
   'stock.balances.title': 'Остатки',
   'stock.balances.lede': 'Сколько каждой позиции лежит сейчас в каждом подразделении, месте хранения, у ответственного и в каждой партии.',
   'stock.balances.readAt': 'Прочитано на позиции журнала {seq}',
+  'stock.balances.asOfRead': 'Остаток на конец дня {date} ({zone}), по позицию журнала {seq}',
+  'stock.balances.export': 'Выгрузить в Excel',
+  'stock.balances.exportHint': 'В файл попадает только первая страница строк.',
+  'stock.balances.exportFailed': 'Не удалось выгрузить файл. Повторите попытку.',
+  'stock.filter.asOf': 'На дату',
+  'stock.filter.asOfHint': 'Остаток на конец выбранного дня в часовом поясе организации. Пусто — на сейчас.',
+  'stock.filter.asOfInvalid': 'Введите дату полностью.',
   'stock.balances.empty': 'Остатков не найдено.',
   'stock.balances.emptyText': 'Остатки появятся после проведения первого складского документа. Измените или сбросьте фильтры.',
   'stock.movements.title': 'Движения',
@@ -128,6 +146,8 @@ const ru: Record<string, string> = {
   'stock.cause.hand_over': 'Передача',
   'stock.cause.return': 'Возврат',
   'stock.cause.reversal': 'Сторно',
+  'stock.cause.opening': 'Начальный остаток',
+  'stock.docType.stock_opening': 'Начальный остаток',
   'stock.docType.stock_receipt': 'Приход',
   'stock.docType.stock_issue': 'Расход',
   'stock.docType.stock_writeoff': 'Списание',
@@ -139,6 +159,7 @@ const ru: Record<string, string> = {
   'stock.legs.hide': 'Скрыть строки',
   'stock.legs.title': 'Строки записи',
   'stock.leg.hiddenUnit': 'Скрытое подразделение',
+  ...docRu,
 }
 
 const kk: Record<string, string> = {
@@ -146,6 +167,13 @@ const kk: Record<string, string> = {
   'stock.balances.title': 'Қалдықтар',
   'stock.balances.lede': 'Әр позиция қазір әр бөлімшеде, сақтау орнында, жауапты адамда және партияда қанша жатыр.',
   'stock.balances.readAt': 'Журналдың {seq} позициясында оқылды',
+  'stock.balances.asOfRead': '{date} күні соңындағы қалдық ({zone}), журналдың {seq} позициясына дейін',
+  'stock.balances.export': 'Excel-ге жүктеу',
+  'stock.balances.exportHint': 'Файлға жолдардың тек бірінші беті түседі.',
+  'stock.balances.exportFailed': 'Файлды жүктеу мүмкін болмады. Қайталап көріңіз.',
+  'stock.filter.asOf': 'Күні бойынша',
+  'stock.filter.asOfHint': 'Ұйымның уақыт белдеуіндегі таңдалған күн соңындағы қалдық. Бос болса — қазір.',
+  'stock.filter.asOfInvalid': 'Күнді толық енгізіңіз.',
   'stock.balances.empty': 'Қалдық табылмады.',
   'stock.balances.emptyText': 'Қалдықтар алғашқы қойма құжаты өткізілгеннен кейін пайда болады. Сүзгілерді өзгертіңіз немесе тазалаңыз.',
   'stock.movements.title': 'Қозғалыстар',
@@ -195,6 +223,8 @@ const kk: Record<string, string> = {
   'stock.cause.hand_over': 'Тапсыру',
   'stock.cause.return': 'Қайтару',
   'stock.cause.reversal': 'Қайта жазу',
+  'stock.cause.opening': 'Бастапқы қалдық',
+  'stock.docType.stock_opening': 'Бастапқы қалдық',
   'stock.docType.stock_receipt': 'Кіріс',
   'stock.docType.stock_issue': 'Шығыс',
   'stock.docType.stock_writeoff': 'Есептен шығару',
@@ -206,6 +236,7 @@ const kk: Record<string, string> = {
   'stock.legs.hide': 'Жолдарды жасыру',
   'stock.legs.title': 'Жазба жолдары',
   'stock.leg.hiddenUnit': 'Жасырын бөлімше',
+  ...docKk,
 }
 
 export const stockMessages: Record<StockUiLocale, Record<string, string>> = {

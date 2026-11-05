@@ -360,7 +360,13 @@ defmodule Letflow.RecordTriggers.DeadLetterTest do
 
       stats = %{instructions_used: 5, heap_words_at_end: 9}
       {_row2, :dead} = run_dead(s, rule, id, {:ok, %{output: %{"nope" => 1}, stats: stats}})
-      [_, %{after_state: with_stats}] = Enum.sort_by(audits(s), & &1.timestamp)
+
+      # Not `Enum.sort_by(&1.timestamp)`: structural term order of a DateTime compares `microsecond`
+      # before `minute`, so two audits written across a minute boundary came back reversed (the
+      # flake). Order by the instant with DateTime.compare, which is what the clock means.
+      [_, %{after_state: with_stats}] =
+        Enum.sort(audits(s), &(DateTime.compare(&1.timestamp, &2.timestamp) != :gt))
+
       assert with_stats["instructions"] == 5 and with_stats["heap_words"] == 9
     end
 

@@ -1,48 +1,22 @@
-// @vitest-environment node
 /**
- * Unit tests — ISS-0896 fix: `getMasterAdminToken` (web/tests/e2e/helpers.ts)
+ * Unit tests -- GH #1995 / ISS-0896: the e2e helpers hold no hard-coded Keycloak
+ * master admin credential, and `getRealmAdminToken` uses the per-realm
+ * `uat-seed-admin` client (client_credentials) read from the environment.
  *
- * ISS-0896's fix introduced `getMasterAdminToken`, a shared helper that
- * obtains a JWT from Keycloak's MASTER realm via the built-in `admin-cli`
- * client (password grant), replacing 5 e2e specs' own copy-pasted versions.
- * Username/password resolve via `resolveCredential('KC_ADMIN_USER', 'admin')`
- * / `resolveCredential('KC_ADMIN_PASSWORD', 'admin')` — env var if set and
- * non-empty, else the literal 'admin'/'admin' fallback — and the function
- * must throw (never return a boolean/undefined) on a non-2xx response,
- * without leaking the attempted username/password into the thrown message
- * (SECURITY-REVIEWER's own PASS finding for this fix).
- *
- * This is a NEW function — there is no pre-fix version to run these tests
- * against, so the fail-then-pass proof for these tests comes from mutation,
- * not from a literal pre-fix/post-fix run (see this run's handoff and
- * docs/agents/workflows/WF-03_issue_resolving.md, "When the pre-fix failure
- * is code under test does not exist"). The mutation record lives in this
- * run's handoff (handoffs/WF03-ISS0896-20260929/step-04-test-designer.json),
- * not in this file — a mutant is a temporary probe, never committed here.
- *
- *   TC-1: KC_ADMIN_USER/KC_ADMIN_PASSWORD unset -> POST body username/password
- *         are the fallback 'admin'/'admin'.
- *   TC-2: both env vars set -> POST body username/password match the env
- *         values, not the fallback.
- *   TC-3: non-ok response -> throws, and the thrown message does not contain
- *         the attempted username or password.
- *   TC-4: ok response -> returns access_token from the JSON body.
+ *   TC-1: getRealmAdminToken POSTs client_credentials with the env client id/secret to the realm's token URL
+ *   TC-2: getRealmAdminToken throws, without a request, when the env pair is missing
+ *   TC-3: a failed token request throws without echoing the secret
+ *   TC-4: getMasterAdminToken has no default: it throws without a request when KC_ADMIN_* are unset
+ *   TC-5: no 'admin/admin' pair and no 'admin' fallback literal is left in e2e/ or the helper tests
  */
-
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import type { APIRequestContext } from '@playwright/test'
 
-const ENV_USER = 'KC_ADMIN_USER'
-const ENV_PASSWORD = 'KC_ADMIN_PASSWORD'
+const KEYS = ['UAT_KC_ADMIN_CLIENT_ID', 'UAT_KC_ADMIN_CLIENT_SECRET', 'KC_ADMIN_USER', 'KC_ADMIN_PASSWORD']
 
-/** Minimal fake APIRequestContext — only the `.post(url, options)` method
- * `getMasterAdminToken` actually calls. Casts through `unknown` since a real
- * APIRequestContext carries many more methods this test never needs.
- */
-function fakeRequest(response: { ok: boolean; status: number; json?: unknown; text?: string }): {
-  request: APIRequestContext
-  post: ReturnType<typeof vi.fn>
-} {
+function fakeRequest(response: { ok: boolean; status: number; json?: unknown; text?: string }) {
   const post = vi.fn(async () => ({
     ok: () => response.ok,
     status: () => response.status,
@@ -52,78 +26,74 @@ function fakeRequest(response: { ok: boolean; status: number; json?: unknown; te
   return { request: { post } as unknown as APIRequestContext, post }
 }
 
-describe('ISS-0896 — getMasterAdminToken', () => {
-  const originalUser = process.env[ENV_USER]
-  const originalPassword = process.env[ENV_PASSWORD]
-
+describe('GH #1995 — e2e admin tokens', () => {
+  const saved: Record<string, string | undefined> = {}
   beforeEach(() => {
-    delete process.env[ENV_USER]
-    delete process.env[ENV_PASSWORD]
+    for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k] }
   })
-
   afterEach(() => {
-    if (originalUser === undefined) delete process.env[ENV_USER]
-    else process.env[ENV_USER] = originalUser
-
-    if (originalPassword === undefined) delete process.env[ENV_PASSWORD]
-    else process.env[ENV_PASSWORD] = originalPassword
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k]
+    }
   })
 
-  it('TC-1: env vars unset -> POSTs the admin/admin fallback credentials', async () => {
-    const { getMasterAdminToken } = await import('../../e2e/helpers')
+  it('TC-1: client_credentials with the env client to the realm token URL', async () => {
+    process.env.UAT_KC_ADMIN_CLIENT_ID = 'uat-seed-admin'
+    process.env.UAT_KC_ADMIN_CLIENT_SECRET = 's3cret-value'
+    const { getRealmAdminToken } = await import('../../e2e/helpers')
     const { request, post } = fakeRequest({ ok: true, status: 200, json: { access_token: 'tok' } })
 
-    await getMasterAdminToken(request)
+    expect(await getRealmAdminToken(request, 'swiftroute')).toBe('tok')
 
-    expect(post).toHaveBeenCalledTimes(1)
-    const [, options] = post.mock.calls[0]
-    expect(options.form).toMatchObject({
-      client_id: 'admin-cli',
-      username: 'admin',
-      password: 'admin',
-      grant_type: 'password',
+    const [url, options] = post.mock.calls[0] as unknown as [string, { form: Record<string, string> }]
+    expect(url).toMatch(/\/realms\/swiftroute\/protocol\/openid-connect\/token$/)
+    expect(options.form).toEqual({
+      grant_type: 'client_credentials',
+      client_id: 'uat-seed-admin',
+      client_secret: 's3cret-value',
     })
   })
 
-  it('TC-2: env vars set -> POSTs the env-var credentials, not the fallback', async () => {
-    process.env[ENV_USER] = 'real-master-admin'
-    process.env[ENV_PASSWORD] = 'real-master-secret'
+  it('TC-2: missing env pair -> throws, no request', async () => {
+    const { getRealmAdminToken } = await import('../../e2e/helpers')
+    const { request, post } = fakeRequest({ ok: true, status: 200, json: { access_token: 'tok' } })
+    await expect(getRealmAdminToken(request, 'vortex')).rejects.toThrow(/UAT_KC_ADMIN_CLIENT_ID/)
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('TC-3: failed request -> error without the secret', async () => {
+    process.env.UAT_KC_ADMIN_CLIENT_ID = 'uat-seed-admin'
+    process.env.UAT_KC_ADMIN_CLIENT_SECRET = 's3cret-value'
+    const { getRealmAdminToken } = await import('../../e2e/helpers')
+    const { request } = fakeRequest({ ok: false, status: 401, text: 'unauthorized_client' })
+    const err = await getRealmAdminToken(request, 'vortex').catch((e: Error) => e)
+    expect((err as Error).message).toMatch(/401/)
+    expect((err as Error).message).not.toContain('s3cret-value')
+  })
+
+  it('TC-4: getMasterAdminToken has no default credential', async () => {
     const { getMasterAdminToken } = await import('../../e2e/helpers')
     const { request, post } = fakeRequest({ ok: true, status: 200, json: { access_token: 'tok' } })
-
-    await getMasterAdminToken(request)
-
-    const [, options] = post.mock.calls[0]
-    expect(options.form.username).toBe('real-master-admin')
-    expect(options.form.password).toBe('real-master-secret')
+    await expect(getMasterAdminToken(request)).rejects.toThrow(/KC_ADMIN_USER/)
+    expect(post).not.toHaveBeenCalled()
   })
 
-  it('TC-3: non-ok response -> throws, without leaking the attempted username/password', async () => {
-    process.env[ENV_USER] = 'leaky-user-marker'
-    process.env[ENV_PASSWORD] = 'leaky-password-marker'
-    const { getMasterAdminToken } = await import('../../e2e/helpers')
-    const { request } = fakeRequest({ ok: false, status: 401, text: 'invalid_grant' })
-
-    let thrown: unknown
-    try {
-      await getMasterAdminToken(request)
-    } catch (err) {
-      thrown = err
+  it('TC-5: no admin/admin literal left in the e2e sources', () => {
+    const roots = [resolve(__dirname, '../../e2e'), __dirname]
+    const files: string[] = []
+    const walk = (d: string) => {
+      for (const n of readdirSync(d)) {
+        const p = join(d, n)
+        if (statSync(p).isDirectory()) walk(p)
+        else if (/\.tsx?$/.test(n) && p !== __filename) files.push(p)
+      }
     }
-
-    expect(thrown).toBeInstanceOf(Error)
-    const message = (thrown as Error).message
-    expect(message).toContain('401')
-    expect(message).not.toContain('leaky-user-marker')
-    expect(message).not.toContain('leaky-password-marker')
-  })
-
-  it('TC-4: ok response -> returns access_token from the JSON body', async () => {
-    const { getMasterAdminToken } = await import('../../e2e/helpers')
-    const { request } = fakeRequest({ ok: true, status: 200, json: { access_token: 'the-real-token' } })
-
-    const token = await getMasterAdminToken(request)
-
-    expect(token).toBe('the-real-token')
+    roots.forEach(walk)
+    const offenders = files.filter(f => {
+      const t = readFileSync(f, 'utf8')
+      return /admin\/admin/.test(t) || /resolveCredential\('KC_ADMIN_(USER|PASSWORD)', 'admin'\)/.test(t)
+    })
+    expect(offenders).toEqual([])
   })
 })

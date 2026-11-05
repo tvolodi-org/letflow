@@ -3,7 +3,7 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   REQ-712 / GH #3749: the pure shape check of a stock document request body (save and replace).
   No database, no clock. `parse/2` returns the normalised document or the first refusal, in the order
   of the entry: `unknown_kind`, `field_not_allowed`, `field_required`, `field_invalid`,
-  `event_time_invalid`, `lines_count`, `quantity_invalid`, `price_invalid` (receipt lines), and for a two-sided kind (transfer, hand over,
+  `reason_invalid` (write-off), `event_time_invalid`, `lines_count`, `quantity_invalid`, `price_invalid` (receipt lines), and for a two-sided kind (transfer, hand over,
   return; REQ-721) last `sides_equal`. The header keys of each kind come from
   `Letflow.Modules.Stock.Documents.Kinds`; a key of another kind is `field_not_allowed`.
 
@@ -11,6 +11,12 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   map of fixed keys (`"field"`, `"line_no"`); a supplied value is never echoed. `field_invalid` and
   `event_time_invalid` are additions to the entry's closed list (an unparseable value has to be refused
   with some reason; assumption, owner may change at GATE B).
+
+  REQ-715 / GH #3746: a line of an issue or a write-off has no `unit_price` or `line_value`
+  (`field_not_allowed`). A write-off needs `reason_code` (`lost`, `damaged`, `used_up`, `other`) and may
+  carry `reason_text` (1..500 characters, not blank); `other` needs the text; a wrong value is
+  `reason_invalid`. An issue may carry `reason_text`; a wrong value there is `field_invalid`.
+  Assumption, owner may change at GATE B.
 
   Server-set keys (`document_id`, `header_id`, `line_no`, `number`, `state`, anything else) are
   `field_not_allowed`. Ids are canonical lowercase uuid text. `event_time` is ISO 8601 with an offset
@@ -35,6 +41,8 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
   @line_keys @line_required ++ ["catalog_lot_id"]
   @line_extra %{"receipt" => ~w(unit_price line_value)}
   @ref_max 200
+  @write_off_reasons ~w(lost damaged used_up other)
+  @reason_text_max 500
   @received_on ~r/\A[0-9]{4}-[0-9]{2}-[0-9]{2}\z/
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
 
@@ -60,6 +68,7 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
          :ok <- allowed(body, spec),
          :ok <- required(body, spec),
          {:ok, header} <- header(body, spec),
+         :ok <- reason_other(header, spec),
          {:ok, event_time} <- event_time(body["event_time"]),
          {:ok, raw_lines} <- raw_lines(body["lines"]),
          {:ok, lines} <- lines(raw_lines, kind),
@@ -121,6 +130,13 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
     end)
   end
 
+  # A write-off reason `other` needs a reason text (REQ-715).
+  defp reason_other(%{"reason_code" => "other"} = header, %{kind: "write_off"}) do
+    if Map.has_key?(header, "reason_text"), do: :ok, else: refuse("reason_invalid")
+  end
+
+  defp reason_other(_header, _spec), do: :ok
+
   # Last check of a two-sided kind (REQ-721): the from and the to side must differ in at least one
   # of org unit, location and responsible. Ids are canonical lowercase uuid text, so text equality
   # is exact.
@@ -129,6 +145,20 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
       {nil, _to} -> :ok
       {same, same} -> refuse("sides_equal")
       {_from, _to} -> :ok
+    end
+  end
+
+  defp header_value("reason_code", value, acc, _spec) do
+    if value in @write_off_reasons,
+      do: {:cont, {:ok, Map.put(acc, "reason_code", value)}},
+      else: {:halt, refuse("reason_invalid")}
+  end
+
+  defp header_value("reason_text", value, acc, spec) do
+    case reason_text(value) do
+      {:ok, text} -> {:cont, {:ok, Map.put(acc, "reason_text", text)}}
+      :error when spec.kind == "write_off" -> {:halt, refuse("reason_invalid")}
+      :error -> {:halt, refuse("field_invalid", %{"field" => "reason_text"})}
     end
   end
 
@@ -152,13 +182,10 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
       else: {:halt, refuse("field_invalid", %{"field" => "supplier_document_ref"})}
   end
 
-  defp header_value("received_on", value, acc, _spec) when is_binary(value) do
-    with true <- Regex.match?(@received_on, value),
-         {:ok, date} <- Date.from_iso8601(value),
-         true <- date.year in 2000..2100 do
-      {:cont, {:ok, Map.put(acc, "received_on", value)}}
-    else
-      _bad -> {:halt, refuse("field_invalid", %{"field" => "received_on"})}
+  defp header_value("received_on", value, acc, _spec) do
+    case received_on_text(value) do
+      {:ok, text} -> {:cont, {:ok, Map.put(acc, "received_on", text)}}
+      :error -> {:halt, refuse("field_invalid", %{"field" => "received_on"})}
     end
   end
 
@@ -172,6 +199,33 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
 
   defp header_value(key, _value, _acc, _spec),
     do: {:halt, refuse("field_invalid", %{"field" => key})}
+
+  @doc """
+  A real receipt date: `YYYY-MM-DD`, a valid date, year 2000..2100 (REQ-714). Shared with the opening
+  document (REQ-725) so there is one definition.
+  """
+  @spec received_on_text(term()) :: {:ok, String.t()} | :error
+  def received_on_text(value) when is_binary(value) do
+    with true <- Regex.match?(@received_on, value),
+         {:ok, date} <- Date.from_iso8601(value),
+         true <- date.year in 2000..2100 do
+      {:ok, value}
+    else
+      _bad -> :error
+    end
+  end
+
+  def received_on_text(_other), do: :error
+
+  defp reason_text(value) when is_binary(value) do
+    text = String.valid?(value) && :unicode.characters_to_nfc_binary(value)
+
+    if is_binary(text) and String.trim(text) != "" and String.length(text) <= @reason_text_max,
+      do: {:ok, text},
+      else: :error
+  end
+
+  defp reason_text(_other), do: :error
 
   @doc "Canonical lowercase uuid text of a binary, else `:error`."
   @spec uuid(term()) :: {:ok, String.t()} | :error
@@ -268,13 +322,22 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
     end)
   end
 
-  defp quantity(text, no) when is_binary(text) do
-    if Regex.match?(@quantity, text) and Decimal.gt?(Decimal.new(text), 0),
-      do: {:ok, text |> Decimal.new() |> Decimal.round(9) |> Decimal.to_string(:normal)},
-      else: refuse("quantity_invalid", %{"line_no" => no})
+  defp quantity(text, no) do
+    case quantity_text(text) do
+      {:ok, value} -> {:ok, value}
+      :error -> refuse("quantity_invalid", %{"line_no" => no})
+    end
   end
 
-  defp quantity(_other, no), do: refuse("quantity_invalid", %{"line_no" => no})
+  @doc "A quantity text: greater than zero, at most 9 decimals, returned with exactly 9 decimals."
+  @spec quantity_text(term()) :: {:ok, String.t()} | :error
+  def quantity_text(text) when is_binary(text) do
+    if Regex.match?(@quantity, text) and Decimal.gt?(Decimal.new(text), 0),
+      do: {:ok, text |> Decimal.new() |> Decimal.round(9) |> Decimal.to_string(:normal)},
+      else: :error
+  end
+
+  def quantity_text(_other), do: :error
 
   defp prices(line, no) do
     Enum.reduce_while(~w(unit_price line_value), {:ok, %{}}, fn key, {:ok, acc} ->
@@ -283,7 +346,7 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
           {:cont, {:ok, acc}}
 
         {:ok, text} ->
-          case price(text) do
+          case price_text(text) do
             {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
             :error -> {:halt, refuse("price_invalid", %{"field" => key, "line_no" => no})}
           end
@@ -291,13 +354,15 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
     end)
   end
 
-  defp price(text) when is_binary(text) do
+  @doc "A unit price or line value text: not negative (zero accepted), at most 9 decimals, 9 decimals back."
+  @spec price_text(term()) :: {:ok, String.t()} | :error
+  def price_text(text) when is_binary(text) do
     if Regex.match?(@quantity, text),
       do: {:ok, text |> Decimal.new() |> Decimal.round(9) |> Decimal.to_string(:normal)},
       else: :error
   end
 
-  defp price(_other), do: :error
+  def price_text(_other), do: :error
 
   defp refuse(reason, extras \\ %{}), do: {:error, {reason, extras}}
 

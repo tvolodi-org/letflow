@@ -12,12 +12,23 @@ export const withAtom: AccessState = {
   status: 'ready',
   info: { roles: [], platform_tenant: false, permissions: ['StockRead'] },
 }
+function access(...permissions: string[]): AccessState {
+  return { status: 'ready', info: { roles: [], platform_tenant: false, permissions } }
+}
+export const withPost = access('StockRead', 'StockPost')
+export const withReverse = access('StockRead', 'StockReverse')
+export const withAll = access('StockRead', 'StockPost', 'StockReverse')
 export const withoutAtom: AccessState = {
   status: 'ready',
   info: { roles: [], platform_tenant: false, permissions: [] },
 }
 
-export type ClientMock = { post: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> }
+export type ClientMock = {
+  post: ReturnType<typeof vi.fn>
+  get: ReturnType<typeof vi.fn>
+  put?: ReturnType<typeof vi.fn>
+  delete?: ReturnType<typeof vi.fn>
+}
 
 export function rec(id: string, fields: Record<string, unknown>): EntityRecord {
   return {
@@ -33,7 +44,8 @@ export function rec(id: string, fields: Record<string, unknown>): EntityRecord {
 type Clause = { field: string; op: string; value?: unknown }
 
 export const MASTERS: Record<string, EntityRecord[]> = {
-  catalog_item: [rec('i1', { name: 'Bolt M8' }), rec('i2', { name: 'Nut M8' })],
+  catalog_item: [rec('i1', { name: 'Bolt M8', base_uom_id: 'm1' }), rec('i2', { name: 'Nut M8', base_uom_id: 'm1' })],
+  catalog_counterparty: [rec('c1', { name: 'Acme Ltd' })],
   location_node: [rec('l1', { name: 'Shelf A' })],
   org_unit: [rec('u1', { name: 'Main store' })],
   org_employee: [rec('e1', { full_name: 'Aigul B.' })],
@@ -91,3 +103,37 @@ export function problem(status: number) {
 
 export const BAL = '/admin/stock/balances'
 export const MOV = '/admin/stock/movements'
+
+export const DOCS = '/api/v1/modules/stock/documents'
+export const LIST = '/admin/stock/documents'
+
+export function stockDoc(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'd1', kind: 'receipt', state: 'draft', number: null, issued_at: null, header_id: 'h1',
+    org_unit_id: 'u1', location_id: 'l1', responsible_id: 'e1', counterparty_id: null,
+    event_time: '2026-11-04T05:00:00Z', note: null,
+    lines: [
+      { line_id: 'x2', line_no: 2, catalog_item_id: 'i2', catalog_uom_id: 'm1', catalog_lot_id: 't2', quantity: '5.000000000', unit_price: '2', line_value: '10' },
+      { line_id: 'x1', line_no: 1, catalog_item_id: 'i1', catalog_uom_id: 'm1', catalog_lot_id: 't1', quantity: '3.000000000' },
+    ],
+    posted_at: null, posted_by: null, entry_id: null, reversed_at: null, reversed_by: null, posting_check: null,
+    ...over,
+  }
+}
+
+/** A thrown refusal as `client` makes it: status plus the RFC 9457 members in `details`. */
+export function refusal(status: number, reason?: string, extra: Record<string, unknown> = {}) {
+  return { status, message: 'x', code: String(status), details: reason ? { reason, ...extra } : { ...extra } }
+}
+
+/** GET of one document answers `doc`; every other call is set by the test. */
+export function fakeDocument(client: ClientMock, doc: Record<string, unknown>) {
+  client.get.mockImplementation(async (path: string) => {
+    if (path === `${DOCS}/${String(doc['id'])}`) return doc
+    return { rows: [], next_cursor: null }
+  })
+}
+
+export function postsTo(client: ClientMock, suffix: string): unknown[][] {
+  return client.post.mock.calls.filter(([p]) => p === `${DOCS}/${suffix}`)
+}

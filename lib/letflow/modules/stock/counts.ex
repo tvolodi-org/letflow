@@ -230,6 +230,7 @@ defmodule Letflow.Modules.Stock.Counts do
   defdelegate open(prefix, id, opts), to: CountSheet
   defdelegate record_count(prefix, id, line_no, quantity, opts), to: CountSheet
   defdelegate add_surplus_line(prefix, id, input, opts), to: CountSheet
+  defdelegate scan(prefix, id, input, opts), to: CountSheet
   defdelegate close_counting(prefix, id, opts), to: CountSheet
   defdelegate lines(prefix, id, params, opts), to: CountSheet
   defdelegate entries(prefix, id, params, opts), to: CountSheet
@@ -419,6 +420,10 @@ defmodule Letflow.Modules.Stock.Counts do
 
   defp cursor_of(%{record_id: rid, field_values: fv}),
     do: Base.url_encode64(fv["planned_start"] <> "|" <> rid, padding: false)
+
+  @doc "The scope-checked order header (`count_order` record map), no view; not found, other tenant and out of scope are alike."
+  @spec header(String.t(), term(), term()) :: {:ok, map()} | {:error, :not_found}
+  def header(prefix, id, scope) when is_binary(prefix), do: fetch(prefix, id, scope)
 
   @doc "The issued document summary of an order (`number_label`, `version_no`, `issued_at`, `content_hash`)."
   @spec document(String.t(), term(), map()) :: {:ok, map()} | {:error, :not_found}

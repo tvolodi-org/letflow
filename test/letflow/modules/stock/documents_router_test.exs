@@ -146,7 +146,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
       line = %{"catalog_item_id" => m.item, "catalog_uom_id" => m.uom, "quantity" => "1"}
 
       cases = [
-        {"unknown_kind", D.body(m, nil, %{"kind" => "issue"})},
+        {"unknown_kind", D.body(m, nil, %{"kind" => "loan"})},
         {"unknown_kind", D.body(m, nil, %{"kind" => 1})},
         {"field_required", Map.delete(D.body(m), "kind")},
         {"field_not_allowed", D.body(m, nil, %{"document_id" => Ecto.UUID.generate()})},
@@ -237,7 +237,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
                  :put,
                  "/documents/#{doc["id"]}",
                  ctx.tok_a,
-                 D.body(ctx.ma, nil, %{"kind" => "issue"})
+                 D.body(ctx.ma, nil, %{"kind" => "loan"})
                ),
                422
              ) ==
@@ -311,7 +311,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
             "limit=101",
             "limit=abc",
             "state=nope",
-            "kind=issue",
+            "kind=loan",
             "org_unit_id=nope",
             "cursor=garbage",
             "cursor=1.not-a-uuid",

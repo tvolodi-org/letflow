@@ -22,6 +22,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `PUT /documents/:id` | `StockPost` | 200 document (replaces the whole draft) |
   | `DELETE /documents/:id` | `StockPost` | 204 |
   | `POST /documents/:id/issue` | `StockPost` | 200 document |
+  | `POST /documents/:id/check` | `StockPost` | 200 `ok, lines` (opening only, writes nothing) |
   | `POST /documents/:id/post` | `StockPost` | 200 document (starts the posting instance) |
   | `POST /documents/:id/reverse` | `StockReverse` | 200 document (starts the reversal instance) |
   | `POST /documents/:id/cancel` | `StockReverse` | 200 document (state `cancelled`) |
@@ -73,6 +74,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts` (`status`, `org_unit_id`, `limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
   | `GET /counts/:id` | `StockRead` | 200 order view |
   | `GET /counts/:id/document` | `StockRead` | 200 issued summary, no content bytes |
+  | `GET /counts/:id/paperwork/:kind` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document, 422 `document_not_issued` |
 
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
   so a scoped caller gets the same 404 for an order of another unit as for an unknown id. When the
@@ -85,6 +87,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts/:id/lines` (`limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
   | `PUT /counts/:id/lines/:line_no/count` (body exactly `counted_quantity`, a decimal string) | `StockCountRecord` | 200 line |
   | `POST /counts/:id/surplus-lines` | `StockCountRecord` | 201 line |
+  | `POST /counts/:id/scan` (REQ-716; body `scanned_text`, `location_id`, `scan_id`) | `StockCountRecord` | 200 line with `duplicate`, or `kind: location` |
   | `GET /counts/:id/entries` (`limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
   | `POST /counts/:id/close` (empty body) | `StockCountRecord` | 200 order view |
   | `GET /counts/:id/sheet-document` | `StockRead` | 200 issued summary, no content bytes |
@@ -122,6 +125,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Ledger
   alias Letflow.Modules.Stock.Access
   alias Letflow.Modules.Stock.Counts
+  alias Letflow.Modules.Stock.CountPaperworkSource
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Documents.Posting
   alias Letflow.Modules.Stock.Views
@@ -233,6 +237,15 @@ defmodule Letflow.Modules.Stock.Router do
         Documents.issue(access.prefix, conn.params["id"], access.actor_id, opts),
         200
       )
+    end)
+  end
+
+  authz_post "/documents/:id/check", :StockPost do
+    with_access(conn, :post, fn conn, access ->
+      case Documents.check(access.prefix, conn.params["id"]) do
+        {:ok, result} -> Response.ok(conn, result)
+        {:error, reason} -> refuse_document(conn, reason)
+      end
     end)
   end
 
@@ -375,6 +388,15 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  authz_post "/counts/:id/scan", :StockCountRecord do
+    count_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      case conn.body_params do
+        %{"_json" => _} -> {:error, {:field_invalid, "body"}}
+        body -> Counts.scan(prefix, conn.params["id"], body, opts)
+      end
+    end)
+  end
+
   authz_post "/counts/:id/surplus-lines", :StockCountRecord do
     count_write(conn, :StockCountRecord, 201, fn prefix, opts ->
       case conn.body_params do
@@ -442,6 +464,16 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  # REQ-719: the count paperwork as xlsx, rendered from the issued document version.
+  @paperwork_kinds %{"order" => :order, "sheet" => :sheet, "differences" => :differences}
+
+  authz_get "/counts/:id/paperwork/:kind", :StockRead do
+    case Map.fetch(@paperwork_kinds, conn.params["kind"]) do
+      {:ok, kind} -> paperwork(conn, kind)
+      :error -> Response.not_found(conn)
+    end
+  end
+
   authz_unmatched(:ordinary)
 
   # -- document handlers ---------------------------------------------------------------------------
@@ -493,7 +525,7 @@ defmodule Letflow.Modules.Stock.Router do
 
   @conflicts ~w(document_not_issued document_cancelled document_posted posting_pending
                 document_not_posted document_reversed reversal_pending posting_inconsistent
-                definition_not_active)a
+                definition_not_active external_ref_taken)a
 
   defp refuse_document(conn, reason) when reason in @conflicts,
     do: problem(conn, Error.conflict("request refused"), Atom.to_string(reason))
@@ -533,6 +565,35 @@ defmodule Letflow.Modules.Stock.Router do
     end
   end
 
+  # REQ-719: the same prologue as `count_write/4`, answering a workbook instead of JSON.
+  defp paperwork(conn, kind) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+
+    with {:ok, _actor} <- Ecto.UUID.cast(conn.assigns.auth_context.user_id),
+         {:ok, conn, principal} <- Scope.principal_from_conn(conn),
+         {:ok, scope} <- allowed_set(principal, :StockRead) do
+      ctx = %{scope: scope, principal: principal, tenant_id: conn.assigns.auth_context.tenant_id}
+
+      case CountPaperworkSource.fetch(prefix, conn.params["id"], kind, ctx) do
+        {:ok, binary, name} ->
+          send_xlsx(conn, binary, name)
+
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:error, :document_not_issued} ->
+          unprocessable(conn, "document_not_issued")
+
+        {:error, :xlsx_write_failed} ->
+          Logger.error("stock paperwork xlsx write failed")
+          Response.internal_error(conn)
+      end
+    else
+      :none -> Response.not_found(conn)
+      _ -> Response.send_problem(conn, Error.forbidden("not permitted"))
+    end
+  end
+
   defp allowed_set(principal, permission) do
     case Scope.allowed_set(principal, permission) do
       {:ok, :none} -> :none
@@ -560,6 +621,9 @@ defmodule Letflow.Modules.Stock.Router do
 
   defp render(conn, {:ok, body}, status), do: Response.send_json(conn, status, body)
   defp render(conn, {:error, :not_found}, _status), do: Response.not_found(conn)
+
+  # REQ-716: an unknown code and a location outside the count look the same as an unknown count id.
+  defp render(conn, {:error, :code_unknown}, _status), do: Response.not_found(conn)
   defp render(conn, {:error, :audit_failed}, _status), do: Response.internal_error(conn)
 
   defp render(conn, {:error, {:field_not_allowed, key}}, _status) when is_binary(key),

@@ -13,7 +13,11 @@ import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
 import { topbarLanguage } from './topbarFixtures'
 import { locationsScreens } from './fixtures/locations'
 import { stockScreens } from './fixtures/stock'
+import { stockDocumentsScreens } from './fixtures/stockDocuments'
+import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
+import { stockOpeningScreens } from './fixtures/stockOpening'
 import { stockCountScreens } from './fixtures/stockCounts'
+import { stockCountDiffScreens } from './fixtures/stockCountsDiff'
 import { queryStatesScreens } from './fixtures/queryStates'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
@@ -230,7 +234,11 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     codesScreen('codes-receive', { receive: true }),
     ...locationsScreens,
     ...stockScreens,
+    ...stockDocumentsScreens,
+    ...stockTwoSidesScreens,
+    ...stockOpeningScreens,
     ...stockCountScreens,
+    ...stockCountDiffScreens,
     ...queryStatesScreens,
     masterDataImport,
     masterDataImportResult,
