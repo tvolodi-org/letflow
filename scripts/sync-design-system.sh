@@ -37,10 +37,11 @@ build() { # build <target-dir>
   DATE="$(git -C "$DESIGN" log -1 --format=%cs 2>/dev/null || date -u +%F)"
   local META='<meta name="robots" content="noindex">'
   # style guide: ../tokens.css -> css/tokens.css ; components.css -> css/components.css ;
-  # ../examples/ -> examples/
+  # ../examples/ -> examples/ ; links to ../preview/ (not shipped) become plain text
   sed -e 's#href="\.\./tokens\.css"#href="css/tokens.css"#' \
       -e 's#href="components\.css"#href="css/components.css"#' \
       -e 's#href="\.\./examples/#href="examples/#g' \
+      -e 's#<a href="\.\./preview/[^"]*">\([^<]*\)</a>#\1#g' \
       -e "s#<meta charset=\"utf-8\">#&\n$META#" \
       -e "s#^<main class=\"sg\">#&\n<p class=\"eyebrow\">Letflow platform design system, copy of $DATE of letflow-design</p>#" \
       "$DESIGN/platform/style-guide/index.html" > "$T/index.html"

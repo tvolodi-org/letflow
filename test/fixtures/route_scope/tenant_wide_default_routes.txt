@@ -177,6 +177,8 @@ POST /modules/stock/documents/:id/check StockPost
 POST /modules/stock/documents/:id/issue StockPost
 POST /modules/stock/documents/:id/post StockPost
 POST /modules/stock/documents/:id/reverse StockReverse
+POST /modules/stock/voice/draft StockPost
+POST /modules/stock/voice/draft-text StockPost
 POST /onboarding TenantsManage
 POST /onboarding/:id/bind-realm TenantsManage
 POST /platform-migrations/rollouts TenantsManage

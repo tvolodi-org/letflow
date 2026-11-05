@@ -31,6 +31,8 @@ export interface ButtonProps {
   iconOnly?: boolean
   label?: string
   type?: 'button' | 'submit' | 'reset'
+  /** Extra class of a layout hook (for example `lf-doc__back`); never a colour or spacing class. */
+  className?: string
 }
 
 /** Intentionally empty. Without any mouse handler on the button, user-event's click in
@@ -53,6 +55,7 @@ export function Button(props: ButtonProps): React.ReactElement {
     iconOnly = false,
     label,
     type = 'button',
+    className,
   } = props
   const testId = props['data-testid'] ?? 'ds-button'
   const isDisabled = disabled || loading
@@ -62,6 +65,7 @@ export function Button(props: ButtonProps): React.ReactElement {
   if (iconOnly) classes.push('lf-btn--icon')
   if (loading) classes.push('is-loading')
   if (pressed) classes.push('is-pressed')
+  if (className) classes.push(className)
 
   return (
     <button
