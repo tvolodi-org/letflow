@@ -50602,10 +50602,16 @@ requirements:
       subject to the 96-hour window of 0073 D-T. After a reversal the count reads posting state reversed; the count's
       documents stay issued (0078 D5: reversal first; no cancel of count documents is built here).
 
-      FREEZE (0079 section 4, row C7). Without the freeze, a stock posting inside the scope between the cut-off and the
-      count's posting would be counted twice by the difference (the book quantity is the balance at the cut-off). The
-      freeze check has no requirement entry yet; this entry depends on it and must not be implemented before it, and
-      the freeze's exemption for the count's own posting (document_type count.differences) is part of that entry.
+      FREEZE (0079 section 4, row C7): NOT BUILT here. Assumption, owner may change at GATE B (operator decision D-086,
+      2026-11-05): this entry is built WITHOUT the count freeze. A stock posting inside the scope between the cut-off and
+      the count's posting is NOT blocked, so a difference is posted as a delta (counted minus book at the cut-off, the
+      difference of the issued line) and the balance ends at balance-now plus delta. Known gaps, stated in the runbook:
+      (a) the freeze (row C7, count_in_progress, with the exemption for document_type count.differences) is not built;
+      (b) a shortage can exceed the current balance if goods left after the cut-off: the ledger refuses
+      insufficient_stock at completion and the count stays signed; (c) a count posted after later movements reports the
+      delta, not "counted = balance". Tests of criteria 2 to 8 are in test/letflow/modules/stock/count_posting_test.exs,
+      those of criterion 1 in registration_test.exs and ledger_policy_test.exs (one file each, not the split names
+      below). Criterion 10 is the web part (T-1315).
 
       DECIDED HERE as the simplest reasonable defaults (UAT assumption, to be confirmed by the process owner;
       assumption, owner may change at GATE B, D-086, D-087): the post and reverse tasks have no assignee (as REQ-713);
@@ -50633,13 +50639,14 @@ requirements:
       - "7. Routes (stock router; test file test/letflow/modules/stock/count_posting_router_test.exs through Letflow.Router with real bearer tokens): POST /api/v1/modules/stock/counts/:id/post (StockPost; no body), POST /api/v1/modules/stock/counts/:id/reverse (StockReverse), POST /api/v1/modules/stock/counts/:id/posting-record (StockCountRecord; no body) and GET /api/v1/modules/stock/counts/:id/posting-document (StockRead; the issued count.posting version: number label, version_no, issued_at, content_hash, no bytes; 422 count_not_posted before it is issued). Each is in route_policies; refusals render as in REQ-700 criterion 7."
       - "8. Tenancy and scope (INV-1, INV-2, INV-5, INV-10; same router test file): a count of tenant B posted, reversed or read with a token of tenant A answers 404 with the unknown-id body (trace_id dropped first) and B's ledger and count are unchanged; a TENANT_ADMIN whose grant covers org unit X but not Y gets 404 with that body on every route for a count of Y; a tenant user without StockPost gets 403 on post, without StockReverse 403 on reverse, without StockCountRecord 403 on posting-record, without StockRead 403 on the read route. No role other than TENANT_ADMIN holds StockPost and StockReverse (REQ-687: no role grants) and no tenant user is granted PLATFORM_ADMIN (docs/roles.md)."
       - "9. Gate, runbook and scope: a ledger and tenant-data-path change that passes the SECURITY-REVIEWER deep review as a stated step (credential :oidc only, authority before any deferred refusal, no ledger SQL in module code, Rule 8 of REQ-684, the handler contract scans on lib/letflow/modules/stock/handlers.ex), verdict and evidence quoted in the PR. The stock runbook section gains an item for the binding gap of criterion 5 until slice L7. The diff adds no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no migration, no tenant table, no seed and no installation of the stock module on any tenant. The pins of the description move by the counts stated there; mix letflow.check.static, mix letflow.check_boundaries, mix letflow.permission_matrix --check, mix letflow.check_requirements_registration and the test files of criteria 1 to 8 pass, real output quoted."
+      - "10. Web (T-1315, GH #3763; web/src/modules/stock/counts): the count screen of a signed or posted count shows a Posting panel with the posting state (none, pending, posted, reversed), the entry id and times, a Post button (atom StockPost, signed count with state none), an Issue posting record button (atom StockCountRecord, state posted, no record yet) and a Reverse button with a reason dialog (atom StockReverse, state posted, no reversal waiting); a waiting banner with a link to the task inbox while a post or reverse task is pending; a danger banner when posting_check is mismatch; every refusal of criterion 7 has its own message; every new text exists in en, ru and kk; the cause count_difference is an option of the Movements cause filter and has its label in the table in en, ru and kk."
     open_questions:
       - "One cause count_difference with sign rule any replaces the two causes count_surplus (positive) and count_shortage (negative) of 0079 section 8, because one entry has one cause and 0073 A2 refuses two postings to one ledger id in one transaction; REVIEWER or the owner may amend 0079 section 8 to match."
-      - "The freeze of 0079 section 4 (row C7, count_in_progress) has no requirement entry; this entry waits for it, since without it a movement inside the scope after the cut-off is corrected twice."
+      - "The freeze of 0079 section 4 (row C7, count_in_progress) has no requirement entry and is NOT built by this entry (D-086, assumption, owner may change at GATE B): a difference is posted as a delta and postings during counting are not blocked; the owner decides at GATE B whether the freeze is built."
       - "The binding gap of criterion 5 is detected, not prevented, until slice L7 (as REQ-713); if the security review asks for prevention, a core requirement comes first."
       - "The defaults of the description (unassigned tasks, the 200-line limit for count_difference, refused postings left pending, no cancel of count documents after a reversal): UAT assumption, to be confirmed by the process owner; assumption, owner may change at GATE B."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
-    depends_on: [REQ-717, REQ-687, REQ-684, REQ-685, REQ-686, REQ-637, REQ-621, REQ-676, REQ-681, "REQ-713 of task T-1226 (pending, on origin/team/T-1226 only): stock_posting_mark, stock_reversal and reverse_document", "the freeze entry of decision 0079 split plan row C7 (count_in_progress in the stock document write path), not written yet"]
+    depends_on: [REQ-717, REQ-687, REQ-684, REQ-685, REQ-686, REQ-637, REQ-621, REQ-676, REQ-681, "REQ-713 of task T-1226 (pending, on origin/team/T-1226 only): stock_posting_mark, stock_reversal and reverse_document"]
 
   - id: REQ-719
     title: "Assets B5 counts K7: count paperwork output as xlsx files with signer lines for the issued count order, count sheet and differences sheet, rendered from the issued document versions (decision 0079 section 10, split plan row C5, paperwork part)"

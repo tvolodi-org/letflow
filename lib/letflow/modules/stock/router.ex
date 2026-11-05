@@ -107,6 +107,21 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts/:id/differences` | `StockRead` | 200 number, version, hash, `lines` |
   | `GET /counts/:id/signatures` | `StockRead` | 200 `rows` |
 
+  REQ-718 / GH #3763 adds four routes over `Letflow.Modules.Stock.CountPosting` (the posting of a signed count,
+  built without the count freeze, assumption D-086):
+
+  | Route | Permission | Ok |
+  |---|---|---|
+  | `POST /counts/:id/post` (empty body) | `StockPost` | 200 order view (starts the posting instance) |
+  | `POST /counts/:id/reverse` (`reason_code`, `reason_text`) | `StockReverse` | 200 order view (starts the reversal instance) |
+  | `POST /counts/:id/posting-record` (empty body) | `StockCountRecord` | 200 order view, status `posted` |
+  | `GET /counts/:id/posting-document` | `StockRead` | 200 issued summary, no content bytes |
+
+  `GET /counts/:id` also carries the posting fields (`posting_state`, `entry_id`, `posting_check` ...) of a `signed` or
+  `posted` count. Conflicts (409): `posting_pending`, `count_posted`, `count_not_posted`, `count_reversed`,
+  `reversal_pending`, `posting_inconsistent`, `definition_not_active`, `posting_record_exists`; 422: `no_differences`,
+  `reason_invalid`, `not_chair`, `count_state_invalid`.
+
   Extra refusal reasons: `not_chair`, `signers_incomplete`, `sheet_already_signed`, `sheet_not_signed`,
   `differences_already_issued`, `differences_not_issued`, `differences_too_many`, `count_window_expired`.
 
@@ -336,7 +351,7 @@ defmodule Letflow.Modules.Stock.Router do
   end
 
   authz_get "/counts/:id", :StockRead do
-    count_write(conn, :StockRead, 200, fn prefix, opts ->
+    count_posting_write(conn, :StockRead, 200, fn prefix, opts ->
       Counts.get(prefix, conn.params["id"], opts)
     end)
   end
@@ -458,6 +473,36 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  # -- posting and reversal of a signed count (REQ-718) --------------------------------------------
+
+  authz_post "/counts/:id/post", :StockPost do
+    count_posting_write(conn, :StockPost, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.post(prefix, conn.params["id"], opts),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_post "/counts/:id/reverse", :StockReverse do
+    count_posting_write(conn, :StockReverse, 200, fn prefix, opts ->
+      Counts.reverse(prefix, conn.params["id"], body(conn), opts)
+    end)
+  end
+
+  authz_post "/counts/:id/posting-record", :StockCountRecord do
+    count_posting_write(conn, :StockCountRecord, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: Counts.issue_posting_record(prefix, conn.params["id"], opts),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
+  authz_get "/counts/:id/posting-document", :StockRead do
+    count_posting_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.posting_document(prefix, conn.params["id"], opts)
+    end)
+  end
+
   authz_get "/counts/:id/signatures", :StockRead do
     count_write(conn, :StockRead, 200, fn prefix, opts ->
       Counts.signatures(prefix, conn.params["id"], opts)
@@ -565,6 +610,16 @@ defmodule Letflow.Modules.Stock.Router do
     end
   end
 
+  # REQ-718: `count_write/4` plus the request's activator and ledger read authorization, which the
+  # posting, the reversal and the posting check on the count view need.
+  defp count_posting_write(conn, permission, status, fun) do
+    extra = %{activator: Letflow.Api.Context.activator(conn), authorized: read_authorized(conn)}
+
+    count_write(conn, permission, status, fn prefix, opts ->
+      fun.(prefix, Map.merge(opts, extra))
+    end)
+  end
+
   # REQ-719: the same prologue as `count_write/4`, answering a workbook instead of JSON.
   defp paperwork(conn, kind) do
     prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
@@ -625,6 +680,17 @@ defmodule Letflow.Modules.Stock.Router do
   # REQ-716: an unknown code and a location outside the count look the same as an unknown count id.
   defp render(conn, {:error, :code_unknown}, _status), do: Response.not_found(conn)
   defp render(conn, {:error, :audit_failed}, _status), do: Response.internal_error(conn)
+  defp render(conn, {:error, :internal}, _status), do: Response.internal_error(conn)
+
+  defp render(conn, {:error, {:unprocessable, reason}}, _status) when is_atom(reason),
+    do: unprocessable(conn, Atom.to_string(reason))
+
+  # REQ-718: the refusals that are a conflict of state, not an invalid request.
+  @count_conflicts ~w(posting_pending count_posted count_not_posted count_reversed reversal_pending
+                      posting_inconsistent definition_not_active posting_record_exists)a
+
+  defp render(conn, {:error, reason}, _status) when reason in @count_conflicts,
+    do: problem(conn, Error.conflict("request refused"), Atom.to_string(reason))
 
   defp render(conn, {:error, {:field_not_allowed, key}}, _status) when is_binary(key),
     do:

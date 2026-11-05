@@ -331,6 +331,14 @@ process_definitions = [
     "stock_opening",
     "post_document",
     base_args
+  ),
+  # REQ-718: the posting of a signed count (cause count_difference), one HUMAN_TASK `post`.
+  process_definition.(
+    "00501000-0000-0040-0080-000000003763",
+    "stock_count_posting",
+    "post",
+    "post_count",
+    base_args
   )
 ]
 
