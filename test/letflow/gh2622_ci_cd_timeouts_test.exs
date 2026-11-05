@@ -46,4 +46,30 @@ defmodule Letflow.Gh2622CiCdTimeoutsTest do
              "#{Path.basename(path)} job #{job}: timeout-minutes #{inspect(t)}"
     end
   end
+
+  describe "T-1374 docs-only test step" do
+    defp docs_step do
+      @ci_yml
+      |> YamlElixir.read_from_file!()
+      |> get_in(["jobs", "backend_shard", "steps"])
+      |> Enum.find(&(&1["name"] == "Run docs tests (docs-only change)"))
+    end
+
+    test "step is time-boxed and each attempt is capped at 600 s" do
+      step = docs_step()
+      assert is_integer(step["timeout-minutes"])
+      # two 10-minute attempts must fit inside the step backstop, which stays under the job's 45
+      assert step["timeout-minutes"] >= 20 and step["timeout-minutes"] < 45
+      assert step["run"] =~ "timeout 600 mix test"
+    end
+
+    test "only exit 124 (timeout) triggers the single retry" do
+      run = docs_step()["run"]
+      assert run =~ "set -euo pipefail"
+      assert run =~ "for attempt in 1 2"
+      assert run =~ ~s/[ "$rc" -ne 124 ]/
+      assert run =~ ~s/[ "$attempt" -eq 2 ]/
+      assert run =~ "attempt ${attempt} of 2"
+    end
+  end
 end

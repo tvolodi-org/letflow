@@ -61,7 +61,11 @@ defmodule Letflow.Api.Response do
 
   @json_content_type "application/json"
   @problem_content_type "application/problem+json"
-  @separation_of_duties_body ~s({"detail":"separation of duties","status":403})
+  @separation_of_duties_body (
+                               forbidden = Error.forbidden("separation of duties")
+
+                               ~s({"detail":"separation of duties","reason":"separation_of_duties","status":403,"title":#{Jason.encode!(forbidden.title)},"type":#{Jason.encode!(forbidden.type)}})
+                             )
   # GH #2701 (REQ-516 S3): record events carry `field_values`, which no history item shows.
   # REQ-683: a MIGRATED event carries `before` and `after` instead, dropped the same way.
   @entity_record_event_types [
@@ -359,7 +363,8 @@ defmodule Letflow.Api.Response do
 
   @doc """
   REQ-686 (note 12.2): a typed ledger refusal. The status follows the CORE `code`; the body is
-  `{"error": <wire code>, "line_index": n, "details": {...}}` where the wire code is the module's
+  `{"error": <wire code>, "line_index": n, "details": {...}}` plus the problem keys (`type`, `title`,
+  `status`, `detail`, `trace_id`) and `reason` (= the wire code), content type `application/problem+json`; where the wire code is the module's
   alias when it has one. `details` is the closed map the ledger built (ids, leg numbers, slot
   values of the caller's own legs, `available` for a reader); atoms become strings.
   """
@@ -372,12 +377,26 @@ defmodule Letflow.Api.Response do
         ) :: Plug.Conn.t()
   def entity_write_refused_detailed(conn, code, wire, index, details)
       when is_atom(code) and is_binary(wire) and is_integer(index) and is_map(details) do
-    send_json(conn, entity_write_status(code), %{
-      "error" => wire,
-      "line_index" => index,
-      "details" => detail_json(details)
-    })
+    status = entity_write_status(code)
+
+    problem = %{
+      refusal_problem(status)
+      | extensions: %{
+          "error" => wire,
+          "line_index" => index,
+          "details" => detail_json(details),
+          "reason" => wire
+        }
+    }
+
+    conn |> put_problem(problem) |> send_resp()
   end
+
+  # T-1375: the standard problem shape (type, title, status, detail) for a typed ledger refusal.
+  defp refusal_problem(403), do: Error.forbidden("request refused")
+  defp refusal_problem(409), do: Error.conflict("request refused")
+  defp refusal_problem(503), do: Error.service_unavailable("request refused")
+  defp refusal_problem(_status), do: Error.unprocessable("request refused")
 
   defp detail_json(map) when is_map(map) and not is_struct(map),
     do: Map.new(map, fn {k, v} -> {to_string(k), detail_json(v)} end)
@@ -513,7 +532,7 @@ defmodule Letflow.Api.Response do
 
   @doc """
   HTTP 403 — Separation of Duties (REQ-463). A constant two-member body
-  (`{"detail":"separation of duties","status":403}`): no trace_id, type, title,
+  (`detail`, `status`, `title`, `type`, `reason: "separation_of_duties"`): no trace_id,
   node id, user id or name, so every cause answers byte-identically (design
   req459 section 4.2). Deliberately bypasses `send_problem/2`.
   """
@@ -523,6 +542,10 @@ defmodule Letflow.Api.Response do
     |> put_resp_content_type(@problem_content_type)
     |> send_resp(403, @separation_of_duties_body)
   end
+
+  @doc false
+  @spec separation_of_duties_body() :: String.t()
+  def separation_of_duties_body, do: @separation_of_duties_body
 
   @doc """
   HTTP 429 — Too Many Requests. Set `Retry-After` on the conn yourself before

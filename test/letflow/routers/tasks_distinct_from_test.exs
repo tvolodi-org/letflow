@@ -29,7 +29,7 @@ defmodule Letflow.Routers.TasksDistinctFromTest do
   @opts Letflow.Routers.Tasks.init([])
   @n1 S.n1()
   @n2 S.n2()
-  @sod_body ~s({"detail":"separation of duties","status":403})
+  @sod_body Letflow.Api.Response.separation_of_duties_body()
 
   # ── fixtures ────────────────────────────────────────────────────────────
 
@@ -184,10 +184,12 @@ defmodule Letflow.Routers.TasksDistinctFromTest do
       assert conn_two.resp_headers == conn_three.resp_headers
       assert byte_size(conn_one.resp_body) == byte_size(@sod_body)
 
-      assert Jason.decode!(conn_one.resp_body) == %{
+      assert %{
                "detail" => "separation of duties",
-               "status" => 403
-             }
+               "status" => 403,
+               "reason" => "separation_of_duties"
+             } =
+               Jason.decode!(conn_one.resp_body)
     end
 
     test "default-off: a definition without distinct_from lets U complete N1 and N2 (200 both)" do

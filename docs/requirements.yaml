@@ -51555,6 +51555,276 @@ requirements:
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-720, REQ-722, REQ-736, REQ-737]
 
+  - id: REQ-758
+    title: "Assets C15 core: posting lines of a dependency module on one user task node (a definition stamped by module M may call a posting handler of a module in M's manifest depends_on), with a decision record"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3903
+    # Source: docs/assets/change-of-kind.md sections 3, 4 and 8 (REQ-691, GH #3719); decision 0073 section 'Amended (REQ-676, assets B1)' items A2 (at most two posting lines on one node, different ledger ids, same document) and A3 (one lock step); decision 0054 D6 and its amendment 'D6 ACTIVATION checks' (GH #2590 / REQ-501 PR R3: the line names the stamp's module). Code read on origin/main 28cdbfb13: Letflow.Definitions.ModuleWrites (lib/letflow/definitions/module_writes.ex: resolved_codes/2 answers module_write_stamp_mismatch when the line's module differs from the stamp's module; module_writes_too_many_ledger_postings, module_writes_duplicate_ledger_posting, module_writes_ledger_on_service_task); Letflow.Modules.Catalog rule 10 check_handler_ledger/2 (lib/letflow/modules/catalog.ex: posts_ledger names a registration of the SAME manifest, write_handler_ledger_missing); Letflow.Ledger.HandlerPost (lib/letflow/ledger/handler_post.ex: the per-transaction plan of at most 2 postings across the handler calls of one node, one lock step after the last call); Letflow.Entities.HandlerWrites.__posts_ledger__/2 (lib/letflow/entities/handler_writes.ex); mix letflow.check_boundaries Rule 4 (a module file may reference another module's files only when that module is in its manifest depends_on). Free decision number: the highest on origin/main is 0079 (two files carry 0079), so 0080 at the time of writing. Written by the business analyst (T-1326) 2026-11-05.
+    description: >
+      Assets phase C item C15 needs a change of kind document to post to the stock register and to the asset
+      register in one transaction (D-061, decision 0073 A2). The core allows two posting lines on one node, but
+      not across modules: a posting handler may only name a ledger registration of its own manifest (Catalog rule
+      10, write_handler_ledger_missing), and a definition stamped by module assets may only name handlers of
+      module assets (ModuleWrites, module_write_stamp_mismatch). The stock registration lives in the manifest of
+      module stock, so no node can carry the stock posting and the asset posting today. This entry is the core
+      prerequisite; the change of kind itself is REQ-759 and REQ-760.
+      SENSITIVE: a change to the activation rule of module write handlers and to who may post to a register; the
+      change passes a SECURITY-REVIEWER deep review.
+
+      Part 1, decision record: a new file docs/migration/decisions/NNNN-cross-module-posting-lines.md with the next
+      free number at implement time (0080 at the time of writing; re-checked with ls docs/migration/decisions/ after
+      the last merge of origin/main). It records the problem above, the options and the choice, and amends 0054 D6
+      (activation checks) and 0073 A2 by a reference, without editing those files' existing text. The business
+      analyst's proposal, which the record either takes or replaces with its stated reason: option A, keep each
+      posting handler in the module that owns the registration (Catalog rule 10 unchanged, so each posting is
+      authorized by its own registration's post permission, change-of-kind.md section 8), and let a definition
+      stamped by module M carry a line of module N only when all of these hold: (a) N is in the compiled manifest
+      depends_on of M; (b) the handler of N registers posts_ledger; (c) the same node carries a posting line of
+      module M itself; (d) N is installed in the tenant and N's installed manifest hash equals N's compiled hash
+      (the check 2 of 0054 D6 applied to N). Option B (a handler of M may post to a registration of a module in
+      M's depends_on) is recorded as the alternative.
+
+      Part 2, the code of the chosen option in lib/letflow/definitions/module_writes.ex only (option A), with no
+      change to Catalog rule 10, to Letflow.Ledger or to Letflow.Ledger.HandlerPost. Any other line of another
+      module keeps answering module_write_stamp_mismatch.
+    acceptance_criteria:
+      - "1. Decision record: docs/migration/decisions/NNNN-cross-module-posting-lines.md exists with the next free number on origin/main at implement time, names the problem with the two refusals module_write_stamp_mismatch and write_handler_ledger_missing, the options A and B, the choice with its reasons, and which items of 0054 D6 and 0073 A2 it amends; no existing decision file is edited."
+      - "2. Activation accepted (test file test/letflow/definitions/module_writes_cross_module_test.exs, two test-only modules under test/support/modules/ listed in the module list of config/test.exs, as fixture_ledger_post is): a definition stamped by a test module M whose manifest depends_on lists test module N, with one node carrying one posting line of M (posts_ledger of M's registration) and one posting line of N (posts_ledger of N's registration, a different ledger id), activates with no violation when both modules are installed and their hashes match."
+      - "3. Activation refused (same test file), one test per row, each answering the stated code and nothing activated: N not in M's depends_on is module_write_stamp_mismatch; a line of N whose handler has no posts_ledger is module_write_stamp_mismatch; a node with the line of N and no posting line of M is module_write_stamp_mismatch; N not installed in the tenant is module_write_module_not_installed; N's installed hash differing from its compiled hash is module_write_hash_mismatch; three posting lines is module_writes_too_many_ledger_postings; the lines of M and N naming the same ledger id is module_writes_duplicate_ledger_posting; the pair on a SERVICE_TASK without ledger_post_consent is module_writes_ledger_on_service_task."
+      - "4. Run time (same test file, fresh committed tenant, OIDC credential): completing the HUMAN_TASK of criterion 2 commits both postings in one transaction with the same document_type, document_id and correlation_id, each under its own ledger id; a principal holding the post permission of M's registration but not of N's gets the refusal of N's posting from Letflow.Ledger.Authority and neither posting is committed; a forced refusal of N's posting (insufficient_balance) commits neither."
+      - "5. Gate: an activation-rule and ledger-authority change that passes a SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. The diff changes lib/letflow/definitions/module_writes.ex, adds the decision record and tests, and changes no file under lib/letflow/ledger/, lib/letflow/ledger.ex, lib/letflow/modules/catalog.ex or lib/letflow/modules/ (no module manifest changes here). The moduledoc of ModuleWrites states the new rule. mix format --check-formatted on the changed files, mix compile --warnings-as-errors, mix letflow.check.static and the test files of criteria 2 to 4 plus the existing test files under test/letflow/definitions/ that name module_write_stamp_mismatch pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Option A or B is decided in the decision record of criterion 1; the business analyst proposes A. If the security review rejects both, this entry and REQ-760 wait for a new decision."
+    depends_on: [REQ-691, REQ-676, REQ-684, REQ-685, REQ-692, REQ-501]
+
+  - id: REQ-759
+    title: "Assets C15 part 1: the change of kind document of module assets (header and line record types, drafts, master checks on the stock side and the asset side at issue), no posting yet"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3902
+    # Source: docs/assets/change-of-kind.md sections 1, 2, 5, 7 and 8 (REQ-691, GH #3719); entries REQ-748 (the asset card fields, inventory_number unique per tenant), REQ-751 and REQ-753 (the asset document routes, the kind table, the issue reasons), all three pending on origin/team/T-1325 (GH #3894, #3891, #3889) and not on origin/main at the time of writing; REQ-712 and REQ-641 (the stock issue checks and the lot tracking policy). Code read on origin/main 28cdbfb13: Letflow.Modules.CatalogItems.active?/2, item_uom_valid?/3, item_lot_valid?/3 (lib/letflow/modules/catalog_items/catalog_items.ex); Letflow.Modules.Locations.active?/2 and linked?/3 (lib/letflow/modules/locations/locations.ex); Letflow.Modules.Org.lookup/2, active?/2, active_employee?/2 (lib/letflow/modules/org/org.ex); Letflow.Modules.Stock.Documents.Checks.event_time/2 and tracking_result/3 (lib/letflow/modules/stock/documents/checks.ex: reasons lot_required, lot_not_allowed, lot_expiry_missing, tracking_policy_not_supported, tracking_invalid, unit_not_valid, lot_not_valid, not_linked, employee_not_active); mix letflow.check_boundaries Rule 4 (a file of module assets may reference module stock only when stock is in the assets manifest depends_on). Written by the business analyst (T-1326) 2026-11-05.
+    description: >
+      Assets phase C item C15, first half (split as the commission was, REQ-751 and REQ-752): the change of kind
+      document as a fifth kind on the asset document routes, with its drafts and its checks at issue. No posting, no
+      process definition, no write handler, no asset card is created (REQ-760). SENSITIVE: tenant-data write path
+      and the master checks that guard a two-register posting; the change passes a SECURITY-REVIEWER deep review.
+
+      Module dependency: the assets manifest depends_on gains catalog_items and stock (the checks read the SKU, its
+      units and lots, and call the stock tracking check), so installing assets needs stock installed. UAT
+      assumption, to be confirmed by the process owner.
+
+      Kind kind_change on the routes of REQ-751 (create, replace, discard, list, read, issue): record types
+      assets_kind_change (header) and assets_kind_change_line (line), module-managed by assets, each with scope
+      {:column, org_unit_id}; the line holds a copy of the header's org_unit_id (change-of-kind.md section 8). The
+      type names carry the module prefix assets_ in place of the proposal names kind_change and kind_change_line of
+      section 2. Versioned document type assets_kind_change, numbered per calendar year, prefix AKC, pad 6, no legal
+      entity (UAT assumption, to be confirmed by the process owner). At most 100 lines.
+
+      Header fields (section 2): document_id, event_time, org_unit_id, reason_text (optional), note (optional).
+      Line fields (section 2): header_id (foreign key in the pack), org_unit_id (copy), line_no, catalog_item_id,
+      catalog_uom_id, catalog_lot_id (optional), quantity (decimal, decimal_strict), stock_location_id,
+      stock_responsible_id, target_kind (enum low_value, fixed), asset_org_unit_id (the header's org_unit_id when
+      absent in the body), asset_location_id, material_responsible_id, actual_user_id (optional), asset_card_id
+      (optional, never accepted in a body, set at posting by REQ-760), plus two fields section 2 does not list:
+      inventory_number (string, required) and asset_name (string, required). Reason: a card needs both (REQ-748
+      criterion 2 makes inventory_number and name required) and section 2 gives no source for them. UAT assumption,
+      to be confirmed by the process owner; the implementing change adds the two rows to change-of-kind.md section 2.
+      No price or value field (section 9 question 1 stays open; the created card's money fields are empty).
+
+      Checks at issue (section 5), in this order, stopping at the first failure, issuing nothing: the event time
+      window (Checks.event_time/2: event_time_too_old, event_time_in_future); the header org unit is a live active
+      org unit (Org.lookup/2 with entity_type org_unit and Org.active?/2: org_unit_not_active); then per line in
+      line_no order: the SKU is active (CatalogItems.active?/2: item_not_active); the unit is valid for the SKU
+      (item_uom_valid?/3: unit_not_valid); a given lot belongs to the SKU (item_lot_valid?/3: lot_not_valid); the
+      tracking policy (Checks.tracking_result/3 and its reasons); the stock location and the asset location are
+      active (Locations.active?/2: location_not_active); the asset org unit is a live active org unit
+      (org_unit_not_active); the stock location is linked to the header org unit and the asset location to the
+      asset org unit (Locations.linked?/3: not_linked, with the side stock or asset); the stock responsible, the
+      materially responsible and a given actual user are active employees (Org.active_employee?/2:
+      employee_not_active with the field name); the quantity is a whole number above zero, and exactly 1 for
+      target_kind fixed (quantity_invalid); the inventory_number is used by no card of the tenant and by no other
+      line of the document (inventory_number_taken). The stock balance is not checked at issue: the ledger refuses
+      a quantity above it at posting (REQ-760). An Inventory Object does not change kind (section 1; open question
+      2 of section 9 stays open) and the module has no field that marks one, so nothing checks it.
+
+      Access as REQ-751: drafting and issuing need AssetsPost, reading needs AssetsRead; an API token and a principal
+      whose grant is not tenant-wide get the 404 of a tenant without the module. No approval step (section 9
+      question 4; UAT assumption, to be confirmed by the process owner).
+    acceptance_criteria:
+      - "1. Manifest and pack (test file test/letflow/modules/assets/kind_change_registration_test.exs): the assets version moves one minor step above its value on origin/main at implement time; depends_on gains catalog_items and stock; manages_entity_types gains assets_kind_change and assets_kind_change_line, each with scope declaration {:column, org_unit_id}; the line declares a foreign_keys entry from header_id to assets_kind_change; on_install/3 registers the document type assets_kind_change with Letflow.Documents.register_type/3 (numbering_scope :year, number_prefix AKC, number_pad 6, legal_entity_required false). The field sets of the description are asserted exactly, and no type has a price, value, number, status or posted_at field. Installing assets on a tenant without stock is refused by the dependency check of Letflow.Modules.Installs.install/3."
+      - "2. Drafts (test file test/letflow/modules/assets/kind_change_test.exs, routes of REQ-751 through Letflow.Router with real OIDC bearer tokens): kind accepts kind_change; create answers 201 and stores asset_org_unit_id as the header org_unit_id when the body leaves it out; a body with asset_card_id is 422 field_not_allowed; replace and discard behave as for a commission. The document read answers the header and the lines with the fields of the description, asset_card_id null."
+      - "3. Checks at issue (test file test/letflow/modules/assets/kind_change_issue_test.exs): issue answers 422 with the reason (and line_no for a line check), issuing nothing, one test per reason: event_time_too_old, event_time_in_future, org_unit_not_active (header unit, asset org unit, an active org_site id), item_not_active, unit_not_valid, lot_not_valid, lot_required (an item whose tracking policy requires a lot, line without lot), location_not_active (each side), not_linked (each side, with side stock or asset), employee_not_active (each of the three employee fields, by name), quantity_invalid (0, 1.5, and 2 on a fixed line), inventory_number_taken (an existing card's number, and two lines with the same number). Accepted: a low_value line of 20 with no actual user, a fixed line of 1, an asset org unit different from the header org unit."
+      - "4. Issue binding (same test file; decision 0078 D5): when every check passes, Letflow.Documents.issue/2 is called once, the issued content equals the saved header and lines field by field, the number starts with AKC, and nothing is posted to any ledger and no asset card exists afterwards."
+      - "5. Tenancy and refusals (INV-1, INV-2, INV-5, INV-10; same test files): (a) an API token and a principal whose grant is not tenant-wide get the 404 body of a tenant without the module on create, replace, discard, read and issue of a kind_change document, compared with trace_id dropped; (b) a TASK_WORKER gets the 403 problem document of Letflow.Plugs.Authorize and nothing is written; (c) cross-tenant negative test: tenants A and B both have assets and stock; a TENANT_ADMIN of B reading, replacing or issuing A's kind_change document id gets 404 and A's document is unchanged; a B draft naming A's SKU is refused item_not_active, A's location location_not_active and A's org unit org_unit_not_active at issue."
+      - "6. Pins, runbook and gate: no new route (the kind is a value of the existing document routes), so tenant_wide_default_routes.txt and the length(snapshot) == N pins do not move; the Assets module limits section of docs/runbooks/wms-foundation.md gains an item stating that a change of kind is issued but not posted until REQ-760 and that assets needs stock installed; docs/assets/change-of-kind.md section 2 gains the rows inventory_number and asset_name and names the prefixed type names. A tenant-data-path change that passes a SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. No write handler, no process definition, no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no new permission atom, no seed. mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries and the test files of criteria 1 to 5 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "The dependency of assets on stock and catalog_items, the AKC numbering, the lines inventory_number and asset_name, no approval step: UAT assumptions, to be confirmed by the process owner."
+      - "The value of the new card (change-of-kind.md section 9 question 1) and whether an Inventory Object may change kind (question 2): not decided here."
+    depends_on: [REQ-691, REQ-748, REQ-750, REQ-751, REQ-753, REQ-712, REQ-641]
+
+  - id: REQ-760
+    title: "Assets C15 part 2: posting a change of kind in one transaction with two postings (stock out, asset in) and the asset cards it creates, and its reversal as one pair"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3901
+    # Source: docs/assets/change-of-kind.md sections 3, 4, 6 and 8 (REQ-691); decision 0073 'Amended (REQ-676, assets B1)' A2, A3, A4 and D-L12; entries REQ-749 (the asset registration: causes, slots, units [pcs], declare/2 command shape) and REQ-752 (assets_posting_mark, post_document, reverse_document, the process definitions with one HUMAN_TASK), both pending on origin/team/T-1325 (GH #3893, #3890); REQ-713 (stock posting from a human task). Code read on origin/main 28cdbfb13: the stock :ledger registration in lib/letflow/modules/stock/stock.ex (causes, no units key, policy Letflow.Modules.Stock.LedgerPolicy) and its write handlers post_document and reverse_document (targets [stock_posting_mark], posts_ledger stock); Letflow.Ledger moduledoc 'Pairs (criterion 11)' (lib/letflow/ledger.ex: an entry is paired when an entry of another ledger id has the same document_type, document_id and correlation_id; a single reversal of a paired entry is posting_is_paired); Letflow.Ledger.HandlerPost (lib/letflow/ledger/handler_post.ex); Letflow.Entities.HandlerWrites.create/3 and post/3 (lib/letflow/entities/handler_writes.ex). Written by the business analyst (T-1326) 2026-11-05.
+    description: >
+      Assets phase C item C15, second half: an issued change of kind is posted by completing a human task, and the
+      posting is one transaction that creates the asset cards, posts the stock posting and the asset posting, and
+      writes the posted mark, or does none of these (change-of-kind.md section 4). SENSITIVE: postings into two
+      registers and card writes inside one transaction; the change passes a SECURITY-REVIEWER deep review.
+
+      Stock side (module stock, version one minor step up): the stock registration gains the cause kind_change_out
+      (sign rule negative, reason not required), the stock policy declare/2 turns it into one negative leg per line
+      at the key sku, location, org_unit, responsible, lot (section 3 stock leg table), and a write handler
+      post_kind_change_out (posts_ledger stock, targets [stock_posting_mark]) posts it and writes the stock posted
+      mark; its args are the issued lines passed by the definition, since module stock may not read assets types
+      (boundary Rule 4). Asset side (module assets, version one minor step up): the asset registration gains the
+      cause kind_change_in (sign rule positive, reason not required); the asset policy declare/2 accepts it like
+      commission (+q at the to key); a write handler post_kind_change (posts_ledger assets, targets
+      [assets_posting_mark, assets_card, assets_kind_change_line]) creates one card per line through
+      HandlerWrites.create/3 (inventory_number, name from asset_name, kind from target_kind, org_unit_id from
+      asset_org_unit_id, active true, money fields and acquisition_date empty), sets the line's asset_card_id, posts
+      one positive leg per line at asset, org_unit, location, material_responsible, actual_user (section 3 asset leg
+      table) and writes the assets posted mark. The design states how the card's record id is known when the asset
+      leg is declared, with the rule of create/3 it relies on.
+
+      Unit: the asset registration of REQ-749 allows only the unit pcs, while section 3 says the asset leg carries the
+      stock line's unit. Here the asset leg carries unit_ref pcs with the stock line's quantity, and the stock leg
+      carries the line's catalog_uom_id (UAT assumption, to be confirmed by the process owner: the person who issues
+      the document chooses a unit that counts pieces).
+
+      Process (section 7): the pack gains the definition assets_kind_change with one HUMAN_TASK without assignee whose
+      module_writes carry the two posting lines (post_kind_change of assets and post_kind_change_out of stock) under
+      the rule of REQ-758; issue starts one instance. Both postings carry document_type assets_kind_change, the
+      versioned document id and the same correlation_id. Posting needs AssetsPost and StockPost: each posting is
+      authorized by its own registration (section 8).
+
+      Reversal (section 6): POST documents/:id/reverse (AssetsReverse) of a kind_change starts one instance of the
+      definition assets_kind_change_reversal whose HUMAN_TASK carries the reversal line of each module
+      (reverse_document of assets and reverse_document of stock), so both postings are reversed in one transaction
+      (needs AssetsReverse and StockReverse); the cards it created are retired (active false) in the same
+      transaction and never deleted (UAT assumption, to be confirmed by the process owner: section 6 leaves the card
+      state open). A reversal after a card has moved is refused by the ledger (insufficient_balance on the asset
+      leg) with nothing changed. Cancel and retry as REQ-752.
+    acceptance_criteria:
+      - "1. Manifests (test file test/letflow/modules/assets/kind_change_posting_registration_test.exs): the stock version and the assets version each move one minor step above origin/main at implement time; the stock causes gain kind_change_out (negative, reason_required false) and the write handler post_kind_change_out (targets [stock_posting_mark], posts_ledger stock); the asset causes gain kind_change_in (positive, reason_required false) and the write handler post_kind_change (posts_ledger assets, the targets of the description); the pack gains the definitions assets_kind_change and assets_kind_change_reversal, one HUMAN_TASK without assignee each, and both activate on install. Each stock and asset policy test (no database) asserts the legs of kind_change_out and kind_change_in for a two-line command."
+      - "2. Post (test file test/letflow/modules/assets/kind_change_posting_test.exs, fresh committed tenant with stock received through the fixtures of REQ-713, OIDC credential): issuing a kind_change of two lines (low_value 20, fixed 1) starts one assets_kind_change instance; completing its task by a TENANT_ADMIN commits, in one transaction, two cards (the first with quantity-bearing kind low_value, the second fixed), one stock entry with cause kind_change_out and two negative legs (unit_ref the line's catalog_uom_id), one asset entry with cause kind_change_in and two positive legs (unit_ref pcs) at the card ids, both with document_type assets_kind_change, the versioned document id and the same correlation_id, and both posted marks; each line's asset_card_id names its card; the stock balance falls by 20 and by 1 and the asset balances are 20 and 1."
+      - "3. Both or neither (same test file), one test per row, nothing committed in each (no card, no entry, no mark, balances unchanged): the stock quantity is below the line's (the stock refusal, aliased insufficient_stock); the completer holds AssetsPost but not StockPost (the refusal of the stock registration's authority); a card with the line's inventory_number was created between issue and posting (the card create refusal); a second completion of a second instance with the same variables gives the ledger's duplicate result and no second entry, card or mark."
+      - "4. Reversal (test file test/letflow/modules/assets/kind_change_reversal_test.exs): POST /api/v1/modules/assets/documents/:id/reverse with a reason from the closed list of REQ-752 starts one assets_kind_change_reversal instance whose completion reverses both entries in one transaction, writes both reversed marks and retires the created cards; the stock balance and the asset balance return to their values before the posting. A core reversal of only one of the two entries is refused posting_is_paired. After a posted change of the fixed card to another material responsible (REQ-753), the reversal is refused with nothing changed. The answers of REQ-752 criterion 4 (document_not_posted, document_reversed, reversal_pending, reason_invalid, reason_required, reason_too_long, cancel, retry) hold for a kind_change."
+      - "5. Tenancy and refusals (INV-1, INV-5, INV-10; same test files): an API token and a principal whose grant is not tenant-wide get the 404 body on reverse, cancel and retry of a kind_change, a TASK_WORKER gets 403; cross-tenant negative test: tenants A and B both have assets and stock with stock received; a TENANT_ADMIN of B reversing, cancelling or retrying A's kind_change document id gets 404 and A's entries, cards and marks are unchanged, and B's balances read shows no row of A."
+      - "6. Runbook and gate: the Assets module limits section replaces the item of REQ-759 by items for the two postings in one transaction, the unit pcs on the asset leg, the cards retired by a reversal, and the binding gap REQ-752 describes (the task variables carry the lines; detected by the posting_check of the document read, not prevented). A two-register ledger and tenant-data-path change that passes a SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. No new route, no new permission atom, no edit of lib/letflow/ledger.ex or lib/letflow/ledger/, no migration, no seed. mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries, permission_matrix_test.exs and the test files of criteria 1 to 5 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "The unit pcs on the asset leg, the retired cards after a reversal, the empty money fields of the new card: UAT assumptions, to be confirmed by the process owner."
+      - "Whether the reverse direction (asset back to stock) is needed (change-of-kind.md section 9 question 3): not built."
+    depends_on: [REQ-758, REQ-759, REQ-749, REQ-752, REQ-753, REQ-713, REQ-692]
+
+  - id: REQ-761
+    title: "Assets C16: web screen for the change of kind (draft form with the stock side and the asset side per line, view with both postings and the created cards) in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 3900
+    # Source: docs/assets/change-of-kind.md sections 2, 3, 6 (REQ-691); entries REQ-759 and REQ-760 (this task), REQ-756 (asset document screens, pending on origin/team/T-1325, GH #3886: place web/src/modules/assets/documents/, paths admin/assets/documents, the refusal messages), REQ-722 and REQ-723 (stock document screens precedent); the rules of project skill letflow-design-system (screenshot matrix 1440 and 390, light and dark, en, ru and kk). Written by the business analyst (T-1326) 2026-11-05.
+    description: >
+      Assets phase C item C16. The change of kind as a fifth kind on the asset document screens of REQ-756. Not a
+      ledger path: the screen only calls the routes of REQ-759 and REQ-760.
+
+      Place: web/src/modules/assets/documents/, the kind kind_change on the paths of REQ-756
+      (admin/assets/documents/new with query key kind kind_change). Messages in en, ru and kk. Harness screens in the
+      fixture file of REQ-755 (no new registry line).
+
+      Form: header event time, org unit, reason text and note; each line has a stock side (SKU, unit, lot when the
+      SKU's tracking policy asks for one, quantity, stock location, stock responsible) and an asset side (target
+      kind low value or fixed, asset org unit defaulting to the header's, asset location, materially responsible,
+      actual user, inventory number, asset name). Fixed lines have quantity 1 and the field is not editable.
+
+      View: the document of REQ-756 with, once posted, both postings (stock out and asset in) and per line a link to
+      the created card; a reversed document shows both reversals. Defaults (UAT assumption, to be confirmed by the
+      process owner): pickers list active records only; the unit picker lists the units of the chosen SKU.
+    acceptance_criteria:
+      - "1. Form (test file web/src/modules/assets/__tests__/KindChangeForm.test.tsx, network mocked): the kind kind_change shows exactly the header and line fields of the description; create sends POST /api/v1/modules/assets/documents with kind kind_change and the whole body, with asset_org_unit_id equal to the header org unit when the user did not change it; edit sends PUT documents/:id with the whole header and the whole line list, a removed line left out; a fixed line sends quantity 1 and its quantity field is read-only; asset_card_id is never sent. A test checks the exact create body of a two-line document and the exact body of an edit that removes one line of three."
+      - "2. View (test file web/src/modules/assets/__tests__/KindChangePage.test.tsx, network mocked): a posted kind_change shows each line's stock side, asset side and a link to its card by asset_card_id; a draft and an issued document show no card link; the actions per state are those of REQ-756 criterion 4."
+      - "3. Refusals (test file web/src/modules/assets/__tests__/kindChangeErrors.test.tsx): each reason REQ-759 and REQ-760 add shows its own message in the active language, a reason with line_no marks that line and one with a field name or a side marks that field: item_not_active, unit_not_valid, lot_not_valid, lot_required, lot_not_allowed, lot_expiry_missing, tracking_policy_not_supported, tracking_invalid, location_not_active, not_linked (side stock or asset), inventory_number_taken, insufficient_stock, posting_is_paired; the reasons of REQ-756 criterion 5 keep their messages."
+      - "4. Three languages and checks: i18n tests as REQ-755 criterion 5 for the new strings; npm run check passes in the engine's checks step; the screenshot matrix of the design-system skill (1440 and 390, light and dark, en and ru, kk for long labels) of the form and the posted view is in the task folder and listed in the summary; only files under web/ change and neither registry file gains a line. REVIEWER verdict recorded."
+    open_questions:
+      - "The defaults of the description: UAT assumption, to be confirmed by the process owner."
+    depends_on: [REQ-759, REQ-760, REQ-756, REQ-755, REQ-722, REQ-723]
+
+  - id: REQ-762
+    title: "Assets C17: xlsx import of asset cards (depreciation fields included) through the managed import path, upsert by external ref, tenant-wide callers only"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3899
+    # Source: docs/assets/asset-xlsx.md sections 1 to 5 (REQ-729, GH #3792); decision 0077 D1 to D7 (docs/migration/decisions/0077-xlsx-import-export.md); entries REQ-748 (card fields), REQ-750 (create_card/3, update_card/4 in lib/letflow/modules/assets/cards.ex and their refusals) and REQ-752 (kind_locked), pending on origin/team/T-1325 (GH #3894, #3892, #3890); REQ-651 and REQ-727 (managed import precedent). Code read on origin/main 28cdbfb13: Letflow.Modules.Catalog.import_function/2 and call_import_function/5 (lib/letflow/modules/catalog.ex); the stock manifest key import_functions (lib/letflow/modules/stock/stock.ex); Letflow.Modules.Org.Import (lib/letflow/modules/org/import.ex: references by external id under the row's system, reference_not_found and reference_inactive with the constant header); Letflow.Entities.ManagedImport (lib/letflow/entities/managed_import.ex: created, updated, unchanged, one row per call); Letflow.Routers.Entities.RecordImport (lib/letflow/routers/entities/record_import.ex: POST /api/v1/entities/records/:entity_type/import, import_scope_check/6 refusing a scoped caller in upsert mode, import_reason_json/1 with its closed clauses, e.g. the REQ-727 clause for stock opening reasons). Written by the business analyst (T-1326) 2026-11-05.
+    description: >
+      Assets phase C item C17: asset cards, with their depreciation fields, imported from an xlsx file through the
+      managed import path of decision 0077 D5, as asset-xlsx.md sections 1 to 5 specify. SENSITIVE: a tenant-data
+      write path; the change passes a SECURITY-REVIEWER deep review.
+
+      Import function: Letflow.Modules.Assets.Import.import_card/3 (lib/letflow/modules/assets/import.ex), listed in
+      the assets manifest as import_functions [%{entity_type: assets_card, function: :import_card}]. It resolves
+      org_unit_id as Letflow.Modules.Org.Import resolves references (the external id of an org_unit under the row's
+      external-ref system), finds the card by external ref, and writes through create_card/3 or update_card/4 of
+      REQ-750 only (no Records call, no Owner, no cell text in an error). It maps the card refusals to the reason
+      codes of asset-xlsx.md section 3: asset_kind_invalid, asset_valid_until_not_allowed, asset_kind_locked,
+      asset_currency_mismatch, asset_field_required (with the constant header), asset_inventory_number_taken; the
+      other reasons are those 0077 names (reference_not_found, reference_inactive, csv_invalid_decimal, the
+      whole-file refusals). The new reason codes are added as one clause of import_reason_json/1 in
+      lib/letflow/routers/entities/record_import.ex, as the REQ-727 clause is. The template columns are the 13
+      columns of section 2 in that order; the row is the full desired state (an absent optional cell clears it).
+
+      No placement: the import posts nothing, creates no balance row and writes no document (section 4). Who may run
+      it: only a tenant-wide caller with EntitiesRecordsImport (section 1 point 6). No new route.
+    acceptance_criteria:
+      - "1. Registration (test file test/letflow/modules/assets/card_import_test.exs): the assets manifest import_functions holds exactly %{entity_type: assets_card, function: :import_card}, the assets version moves one minor step above origin/main at implement time, and Letflow.Modules.Catalog.validate/1 passes."
+      - "2. Import (same test file, fresh committed tenant, through POST /api/v1/entities/records/assets_card/import with the xlsx media type, ?upsert_by=external_ref and a real OIDC bearer token of a tenant-wide TENANT_ADMIN): a file whose header row is the 13 columns of asset-xlsx.md section 2 and whose three rows name an existing org unit by external id creates three cards (outcome created), with org_unit_id stored as the org unit's record id and the money cells stored as typed; re-importing the same file answers unchanged per row and appends no event; a file with a new accumulated_depreciation and book_value for one row answers that row updated and leaves the others unchanged; the dry run (?dry_run=true) answers the same outcomes and writes nothing. After the import no ledger entry, balance row or document exists."
+      - "3. Row refusals (same test file), one test per reason, the refused row changes nothing and the other rows are still processed: asset_kind_invalid (kind text other), asset_valid_until_not_allowed (valid_until on a fixed row), asset_kind_locked (a row changing the kind of a card with a posted commission), csv_invalid_decimal (acquisition_cost 1e3), asset_currency_mismatch (USD while the tenant currency is KZT), asset_field_required with header name (empty name cell), asset_inventory_number_taken (another card's number), reference_not_found and reference_inactive with header org_unit_id (an unknown and a retired org unit). An absent optional cell on a re-import clears that field. No error entry contains cell text."
+      - "4. Whole file and access (INV-1, INV-2, INV-5, INV-10; same test file): an unknown header is xlsx_unknown_header and nothing is written; a mode other than upsert answers 422 and writes nothing; a principal whose grant is not tenant-wide is refused by import_scope_check/6 with nothing written; cross-tenant negative test: a TENANT_ADMIN of tenant B importing a file whose org_unit_id cells hold the external ids of tenant A's org units gets reference_not_found per row and A's cards are unchanged, and a row with the external ref of one of A's cards creates a card in B only."
+      - "5. Gate: a tenant-data write-path change that passes a SECURITY-REVIEWER deep review as a stated step, verdict and evidence quoted in the PR. The diff adds no route, no permission atom and no dependency in mix.exs; the only core edit is the new import_reason_json/1 clause; the existing import tests of test/letflow/routers/entities/ that name import_reason_json reasons still pass. mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries and the test file of criteria 1 to 4 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "No sign or relation check between the money fields (asset-xlsx.md section 5): UAT assumption, to be confirmed by the process owner."
+      - "200 rows per file (asset-xlsx.md section 8 question 3) and placing old assets into the register in bulk (question 1): not decided here."
+    depends_on: [REQ-729, REQ-748, REQ-750, REQ-752, REQ-651, REQ-650, REQ-727]
+
+  - id: REQ-763
+    title: "Assets C18: xlsx export of asset cards through the record export and of asset register balances through the assets balances route (format xlsx, report sheet), only the rows the caller may read"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3898
+    # Source: docs/assets/asset-xlsx.md sections 6 and 7 (REQ-729, GH #3792); decisions 0077 D8 and 0079 D8; entries REQ-749 (GET /api/v1/modules/assets/balances, its closed query keys that today refuse format with invalid_filter, the asset_balance view) and REQ-750 (cards), pending on origin/team/T-1325 (GH #3893, #3892); the stock precedent REQ-728. Code read on origin/main 28cdbfb13: Letflow.Routers.Entities run_export/5 (lib/letflow/routers/entities.ex, authz_post /records/:entity_type/export with EntitiesRecordsExport scope :filter: no branch refusing a module-managed type), Letflow.Entities.XlsxExport.build/3 (lib/letflow/entities/xlsx_export.ex), Letflow.Modules.Stock.XlsxExport and the format=json|xlsx handling of Letflow.Modules.Stock.Router (lib/letflow/modules/stock/xlsx_export.ex, lib/letflow/modules/stock/router.ex: respond/5, report sheet), the report fields of note section 8.4 of lib/letflow/design/gh2657-wms-stock-ledger-core.md. Written by the business analyst (T-1326) 2026-11-05.
+    description: >
+      Assets phase C item C18: the two exports of asset-xlsx.md sections 6 and 7. SENSITIVE: a tenant-data read path
+      out of the product; the change passes a SECURITY-REVIEWER gate.
+
+      Card export (section 6): through the existing POST /api/v1/entities/records/assets_card/export?format=xlsx (0077
+      D8). run_export/5 has no branch refusing a module-managed type on origin/main at the time of writing; the change
+      re-checks it and, if a refusal exists then, the change stops and reports it (no core edit in this entry). The
+      card export needs tests only.
+
+      Register balances export (section 7), as REQ-728 did for stock: GET /api/v1/modules/assets/balances accepts the
+      query key format with the values json and xlsx (absent means json). xlsx renders the same body through a new
+      module Letflow.Modules.Assets.XlsxExport (lib/letflow/modules/assets/xlsx_export.ex): a first sheet balances
+      with the header row asset, org_unit, location, material_responsible, actual_user, unit_ref, quantity,
+      last_posting_seq, and a second sheet report with the rows basis, cutoff_seq, as_of, timezone, filters,
+      ledger_seq and next_cursor (and coverage when the JSON answer has it). No money column. Filename
+      asset-balances.xlsx. The movements route keeps refusing format (no movements export in this item).
+    acceptance_criteria:
+      - "1. Card export (test file test/letflow/modules/assets/card_export_test.exs; the test unzips the workbook in memory as test/letflow/entities/xlsx_export_test.exs does): POST /api/v1/entities/records/assets_card/export?format=xlsx by a TENANT_ADMIN with a real OIDC bearer token answers 200 with sheet records whose row 1 is the assets_card fields in definition order and one row per card, org_unit_id as the stored record id, and sheet export with entity_type, exported_at and next_cursor; a principal scoped to org unit U1 (Letflow.Support.ScopedGrantsFixture) gets only the U1 cards; a TENANT_ADMIN of tenant B gets no card of tenant A."
+      - "2. Format key (router test file of REQ-749, test/letflow/modules/assets/register_router_test.exs): GET /api/v1/modules/assets/balances accepts format json and xlsx; absent means json and the JSON answer is byte-identical to the one without the key (trace_id dropped); any other value answers 422 invalid_filter before any ledger query; GET /api/v1/modules/assets/movements with format answers 422 invalid_filter as before."
+      - "3. Balances file (test file test/letflow/modules/assets/xlsx_export_test.exs): with format xlsx the route answers 200 with content type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, content-disposition attachment with filename asset-balances.xlsx and cache-control no-store; sheet balances has the header row of the description and one row per row of the JSON answer of the same request, same order and values (null as an empty cell); sheet report has columns key and value with the rows of the description equal to the JSON answer. A test posts two commissions through the fixture and asserts both sheets against the JSON answer."
+      - "4. Cells (pure test of Letflow.Modules.Assets.XlsxExport in the same test file): a text starting with =, +, - or @ is a string cell and no cell has a formula element; a quantity is a number cell; no cell holds a price, a value, an actor id or a payload hash."
+      - "5. Same rows only (0079 D8, INV-1, INV-2, INV-5, INV-10; router test file): the refusals of REQ-749 criterion 5 hold with format xlsx (404 for a caller without AssetsRead and for an API token, 403 for a TASK_WORKER); a scoped reader's file holds exactly the rows of its JSON answer; cross-tenant negative test: a TENANT_ADMIN of tenant B exporting balances gets a file with no row of tenant A, also when it passes A's asset id or org unit id as a filter."
+      - "6. Runbook and gate: the Assets module limits section gains an item that the card file is not promised to re-import (org_unit_id is a record id) and that the balances file is one page per file; its runbook test count pin moves. A tenant-data-path change that passes a SECURITY-REVIEWER gate as a stated step, verdict and evidence quoted in the PR. The diff adds no route, no permission atom, no dependency in mix.exs and no edit of lib/letflow/ledger.ex, lib/letflow/ledger/ or lib/letflow/routers/entities.ex; no file under lib/letflow/modules/assets/ names Repo or Ecto.Query. mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check.static, mix letflow.check_boundaries and the test files of criteria 1 to 5 pass, real output quoted. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "The card file is not promised to re-import (asset-xlsx.md section 8 question 5) and whether a joined card and register list belongs here or to phase E (question 2): not decided here."
+    depends_on: [REQ-729, REQ-749, REQ-750, REQ-752, REQ-728]
   - id: REQ-748
     title: "Assets C7: module assets skeleton with the asset card record type assets_card (fields, unique inventory number per tenant, scope by org unit), the tenant currency setting and install; no route, no ledger"
     owner: ELIXIR-DEV
