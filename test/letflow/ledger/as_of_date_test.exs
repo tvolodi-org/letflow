@@ -181,14 +181,12 @@ defmodule Letflow.Ledger.AsOfDateTest do
     other = Fx.tenant_fixture!()
     :ok = Fx.put_tenant_settings!(other, %{"timezone" => "Asia/Vladivostok"})
     b = Fx.authorized!(other)
-    # Tokyo's yesterday is not in the future in Berlin at any hour, and a posting
-    # one hour before its Tokyo end lies inside that day in both zones.
-    day = tokyo_day(1)
-    at = DateTime.add(boundary(day), -3600)
+    at = DateTime.add(DateTime.utc_now(), -3600)
     post_at!(s, "receipt", ["same", "l"], 5, at)
     post_at!(other.schema_name, "receipt", ["same", "l"], 7, at)
     post_at!(other.schema_name, "receipt", ["only_b", "l"], 1, at)
 
+    day = tokyo_day(0)
     {:ok, ra} = Ledger.balances_on_date(a, day, :latest, %{}, %{})
     {:ok, rb} = Ledger.balances_on_date(b, day, :latest, %{}, %{})
     assert qty(ra, "same") == [5] and qty(ra, "only_b") == []
