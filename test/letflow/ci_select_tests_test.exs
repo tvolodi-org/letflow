@@ -251,6 +251,19 @@ defmodule Letflow.CiSelectTestsTest do
     assert File.read!(path) =~ "TEST_PARALLEL_PLAN"
   end
 
+  test "selective plan expects reports only from the partitions it launches (T-1318)" do
+    src = File.read!(Path.join(@root, "scripts/test_parallel.sh"))
+    # the plan lowers LAST; the expected report count follows it, full mode keeps N
+    assert src =~ ~s(expected_reports="$N")
+    assert src =~ "expected_reports=$((LAST - FIRST + 1))"
+    assert src =~ ~s(if [ "$reporting_count" -ne "$expected_reports" ])
+    refute src =~ ~s(if [ "$reporting_count" -ne "$N" ])
+    # the expected-count line sits after the plan lowers LAST
+    {plan_at, _} = :binary.match(src, "expected_reports=$((LAST - FIRST + 1))")
+    {check_at, _} = :binary.match(src, ~s(-ne "$expected_reports"))
+    assert plan_at < check_at
+  end
+
   test "the plan output ends with a newline before its delimiter (GH Actions output)" do
     yml = File.read!(@ci_yml)
     script = File.read!(Path.join(@root, "scripts/ci_emit_outputs.sh"))

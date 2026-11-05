@@ -62,6 +62,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   alias Letflow.Repo
 
   @reversal_definition "stock_reversal"
+  @count_definition "stock_count_posting"
   @post_nodes ["post", "submit", "approve"]
   @mark_type "stock_posting_mark"
   @reasons ~w(wrong_document wrong_quantity wrong_master_data other)
@@ -248,7 +249,9 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
       else: :ok
   end
 
-  defp start(prefix, name, key_prefix, version_id, doc_id, vars, actor) do
+  # Public for `Letflow.Modules.Stock.CountPosting` (REQ-718): the same start for a count.
+  @doc false
+  def start(prefix, name, key_prefix, version_id, doc_id, vars, actor) do
     attempt(prefix, name, key_prefix, version_id, doc_id, vars, actor, 2)
   end
 
@@ -335,7 +338,8 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
 
   defp with_reason(command, _spec, _header), do: command
 
-  defp client_seq(period, number) when is_binary(period) and is_integer(number) do
+  @doc false
+  def client_seq(period, number) when is_binary(period) and is_integer(number) do
     with {year, ""} <- Integer.parse(period),
          true <- number >= 0 and number < @max_number do
       {:ok, year * @max_number + number}
@@ -344,7 +348,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     end
   end
 
-  defp client_seq(_period, _number), do: {:error, :number_out_of_range}
+  def client_seq(_period, _number), do: {:error, :number_out_of_range}
 
   defp build_lines(lines, sides, line_ids) do
     Enum.reduce_while(lines, {:ok, []}, fn line, {:ok, acc} ->
@@ -451,7 +455,8 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     end
   end
 
-  defp reversal_reason(%{"reason_code" => code} = body) when code in @reasons do
+  @doc false
+  def reversal_reason(%{"reason_code" => code} = body) when code in @reasons do
     text = Map.get(body, "reason_text")
 
     with true <- text == nil or is_binary(text),
@@ -464,7 +469,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     end
   end
 
-  defp reversal_reason(_body), do: {:error, :reason_invalid}
+  def reversal_reason(_body), do: {:error, :reason_invalid}
 
   defp normalize(nil), do: nil
 
@@ -587,7 +592,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   def pending(prefix, id) do
     ids =
       Enum.flat_map(
-        Kinds.definition_names() ++ [@reversal_definition],
+        Kinds.definition_names() ++ [@reversal_definition, @count_definition],
         &definition_ids(prefix, &1)
       )
 
@@ -608,7 +613,8 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     %{post: Enum.any?(@post_nodes, &(&1 in nodes)), reverse: "reverse" in nodes}
   end
 
-  defp completer(prefix, id, node) do
+  @doc false
+  def completer(prefix, id, node) do
     Repo.one(
       from(t in Task,
         join: p in InstanceProjection,
@@ -624,7 +630,8 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     )
   end
 
-  defp entries(authorized, id) do
+  @doc false
+  def entries(authorized, id) do
     case Ledger.entries(authorized, %{"document_id" => id}, %{limit: 100}) do
       {:ok, %{rows: rows, next_cursor: nil}} -> {:ok, rows}
       {:ok, %{rows: _rows}} -> :truncated
@@ -799,9 +806,10 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     end
   end
 
-  defp legs_match?(_receipt, :none), do: false
+  @doc false
+  def legs_match?(_receipt, :none), do: false
 
-  defp legs_match?(receipt, expected) do
+  def legs_match?(receipt, expected) do
     actual =
       receipt.legs
       |> Enum.map(fn leg ->
@@ -815,7 +823,8 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
 
   defp pad(k), do: k |> Enum.take(5) |> then(&(&1 ++ List.duplicate(nil, 5 - length(&1))))
 
-  defp leg_key(sku, location, org_unit, responsible, lot, unit, quantity) do
+  @doc false
+  def leg_key(sku, location, org_unit, responsible, lot, unit, quantity) do
     {sku, location, org_unit, blank(responsible), blank(lot), unit, decimal_text(quantity)}
   end
 

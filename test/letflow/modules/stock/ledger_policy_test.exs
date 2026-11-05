@@ -295,4 +295,65 @@ defmodule Letflow.Modules.Stock.LedgerPolicyTest do
     assert refused(%{command | reverses_entry_id: "nope"}) == bad(1)
     assert refused(Map.delete(command, :reason_code)) == bad(1)
   end
+
+  describe "REQ-718 count_difference (R2, L1)" do
+    test "R2: a surplus line is +q at to, a shortage line is -q at from" do
+      surplus = line(nil, side(%{responsible: @resp}), %{quantity: "3"})
+      shortage = line(side(), nil, %{quantity: "2"})
+
+      assert {:ok, %{cause: "count_difference", legs: [plus]}} =
+               declare(cmd("count_difference", [surplus]))
+
+      assert plus.quantity == Decimal.new("3")
+
+      assert {:ok, %{legs: [minus]}} = declare(cmd("count_difference", [shortage]))
+      assert minus.quantity == Decimal.new("-2")
+    end
+
+    test "R2: both sides or neither side is refused at the leg of the line" do
+      good = line(nil, side())
+      both = line(side(), other())
+      neither = line(nil, nil)
+
+      assert refused(cmd("count_difference", [good, both])) == bad(2)
+      assert refused(cmd("count_difference", [good, good, neither])) == bad(3)
+    end
+
+    test "R2: 200 lines are accepted, 201 are refused at leg 201; other causes stay at 100" do
+      lines = fn n -> List.duplicate(line(nil, side()), n) end
+      assert {:ok, %{legs: legs}} = declare(cmd("count_difference", lines.(200)))
+      assert length(legs) == 200
+      assert refused(cmd("count_difference", lines.(201))) == bad(201)
+      assert {:ok, _} = declare(cmd("receipt", lines.(100)))
+      assert refused(cmd("receipt", lines.(101))) == bad(101)
+    end
+
+    test "R2: a zero or negative quantity is refused" do
+      assert refused(cmd("count_difference", [line(nil, side(), %{quantity: "0"})])) == bad(1)
+      assert refused(cmd("count_difference", [line(nil, side(), %{quantity: "-1"})])) == bad(1)
+    end
+
+    test "L1: related_document_id and correlation_id reach the posting and the reversal" do
+      command =
+        cmd("count_difference", [line(nil, side())], %{
+          related_document_id: "order-doc",
+          correlation_id: "order-record"
+        })
+
+      assert {:ok, posting} = declare(command)
+      assert posting.related_document_id == "order-doc"
+      assert posting.correlation_id == "order-record"
+
+      reversal = %{
+        cause: "reversal",
+        reverses_entry_id: "99999999-9999-4999-8999-999999999999",
+        reason_code: "wrong_document",
+        document_type: "count.differences",
+        document_id: "d1",
+        related_document_id: "order-doc"
+      }
+
+      assert {:ok, %{related_document_id: "order-doc"}} = declare(reversal)
+    end
+  end
 end
