@@ -44,7 +44,7 @@ defmodule Letflow.Modules.Stock.TwoSideRegistrationTest do
   test "REG-1: the manifest gains the six types, each scoped by org_unit_id; catalog check ok" do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
-    assert m.version == "0.6.0"
+    assert m.version == "0.7.0"
 
     assert Enum.slice(m.manages_entity_types, 0, 8) == [
              "stock_receipt",
