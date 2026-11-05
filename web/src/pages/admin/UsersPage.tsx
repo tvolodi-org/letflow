@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { P, useAccess } from '@/auth/access'
+import { P, useAccess, roleLabel } from '@/auth/access'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, rolesApi } from '@/api/identity'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -80,7 +80,7 @@ export default function UsersPage() {
       id: 'roles',
       header: 'Roles',
       accessor: (u) => (
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{roleList(u).join(', ')}</span>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{roleList(u).map((name) => roleLabel(name)).join(', ')}</span>
       ),
     },
     {
@@ -153,7 +153,7 @@ export default function UsersPage() {
                   checked={createRoleIds.includes(role.id)}
                   onChange={() => toggleRole(role.id, createRoleIds, setCreateRoleIds)}
                 />
-                <span>{role.name}</span>
+                <span>{roleLabel(role.name)}</span>
               </label>
             ))}
           </div>

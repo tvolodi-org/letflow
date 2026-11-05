@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: assets@0.2.0,catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.14.0
-# roles: 8
+# modules: assets@0.2.0,catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.15.0
+# roles: 9
 # permissions: 81
-# rows: 648
+# rows: 729
 # columns: role permission allowed owner via
 AGENT_RUNNER AssetsCardWrite false module:assets -
 AGENT_RUNNER AttachmentLinksIssue false core -
@@ -411,6 +411,87 @@ PROCESS_OPERATOR TenantsManage false core -
 PROCESS_OPERATOR TokensManage false core -
 PROCESS_OPERATOR UsersGroupsRolesManage false core -
 PROCESS_OPERATOR WebhooksManage true core core
+STOREKEEPER AssetsCardWrite false module:assets -
+STOREKEEPER AttachmentLinksIssue false core -
+STOREKEEPER AttachmentsManage false core -
+STOREKEEPER AttachmentsRead false core -
+STOREKEEPER AuditRead false core -
+STOREKEEPER CatalogLotsWrite false module:catalog_items -
+STOREKEEPER CodesRead false module:codes -
+STOREKEEPER CodesWrite false module:codes -
+STOREKEEPER DefinitionsRead false core -
+STOREKEEPER DefinitionsRollback false core -
+STOREKEEPER DefinitionsWrite false core -
+STOREKEEPER DlqOperate false core -
+STOREKEEPER DocumentHold false core -
+STOREKEEPER DocumentPrintTemplatesManage false core -
+STOREKEEPER DocumentsRetentionManage false core -
+STOREKEEPER EntitiesAggregate false core -
+STOREKEEPER EntitiesAttachmentsManage false core -
+STOREKEEPER EntitiesAttachmentsRead false core -
+STOREKEEPER EntitiesDefinitionsRead true core core
+STOREKEEPER EntitiesDefinitionsWrite false core -
+STOREKEEPER EntitiesExtensionsManage false core -
+STOREKEEPER EntitiesQuery true core core
+STOREKEEPER EntitiesRecordsExport false core -
+STOREKEEPER EntitiesRecordsExportUnredacted false core -
+STOREKEEPER EntitiesRecordsImport true core core
+STOREKEEPER EntitiesRecordsWrite false core -
+STOREKEEPER EntitiesRestrictionsManage false core -
+STOREKEEPER EntitiesViewsManage false core -
+STOREKEEPER ExamAuthoringWrite false module:exam -
+STOREKEEPER ExamCertificateIssue false module:exam -
+STOREKEEPER ExamGradingRead false module:exam -
+STOREKEEPER ExamGradingWrite false module:exam -
+STOREKEEPER ExamSessionRead false module:exam -
+STOREKEEPER ExamSessionReportEvent false module:exam -
+STOREKEEPER ExamSessionSave false module:exam -
+STOREKEEPER ExamSessionStart false module:exam -
+STOREKEEPER ExamSessionSubmit false module:exam -
+STOREKEEPER HelpRead true core core
+STOREKEEPER InstancesAdvanceTimer false core -
+STOREKEEPER InstancesCancel false core -
+STOREKEEPER InstancesRead false core -
+STOREKEEPER InstancesStart false core -
+STOREKEEPER IntegrationMappingsManage false core -
+STOREKEEPER LabelsManage false core -
+STOREKEEPER LocationsWrite false module:locations -
+STOREKEEPER MembershipsRead true core core
+STOREKEEPER MetricsRead false core -
+STOREKEEPER ModulesManage false core -
+STOREKEEPER MyAccessRead true core core
+STOREKEEPER MyModulesRead true core core
+STOREKEEPER NotificationTemplatesManage false core -
+STOREKEEPER NumberSequencesManage false core -
+STOREKEEPER OrgEmployeesWrite false module:org -
+STOREKEEPER OrgStructureWrite false module:org -
+STOREKEEPER PlatformServicesManage false core -
+STOREKEEPER ProcurementLineRecord false module:procurement -
+STOREKEEPER ProcurementRequestDecide false module:procurement -
+STOREKEEPER ProcurementRequestRead false module:procurement -
+STOREKEEPER ProcurementRequestWrite false module:procurement -
+STOREKEEPER PromotionsManage false core -
+STOREKEEPER PromotionsRead false core -
+STOREKEEPER PublicReadHandlesIssue false core -
+STOREKEEPER RolesManage false core -
+STOREKEEPER ScheduledJobsManage false core -
+STOREKEEPER ScriptsPublish false core -
+STOREKEEPER ScriptsWrite false core -
+STOREKEEPER SolutionOverridesManage false core -
+STOREKEEPER StockCountOrder true module:stock grant
+STOREKEEPER StockCountRecord true module:stock grant
+STOREKEEPER StockPost true module:stock grant
+STOREKEEPER StockRead true module:stock grant
+STOREKEEPER StockReconcile false module:stock -
+STOREKEEPER StockReverse true module:stock grant
+STOREKEEPER TasksAssign false core -
+STOREKEEPER TasksComplete true core core
+STOREKEEPER TasksRead true core core
+STOREKEEPER TenantSettingsManage false core -
+STOREKEEPER TenantsManage false core -
+STOREKEEPER TokensManage false core -
+STOREKEEPER UsersGroupsRolesManage false core -
+STOREKEEPER WebhooksManage false core -
 TASK_WORKER AssetsCardWrite false module:assets -
 TASK_WORKER AttachmentLinksIssue true core core
 TASK_WORKER AttachmentsManage false core -

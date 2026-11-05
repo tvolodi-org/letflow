@@ -314,7 +314,7 @@ defmodule Letflow.Api.RolesMatrixParityTest do
       columns = header |> Enum.drop(1) |> Enum.drop(-1)
 
       assert columns == role_names()
-      assert List.last(columns) == "TENANT_AUDITOR"
+      assert List.last(columns) == "STOREKEEPER"
 
       for row <- rows do
         assert Enum.sort(Map.keys(row.cells)) == Enum.sort(role_names()), row.permission

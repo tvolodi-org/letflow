@@ -1,9 +1,9 @@
 # Letflow role charter
 
 Decision record: `docs/migration/decisions/0046-admin-scopes-and-role-charter.md` (cite as "0046 D<n>").
-This is the current state after REQ-446..448. Eight built-in roles, in the order of
-`Letflow.Api.Authorization.roles/0` (the six existing roles, then TENANT_ADMIN, TENANT_AUDITOR).
-The set is closed: a module cannot create a role (0046 D10).
+This is the current state after REQ-446..448. Nine built-in roles, in the order of
+`Letflow.Api.Authorization.roles/0` (the six existing roles, then TENANT_ADMIN, TENANT_AUDITOR, STOREKEEPER).
+The set is closed: a module cannot create a role (0046 D10). STOREKEEPER (D-093) was added by a human decision, see `docs/migration/decisions/0081-storekeeper-role.md`.
 
 Two scopes. Platform scope = the organisation operating Letflow. Tenant scope = one customer
 organisation, inside its own tenant only. The platform tenant is the one tenant named by server
@@ -67,8 +67,14 @@ scenario file. A tenant-side actor holds TENANT_ADMIN or a tenant role, never PL
 
 Record history consequence (REQ-516 S2, decision 0059 D2): the history route masks `field_values` with the caller's CURRENT restriction rows and grants, at read time. Restrictions are not stored per event. So if a restriction is removed later, the history written while it applied shows those values to an auditor who holds no grant. Restricted values in history follow the caller's current restrictions and grants, not the restrictions in force when each event was written. The history route reads the live events table only; archived or retention-removed events are not shown.
 
+## STOREKEEPER
+- Scope: tenant. Assignable to a user or a group; a node-scoped grant (0051, D-067) limits it to a unit and below.
+- Who holds it: warehouse clerks (D-093).
+- Does: the stock module (`StockRead`, `StockPost`, `StockReverse`, `StockCountOrder`, `StockCountRecord`: documents, counts, balances, movements, print and xlsx of stock), its own tasks, reads of reference data (`EntitiesDefinitionsRead`, `EntitiesQuery`), and the xlsx import of module-managed types that have a registered import function (opening lines). It is granted the stock atoms through the `stock` manifest `role_grants`, not through a core rule.
+- Must not: write org, locations, codes or catalog, administer users, groups, roles, tokens, modules or settings, read audit, export records, import any other type, or use `StockReconcile` (withheld, one line in the stock manifest to grant).
+
 ## The provisioner is a credential, not a role
-The tenant provisioner (REQ-572, decision 0072 D6, QA only) is NOT one of the eight roles and adds no role, permission or `auth_context`. It is a hash-configured credential class
+The tenant provisioner (REQ-572, decision 0072 D6, QA only) is NOT one of the nine roles and adds no role, permission or `auth_context`. It is a hash-configured credential class
 (`LETFLOW_PROVISIONER_CREDENTIAL_SHA256`, and a read-only class `LETFLOW_PROVISIONER_READONLY_CREDENTIAL_SHA256`) accepted only by the `/admin/v1` routes, outside `/api/v1`: create, get, suspend,
 resume and expire a tenant. It cannot call any other route, read tenant data, act as an administrator or create a credential. The role count and the names above are unchanged. A PLATFORM_ADMIN outside the
 platform tenant stays refused (0046 D1). Operating the credential: `docs/runbooks/tenant-provisioner-credential.md`.
@@ -179,7 +185,7 @@ Module `catalog_items` (GH #3610, REQ-668) declares `CatalogLotsWrite` (create, 
 TENANT_ADMIN and PLATFORM_ADMIN hold it.
 Module `codes` (GH #3611, REQ-667; GH #3797, REQ-730) declares `CodesWrite` (receive, assign, release, retire and rewrite codes) and `CodesRead` (scan lookup, `POST /resolve`), tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.
 
-Module `stock` (GH #3707, REQ-687) declares `StockPost`, `StockReverse`, `StockRead` and `StockReconcile`, tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold them; OQ-11 of decision 0073 (grants for other roles) stays open for the owner.
+Module `stock` (GH #3707, REQ-687) declares `StockPost`, `StockReverse`, `StockRead` and `StockReconcile`, tenant scope. TENANT_ADMIN and PLATFORM_ADMIN hold them all; STOREKEEPER holds all but `StockReconcile` (D-093, `role_grants` since stock 0.14.0).
 Module `assets` (GH #3892, REQ-750) declares `AssetsCardWrite` (asset cards: create, change, retire), tenant scope. It declares no `role_grants`, so only
 TENANT_ADMIN and PLATFORM_ADMIN hold it; the routes also require an interactive, tenant-wide caller.
 Module `locations` (GH #3612, REQ-666) declares `LocationsWrite` (location nodes: create, change, move, retire; links of org units to locations: link, unlink), tenant scope. It declares no `role_grants`, so only
@@ -190,60 +196,60 @@ cells for PromotionsRead and PromotionsManage stand. The TENANT_AUDITOR `Promoti
 (0046 D6; the stored-tenant check of Q-1011 / ISS-1029 has merged, see the closure note of 0046).
 
 ```
-permission                      PLATFORM_ADMIN PROCESS_DESIGNER PROCESS_OPERATOR TASK_WORKER AGENT_RUNNER CANDIDATE TENANT_ADMIN TENANT_AUDITOR scope
-DefinitionsWrite                yes            yes              no               no          no           no        yes          no             tenant
-DefinitionsRead                 yes            yes              yes              yes         no           no        yes          yes            tenant
-InstancesStart                  yes            yes              yes              no          no           no        yes          no             tenant
-InstancesCancel                 yes            no               yes              no          no           no        yes          no             tenant
-InstancesRead                   yes            yes              yes              yes         no           no        yes          yes            tenant
-TasksRead                       yes            yes              yes              yes         no           no        yes          yes            tenant
-TasksComplete                   yes            no               yes              yes         no           no        yes          no             tenant
-TasksAssign                     yes            no               yes              no          no           no        yes          no             tenant
-UsersGroupsRolesManage          yes            no               no               no          no           no        yes          no             tenant
-TokensManage                    yes            no               no               no          no           no        yes          no             tenant
-AuditRead                       yes            no               yes              no          no           no        yes          yes            tenant
-DlqOperate                      yes            no               yes              no          no           no        yes          no             tenant
-MetricsRead                     yes            no               yes              no          no           no        yes          yes            tenant
-WebhooksManage                  yes            no               yes              no          no           no        yes          no             tenant
-TenantsManage                   yes            no               no               no          no           no        no           no             platform
-RolesManage                     yes            yes              no               no          no           no        yes          no             tenant
-AttachmentsManage               yes            no               yes              no          no           no        yes          no             tenant
-AttachmentsRead                 yes            yes              yes              yes         no           no        yes          yes            tenant
-InstancesAdvanceTimer           yes            no               yes              no          no           no        yes          no             tenant
-EntitiesDefinitionsRead         yes            yes              yes              yes         no           no        yes          yes            tenant
-EntitiesDefinitionsWrite        yes            yes              no               no          no           no        yes          no             tenant
-EntitiesRecordsWrite            yes            no               yes              no          no           no        yes          no             tenant
-EntitiesQuery                   yes            yes              yes              yes         no           no        yes          yes            tenant
-EntitiesAggregate               yes            yes              yes              yes         no           no        yes          yes            tenant
-EntitiesRecordsExport           yes            no               no               no          no           no        yes          no             tenant
-EntitiesRecordsExportUnredacted yes            no               no               no          no           no        yes          no             tenant
-EntitiesRecordsImport           yes            no               no               no          no           no        yes          no             tenant
-EntitiesAttachmentsManage       yes            no               yes              no          no           no        yes          no             tenant
-EntitiesAttachmentsRead         yes            yes              yes              yes         no           no        yes          yes            tenant
-PublicReadHandlesIssue          yes            no               no               no          no           no        yes          no             tenant
-HelpRead                        yes            yes              yes              yes         yes          no        yes          yes            tenant
-MembershipsRead                 yes            yes              yes              yes         yes          no        yes          yes            tenant
-ModulesManage                   yes            no               no               no          no           no        yes          no             tenant
-MyModulesRead                   yes            yes              yes              yes         yes          yes       yes          yes            tenant
-MyAccessRead                    yes            yes              yes              yes         yes          yes       yes          yes            tenant
-EntitiesRestrictionsManage      yes            no               no               no          no           no        yes          no             tenant
-PromotionsRead                  yes            no               no               no          no           no        yes          yes            tenant
-PromotionsManage                yes            no               no               no          no           no        yes          no             tenant
-DefinitionsRollback             yes            no               no               no          no           no        yes          no             tenant
-TenantSettingsManage            yes            no               no               no          no           no        yes          no             tenant
-PlatformServicesManage          yes            no               no               no          no           no        no           no             platform
-AttachmentLinksIssue            yes            yes              yes              yes         no           no        yes          no             tenant
-ScriptsWrite                    yes            yes              no               no          no           no        yes          no             tenant
-ScriptsPublish                  yes            no               no               no          no           no        yes          no             tenant
-DocumentHold                    yes            no               no               no          no           no        yes          no             tenant
-DocumentsRetentionManage        yes            no               no               no          no           no        yes          no             tenant
-IntegrationMappingsManage       yes            no               no               no          no           no        yes          no             tenant
-LabelsManage                    yes            no               no               no          no           no        yes          no             tenant
-EntitiesViewsManage            yes            no               no               no          no           no        yes          no             tenant
-NotificationTemplatesManage     yes            no               no               no          no           no        yes          no             tenant
-NumberSequencesManage           yes            no               no               no          no           no        yes          no             tenant
-ScheduledJobsManage             yes            no               no               no          no           no        yes          no             tenant
-DocumentPrintTemplatesManage      yes            no               no               no          no           no        yes          no             tenant
-SolutionOverridesManage          yes            no               no               no          no           no        yes          no             tenant
-EntitiesExtensionsManage         yes            no               no               no          no           no        yes          no             tenant
+permission                      PLATFORM_ADMIN PROCESS_DESIGNER PROCESS_OPERATOR TASK_WORKER AGENT_RUNNER CANDIDATE TENANT_ADMIN TENANT_AUDITOR STOREKEEPER scope
+DefinitionsWrite                yes            yes              no               no          no           no        yes          no             no            tenant
+DefinitionsRead                 yes            yes              yes              yes         no           no        yes          yes            no            tenant
+InstancesStart                  yes            yes              yes              no          no           no        yes          no             no            tenant
+InstancesCancel                 yes            no               yes              no          no           no        yes          no             no            tenant
+InstancesRead                   yes            yes              yes              yes         no           no        yes          yes            no            tenant
+TasksRead                       yes            yes              yes              yes         no           no        yes          yes            yes            tenant
+TasksComplete                   yes            no               yes              yes         no           no        yes          no             yes            tenant
+TasksAssign                     yes            no               yes              no          no           no        yes          no             no            tenant
+UsersGroupsRolesManage          yes            no               no               no          no           no        yes          no             no            tenant
+TokensManage                    yes            no               no               no          no           no        yes          no             no            tenant
+AuditRead                       yes            no               yes              no          no           no        yes          yes            no            tenant
+DlqOperate                      yes            no               yes              no          no           no        yes          no             no            tenant
+MetricsRead                     yes            no               yes              no          no           no        yes          yes            no            tenant
+WebhooksManage                  yes            no               yes              no          no           no        yes          no             no            tenant
+TenantsManage                   yes            no               no               no          no           no        no           no             no            platform
+RolesManage                     yes            yes              no               no          no           no        yes          no             no            tenant
+AttachmentsManage               yes            no               yes              no          no           no        yes          no             no            tenant
+AttachmentsRead                 yes            yes              yes              yes         no           no        yes          yes            no            tenant
+InstancesAdvanceTimer           yes            no               yes              no          no           no        yes          no             no            tenant
+EntitiesDefinitionsRead         yes            yes              yes              yes         no           no        yes          yes            yes            tenant
+EntitiesDefinitionsWrite        yes            yes              no               no          no           no        yes          no             no            tenant
+EntitiesRecordsWrite            yes            no               yes              no          no           no        yes          no             no            tenant
+EntitiesQuery                   yes            yes              yes              yes         no           no        yes          yes            yes            tenant
+EntitiesAggregate               yes            yes              yes              yes         no           no        yes          yes            no            tenant
+EntitiesRecordsExport           yes            no               no               no          no           no        yes          no             no            tenant
+EntitiesRecordsExportUnredacted yes            no               no               no          no           no        yes          no             no            tenant
+EntitiesRecordsImport           yes            no               no               no          no           no        yes          no             yes            tenant
+EntitiesAttachmentsManage       yes            no               yes              no          no           no        yes          no             no            tenant
+EntitiesAttachmentsRead         yes            yes              yes              yes         no           no        yes          yes            no            tenant
+PublicReadHandlesIssue          yes            no               no               no          no           no        yes          no             no            tenant
+HelpRead                        yes            yes              yes              yes         yes          no        yes          yes            yes            tenant
+MembershipsRead                 yes            yes              yes              yes         yes          no        yes          yes            yes            tenant
+ModulesManage                   yes            no               no               no          no           no        yes          no             no            tenant
+MyModulesRead                   yes            yes              yes              yes         yes          yes       yes          yes            yes            tenant
+MyAccessRead                    yes            yes              yes              yes         yes          yes       yes          yes            yes            tenant
+EntitiesRestrictionsManage      yes            no               no               no          no           no        yes          no             no            tenant
+PromotionsRead                  yes            no               no               no          no           no        yes          yes            no            tenant
+PromotionsManage                yes            no               no               no          no           no        yes          no             no            tenant
+DefinitionsRollback             yes            no               no               no          no           no        yes          no             no            tenant
+TenantSettingsManage            yes            no               no               no          no           no        yes          no             no            tenant
+PlatformServicesManage          yes            no               no               no          no           no        no           no             no            platform
+AttachmentLinksIssue            yes            yes              yes              yes         no           no        yes          no             no            tenant
+ScriptsWrite                    yes            yes              no               no          no           no        yes          no             no            tenant
+ScriptsPublish                  yes            no               no               no          no           no        yes          no             no            tenant
+DocumentHold                    yes            no               no               no          no           no        yes          no             no            tenant
+DocumentsRetentionManage        yes            no               no               no          no           no        yes          no             no            tenant
+IntegrationMappingsManage       yes            no               no               no          no           no        yes          no             no            tenant
+LabelsManage                    yes            no               no               no          no           no        yes          no             no            tenant
+EntitiesViewsManage            yes            no               no               no          no           no        yes          no             no            tenant
+NotificationTemplatesManage     yes            no               no               no          no           no        yes          no             no            tenant
+NumberSequencesManage           yes            no               no               no          no           no        yes          no             no            tenant
+ScheduledJobsManage             yes            no               no               no          no           no        yes          no             no            tenant
+DocumentPrintTemplatesManage      yes            no               no               no          no           no        yes          no             no            tenant
+SolutionOverridesManage          yes            no               no               no          no           no        yes          no             no            tenant
+EntitiesExtensionsManage         yes            no               no               no          no           no        yes          no             no            tenant
 ```
