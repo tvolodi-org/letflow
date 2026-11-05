@@ -2,8 +2,8 @@
 
 The voice service turns a spoken or typed phrase into a stock draft. This runbook covers the
 settings and the two outbound clients (`Letflow.Voice.Settings`, `Letflow.Voice.SpeechClient`,
-`Letflow.Voice.ModelClient`, with the shared `Letflow.Voice.Http`). Nothing calls them yet; the
-routes are REQ-741.
+`Letflow.Voice.ModelClient`, with the shared `Letflow.Voice.Http`). The two routes
+that call them are described under "Routes" (REQ-741).
 
 ## Settings
 
@@ -52,3 +52,37 @@ cannot be resolved for a request of tenant A. Per-tenant keys stay an open quest
 | `ModelClient` (llm) | `:provider_timeout` | no answer within `:timeout_ms` |
 | `ModelClient` (llm) | `:truncated` | `finish_reason` is `length` |
 | `ModelClient` (llm) | `:refused` | the answer carries a refusal |
+
+## Routes (REQ-741 / GH #3879; stock 0.12.0)
+
+Both routes are in module `stock` (`/api/v1/modules/stock`), permission `StockPost` (no new atom), same guard
+as the document routes: a tenant-wide interactive user only; an API token or a scoped grant gets the same 404
+as a tenant without the module; a role without `StockPost` gets 403. The tenant comes from the token only.
+
+| Route | Body | 200 |
+|---|---|---|
+| `POST /voice/draft` | multipart: `audio` (file, m4a or WebM) and `lang` (`ru` or `kk`, both required) | `kind, items, location, to_location, quantity, transcript, dropped` |
+| `POST /voice/draft-text` | JSON `text` (required), `lang` (`ru` or `kk`, optional) | the same seven keys |
+
+Nothing is stored (no record, event, audit entry, audio or transcript) and nothing of the request is logged.
+The audio limit is 10 MB (10,485,760 bytes), checked by the route on the uploaded file; the multipart parser
+above it allows 25 MB, so a file between the two reaches the route and gets 413. The format is read from the
+first bytes (m4a `ftyp` at offset 4, WebM `1A45DFA3` at offset 0), not from the declared content type. The
+item and location lists sent to the model are the tenant's own active records, not capped (a size cap is an
+open owner question), and the answer is checked on the server by `VoiceDraft.check/3`.
+
+| Case | Status | `reason` | `source` | `field` |
+|---|---|---|---|---|
+| text missing, blank or not a string; audio part missing | 422 | `field_invalid` | | `text` / `audio` |
+| any other key in the body | 422 | `field_not_allowed` | | that key |
+| `lang` not exactly `ru` or `kk` (audio: also missing) | 422 | `bad_language` | | |
+| audio over 10 MB | 413 | `audio_too_large` | `speech` | |
+| audio neither m4a nor WebM | 415 | `audio_format` | `speech` | |
+| speech step not configured (audio route only) | 503 | `speech_off` | `speech` | |
+| speech provider failed / timed out | 502 / 504 | `provider_error` / `provider_timeout` | `speech` | |
+| model provider failed / timed out / refused / truncated | 502 / 504 / 502 / 502 | `provider_error` / `provider_timeout` / `refused` / `truncated` | `llm` | |
+| model answer is not the expected JSON | 502 | `bad_answer` | `llm` | |
+| model step not configured | 200 | body with `notice: "llm_off"`, empty draft, the transcript | | |
+
+A request holds a tenant admission slot for up to two provider calls of 60 s each; a per-user rate limit is an
+open owner question.
