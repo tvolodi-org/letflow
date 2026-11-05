@@ -196,6 +196,25 @@ test needs a camera. Permissions: Android `CAMERA` (camera not required),
 iOS `NSCameraUsageDescription`. The lookup is online only; nothing is stored
 on the device.
 
+## Voice recording
+
+The `stock` module (REQ-747, `lib/features/stock/voice/`) lets the count screen
+and the receipt, issue and transfer forms fill a line from a spoken phrase. The
+phone records AAC-LC into an `.m4a` file, sends it with a language hint (`ru` or
+`kk`) to `POST /api/v1/modules/stock/voice/draft`, and shows the answered draft
+for the user to check. A typed phrase goes to `.../voice/draft-text`. Voice
+never saves, counts, issues or posts by itself. When a voice part is down the
+screen says which one, and typing and scanning keep working.
+
+Package: `record`. It is the one package that records AAC-LC into an `.m4a` on
+Android and iOS and asks for the microphone permission itself. Only
+`lib/features/stock/voice/package_recorder_port.dart` imports it; the rest uses
+the `VoiceSource` interface, which tests replace with a fake, so no test needs a
+microphone. Permissions: Android `RECORD_AUDIO` (a microphone is not required to
+install), iOS `NSMicrophoneUsageDescription` (English only). The recording is a
+temporary file that is deleted as soon as it is read; audio and transcript are
+kept in memory only and the feature is online only.
+
 ## Static guards
 
 `test/guards/` holds three ordinary Dart tests that fail `flutter test` (and

@@ -6,9 +6,12 @@ library;
 import 'package:flutter/foundation.dart';
 
 import '../../../api/api_error.dart';
+import '../../../i18n/i18n.dart';
 import '../../../renderers/renderer_state.dart';
 import '../../codes/codes_resolve.dart';
+import '../voice/voice_models.dart';
 import 'document_draft.dart';
+import 'document_kinds.dart';
 import 'document_pickers.dart';
 import 'document_refusals.dart';
 import 'documents_api.dart';
@@ -33,6 +36,15 @@ class DocFormController extends ChangeNotifier {
   /// 403, 429, network and server failures (renderer states).
   RendererState<DocDraft>? failure;
   Future<void> Function()? _lastAction;
+
+  /// Voice (REQ-747): items to choose among. While set, Save and Issue stay
+  /// off. [voiceEpoch] changes when a draft fills lines, so the line editors
+  /// are rebuilt with the new text.
+  List<VoiceItem>? voiceChoices;
+  String? _voiceQuantity;
+  int voiceEpoch = 0;
+
+  bool get hasPendingVoiceChoice => voiceChoices != null;
 
   final Map<String, List<PickerOption>> _options = {};
   final Map<String, String> labels = {};
@@ -128,6 +140,12 @@ class DocFormController extends ChangeNotifier {
         id == null) {
       return false;
     }
+    return _fillItem(line, id);
+  }
+
+  /// Sets the item of [line] and presets its base unit (a read; a failing
+  /// read leaves the unit to be picked by hand).
+  Future<bool> _fillItem(int line, String id, {String? quantity}) async {
     PickerOption? item;
     try {
       item = await pickers.loadOne('catalog_item', id);
@@ -143,9 +161,76 @@ class DocFormController extends ChangeNotifier {
         item: id,
         uom: base is String ? base : '',
         lot: '',
+        quantity: quantity,
       ),
     );
     return true;
+  }
+
+  // -- voice (REQ-747) -----------------------------------------------------------
+
+  /// Fills the form from a voice draft for the user to check. Reads only: no
+  /// save, issue or post is made here.
+  Future<void> applyVoiceDraft(VoiceDraft d) async {
+    voiceChoices = null;
+    if (d.kind != draft.kind.wire) {
+      showMessage(tr('stock.voice.kindMismatch'));
+      return;
+    }
+    message = null;
+    void place(String key, VoicePlace? p) {
+      if (p == null) return;
+      labels[p.id] = p.label;
+      draft = draft.withField(key, p.id);
+    }
+
+    if (draft.kind == DocKind.transfer) {
+      place('from_location_id', d.location);
+      place('to_location_id', d.toLocation);
+    } else {
+      place('location_id', d.location);
+    }
+    voiceEpoch++;
+    _dirty = true;
+    if (d.items.length > 1) {
+      voiceChoices = d.items;
+      _voiceQuantity = d.quantity;
+      _notify();
+      return;
+    }
+    _notify();
+    if (d.items.length == 1) {
+      await _fillVoiceLine(d.items.first, d.quantity);
+    }
+  }
+
+  Future<void> chooseVoiceItem(VoiceItem item) async {
+    final q = _voiceQuantity;
+    voiceChoices = null;
+    _voiceQuantity = null;
+    _notify();
+    await _fillVoiceLine(item, q);
+  }
+
+  void dismissVoiceChoice() {
+    voiceChoices = null;
+    _voiceQuantity = null;
+    _notify();
+  }
+
+  Future<void> _fillVoiceLine(VoiceItem item, String? quantity) async {
+    final first = draft.lines.isEmpty ? null : draft.lines.first;
+    final firstEmpty =
+        first != null && first.item.isEmpty && first.quantity.isEmpty;
+    var index = 0;
+    if (!firstEmpty) {
+      draft = draft.copyWith(lines: [...draft.lines, const DocLine()]);
+      index = draft.lines.length - 1;
+    }
+    labels[item.id] = item.label;
+    await _fillItem(index, item.id, quantity: quantity ?? '');
+    voiceEpoch++;
+    _notify();
   }
 
   /// A scanned lot fills the lot and, from the lot record, its item and the
