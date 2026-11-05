@@ -93,11 +93,12 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     do: %AccessContext{user_id: "u-req448", roles: roles, platform_tenant?: platform_tenant?}
 
   describe "roles/0" do
-    test "returns eight atoms ending in TENANT_AUDITOR, the seven existing roles first and unchanged" do
+    test "returns nine atoms ending in STOREKEEPER, the seven existing roles first and unchanged" do
       roles = Authorization.roles()
 
-      assert length(roles) == 8
-      assert List.last(roles) == :TENANT_AUDITOR
+      assert length(roles) == 9
+      assert Enum.at(roles, 7) == :TENANT_AUDITOR
+      assert List.last(roles) == :STOREKEEPER
 
       assert Enum.take(roles, 7) == [
                :PLATFORM_ADMIN,

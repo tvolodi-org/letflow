@@ -674,7 +674,7 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
       end
     end
 
-    test "a role without the permission is forbidden on every route; no role grants post or reverse",
+    test "a role without the permission is forbidden on every route; only STOREKEEPER is granted stock",
          ctx do
       x = world!(ctx, :a)
       id = signed!(x)
@@ -684,7 +684,7 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
         assert call(m, "/counts/#{id}#{p}", tok, body).status == 403, "#{m} #{p}"
       end
 
-      assert Letflow.Modules.Stock.manifest().role_grants == %{}
+      assert Map.keys(Letflow.Modules.Stock.manifest().role_grants) == [:STOREKEEPER]
     end
   end
 end

@@ -301,7 +301,7 @@ defmodule Letflow.Identity.TenantAdminSeedingTest do
       assert "TENANT_ADMIN" in names
       assert length(names) == length(Letflow.Api.Authorization.roles())
       assert "TENANT_AUDITOR" in names
-      assert List.last(names) == "TENANT_AUDITOR"
+      assert List.last(names) == "STOREKEEPER"
     end
 
     test "tenant-admin-user exists with exactly [TENANT_ADMIN]; admin-user is still PLATFORM_ADMIN only; no other user holds TENANT_ADMIN" do

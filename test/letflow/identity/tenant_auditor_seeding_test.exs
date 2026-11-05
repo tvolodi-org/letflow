@@ -92,7 +92,7 @@ defmodule Letflow.Identity.TenantAuditorSeedingTest do
   end
 
   describe "new tenants: provision_and_migrate/1 seeds TENANT_AUDITOR" do
-    test "an ordinary tenant has the TENANT_AUDITOR group and a :platform_role binding to it, seedable_role_names/1 ends with it, and PLATFORM_ADMIN is absent" do
+    test "an ordinary tenant has the TENANT_AUDITOR group and a :platform_role binding to it, seedable_role_names/1 ends with STOREKEEPER, and PLATFORM_ADMIN is absent" do
       other = TenantFixture.provisioned_tenant!(slug_prefix: "req448-seed-pin")
       Fixture.pin!(other.tenant_id)
 
@@ -102,7 +102,7 @@ defmodule Letflow.Identity.TenantAuditorSeedingTest do
                TenantOnboarding.provision_and_migrate(tenant.id)
 
       seedable = RoleRegistry.seedable_role_names(schema_name)
-      assert List.last(seedable) == "TENANT_AUDITOR"
+      assert List.last(seedable) == "STOREKEEPER"
       refute "PLATFORM_ADMIN" in seedable
 
       assert Enum.sort(role_names(schema_name)) == Enum.sort(seedable)
@@ -116,7 +116,7 @@ defmodule Letflow.Identity.TenantAuditorSeedingTest do
                Repo.get(Group, binding.group_id, prefix: schema_name)
     end
 
-    test "the pinned platform tenant has every role of roles/0, TENANT_AUDITOR last" do
+    test "the pinned platform tenant has every role of roles/0, STOREKEEPER last" do
       tenant = new_migrating_tenant!()
       Fixture.pin!(tenant.id)
 
@@ -126,7 +126,7 @@ defmodule Letflow.Identity.TenantAuditorSeedingTest do
       all_names = Enum.map(Authorization.roles(), &Atom.to_string/1)
 
       assert RoleRegistry.seedable_role_names(schema_name) == all_names
-      assert List.last(all_names) == "TENANT_AUDITOR"
+      assert List.last(all_names) == "STOREKEEPER"
       assert Enum.sort(role_names(schema_name)) == Enum.sort(all_names)
       assert "TENANT_AUDITOR" in group_names(schema_name)
       assert "PLATFORM_ADMIN" in group_names(schema_name)
