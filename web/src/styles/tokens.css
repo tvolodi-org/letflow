@@ -156,6 +156,8 @@
   --doc-header-width: 304px;
   --dialog-w: 520px;
   --dialog-w-l: 760px;
+  --registry-list-width: 520px;
+  --journal-details-width: 400px;
   --z-nav: 100;
   --z-topbar: 250; /* above the test-environment banner (200), below popovers' own layer */
   --z-sticky: 50;

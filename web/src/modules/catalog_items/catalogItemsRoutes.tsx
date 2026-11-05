@@ -2,9 +2,23 @@
 import type { RouteObject } from 'react-router-dom'
 import { RequirePermission } from '@/auth/access'
 import LotsPage from './LotsPage'
-import { CATALOG_LOTS_WRITE } from './catalogItemsPermissions'
+import ItemsPage from './items/ItemsPage'
+import { CATALOG_LOTS_WRITE, STOCK_READ_ATOM } from './catalogItemsPermissions'
 
 export const catalogItemsRouteObjects: RouteObject[] = [
+  {
+    path: 'admin/catalog/items',
+    children: [
+      {
+        index: true,
+        element: (
+          <RequirePermission permission={STOCK_READ_ATOM}>
+            <ItemsPage />
+          </RequirePermission>
+        ),
+      },
+    ],
+  },
   {
     path: 'admin/catalog/lots',
     children: [
