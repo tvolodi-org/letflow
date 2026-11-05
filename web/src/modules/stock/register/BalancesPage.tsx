@@ -66,7 +66,7 @@ function BalancesInner() {
     { key: 'unit', label: t('stock.col.unit'), render: (r) => name('catalog_uom', r.unit_ref) },
     { key: 'quantity', label: t('stock.col.quantity'), render: (r) => r.quantity, align: 'end', mono: true },
   ]
-  const chips = (Object.keys(filterParams) as (keyof BalanceFilters)[]).map((k) => ({
+  const chips: { id: string; label: string }[] = (Object.keys(filterParams) as (keyof BalanceFilters)[]).map((k) => ({
     id: k,
     label: `${t(`stock.filter.${k}`)}: ${
       [...items, ...locations, ...units, ...people, ...lots].find((o) => o.value === filterParams[k])?.label ?? filterParams[k]
