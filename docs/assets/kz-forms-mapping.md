@@ -252,6 +252,37 @@ Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`).
   they block the totals and the signature blocks of almost every stock form.
 * The "have" column is a proposal until a build proves it against the code; names of columns are those of the entity
   definitions and print code at the time of writing.
-* Out of scope: any print template or code, the Kazakh wording, the cash, labour, biological and general forms of the
+* Out of scope here (Z-2 is built in section 6): any other print template or code, the cash, labour, biological and general forms of the
   folder (КО, Т, БА, С, А, ОС), the draft package files (the order, the explanatory note, the comparison table), and
   the electronic exchange of any of these forms.
+
+## 6. Kazakh official text and the print engine (E5b, T-1416)
+
+* **Built:** the print engine (`Letflow.Documents.FormPrint`, layouts and the ru/kk message catalog in
+  `priv/print_forms/`) and one form on it, Z-2 (ru) / Q-2 (kk), annex 26, for an issued `issue` document:
+  `GET /documents/:id/print?form=z2&format=pdf|docx&lang=ru|kk` (permission `StockRead`). The ru layout and words
+  follow the 2026 draft file of annex 26; the kk layout and words are copied from the current Adilet edition (Q-2
+  nysany, annex 26), not machine translated. All Z-2 catalog entries are `kk_status: official`; a future form whose
+  kk text is a machine draft gets a draft notice line in the kk output. If the final order text differs from the
+  draft, the ru side is changed in the catalog and layout, and the operator is asked first.
+* **Filled from Letflow:** organisation name and BIN (legal entity of the document's org unit), number, date,
+  responsible person (also the "released by" name), line number, item name and code, unit, issued quantity, total of
+  issued quantity. **Blank lines for the signer:** receiver, transport, transport invoice, planned quantity, price,
+  VAT amounts, amounts in words, the other signers, the power of attorney (gaps G3, G4, G5, G8, G9, G10 stay open);
+  the IIN is never stored (G1). Nothing is invented.
+* **G16 (Kazakh wording) is answered** for every form the Adilet text covers (all 51 annexes): the kk labels of a form
+  are taken from the official text. Annex numbers are the same in both languages. Kazakh form codes: Q- = Z- (stock),
+  Tug- = Inv- (counts), UMA- = DA- (assets), E- = T- (labour), NQ- = OS-.
+* **Differences between the current Kazakh edition and the Russian 2026 drafts** (read again from the two sources for
+  annexes 26 and 51, not extended from memory):
+  * Annex 51 is form **A-1** (Бухгалтерлік анықтама) in the kk edition and **S-1** (БУХГАЛТЕРСКАЯ СПРАВКА) in the ru
+    draft folder.
+  * Annex 26 wording: the ru draft spells out "Индивидуальный идентификационный номер/Бизнес идентификационный номер"
+    where the kk edition has "ЖСН/БСН"; the ru draft heads the annex "к приказу Министра финансов ... от 20 декабря
+    2012 года № 562"; the ru column heading uses "теңге" (Kazakh spelling) inside Russian text; the kk edition has
+    "теңгемен". The stamp mark is "М.П." in both annex 26 texts, so the "place of the seal" wording change named in
+    the catalog note was not seen on Z-2 and is to be checked on the forms where it occurs.
+  * The Russian folder has 41 of the 51 annexes; the kk page has all 51 (annexes 4, 6, 7, 14, 23, 36, 43, 44, 46 and
+    50 exist only in kk here).
+* The proof is done in both languages and both formats by `test/letflow/modules/stock/form_z2_router_test.exs`
+  (real router, real token) and `test/letflow/documents/form_print_test.exs` (kk title, kk labels, PDF non-empty).
