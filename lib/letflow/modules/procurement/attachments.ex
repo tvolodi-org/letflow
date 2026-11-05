@@ -5,8 +5,14 @@ defmodule Letflow.Modules.Procurement.Attachments do
   hash); `procurement_attachments` holds one link row per file per version. The module is the one
   writer of that table, insert only (a trigger refuses update and delete).
 
-  Part A works on the requester's **open draft**. A request that has been submitted has no open
-  draft, so attach and replace answer `{:error, :not_draft}`; the new-version transaction is part B.
+  On the requester's **open draft** (part A) attach and replace write into that draft. On a
+  **submitted** request (part B) they run one transaction under the document row lock: a new
+  version N+1 is made from the issued version N (`Documents.new_version_from_current/2`), the files
+  of N are copied as new rows of N+1 (same bytes, no byte write), the new or replacing file is
+  added, and N+1 is issued (`Documents.issue/2`). Version N, its rows and its hash are never
+  touched, so an approver of N still inspects exactly N; an approval of N does not cover N+1.
+  A request whose current version is neither a draft nor issued (for example cancelled) answers
+  `{:error, :not_draft}`.
 
   Every function takes `prefix` first (the caller's tenant schema, INV-1) and the authenticated user
   as `actor`. Permissions are NOT checked here: the router owns them. Visibility is (INV-5): a
@@ -14,10 +20,10 @@ defmodule Letflow.Modules.Procurement.Attachments do
   so is a mutation by anyone but the requester, and a read by anyone who is neither the requester
   nor a decider (`decider?: true`, computed by the router from `ProcurementRequestDecide`).
 
-  `attach/4` order: load and requester check, open draft, shape, content type, size (25 MiB, the
+  `attach/4` order: load and requester check, target (draft or issued), shape, content type, size (25 MiB, the
   same limit as `Letflow.Repository.Attachments`), virus scan (outside the transaction, no lock held),
-  then one transaction: lock the document row (the row `Documents.issue/2` locks), re-read the open
-  draft, store the bytes, insert the link row, insert the audit entry. A refusal writes nothing, not
+  then one transaction: lock the document row (the row `Documents.issue/2` locks), re-read the
+  target, store the bytes, insert the link row, insert the audit entry. A refusal writes nothing, not
   even the byte row, and is counted on `[:letflow, :procurement, :refused]` (decision 0056 D9).
 
   Slots: the first row of a slot has `slot_id == id`; a replacement has the same `slot_id`, the same
@@ -35,6 +41,7 @@ defmodule Letflow.Modules.Procurement.Attachments do
 
   alias Ecto.Adapters.SQL
   alias Letflow.Audit
+  alias Letflow.Documents
   alias Letflow.Documents.Document
   alias Letflow.Documents.DocumentVersion
   alias Letflow.Modules.Procurement.Attachment
@@ -49,11 +56,11 @@ defmodule Letflow.Modules.Procurement.Attachments do
   @max_bytes 26_214_400
   @max_name 255
 
-  @doc "Attaches a file to the requester's open draft; see the moduledoc for the error terms."
+  @doc "Attaches a file to the requester's open draft, or as a new issued version when submitted; see the moduledoc for the error terms."
   def attach(prefix, actor, document_id, params),
     do: mutate(:attach, prefix, actor, document_id, nil, params)
 
-  @doc "Replaces the current file of `slot_id` in the open draft with a new file."
+  @doc "Replaces the current file of `slot_id` (in the open draft, or as a new issued version when submitted)."
   def replace(prefix, actor, document_id, slot_id, params),
     do: mutate(:replace, prefix, actor, document_id, slot_id, params)
 
@@ -98,7 +105,7 @@ defmodule Letflow.Modules.Procurement.Attachments do
     result =
       with {:ok, document} <- requester_document(prefix, actor, document_id),
            {:ok, slot} <- slot_for(kind, slot_id),
-           {:ok, _draft} <- open_draft(prefix, document.id),
+           {:ok, _target} <- target(prefix, document),
            {:ok, file} <- shape(params),
            :ok <- scan(file) do
         transact(kind, prefix, actor, document.id, slot, file)
@@ -190,45 +197,139 @@ defmodule Letflow.Modules.Procurement.Attachments do
     SQL.query!(Repo, "SET LOCAL lock_timeout = '2s'")
     SQL.query!(Repo, "SET LOCAL statement_timeout = '15s'")
 
-    lock_document(prefix, document_id)
+    document = lock_document(prefix, document_id)
 
-    with {:ok, draft} <- open_draft(prefix, document_id),
-         {:ok, head} <- head_for(kind, prefix, document_id, draft.version_no, slot),
-         {:ok, tenant_id} <- tenant(prefix) do
-      hash = :crypto.hash(:sha256, file.bytes)
-      size = byte_size(file.bytes)
+    case open_draft(prefix, document_id) do
+      {:ok, draft} ->
+        write_in_draft(kind, prefix, actor, document_id, slot, file, draft)
 
-      case Repository.upsert_content(prefix, tenant_id, hash, file.content_type, size, file.bytes) do
-        {:ok, _artifact} -> :ok
-        {:error, _changeset} -> Repo.rollback(:audit_failed)
-      end
+      {:error, :not_draft} ->
+        case issued_current(prefix, document) do
+          {:ok, current} ->
+            write_new_version(kind, prefix, actor, document_id, slot, file, current)
 
-      id = Ecto.UUID.generate()
-
-      attrs = %{
-        id: id,
-        document_id: document_id,
-        version_no: draft.version_no,
-        slot_id: if(head, do: head.slot_id, else: id),
-        content_hash: hash,
-        file_name: file.file_name,
-        content_type: file.content_type,
-        byte_size: size,
-        uploaded_by: actor,
-        uploaded_at: DateTime.utc_now(),
-        replaces_id: if(head, do: head.id)
-      }
-
-      row =
-        case attrs |> Attachment.insert_changeset() |> Repo.insert(prefix: prefix) do
-          {:ok, row} -> row
-          {:error, _changeset} -> Repo.rollback(:slot_conflict)
+          {:error, reason} ->
+            Repo.rollback(reason)
         end
+    end
+  end
 
-      audit(kind, prefix, actor, row)
+  # Part A: the open draft takes the row directly.
+  defp write_in_draft(kind, prefix, actor, document_id, slot, file, draft) do
+    with {:ok, head} <- head_for(kind, prefix, document_id, draft.version_no, slot),
+         {:ok, tenant_id} <- tenant(prefix) do
+      hash = store_bytes(prefix, tenant_id, file)
+      row = insert_row!(prefix, document_id, draft.version_no, head, hash, file, actor)
+      audit(kind, prefix, actor, row, %{})
       public(row)
     else
       {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  # Part B: version N is issued. New version N+1 = copies of N's files + the new or replacing file,
+  # issued in the same transaction. Rows go in before `issue` so a refused issue rolls them back.
+  defp write_new_version(kind, prefix, actor, document_id, slot, file, current) do
+    previous = prefix |> heads_query(document_id, current.version_no) |> Repo.all(prefix: prefix)
+    replaced = if kind == :replace, do: Enum.find(previous, &(&1.slot_id == slot))
+
+    if kind == :replace and is_nil(replaced), do: Repo.rollback(:not_found)
+
+    draft =
+      case Documents.new_version_from_current(prefix, %{document_id: document_id, actor_id: actor}) do
+        {:ok, draft} ->
+          draft
+
+        {:error, reason} when reason in [:no_issued_version, :draft_exists] ->
+          Repo.rollback(:not_draft)
+
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+
+    tenant_id =
+      case tenant(prefix) do
+        {:ok, tenant_id} -> tenant_id
+        {:error, reason} -> Repo.rollback(reason)
+      end
+
+    hash = store_bytes(prefix, tenant_id, file)
+    carried = Enum.reject(previous, &(&1 == replaced))
+
+    # copies in the order of N, so the list order (uploaded_at, id) stays stable
+    written =
+      for old <- previous do
+        if old == replaced,
+          do: insert_row!(prefix, document_id, draft.version_no, replaced, hash, file, actor),
+          else: insert_copy!(prefix, draft.version_no, old)
+      end
+
+    row =
+      if replaced,
+        do: Enum.find(written, &(&1.replaces_id == replaced.id)),
+        else: insert_row!(prefix, document_id, draft.version_no, nil, hash, file, actor)
+
+    case Documents.issue(prefix, %{document_id: document_id, actor_id: actor}) do
+      {:ok, _issued} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+
+    audit(kind, prefix, actor, row, %{
+      "previous_version_no" => current.version_no,
+      "carried_count" => length(carried)
+    })
+
+    public(row)
+  end
+
+  defp store_bytes(prefix, tenant_id, file) do
+    hash = :crypto.hash(:sha256, file.bytes)
+    size = byte_size(file.bytes)
+
+    case Repository.upsert_content(prefix, tenant_id, hash, file.content_type, size, file.bytes) do
+      {:ok, _artifact} -> hash
+      {:error, _changeset} -> Repo.rollback(:audit_failed)
+    end
+  end
+
+  defp insert_row!(prefix, document_id, version_no, head, hash, file, actor) do
+    id = Ecto.UUID.generate()
+
+    insert!(prefix, %{
+      id: id,
+      document_id: document_id,
+      version_no: version_no,
+      slot_id: if(head, do: head.slot_id, else: id),
+      content_hash: hash,
+      file_name: file.file_name,
+      content_type: file.content_type,
+      byte_size: byte_size(file.bytes),
+      uploaded_by: actor,
+      uploaded_at: DateTime.utc_now(),
+      replaces_id: if(head, do: head.id)
+    })
+  end
+
+  defp insert_copy!(prefix, version_no, %Attachment{} = old) do
+    insert!(prefix, %{
+      id: Ecto.UUID.generate(),
+      document_id: old.document_id,
+      version_no: version_no,
+      slot_id: old.slot_id,
+      content_hash: old.content_hash,
+      file_name: old.file_name,
+      content_type: old.content_type,
+      byte_size: old.byte_size,
+      uploaded_by: old.uploaded_by,
+      uploaded_at: old.uploaded_at,
+      replaces_id: nil
+    })
+  end
+
+  defp insert!(prefix, attrs) do
+    case attrs |> Attachment.insert_changeset() |> Repo.insert(prefix: prefix) do
+      {:ok, row} -> row
+      {:error, _changeset} -> Repo.rollback(:slot_conflict)
     end
   end
 
@@ -250,7 +351,7 @@ defmodule Letflow.Modules.Procurement.Attachments do
     end
   end
 
-  defp audit(kind, prefix, actor, row) do
+  defp audit(kind, prefix, actor, row, submitted_extra) do
     {action, extra} =
       case kind do
         :attach -> {"procurement.attachment_added", %{}}
@@ -264,15 +365,14 @@ defmodule Letflow.Modules.Procurement.Attachments do
       resource_id: row.document_id,
       before_state: nil,
       after_state:
-        Map.merge(
-          %{
-            "attachment_id" => row.id,
-            "slot_id" => row.slot_id,
-            "version_no" => row.version_no,
-            "byte_size" => row.byte_size
-          },
-          extra
-        )
+        %{
+          "attachment_id" => row.id,
+          "slot_id" => row.slot_id,
+          "version_no" => row.version_no,
+          "byte_size" => row.byte_size
+        }
+        |> Map.merge(extra)
+        |> Map.merge(submitted_extra)
     }
 
     case Audit.insert_entry(Repo, entry, prefix) do
@@ -283,13 +383,19 @@ defmodule Letflow.Modules.Procurement.Attachments do
 
   # -- reads --------------------------------------------------------------------------------------
 
-  # The newest row of each slot of one version: a row that no other row replaces.
+  # The newest row of each slot of one version: a row that no other row of the SAME version replaces
+  # (the replacing row of version N+1 points at the row of N and must not hide it from N).
   defp heads_query(_prefix, document_id, version_no) do
     from(a in Attachment,
       as: :a,
       where: a.document_id == ^document_id and a.version_no == ^version_no,
       where:
-        not exists(from(r in Attachment, where: r.replaces_id == parent_as(:a).id, select: 1)),
+        not exists(
+          from(r in Attachment,
+            where: r.replaces_id == parent_as(:a).id and r.version_no == parent_as(:a).version_no,
+            select: 1
+          )
+        ),
       order_by: [asc: a.uploaded_at, asc: a.id]
     )
   end
@@ -304,6 +410,26 @@ defmodule Letflow.Modules.Procurement.Attachments do
       ),
       prefix: prefix
     )
+  end
+
+  # Early refusal, no lock: which branch will apply. Decided again under the lock in write/6.
+  defp target(prefix, document) do
+    case open_draft(prefix, document.id) do
+      {:ok, _draft} ->
+        {:ok, :draft}
+
+      {:error, :not_draft} ->
+        with {:ok, _current} <- issued_current(prefix, document), do: {:ok, :issued}
+    end
+  end
+
+  defp issued_current(_prefix, %Document{current_version: nil}), do: {:error, :not_draft}
+
+  defp issued_current(prefix, %Document{current_version: version_id}) do
+    case Repo.get(DocumentVersion, version_id, prefix: prefix) do
+      %DocumentVersion{status: :issued} = version -> {:ok, version}
+      _other -> {:error, :not_draft}
+    end
   end
 
   defp open_draft(prefix, document_id) do
