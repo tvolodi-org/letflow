@@ -58,8 +58,8 @@ describe('no-role-literals', () => {
     expect(findWholeWords(`const ${matrixRoles[0]}_SESSION = 1`, matrixRoles, 'sample.ts')).toEqual([])
   })
 
-  it('reads the eight built-in roles from the matrix', () => {
-    expect(matrixRoles).toHaveLength(8)
+  it('reads the nine built-in roles from the matrix', () => {
+    expect(matrixRoles).toHaveLength(9)
   })
 
   it('no role name appears in web/src outside web/src/auth/access', () => {
