@@ -54,7 +54,7 @@ function LineRow({ index, line, kind, items, locations, employees, errors, onCha
         error={err('itemId')}
       />
       <Field label={t('stock.col.unit')} readOnly>
-        <input type="text" value={line.uomId ? name('catalog_uom', line.uomId) : ''} readOnly />
+        <input type="text" value={line.uomId ? name('catalog_uom', line.uomId) : ''} placeholder={t('stock.doc.unitPlaceholder')} readOnly />
       </Field>
       <Select
         label={t('stock.col.lot')}

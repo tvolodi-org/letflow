@@ -109,7 +109,7 @@ function DocumentInner() {
     <>
       <PageHeader
         eyebrow={t('stock.eyebrow')}
-        title={`${known(DOC_KINDS, 'stock.doc.kind', doc.kind)} ${doc.number ?? t('stock.doc.draftMark')}`}
+        title={doc.number ? `${known(DOC_KINDS, 'stock.doc.kind', doc.kind)} ${doc.number}` : `${known(DOC_KINDS, 'stock.doc.kind', doc.kind)} (${t('stock.doc.draftMark').toLowerCase()})`}
         lede={t('stock.doc.viewLede')}
         actions={
           <>
