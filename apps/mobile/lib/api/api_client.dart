@@ -880,13 +880,16 @@ Future<TenantConfig> fetchTenantConfig(
 /// `conn.body_params["file"]` lookup expects — always `"file"` for the real
 /// attachment-upload route; parameterized only so a test fixture can prove
 /// the wrong part name is rejected without duplicating this function.
+/// [fields] are extra text parts sent before the file (REQ-747: `lang`).
 Object buildFileUploadFormData({
   required List<int> bytes,
   required String fileName,
   required String contentType,
   String partName = 'file',
+  Map<String, String> fields = const {},
 }) {
   return FormData.fromMap({
+    ...fields,
     partName: MultipartFile.fromBytes(
       bytes,
       filename: fileName,

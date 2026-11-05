@@ -56,4 +56,34 @@ void main() {
     expect(c.reason, isNull);
     expect(const ConflictError().reason, isNull);
   });
+
+  test('F7: 5xx and 413/415 keep reason and source, a plain 500 has none', () {
+    for (final code in [413, 415, 502, 503, 504]) {
+      final e =
+          classifyError(
+                _req(),
+                statusCode: code,
+                responseBody: {'reason': 'provider_error', 'source': 'speech'},
+              )
+              as ServerError;
+      expect(e.lastStatusCode, code);
+      expect(e.reason, 'provider_error');
+      expect(e.source, 'speech');
+    }
+    final plain = classifyError(_req(), statusCode: 500) as ServerError;
+    expect(plain.lastStatusCode, 500);
+    expect(plain.reason, isNull);
+    expect(plain.source, isNull);
+    final wrong =
+        classifyError(
+              _req(),
+              statusCode: 502,
+              responseBody: {
+                'reason': 1,
+                'source': ['x'],
+              },
+            )
+            as ServerError;
+    expect(wrong.source, isNull);
+  });
 }
