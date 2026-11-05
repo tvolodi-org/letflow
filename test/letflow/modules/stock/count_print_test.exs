@@ -90,6 +90,18 @@ defmodule Letflow.Modules.Stock.CountPrintTest do
     PdfProbe.items(pdf)
   end
 
+  describe "P5 unit of measure name" do
+    test "the lines table shows the unit name, the raw ref only when unknown" do
+      units = %{"known" => %{code: "KG", name: "Kilogram"}}
+      lines = [line(1, %{"unit_ref" => "known"}), line(2)]
+      {:ok, pdf} = CountPrint.build(:sheet, issued(lines), names(%{units: units}), :en)
+      text = PdfProbe.items(pdf)
+      assert Enum.any?(text, &(&1 =~ "KG Kilogram"))
+      assert Enum.any?(text, &(&1 =~ "pcs"))
+      refute Enum.any?(text, &(&1 =~ "known"))
+    end
+  end
+
   describe "P1 the three documents in three languages" do
     for kind <- [:order, :sheet, :differences], lang <- [:ru, :kk, :en] do
       test "#{kind} #{lang}: title, number, time with offset, one signature row per signer" do
