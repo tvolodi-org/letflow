@@ -174,7 +174,7 @@ defmodule Letflow.Modules.Stock.Router do
   @optional_empty ~w(responsible lot)
   @text_filters ~w(cause document_type document_id correlation_id)
   @balance_keys ~w(basis cutoff_seq as_of as_of_date limit cursor format scope_subtree) ++ @slots
-  @movement_keys ~w(from_seq to_seq limit cursor format scope_subtree) ++ @text_filters
+  @movement_keys ~w(from_seq to_seq limit cursor format scope_subtree sku) ++ @text_filters
 
   authz_get "/balances", :StockRead do
     with_read(conn, fn conn, authorized ->
@@ -207,6 +207,7 @@ defmodule Letflow.Modules.Stock.Router do
       with {:ok, params} <- params(conn, @movement_keys),
            {:ok, format} <- format(params),
            {:ok, filters} <- entry_filters(params),
+           {:ok, filters} <- movement_sku_filter(params, filters),
            {:ok, filters} <- subtree_filter(params, filters),
            {:ok, page} <- page(params, :integer) do
         case Ledger.entries(authorized, filters, page) do
@@ -1058,6 +1059,19 @@ defmodule Letflow.Modules.Stock.Router do
        |> put_unless_nil("to_seq", to)}
     else
       _bad -> {:error, :invalid_filter}
+    end
+  end
+
+  # `sku` narrows the movements to entries with a leg on that item (the core `leg_slots` filter).
+  defp movement_sku_filter(params, filters) do
+    case Map.fetch(params, "sku") do
+      :error ->
+        {:ok, filters}
+
+      {:ok, value} ->
+        if Regex.match?(@uuid, value),
+          do: {:ok, Map.put(filters, "leg_slots", %{"sku" => value})},
+          else: {:error, :invalid_filter}
     end
   end
 
