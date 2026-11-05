@@ -2,4 +2,5 @@
 export const referenceQueryKeys = {
   labels: (tenantId: string, type: string, ids: string) => ['reference', tenantId, 'labels', type, ids] as const,
   taskSubject: (tenantId: string, instanceId: string) => ['reference', tenantId, 'task-subject', instanceId] as const,
+  taskDocument: (tenantId: string, instanceId: string) => ['reference', tenantId, 'task-document', instanceId] as const,
 }
