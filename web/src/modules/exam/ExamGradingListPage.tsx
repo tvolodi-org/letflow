@@ -19,14 +19,12 @@ import { classifyError, type RendererState } from '@/utils/classifyError'
 import { examGradingApi, type GradingQueueRow } from './exam.api'
 import { ExamIntlProvider } from './ExamIntlProvider'
 import { gradingQueryKeys, type GradingListNavState } from './gradingQueryKeys'
+import { formatDate } from '@/i18n/format'
 
 const PAGE_SIZE = 25
 
 function formatSubmitted(intl: ReturnType<typeof useIntl>, value: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return intl.formatDate(date, { dateStyle: 'medium', timeStyle: 'short' })
+  return formatDate(value, { dateStyle: 'medium', timeStyle: 'short' }, intl.locale)
 }
 
 function ExamGradingListPageInner() {

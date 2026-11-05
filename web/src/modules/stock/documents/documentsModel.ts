@@ -7,6 +7,7 @@
 import { STOCK_TIME_ZONE } from '../register/stockRegisterModel'
 import { STOCK_POST, STOCK_REVERSE } from '../stockPermissions'
 import type { DocumentLine, StockDocument } from './documents.api'
+import { formatDateTimeInZone } from '@/i18n/format'
 
 export const DOC_KINDS = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'opening'] as const
 export type DocKind = (typeof DOC_KINDS)[number]
@@ -124,11 +125,7 @@ export function nowZonedLocal(tz: string = STOCK_TIME_ZONE): string {
 
 export function formatEventTime(iso: string | null | undefined, locale: string, dash: string, tz: string = STOCK_TIME_ZONE): string {
   if (!iso) return dash
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return new Intl.DateTimeFormat(locale, {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).format(d)
+  return formatDateTimeInZone(iso, { timeZone: tz, locale, intlLocale: locale, enStyle: 'intl' })
 }
 
 // ---- actions -----------------------------------------------------------------------------------------------
