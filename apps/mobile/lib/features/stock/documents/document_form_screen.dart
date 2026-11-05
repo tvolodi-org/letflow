@@ -20,6 +20,7 @@ import 'document_kinds.dart';
 import 'document_pickers.dart';
 import 'documents_api.dart';
 import 'documents_providers.dart';
+import '../voice/voice_panel.dart';
 import 'picker_sheet.dart';
 import 'scan_fill_sheet.dart';
 
@@ -166,6 +167,7 @@ class _FormBody extends ConsumerWidget {
     final spec = d.spec;
     final enabled = c.editable && !c.busy;
     final problems = d.problems();
+    final canSend = enabled && problems.isEmpty && !c.hasPendingVoiceChoice;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -191,6 +193,13 @@ class _FormBody extends ConsumerWidget {
             onPressed: () => unawaited(c.retry()),
             child: Text(tr('stock.doc.retry')),
           ),
+        if (_hasVoice(c)) ...[
+          VoicePanel(
+            gateway: ref.read(stockGatewayProvider),
+            onDraft: (d) => unawaited(c.applyVoiceDraft(d)),
+          ),
+          if (c.voiceChoices != null) _voiceChoices(c),
+        ],
         if (spec.isTwoSide) ...[
           for (final side in [Side.from, Side.to]) ...[
             Text(
@@ -218,7 +227,9 @@ class _FormBody extends ConsumerWidget {
         ),
         for (var i = 0; i < d.lines.length; i++)
           _LineEditor(
-            key: ValueKey('stock-doc-line-$i-${d.lines.length}'),
+            key: ValueKey(
+              'stock-doc-line-$i-${d.lines.length}-${c.voiceEpoch}',
+            ),
             index: i,
             controller: c,
             enabled: enabled,
@@ -233,17 +244,13 @@ class _FormBody extends ConsumerWidget {
         if (c.editable) ...[
           FilledButton(
             key: const Key('stock-doc-save'),
-            onPressed: enabled && problems.isEmpty
-                ? () => unawaited(c.save())
-                : null,
+            onPressed: canSend ? () => unawaited(c.save()) : null,
             child: Text(tr('stock.doc.save')),
           ),
           const SizedBox(height: 8),
           FilledButton.tonal(
             key: const Key('stock-doc-issue'),
-            onPressed: enabled && problems.isEmpty
-                ? () => unawaited(c.issue())
-                : null,
+            onPressed: canSend ? () => unawaited(c.issue()) : null,
             child: Text(tr('stock.doc.issue')),
           ),
           const SizedBox(height: 8),
@@ -257,6 +264,38 @@ class _FormBody extends ConsumerWidget {
             ),
         ],
       ],
+    );
+  }
+
+  /// Voice (REQ-747) is offered on an editable draft of the three kinds the
+  /// voice routes understand.
+  bool _hasVoice(DocFormController c) =>
+      c.editable &&
+      (c.draft.kind == DocKind.receipt ||
+          c.draft.kind == DocKind.issue ||
+          c.draft.kind == DocKind.transfer);
+
+  Widget _voiceChoices(DocFormController c) {
+    final choices = c.voiceChoices!;
+    return Card(
+      key: const Key('stock-voice-choices'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(tr('stock.voice.choose.title')),
+          for (var i = 0; i < choices.length; i++)
+            ListTile(
+              key: Key('stock-voice-choice-$i'),
+              title: Text(choices[i].label),
+              onTap: () => unawaited(c.chooseVoiceItem(choices[i])),
+            ),
+          TextButton(
+            key: const Key('stock-voice-choice-dismiss'),
+            onPressed: c.dismissVoiceChoice,
+            child: Text(tr('stock.voice.choose.dismiss')),
+          ),
+        ],
+      ),
     );
   }
 
