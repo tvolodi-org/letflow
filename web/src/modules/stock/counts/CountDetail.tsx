@@ -19,8 +19,11 @@ import { useNames } from '../register/stockNames'
 import { countsApi, type CountOrder } from './counts.api'
 import { CountOrderForm } from './CountOrderForm'
 import { CountSheet } from './CountSheet'
+import { DifferencesPanel } from './DifferencesPanel'
+import { PaperworkButtons } from './PaperworkButtons'
+import { ScanField } from './ScanField'
 import { countsQueryKeys } from './countsQueryKeys'
-import { canCancel, canClose, canEdit, canIssue, canOpen, formatInZone, hasSheet, reasonMessageId, statusTone, STOCK_COUNT_RECORD } from './countsModel'
+import { canCancel, canClose, canEdit, canIssue, canOpen, canScan, formatInZone, hasSheet, reasonMessageId, statusTone, STOCK_COUNT_RECORD } from './countsModel'
 import { useCountsWrite } from './useCountsWrite'
 
 type Confirm = 'issue' | 'cancel' | 'close'
@@ -73,6 +76,7 @@ export function CountDetail({ id, onClose }: { id: string; onClose: () => void }
   const tenantId = session?.tenant_id ?? ''
   const [editing, setEditing] = useState(false)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
+  const [highlight, setHighlight] = useState<number | null>(null)
 
   const query = useQuery({
     queryKey: countsQueryKeys.detail(tenantId, id),
@@ -128,7 +132,12 @@ export function CountDetail({ id, onClose }: { id: string; onClose: () => void }
           <div className="lf-card__body">
             {run.error !== null && confirm === null && <Banner tone="danger">{t(reasonMessageId(run.error))}</Banner>}
             <Facts order={order} />
-            {hasSheet(order) && <CountSheet orderId={order.id} status={order.status} canRecord={can(STOCK_COUNT_RECORD)} />}
+            <PaperworkButtons order={order} />
+            {canScan(order, can) && <ScanField orderId={order.id} locationIds={order.location_ids} onLine={setHighlight} />}
+            {hasSheet(order) && (
+              <CountSheet orderId={order.id} status={order.status} canRecord={can(STOCK_COUNT_RECORD)} highlightLine={highlight} />
+            )}
+            <DifferencesPanel order={order} />
           </div>
           {confirm !== null && (
             <ConfirmDialog

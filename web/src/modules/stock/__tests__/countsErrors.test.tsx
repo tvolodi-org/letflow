@@ -33,13 +33,16 @@ async function issueWith(error: unknown) {
 }
 
 describe('E1 reasons', () => {
-  it('lists the 19 reasons of REQ-702 criterion 4', () => {
+  it('lists the 19 reasons of REQ-702 criterion 4 and the 15 of REQ-720', () => {
     expect([...COUNT_REASONS].sort()).toEqual([
       'chair_without_user', 'count_line_exists', 'count_not_due', 'count_scope_incomplete', 'count_scope_not_linked',
       'count_scope_overlaps', 'count_state_invalid', 'count_too_long', 'employee_inactive', 'field_invalid', 'item_inactive',
       'line_not_found', 'lines_uncounted', 'location_not_in_count', 'lot_invalid', 'not_chair', 'not_commission_member',
       'org_unit_inactive', 'unit_invalid',
-    ])
+      'code_retired', 'code_assignment_conflict', 'code_not_assigned', 'code_not_countable', 'scan_no_line', 'scan_ambiguous',
+      'scan_id_conflict', 'signers_incomplete', 'sheet_already_signed', 'sheet_not_signed', 'differences_already_issued',
+      'differences_not_issued', 'differences_too_many', 'count_window_expired', 'document_not_issued',
+    ].sort())
   })
   it.each(COUNT_REASONS)('%s shows its own message', async (reason) => {
     const box = await issueWith(problem(422, reason))
