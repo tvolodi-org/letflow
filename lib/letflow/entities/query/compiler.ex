@@ -479,7 +479,11 @@ defmodule Letflow.Entities.Query.Compiler do
 
     with :ok <- check_in_value_shape(op, value, field_name),
          {:ok, value} <- coerce_strict_decimal(af, op, value) do
-      {:ok, typed_column_dynamic_dispatch(op, field_name, value)}
+      if Map.get(af, :pg_type) == "uuid" do
+        {:ok, uuid_column_dynamic(op, field_name, value)}
+      else
+        {:ok, typed_column_dynamic_dispatch(op, field_name, value)}
+      end
     end
   end
 
@@ -585,6 +589,70 @@ defmodule Letflow.Entities.Query.Compiler do
 
   defp typed_column_dynamic(:is_not_null, col, _value),
     do: dynamic([r], not is_nil(field(r, ^col)))
+
+  # -- T-1367: an FK-promoted column is `uuid`. Postgres types the bind from the column, and Postgrex
+  # then wants 16-byte binaries (`expected a binary of 16 bytes`), so values are bound with the
+  # `Ecto.UUID` type. A value that is not a uuid can never equal a uuid column: dropped from a
+  # list, `false` for `eq`, "not null" for `neq`. Text operators compare the column as text.
+
+  defp uuid_column_dynamic(op, name, value) when op in [:eq, :gt, :gte, :lt, :lte] do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid_compare(op, name, uuid)
+      :error -> dynamic(false)
+    end
+  end
+
+  defp uuid_column_dynamic(:neq, name, value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> dynamic([r], fragment("?", literal(^name)) != type(^uuid, Ecto.UUID))
+      :error -> dynamic([r], not is_nil(fragment("?", literal(^name))))
+    end
+  end
+
+  defp uuid_column_dynamic(:in, name, values), do: uuid_any(name, values)
+
+  defp uuid_column_dynamic(:not_in, name, values) do
+    any = uuid_any(name, values)
+    dynamic([r], not (^any))
+  end
+
+  defp uuid_column_dynamic(:contains, name, value) do
+    pattern = "%" <> value <> "%"
+    dynamic([r], ilike(fragment("?::text", literal(^name)), ^pattern))
+  end
+
+  defp uuid_column_dynamic(:starts_with, name, value) do
+    pattern = value <> "%"
+    dynamic([r], ilike(fragment("?::text", literal(^name)), ^pattern))
+  end
+
+  defp uuid_column_dynamic(op, name, _value) when op in [:is_null, :is_not_null],
+    do: promoted_column_dynamic(op, name, nil)
+
+  defp uuid_compare(:eq, name, uuid),
+    do: dynamic([r], fragment("?", literal(^name)) == type(^uuid, Ecto.UUID))
+
+  defp uuid_compare(:gt, name, uuid),
+    do: dynamic([r], fragment("?", literal(^name)) > type(^uuid, Ecto.UUID))
+
+  defp uuid_compare(:gte, name, uuid),
+    do: dynamic([r], fragment("?", literal(^name)) >= type(^uuid, Ecto.UUID))
+
+  defp uuid_compare(:lt, name, uuid),
+    do: dynamic([r], fragment("?", literal(^name)) < type(^uuid, Ecto.UUID))
+
+  defp uuid_compare(:lte, name, uuid),
+    do: dynamic([r], fragment("?", literal(^name)) <= type(^uuid, Ecto.UUID))
+
+  defp uuid_any(name, values) do
+    case scope_uuid_ids(values) do
+      [] ->
+        dynamic(false)
+
+      uuids ->
+        dynamic([r], fragment("? = ANY(?)", literal(^name), type(^uuids, {:array, Ecto.UUID})))
+    end
+  end
 
   # -- promoted-column dynamics (REQ-300 design §3.4, new) -- referenced via
   # `fragment("?", literal(^field_name))`, Ecto's own `literal/1` fragment

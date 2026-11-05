@@ -208,6 +208,8 @@ Known gaps carried from Qoimeks and left to the implementing entry's decision: t
 quantity against the transcript (dictated corrections, phrase ru-08), and it keeps a location whose words occur
 even when the model picked a wrong code for them (ru-07).
 
+**Implemented by D2a (T-1341):** `Letflow.Modules.Stock.VoicePrompt` (prompt builder) and `Letflow.Modules.Stock.VoiceDraft` (`parse_answer/1`, `check/3`), pure functions. The check adds one reason to the section 4 list: `bad_quantity` (zero quantity on a kind other than count).
+
 ## 6. Failures
 
 The route answers `source` (`speech` or `llm`) and a short reason. No error carries the API key, the provider's raw

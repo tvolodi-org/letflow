@@ -124,10 +124,15 @@ abstract class PostCapableHttpGateway implements HttpGateway {
 }
 
 /// Adds `PUT` (the stock count's typed quantity, D3a). Separate from
-/// [PostCapableHttpGateway] for the same reason: existing test doubles that
-/// implement the narrower interface must keep compiling.
+/// [PostCapableHttpGateway] so existing test doubles keep compiling.
 abstract class PutCapableHttpGateway implements PostCapableHttpGateway {
   Future<Response<dynamic>> put(String path, {Object? data});
+}
+
+/// Adds `DELETE` (stock document drafts, D3b) on top of `PUT`. Like [post],
+/// neither is retried on a 5xx.
+abstract class WriteCapableHttpGateway implements PutCapableHttpGateway {
+  Future<Response<dynamic>> delete(String path);
 }
 
 /// Holds the `realm_url` of whichever tenant's bootstrap most recently
@@ -340,7 +345,7 @@ class _RefreshCoordinator {
   }
 }
 
-class ApiClient implements PutCapableHttpGateway {
+class ApiClient implements WriteCapableHttpGateway {
   ApiClient._(
     this._dio,
     this._refreshCoordinator,
@@ -481,11 +486,20 @@ class ApiClient implements PutCapableHttpGateway {
     );
   }
 
-  /// Like [post]: a single attempt, no 5xx auto-retry. Throws [ApiError].
+  /// Single attempt, like [post]; still subject to the 401 refresh flow.
   @override
   Future<Response<dynamic>> put(String path, {Object? data}) {
     return _sendWithBackoff(
       () => _dio.put<dynamic>(path, data: data),
+      allowServerRetry: false,
+    );
+  }
+
+  /// Single attempt, like [post]; still subject to the 401 refresh flow.
+  @override
+  Future<Response<dynamic>> delete(String path) {
+    return _sendWithBackoff(
+      () => _dio.delete<dynamic>(path),
       allowServerRetry: false,
     );
   }
