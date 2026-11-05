@@ -19,8 +19,16 @@
 
 set -uo pipefail
 
+# T-1363: a test file is docs-related when it names docs/requirements.yaml, a decision record or the
+# "docs" dir anywhere, or when it READS a docs file (a File./Path. call or a module attribute on the
+# same line as the docs/<x>.md|yaml literal). A bare mention of a docs path in a comment, moduledoc or
+# error message no longer counts: that alternative matched 162 of the 1100 test files, among them the
+# engine, router and entity suites, and the docs-only step then ran ~27 min instead of a few.
 docs_tests() {
-  git grep -lE 'requirements\.yaml|docs/migration/decisions|docs/[a-z_/-]+\.(md|yaml)|"docs"' -- 'test/*_test.exs' | sort -u
+  {
+    git grep -lE 'requirements\.yaml|docs/migration/decisions|docs/status/|"docs"' -- 'test/*_test.exs'
+    git grep -lE '(File\.|Path\.|read_doc|@[a-z_]+ +).*"[^"]*docs/[a-z_/.-]+\.(md|yaml)' -- 'test/*_test.exs'
+  } | sort -u
 }
 
 if [ "${1:-}" = "files" ]; then

@@ -60,6 +60,36 @@ defmodule Letflow.CiDocsOnlyTest do
     assert Enum.all?(files, &String.ends_with?(&1, "_test.exs"))
   end
 
+  test "D5: a bare docs path in a comment does not select a test file, a read of it does", %{
+    tmp_dir: dir
+  } do
+    File.mkdir_p!(Path.join(dir, "test"))
+
+    files = %{
+      "mention_test.exs" => "# see docs/roles.md for the table\ndefmodule A do\nend\n",
+      "error_msg_test.exs" => ~s|assert msg == "update docs/roles.md first"\n|,
+      "reads_test.exs" => ~s|@doc_path Path.join(root, "docs/roles.md")\n|,
+      "file_read_test.exs" => ~s|File.read!("docs/runbooks/x-y.md")\n|,
+      "yaml_test.exs" => "# reads docs/requirements.yaml\n"
+    }
+
+    for {name, body} <- files, do: File.write!(Path.join([dir, "test", name]), body)
+    {_, 0} = System.cmd("git", ["init", "-q"], cd: dir)
+    {_, 0} = System.cmd("git", ["add", "."], cd: dir)
+
+    {out, 0} = System.cmd("bash", [@script, "files"], cd: dir)
+    selected = String.split(out, "\n", trim: true)
+
+    assert selected == ["test/file_read_test.exs", "test/reads_test.exs", "test/yaml_test.exs"]
+  end
+
+  test "D6: the docs test list stays bounded (T-1363: 172 files ran ~27 min in CI)" do
+    {out, 0} = System.cmd("bash", [@script, "files"], cd: @root)
+    files = String.split(out, "\n", trim: true)
+    assert length(files) < 100, "docs test list grew to #{length(files)} files"
+    refute "test/letflow/engine_test.exs" in files
+  end
+
   test "D4: ci.yml wires the rule: shards keep their names, full test step is skipped when docs-only" do
     ci = YamlElixir.read_from_file!(@ci_yml)
 
