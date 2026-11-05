@@ -51556,7 +51556,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-691 -- the change of kind (REQ-691) needs two postings of two modules on one node; ModuleWrites refuses a line of another module today
+    gh: 3903
     # Source: docs/assets/change-of-kind.md sections 3, 4 and 8 (REQ-691, GH #3719); decision 0073 section 'Amended (REQ-676, assets B1)' items A2 (at most two posting lines on one node, different ledger ids, same document) and A3 (one lock step); decision 0054 D6 and its amendment 'D6 ACTIVATION checks' (GH #2590 / REQ-501 PR R3: the line names the stamp's module). Code read on origin/main 28cdbfb13: Letflow.Definitions.ModuleWrites (lib/letflow/definitions/module_writes.ex: resolved_codes/2 answers module_write_stamp_mismatch when the line's module differs from the stamp's module; module_writes_too_many_ledger_postings, module_writes_duplicate_ledger_posting, module_writes_ledger_on_service_task); Letflow.Modules.Catalog rule 10 check_handler_ledger/2 (lib/letflow/modules/catalog.ex: posts_ledger names a registration of the SAME manifest, write_handler_ledger_missing); Letflow.Ledger.HandlerPost (lib/letflow/ledger/handler_post.ex: the per-transaction plan of at most 2 postings across the handler calls of one node, one lock step after the last call); Letflow.Entities.HandlerWrites.__posts_ledger__/2 (lib/letflow/entities/handler_writes.ex); mix letflow.check_boundaries Rule 4 (a module file may reference another module's files only when that module is in its manifest depends_on). Free decision number: the highest on origin/main is 0079 (two files carry 0079), so 0080 at the time of writing. Written by the business analyst (T-1326) 2026-11-05.
     description: >
       Assets phase C item C15 needs a change of kind document to post to the stock register and to the asset
@@ -51600,7 +51600,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-691 -- built on the asset document routes of REQ-751 and the kind table of REQ-753 (pending, task T-1325, GH #3891 and #3889)
+    gh: 3902
     # Source: docs/assets/change-of-kind.md sections 1, 2, 5, 7 and 8 (REQ-691, GH #3719); entries REQ-748 (the asset card fields, inventory_number unique per tenant), REQ-751 and REQ-753 (the asset document routes, the kind table, the issue reasons), all three pending on origin/team/T-1325 (GH #3894, #3891, #3889) and not on origin/main at the time of writing; REQ-712 and REQ-641 (the stock issue checks and the lot tracking policy). Code read on origin/main 28cdbfb13: Letflow.Modules.CatalogItems.active?/2, item_uom_valid?/3, item_lot_valid?/3 (lib/letflow/modules/catalog_items/catalog_items.ex); Letflow.Modules.Locations.active?/2 and linked?/3 (lib/letflow/modules/locations/locations.ex); Letflow.Modules.Org.lookup/2, active?/2, active_employee?/2 (lib/letflow/modules/org/org.ex); Letflow.Modules.Stock.Documents.Checks.event_time/2 and tracking_result/3 (lib/letflow/modules/stock/documents/checks.ex: reasons lot_required, lot_not_allowed, lot_expiry_missing, tracking_policy_not_supported, tracking_invalid, unit_not_valid, lot_not_valid, not_linked, employee_not_active); mix letflow.check_boundaries Rule 4 (a file of module assets may reference module stock only when stock is in the assets manifest depends_on). Written by the business analyst (T-1326) 2026-11-05.
     description: >
       Assets phase C item C15, first half (split as the commission was, REQ-751 and REQ-752): the change of kind
@@ -51666,7 +51666,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-691 -- needs the cross-module posting lines of REQ-758, the document of REQ-759 and the asset posting path of REQ-752 (pending, task T-1325, GH #3890)
+    gh: 3901
     # Source: docs/assets/change-of-kind.md sections 3, 4, 6 and 8 (REQ-691); decision 0073 'Amended (REQ-676, assets B1)' A2, A3, A4 and D-L12; entries REQ-749 (the asset registration: causes, slots, units [pcs], declare/2 command shape) and REQ-752 (assets_posting_mark, post_document, reverse_document, the process definitions with one HUMAN_TASK), both pending on origin/team/T-1325 (GH #3893, #3890); REQ-713 (stock posting from a human task). Code read on origin/main 28cdbfb13: the stock :ledger registration in lib/letflow/modules/stock/stock.ex (causes, no units key, policy Letflow.Modules.Stock.LedgerPolicy) and its write handlers post_document and reverse_document (targets [stock_posting_mark], posts_ledger stock); Letflow.Ledger moduledoc 'Pairs (criterion 11)' (lib/letflow/ledger.ex: an entry is paired when an entry of another ledger id has the same document_type, document_id and correlation_id; a single reversal of a paired entry is posting_is_paired); Letflow.Ledger.HandlerPost (lib/letflow/ledger/handler_post.ex); Letflow.Entities.HandlerWrites.create/3 and post/3 (lib/letflow/entities/handler_writes.ex). Written by the business analyst (T-1326) 2026-11-05.
     description: >
       Assets phase C item C15, second half: an issued change of kind is posted by completing a human task, and the
@@ -51724,7 +51724,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-691 -- needs the routes of REQ-759 and REQ-760 and the asset document screens of REQ-756 (pending, task T-1325, GH #3886)
+    gh: 3900
     # Source: docs/assets/change-of-kind.md sections 2, 3, 6 (REQ-691); entries REQ-759 and REQ-760 (this task), REQ-756 (asset document screens, pending on origin/team/T-1325, GH #3886: place web/src/modules/assets/documents/, paths admin/assets/documents, the refusal messages), REQ-722 and REQ-723 (stock document screens precedent); the rules of project skill letflow-design-system (screenshot matrix 1440 and 390, light and dark, en, ru and kk). Written by the business analyst (T-1326) 2026-11-05.
     description: >
       Assets phase C item C16. The change of kind as a fifth kind on the asset document screens of REQ-756. Not a
@@ -51756,7 +51756,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-691 -- needs the card write path of REQ-750 and the kind lock of REQ-752 (pending, task T-1325, GH #3892 and #3890); the spec is REQ-729
+    gh: 3899
     # Source: docs/assets/asset-xlsx.md sections 1 to 5 (REQ-729, GH #3792); decision 0077 D1 to D7 (docs/migration/decisions/0077-xlsx-import-export.md); entries REQ-748 (card fields), REQ-750 (create_card/3, update_card/4 in lib/letflow/modules/assets/cards.ex and their refusals) and REQ-752 (kind_locked), pending on origin/team/T-1325 (GH #3894, #3892, #3890); REQ-651 and REQ-727 (managed import precedent). Code read on origin/main 28cdbfb13: Letflow.Modules.Catalog.import_function/2 and call_import_function/5 (lib/letflow/modules/catalog.ex); the stock manifest key import_functions (lib/letflow/modules/stock/stock.ex); Letflow.Modules.Org.Import (lib/letflow/modules/org/import.ex: references by external id under the row's system, reference_not_found and reference_inactive with the constant header); Letflow.Entities.ManagedImport (lib/letflow/entities/managed_import.ex: created, updated, unchanged, one row per call); Letflow.Routers.Entities.RecordImport (lib/letflow/routers/entities/record_import.ex: POST /api/v1/entities/records/:entity_type/import, import_scope_check/6 refusing a scoped caller in upsert mode, import_reason_json/1 with its closed clauses, e.g. the REQ-727 clause for stock opening reasons). Written by the business analyst (T-1326) 2026-11-05.
     description: >
       Assets phase C item C17: asset cards, with their depreciation fields, imported from an xlsx file through the
@@ -51793,7 +51793,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-691 -- needs the asset register routes of REQ-749 and the cards of REQ-750 (pending, task T-1325, GH #3893 and #3892); the spec is REQ-729
+    gh: 3898
     # Source: docs/assets/asset-xlsx.md sections 6 and 7 (REQ-729, GH #3792); decisions 0077 D8 and 0079 D8; entries REQ-749 (GET /api/v1/modules/assets/balances, its closed query keys that today refuse format with invalid_filter, the asset_balance view) and REQ-750 (cards), pending on origin/team/T-1325 (GH #3893, #3892); the stock precedent REQ-728. Code read on origin/main 28cdbfb13: Letflow.Routers.Entities run_export/5 (lib/letflow/routers/entities.ex, authz_post /records/:entity_type/export with EntitiesRecordsExport scope :filter: no branch refusing a module-managed type), Letflow.Entities.XlsxExport.build/3 (lib/letflow/entities/xlsx_export.ex), Letflow.Modules.Stock.XlsxExport and the format=json|xlsx handling of Letflow.Modules.Stock.Router (lib/letflow/modules/stock/xlsx_export.ex, lib/letflow/modules/stock/router.ex: respond/5, report sheet), the report fields of note section 8.4 of lib/letflow/design/gh2657-wms-stock-ledger-core.md. Written by the business analyst (T-1326) 2026-11-05.
     description: >
       Assets phase C item C18: the two exports of asset-xlsx.md sections 6 and 7. SENSITIVE: a tenant-data read path
