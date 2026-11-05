@@ -143,6 +143,15 @@ together. Handlers create records only, so the stored status stays `signed`; the
 never a detail). The chair then issues the **posting record** (`count.posting`: entry id, posting sequence and time,
 no quantity) and the status becomes `posted`; this needs the caller's ledger read (otherwise 404). A signed count with no
 difference line makes no ledger call: `post` is `no_differences`, the posting record is issued without an entry.
+**Rules that stay as they are (P50c, decision 0079):** (1) after a reversal the count cannot be posted again: the
+`posted` mark stays, so `post` is refused `count_posted`; order a new count. (2) A `signed` count cannot be cancelled
+(`Counts.cancel/3` answers `count_state_invalid`); post and reverse it, or order a new count. The count screen shows both
+rules as hints. (3) The read carries `differences_empty` (true only for a `signed` count with no mark and no difference
+line): the screen then offers **Issue posting record** at once, which closes the count without an entry. (4) `post` makes
+an advisory early check of every shortage line against the CURRENT balance: a shortage larger than the balance answers
+422 `shortage_exceeds_balance` with `line_no`, `catalog_item_id` and `location_id` (never a balance), nothing is started,
+and the screen names the item and the location. A caller without a ledger read skips the check. Goods that leave after the
+post started are still refused by the ledger at task completion (the task stays pending in the inbox).
 **Reverse** starts `stock_reversal`; completing its `reverse` task reverses the whole entry and writes a `reversed`
 mark; the count documents stay issued. A reversal before the posting record leaves the status `signed` and the record is
 then refused `count_reversed`; a count cannot be cancelled from `signed`, so a new count is ordered. Needs the caller's

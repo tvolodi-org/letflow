@@ -128,7 +128,8 @@ defmodule Letflow.Modules.Stock.Router do
 
   A refusal is 422 with `extensions.reason` (`count_state_invalid`, `count_scope_not_linked`,
   `count_scope_overlaps`, `count_scope_incomplete`, `count_too_long`, `org_unit_inactive`,
-  `employee_inactive`, `chair_without_user`, `not_chair`, `field_not_allowed`, `field_invalid`).
+  `employee_inactive`, `chair_without_user`, `not_chair`, `field_not_allowed`, `field_invalid`,
+  `shortage_exceeds_balance`).
   """
 
   use Letflow.Api.AuthorizedRouter
@@ -753,6 +754,9 @@ defmodule Letflow.Modules.Stock.Router do
   defp render(conn, {:error, {:field_not_allowed, key}}, _status) when is_binary(key),
     do:
       problem(conn, Error.unprocessable("request refused"), "field_not_allowed", %{"field" => key})
+
+  defp render(conn, {:error, {:shortage_exceeds_balance, details}}, _status) when is_map(details),
+    do: problem(conn, Error.unprocessable("request refused"), "shortage_exceeds_balance", details)
 
   defp render(conn, {:error, {:field_invalid, key}}, _status) when is_binary(key),
     do: problem(conn, Error.unprocessable("request refused"), "field_invalid", %{"field" => key})

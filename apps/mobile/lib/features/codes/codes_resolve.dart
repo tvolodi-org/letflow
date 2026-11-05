@@ -20,12 +20,16 @@ class CodeResolution {
     required this.value,
     this.kind,
     this.targetType,
+    this.targetId,
   });
 
   final CodeStatus status;
   final String value;
   final String? kind;
   final String? targetType;
+
+  /// `target_id` of an assigned code (D3a: the place id of a count).
+  final String? targetId;
 
   CodeObjectKind get objectKind => switch (targetType) {
     'location_node' => CodeObjectKind.location,
@@ -66,11 +70,13 @@ class CodesResolver {
     final value = body['value'];
     final kind = body['kind'];
     final targetType = body['target_type'];
+    final targetId = body['target_id'];
     return CodeResolution(
       status: status,
       value: value is String ? value : text,
       kind: kind is String ? kind : null,
       targetType: targetType is String ? targetType : null,
+      targetId: targetId is String ? targetId : null,
     );
   }
 }
