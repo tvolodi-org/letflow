@@ -106,7 +106,7 @@ verify it. No ledger call here: the posting is REQ-718 (next section).
    `count_window_expired` more than 96 hours after the cut-off (the count stays `counted` and can be cancelled). The
    count becomes `signed`, and `Counts.cancel/3` then answers `count_state_invalid`.
 
-## Posting a count (REQ-718, GH #3763; module `stock` 0.10.0)
+## Posting a count (REQ-718, GH #3763; module `stock` 0.11.0)
 
 Functions: `Letflow.Modules.Stock.CountPosting`, reached as `Counts.post/3`, `reverse/4`, `issue_posting_record/3`
 and `posting_document/3`. The signed differences sheet is posted to the stock ledger as ONE entry (cause

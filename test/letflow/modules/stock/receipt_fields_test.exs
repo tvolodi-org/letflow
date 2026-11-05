@@ -45,7 +45,7 @@ defmodule Letflow.Modules.Stock.ReceiptFieldsTest do
 
   test "RF-1 version and the field sets of both types" do
     m = Stock.manifest()
-    assert m.version == "0.10.0"
+    assert m.version == "0.11.0"
     assert Catalog.validate(m) == :ok
 
     header = names("stock_receipt")
@@ -175,7 +175,7 @@ defmodule Letflow.Modules.Stock.ReceiptFieldsTest do
       |> Enum.sort()
 
     assert hits ==
-             ~w(checks.ex documents.ex kinds.ex opening_checks.ex opening_shape.ex shape.ex stock.ex)
+             ~w(checks.ex documents.ex kinds.ex opening_checks.ex opening_import.ex opening_shape.ex shape.ex stock.ex)
 
     checks = File.read!("lib/letflow/modules/stock/documents/checks.ex")
     assert length(Regex.scan(~r/@receipt_timezone\s/, checks)) == 2

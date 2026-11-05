@@ -114,7 +114,7 @@ defmodule Letflow.Modules.Stock do
   task kept apart by `distinct_from`; completing `approve` posts). The entry's event time is its
   posting time. Assumptions, owner may change at GATE B: 100 lines, `OPN` per year, the second person.
 
-  ## Posting a count (REQ-718 / GH #3763; version 0.10.0)
+  ## Posting a count (REQ-718 / GH #3763; version 0.11.0)
 
   The cause `count_difference` (sign rule `any`, a reason required), the write handler `post_count`
   (`posts_ledger: "stock"`), the process definition `stock_count_posting` (one HUMAN_TASK `post`) and
@@ -126,6 +126,14 @@ defmodule Letflow.Modules.Stock do
   section 4, split plan row C7) is NOT built; postings during counting are not blocked. The module is
   installed on no tenant yet; the new pack definition and the new `count_order` fields reach an
   existing install through the module-upgrade path.
+
+  ## Opening line import (REQ-727 / GH #3773; version 0.10.0)
+
+  The manifest registers `import_opening_line/3` for `stock_opening_line` (`:import_functions`): an xlsx
+  file of lines goes through the record import route (`?upsert_by=external_ref`) into a DRAFT opening
+  document named by the header's external id; it never posts and does not run the line checks (the
+  check route does). See `Letflow.Modules.Stock.Documents.OpeningImport`. No route, permission or
+  migration. Assumptions, owner may change at GATE B: reference cells use the row's external-ref system.
 
   ## Slots and their order (append-only, rule 12)
 
@@ -250,7 +258,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.10.0",
+    version: "0.11.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [
@@ -395,6 +403,7 @@ defmodule Letflow.Modules.Stock do
         posts_ledger: "stock"
       }
     ],
+    import_functions: [%{entity_type: "stock_opening_line", function: :import_opening_line}],
     ledger: %{
       "stock" => %{
         ledger_ids: {:fixed, ["stock"]},
@@ -432,6 +441,15 @@ defmodule Letflow.Modules.Stock do
 
   @impl true
   def router, do: Letflow.Modules.Stock.Router
+
+  @doc """
+  The import function of `stock_opening_line` (REQ-727, manifest `:import_functions`): one row of a
+  file, called by the core import route. See `Letflow.Modules.Stock.Documents.OpeningImport`.
+  """
+  @spec import_opening_line(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_opening_line(prefix, entry, ctx),
+    do: Letflow.Modules.Stock.Documents.OpeningImport.row(prefix, entry, ctx)
 
   @impl true
   def on_install(prefix, _settings, ctx) do
