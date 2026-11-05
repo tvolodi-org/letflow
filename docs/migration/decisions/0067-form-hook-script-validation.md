@@ -231,6 +231,8 @@ Each is one change. `[SECURITY-REVIEWER: mandatory]` marks a tenant-data slice.
   sandbox crash in the locked transaction, the audit rows, the kill switch. After F-3.
 - **F-5 dry-run and UAT**: dry-run of a `form_validation` script against a draft payload (no write, no
   tenant-data read, so no SECURITY-REVIEWER marker), then `uat_design` scenarios. After F-4.
+  The dry-run part is delivered by REQ-639 (GH #3567): `POST /script-rules/:key/form-validation-dry-run`
+  (`Letflow.Scripts.dry_run_form_validation/5`). The `uat_design` scenarios remain a later task.
 
 ## Consistency with earlier records
 

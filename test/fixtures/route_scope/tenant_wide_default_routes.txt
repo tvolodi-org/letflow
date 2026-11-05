@@ -191,6 +191,7 @@ POST /scheduled-jobs/:id/disable ScheduledJobsManage
 POST /scheduled-jobs/:id/enable ScheduledJobsManage
 POST /script-policy/readable-masters/:entity_type/clear ScriptPolicyManage
 POST /script-rules/:key/dry-run ScriptsWrite
+POST /script-rules/:key/form-validation-dry-run ScriptsWrite
 POST /script-rules/:key/versions ScriptsWrite
 POST /script-rules/:key/versions/:version/confirm ScriptRulesConfirm
 POST /script-rules/:key/versions/:version/publish ScriptsPublish
