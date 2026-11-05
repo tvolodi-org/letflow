@@ -631,6 +631,33 @@ defmodule Letflow.Modules.Installs do
     end
   end
 
+  @doc """
+  REQ-769: the installed manifest hash and the accepted earlier hashes of `module_id` in
+  `opts[:prefix]`, from one row read, no lock. Same `:not_installed` / `:no_installed_hash` rules as
+  `installed_manifest_hash/2`. A stamp is valid when its hash equals `installed` or is in `accepted`.
+  """
+  @spec install_hashes(module_id :: String.t(), opts()) ::
+          {:ok, %{installed: String.t(), accepted: [String.t()]}}
+          | {:error, :not_installed | :no_installed_hash}
+  def install_hashes(module_id, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    case Repo.get_by(TenantModule, [module_id: module_id], prefix: prefix) do
+      nil ->
+        {:error, :not_installed}
+
+      %TenantModule{status: :uninstalled} ->
+        {:error, :not_installed}
+
+      %TenantModule{manifest_hash: hash, accepted_manifest_hashes: accepted}
+      when is_binary(hash) ->
+        {:ok, %{installed: hash, accepted: accepted || []}}
+
+      %TenantModule{manifest_hash: nil} ->
+        {:error, :no_installed_hash}
+    end
+  end
+
   defp fetch_module_for_settings(module_id) do
     case Catalog.fetch(module_id) do
       {:ok, entry_module} -> {:ok, entry_module}

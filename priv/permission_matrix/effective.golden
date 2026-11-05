@@ -1,7 +1,7 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.14.0
+# modules: assets@0.1.0,catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.14.0
 # roles: 8
 # permissions: 81
 # rows: 648

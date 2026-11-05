@@ -10,8 +10,9 @@ import { Printer } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
-import { actorLabel, tokenSubject } from '@/lib/references/actorLabel'
+import { actorLabel } from '@/lib/references/actorLabel'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
+import { formatQuantity } from '@/lib/formatQuantity'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -79,6 +80,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
   const intl = useIntl()
   const t = (m: string) => intl.formatMessage({ id: m })
   const { session } = useAuth()
+  const access = useAccess()
   const tenantId = session?.tenant_id ?? ''
   const uiLocale = useUiLocale()
   const [editing, setEditing] = useState(false)
@@ -149,7 +151,8 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
   }
 
   const refMsg = REFERENCE_MESSAGES[uiLocale]
-  const actor = (ref: string | null | undefined) => actorLabel(ref, tokenSubject(session?.token), refMsg)
+  const actor = (ref: string | null | undefined, label?: string | null) =>
+    ref && ref === access.userId ? refMsg.you : label || actorLabel(ref, access.userId, refMsg)
   const row = (label: string, value: string | null | undefined, mono = false, always = true) =>
     always || value ? <DocField label={label} value={value ? value : dash} mono={mono} empty={!value} /> : null
   const columns = lineColumns(doc.kind as DocKind, t)
@@ -162,7 +165,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
       case 'lot': return name('catalog_lot', l.catalog_lot_id) || dash
       case 'quantity': return (
         <span className="lf-lines__qty">
-          <span>{l.quantity}</span>
+          <span>{formatQuantity(l.quantity)}</span>
           <span className="lf-lines__unit">{name('catalog_uom', l.catalog_uom_id)}</span>
         </span>
       )
@@ -240,9 +243,9 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
           <DocGroup>{t('stock.doc.group.posting')}</DocGroup>
           {row(t('stock.doc.field.issuedAt'), doc.issued_at ? when(doc.issued_at) : null, true)}
           {row(t('stock.doc.field.postedAt'), doc.posted_at ? when(doc.posted_at) : null, true)}
-          {row(t('stock.doc.field.postedBy'), actor(doc.posted_by))}
+          {row(t('stock.doc.field.postedBy'), actor(doc.posted_by, doc.posted_by_label))}
           {row(t('stock.doc.field.reversedAt'), doc.reversed_at ? when(doc.reversed_at) : null, true)}
-          {row(t('stock.doc.field.reversedBy'), actor(doc.reversed_by))}
+          {row(t('stock.doc.field.reversedBy'), actor(doc.reversed_by, doc.reversed_by_label))}
         </DocFields>
         {two && (['from', 'to'] as const).map((side) => (
           <section key={side} data-testid={`view-side-${side}`} aria-label={t(`stock.doc.side.${side}`)}>

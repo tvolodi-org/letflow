@@ -92,6 +92,15 @@ defmodule Letflow.RecordTriggers.ApplyTest do
     end
   end
 
+  describe "A1b: the stub seam survives a polluted flag" do
+    test "tenant!/1 turns :scripts_test_hooks back on (T-1408)" do
+      Application.delete_env(:letflow, :scripts_test_hooks)
+      refute Letflow.Scripts.Runtime.test_hooks?()
+      R.tenant!("r628h")
+      assert Letflow.Scripts.Runtime.test_hooks?()
+    end
+  end
+
   describe "D1: the result transaction" do
     test "two lines apply together; keys are record_trigger:<row id>:<index>", %{
       schema: s,

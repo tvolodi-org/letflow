@@ -90,7 +90,7 @@ function ItemsInner({ initialItemId }: { initialItemId?: string }) {
         </span>
       ),
     },
-    { key: 'unit', header: t('col.unit'), optional: true, render: (r) => label('catalog_uom', r.uomId) },
+    { key: 'unit', header: t('col.unit'), mono: true, optional: true, render: (r) => label('catalog_uom', r.uomId) },
     { key: 'tracking', header: t('col.tracking'), optional: true, render: (r) => t(`tracking.${r.tracking}`) },
     {
       key: 'status',

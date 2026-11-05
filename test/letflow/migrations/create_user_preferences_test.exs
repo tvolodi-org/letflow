@@ -40,9 +40,11 @@ defmodule Letflow.CreateUserPreferencesTest do
     rows |> List.flatten() |> Enum.sort()
   end
 
-  test "M2 registered last; the table is in the expected list and starts empty", %{schema: schema} do
+  test "M2 registered second to last; the table is in the expected list and starts empty", %{
+    schema: schema
+  } do
     assert {@version, CreateUserPreferences} =
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
 
     assert "user_preferences" in TenantFixture.expected_tenant_tables()
 

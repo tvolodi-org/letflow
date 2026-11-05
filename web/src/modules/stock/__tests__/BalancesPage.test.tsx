@@ -80,7 +80,7 @@ describe('B2 row', () => {
       rows: [ROW, { ...ROW, sku: 'i2', quantity: '0' }],
     })
     renderStock(BAL)
-    const cell = await screen.findByText('12.500')
+    const cell = await screen.findByText('12.5')
     const row = cell.closest('tr')!
     for (const text of ['Bolt M8', 'Shelf A', 'Main store', 'Aigul B.', 'LOT-7', 'pcs']) {
       expect(within(row).getByText(text)).toBeInTheDocument()

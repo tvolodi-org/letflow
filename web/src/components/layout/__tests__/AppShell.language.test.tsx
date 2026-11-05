@@ -110,6 +110,20 @@ describe('AppShell language switch', () => {
 })
 
 describe('nav catalog', () => {
+  it('L-4: module nav routes (locations, stock) have a word in en, ru and kk', () => {
+    const routes = [
+      '/admin/locations',
+      '/admin/locations/links',
+      '/admin/stock/documents',
+      '/admin/stock/balances',
+      '/admin/stock/movements',
+      '/admin/stock/counts',
+    ]
+    for (const l of UI_LOCALES) for (const to of routes) expect(navMessages[l].items[to], `${l} ${to}`).toBeTruthy()
+    expect(navMessages.ru.items['/admin/stock/balances']).not.toBe(navMessages.en.items['/admin/stock/balances'])
+    expect(navMessages.kk.items['/admin/stock/counts']).not.toBe(navMessages.en.items['/admin/stock/counts'])
+  })
+
   it('every NAV_ITEMS route and group has a word in en, ru and kk', () => {
     for (const l of UI_LOCALES) {
       for (const n of NAV_ITEMS) expect(navMessages[l].items[n.to], `${l} ${n.to}`).toBeTruthy()

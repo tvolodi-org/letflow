@@ -69,7 +69,7 @@ defmodule Letflow.Ledger.Read do
   @default_limit 50
   @max_value_bytes 200
   @timezone_form ~r/\A[A-Za-z0-9_+\-\/]{1,64}\z/
-  @entry_filters ~w(cause document_type document_id correlation_id from_seq to_seq scope_subtree)
+  @entry_filters ~w(cause document_type document_id correlation_id from_seq to_seq scope_subtree leg_slots)
   @subtree_key "scope_subtree"
 
   # ---- balances ------------------------------------------------------------------------------
@@ -530,11 +530,15 @@ defmodule Letflow.Ledger.Read do
     Enum.reduce_while(filters, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
       name = key_name(key)
 
-      if name in @entry_filters and valid_entry_value?(name, value) and
-           (name != @subtree_key or a.scope_col != nil) and
-           not Map.has_key?(acc, name),
-         do: {:cont, {:ok, Map.put(acc, name, value)}},
-         else: {:halt, {:error, :invalid_filter}}
+      if name == "leg_slots" and is_map(value) and value != %{} and
+           not Map.has_key?(acc, name) do
+        case check_slot_pairs(a.slot_names, value) do
+          {:ok, pairs} -> {:cont, {:ok, Map.put(acc, name, pairs)}}
+          error -> {:halt, error}
+        end
+      else
+        check_entry_filter(a, acc, name, value)
+      end
     end)
     |> case do
       {:ok, %{"from_seq" => from, "to_seq" => to}} when from > to -> {:error, :invalid_filter}
@@ -543,6 +547,14 @@ defmodule Letflow.Ledger.Read do
   end
 
   defp check_entry_filters(_a, _filters), do: {:error, :invalid_filter}
+
+  defp check_entry_filter(a, acc, name, value) do
+    if name in @entry_filters and name != "leg_slots" and valid_entry_value?(name, value) and
+         (name != @subtree_key or a.scope_col != nil) and
+         not Map.has_key?(acc, name),
+       do: {:cont, {:ok, Map.put(acc, name, value)}},
+       else: {:halt, {:error, :invalid_filter}}
+  end
 
   defp valid_entry_value?(name, value) when name in ["from_seq", "to_seq"],
     do: is_integer(value) and value >= 0
@@ -587,6 +599,7 @@ defmodule Letflow.Ledger.Read do
         {"document_type", v}, q -> where(q, [e], e.document_type == ^v)
         {"document_id", v}, q -> where(q, [e], e.document_id == ^v)
         {"correlation_id", v}, q -> where(q, [e], e.correlation_id == ^v)
+        {"leg_slots", pairs}, q -> leg_slots_filter(q, a, pairs, subtree)
       end)
 
     query =
@@ -617,6 +630,33 @@ defmodule Letflow.Ledger.Read do
     next = if more != [] and rows != [], do: List.last(rows).posting_seq
 
     {:ok, %{rows: rows, next_cursor: next}}
+  end
+
+  # An entry matches when it has a leg holding every asked slot value. The reader's scope
+  # condition sits inside the same EXISTS, so a scoped reader cannot probe a value on legs it
+  # cannot see: a hidden value answers like an absent one.
+  defp leg_slots_filter(query, a, pairs, subtree) do
+    matching =
+      from(l in "ledger_leg",
+        as: :l,
+        where:
+          l.ledger_id == parent_as(:e).ledger_id and
+            l.posting_seq == parent_as(:e).posting_seq,
+        select: 1
+      )
+
+    matching =
+      Enum.reduce(pairs, matching, fn {field, value}, q ->
+        where(q, [l], field(l, ^field) == ^value)
+      end)
+
+    matching =
+      case scope_condition(a, subtree, :l) do
+        nil -> matching
+        cond_ -> where(matching, ^cond_)
+      end
+
+    where(query, exists(subquery(matching)))
   end
 
   defp legs_by_seq(_a, []), do: %{}

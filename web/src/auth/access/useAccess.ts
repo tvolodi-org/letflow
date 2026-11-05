@@ -14,6 +14,8 @@ export interface UseAccess {
   canManageTenants: boolean
   isCandidate: boolean
   roles: string[]
+  /** The caller's tenant user record id (what task assignee refs hold); null until access is ready. */
+  userId: string | null
   retry: () => void
 }
 
@@ -30,6 +32,7 @@ export function useAccess(): UseAccess {
       canManageTenants: canManageTenants(state),
       isCandidate: isCandidate(state),
       roles: rolesOf(state),
+      userId: state.status === 'ready' ? (state.info.user_id ?? null) : null,
       retry: () => {
         if (state.status === 'error') state.retry()
       },
