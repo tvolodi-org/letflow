@@ -969,7 +969,10 @@ defmodule Letflow.TenantProvisioning do
      "20261105200001_create_entity_scope_declarations.exs"},
     # REQ-623: guard_document_versions() lets an issued version set artefact_hash once (NULL to hex).
     {20_261_105_300_001, Letflow.Repo.Migrations.OpenDocumentArtefactHashWriteOnce,
-     "20261105300001_open_document_artefact_hash_write_once.exs"}
+     "20261105300001_open_document_artefact_hash_write_once.exs"},
+    # REQ-624: document_versions pins the print override it was issued under (four nullable columns).
+    {20_261_105_400_001, Letflow.Repo.Migrations.AddPrintOverridePinToDocumentVersions,
+     "20261105400001_add_print_override_pin_to_document_versions.exs"}
   ]
 
   @doc """

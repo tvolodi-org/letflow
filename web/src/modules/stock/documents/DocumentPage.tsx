@@ -21,7 +21,7 @@ import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
 import { DOC_KINDS, DOC_STATES, formatEventTime, isTwoSide, sidesOf } from './documentsModel'
 import { stateTone } from './stateTone'
-import type { NameIds } from '../register/stockRegisterModel'
+import { movementsLinkFor, type NameIds } from '../register/stockRegisterModel'
 
 function nameIds(doc: StockDocument): NameIds {
   const out: NameIds = {}
@@ -108,7 +108,14 @@ function DocumentInner() {
         eyebrow={t('stock.eyebrow')}
         title={`${known(DOC_KINDS, 'stock.doc.kind', doc.kind)} ${doc.number ?? t('stock.doc.draftMark')}`}
         lede={t('stock.doc.viewLede')}
-        actions={<Link to="/admin/stock/documents">{t('stock.doc.backToList')}</Link>}
+        actions={
+          <>
+            {(doc.state === 'posted' || doc.state === 'reversed') && (
+              <Link to={movementsLinkFor(doc.id)}>{t('stock.doc.movementsLink')}</Link>
+            )}
+            <Link to="/admin/stock/documents">{t('stock.doc.backToList')}</Link>
+          </>
+        }
       />
       <StatusPill tone={tone.tone} glyph={tone.glyph}>
         {known(DOC_STATES, 'stock.doc.state', doc.state)}
