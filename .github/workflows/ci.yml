@@ -496,7 +496,8 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before }}
           PUSH_AFTER: ${{ github.sha }}
           # T-1311: a pull request from a branch `selective-probe/*` ignores the kill switch (probe PR).
-          KILL: ${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'selective-probe/')) && '' || vars.CI_SELECTIVE }}
+          KILL: ${{ vars.CI_SELECTIVE }}
+          PROBE: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'selective-probe/') }}
           FORCE_FULL: ${{ steps.redguard.outputs.force_full }}
           DOCS_ONLY: ${{ steps.docs.outputs.docs_only }}
         run: |
@@ -533,7 +534,7 @@ jobs:
           if git rev-parse -q --verify refs/tags/ci-full-green >/dev/null && git merge-base --is-ancestor refs/tags/ci-full-green HEAD 2>/dev/null; then
             since=$(git rev-list --count refs/tags/ci-full-green..HEAD) || since=""
           fi
-          args=(--event "$EVENT_NAME" --kill-switch "${KILL:-}" --plan-out "$RUNNER_TEMP/ci_plan.txt")
+          args=(--event "$EVENT_NAME" --kill-switch "$(bash scripts/ci_kill_switch.sh "${KILL:-}" "${PROBE:-}")" --plan-out "$RUNNER_TEMP/ci_plan.txt")
           [ -n "$since" ] && args+=(--commits-since-full "$since")
           [ -n "$FORCE_FULL" ] && args+=(--force-full "$FORCE_FULL")
           if ! OUT=$(python3 -I scripts/ci_select_tests.py "${args[@]}" <<<"$CHANGED") ; then

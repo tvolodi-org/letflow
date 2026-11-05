@@ -80,6 +80,16 @@ defmodule Letflow.CiEmitOutputsTest do
     assert yml =~ "scripts/ci_emit_outputs.sh"
     refute yml =~ ~s(printf '%s' "$4")
     assert yml =~ "startsWith(github.head_ref, 'selective-probe/')"
+    refute yml =~ "&& '' ||"
+    assert yml =~ "scripts/ci_kill_switch.sh"
+  end
+
+  test "P1 probe PR blanks the kill switch, other runs keep it" do
+    ks = Path.join(@root, "scripts/ci_kill_switch.sh")
+    assert {"", 0} = System.cmd("bash", [ks, "off", "true"])
+    assert {"off", 0} = System.cmd("bash", [ks, "off", "false"])
+    assert {"off", 0} = System.cmd("bash", [ks, "off", ""])
+    assert {"", 0} = System.cmd("bash", [ks, "", "false"])
   end
 
   test "D1 docs describe the probe PR" do
