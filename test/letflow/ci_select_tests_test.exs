@@ -255,7 +255,7 @@ defmodule Letflow.CiSelectTestsTest do
     yml = File.read!(@ci_yml)
     # `printf '%s'` without a newline glues PLAN_EOF to the last plan line and the step fails
     # with "Matching delimiter not found 'PLAN_EOF'".
-    assert yml =~ ~S|printf '%s\n' "$4"; echo "PLAN_EOF"|
-    refute yml =~ ~S|printf '%s' "$4"; echo "PLAN_EOF"|
+    assert yml =~ ~S|printf "%s\n" "$4"; echo "PLAN_EOF"|
+    refute yml =~ ~S|printf "%s" "$4"; echo "PLAN_EOF"|
   end
 end

@@ -75,12 +75,12 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
     assert Enum.all?(Map.values(post.args) ++ Map.values(reverse.args), & &1.required)
   end
 
-  test "B-REG-2 the pack ships five one-task definitions, installed as stamped drafts", ctx do
+  test "B-REG-2 the pack ships seven one-task definitions, installed as stamped drafts", ctx do
     defs =
       File.read!("priv/modules/stock/pack.json") |> Jason.decode!() |> Map.fetch!("definitions")
 
     assert defs |> Enum.map(& &1["process_key"]) |> Enum.sort() ==
-             ~w(stock_handover stock_receipt stock_return stock_reversal stock_transfer)
+             ~w(stock_handover stock_issue stock_receipt stock_return stock_reversal stock_transfer stock_writeoff)
 
     for %{"graph" => graph} = definition <- defs do
       tasks = Enum.filter(graph["nodes"], &(&1["node_type"] == "HUMAN_TASK"))
@@ -101,7 +101,7 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
         prefix: ctx.schema
       )
 
-    assert length(rows) == 5
+    assert length(rows) == 7
 
     for row <- rows do
       assert row.status == :draft
