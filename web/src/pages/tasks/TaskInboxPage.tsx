@@ -242,8 +242,8 @@ export default function TaskInboxPage() {
                 <div style={{ flex: 1 }}>
                   <div data-testid="task-name" style={{ fontWeight: 600, marginBottom: '.25rem' }}>{task.node_name}</div>
                   <div style={{ fontSize: '.85rem', color: 'var(--text-secondary)' }}>
-                    Instance: <code data-testid="task-instance-id" data-instance-id={task.instance_id} style={{ fontSize: '.8rem' }}>{subjectOf(task.instance_id)}</code>
-                    {task.assignee_ref && <> · Assigned to: <span data-testid="task-assignee">{assigneeText(task)}</span></>}
+                    {refMsg.instanceLabel}: <code data-testid="task-instance-id" data-instance-id={task.instance_id}>{subjectOf(task.instance_id)}</code>
+                    {task.assignee_ref && <> · {refMsg.assignedTo}: <span data-testid="task-assignee">{assigneeText(task)}</span></>}
                   </div>
                   <div style={{ fontSize: '.8rem', color: 'var(--text-disabled)', marginTop: '.25rem' }}>
                     {formatDate(task.created_at)} {formatTime(task.created_at)}
@@ -304,6 +304,7 @@ function TaskDetailPanel({ taskId, onClose }: { taskId: string; onClose: () => v
     return payload.sub || null
   }, [session?.token])
 
+  const refMsg = REFERENCE_MESSAGES[useUiLocale()]
   const subjectOf = useTaskSubjects(task ? [task.instance_id] : [])
 
   if (isLoading) {
@@ -368,7 +369,7 @@ function TaskDetailPanel({ taskId, onClose }: { taskId: string; onClose: () => v
             <strong>Definition:</strong> <span data-testid="instance-definition-name">{task.definition_name ?? 'N/A'}</span>
           </p>
           <p style={{ margin: '.25rem 0' }}>
-            <strong>Instance:</strong> <span data-testid="instance-id" data-instance-id={task.instance_id}>{subjectOf(task.instance_id)}</span>
+            <strong>{refMsg.instanceLabel}:</strong> <span data-testid="instance-id" data-instance-id={task.instance_id}>{subjectOf(task.instance_id)}</span>
           </p>
           {task.correlation_key && (
             <p style={{ margin: '.25rem 0' }}>
