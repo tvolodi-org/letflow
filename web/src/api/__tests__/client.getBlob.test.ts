@@ -96,6 +96,8 @@ describe('client.getBlob', () => {
   })
 
   it('throws status 401 and dispatches auth:session-expired on an unauthenticated response', async () => {
+    // T-1400: the event needs a session token that was sent (and no renewer = terminal refresh)
+    setToken('t')
     mockFetchOnce({ ok: false, status: 401, jsonBody: {} })
     const listener = vi.fn()
     window.addEventListener('auth:session-expired', listener)
