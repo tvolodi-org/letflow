@@ -181,7 +181,7 @@ describe('O6 opening words in en, ru, kk', () => {
     })
     renderStock(MOV)
     const word = stockMessages[lang]['stock.cause.opening']
-    await screen.findByText('17')
+    await screen.findAllByTestId('journal-row')
     expect(screen.getAllByText(word).length).toBeGreaterThanOrEqual(2)
     expect(screen.queryByText('opening')).not.toBeInTheDocument()
     expect(screen.queryByText('stock_opening')).not.toBeInTheDocument()

@@ -23,7 +23,8 @@ defmodule Letflow.Modules.LedgerRegistration do
         scope_slot: String.t() | nil,
         max_event_lateness_hours: 1..720,                         # absent reads as 96
         error_aliases: %{String.t() => String.t()},
-        units: [String.t()]}
+        units: [String.t()],
+        posting_guard: {module(), atom()}}                        # REQ-764: nested module, arity 2
 
   ## Errors
 
@@ -31,7 +32,7 @@ defmodule Letflow.Modules.LedgerRegistration do
   in sorted name order. One closed reason per check, in this order: `:shape` (slice-local: input
   that is not the shape above at all, so no arbitrary term can crash validation), `:instances_not_enabled`,
   `:ledger_id_form`, `:ledger_id_overlap`, `:slots`, `:causes`, `:key_bounds`, `:scope_slot`,
-  `:lateness`, `:units`, `:policy`, `:permissions`, `:auditor_or_candidate_post`, `:error_aliases`.
+  `:lateness`, `:units`, `:policy`, `:posting_guard`, `:permissions`, `:auditor_or_candidate_post`, `:error_aliases`.
   A permission atom that is a core permission is refused earlier, by rule 3 of the catalog
   (`:core_permission_collision`), because every permission named here must be in the manifest's own
   `:permissions`. Slots being append-only against the installed registration is not checked here
@@ -50,7 +51,8 @@ defmodule Letflow.Modules.LedgerRegistration do
     :scope_slot,
     :max_event_lateness_hours,
     :error_aliases,
-    :units
+    :units,
+    :posting_guard
   ]
   @required_keys [:ledger_ids, :slots, :causes, :permissions, :policy]
 
@@ -74,6 +76,7 @@ defmodule Letflow.Modules.LedgerRegistration do
           | :lateness
           | :units
           | :policy
+          | :posting_guard
           | :permissions
           | :auditor_or_candidate_post
           | :error_aliases
@@ -115,7 +118,8 @@ defmodule Letflow.Modules.LedgerRegistration do
   `Letflow.Ledger.Digest.registration_hash/1` can hash it: `ledger_ids` a list, `policy` a
   `%{module: mod, function: :declare}` map (JSON cannot encode the declared tuples), and the
   defaults filled in (`key_bounds: []`, `scope_slot: nil`, `max_event_lateness_hours: 96`,
-  `error_aliases: %{}`); `units` stays absent when absent.
+  `error_aliases: %{}`); `units` and `posting_guard` stay absent when absent (so a registration
+  without a guard keeps its registration hash).
   """
   @spec to_plain(map()) :: map()
   def to_plain(registration) do
@@ -135,9 +139,18 @@ defmodule Letflow.Modules.LedgerRegistration do
       error_aliases: Map.get(registration, :error_aliases) || %{}
     }
 
-    case Map.get(registration, :units) do
-      nil -> base
-      units -> Map.put(base, :units, units)
+    base =
+      case Map.get(registration, :units) do
+        nil -> base
+        units -> Map.put(base, :units, units)
+      end
+
+    case Map.get(registration, :posting_guard) do
+      {guard_module, guard_function} ->
+        Map.put(base, :posting_guard, %{module: guard_module, function: guard_function})
+
+      _none ->
+        base
     end
   end
 
@@ -155,6 +168,7 @@ defmodule Letflow.Modules.LedgerRegistration do
          :ok <- check_lateness(registration),
          :ok <- check_units(registration),
          :ok <- check_policy(registration, entry_module),
+         :ok <- check_posting_guard(registration, entry_module),
          :ok <- check_permissions(registration, manifest),
          :ok <- check_auditor_or_candidate(registration, manifest) do
       check_aliases(name, registration, ledger, manifest, known)
@@ -349,6 +363,26 @@ defmodule Letflow.Modules.LedgerRegistration do
   end
 
   defp check_policy(_registration, _entry_module), do: {:error, :policy}
+
+  # REQ-764: optional `{module, function}`, the module strictly nested under the entry module (as
+  # the policy), the function exported with arity 2 (`prefix`, summary).
+  defp check_posting_guard(registration, entry_module) do
+    case Map.fetch(registration, :posting_guard) do
+      :error -> :ok
+      {:ok, guard} -> guard_ok(guard, entry_module)
+    end
+  end
+
+  defp guard_ok({module, function}, entry_module)
+       when is_atom(module) and is_atom(function) and is_atom(entry_module) and
+              not is_nil(module) and not is_nil(function) and not is_nil(entry_module) do
+    if Code.ensure_loaded?(module) and function_exported?(module, function, 2) and
+         String.starts_with?(Atom.to_string(module), Atom.to_string(entry_module) <> "."),
+       do: :ok,
+       else: {:error, :posting_guard}
+  end
+
+  defp guard_ok(_guard, _entry_module), do: {:error, :posting_guard}
 
   defp check_permissions(%{permissions: perms}, manifest)
        when is_map(perms) and not is_struct(perms) do

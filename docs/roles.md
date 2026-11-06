@@ -232,6 +232,7 @@ MembershipsRead                 yes            yes              yes             
 ModulesManage                   yes            no               no               no          no           no        yes          no             no            tenant
 MyModulesRead                   yes            yes              yes              yes         yes          yes       yes          yes            yes            tenant
 MyAccessRead                    yes            yes              yes              yes         yes          yes       yes          yes            yes            tenant
+MyPreferencesSet                yes            yes              yes              yes         yes          yes       yes          yes            yes            tenant
 EntitiesRestrictionsManage      yes            no               no               no          no           no        yes          no             no            tenant
 PromotionsRead                  yes            no               no               no          no           no        yes          yes            no            tenant
 PromotionsManage                yes            no               no               no          no           no        yes          no             no            tenant

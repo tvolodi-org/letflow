@@ -10,7 +10,8 @@ defmodule Letflow.Api.RouteScope do
     * `{:resolver, {module, function}}` -- the scope comes from the loaded resource
       (`module.function/1`, REQ-518 defines the resolvers). Passes through `Authorize`.
     * `:filter` -- a list endpoint whose handler applies the scope (REQ-518). Passes through.
-    * `:self_service` -- tenant-level, non-sensitive reads that do not depend on the caller's
+    * `:self_service` -- tenant-level, non-sensitive reads, and writes of the caller's own per-user
+      settings (T-1389), that do not depend on the caller's
       scope rows; the coarse permission of the policy key still applies (defined and
       assigned by REQ-518 AC 21; the ruled list is `@self_service_routes`, below). Passes
       through after the coarse allow. DEFINITION: the response is either the caller's own
@@ -247,6 +248,7 @@ defmodule Letflow.Api.RouteScope do
   # (`:self_service`, or `:tenant_wide` for the "SEC-ruled tenant-wide" state) and `ruling` (a
   # ruling id, or `:pending_sec_ruling` for a route awaiting a ruling, which blocks REQ-519
   # AC 9). A route joins or leaves the class by editing this list AND its `scope:` declaration.
+  # T-1389: `PUT /me/preferences` is the first non-GET entry (rows keyed by the caller's own user id).
   @self_service_routes [
     %{
       route: "GET /me/memberships",
@@ -265,6 +267,18 @@ defmodule Letflow.Api.RouteScope do
       key: :MyAccessRead,
       class: :self_service,
       ruling: "SEC-REQ-449-access"
+    },
+    %{
+      route: "GET /me/preferences",
+      key: :MyAccessRead,
+      class: :self_service,
+      ruling: "SEC-T1389-prefs-get"
+    },
+    %{
+      route: "PUT /me/preferences",
+      key: :MyPreferencesSet,
+      class: :self_service,
+      ruling: "SEC-T1389-prefs-put"
     },
     %{
       route: "GET /help/resolved",
