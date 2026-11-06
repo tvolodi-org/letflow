@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Assets do
   through the routes of `Letflow.Modules.Assets.Router` (REQ-750, permission `AssetsCardWrite`, no
   role grants).
 
-  **Asset ledger** (REQ-749 / GH #3893, version 0.4.0; `docs/assets/asset-register.md` section 4):
+  **Asset ledger** (REQ-749 / GH #3893, version 0.5.0; `docs/assets/asset-register.md` section 4):
   ledger id `assets`, slots `asset, org_unit, location, material_responsible, actual_user` (all uuid
   text; location and actual user may be empty; the order is append-only), scope slot `org_unit`,
   causes `commission` (positive), `change` and `handover` (zero sum per asset), `writeoff` (negative,
@@ -24,7 +24,9 @@ defmodule Letflow.Modules.Assets do
   `reconcile`) live in `Letflow.Modules.Assets.Router`. The permissions `AssetsPost`, `AssetsReverse`,
   `AssetsRead` and `AssetsReconcile` have no role grants, so only TENANT_ADMIN and PLATFORM_ADMIN hold
   them. Nothing posts to the ledger yet (documents: REQ-752, REQ-753). The storage is created at
-  install by `Letflow.Modules.Installs`. The module is installed on no tenant, so there is no upgrade.
+  install by `Letflow.Modules.Installs`. A tenant that installed an earlier version (auto-CD deploys
+  main to QA) has no `assets` partitions: the read routes answer empty lists, a posting would be
+  refused `:ledger_storage_missing`, and the upgrade plan lists the ledger under `missing_ledger_storage`.
 
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
@@ -36,6 +38,9 @@ defmodule Letflow.Modules.Assets do
 
   **Currency** (D-097): the tenant currency is the module setting `currency` (three characters),
   `KZT` when absent. See `currency/1`.
+
+  **Import** (C17, REQ-762): `import_card/3` is the managed import function of `assets_card` (xlsx upsert by
+  external reference, spec `docs/assets/asset-xlsx.md`); see `Letflow.Modules.Assets.Import`.
 
   **Expiry reminder** (C12): the module setting `expiry_reminder_lead_days` (1..3650, no default) is the
   lead time of `Letflow.Modules.Assets.Reminders`; absent means no reminder. See `expiry_lead_days/1`.
@@ -58,7 +63,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.4.0",
+    version: "0.5.0",
     depends_on: ["locations", "org"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
@@ -111,8 +116,19 @@ defmodule Letflow.Modules.Assets do
         units: ["pcs"],
         policy: {Letflow.Modules.Assets.LedgerPolicy, :declare}
       }
-    }
+    },
+    import_functions: [%{entity_type: "assets_card", function: :import_card}]
   )
+
+  @doc """
+  The import function of `assets_card` (GH #3899 / REQ-762, manifest `:import_functions`): one row of
+  a file, called by the core import route. See `Letflow.Modules.Assets.Import`; it writes only
+  through `Letflow.Modules.Assets.Cards`.
+  """
+  @spec import_card(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_card(prefix, entry, ctx),
+    do: Letflow.Modules.Assets.Import.import_card(prefix, entry, ctx)
 
   @impl true
   def router, do: Letflow.Modules.Assets.Router

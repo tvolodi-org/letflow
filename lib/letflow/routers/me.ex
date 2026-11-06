@@ -52,6 +52,9 @@ defmodule Letflow.Routers.Me do
   listed keys (`null` resets a key) and is all-or-nothing. Errors are 422 with fixed texts; only a
   whitelisted or well-formed key name is echoed.
 
+  `GET` also returns `effective` (user value, else tenant default `ui.document_layout_default`, else
+  `"row"`) and `tenant_defaults` (T-1390); the tenant id comes from the auth context only.
+
   ## `:MembershipsRead` permission — CANDIDATE deliberately excluded
 
   Design §2.2 states this route is for "any authenticated user, no extra
@@ -123,7 +126,18 @@ defmodule Letflow.Routers.Me do
 
   defp handle_get_preferences(conn) do
     {prefix, user_id} = preferences_identity(conn)
-    Response.ok(conn, %{"preferences" => UserPreferences.list(prefix, user_id)})
+
+    case Identity.get_tenant(conn.assigns.auth_context.tenant_id) do
+      {:ok, tenant} ->
+        Response.ok(conn, %{
+          "preferences" => UserPreferences.list(prefix, user_id),
+          "effective" => UserPreferences.effective(prefix, user_id, tenant.settings),
+          "tenant_defaults" => UserPreferences.tenant_defaults(tenant.settings)
+        })
+
+      _ ->
+        Response.internal_error(conn)
+    end
   end
 
   defp handle_put_preferences(conn) do

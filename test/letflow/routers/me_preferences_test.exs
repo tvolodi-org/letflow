@@ -31,6 +31,7 @@ defmodule Letflow.Routers.MePreferencesTest do
   defp get_prefs(fixture, token), do: call(:get, @path, fixture, token, nil)
   defp put_prefs(fixture, token, body), do: call(:put, @path, fixture, token, body)
   defp json(conn), do: Jason.decode!(conn.resp_body)
+  defp prefs_json(conn), do: conn |> json() |> Map.take(["preferences"])
   defp layout(layout), do: %{"preferences" => %{@key => layout}}
 
   defp raw_rows(fixture) do
@@ -53,16 +54,16 @@ defmodule Letflow.Routers.MePreferencesTest do
     token = Fixture.mint_token!(a, ["TASK_WORKER"])
 
     assert get_prefs(a, token).status == 200
-    assert json(get_prefs(a, token)) == %{"preferences" => %{}}
+    assert prefs_json(get_prefs(a, token)) == %{"preferences" => %{}}
 
     put = put_prefs(a, token, layout("tabs"))
     assert put.status == 200, put.resp_body
     assert json(put) == %{"preferences" => %{@key => "tabs"}}
-    assert json(get_prefs(a, token)) == %{"preferences" => %{@key => "tabs"}}
+    assert prefs_json(get_prefs(a, token)) == %{"preferences" => %{@key => "tabs"}}
     assert [[_uid, @key, %{"v" => "tabs"}]] = raw_rows(a)
 
     assert put_prefs(a, token, layout("row")).status == 200
-    assert json(get_prefs(a, token)) == %{"preferences" => %{@key => "row"}}
+    assert prefs_json(get_prefs(a, token)) == %{"preferences" => %{@key => "row"}}
     assert [[_uid, @key, %{"v" => "row"}]] = raw_rows(a)
   end
 
@@ -71,11 +72,11 @@ defmodule Letflow.Routers.MePreferencesTest do
     bob = Fixture.mint_token!(a, ["TASK_WORKER"])
 
     assert put_prefs(a, alice, layout("tabs")).status == 200
-    assert json(get_prefs(a, bob)) == %{"preferences" => %{}}
+    assert prefs_json(get_prefs(a, bob)) == %{"preferences" => %{}}
 
     assert put_prefs(a, bob, layout("row")).status == 200
-    assert json(get_prefs(a, alice)) == %{"preferences" => %{@key => "tabs"}}
-    assert json(get_prefs(a, bob)) == %{"preferences" => %{@key => "row"}}
+    assert prefs_json(get_prefs(a, alice)) == %{"preferences" => %{@key => "tabs"}}
+    assert prefs_json(get_prefs(a, bob)) == %{"preferences" => %{@key => "row"}}
     assert length(raw_rows(a)) == 2
   end
 
@@ -84,7 +85,7 @@ defmodule Letflow.Routers.MePreferencesTest do
     admin = Fixture.mint_token!(a, ["TENANT_ADMIN"])
     assert put_prefs(a, worker, layout("tabs")).status == 200
 
-    assert json(get_prefs(a, admin)) == %{"preferences" => %{}}
+    assert prefs_json(get_prefs(a, admin)) == %{"preferences" => %{}}
 
     [[uid | _]] = raw_rows(a)
     # unmatched `/me/*` paths answer with the router's fixed refusal, never data
@@ -92,11 +93,11 @@ defmodule Letflow.Routers.MePreferencesTest do
     assert call(:put, @path <> "/" <> uid, a, admin, layout("row")).status in [403, 404]
     # a user id in the query or body is never read
     spoof = call(:get, @path <> "?user_id=" <> uid, a, admin, nil)
-    assert json(spoof) == %{"preferences" => %{}}
+    assert prefs_json(spoof) == %{"preferences" => %{}}
 
     body = %{"user_id" => uid, "preferences" => %{@key => "row"}}
     assert put_prefs(a, admin, body).status == 200
-    assert json(get_prefs(a, worker)) == %{"preferences" => %{@key => "tabs"}}
+    assert prefs_json(get_prefs(a, worker)) == %{"preferences" => %{@key => "tabs"}}
   end
 
   test "P4 tenant isolation: rows live in the caller's schema only", %{a: a, b: b} do
@@ -104,7 +105,7 @@ defmodule Letflow.Routers.MePreferencesTest do
     tb = Fixture.mint_token!(b, ["TASK_WORKER"])
 
     assert put_prefs(a, ta, layout("tabs")).status == 200
-    assert json(get_prefs(b, tb)) == %{"preferences" => %{}}
+    assert prefs_json(get_prefs(b, tb)) == %{"preferences" => %{}}
     assert raw_rows(b) == []
     assert length(raw_rows(a)) == 1
 
@@ -137,7 +138,7 @@ defmodule Letflow.Routers.MePreferencesTest do
       assert conn.resp_body =~ @key
     end
 
-    assert json(get_prefs(a, token)) == %{"preferences" => %{@key => "tabs"}}
+    assert prefs_json(get_prefs(a, token)) == %{"preferences" => %{@key => "tabs"}}
   end
 
   test "P7 size limits: nine keys, a long value, hostile key bytes", %{a: a} do
@@ -167,7 +168,7 @@ defmodule Letflow.Routers.MePreferencesTest do
     conn = put_prefs(a, token, layout(nil))
     assert conn.status == 200
     assert json(conn) == %{"preferences" => %{}}
-    assert json(get_prefs(a, token)) == %{"preferences" => %{}}
+    assert prefs_json(get_prefs(a, token)) == %{"preferences" => %{}}
     assert raw_rows(a) == []
 
     assert Enum.map(audit_actions(a), & &1.action) == [
@@ -229,7 +230,7 @@ defmodule Letflow.Routers.MePreferencesTest do
       assert get_prefs(a, token).status == 200, role
       put = put_prefs(a, token, layout("tabs"))
       assert put.status == 200, "#{role}: #{put.resp_body}"
-      assert json(get_prefs(a, token)) == %{"preferences" => %{@key => "tabs"}}
+      assert prefs_json(get_prefs(a, token)) == %{"preferences" => %{@key => "tabs"}}
     end
   end
 end

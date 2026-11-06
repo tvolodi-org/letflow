@@ -620,6 +620,9 @@ the code that holds it; paths are cited without line numbers.
 3. **Scoped posting is not built.** A scoped principal cannot post (decision 0073 OQ-21, slice L6); a scoped
    reader reads the balances and movements of its own org units, a leg in a hidden unit is masked, and `reconcile`
    answers a scoped reader 404 (GH #3893, `lib/letflow/modules/assets/router.ex`).
-4. **The module is installed on no tenant.** No seed, pack or QA fixture installs `assets`; the role grants of the
+4. **No role grants, no storage on earlier installs.** No seed, pack or QA fixture installs `assets`. A tenant that
+   installed version 0.3.0 or 0.4.0 (auto-CD deploys main to QA) has no `assets` ledger partitions: the read routes
+   answer empty lists, a posting would be refused `ledger_storage_missing`, and the upgrade plan lists the ledger under
+   `missing_ledger_storage` (`lib/letflow/modules/upgrade_plan.ex`). The role grants of the
    four atoms (`AssetsPost`, `AssetsReverse`, `AssetsRead`, `AssetsReconcile`) are item C19, so only TENANT_ADMIN and
    PLATFORM_ADMIN hold them (`docs/roles.md`, GH #3893).
