@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
-import { DOCS, LIST, MASTERS, fakeDocument, fakeMasters, queryBodies, refusal, renderStock, stockDoc, withAtom, withPost } from './stockTestKit'
+import { DOCS, LIST, MASTERS, addFirstLine, fakeDocument, pickItem, fakeMasters, queryBodies, refusal, renderStock, stockDoc, withAtom, withPost } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -40,10 +40,10 @@ async function fillHeader() {
   pick('Location', 'l1')
   pick('Responsible', 'e1')
 }
-async function fillLine(row: HTMLElement, item: string, qty: string) {
-  await within(row).findByRole('option', { name: item === 'i1' ? 'Bolt M8' : 'Nut M8' })
-  pick('Item', item, row)
-  pick('Quantity', qty, row)
+async function fillLine(item: string, qty: string, row?: HTMLElement) {
+  const r = row ?? (await addFirstLine())
+  await pickItem(r, item)
+  pick('Quantity', qty, r)
 }
 const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
 const firstRow = () => screen.getAllByTestId('line-editor-row')[0]
@@ -61,9 +61,8 @@ describe('C3-a/b/c create per kind', () => {
     pick(/^Supplier document reference/, 'INV-7')
     pick(/^Received on/, '2026-11-03')
     pick(/^Note/, 'first batch')
+    await fillLine('i1', '3.5')
     const row = firstRow()
-    await fillLine(row, 'i1', '3.5')
-    await within(row).findByText('pcs')
     await within(row).findByRole('option', { name: 'LOT-7' })
     pick(/^Lot/, 't1', row)
     pick(/^Unit price/, '2.5', row)
@@ -81,8 +80,8 @@ describe('C3-a/b/c create per kind', () => {
     renderStock(`${NEW}?kind=issue`, withPost)
     await fillHeader()
     for (const l of [/^Counterparty/, /^Supplier document/, /^Received on/, /^Reason$/]) expect(form().queryByLabelText(l)).not.toBeInTheDocument()
+    await fillLine('i2', '1')
     expect(within(firstRow()).queryByLabelText(/^Unit price/)).not.toBeInTheDocument()
-    await fillLine(firstRow(), 'i2', '1')
     save()
     await waitFor(() => expect(created()).toHaveLength(1))
     expect(created()[0][1]).toEqual({
@@ -94,7 +93,7 @@ describe('C3-a/b/c create per kind', () => {
   it('write off: reason code, text required for other, exact body', async () => {
     renderStock(`${NEW}?kind=write_off`, withPost)
     await fillHeader()
-    await fillLine(firstRow(), 'i1', '2')
+    await fillLine('i1', '2')
     save()
     expect(created()).toHaveLength(0)
     pick(/^Reason$/, 'other')
@@ -125,7 +124,7 @@ describe('C3-d edit', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     await screen.findByTestId('document-form')
     expect(form().getByLabelText('Org unit')).toBeDisabled()
-    fireEvent.click(within(screen.getAllByTestId('line-editor-row')[1]).getByRole('button', { name: /^Remove line/ }))
+    fireEvent.click(within(screen.getAllByTestId('line-editor-row')[1]).getByRole('button', { name: /^Delete line/ }))
     save()
     await waitFor(() => expect(clientMock.put).toHaveBeenCalledTimes(1))
     const [path, body] = clientMock.put.mock.calls[0]
@@ -145,20 +144,21 @@ describe('C3-e checks before sending', () => {
   it.each(['0', '-1', '1.0000000001', 'abc'])('quantity %s is not sent and marks the field', async (q) => {
     renderStock(`${NEW}?kind=issue`, withPost)
     await fillHeader()
-    await fillLine(firstRow(), 'i1', q)
+    await fillLine('i1', q)
     save()
-    expect(await within(firstRow()).findByText('The quantity must be a decimal number above zero.')).toBeInTheDocument()
+    // The messages of the focused row show in the status line under the grid (fixed row height, T-1448).
+    fireEvent.focusIn(within(firstRow()).getByLabelText('Quantity'))
+    expect(await screen.findByText(/The quantity must be a decimal number above zero\./)).toBeInTheDocument()
     expect(created()).toHaveLength(0)
   })
 
   it('changing the item sets its base unit and clears the lot', async () => {
     renderStock(NEW, withPost)
-    const row = firstRow()
-    await within(row).findByRole('option', { name: 'Bolt M8' })
-    pick('Item', 'i1', row)
+    const row = await addFirstLine()
+    await pickItem(row, 'i1')
     await within(row).findByRole('option', { name: 'LOT-7' })
     pick(/^Lot/, 't1', row)
-    pick('Item', 'i2', row)
+    await pickItem(row, 'i2')
     expect(within(row).getByLabelText(/^Lot/)).toHaveValue('')
     await within(row).findByText('pcs')
   })
@@ -170,9 +170,10 @@ describe('C3-e checks before sending', () => {
     })
     renderStock(`${NEW}?kind=issue`, withPost)
     await fillHeader()
-    await fillLine(firstRow(), 'i1', '1')
+    await fillLine('i1', '1')
     save()
-    expect(await within(firstRow()).findByText('This item needs a lot.')).toBeInTheDocument()
+    fireEvent.focusIn(within(firstRow()).getByLabelText('Quantity'))
+    expect(await screen.findByText(/This item needs a lot\./)).toBeInTheDocument()
   })
 })
 
@@ -186,7 +187,7 @@ describe('C3-f pickers', () => {
       )
     }
     expect(queryBodies(clientMock, 'catalog_lot')).toHaveLength(0)
-    pick('Item', 'i1', firstRow())
+    await pickItem(await addFirstLine(), 'i1')
     await waitFor(() => expect(queryBodies(clientMock, 'catalog_lot')).toHaveLength(1))
     expect(queryBodies(clientMock, 'catalog_lot')[0]['filters']).toEqual(expect.arrayContaining([{ field: 'item_id', op: 'eq', value: 'i1' }]))
     cleanup()

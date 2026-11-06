@@ -146,6 +146,8 @@
   --control-h-s: 32px;
   --row-h: 44px;
   --row-h-compact: 36px;
+  --lines-row-h: 40px;
+  --lines-row-h-compact: 36px;
   --tree-row-h: 34px;
   --tree-indent: 20px;
   --field-w-s: 160px;

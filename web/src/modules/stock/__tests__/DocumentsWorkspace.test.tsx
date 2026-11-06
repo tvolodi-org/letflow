@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { DOCS, LIST, MASTERS, fakeMasters, renderStock, stockDoc, withPost } from './stockTestKit'
+import { DOCS, LIST, MASTERS, addFirstLine, fakeMasters, renderStock, stockDoc, withPost } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -81,19 +81,22 @@ describe('A2 header card', () => {
 describe('A3/A4/A5 lines table in edit mode', () => {
   const firstRows = () => screen.getAllByTestId('line-editor-row')
 
-  it('a single line keeps its remove cell so every cell sits under its header (GATE B R2)', async () => {
+  it('a single line keeps its action cell so every cell sits under its header (GATE B R2)', async () => {
     renderStock(`${LIST}/new?kind=receipt`, withPost)
-    const table = (await screen.findByTestId('lines-editor')).querySelector('table.lf-lines') as HTMLElement
+    await screen.findByTestId('lines-editor')
+    await addFirstLine()
+    const table = screen.getByTestId('lines-editor').querySelector('table.lf-le__table') as HTMLElement
     const heads = within(table).getAllByRole('columnheader').length
     expect(firstRows()).toHaveLength(1)
-    expect(firstRows()[0].querySelectorAll('tr.lf-lines__row > td')).toHaveLength(heads)
+    expect(firstRows()[0].querySelectorAll('td')).toHaveLength(heads)
   })
 
-  it('is a table with one row per line, add and remove, and Enter moves down then adds a row', async () => {
+  it('is a grid with one row per line, add and delete, and Enter moves down then adds a row', async () => {
     renderStock(`${LIST}/new?kind=issue`, withPost)
-    const table = (await screen.findByTestId('lines-editor')).querySelector('table.lf-lines')!
-    expect(table).not.toBeNull()
-    expect(within(table as HTMLElement).getAllByRole('columnheader').length).toBeGreaterThanOrEqual(5)
+    const table = (await screen.findByTestId('lines-editor')).querySelector('table.lf-le__table')
+    expect(table).toBeNull() // a new draft starts with the empty state
+    await addFirstLine()
+    expect(within(screen.getByTestId('lines-editor').querySelector('table.lf-le__table') as HTMLElement).getAllByRole('columnheader').length).toBeGreaterThanOrEqual(5)
     fireEvent.click(screen.getByRole('button', { name: 'Add line' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add line' }))
     expect(firstRows()).toHaveLength(3)
@@ -103,40 +106,41 @@ describe('A3/A4/A5 lines table in edit mode', () => {
     fireEvent.change(q(2), { target: { value: '3' } })
     q(0).focus()
     fireEvent.keyDown(q(0), { key: 'Enter' })
-    await waitFor(() => expect(q(1)).toHaveFocus())
+    // Enter is the next cell in reading order: from the last cell of line 1 to the item cell of line 2.
+    await waitFor(() => expect(within(firstRows()[1]).getByLabelText('Item')).toHaveFocus())
     fireEvent.keyDown(q(2), { key: 'Enter' })
     await waitFor(() => expect(firstRows()).toHaveLength(4))
-    // remove line 2: lines 1, 3 and the new one stay, in order
-    fireEvent.click(within(firstRows()[1]).getByRole('button', { name: /^Remove line/ }))
+    // delete line 2: lines 1, 3 and the new one stay, in order
+    fireEvent.click(within(firstRows()[1]).getByRole('button', { name: /^Delete line/ }))
     expect(firstRows()).toHaveLength(3)
     expect(q(0)).toHaveValue('1')
     expect(q(1)).toHaveValue('3')
   })
 
-  it('a line error is listed under its own line and names the field', async () => {
+  it('a line error marks its own row and names the field in the status line', async () => {
     clientMock.post.mockImplementation(async (p: string, b: Record<string, unknown>) => {
       void p
       return { items: MASTERS[(b as { entity_type: string }).entity_type] ?? [], next_cursor: null }
     })
     renderStock(`${LIST}/new?kind=issue`, withPost)
-    await screen.findByTestId('lines-editor')
-    fireEvent.click(screen.getByRole('button', { name: 'Add line' }))
+    const row = await addFirstLine()
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-    const rows = firstRows()
-    const msg = await within(rows[1]).findAllByRole('alert')
-    expect(msg.length).toBeGreaterThan(0)
-    expect(within(rows[1]).getAllByText('Quantity').length).toBeGreaterThan(0)
-    expect(rows[1].querySelector('.lf-lines__row.is-error')).not.toBeNull()
+    await waitFor(() => expect(firstRows()[0]).toHaveClass('is-error'))
+    expect(within(row).getByLabelText('Quantity')).toHaveAttribute('aria-invalid', 'true')
+    fireEvent.focusIn(within(row).getByLabelText('Quantity'))
+    expect(await screen.findByText(/The quantity must be a decimal number above zero/)).toBeInTheDocument()
+    expect(screen.getByText('1 line has errors', { exact: false })).toBeInTheDocument()
   })
 
   it('totals: a receipt shows the count and the sum of the line values', async () => {
     renderStock(`${LIST}/new?kind=receipt`, withPost)
     await screen.findByTestId('lines-editor')
-    fireEvent.change(within(firstRows()[0]).getByLabelText('Line value'), { target: { value: '1.5' } })
+    const first = await addFirstLine()
+    fireEvent.change(within(first).getByLabelText('Line value'), { target: { value: '1.5' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add line' }))
     fireEvent.change(within(firstRows()[1]).getByLabelText('Line value'), { target: { value: '2.25' } })
     const foot = screen.getByTestId('lines-editor').querySelector('tfoot')!
-    expect(foot).toHaveTextContent('Total: 2')
+    expect(foot).toHaveTextContent('Lines 2')
     expect(foot).toHaveTextContent('3.75')
   })
 })
@@ -172,7 +176,7 @@ describe('D1 T-1433 view numbers', () => {
       ],
     }))
     renderStock(`${LIST}/${id}`, withPost)
-    const lines = await screen.findByTestId('document-lines')
+    const lines = await screen.findByTestId('lines-editor')
     await waitFor(() => expect(lines).toHaveTextContent('450,000'))
     expect(lines).toHaveTextContent('9,000,000')
     expect(lines.textContent).not.toMatch(/\.0{3,}/)
@@ -190,9 +194,9 @@ describe('U2/U3 T-1438 draft edit is a table with trimmed decimals', () => {
     renderStock(`${LIST}/d1`, withPost)
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     const editor = await screen.findByTestId('lines-editor')
-    const table = editor.querySelector('table.lf-lines.lf-lines--edit')
+    const table = editor.querySelector('table.lf-le__table')
     expect(table).not.toBeNull()
-    const rows = table!.querySelectorAll('tbody[data-testid="line-editor-row"]')
+    const rows = table!.querySelectorAll('tr[data-testid="line-editor-row"]')
     expect(rows).toHaveLength(1)
     const row = within(rows[0] as HTMLElement)
     expect(row.getByLabelText('Quantity')).toHaveValue('1')

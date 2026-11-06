@@ -1,137 +1,68 @@
-/** LinesEditor — GH 3769 / REQ-722, redesigned in T-1379 (GATE B rework R2). The lines of a draft as a compact editable
- *  table (one row per line): item, unit (the item's base unit, shown, not editable), lot (of the line's item), quantity
- *  as a decimal string, and for a receipt unit price and line value; an opening balance adds location, responsible and
- *  the real receipt date. Add and remove rows; at most MAX_LINES. Enter in a number cell moves to the same cell of the
- *  next row; Enter in the last cell of the last row adds a row. Errors of a line are listed under it, each naming its
- *  field. One LineRow per line so the lot picker hook runs per row. */
-import { useEffect, useState, type ReactNode } from 'react'
+/** LinesEditor — the stock document's adapter of LFLinesEditor (T-1448, was GH 3769 / REQ-722, T-1379). It describes the lines of the
+ *  seven document kinds as columns (item, lot, quantity with the item's unit, unit price and line value for a receipt and an
+ *  opening balance, plus location, responsible and the real receipt date for an opening balance) and hands the editor its
+ *  catalog, validation, scan, totals and the remembered mode. The editor owns grid, line by line, keyboard, paste, search.
+ *  The form state keeps >= 1 line (a PUT replaces the whole list); a sole empty line is shown as the empty state. */
+import { useMemo, type ReactNode } from 'react'
 import { useIntl } from 'react-intl'
 import { formatMoney } from '@/lib/formatDecimal'
+import { formatQuantity } from '@/lib/formatQuantity'
 import { DocCard } from '@/components/ui/doc/DocLayout'
-import { DocLineItem, DocLinesAdd, DocLinesTable, DocLinesTotal, type DocColumn } from '@/components/ui/doc/DocLines'
+import { LFLinesEditor } from '@/components/ui/lines/LFLinesEditor'
+import { ItemPicker } from '@/components/ui/lines/ItemPicker'
+import { normalizeDecimal } from '@/components/ui/lines/pasteRows'
+import { formatLines } from '@/components/ui/lines/linesMessages'
+import type { LeCellCtx, LeColumn, LeError, LeScanResult } from '@/components/ui/lines/types'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { useLinesMode } from '@/hooks/useLinesMode'
 import { Select } from '@/components/ui/Select'
 import { DateCell } from '@/components/ui/DateField'
 import { useNames } from '../register/stockNames'
 import { usePickerOptions, type PickerOption } from '../register/stockPickers'
-import { MAX_LINES, emptyLine, sumDecimals, type DocKind, type LineForm } from './documentsModel'
+import { MAX_LINES, emptyLine, sumDecimals, validateLine, type DocKind, type LineForm } from './documentsModel'
 import { lineColumns } from './lineColumns'
+import { buildCatalog, itemLabel } from './linesCatalog'
 
-/** Field key of a line error -> the message id of its column label. */
-const FIELD_LABEL: Record<string, string> = {
-  itemId: 'stock.col.item',
-  lotId: 'stock.col.lot',
-  quantity: 'stock.col.quantity',
-  unitPrice: 'stock.doc.field.unitPrice',
-  lineValue: 'stock.doc.field.lineValue',
-  locationId: 'stock.col.location',
-  responsibleId: 'stock.col.responsible',
-  receivedOn: 'stock.doc.field.receivedOnReal',
+export const LINES_SCREEN_ID = 'stock-documents.lines'
+
+/** Field key of a line error -> the key of its column. */
+const FIELD_COL: Record<string, string> = { itemId: 'item', lotId: 'lot', quantity: 'quantity', unitPrice: 'unitPrice', lineValue: 'lineValue', locationId: 'location', responsibleId: 'responsible', receivedOn: 'receivedOn' }
+
+/** Lots of one item (only mounted rows ask; a row with no item asks nothing). */
+function LotSelect({ ctx, label, pick }: { ctx: LeCellCtx<LineForm>; label: string; pick: string }) {
+  const lots = usePickerOptions('catalog_lot', [{ field: 'item_id', op: 'eq', value: ctx.line.itemId }], ctx.line.itemId !== '')
+  return <Select label={label} hideLabel value={ctx.line.lotId} onChange={(lotId) => ctx.patch({ lotId })} options={lots} placeholder={pick} />
 }
 
-interface RowProps {
-  index: number
-  line: LineForm
-  items: PickerOption[]
-  locations: PickerOption[]
-  employees: PickerOption[]
-  errors: Record<string, string>
-  onChange: (next: LineForm) => void
-  onRemove: () => void
-  canRemove: boolean
-  columns: DocColumn[]
-  /** Enter pressed in the number cell `col` of this row. */
-  onEnter: (col: string) => void
+/** The shared reference label ("code - title") of a record, never its id (the view of a posted document, T-1378). */
+function RefName({ type, id }: { type: 'catalog_item' | 'catalog_lot' | 'catalog_uom'; id: string }) {
+  const name = useNames([{ [type]: [id] }])
+  return <>{name(type, id)}</>
 }
 
-function LineRow({ index, line, items, locations, employees, errors, onChange, onRemove, canRemove, columns, onEnter }: RowProps) {
+function QuantityView({ line }: { line: LineForm }) {
   const intl = useIntl()
-  const t = (id: string) => intl.formatMessage({ id })
-  const lots = usePickerOptions('catalog_lot', [{ field: 'item_id', op: 'eq', value: line.itemId }], line.itemId !== '')
-  const name = useNames(line.uomId ? [{ catalog_uom: [line.uomId] }] : [])
-  const k = `lines.${index}`
-  const patch = (p: Partial<LineForm>) => onChange({ ...line, ...p })
-  const chooseItem = (itemId: string) => {
-    const base = items.find((o) => o.value === itemId)?.fields?.['base_uom_id']
-    patch({ itemId, uomId: typeof base === 'string' ? base : '', lotId: '' })
-  }
-
-  const messages: { field?: string; text: string }[] = []
-  if (errors[k]) messages.push({ text: t(errors[k]) })
-  for (const [key, id] of Object.entries(errors)) {
-    if (!key.startsWith(`${k}.`)) continue
-    const f = key.slice(k.length + 1)
-    messages.push({ field: FIELD_LABEL[f] ? t(FIELD_LABEL[f]) : undefined, text: t(id) })
-  }
-  const bad = (f: string) => errors[`${k}.${f}`] !== undefined
-  const msgId = `ln-${index}-err`
-  const lineWord = t('stock.doc.col.lineNo')
-  const unitName = line.uomId ? name('catalog_uom', line.uomId) : ''
-  const num = (col: string, field: 'quantity' | 'unitPrice' | 'lineValue', label: string) => (
-    <div className="lf-control lf-control--num">
-      <input
-        id={`ln-${index}-${col}`}
-        type="text"
-        inputMode="decimal"
-        autoComplete="off"
-        aria-label={label}
-        aria-invalid={bad(field) || undefined}
-        aria-describedby={bad(field) ? msgId : undefined}
-        value={line[field]}
-        onChange={(e) => patch({ [field]: e.target.value })}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            onEnter(col)
-          }
-        }}
-      />
-      {field === 'quantity' && (
-        <span className="lf-affix">
-          <span className="sr-only">{t('stock.col.unit')} </span>
-          {unitName || t('stock.common.dash')}
-        </span>
-      )}
-    </div>
-  )
-
-  const cells: Record<string, ReactNode> = {
-    item: <Select label={t('stock.col.item')} hideLabel value={line.itemId} onChange={chooseItem} options={items} placeholder={t('stock.doc.pick')} />,
-    lot: <Select label={t('stock.col.lot')} hideLabel value={line.lotId} onChange={(lotId) => patch({ lotId })} options={lots} placeholder={t('stock.doc.pickNone')} />,
-    quantity: num('quantity', 'quantity', t('stock.col.quantity')),
-    location: <Select label={t('stock.col.location')} hideLabel value={line.locationId} onChange={(locationId) => patch({ locationId })} options={locations} placeholder={t('stock.doc.pick')} />,
-    responsible: <Select label={t('stock.col.responsible')} hideLabel value={line.responsibleId} onChange={(responsibleId) => patch({ responsibleId })} options={employees} placeholder={t('stock.doc.pick')} />,
-    receivedOn: (
-      <DateCell
-        label={t('stock.doc.field.receivedOnReal')}
-        value={line.receivedOn}
-        onChange={(receivedOn) => patch({ receivedOn })}
-        invalid={bad('receivedOn')}
-        describedBy={bad('receivedOn') ? msgId : undefined}
-      />
-    ),
-    unitPrice: num('unitPrice', 'unitPrice', t('stock.doc.field.unitPrice')),
-    lineValue: num('lineValue', 'lineValue', t('stock.doc.field.lineValue')),
-  }
-
   return (
-    <DocLineItem
-      index={index}
-      lineLabel={lineWord}
-      messages={messages}
-      messageId={msgId}
-      colSpan={columns.length + 2}
-      testId="line-editor-row"
-      editing
-      onRemove={canRemove ? onRemove : undefined}
-      removeLabel={`${t('stock.doc.line.removeNamed')} ${index + 1}`}
-    >
-      {columns.map((c) => (
-        <td key={c.key} className={c.num ? 'is-num' : undefined} data-label={c.label}>
-          {cells[c.key]}
-        </td>
-      ))}
-    </DocLineItem>
+    <span className="lf-lines__qty">
+      <span>{formatQuantity(line.quantity, intl.locale)}</span> {line.uomId ? <RefName type="catalog_uom" id={line.uomId} /> : null}
+    </span>
   )
+}
+
+export function incrementQuantity(q: string): string {
+  return q.trim() === '' ? '1' : (sumDecimals([q.trim(), '1']) ?? '1')
+}
+
+/** Scan: the first line of the same item gets +1, else a new line with quantity 1 (pure; the editor checks the maximum). */
+export function scanLines(code: string, lines: LineForm[], resolve: (c: string) => { id: string; unitId?: string } | null): LeScanResult<LineForm> {
+  const item = resolve(code)
+  if (!item) return { status: 'unknown', lines }
+  const at = lines.findIndex((l) => l.itemId === item.id)
+  if (at >= 0) {
+    const qty = incrementQuantity(lines[at]!.quantity)
+    return { status: 'inc', lines: lines.map((l, i) => (i === at ? { ...l, quantity: qty } : l)), index: at, qty }
+  }
+  return { status: 'new', lines: [...lines, { ...emptyLine(), itemId: item.id, uomId: item.unitId ?? '', quantity: '1' }], index: lines.length, qty: '1' }
 }
 
 export function LinesEditor(props: {
@@ -139,73 +70,148 @@ export function LinesEditor(props: {
   lines: LineForm[]
   errors: Record<string, string>
   onChange: (lines: LineForm[]) => void
+  /** A save was attempted: show the errors of every line. */
+  showErrors?: boolean
+  readOnly?: boolean
+  noPermission?: boolean
+  /** Rendered inside the card, under the editor. */
+  footer?: ReactNode
 }) {
   const intl = useIntl()
-  const t = (id: string) => intl.formatMessage({ id })
-  const items = usePickerOptions('catalog_item')
-  const locations = usePickerOptions('location_node', [], props.kind === 'opening')
-  const employees = usePickerOptions('org_employee', [], props.kind === 'opening')
-  const { lines, onChange } = props
-  const columns = lineColumns(props.kind, t)
-  const editable = columns.filter((c) => c.key === 'quantity' || c.key === 'unitPrice' || c.key === 'lineValue')
-  const lastCol = editable[editable.length - 1]?.key ?? 'quantity'
-  const [focusId, setFocusId] = useState<string | null>(null)
-  useEffect(() => {
-    if (focusId) {
-      document.getElementById(focusId)?.focus()
-      setFocusId(null)
-    }
-  }, [focusId, lines.length])
+  const locale = useUiLocale()
+  const t = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
+  const [mode, setMode] = useLinesMode(LINES_SCREEN_ID)
+  const { kind, lines } = props
+  const opening = kind === 'opening'
+  const itemOpts = usePickerOptions('catalog_item')
+  const uoms = usePickerOptions('catalog_uom')
+  const locations = usePickerOptions('location_node', [], opening)
+  const employees = usePickerOptions('org_employee', [], opening)
+  const catalog = useMemo(() => buildCatalog(itemOpts), [itemOpts])
+  const unitName = (id: string) => uoms.find((o) => o.value === id)?.label ?? ''
+  const nameOf = (opts: readonly PickerOption[], id: string) => opts.find((o) => o.value === id)?.label ?? ''
+  const dash = t('stock.common.dash')
+  const withValue = kind === 'receipt' || opening
 
-  const enter = (i: number, col: string) => {
-    if (i + 1 < lines.length) setFocusId(`ln-${i + 1}-${col}`)
-    else if (col === lastCol && lines.length < MAX_LINES) {
-      onChange([...lines, emptyLine()])
-      setFocusId(`ln-${i + 1}-${columns[0]?.key ?? 'item'}`)
+  const columns = useMemo<LeColumn<LineForm>[]>(() => {
+    const base = lineColumns(kind, (id) => intl.formatMessage({ id }))
+    const num = (field: 'quantity' | 'unitPrice' | 'lineValue', label: string) => (ctx: LeCellCtx<LineForm>): ReactNode => (
+      <div className="lf-control lf-control--num">
+        <input
+          id={ctx.id}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          aria-label={label}
+          aria-invalid={ctx.invalid || undefined}
+          aria-describedby={ctx.describedBy}
+          value={ctx.line[field]}
+          onChange={(e) => ctx.patch({ [field]: e.target.value })}
+          onBlur={ctx.onBlur}
+        />
+        {field === 'quantity' && (
+          <span className="lf-affix">
+            <span className="sr-only">{intl.formatMessage({ id: 'stock.col.unit' })} </span>
+            {unitName(ctx.line.uomId) || dash}
+          </span>
+        )}
+      </div>
+    )
+    const numPaste = (field: 'quantity' | 'unitPrice' | 'lineValue') => (line: LineForm, text: string) => ({ line: { ...line, [field]: normalizeDecimal(text) } })
+    const byKey: Record<string, Partial<LeColumn<LineForm>>> = {
+      item: {
+        grow: true,
+        cell: (ctx) => (
+          <ItemPicker
+            id={ctx.id}
+            value={ctx.line.itemId}
+            catalog={catalog}
+            label={intl.formatMessage({ id: 'stock.col.item' })}
+            invalid={ctx.invalid}
+            describedBy={ctx.describedBy}
+            onBlur={ctx.onBlur}
+            onPick={(it) => ctx.patch({ itemId: it?.id ?? '', uomId: it?.unitId ?? '', lotId: '' })}
+          />
+        ),
+        view: (l) => (l.itemId ? <RefName type="catalog_item" id={l.itemId} /> : dash),
+        paste: (line, text) => {
+          if (text.trim() === '') return { line }
+          const it = catalog.resolve(text)
+          return it
+            ? { line: { ...line, itemId: it.id, uomId: it.unitId ?? '', lotId: '' } }
+            : { line, reason: formatLines(locale, 'r.unknown', { x: text }) }
+        },
+      },
+      lot: {
+        cell: (ctx) => <LotSelect ctx={ctx} label={intl.formatMessage({ id: 'stock.col.lot' })} pick={intl.formatMessage({ id: 'stock.doc.pickNone' })} />,
+        view: (l) => (l.lotId ? <RefName type="catalog_lot" id={l.lotId} /> : dash),
+        skip: (l) => l.itemId !== '' && catalog.byId(l.itemId)?.lotTracked === false,
+        paste: (line, text) => ({ line, reason: text.trim() === '' ? undefined : formatLines(locale, 'r.lotPaste', { x: text }) }),
+      },
+      quantity: { cell: num('quantity', intl.formatMessage({ id: 'stock.col.quantity' })), view: (l) => (l.quantity === '' ? dash : <QuantityView line={l} />), paste: numPaste('quantity') },
+      unitPrice: { savedHidden: true, cell: num('unitPrice', intl.formatMessage({ id: 'stock.doc.field.unitPrice' })), view: (l) => formatMoney(l.unitPrice, intl.locale) || dash, paste: numPaste('unitPrice') },
+      lineValue: { savedHidden: true, cell: num('lineValue', intl.formatMessage({ id: 'stock.doc.field.lineValue' })), view: (l) => formatMoney(l.lineValue, intl.locale) || dash },
+      location: {
+        cell: (ctx) => <Select label={intl.formatMessage({ id: 'stock.col.location' })} hideLabel value={ctx.line.locationId} onChange={(locationId) => ctx.patch({ locationId })} options={locations} placeholder={intl.formatMessage({ id: 'stock.doc.pick' })} />,
+        view: (l) => nameOf(locations, l.locationId) || dash,
+        savedHidden: true,
+      },
+      responsible: {
+        cell: (ctx) => <Select label={intl.formatMessage({ id: 'stock.col.responsible' })} hideLabel value={ctx.line.responsibleId} onChange={(responsibleId) => ctx.patch({ responsibleId })} options={employees} placeholder={intl.formatMessage({ id: 'stock.doc.pick' })} />,
+        view: (l) => nameOf(employees, l.responsibleId) || dash,
+        savedHidden: true,
+      },
+      receivedOn: {
+        cell: (ctx) => <DateCell label={intl.formatMessage({ id: 'stock.doc.field.receivedOnReal' })} value={ctx.line.receivedOn} onChange={(receivedOn) => ctx.patch({ receivedOn })} invalid={ctx.invalid} describedBy={ctx.describedBy} id={ctx.id} />,
+        view: (l) => l.receivedOn || dash,
+        savedHidden: true,
+      },
     }
-  }
-  const withValue = props.kind === 'receipt' || props.kind === 'opening'
+    return base.map((c) => ({ key: c.key, label: c.label, num: c.num, view: () => dash, ...byKey[c.key] }) as LeColumn<LineForm>)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, catalog, uoms, locations, employees, locale, intl])
+
+  const errors = useMemo(() => {
+    const out: Record<number, LeError[]> = {}
+    for (const [key, id] of Object.entries(props.errors)) {
+      const m = /^lines\.(\d+)(?:\.(\w+))?$/.exec(key)
+      if (!m) continue
+      const i = Number(m[1])
+      ;(out[i] ??= []).push({ col: m[2] ? FIELD_COL[m[2]] : undefined, message: t(id) })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.errors, locale])
+
+  const live = (l: LineForm): LeError[] =>
+    Object.entries(validateLine(kind, l)).map(([field, id]) => ({ col: FIELD_COL[field], message: t(id) }))
+
   const total = withValue ? sumDecimals(lines.map((l) => l.lineValue)) : null
-  const colSpan = columns.length + 2
+
   return (
-    <DocCard area="lines" title={t('stock.doc.lines')} count={lines.length} data-testid="lines-editor">
-      {props.errors['lines'] && <p role="alert" className="lf-error">{t(props.errors['lines'])}</p>}
-      <DocLinesTable
-        wide={props.kind === 'opening'}
+    <DocCard area="lines" title={t('stock.doc.lines')} count={lines.length} data-testid="lines-card">
+      <LFLinesEditor<LineForm>
+        screenId="lf-stock-lines"
+        lines={lines}
+        onChange={props.onChange}
         columns={columns}
-        lineLabel={t('stock.doc.col.lineNo')}
-        editing
-        removeLabel={t('stock.doc.line.remove')}
-        footer={
-          <DocLinesTotal
-            labelSpan={withValue ? columns.length : columns.length + 2}
-            label={`${t('stock.doc.lines.total')}: ${lines.length}`}
-            cells={withValue ? [formatMoney(total, intl.locale) || t('stock.common.dash'), ''] : []}
-          />
-        }
-      >
-        {lines.map((l, i) => (
-          <LineRow
-            // Rows are positional (no server id is ever sent), so the index is the stable key.
-            key={i}
-            index={i}
-            line={l}
-            items={items}
-            locations={locations}
-            employees={employees}
-            errors={props.errors}
-            columns={columns}
-            onEnter={(col) => enter(i, col)}
-            onChange={(next) => onChange(lines.map((x, j) => (j === i ? next : x)))}
-            onRemove={() => {
-              onChange(lines.filter((_, j) => j !== i))
-              setFocusId(`ln-${Math.max(0, i - 1)}-quantity`)
-            }}
-            canRemove={lines.length > 1}
-          />
-        ))}
-        <DocLinesAdd colSpan={colSpan} label={t('stock.doc.line.add')} disabled={lines.length >= MAX_LINES} onAdd={() => onChange([...lines, emptyLine()])} />
-      </DocLinesTable>
+        blank={emptyLine}
+        duplicate={(l) => ({ ...l, externalRefSystem: '', externalRefId: '' })}
+        isBlank={(l) => Object.values(l).every((v) => v === '')}
+        max={MAX_LINES}
+        mode={mode}
+        onModeChange={setMode}
+        readOnly={props.readOnly}
+        noPermission={props.noPermission}
+        errors={errors}
+        listError={props.errors['lines'] ? t(props.errors['lines'], { max: MAX_LINES }) : undefined}
+        validateLine={live}
+        showErrors={props.showErrors}
+        searchText={(l) => `${itemLabel(catalog.byId(l.itemId) ?? { id: '', code: '', title: '' })} ${l.quantity}`}
+        scan={(code, ls) => scanLines(code, ls, catalog.resolve)}
+        totals={withValue ? () => ({ col: 'lineValue', node: formatMoney(total, intl.locale) || dash }) : undefined}
+      />
+      {props.footer}
     </DocCard>
   )
 }

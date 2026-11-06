@@ -14,8 +14,6 @@ import { useAccess } from '@/auth/access/useAccess'
 import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
 import { actorLabel } from '@/lib/references/actorLabel'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
-import { formatQuantity } from '@/lib/formatQuantity'
-import { formatMoney } from '@/lib/formatDecimal'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -25,7 +23,7 @@ import { StatusPill } from '@/components/ui/StatusPill'
 import { DocBar, DocBlank, DocCard, DocField, DocFields, DocGroup, DocLayout } from '@/components/ui/doc/DocLayout'
 import { useDocumentLayout } from '@/hooks/useDocumentLayout'
 import { DocumentTabs } from './DocumentTabs'
-import { DocLineItem, DocLinesTable, DocLinesTotal } from '@/components/ui/doc/DocLines'
+import { LinesEditor } from './LinesEditor'
 import { RegisterError } from '../register/RegisterShell'
 import { usePdfDownload } from '../register/usePdfDownload'
 import { stockQueryKeys } from '../register/stockQueryKeys'
@@ -37,7 +35,6 @@ import { documentsApi, type StockDocument } from './documents.api'
 import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
 import { DOCUMENTS_PATH, DocumentList } from './DocumentList'
-import { lineColumns } from './lineColumns'
 import {
   DOC_KINDS,
   DOC_STATES,
@@ -47,11 +44,14 @@ import {
   isOpening,
   isTwoSide,
   printErrorMessageId,
+  lineFromDocument,
   sidesOf,
-  sumDecimals,
   type DocKind,
 } from './documentsModel'
 import { stateTone } from './stateTone'
+
+const NO_ERRORS: Record<string, string> = {}
+const noop = (): void => undefined
 
 export type WorkspaceMode = 'list' | 'view' | 'create'
 
@@ -162,27 +162,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
   const row = (label: string, value: string | null | undefined, mono = false, always = true) =>
     always || value ? <DocField label={label} value={value ? value : dash} mono={mono} empty={!value} /> : null
   const hasPosting = Boolean(doc.issued_at || doc.posted_at || doc.posted_by || doc.reversed_at || doc.reversed_by)
-  const columns = lineColumns(doc.kind as DocKind, t)
-  const withValue = isReceipt || opening
-  const total = withValue ? sumDecimals(lines.map((l) => l.line_value ?? '')) : null
-
-  const cell = (key: string, l: (typeof lines)[number]) => {
-    switch (key) {
-      case 'item': return name('catalog_item', l.catalog_item_id)
-      case 'lot': return name('catalog_lot', l.catalog_lot_id) || dash
-      case 'quantity': return (
-        <span className="lf-lines__qty">
-          <span>{formatQuantity(l.quantity, intl.locale)}</span>
-          <span className="lf-lines__unit">{name('catalog_uom', l.catalog_uom_id)}</span>
-        </span>
-      )
-      case 'location': return name('location_node', l.location_id) || dash
-      case 'responsible': return name('org_employee', l.responsible_id) || dash
-      case 'receivedOn': return <span className="mono">{l.received_on ?? dash}</span>
-      case 'unitPrice': return <span className="mono">{formatMoney(l.unit_price, intl.locale) || dash}</span>
-      default: return <span className="mono">{formatMoney(l.line_value, intl.locale) || dash}</span>
-    }
-  }
+  const viewLines = lines.map(lineFromDocument)
 
   return (
     <>
@@ -293,41 +273,18 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
           </section>
         ))}
       </DocCard>
-      <DocCard area="lines" title={t('stock.doc.lines')} count={lines.length}>
-        {lines.length === 0 ? (
-          <div className="lf-doc__empty">
-            <div className="lf-empty">
-              <p className="lf-empty__title">{t('stock.doc.lines.none')}</p>
-            </div>
+      <LinesEditor
+        kind={doc.kind as DocKind}
+        lines={viewLines}
+        errors={NO_ERRORS}
+        onChange={noop}
+        readOnly
+        footer={
+          <div className="lf-btn-row">
+            <Button variant="ghost" onClick={() => void query.refetch()}>{t('stock.doc.reload')}</Button>
           </div>
-        ) : (
-          <DocLinesTable
-            columns={columns}
-            lineLabel={t('stock.doc.col.lineNo')}
-            data-testid="document-lines"
-            footer={
-              <DocLinesTotal
-                labelSpan={withValue ? columns.length : columns.length + 1}
-                label={`${t('stock.doc.lines.total')}: ${lines.length}`}
-                cells={withValue ? [formatMoney(total, intl.locale) || dash] : []}
-              />
-            }
-          >
-            {lines.map((l, i) => (
-              <DocLineItem key={l.line_no} index={i} lineLabel={t('stock.doc.col.lineNo')} messageId={`ln-${i}-err`} colSpan={columns.length + 1} testId="line-row">
-                {columns.map((c) => (
-                  <td key={c.key} className={c.num ? 'is-num' : undefined} data-label={c.label}>
-                    {cell(c.key, l)}
-                  </td>
-                ))}
-              </DocLineItem>
-            ))}
-          </DocLinesTable>
-        )}
-        <div className="lf-btn-row">
-          <Button variant="ghost" onClick={() => void query.refetch()}>{t('stock.doc.reload')}</Button>
-        </div>
-      </DocCard>
+        }
+      />
     </>
   )
 }
