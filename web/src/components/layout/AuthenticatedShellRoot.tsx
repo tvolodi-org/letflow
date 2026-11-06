@@ -22,6 +22,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { TenantSwitchTransitionScreen } from '@/auth/TenantSwitchTransitionScreen'
 import { AppShell } from './AppShell'
 import { ErrorBoundary } from './ErrorBoundary'
+import { LayoutPrefsProvider } from '@/hooks/useLayoutPrefs'
 
 export function AuthenticatedShellRoot(): JSX.Element {
   const { session, switchingToTenantSlug } = useAuth()
@@ -32,7 +33,9 @@ export function AuthenticatedShellRoot(): JSX.Element {
 
   return (
     <ErrorBoundary key={session?.tenant_id ?? 'anonymous'}>
-      <AppShell />
+      <LayoutPrefsProvider>
+        <AppShell />
+      </LayoutPrefsProvider>
     </ErrorBoundary>
   )
 }

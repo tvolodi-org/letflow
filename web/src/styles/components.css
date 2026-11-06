@@ -270,6 +270,7 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
 .lf-sidenav__item:focus-visible { outline-color: var(--focus); }
 .lf-sidenav__foot { margin-top: auto; padding: var(--space-3) var(--space-3) 0; border-top: 1px solid var(--night-hover); display: grid; gap: var(--space-2); color: var(--on-night-muted); font: var(--type-caption); }
 .lf-sidenav__foot .lf-wordmark { color: var(--on-night); font-size: 14px; }
+.lf-content--fluid { max-width: none; }
 .lf-main { min-width: 0; display: flex; flex-direction: column; }
 .lf-topbar { position: sticky; top: 0; z-index: var(--z-nav); display: flex; align-items: center; gap: var(--space-4); min-height: var(--topbar-height); padding: 0 var(--space-8); background: var(--paper-glass); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .lf-topbar__menu { display: none; }
@@ -280,7 +281,8 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
 .lf-crumbs .lf-icon { width: 14px; height: 14px; color: var(--ink-faint); }
 .lf-topbar__end { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
 .lf-avatar { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--current-tint); color: var(--current); font: 600 13px/1 var(--font-sans); }
-.lf-content { width: 100%; max-width: var(--content-max-width); padding: var(--space-8); display: grid; gap: var(--space-6); align-content: start; }
+.lf-host { container: lfhost / inline-size; }
+.lf-content { container: lfhost / inline-size; width: 100%; max-width: var(--content-max-width); padding: var(--space-8); display: grid; gap: var(--space-6); align-content: start; }
 
 /* Master-detail (platform) */
 .lf-md { display: grid; grid-template-columns: var(--master-width) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
@@ -376,7 +378,7 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
    900-1439 px: list and header side by side, lines below.
    < 900 px: one column; a selected document REPLACES the list (data-detail="open" on .lf-doc, back button),
    same rule as .lf-md. < 640 px: each line becomes a card. Reference fields (lf-ref) always show CODE - Title. */
-.lf-doc { display: grid; grid-template-columns: var(--doc-list-width) var(--doc-header-width) minmax(0, 1fr); grid-template-areas: "list top top" "list header lines"; grid-template-rows: auto minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.lf-doc { display: grid; grid-template-columns: var(--lf-pane-1, var(--doc-list-width)) var(--lf-pane-2, var(--doc-header-width)) minmax(0, 1fr); grid-template-areas: "list top top" "list header lines"; grid-template-rows: auto minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 .lf-doc > * { min-width: 0; }
 .lf-doc__list { grid-area: list; position: sticky; top: var(--space-4); max-height: calc(100vh - 2 * var(--space-4)); display: flex; flex-direction: column; overflow: hidden; }
 .lf-doc__top { grid-area: top; display: grid; gap: var(--space-3); }
@@ -510,11 +512,11 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
 .lf-doc__notice { display: grid; gap: var(--space-3); }
 .lf-doc__notice .lf-banner > .lf-btn { align-self: center; }
 
-@media (max-width: 1439px) {
-  .lf-doc { grid-template-columns: var(--doc-list-width) minmax(0, 1fr); grid-template-areas: "list top" "list header" "lines lines"; grid-template-rows: auto auto auto; }
+@container lfhost (max-width: 1439px) {
+  .lf-doc { grid-template-columns: var(--lf-pane-1, var(--doc-list-width)) minmax(0, 1fr); grid-template-areas: "list top" "list header" "lines lines"; grid-template-rows: auto auto auto; }
   .lf-doc__list { position: static; height: 0; min-height: 100%; max-height: none; }
 }
-@media (max-width: 900px) {
+@container lfhost (max-width: 900px) {
   .lf-doc { grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "header" "lines"; }
   .lf-doc__list { position: static; max-height: none; grid-area: top; height: auto; min-height: 0; }
   .lf-doc__items { max-height: none; }
@@ -524,7 +526,7 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
   .lf-doc .lf-doc__blank { grid-column: 1 / -1; grid-row: auto; }
   .lf-doc__scroll { max-height: none; }
 }
-@media (max-width: 640px) {
+@container lfhost (max-width: 640px) {
   .lf-doc__bar { padding: var(--space-3); }
   .lf-doc__actions { justify-content: flex-start; width: 100%; }
   .lf-doc__actions .lf-btn { flex: 1 1 auto; }
@@ -572,10 +574,10 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
 .lf-tab[aria-selected="true"] .lf-count--danger { background: var(--danger-tint); color: var(--danger); }
 .lf-doc[data-layout="tabs"] > .lf-doc__header, .lf-doc[data-layout="tabs"] > .lf-doc__lines { grid-area: panel; }
 .lf-doc[data-layout="tabs"][data-tab="header"] > .lf-doc__lines, .lf-doc[data-layout="tabs"][data-tab="lines"] > .lf-doc__header { display: none; }
-@media (min-width: 901px) {
-  .lf-doc[data-layout="tabs"] { grid-template-columns: var(--doc-list-width) minmax(0, 1fr); grid-template-areas: "list top" "list tabs" "list panel"; grid-template-rows: auto auto minmax(0, 1fr); row-gap: var(--space-3); }
+@container lfhost (min-width: 901px) {
+  .lf-doc[data-layout="tabs"] { grid-template-columns: var(--lf-pane-1, var(--doc-list-width)) minmax(0, 1fr); grid-template-areas: "list top" "list tabs" "list panel"; grid-template-rows: auto auto minmax(0, 1fr); row-gap: var(--space-3); }
 }
-@media (max-width: 900px) {
+@container lfhost (max-width: 900px) {
   .lf-doc[data-layout="tabs"] { grid-template-areas: "top" "tabs" "panel"; row-gap: var(--space-3); }
 }
 
@@ -586,9 +588,9 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
    tabs = list | details whose sections (Overview, Related, History) are a tab block.
    >= 901 px: two columns. <= 900 px: one column; a selected record REPLACES the list (data-detail="open", back button),
    same rule as .lf-md and .lf-doc. The list is a compact table (lf-table--compact) or a TreeView (lf-tree) for hierarchies. */
-.lf-reg { display: grid; grid-template-columns: var(--registry-list-width) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.lf-reg { display: grid; grid-template-columns: var(--lf-pane-1, var(--registry-list-width)) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 .lf-reg > * { min-width: 0; }
-.lf-reg--tree, .lf-reg[data-layout="tabs"] { grid-template-columns: var(--master-width) minmax(0, 1fr); }
+.lf-reg--tree, .lf-reg[data-layout="tabs"] { grid-template-columns: var(--lf-pane-1, var(--master-width)) minmax(0, 1fr); }
 .lf-reg__list { position: sticky; top: var(--space-4); max-height: calc(100vh - 2 * var(--space-4)); display: flex; flex-direction: column; overflow: hidden; }
 .lf-reg__tools { display: grid; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--line); }
 .lf-reg__listhead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
@@ -653,12 +655,12 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
 .lf-reg[data-layout="tabs"][data-tab="related"] [data-pane="overview"], .lf-reg[data-layout="tabs"][data-tab="related"] [data-pane="history"],
 .lf-reg[data-layout="tabs"][data-tab="history"] [data-pane="overview"], .lf-reg[data-layout="tabs"][data-tab="history"] [data-pane="related"] { display: none; }
 
-@media (max-width: 1100px) {
-  .lf-reg { grid-template-columns: var(--master-width) minmax(0, 1fr); }
+@container lfhost (max-width: 1100px) {
+  .lf-reg { grid-template-columns: var(--lf-pane-1, var(--master-width)) minmax(0, 1fr); }
   .lf-reg .is-opt { display: none; }
 }
 .lf-reg[data-layout="tabs"] .is-opt { display: none; }
-@media (max-width: 900px) {
+@container lfhost (max-width: 900px) {
   .lf-reg, .lf-reg--tree, .lf-reg[data-layout="tabs"] { grid-template-columns: minmax(0, 1fr); }
   .lf-reg__list { position: static; max-height: none; }
   .lf-reg .is-opt { display: table-cell; }
@@ -667,7 +669,7 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
   .lf-reg[data-detail="open"] > .lf-reg__list { display: none; }
   .lf-reg[data-detail="open"] .lf-reg__backrow { display: block; }
 }
-@media (max-width: 640px) {
+@container lfhost (max-width: 640px) {
   .lf-reg__head { padding: var(--space-3); }
   .lf-reg__actions { justify-content: flex-start; width: 100%; }
   .lf-reg__actions .lf-btn { flex: 1 1 auto; }
@@ -684,10 +686,10 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
    <= 900 px: THREE VARIANTS of the narrow layout (data-variant on .lf-jrn), see NOTES.md "Narrow variants of the journal":
    v1 = legs expand inside the list row, its Details button opens the full screen; v2 = bottom sheet over the list with previous/next;
    v3 = full screen details with back button and previous/next. */
-.lf-jrn { display: grid; grid-template-columns: minmax(0, 1fr) var(--journal-details-width); gap: var(--space-4); align-items: start; }
+.lf-jrn { display: grid; grid-template-columns: minmax(0, 1fr) var(--lf-pane-1, var(--journal-details-width)); gap: var(--space-4); align-items: start; }
 .lf-jrn > * { min-width: 0; }
 .lf-jrn__filters { display: grid; gap: var(--space-3); }
-.lf-jrn__details { display: grid; gap: var(--space-4); align-content: start; position: sticky; top: var(--space-4); }
+.lf-jrn__details { container: lfdet / inline-size; display: grid; gap: var(--space-4); align-content: start; position: sticky; top: var(--space-4); }
 .lf-jrn__row-a > .lf-field { flex: 1 1 var(--field-w-s); }
 .lf-jrn__row-a > .lf-jrn__f-q { flex: 2 1 var(--field-w-m); }
 .lf-jrn .lf-reg__toolrow > .lf-date:not(.lf-date--bare) { width: var(--field-w-s); flex: 0 0 auto; }
@@ -740,19 +742,32 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
 .lf-jrn__legs--compact .lf-jrn__delta { font-size: 14px; }
 .lf-jrn__legs--compact .lf-ref { flex-wrap: nowrap; max-width: 100%; }
 .lf-jrn__legs--compact .lf-ref__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-jrn__legtable { display: none; width: 100%; border-collapse: collapse; font: var(--type-body-s); }
+.lf-jrn__legtable th { text-align: left; padding: var(--space-2) var(--space-3); font: var(--type-label); color: var(--ink-muted); background: var(--paper-raised); border-bottom: 1px solid var(--line); }
+.lf-jrn__legtable td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line); vertical-align: top; }
+.lf-jrn__legtable tr:last-child td { border-bottom: 0; }
+.lf-jrn__legtable .is-num { text-align: right; white-space: nowrap; font: var(--type-mono); }
+.lf-jrn__legtable .lf-ref { flex-wrap: nowrap; max-width: 100%; }
+.lf-jrn__legtable .lf-ref__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-jrn__legtable .lf-jrn__delta { font: 600 14px/22px var(--font-mono); }
+.lf-jrn__legtable .lf-jrn__bal { font: var(--type-mono); color: var(--ink); }
+@container lfdet (min-width: 520px) {
+  .lf-jrn__legtable { display: table; }
+  .lf-jrn__details .lf-jrn__legs:not(.lf-jrn__legs--compact) { display: none; }
+}
 .lf-jrn__links { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-4); }
 .lf-jrn__link { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: baseline; font: var(--type-body-s); }
 .lf-jrn__link > span:first-child { color: var(--ink-muted); min-width: 9em; }
 .lf-jrn__scrim { display: none; }
 .lf-jrn__filters-toggle { display: none; }
 
-@media (max-width: 1439px) {
+@container lfhost (max-width: 1439px) {
   .lf-jrn .is-opt { display: none; }
 }
-@media (max-width: 1199px) {
-  .lf-jrn { grid-template-columns: minmax(0, 1fr) calc(var(--journal-details-width) * 0.85); }
+@container lfhost (max-width: 1199px) {
+  .lf-jrn { grid-template-columns: minmax(0, 1fr) var(--lf-pane-1, calc(var(--journal-details-width) * 0.85)); }
 }
-@media (max-width: 900px) {
+@container lfhost (max-width: 900px) {
   .lf-jrn { grid-template-columns: minmax(0, 1fr); }
   .lf-jrn__list { position: static; max-height: none; }
   .lf-jrn__details { position: static; display: none; }
@@ -791,10 +806,147 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
   .lf-jrn[data-variant="v2"] .lf-jrn__bar { position: sticky; top: calc(var(--space-2) * -1); z-index: 1; background: var(--paper); padding-block: var(--space-1); justify-content: space-between; }
   .lf-jrn:not([data-variant="v2"]) .lf-jrn__close { display: none; }
 }
-@media (max-width: 640px) {
+@container lfhost (max-width: 640px) {
   .lf-jrn__leg { padding-inline: var(--space-3); grid-template-columns: minmax(0, 1fr); }
   .lf-jrn__leg-num { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--space-1) var(--space-3); text-align: left; }
   .lf-jrn__link > span:first-child { min-width: 100%; }
+}
+
+/* ---------- Splitter, column resize, collapsible side nav (platform) ----------
+   lf-split: the grid containers lf-doc, lf-reg, lf-jrn and the app shell read their pane widths from --lf-pane-N (--sidenav-width for the side nav);
+   a splitter (LFSplit in demo.js) sets them. lf-colresize: LFColResize sets th widths in percent. Sizes are remembered per user (LFPrefs).
+   No fixed centred column: panes use clamp() tokens and fr tracks, so the screens fill 1920, 2560 and 3440 px wide windows. */
+.lf-splitwrap { position: relative; }
+.lf-app { position: relative; }
+.lf-split-layer { position: absolute; inset: 0; pointer-events: none; z-index: calc(var(--z-sticky) + 1); }
+.lf-splitter { position: absolute; width: var(--splitter-hit); margin-left: calc(var(--splitter-hit) / -2); display: flex; justify-content: center; align-items: center; cursor: col-resize; pointer-events: auto; touch-action: none; outline-offset: -2px; }
+.lf-splitter__line { width: 3px; height: var(--space-12); border-radius: var(--radius-full); background: var(--line-strong); opacity: .6; transition: height var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), opacity var(--dur-fast); }
+.lf-splitter:hover .lf-splitter__line, .lf-splitter:focus-visible .lf-splitter__line, .lf-splitter.is-drag .lf-splitter__line { height: 100%; background: var(--current); opacity: 1; }
+.lf-splitter:focus-visible { outline: 2px solid var(--focus); }
+.lf-splitter[hidden] { display: none; }
+.lf-splitter__btn { position: absolute; top: var(--space-4); left: 50%; translate: -50% 0; display: none; place-items: center; width: 22px; height: 22px; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius-full); background: var(--paper-raised); color: var(--ink-muted); cursor: pointer; }
+.lf-splitter__btn .lf-icon { width: 12px; height: 12px; transition: transform var(--dur-fast) var(--ease-out); }
+.lf-splitter:hover .lf-splitter__btn, .lf-splitter:focus-within .lf-splitter__btn, .lf-splitter.is-collapsed .lf-splitter__btn { display: grid; }
+.lf-splitter.is-collapsed .lf-splitter__btn .lf-icon { transform: rotate(180deg); }
+.lf-splitter__btn:hover { color: var(--ink); border-color: var(--ink); }
+.lf-split-dragging, .lf-split-dragging * { cursor: col-resize !important; user-select: none; }
+.is-collapsed { overflow: hidden; visibility: hidden; }
+@container lfhost (max-width: 900px) { .lf-split-layer { display: none; } }
+
+.lf-colhandle { position: absolute; top: 0; right: -5px; bottom: 0; width: 10px; z-index: 2; cursor: col-resize; touch-action: none; display: block; outline-offset: -2px; }
+.lf-colhandle::after { content: ""; position: absolute; top: 20%; bottom: 20%; left: 4px; width: 2px; border-radius: var(--radius-full); background: var(--line-strong); opacity: .55; transition: opacity var(--dur-fast), background var(--dur-fast); }
+th:hover > .lf-colhandle::after, .lf-colhandle:focus-visible::after, .lf-colhandle.is-drag::after { opacity: 1; background: var(--current); }
+.lf-colhandle:focus-visible { outline: 2px solid var(--focus); }
+.lf-colresize { table-layout: fixed; }
+.lf-colresize th, .lf-colresize td { overflow: hidden; text-overflow: ellipsis; }
+.lf-colresize th { position: sticky; }
+
+/* collapsible side nav: icons only; the labels stay for screen readers and as tooltips (title) */
+.lf-app[data-nav="collapsed"] .lf-sidenav { padding-inline: var(--space-2); align-items: center; }
+.lf-app[data-nav="collapsed"] .lf-sidenav__tenant, .lf-app[data-nav="collapsed"] .lf-sidenav__ws, .lf-app[data-nav="collapsed"] .lf-sidenav__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.lf-app[data-nav="collapsed"] .lf-sidenav__item { justify-content: center; padding-inline: 0; width: 100%; }
+.lf-app[data-nav="collapsed"] .lf-sidenav__item > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.lf-app[data-nav="collapsed"] .lf-sidenav__item[aria-current="page"]::before { left: 2px; }
+.lf-app[data-nav="collapsed"] .lf-sidenav__foot { padding-inline: 0; }
+.lf-sidenav__toggle { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 36px; padding: 6px var(--space-3); border: 0; border-radius: var(--radius-md); background: none; color: var(--on-night-muted); font: 500 13px/18px var(--font-sans); cursor: pointer; }
+.lf-sidenav__toggle:hover { color: var(--on-night); background: var(--night-hover); }
+.lf-sidenav__toggle .lf-icon { transition: transform var(--dur-fast) var(--ease-out); }
+.lf-app[data-nav="collapsed"] .lf-sidenav__toggle { justify-content: center; padding-inline: 0; }
+.lf-app[data-nav="collapsed"] .lf-sidenav__toggle .lf-icon { transform: rotate(180deg); }
+.lf-app[data-nav="collapsed"] .lf-sidenav__foot .lf-wordmark { display: none; }
+@media (max-width: 900px) { .lf-sidenav__toggle { display: none; } }
+
+/* ---------- Lines editor (platform): lf-le ----------
+   The lines of a stock document at volume. The panel fills its parent (the parent needs a definite height: flex: 1; min-height: 0), scrolls INSIDE itself with a sticky
+   column header and a sticky totals row, and its rows are virtual (fixed height lines-row-h). Two modes: grid (cells in a table) and form (one line in a form
+   plus the saved lines in a compact table; the mode for phones). Behaviour and contract: LFLinesEditor in demo.js, NOTES.md "Lines editor". */
+.lf-le { container: lfle / inline-size; display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
+.lf-le__toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); align-items: flex-start; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); }
+.lf-le__toolbar .lf-seg button:disabled { opacity: .5; cursor: not-allowed; }
+.lf-le__scanf { width: var(--field-w-m); max-width: 100%; }
+.lf-le__searchf { width: var(--field-w-m); max-width: 100%; }
+.lf-le__scanmsg { font-weight: 500; }
+.lf-le__scanmsg.is-ok { color: var(--success); }
+.lf-le__tools { margin-left: auto; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; align-self: center; }
+.lf-le__count { color: var(--ink-muted); white-space: nowrap; }
+.lf-le__count.is-max { color: var(--warning); font-weight: 700; }
+.lf-le__errbtn { color: var(--danger); border-color: var(--danger); }
+.lf-le__notices { display: grid; gap: var(--space-2); }
+.lf-le__notices:not(:empty) { padding: var(--space-3) var(--space-4) 0; }
+.lf-le__reasons { margin-top: var(--space-1); font: var(--type-body-s); }
+.lf-le__reasons ul { margin: var(--space-1) 0 0; padding-left: var(--space-4); display: grid; gap: 2px; }
+.lf-le__body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.lf-le__scroll { flex: 1; min-height: 0; overflow: auto; position: relative; scrollbar-color: var(--line-strong) transparent; outline-offset: -2px; }
+.lf-le__table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font: var(--type-body-s); }
+.lf-le__table th { position: sticky; top: 0; z-index: var(--z-sticky); height: var(--row-h-compact); padding: 0 var(--space-2); background: var(--paper-raised); border-bottom: 1px solid var(--line-strong); color: var(--ink-muted); font: var(--type-label); text-align: left; white-space: nowrap; }
+.lf-le__table th.is-num, .lf-le__table td.is-num { text-align: right; }
+.lf-le__table th.is-idx { width: calc(var(--space-8) + var(--space-6)); }
+.lf-le__table th.is-act { width: calc(var(--control-h-s) * 2 + var(--space-8)); }
+.lf-le__row td.is-act .lf-btn { display: inline-flex; vertical-align: middle; }
+.lf-le__table th:first-child, .lf-le__table td:first-child { padding-left: var(--space-4); }
+.lf-le__table th:last-child, .lf-le__table td:last-child { padding-right: var(--space-4); }
+.lf-le__row td { height: var(--lines-row-h); padding: 0 var(--space-1); border-bottom: 1px solid var(--line); vertical-align: middle; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: background var(--dur-fast) var(--ease-out); }
+.lf-le__row:hover td { background: var(--row-hover); }
+.lf-le__row td.is-idx { color: var(--ink-faint); font: var(--type-mono-s); position: relative; }
+.lf-le__row td.is-num { font: var(--type-mono); font-variant-numeric: tabular-nums; }
+.lf-le__row.is-error td { background: var(--danger-tint); --ink-faint: var(--ink-muted); }
+.lf-le__row.is-error td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+.lf-le__row.is-flash td, .lf-le__row.is-sel td { background: var(--current-tint); --ink-faint: var(--ink-muted); }
+.lf-le__row.is-sel td:first-child { box-shadow: inset 3px 0 0 var(--current); }
+.lf-le__errmark { color: var(--danger); display: inline-grid; vertical-align: -3px; margin-right: 2px; }
+.lf-le .lf-control { min-height: var(--control-h-s); }
+.lf-le__row .lf-control input { padding: 3px var(--space-2); font: var(--type-body-s); }
+.lf-le__row .lf-control--num input { text-align: right; font: var(--type-mono); }
+.lf-le__row .lf-affix { min-width: 4ch; justify-content: center; padding: 0 var(--space-2); font: var(--type-mono-s); }
+.lf-le__row .lf-ref { flex-wrap: nowrap; max-width: 100%; }
+.lf-le__row .lf-ref__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-le__row td.is-act { text-align: right; white-space: nowrap; }
+.lf-le__row td.is-act .lf-btn { --h: var(--control-h-s); opacity: .55; }
+.lf-le__row:hover td.is-act .lf-btn, .lf-le__row td.is-act .lf-btn:focus-visible { opacity: 1; }
+.lf-le__table tfoot td { white-space: nowrap; position: sticky; bottom: 0; z-index: var(--z-sticky); height: var(--row-h-compact); padding: 0 var(--space-2); background: var(--paper-sunken); border-top: 1px solid var(--line-strong); color: var(--ink); font: var(--type-body-s); }
+.lf-le__table tfoot td.is-num { font: 600 13px/20px var(--font-mono); }
+.lf-le__totlab { color: var(--ink-muted); }
+.lf-le__sp td { padding: 0; border: 0; }
+.lf-le__status { display: flex; gap: 6px; align-items: flex-start; min-height: var(--space-8); padding: var(--space-2) var(--space-4); border-top: 1px solid var(--line); color: var(--ink-muted); font: var(--type-caption); }
+.lf-le__status.is-error { color: var(--danger); font-weight: 500; }
+.lf-le__state { padding: var(--space-6) var(--space-4); }
+.lf-le__skel { display: grid; gap: var(--space-3); }
+.lf-le__skel .lf-skel { height: var(--space-4); }
+.lf-le__emptyview { margin: var(--space-4); }
+.lf-le-pop, .lf-le__pop { max-height: calc(var(--row-h) * 6); }
+
+/* line by line */
+.lf-le__formwrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(var(--field-w-m), 0.9fr) minmax(0, 1.4fr); gap: var(--space-6); padding: var(--space-4); }
+.lf-le__formcol { align-content: start; display: grid; min-width: 0; }
+.lf-le__formcol--closed { align-content: start; }
+.lf-le__form { display: grid; gap: var(--space-4); align-content: start; }
+.lf-le__formtitle { margin: 0; font: 500 12px/16px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+.lf-le__formrow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.lf-le__fval { font: 600 18px/26px var(--font-mono); }
+.lf-le__del { margin-left: auto; }
+.lf-le__saved { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: var(--space-2); }
+.lf-le__saved .lf-le__scroll { border: 1px solid var(--line); border-radius: var(--radius-md); }
+.lf-le__row--saved { cursor: pointer; }
+.lf-le__row--saved.is-ro { cursor: default; }
+.lf-le__formwrap--ro { grid-template-columns: minmax(0, 1fr); }
+.lf-le__row--saved td { height: var(--lines-row-h-compact); }
+.lf-le__row--saved:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.lf-le__cut { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-le__table--saved th.is-idx { width: calc(var(--space-8) + var(--space-4)); }
+.lf-le__table--saved th:nth-child(3) { width: 27%; } .lf-le__table--saved th:nth-child(4) { width: 31%; }
+.lf-le__table--saved th, .lf-le__table--saved td { padding-inline: var(--space-2); }
+@container lfle (max-width: 899px) {
+  .lf-le__body { overflow-y: auto; }
+  .lf-le__formwrap { flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; gap: var(--space-4); }
+  .lf-le__saved .lf-le__scroll { flex: none; height: min(60vh, 440px); min-height: 240px; }
+  .lf-le__scanf, .lf-le__searchf { width: 100%; flex: 1 1 var(--field-w-m); }
+}
+@container lfle (max-width: 640px) {
+  .lf-le__toolbar { padding: var(--space-3); }
+  .lf-le__tools { margin-left: 0; width: 100%; }
+  .lf-le__formrow { grid-template-columns: minmax(0, 1fr); }
+  .lf-le__formwrap { padding: var(--space-3); }
+  .lf-le__form .lf-form__actions .lf-btn { flex: 1 1 auto; }
 }
 
 /* ---------- Date and time (platform): lf-date, lf-time, lf-datetime ----------
