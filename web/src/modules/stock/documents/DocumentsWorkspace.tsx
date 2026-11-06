@@ -35,6 +35,9 @@ import { documentsApi, type StockDocument } from './documents.api'
 import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
 import { DOCUMENTS_PATH, DocumentList } from './DocumentList'
+import { DOCUMENTS_LAYOUT_SCREEN } from './lineColumns'
+import { useLayoutPrefs } from '@/hooks/useLayoutPrefs'
+import { useLayoutMessages } from '@/components/ui/layout/layoutMessages'
 import {
   DOC_KINDS,
   DOC_STATES,
@@ -319,10 +322,21 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
   const back = () => navigate(DOCUMENTS_PATH)
   const layout = useDocumentLayout()
   const docState = mode === 'create' ? 'new' : mode === 'view' ? 'existing' : 'none'
+  const store = useLayoutPrefs()
+  const lm = useLayoutMessages()
   return (
     <>
-      <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.doc.title')} lede={t('stock.doc.lede')} />
-      <DocLayout detailOpen={mode !== 'list'} layout={layout} docState={docState} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">
+      <PageHeader
+        eyebrow={t('stock.eyebrow')}
+        title={t('stock.doc.title')}
+        lede={t('stock.doc.lede')}
+        actions={
+          <Button variant="ghost" onClick={() => store.resetScreen(DOCUMENTS_LAYOUT_SCREEN)} data-testid="reset-layout">
+            {lm.resetLayout}
+          </Button>
+        }
+      />
+      <DocLayout screen={DOCUMENTS_LAYOUT_SCREEN} detailOpen={mode !== 'list'} layout={layout} docState={docState} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">
         <DocumentList selectedId={mode === 'view' ? id : undefined} />
         {mode === 'list' && <DocBlank title={t('stock.doc.blank.title')} text={t('stock.doc.blank.text')} />}
         {mode === 'view' && id && <DocumentView key={id} id={id} onBack={back} />}

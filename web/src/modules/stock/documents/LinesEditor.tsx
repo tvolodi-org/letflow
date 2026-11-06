@@ -20,7 +20,7 @@ import { DateCell } from '@/components/ui/DateField'
 import { useNames } from '../register/stockNames'
 import { usePickerOptions, type PickerOption } from '../register/stockPickers'
 import { MAX_LINES, emptyLine, sumDecimals, validateLine, type DocKind, type LineForm } from './documentsModel'
-import { lineColumns } from './lineColumns'
+import { DOCUMENTS_LAYOUT_SCREEN, lineColumns, lineColumnSpecs } from './lineColumns'
 import { buildCatalog, itemLabel } from './linesCatalog'
 
 export const LINES_SCREEN_ID = 'stock-documents.lines'
@@ -167,7 +167,7 @@ export function LinesEditor(props: {
         savedHidden: true,
       },
     }
-    return base.map((c) => ({ key: c.key, label: c.label, num: c.num, view: () => dash, ...byKey[c.key] }) as LeColumn<LineForm>)
+    return base.map((c) => ({ key: c.key, colId: c.colId, label: c.label, num: c.num, view: () => dash, ...byKey[c.key] }) as LeColumn<LineForm>)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, catalog, uoms, locations, employees, locale, intl])
 
@@ -192,6 +192,7 @@ export function LinesEditor(props: {
     <DocCard area="lines" title={t('stock.doc.lines')} count={lines.length} data-testid="lines-card">
       <LFLinesEditor<LineForm>
         screenId="lf-stock-lines"
+        resize={{ id: props.readOnly ? 'lines' : 'lines-edit', screen: DOCUMENTS_LAYOUT_SCREEN, cols: lineColumnSpecs(kind) }}
         lines={lines}
         onChange={props.onChange}
         columns={columns}

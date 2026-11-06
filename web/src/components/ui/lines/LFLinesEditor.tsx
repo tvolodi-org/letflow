@@ -11,6 +11,8 @@ import { parsePaste } from './pasteRows'
 import { useVirtualRows } from './useVirtualRows'
 import { useLinesT } from './linesMessages'
 import { EmptyState, ErrorState, LoadingState, NoMatchState, NoPermissionState } from './LinesStates'
+import { useColResize } from '../layout/ColumnResize'
+import { useLayoutMessages } from '../layout/layoutMessages'
 import type { LeError, LeImportController, LeMode, LFLinesEditorProps } from './types'
 
 /** Under this panel width the grid is off and the line-by-line mode is used (a phone). The design says 700 px for a full
@@ -45,8 +47,17 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
   const { lines, onChange, columns, blank, duplicate, isBlank, max, mode, onModeChange, readOnly = false, state = 'ready', screenId } = props
   const t = useLinesT()
   const rootRef = useRef<HTMLDivElement>(null)
+  const tableRef = useRef<HTMLTableElement>(null)
+  const lm = useLayoutMessages()
   const [narrow, setNarrow] = useState(false)
   const effMode: LeMode = narrow ? 'form' : mode
+  useColResize(tableRef, {
+    id: props.resize?.id ?? 'lines',
+    screen: props.resize?.screen ?? '',
+    cols: props.resize?.cols ?? [],
+    label: (_id, th) => `${lm.resizeColumn}: ${th.textContent?.trim() ?? ''}`,
+    enabled: () => !!props.resize && ((rootRef.current?.closest('.lf-doc') ?? rootRef.current)?.clientWidth ?? 0) > 640,
+  })
 
   useEffect(() => {
     const el = rootRef.current
@@ -495,14 +506,14 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
     return (
       <>
         <div className="lf-le__scroll" ref={gridV.ref} onScroll={gridV.onScroll} tabIndex={0} role="grid" aria-label={t('lines')} aria-rowcount={view.length + 1} data-testid="lines-scroll">
-          <table className={`lf-le__table${columns.length > 5 ? ' lf-le__table--wide' : ''}`} role="presentation" data-testid={readOnly ? 'document-lines' : undefined}>
+          <table ref={tableRef} className={`lf-le__table${columns.length > 5 ? ' lf-le__table--wide' : ''}`} role="presentation" data-testid={readOnly ? 'document-lines' : undefined}>
             <thead>
               <tr>
                 <th className="is-idx" scope="col">
                   {t('c.idx')}
                 </th>
                 {columns.map((c) => (
-                  <th key={c.key} scope="col" className={[c.num ? 'is-num' : '', c.grow ? 'is-grow' : '', `is-col-${c.key}`].filter(Boolean).join(' ')}>
+                  <th key={c.key} scope="col" data-col={props.resize ? c.colId : undefined} className={[c.num ? 'is-num' : '', c.grow ? 'is-grow' : '', `is-col-${c.key}`].filter(Boolean).join(' ')}>
                     {c.label}
                   </th>
                 ))}

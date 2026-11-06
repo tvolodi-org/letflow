@@ -1,3 +1,4 @@
+import type { ColSpec } from '@/components/ui/layout/ColumnResize'
 /** Contracts of LFLinesEditor (generic: no module words). A caller describes its lines with columns; the editor owns the
  *  layout, virtual rows, keyboard, paste, scan, search, error navigation and the two entry modes. */
 import type { ReactNode } from 'react'
@@ -47,6 +48,8 @@ export interface LeCellCtx<L> {
 
 export interface LeColumn<L> {
   key: string
+  /** Stable id of the column in the remembered column widths (omit = not resizable). */
+  colId?: string
   label: string
   num?: boolean
   /** The column takes the free width (an item name); the others keep a fixed share. */
@@ -107,6 +110,8 @@ export interface LFLinesEditorProps<L> {
   totals?: (lines: L[]) => { col: string; node: ReactNode } | null
   /** Prefix of DOM ids and aria ids (tests, labels). */
   screenId: string
+  /** Resizable columns, widths remembered per user (the columns that carry a `colId`). */
+  resize?: { id: string; screen: string; cols: ColSpec[] }
   'data-testid'?: string
 }
 
