@@ -277,7 +277,7 @@ defmodule Letflow.LedgerTablesMigrationTest do
           {%{cause: "reversal", sign_rule: "reversal"}, "reversal"},
           {%{reverses_entry_id: @entry_id}, "reversal"},
           {%{leg_count: 0}, "leg_count"},
-          {%{leg_count: 201}, "leg_count"},
+          {%{leg_count: 2001}, "leg_count"},
           {%{payload_hash: "xyz"}, "payload_hash"},
           {%{entry_digest: "xyz"}, "entry_digest"},
           {%{chain_hash: "xyz"}, "chain_hash"},
