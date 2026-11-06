@@ -175,6 +175,41 @@ defmodule Letflow.Ledger do
           | {:error, :reconcile_busy | :invalid_cursor | :invalid_opts | :run_expired}
   defdelegate reconcile(authorized, opts), to: Reconcile
 
+  @doc """
+  REQ-764: takes the EXCLUSIVE hold lock of `ledger_id` in the caller's transaction
+  (`pg_advisory_xact_lock` on `hashtextextended(prefix || ':ledger_hold:' || ledger_id, 0)`, one
+  bound parameter). A module that changes what its posting guard reads takes it first: every
+  posting transaction that already passed its guard (it holds the shared lock) has committed
+  before the change is made, and every later one reads the change. Raises `ArgumentError` outside
+  a transaction, for a prefix that is not a tenant schema name and for an empty ledger id.
+  """
+  @spec hold_exclusive!(String.t(), String.t()) :: :ok
+  defdelegate hold_exclusive!(prefix, ledger_id), to: Letflow.Ledger.Hold, as: :exclusive!
+
+  @doc false
+  # The SHARED side, taken by the platform in the plan step of `HandlerPost`, before the guard call.
+  @spec hold_shared!(String.t(), String.t()) :: :ok
+  defdelegate hold_shared!(prefix, ledger_id), to: Letflow.Ledger.Hold, as: :shared!
+
+  @doc false
+  # REQ-764: the slot values (`k`) of the distinct balance keys, and the document reference, of the
+  # entry a reversal targets. The same prefix- and ledger-scoped read as `resolve_reversal/2`, no
+  # lock (immutable rows); a target of another ledger id or tenant is "no row" (`:error`).
+  @spec guard_reversal(String.t(), String.t(), String.t()) ::
+          {:ok,
+           %{ks: [[String.t()]], document_type: String.t() | nil, document_id: String.t() | nil}}
+          | :error
+  def guard_reversal(prefix, ledger_id, target_id) do
+    case read_reversal_target(prefix, ledger_id, target_id) do
+      nil ->
+        :error
+
+      target ->
+        ks = prefix |> derive_legs(ledger_id, target_id) |> Enum.map(& &1.k) |> Enum.uniq()
+        {:ok, %{ks: ks, document_type: target.document_type, document_id: target.document_id}}
+    end
+  end
+
   @doc false
   @spec post(Capability.t()) ::
           {:ok, posted()} | {:error, refusal()} | {:error, {:ledger_contract, atom()}}
@@ -359,18 +394,7 @@ defmodule Letflow.Ledger do
     ledger_id = posting.ledger_id
     target_id = posting.reverses_entry_id
 
-    target =
-      from(e in "ledger_entry",
-        where: e.ledger_id == ^ledger_id and e.id == type(^target_id, Ecto.UUID),
-        select: %{
-          cause: e.cause,
-          reverses_entry_id: type(e.reverses_entry_id, Ecto.UUID),
-          document_type: e.document_type,
-          document_id: e.document_id,
-          correlation_id: e.correlation_id
-        }
-      )
-      |> Repo.one(prefix: prefix)
+    target = read_reversal_target(prefix, ledger_id, target_id)
 
     cond do
       target == nil ->
@@ -394,6 +418,20 @@ defmodule Letflow.Ledger do
           {:ok, %{part | posting: posting, groups: groups, reversal: %{target: target}}}
         end
     end
+  end
+
+  defp read_reversal_target(prefix, ledger_id, target_id) do
+    from(e in "ledger_entry",
+      where: e.ledger_id == ^ledger_id and e.id == type(^target_id, Ecto.UUID),
+      select: %{
+        cause: e.cause,
+        reverses_entry_id: type(e.reverses_entry_id, Ecto.UUID),
+        document_type: e.document_type,
+        document_id: e.document_id,
+        correlation_id: e.correlation_id
+      }
+    )
+    |> Repo.one(prefix: prefix)
   end
 
   # The exact negation of the target's legs: same slots, unit, attrs and line id, leg_no order kept.

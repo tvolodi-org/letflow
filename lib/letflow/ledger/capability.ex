@@ -39,7 +39,7 @@ defmodule Letflow.Ledger.Capability do
     :credential,
     :deferred_refusal
   ]
-  defstruct @enforce_keys ++ [read_disclosed: false, consented: false]
+  defstruct @enforce_keys ++ [read_disclosed: false, consented: false, module_id: nil]
 
   @type deferred_refusal ::
           nil
@@ -61,7 +61,8 @@ defmodule Letflow.Ledger.Capability do
           credential: atom() | nil,
           deferred_refusal: deferred_refusal(),
           read_disclosed: boolean(),
-          consented: boolean()
+          consented: boolean(),
+          module_id: String.t() | nil
         }
 
   @doc """
@@ -92,7 +93,8 @@ defmodule Letflow.Ledger.Capability do
          instance_id: ctx.instance_id,
          credential: ctx.credential,
          deferred_refusal: Map.get(build, :deferred_refusal),
-         consented: Map.get(build, :consented) == true
+         consented: Map.get(build, :consented) == true,
+         module_id: module_id
        }}
     else
       _unresolved -> {:error, :invalid_context}
