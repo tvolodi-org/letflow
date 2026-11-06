@@ -74,7 +74,8 @@ export function Registry(props: RegistryProps) {
   const grid = (
     <div
       ref={(el) => {
-        gridRef.current = el
+        const mutable = gridRef as { current: HTMLDivElement | null }
+        mutable.current = el
         const r = props.gridRef
         if (typeof r === 'function') r(el)
         else if (r) (r as { current: HTMLDivElement | null }).current = el
