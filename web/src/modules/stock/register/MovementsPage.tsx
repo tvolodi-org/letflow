@@ -19,6 +19,7 @@ import { stockQueryKeys } from './stockQueryKeys'
 import {
   CAUSES,
   DOCUMENT_TYPES,
+  documentCell,
   formatStockDateTime,
   isMasked,
   movementNameIds,
@@ -77,11 +78,9 @@ function MovementsInner({ initialOpenId = null }: { initialOpenId?: string | nul
       key: 'doc',
       label: t('stock.col.document'),
       render: (r) => {
-        if (!r.document_type) return dash
-        const kind = known(DOCUMENT_TYPES, 'stock.docType', r.document_type)
-        if (!r.document_number) return kind
-        const text = `${r.document_number} - ${kind}`
-        return r.document_id ? <Link to={`/admin/stock/documents/${r.document_id}`} data-testid="movement-doc-link">{text}</Link> : text
+        const cell = documentCell(r, (type) => known(DOCUMENT_TYPES, 'stock.docType', type))
+        if (!cell) return dash
+        return cell.to ? <Link to={cell.to} data-testid="movement-doc-link">{cell.text}</Link> : cell.text
       },
     },
     {
