@@ -12,13 +12,14 @@ export interface MasterDetailProps {
   detailOpen?: boolean
   /** Back button of the detail header (visible under 900px only): the screen clears its selection. */
   onBack?: () => void
-  /** `wide` gives the list column 380-460 px (tables with several columns, e.g. the counts list). */
-  masterWidth?: 'default' | 'wide'
+  /** `wide` gives the list column 380-460 px (tables with several columns, e.g. the counts list).
+   *  `split` (balances): list full width with the panel below it from 900px. */
+  masterWidth?: 'default' | 'wide' | 'split'
 }
 
 export function MasterDetail({ master, detail, tools, detailOpen = false, onBack, masterWidth = 'default' }: MasterDetailProps) {
   return (
-    <div className={masterWidth === 'wide' ? 'lf-md lf-md--wide' : 'lf-md'} data-testid="master-detail" data-detail={detailOpen ? 'open' : undefined}>
+    <div className={masterWidth === 'wide' ? 'lf-md lf-md--wide' : masterWidth === 'split' ? 'lf-md lf-md--split' : 'lf-md'} data-testid="master-detail" data-detail={detailOpen ? 'open' : undefined}>
       <aside className="lf-md__master lf-card" data-testid="master-detail-master">
         {tools != null && (
           <div className="lf-md__tools" data-testid="master-detail-tools">

@@ -1,6 +1,6 @@
 /** BalancesPage — GH 3767 / REQ-724. Current balances of the stock register: five filters, names instead of ids,
  *  quantity text as the route answers it, Load more. Reads the latest basis only (no basis / cutoff_seq key). */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
@@ -38,6 +38,7 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
   const [filters, setFilters] = useState<BalanceFilters>(EMPTY_BALANCE_FILTERS)
   const [asOf, setAsOf] = useState('')
   const [selected, setSelected] = useState<string | null>(initialSelectedId)
+  const wrapRef = useRef<HTMLDivElement>(null)
   const [exporting, setExporting] = useState(false)
   const [exportFailed, setExportFailed] = useState(false)
   const set = (key: keyof BalanceFilters) => (value: string) => {
@@ -84,6 +85,13 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
     }`,
   }))
   if (params.as_of_date) chips.push({ id: 'as_of_date', label: `${t('stock.filter.asOf')}: ${formatLocalInput(params.as_of_date, 'date', intl.locale)}` })
+
+  // Stacked layout: bring the history panel into view after a row is picked.
+  useEffect(() => {
+    if (!selected) return
+    const panel = wrapRef.current?.querySelector('[data-testid="master-detail-detail"]')
+    if (panel && typeof panel.scrollIntoView === 'function') panel.scrollIntoView({ block: 'nearest' })
+  }, [selected])
 
   const onExport = async () => {
     setExporting(true)
@@ -191,12 +199,13 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
         <>
           {selectedRow ? (
             <div
+              ref={wrapRef}
               onKeyDown={(e) => {
                 if (e.key === 'Escape' && !e.defaultPrevented) setSelected(null)
               }}
             >
               <MasterDetail
-                masterWidth="wide"
+                masterWidth="split"
                 detailOpen
                 onBack={() => setSelected(null)}
                 master={table}

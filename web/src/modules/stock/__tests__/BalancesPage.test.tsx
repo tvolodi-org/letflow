@@ -214,3 +214,46 @@ describe('R1 as-of date per language (T-1381, real body shape)', () => {
     expect(screen.queryByTestId('date-value-hint')).not.toBeInTheDocument()
   })
 })
+
+describe('T-1440 history panel layout', () => {
+  afterEach(() => {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+  })
+  async function open() {
+    clientMock.get.mockImplementation(async (path: string) =>
+      path.endsWith('/movements') ? { ledger_seq: 42, next_cursor: null, rows: [] } : { ledger_seq: 42, next_cursor: null, rows: [ROW] },
+    )
+    renderStock(BAL)
+    const cell = await within(await screen.findByRole('table')).findByText('Bolt M8')
+    fireEvent.click(cell.closest('tr')!)
+    await screen.findByTestId('master-detail')
+  }
+
+  it('B1 selecting a row uses the split layout, keeps all 7 columns and the panel', async () => {
+    await open()
+    expect(screen.getByTestId('master-detail')).toHaveClass('lf-md--split')
+    expect(within(screen.getByTestId('master-detail-master')).getAllByRole('columnheader')).toHaveLength(7)
+    expect(await screen.findByTestId('balance-history')).toBeInTheDocument()
+    fireEvent.keyDown(screen.getByTestId('master-detail'), { key: 'Escape' })
+    expect(screen.queryByTestId('master-detail')).not.toBeInTheDocument()
+  })
+
+  it('B2 scrolls the panel into view when a row is picked and tolerates a missing scrollIntoView', async () => {
+    const spy = vi.fn()
+    Element.prototype.scrollIntoView = spy
+    await open()
+    expect(spy).toHaveBeenCalledWith({ block: 'nearest' })
+    cleanup()
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    await open()
+    expect(screen.getByTestId('master-detail')).toBeInTheDocument()
+  })
+
+  it('B2 no scroll before a row is picked', async () => {
+    const spy = vi.fn()
+    Element.prototype.scrollIntoView = spy
+    renderStock(BAL)
+    await within(await screen.findByRole('table')).findByText('Bolt M8')
+    expect(spy).not.toHaveBeenCalled()
+  })
+})

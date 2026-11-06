@@ -79,3 +79,14 @@ describe('MasterDetail narrow screens', () => {
     expect(screen.getByTestId('master-detail-back')).toHaveTextContent(uiMessages[lang].back)
   })
 })
+
+describe('M1 masterWidth classes', () => {
+  it.each([
+    ['split', 'lf-md lf-md--split'],
+    ['wide', 'lf-md lf-md--wide'],
+    [undefined, 'lf-md'],
+  ] as const)('%s -> %s', (width, cls) => {
+    render(<MasterDetail masterWidth={width} master={<p>l</p>} detail={<p>d</p>} />)
+    expect(screen.getByTestId('master-detail').className).toBe(cls)
+  })
+})
