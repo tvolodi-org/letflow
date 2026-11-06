@@ -6,7 +6,7 @@ defmodule Letflow.Ledger.HandlerPost do
   ## Build time (`build/3`, inside a handler call; no lock, no write)
 
     * B1 the per-call token and the context (as `create/3`; absent or forged is `:invalid_context`);
-    * B2 the size caps (256 KiB command, 200 legs), BEFORE the policy is called;
+    * B2 the size caps (1 MiB command, 2000 legs; REQ-774), BEFORE the policy is called;
     * B3 the registration's `declare/2` through `Catalog.declare_posting/2` (zero queries; a raise,
       exit or throw keeps no text);
     * B4 the core re-validation (`Validate.posting/3`, the call `Ledger` makes at run time) plus the
@@ -64,8 +64,8 @@ defmodule Letflow.Ledger.HandlerPost do
   alias Letflow.Ledger.Failure
   alias Letflow.Ledger.Validate
 
-  @max_command_bytes 262_144
-  @max_legs 200
+  @max_command_bytes 1_048_576
+  @max_legs 2000
   @max_postings 2
   @origin_key_node ~r/\A[A-Za-z0-9._-]{1,64}\z/
 

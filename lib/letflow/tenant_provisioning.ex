@@ -981,7 +981,10 @@ defmodule Letflow.TenantProvisioning do
      "20261105600001_create_user_preferences.exs"},
     # REQ-769 (decision 0055 Q1): tenant_modules.accepted_manifest_hashes (earlier hashes whose stamps stay valid).
     {20_261_106_100_001, Letflow.Repo.Migrations.AddAcceptedManifestHashesToTenantModules,
-     "20261106100001_add_accepted_manifest_hashes_to_tenant_modules.exs"}
+     "20261106100001_add_accepted_manifest_hashes_to_tenant_modules.exs"},
+    # REQ-774: ledger leg cap 200 -> 2000 (CHECK constraints of ledger_entry and ledger_leg).
+    {20_261_106_200_001, Letflow.Repo.Migrations.RaiseLedgerLegCap,
+     "20261106200001_raise_ledger_leg_cap.exs"}
   ]
 
   @doc """
