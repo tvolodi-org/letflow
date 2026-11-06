@@ -1,10 +1,17 @@
-/** T-1431 — `GET`/`PUT /api/v1/me/preferences` and the typed `ui.layout` key.
- *
- *  `ui.layout` is one JSON document per user (side nav state, per screen pane percentages, collapsed
- *  panes and column widths), sent as a STRING of at most 8192 bytes. The server sanitizes it
- *  (`Letflow.UserPreferences.sanitize_layout/1`, the twin of `LFPrefs.sanitize`) and returns the
- *  sanitized string, so the client parses tolerantly and does not sanitize again. */
+/** (T-1431 adds the typed `ui.layout` key below; the server sanitizes it, see `Letflow.UserPreferences.sanitize_layout/1`.)
+ *  Preferences API — `GET/PUT /api/v1/me/preferences` (T-1389). GET answers `{ preferences, effective,
+ *  tenant_defaults }`; PUT takes `{ preferences: { key: value | null } }` and merges (`null` resets a key).
+ *  No tenant id is sent: the route takes the tenant from the auth context (INV-10). */
 import { client } from './client'
+
+export const DOCUMENT_LAYOUT_KEY = 'ui.document_layout'
+export const DOCUMENT_LAYOUT_DEFAULT_KEY = 'ui.document_layout_default'
+
+export interface PreferencesAnswer {
+  preferences: Record<string, unknown>
+  effective: Record<string, unknown>
+  tenant_defaults: Record<string, unknown>
+}
 
 export const UI_LAYOUT_KEY = 'ui.layout' as const
 
@@ -19,10 +26,6 @@ export interface UiLayout {
       cols?: Record<string, Record<string, number>>
     }
   >
-}
-
-export interface PreferencesResponse {
-  preferences: Record<string, unknown>
 }
 
 export function emptyUiLayout(): UiLayout {
@@ -51,8 +54,6 @@ export function serializeUiLayout(layout: UiLayout): string {
 }
 
 export const preferencesApi = {
-  get: () => client.get<PreferencesResponse>('/api/v1/me/preferences'),
-  /** `null` as a value resets that key. */
-  put: (preferences: Record<string, string | null>) =>
-    client.put<PreferencesResponse>('/api/v1/me/preferences', { preferences }),
+  get: () => client.get<PreferencesAnswer>('/api/v1/me/preferences'),
+  put: (preferences: Record<string, unknown>) => client.put<PreferencesAnswer>('/api/v1/me/preferences', { preferences }),
 }

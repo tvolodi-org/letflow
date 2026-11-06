@@ -68,10 +68,15 @@ describe('C2-b filters', () => {
   })
 })
 
+/** The list pages in order; the preferences read of the workspace (T-1391) is answered apart so it takes none of them. */
+function listPages(...pages: unknown[]) {
+  const queue = [...pages]
+  clientMock.get.mockImplementation(async (path: string) => (path === '/api/v1/me/preferences' ? {} : queue.shift()))
+}
+
 describe('C2-c paging', () => {
   it('Load more sends the cursor with the same filters, appends, and hides at the end', async () => {
-    clientMock.get.mockResolvedValueOnce({ next_cursor: 'c2', rows: [ROW] })
-    clientMock.get.mockResolvedValueOnce({ next_cursor: null, rows: [{ ...DRAFT, id: 'd3', number: 'IS-2' }] })
+    listPages({ next_cursor: 'c2', rows: [ROW] }, { next_cursor: null, rows: [{ ...DRAFT, id: 'd3', number: 'IS-2' }] })
     renderStock(LIST)
     await screen.findByText('RC-1')
     fireEvent.click(screen.getByTestId('load-more'))
@@ -84,8 +89,7 @@ describe('C2-c paging', () => {
 
 describe('C2-d names', () => {
   it('reads org unit names with record_id in the ids of each page, once per page', async () => {
-    clientMock.get.mockResolvedValueOnce({ next_cursor: 'c2', rows: [ROW, { ...ROW, id: 'dx', number: 'RC-9' }] })
-    clientMock.get.mockResolvedValueOnce({ next_cursor: null, rows: [DRAFT] })
+    listPages({ next_cursor: 'c2', rows: [ROW, { ...ROW, id: 'dx', number: 'RC-9' }] }, { next_cursor: null, rows: [DRAFT] })
     renderStock(LIST)
     await screen.findByText('RC-9')
     fireEvent.click(screen.getByTestId('load-more'))
