@@ -281,5 +281,7 @@ export const queryKeys = {
     /** REQ-406 — installed-module list is tenant-scoped because it exposes
      *  per-tenant business data, even though the route lives under /me. */
     modules: (tenantId: string) => ['tenant', tenantId, 'me', 'modules'] as const,
+    /** T-1431 — the caller's stored preferences (`ui.layout`); tenant-scoped like `modules`. */
+    preferences: (tenantId: string) => ['tenant', tenantId, 'me', 'preferences'] as const,
   },
 }
