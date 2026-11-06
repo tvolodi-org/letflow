@@ -29,6 +29,7 @@ import { stockJournalScreens } from './fixtures/stockJournal'
 import { stockJournalLayoutScreens } from './fixtures/stockJournalLayout'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
 import { stockDocumentsEditScreens } from './fixtures/stockDocumentsEdit'
+import { linesEditorScreens } from './fixtures/linesEditor'
 import { stockDocumentsLayoutScreens } from './fixtures/stockDocumentsLayout'
 import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
 import { stockOpeningScreens } from './fixtures/stockOpening'
@@ -268,6 +269,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockJournalLayoutScreens,
     ...stockDocumentsScreens,
     ...stockDocumentsEditScreens,
+    ...linesEditorScreens,
     ...stockDocumentsLayoutScreens,
     ...stockTwoSidesScreens,
     ...stockOpeningScreens,

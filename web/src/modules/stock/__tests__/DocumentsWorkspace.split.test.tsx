@@ -31,6 +31,7 @@ beforeEach(() => {
     const grid = this.closest('.lf-doc') as HTMLElement | null
     if (this.classList.contains('lf-doc') || this.tagName === 'TABLE') return rect(1000)
     if (this.tagName === 'TH') return rect(parseFloat(this.style.width || '10') * 10)
+    if (this.classList.contains('lf-le')) return rect(width)
     if (this.classList.contains('lf-doc__list')) {
       const v = parseFloat(grid?.style.getPropertyValue('--lf-pane-1') || '19')
       return rect((v / 100) * width)
@@ -139,8 +140,9 @@ describe('T-1443 document screen splitters', () => {
   it('C1/C2 the lines table has column handles by stable ids; keys resize and store under cols.lines', async () => {
     serve([doc()])
     renderStock(`${LIST}/d1`, withPost)
-    const table = await screen.findByTestId('document-lines')
-    await waitFor(() => expect(table.querySelectorAll('.lf-colhandle').length).toBeGreaterThan(0))
+    await screen.findByTestId('document-lines')
+    await waitFor(() => expect(screen.getByTestId('document-lines').querySelectorAll('.lf-colhandle').length).toBeGreaterThan(0))
+    const table = screen.getByTestId('document-lines')
     expect(Array.from(table.querySelectorAll('th[data-col]')).map((t) => t.getAttribute('data-col'))).toEqual(['item', 'lot', 'qty', 'price', 'value'])
     expect(table.querySelector('th.is-idx')).not.toHaveAttribute('data-col')
     expect(table.querySelectorAll('.lf-colhandle')).toHaveLength(4)
@@ -176,8 +178,8 @@ describe('T-1443 document screen splitters', () => {
       const ws = await screen.findByTestId('document-workspace')
       await waitFor(() => expect(handles(ws)).toHaveLength(2))
       expect(handles(ws)[0]).toHaveAttribute('aria-label', listLabel)
-      const table = await screen.findByTestId('document-lines')
-      await waitFor(() => expect(table.querySelector('th[data-col=item] .lf-colhandle')?.getAttribute('aria-label')).toContain(colPrefix.replace(/: .*$/, '')))
+      await screen.findByTestId('document-lines')
+      await waitFor(() => expect(screen.getByTestId('document-lines').querySelector('th[data-col=item] .lf-colhandle')?.getAttribute('aria-label')).toContain(colPrefix.replace(/: .*$/, '')))
     },
   )
 })

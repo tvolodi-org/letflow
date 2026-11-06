@@ -65,6 +65,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
   const [form, setForm] = useState<FormState>(() => (doc ? formFromDocument(doc) : emptyForm(kind)))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
+  const [attempted, setAttempted] = useState(false)
   const { tabsLayout, setTab } = useDocTabs()
   const orgUnits = usePickerOptions('org_unit')
   const locations = usePickerOptions('location_node')
@@ -107,6 +108,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
 
   const submit = () => {
     setBanner(null)
+    setAttempted(true)
     const check = validateForm(form)
     setErrors(check.errors)
     if (Object.keys(check.errors).length > 0) {
@@ -280,7 +282,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
           )}
         </DocFields>
       </DocCard>
-      <LinesEditor kind={form.kind} lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} />
+      <LinesEditor kind={form.kind} lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} showErrors={attempted} />
     </>
   )
 }

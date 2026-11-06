@@ -25,6 +25,8 @@ export interface UiLayout {
       panes?: Record<string, (number | null)[]>
       collapsed?: Record<string, number[]>
       cols?: Record<string, Record<string, number>>
+      /** T-1448: the remembered entry mode of the lines editor on this screen. */
+      linesMode?: 'grid' | 'form'
     }
   >
 }

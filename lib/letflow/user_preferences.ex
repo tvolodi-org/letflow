@@ -20,6 +20,8 @@ defmodule Letflow.UserPreferences do
   numbers only (JS also coerces strings and booleans); when a cap (40 screens, 12 splits, 24 tables,
   40 columns) is hit the lexicographically first keys survive, as decoded maps keep no object order;
   an integral float counts as an integer in `collapsed`. `ui.layout` has no tenant default.
+  A screen may also carry `linesMode` (T-1448), the remembered entry mode of the lines editor: exactly
+  `"grid"` or `"form"`, anything else is dropped.
 
   ## Rules
 
@@ -277,9 +279,16 @@ defmodule Letflow.UserPreferences do
           into: %{},
           do: {t, c}
 
-    [{"panes", panes}, {"collapsed", collapsed}, {"cols", cols}]
-    |> Enum.reject(fn {_, v} -> map_size(v) == 0 end)
-    |> Map.new()
+    base =
+      [{"panes", panes}, {"collapsed", collapsed}, {"cols", cols}]
+      |> Enum.reject(fn {_, v} -> map_size(v) == 0 end)
+      |> Map.new()
+
+    # T-1448: the remembered entry mode of the lines editor, exactly "grid" or "form".
+    case s["linesMode"] do
+      m when m in ["grid", "form"] -> Map.put(base, "linesMode", m)
+      _ -> base
+    end
   end
 
   defp sanitize_cols(cs) do

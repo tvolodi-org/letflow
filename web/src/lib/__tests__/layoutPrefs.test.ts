@@ -70,9 +70,9 @@ describe('sanitizeUiLayout', () => {
     expect(out.shell.sidenav.w).toBe(300)
   })
 
-  it('P8 linesMode and unknown keys are dropped (the server twin keeps only panes, collapsed, cols)', () => {
-    const out = sanitizeUiLayout({ evil: 1, screens: { s: { linesMode: 'grid', foo: 1, panes: { a: [30] } } } })
-    expect(out).toEqual({ v: 1, shell: { sidenav: {} }, screens: { s: { panes: { a: [30] } } } })
+  it('P8 linesMode is kept only as "grid" or "form" (T-1448, twin of the server); unknown keys are dropped', () => {
+    const out = sanitizeUiLayout({ evil: 1, screens: { s: { linesMode: 'grid', foo: 1, panes: { a: [30] } }, t: { linesMode: 'bad' } } })
+    expect(out).toEqual({ v: 1, shell: { sidenav: {} }, screens: { s: { panes: { a: [30] }, linesMode: 'grid' } } })
   })
 })
 

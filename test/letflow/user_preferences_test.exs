@@ -48,6 +48,22 @@ defmodule Letflow.UserPreferencesTest do
     assert sl.(:nope) == %{"v" => 1, "shell" => %{"sidenav" => %{}}, "screens" => %{}}
   end
 
+  test "B1 linesMode survives only as grid or form" do
+    sl = &UserPreferences.sanitize_layout/1
+    mode = fn v -> sl.(%{"screens" => %{"a" => %{"linesMode" => v}}})["screens"]["a"] end
+
+    assert mode.("grid") == %{"linesMode" => "grid"}
+    assert mode.("form") == %{"linesMode" => "form"}
+    assert mode.("table") == nil
+    assert mode.(1) == nil
+    assert mode.(nil) == nil
+
+    kept =
+      sl.(%{"screens" => %{"a" => %{"linesMode" => "form", "cols" => %{"t" => %{"c" => 29}}}}})
+
+    assert kept["screens"]["a"] == %{"linesMode" => "form", "cols" => %{"t" => %{"c" => 29}}}
+  end
+
   test "U3 a bad ui.layout is refused before any database access" do
     p = "no_such_schema"
     u = Ecto.UUID.generate()

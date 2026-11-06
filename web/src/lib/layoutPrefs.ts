@@ -1,7 +1,7 @@
 /** T-1442 — pure helpers for the remembered layout (`ui.layout` user preference).
  *  `sanitizeUiLayout` is the TypeScript twin of `LFPrefs.sanitize` (design repo) and of the server's
  *  `Letflow.UserPreferences.sanitize_layout/1`: same ids, ranges, caps and the 8192-byte limit. Where the two ever
- *  disagree the server wins. Only `panes`, `collapsed` and `cols` are kept per screen (no `linesMode`).
+ *  disagree the server wins. Only `panes`, `collapsed`, `cols` and `linesMode` (T-1448, exactly "grid" or "form") are kept per screen.
  *  All setters are immutable: they return a new document, the caller decides when to store it. */
 import type { UiLayout } from '@/api/preferences'
 
@@ -59,6 +59,7 @@ function sanitizeScreen(s: Record<string, unknown>): Screen {
     }
     if (Object.keys(c).length) (r.cols ??= {})[t] = c
   }
+  if (s.linesMode === 'grid' || s.linesMode === 'form') r.linesMode = s.linesMode
   return r
 }
 

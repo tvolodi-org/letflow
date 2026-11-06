@@ -308,6 +308,27 @@ export interface FormCheck {
   errors: Record<string, string>
 }
 
+/** The checks of one line (field -> message id). Shared by the whole-form validation and the lines editor, which shows them
+ *  per line while the user types. */
+export function validateLine(kind: DocKind, l: LineForm): Record<string, string> {
+  const errors: Record<string, string> = {}
+  const opening = isOpening(kind)
+  if (l.itemId === '') errors['itemId'] = 'stock.doc.error.field_required'
+  else if (l.uomId === '') errors['itemId'] = 'stock.doc.error.unit_not_valid'
+  if (!isDecimalAboveZero(l.quantity)) errors['quantity'] = 'stock.doc.error.quantity_invalid'
+  if (opening) {
+    if (l.locationId === '') errors['locationId'] = 'stock.doc.error.field_required'
+    if (l.responsibleId === '') errors['responsibleId'] = 'stock.doc.error.field_required'
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(l.receivedOn)) errors['receivedOn'] = 'stock.doc.error.field_required'
+    else if (l.receivedOn > nowZonedLocal().slice(0, 10)) errors['receivedOn'] = 'stock.doc.error.received_on_in_future'
+  }
+  if (kind === 'receipt' || opening) {
+    if (l.unitPrice !== '' && !isDecimalNonNegative(l.unitPrice)) errors['unitPrice'] = 'stock.doc.error.price_invalid'
+    if (l.lineValue !== '' && !isDecimalNonNegative(l.lineValue)) errors['lineValue'] = 'stock.doc.error.price_invalid'
+  }
+  return errors
+}
+
 export function validateForm(f: FormState): FormCheck {
   const errors: Record<string, string> = {}
   const req = (key: string, v: string) => {
@@ -353,20 +374,7 @@ export function validateForm(f: FormState): FormCheck {
   if (!two && !opening && f.kind !== 'receipt' && f.reasonText.length > TEXT_MAX) errors['header.reasonText'] = 'stock.doc.error.textTooLong'
   if (f.lines.length < 1 || f.lines.length > MAX_LINES) errors['lines'] = 'stock.doc.error.lines_count'
   f.lines.forEach((l, i) => {
-    const k = `lines.${i}`
-    if (l.itemId === '') errors[`${k}.itemId`] = 'stock.doc.error.field_required'
-    else if (l.uomId === '') errors[`${k}.itemId`] = 'stock.doc.error.unit_not_valid'
-    if (!isDecimalAboveZero(l.quantity)) errors[`${k}.quantity`] = 'stock.doc.error.quantity_invalid'
-    if (opening) {
-      if (l.locationId === '') errors[`${k}.locationId`] = 'stock.doc.error.field_required'
-      if (l.responsibleId === '') errors[`${k}.responsibleId`] = 'stock.doc.error.field_required'
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(l.receivedOn)) errors[`${k}.receivedOn`] = 'stock.doc.error.field_required'
-      else if (l.receivedOn > nowZonedLocal().slice(0, 10)) errors[`${k}.receivedOn`] = 'stock.doc.error.received_on_in_future'
-    }
-    if (f.kind === 'receipt' || opening) {
-      if (l.unitPrice !== '' && !isDecimalNonNegative(l.unitPrice)) errors[`${k}.unitPrice`] = 'stock.doc.error.price_invalid'
-      if (l.lineValue !== '' && !isDecimalNonNegative(l.lineValue)) errors[`${k}.lineValue`] = 'stock.doc.error.price_invalid'
-    }
+    for (const [field, id] of Object.entries(validateLine(f.kind, l))) errors[`lines.${i}.${field}`] = id
   })
   return { errors }
 }

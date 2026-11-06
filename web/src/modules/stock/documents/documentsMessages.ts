@@ -1,6 +1,8 @@
 /** documentsMessages — GH 3769 / REQ-722. Messages of the stock document screens, en/ru/kk, same id set in each
  *  (merged into stockMessages.ts). The ru and kk texts are written by the developer and need a native-speaker check. */
 
+import { MAX_LINES } from './documentsModel'
+
 export const docEn: Record<string, string> = {
   'stock.doc.title': 'Stock documents',
   'stock.doc.lede': 'Receipts, issues and write offs of stock: draft, issue, post, reverse.',
@@ -130,7 +132,7 @@ export const docEn: Record<string, string> = {
   'stock.doc.error.unknown_kind': 'This kind of document is not supported.',
   'stock.doc.error.field_not_allowed': 'This field is not allowed for this kind of document.',
   'stock.doc.error.field_required': 'This field is required.',
-  'stock.doc.error.lines_count': 'A document needs between 1 and 100 lines.',
+  'stock.doc.error.lines_count': `A document needs between 1 and ${MAX_LINES} lines.`,
   'stock.doc.error.quantity_invalid': 'The quantity must be a decimal number above zero.',
   'stock.doc.error.price_invalid': 'The price or value must be a decimal number.',
   'stock.doc.error.reason_invalid': 'The reason is not valid.',
@@ -290,7 +292,7 @@ export const docRu: Record<string, string> = {
   'stock.doc.error.unknown_kind': 'Такой вид документа не поддерживается.',
   'stock.doc.error.field_not_allowed': 'Это поле не разрешено для данного вида документа.',
   'stock.doc.error.field_required': 'Это поле обязательно.',
-  'stock.doc.error.lines_count': 'В документе должно быть от 1 до 100 строк.',
+  'stock.doc.error.lines_count': `В документе должно быть от 1 до ${MAX_LINES} строк.`,
   'stock.doc.error.quantity_invalid': 'Количество должно быть десятичным числом больше нуля.',
   'stock.doc.error.price_invalid': 'Цена или сумма должна быть десятичным числом.',
   'stock.doc.error.reason_invalid': 'Причина указана неверно.',
@@ -450,7 +452,7 @@ export const docKk: Record<string, string> = {
   'stock.doc.error.unknown_kind': 'Құжаттың мұндай түрі қолдау таппайды.',
   'stock.doc.error.field_not_allowed': 'Бұл өріс құжаттың осы түрі үшін рұқсат етілмеген.',
   'stock.doc.error.field_required': 'Бұл өріс міндетті.',
-  'stock.doc.error.lines_count': 'Құжатта 1-ден 100-ге дейін жол болуы керек.',
+  'stock.doc.error.lines_count': `Құжатта 1-ден ${MAX_LINES}-ге дейін жол болуы керек.`,
   'stock.doc.error.quantity_invalid': 'Саны нөлден үлкен ондық сан болуы керек.',
   'stock.doc.error.price_invalid': 'Баға немесе сома ондық сан болуы керек.',
   'stock.doc.error.reason_invalid': 'Себеп дұрыс көрсетілмеген.',

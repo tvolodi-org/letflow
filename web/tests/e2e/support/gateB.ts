@@ -19,6 +19,8 @@ export const ENV = {
   shotsDir: process.env.E2E_SHOTS_DIR ?? 'test-results/gate-b-shots',
 }
 
+const ENV_BASE = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:4173'
+
 export const SKIP_REASON = 'E2E_ADMIN_USER / E2E_ADMIN_PASSWORD are not set (no stack to run against)'
 export const hasAdmin = ENV.admin !== '' && ENV.adminPw !== ''
 
@@ -48,8 +50,20 @@ export async function setPrefs(page: Page, prefs: { lang?: 'en' | 'ru' | 'kk'; t
 
 /** Open a route of the SPA inside the signed-in session (full load; the OIDC session is restored from storage). */
 export async function openRoute(page: Page, path: string): Promise<void> {
-  await page.goto(path, { waitUntil: 'domcontentloaded' })
-  await expect(page.locator('#main-content')).toBeVisible({ timeout: 30_000 })
+  const wanted = new URL(path, page.url() === 'about:blank' ? ENV_BASE : page.url()).pathname
+  // A full load may go through the OIDC callback, which lands on the dashboard before the route is open (seen on the
+  // Vite dev server in CI, T-1448): ask again, the session is stored by then.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.goto(path, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('#main-content')).toBeVisible({ timeout: 30_000 })
+    try {
+      await page.waitForURL((url) => url.pathname === wanted, { timeout: 8_000 })
+      return
+    } catch {
+      // not there yet: load it again
+    }
+  }
+  await expect(page).toHaveURL(new RegExp(`${wanted.replace(/[/]/g, '\\/')}$`))
 }
 
 /** Pick an option of a native select by (part of) its text; no text = the first real option. */

@@ -12,7 +12,9 @@ describe('lf-lines container-query card mode', () => {
     expect(css).not.toMatch(/@container lf-lines \(max-width: (700|1000)px\)/)
   })
   it('U4 T-1438: no 1440 px re-template stacks the lines under the header; edit tables have a floor width', () => {
-    expect(css).not.toMatch(/@media \(min-width: 1440px\)/)
+    // T-1448: the one 1440 px rule hides the list while a draft is edited (header and lines keep their side-by-side areas).
+    expect(css).toContain('@container lfhost (min-width: 1440px)')
+    expect(css).toContain('grid-template-areas: "top top" "header lines"')
     expect(css).not.toContain('"list top" "list header" "list lines"')
     expect(css).toMatch(/\.lf-lines--edit \{ min-width: 38rem; \}/)
     expect(css).toMatch(/\.lf-topbar \{ background: var\(--paper\); backdrop-filter: none; \}/)

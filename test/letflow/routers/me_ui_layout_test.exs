@@ -182,6 +182,13 @@ defmodule Letflow.Routers.MeUiLayoutTest do
     assert [%{action: "user_preferences.set"}] = audit(a)
   end
 
+  test "B2 linesMode round trips through the route; garbage is dropped", %{a: a, token: t} do
+    doc = %{"screens" => %{"s" => %{"linesMode" => "form"}, "u" => %{"linesMode" => "wide"}}}
+    out = saved(a, t, doc)
+    assert out["screens"] == %{"s" => %{"linesMode" => "form"}}
+    assert Jason.decode!(stored_string(a, t))["screens"]["s"]["linesMode"] == "form"
+  end
+
   test "L12 a non-string value is refused 422 and nothing is written", %{a: a, token: t} do
     conn = call(:put, a, t, %{"preferences" => %{@key => %{"v" => 1}}})
     assert conn.status == 422
