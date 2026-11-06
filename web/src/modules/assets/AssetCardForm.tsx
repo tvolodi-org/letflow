@@ -141,6 +141,8 @@ export function AssetCardForm(props: {
             error={invalid('acquisition_date')}
             onChange={(v) => patch({ acquisition_date: v })}
           />
+        </FormRow>
+        <FormRow>
           <Field label={t('assets.field.currency')} width="s" mono optional hint={t('assets.field.currencyHint')} error={invalid('currency')}>
             <input name="currency" maxLength={3} value={form.currency} onChange={(e) => patch({ currency: e.target.value.toUpperCase() })} />
           </Field>

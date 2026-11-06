@@ -122,17 +122,10 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
             {' · '}
             <span>{unitLabel(textOf(c, 'org_unit_id')) || t('assets.common.dash')}</span>
           </div>
+          <StatusPill tone={isActive(c) ? 'success' : 'neutral'} glyph={isActive(c) ? 'dot' : 'dash'}>
+            {t(isActive(c) ? 'assets.common.active' : 'assets.common.retired')}
+          </StatusPill>
         </>
-      ),
-    },
-    {
-      key: 'status',
-      label: t('assets.col.status'),
-      hideStackLabel: true,
-      render: (c) => (
-        <StatusPill tone={isActive(c) ? 'success' : 'neutral'} glyph={isActive(c) ? 'dot' : 'dash'}>
-          {t(isActive(c) ? 'assets.common.active' : 'assets.common.retired')}
-        </StatusPill>
       ),
     },
   ]
