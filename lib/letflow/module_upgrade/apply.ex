@@ -5,7 +5,7 @@ defmodule Letflow.ModuleUpgrade.Apply do
   one transaction: the new entity-definition versions are created and activated, new process
   definitions are created as stamped drafts, the module's ledger storage is ensured, the replaced
   manifest hash joins `tenant_modules.accepted_manifest_hashes`, the row's version and hash are
-  re-written, the journal row (`tenant_module_upgrades`) becomes `done` and one `module.upgrade`
+  re-written, the journal row (the upgrade journal) becomes `done` and one `module.upgrade`
   audit entry is written. A plan with any step is refused (`upgrade_needs_runner`): the runner slice
   (REQ-773) does not exist yet.
 
