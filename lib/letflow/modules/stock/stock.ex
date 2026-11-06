@@ -288,6 +288,8 @@ defmodule Letflow.Modules.Stock do
   defmanifest(
     id: "stock",
     version: "0.15.0",
+    # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
+    min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
     pack: "modules/stock/pack.json",
     permissions: [

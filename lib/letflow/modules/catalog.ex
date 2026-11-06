@@ -1229,12 +1229,18 @@ defmodule Letflow.Modules.Catalog do
         semver_compare(to, version) == :gt -> no_path
         semver_compare(from, to) == :gt -> no_path
         semver_compare(from, to) == :eq -> {:ok, []}
-        true -> walk_steps(usable_steps(manifest), from, to) || no_path
+        true -> walk_or_stepless(usable_steps(manifest), from, to, no_path)
       end
     else
       no_path
     end
   end
+
+  # REQ-770: a manifest with no usable migration steps that declares a window
+  # (`min_upgradable_from`) states "every version in [min, version] upgrades without steps".
+  # Without a declared window `min == version`, so this clause is never reached for from < to.
+  defp walk_or_stepless([], _from, _to, _no_path), do: {:ok, []}
+  defp walk_or_stepless(steps, from, to, no_path), do: walk_steps(steps, from, to) || no_path
 
   defp usable_steps(manifest) do
     case Map.get(manifest, :migrations, []) do
