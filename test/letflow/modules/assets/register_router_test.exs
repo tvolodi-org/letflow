@@ -256,8 +256,8 @@ defmodule Letflow.Modules.Assets.RegisterRouterTest do
       slug = Letflow.Repo.get!(Letflow.Identity.Tenant, ctx.a.tenant_id).slug
 
       bad = [
-        "/balances?format=xlsx",
-        "/balances?format=json",
+        "/balances?format=pdf",
+        "/balances?format=",
         "/balances?tenant_id=#{@u1}",
         "/balances?prefix=x",
         "/balances?ledger_id=assets",
