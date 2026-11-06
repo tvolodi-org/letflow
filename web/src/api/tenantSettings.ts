@@ -37,4 +37,7 @@ export const tenantSettingsApi = {
     client.patch<TenantSettingsPatchResponse>('/api/v1/tenant/settings', {
       brand_colors: { primary },
     } satisfies TenantSettingsPatchBody),
+  /** T-1391 — the tenant default of the document-form layout (flat top-level key, like the colour). */
+  patchDocumentLayoutDefault: (layout: string) =>
+    client.patch<TenantSettingsPatchResponse>('/api/v1/tenant/settings', { 'ui.document_layout_default': layout }),
 }

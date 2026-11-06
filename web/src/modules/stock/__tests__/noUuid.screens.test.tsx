@@ -128,7 +128,8 @@ describe('N1 stock register screens', () => {
   it('new document form: select options read "code - title"', async () => {
     stockServer({})
     const { container } = renderStock(`${DOC_LIST}/new`, withPost)
-    await screen.findByRole('option', { name: 'MS - Main store' })
+    // The store is offered by the org-unit and the location select alike; which one loads first is a race.
+    await screen.findAllByRole('option', { name: 'MS - Main store' })
     await screen.findByRole('option', { name: 'RACK-01 - Rack 01' })
     await screen.findByRole('option', { name: 'E-1 - Aigul B.' })
     expect(noUuidInDom(container)).toBe(true)

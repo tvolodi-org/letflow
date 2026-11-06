@@ -14,6 +14,7 @@ import { topbarLanguage } from './topbarFixtures'
 import { roleLabelsScreens } from './roleLabelsFixtures'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
+import { docLayoutScreens } from './fixtures/docLayouts'
 import { assetsScreens } from './fixtures/assets'
 import { stockR7Screens } from './fixtures/stockR7'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
@@ -242,6 +243,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     codesScreen('codes-receive', { receive: true }),
     ...catalogItemsScreens,
     ...locationsScreens,
+    ...docLayoutScreens,
     ...assetsScreens,
     ...stockR7Screens,
     ...sessionNoticeScreens,

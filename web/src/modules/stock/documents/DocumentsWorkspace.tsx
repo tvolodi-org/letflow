@@ -20,6 +20,8 @@ import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { DocBar, DocBlank, DocCard, DocField, DocFields, DocGroup, DocLayout } from '@/components/ui/doc/DocLayout'
+import { useDocumentLayout } from '@/hooks/useDocumentLayout'
+import { DocumentTabs } from './DocumentTabs'
 import { DocLineItem, DocLinesTable, DocLinesTotal } from '@/components/ui/doc/DocLines'
 import { RegisterError } from '../register/RegisterShell'
 import { usePdfDownload } from '../register/usePdfDownload'
@@ -226,6 +228,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
           </Banner>
         )}
       </DocBar>
+      <DocumentTabs lineCount={lines.length} />
       <DocCard area="header" title={t('stock.doc.header')}>
         <DocFields data-testid="document-header">
           {row(t('stock.doc.col.number'), doc.number, true)}
@@ -326,10 +329,12 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
   const navigate = useNavigate()
   const { can } = useAccess()
   const back = () => navigate(DOCUMENTS_PATH)
+  const layout = useDocumentLayout()
+  const docState = mode === 'create' ? 'new' : mode === 'view' ? 'existing' : 'none'
   return (
     <>
       <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.doc.title')} lede={t('stock.doc.lede')} />
-      <DocLayout detailOpen={mode !== 'list'} data-testid="document-workspace">
+      <DocLayout detailOpen={mode !== 'list'} layout={layout} docState={docState} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">
         <DocumentList selectedId={mode === 'view' ? id : undefined} />
         {mode === 'list' && <DocBlank title={t('stock.doc.blank.title')} text={t('stock.doc.blank.text')} />}
         {mode === 'view' && id && <DocumentView key={id} id={id} onBack={back} />}

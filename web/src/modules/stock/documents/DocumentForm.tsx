@@ -9,7 +9,9 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
-import { DocBar, DocCard, DocEdit, DocFields } from '@/components/ui/doc/DocLayout'
+import { DocBar, DocCard, DocEdit, DocFields, useDocTabs } from '@/components/ui/doc/DocLayout'
+import { firstProblemTab, paneOfKey, problemsByPane } from '@/components/ui/doc/docLayouts'
+import { DocumentTabs } from './DocumentTabs'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
@@ -63,6 +65,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
   const [form, setForm] = useState<FormState>(() => (doc ? formFromDocument(doc) : emptyForm(kind)))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
+  const { tabsLayout, setTab } = useDocTabs()
   const orgUnits = usePickerOptions('org_unit')
   const locations = usePickerOptions('location_node')
   const employees = usePickerOptions('org_employee')
@@ -93,8 +96,10 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
     },
     onError: (e) => {
       const placed = placeError(e)
-      if (placed.key) setErrors({ [placed.key]: placed.messageId })
-      else setBanner(t(placed.messageId))
+      if (placed.key) {
+        setErrors({ [placed.key]: placed.messageId })
+        if (tabsLayout) setTab(paneOfKey(placed.key))
+      } else setBanner(t(placed.messageId))
     },
   })
 
@@ -104,7 +109,12 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
     setBanner(null)
     const check = validateForm(form)
     setErrors(check.errors)
-    if (Object.keys(check.errors).length > 0) return
+    if (Object.keys(check.errors).length > 0) {
+      // Tab layout: Save moves to the first tab with a problem (the badge on the other tab keeps its count).
+      const first = firstProblemTab(problemsByPane(check.errors))
+      if (tabsLayout && first) setTab(first)
+      return
+    }
     save.mutate(buildBody(form))
   }
   const err = (key: string) => (errors[`header.${key}`] ? t(errors[`header.${key}`]) : undefined)
@@ -134,6 +144,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
       >
         {banner && <Banner tone="danger">{banner}</Banner>}
       </DocBar>
+      <DocumentTabs lineCount={form.lines.length} problems={problemsByPane(errors)} />
       <DocCard area="header" title={t('stock.doc.header')} data-testid="document-form">
         <DocFields editing>
           {onKindChange && (
