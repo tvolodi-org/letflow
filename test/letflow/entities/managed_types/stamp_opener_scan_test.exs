@@ -80,6 +80,9 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
     "lib/letflow/ledger/storage/ddl.ex",
     # REQ-646 A3b: the subtree read interpolates only the prefix, checked against `@prefix_re` (INV-7).
     "lib/letflow/modules/locations/tree.ex",
+    # REQ-770: `SET LOCAL lock_timeout/statement_timeout` interpolate module constants only (INV-7);
+    # reviewed by SECURITY-REVIEWER.
+    "lib/letflow/module_upgrade/apply.ex",
     "lib/letflow/ordering/metrics.ex",
     "lib/letflow/ordering/sweeper.ex",
     "lib/letflow/sandbox_pool.ex",

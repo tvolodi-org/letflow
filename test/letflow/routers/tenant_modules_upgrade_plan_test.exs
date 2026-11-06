@@ -146,18 +146,18 @@ defmodule Letflow.Routers.TenantModulesUpgradePlanTest do
   end
 
   describe "report" do
-    test "P4 the aged 0.10.0 install: stamps pass, boot-applicable, hash set, no path marker",
+    test "P4 the aged 0.9.0 install: stamps pass, boot-applicable, hash set, no path marker",
          ctx do
-      age!(ctx.schema, "0.10.0", @old_hash)
+      age!(ctx.schema, "0.9.0", @old_hash)
       report = plan!(ctx.tok_a)
 
-      assert report["from_version"] == "0.10.0"
+      assert report["from_version"] == "0.9.0"
       assert report["to_version"] == ctx.compiled_version
       assert report["stamped_definitions"] != []
       assert Enum.all?(report["stamped_definitions"], & &1["passes_activation"])
       assert report["applicable_on_boot"] == true
       assert report["plan_hash"] =~ ~r/^[0-9a-f]{64}$/
-      # stock declares no min_upgradable_from: a 0.10.0 install has no path, still a 200
+      # stock's window starts at 0.10.0 (REQ-770): a 0.9.0 install has no path, still a 200
       assert report["upgrade_path_available"] == false
       assert report["path_error"] == "no_upgrade_path"
       assert report["steps"] == []
@@ -165,7 +165,7 @@ defmodule Letflow.Routers.TenantModulesUpgradePlanTest do
     end
 
     test "P4c the marker follows the path and moves the hash; neither case is a 409", ctx do
-      age!(ctx.schema, "0.10.0", @old_hash)
+      age!(ctx.schema, "0.9.0", @old_hash)
       without = plan(ctx.tok_a) |> P.status!(200)
 
       age!(ctx.schema, ctx.compiled_version, @old_hash)

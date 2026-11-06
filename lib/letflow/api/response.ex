@@ -285,6 +285,11 @@ defmodule Letflow.Api.Response do
   @spec module_upgrade_required(Plug.Conn.t()) :: Plug.Conn.t()
   def module_upgrade_required(conn), do: send_problem(conn, Error.module_upgrade_required())
 
+  @doc "HTTP 409 — Module Upgrade Refused (REQ-770). See `Error.module_upgrade_refused/2`."
+  @spec module_upgrade_refused(Plug.Conn.t(), String.t(), map()) :: Plug.Conn.t()
+  def module_upgrade_refused(conn, code, extras \\ %{}),
+    do: send_problem(conn, Error.module_upgrade_refused(code, extras))
+
   @doc "HTTP 422 — Module Install DDL Failed (GH #2540). See `Letflow.Api.Error.module_install_ddl_failed/0`."
   @spec module_install_ddl_failed(Plug.Conn.t()) :: Plug.Conn.t()
   def module_install_ddl_failed(conn), do: send_problem(conn, Error.module_install_ddl_failed())

@@ -311,6 +311,23 @@ defmodule Letflow.Api.Error do
   end
 
   @doc """
+  HTTP 409 — Module Upgrade Refused (REQ-770, decision 0080). `code` is one of the closed set of
+  refusal and failure codes of the upgrade apply (`plan_mismatch`, `no_upgrade_path`,
+  `upgrade_forbidden`, `ack_mismatch`, `upgrade_needs_runner`, `upgrade_running`, `upgrade_failed`);
+  `extensions` carries only code-like extras (reasons, a failure code), never tenant data.
+  """
+  @spec module_upgrade_refused(String.t(), map()) :: t()
+  def module_upgrade_refused(code, extras \\ %{}) when is_binary(code) and is_map(extras) do
+    %__MODULE__{
+      type: @problems_base <> "module-upgrade-refused",
+      title: "Module Upgrade Refused",
+      status: 409,
+      detail: "the module upgrade was not applied",
+      extensions: Map.put(extras, "code", code)
+    }
+  end
+
+  @doc """
   HTTP 422 — Module Install DDL Failed (GH #2540).
 
   Returned by `POST /tenant/modules` and `POST /tenant/solutions` when a database

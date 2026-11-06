@@ -69,11 +69,11 @@ samp {
 .lf-doc__lines { container: lf-lines / inline-size; }
 /* T-1448 (gui_review: grid scrolled sideways at 1440): while a draft is edited on a wide screen the list column steps aside
    (Back returns to it), so the header and the lines editor share the whole content width and every grid column fits. */
-@media (min-width: 1440px) {
-  .lf-doc:has(.lf-le[data-readonly="false"]) { grid-template-columns: var(--doc-header-width) minmax(0, 1fr); grid-template-areas: "top top" "header lines"; }
+@container lfhost (min-width: 1440px) {
+  .lf-doc:has(.lf-le[data-readonly="false"]) { grid-template-columns: var(--lf-pane-2, var(--doc-header-width)) minmax(0, 1fr); grid-template-areas: "top top" "header lines"; }
   .lf-doc:has(.lf-le[data-readonly="false"]) > .lf-doc__list { display: none; }
 }
-.lf-le, .lf-le__body, .lf-le__formwrap { scrollbar-color: var(--line-strong) transparent; color-scheme: inherit; }
+.lf-le, .lf-le *, .lf-le__body, .lf-le__formwrap { scrollbar-color: var(--line-strong) transparent; color-scheme: inherit; }
 /* T-1448: the lines editor (lf-le) fills the lines card; it needs a definite height to scroll inside itself. */
 .lf-doc__lines .lf-le { height: min(70vh, 720px); min-height: 22rem; }
 .lf-doc__lines .lf-le__table:not(.lf-le__table--saved) { min-width: 36rem; }
@@ -145,3 +145,7 @@ samp {
 /* T-1434: the "Official form" menu opens from the trigger's left edge and stays inside a narrow screen. */
 .lf-formmenu .lf-lang__menu { left: 0; right: auto; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
 .lf-formmenu .lf-lang__item { grid-template-columns: 1fr auto; }
+
+/* T-1442: the design's `.lf-content--fluid` (components.css, before `.lf-content`) loses to `.lf-content` on equal
+   specificity, so the cap stayed. Doubling the class restores the intended order; report to the design repo, then drop. */
+.lf-content.lf-content--fluid { max-width: none; }
