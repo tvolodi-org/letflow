@@ -2878,6 +2878,8 @@ defmodule Letflow.Engine do
              {:entity_write_refused_detailed, non_neg_integer(), atom(), String.t(), map()}}
           | {:error, {:entity_write_failed, index :: non_neg_integer(), step :: atom()}}
           | {:error, :entity_write_needs_reactivation}
+          # REQ-771: the tenant's module is behind the compiled build (maps to 409).
+          | {:error, :module_upgrade_required}
           | {:error, Ecto.Changeset.t()}
           | {:error, term()}
 
@@ -3656,7 +3658,8 @@ defmodule Letflow.Engine do
     :entity_type_inactive,
     :entity_write_contention,
     :entity_write_failed,
-    :entity_write_needs_reactivation
+    :entity_write_needs_reactivation,
+    :upgrade_required
   ]
 
   # P0 + P1 (design 7.3). Read-only except `prepare/2`'s own short transaction. Never fails the
@@ -3846,6 +3849,9 @@ defmodule Letflow.Engine do
       {:error, :entity_write_needs_reactivation} = refusal ->
         refusal
 
+      {:error, :module_upgrade_required} = refusal ->
+        refusal
+
       {:error, {:entity_write_refused, _index, _code}} = refusal ->
         refusal
 
@@ -3888,6 +3894,20 @@ defmodule Letflow.Engine do
          }) do
       :ok ->
         :ok
+
+      {:error, {index, :hash_mismatch_upgrade}} ->
+        # REQ-771: the only reason is "not upgraded yet": the audit keeps the usual code and the
+        # detail `hash_mismatch`, the caller gets the clear 409. Nothing is committed.
+        record_entity_write_refusal_audit(
+          task,
+          actor_id,
+          index,
+          :write_not_permitted,
+          :hash_mismatch,
+          prefix
+        )
+
+        {:error, :module_upgrade_required}
 
       {:error, {index, detail}} ->
         # One public code for every cause (INV-5); the closed detail goes to the tenant audit.
@@ -6516,6 +6536,9 @@ defmodule Letflow.Engine do
          }) do
       :ok ->
         :ok
+
+      {:error, {index, :hash_mismatch_upgrade}} ->
+        {:error, {:service_refused, index, :upgrade_required, :hash_mismatch}}
 
       {:error, {index, detail}} ->
         {:error, {:service_refused, index, :write_not_permitted, detail}}

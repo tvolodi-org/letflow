@@ -406,6 +406,7 @@ defmodule Letflow.Entities.HandlerWrites do
     module_write_module_not_installed: :module_not_installed,
     module_write_handler_unknown: :handler_unknown,
     module_write_hash_mismatch: :hash_mismatch,
+    module_write_upgrade_required: :hash_mismatch,
     module_write_body_changed: :body_changed,
     module_write_arg_unknown: :arg_unknown,
     module_write_arg_missing: :arg_missing,
@@ -426,7 +427,9 @@ defmodule Letflow.Entities.HandlerWrites do
   `ctx`: `:prefix`, `:owner` (the stamp read from the definition row, or `nil`),
   `:snapshot_graph` (the pinned snapshot's raw graph map) and `:entity_write_count` (the node's
   declarative line count, so a reported index is the declared one). Returns the first refusal
-  as `{:error, {declared_index, detail}}`; the detail is for the tenant audit only.
+  as `{:error, {declared_index, detail}}`; the detail is for the tenant audit only, except
+  `:hash_mismatch_upgrade` (REQ-771): the ONLY refusal is that the tenant's installed module is
+  behind the compiled build, which the engine answers as 409 `upgrade_required`.
   """
   @spec authorize_module_writes([map()], %{
           required(:prefix) => String.t(),
@@ -451,7 +454,7 @@ defmodule Letflow.Entities.HandlerWrites do
           %{graph: graph}
       end
 
-    case ModuleWrites.line_violations(
+    case ModuleWrites.runtime_line_violations(
            lines,
            definition,
            Map.get(ctx, :entity_write_count, 0),
@@ -460,8 +463,11 @@ defmodule Letflow.Entities.HandlerWrites do
       [] ->
         :ok
 
-      [%{index: index, code: code} | _rest] ->
-        {:error, {index, Map.get(@authorize_details, code, :line_malformed)}}
+      [%{index: index, code: code} | _rest] = violations ->
+        # REQ-771: the clear "upgrade required" answer only when it is the ONLY reason.
+        if Enum.all?(violations, &(&1.code == :module_write_upgrade_required)),
+          do: {:error, {index, :hash_mismatch_upgrade}},
+          else: {:error, {index, Map.get(@authorize_details, code, :line_malformed)}}
     end
   end
 

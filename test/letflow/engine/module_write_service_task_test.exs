@@ -638,7 +638,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       assert_landed(ctx, "write_not_permitted", 0, "hash_mismatch")
     end
 
-    test "installed == stamp but != the compiled manifest hash lands ERROR: hash_mismatch" do
+    test "installed == stamp but != the compiled manifest hash lands ERROR: upgrade_required" do
       ctx = Mw.service_case!("gh2590-r5-compiled", :svc_module)
       other = String.duplicate("d", 64)
 
@@ -646,7 +646,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       Mw.set_installed_hash!(ctx.schema, "fixture_ledger", other)
 
       assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
-      assert_landed(ctx, "write_not_permitted", 0, "hash_mismatch")
+      assert_landed(ctx, "upgrade_required", 0, "hash_mismatch")
     end
 
     test "installed == compiled but != the stamp lands ERROR: hash_mismatch" do
