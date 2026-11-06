@@ -1,0 +1,17 @@
+{
+  "name": "assets_commission",
+  "display_name": "Asset commission (header)",
+  "description": "GH #3891 / REQ-751 (assets C10), docs/assets/asset-workflow-documents.md sections 1 and 2. The header of an asset commission document (putting assets into the register). It is written only by module assets (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: no number, status or posted time is stored here (they are read from the versioned document and the posting mark). org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7). event_time is the time of the commissioning, ISO 8601 with offset, stored in UTC. location_id, material_responsible_id and actual_user_id are record ids of modules locations and org (other packs: no foreign key; the module checks them at issue). After issue nothing of the header changes.",
+  "fields": [
+    {"name": "document_id", "type": "string", "required": true, "queried": true},
+    {"name": "event_time", "type": "datetime", "required": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "location_id", "type": "string"},
+    {"name": "material_responsible_id", "type": "string", "required": true},
+    {"name": "actual_user_id", "type": "string"},
+    {"name": "note", "type": "string"}
+  ],
+  "indexes": [
+    {"name": "idx_assets_commission_document_id", "fields": ["document_id"]}
+  ]
+}
