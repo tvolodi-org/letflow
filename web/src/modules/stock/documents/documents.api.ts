@@ -91,8 +91,8 @@ export const documentsApi = {
   check: (id: string) => client.post<CheckResult>(`${BASE}/${encodeURIComponent(id)}/check`),
   /** REQ-738: the PDF of a transfer, hand over or return; the language is the UI language. */
   print: (id: string, lang: UiLocale) => client.getBlob(`${BASE}/${encodeURIComponent(id)}/print`, { lang }),
-  /** T-1417: an official form (`z5`: the internal movement invoice of a transfer) as a .pdf or .docx, ru or kk. */
-  printForm: (id: string, form: 'z5', format: 'pdf' | 'docx', lang: 'ru' | 'kk') =>
+  /** T-1434: the official Z-2 issue note; T-1417: Z-5 (internal movement invoice of a transfer); .docx or .pdf, ru or kk. */
+  printForm: (id: string, form: 'z2' | 'z5', format: 'docx' | 'pdf', lang: 'ru' | 'kk') =>
     client.getBlob(`${BASE}/${encodeURIComponent(id)}/print`, { form, format, lang }),
   /** The server reads the key `reason` (Posting.cancel/5). */
   cancel: (id: string, body: { reason: string }) => client.post<StockDocument>(`${BASE}/${encodeURIComponent(id)}/cancel`, body),

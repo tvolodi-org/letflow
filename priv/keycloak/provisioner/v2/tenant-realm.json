@@ -26,7 +26,8 @@
       { "name": "TASK_WORKER" },
       { "name": "AGENT_RUNNER" },
       { "name": "CANDIDATE" },
-      { "name": "TENANT_AUDITOR" }
+      { "name": "TENANT_AUDITOR" },
+      { "name": "STOREKEEPER" }
     ]
   },
   "components": {

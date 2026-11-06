@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
-/** W-1..W-4 — T-1417 (E5c): the official form buttons, Z-5 on a transfer and Z-3 on the balances screen. Network mocked. */
+/** F1–F8 — T-1434: the "Official form" menu on issue documents (Z-2) and its catalogs. Network mocked. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
-import { docEn } from '../documents/documentsMessages'
-import { officialFormLang } from '../documents/documentsModel'
+import { printErrorMessageId } from '../documents/documentsModel'
+import { formEn, formKk, formRu } from '../forms/officialFormMessages'
+import { formsForCount, formsForDocument, officialFormLang } from '../forms/officialForms'
 import { stockMessages } from '../stockMessages'
-import { BAL, DOCS, LIST, fakeDocument, fakeMasters, refusal, renderStock, stockDoc } from './stockTestKit'
+import { DOCS, LIST, fakeDocument, fakeMasters, refusal, renderStock, stockDoc } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -18,10 +19,7 @@ vi.mock('@/auth/AuthContext', () => ({
 const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn(), getBlob: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
-const CARD = '/api/v1/modules/stock/stock-card/print'
 let downloads: string[] = []
-const file = (cd: string | null) => ({ blob: new Blob(['x']), contentType: 'application/pdf', contentDisposition: cd })
-
 beforeEach(() => {
   for (const m of Object.values(clientMock)) m.mockReset()
   fakeMasters(clientMock)
@@ -38,90 +36,114 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('W-1 Z-5 buttons on a transfer', () => {
-  it('two buttons; a click asks for form z5 in the chosen format, English prints ru', async () => {
-    fakeDocument(clientMock, stockDoc({ kind: 'transfer', state: 'issued', number: 'TR-1' }))
-    clientMock.getBlob.mockResolvedValue(file('attachment; filename="TR-1_Z-5.docx"'))
-    renderStock(`${LIST}/d1`)
-    await userEvent.click(await screen.findByTestId('document-print-z5-docx'))
-    await waitFor(() => expect(downloads).toEqual(['TR-1_Z-5.docx']))
-    expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'z5', format: 'docx', lang: 'ru' })
-    await userEvent.click(screen.getByTestId('document-print-z5-pdf'))
-    await waitFor(() => expect(clientMock.getBlob).toHaveBeenLastCalledWith(`${DOCS}/d1/print`, { form: 'z5', format: 'pdf', lang: 'ru' }))
-  })
-  it('a Kazakh screen asks for kk', async () => {
-    useUiLocaleStore.getState().setLocaleTransient('kk')
-    fakeDocument(clientMock, stockDoc({ kind: 'transfer', state: 'posted', number: 'TR-2' }))
-    clientMock.getBlob.mockResolvedValue(file(null))
-    renderStock(`${LIST}/d1`)
-    await userEvent.click(await screen.findByTestId('document-print-z5-pdf'))
-    await waitFor(() => expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'z5', format: 'pdf', lang: 'kk' }))
-    expect(officialFormLang('uz')).toBe('ru')
-  })
-})
-
-describe('W-2 no Z-5 elsewhere', () => {
-  it.each([['transfer', 'draft'], ['hand_over', 'issued'], ['return', 'issued'], ['issue', 'issued'], ['receipt', 'posted']])('%s in %s', async (kind, state) => {
-    fakeDocument(clientMock, stockDoc({ kind, state }))
-    renderStock(`${LIST}/d1`)
-    await screen.findByTestId('document-lines')
-    expect(screen.queryByTestId('document-print-z5-pdf')).toBeNull()
-    expect(screen.queryByTestId('document-print-z5-docx')).toBeNull()
-  })
-})
-
-async function pick(label: string, optionText: string) {
-  const select = await screen.findByLabelText(label)
-  await waitFor(() => expect(within(select).getByRole('option', { name: optionText })).toBeInTheDocument())
-  fireEvent.change(select, { target: { value: (within(select).getByRole('option', { name: optionText }) as HTMLOptionElement).value } })
+const file = (cd: string | null) => ({ blob: new Blob(['x']), contentType: 'application/octet-stream', contentDisposition: cd })
+const open = async (state: string, kind = 'issue') => {
+  fakeDocument(clientMock, stockDoc({ id: 'd1', kind, state, number: state === 'draft' ? null : 'ISS-1' }))
+  renderStock(`${LIST}/d1`)
+  await screen.findByTestId('document-header')
 }
 
-describe('W-3 Z-3 buttons on the balances screen', () => {
-  beforeEach(() => clientMock.get.mockResolvedValue({ ledger_seq: 1, next_cursor: null, rows: [] }))
-
-  it('disabled until an item and a location are chosen, then the route gets both ids', async () => {
-    clientMock.getBlob.mockResolvedValue(file('attachment; filename="stock-card_I1_Z-3.pdf"'))
-    renderStock(BAL)
-    const pdf = await screen.findByTestId('stock-card-pdf')
-    expect(pdf).toBeDisabled()
-    expect(screen.getByTestId('stock-card-docx')).toBeDisabled()
-    expect(screen.getByTestId('stock-card-hint')).toBeInTheDocument()
-    await pick('Item', 'Bolt M8')
-    expect(screen.getByTestId('stock-card-pdf')).toBeDisabled()
-    await pick('Location', 'Shelf A')
-    await waitFor(() => expect(screen.getByTestId('stock-card-pdf')).toBeEnabled())
-    await userEvent.click(screen.getByTestId('stock-card-docx'))
-    await waitFor(() => expect(clientMock.getBlob).toHaveBeenCalledWith(CARD, { sku: 'i1', location: 'l1', format: 'docx', lang: 'ru' }))
-    await pick('Lot', 'LOT-7')
-    await userEvent.click(screen.getByTestId('stock-card-pdf'))
-    await waitFor(() => expect(clientMock.getBlob).toHaveBeenLastCalledWith(CARD, { sku: 'i1', location: 'l1', lot: 't1', format: 'pdf', lang: 'ru' }))
-    await waitFor(() => expect(downloads).toContain('stock-card_I1_Z-3.pdf'))
+describe('F1/F2 which documents show the menu', () => {
+  it.each(['issued', 'posted'])('an issue document in state %s', async (state) => {
+    await open(state)
+    expect(screen.getByTestId('official-form-menu')).toBeInTheDocument()
+  })
+  it.each([
+    ['draft', 'issue'],
+    ['reversed', 'issue'],
+    ['issued', 'transfer'],
+    ['posted', 'receipt'],
+    ['issued', 'hand_over'],
+    ['issued', 'return'],
+  ])('state %s, kind %s: none', async (state, kind) => {
+    await open(state, kind)
+    expect(screen.queryByTestId('official-form-menu')).toBeNull()
+  })
+  it('the registry rules', () => {
+    expect(formsForDocument({ kind: 'issue', state: 'issued' })).toEqual(['z2'])
+    expect(formsForCount('sheet')).toEqual(['inv10'])
+    expect(formsForCount('differences')).toEqual(['inv18'])
+    expect(formsForCount('order')).toEqual([])
   })
 })
 
-describe('W-4 refusals and catalogs', () => {
-  beforeEach(() => clientMock.get.mockResolvedValue({ ledger_seq: 1, next_cursor: null, rows: [] }))
-
-  it.each([[404, undefined, 'stock.balances.cardEmpty'], [422, 'card_too_long', 'stock.doc.print.reason.card_too_long']] as const)('%s %s', async (status, reason, id) => {
-    clientMock.getBlob.mockRejectedValue(refusal(status, reason))
-    renderStock(BAL)
-    await screen.findByTestId('stock-card-pdf')
-    await pick('Item', 'Bolt M8')
-    await pick('Location', 'Shelf A')
-    await waitFor(() => expect(screen.getByTestId('stock-card-pdf')).toBeEnabled())
-    await userEvent.click(screen.getByTestId('stock-card-pdf'))
-    const text = id.startsWith('stock.doc') ? docEn[id] : stockMessages.en[id]
-    expect(await screen.findByText(text as string)).toBeInTheDocument()
+describe('F3/F4 download and language', () => {
+  it.each([
+    ['docx', 'ISS-1-Z-2.docx'],
+    ['pdf', 'ISS-1-Z-2.pdf'],
+  ] as const)('Z-2 as %s calls the print route and saves the fallback name', async (format, name) => {
+    await open('posted')
+    clientMock.getBlob.mockResolvedValue(file(null))
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    await userEvent.click(screen.getByTestId(`form-z2-${format}`))
+    await waitFor(() => expect(downloads).toEqual([name]))
+    expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'z2', format, lang: 'ru' })
   })
+  it('the header name wins', async () => {
+    await open('issued')
+    clientMock.getBlob.mockResolvedValue(file('attachment; filename="ISS-1_Z-2.docx"'))
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    await userEvent.click(screen.getByTestId('form-z2-docx'))
+    await waitFor(() => expect(downloads).toEqual(['ISS-1_Z-2.docx']))
+  })
+  it.each([
+    ['en', 'ru'],
+    ['ru', 'ru'],
+    ['kk', 'kk'],
+  ] as const)('UI %s requests lang %s', async (ui, lang) => {
+    useUiLocaleStore.getState().setLocaleTransient(ui)
+    await open('issued')
+    clientMock.getBlob.mockResolvedValue(file(null))
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    await userEvent.click(screen.getByTestId('form-z2-pdf'))
+    await waitFor(() => expect(clientMock.getBlob).toHaveBeenCalledTimes(1))
+    expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'z2', format: 'pdf', lang })
+    expect(officialFormLang(ui)).toBe(lang)
+  })
+})
 
-  it('every new key has a ru and a kk text that differs from English', () => {
-    const keys = Object.keys(stockMessages.en).filter((k) => k.startsWith('stock.balances.card'))
-    expect(keys.length).toBe(4)
-    for (const k of keys) {
-      for (const l of ['ru', 'kk'] as const) {
-        expect(stockMessages[l][k]?.trim(), `${l} ${k}`).toBeTruthy()
-        expect(stockMessages[l][k]).not.toBe(stockMessages.en[k])
-      }
-    }
+describe('F6 refusals', () => {
+  it.each(['invalid_form', 'invalid_format', 'document_not_issued'])('422 %s shows its message', async (reason) => {
+    await open('issued')
+    clientMock.getBlob.mockRejectedValue(refusal(422, reason))
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    await userEvent.click(screen.getByTestId('form-z2-docx'))
+    expect(await screen.findByText(stockMessages.en[`stock.doc.print.reason.${reason}`])).toBeInTheDocument()
+    expect(printErrorMessageId(refusal(422, reason))).toBe(`stock.doc.print.reason.${reason}`)
+  })
+  it('404 shows not found', async () => {
+    await open('issued')
+    clientMock.getBlob.mockRejectedValue(refusal(404, 'not_found'))
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    await userEvent.click(screen.getByTestId('form-z2-docx'))
+    expect(await screen.findByText(stockMessages.en['stock.doc.error.notFound'])).toBeInTheDocument()
+  })
+})
+
+describe('F7 menu keyboard and mouse', () => {
+  it('opens on click, Escape closes and focuses the trigger, outside click closes', async () => {
+    await open('issued')
+    const trigger = screen.getByTestId('official-form-menu')
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(trigger)
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    expect(screen.getByTestId('official-form-lang')).toHaveTextContent('Russian')
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(trigger).toHaveFocus()
+    await userEvent.click(trigger)
+    await userEvent.click(document.body)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+})
+
+describe('F8 catalogs', () => {
+  it('en, ru and kk have the same non-empty ids', () => {
+    const ids = Object.keys(formEn).sort()
+    expect(Object.keys(formRu).sort()).toEqual(ids)
+    expect(Object.keys(formKk).sort()).toEqual(ids)
+    for (const c of [formEn, formRu, formKk]) for (const id of ids) expect(c[id].trim(), id).not.toBe('')
+    for (const l of ['en', 'ru', 'kk'] as const) for (const id of ids) expect(stockMessages[l][id], `${l} ${id}`).toBeTruthy()
   })
 })
