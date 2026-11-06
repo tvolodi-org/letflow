@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: assets@0.4.0,catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.15.0
 # roles: 9
-# permissions: 81
-# rows: 729
+# permissions: 82
+# rows: 738
 # columns: role permission allowed owner via
 AGENT_RUNNER AssetsCardWrite false module:assets -
 AGENT_RUNNER AttachmentLinksIssue false core -
@@ -56,6 +56,7 @@ AGENT_RUNNER MetricsRead false core -
 AGENT_RUNNER ModulesManage false core -
 AGENT_RUNNER MyAccessRead true core core
 AGENT_RUNNER MyModulesRead true core core
+AGENT_RUNNER MyPreferencesSet true core core
 AGENT_RUNNER NotificationTemplatesManage false core -
 AGENT_RUNNER NumberSequencesManage false core -
 AGENT_RUNNER OrgEmployeesWrite false module:org -
@@ -137,6 +138,7 @@ CANDIDATE MetricsRead false core -
 CANDIDATE ModulesManage false core -
 CANDIDATE MyAccessRead true core core
 CANDIDATE MyModulesRead true core core
+CANDIDATE MyPreferencesSet true core core
 CANDIDATE NotificationTemplatesManage false core -
 CANDIDATE NumberSequencesManage false core -
 CANDIDATE OrgEmployeesWrite false module:org -
@@ -218,6 +220,7 @@ PLATFORM_ADMIN MetricsRead true core core
 PLATFORM_ADMIN ModulesManage true core core
 PLATFORM_ADMIN MyAccessRead true core core
 PLATFORM_ADMIN MyModulesRead true core core
+PLATFORM_ADMIN MyPreferencesSet true core core
 PLATFORM_ADMIN NotificationTemplatesManage true core core
 PLATFORM_ADMIN NumberSequencesManage true core core
 PLATFORM_ADMIN OrgEmployeesWrite true module:org core
@@ -299,6 +302,7 @@ PROCESS_DESIGNER MetricsRead false core -
 PROCESS_DESIGNER ModulesManage false core -
 PROCESS_DESIGNER MyAccessRead true core core
 PROCESS_DESIGNER MyModulesRead true core core
+PROCESS_DESIGNER MyPreferencesSet true core core
 PROCESS_DESIGNER NotificationTemplatesManage false core -
 PROCESS_DESIGNER NumberSequencesManage false core -
 PROCESS_DESIGNER OrgEmployeesWrite false module:org -
@@ -380,6 +384,7 @@ PROCESS_OPERATOR MetricsRead true core core
 PROCESS_OPERATOR ModulesManage false core -
 PROCESS_OPERATOR MyAccessRead true core core
 PROCESS_OPERATOR MyModulesRead true core core
+PROCESS_OPERATOR MyPreferencesSet true core core
 PROCESS_OPERATOR NotificationTemplatesManage false core -
 PROCESS_OPERATOR NumberSequencesManage false core -
 PROCESS_OPERATOR OrgEmployeesWrite false module:org -
@@ -461,6 +466,7 @@ STOREKEEPER MetricsRead false core -
 STOREKEEPER ModulesManage false core -
 STOREKEEPER MyAccessRead true core core
 STOREKEEPER MyModulesRead true core core
+STOREKEEPER MyPreferencesSet true core core
 STOREKEEPER NotificationTemplatesManage false core -
 STOREKEEPER NumberSequencesManage false core -
 STOREKEEPER OrgEmployeesWrite false module:org -
@@ -542,6 +548,7 @@ TASK_WORKER MetricsRead false core -
 TASK_WORKER ModulesManage false core -
 TASK_WORKER MyAccessRead true core core
 TASK_WORKER MyModulesRead true core core
+TASK_WORKER MyPreferencesSet true core core
 TASK_WORKER NotificationTemplatesManage false core -
 TASK_WORKER NumberSequencesManage false core -
 TASK_WORKER OrgEmployeesWrite false module:org -
@@ -623,6 +630,7 @@ TENANT_ADMIN MetricsRead true core core
 TENANT_ADMIN ModulesManage true core core
 TENANT_ADMIN MyAccessRead true core core
 TENANT_ADMIN MyModulesRead true core core
+TENANT_ADMIN MyPreferencesSet true core core
 TENANT_ADMIN NotificationTemplatesManage true core core
 TENANT_ADMIN NumberSequencesManage true core core
 TENANT_ADMIN OrgEmployeesWrite true module:org core
@@ -704,6 +712,7 @@ TENANT_AUDITOR MetricsRead true core core
 TENANT_AUDITOR ModulesManage false core -
 TENANT_AUDITOR MyAccessRead true core core
 TENANT_AUDITOR MyModulesRead true core core
+TENANT_AUDITOR MyPreferencesSet true core core
 TENANT_AUDITOR NotificationTemplatesManage false core -
 TENANT_AUDITOR NumberSequencesManage false core -
 TENANT_AUDITOR OrgEmployeesWrite false module:org -

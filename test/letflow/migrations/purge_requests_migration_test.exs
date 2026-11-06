@@ -21,9 +21,9 @@ defmodule Letflow.Migrations.PurgeRequestsMigrationTest do
     {"repository_artifacts", "repository_artifacts_no_delete"}
   ]
 
-  test "P-M1 the migration is the last manifest entry and the table is in the expected list" do
+  test "P-M1 the migration is the third to last manifest entry (T-1389 and a later one follow) and the table is in the expected list" do
     assert {20_261_105_500_001, Letflow.Repo.Migrations.CreatePurgeRequestsAndDeleteGuards} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -2)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -3)
 
     assert "purge_requests" in TenantFixture.expected_tenant_tables()
   end
