@@ -320,6 +320,9 @@ defmodule Letflow.Identity.Tenant do
       PATCH re-validates a stored zone; if PostgreSQL's tzdata ever drops a
       stored name, later PATCHes return 422 until the admin resets it
       (accepted, not handled).
+    * `ui.document_layout_default` (T-1390) — one of the values of the user
+      preference `ui.document_layout` (`"row"`, `"tabs"`), or `nil` to clear it
+      (read as `"row"`).
   """
   @spec settings_changeset(t :: %__MODULE__{}, attrs :: map()) :: Ecto.Changeset.t()
   def settings_changeset(tenant, attrs) do
@@ -337,6 +340,7 @@ defmodule Letflow.Identity.Tenant do
     |> validate_signatory_name(settings)
     |> validate_signatory_title(settings)
     |> validate_timezone(settings)
+    |> validate_document_layout_default(settings)
   end
 
   defp validate_settings_value(:settings, _nil_or_other), do: []
@@ -353,6 +357,19 @@ defmodule Letflow.Identity.Tenant do
   end
 
   defp validate_timezone(errors, _settings), do: errors
+
+  defp validate_document_layout_default(errors, %{"ui.document_layout_default" => nil}),
+    do: errors
+
+  defp validate_document_layout_default(errors, %{"ui.document_layout_default" => v}) do
+    if is_binary(v) and v in Letflow.UserPreferences.allowed_values("ui.document_layout") do
+      errors
+    else
+      [{:settings, "ui.document_layout_default must be \"row\" or \"tabs\""} | errors]
+    end
+  end
+
+  defp validate_document_layout_default(errors, _settings), do: errors
 
   @signatory_max_length 100
 
