@@ -517,7 +517,8 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       # REQ-737 (GH #3860) added the document print route line (236 -> 237).
       # REQ-741 (GH #3879) added the two stock voice draft lines (237 -> 239).
       # REQ-768 (GH #3920) added the module upgrade plan route line (242 -> 243).
-      assert length(snapshot) == 243
+      # REQ-749 (GH #3893) added the three assets register read lines (242 -> 245).
+      assert length(snapshot) == 246
 
       for l <- @removed_lines, do: refute(l in snapshot, l)
     end
