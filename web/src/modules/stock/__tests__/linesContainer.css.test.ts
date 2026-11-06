@@ -8,11 +8,20 @@ const css = readFileSync(new URL('../../../styles/base.css', import.meta.url), '
 describe('lf-lines container-query card mode', () => {
   it('makes the lines card a container and switches to cards by container width', () => {
     expect(css).toMatch(/\.lf-doc__lines \{ container: lf-lines \/ inline-size; \}/)
-    expect(css).toMatch(/@container lf-lines \(max-width: 700px\)/)
-    expect(css).toMatch(/@container lf-lines \(max-width: 1000px\)/)
+    expect(css).toMatch(/@container lf-lines \(max-width: 520px\)/)
+    expect(css).not.toMatch(/@container lf-lines \(max-width: (700|1000)px\)/)
   })
-  it('C1 wide screens put the lines under the header so the table fits', () => {
-    expect(css).toMatch(/@media \(min-width: 1440px\)/)
-    expect(css).toContain('"list top" "list header" "list lines"')
+  it('U4 T-1438: no 1440 px re-template stacks the lines under the header; edit tables have a floor width', () => {
+    expect(css).not.toMatch(/@media \(min-width: 1440px\)/)
+    expect(css).not.toContain('"list top" "list header" "list lines"')
+    expect(css).toMatch(/\.lf-lines--edit \{ min-width: 38rem; \}/)
+    expect(css).toMatch(/\.lf-topbar \{ background: var\(--paper\); backdrop-filter: none; \}/)
+  })
+  it('U5 T-1438: a view table drops the components.css min-width so it fits the card (no scrollbar bar)', () => {
+    expect(css).toMatch(/\.lf-doc__lines \.lf-lines:not\(\.lf-lines--edit\):not\(\.lf-lines--wide\) \{ min-width: 0; \}/)
+  })
+  it('U6 T-1438: the harness edit helpers know the edit and save labels of en, ru and kk', () => {
+    const fx = readFileSync(new URL('../../../dev/harness/fixtures/stockDocuments.tsx', import.meta.url), 'utf8')
+    for (const label of ['Изменить', 'Өзгерту', 'Сохранить черновик', 'Жобаны сақтау']) expect(fx).toContain(label)
   })
 })
