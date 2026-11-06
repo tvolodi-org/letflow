@@ -196,6 +196,13 @@ defmodule Letflow.Scheduler.Poller do
   `Letflow.ScheduledJobs.enabled?/0` (config `:scheduled_jobs`, default off) is true, read fresh every
   tick. See `Letflow.Scheduler.ScheduledJobSweep` for how a tenant job differs from a platform timer
   and from the record transition sweep.
+
+  ## C12 addition -- asset expiry reminders
+
+  A TENTH per-tenant sweep, `maybe_run_asset_expiry_sweep/1`, same shape: one `run_sweep/4`,
+  `with_admission/3`, inline `try/rescue -> :ok`. It runs only while
+  `Letflow.Modules.Catalog.asset_expiry_enabled?/0` (config `:asset_notifications_enabled`, default off)
+  is true; a tenant without an active `assets` install is skipped inside `Reminders.sweep/1`.
   """
 
   use GenServer
@@ -287,6 +294,7 @@ defmodule Letflow.Scheduler.Poller do
           maybe_run_ordering_metrics(schemas)
           maybe_run_deadline_sweep(schemas)
           maybe_run_scheduled_job_sweep(schemas)
+          maybe_run_asset_expiry_sweep(schemas)
           Map.put(partition_maintenance_state, :last_tick_started_at, now)
 
         :error ->
@@ -486,6 +494,21 @@ defmodule Letflow.Scheduler.Poller do
         with_admission(schema_name, :scheduled_job_sweep, fn ->
           try do
             ScheduledJobSweep.run(schema_name)
+          rescue
+            _ -> :ok
+          end
+        end)
+      end)
+    end
+  end
+
+  # C12: asset expiry reminders. Flag read fresh each tick; off (the default) means nothing is queried.
+  defp maybe_run_asset_expiry_sweep(schemas) do
+    if Letflow.Modules.Catalog.asset_expiry_enabled?() do
+      run_sweep(schemas, :asset_expiry_sweep, Admission.global_cap(), fn schema_name ->
+        with_admission(schema_name, :asset_expiry_sweep, fn ->
+          try do
+            Letflow.Modules.Catalog.asset_expiry_sweep(schema_name)
           rescue
             _ -> :ok
           end

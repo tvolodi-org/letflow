@@ -63,6 +63,7 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :MembershipsRead,
     :MyModulesRead,
     :MyAccessRead,
+    :MyPreferencesSet,
     :ModulesManage,
     :TenantSettingsManage,
     :PromotionsRead,

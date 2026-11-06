@@ -113,6 +113,14 @@ defmodule Letflow.Modules.Catalog do
     end)
   end
 
+  @doc "True while the asset expiry reminder flag is on (C12); the Poller's only view of the assets module."
+  @spec asset_expiry_enabled?() :: boolean()
+  def asset_expiry_enabled?, do: Letflow.Modules.Assets.Reminders.enabled?()
+
+  @doc "One tenant's asset expiry reminder pass (C12); never raises."
+  @spec asset_expiry_sweep(prefix :: String.t()) :: :ok
+  def asset_expiry_sweep(prefix), do: Letflow.Modules.Assets.Reminders.sweep(prefix)
+
   @doc """
   Creates a record of an entity type that a module manages (GH #2680 slice 3) through that module's
   own authoring surface: a system path with no HTTP user, for the mix seed task. A type with no
