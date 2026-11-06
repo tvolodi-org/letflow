@@ -44,7 +44,7 @@ const DOCS: Record<string, Record<string, unknown>> = {
   'doc-open-posted': { ...base, id: 'doc-open-posted', state: 'posted', number: 'OB-000001', posted_at: '2026-11-04T10:00:00Z', posted_by: 'e2' },
 }
 
-const routes: FixtureRoute[] = [
+export const routes: FixtureRoute[] = [
   {
     match: (path, method) => path === '/api/v1/entities/query' && method === 'POST',
     reply: (state, _p, body) => {

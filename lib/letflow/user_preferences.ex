@@ -13,11 +13,19 @@ defmodule Letflow.UserPreferences do
   `LFDocLayout` and must change with it. An unset key is simply absent: the client applies its
   default (later the tenant default).
 
+  `ui.layout` is the remembered screen layout (side nav state, pane percentages, collapsed panes,
+  column widths): one JSON document passed as a string of at most 8192 bytes. The server stores
+  and returns the sanitized canonical JSON string (`sanitize_layout/1`, the twin of `LFPrefs.sanitize`
+  in the design repo's `demo.js`, same cases as `core/tools/test_prefs.js`). Deliberate differences:
+  numbers only (JS also coerces strings and booleans); when a cap (40 screens, 12 splits, 24 tables,
+  40 columns) is hit the lexicographically first keys survive, as decoded maps keep no object order;
+  an integral float counts as an integer in `collapsed`. `ui.layout` has no tenant default.
+
   ## Rules
 
   `put/3` merges: each listed key is upserted, `nil` deletes the key (reset), unlisted keys are
   untouched. All-or-nothing: one bad key or value refuses the request and writes nothing. Limits:
-  at most 8 keys per request, at most 256 bytes of JSON per value. One audit entry per changed
+  at most 8 keys per request, at most 256 bytes of JSON per value (8192 bytes for `ui.layout`). One audit entry per changed
   key (`user_preferences.set` / `user_preferences.reset`), none for a no-op.
 
   `value` is stored as `%{"v" => value}`; the wrapper never leaves this module (reads, the
@@ -35,7 +43,11 @@ defmodule Letflow.UserPreferences do
   @max_value_bytes 256
   @key_pattern ~r/\A[a-z][a-z0-9_.]*\z/
 
-  @keys %{"ui.document_layout" => {:enum, ["row", "tabs"]}}
+  @max_layout_bytes 8192
+  @screen_id ~r/\A[a-z0-9.-]{1,48}\z/
+  @split_id ~r/\A[a-z0-9-]{1,24}\z/
+
+  @keys %{"ui.document_layout" => {:enum, ["row", "tabs"]}, "ui.layout" => :layout}
 
   @doc "The whitelisted keys."
   @spec keys() :: [String.t()]
@@ -95,7 +107,7 @@ defmodule Letflow.UserPreferences do
           {:ok, %{optional(String.t()) => term()}}
           | {:error, {:invalid, String.t()} | term()}
   def put(prefix, user_id, prefs) do
-    with :ok <- check(prefs) do
+    with {:ok, prefs} <- check(prefs) do
       multi =
         prefs
         |> Enum.sort()
@@ -114,8 +126,16 @@ defmodule Letflow.UserPreferences do
 
   defp check(prefs) when is_map(prefs) and map_size(prefs) > 0 do
     cond do
-      map_size(prefs) > @max_keys -> too_large()
-      true -> Enum.find_value(prefs, :ok, fn {key, value} -> check_pair(key, value) end)
+      map_size(prefs) > @max_keys ->
+        too_large()
+
+      true ->
+        Enum.reduce_while(prefs, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
+          case check_pair(key, value) do
+            {:ok, v} -> {:cont, {:ok, Map.put(acc, key, v)}}
+            {:error, _} = err -> {:halt, err}
+          end
+        end)
     end
   end
 
@@ -130,18 +150,162 @@ defmodule Letflow.UserPreferences do
         invalid("unknown preference key: #{key}")
 
       value == nil ->
-        nil
+        {:ok, nil}
+
+      Map.fetch!(@keys, key) == :layout ->
+        check_layout(key, value)
 
       byte_size(Jason.encode!(value)) > @max_value_bytes ->
         too_large()
 
       valid_value?(Map.fetch!(@keys, key), value) ->
-        nil
+        {:ok, value}
 
       true ->
         invalid("invalid value for preference key: #{key}")
     end
   end
+
+  # `ui.layout`: a JSON string; the stored value is its sanitized canonical form.
+  defp check_layout(key, value) do
+    cond do
+      not is_binary(value) -> invalid("invalid value for preference key: #{key}")
+      byte_size(value) > @max_layout_bytes -> too_large()
+      true -> decode_layout(key, value)
+    end
+  end
+
+  defp decode_layout(key, text) do
+    case safe_decode(text) do
+      {:ok, term} -> {:ok, Jason.encode!(sanitize_layout(term))}
+      :error -> invalid("invalid value for preference key: #{key}")
+    end
+  end
+
+  defp safe_decode(text) do
+    case Jason.decode(text) do
+      {:ok, term} -> {:ok, term}
+      {:error, _} -> :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  @doc """
+  The Elixir twin of `LFPrefs.sanitize`: any term in, the canonical layout map out
+  (`%{"v" => 1, "shell" => ..., "screens" => ...}`), unknown keys dropped, numbers clamped and
+  rounded, caps applied, and `screens` emptied when the result exceeds 8192 bytes of JSON.
+  """
+  @spec sanitize_layout(term()) :: map()
+  def sanitize_layout(doc) do
+    out = %{"v" => 1, "shell" => %{"sidenav" => %{}}, "screens" => %{}}
+
+    out =
+      if is_map(doc) do
+        out
+        |> Map.put("shell", %{
+          "sidenav" => sanitize_sidenav(get_in_map(doc, ["shell", "sidenav"]))
+        })
+        |> Map.put("screens", sanitize_screens(Map.get(doc, "screens")))
+      else
+        out
+      end
+
+    if byte_size(Jason.encode!(out)) > @max_layout_bytes,
+      do: Map.put(out, "screens", %{}),
+      else: out
+  end
+
+  defp get_in_map(m, [k | rest]) do
+    case m do
+      %{^k => v} when rest == [] -> v
+      %{^k => v} -> get_in_map(v, rest)
+      _ -> nil
+    end
+  end
+
+  defp sanitize_sidenav(sn) when is_map(sn) do
+    sn
+    |> Map.take(["collapsed", "w"])
+    |> Enum.reduce(%{}, fn
+      {"collapsed", c}, acc when is_boolean(c) -> Map.put(acc, "collapsed", c)
+      {"w", w}, acc -> if n = num(w, 160, 420), do: Map.put(acc, "w", floor(n + 0.5)), else: acc
+      _, acc -> acc
+    end)
+  end
+
+  defp sanitize_sidenav(_), do: %{}
+
+  defp first_keys(o, n) when is_map(o), do: o |> Map.keys() |> Enum.sort() |> Enum.take(n)
+  defp first_keys(_, _), do: []
+
+  defp sanitize_screens(screens) do
+    for sid <- first_keys(screens, 40),
+        Regex.match?(@screen_id, sid),
+        s = screens[sid],
+        is_map(s),
+        r = sanitize_screen(s),
+        map_size(r) > 0,
+        into: %{},
+        do: {sid, r}
+  end
+
+  defp sanitize_screen(s) do
+    panes =
+      for k <- first_keys(s["panes"], 12),
+          Regex.match?(@split_id, k),
+          is_list(s["panes"][k]),
+          a = s["panes"][k] |> Enum.take(12) |> Enum.map(&pane/1),
+          Enum.any?(a, &(&1 != nil)),
+          into: %{},
+          do: {k, a}
+
+    collapsed =
+      for k <- first_keys(s["collapsed"], 12),
+          Regex.match?(@split_id, k),
+          is_list(s["collapsed"][k]),
+          a = s["collapsed"][k] |> Enum.take(12) |> Enum.flat_map(&collapsed_index/1),
+          a != [],
+          into: %{},
+          do: {k, a}
+
+    cols =
+      for t <- first_keys(s["cols"], 24),
+          Regex.match?(@split_id, t),
+          c = sanitize_cols(s["cols"][t]),
+          map_size(c) > 0,
+          into: %{},
+          do: {t, c}
+
+    [{"panes", panes}, {"collapsed", collapsed}, {"cols", cols}]
+    |> Enum.reject(fn {_, v} -> map_size(v) == 0 end)
+    |> Map.new()
+  end
+
+  defp sanitize_cols(cs) do
+    for cid <- first_keys(cs, 40),
+        Regex.match?(@split_id, cid),
+        v = num(cs[cid], 3, 80),
+        into: %{},
+        do: {cid, v}
+  end
+
+  defp pane(nil), do: nil
+  defp pane(x), do: num(x, 5, 85)
+
+  defp collapsed_index(x) when is_integer(x) and x >= 0 and x < 12, do: [x]
+  defp collapsed_index(x) when is_float(x) and x >= 0 and x < 12 and x == trunc(x), do: [trunc(x)]
+  defp collapsed_index(_), do: []
+
+  # Clamp first, then round to 0.1 (lo/hi are multiples of 0.1, so this equals the JS order and
+  # cannot overflow on huge input). Integral results are emitted as integers.
+  defp num(v, lo, hi) when is_number(v) do
+    x = min(hi * 1.0, max(lo * 1.0, v))
+    r = floor(x * 10 + 0.5) / 10
+    if r == trunc(r), do: trunc(r), else: r
+  end
+
+  defp num(_, _, _), do: nil
 
   defp valid_value?({:enum, values}, value), do: is_binary(value) and value in values
 
