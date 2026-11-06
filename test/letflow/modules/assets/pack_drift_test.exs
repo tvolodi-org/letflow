@@ -15,7 +15,9 @@ defmodule Letflow.Modules.Assets.PackDriftTest do
   alias Letflow.Entities.Definition.Shape
 
   @dir Path.join([File.cwd!(), "priv", "modules", "assets"])
-  @types ~w(assets_card assets_commission assets_commission_line assets_posting_mark)
+  @types ~w(assets_card assets_commission assets_commission_line assets_change assets_change_line
+            assets_handover assets_handover_line assets_writeoff assets_writeoff_line
+            assets_posting_mark)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 
@@ -88,7 +90,13 @@ defmodule Letflow.Modules.Assets.PackDriftTest do
              Enum.sort(@types)
 
     assert document["definitions"] |> Enum.map(& &1["process_key"]) ==
-             ["assets_commission", "assets_reversal"]
+             [
+               "assets_commission",
+               "assets_reversal",
+               "assets_change",
+               "assets_handover",
+               "assets_writeoff"
+             ]
 
     assert document["variable_schemas"] == []
     assert document["service_catalog_entries"] == []

@@ -29,6 +29,7 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
   alias Letflow.Documents.DocumentVersion
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.Assets
+  alias Letflow.Modules.Assets.Documents.Kinds
   alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Org
@@ -60,11 +61,109 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
 
   @doc "Runs the master checks of `view` (the document map of `Letflow.Modules.Assets.Documents`)."
   @spec masters(String.t(), map()) :: :ok | refusal()
+  def masters(prefix, %{kind: kind} = view) when kind in ["change", "handover", "writeoff"],
+    do: sided_masters(prefix, Kinds.get(kind), view)
+
   def masters(prefix, view) do
     with :ok <- org_unit(prefix, view.org_unit_id),
          :ok <- employee(prefix, view.material_responsible_id, "material_responsible_id"),
          :ok <- optional_employee(prefix, view.actual_user_id, "actual_user_id") do
       lines(prefix, view)
+    end
+  end
+
+  # -- change, handover, write off (GH #3889 / REQ-753, C11) -------------------------------------------
+  #
+  # `sides_equal` (pure) first, then the org units (from, then to), the employees in header-key order,
+  # then per line in `line_no` order: card, duplicate, quantity, then the location rule and the link of
+  # each side that has a location. These kinds do not run `org_unit_mismatch` nor
+  # `asset_already_in_register` (a posted hand over leaves the card org unit stale until the card sync
+  # of part 2; the ledger balance is the arbiter at posting).
+  defp sided_masters(prefix, spec, view) do
+    header = Kinds.header_of(spec, view)
+    {from, to} = Kinds.sides(spec, header)
+
+    with :ok <- sides_equal(spec.kind, from, to),
+         :ok <- side_org_unit(prefix, spec, from, :from),
+         :ok <- side_org_unit(prefix, spec, to, :to),
+         :ok <- side_employees(prefix, spec, from, :from),
+         :ok <- side_employees(prefix, spec, to, :to) do
+      sided_lines(prefix, spec, view, from, to)
+    end
+  end
+
+  defp sides_equal("change", from, to) do
+    same? =
+      from.material_responsible == to.material_responsible and from.actual_user == to.actual_user
+
+    check(not same?, "sides_equal", %{})
+  end
+
+  defp sides_equal("handover", from, to) do
+    same? = from.org_unit == to.org_unit and from.location == to.location
+    check(not same?, "sides_equal", %{})
+  end
+
+  defp sides_equal(_kind, _from, _to), do: :ok
+
+  defp side_org_unit(_prefix, _spec, nil, _which), do: :ok
+
+  defp side_org_unit(prefix, spec, side, which) do
+    field = Kinds.side_fields(spec, which).org_unit
+    extras = if field == "org_unit_id", do: %{}, else: %{"field" => field}
+
+    case org_unit(prefix, side.org_unit) do
+      :ok -> :ok
+      {:error, {reason, _}} -> {:error, {reason, extras}}
+    end
+  end
+
+  defp side_employees(_prefix, _spec, nil, _which), do: :ok
+
+  defp side_employees(prefix, spec, side, which) do
+    fields = Kinds.side_fields(spec, which)
+
+    with :ok <- employee(prefix, side.material_responsible, fields.material_responsible) do
+      optional_employee(prefix, side.actual_user, fields.actual_user)
+    end
+  end
+
+  defp sided_lines(prefix, spec, view, from, to) do
+    view.lines
+    |> Enum.sort_by(& &1.line_no)
+    |> Enum.reduce_while({:ok, MapSet.new()}, fn line, {:ok, seen} ->
+      case sided_line(prefix, spec, line, seen, from, to) do
+        :ok -> {:cont, {:ok, MapSet.put(seen, line.asset_id)}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, _seen} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp sided_line(prefix, spec, line, seen, from, to) do
+    extras = %{"line_no" => line.line_no}
+
+    with {:ok, card} <- card(prefix, line.asset_id, extras),
+         :ok <- check(not MapSet.member?(seen, line.asset_id), "duplicate_asset", extras),
+         :ok <- check(quantity_ok?(card["kind"], line.quantity), "quantity_invalid", extras),
+         :ok <- side_place(prefix, card["kind"], spec.kind, :from, from, extras) do
+      side_place(prefix, card["kind"], spec.kind, :to, to, extras)
+    end
+  end
+
+  defp side_place(_prefix, _card_kind, _kind, _which, nil, _extras), do: :ok
+
+  defp side_place(prefix, card_kind, kind, which, side, extras) do
+    extras =
+      if kind == "handover", do: Map.put(extras, "side", Atom.to_string(which)), else: extras
+
+    with :ok <- location_rule(card_kind, side.location, extras) do
+      if is_nil(side.location),
+        do: :ok,
+        else: check(Locations.linked?(prefix, side.org_unit, side.location), "not_linked", extras)
     end
   end
 
