@@ -126,6 +126,15 @@ const en: Record<string, string> = {
   'stock.docType.stock_reversal': 'Reversal',
   'stock.docType.count.differences': 'Count differences',
   'stock.leg.hiddenUnit': 'Hidden unit',
+  'stock.history.open': 'Show the history of this balance',
+  'stock.history.title': 'History of the balance',
+  'stock.history.close': 'Close',
+  'stock.history.empty': 'No movements for this balance',
+  'stock.history.emptyText': 'No posted entry touches this item at this place yet.',
+  'stock.history.col.in': 'In',
+  'stock.history.col.out': 'Out',
+  'stock.history.currentBalance': 'Current balance',
+  'stock.history.asOfNote': 'Movements up to now; the balance is as of {date}',
   ...docEn,
 }
 
@@ -246,6 +255,15 @@ const ru: Record<string, string> = {
   'stock.docType.stock_reversal': 'Сторно',
   'stock.docType.count.differences': 'Расхождения инвентаризации',
   'stock.leg.hiddenUnit': 'Скрытое подразделение',
+  'stock.history.open': 'Показать историю остатка',
+  'stock.history.title': 'История остатка',
+  'stock.history.close': 'Закрыть',
+  'stock.history.empty': 'Нет движений по этому остатку',
+  'stock.history.emptyText': 'Ни одна проведённая запись пока не затрагивает этот товар в этом месте.',
+  'stock.history.col.in': 'Приход',
+  'stock.history.col.out': 'Расход',
+  'stock.history.currentBalance': 'Текущий остаток',
+  'stock.history.asOfNote': 'Движения до сего дня; остаток показан на {date}',
   ...docRu,
 }
 
@@ -366,6 +384,15 @@ const kk: Record<string, string> = {
   'stock.docType.stock_reversal': 'Қайта жазу',
   'stock.docType.count.differences': 'Түгендеу айырмашылықтары',
   'stock.leg.hiddenUnit': 'Жасырын бөлімше',
+  'stock.history.open': 'Қалдық тарихын көрсету',
+  'stock.history.title': 'Қалдық тарихы',
+  'stock.history.close': 'Жабу',
+  'stock.history.empty': 'Бұл қалдық бойынша қозғалыс жоқ',
+  'stock.history.emptyText': 'Бұл тауарды осы жерде қозғайтын өткізілген жазба әлі жоқ.',
+  'stock.history.col.in': 'Кіріс',
+  'stock.history.col.out': 'Шығыс',
+  'stock.history.currentBalance': 'Ағымдағы қалдық',
+  'stock.history.asOfNote': 'Қозғалыстар бүгінге дейін; қалдық {date} күні көрсетілген',
   ...docKk,
 }
 
