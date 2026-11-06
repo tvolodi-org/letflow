@@ -8,13 +8,12 @@ import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { getUiLocale } from '@/i18n/uiLocaleStore'
 import { usePdfDownload } from '../register/usePdfDownload'
-import { countsApi, type CountForm, type CountFormFormat, type CountOrder, type PaperworkKind } from './counts.api'
+import { OfficialFormMenu } from '../forms/OfficialFormMenu'
+import { formsForCount, type OfficialFormFormat, type OfficialFormId, type OfficialFormLang } from '../forms/officialForms'
+import { countsApi, type CountForm, type CountOrder, type PaperworkKind } from './counts.api'
 import { paperworkAvailable, parseFilename, printReasonMessageId, reasonMessageId } from './countsModel'
 
 const KINDS: PaperworkKind[] = ['order', 'sheet', 'differences']
-/** T-1418: the official form that belongs to a document kind (Inv-18 on the differences, Inv-10 on the sheet). */
-const FORM_OF: Partial<Record<PaperworkKind, CountForm>> = { differences: 'inv18', sheet: 'inv10' }
-const FORMATS: CountFormFormat[] = ['docx', 'pdf']
 
 export function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -38,11 +37,11 @@ export function PaperworkButtons({ order }: { order: CountOrder }) {
   // REQ-738: the print language is the UI language at the moment of the click.
   const print = (k: PaperworkKind) =>
     run(`print-${k}`, () => countsApi.print(order.id, k, getUiLocale()), `count-${label}-${k}.pdf`, printReasonMessageId)
-  // T-1418: the official forms exist in ru and kk only; the Kazakh UI prints kk, any other UI ru.
-  const printForm = (k: PaperworkKind, form: CountForm, format: CountFormFormat) =>
+  // T-1418/T-1434: the official forms exist in ru and kk only; the menu passes the language (kk UI kk, else ru).
+  const printForm = (k: PaperworkKind, form: OfficialFormId, format: OfficialFormFormat, lang: OfficialFormLang) =>
     run(
       `form-${form}-${format}`,
-      () => countsApi.printForm(order.id, k, form, format, getUiLocale() === 'kk' ? 'kk' : 'ru'),
+      () => countsApi.printForm(order.id, k, form as CountForm, format, lang),
       `count-${label}-${form}.${format}`,
       printReasonMessageId,
     )
@@ -74,22 +73,12 @@ export function PaperworkButtons({ order }: { order: CountOrder }) {
             >
               {t(`counts.print.${k}`)}
             </Button>
-            {FORMATS.map((format) => {
-              const form = FORM_OF[k]
-              return form === undefined ? null : (
-                <Button
-                  key={`${form}-${format}`}
-                  variant="secondary"
-                  size="sm"
-                  icon={format === 'pdf' ? <Printer className="lf-icon" aria-hidden="true" /> : <Download className="lf-icon" aria-hidden="true" />}
-                  loading={busyKey === `form-${form}-${format}`}
-                  onClick={() => void printForm(k, form, format)}
-                  data-testid={`form-${form}-${format}`}
-                >
-                  {t(`counts.form.${form}.${format}`)}
-                </Button>
-              )
-            })}
+            <OfficialFormMenu
+              forms={formsForCount(k)}
+              busyKey={busyKey}
+              testIdSuffix={k}
+              onPick={(form, format, lang) => void printForm(k, form, format, lang)}
+            />
           </Fragment>
         ))}
       </div>

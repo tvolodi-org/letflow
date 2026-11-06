@@ -21,6 +21,7 @@ database); the real check that Keycloak accepts the import is infra's sandbox im
 | `internationalizationEnabled` | `true` | switches realm locales on |
 | `supportedLocales` | `["en", "ru", "kk"]` | English, Russian, Kazakh |
 | `defaultLocale` | `"en"` | Keycloak's own fallback; a UAT assumption to be confirmed by the process owner |
+| `roles.realm` | v1's seven plus `STOREKEEPER` | decision 0081 / T-1432: the closed role list of the app (`Letflow.Api.Authorization.roles/0`) minus `PLATFORM_ADMIN`; a test pins the equality |
 
 ## Placeholders the provisioner replaces
 

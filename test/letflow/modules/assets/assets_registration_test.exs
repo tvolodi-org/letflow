@@ -18,22 +18,33 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.3.0"
+    assert m.version == "0.5.0"
     assert m.depends_on == ["locations", "org"]
     assert m.pack == "modules/assets/pack.json"
-    assert m.permissions == [:AssetsCardWrite]
+
+    assert m.permissions == [
+             :AssetsCardWrite,
+             :AssetsPost,
+             :AssetsReverse,
+             :AssetsRead,
+             :AssetsReconcile
+           ]
+
     assert m.role_grants == %{}
 
     assert m.route_policies == [
              {"POST", "/cards", :AssetsCardWrite},
              {"PATCH", "/cards/:id", :AssetsCardWrite},
-             {"POST", "/cards/:id/retire", :AssetsCardWrite}
+             {"POST", "/cards/:id/retire", :AssetsCardWrite},
+             {"GET", "/balances", :AssetsRead},
+             {"GET", "/movements", :AssetsRead},
+             {"GET", "/reconcile", :AssetsReconcile}
            ]
 
     assert m.manages_entity_types == ["assets_card"]
     assert m.scope_declarations == %{"assets_card" => {:column, "org_unit_id"}}
     keys = Map.keys(m)
-    refute :ledger in keys
+    assert :ledger in keys
     refute :write_handlers in keys
 
     assert m.settings_schema == %{

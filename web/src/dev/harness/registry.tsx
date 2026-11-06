@@ -14,10 +14,15 @@ import { topbarLanguage } from './topbarFixtures'
 import { roleLabelsScreens } from './roleLabelsFixtures'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
+import { docLayoutScreens } from './fixtures/docLayouts'
+import { officialFormsScreens } from './fixtures/officialForms'
+import { assetsScreens } from './fixtures/assets'
 import { stockR7Screens } from './fixtures/stockR7'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
 import { leftoversR15Screens } from './fixtures/leftoversR15'
 import { stockScreens } from './fixtures/stock'
+import { stockBalanceHistoryScreens } from './fixtures/stockBalanceHistory'
+import { stockJournalScreens } from './fixtures/stockJournal'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
 import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
 import { stockOpeningScreens } from './fixtures/stockOpening'
@@ -241,10 +246,15 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     codesScreen('codes-receive', { receive: true }),
     ...catalogItemsScreens,
     ...locationsScreens,
+    ...docLayoutScreens,
+    ...officialFormsScreens,
+    ...assetsScreens,
     ...stockR7Screens,
     ...sessionNoticeScreens,
     ...leftoversR15Screens,
     ...stockScreens,
+    ...stockBalanceHistoryScreens,
+    ...stockJournalScreens,
     ...stockDocumentsScreens,
     ...stockTwoSidesScreens,
     ...stockOpeningScreens,

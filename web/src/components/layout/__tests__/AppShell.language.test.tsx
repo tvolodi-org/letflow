@@ -8,6 +8,7 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import type { UserSession } from '@/types/api'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { navMessages } from '../navMessages'
+import { mySettingsMessages } from '@/pages/me/mySettingsMessages'
 import { UI_LOCALES } from '@/i18n/uiLocaleStore'
 import { NAV_ITEMS } from '../AppShell'
 
@@ -73,6 +74,16 @@ async function renderShell() {
 }
 
 describe('AppShell language switch', () => {
+  it('L7 has the My settings link in the TopBar, named in the current language', async () => {
+    await renderShell()
+    const link = within(screen.getByTestId('topbar')).getByTestId('topbar-my-settings')
+    expect(link).toHaveAttribute('href', '/me/settings')
+    expect(link).toHaveAccessibleName(mySettingsMessages.en.link)
+    await userEvent.click(screen.getByTestId('language-switcher-trigger'))
+    await userEvent.click(screen.getByRole('menuitemradio', { name: /Русский/ }))
+    expect(screen.getByTestId('topbar-my-settings')).toHaveAccessibleName(mySettingsMessages.ru.link)
+  })
+
   it('has the switcher in the TopBar with the three languages', async () => {
     await renderShell()
     const bar = screen.getByTestId('topbar')

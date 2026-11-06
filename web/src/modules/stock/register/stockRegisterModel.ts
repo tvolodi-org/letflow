@@ -43,6 +43,7 @@ export interface BalanceFilters {
 }
 export interface MovementFilters {
   cause: string
+  document_type: string
   document_id: string
   from_seq: string
   to_seq: string
@@ -90,6 +91,7 @@ export function movementParams(f: MovementFilters): Record<string, string> {
   const bad = rangeError(f.from_seq, f.to_seq)
   return nonEmpty([
     ['cause', f.cause],
+    ['document_type', f.document_type],
     ['document_id', f.document_id],
     ['from_seq', bad ? '' : f.from_seq],
     ['to_seq', bad ? '' : f.to_seq],
@@ -148,4 +150,19 @@ export function movementNameIds(rows: MovementRow[]): NameIds {
     }
   }
   return out
+}
+
+/** The document cell shared by Movements and the balance history: `number - kind` linked to the document, the kind
+ *  word alone when the row has no number, null (the screen shows a dash) without a document type. */
+export function documentCell(
+  row: Pick<MovementRow, 'document_type' | 'document_id' | 'document_number'>,
+  kindLabel: (documentType: string) => string,
+): { text: string; to: string | null } | null {
+  if (!row.document_type) return null
+  const kind = kindLabel(row.document_type)
+  if (!row.document_number) return { text: kind, to: null }
+  return {
+    text: `${row.document_number} - ${kind}`,
+    to: row.document_id ? `/admin/stock/documents/${row.document_id}` : null,
+  }
 }

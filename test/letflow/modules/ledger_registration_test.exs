@@ -222,6 +222,51 @@ defmodule Letflow.Modules.LedgerRegistrationTest do
                LedgerRegistration.validate(base(), [base()], nil)
     end
 
+    test "R1..R7 posting_guard (REQ-764)" do
+      guard = Letflow.Modules.FixtureLedgerPost.PostingGuard
+
+      # R1 accepted: nested under the entry module, exported with arity 2
+      assert check(with_alpha(%{posting_guard: {guard, :check}})) == :ok
+      # R2 outside the entry module, R3 the entry module itself
+      assert reason(with_alpha(%{posting_guard: {Letflow.Modules.FixtureLedgerOther, :check}})) ==
+               :posting_guard
+
+      assert reason(with_alpha(%{posting_guard: {Entry, :manifest}})) == :posting_guard
+      # R4 missing export, R5 another arity
+      assert reason(with_alpha(%{posting_guard: {guard, :missing}})) == :posting_guard
+      assert reason(with_alpha(%{posting_guard: {guard, :forget}})) == :posting_guard
+      assert reason(with_alpha(%{posting_guard: {Nope.Missing, :check}})) == :posting_guard
+      # R6 not a {module, function} tuple
+      for term <- [:nope, "x", {guard}, {guard, :check, 2}, [guard], nil, %{module: guard}] do
+        assert reason(with_alpha(%{posting_guard: term})) == :posting_guard, inspect(term)
+      end
+
+      # a bad policy is still reported first
+      assert reason(with_alpha(%{policy: :nope, posting_guard: {guard, :check}})) == :policy
+    end
+
+    test "R7 a registration without the key has no posting_guard in the plain form and keeps its hash" do
+      plain = LedgerRegistration.to_plain(alpha())
+      refute Map.has_key?(plain, :posting_guard)
+
+      guarded =
+        LedgerRegistration.to_plain(
+          Map.put(
+            alpha(),
+            :posting_guard,
+            {Letflow.Modules.FixtureLedgerPost.PostingGuard, :check}
+          )
+        )
+
+      assert guarded.posting_guard ==
+               %{module: Letflow.Modules.FixtureLedgerPost.PostingGuard, function: :check}
+
+      assert Digest.registration_hash(plain) != Digest.registration_hash(guarded)
+
+      assert Digest.registration_hash(plain) ==
+               Digest.registration_hash(Map.delete(guarded, :posting_guard))
+    end
+
     test "shape" do
       m = base()
 
@@ -393,7 +438,7 @@ defmodule Letflow.Modules.LedgerRegistrationTest do
 
       assert {:ok, beta} = Catalog.fetch_ledger("fixture_ledger_post", "beta")
       assert beta.ledger_ids == ["fixture_ledger_post:beta"]
-      assert beta.error_aliases == %{}
+      assert beta.error_aliases == %{"posting_held" => "fxlp_held"}
       assert beta.scope_slot == nil
     end
 

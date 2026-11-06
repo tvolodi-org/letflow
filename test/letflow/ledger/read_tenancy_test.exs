@@ -145,6 +145,8 @@ defmodule Letflow.Ledger.ReadTenancyTest do
     @files Path.wildcard("lib/letflow/ledger.ex") ++ Path.wildcard("lib/letflow/ledger/*.ex")
     @pins %{
       "lib/letflow/ledger.ex" => 2,
+      # REQ-764: the shared and exclusive hold lock, key bound as one parameter
+      "lib/letflow/ledger/hold.ex" => 2,
       "lib/letflow/ledger/reconcile.ex" => 3,
       "lib/letflow/ledger/storage.ex" => 2
     }
