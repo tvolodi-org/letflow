@@ -11,6 +11,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { formatDate } from '@/i18n/format'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 
 // NOTE: user active/inactive is rendered as a tokenized custom badge, not
 // StatusBadge (REQ-272) -- StatusBadgeDomain has no "user" member (only
@@ -72,6 +73,7 @@ export default function UsersPage() {
     setter(selectedIds.includes(roleId) ? selectedIds.filter((id) => id !== roleId) : [...selectedIds, roleId])
   }
 
+  const uiLocale = useUiLocale()
   const columns: DataTableColumn<User>[] = [
     { id: 'username', header: 'Username', accessor: displayUsername },
     { id: 'display_name', header: 'Display name', accessor: (u) => u.display_name },
@@ -92,7 +94,7 @@ export default function UsersPage() {
         </span>
       ),
     },
-    { id: 'created', header: 'Created', accessor: (u) => formatDate(u.inserted_at) },
+    { id: 'created', header: 'Created', accessor: (u) => formatDate(u.inserted_at, { year: 'numeric', month: 'short', day: 'numeric' }, uiLocale) },
   ]
 
   return (
