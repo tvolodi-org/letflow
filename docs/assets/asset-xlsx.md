@@ -145,8 +145,9 @@ A second xlsx export, of the asset register balances:
   `ledger_seq`), in the shape of decision 0079 D8.
 - A file holds only the rows the caller's read of the asset ledger answers, never more.
 - No money column: money is never in the register (REQ-689 criterion 7).
-- Its read route belongs to the later asset register read requirement and is not specified here. Like the stock
-  exports, it is not promised to re-import.
+- Its route is `GET /api/v1/modules/assets/balances?format=xlsx` (REQ-763): file `asset-balances.xlsx`, sheets
+  `balances` and `report`, one page per file (`next_cursor` on the report sheet). Like the stock exports, it is not
+  promised to re-import.
 
 ## 8. Open owner questions
 

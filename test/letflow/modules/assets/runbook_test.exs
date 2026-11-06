@@ -22,7 +22,7 @@ defmodule Letflow.Modules.Assets.RunbookTest do
     |> Enum.join("\n")
   end
 
-  test "A8-RUN-1 the section follows the Stock section and lists four limits" do
+  test "A8-RUN-1 the section follows the Stock section and lists five limits" do
     lines = @runbook |> File.read!() |> String.split("\n")
     assert Enum.member?(lines, @heading)
 
@@ -34,9 +34,9 @@ defmodule Letflow.Modules.Assets.RunbookTest do
     numbers =
       Regex.scan(~r/^(\d+)\. /m, text) |> Enum.map(&(&1 |> List.last() |> String.to_integer()))
 
-    assert numbers == [1, 2, 3, 4]
+    assert numbers == [1, 2, 3, 4, 5]
 
-    for word <- ~w(REQ-752 L7 L6 OQ-21 C19 3893 AssetsPost AssetsReconcile),
+    for word <- ~w(REQ-752 L7 L6 OQ-21 C19 3893 AssetsPost AssetsReconcile re-import next_cursor),
         do: assert(text =~ word)
 
     for [path] <- Regex.scan(~r{`((?:lib|docs)/[A-Za-z0-9_./-]+\.[a-z]+)`}, text) do
