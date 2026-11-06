@@ -14,6 +14,11 @@ import { Banner } from '@/components/ui/Banner'
 import { StockIntlProvider } from '../StockIntlProvider'
 import { LoadMore, RegisterError } from './RegisterShell'
 import { saveBlob } from './saveBlob'
+import { usePdfDownload } from './usePdfDownload'
+import { parseFilename } from '../counts/countsModel'
+import { getUiLocale } from '@/i18n/uiLocaleStore'
+import { printErrorMessageId } from '../documents/documentsModel'
+import { officialFormLang } from '../forms/officialForms'
 import { stockApi, type BalanceRow, type BalancesPageBody } from './stock.api'
 import { usePickerOptions } from './stockPickers'
 import { stockQueryKeys } from './stockQueryKeys'
@@ -40,6 +45,7 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
   const [selected, setSelected] = useState<string | null>(initialSelectedId)
   const [exporting, setExporting] = useState(false)
   const [exportFailed, setExportFailed] = useState(false)
+  const card = usePdfDownload(parseFilename)
   const set = (key: keyof BalanceFilters) => (value: string) => {
     setSelected(null)
     setFilters((f) => ({ ...f, [key]: value, ...(key === 'sku' ? { lot: '' } : {}) }))
@@ -98,6 +104,22 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
     }
   }
   const first = pages[0]
+  const cardReady = filters.sku !== '' && filters.location !== ''
+  const cardError = (err: unknown) => ((err as { status?: unknown } | null)?.status === 404 ? 'stock.balances.cardEmpty' : printErrorMessageId(err))
+  const onCard = (format: 'pdf' | 'docx') =>
+    void card.run(
+      `card-${format}`,
+      () =>
+        stockApi.stockCard({
+          sku: filters.sku,
+          location: filters.location,
+          ...(filters.lot !== '' ? { lot: filters.lot } : {}),
+          format,
+          lang: officialFormLang(getUiLocale()),
+        }),
+      `stock-card_Z-3.${format}`,
+      cardError,
+    )
   const selectedRow = selected === null ? null : (rows.find((r) => rowId(r) === selected) ?? null)
 
   const table = (
@@ -121,12 +143,28 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
     <>
       <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.balances.title')} lede={t('stock.balances.lede')}
         actions={
-          <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
-            {t('stock.balances.export')}
-          </Button>
+          <>
+            <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
+              {t('stock.balances.export')}
+            </Button>
+            {(['pdf', 'docx'] as const).map((format) => (
+              <Button
+                key={format}
+                variant="secondary"
+                loading={card.busyKey === `card-${format}`}
+                disabled={!cardReady}
+                onClick={() => onCard(format)}
+                data-testid={`stock-card-${format}`}
+              >
+                {t(format === 'pdf' ? 'stock.balances.cardPdf' : 'stock.balances.cardDocx')}
+              </Button>
+            ))}
+          </>
         }
       />
       {exportFailed && <Banner tone="danger">{t('stock.balances.exportFailed')}</Banner>}
+      {card.error !== null && <Banner tone="danger">{t(card.error)}</Banner>}
+      {!cardReady && <p className="caption" data-testid="stock-card-hint">{t('stock.balances.cardHint')}</p>}
       {query.hasNextPage && <p className="caption">{t('stock.balances.exportHint')}</p>}
       <FilterBar
         activeChips={chips}

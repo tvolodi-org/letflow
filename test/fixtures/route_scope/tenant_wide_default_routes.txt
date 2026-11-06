@@ -60,6 +60,7 @@ GET /modules/stock/documents/:id StockRead
 GET /modules/stock/documents/:id/print StockRead
 GET /modules/stock/movements StockRead
 GET /modules/stock/reconcile StockReconcile
+GET /modules/stock/stock-card/print StockRead
 GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage
