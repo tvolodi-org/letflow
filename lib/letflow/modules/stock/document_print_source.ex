@@ -102,10 +102,15 @@ defmodule Letflow.Modules.Stock.DocumentPrintSource do
   end
 
   # The legal entity (name, BIN) of the header org unit, keyed by the unit id.
-  defp legal_entities(prefix, issued) do
-    header = issued.content["header"] |> map()
+  defp legal_entities(prefix, issued),
+    do: legal_entity(prefix, issued.content["header"] |> map() |> Map.get("org_unit_id"))
 
-    with unit_id when is_binary(unit_id) <- header["org_unit_id"],
+  @doc false
+  # The legal entity (name, BIN) of an org unit, keyed by the unit id; `%{}` when any link is missing.
+  # Shared with the count forms (`CountPaperworkSource.read_form/4`). Two bound reads by `prefix`.
+  @spec legal_entity(String.t(), term()) :: map()
+  def legal_entity(prefix, unit_id) do
+    with unit_id when is_binary(unit_id) <- unit_id,
          {:ok, unit} <- Org.lookup(prefix, unit_id),
          le_id when is_binary(le_id) <- unit["legal_entity_id"],
          {:ok, le} <- Org.lookup(prefix, le_id) do

@@ -172,11 +172,11 @@ of E1a is not this form: it lists SKU, location, book and counted quantity and t
 | Table col 2 | Наименование, краткая характеристика | `catalog_item.name` | have |
 | Table col 3 | Номенклатурный номер | `catalog_item.code` (Q18) | have |
 | Table col 4 | Единица измерения | `unit_ref` → unit name | have |
-| Table cols 5, 7 | Излишек: количество | `counted_quantity - book_quantity` when positive | have (computed) |
-| Table cols 6, 8 | Излишек / недостача: сумма, в теңге | no price on count lines | **missing** (G5) |
-| Table cols 9, 11 | Недостача: количество | `book_quantity - counted_quantity` when positive | have (computed) |
-| Table cols 10 | Недостача: сумма | none | **missing** (G5) |
-| Table cols 12 to 14 | Отрегулировано за счет корректировок в бухгалтерском учете: счет, количество, сумма | none | **missing** (G6, G15) |
+| Table col 5 | Результаты инвентаризации, излишек: количество | `counted_quantity - book_quantity` when positive (`direction` surplus) | have (computed) |
+| Table col 6 | Излишек: сумма, в теңге | no price on count lines | **missing** (G5) |
+| Table col 7 | Недостача: количество | `book_quantity - counted_quantity` when positive (`direction` shortage) | have (computed) |
+| Table col 8 | Недостача: сумма | none | **missing** (G5) |
+| Table cols 9 to 14 | Отрегулировано за счет корректировок в бухгалтерском учете: излишек (количество, сумма, счет), недостача (количество, сумма, счет) | none | **missing** (G6, G15) |
 | Table | Итого | quantities computed at print time; sums none | quantity have, sums missing |
 | Back side cols 15 to 26 | Пересортица (offsetting), окончательные излишки и недостачи (quantity, sum, account) | none | **missing** (G15) |
 | Signers | Бухгалтер (signature, name) | none | **missing** (G4) |
@@ -392,3 +392,28 @@ Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`). Q16 is reworded in
     50 exist only in kk here).
 * The proof is done in both languages and both formats by `test/letflow/modules/stock/form_z2_router_test.exs`
   (real router, real token) and `test/letflow/documents/form_print_test.exs` (kk title, kk labels, PDF non-empty).
+
+### 6.1 Count forms Inv-18 and Inv-10 (E5d, T-1418)
+
+* **Built:** `GET /counts/:id/print/differences?form=inv18` (annex 49, Tug-18) and
+  `GET /counts/:id/print/sheet?form=inv10` (annex 41, Tug-10), each with `format=pdf|docx&lang=ru|kk` (default pdf, ru;
+  `en` is refused with `invalid_lang`, a wrong pairing with `invalid_form`), permission `StockRead`, same read path and scope
+  rules as the E1a print. Buttons: next to the count paperwork buttons on the count screen (the Kazakh UI asks kk, any other
+  UI asks ru). Layouts `priv/print_forms/inv18.json` and `inv10.json`, kk wording from the Adilet text
+  (`kk_status: official`), ru wording from the 2026 drafts. If the final order text differs, ask the operator first.
+* **Filled from Letflow:** organisation name and BIN, number and date of the document, count date, order number and date,
+  line number, item name and code, unit. Inv-18: quantity of the surplus or shortage of each line (absolute value, totals
+  per column), the responsible persons of the lines (name, position). Inv-10: actual (counted) and accounting (book)
+  quantity, number of rows and total counted quantity, the responsible persons of the lines, the commission chair and members
+  with positions. A person the caller's scope hides has neither name nor position (INV-2).
+* **Left blank, never invented:** all sums and prices (G5), accounts (G6), the regrading table on the back of Inv-18 (G15),
+  the accountant, every signature, the IIN (G1), kind of stock, balance account, the amounts in words (G10), the actual start and
+  end of an Inv-10 count (the planned times are not the actual ones, G12), the responsible persons' statement.
+* **PDF shape:** the PDF engine allows 12 columns per table, so the 14-column front table of Inv-18 is printed as two tables
+  (columns 1 to 12, then column 1 with 13 and 14; header numbers stay the official ones); the `.docx` keeps all 14. A PDF
+  holds at most 999 lines (the totals row is the 1000th row): more is `422 print_too_large`, the `.docx` has no cap.
+* **Not built, no data:** Inv-1 (goods in transit: the count kind is not in the product), Inv-3 (shipped stock: buyer, terms and
+  cost are not on the issue document), Inv-7 (custody stock: there is no custody register; printing a sheet as Inv-7 would state
+  a fact Letflow does not hold).
+* **Proof:** `test/letflow/modules/stock/form_count_router_test.exs` (real router, real token, both formats, both languages,
+  scope, row cap), `form_count_test.exs` (mappers), `test/letflow/documents/form_print_wide_test.exs` (engine).

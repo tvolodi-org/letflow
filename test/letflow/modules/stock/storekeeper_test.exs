@@ -35,8 +35,8 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
             Authorization.role_allows?(:STOREKEEPER, p),
             do: p
 
-      # MyModulesRead / MyAccessRead are role-agnostic
-      expected = @stock_atoms ++ @core_atoms ++ [:MyModulesRead, :MyAccessRead]
+      # MyModulesRead / MyAccessRead / MyPreferencesSet are role-agnostic
+      expected = @stock_atoms ++ @core_atoms ++ [:MyModulesRead, :MyAccessRead, :MyPreferencesSet]
       assert Enum.sort(Enum.uniq(granted)) == Enum.sort(expected)
 
       for denied <-

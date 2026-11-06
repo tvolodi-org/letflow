@@ -23,7 +23,7 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   @spec render([tuple()]) ::
           {:ok, binary()} | {:error, :unsupported_glyph | {:render_failed, [atom()]}}
   def render(model) do
-    {blocks, doc, lines, columns} = compile(model)
+    {blocks, doc, tables} = compile(model)
 
     layout = %{
       "layout_schema_version" => 1,
@@ -32,8 +32,10 @@ defmodule Letflow.Documents.FormPrint.Pdf do
       ]
     }
 
-    projection = %{"doc" => doc, "lines" => lines}
-    declared = %{"doc" => Map.keys(doc), "lines" => columns}
+    projection = Map.new(tables, fn {et, {rows, _keys}} -> {et, rows} end) |> Map.put("doc", doc)
+
+    declared =
+      Map.new(tables, fn {et, {_rows, keys}} -> {et, keys} end) |> Map.put("doc", Map.keys(doc))
 
     case PrintLayout.render(layout, projection, declared) do
       {:ok, pdf} ->
@@ -48,46 +50,82 @@ defmodule Letflow.Documents.FormPrint.Pdf do
     end
   end
 
+  @max_chunk 12
+
   @doc false
-  # Test seam: the blocks, document fields, table rows and declared column keys.
+  # Test seam: the blocks, document fields and the tables, `entity_type => {rows, declared keys}`.
+  # Every table of the model gets its own entity types `t<i>c<j>` (table item index `i`, column
+  # chunk `j`): the closed layout allows 12 columns per table, a wider table is cut into chunks
+  # that repeat column 1 so a reader can match the rows. Header numbers stay the official ones.
   def compile(model) do
-    {rev, doc, lines, columns} =
+    {rev, doc, tables} =
       model
       |> Enum.with_index()
-      |> Enum.reduce({[], %{}, [], []}, fn {item, i}, {blocks, doc, lines, cols} ->
+      |> Enum.reduce({[], %{}, %{}}, fn {item, i}, {blocks, doc, tables} ->
         case item do
           {:text, s} ->
-            {[text(s) | blocks], doc, lines, cols}
+            {[text(s) | blocks], doc, tables}
 
           {:title, s} ->
-            {[text(s), spacer(3) | blocks], doc, lines, cols}
+            {[text(s), spacer(3) | blocks], doc, tables}
 
           {:proxy, s} ->
-            {[text(s) | blocks], doc, lines, cols}
+            {[text(s) | blocks], doc, tables}
 
           {:notice, s} ->
-            {[text(s), spacer(3) | blocks], doc, lines, cols}
+            {[text(s), spacer(3) | blocks], doc, tables}
 
           {:field, label, value} ->
             name = "f#{i}"
-            {[field(label, name) | blocks], Map.put(doc, name, or_blank(value)), lines, cols}
+            {[field(label, name) | blocks], Map.put(doc, name, or_blank(value)), tables}
 
           {:signature, label, values, captions, stamp} ->
             name = "f#{i}"
             joined = values |> Enum.map(&or_blank/1) |> Enum.join(" / ")
             caption = Enum.join(Enum.reject([stamp | captions], &is_nil/1), " / ")
 
-            {[text(caption), field(label, name) | blocks], Map.put(doc, name, joined), lines,
-             cols}
+            {[text(caption), field(label, name) | blocks], Map.put(doc, name, joined), tables}
 
           {:table, %{columns: tcols, rows: rows, total: total}} ->
-            keys = Enum.map(tcols, & &1.key)
-            all = if total, do: rows ++ [total], else: rows
-            {[spacer(3), table(tcols), spacer(3) | blocks], doc, all, keys}
+            chunks = chunks(tcols)
+
+            {tbl_blocks, tables} =
+              chunks
+              |> Enum.with_index()
+              |> Enum.reduce({[], tables}, fn {cols, j}, {bl, tabs} ->
+                et = "t#{i}c#{j}"
+                keys = Enum.map(cols, fn {c, _n} -> c.key end)
+                entry = {chunk_rows(rows, total, keys), keys}
+                {[spacer(3), table(cols, et), spacer(3) | bl], Map.put(tabs, et, entry)}
+              end)
+
+            {tbl_blocks ++ blocks, doc, tables}
         end
       end)
 
-    {Enum.reverse(rev), doc, lines, columns}
+    {Enum.reverse(rev), doc, tables}
+  end
+
+  # [{column, official_number}] cut into chunks of at most @max_chunk; chunk 2+ repeats column 1.
+  defp chunks(tcols) do
+    numbered = Enum.map(tcols, &{&1, &1.no})
+
+    if length(numbered) <= @max_chunk do
+      [numbered]
+    else
+      [first | _] = numbered
+      {head, tail} = Enum.split(numbered, @max_chunk)
+      [head | tail |> Enum.chunk_every(@max_chunk - 1) |> Enum.map(&[first | &1])]
+    end
+  end
+
+  # The rows restricted to the chunk's keys, the totals row last; a totals row with every cell of
+  # this chunk blank (a chunk of columns that are not summed) is left out.
+  defp chunk_rows(rows, total, keys) do
+    rows = Enum.map(rows, &Map.take(&1, keys))
+    total = total && Map.take(total, keys)
+
+    if total && Enum.any?(total, fn {_k, v} -> v != "" end), do: rows ++ [total], else: rows
   end
 
   defp text(s), do: %{"type" => "text", "text" => s}
@@ -99,24 +137,19 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   defp or_blank(""), do: @blank
   defp or_blank(v), do: v
 
-  defp table(tcols) do
+  defp table(cols, entity_type) do
     columns =
-      tcols
-      |> Enum.with_index()
-      |> Enum.map(fn {c, i} ->
+      Enum.map(cols, fn {c, n} ->
         header = if c.group, do: c.group <> ": " <> c.label, else: c.label
 
-        %{
-          "field_name" => c.key,
-          "header" => "#{i + 1}. " <> header,
-          "width" => width(i)
-        }
+        %{"field_name" => c.key, "header" => "#{n}. " <> header, "width" => width(n)}
       end)
 
-    %{"type" => "table", "entity_type" => "lines", "columns" => columns}
+    %{"type" => "table", "entity_type" => entity_type, "columns" => columns}
   end
 
-  defp width(0), do: 0.6
-  defp width(1), do: 3
+  # By the official column number: 1 is the row number, 2 the name, the rest equal.
+  defp width(1), do: 0.6
+  defp width(2), do: 3
   defp width(_), do: 1.2
 end
