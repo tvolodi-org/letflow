@@ -97,4 +97,5 @@ export const stockJournalScreens: HarnessScreen[] = [
   { name: 'stock-journal-v1-expanded', routes: journalRoutes, render: () => shell(<MovementsPage initialOpenId="jr-2" />) },
   { name: 'stock-journal-v3-details', routes: journalRoutes, render: () => shell(<MovementsPage initialSelectedId="jr-1" initialDetail />) },
   { name: 'stock-journal-v2-sheet', routes: journalRoutes, render: () => shell(<MovementsPage variant="v2" initialSelectedId="jr-1" initialDetail />) },
+  { name: 'stock-journal-v1-filters', routes: journalRoutes, render: () => shell(<MovementsPage initialFiltersOpen />) },
 ]

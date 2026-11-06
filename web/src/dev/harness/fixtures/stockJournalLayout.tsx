@@ -24,7 +24,7 @@ const SEED_REMEMBERED = {
   screens: { 'stock.journal': { panes: { details: [38] }, cols: { ops: { date: 12 }, legs: { loc: 30 } } } },
 }
 
-function routes(seed: object | null): FixtureRoute[] {
+function routes(seed: object | null, forbidden = false): FixtureRoute[] {
   let stored: string | null = seed ? JSON.stringify(seed) : null
   const answer = () => ({ status: 200, body: { preferences: stored ? { 'ui.layout': stored } : {}, effective: {}, tenant_defaults: {} } })
   return [
@@ -37,6 +37,9 @@ function routes(seed: object | null): FixtureRoute[] {
         return answer()
       },
     },
+    ...(forbidden
+      ? [{ match: (path: string, method: string) => path === '/api/v1/modules/stock/movements' && method === 'GET', reply: () => ({ status: 403, body: { type: 'about:blank', title: 'Forbidden', status: 403 } }) }]
+      : []),
     ...journalRoutes,
   ]
 }
@@ -77,4 +80,5 @@ export const stockJournalLayoutScreens: HarnessScreen[] = [
   { name: 'stock-journal-layout', routes: routes(null), render: page },
   { name: 'stock-journal-layout-remembered', routes: routes(SEED_REMEMBERED), render: page },
   { name: 'stock-journal-layout-collapsed', routes: routes(SEED_COLLAPSED), render: page },
+  { name: 'stock-journal-layout-noperm', routes: routes(null, true), render: page },
 ]
