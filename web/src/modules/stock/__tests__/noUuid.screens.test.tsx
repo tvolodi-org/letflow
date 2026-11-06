@@ -97,6 +97,22 @@ describe('N1 stock register screens', () => {
     expect(container).toHaveTextContent('PCS')
   })
 
+  it('balances: the history panel shows names, no uuid', async () => {
+    const entry = {
+      entry_id: ID.entry, posting_seq: 17, cause: 'receipt', reason_code: null, document_type: 'stock_receipt', document_id: ID.doc,
+      document_number: 'RCP-2026-000001', event_time: '2026-11-04T18:00:00Z', legs: [{ ...LEG, leg_no: 1, quantity: '5' }],
+    }
+    stockServer({
+      '/api/v1/modules/stock/balances': { ledger_seq: 4, next_cursor: null, rows: [{ ...LEG, quantity: '12.5' }] },
+      '/api/v1/modules/stock/movements': { next_cursor: null, rows: [entry] },
+    })
+    const { container } = renderStock(BAL)
+    await settled(container, 'ITM-1 - Bolt M8')
+    fireEvent.click(screen.getAllByTestId('datatable-row')[0])
+    await screen.findByTestId('history-doc-link')
+    await settled(container, 'ITM-1 - Bolt M8')
+  })
+
   it('movements: a row with its legs open', async () => {
     const entry = {
       entry_id: ID.entry, posting_seq: 17, cause: 'transfer', reason_code: null, document_type: 'stock_transfer', document_id: ID.doc,

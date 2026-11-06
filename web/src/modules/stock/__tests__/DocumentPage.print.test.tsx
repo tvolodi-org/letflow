@@ -124,7 +124,7 @@ describe('D5 model and catalogs', () => {
   })
   it('new keys are non-empty and translated', () => {
     const keys = Object.keys(docEn).filter((k) => k.startsWith('stock.doc.print'))
-    expect(keys.length).toBe(5)
+    expect(keys.length).toBe(7) // T-1434: + invalid_form, invalid_format
     for (const k of keys) {
       expect(docRu[k]?.trim(), k).toBeTruthy()
       expect(docKk[k]?.trim(), k).toBeTruthy()
