@@ -1,5 +1,5 @@
 /** Harness fixtures of the stock document screens (task T-1233, REQ-722). Invented data only. */
-import type { ReactElement } from 'react'
+import { useEffect, type ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import DocumentNewPage from '@/modules/stock/documents/DocumentNewPage'
@@ -96,10 +96,26 @@ function withAuth(page: ReactElement): ReactElement {
   )
 }
 
+/** Harness only: opens the loaded draft in edit mode (the edit state is local to the screen, a screenshot cannot click). */
+function OpenInEdit({ children }: { children: ReactElement }): ReactElement {
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Edit')
+      if (btn) {
+        btn.click()
+        window.clearInterval(id)
+      }
+    }, 150)
+    return () => window.clearInterval(id)
+  }, [])
+  return children
+}
+
 export const stockDocumentsScreens: HarnessScreen[] = [
   { name: 'stock-documents', routes, render: () => withAuth(<DocumentsPage />) },
   { name: 'stock-document-posted', routes, initialPath: '/doc-posted', routePattern: '/:id', render: () => withAuth(<DocumentPage />) },
   { name: 'stock-document-draft', routes, initialPath: '/doc-draft', routePattern: '/:id', render: () => withAuth(<DocumentPage />) },
+  { name: 'stock-document-draft-edit', routes, initialPath: '/doc-draft', routePattern: '/:id', render: () => withAuth(<OpenInEdit><DocumentPage /></OpenInEdit>) },
   { name: 'stock-document-new-receipt', routes, initialPath: '/?kind=receipt', render: () => withAuth(<DocumentNewPage />) },
   { name: 'stock-document-new-issue', routes, initialPath: '/?kind=issue', render: () => withAuth(<DocumentNewPage />) },
   { name: 'stock-document-new-writeoff', routes, initialPath: '/?kind=write_off', render: () => withAuth(<DocumentNewPage />) },
