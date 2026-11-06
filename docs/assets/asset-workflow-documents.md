@@ -75,6 +75,13 @@ Common line fields: `id` (string, yes, none), `header_id` (string, FK in pack, y
 yes, none), `asset_id` (string, yes, asset card of C1), `quantity` (decimal strict, yes, greater than zero,
 none).
 
+**Built by C11 (GH #3889, REQ-753, module version 0.7.0).** The kinds `change`, `handover` and `writeoff` use the
+record types `assets_change`, `assets_handover`, `assets_writeoff` (each with a `_line` type), not the proposed
+`asset_*` names, and the prefixes ACH, AHO, AWO. The actual user fields are optional in every kind (a commission may
+leave the user empty, and a later document must be able to match that balance row). `reason_invalid` and
+`reason_required` of a write off are refused when the document is saved. The card `org_unit_id` is not yet updated
+by a posted hand over (follow-up part 2).
+
 ## 2. Commission
 
 **Meaning (proposal, to be confirmed by the owner at GATE C):** commission puts an asset into the asset
