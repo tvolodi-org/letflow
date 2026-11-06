@@ -1,17 +1,19 @@
 // @vitest-environment jsdom
-/** M1–M5 — GH 3767 / REQ-724: the movements screen (network mocked). */
+/** M1–M5 — GH 3767 / REQ-724; M7–M9, JP — T-1422 (GATE B R12): the movements screen on the journal component (network mocked). */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { MOV, fakeMasters, renderStock, routeCalls } from './stockTestKit'
+import { saveBlob } from '../register/saveBlob'
 
 expect.extend(jestDomMatchers)
 
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-stock' }, isAuthenticated: true }),
 }))
-const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn() }))
+const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), getBlob: vi.fn() }))
+vi.mock('../register/saveBlob', () => ({ saveBlob: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const LEG = { sku: 'i1', location: 'l1', org_unit: 'u1', responsible: 'e1', lot: 't1', unit_ref: 'm1' }
@@ -32,29 +34,42 @@ const ENTRY = {
 beforeEach(() => {
   clientMock.post.mockReset()
   clientMock.get.mockReset()
+  clientMock.getBlob.mockReset()
+  vi.mocked(saveBlob).mockReset()
   fakeMasters(clientMock)
   clientMock.get.mockResolvedValue({ next_cursor: null, rows: [ENTRY] })
 })
 afterEach(() => cleanup())
 
+const DOC_UUID = '5b58a738-1c2d-4e3f-8a9b-000000000010'
+const rowsOf = async () => await screen.findAllByTestId('journal-row')
+const stockGet = (routes: Record<string, unknown>) =>
+  clientMock.get.mockImplementation(async (path: string) => {
+    if (path in routes) return routes[path]
+    throw { status: 404, message: 'x', code: '404' }
+  })
+
 describe('M1 query keys', () => {
-  it('filters send only cause, document_id, from_seq and to_seq', async () => {
+  it('filters send only cause, document_type, document_id, from_seq and to_seq', async () => {
     renderStock(MOV)
-    await screen.findByText('17')
+    await rowsOf()
     expect(routeCalls(clientMock, 'movements')).toEqual([{}])
     fireEvent.change(screen.getByLabelText('Cause'), { target: { value: 'receipt' } })
     await waitFor(() => expect(routeCalls(clientMock, 'movements').at(-1)).toEqual({ cause: 'receipt' }))
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'stock_receipt' } })
     fireEvent.change(screen.getByLabelText('Document'), { target: { value: 'doc-9' } })
     fireEvent.change(screen.getByLabelText('From posting no.'), { target: { value: '3x' } })
     fireEvent.change(screen.getByLabelText('To posting no.'), { target: { value: '9' } })
     await waitFor(() =>
-      expect(routeCalls(clientMock, 'movements').at(-1)).toEqual({ cause: 'receipt', document_id: 'doc-9', from_seq: '3', to_seq: '9' }),
+      expect(routeCalls(clientMock, 'movements').at(-1)).toEqual({
+        cause: 'receipt', document_type: 'stock_receipt', document_id: 'doc-9', from_seq: '3', to_seq: '9',
+      }),
     )
   })
 
   it('presets the document from the URL query key', async () => {
     renderStock(`${MOV}?document_id=d1`)
-    await screen.findByText('17')
+    await rowsOf()
     expect(screen.getByLabelText('Document')).toHaveValue('d1')
     expect(routeCalls(clientMock, 'movements')).toEqual([{ document_id: 'd1' }])
   })
@@ -63,7 +78,7 @@ describe('M1 query keys', () => {
 describe('M2 range', () => {
   it('a from above to is not sent and the field is marked', async () => {
     renderStock(MOV)
-    await screen.findByText('17')
+    await rowsOf()
     fireEvent.change(screen.getByLabelText('From posting no.'), { target: { value: '9' } })
     fireEvent.change(screen.getByLabelText('To posting no.'), { target: { value: '3' } })
     expect((await screen.findAllByText('The first number is above the last.')).length).toBeGreaterThan(0)
@@ -72,22 +87,26 @@ describe('M2 range', () => {
   })
 })
 
-describe('M3 rows and legs', () => {
-  it('shows the row cells and the legs of a two-leg entry with names and signed quantity', async () => {
+describe('M3 rows and legs (J1: list left, legs of the selected row in the pane)', () => {
+  it('shows the row cells, then the legs of the clicked row in the pane with names and signs', async () => {
     renderStock(MOV)
-    const row = (await screen.findByText('17')).closest('tr')!
+    const [row] = await rowsOf()
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-layout', 'split')
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-variant', 'v1')
     expect(within(row).getAllByText('Transfer')).toHaveLength(2)
-    expect(row).toHaveTextContent('wrong_quantity')
     expect(row).toHaveTextContent('Nov 4, 2026 23:00')
-    fireEvent.click(within(row).getByRole('button', { name: 'Show legs' }))
-    const legs = await screen.findAllByTestId('leg-row')
+    expect(row).toHaveTextContent('5 pcs')
+    expect(row).not.toHaveTextContent('-5')
+    expect(screen.getByTestId('journal-blank')).toBeInTheDocument()
+    fireEvent.click(row)
+    const legs = await screen.findAllByTestId('journal-leg')
     expect(legs).toHaveLength(2)
     await waitFor(() => expect(legs[0]).toHaveTextContent('Bolt M8'))
     expect(legs[0]).toHaveTextContent('Shelf A')
-    expect(legs[0]).toHaveTextContent('Aigul B.')
-    expect(legs[0]).toHaveTextContent('pcs')
-    expect(legs[0]).toHaveTextContent('-5')
-    expect(legs[1]).toHaveTextContent('5')
+    expect(legs[0]).toHaveTextContent('Held by Aigul B.')
+    expect(legs[0]).toHaveTextContent('−5 pcs')
+    expect(legs[1]).toHaveTextContent('+5 pcs')
+    expect(row).toHaveAttribute('aria-selected', 'true')
   })
 })
 
@@ -97,17 +116,16 @@ describe('M-2 document number and kind', () => {
       next_cursor: null,
       rows: [
         { ...ENTRY, document_type: 'stock_receipt', document_id: 'd1', document_number: 'RCP-2026-000001' },
-        { ...ENTRY, entry_id: 'en2', posting_seq: 18, document_type: 'stock_receipt', document_id: 'doc-1', document_number: null },
+        { ...ENTRY, entry_id: 'en2', posting_seq: 18, document_type: 'stock_receipt', document_id: null, document_number: null },
       ],
     })
     renderStock(MOV)
-    const link = await screen.findByTestId('movement-doc-link')
+    const link = await screen.findByTestId('journal-doc-link')
     expect(link).toHaveTextContent('RCP-2026-000001 - Receipt')
     expect(link).toHaveAttribute('href', '/admin/stock/documents/d1')
-    const plain = (await screen.findByText('18')).closest('tr')!
+    const plain = (await rowsOf())[1]
     expect(plain).toHaveTextContent('Receipt')
-    expect(within(plain).queryByTestId('movement-doc-link')).not.toBeInTheDocument()
-    expect(plain).not.toHaveTextContent('doc-1')
+    expect(within(plain).queryByTestId('journal-doc-link')).not.toBeInTheDocument()
   })
 
   it('Q-2: a leg quantity shows at most 3 decimals, trailing zeros trimmed', async () => {
@@ -116,12 +134,11 @@ describe('M-2 document number and kind', () => {
       rows: [{ ...ENTRY, legs: [{ ...LEG, leg_no: 1, quantity: '40.000000000' }, { ...LEG, leg_no: 2, quantity: '-12.500000000' }] }],
     })
     renderStock(MOV)
-    const row = (await screen.findByText('17')).closest('tr')!
-    fireEvent.click(within(row).getByRole('button', { name: 'Show legs' }))
-    const legs = await screen.findAllByTestId('leg-row')
-    expect(legs[0]).toHaveTextContent(/pcs40$/)
+    fireEvent.click((await rowsOf())[0])
+    const legs = await screen.findAllByTestId('journal-leg')
+    await waitFor(() => expect(legs[0]).toHaveTextContent(/\+40 pcs$/))
     expect(legs[0]).not.toHaveTextContent('40.0')
-    expect(legs[1]).toHaveTextContent('-12.5')
+    expect(legs[1]).toHaveTextContent('−12.5 pcs')
     expect(legs[1]).not.toHaveTextContent('12.50')
   })
 })
@@ -133,10 +150,10 @@ describe('M4 masked leg', () => {
       rows: [{ ...ENTRY, legs: [{ leg_no: 1, quantity: '-4', unit_ref: 'm1', masked: true }] }],
     })
     renderStock(MOV)
-    fireEvent.click(await screen.findByRole('button', { name: 'Show legs' }))
-    const leg = await screen.findByTestId('leg-row')
+    fireEvent.click((await rowsOf())[0])
+    const leg = await screen.findByTestId('journal-leg')
     expect(leg).toHaveTextContent('Hidden unit')
-    expect(leg).toHaveTextContent('-4')
+    expect(leg).toHaveTextContent('−4')
     await waitFor(() => expect(leg).toHaveTextContent('pcs'))
     expect(leg).not.toHaveTextContent('Bolt M8')
   })
@@ -151,8 +168,7 @@ describe('M5 paging', () => {
     )
     renderStock(MOV)
     fireEvent.click(await screen.findByTestId('load-more'))
-    await screen.findByText('16')
-    expect(screen.getByText('17')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByTestId('journal-row')).toHaveLength(2))
     expect(routeCalls(clientMock, 'movements').at(-1)).toEqual({ cursor: 'c2' })
     expect(screen.queryByTestId('load-more')).not.toBeInTheDocument()
   })
@@ -167,7 +183,7 @@ describe('W5 REQ-718 the count.differences document type', () => {
       useUiLocaleStore.getState().setLocaleTransient(lang)
       clientMock.get.mockResolvedValue({ next_cursor: null, rows: [{ ...ENTRY, cause: 'count_difference', document_type: 'count.differences' }] })
       renderStock(MOV)
-      const row = (await screen.findByText('17')).closest('tr')!
+      const row = (await rowsOf())[0]
       expect(within(row).getByText(WORD[lang])).toBeInTheDocument()
       expect(within(row).queryByText('count.differences')).toBeNull()
     })
@@ -183,7 +199,7 @@ describe('M6 REQ-718 the count_difference cause', () => {
       useUiLocaleStore.getState().setLocaleTransient(lang)
       clientMock.get.mockResolvedValue({ next_cursor: null, rows: [{ ...ENTRY, cause: 'count_difference', document_type: 'count.differences' }] })
       renderStock(MOV)
-      const row = (await screen.findByText('17')).closest('tr')!
+      const row = (await rowsOf())[0]
       expect(within(row).getByText(EXPECTED[lang])).toBeInTheDocument()
       const option = screen.getAllByRole('option').find((o) => (o as HTMLOptionElement).value === 'count_difference')
       expect(option).toHaveTextContent(EXPECTED[lang])
@@ -191,7 +207,7 @@ describe('M6 REQ-718 the count_difference cause', () => {
   }
 })
 
-describe('R1 date format per language (T-1381, real row shape)', () => {
+describe('R1 / M4 date format per language (T-1381, real row shape)', () => {
   afterEach(() => useUiLocaleStore.getState().reloadFromEnvironment())
   // event_time 2026-11-04T18:00:00Z is 23:00 on the same day in Asia/Almaty (UTC+5).
   const EXPECTED = { en: 'Nov 4, 2026 23:00', ru: '04-11-2026 23:00', kk: '04-11-2026 23:00' } as const
@@ -199,8 +215,149 @@ describe('R1 date format per language (T-1381, real row shape)', () => {
     it(`${lang}: the time cell reads ${EXPECTED[lang]}`, async () => {
       useUiLocaleStore.getState().setLocaleTransient(lang)
       renderStock(MOV)
-      await screen.findByText('17')
-      expect(screen.getByText(EXPECTED[lang])).toBeInTheDocument()
+      expect((await rowsOf())[0]).toHaveTextContent(EXPECTED[lang])
     })
   }
+})
+
+describe('M5x xlsx export', () => {
+  it('sends the current filters with format xlsx and no cursor, then saves the file', async () => {
+    clientMock.getBlob.mockResolvedValue({ blob: new Blob(['x']), contentType: 'x', contentDisposition: null })
+    renderStock(MOV)
+    await rowsOf()
+    fireEvent.change(screen.getByLabelText('Cause'), { target: { value: 'receipt' } })
+    await waitFor(() => expect(routeCalls(clientMock, 'movements').at(-1)).toEqual({ cause: 'receipt' }))
+    fireEvent.click(screen.getByTestId('journal-export'))
+    await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(1))
+    expect(clientMock.getBlob).toHaveBeenCalledWith('/api/v1/modules/stock/movements', { cause: 'receipt', format: 'xlsx' })
+    expect(vi.mocked(saveBlob).mock.calls[0][1]).toBe('stock-movements.xlsx')
+  })
+
+  it('a failed export shows a banner', async () => {
+    clientMock.getBlob.mockRejectedValue({ status: 500, message: 'x', code: '500' })
+    renderStock(MOV)
+    await rowsOf()
+    fireEvent.click(screen.getByTestId('journal-export'))
+    expect(await screen.findByText('The file could not be exported. Try again.')).toBeInTheDocument()
+  })
+})
+
+describe('M3p people and references: names, never ids', () => {
+  it('Posted by comes from the document read; absent shows a dash; no id and no "Another user"', async () => {
+    const row = { ...ENTRY, document_id: DOC_UUID, document_number: 'TRF-2026-000002' }
+    stockGet({
+      '/api/v1/modules/stock/movements': { next_cursor: null, rows: [row] },
+      [`/api/v1/modules/stock/documents/${DOC_UUID}`]: { id: DOC_UUID, posted_by: 'u-1', posted_by_label: 'Aigul B. (E-1)' },
+    })
+    const { container } = renderStock(MOV)
+    fireEvent.click((await rowsOf())[0])
+    const by = await screen.findByText('Aigul B. (E-1)')
+    expect(by.closest('[data-field="by"]')).toBeInTheDocument()
+    expect(container.textContent).not.toContain(DOC_UUID)
+    expect(container.textContent).not.toContain('Another user')
+  })
+
+  it('without a poster label (no permission, or not a numbered document) the field is a dash', async () => {
+    stockGet({ '/api/v1/modules/stock/movements': { next_cursor: null, rows: [{ ...ENTRY, document_id: DOC_UUID }] } })
+    renderStock(MOV)
+    fireEvent.click((await rowsOf())[0])
+    const field = await waitFor(() => {
+      const f = document.querySelector('[data-field="by"]')
+      if (!f) throw new Error('no field')
+      return f
+    })
+    expect(field).toHaveTextContent('—')
+  })
+})
+
+describe('M7 states', () => {
+  it('empty: text; filtered empty: no match with a clear button', async () => {
+    clientMock.get.mockResolvedValue({ next_cursor: null, rows: [] })
+    renderStock(MOV)
+    expect(await screen.findByTestId('journal-empty')).toHaveTextContent('No movements found.')
+    fireEvent.change(screen.getByLabelText('Cause'), { target: { value: 'issue' } })
+    expect(await screen.findByTestId('journal-nomatch')).toHaveTextContent('No movement matches the filters.')
+    fireEvent.click(screen.getByTestId('journal-clear-empty'))
+    await waitFor(() => expect(screen.getByLabelText('Cause')).toHaveValue(''))
+  })
+
+  it('error: banner with Retry that loads again', async () => {
+    clientMock.get.mockRejectedValueOnce({ status: 500, message: 'x', code: '500' })
+    renderStock(MOV)
+    const state = await screen.findByTestId('journal-error')
+    fireEvent.click(within(state).getByRole('button', { name: 'Retry' }))
+    expect((await rowsOf()).length).toBe(1)
+  })
+
+  it('loading: a skeleton before the first answer', async () => {
+    clientMock.get.mockImplementation(() => new Promise(() => undefined))
+    renderStock(MOV)
+    expect(await screen.findByTestId('journal-loading')).toBeInTheDocument()
+  })
+})
+
+describe('M8 reversal status and links', () => {
+  it('shows Reversed / Reversal pills with the other document number and walks to it', async () => {
+    clientMock.get.mockResolvedValue({
+      next_cursor: null,
+      rows: [
+        { ...ENTRY, entry_id: 'rv', posting_seq: 19, cause: 'reversal', reverses_entry_id: 'en1', document_number: 'REV-2026-000001', document_type: 'stock_reversal' },
+        { ...ENTRY, entry_id: 'en1', document_number: 'TRF-2026-000002' },
+      ],
+    })
+    renderStock(MOV)
+    const [rev, orig] = await rowsOf()
+    expect(rev).toHaveTextContent('Reversal')
+    expect(rev.querySelector('[title="Reversal of TRF-2026-000002"]')).not.toBeNull()
+    expect(orig).toHaveTextContent('Reversed')
+    expect(orig.querySelector('[title="Reversed by REV-2026-000001"]')).not.toBeNull()
+    fireEvent.click(orig)
+    fireEvent.click(await screen.findByTestId('journal-goto'))
+    await waitFor(() => expect(rev).toHaveAttribute('aria-selected', 'true'))
+  })
+})
+
+describe('JP narrow behaviour (V1 inline legs, Details opens the full-screen pane)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const narrow = () => vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('900'), media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+
+  it('a row click expands the legs inline; Details opens the pane; Back closes it and focuses the row', async () => {
+    narrow()
+    renderStock(MOV)
+    const [row] = await rowsOf()
+    fireEvent.click(row)
+    expect(row).toHaveAttribute('aria-expanded', 'true')
+    expect(await screen.findByTestId('journal-legsrow')).toBeInTheDocument()
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
+    fireEvent.click(screen.getByTestId('journal-details-btn'))
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'open')
+    fireEvent.click(screen.getByTestId('journal-back'))
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
+    await waitFor(() => expect(row).toHaveFocus())
+  })
+
+  it('previous / next walk the loaded rows and stop at the ends', async () => {
+    narrow()
+    clientMock.get.mockResolvedValue({ next_cursor: null, rows: [ENTRY, { ...ENTRY, entry_id: 'en2', posting_seq: 16 }] })
+    renderStock(MOV)
+    const [first] = await rowsOf()
+    fireEvent.click(first)
+    fireEvent.click(await screen.findByTestId('journal-details-btn'))
+    expect(screen.getByTestId('journal-pos')).toHaveTextContent('1 of 2')
+    expect(screen.getByTestId('journal-prev')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('journal-next'))
+    expect(screen.getByTestId('journal-pos')).toHaveTextContent('2 of 2')
+    expect(screen.getByTestId('journal-next')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('journal-prev'))
+    expect(screen.getByTestId('journal-pos')).toHaveTextContent('1 of 2')
+  })
+
+  it('Escape closes the open details', async () => {
+    narrow()
+    renderStock(MOV)
+    fireEvent.click((await rowsOf())[0])
+    fireEvent.click(await screen.findByTestId('journal-details-btn'))
+    fireEvent.keyDown(screen.getByTestId('journal-back'), { key: 'Escape' })
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
+  })
 })

@@ -41,14 +41,14 @@ describe('E1 refusals', () => {
       clientMock.get.mockRejectedValueOnce(problem(500)).mockResolvedValue({ next_cursor: null, rows: [] })
       renderStock(path)
       fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
-      expect(await screen.findByTestId('datatable-empty-state')).toBeInTheDocument()
+      expect(await screen.findByTestId(path === MOV ? 'journal-empty' : 'datatable-empty-state')).toBeInTheDocument()
       expect(clientMock.get).toHaveBeenCalledTimes(2)
     })
 
     it(`${path} shows the empty state for no rows`, async () => {
       clientMock.get.mockResolvedValue({ next_cursor: null, rows: [] })
       renderStock(path)
-      expect(await screen.findByTestId('datatable-empty-state')).toBeInTheDocument()
+      expect(await screen.findByTestId(path === MOV ? 'journal-empty' : 'datatable-empty-state')).toBeInTheDocument()
     })
 
     it(`${path} shows the loading state before the answer`, async () => {
