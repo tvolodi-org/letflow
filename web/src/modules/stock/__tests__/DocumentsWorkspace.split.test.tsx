@@ -167,10 +167,10 @@ describe('T-1443 document screen splitters', () => {
     expect(table.querySelector('.lf-colhandle')).toBeNull()
   })
 
-  it.each([['en', 'Resize the document list', 'Resize column: Item'], ['ru', 'Ширина списка документов', 'Ширина столбца: ']])(
+  it.each([['en', 'Resize the document list', 'Resize column: Item'], ['ru', 'Ширина списка документов', 'Ширина столбца: '], ['kk', 'Құжаттар тізімінің ені', 'Баған ені']])(
     'L1 handle labels follow the language (%s)',
     async (lang, listLabel, colPrefix) => {
-      useUiLocaleStore.getState().setLocaleTransient(lang as 'en' | 'ru')
+      useUiLocaleStore.getState().setLocaleTransient(lang as 'en' | 'ru' | 'kk')
       serve([doc()])
       renderStock(`${LIST}/d1`, withPost)
       const ws = await screen.findByTestId('document-workspace')
