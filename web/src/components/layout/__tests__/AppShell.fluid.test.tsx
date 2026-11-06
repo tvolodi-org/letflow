@@ -70,8 +70,13 @@ describe('J3-8 AppShell fluid content for the data screens that opt in', () => {
     await renderAt('/admin/stock/movements/x')
     expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
     cleanup()
-    await renderAt('/admin/stock/balances')
+    await renderAt('/instances')
     expect(screen.getByRole('main')).not.toHaveClass('lf-content--fluid')
     expect(screen.getByRole('main')).toHaveClass('lf-content')
+  })
+
+  it('F1 the Balances route fills wide windows', async () => {
+    await renderAt('/admin/stock/balances')
+    expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
   })
 })

@@ -21,6 +21,9 @@ export interface ColResizeOptions {
   cols: ColSpec[]
   label?: (colId: string, th: HTMLElement) => string
   enabled?: () => boolean
+  /** Give the table a minimum width (px) of the sum of the column minimums, so a narrow host scrolls the table sideways
+   *  (its wrapper has overflow-x: auto) instead of cutting dates and quantities. */
+  minTable?: boolean
 }
 
 export interface ColResizeHandle {
@@ -37,6 +40,7 @@ export function attachColResize(table: HTMLElement, store: LayoutStore, o: ColRe
   const off = o.enabled ? !o.enabled() : false
   if (off) {
     table.classList.remove('lf-colresize')
+    table.style.minWidth = ''
     all.forEach((t) => {
       t.style.width = ''
       t.querySelector('.lf-colhandle')?.remove()
@@ -103,6 +107,7 @@ export function attachColResize(table: HTMLElement, store: LayoutStore, o: ColRe
     saved = {}
   }
   table.classList.add('lf-colresize')
+  table.style.minWidth = o.minTable ? `${o.cols.reduce((a, c) => a + (c.min ?? 0), 0)}px` : ''
   const made: HTMLElement[] = []
   ths.forEach((t) => {
     const id = idOf(t)

@@ -35,3 +35,7 @@ the `:test` environment references them (same arrangement as `priv/wasm_fixtures
 * `ledger_post.json` -- REQ-685: the one managed entity definition `fxlp_note` (append-only, one `note`
   string field) of `Letflow.Modules.FixtureLedgerPost`, the bookkeeping type of its posting handlers. No process
   definitions: the engine tests stamp their own definition by hand (`Letflow.LedgerPostFixture`).
+
+* `xpost_owner.json` -- REQ-758: the one managed entity definition `fxxp_note` (append-only, one `note` string field)
+  of `Letflow.Modules.FixtureXpostOwner`, the module M of the cross-module posting line tests (it depends on
+  `fixture_ledger_post`, which is N). No process definitions: `Letflow.CrossPostFixture` stamps its own.

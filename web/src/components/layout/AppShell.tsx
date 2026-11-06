@@ -110,6 +110,7 @@ export const NAV_ITEMS: NavItem[] = [
 /** Data screens that fill wide windows (one path per line, so sibling screens add theirs without a conflict). */
 const FLUID_PATHS = [
   '/admin/stock/movements',
+  '/admin/stock/balances',
 ]
 
 export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {}) {

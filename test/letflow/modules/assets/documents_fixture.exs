@@ -245,13 +245,96 @@ defmodule Letflow.AssetsDocsFixture do
       Repo.aggregate(
         from(r in Letflow.Entities.Record.Latest,
           where:
-            r.entity_type in ["assets_commission", "assets_commission_line"] and not r.deleted
+            r.entity_type in [
+              "assets_commission",
+              "assets_commission_line",
+              "assets_change",
+              "assets_change_line",
+              "assets_handover",
+              "assets_handover_line",
+              "assets_writeoff",
+              "assets_writeoff_line"
+            ] and not r.deleted
         ),
         :count,
         prefix: schema
       )
 
     {records, Repo.aggregate(Letflow.Documents.Document, :count, :id, prefix: schema)}
+  end
+
+  @doc "A valid body of kind `change` for `m` (employee and user swap places)."
+  def change_body(m, extra \\ %{}) do
+    Map.merge(
+      %{
+        "kind" => "change",
+        "org_unit_id" => m.unit,
+        "location_id" => m.location,
+        "from_material_responsible_id" => m.employee,
+        "from_actual_user_id" => m.employee2,
+        "to_material_responsible_id" => m.employee2,
+        "to_actual_user_id" => m.employee,
+        "event_time" => DateTime.to_iso8601(DateTime.utc_now()),
+        "lines" => [%{"asset_id" => m.fixed, "quantity" => "1"}]
+      },
+      extra
+    )
+  end
+
+  @doc "A valid body of kind `handover` from `m`'s place to `to` (`unit`, `location`, `employee`)."
+  def handover_body(m, to, extra \\ %{}) do
+    Map.merge(
+      %{
+        "kind" => "handover",
+        "org_unit_id" => m.unit,
+        "from_location_id" => m.location,
+        "from_material_responsible_id" => m.employee,
+        "from_actual_user_id" => m.employee2,
+        "to_org_unit_id" => to.unit,
+        "to_location_id" => to.location,
+        "to_material_responsible_id" => to.employee,
+        "event_time" => DateTime.to_iso8601(DateTime.utc_now()),
+        "lines" => [%{"asset_id" => m.fixed, "quantity" => "1"}]
+      },
+      extra
+    )
+  end
+
+  @doc "A valid body of kind `writeoff` for `m`."
+  def writeoff_body(m, extra \\ %{}) do
+    Map.merge(
+      %{
+        "kind" => "writeoff",
+        "org_unit_id" => m.unit,
+        "location_id" => m.location,
+        "material_responsible_id" => m.employee,
+        "actual_user_id" => m.employee2,
+        "reason_code" => "disposed",
+        "event_time" => DateTime.to_iso8601(DateTime.utc_now()),
+        "lines" => [%{"asset_id" => m.fixed, "quantity" => "1"}]
+      },
+      extra
+    )
+  end
+
+  @doc "A second place in `schema`: unit, linked location, one employee."
+  def place!(schema) do
+    unit = unit!(schema)
+    %{unit: unit, location: location!(schema, unit), employee: employee!(schema, unit)}
+  end
+
+  @doc "Issues and posts a commission (body `body`); returns the posted document."
+  def commission!(ctx, body \\ nil) do
+    doc = issue!(ctx, body)
+    run_task!(ctx, doc["id"])
+  end
+
+  @doc "Balance rows of `asset` through the real read route."
+  def balances(ctx, asset) do
+    S.get("/balances", ctx.tok_a)
+    |> status!(200)
+    |> Map.fetch!("rows")
+    |> Enum.filter(&(&1["asset"] == asset))
   end
 
   @doc "Movement rows of the document through the real read route."
