@@ -80,20 +80,48 @@ defmodule Letflow.Ledger.PostingPlanTest do
     key = Enum.find(params, &(&1 in ["a1", "a2", "b1", "b2"]))
 
     cond do
-      sql =~ ~r/^UPDATE/ and sql =~ "ledger_balance" -> :update_balance
-      sql =~ ~r/^UPDATE/ and sql =~ "ledger_counter" -> :update_counter
-      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_entry"/ -> :insert_entry
-      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_leg"/ -> :insert_leg
-      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_balance"/ -> {:insert_balance, ledger, key}
-      sql =~ ~r/FROM "[^"]+"\."ledger_balance".*FOR UPDATE/s -> {:lock_balance, ledger, key}
-      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_counter"/ -> {:insert_counter, ledger}
-      sql =~ ~r/FROM "[^"]+"\."ledger_counter".*FOR UPDATE/s -> {:lock_counter, ledger}
-      sql =~ ~r/^SELECT .* FROM "[^"]+"\."ledger_entry"/s -> :lookup
-      true -> nil
+      sql =~ ~r/^UPDATE/ and sql =~ "ledger_balance" ->
+        :update_balance
+
+      sql =~ ~r/^UPDATE/ and sql =~ "ledger_counter" ->
+        :update_counter
+
+      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_entry"/ ->
+        :insert_entry
+
+      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_leg"/ ->
+        :insert_leg
+
+      # REQ-774: one multi-row INSERT carries every missing key of a ledger, in VALUES (ascending) order
+      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_balance"/ ->
+        {:insert_balances, ledger, Enum.filter(params, &(&1 in ["a1", "a2", "b1", "b2"]))}
+
+      sql =~ ~r/FROM "[^"]+"\."ledger_balance".*FOR UPDATE/s ->
+        {:lock_balance, ledger, key}
+
+      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_counter"/ ->
+        {:insert_counter, ledger}
+
+      sql =~ ~r/FROM "[^"]+"\."ledger_counter".*FOR UPDATE/s ->
+        {:lock_counter, ledger}
+
+      sql =~ ~r/^SELECT .* FROM "[^"]+"\."ledger_entry"/s ->
+        :lookup
+
+      true ->
+        nil
     end
   end
 
-  defp classified(statements), do: statements |> Enum.map(&classify/1) |> Enum.reject(&is_nil/1)
+  defp classified(statements) do
+    statements
+    |> Enum.map(&classify/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(fn
+      {:insert_balances, ledger, keys} -> Enum.map(keys, &{:insert_balance, ledger, &1})
+      other -> [other]
+    end)
+  end
 
   defp counts(schema),
     do:

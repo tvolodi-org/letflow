@@ -139,9 +139,25 @@ defmodule Letflow.Ledger.HandlerPostTest do
     end
   end
 
+  test "HP-15 REQ-774: the command cap is 1 MiB, the leg cap 2000" do
+    ctx = one_line_case("req774-hp15")
+    big = String.duplicate("x", 1_048_576)
+    posting = Fx.posting("receipt", "a", "5", %{"explode" => "raise", "document_id" => big})
+
+    assert {:ledger_refused, :invalid_posting, _, %{reason: :posting_shape}} =
+             refusal(Fx.run_lines(ctx, [Fx.post_line("post_alpha", posting)]))
+
+    # 300 KiB used to be refused (256 KiB cap): now it reaches declare/2
+    mid = String.duplicate("x", 300_000)
+    posting = Fx.posting("receipt", "a", "5", %{"explode" => "raise", "document_id" => mid})
+
+    assert {:ledger_denied, :declare_refused} =
+             refusal(Fx.run_lines(ctx, [Fx.post_line("post_alpha", posting)]))
+  end
+
   test "HP-14 the size caps are checked before declare/2 is called" do
     ctx = one_line_case("req685-hp14")
-    legs = for i <- 1..201, do: %{"k" => ["a#{i}", ""], "quantity" => "1", "unit_ref" => "u1"}
+    legs = for i <- 1..2001, do: %{"k" => ["a#{i}", ""], "quantity" => "1", "unit_ref" => "u1"}
     # `explode: raise` would be a declare_refused if declare/2 were reached
     posting = Fx.posting("receipt", "a", "5", %{"legs" => legs, "explode" => "raise"})
 
