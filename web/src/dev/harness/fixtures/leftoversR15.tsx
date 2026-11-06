@@ -4,12 +4,16 @@ import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import { P, ROLES, RequirePermission } from '@/auth/access'
 import type { AccessState } from '@/auth/access/types'
+import { lazy, Suspense } from 'react'
+import { Route, Routes } from 'react-router-dom'
+import { CatalogItemsIntlProvider } from '@/modules/catalog_items/CatalogItemsIntlProvider'
+import { ItemDetails } from '@/modules/catalog_items/items/ItemDetails'
 import UsersPage from '@/pages/admin/UsersPage'
 import TenantDashboardPage from '@/pages/dashboard/TenantDashboardPage'
 import type { HarnessScreen } from '../types'
 
 const auth = {
-  session: { tenant_id: 'harness-tenant' },
+  session: { tenant_id: 'harness-tenant', token: 't', display_name: 'Dauren Omarov', loginSource: null, tenant_slug: 'demo', tenant_display_name: 'Demo warehouse', tenant_type: 'production' },
   isAuthenticated: true,
   isLoading: false,
   loginSource: null,
@@ -59,12 +63,67 @@ export const leftoversR15Screens: HarnessScreen[] = [
   },
   {
     name: 'r15-denied',
-    routes: [],
+    routes: [{ match: p => p === '/api/v1/me/modules', reply: () => ({ status: 200, body: { installed_modules: [] } }) }],
     render: () => (
       <AuthContext.Provider value={auth}>
-        <AccessStateProvider state={access([])}>
+        <AccessStateProvider state={access(STOREKEEPER)}>
+          <Routes>
+            <Route element={<Suspense fallback={null}><AppShell /></Suspense>}>
+              <Route path="*" element={<RequirePermission permission={P.UsersGroupsRolesManage}><UsersPage /></RequirePermission>} />
+            </Route>
+          </Routes>
+        </AccessStateProvider>
+      </AuthContext.Provider>
+    ),
+  },
+]
+
+// Lazy: AppShell's import chain reads `window` at load, and the build test imports this registry under node.
+const AppShell = lazy(() => import('@/components/layout/AppShell').then((m) => ({ default: m.AppShell })))
+
+const STOREKEEPER = ['TasksRead', 'StockRead', 'InstancesRead']
+const MOVES = [
+  { entry_id: 'e1', posting_seq: 3, cause: 'stock_receipt', document_type: 'stock_receipt', document_number: 'PR-2611-0007', event_time: '2026-11-06T09:15:00Z' },
+  { entry_id: 'e2', posting_seq: 2, cause: 'stock_issue', document_type: 'stock_issue', document_number: 'IS-2611-0003', event_time: '2026-11-05T11:30:00Z' },
+  { entry_id: 'e3', posting_seq: 1, cause: 'stock_count', document_type: 'stock_count', document_number: null, event_time: '2026-11-04T08:00:00Z' },
+]
+
+export const leftoversR15ShellScreens: HarnessScreen[] = [
+  {
+    name: 'r15-storekeeper',
+    routes: [
+      { match: p => p === '/api/v1/me/modules', reply: () => ({ status: 200, body: { installed_modules: [] } }) },
+      { match: p => p.startsWith('/api/v1/instances'), reply: () => ({ status: 200, body: { items: [], next_cursor: null, count: 0 } }) },
+      { match: p => p.startsWith('/api/v1/tasks'), reply: () => ({ status: 200, body: { items: [], next_cursor: null, count: 3 } }) },
+    ],
+    render: () => (
+      <AuthContext.Provider value={auth}>
+        <AccessStateProvider state={access(STOREKEEPER)}>
+          <Routes>
+            <Route element={<Suspense fallback={null}><AppShell /></Suspense>}>
+              <Route path="*" element={<TenantDashboardPage />} />
+            </Route>
+          </Routes>
+        </AccessStateProvider>
+      </AuthContext.Provider>
+    ),
+  },
+  {
+    name: 'r15-history',
+    routes: [
+      { match: p => p === '/api/v1/modules/stock/balances' || p.endsWith('/balances'), reply: () => ({ status: 200, body: { next_cursor: null, rows: [] } }) },
+      { match: p => p.endsWith('/movements'), reply: () => ({ status: 200, body: { next_cursor: null, rows: MOVES } }) },
+    ],
+    render: () => (
+      <AuthContext.Provider value={auth}>
+        <AccessStateProvider state={access(['StockRead'])}>
           <main className="lf-content">
-            <RequirePermission permission={P.UsersGroupsRolesManage}><UsersPage /></RequirePermission>
+            <CatalogItemsIntlProvider>
+              <ItemDetails
+                item={{ id: 'SKU-1', code: 'SKU-1', name: 'Cement M500', uomId: '', kind: 'material', tracking: 'none', active: true, externalRef: '' }}
+                onBack={() => undefined}
+              />
+            </CatalogItemsIntlProvider>
           </main>
         </AccessStateProvider>
       </AuthContext.Provider>
