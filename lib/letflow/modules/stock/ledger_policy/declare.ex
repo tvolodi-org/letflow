@@ -17,7 +17,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   | receipt, opening | absent | required | `+q` at `to` |
   | issue, write_off | required | absent | `-q` at `from` |
   | transfer, hand_over, return | required | required, different from `from` in org_unit, location or responsible | `-q` at `from`, `+q` at `to` |
-  | count_difference (REQ-718) | exactly one of the two | exactly one of the two | `+q` at `to` or `-q` at `from`; up to 200 lines |
+  | count_difference (REQ-718) | exactly one of the two | exactly one of the two | `+q` at `to` or `-q` at `from`; up to 200 lines (REQ-718) |
 
   The two legs of a line come from one `sku`, `lot`, `unit` and `quantity`: that keeps the lot and unit
   conservation that the sign rule `zero_sum_by_slot_1` (per sku) does not check. The key is
@@ -29,15 +29,15 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
 
   The refusal is always `{:error, {:invalid_posting, %{leg_no: n}}}`, `n` the number of the first leg the
   bad line would produce; no reason, key or value is returned. Whole-command faults give 1; more than
-  100 lines give the first leg of line 101 (a `count_difference` takes 200, the leg cap of the core, so 201
-  lines give leg 201). Assumption, owner may change at GATE B: the seven causes.
+  1000 lines give the first leg of line 1001 (leg 2001 for a two-leg line; REQ-774: the core cap is 2000
+  legs). A `count_difference` keeps its own 200 lines, so 201 lines give leg 201. Assumption, owner may change at GATE B: the seven causes.
   """
 
   @behaviour Letflow.Ledger.Policy
 
   alias Letflow.Ledger.Policy
 
-  @max_lines 100
+  @max_lines 1000
   @max_count_lines 200
   @one_leg %{
     "receipt" => :to,

@@ -44,7 +44,7 @@ defmodule Letflow.Ledger.Validate do
           | :attrs_invalid
           | :posting_shape
 
-  @max_legs 200
+  @max_legs 2000
   @max_abs Decimal.new("1.0E+20")
   @ledger_id ~r/\A[a-z0-9_]{1,32}(:[a-z0-9-]{1,32})?\z/
   @token ~r/\A[a-z0-9._:-]+\z/

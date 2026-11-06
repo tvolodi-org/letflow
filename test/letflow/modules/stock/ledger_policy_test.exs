@@ -136,7 +136,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicyTest do
     assert refused(cmd("opening", [good, line(side(), side())])) == bad(2)
     assert refused(cmd("opening", [line(nil, nil)])) == bad(1)
     assert refused(cmd("opening", [])) == bad(1)
-    assert refused(cmd("opening", List.duplicate(good, 101))) == bad(101)
+    assert refused(cmd("opening", List.duplicate(good, 1001))) == bad(1001)
   end
 
   test "T-LP-4: lines keep their order, legs of several lines" do
@@ -165,9 +165,14 @@ defmodule Letflow.Modules.Stock.LedgerPolicyTest do
     assert refused(cmd("receipt", [])) == bad(1)
     assert refused(cmd("receipt", :nope)) == bad(1)
     assert refused(:nope) == bad(1)
-    assert refused(cmd("receipt", List.duplicate(ok_line, 101))) == bad(101)
-    assert refused(cmd("transfer", List.duplicate(line(side(), side()), 101))) == bad(201)
-    assert {:ok, _} = declare(cmd("receipt", List.duplicate(ok_line, 100)))
+    assert refused(cmd("receipt", List.duplicate(ok_line, 1001))) == bad(1001)
+    assert refused(cmd("transfer", List.duplicate(line(side(), side()), 1001))) == bad(2001)
+    assert {:ok, _} = declare(cmd("receipt", List.duplicate(ok_line, 1000)))
+
+    assert {:ok, %{legs: legs}} =
+             declare(cmd("transfer", List.duplicate(line(side(), other()), 1000)))
+
+    assert length(legs) == 2000
   end
 
   test "T-LP-7: line refusals carry the number of the first leg of the bad line" do
@@ -319,13 +324,13 @@ defmodule Letflow.Modules.Stock.LedgerPolicyTest do
       assert refused(cmd("count_difference", [good, good, neither])) == bad(3)
     end
 
-    test "R2: 200 lines are accepted, 201 are refused at leg 201; other causes stay at 100" do
+    test "R2: 200 lines are accepted, 201 are refused at leg 201; other causes take 1000 (REQ-774)" do
       lines = fn n -> List.duplicate(line(nil, side()), n) end
       assert {:ok, %{legs: legs}} = declare(cmd("count_difference", lines.(200)))
       assert length(legs) == 200
       assert refused(cmd("count_difference", lines.(201))) == bad(201)
-      assert {:ok, _} = declare(cmd("receipt", lines.(100)))
-      assert refused(cmd("receipt", lines.(101))) == bad(101)
+      assert {:ok, _} = declare(cmd("receipt", lines.(1000)))
+      assert refused(cmd("receipt", lines.(1001))) == bad(1001)
     end
 
     test "R2: a zero or negative quantity is refused" do

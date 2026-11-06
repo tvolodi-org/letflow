@@ -326,3 +326,25 @@ describe('A10 permission through the real route', () => {
     expect(clientMock.post).not.toHaveBeenCalledWith('/api/v1/entities/query', expect.anything())
   })
 })
+
+describe('T-1446 I5 splitter, columns and reset layout', () => {
+  it('T8 every header carries data-col and the reset layout button is on the page', async () => {
+    renderLots(ITEMS)
+    await row('BOLT')
+    expect(screen.getAllByRole('columnheader').map((h) => h.getAttribute('data-col'))).toEqual(['code', 'name', 'unit', 'tracking', 'status'])
+    expect(screen.getByTestId('reset-layout')).toHaveTextContent('Reset layout')
+    expect(document.querySelector('.lf-reg__title')?.getAttribute('style')).toBeNull()
+  })
+
+  it('T8b reset layout forgets the stored sizes of the screen', async () => {
+    localStorage.setItem('lf.prefs.ui.layout.v1.anon', JSON.stringify({ v: 1, screens: { 'stock.registry.items': { cols: { list: { code: 25 } } } } }))
+    const { resetDefaultLayoutStore } = await import('@/hooks/useLayoutPrefs')
+    resetDefaultLayoutStore()
+    renderLots(ITEMS)
+    await row('BOLT')
+    fireEvent.click(screen.getByTestId('reset-layout'))
+    const th = document.querySelector('th[data-col=code]') as HTMLElement
+    await waitFor(() => expect(th.style.width).not.toBe('25%'))
+    resetDefaultLayoutStore()
+  })
+})

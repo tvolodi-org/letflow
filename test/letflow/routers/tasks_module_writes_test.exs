@@ -18,9 +18,11 @@ defmodule Letflow.Routers.TasksModuleWritesTest do
 
   import Plug.Conn
   import Plug.Test
+  import Ecto.Query, only: [from: 2]
 
   alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.ModuleWritesFixture, as: Mw
+  alias Letflow.Support.PlatformTenantFixture, as: Token
 
   defp complete(ctx, body) do
     :ok = Letflow.SodSupport.grant_role!(ctx.schema, "REVIEWER", [ctx.user.id])
@@ -62,6 +64,56 @@ defmodule Letflow.Routers.TasksModuleWritesTest do
     refute history.resp_body =~ "fixture_ledger"
     refute history.resp_body =~ "post_entry"
     refute history.resp_body =~ "write_ordinal"
+  end
+
+  # REQ-771 (U1, U4): a REAL minted token through Letflow.Router (D-098). The module is installed at
+  # hash X, the stamp is X, the build compiled something else: the tenant is "not upgraded yet".
+  test "U1 not upgraded: 409 upgrade_required through the real router, task stays pending" do
+    ctx = Mw.case!("t1397-u1", :module)
+    other = String.duplicate("d", 64)
+    Mw.set_stamp_hash!(ctx, other)
+    Mw.set_installed_hash!(ctx.schema, "fixture_ledger", other)
+
+    token = Token.mint_token!(ctx.tenant, ["TENANT_ADMIN"])
+
+    token_user =
+      Repo.one!(
+        from(u in Letflow.Identity.User, where: like(u.username, "scope-caller-%")),
+        prefix: ctx.schema
+      )
+
+    :ok = Letflow.SodSupport.grant_role!(ctx.schema, "REVIEWER", [token_user.id])
+
+    before = Fx.records(ctx.schema, "fxl_ledger")
+
+    conn =
+      Token.api_conn(
+        :post,
+        "/api/v1/tasks/#{ctx.task.id}/complete",
+        token,
+        ctx.tenant.tenant.slug,
+        %{"label" => "L1"}
+      )
+      |> Token.dispatch_api()
+
+    assert conn.status == 409, conn.resp_body
+    body = Jason.decode!(conn.resp_body)
+    expected = Letflow.Api.Error.module_upgrade_required()
+    assert body["code"] == "upgrade_required"
+    assert body["type"] == expected.type
+    assert body["status"] == 409
+
+    # U4: a fixed problem, nothing about the module, hashes, versions or lines.
+    assert Enum.sort(Map.keys(Map.delete(body, "trace_id"))) ==
+             Enum.sort(~w(code detail status title type))
+
+    refute conn.resp_body =~ ~r/[0-9a-f]{64}/
+    refute conn.resp_body =~ "fixture_ledger"
+
+    assert Fx.records(ctx.schema, "fxl_ledger") == before
+    assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+    assert [entry] = Fx.audit_rows(ctx.schema, "entity_write.refused")
+    assert entry.after_state["detail"] == "hash_mismatch"
   end
 
   test "a handler refusal is byte-identical to a declarative write_not_permitted (INV-5)" do

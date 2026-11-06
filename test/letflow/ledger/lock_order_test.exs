@@ -32,16 +32,36 @@ defmodule Letflow.Ledger.LockOrderTest do
     key = Enum.find(params, &(&1 in ["a1", "b1"]))
 
     cond do
-      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_balance"/ -> {:insert_balance, key}
-      sql =~ ~r/FROM "[^"]+"\."ledger_balance".*FOR UPDATE/s -> {:lock_balance, key}
-      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_counter"/ -> :insert_counter
-      sql =~ ~r/FROM "[^"]+"\."ledger_counter".*FOR UPDATE/s -> :lock_counter
-      sql =~ "ledger_counter" -> :counter
-      true -> nil
+      # REQ-774: one multi-row INSERT carries every missing key, in VALUES (ascending) order
+      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_balance"/ ->
+        {:insert_balances, Enum.filter(params, &(&1 in ["a1", "b1"]))}
+
+      sql =~ ~r/FROM "[^"]+"\."ledger_balance".*FOR UPDATE/s ->
+        {:lock_balance, key}
+
+      sql =~ ~r/INSERT INTO "[^"]+"\."ledger_counter"/ ->
+        :insert_counter
+
+      sql =~ ~r/FROM "[^"]+"\."ledger_counter".*FOR UPDATE/s ->
+        :lock_counter
+
+      sql =~ "ledger_counter" ->
+        :counter
+
+      true ->
+        nil
     end
   end
 
-  defp classified(statements), do: statements |> Enum.map(&classify/1) |> Enum.reject(&is_nil/1)
+  defp classified(statements) do
+    statements
+    |> Enum.map(&classify/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(fn
+      {:insert_balances, keys} -> Enum.map(keys, &{:insert_balance, &1})
+      other -> [other]
+    end)
+  end
 
   test "T-LK-1a legs (A,B) and (B,A) in forced overlap: both commit, no deadlock", %{
     schema: schema
