@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.5.0"
+    assert m.version == "0.6.0"
     assert m.depends_on == ["locations", "org"]
     assert m.pack == "modules/assets/pack.json"
 
@@ -38,14 +38,25 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              {"POST", "/cards/:id/retire", :AssetsCardWrite},
              {"GET", "/balances", :AssetsRead},
              {"GET", "/movements", :AssetsRead},
-             {"GET", "/reconcile", :AssetsReconcile}
+             {"GET", "/reconcile", :AssetsReconcile},
+             {"POST", "/documents", :AssetsPost},
+             {"PUT", "/documents/:id", :AssetsPost},
+             {"DELETE", "/documents/:id", :AssetsPost},
+             {"POST", "/documents/:id/issue", :AssetsPost},
+             {"POST", "/documents/:id/reverse", :AssetsReverse},
+             {"GET", "/documents", :AssetsRead},
+             {"GET", "/documents/:id", :AssetsRead}
            ]
 
-    assert m.manages_entity_types == ["assets_card"]
-    assert m.scope_declarations == %{"assets_card" => {:column, "org_unit_id"}}
+    assert m.manages_entity_types ==
+             ["assets_card", "assets_commission", "assets_commission_line", "assets_posting_mark"]
+
+    assert m.scope_declarations ==
+             Map.new(m.manages_entity_types, &{&1, {:column, "org_unit_id"}})
+
     keys = Map.keys(m)
     assert :ledger in keys
-    refute :write_handlers in keys
+    assert :write_handlers in keys
 
     assert m.settings_schema == %{
              "type" => "object",
@@ -84,7 +95,9 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
 
   test "A-DEF-1: the packed assets_card has exactly the REQ-748 fields and the two constraints" do
     doc = @pack |> File.read!() |> Jason.decode!()
-    assert [%{"name" => "assets_card", "definition_json" => def_json}] = doc["entity_definitions"]
+
+    assert %{"definition_json" => def_json} =
+             Enum.find(doc["entity_definitions"], &(&1["name"] == "assets_card"))
 
     dec = %{
       "type" => "decimal",
