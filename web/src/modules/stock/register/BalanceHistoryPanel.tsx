@@ -2,6 +2,7 @@
  *  balance, read from the movements route filtered by the row's five slots. One line per matching leg, oldest first
  *  (the route's order). No running balance: the quantities are decimal text, the route is ascending only and the
  *  as-of view would make a sum wrong. The hook is separate from the markup so a journal list can replace the table. */
+import { useRef } from 'react'
 import { useIntl } from 'react-intl'
 import { Link } from 'react-router-dom'
 import { X } from 'lucide-react'
@@ -9,6 +10,8 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
+import { useColResize } from '@/components/ui/layout/ColumnResize'
+import { isWideHost } from '@/components/ui/layout/isWideHost'
 import { DetailHeader } from '@/components/ui/DetailHeader'
 import { formatLocalInput } from '@/i18n/format'
 import { formatQuantity } from '@/lib/formatQuantity'
@@ -36,6 +39,15 @@ export function useBalanceHistory(row: BalanceRow) {
   return { query, lines: toHistoryLines(pages.flatMap((p) => p.rows), row) }
 }
 
+/** Default widths (percent, the last column is the flexible one) and smallest widths (px) of the history columns. */
+const HISTORY_COLS = [
+  { id: 'time', w: 24, min: 110 },
+  { id: 'doc', w: 30, min: 110 },
+  { id: 'cause', w: 18, min: 80 },
+  { id: 'in', w: 14, min: 80 },
+  { id: 'out', w: 0, min: 80 },
+]
+
 export interface BalanceHistoryPanelProps {
   row: BalanceRow
   /** The as-of day of the balances screen, when set: the panel says the movements are not cut at it. */
@@ -48,6 +60,13 @@ export function BalanceHistoryPanel({ row, asOf = '', onClose, name }: BalanceHi
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { query, lines } = useBalanceHistory(row)
+  const tableRef = useRef<HTMLTableElement>(null)
+  useColResize(tableRef, {
+    id: 'history',
+    screen: 'stock.balances',
+    cols: HISTORY_COLS,
+    enabled: () => isWideHost(tableRef.current?.closest<HTMLElement>('.lf-reg') ?? null),
+  })
   const dash = t('stock.common.dash')
   const known = (list: readonly string[], prefix: string, v: string) => (list.includes(v) ? t(`${prefix}.${v}`) : v)
   const unit = name('catalog_uom', row.unit_ref)
@@ -105,6 +124,7 @@ export function BalanceHistoryPanel({ row, asOf = '', onClose, name }: BalanceHi
             columns={columns}
             data={lines}
             density="compact"
+            tableRef={tableRef}
             isLoading={query.isPending}
             getRowId={(l) => l.key}
             emptyMessage={t('stock.history.empty')}

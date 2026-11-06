@@ -12,6 +12,7 @@ import { BrandingProvider } from '@/theming/BrandingProvider'
 import { LayoutPrefsProvider, useLayoutPrefs } from '@/hooks/useLayoutPrefs'
 import { SplitWrap, useSplit } from '@/components/ui/layout/Splitter'
 import { useColResize } from '@/components/ui/layout/ColumnResize'
+import { isWideHost } from '@/components/ui/layout/isWideHost'
 import { layoutMessages } from '@/components/ui/layout/layoutMessages'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
@@ -74,7 +75,7 @@ const AUTH = {
 } as AuthContextValue
 
 const SCREEN = 'harness.layout'
-const wide = (el: HTMLElement | null) => (el?.clientWidth ?? 0) > 900
+const wide = isWideHost
 
 function Lines({ kind }: { kind: Kind }) {
   const t = TXT[useUiLocale()]

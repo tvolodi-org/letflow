@@ -65,6 +65,8 @@ export interface DataTableProps<TRow> {
   onRetry?: () => void
   skeletonRows?: number
   labels?: { loading: string; retry: string }
+  /** Ref of the `<table>` (column resize attaches to it). */
+  tableRef?: React.Ref<HTMLTableElement>
 }
 
 interface Resolved<TRow> {
@@ -174,7 +176,7 @@ export function DataTable<TRow>(props: DataTableProps<TRow>): React.ReactElement
   return (
     <div className="lf-table-wrap" data-testid="data-table">
       <div data-testid="datatable-scroll-container">
-        <table className={`lf-table lf-table--stack${density === 'compact' ? ' lf-table--compact' : ''}`}>
+        <table ref={props.tableRef} className={`lf-table lf-table--stack${density === 'compact' ? ' lf-table--compact' : ''}`}>
           <thead data-testid="datatable-header">
             <tr>
               {resolved.map(({ id, header, col }) => {
@@ -191,6 +193,7 @@ export function DataTable<TRow>(props: DataTableProps<TRow>): React.ReactElement
                   <th
                     key={id}
                     data-testid={`datatable-header-${id}`}
+                    data-col={id}
                     aria-sort={ariaSort}
                     className={col.align === 'end' ? 'is-end' : undefined}
                     onClick={() => handleHeaderClick(col, id)}
