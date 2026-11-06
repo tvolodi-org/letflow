@@ -159,6 +159,15 @@ samp {
 @media (max-width: 900px) {
   .lf-md--wide { grid-template-columns: minmax(0, 1fr); }
 }
+/* T-1440: balances list + history. From 900px the list is full width and the panel sits below it (the content column is
+   capped near 1216px at every width, so a side-by-side split leaves the history table about 475px and cuts Out; the large-screen
+   layout waits for the owner's verdict). Doubled class (0,2,0) beats the single-class `.lf-md` rules of components.css;
+   under 900px those rules still apply (the panel replaces the list). */
+@media (min-width: 900px) {
+  .lf-md.lf-md--split { grid-template-columns: minmax(0, 1fr); }
+  .lf-md.lf-md--split > .lf-md__master { position: static; max-height: none; }
+}
+.lf-md--split .lf-md__detail .lf-table th, .lf-md--split .lf-md__detail .lf-table td { padding-inline: var(--space-2); }
 /* T-1399 R7: the count sheet has seven columns; tighter cell padding keeps Counted whole in the detail panel. */
 .lf-count-sheet .lf-table th, .lf-count-sheet .lf-table td { padding-inline: var(--space-2); }
 /* T-1399 R7 gui_review: the last cell of a master list keeps the table's right padding so a status pill ends inside the row. */
