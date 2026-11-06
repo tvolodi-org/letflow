@@ -21,7 +21,7 @@
   .sg-head { display: grid; gap: var(--space-1); padding-top: var(--space-6); border-top: 2px solid var(--line-strong); }
   .sg-head h2 { font: var(--type-heading-1); font-family: var(--font-display); }
   .sg-head p { color: var(--ink-muted); max-width: var(--measure); font: var(--type-body); }
-  .sg-demo { align-content: start; padding: var(--space-6); background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); display: grid; gap: var(--space-6); }
+  .sg-demo { container: lfhost / inline-size; align-content: start; padding: var(--space-6); background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); display: grid; gap: var(--space-6); }
   .sg-demo--sunk { background: var(--paper); }
   .sg-cap { font: var(--type-label); color: var(--ink-muted); margin-bottom: var(--space-2); }
   .sg-row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
@@ -57,7 +57,7 @@
 </head>
 <body>
 <main class="sg">
-<p class="eyebrow">Letflow platform design system, copy of 2026-11-05 of letflow-design</p>
+<p class="eyebrow">Letflow platform design system, copy of 2026-11-06 of letflow-design</p>
 
 <header class="sg-top">
   <div>
@@ -71,7 +71,7 @@
 </header>
 
 <nav class="sg-toc" aria-label="Sections">
-  <a href="#colors">Colours</a><a href="#type">Type</a><a href="#space">Spacing</a><a href="#themes">Light and dark</a><a href="#buttons">Buttons</a><a href="#fields">Fields</a><a href="#table">Data table</a><a href="#pills">Status pill</a><a href="#tabs">Tabs</a><a href="#tree">Tree</a><a href="#md">Master-detail</a><a href="#pagehead">Page header</a><a href="#import">Import wizard</a><a href="#dialog">Dialog</a><a href="#toast">Toast</a><a href="#nav">Side nav</a><a href="#lang">Language switch</a><a href="#tenant">Tenant brand</a><a href="#docform">Document form</a><a href="#datetime">Date and time</a><a href="#registry">Registry</a><a href="#journal">Journal</a>
+  <a href="#colors">Colours</a><a href="#type">Type</a><a href="#space">Spacing</a><a href="#themes">Light and dark</a><a href="#buttons">Buttons</a><a href="#fields">Fields</a><a href="#table">Data table</a><a href="#pills">Status pill</a><a href="#tabs">Tabs</a><a href="#tree">Tree</a><a href="#md">Master-detail</a><a href="#pagehead">Page header</a><a href="#import">Import wizard</a><a href="#dialog">Dialog</a><a href="#toast">Toast</a><a href="#nav">Side nav</a><a href="#lang">Language switch</a><a href="#tenant">Tenant brand</a><a href="#docform">Document form</a><a href="#datetime">Date and time</a><a href="#registry">Registry</a><a href="#journal">Journal</a><a href="#layoutkit">Resizable layout</a><a href="#lineseditor">Lines editor</a>
 </nav>
 
 <!-- ============ COLOURS ============ -->
@@ -588,6 +588,34 @@ GATEA-BC-0006</textarea></div><span class="lf-hint">До 500 значений з
   </div>
 </section>
 
+<!-- ============ LAYOUT: SPLITTERS, COLUMNS, LARGE SCREENS ============ -->
+<section class="sg-section" id="layoutkit">
+  <div class="sg-head"><p class="eyebrow">23 — Resizable layout</p><h2>Splitters, column handles, a collapsible side nav, and screens that fill the window.</h2>
+    <p>Panes of <code class="lf-code">lf-doc</code>, <code class="lf-code">lf-registry</code> and <code class="lf-code">lf-journal</code> are separated by a <strong>splitter</strong> (<code class="lf-code">lf-splitter</code>): drag it with a mouse or a finger, or focus it and use Left/Right (1 %, Shift 5 %), Home and End; Enter collapses a collapsible pane (the list, the side nav) or resets the size; a double click resets. Table headers have <strong>column handles</strong> (<code class="lf-code">lf-colhandle</code>): drag, or focus and use the same keys; double click or Enter resets; the last column takes the rest, so a table never scrolls sideways. The side nav collapses to icons. All sizes are remembered per user and screen. Data screens use <code class="lf-code">lf-content--fluid</code> and clamp() tokens: there is no centred column at 1920, 2560 or 3440 px. Contract and rules: NOTES.md, "Resizable panes, columns and remembered layout". Live: Journal preview, Document form preview, Registry preview.</p></div>
+  <div class="sg-demo">
+    <div><p class="sg-cap">A splitter between two panes (hover or focus shows the full line; the round button collapses the first pane) and a column handle</p>
+      <div class="sg-grid2">
+        <div class="lf-splitwrap" style="position:relative;height:96px"><div style="display:grid;grid-template-columns:30% minmax(0,1fr);gap:var(--space-4);height:100%"><div class="lf-card" style="padding:var(--space-3)">list</div><div class="lf-card" style="padding:var(--space-3)">details</div></div>
+          <div class="lf-split-layer"><div class="lf-splitter" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize the list" aria-valuenow="30" aria-valuemin="15" aria-valuemax="60" style="left:calc(30% + var(--space-2));top:0;height:100%"><span class="lf-splitter__line"></span><button type="button" class="lf-splitter__btn" tabindex="-1" aria-label="Collapse: list"><svg class="lf-icon" aria-hidden="true"><use href="#i-chevrons-left"/></svg></button></div></div></div>
+        <div class="lf-card"><table class="lf-table lf-table--compact lf-colresize" style="width:100%"><thead><tr><th data-col="c" style="width:28%">Code<span class="lf-colhandle" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize column: Code" aria-valuenow="28"></span></th><th data-col="t" style="width:42%">Title<span class="lf-colhandle" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize column: Title" aria-valuenow="42"></span></th><th data-col="s">Status</th></tr></thead><tbody><tr><td class="mono">LAP-14</td><td>Laptop 14 inch</td><td>Active</td></tr></tbody></table></div>
+      </div></div>
+    <div><p class="sg-cap">Large screens (the previews at 1920, 2560 and 3440 px show these): pane widths are tokens with clamp(), the remaining pane is a 1fr track, and screens respond to the width of their own area (container queries on <code class="lf-code">lf-host</code> or <code class="lf-code">lf-content</code>), not to the window, so the side nav and the splitters never trigger the wrong layout.</p>
+      <div class="lf-card"><table class="lf-table lf-table--compact"><thead><tr><th>Token</th><th>Value</th><th>Used by</th></tr></thead><tbody>
+        <tr><td class="mono">doc-list-width</td><td class="mono">clamp(248px, 13vw, 400px)</td><td>document list</td></tr>
+        <tr><td class="mono">doc-header-width</td><td class="mono">clamp(304px, 21vw, 620px)</td><td>document header</td></tr>
+        <tr><td class="mono">registry-list-width</td><td class="mono">clamp(520px, 36vw, 900px)</td><td>registry list</td></tr>
+        <tr><td class="mono">journal-details-width</td><td class="mono">clamp(520px, 34vw, 900px)</td><td>movement details and legs table</td></tr>
+        <tr><td class="mono">sidenav-collapsed-width</td><td class="mono">64px</td><td>minimised side nav</td></tr></tbody></table></div></div>
+  </div>
+</section>
+
+<!-- ============ LINES EDITOR ============ -->
+<section class="sg-section" id="lineseditor">
+  <div class="sg-head"><p class="eyebrow">24 — Lines editor</p><h2>Many lines: a grid or a form, scrolling inside its own panel.</h2>
+    <p><code class="lf-code">lf-le</code> edits the lines of a document at volume (1 to 1000). <strong>Grid</strong>: type in the table, Enter or Tab move cell to cell, Enter in the last cell adds a row, paste rows from Excel, scan a code. <strong>Line by line</strong>: one line in a form, "Save and add next", the saved lines in a compact table (the mode for phones). The panel scrolls inside itself with a sticky header and totals; rows are virtual. Below is a live 150-line sample (try the keys, the scan field with <span class="mono">LAP-14</span>, the search, the mode toggle). Full preview with every state: Lines editor preview (standalone); contract and state list: NOTES.md, "Lines editor".</p></div>
+  <div class="sg-demo"><div id="sg-le" style="height:480px"></div></div>
+</section>
+
 </main>
 <script src="demo.js"></script>
 <script>
@@ -614,6 +642,13 @@ GATEA-BC-0006</textarea></div><span class="lf-hint">До 500 значений з
     var a = document.getElementById('sg-start'), b = document.getElementById('sg-end');
     function link() { var v = a._lf.getValue(); b._lf.setMin(v ? LFDT.addDays(v, 1) : '', 'must be after the planned start'); }
     a.addEventListener('lf-change', link); link();
+  })();
+  // Lines editor demo (live, 150 sample lines)
+  (function () {
+    var host = document.getElementById('sg-le'); if (!host) return;
+    var cat = [['LAP-14', 'Laptop 14 inch', 'pcs', 0, 450000], ['CEM-M400', 'Cement M400', 'kg', 0, 75], ['MILK-25', 'Milk 2.5%', 'l', 1, 450], ['HELM-01', 'Safety helmet', 'pcs', 0, 3200], ['PAP-A4', 'Paper A4, 500 sheets', 'pack', 0, 1900], ['GLV-L', 'Work gloves, size L', 'pair', 0, 850]].map(function (x, i) { return { c: x[0], t: x[1], u: x[2], lot: !!x[3], p: x[4], bc: '47800000' + (100 + i) }; });
+    var lines = []; for (var i = 0; i < 150; i++) { var it = cat[i % 6]; lines.push({ item: it.c, lot: it.lot ? 'GATEB-M-A' : '', qty: String(1 + i % 9), price: String(it.p) }); }
+    LFLinesEditor.create(host, { id: 'sgle', screen: 'style-guide.lines', lang: new URLSearchParams(location.search).get('lang') || 'en', catalog: cat, lots: { 'MILK-25': ['GATEB-M-A', 'GATEB-M-B'] }, lines: lines, max: 1000, onImport: function (c) { c.importRows([{ item: 'LAP-14', qty: '2', price: '450000' }, { item: 'ZZZ-9', qty: '1' }]); } });
   })();
   // ?only=colors,type shows just those sections (used for review screenshots)
   var only = new URLSearchParams(location.search).get('only');

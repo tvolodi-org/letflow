@@ -1,7 +1,7 @@
 /** M1 — GH 3769 / REQ-722: pure logic of the stock document screens. */
 import { describe, expect, it } from 'vitest'
 import {
-  DOC_EXTRA_REASONS, DOC_REASONS, DOC_SIDE_REASONS, actionsFor, buildBody, documentErrorMessageId, emptyForm, formFromDocument,
+  DOC_EXTRA_REASONS, DOC_REASONS, DOC_SIDE_REASONS, actionsFor, editDecimal, buildBody, documentErrorMessageId, emptyForm, formFromDocument,
   isDecimalAboveZero, isDecimalNonNegative, isoToZonedLocal, placeError, sidesOf, sumDecimals, validateForm, zonedLocalToIso,
   type FormState,
 } from '../documents/documentsModel'
@@ -137,8 +137,8 @@ describe('buildBody and validateForm', () => {
     const doc = stockDoc() as unknown as StockDocument
     const body = buildBody(formFromDocument(doc))
     expect(body['lines']).toEqual([
-      { catalog_item_id: 'i1', catalog_uom_id: 'm1', catalog_lot_id: 't1', quantity: '3.000000000' },
-      { catalog_item_id: 'i2', catalog_uom_id: 'm1', catalog_lot_id: 't2', quantity: '5.000000000', unit_price: '2', line_value: '10' },
+      { catalog_item_id: 'i1', catalog_uom_id: 'm1', catalog_lot_id: 't1', quantity: '3' },
+      { catalog_item_id: 'i2', catalog_uom_id: 'm1', catalog_lot_id: 't2', quantity: '5', unit_price: '2', line_value: '10' },
     ])
     expect(JSON.stringify(body)).not.toMatch(/line_id|line_no|header_id|"number"|"state"/)
   })
@@ -158,5 +158,17 @@ describe('A9 sumDecimals (T-1379)', () => {
   })
   it('sums 100 lines exactly', () => {
     expect(sumDecimals(Array.from({ length: 100 }, () => '0.1'))).toBe('10.0')
+  })
+})
+
+describe('U1 T-1438 editDecimal', () => {
+  it('trims trailing zeros only', () => {
+    expect(editDecimal('1.000000000')).toBe('1')
+    expect(editDecimal('12.500000000')).toBe('12.5')
+    expect(editDecimal('450000.000000000')).toBe('450000')
+    expect(editDecimal('0.000000001')).toBe('0.000000001')
+    expect(editDecimal(null)).toBe('')
+    expect(editDecimal('')).toBe('')
+    expect(editDecimal('abc')).toBe('abc')
   })
 })

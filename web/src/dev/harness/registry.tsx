@@ -15,6 +15,7 @@ import { roleLabelsScreens } from './roleLabelsFixtures'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
 import { docLayoutScreens } from './fixtures/docLayouts'
+import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
 import { assetsScreens } from './fixtures/assets'
 import { stockR7Screens } from './fixtures/stockR7'
@@ -23,6 +24,7 @@ import { stockScreens } from './fixtures/stock'
 import { stockBalanceHistoryScreens } from './fixtures/stockBalanceHistory'
 import { stockJournalScreens } from './fixtures/stockJournal'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
+import { stockDocumentsEditScreens } from './fixtures/stockDocumentsEdit'
 import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
 import { stockOpeningScreens } from './fixtures/stockOpening'
 import { stockCountScreens } from './fixtures/stockCounts'
@@ -246,6 +248,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...catalogItemsScreens,
     ...locationsScreens,
     ...docLayoutScreens,
+    ...layoutBaseScreens,
     ...officialFormsScreens,
     ...assetsScreens,
     ...stockR7Screens,
@@ -254,6 +257,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockBalanceHistoryScreens,
     ...stockJournalScreens,
     ...stockDocumentsScreens,
+    ...stockDocumentsEditScreens,
     ...stockTwoSidesScreens,
     ...stockOpeningScreens,
     ...stockCountScreens,

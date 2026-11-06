@@ -38,8 +38,8 @@ defmodule Letflow.Modules.TenantModule do
     # REQ-578, decision 0066 D2: soft uninstall keeps the row. Written only by `status_changeset/2`.
     field(:status, Ecto.Enum, values: [:active, :uninstalled], default: :active)
 
-    # REQ-769: earlier manifest hashes whose owner stamps stay valid after an upgrade. Cast by NO
-    # changeset here; the upgrade apply (REQ-770) is its only future writer.
+    # REQ-769: earlier manifest hashes whose owner stamps stay valid after an upgrade. Cast only by
+    # `upgrade_changeset/2` (REQ-770), the module upgrade apply's single writer.
     field(:accepted_manifest_hashes, {:array, :string}, default: [])
   end
 
@@ -73,14 +73,24 @@ defmodule Letflow.Modules.TenantModule do
   Changeset for updating the `settings` field on an already-installed row
   (REQ-414). Casts and requires `:settings` only — `:module_id`, `:version`,
   and `:installed_at` are immutable after insert and are not touched here. `:version` is changed
-  only by the module upgrade cutover (decision 0055 D1), which does not exist yet; no code path
-  updates it today.
+  only by `upgrade_changeset/2` (REQ-770, `Letflow.ModuleUpgrade.Apply`).
   """
   @spec settings_changeset(%__MODULE__{}, attrs :: map()) :: Ecto.Changeset.t()
   def settings_changeset(tenant_module, attrs) do
     tenant_module
     |> cast(attrs, [:settings])
     |> validate_required([:settings])
+  end
+
+  @doc """
+  REQ-770: the module upgrade cutover. Casts exactly `:version`, `:manifest_hash` and
+  `:accepted_manifest_hashes`; called only by `Letflow.ModuleUpgrade.Apply`.
+  """
+  @spec upgrade_changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+  def upgrade_changeset(tenant_module, attrs) do
+    tenant_module
+    |> cast(attrs, [:version, :manifest_hash, :accepted_manifest_hashes])
+    |> validate_required([:version, :manifest_hash])
   end
 
   @doc """

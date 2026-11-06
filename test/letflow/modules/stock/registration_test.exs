@@ -136,6 +136,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"GET", "/documents", :StockRead},
              {"GET", "/documents/:id", :StockRead},
              {"GET", "/documents/:id/print", :StockRead},
+             {"GET", "/stock-card/print", :StockRead},
              {"POST", "/documents/:id/post", :StockPost},
              {"POST", "/documents/:id/reverse", :StockReverse},
              {"POST", "/documents/:id/cancel", :StockReverse},
@@ -240,7 +241,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
     # T-1416: form_z2.ex (pure Z-2 data map, no Repo) makes 31.
     # T-1418: form_count.ex, form_count_inv18.ex and form_count_inv10.ex (pure data maps, no Repo) make 34.
-    assert length(files) == 34
+    # T-1417: form_z3.ex, form_z5.ex (pure) and stock_card_source.ex (reads through Ledger) make 37.
+    assert length(files) == 37
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
