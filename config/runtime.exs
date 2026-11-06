@@ -273,6 +273,21 @@ case Letflow.Plugs.ClientIp.boot_check(config_env(), login_discovery_enabled, tr
     :ok
 end
 
+# REQ-772 (decision 0080 Q3): upgrade on deploy. Default off; exactly true or false.
+module_upgrade_on_boot =
+  case Letflow.Plugs.ClientIp.parse_enabled(
+         System.get_env("LETFLOW_MODULE_UPGRADE_ON_BOOT"),
+         false
+       ) do
+    {:ok, enabled} ->
+      enabled
+
+    {:error, :invalid_boolean} ->
+      raise "environment variable LETFLOW_MODULE_UPGRADE_ON_BOOT must be exactly true or false. " <>
+              "The value is not echoed."
+  end
+
+config :letflow, :module_upgrade_on_boot, module_upgrade_on_boot
 config :letflow, Letflow.Plugs.ClientIp, trusted_proxies: trusted_proxies
 config :letflow, Letflow.Routers.LoginDiscovery, enabled: login_discovery_enabled
 

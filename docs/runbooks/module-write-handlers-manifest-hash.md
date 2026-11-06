@@ -34,7 +34,7 @@ install row and both hashes inside the transaction):
 There is no drift tolerance: a deploy that changes a module's manifest surface (a `version` bump,
 or a change to a handler's name, function, targets or arguments, or to the managed types) makes
 rule 3 fail for every tenant that installed the older manifest, until the tenant is upgraded to
-the new manifest. The upgrade path (re-stamping) is decision 0055 and does not exist yet.
+the new manifest. The upgrade path (re-stamping) is the admin action `POST /api/v1/tenant/modules/:module_id/upgrade` (REQ-770, below) or, behind a flag, upgrade on deploy (REQ-772).
 
 ### Plan before apply (REQ-768)
 
@@ -43,7 +43,17 @@ the new manifest. The upgrade path (re-stamping) is decision 0055 and does not e
 whether each stamped definition would pass the activation check after the upgrade, the upgrade steps,
 `upgrade_path_available` (false for an install below the module's `min_upgradable_from`; the later apply
 must refuse then), `applicable_on_boot` and a `plan_hash`. Its only write is one `planned` row in
-`tenant_module_upgrades`. The apply itself (REQ-770) does not exist yet.
+`tenant_module_upgrades`. The apply (REQ-770, `Letflow.ModuleUpgrade.Apply`) is `POST /api/v1/tenant/modules/:module_id/upgrade`.
+
+### Upgrade on deploy (flag, REQ-772)
+
+`Letflow.ModuleUpgrade.Boot` is a boot child after `MigrationReplayBoot`. It does nothing unless the config key
+`module_upgrade_on_boot` (env var `LETFLOW_MODULE_UPGRADE_ON_BOOT`, exactly `true` or `false`, default `false`) is on.
+When on, it applies, as the system actor `00000000-0000-0000-0000-000000000000` with the rationale
+`upgrade on deploy to <version>`, every plan with `applicable_on_boot: true` (Class A only, no step) for every registered
+tenant and active module; any other plan is left for the admin action. It always returns `:ignore` and never fails boot.
+`Letflow.ModuleUpgrade.Boot.list_outcomes/0` lists upgraded / left_for_admin / failed per tenant and module from the
+journal rows. QA turns the flag on by the operator; production stays off.
 
 The manifest hash covers the DECLARED surface only, not handler code. Bump the module `version`
 whenever handler behaviour changes.
