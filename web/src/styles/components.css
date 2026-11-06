@@ -291,7 +291,6 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
 .lf-md__back { display: none; justify-self: start; margin-left: calc(var(--space-3) * -1); }
 .lf-md__tools { display: grid; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--line); }
 .lf-detail-head { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-4); align-items: flex-start; justify-content: space-between; padding: var(--space-6) var(--space-6) 0; }
-.lf-reg__details .lf-detail-head { flex-wrap: nowrap; }
 .lf-detail-head__title { display: grid; gap: var(--space-1); min-width: 0; }
 .lf-detail-head__title h2 { font: var(--type-heading-2); font-family: var(--font-display); overflow-wrap: anywhere; }
 .lf-detail-head__path { color: var(--ink-faint); font: var(--type-caption); }
