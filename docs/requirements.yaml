@@ -53241,6 +53241,7 @@ requirements:
     gh: 3987
     # Source: owner requirement relayed by the PM on 2026-11-06 (task T-1447: the web needs paging or virtual rows for documents of hundreds of lines). Code read on origin/main d5c0834d3: web/src/modules/stock/documents/documentsModel.ts (MAX_LINES = 100, the lines check giving stock.doc.error.lines_count); web/src/modules/stock/documents/LinesEditor.tsx (renders every line row, add disabled at MAX_LINES, totals with sumDecimals); web/src/modules/stock/documents/DocumentsWorkspace.tsx (the read table renders every line with lines.map, the totals row); web/src/modules/stock/documents/documentsMessages.ts (stock.doc.error.lines_count in en, ru, kk naming 100); web/src/i18n/importMessages.ts (lines_count text naming 100 in en, ru, kk). Written by the business analyst (T-1447) 2026-11-06. Not yet validated.
     description: >
+      SUPERSEDED (PM 2026-11-06): the approved lines editor (letflow-design commit 25d2031; product tasks LE1 T-1448 and LE2 T-1449) delivers the web part: ONE MAX_LINES constant of 1000, scrolling panel with virtual rows, no paging by 100 rows.
       With REQ-774 the server accepts 1000 lines per stock document. The web still stops at 100 lines and
       renders every line row at once. This change sets MAX_LINES to 1000 and shows the lines of the editor
       (LinesEditor) and of the document view (DocumentsWorkspace) in pages of 100 rows, with page controls

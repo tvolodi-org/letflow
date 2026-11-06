@@ -31,7 +31,7 @@ export interface DocLinesTableProps {
 export function DocLinesTable({ columns, lineLabel, editing, removeLabel, children, footer, wide, ...rest }: DocLinesTableProps) {
   return (
     <div className="lf-doc__scroll">
-      <table className={wide ? 'lf-lines lf-lines--zebra lf-lines--wide' : 'lf-lines lf-lines--zebra'} data-testid={rest['data-testid']}>
+      <table className={['lf-lines lf-lines--zebra', wide ? 'lf-lines--wide' : '', editing ? 'lf-lines--edit' : ''].filter(Boolean).join(' ')} data-testid={rest['data-testid']}>
         <thead>
           <tr>
             <th scope="col" className="is-idx">
