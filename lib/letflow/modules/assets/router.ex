@@ -48,8 +48,10 @@ defmodule Letflow.Modules.Assets.Router do
   REQ-749 / GH #3893: the read routes of module `assets`, mounted by `Letflow.Routers.Modules` at
   `/api/v1/modules/assets`. A thin layer over `Letflow.Ledger.authorize/3`, `balances/4`,
   `entries/3` and `reconcile/2`; no SQL here (boundary Rule 8). The shape is that of
-  `Letflow.Modules.Stock.Router`, without the xlsx `format`, the document numbers and the test seam
-  for the reconcile statement timeout.
+  `Letflow.Modules.Stock.Router`, without the document numbers and the test seam for the reconcile
+  statement timeout. `GET /balances` alone takes `format=json|xlsx` (REQ-763 / GH #3898; default
+  `json`): `xlsx` renders the same body through `Letflow.Modules.Assets.XlsxExport` as
+  `asset-balances.xlsx` (sheets `balances` and `report`, one page per file).
 
   | Route | Permission | Ledger call | 200 body |
   |---|---|---|---|
@@ -58,10 +60,10 @@ defmodule Letflow.Modules.Assets.Router do
   | `GET /reconcile` | `AssetsReconcile` | `authorize(:reconcile)`, `reconcile/2` | `ledger_id, checked_through_seq, mismatches, gap_check, chain_check, audit_check, next_cursor` |
 
   The query keys are closed sets. Balances: `basis, cutoff_seq, as_of, as_of_date, limit, cursor,
-  scope_subtree` and the five slot names (`asset, org_unit, location, material_responsible,
+  format, scope_subtree` and the five slot names (`asset, org_unit, location, material_responsible,
   actual_user`; an empty value is a valid filter for `location` and `actual_user` only). Movements:
   `from_seq, to_seq, limit, cursor, scope_subtree, cause, document_type, document_id,
-  correlation_id`. Reconcile: `cursor`. Any other key (a tenant key and `format` included) or a
+  correlation_id`. Reconcile: `cursor`. Any other key (a tenant key, and `format` on movements and reconcile, included) or a
   value that is not a string is 422 `invalid_filter`, before the ledger is read.
 
   The tenant comes only from `conn.assigns.scoped_opts` (through `authorize/3`). `authorize/3` runs
@@ -92,6 +94,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.Documents
   alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Assets.Views
+  alias Letflow.Modules.Assets.XlsxExport
 
   @ledger "assets"
   @uint ~r/\A(0|[1-9][0-9]{0,14})\z/
@@ -100,7 +103,7 @@ defmodule Letflow.Modules.Assets.Router do
   @slots ~w(asset org_unit location material_responsible actual_user)
   @optional_empty ~w(location actual_user)
   @text_filters ~w(cause document_type document_id correlation_id)
-  @balance_keys ~w(basis cutoff_seq as_of as_of_date limit cursor scope_subtree) ++ @slots
+  @balance_keys ~w(basis cutoff_seq as_of as_of_date limit cursor format scope_subtree) ++ @slots
   @movement_keys ~w(from_seq to_seq limit cursor scope_subtree) ++ @text_filters
 
   @not_found [:card_not_found, :not_found]
@@ -129,6 +132,7 @@ defmodule Letflow.Modules.Assets.Router do
   authz_get "/balances", :AssetsRead do
     with_read(conn, fn conn, authorized ->
       with {:ok, params} <- params(conn, @balance_keys),
+           {:ok, format} <- format(params),
            {:ok, basis} <- basis(params),
            {:ok, filters} <- slot_filters(params),
            {:ok, filters} <- subtree_filter(params, filters),
@@ -137,8 +141,13 @@ defmodule Letflow.Modules.Assets.Router do
         page = Map.put(page, :nonzero, true)
 
         case read_balances(authorized, basis, filters, page) do
-          {:ok, report} -> Response.ok(conn, balances_body(report))
-          {:error, reason} -> refuse(conn, reason)
+          {:ok, report} ->
+            body = balances_body(report)
+
+            respond(conn, format, body, "asset-balances.xlsx", fn -> XlsxExport.balances(body) end)
+
+          {:error, reason} ->
+            refuse(conn, reason)
         end
       else
         {:error, reason} -> refuse(conn, reason)
@@ -364,6 +373,37 @@ defmodule Letflow.Modules.Assets.Router do
 
   defp read_balances(authorized, basis, filters, page),
     do: Ledger.balances(authorized, basis, filters, page)
+
+  defp respond(conn, :json, body, _name, _render), do: Response.ok(conn, body)
+
+  defp respond(conn, :xlsx, _body, name, render) do
+    case render.() do
+      {:ok, binary} ->
+        send_xlsx(conn, binary, name)
+
+      {:error, :xlsx_write_failed} ->
+        Logger.error("assets xlsx write failed")
+        Response.internal_error(conn)
+    end
+  end
+
+  @xlsx_content_type "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+  defp send_xlsx(conn, binary, name) do
+    conn
+    |> Plug.Conn.put_resp_content_type(@xlsx_content_type, nil)
+    |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="#{name}"))
+    |> Plug.Conn.put_resp_header("cache-control", "no-store")
+    |> Plug.Conn.send_resp(200, binary)
+  end
+
+  defp format(params) do
+    case Map.get(params, "format", "json") do
+      "json" -> {:ok, :json}
+      "xlsx" -> {:ok, :xlsx}
+      _other -> {:error, :invalid_filter}
+    end
+  end
 
   defp balances_body(report) do
     body = %{

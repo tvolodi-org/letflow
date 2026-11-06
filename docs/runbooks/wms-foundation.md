@@ -639,3 +639,8 @@ the code that holds it; paths are cited without line numbers.
 9. **Upgrade needed after deploy.** An install of `assets` 0.5.0 or older has no commission record types or process
    definitions until the module upgrade (`lib/letflow/modules/upgrade_plan.ex`) is applied; until then the new write
    routes answer 500 without detail. Existing rows are not changed.
+10. **The xlsx files are one page each and not promised to re-import.** The card export (`POST
+   /api/v1/entities/records/assets_card/export?format=xlsx`) holds at most 200 cards and writes `org_unit_id` as a
+   record id; the balances export (`GET /api/v1/modules/assets/balances?format=xlsx`) holds one page of the rows the
+   caller reads, and the `next_cursor` row of its `report` sheet continues (GH #3898, REQ-763,
+   `lib/letflow/modules/assets/xlsx_export.ex`).
