@@ -66,7 +66,7 @@ export const leftoversR15Screens: HarnessScreen[] = [
     routes: [{ match: p => p === '/api/v1/me/modules', reply: () => ({ status: 200, body: { installed_modules: [] } }) }],
     render: () => (
       <AuthContext.Provider value={auth}>
-        <AccessStateProvider state={access(STOREKEEPER)}>
+        <AccessStateProvider state={access(FLOOR_PERMS)}>
           <Routes>
             <Route element={<Suspense fallback={null}><AppShell /></Suspense>}>
               <Route path="*" element={<RequirePermission permission={P.UsersGroupsRolesManage}><UsersPage /></RequirePermission>} />
@@ -81,7 +81,7 @@ export const leftoversR15Screens: HarnessScreen[] = [
 // Lazy: AppShell's import chain reads `window` at load, and the build test imports this registry under node.
 const AppShell = lazy(() => import('@/components/layout/AppShell').then((m) => ({ default: m.AppShell })))
 
-const STOREKEEPER = ['TasksRead', 'StockRead', 'InstancesRead']
+const FLOOR_PERMS = ['TasksRead', 'StockRead', 'InstancesRead']
 const MOVES = [
   { entry_id: 'e1', posting_seq: 3, cause: 'stock_receipt', document_type: 'stock_receipt', document_number: 'PR-2611-0007', event_time: '2026-11-06T09:15:00Z' },
   { entry_id: 'e2', posting_seq: 2, cause: 'stock_issue', document_type: 'stock_issue', document_number: 'IS-2611-0003', event_time: '2026-11-05T11:30:00Z' },
@@ -98,7 +98,7 @@ export const leftoversR15ShellScreens: HarnessScreen[] = [
     ],
     render: () => (
       <AuthContext.Provider value={auth}>
-        <AccessStateProvider state={access(STOREKEEPER)}>
+        <AccessStateProvider state={access(FLOOR_PERMS)}>
           <Routes>
             <Route element={<Suspense fallback={null}><AppShell /></Suspense>}>
               <Route path="*" element={<TenantDashboardPage />} />
