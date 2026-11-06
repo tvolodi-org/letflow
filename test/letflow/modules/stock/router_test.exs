@@ -393,6 +393,106 @@ defmodule Letflow.Modules.Stock.RouterTest do
       tok_b = S.token(ctx, :b, ["TENANT_ADMIN"])
       assert ok!(S.get("/movements?sku=#{@sku1}", tok_b)) == %{"rows" => [], "next_cursor" => nil}
     end
+
+    test "T-RM-5 item AND location must sit on the same leg (balance history drill)", ctx do
+      seed!(ctx.a.schema_name)
+
+      # seq 4: sku1 lands at l1 on one leg and sku2 at l2 on ANOTHER leg
+      S.post!(ctx.a.schema_name, "receipt", %{
+        document_id: "doc-4",
+        lines: [
+          S.line(@sku1, "1", %{to: S.side(@u1, @l1)}),
+          S.line(@sku2, "1", %{to: S.side(@u1, @l2)})
+        ]
+      })
+
+      seqs = fn q ->
+        Enum.map(ok!(S.get("/movements?" <> q, ctx.tok_a))["rows"], & &1["posting_seq"])
+      end
+
+      assert seqs.("sku=#{@sku1}&location=#{@l1}") == [1, 3, 4]
+      assert seqs.("sku=#{@sku1}&location=#{@l2}") == [3]
+      assert seqs.("sku=#{@sku2}&location=#{@l2}") == [4]
+      assert seqs.("sku=#{@sku2}&location=#{@l1}&org_unit=#{@u1}") == [2]
+      assert seqs.("location=#{@l2}") == [3, 4]
+      assert seqs.("sku=#{@sku1}&location=#{@l1}&org_unit=#{@u2}") == []
+    end
+
+    test "T-RM-6 slot values are validated like the balances route", ctx do
+      seed!(ctx.a.schema_name)
+
+      for q <- ["location=not-a-uuid", "location=", "org_unit=", "org_unit=x"] do
+        assert reason!(S.get("/movements?" <> q, ctx.tok_a), 422) == "invalid_filter", q
+      end
+
+      for q <- ["responsible=", "lot=", "responsible=&lot="] do
+        assert is_list(ok!(S.get("/movements?" <> q, ctx.tok_a))["rows"]), q
+      end
+
+      assert reason!(S.get("/movements?responsible=zz", ctx.tok_a), 422) == "invalid_filter"
+    end
+
+    test "T-RM-7 a leg without responsible and lot is matched by the empty values", ctx do
+      seed!(ctx.a.schema_name)
+
+      rows =
+        ok!(
+          S.get(
+            "/movements?sku=#{@sku1}&location=#{@l1}&org_unit=#{@u1}&responsible=&lot=",
+            ctx.tok_a
+          )
+        )[
+          "rows"
+        ]
+
+      assert Enum.map(rows, & &1["posting_seq"]) == [1, 3]
+    end
+
+    test "T-RM-8 paging and xlsx honour the slot filters", ctx do
+      seed!(ctx.a.schema_name)
+      q = "sku=#{@sku1}&location=#{@l1}"
+
+      page1 = ok!(S.get("/movements?#{q}&limit=1", ctx.tok_a))
+      assert Enum.map(page1["rows"], & &1["posting_seq"]) == [1]
+      assert page1["next_cursor"] == "1"
+      page2 = ok!(S.get("/movements?#{q}&limit=1&cursor=1", ctx.tok_a))
+      assert Enum.map(page2["rows"], & &1["posting_seq"]) == [3]
+      assert page2["next_cursor"] == nil
+
+      conn = S.get("/movements?#{q}&format=xlsx", ctx.tok_a)
+      assert conn.status == 200
+    end
+
+    test "T-RM-9 another tenant sees nothing through the slot filters", ctx do
+      seed!(ctx.a.schema_name)
+      tok_b = S.token(ctx, :b, ["TENANT_ADMIN"])
+
+      assert ok!(S.get("/movements?sku=#{@sku1}&location=#{@l1}&responsible=&lot=", tok_b)) ==
+               %{"rows" => [], "next_cursor" => nil}
+    end
+
+    test "T-RM-10 a scoped reader cannot probe a hidden unit by the slot filters", ctx do
+      s = S.tenant!("stk-s", ctx.names.s)
+      schema = s.schema_name
+      seed_units!(schema)
+      {:ok, _} = ScopeNodePaths.write({:insert, @p, nil}, schema)
+      {:ok, _} = ScopeNodePaths.write({:insert, @u1, @p}, schema)
+      {:ok, _} = ScopeNodePaths.write({:insert, @u2, @p}, schema)
+      tok1 = login!(ctx, "reader-u1")
+      scope_users!(schema, [{"reader-u1", @u1}])
+
+      # doc-h lives wholly in the hidden unit u2: the filter answers like an absent value
+      hidden = ok!(S.get("/movements?sku=#{@sku2}&location=#{@l1}&org_unit=#{@u2}", tok1))
+      assert hidden == %{"rows" => [], "next_cursor" => nil}
+
+      # doc-t has a hidden leg in u2 and a visible one in u1: u2 is not matchable
+      seqs = fn q ->
+        Enum.map(ok!(S.get("/movements?" <> q, tok1))["rows"], & &1["document_id"])
+      end
+
+      assert seqs.("org_unit=#{@u2}") == []
+      assert seqs.("sku=#{@sku1}&org_unit=#{@u1}") == ["doc-r", "doc-t"]
+    end
   end
 
   describe "reconcile" do

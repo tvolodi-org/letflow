@@ -23,20 +23,27 @@ import { useNames } from './stockNames'
 import { DateValueHint } from '@/components/ui/DateValueHint'
 import { formatLocalInput } from '@/i18n/format'
 import { formatQuantity } from '@/lib/formatQuantity'
+import { MasterDetail } from '@/components/ui/MasterDetail'
+import { BalanceHistoryPanel } from './BalanceHistoryPanel'
 
 const ACTIVE_ONLY: never[] = []
 
-function BalancesInner() {
+const rowId = (r: BalanceRow) => `${r.sku}|${r.location}|${r.org_unit}|${r.responsible ?? ''}|${r.lot ?? ''}|${r.unit_ref}`
+
+function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: string | null }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   const [filters, setFilters] = useState<BalanceFilters>(EMPTY_BALANCE_FILTERS)
   const [asOf, setAsOf] = useState('')
+  const [selected, setSelected] = useState<string | null>(initialSelectedId)
   const [exporting, setExporting] = useState(false)
   const [exportFailed, setExportFailed] = useState(false)
-  const set = (key: keyof BalanceFilters) => (value: string) =>
+  const set = (key: keyof BalanceFilters) => (value: string) => {
+    setSelected(null)
     setFilters((f) => ({ ...f, [key]: value, ...(key === 'sku' ? { lot: '' } : {}) }))
+  }
 
   const items = usePickerOptions('catalog_item', ACTIVE_ONLY)
   const locations = usePickerOptions('location_node', ACTIVE_ONLY)
@@ -91,6 +98,24 @@ function BalancesInner() {
     }
   }
   const first = pages[0]
+  const selectedRow = selected === null ? null : (rows.find((r) => rowId(r) === selected) ?? null)
+
+  const table = (
+    <>
+      <DataTable
+        columns={columns}
+        data={rows}
+        isLoading={query.isPending}
+        getRowId={rowId}
+        onRowClick={(r) => setSelected(rowId(r))}
+        selectedId={selected}
+        emptyMessage={t('stock.balances.empty')}
+        emptyText={t('stock.balances.emptyText')}
+        labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
+      />
+      <LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
+    </>
+  )
 
   return (
     <>
@@ -107,6 +132,7 @@ function BalancesInner() {
         activeChips={chips}
         onRemoveChip={(id) => (id === 'as_of_date' ? setAsOf('') : set(id as keyof BalanceFilters)(''))}
         onClear={() => {
+          setSelected(null)
           setFilters(EMPTY_BALANCE_FILTERS)
           setAsOf('')
         }}
@@ -138,7 +164,10 @@ function BalancesInner() {
           mono
           width="m"
         >
-          <input name="as-of-date" type="date" max={todayIso()} value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+          <input name="as-of-date" type="date" max={todayIso()} value={asOf} onChange={(e) => {
+            setSelected(null)
+            setAsOf(e.target.value)
+          }} />
         </Field>
         <DateValueHint value={asOf} kind="date" />
       </FilterBar>
@@ -160,26 +189,34 @@ function BalancesInner() {
         <RegisterError error={query.error} onRetry={() => void query.refetch()} />
       ) : (
         <>
-          <DataTable
-            columns={columns}
-            data={rows}
-            isLoading={query.isPending}
-            getRowId={(r) => `${r.sku}|${r.location}|${r.org_unit}|${r.responsible ?? ''}|${r.lot ?? ''}|${r.unit_ref}`}
-            emptyMessage={t('stock.balances.empty')}
-            emptyText={t('stock.balances.emptyText')}
-            labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
-          />
-          <LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
+          {selectedRow ? (
+            <div
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && !e.defaultPrevented) setSelected(null)
+              }}
+            >
+              <MasterDetail
+                masterWidth="wide"
+                detailOpen
+                onBack={() => setSelected(null)}
+                master={table}
+                detail={<BalanceHistoryPanel row={selectedRow} asOf={asOf} onClose={() => setSelected(null)} name={name} />}
+              />
+            </div>
+          ) : (
+            table
+          )}
         </>
       )}
     </>
   )
 }
 
-export default function BalancesPage() {
+/** `initialSelectedId`: opens the history panel of one row at first render (the screen harness uses it). */
+export default function BalancesPage({ initialSelectedId }: { initialSelectedId?: string } = {}) {
   return (
     <StockIntlProvider>
-      <BalancesInner />
+      <BalancesInner initialSelectedId={initialSelectedId ?? null} />
     </StockIntlProvider>
   )
 }
