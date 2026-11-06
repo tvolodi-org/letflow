@@ -630,3 +630,8 @@ the code that holds it; paths are cited without line numbers.
    `missing_ledger_storage` (`lib/letflow/modules/upgrade_plan.ex`). The role grants of the
    four atoms (`AssetsPost`, `AssetsReverse`, `AssetsRead`, `AssetsReconcile`) are item C19, so only TENANT_ADMIN and
    PLATFORM_ADMIN hold them (`docs/roles.md`, GH #3893).
+5. **The xlsx files are one page each and not promised to re-import.** The card export (`POST
+   /api/v1/entities/records/assets_card/export?format=xlsx`) holds at most 200 cards and writes `org_unit_id` as a
+   record id; the balances export (`GET /api/v1/modules/assets/balances?format=xlsx`) holds one page of the rows the
+   caller reads, and the `next_cursor` row of its `report` sheet continues (GH #3898, REQ-763,
+   `lib/letflow/modules/assets/xlsx_export.ex`).

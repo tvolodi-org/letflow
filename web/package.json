@@ -16,6 +16,7 @@
     "test:e2e": "playwright test --config=playwright.config.ts --grep-invert @manual",
     "test:e2e:list": "playwright test --config=playwright.config.ts --list",
     "test:e2e:manual": "playwright test --config=playwright.config.ts --grep @manual",
+    "test:e2e:gate-b": "playwright test --config=playwright.config.ts tests/e2e/gate-b-",
     "test:e2e:obs04": "playwright test --config=playwright.config.ts tests/e2e/obs04.timeline.e2e.spec.ts"
   },
   "dependencies": {
