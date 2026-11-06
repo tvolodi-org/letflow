@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /** C5, S6 store — T-1443: the stored column ids are valid under the sanitize rules, and a reset reaches subscribers. */
 import { describe, expect, it, vi } from 'vitest'
 import { createLayoutStore } from '@/lib/layoutStore'
