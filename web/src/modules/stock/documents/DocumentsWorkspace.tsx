@@ -7,6 +7,8 @@ import { useIntl } from 'react-intl'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { Printer } from 'lucide-react'
+import { OfficialFormMenu } from '../forms/OfficialFormMenu'
+import { formsForDocument } from '../forms/officialForms'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
@@ -211,6 +213,13 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
                 {t('stock.doc.print')}
               </Button>
             )}
+            <OfficialFormMenu
+              forms={formsForDocument(doc)}
+              busyKey={pdf.busyKey}
+              onPick={(form, format, lang) =>
+                void pdf.run(`form-${form}-${format}`, () => documentsApi.printForm(doc.id, 'z2', format, lang), `${doc.number ?? doc.id}-Z-2.${format}`, printErrorMessageId)
+              }
+            />
           </>
         }
       >

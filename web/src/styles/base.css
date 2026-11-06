@@ -152,3 +152,6 @@ samp {
 .lf-count-sheet .lf-table th, .lf-count-sheet .lf-table td { padding-inline: var(--space-2); }
 /* T-1399 R7 gui_review: the last cell of a master list keeps the table's right padding so a status pill ends inside the row. */
 .lf-md__master .lf-table th:last-child, .lf-md__master .lf-table td:last-child { padding-inline-end: var(--space-4); }
+/* T-1434: the "Official form" menu opens from the trigger's left edge and stays inside a narrow screen. */
+.lf-formmenu .lf-lang__menu { left: 0; right: auto; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
+.lf-formmenu .lf-lang__item { grid-template-columns: 1fr auto; }

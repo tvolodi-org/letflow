@@ -1,0 +1,34 @@
+/** T-1434: texts of the "Official form" menu, en/ru/kk (same id set; the ru and kk texts need a native-speaker check). */
+export const formEn: Record<string, string> = {
+  'stock.form.menu': 'Official form',
+  'stock.form.z2': 'Z-2 form',
+  'stock.form.inv10': 'Inv-10 form',
+  'stock.form.inv18': 'Inv-18 form',
+  'stock.form.fmt.docx': '.docx',
+  'stock.form.fmt.pdf': 'PDF',
+  'stock.form.lang': 'Language: {lang}',
+  'stock.form.langName.ru': 'Russian',
+  'stock.form.langName.kk': 'Kazakh',
+}
+export const formRu: Record<string, string> = {
+  'stock.form.menu': 'Официальная форма',
+  'stock.form.z2': 'Форма З-2',
+  'stock.form.inv10': 'Форма Инв-10',
+  'stock.form.inv18': 'Форма Инв-18',
+  'stock.form.fmt.docx': '.docx',
+  'stock.form.fmt.pdf': 'PDF',
+  'stock.form.lang': 'Язык: {lang}',
+  'stock.form.langName.ru': 'русский',
+  'stock.form.langName.kk': 'казахский',
+}
+export const formKk: Record<string, string> = {
+  'stock.form.menu': 'Ресми нысан',
+  'stock.form.z2': 'Ж-2 нысаны',
+  'stock.form.inv10': 'Түг-10 нысаны',
+  'stock.form.inv18': 'Түг-18 нысаны',
+  'stock.form.fmt.docx': '.docx',
+  'stock.form.fmt.pdf': 'PDF',
+  'stock.form.lang': 'Тіл: {lang}',
+  'stock.form.langName.ru': 'орыс',
+  'stock.form.langName.kk': 'қазақ',
+}
