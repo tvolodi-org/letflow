@@ -6,6 +6,7 @@
  *  field. One LineRow per line so the lot picker hook runs per row. */
 import { useEffect, useState, type ReactNode } from 'react'
 import { useIntl } from 'react-intl'
+import { formatMoney } from '@/lib/formatDecimal'
 import { DocCard } from '@/components/ui/doc/DocLayout'
 import { DocLineItem, DocLinesAdd, DocLinesTable, DocLinesTotal, type DocColumn } from '@/components/ui/doc/DocLines'
 import { Select } from '@/components/ui/Select'
@@ -179,7 +180,7 @@ export function LinesEditor(props: {
           <DocLinesTotal
             labelSpan={withValue ? columns.length : columns.length + 2}
             label={`${t('stock.doc.lines.total')}: ${lines.length}`}
-            cells={withValue ? [total ?? t('stock.common.dash'), ''] : []}
+            cells={withValue ? [formatMoney(total, intl.locale) || t('stock.common.dash'), ''] : []}
           />
         }
       >

@@ -15,6 +15,7 @@ import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
 import { actorLabel } from '@/lib/references/actorLabel'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { formatQuantity } from '@/lib/formatQuantity'
+import { formatMoney } from '@/lib/formatDecimal'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -168,15 +169,15 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
       case 'lot': return name('catalog_lot', l.catalog_lot_id) || dash
       case 'quantity': return (
         <span className="lf-lines__qty">
-          <span>{formatQuantity(l.quantity)}</span>
+          <span>{formatQuantity(l.quantity, intl.locale)}</span>
           <span className="lf-lines__unit">{name('catalog_uom', l.catalog_uom_id)}</span>
         </span>
       )
       case 'location': return name('location_node', l.location_id) || dash
       case 'responsible': return name('org_employee', l.responsible_id) || dash
       case 'receivedOn': return <span className="mono">{l.received_on ?? dash}</span>
-      case 'unitPrice': return <span className="mono">{l.unit_price ?? dash}</span>
-      default: return <span className="mono">{l.line_value ?? dash}</span>
+      case 'unitPrice': return <span className="mono">{formatMoney(l.unit_price, intl.locale) || dash}</span>
+      default: return <span className="mono">{formatMoney(l.line_value, intl.locale) || dash}</span>
     }
   }
 
@@ -284,7 +285,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
               <DocLinesTotal
                 labelSpan={withValue ? columns.length : columns.length + 1}
                 label={`${t('stock.doc.lines.total')}: ${lines.length}`}
-                cells={withValue ? [total ?? dash] : []}
+                cells={withValue ? [formatMoney(total, intl.locale) || dash] : []}
               />
             }
           >
