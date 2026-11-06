@@ -3,9 +3,9 @@ defmodule Letflow.Modules.Assets.Documents do
   GH #3891 / REQ-751 and GH #3890 / REQ-752 (assets C10): the asset document context. The one writer
   of the commission header and line records (`assets_commission`, `assets_commission_line`) and of
   the versioned document (`Letflow.Documents`, decision 0056) behind them. It mirrors
-  `Letflow.Modules.Stock.Documents` reduced to one kind: module `assets` cannot call `stock` (boundary
+  `Letflow.Modules.Stock.Documents`: module `assets` cannot call `stock` (boundary
   Rule 4, and a stock install must not become a precondition of the asset register), so the glue is
-  copied, not shared; `Kinds` is a table so C11 adds rows. A shared extraction is a follow-up.
+  copied, not shared; `Kinds` is a table of four kinds (C10 commission; C11 change, handover, write off), one issue lock for all of them. A shared extraction is a follow-up.
   Public functions: `save/3`, `replace/4`, `discard/3`, `issue/4` (writes) and `fetch/3`, `list/2`
   (reads); posting and reversal live in `Letflow.Modules.Assets.Documents.Posting`. The tenant is the
   `prefix` argument and nothing else (INV-1); the router derives it from the token.

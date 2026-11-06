@@ -119,7 +119,14 @@ defmodule Letflow.Modules.Assets.DocumentsRegistrationTest do
 
   test "R1 two process definitions, one HUMAN_TASK each, no assignee, bound to the handlers" do
     defs = pack()["definitions"]
-    assert Enum.map(defs, & &1["process_key"]) == ["assets_commission", "assets_reversal"]
+
+    assert Enum.map(defs, & &1["process_key"]) == [
+             "assets_commission",
+             "assets_reversal",
+             "assets_change",
+             "assets_handover",
+             "assets_writeoff"
+           ]
 
     for {d, node, handler} <- [
           {Enum.at(defs, 0), "post", "post_document"},
@@ -133,7 +140,7 @@ defmodule Letflow.Modules.Assets.DocumentsRegistrationTest do
   end
 
   test "R1 the commission document type: prefix ACM, yearly, pad 6, owned by assets" do
-    assert [type] = Assets.document_types()
+    assert [type | _kinds] = Assets.document_types()
     assert type.key == "assets_commission" and type.owner_module == "assets"
     assert {type.number_prefix, type.number_pad, type.numbering_scope} == {"ACM", 6, :year}
     refute type.legal_entity_required

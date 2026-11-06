@@ -1,0 +1,52 @@
+{
+  "name": "assets_handover_line",
+  "display_name": "Asset hand over (line)",
+  "description": "GH #3889 / REQ-753 (assets C11). One line of a hand over of assets to another org unit or location (cause handover, prefix AHO): one asset card and a quantity. header_id is the record_id of the assets_handover header; the foreign key promotes it to a uuid column with ON DELETE RESTRICT. org_unit_id is the header's value copied by the module (scope column). Written only by module assets; after issue nothing of a line changes.",
+  "fields": [
+    {
+      "name": "header_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "org_unit_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "line_no",
+      "type": "integer",
+      "required": true
+    },
+    {
+      "name": "asset_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "quantity",
+      "type": "decimal",
+      "required": true,
+      "decimal_precision": 24,
+      "decimal_scale": 9,
+      "decimal_strict": true
+    }
+  ],
+  "foreign_keys": [
+    {
+      "name": "fk_assets_handover_line_header_id",
+      "field": "header_id",
+      "references_entity": "assets_handover"
+    }
+  ],
+  "indexes": [
+    {
+      "name": "idx_assets_handover_line_header_id",
+      "fields": [
+        "header_id"
+      ]
+    }
+  ]
+}

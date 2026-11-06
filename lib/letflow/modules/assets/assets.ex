@@ -23,7 +23,7 @@ defmodule Letflow.Modules.Assets do
   names are `Letflow.Modules.Assets.Views`, and three read routes (`balances`, `movements`,
   `reconcile`) live in `Letflow.Modules.Assets.Router`. The permissions `AssetsPost`, `AssetsReverse`,
   `AssetsRead` and `AssetsReconcile` have no role grants, so only TENANT_ADMIN and PLATFORM_ADMIN hold
-  them. The commission document (C10, version 0.6.0, REQ-751 / REQ-752) is the first poster:
+  them. The commission document (C10, version 0.6.0, REQ-751 / REQ-752; C11, version 0.7.0, REQ-753, adds the change of responsible or user `assets_change` (ACH), the hand over `assets_handover` (AHO) and the write off `assets_writeoff` (AWO) on the same routes, with their line types and process definitions) is the first poster:
   record types `assets_commission`, `assets_commission_line` and `assets_posting_mark`, write handlers
   `post_document` and `reverse_document`, process definitions `assets_commission` and
   `assets_reversal`, seven `/documents` routes (`Letflow.Modules.Assets.Documents`). The storage is created at
@@ -58,7 +58,18 @@ defmodule Letflow.Modules.Assets do
   alias Letflow.Modules.EntityActivation
 
   # Must stay equal to `manages_entity_types` in the manifest below (defmanifest takes literals).
-  @types ["assets_card", "assets_commission", "assets_commission_line", "assets_posting_mark"]
+  @types [
+    "assets_card",
+    "assets_commission",
+    "assets_commission_line",
+    "assets_change",
+    "assets_change_line",
+    "assets_handover",
+    "assets_handover_line",
+    "assets_writeoff",
+    "assets_writeoff_line",
+    "assets_posting_mark"
+  ]
 
   # GH #3891 / REQ-751: the document type of the commission (prefix ACM, numbering restarts each year).
   @document_types [
@@ -67,6 +78,33 @@ defmodule Letflow.Modules.Assets do
       owner_module: "assets",
       numbering_scope: :year,
       number_prefix: "ACM",
+      number_pad: 6,
+      legal_entity_required: false,
+      declared_fields: %{}
+    },
+    %{
+      key: "assets_change",
+      owner_module: "assets",
+      numbering_scope: :year,
+      number_prefix: "ACH",
+      number_pad: 6,
+      legal_entity_required: false,
+      declared_fields: %{}
+    },
+    %{
+      key: "assets_handover",
+      owner_module: "assets",
+      numbering_scope: :year,
+      number_prefix: "AHO",
+      number_pad: 6,
+      legal_entity_required: false,
+      declared_fields: %{}
+    },
+    %{
+      key: "assets_writeoff",
+      owner_module: "assets",
+      numbering_scope: :year,
+      number_prefix: "AWO",
       number_pad: 6,
       legal_entity_required: false,
       declared_fields: %{}
@@ -80,7 +118,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.6.0",
+    version: "0.7.0",
     depends_on: ["locations", "org"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
@@ -113,12 +151,24 @@ defmodule Letflow.Modules.Assets do
       "assets_card",
       "assets_commission",
       "assets_commission_line",
+      "assets_change",
+      "assets_change_line",
+      "assets_handover",
+      "assets_handover_line",
+      "assets_writeoff",
+      "assets_writeoff_line",
       "assets_posting_mark"
     ],
     scope_declarations: %{
       "assets_card" => {:column, "org_unit_id"},
       "assets_commission" => {:column, "org_unit_id"},
       "assets_commission_line" => {:column, "org_unit_id"},
+      "assets_change" => {:column, "org_unit_id"},
+      "assets_change_line" => {:column, "org_unit_id"},
+      "assets_handover" => {:column, "org_unit_id"},
+      "assets_handover_line" => {:column, "org_unit_id"},
+      "assets_writeoff" => {:column, "org_unit_id"},
+      "assets_writeoff_line" => {:column, "org_unit_id"},
       "assets_posting_mark" => {:column, "org_unit_id"}
     },
     write_handlers: [
