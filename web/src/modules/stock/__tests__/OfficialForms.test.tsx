@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { printErrorMessageId } from '../documents/documentsModel'
 import { formEn, formKk, formRu } from '../forms/officialFormMessages'
-import { formsForCount, formsForDocument, officialFormLang } from '../forms/officialForms'
+import { formsForDocument, formsForOrder, officialFormLang } from '../forms/officialForms'
 import { stockMessages } from '../stockMessages'
 import { DOCS, LIST, fakeDocument, fakeMasters, refusal, renderStock, stockDoc } from './stockTestKit'
 
@@ -61,9 +61,7 @@ describe('F1/F2 which documents show the menu', () => {
   })
   it('the registry rules', () => {
     expect(formsForDocument({ kind: 'issue', state: 'issued' })).toEqual(['z2'])
-    expect(formsForCount('sheet')).toEqual(['inv10'])
-    expect(formsForCount('differences')).toEqual(['inv18'])
-    expect(formsForCount('order')).toEqual([])
+    expect(formsForOrder()).toEqual(['inv10', 'inv18'])
   })
 })
 
@@ -145,5 +143,26 @@ describe('F8 catalogs', () => {
     expect(Object.keys(formKk).sort()).toEqual(ids)
     for (const c of [formEn, formRu, formKk]) for (const id of ids) expect(c[id].trim(), id).not.toBe('')
     for (const l of ['en', 'ru', 'kk'] as const) for (const id of ids) expect(stockMessages[l][id], `${l} ${id}`).toBeTruthy()
+  })
+})
+
+describe('T1/T2 menu stays inside the viewport (T-1441)', () => {
+  const rectLeft = (left: number) =>
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return (this.getAttribute('role') === 'menu' ? { left, right: left + 200, top: 0, bottom: 0, width: 200, height: 0, x: left, y: 0 } : {}) as DOMRect
+    })
+  it('right-anchored by default, start-aligned when it would clip on the left, reset on close', async () => {
+    await open('issued')
+    const root = screen.getByTestId('official-form-menu').parentElement as HTMLElement
+    const spy = rectLeft(300)
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    expect(root).not.toHaveClass('lf-formmenu--start')
+    await userEvent.keyboard('{Escape}')
+    spy.mockRestore()
+    rectLeft(-40)
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    expect(root).toHaveClass('lf-formmenu--start')
+    await userEvent.keyboard('{Escape}')
+    expect(root).not.toHaveClass('lf-formmenu--start')
   })
 })

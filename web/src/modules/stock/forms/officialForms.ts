@@ -22,6 +22,7 @@ export function formsForDocument(doc: { kind: string; state: string }): Official
   return doc.kind === 'issue' && (doc.state === 'issued' || doc.state === 'posted') ? ['z2'] : []
 }
 
-export function formsForCount(kind: 'order' | 'sheet' | 'differences'): OfficialFormId[] {
-  return kind === 'sheet' ? ['inv10'] : kind === 'differences' ? ['inv18'] : []
+/** The count order offers both count forms in one menu; which are usable depends on the issued paperwork. */
+export function formsForOrder(): OfficialFormId[] {
+  return ['inv10', 'inv18']
 }
