@@ -7,6 +7,8 @@ import { Link } from 'react-router-dom'
 import { Button } from '../Button'
 import { EmptyState } from '../EmptyState'
 import { JournalLegs, JournalRef, JournalSigned, JournalStatusPill, type JournalLegsLabels } from './JournalDetails'
+import { useColResize, type ColSpec } from '../layout/ColumnResize'
+import { useLayoutMessages } from '../layout/layoutMessages'
 import type { JournalOp } from './journalTypes'
 import type { JournalVariant } from './journalLayouts'
 
@@ -19,13 +21,15 @@ export interface JournalListLabels {
   collapse: string
   clearFilters: string
   more: (n: number) => string
-  columns: { date: string; kind: string; doc: string; item: string; qty: string; status: string }
+  columns: { date: string; kind: string; doc: string; item: string; qty: string; location: string; status: string }
   legs: JournalLegsLabels
 }
 
 export interface JournalListProps {
   titleId: string
   variant: JournalVariant
+  /** Screen id of the remembered layout (column widths). */
+  layoutScreen: string
   labels: JournalListLabels
   state: 'ready' | 'loading' | 'error' | 'noperm'
   /** The error banner (with Retry) the module builds. */
@@ -59,9 +63,32 @@ export interface JournalListProps {
   notice?: ReactNode
 }
 
+/** Widths of the operations table in percent (the status, last, takes the rest); the smallest width in px. */
+const OPS_COLS: ColSpec[] = [
+  { id: 'date', w: 15, min: 110 },
+  { id: 'kind', w: 13, min: 100 },
+  { id: 'doc', w: 14, min: 120 },
+  { id: 'item', w: 22, min: 160 },
+  { id: 'qty', w: 9, min: 70 },
+  { id: 'loc', w: 12, min: 100 },
+  { id: 'st', w: 0, min: 90 },
+]
+
+/** Column handles only while the journal area is wide (the same 900 px as the CSS and the divider). */
+const wideArea = (table: HTMLElement | null) => ((table?.closest('.lf-jrn') as HTMLElement | null)?.clientWidth ?? 0) > 900
+
 export function JournalList(p: JournalListProps) {
   const L = p.labels
   const bodyRef = useRef<HTMLTableSectionElement>(null)
+  const tableRef = useRef<HTMLTableElement>(null)
+  const word = useLayoutMessages().resizeColumn
+  useColResize(tableRef, {
+    id: 'ops',
+    screen: p.layoutScreen,
+    cols: OPS_COLS,
+    label: (_id, th) => `${word}: ${th.textContent?.trim() ?? ''}`,
+    enabled: () => wideArea(tableRef.current),
+  })
 
   function moveFocus(from: HTMLElement, to: 'next' | 'prev' | 'first' | 'last') {
     const rows = Array.from(bodyRef.current?.querySelectorAll<HTMLElement>('[data-nav]') ?? [])
@@ -132,15 +159,16 @@ export function JournalList(p: JournalListProps) {
     return (
       <>
         <div className="lf-reg__body lf-table-wrap">
-          <table className="lf-table lf-table--compact lf-jrn__table" role="grid" aria-label={L.title} aria-rowcount={p.ops.length}>
+          <table ref={tableRef} className="lf-table lf-table--compact lf-jrn__table" role="grid" aria-label={L.title} aria-rowcount={p.ops.length}>
             <thead>
               <tr role="row">
-                <th scope="col">{L.columns.date}</th>
-                <th scope="col">{L.columns.kind}</th>
-                <th scope="col">{L.columns.doc}</th>
-                <th scope="col">{L.columns.item}</th>
-                <th scope="col" className="c-qty">{L.columns.qty}</th>
-                <th scope="col">{L.columns.status}</th>
+                <th scope="col" data-col="date">{L.columns.date}</th>
+                <th scope="col" data-col="kind">{L.columns.kind}</th>
+                <th scope="col" data-col="doc">{L.columns.doc}</th>
+                <th scope="col" data-col="item">{L.columns.item}</th>
+                <th scope="col" data-col="qty" className="c-qty">{L.columns.qty}</th>
+                <th scope="col" data-col="loc" className="is-opt c-loc">{L.columns.location}</th>
+                <th scope="col" data-col="st">{L.columns.status}</th>
               </tr>
             </thead>
             <tbody ref={bodyRef}>
@@ -197,6 +225,10 @@ export function JournalList(p: JournalListProps) {
                           </button>
                         )}
                       </td>
+                      <td className="c-loc is-opt" role="gridcell">
+                        {op.location !== '' && <JournalRef text={shorten(op.location)} full={op.location} className="lf-ref--trunc" />}
+                        {op.locationMore > 0 && <span className="lf-jrn__more">{L.more(op.locationMore)}</span>}
+                      </td>
                       <td className="c-st" role="gridcell">
                         {/* the note ("Reversed by ...") is long and the list pane is narrow next to the sidebar: it is the
                             tooltip here and a line in the details pane */}
@@ -207,7 +239,7 @@ export function JournalList(p: JournalListProps) {
                     </tr>
                     {v1 && ex && (
                       <tr className="lf-jrn__legsrow is-open" role="row" data-testid="journal-legsrow">
-                        <td role="gridcell" colSpan={6}>
+                        <td role="gridcell" colSpan={7}>
                           <JournalLegs legs={op.legs} compact labels={L.legs} />
                           <div className="lf-btn-row">
                             <Button variant="secondary" size="sm" onClick={() => p.onDetails(op)} data-testid="journal-details-btn">

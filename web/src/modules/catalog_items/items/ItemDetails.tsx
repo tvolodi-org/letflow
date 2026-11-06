@@ -18,6 +18,7 @@ import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { classifyError } from '@/utils/classifyError'
 import { useItemBalances, useItemMovements } from '../CatalogItemsShell'
 import { STOCK_READ_ATOM } from '../catalogItemsPermissions'
+import type { ItemMovementRow } from '../catalogItemsStock.api'
 import { causeKey, type ItemRow } from './itemsModel'
 
 const TIME_ZONE = 'Asia/Almaty'
@@ -94,6 +95,19 @@ export function ItemDetails(props: { item: ItemRow; onBack: () => void }) {
     )
   }
 
+  /** The cause once, the document type only when it differs from the cause, then the document number. */
+  function historyText(m: ItemMovementRow) {
+    const cause = t(`cause.${causeKey(m.cause)}`)
+    const type = m.document_type ? (docTypes[m.document_type] ?? m.document_type) : null
+    const parts = [type && type !== cause ? type : null, m.document_number || null].filter(Boolean)
+    return (
+      <>
+        {cause}
+        {parts.length > 0 ? <span className="lf-reg__who"> · {parts.join(' · ')}</span> : null}
+      </>
+    )
+  }
+
   function history() {
     if (!canStock || (movements.isError && forbidden(movements.error))) return <RegistryNote testId="registry-history-noperm">{t('history.noPermission')}</RegistryNote>
     if (movements.isPending) return <RegistryNote testId="registry-history-loading">{t('history.loading')}</RegistryNote>
@@ -108,8 +122,7 @@ export function ItemDetails(props: { item: ItemRow; onBack: () => void }) {
           when: formatDateTimeInZone(m.event_time, { timeZone: TIME_ZONE, locale: intl.locale }),
           text: (
             <>
-              {t(`cause.${causeKey(m.cause)}`)}
-              {m.document_type ? <span className="lf-reg__who"> · {docTypes[m.document_type] ?? m.document_type}</span> : null}
+              {historyText(m)}
             </>
           ),
         }))}

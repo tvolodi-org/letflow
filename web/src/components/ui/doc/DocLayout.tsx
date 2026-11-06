@@ -2,9 +2,11 @@
  *  title bar with actions, a header card and a lines card in one grid. Wide: list | header | lines; medium: list and
  *  header, lines below; narrow (<900 px): the selected document replaces the list (`data-detail="open"`) and a back
  *  button shows. The arrangement is the registered layout `row` (rule 11); no per-screen CSS. Generic: no module words. */
-import React, { createContext, useContext, useRef, useState } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import { Button } from '../Button'
+import { SplitWrap, useSplit } from '../layout/Splitter'
+import { useLayoutMessages } from '../layout/layoutMessages'
 import { DEFAULT_DOC_LAYOUT, DOC_LAYOUTS, defaultTabFor, type DocLayoutName, type DocPane } from './docLayouts'
 
 export interface DocLayoutProps {
@@ -18,6 +20,8 @@ export interface DocLayoutProps {
   docState?: 'new' | 'existing' | 'none'
   /** Identity of the open document; the tab the user chose is kept only while this stays the same. */
   docKey?: string
+  /** Layout-screen id: when set, the panes get splitters whose sizes are remembered per user under this id (`ui.layout`). */
+  screen?: string
 }
 
 interface DocTabsContext {
@@ -34,15 +38,16 @@ export function useDocTabs(): DocTabsContext {
   return useContext(DocTabs)
 }
 
-export function DocLayout({ detailOpen, children, layout = DEFAULT_DOC_LAYOUT, docState = 'none', docKey = '', ...rest }: DocLayoutProps) {
+export function DocLayout({ detailOpen, children, layout = DEFAULT_DOC_LAYOUT, docState = 'none', docKey = '', screen, ...rest }: DocLayoutProps) {
   // The user's choice is kept per document key: another document (or a draft turned into a saved one) falls back to the default.
   const [chosen, setChosen] = useState<{ key: string; pane: DocPane } | null>(null)
   const tabsLayout = DOC_LAYOUTS[layout].tabs !== null && docState !== 'none'
   const fallback = docState === 'none' ? null : defaultTabFor(layout, docState)
   const activeTab = tabsLayout ? (chosen && chosen.key === docKey ? chosen.pane : fallback) : null
   const ctx: DocTabsContext = { tabsLayout, activeTab, setTab: (pane) => setChosen({ key: docKey, pane }) }
-  return (
+  const grid = (ref?: React.Ref<HTMLDivElement>) => (
     <div
+      ref={ref}
       className="lf-doc"
       data-layout={layout}
       data-tab={activeTab ?? undefined}
@@ -52,6 +57,49 @@ export function DocLayout({ detailOpen, children, layout = DEFAULT_DOC_LAYOUT, d
       <DocTabs.Provider value={ctx}>{children}</DocTabs.Provider>
     </div>
   )
+  return screen ? <SplitDocLayout screen={screen} render={grid} /> : grid()
+}
+
+/** The panes of the grid that are shown, in order (the design's `paneList`); picked by class so the cards keep their markup. */
+function docPanes(grid: HTMLElement | null): (HTMLElement | null)[] {
+  if (!grid) return []
+  const first = (cls: string) => grid.querySelector<HTMLElement>(`:scope > .${cls}`)
+  const list = first('lf-doc__list')
+  const header = first('lf-doc__header')
+  const lines = first('lf-doc__lines')
+  const side = first('lf-doc__top') ?? first('lf-doc__blank')
+  if (grid.getAttribute('data-layout') === 'tabs') return [list, side]
+  if (!header) return side && !first('lf-doc__top') ? [list, side] : [list]
+  return grid.clientWidth >= 1440 && lines ? [list, header, lines] : [list, header]
+}
+
+/** DocLayout with splitters: `SplitWrap` + `useSplit` around the grid. A MutationObserver on the grid's direct children
+ *  refreshes the handles when a card comes or goes (the document query and the edit toggle live below DocLayout). */
+function SplitDocLayout({ screen, render }: { screen: string; render: (ref: React.Ref<HTMLDivElement>) => React.ReactElement }) {
+  const m = useLayoutMessages()
+  const gridRef = useRef<HTMLDivElement>(null)
+  const layerRef = useRef<HTMLDivElement>(null)
+  const handle = useSplit(gridRef, layerRef, {
+    id: 'row',
+    screen,
+    unit: 'pct',
+    vars: ['--lf-pane-1', '--lf-pane-2'],
+    sized: 'before',
+    min: [200, 260],
+    flexMin: 320,
+    collapsible: [0],
+    labels: [m.splitList, m.splitHeader],
+    panes: () => docPanes(gridRef.current),
+    enabled: () => (gridRef.current?.clientWidth ?? 0) > 900,
+  })
+  useEffect(() => {
+    const grid = gridRef.current
+    if (!grid || typeof MutationObserver === 'undefined') return
+    const mo = new MutationObserver(() => handle.current?.refresh())
+    mo.observe(grid, { childList: true })
+    return () => mo.disconnect()
+  }, [handle])
+  return <SplitWrap layerRef={layerRef}>{render(gridRef)}</SplitWrap>
 }
 
 const tabId = (pane: DocPane) => `lf-doc-tab-${pane}`
