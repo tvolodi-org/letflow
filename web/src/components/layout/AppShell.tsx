@@ -109,6 +109,7 @@ export const NAV_ITEMS: NavItem[] = [
  *  Default off: prose and short forms keep the capped column; data screens opt in (I2..I5 decide how). */
 /** Data screens that fill wide windows (one path per line, so sibling screens add theirs without a conflict). */
 const FLUID_PATHS = [
+  '/admin/catalog/items',
   '/admin/stock/movements',
 ]
 
