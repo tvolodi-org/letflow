@@ -8,6 +8,7 @@ import { STOCK_TIME_ZONE } from '../register/stockRegisterModel'
 import { STOCK_POST, STOCK_REVERSE } from '../stockPermissions'
 import type { DocumentLine, StockDocument } from './documents.api'
 import { formatDateTimeInZone } from '@/i18n/format'
+import { roundDecimalText } from '@/lib/formatQuantity'
 
 export const DOC_KINDS = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'opening'] as const
 export type DocKind = (typeof DOC_KINDS)[number]
@@ -78,7 +79,14 @@ export function documentErrorMessageId(err: unknown): string {
 
 export const PRINT_KINDS = ['transfer', 'hand_over', 'return'] as const
 export const PRINT_STATES = ['issued', 'posted', 'reversed'] as const
-export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang', 'invalid_form', 'invalid_format'] as const
+export const PRINT_REASONS = [
+  'document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang', 'invalid_form', 'invalid_format', 'card_too_long',
+] as const
+
+/** T-1417: Z-5 (internal movement invoice) exists for a transfer that has been issued. */
+export function documentHasZ5(doc: { kind: string; state: string }): boolean {
+  return doc.kind === 'transfer' && documentPrintable(doc)
+}
 
 /** REQ-738: the PDF exists for a transfer, hand over or return that has been issued. */
 export function documentPrintable(doc: { kind: string; state: string }): boolean {
@@ -237,10 +245,16 @@ export function emptyForm(kind: DocKind, eventTime: string = nowZonedLocal()): F
 
 const s = (v: string | null | undefined): string => v ?? ''
 
+/** Decimal text for an input: the server sends 9 decimals; only trailing zeros go (no rounding, so a save keeps the value). */
+export function editDecimal(v: string | null | undefined): string {
+  const t = (v ?? '').trim()
+  return t === '' ? '' : (roundDecimalText(t, 9) ?? t)
+}
+
 export function lineFromDocument(l: DocumentLine): LineForm {
   return {
     itemId: s(l.catalog_item_id), uomId: s(l.catalog_uom_id), lotId: s(l.catalog_lot_id),
-    quantity: s(l.quantity), unitPrice: s(l.unit_price), lineValue: s(l.line_value),
+    quantity: editDecimal(l.quantity), unitPrice: editDecimal(l.unit_price), lineValue: editDecimal(l.line_value),
     locationId: s(l.location_id), responsibleId: s(l.responsible_id), receivedOn: s(l.received_on),
     externalRefSystem: s(l.external_ref_system), externalRefId: s(l.external_ref_id),
   }

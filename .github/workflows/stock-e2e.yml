@@ -1,0 +1,129 @@
+# T-1383: the GATE B browser click-through as its own workflow (see the job comment below).
+name: Stock browser e2e
+
+on:
+  pull_request:
+  merge_group:
+  schedule:
+    - cron: "47 1 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: stock-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # T-1383: GATE B browser click-through (Playwright, real Chromium, real Keycloak sign-in, real backend). Not on the
+  # critical path of an ordinary PR: the job starts on every run (so the name always reports), but its steps run only when
+  # the change touches the stock screens or the e2e stack (scripts/ci_stock_e2e_paths.sh), and always on the nightly
+  # schedule and on workflow_dispatch. A run whose steps are all skipped reports success under the same name, so this check
+  # can be made required in the `main-queue` ruleset without blocking other PRs (the operator adds the name; the ruleset is
+  # not edited by the team). The relogin spec (about 3 token lifespans = 4.5 min) runs only on schedule and dispatch.
+  # Own workflow file, not ci.yml: ci.yml's tests pin its job names and forbid artifact uploads. docs/testing/gate-b-browser-e2e.md.
+  stock_e2e:
+    name: Stock browser e2e (playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -uo pipefail
+          case "$EVENT_NAME" in
+            schedule|workflow_dispatch|push) echo "run=true" >> "$GITHUB_OUTPUT"; echo "Event $EVENT_NAME: always run."; exit 0 ;;
+            pull_request) RANGE="${PR_BASE_SHA}...${PR_HEAD_SHA}" ;;
+            merge_group) RANGE="${MG_BASE_SHA}..${MG_HEAD_SHA}" ;;
+            *) echo "run=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          if ! CHANGED=$(git diff --name-only "$RANGE"); then
+            echo "git diff $RANGE failed: fail open, running the job."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          RESULT=$(bash scripts/ci_stock_e2e_paths.sh <<<"$CHANGED") || { echo "path script failed: fail open"; echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; }
+          echo "$RESULT"
+          echo "run=${RESULT#stock_web=}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Elixir/OTP (from .tool-versions)
+        if: steps.decide.outputs.run == 'true'
+        uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Read pinned Rust version from .tool-versions
+        if: steps.decide.outputs.run == 'true'
+        id: rust_pin
+        run: |
+          version=$(grep -E '^rust ' .tool-versions | awk '{print $2}')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Rust (pinned via .tool-versions)
+        if: steps.decide.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust_pin.outputs.version }}
+
+      - name: Set up Node.js
+        if: steps.decide.outputs.run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies and the Chromium browser
+        if: steps.decide.outputs.run == 'true'
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Start the stack (Postgres, Keycloak, backend, seed)
+        if: steps.decide.outputs.run == 'true'
+        run: bash scripts/e2e/stack_up.sh
+
+      - name: Click-through of the GATE B flows
+        if: steps.decide.outputs.run == 'true'
+        working-directory: web
+        env:
+          E2E_RUN_TAG: ci${{ github.run_id }}
+        run: |
+          # a missing variable must fail the job, not skip the specs silently
+          : "${E2E_ADMIN_USER:?the stack script did not export E2E_ADMIN_USER}"
+          : "${E2E_ADMIN_PASSWORD:?the stack script did not export E2E_ADMIN_PASSWORD}"
+          npx playwright test --config=playwright.config.ts tests/e2e/gate-b-stock.e2e.spec.ts
+
+      - name: Relogin check on the real identity provider (nightly and manual only)
+        if: steps.decide.outputs.run == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        working-directory: web
+        env:
+          E2E_RELOGIN: "1"
+          E2E_TOKEN_LIFESPAN: "90"
+        run: npx playwright test --config=playwright.config.ts --output=test-results-relogin tests/e2e/gate-b-relogin.e2e.spec.ts
+
+      - name: Upload screenshots, logs and traces
+        if: ${{ always() && steps.decide.outputs.run == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-e2e-results
+          path: |
+            web/test-results/
+            web/test-results-relogin/
+            .e2e/backend.log
+          if-no-files-found: ignore
+
+      - name: Stop the stack
+        if: ${{ always() && steps.decide.outputs.run == 'true' }}
+        run: bash scripts/e2e/stack_up.sh --down
