@@ -48,12 +48,15 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
-  webServer: {
-    command: `npm run dev -- --host 127.0.0.1 --port ${e2ePort}`,
-    url: baseURL,
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  // E2E_NO_WEBSERVER=1: the web app is already deployed (QA runs of the GATE B specs, E2E_BASE_URL points at it).
+  webServer: process.env.E2E_NO_WEBSERVER
+    ? undefined
+    : {
+        command: `npm run dev -- --host 127.0.0.1 --port ${e2ePort}`,
+        url: baseURL,
+        reuseExistingServer: true,
+        timeout: 120_000,
+      },
   projects: [
     {
       name: 'chromium',
