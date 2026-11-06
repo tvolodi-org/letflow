@@ -37,11 +37,14 @@ export interface MovementRow {
   posting_seq: number
   cause: string
   reason_code?: string | null
+  /** The entry this one reverses (a reversal); absent otherwise. */
+  reverses_entry_id?: string | null
   document_type?: string | null
   document_id?: string | null
   /** Gap-free number of the document ("RCP-2026-000001"), when the row points at a numbered stock document. */
   document_number?: string | null
   event_time?: string | null
+  posting_time?: string | null
   legs: MovementLeg[]
 }
 export interface MovementsPageBody {
@@ -54,4 +57,6 @@ export const stockApi = {
   /** The xlsx file of the first page of the balances (one page per file); same filters and day as the screen. */
   balancesXlsx: (params: Record<string, string>) => client.getBlob(`${BASE}/balances`, { ...params, format: 'xlsx' }),
   movements: (params: Record<string, string>) => client.get<MovementsPageBody>(`${BASE}/movements`, params),
+  /** The xlsx file of the first page of the movements (one page per file); same filters as the screen. */
+  movementsXlsx: (params: Record<string, string>) => client.getBlob(`${BASE}/movements`, { ...params, format: 'xlsx' }),
 }
