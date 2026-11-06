@@ -216,6 +216,7 @@ POST /tenant/config-bundle/import TenantSettingsManage
 POST /tenant/modules ModulesManage
 POST /tenant/modules/:module_id/reactivate ModulesManage
 POST /tenant/modules/:module_id/uninstall ModulesManage
+POST /tenant/modules/:module_id/upgrade ModulesManage
 POST /tenant/modules/:module_id/upgrade/plan ModulesManage
 POST /tenant/solutions ModulesManage
 POST /tenants TenantsManage
