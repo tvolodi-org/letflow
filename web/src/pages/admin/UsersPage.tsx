@@ -82,7 +82,7 @@ export default function UsersPage() {
       id: 'roles',
       header: 'Roles',
       accessor: (u) => (
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{roleList(u).map((name) => roleLabel(name)).join(', ')}</span>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{roleList(u).map((name) => roleLabel(name, uiLocale)).join(', ')}</span>
       ),
     },
     {
