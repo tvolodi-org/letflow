@@ -1,0 +1,39 @@
+{
+  "form_layout_version": 1,
+  "form": "z5",
+  "annex": 29,
+  "blocks": [
+    {"type": "text", "label": "z5.annex"},
+    {"type": "text", "label": "z5.form_code"},
+    {"type": "field", "label": "z2.org", "key": "org_name"},
+    {"type": "field", "label": "z2.bin", "key": "org_bin"},
+    {"type": "field", "label": "z2.number", "key": "number"},
+    {"type": "field", "label": "z2.date", "key": "date"},
+    {"type": "title", "label": "z5.title"},
+    {"type": "field", "label": "z5.sender_unit", "key": "sender_unit"},
+    {"type": "field", "label": "z5.receiver_unit", "key": "receiver_unit"},
+    {"type": "field", "label": "z5.basis", "key": "basis"},
+    {"type": "field", "label": "z2.responsible", "key": "responsible"},
+    {
+      "type": "table",
+      "rows": "lines",
+      "totals": {"label": "z2.total", "sum": ["qty_issued"], "mark": ["qty_plan", "price", "sum"]},
+      "columns": [
+        {"key": "no", "label": "z2.c1"},
+        {"key": "name", "label": "z5.c2"},
+        {"key": "nom", "label": "z2.c3"},
+        {"key": "unit", "label": "z2.c4"},
+        {"key": "qty_plan", "label": "z2.c5", "group": "z2.qty"},
+        {"key": "qty_issued", "label": "z2.c6", "group": "z2.qty"},
+        {"key": "price", "label": "z2.c7"},
+        {"key": "sum", "label": "z5.c8"}
+      ]
+    },
+    {"type": "field", "label": "z5.words_qty", "key": "words_qty"},
+    {"type": "field", "label": "z2.words_sum", "key": "words_sum"},
+    {"type": "signature", "label": "z2.allowed_by", "key": "allowed_by", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "z5.checked_by", "key": "checked_by", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "z2.released", "key": "released", "parts": ["position", "signature", "name"]},
+    {"type": "signature", "label": "z5.received", "key": "received", "parts": ["position", "signature", "name"]}
+  ]
+}
