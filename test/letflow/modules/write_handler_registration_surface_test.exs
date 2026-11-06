@@ -76,7 +76,11 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
     "lib/letflow/modules/installs.ex",
     # REQ-768 (deliberate edit): the dry-run upgrade plan reads the compiled hash through
     # `Catalog.manifest_hash/1`. A read only; it never resolves or calls a handler.
-    "lib/letflow/modules/upgrade_plan.ex"
+    "lib/letflow/modules/upgrade_plan.ex",
+    # REQ-772 (deliberate edit): the boot-time upgrade child reads the compiled hash through
+    # `Catalog.manifest_hash/1` to stamp its journal rows. A read only; it never resolves or
+    # calls a handler.
+    "lib/letflow/module_upgrade/boot.ex"
   ]
 
   @api_names [:write_handler, :write_handler_in, :call_write_handler, :manifest_hash]
