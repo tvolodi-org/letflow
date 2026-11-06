@@ -361,3 +361,52 @@ describe('JP narrow behaviour (V1 inline legs, Details opens the full-screen pan
     expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
   })
 })
+
+describe('JW wide screen (T-1439 R12b: Details button opens the full-screen view)', () => {
+  const TWO = { next_cursor: null, rows: [ENTRY, { ...ENTRY, entry_id: 'en2', posting_seq: 16 }] }
+
+  it('D2 Details opens the pane with Back focused; Back closes it and focuses the row', async () => {
+    clientMock.get.mockResolvedValue(TWO)
+    renderStock(MOV)
+    const [row] = await rowsOf()
+    fireEvent.click(row)
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
+    fireEvent.click(await screen.findByTestId('journal-open-full'))
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'open')
+    await waitFor(() => expect(screen.getByTestId('journal-back')).toHaveFocus())
+    fireEvent.click(screen.getByTestId('journal-back'))
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
+    await waitFor(() => expect(row).toHaveFocus())
+  })
+
+  it('D3 previous / next walk the rows and stop at the ends', async () => {
+    clientMock.get.mockResolvedValue(TWO)
+    renderStock(MOV)
+    fireEvent.click((await rowsOf())[0])
+    fireEvent.click(await screen.findByTestId('journal-open-full'))
+    expect(screen.getByTestId('journal-pos')).toHaveTextContent('1 of 2')
+    expect(screen.getByTestId('journal-prev')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('journal-next'))
+    expect(screen.getByTestId('journal-pos')).toHaveTextContent('2 of 2')
+    expect(screen.getByTestId('journal-next')).toBeDisabled()
+  })
+
+  it('D4 Escape closes the full-screen view', async () => {
+    renderStock(MOV)
+    fireEvent.click((await rowsOf())[0])
+    fireEvent.click(await screen.findByTestId('journal-open-full'))
+    fireEvent.keyDown(screen.getByTestId('journal-back'), { key: 'Escape' })
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
+  })
+
+  it('D5 the view closes when the selected operation leaves the list', async () => {
+    clientMock.get.mockImplementation(async (_p: string, params?: Record<string, string>) =>
+      params?.['cause'] === 'receipt' ? { next_cursor: null, rows: [] } : { next_cursor: null, rows: [ENTRY] })
+    renderStock(MOV)
+    fireEvent.click((await rowsOf())[0])
+    fireEvent.click(await screen.findByTestId('journal-open-full'))
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'open')
+    fireEvent.change(screen.getByLabelText('Cause'), { target: { value: 'receipt' } })
+    await waitFor(() => expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed'))
+  })
+})
