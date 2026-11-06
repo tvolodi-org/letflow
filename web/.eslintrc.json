@@ -47,7 +47,8 @@
     {
       "files": [
         "src/modules/registry.ts",
-        "src/dev/harness/**"
+        "src/dev/harness/**",
+        "src/__tests__/catalog-completeness.test.ts"
       ],
       "rules": {
         "no-restricted-imports": "off"
