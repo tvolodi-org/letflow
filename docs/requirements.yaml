@@ -53262,7 +53262,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-715 -- the write-off document of REQ-715 gains the commission; registered by the engine after the gate
+    gh: 3997
     # Source: task T-1453 (owner decisions of the PM 2026-11-07: (c) the signers are the members of the commission assigned by the head's order plus the persons by whom the assets are counted or who are accountable, per form; whatever is not solved is registered as a requirement). Form: annex 30 of order No. 562, ru З-6 / kk Қ-6 (`/home/tvolodi/Documents/KZ-MinFin-DocTemplates/template_application_ru30.docx` and `ai-dala-portfolio/inbox/kz-minfin-forms/adilet-kk-562-text.txt`): signer lines "Председатель комиссии", "Члены комиссии", "Материально-ответственное лицо", approval "Утверждаю Руководитель". Mapping: docs/assets/kz-forms-mapping.md sections 3.4 (Z-6 row, gap G14) and 8. Code read on origin/main 30a14c0de: lib/letflow/modules/stock/documents/kinds.ex (@write_off_keys, the write_off row of @table), lib/letflow/modules/stock/documents/shape.ex (parse/2, refusal order), lib/letflow/modules/stock/documents/checks.ex (masters/2, employee_not_active through Letflow.Modules.Org.active_employee?/2 of lib/letflow/modules/org/org.ex), lib/letflow/modules/stock/counts.ex (the count commission precedent: chair_employee_id, member_employee_ids, @max_list 500, chair_not_member, the child type count_commission_member), lib/letflow/modules/stock/stock.ex (manifest version 0.15.0 on origin/main, managed types, scope map), priv/modules/stock/entity_definitions/stock_writeoff.json. Written by the business analyst (T-1453) 2026-11-07. Not yet validated.
     description: >
       Form Z-6 (act of write-off of stock, annex 30) is signed by a commission (chair and members) appointed
@@ -53291,7 +53291,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-753 -- the asset write-off document of REQ-753 (assets_writeoff) does not exist on main yet
+    gh: 3996
     # Source: task T-1453 (owner decision (c) of the PM 2026-11-07, as REQ-776). Form: annex 18 of order No. 562, ru ДА-3 / kk ҰМА-3 (`template_application_ru18.docx`, `adilet-kk-562-text.txt`): signer lines "Председатель комиссии", "Члены комиссии", "Материально-ответственное лицо", "Главный бухгалтер (бухгалтер)", approval "УТВЕРЖДАЮ Руководитель". Mapping: docs/assets/kz-forms-mapping.md sections 3.6 (DA-3 row) and 8. The asset write-off document is specified by REQ-753 (assets_writeoff and assets_writeoff_line, header location_id, material_responsible_id, actual_user_id, reason_code, reason_text; prefix AWO) on the routes of REQ-751; lib/letflow/modules/assets/ on origin/main 30a14c0de has no documents yet (ls: access.ex assets.ex cards.ex import.ex ledger_policy reminders.ex reports.ex responsible.ex router.ex views.ex xlsx_export.ex). Precedent: REQ-776 for the stock write-off. Written by the business analyst (T-1453) 2026-11-07. Not yet validated.
     description: >
       Form DA-3 (act of disposal or write-off of long-term assets, annex 18) is signed by a commission (chair
@@ -53317,7 +53317,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-715 -- the issue line of REQ-715 gains the price and the VAT rate; registered by the engine after the gate
+    gh: 3995
     # Source: task T-1453 (owner decision (d) of the PM 2026-11-07: VAT depends on the form and on the rates of the Kazakhstan tax code; map as much as possible, register the rest as requirements). Tax Code of the Republic of Kazakhstan of 18 July 2025 No. 214-VIII, article 503 (text read 2026-11-07 on kodeksy-kz.com/ka/nalogovyj_kodeks/503.htm and buhgpt.kz/nk-rk-2026/statya-503, both stating the official Adilet text): item 1 rate 16 percent; item 2 rate 5 percent from 2026-01-01 and 10 percent from 2027-01-01 for listed medicines, medical devices and licensed medical services; item 3 rate 10 percent for domestic periodical printed media; item 4 zero rate for the turnovers of chapter 47. Form: annex 26 of order No. 562, ru З-2 / kk Қ-2, columns 7 "Цена за единицу, в теңге", 8 "Сумма с НДС, в теңге", 9 "Сумма НДС, в теңге" (`template_application_ru26.docx`; kk `ҚҚС-пен сомасы`, `ҚҚС сомасы`). Mapping: docs/assets/kz-forms-mapping.md sections 3.1 (gap G5) and 8.4. Code read on origin/main 30a14c0de: lib/letflow/modules/stock/documents/shape.ex (@line_extra receipt only, prices/2, price_text/1, refusal price_invalid; the moduledoc line that an issue line has no unit_price), lib/letflow/modules/stock/form_z2.ex (Letflow.Modules.Stock.FormZ2.data/2, lines/2 fills no, name, nom, unit, qty_issued only), priv/print_forms/z2.json (columns price, sum_vat, vat; totals mark price, sum_vat, vat), priv/modules/stock/entity_definitions/stock_issue_line.json, test/letflow/modules/stock/issue_writeoff_shape_test.exs (the unit_price field_not_allowed test of an issue line), test/letflow/modules/stock/form_z2_test.exs and form_z2_router_test.exs. The Z-2 print came with merge 2559589e4 (#3964, E5b). Written by the business analyst (T-1453) 2026-11-07. Not yet validated.
     description: >
       Form Z-2 (issue of stock to a third party, annex 26) has three money columns: price per unit (7), sum
