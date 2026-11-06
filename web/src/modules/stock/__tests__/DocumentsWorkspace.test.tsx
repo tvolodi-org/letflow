@@ -161,3 +161,20 @@ describe('T1410 B1 header hides empty fields', () => {
     expect(header).toHaveTextContent('Posting')
   })
 })
+
+describe('D1 T-1433 view numbers', () => {
+  it('groups money and trims 9-decimal zeros in the lines table and totals row', async () => {
+    const id = '5b58a738-1c2d-4e3f-8a9b-000000000002'
+    listAndDoc(stockDoc({
+      id, number: 'RC-2', state: 'posted',
+      lines: [
+        { line_id: 'a', line_no: 1, catalog_item_id: 'i1', catalog_uom_id: 'm1', catalog_lot_id: 't1', quantity: '20.000000000', unit_price: '450000.000000000', line_value: '9000000.000000000' },
+      ],
+    }))
+    renderStock(`${LIST}/${id}`, withPost)
+    const lines = await screen.findByTestId('document-lines')
+    await waitFor(() => expect(lines).toHaveTextContent('450,000'))
+    expect(lines).toHaveTextContent('9,000,000')
+    expect(lines.textContent).not.toMatch(/\.0{3,}/)
+  })
+})

@@ -1,6 +1,7 @@
 /** TaskDetail — T-1380. The detail panel of a task: the action named for the task (Claim, then Post / Approve / Reverse),
  *  the separation-of-duties hint and refusal as readable text, the document (header and lines, read-only) and the task
  *  form. No id is shown: references go through useReferenceLabels (code - title). */
+import { formatQuantity } from '@/lib/formatQuantity'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { useTask, useCompleteTask, useClaimTask } from '@/hooks/useTasks'
@@ -88,7 +89,7 @@ function DocumentSummary({ doc, m, refMsg, label, locale }: {
                   <td>{label('catalog_item', l.catalog_item_id)}</td>
                   <td>{label('catalog_uom', l.catalog_uom_id)}</td>
                   <td>{l.catalog_lot_id ? label('catalog_lot', l.catalog_lot_id) : ''}</td>
-                  <td className="is-num">{l.quantity}</td>
+                  <td className="is-num">{formatQuantity(l.quantity, locale)}</td>
                 </tr>
               ))}
             </tbody>

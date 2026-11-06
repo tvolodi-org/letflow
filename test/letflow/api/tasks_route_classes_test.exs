@@ -114,8 +114,9 @@ defmodule Letflow.Api.TasksRouteClassesTest do
       # REQ-737 (GH #3860) added the document print route line (236 -> 237).
       # REQ-741 (GH #3879) added the two stock voice draft lines (237 -> 239).
       # REQ-768 (GH #3920) added the module upgrade plan route line (242 -> 243).
-      # REQ-770 (GH #3918) added the module upgrade apply route line (243 -> 244).
-      assert length(snapshot) == 244
+      # REQ-749 (GH #3893) added the three assets register read lines (242 -> 245).
+      # REQ-770 (GH #3918) added the module upgrade apply route line (246 -> 247).
+      assert length(snapshot) == 247
 
       for line <- @filter_lines ++ @resolver_lines do
         refute line in snapshot, line

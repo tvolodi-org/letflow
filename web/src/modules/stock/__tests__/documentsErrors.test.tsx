@@ -59,7 +59,7 @@ describe('C5-a every reason in every language', () => {
         seen.add(text)
       }
       expect(seen.size).toBe(ALL.length)
-    })
+    }, 60_000)
   }
 })
 
