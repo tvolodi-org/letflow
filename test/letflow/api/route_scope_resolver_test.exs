@@ -303,7 +303,8 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       # REQ-741 (GH #3879) added the two stock voice draft lines (237 -> 239).
       # REQ-768 (GH #3920) added the module upgrade plan route line (242 -> 243).
       # REQ-749 (GH #3893) added the three assets register read lines (242 -> 245).
-      assert length(snapshot) == 246
+      # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (246 -> 253).
+      assert length(snapshot) == 253
 
       for line <- @resolver_lines ++ @tenant_wide_lines do
         refute line in snapshot, line

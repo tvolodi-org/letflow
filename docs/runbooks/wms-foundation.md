@@ -610,10 +610,10 @@ Module `assets` (GH #3893 / REQ-749, assets phase C item C8, owner decision D-09
 registration (`assets`), a pure posting policy, two views and three read routes. Each limit names the GH issue or
 the code that holds it; paths are cited without line numbers.
 
-1. **No posting path until REQ-752.** Nothing in the product posts to the `assets` ledger: the documents that
-   commission, change, hand over and write off an asset are REQ-752 and REQ-753 (GH #3893,
-   `lib/letflow/modules/assets/ledger_policy/declare.ex`). The read routes answer empty lists on a tenant that has
-   the module.
+1. **Only the commission posts (C10, REQ-751, REQ-752).** The commission document is the one asset document that
+   posts to the `assets` ledger (GH #3890, #3891, `lib/letflow/modules/assets/documents.ex`); change, handover and
+   write-off documents are REQ-753 and later. A commission is saved, issued (number `ACM-<year>-<n>`) and posted by
+   completing its `post` task, and reversed by completing the `reverse` task of `POST /documents/:id/reverse`.
 2. **No master checks in the ledger until slice L7.** The policy and the ledger check no asset, org unit, location
    or employee against a master, and not the kind of the card (one asset per row, no location for an intangible);
    the documents check them (decision 0073 D6, GH #3893).
@@ -626,3 +626,16 @@ the code that holds it; paths are cited without line numbers.
    `missing_ledger_storage` (`lib/letflow/modules/upgrade_plan.ex`). The role grants of the
    four atoms (`AssetsPost`, `AssetsReverse`, `AssetsRead`, `AssetsReconcile`) are item C19, so only TENANT_ADMIN and
    PLATFORM_ADMIN hold them (`docs/roles.md`, GH #3893).
+5. **Checks run at issue only.** The master checks (org unit, location link, employees, card state, fixed and
+   intangible assets held once) run when the document is issued, under a per-tenant lock; a master retired between
+   issue and posting is not caught until slice L7 (`lib/letflow/modules/assets/documents/checks.ex`).
+6. **The posting task has no assignee.** Any holder of `AssetsPost` (TENANT_ADMIN) may claim and complete the `post`
+   task; the ledger authority step decides, and a scoped principal cannot (OQ-21, slice L6).
+7. **The binding gap is detected, not prevented.** The posting command is built at issue and carried in the instance
+   variables; a changed variable posts but the document reads `posting_check` "mismatch" (decision 0078 D5, until
+   L7). The handler never reads, so the refusal `asset_already_in_register` is a check at issue only.
+8. **No cancel and no post-retry route yet.** A lost start of the posting instance after issue leaves an issued
+   document with no task; a draft can be discarded, an issued one cannot be cancelled (follow-up of REQ-752).
+9. **Upgrade needed after deploy.** An install of `assets` 0.5.0 or older has no commission record types or process
+   definitions until the module upgrade (`lib/letflow/modules/upgrade_plan.ex`) is applied; until then the new write
+   routes answer 500 without detail. Existing rows are not changed.

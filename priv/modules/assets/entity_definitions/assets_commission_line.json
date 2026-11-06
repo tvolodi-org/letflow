@@ -1,0 +1,18 @@
+{
+  "name": "assets_commission_line",
+  "display_name": "Asset commission (line)",
+  "description": "GH #3891 / REQ-751 (assets C10), docs/assets/asset-workflow-documents.md sections 1 and 2. One line of an asset commission: one asset card and a quantity. header_id is the record_id of the assets_commission header (not the document id); the foreign_keys entry fk_assets_commission_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7, so a scoped read can filter lines). line_no is the position 1..n. asset_id is the record id of an assets_card. quantity is an exact decimal (precision 24, scale 9, decimal_strict); the value rule (whole number, 1 for fixed and intangible assets) is checked at issue. Written only by module assets; after issue nothing of a line changes.",
+  "fields": [
+    {"name": "header_id", "type": "string", "required": true, "queried": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "line_no", "type": "integer", "required": true},
+    {"name": "asset_id", "type": "string", "required": true},
+    {"name": "quantity", "type": "decimal", "required": true, "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_assets_commission_line_header_id", "field": "header_id", "references_entity": "assets_commission"}
+  ],
+  "indexes": [
+    {"name": "idx_assets_commission_line_header_id", "fields": ["header_id"]}
+  ]
+}

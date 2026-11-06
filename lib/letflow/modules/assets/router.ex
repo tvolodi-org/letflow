@@ -10,6 +10,28 @@ defmodule Letflow.Modules.Assets.Router do
   | `PATCH /cards/:id` | `AssetsCardWrite` | `update_card/4` | 200 |
   | `POST /cards/:id/retire` | `AssetsCardWrite` | `retire_card/3` | 200 |
 
+  GH #3890 / #3891 (C10): the document routes of the commission. A thin layer over
+  `Letflow.Modules.Assets.Documents` and `Documents.Posting`; the guard is `Access.check/2`.
+  `PUT` replaces the WHOLE document: the body replaces the header and all lines, an omitted optional
+  key (`location_id`, `actual_user_id`, `note`) is removed and a line left out is deleted, so a client
+  sends back every header field and every line field (`asset_id`, `quantity`) it loaded.
+
+  | Route | Permission | Delegate | Ok |
+  |---|---|---|---|
+  | `POST /documents` | `AssetsPost` | `Documents.save/3` | 201 document |
+  | `PUT /documents/:id` | `AssetsPost` | `Documents.replace/4` | 200 document |
+  | `DELETE /documents/:id` | `AssetsPost` | `Documents.discard/3` | 204 |
+  | `POST /documents/:id/issue` | `AssetsPost` | `Documents.issue/4` | 200 document (starts the posting instance) |
+  | `POST /documents/:id/reverse` | `AssetsReverse` | `Posting.reverse/6` | 200 document (starts the reversal instance) |
+  | `GET /documents` | `AssetsRead` | `Documents.list/2` | 200 `rows, next_cursor` |
+  | `GET /documents/:id` | `AssetsRead` | `Documents.fetch/3` | 200 document |
+
+  Refusals: not found (malformed, unknown, discarded and other-tenant ids, one body) 404; 409
+  `document_not_draft`, `document_not_posted`, `document_reversed`, `reversal_pending`,
+  `posting_inconsistent`, `definition_not_active`; 503 `busy`; 422 with a fixed `reason` (and only the
+  extension keys `field` / `line_no`) for shape, master and reason refusals; 500 without detail. The
+  tenant is `Access.check/2`'s prefix only, never a path or body key (INV-1, INV-10).
+
   After the permission check every handler asks `Letflow.Modules.Assets.Access.check/1`: only an
   interactive, tenant-wide principal passes; any other caller (API token, scoped grant) gets the 404 of
   a tenant without the module (INV-5). The tenant is `conn.assigns.scoped_opts` and the actor the
@@ -67,6 +89,8 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Ledger
   alias Letflow.Modules.Assets.Access
   alias Letflow.Modules.Assets.Cards
+  alias Letflow.Modules.Assets.Documents
+  alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Assets.Views
 
   @ledger "assets"
@@ -157,7 +181,145 @@ defmodule Letflow.Modules.Assets.Router do
     end
   end
 
+  authz_post "/documents", :AssetsPost do
+    with_doc_access(conn, :post, fn conn, access ->
+      doc_render(conn, Documents.save(access.prefix, doc_body(conn), access.actor_id), 201)
+    end)
+  end
+
+  authz_put "/documents/:id", :AssetsPost do
+    with_doc_access(conn, :post, fn conn, access ->
+      result =
+        Documents.replace(access.prefix, conn.params["id"], doc_body(conn), access.actor_id)
+
+      doc_render(conn, result, 200)
+    end)
+  end
+
+  authz_delete "/documents/:id", :AssetsPost do
+    with_doc_access(conn, :post, fn conn, access ->
+      case Documents.discard(access.prefix, conn.params["id"], access.actor_id) do
+        :ok -> Response.no_content(conn)
+        {:error, reason} -> doc_refuse(conn, reason)
+      end
+    end)
+  end
+
+  authz_post "/documents/:id/issue", :AssetsPost do
+    with_doc_access(conn, :post, fn conn, access ->
+      opts = [activator: Letflow.Api.Context.activator(conn), authorized: read_authorized(conn)]
+
+      doc_render(
+        conn,
+        Documents.issue(access.prefix, conn.params["id"], access.actor_id, opts),
+        200
+      )
+    end)
+  end
+
+  authz_post "/documents/:id/reverse", :AssetsReverse do
+    with_doc_access(conn, :reverse, fn conn, access ->
+      case read_authorized(conn) do
+        nil ->
+          Response.not_found(conn)
+
+        authorized ->
+          who = %{actor_id: access.actor_id, activator: Letflow.Api.Context.activator(conn)}
+          fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
+
+          result =
+            Posting.reverse(
+              access.prefix,
+              conn.params["id"],
+              doc_body(conn),
+              who,
+              authorized,
+              fetch
+            )
+
+          doc_render(conn, result, 200)
+      end
+    end)
+  end
+
+  authz_get "/documents", :AssetsRead do
+    with_doc_access(conn, :read, fn conn, access ->
+      case Documents.list(access.prefix, list_params(conn)) do
+        {:ok, page} -> Response.ok(conn, page)
+        {:error, reason} -> doc_refuse(conn, reason)
+      end
+    end)
+  end
+
+  authz_get "/documents/:id", :AssetsRead do
+    with_doc_access(conn, :read, fn conn, access ->
+      authorized = read_authorized(conn)
+      doc_render(conn, Documents.fetch(access.prefix, conn.params["id"], authorized), 200)
+    end)
+  end
+
   authz_unmatched(:ordinary)
+
+  # -- document handlers (GH #3890 / #3891) ------------------------------------------------------
+
+  defp with_doc_access(conn, purpose, fun) do
+    case Access.check(conn, purpose) do
+      {:ok, access} -> fun.(conn, access)
+      :error -> Response.not_found(conn)
+    end
+  end
+
+  # The ledger read authorization of the caller (tenant-wide: `Access` has proved it) for
+  # `posting_check`; `nil` when the ledger refuses, and the check is then `nil` too.
+  defp read_authorized(conn) do
+    case Ledger.authorize(conn, @ledger, :read) do
+      {:ok, authorized} -> authorized
+      :error -> nil
+    end
+  end
+
+  # A repeated query key is refused: the parsed map would keep only the last value.
+  defp list_params(conn) do
+    pairs = URI.query_decoder(conn.query_string) |> Enum.to_list()
+    keys = Enum.map(pairs, &elem(&1, 0))
+
+    if keys == Enum.uniq(keys),
+      do: Plug.Conn.fetch_query_params(conn).query_params,
+      else: %{"limit" => "repeated"}
+  end
+
+  # A body that is not a JSON object arrives as `%{"_json" => ...}`; the shape check refuses it.
+  defp doc_body(conn) do
+    case conn.body_params do
+      %{"_json" => _} -> :not_an_object
+      %Plug.Conn.Unfetched{} -> :not_an_object
+      params -> params
+    end
+  end
+
+  defp doc_render(conn, {:ok, document}, status), do: Response.send_json(conn, status, document)
+  defp doc_render(conn, {:error, reason}, _status), do: doc_refuse(conn, reason)
+
+  @doc_conflicts ~w(document_not_draft document_not_posted document_reversed reversal_pending
+                    posting_inconsistent definition_not_active)a
+
+  defp doc_refuse(conn, :not_found), do: Response.not_found(conn)
+
+  defp doc_refuse(conn, reason) when reason in @doc_conflicts,
+    do: problem(conn, Error.conflict("request refused"), Atom.to_string(reason))
+
+  defp doc_refuse(conn, :reason_invalid), do: unprocessable(conn, "reason_invalid")
+  defp doc_refuse(conn, :invalid_filter), do: unprocessable(conn, "invalid_filter")
+
+  defp doc_refuse(conn, :busy),
+    do: problem(conn, Error.service_unavailable("request refused"), "busy")
+
+  defp doc_refuse(conn, {reason, extras}) when is_binary(reason) and is_map(extras) do
+    problem = Error.unprocessable("request refused")
+    Response.send_problem(conn, %{problem | extensions: Map.put(extras, "reason", reason)})
+  end
+
+  defp doc_refuse(conn, _internal), do: Response.internal_error(conn)
 
   # -- handlers -----------------------------------------------------------------------------------
 
