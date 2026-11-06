@@ -25,6 +25,7 @@ import GroupsPage from '@/pages/admin/GroupsPage'
 import TokensPage from '@/pages/admin/TokensPage'
 import AuditLogPage from '@/pages/admin/AuditLogPage'
 import AppearanceSettingsPage from '@/pages/admin/AppearanceSettingsPage'
+import MySettingsPage from '@/pages/me/MySettingsPage'
 import HealthDashboardPage from '@/pages/admin/HealthDashboardPage'
 import MetricsPage from '@/pages/admin/MetricsPage'
 import DlqPage from '@/pages/dlq/DlqPage'
@@ -134,6 +135,7 @@ export const router = createBrowserRouter([
       { path: 'admin/tokens', element: <TokensPage /> },
       { path: 'admin/audit', element: <AuditLogPage /> },
       { path: 'admin/appearance', element: <AppearanceSettingsPage /> },
+      { path: 'me/settings', element: <MySettingsPage /> },
       { path: 'admin/print-templates', element: <RequirePermission permission={P.DocumentPrintTemplatesManage}><PrintTemplatesPage /></RequirePermission> },
       { path: 'admin/import', element: <RequirePermission permission={P.EntitiesRecordsImport}><MasterDataImportPage /></RequirePermission> },
       { path: 'admin/module-lifecycle', element: <ModuleLifecycleRoute /> },
