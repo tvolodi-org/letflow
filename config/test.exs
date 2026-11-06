@@ -347,6 +347,9 @@ config :letflow, :modules, [
   # REQ-684 / GH #3698: two ledger registrations, a posting handler and a policy
   # (test/support/modules/fixture_ledger_post/).
   Letflow.Modules.FixtureLedgerPost,
+  # REQ-758 / GH #3903: module M of the cross-module posting line tests; depends on fixture_ledger_post
+  # (test/support/modules/fixture_xpost_owner/).
+  Letflow.Modules.FixtureXpostOwner,
   # REQ-711 / GH #3751: ledger storage at install and reactivate
   # (test/support/modules/fixture_ledger_storage/).
   Letflow.Modules.FixtureLedgerStorage,

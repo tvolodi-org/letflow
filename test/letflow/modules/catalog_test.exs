@@ -81,6 +81,8 @@ defmodule Letflow.Modules.CatalogTest do
                Letflow.Modules.FixturePoints,
                # REQ-684
                Letflow.Modules.FixtureLedgerPost,
+               # REQ-758
+               Letflow.Modules.FixtureXpostOwner,
                # REQ-711
                Letflow.Modules.FixtureLedgerStorage,
                # REQ-636

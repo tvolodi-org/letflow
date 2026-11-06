@@ -32,7 +32,7 @@ was written.
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:816` and `lib/letflow/entities/handler_writes.ex:331`.
+   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:332`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -163,7 +163,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:816` and `lib/letflow/entities/handler_writes.ex:331`.
+   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:332`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -614,10 +614,16 @@ Module `assets` (GH #3893 / REQ-749, assets phase C item C8, owner decision D-09
 registration (`assets`), a pure posting policy, two views and three read routes. Each limit names the GH issue or
 the code that holds it; paths are cited without line numbers.
 
-1. **Only the commission posts (C10, REQ-751, REQ-752).** The commission document is the one asset document that
-   posts to the `assets` ledger (GH #3890, #3891, `lib/letflow/modules/assets/documents.ex`); change, handover and
-   write-off documents are REQ-753 and later. A commission is saved, issued (number `ACM-<year>-<n>`) and posted by
-   completing its `post` task, and reversed by completing the `reverse` task of `POST /documents/:id/reverse`.
+1. **Four documents post (C10, C11, REQ-751 to REQ-753).** The commission, the change of responsible or user, the
+   hand over and the write off post to the `assets` ledger (GH #3889, #3890, #3891,
+   `lib/letflow/modules/assets/documents.ex`). A document is saved, issued (numbers `ACM`, `ACH`, `AHO`, `AWO` +
+   `-<year>-<n>`) and posted by completing its `post` task, and reversed by completing the `reverse` task of `POST
+   /documents/:id/reverse`. A change and a hand over post two legs per line (`-q` at the from key, `+q` at the to
+   key), a write off one (`-q`, with its `reason_code`). The actual user is optional in every kind, so a change or hand
+   over can name an empty user to match a commissioned asset that has none. A low-value asset may be changed, handed
+   over or written off in part; a fixed or intangible one only with quantity 1. A posted hand over does not yet update
+   `assets_card.org_unit_id` (REQ-753 part 2: it needs an update path in `Letflow.Entities.HandlerWrites`, create-only
+   today); the balance row is the truth, so the new kinds skip `org_unit_mismatch` and `asset_already_in_register`.
 2. **No master checks in the ledger until slice L7.** The policy and the ledger check no asset, org unit, location
    or employee against a master, and not the kind of the card (one asset per row, no location for an intangible);
    the documents check them (decision 0073 D6, GH #3893).
@@ -639,8 +645,12 @@ the code that holds it; paths are cited without line numbers.
    variables; a changed variable posts but the document reads `posting_check` "mismatch" (decision 0078 D5, until
    L7). The handler never reads, so the refusal `asset_already_in_register` is a check at issue only.
 8. **No cancel and no post-retry route yet.** A lost start of the posting instance after issue leaves an issued
-   document with no task; a draft can be discarded, an issued one cannot be cancelled (follow-up of REQ-752).
-9. **Upgrade needed after deploy.** An install of `assets` 0.5.0 or older has no commission record types or process
+   document with no task; a draft can be discarded, an issued one cannot be cancelled (follow-up of REQ-752). The same
+   holds for a change, hand over or write off whose from key matches no balance row: it is issued, completing the
+   `post` task is refused by the ledger (`insufficient_balance`), nothing is written and the task stays pending. A
+   reversal of a two-leg document is refused the same way when the asset has moved on since.
+9. **Upgrade needed after deploy.** An install of `assets` 0.5.0 or older has no commission record types, and one of
+   0.6.0 or older has no change, hand over or write off record types or process
    definitions until the module upgrade (`lib/letflow/modules/upgrade_plan.ex`) is applied; until then the new write
    routes answer 500 without detail. Existing rows are not changed.
 10. **The xlsx files are one page each and not promised to re-import.** The card export (`POST

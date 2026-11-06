@@ -28,6 +28,8 @@ export interface SplitOptions {
   /** `Collapse` / `Expand` words for the handle button; `resize` is the default handle label. */
   text?: { resize: string; collapse: string; expand: string }
   onCollapse?: (collapsed: Record<number, boolean>) => void
+  /** Default size per pane in percent (`unit: 'pct'` only), used while nothing is stored; reset returns to it. */
+  defaults?: number[]
 }
 
 export interface SplitHandle {
@@ -116,6 +118,7 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
         const px = unit === 'px' ? Math.min(o.max?.[k] ?? 420, Math.max(o.min?.[k] ?? 160, sizes[k] as number)) : null
         container.style.setProperty(v, px != null ? `${px}px` : `${sizes[k]}%`)
       }
+      else if (unit === 'pct' && typeof o.defaults?.[k] === 'number') container.style.setProperty(v, `${o.defaults[k]}%`)
       else container.style.removeProperty(v)
       const pn = paneOf(k)
       if (pn) pn.classList.toggle('is-collapsed', !!collapsed[k] && csz() === 0)

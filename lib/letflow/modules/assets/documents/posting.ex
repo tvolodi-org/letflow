@@ -255,16 +255,16 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
 
   # The posting command from the frozen content: the header and lines as issued, plus the line
   # RECORD ids (`view.lines` are the records; nothing changes after issue). The `to` side of every
-  # line comes from `Kinds.side/2`.
+  # line comes from `Kinds.sides/2`.
   defp post_command(spec, view, %{content: content, number: number, period: period} = issued) do
     header = Map.get(content, "header", %{})
     lines = Map.get(content, "lines", [])
     line_ids = Map.new(view.lines, &{&1.line_no, &1.line_id})
 
     with {:ok, seq} <- client_seq(period, number),
-         {:ok, built} <- build_lines(lines, Kinds.side(spec, header), line_ids) do
+         {:ok, built} <- build_lines(lines, Kinds.sides(spec, header), line_ids) do
       {:ok,
-       %{
+       with_reason(spec, header, %{
          "cause" => spec.cause,
          "document_type" => spec.type_key,
          "document_id" => view.id,
@@ -273,9 +273,15 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
          "client_seq" => seq,
          "client_event_time" => Map.get(header, "event_time"),
          "lines" => built
-       }}
+       })}
     end
   end
+
+  # The write off carries its reason code (the ledger policy refuses it without); other kinds none.
+  defp with_reason(%{kind: "writeoff"}, header, command),
+    do: Map.put(command, "reason_code", Map.get(header, "reason_code"))
+
+  defp with_reason(_spec, _header, command), do: command
 
   @doc false
   def client_seq(period, number) when is_binary(period) and is_integer(number) do
@@ -289,7 +295,7 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
 
   def client_seq(_period, _number), do: {:error, :number_out_of_range}
 
-  defp build_lines(lines, side, line_ids) do
+  defp build_lines(lines, {from, to}, line_ids) do
     Enum.reduce_while(lines, {:ok, []}, fn line, {:ok, acc} ->
       with {:ok, line_id} <- Map.fetch(line_ids, Map.get(line, "line_no")),
            {:ok, quantity} <- whole_text(Map.get(line, "quantity")) do
@@ -297,7 +303,8 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
           "line_id" => line_id,
           "asset" => Map.get(line, "asset_id"),
           "quantity" => quantity,
-          "to" => side_map(side)
+          "from" => side_map(from),
+          "to" => side_map(to)
         }
 
         {:cont, {:ok, [built | acc]}}
@@ -324,6 +331,8 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
         {:error, :quantity_not_whole}
     end
   end
+
+  defp side_map(nil), do: nil
 
   defp side_map(side) do
     %{
@@ -589,30 +598,51 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
     do: reversals == [] and not Map.has_key?(marks, "reversed")
 
   # Expected legs from the frozen content: a sorted multiset of {asset, org_unit, location,
-  # responsible, actual_user, unit, +quantity}, quantity as a normalised Decimal text. One `+q` leg per line at the
-  # `to` side (`Kinds.side/2`, the same function the posting command uses).
+  # responsible, actual_user, unit, signed quantity}, quantity as a normalised Decimal text. Per
+  # line a `+q` leg at the `to` side and a `-q` leg at the `from` side, where the kind has them
+  # (`Kinds.sides/2`, the same function the posting command uses).
   defp expected_legs(prefix, base) do
     case issued(prefix, base.id) do
       %{content: content} ->
-        side = Kinds.side(Kinds.get(base.kind), Map.get(content, "header", %{}))
+        {from, to} = Kinds.sides(Kinds.get(base.kind), Map.get(content, "header", %{}))
 
         content
         |> Map.get("lines", [])
-        |> Enum.map(fn line ->
-          leg_key(
-            Map.get(line, "asset_id"),
-            side.org_unit,
-            side.location,
-            side.material_responsible,
-            side.actual_user,
-            @unit,
-            Map.get(line, "quantity")
-          )
+        |> Enum.flat_map(fn line ->
+          quantity = Map.get(line, "quantity")
+          asset = Map.get(line, "asset_id")
+
+          [
+            expected_leg(asset, to, quantity),
+            expected_leg(asset, from, negate(quantity))
+          ]
+          |> Enum.reject(&is_nil/1)
         end)
         |> Enum.sort()
 
       _none ->
         :none
+    end
+  end
+
+  defp expected_leg(_asset, nil, _quantity), do: nil
+
+  defp expected_leg(asset, side, quantity) do
+    leg_key(
+      asset,
+      side.org_unit,
+      side.location,
+      side.material_responsible,
+      side.actual_user,
+      @unit,
+      quantity
+    )
+  end
+
+  defp negate(quantity) do
+    case Decimal.parse(to_string(quantity)) do
+      {%Decimal{} = d, ""} -> Decimal.negate(d)
+      _bad -> "invalid"
     end
   end
 
