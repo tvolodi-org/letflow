@@ -78,7 +78,7 @@ function freshWorld(): World {
 
 const doc = (id: string, number: string) => ({
   id, kind: 'issue', state: 'draft', number, org_unit_id: ORG, location_id: LOC, event_time: '2026-11-05T08:00:00Z',
-  lines: [{ line_no: 1, catalog_item_id: ITEM, catalog_uom_id: UOM, catalog_lot_id: null, quantity: '2.000' }, { line_no: 2, catalog_item_id: ITEM, catalog_uom_id: UOM, catalog_lot_id: null, quantity: '1.000' }],
+  lines: [{ line_no: 1, catalog_item_id: ITEM, catalog_uom_id: UOM, catalog_lot_id: null, quantity: '2.000000000' }, { line_no: 2, catalog_item_id: ITEM, catalog_uom_id: UOM, catalog_lot_id: null, quantity: '1.000' }],
 })
 const MASTER: Record<string, Record<string, unknown>> = {
   [ORG]: { code: 'WH-1', name: 'Warehouse team' }, [LOC]: { code: 'A-01', name: 'Rack A' }, [ITEM]: { code: 'LAP-01', name: 'Laptop' }, [UOM]: { code: 'pcs' },
@@ -167,7 +167,7 @@ describe('My Tasks, stock flows (GATE B R3)', () => {
     expect(container.textContent).toContain('A-01 - Rack A')
     await waitFor(() => expect(screen.getAllByTestId('task-issuer')[0]).toHaveTextContent('You'))
     expect(screen.getAllByTestId('task-age')[0]).toHaveTextContent(/3 minutes ago/)
-    await waitFor(() => expect(screen.getAllByTestId('task-lines-summary')[0]).toHaveTextContent('2 lines: LAP-01 - Laptop × 2.000 pcs, +1 more'))
+    await waitFor(() => expect(screen.getAllByTestId('task-lines-summary')[0]).toHaveTextContent('2 lines: LAP-01 - Laptop × 2 pcs, +1 more'))
     expect(noUuidInDom(container)).toBe(true)
   })
 

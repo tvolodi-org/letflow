@@ -7,12 +7,15 @@ import { useIntl } from 'react-intl'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { Printer } from 'lucide-react'
+import { OfficialFormMenu } from '../forms/OfficialFormMenu'
+import { formsForDocument } from '../forms/officialForms'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
 import { actorLabel } from '@/lib/references/actorLabel'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { formatQuantity } from '@/lib/formatQuantity'
+import { formatMoney } from '@/lib/formatDecimal'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -168,15 +171,15 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
       case 'lot': return name('catalog_lot', l.catalog_lot_id) || dash
       case 'quantity': return (
         <span className="lf-lines__qty">
-          <span>{formatQuantity(l.quantity)}</span>
+          <span>{formatQuantity(l.quantity, intl.locale)}</span>
           <span className="lf-lines__unit">{name('catalog_uom', l.catalog_uom_id)}</span>
         </span>
       )
       case 'location': return name('location_node', l.location_id) || dash
       case 'responsible': return name('org_employee', l.responsible_id) || dash
       case 'receivedOn': return <span className="mono">{l.received_on ?? dash}</span>
-      case 'unitPrice': return <span className="mono">{l.unit_price ?? dash}</span>
-      default: return <span className="mono">{l.line_value ?? dash}</span>
+      case 'unitPrice': return <span className="mono">{formatMoney(l.unit_price, intl.locale) || dash}</span>
+      default: return <span className="mono">{formatMoney(l.line_value, intl.locale) || dash}</span>
     }
   }
 
@@ -213,6 +216,13 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
                 {t('stock.doc.print')}
               </Button>
             )}
+            <OfficialFormMenu
+              forms={formsForDocument(doc)}
+              busyKey={pdf.busyKey}
+              onPick={(form, format, lang) =>
+                void pdf.run(`form-${form}-${format}`, () => documentsApi.printForm(doc.id, 'z2', format, lang), `${doc.number ?? doc.id}-Z-2.${format}`, printErrorMessageId)
+              }
+            />
           </>
         }
       >
@@ -278,7 +288,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
               <DocLinesTotal
                 labelSpan={withValue ? columns.length : columns.length + 1}
                 label={`${t('stock.doc.lines.total')}: ${lines.length}`}
-                cells={withValue ? [total ?? dash] : []}
+                cells={withValue ? [formatMoney(total, intl.locale) || dash] : []}
               />
             }
           >

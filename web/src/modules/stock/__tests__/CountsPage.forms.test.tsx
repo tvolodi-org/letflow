@@ -42,18 +42,23 @@ describe('W1 which form buttons show', () => {
     fakeCounts(clientMock, { orders: [SHEET_ONLY] })
     renderCounts(`${LIST}/c1`)
     await screen.findByTestId('print-order')
+    expect(screen.getByTestId('official-form-menu-sheet')).toBeInTheDocument()
+    expect(screen.queryByTestId('official-form-menu-differences')).toBeNull()
+    expect(screen.queryByTestId('official-form-menu-order')).toBeNull()
+    await userEvent.click(screen.getByTestId('official-form-menu-sheet'))
     expect(screen.getByTestId('form-inv10-docx')).toBeInTheDocument()
     expect(screen.getByTestId('form-inv10-pdf')).toBeInTheDocument()
     expect(screen.queryByTestId('form-inv18-docx')).toBeNull()
-    expect(screen.queryByTestId('form-inv18-pdf')).toBeNull()
     cleanup()
 
     fakeCounts(clientMock, { orders: [BOTH] })
     renderCounts(`${LIST}/c1`)
     await screen.findByTestId('print-order')
-    for (const id of ['form-inv10-docx', 'form-inv10-pdf', 'form-inv18-docx', 'form-inv18-pdf']) {
-      expect(screen.getByTestId(id)).toBeInTheDocument()
-    }
+    await userEvent.click(screen.getByTestId('official-form-menu-sheet'))
+    for (const id of ['form-inv10-docx', 'form-inv10-pdf']) expect(screen.getByTestId(id)).toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('official-form-menu-differences')) // outside click closes the sheet menu
+    for (const id of ['form-inv18-docx', 'form-inv18-pdf']) expect(screen.getByTestId(id)).toBeInTheDocument()
+    expect(screen.queryByTestId('form-inv10-docx')).toBeNull()
   })
 })
 
@@ -67,7 +72,8 @@ describe('W2 download and language', () => {
     fakeCounts(clientMock, { orders: [BOTH] })
     clientMock.getBlob.mockResolvedValue(file('attachment; filename="CD-2026-0001_Inv-18.docx"'))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('form-inv18-docx'))
+    await userEvent.click(await screen.findByTestId('official-form-menu-differences'))
+    await userEvent.click(screen.getByTestId('form-inv18-docx'))
     await waitFor(() => expect(downloads).toEqual(['CD-2026-0001_Inv-18.docx']))
     expect(clientMock.getBlob).toHaveBeenCalledTimes(1)
     expect(clientMock.getBlob).toHaveBeenCalledWith(`${BASE}/c1/print/differences`, { form: 'inv18', format: 'docx', lang })
@@ -76,7 +82,8 @@ describe('W2 download and language', () => {
     fakeCounts(clientMock, { orders: [SHEET_ONLY] })
     clientMock.getBlob.mockResolvedValue(file(null))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('form-inv10-pdf'))
+    await userEvent.click(await screen.findByTestId('official-form-menu-sheet'))
+    await userEvent.click(screen.getByTestId('form-inv10-pdf'))
     await waitFor(() => expect(downloads).toEqual(['count-CNT-0001-inv10.pdf']))
     expect(clientMock.getBlob).toHaveBeenCalledWith(`${BASE}/c1/print/sheet`, { form: 'inv10', format: 'pdf', lang: 'ru' })
   })
@@ -87,14 +94,14 @@ describe('W3 refusals', () => {
     fakeCounts(clientMock, { orders: [BOTH] })
     clientMock.getBlob.mockRejectedValue(problem(422, r))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('form-inv18-pdf'))
+    await userEvent.click(await screen.findByTestId('official-form-menu-differences'))
+    await userEvent.click(screen.getByTestId('form-inv18-pdf'))
     const id = r === 'document_not_issued' ? `counts.print.reason.${r}` : `counts.form.reason.${r}`
     expect(await screen.findByText(countsEn[id])).toBeInTheDocument()
   })
   it('the model maps the form reasons and the catalogs are complete', () => {
     expect(printReasonMessageId(problem(422, 'print_too_large'))).toBe('counts.form.reason.print_too_large')
     const keys = [
-      ...['inv18', 'inv10'].flatMap((f) => [`counts.form.${f}.docx`, `counts.form.${f}.pdf`]),
       ...['invalid_form', 'invalid_format', 'print_too_large'].map((r) => `counts.form.reason.${r}`),
     ]
     for (const k of keys) {
@@ -111,10 +118,12 @@ describe('W4 single flight', () => {
     let done: (v: ReturnType<typeof file>) => void = () => {}
     clientMock.getBlob.mockReturnValue(new Promise((res) => { done = res }))
     renderCounts(`${LIST}/c1`)
-    const btn = await screen.findByTestId('form-inv18-docx')
+    await userEvent.click(await screen.findByTestId('official-form-menu-differences'))
+    const btn = screen.getByTestId('form-inv18-docx')
     await userEvent.click(btn)
-    await userEvent.click(btn)
-    await userEvent.click(screen.getByTestId('form-inv10-pdf'))
+    await userEvent.click(screen.getByTestId('official-form-menu-differences'))
+    await userEvent.click(screen.getByTestId('official-form-menu-sheet'))
+    await userEvent.click(screen.queryByTestId('form-inv10-pdf') ?? btn)
     expect(clientMock.getBlob).toHaveBeenCalledTimes(1)
     done(file(null))
     await waitFor(() => expect(downloads).toHaveLength(1))

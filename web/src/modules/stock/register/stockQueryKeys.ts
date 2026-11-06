@@ -2,6 +2,7 @@
  *  never sent in a request. */
 export const stockQueryKeys = {
   balances: (tenantId: string, params: string) => ['stock', tenantId, 'balances', params] as const,
+  balanceHistory: (tenantId: string, params: string) => ['stock', tenantId, 'balance-history', params] as const,
   movements: (tenantId: string, params: string) => ['stock', tenantId, 'movements', params] as const,
   documents: (tenantId: string, params: string) => ['stock', tenantId, 'documents', params] as const,
   documentsAll: (tenantId: string) => ['stock', tenantId, 'documents'] as const,
