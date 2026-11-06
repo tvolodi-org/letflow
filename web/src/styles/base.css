@@ -68,6 +68,10 @@ samp {
    needs the same rules, design-notes.md "lf-lines container-query card mode"). */
 .lf-doc__lines { container: lf-lines / inline-size; }
 .lf-lines--edit { min-width: 38rem; }
+/* T-1438: components.css gives the table a min-width of about 632 px, 2 px more than the ~630 px lines card, so the view table
+   showed a full-width horizontal scrollbar (measured: scroll box 630, table 632). A view table has no inputs that need the floor;
+   edit keeps its own floor above and the wide opening table keeps width: max-content. */
+.lf-doc__lines .lf-lines:not(.lf-lines--edit):not(.lf-lines--wide) { min-width: 0; }
 @container lf-lines (max-width: 520px) {
   .lf-doc__lines .lf-lines--zebra tbody.lf-lines__item:nth-of-type(even) > tr:not(.is-error):not(.lf-lines__msg) > td { background: none; }
   .lf-doc__lines .lf-lines { min-width: 0; }

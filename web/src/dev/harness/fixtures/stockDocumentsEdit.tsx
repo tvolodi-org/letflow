@@ -5,7 +5,7 @@ import { AuthContext } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import DocumentPage from '@/modules/stock/documents/DocumentPage'
 import type { FixtureRoute, HarnessScreen } from '../types'
-import { ACCESS, AUTH, OpenInEdit, routes, withAuth } from './stockDocuments'
+import { ACCESS, AUTH, EDIT_LABELS, OpenInEdit, SAVE_LABELS, routes, withAuth } from './stockDocuments'
 import { routes as openingRoutes } from './stockOpening'
 
 const tabsRoutes: FixtureRoute[] = [
@@ -32,15 +32,15 @@ function EditThenInvalid({ children }: { children: ReactElement }): ReactElement
       if (stage > 1 || Date.now() - started > 5000) return window.clearInterval(id)
       const buttons = Array.from(document.querySelectorAll('button'))
       if (stage === 0) {
-        const edit = buttons.find((b) => b.textContent?.trim() === 'Edit')
+        const edit = buttons.find((b) => EDIT_LABELS.includes(b.textContent?.trim() ?? ''))
         if (edit) {
           edit.click()
           stage = 1
         }
         return
       }
-      const qty = document.querySelector<HTMLInputElement>('[data-testid="line-editor-row"] input[aria-label="Quantity"]')
-      const save = buttons.find((b) => b.textContent?.trim() === 'Save draft')
+      const qty = document.querySelector<HTMLInputElement>('[data-testid="line-editor-row"] td.is-num input')
+      const save = buttons.find((b) => SAVE_LABELS.includes(b.textContent?.trim() ?? ''))
       if (qty && save) {
         const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
         set?.call(qty, '')

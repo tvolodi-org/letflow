@@ -97,10 +97,14 @@ export function withAuth(page: ReactElement): ReactElement {
 }
 
 /** Harness only: opens the loaded draft in edit mode (the edit state is local to the screen, a screenshot cannot click). */
+/** Harness only: the Edit / Save draft button labels in every shipped language (the shots run in en, ru and kk). */
+export const EDIT_LABELS = ['Edit', 'Изменить', 'Өзгерту']
+export const SAVE_LABELS = ['Save draft', 'Сохранить черновик', 'Жобаны сақтау']
+
 export function OpenInEdit({ children }: { children: ReactElement }): ReactElement {
   useEffect(() => {
     const id = window.setInterval(() => {
-      const btn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Edit')
+      const btn = Array.from(document.querySelectorAll('button')).find((b) => EDIT_LABELS.includes(b.textContent?.trim() ?? ''))
       if (btn) {
         btn.click()
         window.clearInterval(id)

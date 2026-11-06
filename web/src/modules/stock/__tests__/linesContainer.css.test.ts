@@ -17,4 +17,11 @@ describe('lf-lines container-query card mode', () => {
     expect(css).toMatch(/\.lf-lines--edit \{ min-width: 38rem; \}/)
     expect(css).toMatch(/\.lf-topbar \{ background: var\(--paper\); backdrop-filter: none; \}/)
   })
+  it('U5 T-1438: a view table drops the components.css min-width so it fits the card (no scrollbar bar)', () => {
+    expect(css).toMatch(/\.lf-doc__lines \.lf-lines:not\(\.lf-lines--edit\):not\(\.lf-lines--wide\) \{ min-width: 0; \}/)
+  })
+  it('U6 T-1438: the harness edit helpers know the edit and save labels of en, ru and kk', () => {
+    const fx = readFileSync(new URL('../../../dev/harness/fixtures/stockDocuments.tsx', import.meta.url), 'utf8')
+    for (const label of ['Изменить', 'Өзгерту', 'Сохранить черновик', 'Жобаны сақтау']) expect(fx).toContain(label)
+  })
 })
