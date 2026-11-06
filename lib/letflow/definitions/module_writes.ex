@@ -156,7 +156,7 @@ defmodule Letflow.Definitions.ModuleWrites do
   @spec line_violations([term()], map(), non_neg_integer(), String.t()) :: [violation()]
   def line_violations(writes, definition, entity_write_count, prefix)
       when is_list(writes) and is_integer(entity_write_count) and is_binary(prefix) do
-    resolved_line_violations(writes, definition, entity_write_count, prefix, nil)
+    resolved_line_violations(writes, definition, entity_write_count, prefix, nil, :strict)
   end
 
   # Entity lines alone above the cap are reported by the entity validator already; this adds
@@ -287,15 +287,28 @@ defmodule Letflow.Definitions.ModuleWrites do
     if is_list(writes) and node_type in @node_types do
       Enum.map(node_codes, &%{index: 0, code: &1}) ++
         cap_violations(writes, entity_write_count) ++
-        resolved_line_violations(writes, definition, entity_write_count, prefix, hashes) ++
+        resolved_line_violations(writes, definition, entity_write_count, prefix, hashes, :strict) ++
         ledger_violations(node, writes, entity_write_count)
     else
       Enum.map(node_codes, &%{index: 0, code: &1})
     end
   end
 
-  defp resolved_line_violations(writes, definition, entity_write_count, prefix, hashes) do
-    stamp_state = stamp_state(definition, prefix, hashes)
+  @doc """
+  REQ-771: `line_violations/4` for the engine's RUN-TIME authorization. Identical, except that the
+  one cause "installed hash differs from the hash compiled into this build" (the tenant's module is
+  not upgraded yet) is reported as `:module_write_upgrade_required` instead of
+  `:module_write_hash_mismatch`, so the caller can answer the clear 409. Activation and the upgrade
+  plan keep `line_violations/4` and `node_violations_with_hashes/6`.
+  """
+  @spec runtime_line_violations([term()], map(), non_neg_integer(), String.t()) :: [violation()]
+  def runtime_line_violations(writes, definition, entity_write_count, prefix)
+      when is_list(writes) and is_integer(entity_write_count) and is_binary(prefix) do
+    resolved_line_violations(writes, definition, entity_write_count, prefix, nil, :runtime)
+  end
+
+  defp resolved_line_violations(writes, definition, entity_write_count, prefix, hashes, mode) do
+    stamp_state = stamp_state(definition, prefix, hashes, mode)
 
     writes
     |> Enum.with_index()
@@ -313,17 +326,17 @@ defmodule Letflow.Definitions.ModuleWrites do
   # changed), computed once; the handler-dependent ones are evaluated per line.
   #
   # `hashes` is nil (read the tenant row) or the injected post-upgrade hashes (REQ-768).
-  defp stamp_state(definition, prefix, hashes) do
+  defp stamp_state(definition, prefix, hashes, mode) do
     case OwnerStamp.from_row(definition) do
       :none ->
         {:error, :module_write_stamp_missing}
 
       {:ok, stamp} ->
-        {:ok, stamp, stamp_codes(stamp, definition, prefix, hashes)}
+        {:ok, stamp, stamp_codes(stamp, definition, prefix, hashes, mode)}
     end
   end
 
-  defp stamp_codes(stamp, definition, prefix, hashes) do
+  defp stamp_codes(stamp, definition, prefix, hashes, mode) do
     install_codes =
       case install_hashes_for(stamp.module_id, prefix, hashes) do
         {:error, :not_installed} ->
@@ -339,7 +352,9 @@ defmodule Letflow.Definitions.ModuleWrites do
               [:module_write_hash_mismatch]
 
             compiled_differs?(stamp.module_id, installed) ->
-              [:module_write_hash_mismatch]
+              if mode == :runtime,
+                do: [:module_write_upgrade_required],
+                else: [:module_write_hash_mismatch]
 
             true ->
               []
