@@ -323,7 +323,7 @@ A registration may declare a posting guard, and the platform serialises it again
   completion transaction (the ascending balance-key lock order is kept). Atomicity is unchanged: a failure in any chunk
   rolls the whole posting back.
 - The database CHECK constraints `ledger_entry_leg_count_check` and `ledger_leg_leg_no_check` (200) are widened to 2000
-  on the parent and on every existing partition by the tenant migration `20261106200001_raise_ledger_leg_cap`. Until it
+  on the parent and on every existing partition by the tenant migration `20261106200001_raise_posting_leg_cap`. Until it
   has run for an installed tenant, a posting above 200 legs rolls back on the check, with no data damage.
 - `page_cap` (200) limits entries or balance rows per read page, not legs per entry. The stock manifest, its hash and the
   registration are unchanged. The `count_difference` cause (200 lines) and the assets caps are unchanged.

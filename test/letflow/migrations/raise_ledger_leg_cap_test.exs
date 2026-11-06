@@ -1,4 +1,4 @@
-defmodule Letflow.RaiseLedgerLegCapTest do
+defmodule Letflow.RaisePostingLegCapTest do
   @moduledoc """
   REQ-774 (MG-1): the tenant migration that moves the two leg-count CHECK constraints from 200 to 2000.
   A partition that existed BEFORE the migration (built from the 200 constraints) and one created AFTER it
@@ -9,7 +9,7 @@ defmodule Letflow.RaiseLedgerLegCapTest do
   use Letflow.DataCase, async: false
 
   alias Letflow.LedgerFixture
-  alias Letflow.Repo.Migrations.RaiseLedgerLegCap
+  alias Letflow.Repo.Migrations.RaisePostingLegCap
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning
 
@@ -35,7 +35,7 @@ defmodule Letflow.RaiseLedgerLegCapTest do
 
   defp run(schema, dir),
     do:
-      Ecto.Migrator.run(Repo, [{@version, RaiseLedgerLegCap}], dir,
+      Ecto.Migrator.run(Repo, [{@version, RaisePostingLegCap}], dir,
         all: true,
         prefix: schema,
         log: false
@@ -150,18 +150,18 @@ defmodule Letflow.RaiseLedgerLegCapTest do
   end
 
   test "MG-2 registered last; down refuses without the flag" do
-    assert {@version, RaiseLedgerLegCap} =
+    assert {@version, RaisePostingLegCap} =
              List.last(TenantProvisioning.tenant_scoped_migrations())
 
     Application.put_env(:letflow, :allow_ledger_migration_down, false)
 
-    assert_raise RuntimeError, ~r/RaiseLedgerLegCap.down refused/, fn ->
-      RaiseLedgerLegCap.down()
+    assert_raise RuntimeError, ~r/RaisePostingLegCap.down refused/, fn ->
+      RaisePostingLegCap.down()
     end
   end
 
   test "MG-3 the only interpolated values are the schema and the cap" do
-    src = File.read!("priv/repo/migrations/20261106200001_raise_ledger_leg_cap.exs")
+    src = File.read!("priv/repo/migrations/20261106200001_raise_posting_leg_cap.exs")
 
     names =
       ~r/#\{([^}]*)\}/

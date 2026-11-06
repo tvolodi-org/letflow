@@ -117,7 +117,7 @@ defmodule Letflow.TenantModuleUpgradesMigrationTest do
     assert {20_261_106_100_001, Letflow.Repo.Migrations.AddAcceptedManifestHashesToTenantModules} =
              Enum.at(manifest, -2)
 
-    assert {20_261_106_200_001, Letflow.Repo.Migrations.RaiseLedgerLegCap} = List.last(manifest)
+    assert {20_261_106_200_001, Letflow.Repo.Migrations.RaisePostingLegCap} = List.last(manifest)
 
     assert column_names(schema) != []
 

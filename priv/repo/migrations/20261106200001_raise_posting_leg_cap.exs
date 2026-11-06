@@ -1,4 +1,4 @@
-# Letflow.Repo.Migrations.RaiseLedgerLegCap
+# Letflow.Repo.Migrations.RaisePostingLegCap
 #
 # REQ-774 (stock documents at volume, decision 0073 amendment): one posting may now carry 2000 legs, so the
 # two CHECK constraints that bound it move from 200 to 2000:
@@ -20,14 +20,14 @@
 #
 # down/0 refuses unless `:allow_ledger_migration_down` is true (dev/test only), then restores 200 (it fails if a
 # row above 200 exists).
-defmodule Letflow.Repo.Migrations.RaiseLedgerLegCap do
+defmodule Letflow.Repo.Migrations.RaisePostingLegCap do
   use Ecto.Migration
 
   def up, do: set_cap(2000)
 
   def down do
     unless Application.get_env(:letflow, :allow_ledger_migration_down, false) == true do
-      raise "ledger tables are append-only: RaiseLedgerLegCap.down refused " <>
+      raise "ledger tables are append-only: RaisePostingLegCap.down refused " <>
               "(set :allow_ledger_migration_down for dev/test only)"
     end
 

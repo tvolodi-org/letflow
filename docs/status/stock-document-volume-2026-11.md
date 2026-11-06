@@ -16,4 +16,4 @@ fetch the document, list one page of 50. The test asserts no target; a miss is r
 
 A transfer of 1000 lines posts 2000 legs in one entry (4 INSERTs of at most 500 legs, one transaction).
 Save time is the slowest step (one record per line); document writes run with a 120 s transaction bound.
-Installed tenants need the tenant migration `20261106200001_raise_ledger_leg_cap` before they post above 200 legs.
+Installed tenants need the tenant migration `20261106200001_raise_posting_leg_cap` before they post above 200 legs.
