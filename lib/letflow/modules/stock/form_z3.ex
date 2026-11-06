@@ -16,7 +16,7 @@ defmodule Letflow.Modules.Stock.FormZ3 do
   """
 
   alias Letflow.Modules.Stock.CountPaperwork
-  alias Letflow.Modules.Stock.FormZ2
+  alias Letflow.Modules.Stock.FormCount
 
   @spec data(%{header: map(), rows: [map()]}) :: map()
   def data(%{header: header, rows: rows}) do
@@ -28,14 +28,14 @@ defmodule Letflow.Modules.Stock.FormZ3 do
       "nom" => CountPaperwork.text(header[:nom]),
       "unit" => CountPaperwork.text(header[:unit]),
       "mark" => CountPaperwork.text(header[:mark]),
-      "shelf" => FormZ2.date(CountPaperwork.text(header[:shelf])),
+      "shelf" => FormCount.date(CountPaperwork.text(header[:shelf])),
       "rows" => Enum.map(rows, &row/1)
     }
   end
 
   defp row(row) do
     %{
-      "date" => FormZ2.date(CountPaperwork.text(row[:event_time])),
+      "date" => FormCount.date(CountPaperwork.text(row[:event_time])),
       "doc_number" => CountPaperwork.text(row[:document_number]),
       "no" => CountPaperwork.text(row[:no]),
       "income" => decimal(row[:income]),

@@ -197,7 +197,9 @@ defmodule Letflow.Modules.Stock.StockCardSource do
     item = record(CatalogItems.lookup(prefix, sku))
     lot_record = if is_binary(lot), do: record(CatalogItems.lookup(prefix, lot)), else: %{}
     unit = Org.lookup(prefix, first.org_unit) |> record()
-    entity = DocumentPrintSource.legal_entity(prefix, first.org_unit)
+
+    entity =
+      prefix |> DocumentPrintSource.legal_entity(first.org_unit) |> Map.get(first.org_unit, %{})
 
     %{
       org_name: entity[:name],

@@ -100,23 +100,14 @@ defmodule Letflow.Documents.FormPrint.Docx do
       end
 
     numbers =
-      row(
-        columns
-        |> Enum.with_index(1)
-        |> Enum.map(fn {_c, i} -> cell(Integer.to_string(i), center: true) end)
-      )
+      row(Enum.map(columns, fn c -> cell(Integer.to_string(c.no), center: true) end))
 
     keys = Enum.map(columns, & &1.key)
 
     data_rows =
       Enum.map(rows ++ List.wrap(total), fn r -> row(Enum.map(keys, &cell(r[&1] || ""))) end)
 
-    n = length(columns)
-
-    grid =
-      columns
-      |> Enum.with_index()
-      |> Enum.map(fn {_c, i} -> ~s(<w:gridCol w:w="#{col_width(i, n)}"/>) end)
+    grid = Enum.map(columns, fn c -> ~s(<w:gridCol w:w="#{col_width(c.no, columns)}"/>) end)
 
     [
       para([]),
@@ -154,9 +145,19 @@ defmodule Letflow.Documents.FormPrint.Docx do
     )
   end
 
-  defp col_width(0, _n), do: 700
-  defp col_width(1, _n), do: 4200
-  defp col_width(_i, n), do: div(15400 - 4900, max(n - 2, 1))
+  # By the official column number: 1 is the row number, 2 the name, the others share the rest.
+  defp col_width(1, _columns), do: 700
+  defp col_width(2, _columns), do: 4200
+
+  defp col_width(_no, columns) do
+    used = columns |> Enum.map(&fixed_width(&1.no)) |> Enum.sum()
+    others = Enum.count(columns, &(fixed_width(&1.no) == 0))
+    div(15400 - used, max(others, 1))
+  end
+
+  defp fixed_width(1), do: 700
+  defp fixed_width(2), do: 4200
+  defp fixed_width(_), do: 0
 
   defp or_blank(""), do: Pdf.blank()
   defp or_blank(v), do: v

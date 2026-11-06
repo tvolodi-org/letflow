@@ -184,12 +184,15 @@ export function shortageOf(err: unknown): { item: string; location: string } | n
 }
 
 export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const
+/** T-1418: reasons only the official form route (`?form=`) gives; their messages live under counts.form.reason. */
+export const FORM_REASONS = ['invalid_form', 'invalid_format', 'print_too_large'] as const
 
 /** REQ-738: message id of a refused print: its own 422 reason, 404 not found, anything else the generic message. */
 export function printReasonMessageId(err: unknown): string {
   const status = (err as { status?: unknown } | null | undefined)?.status
   const reason = reasonOf(err)
   if (status === 422 && reason !== null && (PRINT_REASONS as readonly string[]).includes(reason)) return `counts.print.reason.${reason}`
+  if (status === 422 && reason !== null && (FORM_REASONS as readonly string[]).includes(reason)) return `counts.form.reason.${reason}`
   if (status === 404) return 'counts.error.notFound'
   return 'counts.error.generic'
 }

@@ -16,7 +16,7 @@ defmodule Letflow.Modules.Stock.FormZ5 do
   """
 
   alias Letflow.Modules.Stock.CountPaperwork
-  alias Letflow.Modules.Stock.FormZ2
+  alias Letflow.Modules.Stock.FormCount
 
   @spec data(map(), map()) :: map()
   def data(issued, names) do
@@ -30,7 +30,7 @@ defmodule Letflow.Modules.Stock.FormZ5 do
       "org_name" => CountPaperwork.text(entity[:name]),
       "org_bin" => CountPaperwork.text(entity[:bin]),
       "number" => CountPaperwork.text(issued[:number_label]),
-      "date" => FormZ2.date(CountPaperwork.time(header["event_time"], names, :event_time)),
+      "date" => FormCount.date(CountPaperwork.time(header["event_time"], names, :event_time)),
       "sender_unit" => unit(names, header["org_unit_id"], header["from_location_id"]),
       "receiver_unit" => unit(names, header["to_org_unit_id"], header["to_location_id"]),
       "responsible" => CountPaperwork.text(from[:full_name]),
