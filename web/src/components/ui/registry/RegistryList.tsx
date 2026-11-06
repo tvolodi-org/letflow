@@ -7,6 +7,7 @@ import { Banner } from '../Banner'
 import { Button } from '../Button'
 import { Checkbox } from '../Checkbox'
 import { EmptyState } from '../EmptyState'
+import { useColResize } from '../layout/ColumnResize'
 
 export interface RegistryColumn<T> {
   key: string
@@ -15,6 +16,8 @@ export interface RegistryColumn<T> {
   optional?: boolean
   mono?: boolean
   sortable?: boolean
+  /** Resizable column: default width in percent and smallest width in px. The last one with a width takes the rest. */
+  width?: { w: number; min: number }
   render: (row: T) => ReactNode
 }
 
@@ -74,11 +77,21 @@ export interface RegistryListProps<T> {
   noMatch: { title: string; text: string }
   /** A create button for the list head (omitted when the user cannot write). */
   headAction?: ReactNode
+  /** Resizable, remembered columns (needs `width` on the columns). */
+  colResize?: { screen: string; tableId?: string }
 }
 
 export function RegistryList<T>(props: RegistryListProps<T>) {
   const { labels: L } = props
   const bodyRef = useRef<HTMLTableSectionElement>(null)
+  const tableRef = useRef<HTMLTableElement>(null)
+  const cr = props.colResize
+  useColResize(tableRef, {
+    id: cr?.tableId ?? 'list',
+    screen: cr?.screen ?? '',
+    cols: props.columns.filter((c) => c.width).map((c) => ({ id: c.key, w: c.width!.w, min: c.width!.min })),
+    enabled: () => !!cr && (tableRef.current?.closest('.lf-reg')?.clientWidth ?? 0) > 900,
+  })
   const retiredSwitch = (
     <Checkbox label={L.showRetired} checked={props.showRetired} onChange={props.onShowRetired} data-testid="registry-show-retired" />
   )
@@ -158,7 +171,7 @@ export function RegistryList<T>(props: RegistryListProps<T>) {
     return (
       <>
         <div className="lf-reg__body lf-table-wrap">
-          <table className="lf-table lf-table--compact" role="grid" aria-label={props.title} aria-rowcount={props.rows.length}>
+          <table ref={tableRef} className="lf-table lf-table--compact" role="grid" aria-label={props.title} aria-rowcount={props.rows.length}>
             <thead>
               <tr>
                 {props.columns.map((c) => {
@@ -166,7 +179,7 @@ export function RegistryList<T>(props: RegistryListProps<T>) {
                   const sort = on ? (props.sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
                   const Icon = on ? (props.sortDir === 'asc' ? ArrowUp : ArrowDown) : ChevronsUpDown
                   return (
-                    <th key={c.key} scope="col" className={c.optional ? 'is-opt' : undefined} aria-sort={c.sortable ? sort : undefined}>
+                    <th key={c.key} scope="col" data-col={c.key} className={c.optional ? 'is-opt' : undefined} aria-sort={c.sortable ? sort : undefined}>
                       {c.sortable ? (
                         <button type="button" className="lf-sort" onClick={() => props.onSort(c.key)} data-testid={`registry-sort-${c.key}`}>
                           {c.header}

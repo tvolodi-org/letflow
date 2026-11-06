@@ -66,6 +66,11 @@ describe('J3-8 AppShell fluid content for the data screens that opt in', () => {
     expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
   })
 
+  it('T9 the items registry fills wide windows', async () => {
+    await renderAt('/admin/catalog/items')
+    expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
+  })
+
   it('a sub-path of an opted-in screen is fluid too; other screens keep the capped column', async () => {
     await renderAt('/admin/stock/movements/x')
     expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')

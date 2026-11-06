@@ -2,8 +2,10 @@
  *  the registry", rule 12). Viewing, editing and creating a record happen in the details pane, never in a modal.
  *  Under 900 px the selected record replaces the list (`data-detail="open"`, back button in the head). The shell knows
  *  no module words: the list and the details come in as nodes, built from the pieces of this folder. */
-import { useState, type KeyboardEvent, type ReactNode, type Ref } from 'react'
+import { useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import { Tabs, type TabItem } from '../Tabs'
+import { SplitWrap, useSplit } from '../layout/Splitter'
+import { useLayoutMessages } from '../layout/layoutMessages'
 import { DEFAULT_REGISTRY_LAYOUT, REGISTRY_LAYOUTS, type RegistryLayout } from './registryLayouts'
 
 export interface RegistrySectionTab {
@@ -25,15 +27,42 @@ export interface RegistryProps {
   detailOpen: boolean
   /** Escape closes the open record (rule 2a). */
   onClose?: () => void
-  /** Ref of the root `div.lf-reg` (the splitter attaches to it). */
+  /** Layout screen id (e.g. `stock.registry.items`): turns on the list | details splitter, remembered per user. */
+  screen?: string
+  /** Ref of the root `div.lf-reg` (a caller that runs its own splitter attaches to it). */
   gridRef?: Ref<HTMLDivElement>
 }
+
+const wide = (el: HTMLElement | null) => (el?.clientWidth ?? 0) > 900
 
 export function Registry(props: RegistryProps) {
   const layout = props.layout ?? DEFAULT_REGISTRY_LAYOUT
   const asTabs = REGISTRY_LAYOUTS[layout].sectionsAsTabs
   const [tab, setTab] = useState(props.defaultTab ?? 'overview')
   const items: TabItem[] = props.sectionTabs ?? []
+
+  const gridRef = useRef<HTMLDivElement>(null)
+  const layerRef = useRef<HTMLDivElement>(null)
+  const lm = useLayoutMessages()
+  const screen = props.screen
+  useSplit(gridRef, layerRef, {
+    id: 'list',
+    screen,
+    unit: 'pct',
+    vars: ['--lf-pane-1'],
+    sized: 'before',
+    min: [260],
+    flexMin: 360,
+    collapsible: [0],
+    labels: [lm.resize],
+    panes: () => {
+      const g = gridRef.current
+      const a = g?.querySelector<HTMLElement>(':scope > .lf-reg__list')
+      const b = g?.querySelector<HTMLElement>(':scope > .lf-reg__details')
+      return a && b ? [a, b] : []
+    },
+    enabled: () => !!screen && wide(gridRef.current),
+  })
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key !== 'Escape' || !props.detailOpen || !props.onClose) return
@@ -42,9 +71,15 @@ export function Registry(props: RegistryProps) {
     props.onClose()
   }
 
-  return (
+  const grid = (
     <div
-      ref={props.gridRef}
+      ref={(el) => {
+        const mutable = gridRef as { current: HTMLDivElement | null }
+        mutable.current = el
+        const r = props.gridRef
+        if (typeof r === 'function') r(el)
+        else if (r) (r as { current: HTMLDivElement | null }).current = el
+      }}
       className="lf-reg"
       data-testid="registry"
       data-layout={layout}
@@ -63,4 +98,5 @@ export function Registry(props: RegistryProps) {
       </div>
     </div>
   )
+  return screen ? <SplitWrap layerRef={layerRef}>{grid}</SplitWrap> : grid
 }
