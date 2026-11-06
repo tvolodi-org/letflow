@@ -361,21 +361,42 @@ defmodule Letflow.Modules.Stock.OpeningImportTest do
       assert length(lines(ctx, ctx.im.doc["id"])) == 1
     end
 
-    test "I4-3 the 101st line is lines_count", ctx do
-      refs = for i <- 1..99, do: "N#{i}"
+    test "I4-3 the 1001st line is lines_count", ctx do
+      m = ctx.im.m
       id = ctx.im.doc["id"]
-      # two files: the cap of one file is 200 rows, so one file of 99 rows fills the document
-      assert Enum.uniq(outcomes(import_file(ctx, Enum.map(refs, &row(ctx.im, &1))))) == [
-               "created"
-             ]
 
-      assert length(lines(ctx, id)) == 100
+      # REQ-774: the draft is filled to the cap of 1000 lines by one replace (a 1000-row upsert through
+      # the import would take minutes: every created line rewrites the document content)
+      lines =
+        for i <- 1..1000 do
+          %{
+            "location_id" => m.location,
+            "responsible_id" => m.employee,
+            "catalog_item_id" => m.item,
+            "catalog_uom_id" => m.uom,
+            "quantity" => "1",
+            "received_on" => O.back(100),
+            "external_ref_system" => @sys,
+            "external_ref_id" => "N#{i}"
+          }
+        end
+
+      body = %{
+        "kind" => "opening",
+        "org_unit_id" => m.unit,
+        "external_ref_system" => @sys,
+        "external_ref_id" => ctx.im.header_ref,
+        "lines" => lines
+      }
+
+      D.request(:put, "/documents/#{id}", ctx.tok_a, body) |> P.status!(200)
+      assert length(lines(ctx, id)) == 1000
 
       conn =
         import_file(ctx, [row(ctx.im, "ONE-TOO-MANY"), row(ctx.im, "N1", %{"quantity" => "2"})])
 
       assert outcomes(conn) == ["lines_count", "updated"]
-      assert length(lines(ctx, id)) == 100
+      assert length(lines(ctx, id)) == 1000
     end
 
     for {q, n} <- Enum.with_index(["0", "-1"], 1) do

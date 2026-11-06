@@ -71,8 +71,8 @@ stock module, so L4 and the B4 stock workflows do not each invent one.
 
 - Unit price and value stay on the line and are **not** slots or legs of the register (`architectures/assets.md`,
   review finding 4: price and value live on the document, not in the register).
-- One document has at most 200 lines, because a posting has at most 200 legs (note 7.6). This equals
-  `@import_record_cap` of `lib/letflow/routers/entities/record_import.ex`. A larger stock is entered as several
+- One document has at most 1000 lines since REQ-774 (a transfer of 1000 lines posts 2000 legs; before REQ-774 it was
+  200 lines for a 200-leg posting, note 7.6). The import row cap stays `@import_record_cap` of `lib/letflow/routers/entities/record_import.ex`. A larger stock is entered as several
   documents.
 - One document gives exactly one posting with the cause `opening`. The stock module registers the cause with the
   sign rule **positive** (the sign rules are those of 0073 D-C; the cause name `opening` is this record's). The
@@ -140,7 +140,7 @@ permission atoms) is decided in slice L4.
   database at run time, the platform sentinel never holds the post permission and the `credential` rule applies; (c)
   when script-produced variables feed legs, activation requires an explicit consent flag on the node recorded with
   `activated_by`; (d) the cycle test T-LK-4 is inverted.
-- The service path keeps the no-backdating rule of D1 and the 200-leg bound of D2.
+- The service path keeps the no-backdating rule of D1 and the leg bound of D2 (2000 legs since REQ-774).
 - It needs its own requirement after L5, with the human path of D4 kept.
 
 ## D8. xlsx export of balances and movements
@@ -188,3 +188,9 @@ Each has a default; the owner may change it at GATE B.
   and may reuse D1 to D6 (default, owner may change at GATE B).
 - **Q5. When is the service path of D7 wanted?** Default: not before the PILOT GATE and not before L5 (default, owner may
   change at GATE B).
+
+## Amended by REQ-774 (stock documents at volume, part 1)
+
+The document line cap is 1000 for every kind (Shape and LedgerPolicy `@max_lines`), except `count_difference`, which keeps
+200. The 200-leg bound of D2 and note 7.6 is now 2000 legs (see the same-named section of decision 0073). The import row
+cap of 200 (`@import_record_cap`) is unchanged. Measured times: `docs/status/stock-document-volume-2026-11.md`.

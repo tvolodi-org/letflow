@@ -16,7 +16,7 @@ defmodule Letflow.Modules.Stock do
   a draft (editable, discardable) or issued (fixed); number, state and issued time are read from the
   versioned document, not stored on the header. Master checks (linked location, active employee,
   counterparty, unit and lot of each line) and the event-time window run at issue only.
-  Assumptions, owner may change at GATE B: numbering, no legal entity, 100 lines at most, the
+  Assumptions, owner may change at GATE B: numbering, no legal entity, 1000 lines at most, the
   responsible employee is not bound to the org unit.
 
   ## Posting and reversal (REQ-713 / GH #3748, assets B4 part 2)
@@ -133,7 +133,7 @@ defmodule Letflow.Modules.Stock do
   year, pad 6), the route `POST /documents/:id/check` (all line checks, nothing written), the cause
   `opening` (positive) and the process definition `stock_opening` (a `submit` task and an `approve`
   task kept apart by `distinct_from`; completing `approve` posts). The entry's event time is its
-  posting time. Assumptions, owner may change at GATE B: 100 lines, `OPN` per year, the second person.
+  posting time. Assumptions, owner may change at GATE B: 1000 lines, `OPN` per year, the second person.
 
   ## Voice draft routes (REQ-741 / GH #3879; version 0.14.0)
 

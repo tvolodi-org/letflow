@@ -545,8 +545,12 @@ defmodule Letflow.Modules.Stock.Documents do
     end
   end
 
+  # REQ-774: a save or replace of 1000 lines writes one record per line in this one transaction and can
+  # run past the 15 s default of the connection pool; the bound is raised for document writes only.
+  @tx_timeout_ms 120_000
+
   defp tx(_prefix, fun) do
-    Repo.transaction(fun)
+    Repo.transaction(fun, timeout: @tx_timeout_ms)
   rescue
     error in Postgrex.Error ->
       case error.postgres do
