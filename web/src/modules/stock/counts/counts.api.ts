@@ -155,7 +155,8 @@ export const countsApi = {
   post: (id: string) => client.post<CountOrder>(`${BASE}/${id}/post`),
   reverse: (id: string, body: ReverseBody) => client.post<CountOrder>(`${BASE}/${id}/reverse`, body),
   postingRecord: (id: string) => client.post<CountOrder>(`${BASE}/${id}/posting-record`),
-  paperwork: (id: string, kind: PaperworkKind) => client.getBlob(`${BASE}/${id}/paperwork/${kind}`),
+  paperwork: (id: string, kind: PaperworkKind, lang?: UiLocale) =>
+    client.getBlob(`${BASE}/${id}/paperwork/${kind}`, lang ? { lang } : undefined),
   print: (id: string, kind: PaperworkKind, lang: UiLocale) => client.getBlob(`${BASE}/${id}/print/${kind}`, { lang }),
   /** T-1418: the official form (Inv-18 on the differences, Inv-10 on the sheet) as .docx or PDF, ru or kk. */
   printForm: (id: string, kind: PaperworkKind, form: CountForm, format: CountFormFormat, lang: CountFormLang) =>

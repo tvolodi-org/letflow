@@ -1377,6 +1377,27 @@ defmodule Letflow.Identity do
   end
 
   @doc """
+  T-1435: the platform-role names of each user in `user_ids`, as `%{user_id => [name]}` (sorted, once each), one
+  prefix-scoped query. Users with no role are absent from the map. Same join as `list_effective_role_names/2`.
+  """
+  @spec roles_by_user([Ecto.UUID.t()], opts :: opts()) :: %{Ecto.UUID.t() => [String.t()]}
+  def roles_by_user([], _opts), do: %{}
+
+  def roles_by_user(user_ids, opts) when is_list(user_ids) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    from(gm in GroupMember,
+      join: tr in TenantRole,
+      on: tr.group_id == gm.group_id,
+      where: gm.user_id in ^user_ids and tr.kind == :platform_role,
+      select: {gm.user_id, tr.name}
+    )
+    |> Repo.all(prefix: prefix)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Map.new(fn {id, names} -> {id, names |> Enum.uniq() |> Enum.sort()} end)
+  end
+
+  @doc """
   GH 2547 (design `gh2547-tenant-admin-audit-and-count.md` section 6, the "Contract for
   #2533 / 7b-2b"): the number of tenant-wide administrators in the tenant schema
   `prefix`. This is the single required source for the 0051 N1 last-admin guard and

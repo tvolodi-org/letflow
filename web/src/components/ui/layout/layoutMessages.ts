@@ -12,6 +12,8 @@ export interface LayoutCatalog {
   navExpand: string
   navResize: string
   resetLayout: string
+  splitList: string
+  splitHeader: string
 }
 
 export const layoutMessages: Record<UiLocale, LayoutCatalog> = {
@@ -24,6 +26,8 @@ export const layoutMessages: Record<UiLocale, LayoutCatalog> = {
     navExpand: 'Expand the side nav',
     navResize: 'Resize the side nav',
     resetLayout: 'Reset layout',
+    splitList: 'Resize the document list',
+    splitHeader: 'Resize the header',
   },
   ru: {
     resize: 'Изменить ширину',
@@ -34,6 +38,8 @@ export const layoutMessages: Record<UiLocale, LayoutCatalog> = {
     navExpand: 'Развернуть меню',
     navResize: 'Ширина меню',
     resetLayout: 'Сбросить раскладку',
+    splitList: 'Ширина списка документов',
+    splitHeader: 'Ширина шапки',
   },
   kk: {
     resize: 'Енін өзгерту',
@@ -44,6 +50,8 @@ export const layoutMessages: Record<UiLocale, LayoutCatalog> = {
     navExpand: 'Мәзірді жаю',
     navResize: 'Мәзір ені',
     resetLayout: 'Орналасуды қалпына келтіру',
+    splitList: 'Құжаттар тізімінің ені',
+    splitHeader: 'Тақырып ені',
   },
 }
 

@@ -20,12 +20,15 @@ import { officialFormsScreens } from './fixtures/officialForms'
 import { assetsScreens } from './fixtures/assets'
 import { stockR7Screens } from './fixtures/stockR7'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
+import { leftoversR15Screens, leftoversR15ShellScreens } from './fixtures/leftoversR15'
 import { stockScreens } from './fixtures/stock'
 import { stockBalanceHistoryScreens } from './fixtures/stockBalanceHistory'
 import { stockBalancesLayoutScreens } from './fixtures/stockBalancesLayout'
 import { stockJournalScreens } from './fixtures/stockJournal'
+import { stockJournalLayoutScreens } from './fixtures/stockJournalLayout'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
 import { stockDocumentsEditScreens } from './fixtures/stockDocumentsEdit'
+import { stockDocumentsLayoutScreens } from './fixtures/stockDocumentsLayout'
 import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
 import { stockOpeningScreens } from './fixtures/stockOpening'
 import { stockCountScreens } from './fixtures/stockCounts'
@@ -254,12 +257,16 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...assetsScreens,
     ...stockR7Screens,
     ...sessionNoticeScreens,
+    ...leftoversR15Screens,
+    ...leftoversR15ShellScreens,
     ...stockScreens,
     ...stockBalanceHistoryScreens,
     ...stockBalancesLayoutScreens,
     ...stockJournalScreens,
+    ...stockJournalLayoutScreens,
     ...stockDocumentsScreens,
     ...stockDocumentsEditScreens,
+    ...stockDocumentsLayoutScreens,
     ...stockTwoSidesScreens,
     ...stockOpeningScreens,
     ...stockCountScreens,

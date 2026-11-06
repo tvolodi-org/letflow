@@ -14,7 +14,7 @@ import { DateCell } from '@/components/ui/DateField'
 import { useNames } from '../register/stockNames'
 import { usePickerOptions, type PickerOption } from '../register/stockPickers'
 import { MAX_LINES, emptyLine, sumDecimals, type DocKind, type LineForm } from './documentsModel'
-import { lineColumns } from './lineColumns'
+import { DOCUMENTS_LAYOUT_SCREEN, lineColumns, lineColumnSpecs } from './lineColumns'
 
 /** Field key of a line error -> the message id of its column label. */
 const FIELD_LABEL: Record<string, string> = {
@@ -175,6 +175,7 @@ export function LinesEditor(props: {
         columns={columns}
         lineLabel={t('stock.doc.col.lineNo')}
         editing
+        resize={props.kind === 'opening' ? undefined : { id: 'lines-edit', screen: DOCUMENTS_LAYOUT_SCREEN, cols: lineColumnSpecs(props.kind) }}
         removeLabel={t('stock.doc.line.remove')}
         footer={
           <DocLinesTotal

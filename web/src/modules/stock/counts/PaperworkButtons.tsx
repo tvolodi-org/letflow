@@ -46,7 +46,7 @@ export function PaperworkButtons({ order }: { order: CountOrder }) {
       printReasonMessageId,
     )
   const download = (k: PaperworkKind) =>
-    run(k, () => countsApi.paperwork(order.id, k), `count-${label}-${k}.xlsx`, reasonMessageId)
+    run(k, () => countsApi.paperwork(order.id, k, getUiLocale()), `count-${label}-${k}.xlsx`, reasonMessageId)
   return (
     <div className="lf-form" data-testid="paperwork">
       {error !== null && <Banner tone="danger">{t(error)}</Banner>}

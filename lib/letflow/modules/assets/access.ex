@@ -17,11 +17,29 @@ defmodule Letflow.Modules.Assets.Access do
 
   @permission :AssetsCardWrite
 
+  @doc """
+  GH #3890 / #3891 (C10): the guard of the document routes, same body as `Stock.Access.check/2`.
+  `purpose` is `:read` (`AssetsRead`), `:post` (`AssetsPost`) or `:reverse` (`AssetsReverse`). A
+  scoped principal and an API token get `:error` (the 404 of a tenant without the module): scoped
+  posting is not built.
+  """
+  @spec permission(:read | :post | :reverse) :: atom()
+  def permission(:read), do: :AssetsRead
+  def permission(:post), do: :AssetsPost
+  def permission(:reverse), do: :AssetsReverse
+
+  @spec check(Plug.Conn.t(), :read | :post | :reverse) ::
+          {:ok, %{prefix: String.t(), actor_id: String.t()}} | :error
+  def check(%Plug.Conn{} = conn, purpose) when purpose in [:read, :post, :reverse],
+    do: guard(conn, permission(purpose))
+
   @spec check(Plug.Conn.t()) :: {:ok, %{prefix: String.t(), actor_id: String.t()}} | :error
-  def check(%Plug.Conn{} = conn) do
+  def check(%Plug.Conn{} = conn), do: guard(conn, @permission)
+
+  defp guard(conn, permission) do
     with {:ok, _conn, %{kind: :user} = principal} <- Scope.principal_from_conn(conn),
-         true <- Enum.any?(principal.roles, &Authorization.role_allows?(&1, @permission)),
-         {:ok, :all} <- Scope.allowed_set(principal, @permission),
+         true <- Enum.any?(principal.roles, &Authorization.role_allows?(&1, permission)),
+         {:ok, :all} <- Scope.allowed_set(principal, permission),
          {:ok, actor} <- Ecto.UUID.cast(principal.user_id) do
       {:ok, %{prefix: principal.prefix, actor_id: actor}}
     else

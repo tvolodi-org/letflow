@@ -307,4 +307,49 @@ defmodule Letflow.Modules.Stock.CountPaperworkTest do
       assert workbook_sheets(a) == workbook_sheets(b)
     end
   end
+
+  describe "T-1435 X1-X4 language" do
+    defp built(kind, lang) do
+      content = if kind == :order, do: order_content(), else: sheet_content([line(1)])
+      {:ok, bin} = CountPaperwork.build(kind, issued(content), names(), lang)
+      workbook_sheets(bin)
+    end
+
+    test "X1 ru: Russian sheet names and headers, no snake_case keys" do
+      sheets = built(:sheet, :ru)
+      assert Map.keys(sheets) |> Enum.sort() == ["Документ", "Подписи", "Строки"]
+      doc = texts(sheets["Документ"])
+      assert ["Поле", "Значение"] in doc
+      assert ["Версия", "1"] in doc
+      assert ["Номер", "CS-2026-0001"] in doc
+      flat = sheets |> Map.values() |> Enum.flat_map(&texts/1) |> List.flatten()
+
+      for key <- ~w(version_no issued_at org_unit line_no full_name personnel_code field value),
+          do: refute(key in flat)
+
+      assert "Ответственный" in flat or "Материально ответственное лицо" in flat
+    end
+
+    test "X2 kk: Kazakh sheet names and role values" do
+      sheets = built(:order, :kk)
+      assert Map.keys(sheets) |> Enum.sort() == ["Көлемі", "Қолдар", "Құжат"]
+      roles = sheets["Қолдар"] |> texts() |> Enum.map(&hd/1)
+      assert "Төраға" in roles
+    end
+
+    test "X3 times are DD-MM-YYYY HH:MM in ru, YYYY-MM-DD HH:MM in en, without T or offset" do
+      ru = built(:sheet, :ru)["Документ"] |> texts()
+      assert ["Выдан", "10-11-2026 10:00"] in ru
+      assert ["Дата и время среза", "10-11-2026 10:00"] in ru
+      en = built(:sheet, :en)["Document"] |> texts()
+      assert ["Issued at", "2026-11-10 10:00"] in en
+      assert ["Time zone", "Asia/Almaty"] in en
+    end
+
+    test "X4 without lang the old keys and ISO times stay" do
+      doc = built(:sheet, nil)["document"] |> texts()
+      assert ["version_no", "1"] in doc
+      assert ["issued_at", "2026-11-10T10:00:00+05:00"] in doc
+    end
+  end
 end

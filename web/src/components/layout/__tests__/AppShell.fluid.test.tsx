@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { render, screen, cleanup } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import type { UserSession } from '@/types/api'
 
@@ -28,12 +28,7 @@ const SESSION: UserSession = {
 
 afterEach(cleanup)
 
-function LocationProbe() {
-  const l = useLocation()
-  return <div data-testid="loc">{l.pathname + l.hash}</div>
-}
-
-async function renderShell(path = '/instances') {
+async function renderAt(path: string) {
   const { useAuth } = await import('@/auth/AuthContext')
   vi.mocked(useAuth).mockReturnValue({
     session: SESSION,
@@ -56,8 +51,7 @@ async function renderShell(path = '/instances') {
         <AccessStateProvider state={accessState('platformAdmin')}>
           <Routes>
             <Route element={<AppShell />}>
-              <Route path="/admin/stock/balances" element={<button>Page button</button>} />
-              <Route path="/instances" element={<><LocationProbe /><button>Page button</button></>} />
+              <Route path="*" element={<div>page</div>} />
             </Route>
           </Routes>
         </AccessStateProvider>
@@ -66,12 +60,23 @@ async function renderShell(path = '/instances') {
   )
 }
 
-describe('AppShell fluid content (T-1445)', () => {
-  it('F1 the Balances route fills wide windows, another route keeps the capped column', async () => {
-    await renderShell('/admin/stock/balances')
-    expect(document.getElementById('main-content')).toHaveClass('lf-content--fluid')
+describe('J3-8 AppShell fluid content for the data screens that opt in', () => {
+  it('the movements journal fills wide windows', async () => {
+    await renderAt('/admin/stock/movements')
+    expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
+  })
+
+  it('a sub-path of an opted-in screen is fluid too; other screens keep the capped column', async () => {
+    await renderAt('/admin/stock/movements/x')
+    expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
     cleanup()
-    await renderShell('/instances')
-    expect(document.getElementById('main-content')).not.toHaveClass('lf-content--fluid')
+    await renderAt('/instances')
+    expect(screen.getByRole('main')).not.toHaveClass('lf-content--fluid')
+    expect(screen.getByRole('main')).toHaveClass('lf-content')
+  })
+
+  it('F1 the Balances route fills wide windows', async () => {
+    await renderAt('/admin/stock/balances')
+    expect(screen.getByRole('main')).toHaveClass('lf-content--fluid')
   })
 })

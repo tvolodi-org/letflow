@@ -46,7 +46,7 @@ const SEED_REMEMBERED = {
   screens: { 'harness.layout': { panes: { 'doc-panes': [22, 18], 'jrn-panes': [30], 'reg-panes': [30] }, cols: { lines: { item: 24, lot: 14, qty: 12 } } } },
 }
 
-function makeRoutes(seed: object | null): FixtureRoute[] {
+export function makeRoutes(seed: object | null): FixtureRoute[] {
   let stored: string | null = seed ? JSON.stringify(seed) : null
   const answer = () => ({ status: 200, body: { preferences: stored ? { 'ui.layout': stored } : {}, effective: {}, tenant_defaults: {} } })
   return [
@@ -62,7 +62,7 @@ function makeRoutes(seed: object | null): FixtureRoute[] {
   ]
 }
 
-const AUTH = {
+export const AUTH = {
   session: { token: 'harness', display_name: 'Aigerim Sarsenova', tenant_id: 'harness-tenant', tenant_slug: 'demo', tenant_display_name: 'Demo Holding', tenant_type: 'production' } as unknown as UserSession,
   isAuthenticated: true,
   isLoading: false,

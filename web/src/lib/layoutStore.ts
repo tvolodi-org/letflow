@@ -90,7 +90,11 @@ export function createLayoutStore(o: LayoutStoreOptions): LayoutStore {
     setCols: (s, t, c) => change(L.setCols(doc, s, t, c)),
     getShell: () => doc.shell.sidenav,
     setShell: (p) => change(L.setShell(doc, p)),
-    resetScreen: (s) => change(L.resetScreen(doc, s)),
+    // notify: the screen's splitters and column handles re-read the (now empty) layout at once
+    resetScreen: (s) => {
+      change(L.resetScreen(doc, s))
+      notify()
+    },
     resetAll: () => {
       if (timer) clearTimeout(timer)
       timer = null

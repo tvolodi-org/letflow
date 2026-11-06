@@ -107,8 +107,11 @@ export const NAV_ITEMS: NavItem[] = [
 
 /** `fluid` lets the content fill wide windows (`lf-content--fluid`: no `--content-max-width` cap, clamp-token panes).
  *  Default off: prose and short forms keep the capped column; data screens opt in (I2..I5 decide how). */
-/** Data screens that fill wide windows (T-1445 Balances with its splitter). Others join as their layout task lands. */
-const FLUID_PATHS = ['/admin/stock/balances']
+/** Data screens that fill wide windows (one path per line, so sibling screens add theirs without a conflict). */
+const FLUID_PATHS = [
+  '/admin/stock/movements',
+  '/admin/stock/balances',
+]
 
 export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {}) {
   const { session, logout } = useAuth()

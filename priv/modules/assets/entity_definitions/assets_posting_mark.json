@@ -1,0 +1,16 @@
+{
+  "name": "assets_posting_mark",
+  "display_name": "Asset posting mark",
+  "description": "GH #3890 / REQ-752 (assets C10), decision 0073 (Consequences, cost note), docs/assets/asset-workflow-documents.md section 8. The bookkeeping record that says an asset document was posted (mark posted) or reversed (mark reversed). It is written only by the write handlers post_document and reverse_document of module assets, in the same transaction as the ledger entry (HandlerWrites.create/3 and post/3). document_id is the id of the versioned document, document_type its type key, version_no the issued version, org_unit_id the issuing org unit (queried; the scope column of decision 0076 R7), reason_code the reversal reason (set on a reversed mark only). The unique constraint uq_assets_posting_mark_doc_mark allows one posted and one reversed mark per document: a second completion of a posting for the same document violates it, so the whole completion transaction rolls back before any ledger write.",
+  "fields": [
+    {"name": "document_id", "type": "string", "required": true, "queried": true},
+    {"name": "document_type", "type": "string", "required": true},
+    {"name": "version_no", "type": "integer", "required": true},
+    {"name": "mark", "type": "enum", "required": true, "queried": true, "enum_values": ["posted", "reversed"]},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "reason_code", "type": "string"}
+  ],
+  "constraints": [
+    {"name": "uq_assets_posting_mark_doc_mark", "type": "unique", "fields": ["document_id", "mark"]}
+  ]
+}
