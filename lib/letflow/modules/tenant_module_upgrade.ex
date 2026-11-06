@@ -4,7 +4,9 @@ defmodule Letflow.Modules.TenantModuleUpgrade do
   No `tenant_id` field: tenancy is the schema prefix (decision 0006 D2), so every use passes an
   explicit `prefix:` (INV-1), as `Letflow.Modules.TenantModule` does.
 
-  No writer or reader exists in this slice (the table starts empty). `kind` is limited to
+  Writers: `Letflow.Modules.UpgradePlan` (`planned` rows, REQ-768) and `Letflow.ModuleUpgrade.Apply`
+  (`done` and `failed` rows, REQ-770; `touches` holds the stored apply response under `"result"`).
+  `kind` is limited to
   `:upgrade | :rollback`; uninstall and reactivate belong to the uninstall record (0055 D11). A later
   status read must not expose `step_cursor`, `runner_id` or the lease fields (INV-2).
   """

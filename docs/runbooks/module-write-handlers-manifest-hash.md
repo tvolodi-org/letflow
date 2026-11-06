@@ -66,10 +66,19 @@ Tasks are not lost: they complete after the module is upgraded to the matching m
 
 ## Recovery
 
-Until decision 0055 exists the recovery is to revert the deploy (restore the previous manifest),
-or to reinstall the module in the affected tenant. Coordinate any deploy that touches a
-handler-bearing module with the operators of its tenants BEFORE shipping it. Violations never
-contain a hash; compare `tenant_modules.manifest_hash` with the build's
+Upgrade the module in the affected tenant (REQ-768, REQ-770, decision 0080). As a `TENANT_ADMIN`
+(`ModulesManage`): `POST /api/v1/tenant/modules/<module id>/upgrade/plan` returns the dry-run report
+(entity change classes, whether every stamped definition still passes, `upgrade_path_available`,
+`plan_hash`); `POST /api/v1/tenant/modules/<module id>/upgrade` with `{"plan_hash", "rationale"}` applies
+that plan in one transaction when it has no data steps and no Class B or C row. The apply creates and
+activates the new entity-definition versions, creates new process definitions as stamped drafts, ensures
+the ledger storage, appends the replaced hash to `tenant_modules.accepted_manifest_hashes` (so the
+definitions stamped with it keep working), and re-writes the row's version and hash. A stale hash is
+409 `plan_mismatch`; a repeat of an applied plan answers the stored result. A module that declares no
+`min_upgradable_from` has no upgrade path: reinstall it in the affected tenant. Not done by the apply:
+`on_install/3` seeds of a newer version (a new document type of stock, for example) are not re-run.
+Coordinate any deploy that touches a handler-bearing module with the operators of its tenants BEFORE
+shipping it. Violations never contain a hash; compare `tenant_modules.manifest_hash` with the build's
 `Letflow.Modules.Catalog.manifest_hash("<module id>")` on a console to confirm a mismatch.
 
 ## Related
