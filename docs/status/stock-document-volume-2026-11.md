@@ -1,7 +1,7 @@
 # Stock documents at volume: measured times (REQ-774, GH #3988)
 
 Measured on the local test stack (never on QA) with `test/letflow/modules/stock/document_volume_test.exs`
-(tag `:stock_document_volume`, excluded by default; run `mix test --include stock_document_volume <file>`).
+(tag `:stock_document_volume`, excluded by default; run `MIX_TEST_PARTITION=<n> mix test --only stock_document_volume <file>`).
 Three runs per size, milliseconds, median / max. Real HTTP path: save a draft, issue it, complete the posting task,
 fetch the document, list one page of 50. The test asserts no target; a miss is recorded as measured.
 
