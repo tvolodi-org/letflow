@@ -29,6 +29,9 @@ GET /instances/:id/timeline InstancesRead
 GET /instances/storage-usage AttachmentsRead
 GET /integration-mappings IntegrationMappingsManage
 GET /integration-mappings/:id IntegrationMappingsManage
+GET /modules/assets/balances AssetsRead
+GET /modules/assets/movements AssetsRead
+GET /modules/assets/reconcile AssetsReconcile
 GET /modules/exam/exam-sessions/:id ExamSessionRead
 GET /modules/exam/exam-sessions/:id/certificate/download ExamCertificateIssue
 GET /modules/exam/exam-sessions/available ExamSessionStart

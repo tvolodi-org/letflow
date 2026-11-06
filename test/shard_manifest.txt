@@ -1219,9 +1219,14 @@
 6 test/letflow/modules/stock/receipt_posting_test.exs 7346.89
 3 test/letflow/modules/stock/opening_registration_test.exs 7346.89
 3 test/letflow/modules/stock/opening_shape_test.exs 7346.89
+5 test/letflow/modules/assets/ledger_policy_test.exs 7346.89
 7 test/letflow/modules/stock/opening_router_test.exs 7346.89
 8 test/letflow/modules/stock/opening_check_test.exs 7346.89
+8 test/letflow/modules/assets/runbook_test.exs 7346.89
 9 test/letflow/modules/stock/opening_posting_test.exs 7346.89
+12 test/letflow/modules/assets/ledger_registration_test.exs 7346.89
+21 test/letflow/modules/assets/register_router_test.exs 7346.89
+26 test/letflow/modules/assets/views_test.exs 7346.89
 27 test/letflow/modules/stock/issue_writeoff_shape_test.exs 7346.89
 30 test/letflow/modules/stock/issue_writeoff_test.exs 7346.89
 29 test/letflow/modules/stock/documents/kinds_test.exs 7346.89
