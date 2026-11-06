@@ -48,6 +48,12 @@ import { renderWithAccess } from '@/auth/access/testing'
 
 const mockUseAuth = vi.mocked(useAuth)
 
+/** T-1435: the admin routes are wrapped in RequirePermission; the page is its child. */
+function guarded(el: unknown): ReactElement {
+  const e = el as ReactElement<{ children?: ReactElement }>
+  return e.props.children ?? e
+}
+
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const NON_ADMIN_SESSION = {
@@ -79,7 +85,7 @@ describe('ISS-0289 regression — admin/users detail route wiring', () => {
 
     const listRoute = children.find((c) => c.path === 'admin/users')
     expect(listRoute).toBeDefined()
-    expect((listRoute!.element as ReactElement).type).toBe(UsersPage)
+    expect(guarded(listRoute!.element).type).toBe(UsersPage)
 
     // The parameterized detail route: any child path under 'admin/users/' other
     // than the bare list path itself.
@@ -87,8 +93,8 @@ describe('ISS-0289 regression — admin/users detail route wiring', () => {
       (c) => typeof c.path === 'string' && c.path.startsWith('admin/users/') && c.path !== 'admin/users',
     )
     expect(detailRoute).toBeDefined()
-    expect((detailRoute!.element as ReactElement).type).toBe(UserDetailPage)
-    expect((detailRoute!.element as ReactElement).type).not.toBe(UsersPage)
+    expect(guarded(detailRoute!.element).type).toBe(UserDetailPage)
+    expect(guarded(detailRoute!.element).type).not.toBe(UsersPage)
   })
 
   it('TC-ISS0289-02: navigating to /admin/users/<id> as a non-platform-admin user shows the permission gate, not an editable form', () => {
@@ -123,7 +129,8 @@ describe('ISS-0289 regression — admin/users detail route wiring', () => {
     // platform-admin gate at all -- it rendered an editable admin-user-detail-form
     // for ANY authenticated user regardless of role. That is the regression
     // SECURITY-REVIEWER flagged as previously absent.
-    expect(screen.getByText('You do not have permission to manage users.')).toBeInTheDocument()
+    // T-1435: the route guard answers first; the page's own gate stays behind it.
+    expect(screen.getByText(/do not have access to this area/)).toBeInTheDocument()
     expect(screen.queryByTestId('admin-user-detail-form')).not.toBeInTheDocument()
   })
 })

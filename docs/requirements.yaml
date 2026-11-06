@@ -53257,3 +53257,90 @@ requirements:
       - "5. Messages: stock.doc.error.lines_count in documentsMessages.ts and lines_count in web/src/i18n/importMessages.ts name 1000 instead of 100 in en, ru and kk (vitest or reader check)."
       - "6. Screens: screenshots of the editor and the view of a 1000-line transfer, page 1 and the last page, in the matrix of the design-system skill (1440 and 390, light and dark, en and ru, kk for long labels) are in the task folder; npm run check passes in the engine's checks step."
     depends_on: [REQ-774]
+  - id: REQ-776
+    title: "Assets E5 gap: the commission of a stock write-off (order number and date, chair and members, all employees) on the write-off document of module stock, the signers form Z-6 asks for"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3997
+    # Source: task T-1453 (owner decisions of the PM 2026-11-07: (c) the signers are the members of the commission assigned by the head's order plus the persons by whom the assets are counted or who are accountable, per form; whatever is not solved is registered as a requirement). Form: annex 30 of order No. 562, ru З-6 / kk Қ-6 (`/home/tvolodi/Documents/KZ-MinFin-DocTemplates/template_application_ru30.docx` and `ai-dala-portfolio/inbox/kz-minfin-forms/adilet-kk-562-text.txt`): signer lines "Председатель комиссии", "Члены комиссии", "Материально-ответственное лицо", approval "Утверждаю Руководитель". Mapping: docs/assets/kz-forms-mapping.md sections 3.4 (Z-6 row, gap G14) and 8. Code read on origin/main 30a14c0de: lib/letflow/modules/stock/documents/kinds.ex (@write_off_keys, the write_off row of @table), lib/letflow/modules/stock/documents/shape.ex (parse/2, refusal order), lib/letflow/modules/stock/documents/checks.ex (masters/2, employee_not_active through Letflow.Modules.Org.active_employee?/2 of lib/letflow/modules/org/org.ex), lib/letflow/modules/stock/counts.ex (the count commission precedent: chair_employee_id, member_employee_ids, @max_list 500, chair_not_member, the child type count_commission_member), lib/letflow/modules/stock/stock.ex (manifest version 0.15.0 on origin/main, managed types, scope map), priv/modules/stock/entity_definitions/stock_writeoff.json. Written by the business analyst (T-1453) 2026-11-07. Not yet validated.
+    description: >
+      Form Z-6 (act of write-off of stock, annex 30) is signed by a commission (chair and members) appointed
+      by an order of the head of the organisation, and by the materially responsible person. The stock
+      write-off document (stock_writeoff, REQ-715) holds the responsible person (responsible_id) only, so the
+      commission block of Z-6 cannot be filled. This change adds the commission to the write-off document,
+      in the shape the count order already uses (Letflow.Modules.Stock.Counts): four optional header keys
+      commission_order_number (text 1..100 characters, NFC), commission_order_date (YYYY-MM-DD, year
+      2000..2100), commission_chair_id (employee uuid) and commission_member_ids (a list of distinct employee
+      uuids, at most 500 as Counts @max_list, the chair not in it), and one new managed record type
+      stock_writeoff_commission_member (header_id, employee_id, org_unit_id; scope {:column, org_unit_id})
+      with one row per member. The commission is optional (a write-off without it stays valid, so existing
+      drafts and the phone draft screens keep working); when any of the four keys is given, the order number,
+      the order date and the chair are all required (UAT assumption, to be confirmed by the process owner).
+      The Z-6 print itself is not part of this change. The head who approves the act ("Утверждаю") is not a
+      field: it stays a blank line signed by hand (mapping section 8.3).
+    acceptance_criteria:
+      - "1. Manifest (test file test/letflow/modules/stock/registration_test.exs): the stock module version moves one minor step above its value on origin/main at implement time (0.15.0 there today, an example only); manages_entity_types gains stock_writeoff_commission_member with exactly the fields header_id, employee_id, org_unit_id and the scope {:column, \"org_unit_id\"}; the stock_writeoff type gains exactly the optional fields commission_order_number (string), commission_order_date (date) and commission_chair_id (string); every other field set of the module is unchanged (exact-set asserts)."
+      - "2. Shape (test file test/letflow/modules/stock/issue_writeoff_shape_test.exs): Shape.parse/2 of a write_off accepts the four keys; a write_off with commission_chair_id but no commission_order_number answers field_required with field commission_order_number, and the same for commission_order_date and commission_chair_id when another commission key is given; a member list with a duplicate, a non-uuid item, more than 500 items, or the chair inside it answers field_invalid with field commission_member_ids; a date of 1999-12-31 or a non-date answers field_invalid with field commission_order_date; an issue, transfer, hand_over, return or receipt with any of the four keys answers field_not_allowed."
+      - "3. Save, replace and view (test file test/letflow/modules/stock/issue_writeoff_test.exs, real token through the stock router): a saved write-off with a chair and two members returns the four keys in the document view (member ids sorted), writes two stock_writeoff_commission_member rows, and a whole-document replace without the commission keys removes both rows and the three header values; a write-off saved without a commission is unchanged from today (same body, same view)."
+      - "4. Issue checks (same test file): issuing a write-off whose commission chair or one member is an inactive employee answers 422 employee_not_active with the extension field set to commission_chair_id or commission_member_ids (the side extension of the existing employee checks of Checks.masters/2 is unchanged) and issues nothing; the issued content (the versioned document) holds the commission keys exactly as the view shows them."
+      - "5. Docs and checks: docs/assets/kz-forms-mapping.md section 8 names the Z-6 commission as delivered by this change; the moduledocs of Kinds and Shape name the new keys; mix letflow.check.static passes and the test files of criteria 1 to 4 pass (real output quoted in the PR)."
+    depends_on: [REQ-715]
+  - id: REQ-777
+    title: "Assets E5 gap: the commission of an asset write-off (order number and date, chair and members, all employees) on the write-off document of module assets, the signers form DA-3 asks for"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3996
+    # Source: task T-1453 (owner decision (c) of the PM 2026-11-07, as REQ-776). Form: annex 18 of order No. 562, ru ДА-3 / kk ҰМА-3 (`template_application_ru18.docx`, `adilet-kk-562-text.txt`): signer lines "Председатель комиссии", "Члены комиссии", "Материально-ответственное лицо", "Главный бухгалтер (бухгалтер)", approval "УТВЕРЖДАЮ Руководитель". Mapping: docs/assets/kz-forms-mapping.md sections 3.6 (DA-3 row) and 8. The asset write-off document is specified by REQ-753 (assets_writeoff and assets_writeoff_line, header location_id, material_responsible_id, actual_user_id, reason_code, reason_text; prefix AWO) on the routes of REQ-751; lib/letflow/modules/assets/ on origin/main 30a14c0de has no documents yet (ls: access.ex assets.ex cards.ex import.ex ledger_policy reminders.ex reports.ex responsible.ex router.ex views.ex xlsx_export.ex). Precedent: REQ-776 for the stock write-off. Written by the business analyst (T-1453) 2026-11-07. Not yet validated.
+    description: >
+      Form DA-3 (act of disposal or write-off of long-term assets, annex 18) is signed by a commission (chair
+      and members) appointed by an order of the head, and by the materially responsible person. The asset
+      write-off document of REQ-753 (assets_writeoff) has the materially responsible person and the actual
+      user only. This change adds the same commission as REQ-776 does for stock, on the asset write-off: four
+      optional header keys commission_order_number (text 1..100 characters, NFC), commission_order_date
+      (YYYY-MM-DD, year 2000..2100), commission_chair_id (employee uuid) and commission_member_ids (distinct
+      employee uuids, at most 500, the chair not in it), and one managed record type
+      assets_writeoff_commission_member (header_id, employee_id, org_unit_id; scope {:column, org_unit_id}).
+      Optional as a whole; when any key is given, the order number, the order date and the chair are required
+      (UAT assumption, to be confirmed by the process owner). The key names and refusals are those of REQ-776,
+      so a later Z-6 and DA-3 print read the same shape. The DA-3 print, the chief accountant and the head
+      approving the act are not part of this change (blank lines signed by hand, mapping section 8.3).
+    acceptance_criteria:
+      - "1. Manifest (test file test/letflow/modules/assets/kinds_registration_test.exs, the file of REQ-753): the assets module version moves one minor step above its value on origin/main at implement time; manages_entity_types gains assets_writeoff_commission_member with exactly the fields header_id, employee_id, org_unit_id and the scope {:column, \"org_unit_id\"}; assets_writeoff gains exactly the optional fields commission_order_number (string), commission_order_date (date) and commission_chair_id (string); the other field sets are unchanged (exact-set asserts)."
+      - "2. Shape and save (test file test/letflow/modules/assets/kinds_test.exs, routes of REQ-751, real token): the refusals of REQ-776 criterion 2 hold for kind writeoff with the same reasons and field names; the keys are field_not_allowed on kinds commission, change and handover; a saved asset write-off with a chair and two members shows the four keys in the view and writes two member rows; a replace without them removes the rows."
+      - "3. Issue (same test file): an inactive chair or member answers 422 employee_not_active with the extension field set to commission_chair_id or commission_member_ids (the side extension of the existing employee checks of Checks.masters/2 is unchanged) and issues nothing; the issued content holds the commission keys as the view shows them."
+      - "4. Docs and checks: docs/assets/kz-forms-mapping.md section 8 names the DA-3 commission as delivered by this change; mix letflow.check.static passes and the test files of criteria 1 to 3 pass (real output quoted in the PR)."
+    depends_on: [REQ-751, REQ-753, REQ-776]
+  - id: REQ-778
+    title: "Assets E5 gap: price and VAT rate on the lines of a stock issue, and columns 7 to 9 of form Z-2 (price, sum with VAT, VAT sum) filled from them with the rates of article 503 of the Tax Code"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3995
+    # Source: task T-1453 (owner decision (d) of the PM 2026-11-07: VAT depends on the form and on the rates of the Kazakhstan tax code; map as much as possible, register the rest as requirements). Tax Code of the Republic of Kazakhstan of 18 July 2025 No. 214-VIII, article 503 (text read 2026-11-07 on kodeksy-kz.com/ka/nalogovyj_kodeks/503.htm and buhgpt.kz/nk-rk-2026/statya-503, both stating the official Adilet text): item 1 rate 16 percent; item 2 rate 5 percent from 2026-01-01 and 10 percent from 2027-01-01 for listed medicines, medical devices and licensed medical services; item 3 rate 10 percent for domestic periodical printed media; item 4 zero rate for the turnovers of chapter 47. Form: annex 26 of order No. 562, ru З-2 / kk Қ-2, columns 7 "Цена за единицу, в теңге", 8 "Сумма с НДС, в теңге", 9 "Сумма НДС, в теңге" (`template_application_ru26.docx`; kk `ҚҚС-пен сомасы`, `ҚҚС сомасы`). Mapping: docs/assets/kz-forms-mapping.md sections 3.1 (gap G5) and 8.4. Code read on origin/main 30a14c0de: lib/letflow/modules/stock/documents/shape.ex (@line_extra receipt only, prices/2, price_text/1, refusal price_invalid; the moduledoc line that an issue line has no unit_price), lib/letflow/modules/stock/form_z2.ex (Letflow.Modules.Stock.FormZ2.data/2, lines/2 fills no, name, nom, unit, qty_issued only), priv/print_forms/z2.json (columns price, sum_vat, vat; totals mark price, sum_vat, vat), priv/modules/stock/entity_definitions/stock_issue_line.json, test/letflow/modules/stock/issue_writeoff_shape_test.exs (the unit_price field_not_allowed test of an issue line), test/letflow/modules/stock/form_z2_test.exs and form_z2_router_test.exs. The Z-2 print came with merge 2559589e4 (#3964, E5b). Written by the business analyst (T-1453) 2026-11-07. Not yet validated.
+    description: >
+      Form Z-2 (issue of stock to a third party, annex 26) has three money columns: price per unit (7), sum
+      with VAT (8) and VAT sum (9). The issue line has no price and nothing has a VAT rate, so the print leaves
+      them blank (gap G5). This change lets an issue line carry two optional keys: unit_price (a non-negative
+      decimal text, at most 9 decimals, the price per unit WITHOUT VAT, checked by Shape.price_text/1 like a
+      receipt price) and vat_rate (closed list "16", "10", "5", "0", "none"), both or neither on one line.
+      The closed list comes from article 503 of the Tax Code: 16 (item 1, the basic rate), 5 and 10 (item 2:
+      5 percent in 2026 and 10 percent from 2027 for medicines, medical devices and licensed medical services;
+      item 3: 10 percent for domestic periodicals), 0 (item 4, chapter 47 turnovers such as export), and none
+      (no VAT on the line: an exempt turnover or a seller that is not a VAT payer). Which rate applies to a
+      line is chosen by the user; Letflow does not decide the tax treatment. Z-2 then prints, for a line with
+      a price: column 7 the unit price, column 8 the sum with VAT, column 9 the VAT sum, and the totals of
+      columns 8 and 9; a line without a price keeps the three cells blank, and a rate none line prints column 9
+      blank. Arithmetic (UAT assumption, to be confirmed by the process owner before production use, since it is
+      money on a primary document): net = quantity x unit_price rounded to 2 decimals half up; VAT sum = net x
+      rate / 100 rounded to 2 decimals half up; sum with VAT = net + VAT sum; amounts printed with 2 decimals.
+      The web editor fields, the price on the other stock kinds, the price source questions of
+      stock-workflow-documents.md section 4 and the amounts in words (G10) are not part of this change.
+    acceptance_criteria:
+      - "1. Manifest (test file test/letflow/modules/stock/registration_test.exs): the stock module version moves one minor step above its value on origin/main at implement time; stock_issue_line gains exactly the optional fields unit_price (decimal) and vat_rate (enum with exactly the values 16, 10, 5, 0, none); every other field set is unchanged (exact-set asserts)."
+      - "2. Shape (test file test/letflow/modules/stock/issue_writeoff_shape_test.exs): an issue line with unit_price \"1250.5\" and vat_rate \"16\" is accepted and returned with unit_price 1250.500000000; unit_price without vat_rate answers field_required with field vat_rate and line_no, vat_rate without unit_price answers field_required with field unit_price; vat_rate \"12\" or \"exempt\" answers field_invalid with field vat_rate and line_no; unit_price \"-1\" answers price_invalid with field unit_price; a write_off line with unit_price or vat_rate still answers field_not_allowed (the existing test of an issue line with unit_price is changed to this expectation for issue and kept for write_off)."
+      - "3. Z-2 data (test file test/letflow/modules/stock/form_z2_test.exs, FormZ2.data/2): for lines (quantity 3, unit_price 1250.50, rate 16), (quantity 2.5, unit_price 99.99, rate 5), (quantity 1, unit_price 10, rate none) and (quantity 4, no price), the price, sum_vat and vat cells are 1250.50 / 4351.74 / 600.24, 99.99 / 262.48 / 12.50, 10.00 / 10.00 / blank, and blank / blank / blank; the totals row prints sum_vat 4624.22 and vat 612.74 (the sum of the printed cells); with no priced line the three columns and their totals stay blank as today."
+      - "4. Print through the router (test file test/letflow/modules/stock/form_z2_router_test.exs, real token): the issued issue document with the lines of criterion 3 printed as form z2 in pdf and docx, lang ru and kk, shows the printed values of criterion 3 in columns 7 to 9 (docx text read back), and an issue without prices prints as before."
+      - "5. Docs and checks: the moduledocs of Shape and FormZ2 and docs/assets/kz-forms-mapping.md sections 6 and 8.4 name the new keys and the arithmetic; mix letflow.check.static passes and the test files of criteria 1 to 4 pass (real output quoted in the PR)."
+    depends_on: [REQ-715]

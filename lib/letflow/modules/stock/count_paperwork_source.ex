@@ -115,12 +115,12 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
     length(CountPaperwork.lines_of(:differences, content)) > @pdf_max_lines
   end
 
-  @spec fetch(String.t(), term(), CountPaperwork.kind(), ctx()) ::
+  @spec fetch(String.t(), term(), CountPaperwork.kind(), ctx(), CountPaperwork.lang()) ::
           {:ok, binary(), String.t()}
           | {:error, :not_found | :document_not_issued | :xlsx_write_failed}
-  def fetch(prefix, id, kind, ctx) do
+  def fetch(prefix, id, kind, ctx, lang \\ nil) do
     with {:ok, %{issued: issued, names: names}} <- read(prefix, id, kind, ctx),
-         {:ok, binary} <- CountPaperwork.build(kind, issued, names) do
+         {:ok, binary} <- CountPaperwork.build(kind, issued, names, lang) do
       {:ok, binary, file_name(issued.number_label)}
     end
   end
