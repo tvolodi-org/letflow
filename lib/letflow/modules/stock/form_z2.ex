@@ -17,6 +17,7 @@ defmodule Letflow.Modules.Stock.FormZ2 do
   """
 
   alias Letflow.Modules.Stock.CountPaperwork
+  alias Letflow.Modules.Stock.FormCount
 
   @spec data(map(), map()) :: map()
   def data(issued, names) do
@@ -31,7 +32,7 @@ defmodule Letflow.Modules.Stock.FormZ2 do
       "sender" => org,
       "org_bin" => CountPaperwork.text(entity[:bin]),
       "number" => CountPaperwork.text(issued[:number_label]),
-      "date" => date(CountPaperwork.time(header["event_time"], names, :event_time)),
+      "date" => FormCount.date(CountPaperwork.time(header["event_time"], names, :event_time)),
       "responsible" => CountPaperwork.text(responsible[:full_name]),
       "released" => CountPaperwork.text(responsible[:full_name]),
       "lines" => lines(content, names)
@@ -56,14 +57,6 @@ defmodule Letflow.Modules.Stock.FormZ2 do
         "qty_issued" => CountPaperwork.text(line["quantity"])
       }
     end)
-  end
-
-  # `2026-11-05T12:00:00+06:00` -> `05.11.2026`; a text that is not that shape is kept as it is.
-  defp date(text) do
-    case Regex.run(~r/^(\d{4})-(\d{2})-(\d{2})/, text) do
-      [_, y, m, d] -> "#{d}.#{m}.#{y}"
-      _ -> text
-    end
   end
 
   defp lookup(names, group, id) when is_binary(id),

@@ -88,7 +88,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts/:id/document` | `StockRead` | 200 issued summary, no content bytes |
   | `GET /counts/:id/paperwork/:kind` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document, 422 `document_not_issued` |
   | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
-  | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`) | `StockRead` | 200 `application/pdf` of the issued document, 422 `invalid_lang`, `document_not_issued`, `print_unsupported_character` |
+  | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character` |
 
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
   so a scoped caller gets the same 404 for an order of another unit as for an unknown id. When the
@@ -163,6 +163,8 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.DocumentNumbers
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Documents.Posting
+  alias Letflow.Modules.Stock.FormCountInv10
+  alias Letflow.Modules.Stock.FormCountInv18
   alias Letflow.Modules.Stock.FormZ2
   alias Letflow.Modules.Stock.Views
   alias Letflow.Modules.Stock.VoiceService
@@ -583,12 +585,19 @@ defmodule Letflow.Modules.Stock.Router do
   @print_langs %{"ru" => :ru, "kk" => :kk, "en" => :en}
 
   authz_get "/counts/:id/print/:kind", :StockRead do
-    with {:ok, kind} <- Map.fetch(@paperwork_kinds, conn.params["kind"]),
-         {:ok, lang} <- print_lang(query_params(conn)["lang"]) do
-      print(conn, kind, lang)
+    query = query_params(conn)
+
+    with {:ok, kind} <- Map.fetch(@paperwork_kinds, conn.params["kind"]) do
+      if Map.has_key?(query, "form") do
+        print_count_form(conn, kind, query)
+      else
+        case print_lang(query["lang"]) do
+          {:ok, lang} -> print(conn, kind, lang)
+          :invalid_lang -> unprocessable(conn, "invalid_lang")
+        end
+      end
     else
       :error -> Response.not_found(conn)
-      :invalid_lang -> unprocessable(conn, "invalid_lang")
     end
   end
 
@@ -830,6 +839,67 @@ defmodule Letflow.Modules.Stock.Router do
 
   defp form_param("z2"), do: {:ok, "z2"}
   defp form_param(_), do: {:invalid, "invalid_form"}
+
+  # T-1418: the official count forms: `?form=inv18` on the differences document (annex 49, Tug-18)
+  # and `?form=inv10` on the sheet (annex 41, Tug-10), `&format=pdf|docx&lang=ru|kk`. Same read path
+  # and scope rules as the E1a print (`CountPaperworkSource.read_form/4`).
+  @count_forms %{
+    "inv18" => {:differences, FormCountInv18, "Inv-18"},
+    "inv10" => {:sheet, FormCountInv10, "Inv-10"}
+  }
+
+  defp print_count_form(conn, kind, query) do
+    with {:ok, {form_kind, mapper, suffix}} <- count_form_param(query["form"], kind),
+         {:ok, format} <- form_format(query["format"]),
+         {:ok, lang} <- form_lang(query["lang"]) do
+      with_paperwork_ctx(conn, fn prefix, ctx ->
+        with {:ok, %{issued: issued, names: names}} <-
+               CountPaperworkSource.read_form(prefix, conn.params["id"], form_kind, ctx),
+             :ok <- count_form_size(format, issued),
+             {:ok, bin} <-
+               FormPrint.build(query["form"], mapper.data(issued, names), lang, format) do
+          {type, ext} = form_type(format)
+
+          name =
+            CountPaperworkSource.file_name("#{issued.number_label}\u005F#{suffix}", ext)
+
+          send_binary(conn, bin, type, name)
+        else
+          {:error, :not_found} ->
+            Response.not_found(conn)
+
+          {:error, reason} when reason in [:document_not_issued, :print_too_large] ->
+            unprocessable(conn, Atom.to_string(reason))
+
+          {:error, :unsupported_glyph} ->
+            unprocessable(conn, "print_unsupported_character")
+
+          {:error, {:render_failed, rules}} ->
+            Logger.error(
+              "stock count form print render failed: " <> Enum.map_join(rules, ",", &inspect/1)
+            )
+
+            Response.internal_error(conn)
+        end
+      end)
+    else
+      {:invalid, reason} -> unprocessable(conn, reason)
+    end
+  end
+
+  # `inv18` pairs with the differences document, `inv10` with the sheet; anything else is refused.
+  defp count_form_param(form, kind) do
+    case Map.fetch(@count_forms, form) do
+      {:ok, {^kind, _, _} = entry} -> {:ok, entry}
+      _ -> {:invalid, "invalid_form"}
+    end
+  end
+
+  # The PDF engine takes at most 1000 table rows; the totals row is one of them.
+  defp count_form_size(:pdf, issued),
+    do: if(CountPaperworkSource.pdf_too_large?(issued), do: {:error, :print_too_large}, else: :ok)
+
+  defp count_form_size(_, _issued), do: :ok
 
   defp form_format(nil), do: {:ok, :pdf}
   defp form_format("pdf"), do: {:ok, :pdf}
