@@ -104,9 +104,10 @@ describe('N1 stock register screens', () => {
     }
     stockServer({ '/api/v1/modules/stock/movements': { next_cursor: null, rows: [entry] } })
     const { container } = renderStock(MOV)
-    await screen.findByText('17')
-    fireEvent.click(await screen.findByRole('button', { name: /show|legs/i }))
-    await settled(container, 'ITM-1 - Bolt M8')
+    fireEvent.click((await screen.findAllByTestId('journal-row'))[0])
+    // the journal draws "code - title" as code, separator and title spans
+    await settled(container, /ITM-1\W+Bolt M8/)
+    expect(container).toHaveTextContent(/RACK-01\W+Rack 01/)
   })
 
   it('documents list and the document page (header and lines)', async () => {

@@ -50,6 +50,32 @@ defmodule Letflow.UserPreferences do
     end
   end
 
+  @layout_key "ui.document_layout"
+  @tenant_layout_key "ui.document_layout_default"
+
+  @doc """
+  The tenant defaults as `%{key => value}`: the tenant setting when it holds an allowed value,
+  else `"row"` (a garbage stored value never raises).
+  """
+  @spec tenant_defaults(term()) :: %{String.t() => String.t()}
+  def tenant_defaults(tenant_settings) do
+    value = if is_map(tenant_settings), do: Map.get(tenant_settings, @tenant_layout_key)
+    %{@layout_key => if(valid_layout?(value), do: value, else: "row")}
+  end
+
+  @doc """
+  The effective preferences of one user: the stored user value when valid, else the tenant
+  default, else `"row"`.
+  """
+  @spec effective(String.t(), String.t(), term()) :: %{String.t() => String.t()}
+  def effective(prefix, user_id, tenant_settings) do
+    stored = Map.get(list(prefix, user_id), @layout_key)
+    defaults = tenant_defaults(tenant_settings)
+    %{@layout_key => if(valid_layout?(stored), do: stored, else: defaults[@layout_key])}
+  end
+
+  defp valid_layout?(v), do: is_binary(v) and v in allowed_values(@layout_key)
+
   @doc "The stored preferences of one user as `%{key => value}` (only stored keys, whitelisted ones)."
   @spec list(String.t(), String.t()) :: %{optional(String.t()) => term()}
   def list(prefix, user_id) do

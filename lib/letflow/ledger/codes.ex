@@ -20,6 +20,7 @@ defmodule Letflow.Ledger.Codes do
     {"posting_already_reversed", 409},
     {"posting_is_reversal", 409},
     {"posting_is_paired", 409},
+    {"posting_held", 409},
     {"idempotency_key_reuse", 409},
     {"client_seq_conflict", 409},
     {"event_time_in_future", 422},
@@ -37,7 +38,8 @@ defmodule Letflow.Ledger.Codes do
     "unit_mismatch",
     "posting_not_balanced",
     "posting_already_reversed",
-    "posting_is_reversal"
+    "posting_is_reversal",
+    "posting_held"
   ]
 
   # Engine, entity and API codes found by a grep of the error bodies of lib/letflow/{api,engine,

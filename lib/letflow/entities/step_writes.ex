@@ -1121,6 +1121,11 @@ defmodule Letflow.Entities.StepWrites do
   defp interpret_line(i, _name, :ledger_post, {:ledger_denied, detail}),
     do: {:refused, i, :write_not_permitted, detail}
 
+  # REQ-764: a guard hold carries its audit facts for the engine (`Engine` reads them from the
+  # failed step's reason); the line outcome is that of the inner `posting_held` refusal.
+  defp interpret_line(i, _name, :ledger_post, {:ledger_held, _facts, refusal}),
+    do: HandlerPost.failure(i, refusal)
+
   defp interpret_line(i, _name, :ledger_post, reason), do: HandlerPost.failure(i, reason)
 
   defp interpret_line(i, _name, :build, reason) do
