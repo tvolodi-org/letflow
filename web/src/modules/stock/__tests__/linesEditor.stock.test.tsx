@@ -155,7 +155,7 @@ describe('S5 the line limit lives in one place', () => {
     expect(adapter).toContain('max={MAX_LINES}')
     expect(adapter).not.toMatch(/\b100\b/)
     const msgs = read('../documents/documentsMessages.ts')
-    expect(msgs.match(/'stock\.doc\.error\.lines_count': '[^']*\{max\}[^']*'/g)).toHaveLength(3)
+    expect(msgs.match(/'stock\.doc\.error\.lines_count': `[^`]*\$\{MAX_LINES\}[^`]*`/g)).toHaveLength(3)
   })
   it('the maximum message names the limit', async () => {
     renderStock(`${LIST}/new?kind=issue`, withPost)
