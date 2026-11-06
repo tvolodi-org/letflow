@@ -54,6 +54,7 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
       '/admin/stock/balances': 'Balances',
       '/admin/stock/movements': 'Movements',
       '/admin/stock/counts': 'Counts',
+      '/admin/assets/cards': 'Asset cards',
     },
   },
   ru: {
@@ -98,6 +99,7 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
       '/admin/stock/balances': 'Остатки',
       '/admin/stock/movements': 'Движения',
       '/admin/stock/counts': 'Инвентаризации',
+      '/admin/assets/cards': 'Карточки активов',
     },
   },
   kk: {
@@ -142,6 +144,7 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
       '/admin/stock/balances': 'Қалдықтар',
       '/admin/stock/movements': 'Қозғалыстар',
       '/admin/stock/counts': 'Түгендеулер',
+      '/admin/assets/cards': 'Актив карточкалары',
     },
   },
 }

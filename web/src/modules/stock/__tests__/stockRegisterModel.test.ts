@@ -18,7 +18,7 @@ describe('L1 model', () => {
   })
   it('params drop empty values and never carry basis or tenant', () => {
     expect(balanceParams({ sku: 'a', location: '', org_unit: ' ', responsible: '', lot: '' })).toEqual({ sku: 'a' })
-    expect(movementParams({ cause: '', document_id: ' d ', from_seq: '5', to_seq: '2' })).toEqual({ document_id: 'd' })
+    expect(movementParams({ cause: '', document_type: '', document_id: ' d ', from_seq: '5', to_seq: '2' })).toEqual({ document_id: 'd' })
   })
   it('rangeError only for two numbers in the wrong order', () => {
     expect(rangeError('9', '3')).toBe(true)
