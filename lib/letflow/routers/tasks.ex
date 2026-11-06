@@ -527,6 +527,12 @@ defmodule Letflow.Routers.Tasks do
     Response.entity_write_needs_reactivation(conn)
   end
 
+  # REQ-771: the only reason the handler lines were refused is that the tenant's module is not
+  # upgraded to the build yet: the clear 409, fixed text, the task stays pending.
+  defp handle_complete_result({:error, :module_upgrade_required}, conn) do
+    Response.module_upgrade_required(conn)
+  end
+
   # An internal fault of a line step: the step atom is logged by the engine, never rendered.
   defp handle_complete_result({:error, {:entity_write_failed, _index, _step}}, conn) do
     Response.internal_error(conn)

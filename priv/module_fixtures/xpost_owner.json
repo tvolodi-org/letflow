@@ -1,0 +1,33 @@
+{
+  "pack_id": "fixture-xpost-owner",
+  "version": "0.1.0",
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "exported_at": "2026-10-16T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "definitions": [],
+  "variable_schemas": [],
+  "service_catalog_entries": [],
+  "entity_definitions": [
+    {
+      "entity_definition_id": "00758000-0000-0040-0080-000000000000",
+      "name": "fxxp_note",
+      "display_name": "Fixture Cross Post Note",
+      "logical_shape_version": "7580000000000000000000000000000000000000000000000000000000000000",
+      "definition_json": {
+        "name": "fxxp_note",
+        "display_name": "Fixture Cross Post Note",
+        "description": "REQ-758 test fixture (managed, append-only).",
+        "fields": [
+          {
+            "name": "note",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "append_only": true
+      }
+    }
+  ]
+}

@@ -32,7 +32,7 @@ was written.
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:816` and `lib/letflow/entities/handler_writes.ex:331`.
+   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:332`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -163,7 +163,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:816` and `lib/letflow/entities/handler_writes.ex:331`.
+   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:332`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -490,7 +490,7 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     `lib/letflow/modules/stock/router.ex` under `/documents` serve an interactive tenant-wide principal only, the
     guard is `lib/letflow/modules/stock/access.ex`; scoped posting (L6) is not part of phase B (GH #3749).
 15. **Document defaults are owner-changeable at GATE B.** Receipt numbered per year with prefix RCP and pad 6, no
-    legal entity, at most 100 lines, the responsible employee not bound to the org unit, no approval step, the
+    legal entity, at most 1000 lines (REQ-774, GH #3988), the responsible employee not bound to the org unit, no approval step, the
     org unit of a draft cannot change (discard and create anew) (`lib/letflow/modules/stock/documents.ex`, GH #3749).
 16. **Installing the new version is an explicit step.** Version 0.2.0 of the module adds the two record types and the
     document type `stock_receipt`; a tenant that installed 0.1.0 takes them through the module upgrade path
@@ -546,7 +546,7 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     GH #3770).
 27. **Opening balance document.** Version 0.9.0 adds the second document kind `opening` (records `stock_opening` and
     `stock_opening_line`, number prefix `OPN` per year, pad 6). It posts only through the two-person process
-    `stock_opening` (GH #3774); a larger stock than 100 lines is entered as several documents
+    `stock_opening` (GH #3774); a larger stock than 1000 lines is entered as several documents (the import route's 200-row file cap is unchanged)
     (`lib/letflow/modules/stock/documents/opening_shape.ex`, GH #3775). A tenant that installed 0.8.0 (or earlier) takes the new
     types and definitions through the module upgrade path (`lib/letflow/modules/tenant_module_upgrade.ex`); no tenant
     is upgraded or seeded by the change.
@@ -554,12 +554,12 @@ names the GH issue or the code that holds it; paths are cited without line numbe
     each line (`received_on`) and never reaches the ledger. A balance as of an earlier time therefore shows no opening
     quantity, and the posting handler, the policy and the read-side check all refuse a client event time
     (`lib/letflow/modules/stock/handlers.ex`, GH #3774).
-29. **At most 100 lines.** The cap of the stock policy `declare/2` applies, a deviation from the 200 lines of decision
+29. **At most 1000 lines.** The cap is now 1000 per REQ-774 / GH #3988 (it was 100); a posting carries up to 2000 legs. The cap of the stock policy `declare/2` applies, a deviation from the 200 lines of decision
     0079 D2 (owner may change at GATE B) (`lib/letflow/modules/stock/ledger_policy/declare.ex`, GH #3775).
 30. **Not offered on a customer tenant before the pilot gate.** Opening balances follow the NOT enabled for a customer
     tenant rule of decision 0073 until slices L6 and L7 (decision 0079 D3, GH #3775).
 31. **Defaults the owner may change at GATE B.** The prefix `OPN`, numbering per year, pad 6, the time zone Asia/Almaty
-    for the receipt-date check, 100 lines, the external reference pair, and a second person for every opening (owner
+    for the receipt-date check, 1000 lines, the external reference pair, and a second person for every opening (owner
     may change at GATE B) (`lib/letflow/modules/stock/stock.ex`, GH #3775).
 32. **Who is the preparer.** The `approve` task has `distinct_from ["submit"]`; the issue step completes `submit` as the
     issuing user. When that completion fails the `submit` task stays pending and whoever completes it is the preparer;

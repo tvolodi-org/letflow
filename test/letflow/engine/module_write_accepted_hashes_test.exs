@@ -66,12 +66,17 @@ defmodule Letflow.Engine.ModuleWriteAcceptedHashesTest do
     assert hash_mismatch?(ctx)
   end
 
-  test "A3b stamp X in the list but installed != compiled is refused" do
+  test "A3b stamp X in the list but installed != compiled: upgrade_required" do
     ctx = Mw.case!("t1371-drift", :module)
     Mw.set_stamp_hash!(ctx, @x)
     Mw.set_installed_hash!(ctx.schema, "fixture_ledger", String.duplicate("d", 64))
     Mw.set_accepted_hashes!(ctx.schema, "fixture_ledger", [@x])
-    assert hash_mismatch?(ctx)
+    assert {:error, :module_upgrade_required} = Fx.complete(ctx, %{"label" => "L1"})
+
+    assert Enum.any?(
+             Fx.audit_rows(ctx.schema, "entity_write.refused"),
+             &(&1.after_state["detail"] == "hash_mismatch")
+           )
   end
 
   test "A4 the recheck inside the transaction reads the list again (installed flipped)" do

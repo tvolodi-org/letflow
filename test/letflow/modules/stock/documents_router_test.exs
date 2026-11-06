@@ -122,6 +122,36 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
       assert Enum.map(again["lines"], & &1["line_no"]) == [1, 2, 3]
     end
 
+    test "L1-HTTP 1000 lines are saved, 1001 are refused with lines_count and nothing is written",
+         ctx do
+      m = ctx.ma
+      line = hd(D.body(m)["lines"])
+      before = D.counts(ctx.a.schema_name)
+
+      conn =
+        D.request(
+          :post,
+          "/documents",
+          ctx.tok_a,
+          D.body(m, nil, %{"lines" => List.duplicate(line, 1001)})
+        )
+
+      assert reason(conn, 422) == "lines_count"
+      assert D.counts(ctx.a.schema_name) == before
+
+      big =
+        D.request(
+          :post,
+          "/documents",
+          ctx.tok_a,
+          D.body(m, nil, %{"lines" => List.duplicate(line, 1000)})
+        )
+        |> status!(201)
+
+      assert length(big["lines"]) == 1000
+      assert Enum.map(big["lines"], & &1["line_no"]) == Enum.to_list(1..1000)
+    end
+
     test "A-RT-3 DELETE discards the draft and soft-deletes header and lines", ctx do
       doc = save!(ctx)
       assert D.request(:delete, "/documents/#{doc["id"]}", ctx.tok_a) |> status!(204) == nil
@@ -162,7 +192,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
         {"event_time_invalid", D.body(m, "2026-11-04T10:00:00")},
         {"event_time_invalid", D.body(m, "garbage")},
         {"lines_count", D.body(m, nil, %{"lines" => []})},
-        {"lines_count", D.body(m, nil, %{"lines" => List.duplicate(line, 101)})},
+        {"lines_count", D.body(m, nil, %{"lines" => List.duplicate(line, 1001)})},
         {"quantity_invalid", D.body(m, nil, %{"lines" => [%{line | "quantity" => "abc"}]})},
         {"quantity_invalid", D.body(m, nil, %{"lines" => [%{line | "quantity" => "0"}]})},
         {"quantity_invalid", D.body(m, nil, %{"lines" => [%{line | "quantity" => "-1"}]})},

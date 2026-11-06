@@ -36,6 +36,11 @@ describe('sanitizeUiLayout', () => {
     expect(out.screens.ok?.panes).toEqual({ good: [20] })
   })
 
+  it('T10 the items registry ids (screen, split list, table list) pass the whitelist', () => {
+    const out = sanitizeUiLayout({ screens: { 'stock.registry.items': { panes: { list: [33] }, cols: { list: { code: 18, name: 34 } } } } })
+    expect(out.screens['stock.registry.items']).toEqual({ panes: { list: [33] }, cols: { list: { code: 18, name: 34 } } })
+  })
+
   it('P6 caps: 40 screens, 12 panes keys, 12 entries; collapsed keeps integers 0-11', () => {
     const screens: Record<string, unknown> = {}
     for (let i = 0; i < 41; i++) screens[`s${String(i).padStart(2, '0')}`] = { panes: { a: [20] } }

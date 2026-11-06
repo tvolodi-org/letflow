@@ -90,8 +90,8 @@ defmodule Letflow.Modules.Stock.OpeningShapeTest do
 
   test "O-SHAPE-4 lines_count, quantity, price, received_on, in order" do
     refused(body(%{}, []), "lines_count")
-    refused(body(%{}, List.duplicate(line(), 101)), "lines_count")
-    assert {:ok, _} = OpeningShape.parse(body(%{}, List.duplicate(line(), 100)), :create)
+    refused(body(%{}, List.duplicate(line(), 1001)), "lines_count")
+    assert {:ok, _} = OpeningShape.parse(body(%{}, List.duplicate(line(), 1000)), :create)
 
     for bad <- ["0", "-1", "1e3", "", 5, nil, "1.1234567891"] do
       refused(body(%{}, [line(%{"quantity" => bad})]), "quantity_invalid", %{"line_no" => 1})
