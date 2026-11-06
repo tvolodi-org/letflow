@@ -603,3 +603,31 @@ scoped grant gets the 404 of a tenant without the module):
 - Each accepted write appends one audit entry (`assets_card.created`, `.updated`, `.retired`). Money and depreciation
   fields are stored as the given text, never calculated. Location, quantity and responsible person are not card
   fields; they belong to the commission document (REQ-751).
+
+## Assets module limits
+
+Module `assets` (GH #3893 / REQ-749, assets phase C item C8, owner decision D-097) as it is on main: one ledger
+registration (`assets`), a pure posting policy, two views and three read routes. Each limit names the GH issue or
+the code that holds it; paths are cited without line numbers.
+
+1. **No posting path until REQ-752.** Nothing in the product posts to the `assets` ledger: the documents that
+   commission, change, hand over and write off an asset are REQ-752 and REQ-753 (GH #3893,
+   `lib/letflow/modules/assets/ledger_policy/declare.ex`). The read routes answer empty lists on a tenant that has
+   the module.
+2. **No master checks in the ledger until slice L7.** The policy and the ledger check no asset, org unit, location
+   or employee against a master, and not the kind of the card (one asset per row, no location for an intangible);
+   the documents check them (decision 0073 D6, GH #3893).
+3. **Scoped posting is not built.** A scoped principal cannot post (decision 0073 OQ-21, slice L6); a scoped
+   reader reads the balances and movements of its own org units, a leg in a hidden unit is masked, and `reconcile`
+   answers a scoped reader 404 (GH #3893, `lib/letflow/modules/assets/router.ex`).
+4. **No role grants, no storage on earlier installs.** No seed, pack or QA fixture installs `assets`. A tenant that
+   installed version 0.3.0 or 0.4.0 (auto-CD deploys main to QA) has no `assets` ledger partitions: the read routes
+   answer empty lists, a posting would be refused `ledger_storage_missing`, and the upgrade plan lists the ledger under
+   `missing_ledger_storage` (`lib/letflow/modules/upgrade_plan.ex`). The role grants of the
+   four atoms (`AssetsPost`, `AssetsReverse`, `AssetsRead`, `AssetsReconcile`) are item C19, so only TENANT_ADMIN and
+   PLATFORM_ADMIN hold them (`docs/roles.md`, GH #3893).
+5. **The xlsx files are one page each and not promised to re-import.** The card export (`POST
+   /api/v1/entities/records/assets_card/export?format=xlsx`) holds at most 200 cards and writes `org_unit_id` as a
+   record id; the balances export (`GET /api/v1/modules/assets/balances?format=xlsx`) holds one page of the rows the
+   caller reads, and the `next_cursor` row of its `report` sheet continues (GH #3898, REQ-763,
+   `lib/letflow/modules/assets/xlsx_export.ex`).
