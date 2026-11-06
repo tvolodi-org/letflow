@@ -119,12 +119,36 @@ defmodule Letflow.KeycloakTenantRealmTemplateV2Test do
         |> Map.drop(@added_keys)
         |> Map.update!("attributes", &Map.delete(&1, "templateVersion"))
 
+      # v1 is frozen at seven roles; v2 adds STOREKEEPER (T-1432, decision 0081).
+      assert Enum.map(get_in(v2, ["roles", "realm"]), & &1["name"]) --
+               Enum.map(get_in(v1, ["roles", "realm"]), & &1["name"]) == ["STOREKEEPER"]
+
+      stripped =
+        update_in(
+          stripped,
+          ["roles", "realm"],
+          &Enum.reject(&1, fn r -> r["name"] == "STOREKEEPER" end)
+        )
+
       assert stripped == Map.update!(v1, "attributes", &Map.delete(&1, "templateVersion"))
 
       placeholders =
         ~r/__[A-Z_]+__/ |> Regex.scan(File.read!(@template)) |> List.flatten() |> Enum.uniq()
 
       assert Enum.sort(placeholders) == ["__REALM_ID__", "__TENANT_HOST__"]
+    end
+
+    test "V2-roles the realm roles are the closed role list minus PLATFORM_ADMIN" do
+      names = template() |> get_in(["roles", "realm"]) |> Enum.map(& &1["name"]) |> Enum.sort()
+
+      expected =
+        Letflow.Api.Authorization.roles()
+        |> Enum.map(&Atom.to_string/1)
+        |> Kernel.--(["PLATFORM_ADMIN"])
+        |> Enum.sort()
+
+      assert "STOREKEEPER" in names
+      assert names == expected
     end
 
     test "V2-smtp no smtp, secrets or users" do
