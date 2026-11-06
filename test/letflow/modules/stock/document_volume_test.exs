@@ -21,7 +21,7 @@ defmodule Letflow.Modules.Stock.DocumentVolumeTest do
   @moduletag :stock_document_volume
   @moduletag timeout: 1_800_000
 
-  @runs 3
+  @runs 5
   @sizes [100, 500, 1000]
 
   defp ms(fun) do
