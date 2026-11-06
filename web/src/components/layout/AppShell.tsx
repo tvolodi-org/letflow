@@ -111,6 +111,7 @@ export const NAV_ITEMS: NavItem[] = [
 const FLUID_PATHS = [
   '/admin/catalog/items',
   '/admin/stock/movements',
+  '/admin/stock/balances',
 ]
 
 export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {}) {

@@ -129,6 +129,7 @@ defmodule Letflow.Entities.HandlerWrites do
           required(:actor_id) => Ecto.UUID.t(),
           required(:activator_id) => Ecto.UUID.t(),
           required(:manifest_hash) => String.t() | nil,
+          optional(:owner_module_id) => String.t() | nil,
           optional(:subject_id) => Ecto.UUID.t(),
           optional(:credential) => atom() | nil,
           optional(:variable_labels) => %{optional(String.t()) => [String.t()]}
@@ -582,10 +583,11 @@ defmodule Letflow.Entities.HandlerWrites do
     k0 = StepSource.call_key(line_index)
     module_id = Map.get(line, "module")
     stamp_hash = Map.get(attrs, :manifest_hash)
+    owner_module_id = Map.get(attrs, :owner_module_id)
 
     multi
     |> Multi.run({:line, k0, :owner_recheck}, fn _repo, _changes ->
-      owner_recheck(module_id, prefix, stamp_hash)
+      owner_recheck(module_id, prefix, stamp_hash, owner_module_id)
     end)
     |> Multi.merge(fn changes -> invoke(attrs, line, variables, k0, changes) end)
   end
@@ -594,7 +596,23 @@ defmodule Letflow.Entities.HandlerWrites do
   # Row existence is not the whole check (REQ-578): `Installs.installed_manifest_hash/2` returns
   # `{:error, :not_installed}` for a row with status `uninstalled`, so an uninstalled module falls
   # through to `:hash_mismatch` here.
-  defp owner_recheck(module_id, prefix, stamp_hash)
+  # REQ-758 (decision 0082): the stamp hash is the STAMP module's. A line of another module N (a
+  # cross-module posting line accepted at activation) is judged on N's own hashes only: installed
+  # equals compiled. A call without `owner_module_id` keeps the strict stamp comparison for every
+  # line, so a caller that does not set it can never weaken the check.
+  defp owner_recheck(module_id, prefix, stamp_hash, owner_module_id)
+       when is_binary(module_id) and is_binary(stamp_hash) and is_binary(owner_module_id) and
+              module_id != owner_module_id do
+    with {:ok, %{installed: installed}} <- Installs.install_hashes(module_id, prefix: prefix),
+         {:ok, compiled} <- Catalog.manifest_hash(module_id),
+         true <- installed == compiled do
+      {:ok, :verified}
+    else
+      _mismatch -> {:error, :hash_mismatch}
+    end
+  end
+
+  defp owner_recheck(module_id, prefix, stamp_hash, _owner_module_id)
        when is_binary(module_id) and is_binary(stamp_hash) do
     # REQ-769: the stamp is the installed hash or an accepted earlier one; installed == compiled stays.
     with {:ok, %{installed: installed, accepted: accepted}} <-
@@ -607,7 +625,8 @@ defmodule Letflow.Entities.HandlerWrites do
     end
   end
 
-  defp owner_recheck(_module_id, _prefix, _stamp_hash), do: {:error, :hash_mismatch}
+  defp owner_recheck(_module_id, _prefix, _stamp_hash, _owner_module_id),
+    do: {:error, :hash_mismatch}
 
   @doc """
   REQ-688 (decision 0073 D-L12): the WRITE-FREE dry build of one posting line, for the service
