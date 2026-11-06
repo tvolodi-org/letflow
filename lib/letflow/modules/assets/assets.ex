@@ -23,7 +23,10 @@ defmodule Letflow.Modules.Assets do
   names are `Letflow.Modules.Assets.Views`, and three read routes (`balances`, `movements`,
   `reconcile`) live in `Letflow.Modules.Assets.Router`. The permissions `AssetsPost`, `AssetsReverse`,
   `AssetsRead` and `AssetsReconcile` have no role grants, so only TENANT_ADMIN and PLATFORM_ADMIN hold
-  them. Nothing posts to the ledger yet (documents: REQ-752, REQ-753). The storage is created at
+  them. The commission document (C10, version 0.6.0, REQ-751 / REQ-752) is the first poster:
+  record types `assets_commission`, `assets_commission_line` and `assets_posting_mark`, write handlers
+  `post_document` and `reverse_document`, process definitions `assets_commission` and
+  `assets_reversal`, seven `/documents` routes (`Letflow.Modules.Assets.Documents`). The storage is created at
   install by `Letflow.Modules.Installs`. A tenant that installed an earlier version (auto-CD deploys
   main to QA) has no `assets` partitions: the read routes answer empty lists, a posting would be
   refused `:ledger_storage_missing`, and the upgrade plan lists the ledger under `missing_ledger_storage`.
@@ -50,20 +53,34 @@ defmodule Letflow.Modules.Assets do
 
   import Letflow.Modules.Module, only: [defmanifest: 1]
 
+  alias Letflow.Documents
   alias Letflow.Modules.Assets.Reports
   alias Letflow.Modules.EntityActivation
-  alias Letflow.Modules.TenantModule
-  alias Letflow.Repo
-
-  @default_currency "KZT"
 
   # Must stay equal to `manages_entity_types` in the manifest below (defmanifest takes literals).
-  @types ["assets_card"]
+  @types ["assets_card", "assets_commission", "assets_commission_line", "assets_posting_mark"]
+
+  # GH #3891 / REQ-751: the document type of the commission (prefix ACM, numbering restarts each year).
+  @document_types [
+    %{
+      key: "assets_commission",
+      owner_module: "assets",
+      numbering_scope: :year,
+      number_prefix: "ACM",
+      number_pad: 6,
+      legal_entity_required: false,
+      declared_fields: %{}
+    }
+  ]
+
+  @doc "The document types this module registers at install (and lazily at the first save)."
+  @spec document_types() :: [map()]
+  def document_types, do: @document_types
 
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.5.0",
+    version: "0.6.0",
     depends_on: ["locations", "org"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
@@ -83,10 +100,58 @@ defmodule Letflow.Modules.Assets do
       {"POST", "/cards/:id/retire", :AssetsCardWrite},
       {"GET", "/balances", :AssetsRead},
       {"GET", "/movements", :AssetsRead},
-      {"GET", "/reconcile", :AssetsReconcile}
+      {"GET", "/reconcile", :AssetsReconcile},
+      {"POST", "/documents", :AssetsPost},
+      {"PUT", "/documents/:id", :AssetsPost},
+      {"DELETE", "/documents/:id", :AssetsPost},
+      {"POST", "/documents/:id/issue", :AssetsPost},
+      {"POST", "/documents/:id/reverse", :AssetsReverse},
+      {"GET", "/documents", :AssetsRead},
+      {"GET", "/documents/:id", :AssetsRead}
     ],
-    manages_entity_types: ["assets_card"],
-    scope_declarations: %{"assets_card" => {:column, "org_unit_id"}},
+    manages_entity_types: [
+      "assets_card",
+      "assets_commission",
+      "assets_commission_line",
+      "assets_posting_mark"
+    ],
+    scope_declarations: %{
+      "assets_card" => {:column, "org_unit_id"},
+      "assets_commission" => {:column, "org_unit_id"},
+      "assets_commission_line" => {:column, "org_unit_id"},
+      "assets_posting_mark" => {:column, "org_unit_id"}
+    },
+    write_handlers: [
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "post_document",
+        function: {Letflow.Modules.Assets.Handlers, :post_document},
+        targets: ["assets_posting_mark"],
+        args: %{
+          "document_id" => %{required: true},
+          "document_type" => %{required: true},
+          "version_no" => %{required: true},
+          "org_unit_id" => %{required: true},
+          "mark" => %{required: true},
+          "posting" => %{required: true}
+        },
+        posts_ledger: "assets"
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "reverse_document",
+        function: {Letflow.Modules.Assets.Handlers, :reverse_document},
+        targets: ["assets_posting_mark"],
+        args: %{
+          "document_id" => %{required: true},
+          "document_type" => %{required: true},
+          "version_no" => %{required: true},
+          "org_unit_id" => %{required: true},
+          "mark" => %{required: true},
+          "reason_code" => %{required: true},
+          "posting" => %{required: true}
+        },
+        posts_ledger: "assets"
+      }
+    ],
     ledger: %{
       "assets" => %{
         ledger_ids: {:fixed, ["assets"]},
@@ -135,37 +200,33 @@ defmodule Letflow.Modules.Assets do
 
   @impl true
   def on_install(prefix, _settings, ctx) do
-    with :ok <- EntityActivation.activate_and_promote(prefix, ctx, @types) do
+    with :ok <- EntityActivation.activate_and_promote(prefix, ctx, @types),
+         :ok <- register_document_types(prefix, ctx) do
       Reports.ensure_asset_list(prefix, ctx.actor_id)
     end
+  end
+
+  defp register_document_types(prefix, ctx) do
+    Enum.reduce_while(@document_types, :ok, fn attrs, :ok ->
+      case Documents.register_type(prefix, attrs, ctx) do
+        {:ok, _type} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   @doc """
   The tenant currency of the tenant schema `prefix`: the `currency` setting of the active `assets`
   install, `"KZT"` when the setting is absent or the module is not installed (D-097). The tenant
-  comes only from `prefix` (INV-1).
+  comes only from `prefix` (INV-1). Lives in `Letflow.Modules.Assets.Settings`.
   """
   @spec currency(prefix :: String.t()) :: String.t()
-  def currency(prefix) when is_binary(prefix) do
-    case Repo.get_by(TenantModule, [module_id: "assets", status: :active], prefix: prefix) do
-      %TenantModule{settings: %{"currency" => c}} when is_binary(c) and byte_size(c) == 3 -> c
-      _ -> @default_currency
-    end
-  end
+  defdelegate currency(prefix), to: Letflow.Modules.Assets.Settings
 
   @doc """
   The reminder lead time in days: the `expiry_reminder_lead_days` setting of the active `assets`
   install of `prefix`, `nil` when absent, invalid or the module is not installed (no default).
   """
   @spec expiry_lead_days(prefix :: String.t()) :: pos_integer() | nil
-  def expiry_lead_days(prefix) when is_binary(prefix) do
-    case Repo.get_by(TenantModule, [module_id: "assets", status: :active], prefix: prefix) do
-      %TenantModule{settings: %{"expiry_reminder_lead_days" => d}}
-      when is_integer(d) and d >= 1 and d <= 3650 ->
-        d
-
-      _ ->
-        nil
-    end
-  end
+  defdelegate expiry_lead_days(prefix), to: Letflow.Modules.Assets.Settings
 end

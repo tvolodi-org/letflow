@@ -2,7 +2,8 @@
  *  (NOTES.md "lf-journal"). Under 900 px the CSS shows the narrow variant named by `data-variant`; this component only
  *  sets the attributes, the scrim of the sheet variant and the Escape rule. It knows no module words: the list and the
  *  details come in as nodes built from JournalList and JournalDetails. */
-import type { KeyboardEvent, ReactNode } from 'react'
+import { useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { SplitWrap, useSplit } from '../layout/Splitter'
 import {
   DEFAULT_JOURNAL_LAYOUT,
   DEFAULT_JOURNAL_VARIANT,
@@ -20,11 +21,38 @@ export interface JournalProps {
   filtersOpen: boolean
   /** Escape closes the open details. */
   onClose?: () => void
+  /** Screen id of the remembered layout (pane size, column widths), e.g. "stock.journal". */
+  layoutScreen: string
+  /** Name of the divider between the list and the details ("Movement details"). */
+  splitLabel: string
 }
+
+/** The same width rule as the CSS container query and the page: wide means the journal area is over 900 px. */
+const wide = (el: HTMLElement | null) => (el?.clientWidth ?? 0) > 900
 
 export function Journal(props: JournalProps) {
   const layout = props.layout ?? DEFAULT_JOURNAL_LAYOUT
   const variant = props.variant ?? DEFAULT_JOURNAL_VARIANT
+
+  const gridRef = useRef<HTMLDivElement>(null)
+  const layerRef = useRef<HTMLDivElement>(null)
+  useSplit(gridRef, layerRef, {
+    id: 'details',
+    screen: props.layoutScreen,
+    vars: ['--lf-pane-1'],
+    unit: 'pct',
+    sized: 'after',
+    min: [360],
+    flexMin: 460,
+    labels: [props.splitLabel],
+    // the V2 scrim is a third grid child and is not a pane
+    panes: () => {
+      const list = gridRef.current?.querySelector<HTMLElement>(':scope > .lf-jrn__list') ?? null
+      const det = gridRef.current?.querySelector<HTMLElement>(':scope > .lf-jrn__details') ?? null
+      return list && det ? [list, det] : []
+    },
+    enabled: () => wide(gridRef.current),
+  })
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key !== 'Escape' || !props.detailOpen || !props.onClose || e.defaultPrevented) return
@@ -32,7 +60,9 @@ export function Journal(props: JournalProps) {
   }
 
   return (
+    <SplitWrap layerRef={layerRef}>
     <div
+      ref={gridRef}
       className="lf-jrn"
       data-testid="journal"
       data-layout={layout}
@@ -45,5 +75,6 @@ export function Journal(props: JournalProps) {
       {props.list}
       {props.details}
     </div>
+    </SplitWrap>
   )
 }

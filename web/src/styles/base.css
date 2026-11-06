@@ -129,3 +129,7 @@ samp {
 /* T-1434: the "Official form" menu opens from the trigger's left edge and stays inside a narrow screen. */
 .lf-formmenu .lf-lang__menu { left: 0; right: auto; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
 .lf-formmenu .lf-lang__item { grid-template-columns: 1fr auto; }
+
+/* T-1442: the design's `.lf-content--fluid` (components.css, before `.lf-content`) loses to `.lf-content` on equal
+   specificity, so the cap stayed. Doubling the class restores the intended order; report to the design repo, then drop. */
+.lf-content.lf-content--fluid { max-width: none; }

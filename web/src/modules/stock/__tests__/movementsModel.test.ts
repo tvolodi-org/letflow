@@ -52,6 +52,18 @@ describe('S4-S6 quantity cell', () => {
   })
 })
 
+describe('J3-7 location column', () => {
+  it('first place, +n for the other places, empty when masked', () => {
+    expect(toJournalOps([row('a', [leg(1, '2')])], ctx)[0]).toMatchObject({ location: 'WH - Main', locationMore: 0 })
+    const two = toJournalOps([row('a', [leg(1, '-2'), leg(2, '2', { location: 'l2' })])], ctx)[0]
+    expect(two).toMatchObject({ location: 'WH - Main', locationMore: 1 })
+    const same = toJournalOps([row('a', [leg(1, '2'), leg(2, '3', { sku: 'i2' })])], ctx)[0]
+    expect(same).toMatchObject({ location: 'WH - Main', locationMore: 0 })
+    const m = toJournalOps([row('a', [{ leg_no: 1, quantity: '-4', unit_ref: 'm1', masked: true }])], ctx)[0]
+    expect(m).toMatchObject({ location: '', locationMore: 0 })
+  })
+})
+
 describe('helpers', () => {
   it('signOf / absQuantity / documentText', () => {
     expect(signOf('-0.000')).toBe('')

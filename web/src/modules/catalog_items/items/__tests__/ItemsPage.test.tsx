@@ -206,6 +206,22 @@ describe('A4/A6 details: references, Related, History', () => {
     expect(hist).toHaveTextContent('weird_type')
   })
 
+  it('H1-H3 History shows the cause once, the type only when it differs, then the number', async () => {
+    const rows = [
+      { entry_id: 'e1', posting_seq: 5, cause: 'receipt', document_type: 'stock_receipt', document_number: 'RCP-2026-000003', event_time: '2026-10-29T10:15:00Z' },
+      { entry_id: 'e2', posting_seq: 6, cause: 'count_difference', document_type: 'stock_count', document_number: 'CNT-9', event_time: '2026-10-29T10:16:00Z' },
+      { entry_id: 'e3', posting_seq: 7, cause: 'receipt', document_type: 'stock_receipt', event_time: '2026-10-29T10:17:00Z' },
+    ]
+    setup({ balances: BAL, movements: { rows, next_cursor: null } })
+    renderLots(`${ITEMS}?item=${I1}`)
+    const hist = await screen.findByTestId('registry-history')
+    const text = hist.textContent ?? ''
+    expect(text).toContain('Receipt · RCP-2026-000003')
+    expect(text).not.toMatch(/Receipt · Receipt/)
+    expect(text).toMatch(/Receipt(?! ·)/)
+    expect(text).toMatch(/· CNT-9/)
+  })
+
   it('empty stock and history show their lines; a 403 shows the no-permission line', async () => {
     renderLots(`${ITEMS}?item=${I1}`)
     expect(await screen.findByTestId('registry-related-empty')).toBeInTheDocument()
