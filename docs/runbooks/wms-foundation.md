@@ -82,7 +82,11 @@ was written.
     only (`Letflow.Modules.Installs`), so such a tenant has no `org_employee` or `org_position`
     definition, and reactivating an uninstalled org there answers `upgrade_required`
     (`check_reactivatable/2`). The upgrade is owed by REQ-642 point 7, in the shape of
-    `Letflow.Modules.Exam.ParentRollout`; no phase A entry builds it (GH #3584).
+    `Letflow.Modules.Exam.ParentRollout`; no phase A entry builds it (GH #3584). REQ-770 adds the generic
+    upgrade for modules that declare `min_upgradable_from` and no migration steps (stock does): plan with
+    `POST /api/v1/tenant/modules/:module_id/upgrade/plan`, then apply with `POST .../upgrade`
+    (`Letflow.ModuleUpgrade.Apply`). It does not re-run `on_install/3` seeds, so a document type that a newer
+    stock version registers on install is not registered for an upgraded tenant until REQ-773 steps exist.
 12. **Legal companies and sites have owner-path write functions (routes: item 14).**
     `Letflow.Modules.Org.create_legal_entity/3`, `update_legal_entity/4`, `retire_legal_entity/3`,
     `create_site/3`, `update_site/4` and `retire_site/3` (logic in `Letflow.Modules.Org.Masters`,

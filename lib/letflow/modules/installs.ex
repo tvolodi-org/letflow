@@ -549,6 +549,117 @@ defmodule Letflow.Modules.Installs do
     end
   end
 
+  @doc """
+  REQ-770 (`Letflow.ModuleUpgrade.Apply`, inside the caller's transaction): writes the definitions of a
+  module upgrade that has no data steps. `selection` is `%{entities: [name], processes: [{key,
+  pack_version}], to_version: version}`, derived by the caller from a fresh upgrade plan:
+
+  1. creates the inactive, stamped entity-definition versions for `selection.entities` (new types and
+     new versions only; a type whose logical shape the tenant already stores is left as it is),
+  2. activates each of them in the order given, `rationale` verbatim into the activation trail,
+  3. creates the selected process definitions as stamped DRAFTS (never activated),
+  4. ensures the module's ledger storage (the same call as install and reactivate).
+
+  Returns `{:ok, %{entity_versions: n, process_drafts: ["key@version"], ledger_ids: n,
+  compiled_manifest_hash: hash}}`, `{:error, {:activation_refused, name, reason}}`,
+  `{:error, :storage_refused}` or `{:error, reason}`. Does not re-run `on_install/3` (a new seed is a
+  step, decision 0055 D2) and writes no `tenant_modules` row. Schema source: `opts[:prefix]` only (INV-1).
+  """
+  @spec apply_upgrade_pack(
+          module_id :: String.t(),
+          actor_id :: Ecto.UUID.t(),
+          rationale :: String.t(),
+          selection :: map(),
+          opts()
+        ) :: {:ok, map()} | {:error, term()}
+  def apply_upgrade_pack(module_id, actor_id, rationale, selection, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    with {:ok, entry_module} <- fetch_module(module_id),
+         manifest = entry_module.manifest(),
+         owner = ManagedTypes.module_owner(entry_module),
+         {:ok, document} <- upgrade_pack_document(manifest),
+         {:ok, created} <-
+           upgrade_entity_versions(document, selection.entities, actor_id, prefix, owner),
+         :ok <- activate_upgraded(created, actor_id, rationale, prefix),
+         {:ok, drafts} <-
+           SolutionPack.install_process_drafts(
+             document,
+             selection.processes,
+             actor_id,
+             [prefix: prefix, draft_suffix: selection.to_version],
+             owner
+           ),
+         {:ok, ledger_ids} <- upgrade_ledger_storage(entry_module, prefix) do
+      {:ok,
+       %{
+         entity_versions: length(created),
+         process_drafts: drafts,
+         ledger_ids: ledger_ids,
+         compiled_manifest_hash: owner.manifest_hash
+       }}
+    end
+  end
+
+  defp upgrade_pack_document(manifest) do
+    case Map.get(manifest, :pack) do
+      pack_path when is_binary(pack_path) -> read_pack_document(pack_path)
+      _no_pack -> {:ok, %{}}
+    end
+  end
+
+  # The names (in `names` order) of the versions created. A type whose logical shape the tenant already
+  # stores (a description or display-name change, a reordering) gets no new version: the stored text stays.
+  defp upgrade_entity_versions(_document, [], _actor_id, _prefix, _owner), do: {:ok, []}
+
+  defp upgrade_entity_versions(document, names, actor_id, prefix, owner) do
+    case SolutionPack.install_entity_definitions(
+           document,
+           names,
+           actor_id,
+           [prefix: prefix, skip_existing_shape: true],
+           owner
+         ) do
+      {:ok, created} ->
+        created_names = MapSet.new(created, & &1.name)
+        {:ok, Enum.filter(names, &MapSet.member?(created_names, &1))}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp activate_upgraded(names, actor_id, rationale, prefix) do
+    Enum.reduce_while(names, :ok, fn name, :ok ->
+      case Letflow.Entities.Definitions.activate_definition(name, actor_id, rationale, prefix) do
+        {:ok, _activated} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:activation_refused, name, reason_code(reason)}}}
+      end
+    end)
+  end
+
+  # A closed shape for the failure: never a changeset, exception or SQL text (INV-8).
+  defp reason_code(reason) when is_atom(reason), do: reason
+  defp reason_code({code, _detail}) when is_atom(code), do: code
+  defp reason_code(_other), do: :unknown
+
+  defp upgrade_ledger_storage(entry_module, prefix) do
+    case ensure_ledger_storage(entry_module, prefix) do
+      :ok ->
+        {:ok,
+         entry_module.manifest()
+         |> Map.get(:ledger, %{})
+         |> Map.values()
+         |> Enum.flat_map(fn %{ledger_ids: {:fixed, ids}} -> ids end)
+         |> Enum.uniq()
+         |> length()}
+
+      {:error, {:ledger_contract, reason}} ->
+        Logger.error("module upgrade: ledger storage refused (reason=#{inspect(reason)})")
+        {:error, :storage_refused}
+    end
+  end
+
   defp replace_entity_json(%{"entity_definitions" => entries} = document, name, definition_json)
        when is_list(entries) do
     if Enum.any?(entries, &(is_map(&1) and &1["name"] == name)) do
