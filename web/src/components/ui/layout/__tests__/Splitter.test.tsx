@@ -156,6 +156,19 @@ describe('attachSplit', () => {
   })
 })
 
+describe('defaults option', () => {
+  it('P2 defaults:[60] is applied while nothing is stored, a key press wins, reset returns to it and stores null', () => {
+    const { handle, container } = setup({ defaults: [60] })
+    expect(container.style.getPropertyValue('--lf-pane-1')).toBe('60%')
+    expect(store.getPanes('scr', 'sp')).toBeNull()
+    act(() => void handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })))
+    expect(container.style.getPropertyValue('--lf-pane-1')).toBe('61%')
+    expect(store.getPanes('scr', 'sp')).toEqual([61])
+    act(() => void handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })))
+    expect(container.style.getPropertyValue('--lf-pane-1')).toBe('60%')
+  })
+})
+
 describe('layoutMessages', () => {
   it('has the same keys in en, ru and kk, all non-empty', () => {
     const keys = Object.keys(layoutMessages.en).sort()
