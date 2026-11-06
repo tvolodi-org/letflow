@@ -35,7 +35,7 @@ const MOVEMENTS = [
   { entry_id: 'en-3', posting_seq: 1041, cause: 'issue', document_type: 'stock_issue', document_id: 'doc-3', document_number: 'ISS-2026-000031', event_time: '2026-11-05T15:05:00Z', legs: [leg(1, '-3.000', 'l1')] },
 ]
 
-const routes: FixtureRoute[] = [
+export const routes: FixtureRoute[] = [
   {
     match: (path, method) => path === '/api/v1/entities/query' && method === 'POST',
     reply: (_state, _p, body) => {
@@ -64,11 +64,11 @@ const AUTH = {
   isAuthenticated: true,
 } as unknown as AuthContextValue
 
-function withAuth(page: ReactElement): ReactElement {
+export function withAuth(page: ReactElement, fluid = false): ReactElement {
   return (
     <AuthContext.Provider value={AUTH}>
       <div className="lf-main">
-        <main className="lf-content">{page}</main>
+        <main className={fluid ? 'lf-content lf-content--fluid' : 'lf-content'}>{page}</main>
       </div>
     </AuthContext.Provider>
   )

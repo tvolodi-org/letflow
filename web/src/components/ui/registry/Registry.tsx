@@ -2,7 +2,7 @@
  *  the registry", rule 12). Viewing, editing and creating a record happen in the details pane, never in a modal.
  *  Under 900 px the selected record replaces the list (`data-detail="open"`, back button in the head). The shell knows
  *  no module words: the list and the details come in as nodes, built from the pieces of this folder. */
-import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useState, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import { Tabs, type TabItem } from '../Tabs'
 import { DEFAULT_REGISTRY_LAYOUT, REGISTRY_LAYOUTS, type RegistryLayout } from './registryLayouts'
 
@@ -25,6 +25,8 @@ export interface RegistryProps {
   detailOpen: boolean
   /** Escape closes the open record (rule 2a). */
   onClose?: () => void
+  /** Ref of the root `div.lf-reg` (the splitter attaches to it). */
+  gridRef?: Ref<HTMLDivElement>
 }
 
 export function Registry(props: RegistryProps) {
@@ -42,6 +44,7 @@ export function Registry(props: RegistryProps) {
 
   return (
     <div
+      ref={props.gridRef}
       className="lf-reg"
       data-testid="registry"
       data-layout={layout}

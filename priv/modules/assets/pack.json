@@ -127,6 +127,192 @@
       },
       "process_key": "assets_reversal",
       "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0081-000000003889",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "assets"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_change",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0082-000000003889",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "assets"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_handover",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0083-000000003889",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "post"
+          },
+          {
+            "id": "e2",
+            "source": "post",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "assets"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "post",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_writeoff",
+      "version": "1.0.0"
     }
   ],
   "entity_definitions": [
@@ -358,6 +544,388 @@
     },
     {
       "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11), docs/assets/asset-workflow-documents.md. The header of a change of the material responsible or the actual user at one place (cause change, prefix ACH). It is written only by module assets (managed type), same shape rules as assets_commission: document_id is the id of the versioned document that carries state and number; org_unit_id is the issuing (handing) org unit, the scope column. Master ids are record ids of other modules (no foreign key; checked at issue). After issue nothing of the header changes. No price or value is stored.",
+        "display_name": "Asset change of responsible or user (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "type": "string"
+          },
+          {
+            "name": "from_material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "to_material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_assets_change_document_id"
+          }
+        ],
+        "name": "assets_change"
+      },
+      "display_name": "Asset change of responsible or user (header)",
+      "entity_definition_id": "37944175-2ab4-2d49-9af6-ff65abd1880b",
+      "logical_shape_version": "781ab197eb903fb7854cad1c2479c3b3b14fb50aa9a57462abb5db535d389ff5",
+      "name": "assets_change"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11). One line of a change of the material responsible or the actual user at one place (cause change, prefix ACH): one asset card and a quantity. header_id is the record_id of the assets_change header; the foreign key promotes it to a uuid column with ON DELETE RESTRICT. org_unit_id is the header's value copied by the module (scope column). Written only by module assets; after issue nothing of a line changes.",
+        "display_name": "Asset change of responsible or user (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "asset_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_assets_change_line_header_id",
+            "references_entity": "assets_change"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_assets_change_line_header_id"
+          }
+        ],
+        "name": "assets_change_line"
+      },
+      "display_name": "Asset change of responsible or user (line)",
+      "entity_definition_id": "dc4ebf42-dfdf-9f92-6dbc-16711bac35f7",
+      "logical_shape_version": "b60b46e2bebfed2cc92bc48ed70f27a23e2e17d88fc2a6933fd010d402dd9fb7",
+      "name": "assets_change_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11), docs/assets/asset-workflow-documents.md. The header of a hand over of assets to another org unit or location (cause handover, prefix AHO). It is written only by module assets (managed type), same shape rules as assets_commission: document_id is the id of the versioned document that carries state and number; org_unit_id is the issuing (handing) org unit, the scope column. Master ids are record ids of other modules (no foreign key; checked at issue). After issue nothing of the header changes. No price or value is stored.",
+        "display_name": "Asset hand over (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_location_id",
+            "type": "string"
+          },
+          {
+            "name": "from_material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "from_actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "to_org_unit_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_location_id",
+            "type": "string"
+          },
+          {
+            "name": "to_material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "to_actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_assets_handover_document_id"
+          }
+        ],
+        "name": "assets_handover"
+      },
+      "display_name": "Asset hand over (header)",
+      "entity_definition_id": "5978e078-c553-7d98-530c-52a48101f7aa",
+      "logical_shape_version": "0cc7c268f844a2a95d62dd406fd7956b392cb5e46d0d5f4721c4b5e1fd394186",
+      "name": "assets_handover"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11). One line of a hand over of assets to another org unit or location (cause handover, prefix AHO): one asset card and a quantity. header_id is the record_id of the assets_handover header; the foreign key promotes it to a uuid column with ON DELETE RESTRICT. org_unit_id is the header's value copied by the module (scope column). Written only by module assets; after issue nothing of a line changes.",
+        "display_name": "Asset hand over (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "asset_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_assets_handover_line_header_id",
+            "references_entity": "assets_handover"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_assets_handover_line_header_id"
+          }
+        ],
+        "name": "assets_handover_line"
+      },
+      "display_name": "Asset hand over (line)",
+      "entity_definition_id": "5dd089cc-1889-259a-aeb4-98bb31ef8128",
+      "logical_shape_version": "87a6a65b8684c8cd81d94fa965022be0a9faa3342f064f931f69350c663a8cfa",
+      "name": "assets_handover_line"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11), docs/assets/asset-workflow-documents.md. The header of a write off of assets (cause writeoff, prefix AWO). It is written only by module assets (managed type), same shape rules as assets_commission: document_id is the id of the versioned document that carries state and number; org_unit_id is the issuing (handing) org unit, the scope column. Master ids are record ids of other modules (no foreign key; checked at issue). After issue nothing of the header changes. No price or value is stored.",
+        "display_name": "Asset write off (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "type": "string"
+          },
+          {
+            "name": "material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "actual_user_id",
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "disposed",
+              "lost",
+              "broken",
+              "expired",
+              "other"
+            ],
+            "name": "reason_code",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "reason_text",
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_assets_writeoff_document_id"
+          }
+        ],
+        "name": "assets_writeoff"
+      },
+      "display_name": "Asset write off (header)",
+      "entity_definition_id": "4c507871-b38f-45fe-b1e0-3a4c0803d68e",
+      "logical_shape_version": "e684051352ac72fc986cf1c1531ad38d06936dd2bd4d25322f0079f20050d6d3",
+      "name": "assets_writeoff"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3889 / REQ-753 (assets C11). One line of a write off of assets (cause writeoff, prefix AWO): one asset card and a quantity. header_id is the record_id of the assets_writeoff header; the foreign key promotes it to a uuid column with ON DELETE RESTRICT. org_unit_id is the header's value copied by the module (scope column). Written only by module assets; after issue nothing of a line changes.",
+        "display_name": "Asset write off (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "asset_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_assets_writeoff_line_header_id",
+            "references_entity": "assets_writeoff"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_assets_writeoff_line_header_id"
+          }
+        ],
+        "name": "assets_writeoff_line"
+      },
+      "display_name": "Asset write off (line)",
+      "entity_definition_id": "d2a1ac9d-33bf-c4b1-3c36-6abb83461ba1",
+      "logical_shape_version": "ad864aeb6498c298a68c188ce6ebe65ac74558d51b899a1fc098eb4bcf841158",
+      "name": "assets_writeoff_line"
+    },
+    {
+      "definition_json": {
         "constraints": [
           {
             "fields": [
@@ -423,5 +991,5 @@
   "pack_id": "letflow-assets",
   "service_catalog_entries": [],
   "variable_schemas": [],
-  "version": "0.2.0"
+  "version": "0.3.0"
 }
