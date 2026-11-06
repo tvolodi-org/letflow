@@ -81,7 +81,7 @@ export function BalanceHistoryPanel({ row, asOf = '', onClose, name }: BalanceHi
           <Button variant="ghost" size="sm" iconOnly label={t('stock.history.close')} icon={<X className="lf-icon" aria-hidden="true" />} onClick={onClose} data-testid="history-close" />
         }
       />
-      <div className="lf-card__body">
+      <div className="lf-card__body lf-form">
       <dl className="lf-dl" data-testid="history-facts">
         <dt>{t('stock.col.orgUnit')}</dt>
         <dd>{name('org_unit', row.org_unit)}</dd>

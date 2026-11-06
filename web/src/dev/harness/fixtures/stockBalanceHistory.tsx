@@ -76,6 +76,14 @@ function withAuth(page: ReactElement): ReactElement {
 
 const open = <BalancesPage initialSelectedId="i1|l1|u1|e1|t1|m1" />
 
+/** The movements route always fails: the panel's own error banner and retry, with the balances list intact. */
+const failingRoutes: FixtureRoute[] = routes.map((r) =>
+  r.match('/api/v1/modules/stock/movements', 'GET')
+    ? { ...r, reply: () => ({ status: 500, body: { error: 'internal' } }) }
+    : r,
+)
+
 export const stockBalanceHistoryScreens: HarnessScreen[] = [
   { name: 'stock-balance-history', routes, render: () => withAuth(open) },
+  { name: 'stock-balance-history-failing', routes: failingRoutes, render: () => withAuth(open) },
 ]
