@@ -86,5 +86,5 @@ function withAuth(page: ReactElement): ReactElement {
 export const stockScreens: HarnessScreen[] = [
   { name: 'stock-balances', routes, render: () => withAuth(<BalancesPage />) },
   { name: 'stock-movements', routes, render: () => withAuth(<MovementsPage />) },
-  { name: 'stock-movements-legs', routes, render: () => withAuth(<MovementsPage initialOpenId="en-1" />) },
+  { name: 'stock-movements-legs', routes, render: () => withAuth(<MovementsPage initialSelectedId="en-1" />) },
 ]

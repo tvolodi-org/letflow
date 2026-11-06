@@ -127,6 +127,8 @@ defmodule Letflow.Ledger.TenancyTest do
 
       # REQ-637 part A: the entry insert's unique-index backstop of the reversal target.
       # REQ-637 part B: authorize/3 catching ScopeSetError (fail closed). Both in ledger.ex.
+      # REQ-764 adds a third `handler_post.ex` rescue: the posting guard call fails closed on a raise
+      # (the exit and throw are caught with `catch`).
       # REQ-685 adds two total-function guards: `authority.ex` fails closed when the scope
       # expansion raises its own `ScopeSetError`, and `handler_post.ex` turns a raise of the pure
       # core validation on a malformed policy result into the typed shape refusal.
@@ -135,6 +137,7 @@ defmodule Letflow.Ledger.TenancyTest do
                  "lib/letflow/ledger.ex",
                  "lib/letflow/ledger.ex",
                  "lib/letflow/ledger/authority.ex",
+                 "lib/letflow/ledger/handler_post.ex",
                  "lib/letflow/ledger/handler_post.ex"
                ]
     end

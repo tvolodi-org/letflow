@@ -2,7 +2,7 @@ defmodule Letflow.Modules.FixtureLedgerPost do
   @moduledoc """
   Test-only entry module (REQ-684 / GH #3698, decision 0073 slice L3a): declares two valid ledger
   registrations, `alpha` (fixed ledger id `fixture_ledger_post`) and `beta`
-  (`fixture_ledger_post:beta`), so the later slices can post two ledgers in one transaction. It has
+  (`fixture_ledger_post:beta`), so the later slices can post two ledgers in one transaction (`beta` also declares a REQ-764 posting guard). It has
   its own four permission atoms (no role is granted any of them), one error alias on `alpha`, a
   policy in `ledger_policy/`, two posting handlers and a plain `create/3` handler. One pack (REQ-685: only the `fxlp_note` entity type), no
   `on_install`, no router. Registered only in `config/test.exs`, last in the list.
@@ -100,7 +100,9 @@ defmodule Letflow.Modules.FixtureLedgerPost do
         },
         scope_slot: nil,
         max_event_lateness_hours: 96,
-        policy: {Letflow.Modules.FixtureLedgerPost.LedgerPolicy, :declare}
+        error_aliases: %{"posting_held" => "fxlp_held"},
+        policy: {Letflow.Modules.FixtureLedgerPost.LedgerPolicy, :declare},
+        posting_guard: {Letflow.Modules.FixtureLedgerPost.PostingGuard, :check}
       }
     }
   )

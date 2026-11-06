@@ -51,6 +51,16 @@ defmodule Letflow.TenantProvisioner.RealmRequestTest do
     refute json =~ "realm-management"
   end
 
+  test "the realm roles the builder emits equal the closed role list minus PLATFORM_ADMIN" do
+    roles = RealmRequest.template() |> get_in(["roles", "realm"]) |> Enum.map(& &1["name"])
+
+    expected =
+      Enum.map(Letflow.Api.Authorization.roles(), &Atom.to_string/1) -- ["PLATFORM_ADMIN"]
+
+    assert Enum.sort(roles) == Enum.sort(expected)
+    assert "STOREKEEPER" in roles
+  end
+
   test "an invalid owner e-mail is refused" do
     assert {:error, :invalid_owner_email} == build(email: "not-an-email")
   end

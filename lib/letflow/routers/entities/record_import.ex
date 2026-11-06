@@ -831,6 +831,24 @@ defmodule Letflow.Routers.Entities.RecordImport do
     %{"type" => Atom.to_string(reason)}
   end
 
+  # REQ-762: the asset card import's constant refusals (no cell text).
+  defp import_reason_json(reason)
+       when reason in [
+              :asset_kind_invalid,
+              :asset_valid_until_not_allowed,
+              :asset_kind_locked,
+              :asset_currency_mismatch,
+              :asset_inventory_number_taken,
+              :asset_row_invalid,
+              :card_inactive
+            ] do
+    %{"type" => Atom.to_string(reason)}
+  end
+
+  defp import_reason_json({:asset_field_required, header}) when is_binary(header) do
+    %{"type" => "asset_field_required", "header" => header}
+  end
+
   defp import_reason_json({:line_invalid, nil}), do: %{"type" => "line_invalid"}
 
   defp import_reason_json({:line_invalid, field}) when is_binary(field) do
