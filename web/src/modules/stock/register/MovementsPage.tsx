@@ -55,9 +55,10 @@ interface InnerProps {
   initialSelectedId: string | null
   variant: JournalVariant
   initialDetail: boolean
+  initialFiltersOpen: boolean
 }
 
-function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDetail }: InnerProps) {
+function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDetail, initialFiltersOpen }: InnerProps) {
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
   const { session } = useAuth()
@@ -73,7 +74,7 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
   const [selectedId, setSelectedId] = useState<string | null>(initialOpenId ?? initialSelectedId)
   const [expandedId, setExpandedId] = useState<string | null>(variant === 'v1' ? initialOpenId : null)
   const [detailOpen, setDetailOpen] = useState(initialDetail && (initialOpenId ?? initialSelectedId) !== null)
-  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(initialFiltersOpen)
   const [focusRow, setFocusRow] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportFailed, setExportFailed] = useState(false)
@@ -352,10 +353,20 @@ export default function MovementsPage({
   initialSelectedId,
   variant = DEFAULT_JOURNAL_VARIANT,
   initialDetail = false,
-}: { initialOpenId?: string; initialSelectedId?: string; variant?: JournalVariant; initialDetail?: boolean } = {}) {
+  initialFiltersOpen = false,
+}: {
+  initialOpenId?: string
+  initialSelectedId?: string
+  variant?: JournalVariant
+  initialDetail?: boolean
+  initialFiltersOpen?: boolean
+} = {}) {
   return (
     <StockIntlProvider>
-      <MovementsInner initialOpenId={initialOpenId ?? null} initialSelectedId={initialSelectedId ?? null} variant={variant} initialDetail={initialDetail} />
+      <MovementsInner
+        initialOpenId={initialOpenId ?? null} initialSelectedId={initialSelectedId ?? null} variant={variant} initialDetail={initialDetail}
+        initialFiltersOpen={initialFiltersOpen}
+      />
     </StockIntlProvider>
   )
 }

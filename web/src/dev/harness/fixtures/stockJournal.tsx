@@ -104,6 +104,7 @@ export const stockJournalScreens: HarnessScreen[] = [
   { name: 'stock-journal-split', routes, render: () => shell(<MovementsPage initialSelectedId="jr-1" />) },
   { name: 'stock-journal-v1-expanded', routes, render: () => shell(<MovementsPage initialOpenId="jr-2" />) },
   { name: 'stock-journal-v3-details', routes, render: () => shell(<MovementsPage initialSelectedId="jr-1" initialDetail />) },
+  { name: 'stock-journal-v1-filters', routes, render: () => shell(<MovementsPage initialFiltersOpen />) },
   { name: 'stock-journal-noperm', routes: noPermRoutes, render: () => shell(<MovementsPage />) },
   { name: 'stock-journal-v2-sheet', routes, render: () => shell(<MovementsPage variant="v2" initialSelectedId="jr-1" initialDetail />) },
 ]

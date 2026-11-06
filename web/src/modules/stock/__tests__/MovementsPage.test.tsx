@@ -2,8 +2,11 @@
 /** M1–M5 — GH 3767 / REQ-724; M7–M9, JP — T-1422 (GATE B R12): the movements screen on the journal component (network mocked). */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
+import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
+import MovementsPage from '../register/MovementsPage'
 import { MOV, fakeMasters, renderStock, routeCalls } from './stockTestKit'
 import { saveBlob } from '../register/saveBlob'
 
@@ -48,6 +51,23 @@ const stockGet = (routes: Record<string, unknown>) =>
     if (path in routes) return routes[path]
     throw { status: 404, message: 'x', code: '404' }
   })
+
+describe('T-1439 filters drawer at first render', () => {
+  it('initialFiltersOpen opens the filters; closed by default', async () => {
+    const view = (open: boolean) => (
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter><MovementsPage initialFiltersOpen={open} /></MemoryRouter>
+      </QueryClientProvider>
+    )
+    const first = render(view(false))
+    await rowsOf()
+    expect(document.querySelector('[data-filters]')?.getAttribute('data-filters')).toBe('closed')
+    first.unmount()
+    render(view(true))
+    await rowsOf()
+    expect(document.querySelector('[data-filters]')?.getAttribute('data-filters')).toBe('open')
+  })
+})
 
 describe('M1 query keys', () => {
   it('filters send only cause, document_type, document_id, from_seq and to_seq', async () => {
