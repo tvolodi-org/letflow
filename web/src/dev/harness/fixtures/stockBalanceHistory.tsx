@@ -64,11 +64,11 @@ const AUTH = {
   isAuthenticated: true,
 } as unknown as AuthContextValue
 
-export function withAuth(page: ReactElement): ReactElement {
+export function withAuth(page: ReactElement, fluid = false): ReactElement {
   return (
     <AuthContext.Provider value={AUTH}>
       <div className="lf-main">
-        <main className="lf-content">{page}</main>
+        <main className={fluid ? 'lf-content lf-content--fluid' : 'lf-content'}>{page}</main>
       </div>
     </AuthContext.Provider>
   )

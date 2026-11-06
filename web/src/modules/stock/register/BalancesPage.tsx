@@ -40,13 +40,13 @@ const ACTIVE_ONLY: never[] = []
 
 /** Default widths (percent, the last column is the flexible one) and smallest widths (px) of the list columns. */
 const LIST_COLS = [
-  { id: 'sku', w: 24, min: 120 },
-  { id: 'location', w: 18, min: 100 },
-  { id: 'org_unit', w: 14, min: 80 },
-  { id: 'responsible', w: 14, min: 80 },
-  { id: 'lot', w: 10, min: 70 },
-  { id: 'unit', w: 6, min: 48 },
-  { id: 'quantity', w: 0, min: 90 },
+  { id: 'sku', w: 22, min: 120 },
+  { id: 'location', w: 17, min: 100 },
+  { id: 'org_unit', w: 13, min: 90 },
+  { id: 'responsible', w: 13, min: 90 },
+  { id: 'lot', w: 10, min: 80 },
+  { id: 'unit', w: 10, min: 110 },
+  { id: 'quantity', w: 0, min: 100 },
 ]
 
 const rowId = (r: BalanceRow) => `${r.sku}|${r.location}|${r.org_unit}|${r.responsible ?? ''}|${r.lot ?? ''}|${r.unit_ref}`
@@ -163,6 +163,7 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
     id: 'list',
     screen: 'stock.balances',
     cols: LIST_COLS,
+    minTable: true,
     enabled: () => isWideHost(gridRef.current),
   })
 

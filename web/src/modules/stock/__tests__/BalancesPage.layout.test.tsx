@@ -131,6 +131,15 @@ describe('C columns', () => {
     expect(table.querySelectorAll('.lf-colhandle')).toHaveLength(6)
   })
 
+  it('C5 minTable: both tables get a min width from the column minimums (scroll, not a cut value)', async () => {
+    await loaded()
+    const list = screen.getAllByRole('table')[0]
+    await waitFor(() => expect(list.style.minWidth).toBe('690px'))
+    fireEvent.click(screen.getByTestId('datatable-row'))
+    const panel = await screen.findByTestId('balance-history')
+    await waitFor(() => expect((panel.querySelector('table') as HTMLElement).style.minWidth).toBe('506px'))
+  })
+
   it('C2 history table: 4 handles; Enter resets a changed width', async () => {
     await loaded()
     fireEvent.click(screen.getByTestId('datatable-row'))
@@ -139,11 +148,11 @@ describe('C columns', () => {
     await waitFor(() => expect(panel.querySelectorAll('.lf-colhandle')).toHaveLength(4))
     const th = panel.querySelector('th[data-col=time]') as HTMLElement
     const h = th.querySelector('.lf-colhandle') as HTMLElement
-    expect(th.style.width).toBe('24%')
+    expect(th.style.width).toBe('32%')
     key(h, 'ArrowRight')
-    expect(th.style.width).not.toBe('24%')
+    expect(th.style.width).not.toBe('32%')
     key(h, 'Enter')
-    expect(th.style.width).toBe('24%')
+    expect(th.style.width).toBe('32%')
   })
 
   it('C3 a handle press does not sort a sortable header', async () => {

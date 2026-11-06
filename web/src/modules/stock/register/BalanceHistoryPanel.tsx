@@ -39,12 +39,12 @@ export function useBalanceHistory(row: BalanceRow) {
   return { query, lines: toHistoryLines(pages.flatMap((p) => p.rows), row) }
 }
 
-/** Default widths (percent, the last column is the flexible one) and smallest widths (px) of the history columns. */
+/** Default widths (percent of the table, which is never narrower than the sum of the smallest widths, so each default is at least its own minimum; the last column is the flexible one) and smallest widths (px) of the history columns. */
 const HISTORY_COLS = [
-  { id: 'time', w: 24, min: 110 },
-  { id: 'doc', w: 30, min: 110 },
-  { id: 'cause', w: 18, min: 80 },
-  { id: 'in', w: 14, min: 80 },
+  { id: 'time', w: 32, min: 160 },
+  { id: 'doc', w: 19, min: 96 },
+  { id: 'cause', w: 18, min: 90 },
+  { id: 'in', w: 16, min: 80 },
   { id: 'out', w: 0, min: 80 },
 ]
 
@@ -65,6 +65,7 @@ export function BalanceHistoryPanel({ row, asOf = '', onClose, name }: BalanceHi
     id: 'history',
     screen: 'stock.balances',
     cols: HISTORY_COLS,
+    minTable: true,
     enabled: () => isWideHost(tableRef.current?.closest<HTMLElement>('.lf-reg') ?? null),
   })
   const dash = t('stock.common.dash')
