@@ -133,3 +133,6 @@ samp {
 /* T-1442: the design's `.lf-content--fluid` (components.css, before `.lf-content`) loses to `.lf-content` on equal
    specificity, so the cap stayed. Doubling the class restores the intended order; report to the design repo, then drop. */
 .lf-content.lf-content--fluid { max-width: none; }
+
+/* T-1334: keep the close button beside the title in the register details panel (as the stock history panel). */
+.lf-reg__details .lf-detail-head { flex-wrap: nowrap; }
