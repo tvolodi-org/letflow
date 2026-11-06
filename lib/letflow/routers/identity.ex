@@ -357,7 +357,14 @@ defmodule Letflow.Routers.Identity do
              opts
            ) do
         {:ok, %{users: users, next_cursor: next_cursor}} ->
-          page = Pagination.page_response(Enum.map(users, &user_map/1), next_cursor)
+          roles = Identity.roles_by_user(Enum.map(users, & &1.id), opts)
+
+          items =
+            Enum.map(users, fn u ->
+              u |> user_map() |> Map.put("roles", Map.get(roles, u.id, []))
+            end)
+
+          page = Pagination.page_response(items, next_cursor)
           Response.ok(conn, page)
 
         {:error, :invalid_cursor} ->

@@ -23,6 +23,7 @@ export interface ItemMovementRow {
   posting_seq: number
   cause: string
   document_type?: string | null
+  document_number?: string | null
   event_time?: string | null
 }
 export interface ItemMovementsBody {
