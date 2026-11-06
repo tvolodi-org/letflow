@@ -367,7 +367,9 @@ defmodule Letflow.Engine do
   `tokens`; (6) the ENTITY-TYPE rows, ascending by entity type (decision 0054 D3: the type's
   `instance_sequences` row, then its synthetic projection row; no record row is locked, writes are
   create-only; the `scope_node_paths` table lock of rule 3a is not taken yet, no scoped type
-  exists); (7) X's `timers` rows (GH #2707: P-protected like the tokens, touched only while X's
+  exists; REQ-764: a guarded ledger posting then takes the SHARED advisory hold lock of its ledger id
+  and calls the registration's guard, which reads without a row lock, before the class 5b ledger
+  lock step; a module's own transaction takes the exclusive side and no ledger lock); (7) X's `timers` rows (GH #2707: P-protected like the tokens, touched only while X's
   projection is held, their order among themselves and against the tokens unconstrained);
   (8) the tenant-wide AUDIT CHAIN row (the first audit write of the transaction, held to
   commit); (9) the sequence rows: X's own, then the ancestors' (`EventStore.append/2`, the cascade);
@@ -9790,7 +9792,15 @@ defmodule Letflow.Engine do
       {:refused_detailed, index, code, wire, detail, details} ->
         task = Map.fetch!(changes, :task)
 
-        record_entity_write_refusal_audit(task, actor_id, index, code, detail, prefix)
+        # REQ-764: a posting held by the registration's guard writes `ledger.posting_held` (one
+        # audit entry, ids and labels only) instead of the generic refusal entry.
+        case reason do
+          {:ledger_held, facts, _refusal} ->
+            record_posting_held_audit(task, actor_id, facts, prefix)
+
+          _other ->
+            record_entity_write_refusal_audit(task, actor_id, index, code, detail, prefix)
+        end
 
         {:error, {:entity_write_refused_detailed, index, code, wire, details}}
 
@@ -9895,6 +9905,43 @@ defmodule Letflow.Engine do
         "recording entity_write.refused for task #{task.id} raised: #{inspect(exception)}"
       )
 
+      :ok
+  end
+
+  # REQ-764: the best-effort audit of a posting held by a ledger registration's guard, written
+  # AFTER the rollback in its own transaction (as record_entity_write_refusal_audit/6). Ids, the
+  # cause and the holder label only: no quantity and no slot value. A failed write is logged by
+  # tag and never changes the 409.
+  defp record_posting_held_audit(%Task{} = task, actor_id, facts, prefix) do
+    attrs = %{
+      actor_id: actor_id,
+      action: "ledger.posting_held",
+      resource_type: "task",
+      resource_id: task.id,
+      before_state: nil,
+      after_state: %{
+        "task_id" => task.id,
+        "module_id" => facts.module_id,
+        "ledger_id" => facts.ledger_id,
+        "cause" => facts.cause,
+        "document_type" => facts.document_type,
+        "document_id" => facts.document_id,
+        "held_by" => facts.held_by
+      },
+      trace_id: nil
+    }
+
+    case Repo.transaction(fn -> Audit.insert_entry(Repo, attrs, prefix) end) do
+      {:ok, {:ok, _entry}} ->
+        :ok
+
+      _other ->
+        Logger.warning("could not record ledger.posting_held for task #{task.id}")
+        :ok
+    end
+  rescue
+    _exception ->
+      Logger.warning("recording ledger.posting_held for task #{task.id} raised")
       :ok
   end
 

@@ -25,6 +25,12 @@ defmodule Letflow.Modules.Assets do
 
   **Currency** (D-097): the tenant currency is the module setting `currency` (three characters),
   `KZT` when absent. See `currency/1`.
+
+  **Import** (C17, REQ-762): `import_card/3` is the managed import function of `assets_card` (xlsx upsert by
+  external reference, spec `docs/assets/asset-xlsx.md`); see `Letflow.Modules.Assets.Import`.
+
+  **Expiry reminder** (C12): the module setting `expiry_reminder_lead_days` (1..3650, no default) is the
+  lead time of `Letflow.Modules.Assets.Reminders`; absent means no reminder. See `expiry_lead_days/1`.
   """
 
   @behaviour Letflow.Modules.Module
@@ -44,7 +50,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.2.0",
+    version: "0.4.0",
     depends_on: ["locations", "org"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite],
@@ -53,7 +59,8 @@ defmodule Letflow.Modules.Assets do
     settings_schema: %{
       "type" => "object",
       "properties" => %{
-        "currency" => %{"type" => "string", "minLength" => 3, "maxLength" => 3}
+        "currency" => %{"type" => "string", "minLength" => 3, "maxLength" => 3},
+        "expiry_reminder_lead_days" => %{"type" => "integer", "minimum" => 1, "maximum" => 3650}
       },
       "additionalProperties" => false
     },
@@ -63,8 +70,19 @@ defmodule Letflow.Modules.Assets do
       {"POST", "/cards/:id/retire", :AssetsCardWrite}
     ],
     manages_entity_types: ["assets_card"],
-    scope_declarations: %{"assets_card" => {:column, "org_unit_id"}}
+    scope_declarations: %{"assets_card" => {:column, "org_unit_id"}},
+    import_functions: [%{entity_type: "assets_card", function: :import_card}]
   )
+
+  @doc """
+  The import function of `assets_card` (GH #3899 / REQ-762, manifest `:import_functions`): one row of
+  a file, called by the core import route. See `Letflow.Modules.Assets.Import`; it writes only
+  through `Letflow.Modules.Assets.Cards`.
+  """
+  @spec import_card(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_card(prefix, entry, ctx),
+    do: Letflow.Modules.Assets.Import.import_card(prefix, entry, ctx)
 
   @impl true
   def router, do: Letflow.Modules.Assets.Router
@@ -86,6 +104,22 @@ defmodule Letflow.Modules.Assets do
     case Repo.get_by(TenantModule, [module_id: "assets", status: :active], prefix: prefix) do
       %TenantModule{settings: %{"currency" => c}} when is_binary(c) and byte_size(c) == 3 -> c
       _ -> @default_currency
+    end
+  end
+
+  @doc """
+  The reminder lead time in days: the `expiry_reminder_lead_days` setting of the active `assets`
+  install of `prefix`, `nil` when absent, invalid or the module is not installed (no default).
+  """
+  @spec expiry_lead_days(prefix :: String.t()) :: pos_integer() | nil
+  def expiry_lead_days(prefix) when is_binary(prefix) do
+    case Repo.get_by(TenantModule, [module_id: "assets", status: :active], prefix: prefix) do
+      %TenantModule{settings: %{"expiry_reminder_lead_days" => d}}
+      when is_integer(d) and d >= 1 and d <= 3650 ->
+        d
+
+      _ ->
+        nil
     end
   end
 end

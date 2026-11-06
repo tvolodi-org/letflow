@@ -200,6 +200,7 @@ defmodule Letflow.LedgerBoundariesTest do
             "authorize(a, b, c)",
             "balances(a, b, c, d)",
             "entries(a, b, c, d)",
+            "hold_exclusive!(a, b)",
             "reconcile(a, b, c)"
           ] do
         assert r8("def f(a, b, c, d), do: Letflow.Ledger.#{read}") == [], read
@@ -210,6 +211,14 @@ defmodule Letflow.LedgerBoundariesTest do
 
       assert r8("# Letflow.Ledger.post(1)\n@moduledoc \"Letflow.Ledger.post\"\ndef f, do: 1") ==
                []
+    end
+
+    test "T-SC-4f2 REQ-764 only hold_exclusive! is a read; the shared side and the guard helper are not" do
+      assert r8("def f(a, b), do: Letflow.Ledger.hold_shared!(a, b)") ==
+               [{:b, "Letflow.Ledger.hold_shared!"}]
+
+      assert r8("def f(a, b, c), do: Letflow.Ledger.guard_reversal(a, b, c)") ==
+               [{:b, "Letflow.Ledger.guard_reversal"}]
     end
 
     test "T-SC-4g the ledger namespace and the registration module are exempt by construction" do

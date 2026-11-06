@@ -24,6 +24,13 @@ defmodule Letflow.NotificationTemplates.Registry do
         "Hello {candidate_name}, the exam {exam_title} is assigned to you. " <>
           "Deadline: {deadline}. {tenant_name}"
     },
+    "asset_expiry_reminder" => %{
+      placeholders: ~w(asset_name asset_code expiry_date responsible_name tenant_name),
+      subject: "Asset expiry reminder: {asset_name}",
+      body:
+        "Hello {responsible_name}, the validity of the asset {asset_name} ({asset_code}) " <>
+          "ends on {expiry_date}. {tenant_name}"
+    },
     "exam_reminder" => %{
       placeholders: ~w(exam_title candidate_name deadline tenant_name),
       subject: "Exam reminder: {exam_title}",

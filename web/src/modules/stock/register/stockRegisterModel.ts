@@ -43,6 +43,7 @@ export interface BalanceFilters {
 }
 export interface MovementFilters {
   cause: string
+  document_type: string
   document_id: string
   from_seq: string
   to_seq: string
@@ -90,6 +91,7 @@ export function movementParams(f: MovementFilters): Record<string, string> {
   const bad = rangeError(f.from_seq, f.to_seq)
   return nonEmpty([
     ['cause', f.cause],
+    ['document_type', f.document_type],
     ['document_id', f.document_id],
     ['from_seq', bad ? '' : f.from_seq],
     ['to_seq', bad ? '' : f.to_seq],

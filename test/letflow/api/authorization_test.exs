@@ -76,6 +76,7 @@ defmodule Letflow.Api.AuthorizationTest do
       :ModulesManage,
       :MyModulesRead,
       :MyAccessRead,
+      :MyPreferencesSet,
       :EntitiesRestrictionsManage,
       :PlatformServicesManage,
       :TenantSettingsManage,
@@ -496,7 +497,8 @@ defmodule Letflow.Api.AuthorizationTest do
           52 => "fifty-two",
           53 => "fifty-three",
           54 => "fifty-four",
-          55 => "fifty-five"
+          55 => "fifty-five",
+          56 => "fifty-six"
         }
         |> Map.get(actual_count)
 
@@ -1110,7 +1112,8 @@ defmodule Letflow.Api.AuthorizationTest do
           52 => "fifty-two",
           53 => "fifty-three",
           54 => "fifty-four",
-          55 => "fifty-five"
+          55 => "fifty-five",
+          56 => "fifty-six"
         }
         |> Map.get(actual_count)
 
@@ -1615,7 +1618,8 @@ defmodule Letflow.Api.AuthorizationTest do
           52 => "fifty-two",
           53 => "fifty-three",
           54 => "fifty-four",
-          55 => "fifty-five"
+          55 => "fifty-five",
+          56 => "fifty-six"
         }
         |> Map.get(actual_count)
 
@@ -2463,6 +2467,7 @@ defmodule Letflow.Api.AuthorizationTest do
                    :ModulesManage,
                    :MyModulesRead,
                    :MyAccessRead,
+                   :MyPreferencesSet,
                    :EntitiesRestrictionsManage,
                    # ISS-0993: appended core permissions
                    :PlatformServicesManage,
@@ -2542,7 +2547,9 @@ defmodule Letflow.Api.AuthorizationTest do
       # CANDIDATE-specific one).
       :MyModulesRead,
       # REQ-449 — second role-agnostic grant, same mechanism.
-      :MyAccessRead
+      :MyAccessRead,
+      # T-1389 — third role-agnostic grant (the caller's own display preferences).
+      :MyPreferencesSet
     ]
 
     test "role_allows?/2 grants CANDIDATE exactly its eight permissions, denying every other live permission" do
@@ -2565,7 +2572,7 @@ defmodule Letflow.Api.AuthorizationTest do
                  "expected #{inspect(expected)} -- CANDIDATE must hold exactly its eight " <>
                  "ExamSession*/ExamCertificateIssue/MyModulesRead/MyAccessRead permissions and nothing else " <>
                  "(ISS-0646, decision 0013 addendum; REQ-355 added :ExamCertificateIssue, " <>
-                 "REQ-403 added :MyModulesRead, REQ-449 added :MyAccessRead to this set)"
+                 "REQ-403 added :MyModulesRead, REQ-449 added :MyAccessRead, T-1389 added :MyPreferencesSet to this set)"
       end
     end
 

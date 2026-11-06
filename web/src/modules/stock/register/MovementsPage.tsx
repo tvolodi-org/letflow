@@ -1,50 +1,82 @@
-/** MovementsPage — GH 3767 / REQ-724. Posted ledger entries, newest first in posting order, with their legs.
- *  Filters cause, document and posting range; a leg the route answers with masked true shows its quantity and
- *  unit and the words hidden unit. Times are shown in the tenant time zone (constant until REQ-703). */
-import { useState } from 'react'
+/** MovementsPage — GH 3767 / REQ-724, T-1422 (GATE B R12). Posted ledger entries on the lf-journal component:
+ *  operations on the left, the legs of the selected operation on the right; under 900 px the legs open inline (V1) and
+ *  a Details button opens the full-screen details with Back and previous/next. Filters: cause, document type,
+ *  document and posting range. Names and codes only (never an id); times in the tenant time zone (REQ-703 constant). */
+import { useEffect, useState, type ReactNode } from 'react'
 import { useIntl } from 'react-intl'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQueries } from '@tanstack/react-query'
+import {
+  ArrowLeftRight, ClipboardList, HandHelping, PackageMinus, PackageOpen, PackagePlus, RotateCcw, Trash2, Undo2,
+} from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
+import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
-import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { Field } from '@/components/ui/Field'
-import { FilterBar } from '@/components/ui/FilterBar'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/Select'
-import { StockIntlProvider } from '../StockIntlProvider'
-import { LoadMore, RegisterError } from './RegisterShell'
-import { stockApi, type MovementRow, type MovementsPageBody } from './stock.api'
-import { stockQueryKeys } from './stockQueryKeys'
+import { RegistryFields, RegistrySection } from '@/components/ui/registry'
 import {
-  CAUSES,
-  DOCUMENT_TYPES,
-  documentCell,
-  formatStockDateTime,
-  isMasked,
-  movementNameIds,
-  movementParams,
-  rangeError,
-  type MovementFilters,
+  DEFAULT_JOURNAL_VARIANT, Journal, JournalDetails, JournalList, type JournalOp, type JournalVariant,
+} from '@/components/ui/journal'
+import { StockIntlProvider } from '../StockIntlProvider'
+import { documentsApi } from '../documents/documents.api'
+import { LoadMore, RegisterError } from './RegisterShell'
+import { stockApi, type MovementsPageBody } from './stock.api'
+import { stockQueryKeys } from './stockQueryKeys'
+import { isDocumentUuid, toJournalOps } from './movementsModel'
+import {
+  CAUSES, DOCUMENT_TYPES, formatStockDateTime, movementNameIds, movementParams, rangeError, type MovementFilters,
 } from './stockRegisterModel'
 import { useNames } from './stockNames'
-import { formatQuantity } from '@/lib/formatQuantity'
+import { saveBlob } from './saveBlob'
 
 const digits = (v: string) => v.replace(/\D/g, '')
 
-function MovementsInner({ initialOpenId = null }: { initialOpenId?: string | null }) {
+const KIND_ICON: Record<string, ReactNode> = {
+  receipt: <PackagePlus className="lf-icon" aria-hidden="true" />,
+  issue: <PackageMinus className="lf-icon" aria-hidden="true" />,
+  write_off: <Trash2 className="lf-icon" aria-hidden="true" />,
+  transfer: <ArrowLeftRight className="lf-icon" aria-hidden="true" />,
+  hand_over: <HandHelping className="lf-icon" aria-hidden="true" />,
+  return: <Undo2 className="lf-icon" aria-hidden="true" />,
+  reversal: <RotateCcw className="lf-icon" aria-hidden="true" />,
+  opening: <PackageOpen className="lf-icon" aria-hidden="true" />,
+  count_difference: <ClipboardList className="lf-icon" aria-hidden="true" />,
+}
+
+/** The CSS switches the layout at 900 px; the behaviour of a row click follows the same width. */
+function isNarrow(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 900px)').matches
+}
+
+interface InnerProps {
+  initialOpenId: string | null
+  initialSelectedId: string | null
+  variant: JournalVariant
+  initialDetail: boolean
+}
+
+function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDetail }: InnerProps) {
   const intl = useIntl()
-  const t = (id: string) => intl.formatMessage({ id })
+  const t = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   const [search] = useSearchParams()
   const [filters, setFilters] = useState<MovementFilters>({
     cause: '',
+    document_type: '',
     document_id: (search.get('document_id') ?? '').trim(),
     from_seq: '',
     to_seq: '',
   })
-  const [openId, setOpenId] = useState<string | null>(initialOpenId)
+  const [selectedId, setSelectedId] = useState<string | null>(initialOpenId ?? initialSelectedId)
+  const [expandedId, setExpandedId] = useState<string | null>(variant === 'v1' ? initialOpenId : null)
+  const [detailOpen, setDetailOpen] = useState(initialDetail && (initialOpenId ?? initialSelectedId) !== null)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [focusRow, setFocusRow] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [exportFailed, setExportFailed] = useState(false)
   const patch = (p: Partial<MovementFilters>) => setFilters((f) => ({ ...f, ...p }))
   const badRange = rangeError(filters.from_seq, filters.to_seq)
 
@@ -60,48 +92,83 @@ function MovementsInner({ initialOpenId = null }: { initialOpenId?: string | nul
   const pages = query.data?.pages ?? []
   const rows = pages.flatMap((p) => p.rows)
   const name = useNames(pages.map((p) => movementNameIds(p.rows)))
-  const opened = rows.find((r) => r.entry_id === openId) ?? null
 
   const dash = t('stock.common.dash')
-  const when = (iso: string | null | undefined) => {
-    if (!iso) return dash
-    return formatStockDateTime(iso, { locale: intl.locale })
-  }
-  const known = (list: readonly string[], prefix: string, v: string) => (list.includes(v) ? t(`${prefix}.${v}`) : v)
+  const when = (iso: string | null | undefined) => (iso ? formatStockDateTime(iso, { locale: intl.locale }) : dash)
+  const ops = toJournalOps(rows, { name, t, when, kindIcon: (c) => KIND_ICON[c] ?? null })
+  const selectedRow = rows.find((r) => r.entry_id === selectedId) ?? null
+  const selectedOp = ops.find((o) => o.id === selectedId) ?? null
+  const index = selectedOp ? ops.indexOf(selectedOp) : -1
 
-  const columns: DataTableColumn<MovementRow>[] = [
-    { key: 'seq', label: t('stock.col.posting'), render: (r) => String(r.posting_seq), mono: true },
-    { key: 'time', label: t('stock.col.time'), render: (r) => when(r.event_time), mono: true },
-    { key: 'cause', label: t('stock.col.cause'), render: (r) => known(CAUSES, 'stock.cause', r.cause) },
-    { key: 'reason', label: t('stock.col.reason'), render: (r) => r.reason_code || dash },
-    {
-      key: 'doc',
-      label: t('stock.col.document'),
-      render: (r) => {
-        const cell = documentCell(r, (type) => known(DOCUMENT_TYPES, 'stock.docType', type))
-        if (!cell) return dash
-        return cell.to ? <Link to={cell.to} data-testid="movement-doc-link">{cell.text}</Link> : cell.text
+  // Posted by: the movement rows carry no poster, so the label comes from the document read (null without a numbered document).
+  const docId = selectedRow && isDocumentUuid(selectedRow.document_id) ? selectedRow.document_id : null
+  // useQueries with one entry: a silent field lookup, not a screen state (the guard wants a boundary for useQuery).
+  const [docQuery] = useQueries({
+    queries: [
+      {
+        queryKey: stockQueryKeys.movementDocument(tenantId, docId ?? ''),
+        queryFn: () => documentsApi.get(docId ?? ''),
+        enabled: docId !== null,
+        retry: false,
       },
-    },
-    {
-      key: 'legs',
-      label: t('stock.col.legs'),
-      render: (r) => (
-        <Button variant="ghost" size="sm" onClick={() => setOpenId(openId === r.entry_id ? null : r.entry_id)}>
-          {t(openId === r.entry_id ? 'stock.legs.hide' : 'stock.legs.show')}
-        </Button>
-      ),
-    },
-  ]
+    ],
+  })
 
-  return (
+  useEffect(() => {
+    if (focusRow === null) return
+    document.querySelector<HTMLElement>(`[data-testid="journal-row"][data-id="${CSS.escape(focusRow)}"]`)?.focus()
+    setFocusRow(null)
+  }, [focusRow])
+
+  const closeDetails = () => {
+    setDetailOpen(false)
+    setFocusRow(selectedId)
+  }
+  const select = (id: string | null) => {
+    setSelectedId(id)
+  }
+  const onRow = (op: JournalOp) => {
+    if (!isNarrow()) return select(op.id)
+    if (variant === 'v1') {
+      select(op.id)
+      setExpandedId(expandedId === op.id ? null : op.id)
+      return
+    }
+    select(op.id)
+    setDetailOpen(true)
+  }
+  const step = (dir: -1 | 1) => {
+    const next = ops[index + dir]
+    if (next) select(next.id)
+  }
+
+  const onExport = async () => {
+    setExporting(true)
+    setExportFailed(false)
+    try {
+      const { blob } = await stockApi.movementsXlsx(params)
+      saveBlob(blob, 'stock-movements.xlsx')
+    } catch {
+      setExportFailed(true)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const filterCount = Object.keys(params).length
+  const clearFilters = () => patch({ cause: '', document_type: '', document_id: '', from_seq: '', to_seq: '' })
+  const state = query.isPending ? 'loading' : query.isError ? 'error' : 'ready'
+
+  const legsLabels = {
+    legs: t('stock.journal.legs'),
+    heldBy: t('stock.journal.heldBy'),
+    hiddenUnit: t('stock.leg.hiddenUnit'),
+    change: t('stock.journal.change'),
+  }
+
+  const filtersNode = (
     <>
-      <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.movements.title')} lede={t('stock.movements.lede')} />
-      <FilterBar
-        activeCount={Object.keys(params).length}
-        onClear={() => patch({ cause: '', document_id: '', from_seq: '', to_seq: '' })}
-        labels={{ clear: t('stock.common.clear'), remove: t('stock.common.remove') }}
-      >
+      <div className="lf-reg__toolrow lf-jrn__row-a">
         <Select
           label={t('stock.filter.cause')}
           value={filters.cause}
@@ -109,91 +176,173 @@ function MovementsInner({ initialOpenId = null }: { initialOpenId?: string | nul
           options={CAUSES.map((c) => ({ value: c, label: t(`stock.cause.${c}`) }))}
           placeholder={t('stock.common.all')}
         />
+        <Select
+          label={t('stock.filter.docType')}
+          value={filters.document_type}
+          onChange={(document_type) => patch({ document_type })}
+          options={DOCUMENT_TYPES.map((d) => ({ value: d, label: t(`stock.docType.${d}`) }))}
+          placeholder={t('stock.common.all')}
+        />
         <Field label={t('stock.filter.document')}>
           <input type="text" value={filters.document_id} onChange={(e) => patch({ document_id: e.target.value })} />
         </Field>
+      </div>
+      <div className="lf-reg__toolrow lf-jrn__row-a">
         <Field label={t('stock.filter.fromSeq')} error={badRange ? t('stock.filter.rangeError') : undefined}>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={filters.from_seq}
-            onChange={(e) => patch({ from_seq: digits(e.target.value) })}
-          />
+          <input type="text" inputMode="numeric" value={filters.from_seq} onChange={(e) => patch({ from_seq: digits(e.target.value) })} />
         </Field>
         <Field label={t('stock.filter.toSeq')} error={badRange ? t('stock.filter.rangeError') : undefined}>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={filters.to_seq}
-            onChange={(e) => patch({ to_seq: digits(e.target.value) })}
-          />
+          <input type="text" inputMode="numeric" value={filters.to_seq} onChange={(e) => patch({ to_seq: digits(e.target.value) })} />
         </Field>
-      </FilterBar>
-      {query.isError ? (
-        <RegisterError error={query.error} onRetry={() => void query.refetch()} />
-      ) : (
-        <>
-          <DataTable
-            columns={columns}
-            data={rows}
-            isLoading={query.isPending}
-            getRowId={(r) => r.entry_id}
-            selectedId={openId}
-            emptyMessage={t('stock.movements.empty')}
-            emptyText={t('stock.movements.emptyText')}
-            labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
-          />
-          {opened && (
-            <section aria-label={t('stock.legs.title')} data-testid="legs-panel">
-              <h2>{t('stock.legs.title')}</h2>
-              <table className="lf-table">
-                <thead>
-                  <tr>
-                    <th>{t('stock.col.leg')}</th>
-                    <th>{t('stock.col.item')}</th>
-                    <th>{t('stock.col.location')}</th>
-                    <th>{t('stock.col.orgUnit')}</th>
-                    <th>{t('stock.col.responsible')}</th>
-                    <th>{t('stock.col.lot')}</th>
-                    <th>{t('stock.col.unit')}</th>
-                    <th>{t('stock.col.quantity')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {opened.legs.map((l) => (
-                    <tr key={l.leg_no} data-testid="leg-row">
-                      <td className="mono">{l.leg_no}</td>
-                      {isMasked(l) ? (
-                        <td colSpan={5}>{t('stock.leg.hiddenUnit')}</td>
-                      ) : (
-                        <>
-                          <td>{name('catalog_item', l.sku)}</td>
-                          <td>{name('location_node', l.location)}</td>
-                          <td>{name('org_unit', l.org_unit)}</td>
-                          <td>{name('org_employee', l.responsible) || dash}</td>
-                          <td>{name('catalog_lot', l.lot) || dash}</td>
-                        </>
-                      )}
-                      <td>{name('catalog_uom', l.unit_ref)}</td>
-                      <td className="mono">{formatQuantity(l.quantity)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
-          <LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
-        </>
-      )}
+      </div>
+    </>
+  )
+
+  const list = (
+    <JournalList
+      titleId="mv-list-title"
+      variant={variant}
+      state={state}
+      errorNode={query.isError ? <RegisterError error={query.error} onRetry={() => void query.refetch()} /> : undefined}
+      ops={ops}
+      selectedId={selectedId}
+      expandedId={expandedId}
+      onRow={onRow}
+      onToggleExpand={(op) => {
+        select(op.id)
+        setExpandedId(expandedId === op.id ? null : op.id)
+      }}
+      onDetails={(op) => {
+        select(op.id)
+        setDetailOpen(true)
+      }}
+      filtersNode={filtersNode}
+      filterCount={filterCount}
+      filtersOpen={filtersOpen}
+      onToggleFilters={() => setFiltersOpen((v) => !v)}
+      onClearFilters={clearFilters}
+      filtered={filterCount > 0}
+      empty={{ title: t('stock.movements.empty'), text: t('stock.movements.emptyText') }}
+      noMatch={{ title: t('stock.movements.noMatch'), text: t('stock.movements.noMatchText') }}
+      onExport={() => void onExport()}
+      exporting={exporting}
+      rangeText={t('stock.journal.showing', { n: ops.length })}
+      foot={<LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />}
+      notice={exportFailed ? <Banner tone="danger">{t('stock.movements.exportFailed')}</Banner> : undefined}
+      labels={{
+        title: t('stock.movements.title'),
+        filters: t('stock.journal.filters'),
+        export: t('stock.movements.export'),
+        details: t('stock.journal.details'),
+        expand: t('stock.journal.expand'),
+        collapse: t('stock.journal.collapse'),
+        clearFilters: t('stock.common.clear'),
+        more: (n) => t('stock.journal.more', { n }),
+        columns: {
+          date: t('stock.col.time'),
+          kind: t('stock.col.cause'),
+          doc: t('stock.col.document'),
+          item: t('stock.col.item'),
+          qty: t('stock.col.quantity'),
+          status: t('stock.col.status'),
+        },
+        legs: legsLabels,
+      }}
+    />
+  )
+
+  // details: fields and links of the selected operation
+  const fields = selectedRow && selectedOp && (
+    <RegistrySection pane="fields" id="mv-fields" title={t('stock.journal.operation')}>
+      <RegistryFields
+        fields={[
+          { key: 'event', label: t('stock.journal.f.eventTime'), value: when(selectedRow.event_time), mono: true },
+          { key: 'posted', label: t('stock.journal.f.postedAt'), value: when(selectedRow.posting_time), mono: true },
+          {
+            key: 'by',
+            label: t('stock.journal.f.postedBy'),
+            value: docQuery.data?.posted_by_label ?? dash,
+            empty: !docQuery.data?.posted_by_label,
+          },
+          { key: 'cause', label: t('stock.journal.f.cause'), value: selectedOp.kindLabel },
+          { key: 'reason', label: t('stock.journal.f.reason'), value: selectedRow.reason_code ?? '', empty: !selectedRow.reason_code },
+        ]}
+      />
+    </RegistrySection>
+  )
+
+  const reversing = selectedRow ? rows.find((r) => r.reverses_entry_id === selectedRow.entry_id) : undefined
+  const original = selectedRow?.reverses_entry_id ? rows.find((r) => r.entry_id === selectedRow.reverses_entry_id) : undefined
+  const linkRow = (label: string, row: { entry_id: string; document_number?: string | null } | undefined) =>
+    row?.document_number ? (
+      <div className="lf-jrn__link">
+        <span>{label}</span>
+        <Button variant="ghost" size="sm" onClick={() => select(row.entry_id)} data-testid="journal-goto">
+          {row.document_number}
+        </Button>
+      </div>
+    ) : null
+  const links = selectedOp && (
+    <RegistrySection pane="links" id="mv-links" title={t('stock.journal.links')}>
+      <div className="lf-jrn__links">
+        {selectedOp.docText !== '' && (
+          <div className="lf-jrn__link">
+            <span>{t('stock.journal.l.doc')}</span>
+            {selectedOp.docHref ? <Link to={selectedOp.docHref}>{selectedOp.docText}</Link> : <span>{selectedOp.docText}</span>}
+          </div>
+        )}
+        {linkRow(t('stock.journal.l.reversedBy'), reversing)}
+        {linkRow(t('stock.journal.l.reversalOf'), original)}
+      </div>
+    </RegistrySection>
+  )
+
+  const details = (
+    <JournalDetails
+      labels={{
+        pane: t('stock.journal.pane'),
+        back: t('stock.journal.back'),
+        prev: t('stock.journal.prev'),
+        next: t('stock.journal.next'),
+        close: t('stock.journal.close'),
+        sections: t('stock.journal.operation'),
+        position: index >= 0 ? t('stock.journal.position', { a: index + 1, n: ops.length }) : '',
+        legsTitle: t('stock.journal.legs'),
+        legs: legsLabels,
+        blankTitle: t('stock.journal.blank'),
+        blankText: t('stock.journal.blankText'),
+      }}
+      op={selectedOp}
+      loading={state === 'loading'}
+      hasPrev={index > 0}
+      hasNext={index >= 0 && index < ops.length - 1}
+      onBack={closeDetails}
+      onPrev={() => step(-1)}
+      onNext={() => step(1)}
+      fields={fields}
+      links={links}
+    />
+  )
+
+  return (
+    <>
+      <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.movements.title')} lede={t('stock.movements.lede')} />
+      <Journal variant={variant} list={list} details={details} detailOpen={detailOpen} filtersOpen={filtersOpen} onClose={closeDetails} />
     </>
   )
 }
 
-/** `initialOpenId`: opens the legs panel of one entry at first render (the screen harness uses it). */
-export default function MovementsPage({ initialOpenId }: { initialOpenId?: string } = {}) {
+/** `initialSelectedId` selects one entry at first render, `initialOpenId` also expands it in V1, `initialDetail`
+ *  opens its details (the screen harness uses these); `variant` names the narrow variant (V1 by default; V2 stays an option). */
+export default function MovementsPage({
+  initialOpenId,
+  initialSelectedId,
+  variant = DEFAULT_JOURNAL_VARIANT,
+  initialDetail = false,
+}: { initialOpenId?: string; initialSelectedId?: string; variant?: JournalVariant; initialDetail?: boolean } = {}) {
   return (
     <StockIntlProvider>
-      <MovementsInner initialOpenId={initialOpenId ?? null} />
+      <MovementsInner initialOpenId={initialOpenId ?? null} initialSelectedId={initialSelectedId ?? null} variant={variant} initialDetail={initialDetail} />
     </StockIntlProvider>
   )
 }
