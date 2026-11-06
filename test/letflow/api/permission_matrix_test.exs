@@ -456,6 +456,20 @@ defmodule Letflow.Api.PermissionMatrixTest do
         assert length(rows) == 9
       end
     end
+
+    test "A8-PM-1: the golden holds the four assets atoms for TENANT_ADMIN and PLATFORM_ADMIN only" do
+      golden = File.read!("priv/permission_matrix/effective.golden")
+
+      for atom <- ~w(AssetsPost AssetsReverse AssetsRead AssetsReconcile) do
+        rows = golden |> String.split("\n") |> Enum.filter(&String.contains?(&1, " #{atom} "))
+
+        allowed =
+          for row <- rows, String.contains?(row, " true "), do: hd(String.split(row, " "))
+
+        assert Enum.sort(allowed) == ["PLATFORM_ADMIN", "TENANT_ADMIN"]
+        assert length(rows) == 9
+      end
+    end
   end
 
   # --- T9 fixture scan --------------------------------------------------------------------
