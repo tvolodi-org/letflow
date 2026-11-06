@@ -35,11 +35,11 @@ const LAYOUT_SCREEN = 'assets.balances'
 /** Default widths (percent, the last column is the flexible one) and smallest widths (px) of the list columns. */
 const LIST_COLS = [
   { id: 'asset', w: 28, min: 140 },
-  { id: 'org_unit', w: 17, min: 100 },
-  { id: 'location', w: 17, min: 100 },
-  { id: 'responsible', w: 16, min: 100 },
-  { id: 'user', w: 14, min: 90 },
-  { id: 'quantity', w: 0, min: 100 },
+  { id: 'org_unit', w: 17, min: 150 },
+  { id: 'location', w: 17, min: 130 },
+  { id: 'responsible', w: 16, min: 150 },
+  { id: 'user', w: 14, min: 150 },
+  { id: 'quantity', w: 0, min: 120 },
 ]
 
 const rowId = (r: AssetBalanceRow) => `${r.asset}|${r.org_unit}|${r.location ?? ''}|${r.material_responsible}|${r.actual_user ?? ''}`

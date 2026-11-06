@@ -38,13 +38,14 @@ export function useBalanceHistory(row: AssetBalanceRow) {
 }
 
 /** Default widths (percent of the table, the last column is the flexible one) and smallest widths (px). The panel is
- *  about 420 px wide at 1440, so the smallest widths sum to less than that. */
+ *  about 420 px wide at 1440; the smallest widths fit a full date-time, a quantity with its unit and the header words, so
+ *  the table scrolls sideways inside the panel instead of cutting cells. */
 const HISTORY_COLS = [
-  { id: 'time', w: 32, min: 118 },
-  { id: 'doc', w: 22, min: 80 },
-  { id: 'cause', w: 18, min: 72 },
-  { id: 'in', w: 14, min: 60 },
-  { id: 'out', w: 0, min: 60 },
+  { id: 'time', w: 28, min: 160 },
+  { id: 'doc', w: 20, min: 100 },
+  { id: 'cause', w: 20, min: 130 },
+  { id: 'in', w: 16, min: 110 },
+  { id: 'out', w: 0, min: 110 },
 ]
 
 export interface BalanceHistoryPanelProps {
@@ -112,6 +113,7 @@ export function BalanceHistoryPanel({ row, onClose, name }: BalanceHistoryPanelP
           <RegisterError error={query.error} onRetry={() => void query.refetch()} />
         ) : (
           <>
+            <div className="lf-reg__body">
             <DataTable
               columns={columns}
               data={lines}
@@ -123,6 +125,7 @@ export function BalanceHistoryPanel({ row, onClose, name }: BalanceHistoryPanelP
               emptyText={t('assets.history.emptyText')}
               labels={{ loading: t('assets.reg.loading'), retry: t('assets.reg.retry') }}
             />
+            </div>
             <LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
           </>
         )}
