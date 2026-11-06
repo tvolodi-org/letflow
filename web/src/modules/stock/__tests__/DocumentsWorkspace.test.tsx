@@ -178,3 +178,27 @@ describe('D1 T-1433 view numbers', () => {
     expect(lines.textContent).not.toMatch(/\.0{3,}/)
   })
 })
+
+describe('U2/U3 T-1438 draft edit is a table with trimmed decimals', () => {
+  it('shows the lines as rows of one edit table and the quantity without 9 decimals; save sends it as typed', async () => {
+    const doc = stockDoc({
+      id: 'd1',
+      lines: [{ line_id: 'a', line_no: 1, catalog_item_id: 'i1', catalog_uom_id: 'm1', catalog_lot_id: 't1', quantity: '1.000000000', unit_price: '450000.000000000' }],
+    })
+    listAndDoc(doc)
+    clientMock.put.mockResolvedValue(doc)
+    renderStock(`${LIST}/d1`, withPost)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    const editor = await screen.findByTestId('lines-editor')
+    const table = editor.querySelector('table.lf-lines.lf-lines--edit')
+    expect(table).not.toBeNull()
+    const rows = table!.querySelectorAll('tbody[data-testid="line-editor-row"]')
+    expect(rows).toHaveLength(1)
+    const row = within(rows[0] as HTMLElement)
+    expect(row.getByLabelText('Quantity')).toHaveValue('1')
+    expect(row.getByLabelText('Unit price')).toHaveValue('450000')
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(clientMock.put).toHaveBeenCalledTimes(1))
+    expect((clientMock.put.mock.calls[0][1] as { lines: { quantity: string }[] }).lines[0].quantity).toBe('1')
+  })
+})
