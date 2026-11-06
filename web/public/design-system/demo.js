@@ -947,3 +947,768 @@ var LFJrnLayout = (function () {
   return { layouts: R, variants: V, register: register, apply: apply };
 })();
 /* LFJRNLAYOUT:end */
+
+/* LFPREFS:begin ----------------------------------------------------------------------------------------------
+   Remembered layout per user: ONE JSON document stored under the user preference key `ui.layout` (product store, T-1389 L1)
+   with a localStorage fallback (key `lf.prefs.ui.layout.v1`). The product supplies a backend {load(): string|null, save(json: string)};
+   without it localStorage is used, and without that the values live in memory for the page only. Contract (all other keys are dropped):
+   { "v": 1,
+     "shell":   { "sidenav": { "collapsed": false, "w": 248 } },                    // global: side nav collapsed flag, width in px (160-420)
+     "screens": { "<screenId>": {                                                   // screenId: [a-z0-9.-]{1,48}, e.g. stock.documents, stock.registry.items, stock.journal
+         "panes":     { "<splitId>": [22.5, 18.0] },                                 // splitId: [a-z0-9-]{1,24}; one number per sized pane: percent of the container width (5-85)
+         "collapsed": { "<splitId>": [0] },                                         // indexes of collapsed panes
+         "cols":      { "<tableId>": { "<colId>": 14.5 } },                         // tableId, colId: [a-z0-9-]{1,24}; percent of the table width (3-80)
+         "linesMode": "grid" } } }                                                  // lines editor mode of that screen: "grid" or "form" (line by line)
+   Limits: 40 screens, 12 splits and 24 tables per screen, 12 panes per split, 40 columns per table, 8192 bytes of JSON. */
+var LFPrefs = (function () {
+  'use strict';
+  var KEY = 'lf.prefs.ui.layout.v1', MAXB = 8192, mem = null, backend = null, timer = null;
+  var ID = /^[a-z0-9.-]{1,48}$/, SID = /^[a-z0-9-]{1,24}$/;
+  function num(v, lo, hi) { v = +v; return isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v * 10) / 10)) : null; }
+  function keys(o, n) { return o && typeof o === 'object' && !Array.isArray(o) ? Object.keys(o).slice(0, n) : []; }
+  function sanitize(o) {
+    var out = { v: 1, shell: { sidenav: {} }, screens: {} };
+    if (!o || typeof o !== 'object') return out;
+    var sn = o.shell && o.shell.sidenav;
+    if (sn && typeof sn === 'object') {
+      if (typeof sn.collapsed === 'boolean') out.shell.sidenav.collapsed = sn.collapsed;
+      var w = num(sn.w, 160, 420); if (w != null) out.shell.sidenav.w = Math.round(w);
+    }
+    keys(o.screens, 40).forEach(function (sid) {
+      if (!ID.test(sid)) return; var s = o.screens[sid], r = {}; if (!s || typeof s !== 'object') return;
+      keys(s.panes, 12).forEach(function (k) {
+        if (!SID.test(k) || !Array.isArray(s.panes[k])) return;
+        var a = s.panes[k].slice(0, 12).map(function (x) { return x == null ? null : num(x, 5, 85); });
+        if (a.some(function (x) { return x != null; })) (r.panes = r.panes || {})[k] = a;
+      });
+      keys(s.collapsed, 12).forEach(function (k) {
+        if (!SID.test(k) || !Array.isArray(s.collapsed[k])) return;
+        var a = s.collapsed[k].slice(0, 12).filter(function (x) { return Number.isInteger(x) && x >= 0 && x < 12; });
+        if (a.length) (r.collapsed = r.collapsed || {})[k] = a;
+      });
+      if (s.linesMode === 'grid' || s.linesMode === 'form') r.linesMode = s.linesMode;
+      keys(s.cols, 24).forEach(function (t) {
+        if (!SID.test(t)) return; var cs = s.cols[t], c = {};
+        keys(cs, 40).forEach(function (cid) { if (SID.test(cid)) { var v = num(cs[cid], 3, 80); if (v != null) c[cid] = v; } });
+        if (Object.keys(c).length) (r.cols = r.cols || {})[t] = c;
+      });
+      if (Object.keys(r).length) out.screens[sid] = r;
+    });
+    if (JSON.stringify(out).length > MAXB) out.screens = {};
+    return out;
+  }
+  function load() {
+    if (mem) return mem;
+    var raw = null;
+    try { raw = backend && backend.load ? backend.load() : localStorage.getItem(KEY); } catch (e) { raw = null; }
+    try { mem = sanitize(raw ? JSON.parse(raw) : null); } catch (e) { mem = sanitize(null); }
+    return mem;
+  }
+  function save() {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      var json = JSON.stringify(sanitize(mem));
+      try { if (backend && backend.save) backend.save(json); else localStorage.setItem(KEY, json); } catch (e) { /* storage blocked: sizes last for this page only */ }
+    }, 400);
+  }
+  function scr(id) { var m = load(); return m.screens[id] || (m.screens[id] = {}); }
+  return {
+    sanitize: sanitize, key: KEY, setBackend: function (b) { backend = b; mem = null; },
+    get: function () { return load(); },
+    json: function () { return JSON.stringify(sanitize(load())); },
+    getPanes: function (sid, split) { var s = load().screens[sid]; return s && s.panes && s.panes[split] || null; },
+    setPanes: function (sid, split, arr) { var s = scr(sid); (s.panes = s.panes || {})[split] = arr; save(); },
+    getCollapsed: function (sid, split) { var s = load().screens[sid]; return s && s.collapsed && s.collapsed[split] || []; },
+    setCollapsed: function (sid, split, arr) { var s = scr(sid); s.collapsed = s.collapsed || {}; if (arr.length) s.collapsed[split] = arr; else delete s.collapsed[split]; save(); },
+    getCols: function (sid, table) { var s = load().screens[sid]; return s && s.cols && s.cols[table] || null; },
+    setCols: function (sid, table, obj) { var s = scr(sid); s.cols = s.cols || {}; if (obj && Object.keys(obj).length) s.cols[table] = obj; else delete s.cols[table]; save(); },
+    getLinesMode: function (sid) { var s = load().screens[sid]; return s && s.linesMode || null; },
+    setLinesMode: function (sid, m) { var s = scr(sid); if (m === 'grid' || m === 'form') s.linesMode = m; save(); },
+    getShell: function () { return load().shell.sidenav; },
+    setShell: function (patch) { var m = load(); Object.keys(patch).forEach(function (k) { if (patch[k] == null) delete m.shell.sidenav[k]; else m.shell.sidenav[k] = patch[k]; }); save(); },
+    resetScreen: function (sid) { delete load().screens[sid]; save(); },
+    flush: function () { clearTimeout(timer); var json = JSON.stringify(sanitize(mem || load())); try { if (backend && backend.save) backend.save(json); else localStorage.setItem(KEY, json); } catch (e) { /* ignore */ } }
+  };
+})();
+/* LFPREFS:end */
+
+/* LFSPLIT:begin ----------------------------------------------------------------------------------------------
+   Splitter (lf-split): resizable panes in a CSS grid. The container's grid columns read `var(--lf-pane-N, <default>)`; a splitter
+   sets that variable (percent of the container, or px for the side nav). Handles live in a layer (.lf-split-layer, absolutely
+   positioned over the container's wrapper .lf-splitwrap) so the container may re-render its content freely: call refresh() after each
+   render. Handle: div.lf-splitter[role=separator][aria-orientation=vertical][tabindex=0] with aria-valuenow/min/max (percent of the sized
+   pane), aria-label and aria-controls. Mouse, touch (pointer events) and keyboard: Left/Right 1 % (Shift 5 %; side nav 8 px / 32 px),
+   Home = smallest, End = largest, Enter = collapse/restore (collapsible pane) or reset, double click = reset to the default.
+   attach(container, { id, screen, panes: () => [elements], sized: 'before'|'after', vars: ['--lf-pane-1', ...], unit: 'pct'|'px',
+   min: [px,...], flexMin: px, enabled: () => bool, collapsible: [k,...], collapsedSize: px, labels: [text,...], layer: element,
+   inside: bool, onCollapse: fn }). */
+var LFSplit = (function () {
+  'use strict';
+  function el(tag, cls) { var e = document.createElement(tag); e.className = cls; return e; }
+  function attach(container, o) {
+    var vars = o.vars || ['--lf-pane-1'], unit = o.unit || 'pct', sized = o.sized || 'before', flexMin = o.flexMin || 280, collapsible = o.collapsible || [], csz = o.collapsedSize || 0;
+    var layer = o.layer || (function () { var l = el('div', 'lf-split-layer'); (o.inside ? container : container.parentNode).appendChild(l); return l; })();
+    var handles = [], sizes = [], collapsed = {}, drag = null, self = {};
+    function scr() { return typeof o.screen === 'function' ? o.screen() : o.screen; }
+    function stored() {
+      if (o.shell) { var s = LFPrefs.getShell(); sizes = [s.w != null ? s.w : null]; collapsed = s.collapsed ? { 0: true } : {}; }
+      else { var p = LFPrefs.getPanes(scr(), o.id); sizes = vars.map(function (_, i) { return p && p[i] != null ? p[i] : null; }); collapsed = {}; LFPrefs.getCollapsed(scr(), o.id).forEach(function (k) { collapsed[k] = true; }); }
+    }
+    function persist() {
+      if (o.shell) { LFPrefs.setShell({ w: sizes[0] != null ? Math.round(sizes[0]) : null, collapsed: collapsed[0] ? true : null }); return; }
+      LFPrefs.setPanes(scr(), o.id, sizes.slice()); LFPrefs.setCollapsed(scr(), o.id, Object.keys(collapsed).filter(function (k) { return collapsed[k]; }).map(Number));
+    }
+    function cw() { var cs = getComputedStyle(container); return container.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); }
+    function paneOf(k) { var p = o.panes(), i = sized === 'after' ? k + 1 : k; return p[i]; }
+    function apply() {
+      vars.forEach(function (v, k) {
+        if (collapsed[k]) container.style.setProperty(v, csz + 'px');
+        else if (sizes[k] != null) container.style.setProperty(v, unit === 'px' ? sizes[k] + 'px' : sizes[k] + '%');
+        else container.style.removeProperty(v);
+        var pn = paneOf(k); if (pn) pn.classList.toggle('is-collapsed', !!collapsed[k] && csz === 0);
+      });
+      if (o.onCollapse) o.onCollapse(collapsed);
+    }
+    function limits(k) { // [min, max] of the sized pane in px
+      var W = cw(), panes = o.panes(), gap = 16, others = 0, n = panes.length;
+      panes.forEach(function (p, i) { var idx = sized === 'after' ? i - 1 : i; if (idx !== k && idx >= 0 && idx < vars.length && p) others += p.getBoundingClientRect().width; });
+      var min = (o.min && o.min[k]) || 160, max = unit === 'px' ? (o.max && o.max[k]) || 420 : Math.max(min, W - others - gap * (n - 1) - flexMin);
+      return [min, Math.max(min, max)];
+    }
+    function px2val(px) { return unit === 'px' ? Math.round(px) : Math.round(px / cw() * 1000) / 10; }
+    function set(k, px, final) {
+      var l = limits(k); px = Math.min(l[1], Math.max(l[0], px)); collapsed[k] = false; sizes[k] = px2val(px); apply(); place();
+      if (final) persist();
+    }
+    function curPx(k) { var p = paneOf(k); return p ? p.getBoundingClientRect().width : 0; }
+    function reset(k) { sizes[k] = null; collapsed[k] = false; apply(); place(); persist(); }
+    function toggle(k) { collapsed[k] = !collapsed[k]; apply(); place(); persist(); }
+    function build() {
+      var want = o.enabled() ? o.panes().length - 1 : 0; want = Math.max(0, Math.min(want, vars.length));
+      while (handles.length > want) { handles.pop().remove(); }
+      while (handles.length < want) {
+        (function (k) {
+          var h = el('div', 'lf-splitter'); h.setAttribute('role', 'separator'); h.setAttribute('aria-orientation', 'vertical'); h.tabIndex = 0; h.setAttribute('data-k', k);
+          h.innerHTML = '<span class="lf-splitter__line"></span>' + (collapsible.indexOf(k) >= 0 ? '<button type="button" class="lf-splitter__btn" tabindex="-1"><svg class="lf-icon" aria-hidden="true"><use href="#i-chevrons-left"/></svg></button>' : '');
+          h.addEventListener('pointerdown', function (e) { if (e.target.closest('.lf-splitter__btn')) return; e.preventDefault(); try { h.setPointerCapture(e.pointerId); } catch (x) { /* synthetic event */ } drag = { k: k, x: e.clientX, w: curPx(k), h: h }; h.classList.add('is-drag'); document.body.classList.add('lf-split-dragging'); });
+          h.addEventListener('pointermove', function (e) { if (!drag || drag.h !== h) return; var dx = e.clientX - drag.x; set(k, drag.w + (sized === 'after' ? -dx : dx), false); });
+          function end(e) { if (!drag || drag.h !== h) return; drag = null; h.classList.remove('is-drag'); document.body.classList.remove('lf-split-dragging'); persist(); }
+          h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+          h.addEventListener('dblclick', function (e) { if (e.target.closest('.lf-splitter__btn')) return; reset(k); });
+          h.addEventListener('click', function (e) { if (e.target.closest('.lf-splitter__btn')) toggle(k); });
+          h.addEventListener('keydown', function (e) {
+            var key = e.key, step = unit === 'px' ? (e.shiftKey ? 32 : 8) : cw() * (e.shiftKey ? 0.05 : 0.01), l = limits(k), dir = sized === 'after' ? -1 : 1;
+            if (key === 'ArrowRight') { e.preventDefault(); set(k, curPx(k) + dir * step, true); }
+            else if (key === 'ArrowLeft') { e.preventDefault(); set(k, curPx(k) - dir * step, true); }
+            else if (key === 'Home') { e.preventDefault(); set(k, l[0], true); }
+            else if (key === 'End') { e.preventDefault(); set(k, l[1], true); }
+            else if (key === 'Enter') { e.preventDefault(); if (collapsible.indexOf(k) >= 0) toggle(k); else reset(k); }
+          });
+          layer.appendChild(h); handles.push(h);
+        })(handles.length);
+      }
+    }
+    function place() {
+      var panes = o.panes(), L = layer.getBoundingClientRect();
+      handles.forEach(function (h, k) {
+        var a = panes[k], b = panes[k + 1]; if (!a || !b) { h.hidden = true; return; } h.hidden = false;
+        var ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect(), gap = Math.max(0, rb.left - ra.right), mid = ra.right + gap / 2;
+        var top = Math.min(ra.top, rb.top), bot = Math.max(ra.bottom, rb.bottom);
+        if (o.shell) { top = L.top; bot = L.bottom; }
+        h.style.left = (mid - L.left) + 'px'; h.style.top = (top - L.top) + 'px'; h.style.height = Math.max(0, bot - top) + 'px';
+        var l = limits(k), px = curPx(k), pct = collapsed[k] ? 0 : (unit === 'px' ? px : px / cw() * 100), lo = unit === 'px' ? l[0] : l[0] / cw() * 100, hi = unit === 'px' ? l[1] : l[1] / cw() * 100;
+        h.setAttribute('aria-valuenow', Math.round(pct)); h.setAttribute('aria-valuemin', Math.round(lo)); h.setAttribute('aria-valuemax', Math.round(hi));
+        var pn = sized === 'after' ? b : a; if (pn) { if (!pn.id) pn.id = (o.id || 'pane') + '-pane-' + k; h.setAttribute('aria-controls', pn.id); }
+        h.setAttribute('aria-label', (o.labels && o.labels[k]) || 'Resize'); var btn = h.querySelector('.lf-splitter__btn');
+        if (btn) { btn.setAttribute('aria-label', (collapsed[k] ? 'Expand: ' : 'Collapse: ') + ((o.labels && o.labels[k]) || '')); btn.setAttribute('aria-expanded', !collapsed[k]); h.classList.toggle('is-collapsed', !!collapsed[k]); }
+      });
+    }
+    var raf = 0; function later() { cancelAnimationFrame(raf); raf = requestAnimationFrame(place); }
+    self.refresh = function () { stored(); build(); apply(); place(); };
+    self.place = place; self.reset = function () { for (var k = 0; k < vars.length; k++) { sizes[k] = null; collapsed[k] = false; } apply(); place(); persist(); };
+    self.set = set; self.toggle = toggle; self.handles = function () { return handles; }; self.state = function () { return { sizes: sizes.slice(), collapsed: collapsed }; };
+    self.destroy = function () { handles.forEach(function (h) { h.remove(); }); window.removeEventListener('scroll', later, true); window.removeEventListener('resize', later); if (ro) ro.disconnect(); };
+    window.addEventListener('scroll', later, true); window.addEventListener('resize', later);
+    var ro = window.ResizeObserver ? new ResizeObserver(later) : null; if (ro) ro.observe(container);
+    self.refresh();
+    return self;
+  }
+  return { attach: attach };
+})();
+/* LFSPLIT:end */
+
+/* LFCOLRESIZE:begin ------------------------------------------------------------------------------------------
+   Resizable table columns (lf-colresize). The table gets class lf-colresize (table-layout: fixed); every resizable <th data-col="id">
+   gets a width in PERCENT of the table width (default from opts.cols[].w, or the remembered value) and a handle
+   span.lf-colhandle[role=separator][aria-orientation=vertical][tabindex=0][aria-valuenow/min/max]; the LAST resizable column is the
+   flexible one and takes the rest (so the table always fills its container and never scrolls sideways). Drag the handle (mouse, touch),
+   or focus it and press Left/Right (1 %, Shift 5 %), Home (smallest), End (largest), Enter or double click = default width.
+   attach(table, { id, screen, cols: [{id, w, min}], label: (colId) => text, enabled: () => bool }); call again after the table is re-rendered. */
+var LFColResize = (function () {
+  'use strict';
+  function attach(table, o) {
+    var ths = Array.prototype.filter.call(table.querySelectorAll('thead th[data-col]'), function (t) { return t.getClientRects().length > 0 && o.cols.some(function (c) { return c.id === t.getAttribute('data-col'); }); });
+    var def = {}; o.cols.forEach(function (c) { def[c.id] = c; });
+    if (!ths.length && !(o.enabled && !o.enabled())) return;
+    if (o.enabled && !o.enabled()) { table.classList.remove('lf-colresize'); ths.forEach(function (t) { t.style.width = ''; var h = t.querySelector('.lf-colhandle'); if (h) h.remove(); }); return; }
+    var saved = LFPrefs.getCols(o.screen, o.id) || {}, vals = {}, last = ths[ths.length - 1];
+    function tw() { return table.getBoundingClientRect().width || 1; }
+    function limits(id) {
+      var c = def[id], W = tw(), min = c.min || 3, others = 0;
+      ths.forEach(function (t) { var i = t.getAttribute('data-col'); if (i !== id && t !== last) others += vals[i]; });
+      var lastMin = Math.max(6, (def[last.getAttribute('data-col')].min || 60) / W * 100);
+      return [Math.max(2, min / W * 100), Math.max(min / W * 100, 100 - others - lastMin - fixedPct())];
+    }
+    function fixedPct() { var W = tw(), s = 0; Array.prototype.forEach.call(table.querySelectorAll('thead th'), function (t) { if (ths.indexOf(t) < 0) s += t.getBoundingClientRect().width / W * 100; }); return s; }
+    function paint() { ths.forEach(function (t) { var id = t.getAttribute('data-col'); t.style.width = t === last ? '' : vals[id] + '%'; }); positions(); }
+    function positions() { ths.forEach(function (t) { var h = t.querySelector('.lf-colhandle'); if (!h) return; var id = t.getAttribute('data-col'), l = limits(id); h.setAttribute('aria-valuenow', Math.round(t.getBoundingClientRect().width / tw() * 100)); h.setAttribute('aria-valuemin', Math.round(l[0])); h.setAttribute('aria-valuemax', Math.round(l[1])); }); }
+    function save() { var s = {}; ths.forEach(function (t) { var id = t.getAttribute('data-col'); if (t !== last && saved[id] != null) s[id] = saved[id]; }); LFPrefs.setCols(o.screen, o.id, s); }
+    ths.forEach(function (t) { var id = t.getAttribute('data-col'); vals[id] = saved[id] != null ? saved[id] : def[id].w; });
+    // the flexible column needs room: if the remembered widths leave less than 6 %, fall back to the defaults
+    var sum = 0; ths.forEach(function (t) { if (t !== last) sum += vals[t.getAttribute('data-col')]; }); if (sum > 94) { ths.forEach(function (t) { vals[t.getAttribute('data-col')] = def[t.getAttribute('data-col')].w; }); saved = {}; }
+    table.classList.add('lf-colresize');
+    ths.forEach(function (t) {
+      var id = t.getAttribute('data-col'); if (t === last) return;
+      var old = t.querySelector('.lf-colhandle'); if (old) old.remove();
+      var h = document.createElement('span'); h.className = 'lf-colhandle'; h.setAttribute('role', 'separator'); h.setAttribute('aria-orientation', 'vertical'); h.tabIndex = 0;
+      h.setAttribute('aria-label', o.label ? o.label(id, t) : 'Resize column');
+      var drag = null;
+      function setW(pct, fin) { var l = limits(id); pct = Math.round(Math.min(l[1], Math.max(l[0], pct)) * 10) / 10; vals[id] = pct; saved[id] = pct; paint(); if (fin) save(); }
+      h.addEventListener('pointerdown', function (e) { e.preventDefault(); e.stopPropagation(); try { h.setPointerCapture(e.pointerId); } catch (x) { /* synthetic event */ } drag = { x: e.clientX, w: t.getBoundingClientRect().width }; h.classList.add('is-drag'); document.body.classList.add('lf-split-dragging'); });
+      h.addEventListener('pointermove', function (e) { if (drag) setW((drag.w + e.clientX - drag.x) / tw() * 100, false); });
+      function end() { if (!drag) return; drag = null; h.classList.remove('is-drag'); document.body.classList.remove('lf-split-dragging'); save(); }
+      h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+      h.addEventListener('click', function (e) { e.stopPropagation(); });
+      h.addEventListener('dblclick', function (e) { e.stopPropagation(); vals[id] = def[id].w; delete saved[id]; paint(); save(); });
+      h.addEventListener('keydown', function (e) {
+        var k = e.key, l = limits(id), cur = vals[id], st = e.shiftKey ? 5 : 1;
+        if (k === 'ArrowRight') { e.preventDefault(); setW(cur + st, true); } else if (k === 'ArrowLeft') { e.preventDefault(); setW(cur - st, true); }
+        else if (k === 'Home') { e.preventDefault(); setW(l[0], true); } else if (k === 'End') { e.preventDefault(); setW(l[1], true); }
+        else if (k === 'Enter') { e.preventDefault(); vals[id] = def[id].w; delete saved[id]; paint(); save(); }
+        e.stopPropagation();
+      });
+      t.appendChild(h);
+    });
+    paint();
+    return { reset: function () { ths.forEach(function (t) { var id = t.getAttribute('data-col'); vals[id] = def[id].w; }); saved = {}; paint(); save(); }, values: function () { return vals; } };
+  }
+  return { attach: attach };
+})();
+/* LFCOLRESIZE:end */
+
+/* LFSHELL:begin ----------------------------------------------------------------------------------------------
+   Side nav of the preview pages, with the user's collapsed flag and width (remembered in LFPrefs.shell). html(current, lang) returns the nav
+   markup; mount(app) wires the collapse button and a splitter on its edge. The collapsed nav shows icons only (labels stay for screen readers
+   and as tooltips). */
+var LFShell = (function () {
+  'use strict';
+  var TXT = {
+    en: { tenant: 'Demo Holding', work: 'Stock', docs: 'Documents', jrn: 'Movements', items: 'Items', org: 'Org units', loc: 'Locations', codes: 'Codes', col: 'Collapse the side nav', exp: 'Expand the side nav', resize: 'Resize the side nav', nav: 'Main' },
+    ru: { tenant: 'Demo Holding', work: 'Склад', docs: 'Документы', jrn: 'Движения', items: 'Номенклатура', org: 'Подразделения', loc: 'Места', codes: 'Коды', col: 'Свернуть меню', exp: 'Развернуть меню', resize: 'Ширина меню', nav: 'Главное меню' },
+    kk: { tenant: 'Demo Holding', work: 'Қойма', docs: 'Құжаттар', jrn: 'Қозғалыстар', items: 'Тауарлар', org: 'Бөлімшелер', loc: 'Орындар', codes: 'Кодтар', col: 'Мәзірді жию', exp: 'Мәзірді жаю', resize: 'Мәзір ені', nav: 'Негізгі мәзір' }
+  };
+  var ITEMS = [['docs', 'sheet'], ['jrn', 'history'], ['items', 'package'], ['org', 'network'], ['loc', 'layers'], ['codes', 'barcode']];
+  function html(current, lang) {
+    var t = TXT[lang] || TXT.en, h = '<div class="lf-sidenav__brand"><span class="lf-sidenav__tenant">' + t.tenant + '</span><span class="lf-sidenav__ws">gate-b-demo</span></div><div class="lf-sidenav__group"><p class="lf-sidenav__label">' + t.work + '</p>';
+    ITEMS.forEach(function (x) { h += '<a class="lf-sidenav__item" href="#" title="' + t[x[0]] + '"' + (x[0] === current ? ' aria-current="page"' : '') + '><svg class="lf-icon lf-icon--18" aria-hidden="true"><use href="#i-' + x[1] + '"/></svg><span>' + t[x[0]] + '</span></a>'; });
+    return h + '</div><div class="lf-sidenav__foot"><button type="button" class="lf-sidenav__toggle" data-shell="toggle" aria-expanded="true"><svg class="lf-icon" aria-hidden="true"><use href="#i-chevrons-left"/></svg><span></span></button></div>';
+  }
+  function mount(app, current, lang, opts) {
+    var nav = app.querySelector('.lf-sidenav'), t = TXT[lang] || TXT.en;
+    nav.innerHTML = html(current, lang); nav.setAttribute('aria-label', t.nav);
+    var btn = nav.querySelector('[data-shell=toggle]');
+    function state(c) { app.setAttribute('data-nav', c ? 'collapsed' : 'expanded'); btn.setAttribute('aria-expanded', c ? 'false' : 'true'); btn.setAttribute('aria-label', c ? t.exp : t.col); btn.title = c ? t.exp : t.col; btn.querySelector('span').textContent = c ? '' : t.col; }
+    if (!app._sp) {
+      app._sp = LFSplit.attach(app, { id: 'sidenav', shell: true, unit: 'px', vars: ['--sidenav-width'], sized: 'before', min: [200], max: [360], flexMin: 320, collapsible: [0], collapsedSize: 64, inside: true, labels: [t.resize],
+        panes: function () { return [app.querySelector('.lf-sidenav'), app.querySelector('.lf-main')]; }, enabled: function () { return !window.matchMedia || !window.matchMedia('(max-width: 900px)').matches; },
+        onCollapse: function (c) { app._state && app._state(!!c[0]); if (opts && opts.onChange) opts.onChange(); } });
+    }
+    app._state = state; state(!!app._sp.state().collapsed[0]);
+    btn.addEventListener('click', function () { app._sp.toggle(0); });
+    return app._sp;
+  }
+  return { html: html, mount: mount, text: TXT };
+})();
+/* LFSHELL:end */
+
+/* LFLINESEDITOR:begin ----------------------------------------------------------------------------------------
+   Lines editor of the document form (lf-lines editor, class lf-le): the lines of a stock document at volume (1 to 1000 lines).
+   Two modes, the choice is remembered per screen (LFPrefs.setLinesMode, key screens.<id>.linesMode):
+   GRID (grid): rows are edited in place in a table; Enter and Tab move cell to cell, Enter or Tab in the last cell adds a row, arrows move
+     between rows (and between cells at the edge of a text), Ctrl+D duplicates, Ctrl+Delete deletes, Excel (tab separated) text pasted into a cell
+     fills rows and columns from there. Rows are VIRTUAL: only the visible rows plus an overscan exist in the DOM.
+   LINE BY LINE (form): one line in a form (Save and add next, Save and close, Cancel, Delete) and the saved lines in a compact table; a click on a
+     saved line edits it. This is the mode that works on a phone (under 700 px the grid is not offered).
+   Both: a scan field (a code adds a line or adds 1 to the line of the same item), search inside the lines, per-line validation with a count that
+   jumps to the next error, Import lines from Excel (entry and result only), a clear "maximum lines reached" state, and the states loading, error,
+   empty, read-only (posted), no permission. The lines panel scrolls INSIDE itself: sticky column header, sticky totals row; the host decides the height
+   (the panel fills its parent, which must have a definite height, e.g. flex: 1 and min-height: 0).
+   VIRTUAL SCROLL CONTRACT: row height is fixed (token lines-row-h, 40 px; saved lines table lines-row-h-compact, 36 px); first = floor(scrollTop / rowH) - overscan,
+   count = ceil(viewHeight / rowH) + 2 * overscan, overscan = 8; spacer rows above and below stand for the rows that are not mounted, so the scroll height is exact.
+   FOCUS CONTRACT: the editor keeps {line id, column, caret} of the focused cell; after every re-render the cell is focused again when its row is mounted; when it is not
+   (scrolled away), focus moves to the scroll container (tabindex 0, role grid), and Enter, Tab, arrows or F2 there bring the row into view and focus the cell again.
+   Keys keep working because they are handled on the container.
+   create(host, { id, screen, lang, catalog:[{c,t,u,lot,bc}], lots:{item:[codes]}, lines:[{item,lot,qty,price}], max, readOnly, noPermission, state:'ready'|'loading'|'error',
+   mode, onChange(lines), onImport(ctrl), onSave(), t(key) }) returns { getLines, setLines, addLine, scan, importRows, validateAll, nextError, setMode, destroy, ... }. */
+var LFLinesEditor = (function () {
+  'use strict';
+  var T = {
+    en: {
+      grid: 'Grid', form: 'Line by line', modeLabel: 'Entry mode', gridOff: 'The grid needs a wider screen', scan: 'Scan or type a code, press Enter', scanLabel: 'Scan field', search: 'Search in lines', searchLabel: 'Search in the lines',
+      add: 'Add line', imp: 'Import lines from Excel', count: '{n} of {max} lines', countView: '{a} of {n} lines shown', errors1: '1 line has errors', errorsN: '{n} lines have errors', noErrors: 'No errors', next: 'Next error',
+      'c.idx': 'Line', 'c.item': 'Item', 'c.lot': 'Lot', 'c.qty': 'Quantity', 'c.price': 'Unit price, ₸', 'c.value': 'Line value, ₸', 'c.act': 'Actions', totals: 'Totals', lines: 'Lines',
+      dup: 'Duplicate line {n}', del: 'Delete line {n}', rowErr: 'Line {n} has errors', choose: 'Type a code or a name', pick: 'Search by code or name', noMatch: 'No item matches',
+      'e.item': 'choose an item from the list', 'e.unknown': 'no item with this code or name', 'e.lot': 'this item needs a lot', 'e.qty': 'enter a quantity above zero (up to 3 decimals)', 'e.price': 'the price must be a number',
+      max: 'Maximum of {max} lines reached', maxText: 'This document has {max} lines, the most it can have. Delete a line, or split the document.', maxHit: 'Line not added: the maximum of {max} lines is reached.',
+      scanned: '{code}: quantity {q}', scannedNew: '{code}: line {n} added', scanUnknown: 'Code {code} was not found', scanFull: 'Not added: the maximum of {max} lines is reached',
+      pasted: '{n} lines pasted', pastedRefused: '{n} lines pasted, {m} refused (maximum of {max} lines)', imported: '{n} lines added, {m} refused', importedAll: '{n} lines added', reasons: 'Reasons', row: 'row {n}',
+      'r.unknown': 'item code "{x}" was not found', 'r.qty': 'quantity must be above zero', 'r.lot': 'a lot is required for this item', 'r.max': 'maximum lines reached',
+      newLine: 'New line {n}', editLine: 'Editing line {n}', saveNext: 'Save and add next', saveClose: 'Save and close', cancel: 'Cancel', delete: 'Delete line', saved: 'Line {n} saved', deleted: 'Line {n} deleted',
+      'f.item': 'Item', 'f.lot': 'Lot', 'f.qty': 'Quantity', 'f.price': 'Unit price, ₸', 'f.value': 'Line value, ₸', savedLines: 'Saved lines', pickLot: 'Choose a lot',
+      'u.pcs': 'pcs', 'u.kg': 'kg', 'u.l': 'l', 'u.pack': 'pack', 'u.pair': 'pair',
+      empty: 'No lines yet', emptyText: 'Scan a code, paste rows from Excel, add a line, or import lines from a file.', noMatchLines: 'No line matches', noMatchLinesText: 'Change the search.', clearSearch: 'Clear search',
+      loading: 'Loading lines', errTitle: 'Could not load the lines', errText: 'The server did not answer. Nothing was lost. Check the connection and try again.', retry: 'Retry',
+      noPerm: 'No access to the lines', noPermText: 'You need the stock permission to see the lines of this document.', readOnly: 'Posted document: the lines cannot be changed.', close: 'Close', gridHint: 'Enter or Tab: next cell. Enter in the last cell adds a row. Ctrl+D: duplicate. Ctrl+Delete: delete. Paste from Excel fills rows.'
+    },
+    ru: { /* machine draft */
+      grid: 'Таблица', form: 'По одной строке', modeLabel: 'Режим ввода', gridOff: 'Таблице нужен более широкий экран', scan: 'Сканируйте или введите код, Enter', scanLabel: 'Поле сканера', search: 'Поиск в строках', searchLabel: 'Поиск в строках',
+      add: 'Добавить строку', imp: 'Импорт строк из Excel', count: 'Строк: {n} из {max}', countView: 'Показано {a} из {n} строк', errors1: 'В 1 строке есть ошибки', errorsN: 'Строк с ошибками: {n}', noErrors: 'Ошибок нет', next: 'Следующая ошибка',
+      'c.idx': 'Строка', 'c.item': 'Номенклатура', 'c.lot': 'Партия', 'c.qty': 'Количество', 'c.price': 'Цена, ₸', 'c.value': 'Сумма, ₸', 'c.act': 'Действия', totals: 'Итого', lines: 'Строк',
+      dup: 'Дублировать строку {n}', del: 'Удалить строку {n}', rowErr: 'В строке {n} есть ошибки', choose: 'Введите код или название', pick: 'Поиск по коду или названию', noMatch: 'Ничего не найдено',
+      'e.item': 'выберите номенклатуру из списка', 'e.unknown': 'нет позиции с таким кодом или названием', 'e.lot': 'для этой позиции нужна партия', 'e.qty': 'введите количество больше нуля (до 3 знаков)', 'e.price': 'цена должна быть числом',
+      max: 'Достигнут максимум: {max} строк', maxText: 'В документе {max} строк, больше нельзя. Удалите строку или разделите документ.', maxHit: 'Строка не добавлена: достигнут максимум {max} строк.',
+      scanned: '{code}: количество {q}', scannedNew: '{code}: добавлена строка {n}', scanUnknown: 'Код {code} не найден', scanFull: 'Не добавлено: достигнут максимум {max} строк',
+      pasted: 'Вставлено строк: {n}', pastedRefused: 'Вставлено строк: {n}, отклонено: {m} (максимум {max} строк)', imported: 'Добавлено строк: {n}, отклонено: {m}', importedAll: 'Добавлено строк: {n}', reasons: 'Причины', row: 'строка {n}',
+      'r.unknown': 'код позиции «{x}» не найден', 'r.qty': 'количество должно быть больше нуля', 'r.lot': 'для этой позиции нужна партия', 'r.max': 'достигнут максимум строк',
+      newLine: 'Новая строка {n}', editLine: 'Правка строки {n}', saveNext: 'Сохранить и добавить следующую', saveClose: 'Сохранить и закрыть', cancel: 'Отмена', delete: 'Удалить строку', saved: 'Строка {n} сохранена', deleted: 'Строка {n} удалена',
+      'f.item': 'Номенклатура', 'f.lot': 'Партия', 'f.qty': 'Количество', 'f.price': 'Цена, ₸', 'f.value': 'Сумма, ₸', savedLines: 'Сохранённые строки', pickLot: 'Выберите партию',
+      'u.pcs': 'шт', 'u.kg': 'кг', 'u.l': 'л', 'u.pack': 'уп.', 'u.pair': 'пар.',
+      empty: 'Строк пока нет', emptyText: 'Отсканируйте код, вставьте строки из Excel, добавьте строку или импортируйте строки из файла.', noMatchLines: 'Строк не найдено', noMatchLinesText: 'Измените поиск.', clearSearch: 'Сбросить поиск',
+      loading: 'Загрузка строк', errTitle: 'Не удалось загрузить строки', errText: 'Сервер не ответил. Ничего не потеряно. Проверьте соединение и повторите.', retry: 'Повторить',
+      noPerm: 'Нет доступа к строкам', noPermText: 'Чтобы видеть строки этого документа, нужно право на склад.', readOnly: 'Документ проведён: строки менять нельзя.', close: 'Закрыть', gridHint: 'Enter или Tab: следующая ячейка. Enter в последней ячейке добавляет строку. Ctrl+D: дублировать. Ctrl+Delete: удалить. Вставка из Excel заполняет строки.'
+    },
+    kk: { /* machine draft */
+      grid: 'Кесте', form: 'Бір-бірден', modeLabel: 'Енгізу режимі', gridOff: 'Кестеге кеңірек экран керек', scan: 'Сканерлеңіз немесе кодты теріңіз, Enter', scanLabel: 'Сканер өрісі', search: 'Жолдардан іздеу', searchLabel: 'Жолдардан іздеу',
+      add: 'Жол қосу', imp: 'Excel-ден жолдарды импорттау', count: 'Жол: {n} / {max}', countView: '{n} жолдың {a} көрсетілген', errors1: '1 жолда қате бар', errorsN: 'Қатесі бар жол: {n}', noErrors: 'Қате жоқ', next: 'Келесі қате',
+      'c.idx': 'Жол', 'c.item': 'Тауар', 'c.lot': 'Партия', 'c.qty': 'Саны', 'c.price': 'Бағасы, ₸', 'c.value': 'Сомасы, ₸', 'c.act': 'Әрекеттер', totals: 'Барлығы', lines: 'Жол',
+      dup: '{n}-жолды көшіру', del: '{n}-жолды жою', rowErr: '{n}-жолда қате бар', choose: 'Кодты немесе атауды теріңіз', pick: 'Код немесе атау бойынша іздеу', noMatch: 'Ештеңе табылмады',
+      'e.item': 'тауарды тізімнен таңдаңыз', 'e.unknown': 'мұндай код немесе атау жоқ', 'e.lot': 'бұл тауарға партия керек', 'e.qty': 'нөлден үлкен санды енгізіңіз (3 таңбаға дейін)', 'e.price': 'баға сан болуы керек',
+      max: 'Шекке жетті: {max} жол', maxText: 'Құжатта {max} жол бар, одан артық болмайды. Жолды жойыңыз немесе құжатты бөліңіз.', maxHit: 'Жол қосылмады: {max} жол шегіне жетті.',
+      scanned: '{code}: саны {q}', scannedNew: '{code}: {n}-жол қосылды', scanUnknown: '{code} коды табылмады', scanFull: 'Қосылмады: {max} жол шегіне жетті',
+      pasted: 'Қойылған жол: {n}', pastedRefused: 'Қойылған жол: {n}, қабылданбаған: {m} (шегі {max} жол)', imported: 'Қосылған жол: {n}, қабылданбаған: {m}', importedAll: 'Қосылған жол: {n}', reasons: 'Себептері', row: '{n}-жол',
+      'r.unknown': '«{x}» тауар коды табылмады', 'r.qty': 'саны нөлден үлкен болуы керек', 'r.lot': 'бұл тауарға партия керек', 'r.max': 'жол шегіне жетті',
+      newLine: 'Жаңа жол {n}', editLine: '{n}-жолды өңдеу', saveNext: 'Сақтап, келесіні қосу', saveClose: 'Сақтап, жабу', cancel: 'Бас тарту', delete: 'Жолды жою', saved: '{n}-жол сақталды', deleted: '{n}-жол жойылды',
+      'f.item': 'Тауар', 'f.lot': 'Партия', 'f.qty': 'Саны', 'f.price': 'Бағасы, ₸', 'f.value': 'Сомасы, ₸', savedLines: 'Сақталған жолдар', pickLot: 'Партияны таңдаңыз',
+      'u.pcs': 'дана', 'u.kg': 'кг', 'u.l': 'л', 'u.pack': 'жинақ', 'u.pair': 'жұп',
+      empty: 'Жолдар әлі жоқ', emptyText: 'Кодты сканерлеңіз, Excel-ден жолдарды қойыңыз, жол қосыңыз немесе файлдан импорттаңыз.', noMatchLines: 'Жол табылмады', noMatchLinesText: 'Іздеуді өзгертіңіз.', clearSearch: 'Іздеуді тазалау',
+      loading: 'Жолдар жүктелуде', errTitle: 'Жолдарды жүктеу мүмкін болмады', errText: 'Сервер жауап бермеді. Ештеңе жоғалған жоқ. Байланысты тексеріп, қайталаңыз.', retry: 'Қайталау',
+      noPerm: 'Жолдарға қол жеткізу жоқ', noPermText: 'Бұл құжаттың жолдарын көру үшін қойма құқығы керек.', readOnly: 'Құжат өткізілген: жолдарды өзгертуге болмайды.', close: 'Жабу', gridHint: 'Enter немесе Tab: келесі ұяшық. Соңғы ұяшықта Enter жол қосады. Ctrl+D: көшіру. Ctrl+Delete: жою. Excel-ден қою жолдарды толтырады.'
+    }
+  };
+  var COLS = ['item', 'lot', 'qty', 'price'], OVER = 8, uidn = 0;
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function ico(n, c) { return '<svg class="lf-icon' + (c ? ' ' + c : '') + '" aria-hidden="true"><use href="#i-' + n + '"/></svg>'; }
+  function tpl(s, o) { return String(s).replace(/\{(\w+)\}/g, function (_, k) { return o && o[k] != null ? o[k] : ''; }); }
+  function dec(s) { var x = String(s == null ? '' : s).replace(/[\s ]/g, '').replace(',', '.'); return /^\d+(\.\d{1,3})?$/.test(x) ? parseFloat(x) : NaN; }
+
+  function create(host, o) {
+    o = o || {}; o.screen = o.screen || 'lines-editor';
+    var lang = T[o.lang] ? o.lang : 'en', id = o.id || 'lf-le-' + (++uidn), max = o.max || 100, cat = o.catalog || [], lots = o.lots || {};
+    var byCode = {}, byBc = {}, byTitle = {};
+    cat.forEach(function (x) { byCode[x.c.toUpperCase()] = x; if (x.bc) byBc[x.bc] = x; byTitle[x.t.toLowerCase()] = byTitle[x.t.toLowerCase()] ? null : x; });
+    var S = { lines: [], mode: o.mode || LFPrefs.getLinesMode(o.screen) || 'grid', filter: '', showAll: false, focus: null, pop: null, notices: [], scanMsg: '', scanErr: false, live: '', errCursor: -1,
+      form: { open: false, idx: -1, draft: null, errs: null }, flash: {}, rowH: 0, rowHc: 0, winKey: '' };
+    var listeners = []; function on(t_, ty, fn, op) { t_.addEventListener(ty, fn, op); listeners.push([t_, ty, fn, op]); }
+    var ctrl = {}, ro = null, raf = 0, sc, tb, popEl = null, flashTimer = null;
+    function t(k, p) { var v = o.t ? o.t(k) : null; return tpl(v != null ? v : (T[lang][k] != null ? T[lang][k] : T.en[k] != null ? T.en[k] : k), p); }
+
+    /* ---------- model ---------- */
+    function norm(l) {
+      var x = { id: 'l' + (++uidn), item: '', itemText: '', lot: l.lot || '', qty: l.qty == null ? '' : String(l.qty), price: l.price == null ? '' : String(l.price), t: !!l.t };
+      var it = l.item ? resolve(l.item) : null; if (it) x.item = it.c; else x.itemText = l.item || l.itemText || '';
+      return x;
+    }
+    function resolve(text) {
+      var s = String(text == null ? '' : text).trim(); if (!s) return null;
+      var up = s.toUpperCase(); if (byCode[up]) return byCode[up]; if (byBc[s]) return byBc[s];
+      var i = s.indexOf(' – '); if (i > 0 && byCode[s.slice(0, i).toUpperCase()]) return byCode[s.slice(0, i).toUpperCase()];
+      return byTitle[s.toLowerCase()] || null;
+    }
+    function search(q) {
+      q = String(q || '').trim().toLowerCase(); if (!q) return cat.slice(0, 8);
+      var a = cat.filter(function (x) { return x.c.toLowerCase().indexOf(q) >= 0 || x.t.toLowerCase().indexOf(q) >= 0; });
+      a.sort(function (x, y) { return (x.c.toLowerCase().indexOf(q) === 0 ? 0 : 1) - (y.c.toLowerCase().indexOf(q) === 0 ? 0 : 1); });
+      return a.slice(0, 8);
+    }
+    function unitOf(l) { var it = l.item && byCode[l.item.toUpperCase()]; return it ? it.u : ''; }
+    function tracked(l) { var it = l.item && byCode[l.item.toUpperCase()]; return !!(it && it.lot); }
+    function valueOf(l) { var q = dec(l.qty), p = dec(l.price); return isNaN(q) || isNaN(p) ? null : Math.round(q * p * 100) / 100; }
+    function validate(l) {
+      var e = [];
+      if (!l.item) e.push({ col: 'item', k: l.itemText ? 'unknown' : 'item' });
+      else if (tracked(l) && !l.lot) e.push({ col: 'lot', k: 'lot' });
+      var q = dec(l.qty); if (isNaN(q) || q <= 0) e.push({ col: 'qty', k: 'qty' });
+      if (String(l.price).trim() !== '' && isNaN(dec(l.price))) e.push({ col: 'price', k: 'price' });
+      return e;
+    }
+    function shown(l) { return l.t || S.showAll; }
+    function errLines() { var r = []; S.lines.forEach(function (l, i) { if (shown(l) && validate(l).length) r.push(i); }); return r; }
+    function byId(i) { for (var k = 0; k < S.lines.length; k++) if (S.lines[k].id === i) return k; return -1; }
+    function view() { var q = S.filter.trim().toLowerCase(), r = []; S.lines.forEach(function (l, i) { if (!q) { r.push(i); return; } var it = l.item && byCode[l.item.toUpperCase()], hay = ((it ? it.c + ' ' + it.t : l.itemText) + ' ' + l.lot).toLowerCase(); if (hay.indexOf(q) >= 0) r.push(i); }); return r; }
+    function fmt(n) { return new Intl.NumberFormat({ en: 'en-US', ru: 'ru-RU', kk: 'kk-KZ' }[lang], { maximumFractionDigits: 2 }).format(n); }
+    function disp(l) { var it = l.item && byCode[l.item.toUpperCase()]; return it ? it.c + ' – ' + it.t : l.itemText; }
+    function changed() { if (o.onChange) o.onChange(S.lines.map(function (l) { return { item: l.item || l.itemText, lot: l.lot, qty: l.qty, price: l.price }; })); }
+    function announce(s) { S.live = s; var el = host.querySelector('.lf-le__live'); if (el) el.textContent = s; }
+    function eff() { return host.clientWidth && host.clientWidth < 700 ? 'form' : S.mode; }
+    function measure(v) { var d = document.createElement('div'); d.style.cssText = 'position:absolute;visibility:hidden;height:var(' + v + ')'; host.appendChild(d); var h = d.getBoundingClientRect().height || 40; d.remove(); return h; }
+
+    /* ---------- notices ---------- */
+    function notice(n) { S.notices = S.notices.filter(function (x) { return x.key !== n.key; }); S.notices.push(n); paintNotices(); announce(n.text); }
+    function dismiss(key) { S.notices = S.notices.filter(function (x) { return x.key !== key; }); paintNotices(); }
+    function paintNotices() {
+      var el = host.querySelector('.lf-le__notices'); if (!el) return; var h = '';
+      if (S.lines.length >= max && !o.readOnly) h += '<div class="lf-banner lf-banner--warning" role="status" data-key="max">' + ico('alert', 'lf-icon--18') + '<div><strong>' + esc(t('max', { max: max })) + '</strong><p>' + esc(t('maxText', { max: max })) + '</p></div></div>';
+      S.notices.forEach(function (n) {
+        h += '<div class="lf-banner lf-banner--' + n.kind + '" role="status" data-key="' + n.key + '">' + ico(n.kind === 'success' ? 'check-circle' : n.kind === 'warning' ? 'alert' : 'info', 'lf-icon--18') + '<div><strong>' + esc(n.text) + '</strong>' +
+          (n.details && n.details.length ? '<details class="lf-le__reasons"><summary>' + esc(t('reasons')) + ' (' + n.details.length + ')</summary><ul>' + n.details.slice(0, 50).map(function (d) { return '<li><span class="mono-s">' + esc(t('row', { n: d.row })) + '</span> ' + esc(d.reason) + '</li>'; }).join('') + (n.details.length > 50 ? '<li>…</li>' : '') + '</ul></details>' : '') + '</div>' +
+          '<button type="button" class="lf-btn lf-btn--ghost lf-btn--icon" data-le="dismiss" data-key="' + n.key + '" aria-label="' + esc(t('close')) + '">' + ico('x') + '</button></div>';
+      });
+      el.innerHTML = h;
+    }
+
+    /* ---------- adding, changing, removing lines ---------- */
+    function addLine(data, afterIdx, quiet) {
+      if (S.lines.length >= max) { notice({ key: 'maxhit', kind: 'warning', text: t('maxHit', { max: max }) }); return null; }
+      var l = norm(data || {}); if (afterIdx != null && afterIdx >= 0) S.lines.splice(afterIdx + 1, 0, l); else S.lines.push(l);
+      if (S.filter) { S.filter = ''; var f = host.querySelector('[data-le="search"]'); if (f) f.value = ''; }
+      dismiss('maxhit'); if (!quiet) { changed(); paintAll(); }
+      return l;
+    }
+    function removeLine(i) { var l = S.lines[i]; S.lines.splice(i, 1); dismiss('maxhit'); changed(); announce(t('deleted', { n: i + 1 })); return l; }
+    function setField(l, col, val) {
+      if (col === 'item') { l.itemText = val; var it = resolve(val); l.item = it ? it.c : ''; if (it && !it.lot) l.lot = ''; if (it) l.itemText = ''; }
+      else l[col] = val;
+    }
+
+    /* ---------- toolbar ---------- */
+    function toolbar() {
+      var m = eff(), h = '<div class="lf-le__toolbar">';
+      if (!o.readOnly) {
+        h += '<div class="lf-seg" role="group" aria-label="' + esc(t('modeLabel')) + '"><button type="button" data-le="mode" data-m="grid" aria-pressed="' + (m === 'grid') + '"' + (host.clientWidth && host.clientWidth < 700 ? ' disabled title="' + esc(t('gridOff')) + '"' : '') + '>' + esc(t('grid')) + '</button><button type="button" data-le="mode" data-m="form" aria-pressed="' + (m === 'form') + '">' + esc(t('form')) + '</button></div>';
+        h += '<div class="lf-field lf-le__scanf"><label class="lf-label sr-only" for="' + id + '-scan">' + esc(t('scanLabel')) + '</label><div class="lf-control lf-control--mono"><span class="lf-control__lead">' + ico('barcode') + '</span><input id="' + id + '-scan" data-le="scan" autocomplete="off" spellcheck="false" placeholder="' + esc(t('scan')) + '"></div><div class="lf-error lf-le__scanmsg" hidden></div></div>';
+      }
+      h += '<div class="lf-field lf-le__searchf"><label class="lf-label sr-only" for="' + id + '-q">' + esc(t('searchLabel')) + '</label><div class="lf-control"><span class="lf-control__lead">' + ico('search') + '</span><input id="' + id + '-q" data-le="search" autocomplete="off" placeholder="' + esc(t('search')) + '" value="' + esc(S.filter) + '"></div></div>';
+      h += '<div class="lf-le__tools"><button type="button" class="lf-btn lf-btn--secondary lf-btn--s lf-le__errbtn" data-le="nexterr" hidden></button>' +
+        (!o.readOnly ? '<button type="button" class="lf-btn lf-btn--secondary lf-btn--s" data-le="import">' + ico('upload') + esc(t('imp')) + '</button><button type="button" class="lf-btn lf-btn--primary lf-btn--s" data-le="add" id="' + id + '-add">' + ico('plus') + esc(t('add')) + '</button>' : '') +
+        '<span class="lf-le__count mono-s" aria-live="polite"></span></div></div>';
+      return h;
+    }
+    function paintToolbar() {
+      var n = S.lines.length, v = view().length, c = host.querySelector('.lf-le__count');
+      if (c) c.textContent = S.filter.trim() ? t('countView', { a: v, n: n }) : t('count', { n: n, max: max });
+      if (c) c.classList.toggle('is-max', n >= max);
+      var e = errLines().length, b = host.querySelector('.lf-le__errbtn');
+      if (b) { b.hidden = e === 0; b.innerHTML = ico('alert') + esc(e === 1 ? t('errors1') : t('errorsN', { n: e })) + ' · ' + esc(t('next')); b.setAttribute('aria-label', (e === 1 ? t('errors1') : t('errorsN', { n: e })) + '. ' + t('next')); }
+      var a = host.querySelector('[data-le="add"]'); if (a) a.disabled = n >= max;
+    }
+
+    /* ---------- grid ---------- */
+    function gridShell() {
+      var h = '<div class="lf-le__scroll" tabindex="-1" role="grid" aria-label="' + esc(t('lines')) + '"><table class="lf-le__table lf-colresize" role="presentation"><thead><tr>' +
+        '<th data-col="idx" class="is-idx" scope="col">#</th><th data-col="item" scope="col">' + esc(t('c.item')) + '</th><th data-col="lot" scope="col">' + esc(t('c.lot')) + '</th><th data-col="qty" scope="col" class="is-num">' + esc(t('c.qty')) + '</th><th data-col="price" scope="col" class="is-num">' + esc(t('c.price')) + '</th><th data-col="value" scope="col" class="is-num">' + esc(t('c.value')) + '</th>' + (o.readOnly ? '' : '<th data-col="act" class="is-act" scope="col"><span class="sr-only">' + esc(t('c.act')) + '</span></th>') + '</tr></thead>' +
+        '<tbody></tbody><tfoot><tr><td colspan="' + (o.readOnly ? 5 : 5) + '" class="lf-le__tot-l"></td><td class="is-num lf-le__tot-v"></td>' + (o.readOnly ? '' : '<td></td>') + '</tr></tfoot></table></div><div class="lf-le__status" aria-live="polite"><span class="lf-faint">' + esc(o.readOnly ? '' : t('gridHint')) + '</span></div>';
+      return h;
+    }
+    function sp(px, cols) { return px > 0 ? '<tr class="lf-le__sp" aria-hidden="true"><td colspan="' + cols + '" style="height:' + px + 'px"></td></tr>' : ''; }
+    function rowHtml(l, i, vi) {
+      var errs = shown(l) ? validate(l) : [], bad = {}; errs.forEach(function (e) { bad[e.col] = e.k; });
+      var tr = tracked(l), v = valueOf(l), u = unitOf(l), ro_ = o.readOnly, n = i + 1;
+      var h = '<tr class="lf-le__row' + (errs.length ? ' is-error' : '') + (S.flash[l.id] ? ' is-flash' : '') + '" role="row" aria-rowindex="' + (vi + 2) + '" data-id="' + l.id + '">' +
+        '<td class="is-idx" role="gridcell">' + (errs.length ? '<span class="lf-le__errmark" title="' + esc(t('rowErr', { n: n })) + '" role="img" aria-label="' + esc(t('rowErr', { n: n })) + '">' + ico('alert') + '</span>' : '') + n + '</td>';
+      if (ro_) {
+        var it = l.item && byCode[l.item.toUpperCase()];
+        h += '<td role="gridcell">' + (it ? '<span class="lf-ref lf-ref--trunc"><span class="lf-ref__code">' + esc(it.c) + '</span><span class="lf-ref__sep" aria-hidden="true">–</span><span class="lf-ref__title">' + esc(it.t) + '</span></span>' : esc(l.itemText)) + '</td><td role="gridcell">' + (tr ? esc(l.lot) : '—') + '</td>' +
+          '<td class="is-num" role="gridcell">' + esc(fmt(dec(l.qty)) + ' ' + (u ? t('u.' + u) : '')) + '</td><td class="is-num" role="gridcell">' + (l.price === '' ? '—' : esc(fmt(dec(l.price)))) + '</td><td class="is-num" role="gridcell">' + (v == null ? '—' : esc(fmt(v))) + '</td></tr>';
+        return h;
+      }
+      function inp(col, val, extra) { return '<div class="lf-control' + (col === 'qty' || col === 'price' ? ' lf-control--num' : '') + '"><input data-col="' + col + '" data-id="' + l.id + '" autocomplete="off" spellcheck="false" value="' + esc(val) + '" aria-label="' + esc(t('c.' + col) + ', ' + n) + '"' + (bad[col] ? ' aria-invalid="true" title="' + esc(t('c.' + col) + ': ' + t('e.' + bad[col])) + '"' : '') + (extra || '') + '></div>'; }
+      h += '<td role="gridcell">' + inp('item', disp(l), ' role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="' + id + '-pop"') + '</td>';
+      h += '<td role="gridcell">' + (tr ? inp('lot', l.lot) : '<span class="lf-faint">—</span>') + '</td>';
+      h += '<td class="is-num" role="gridcell"><div class="lf-control lf-control--num"><input data-col="qty" data-id="' + l.id + '" inputmode="decimal" autocomplete="off" value="' + esc(l.qty) + '" aria-label="' + esc(t('c.qty') + ', ' + n) + '"' + (bad.qty ? ' aria-invalid="true" title="' + esc(t('c.qty') + ': ' + t('e.qty')) + '"' : '') + '>' + (u ? '<span class="lf-affix">' + esc(t('u.' + u)) + '</span>' : '') + '</div></td>';
+      h += '<td class="is-num" role="gridcell">' + inp('price', l.price, ' inputmode="decimal"') + '</td><td class="is-num lf-le__val" role="gridcell">' + (v == null ? '—' : esc(fmt(v))) + '</td>' +
+        '<td class="is-act" role="gridcell"><button type="button" class="lf-btn lf-btn--ghost lf-btn--icon lf-btn--s" data-le="dup" data-id="' + l.id + '" tabindex="-1" aria-label="' + esc(t('dup', { n: n })) + '" title="' + esc(t('dup', { n: n })) + '">' + ico('layers') + '</button><button type="button" class="lf-btn lf-btn--ghost lf-btn--icon lf-btn--s" data-le="del" data-id="' + l.id + '" tabindex="-1" aria-label="' + esc(t('del', { n: n })) + '" title="' + esc(t('del', { n: n })) + '">' + ico('x') + '</button></td></tr>';
+      return h;
+    }
+    function renderRows(force) {
+      if (!sc) return; var vw = view(), n = vw.length, rh = S.rowH || (S.rowH = measure('--lines-row-h')), cols = o.readOnly ? 6 : 7;
+      var viewH = sc.clientHeight || 400, first = Math.max(0, Math.floor(sc.scrollTop / rh) - OVER), cnt = Math.ceil(viewH / rh) + OVER * 2, last = Math.min(n, first + cnt);
+      var key = first + ':' + last + ':' + n; if (!force && key === S.winKey) return; S.winKey = key;
+      var had = host.contains(document.activeElement) && document.activeElement.closest && document.activeElement.closest('.lf-le__row'), f = S.focus;
+      var h = sp(first * rh, cols); for (var k = first; k < last; k++) h += rowHtml(S.lines[vw[k]], vw[k], k); h += sp((n - last) * rh, cols);
+      tb.innerHTML = h; sc.setAttribute('aria-rowcount', n + 2);
+      if (had && f) { var inpEl = tb.querySelector('input[data-col="' + f.col + '"][data-id="' + f.id + '"]'); if (inpEl) { inpEl.focus({ preventScroll: true }); try { if (f.s != null) inpEl.setSelectionRange(f.s, f.e); } catch (e) { /* not text */ } } else { sc.tabIndex = 0; sc.focus({ preventScroll: true }); } }
+      if (!n) tb.innerHTML = '';
+      var emp = host.querySelector('.lf-le__emptyview'); if (emp) emp.hidden = n > 0 || S.lines.length === 0;
+    }
+    function paintTotals() {
+      var sum = 0; S.lines.forEach(function (l) { var v = valueOf(l); if (v != null) sum += v; });
+      var l = host.querySelector('.lf-le__tot-l'), v = host.querySelector('.lf-le__tot-v'); if (l) l.innerHTML = '<span class="lf-le__totlab">' + esc(t('totals')) + '</span> · <span class="lf-le__totlab">' + esc(t('lines')) + '</span> <span class="mono">' + S.lines.length + '</span>'; if (v) v.textContent = fmt(sum) + ' ₸';
+    }
+    function ensureVisible(vi) {
+      var rh = S.rowH || (S.rowH = measure('--lines-row-h')), hh = (sc.querySelector('thead') || {}).offsetHeight || 0, fh = (sc.querySelector('tfoot') || {}).offsetHeight || 0, top = vi * rh, bot = top + rh, st = sc.scrollTop, vh = sc.clientHeight - hh - fh;
+      if (top < st) sc.scrollTop = top; else if (bot > st + vh) sc.scrollTop = bot - vh;
+    }
+    function focusCell(lineId, col, caret) {
+      var i = byId(lineId); if (i < 0) return; var vw = view(), vi = vw.indexOf(i); if (vi < 0) return;
+      if (o.readOnly) return; ensureVisible(vi); S.winKey = ''; S.focus = { id: lineId, col: col, s: caret === 'end' ? 999 : 0, e: caret === 'end' ? 999 : 999 }; renderRows(true);
+      var el = tb.querySelector('input[data-col="' + col + '"][data-id="' + lineId + '"]'); if (el) { el.focus({ preventScroll: true }); el.select(); }
+    }
+    function cellsOf(l) { return COLS.filter(function (c) { return c !== 'lot' || tracked(l); }); }
+    function move(lineId, col, dir) { // dir: +1 next cell, -1 previous cell, 'down', 'up'
+      var i = byId(lineId), vw = view(), vi = vw.indexOf(i), l = S.lines[i], cs = cellsOf(l), ci = cs.indexOf(col), nl, nc;
+      if (dir === 1) { if (ci < cs.length - 1) { nl = l; nc = cs[ci + 1]; } else if (vi < vw.length - 1) { nl = S.lines[vw[vi + 1]]; nc = cellsOf(nl)[0]; } else { var a = addLine({}, i); if (!a) return; nl = a; nc = 'item'; } }
+      else if (dir === -1) { if (ci > 0) { nl = l; nc = cs[ci - 1]; } else if (vi > 0) { nl = S.lines[vw[vi - 1]]; var c2 = cellsOf(nl); nc = c2[c2.length - 1]; } else return false; }
+      else if (dir === 'down') { if (vi >= vw.length - 1) return; nl = S.lines[vw[vi + 1]]; nc = cellsOf(nl).indexOf(col) >= 0 ? col : 'item'; }
+      else { if (vi <= 0) return; nl = S.lines[vw[vi - 1]]; nc = cellsOf(nl).indexOf(col) >= 0 ? col : 'item'; }
+      focusCell(nl.id, nc); return true;
+    }
+    function rowStatus(lineId) {
+      var el = host.querySelector('.lf-le__status'); if (!el) return; var i = byId(lineId), l = S.lines[i], m = '';
+      if (l && shown(l)) m = validate(l).map(function (e) { return t('c.' + e.col) + ': ' + t('e.' + e.k); }).join(' · ');
+      el.innerHTML = m ? ico('alert') + '<span>' + esc(t('rowErr', { n: i + 1 }) + ' - ' + m) + '</span>' : '<span class="lf-faint">' + esc(o.readOnly ? '' : t('gridHint')) + '</span>'; el.classList.toggle('is-error', !!m);
+    }
+
+    /* ---------- item picker (shared by the grid and the form) ---------- */
+    function closePop() { if (popEl) { popEl.remove(); popEl = null; } if (S.pop && S.pop.input) S.pop.input.setAttribute('aria-expanded', 'false'); S.pop = null; }
+    function openPop(input, onPick) {
+      if (S.pop && S.pop.input !== input) closePop();
+      var ex = resolve(input.value), res = ex ? [ex].concat(search('').filter(function (x) { return x.c !== ex.c; })) : search(input.value);
+      if (!popEl) { popEl = document.createElement('div'); popEl.className = 'lf-ref-pop lf-le__pop'; popEl.id = id + '-pop'; popEl.setAttribute('role', 'listbox'); popEl.addEventListener('mousedown', function (e) { e.preventDefault(); }); document.body.appendChild(popEl); }
+      S.pop = { input: input, results: res, active: res.length ? 0 : -1, onPick: onPick };
+      var h = '<div class="lf-ref-pop__list">';
+      if (!res.length) h += '<div class="lf-ref-pop__state">' + esc(t('noMatch')) + '</div>';
+      res.forEach(function (x, k) { h += '<div class="lf-ref-opt' + (k === 0 ? ' is-active' : '') + '" role="option" id="' + id + '-o' + k + '" data-k="' + k + '"><span class="lf-ref"><span class="lf-ref__code">' + esc(x.c) + '</span><span class="lf-ref__sep" aria-hidden="true">–</span><span class="lf-ref__title">' + esc(x.t) + '</span></span></div>'; });
+      popEl.innerHTML = h + '</div>'; input.setAttribute('aria-expanded', 'true'); placePop(input);
+      popEl.onclick = function (e) { var op = e.target.closest('.lf-ref-opt'); if (op) { var x = S.pop.results[+op.getAttribute('data-k')]; var cb = S.pop.onPick; closePop(); cb(x); } };
+    }
+    function placePop(input) { var r = input.getBoundingClientRect(), h = popEl.offsetHeight, below = window.innerHeight - r.bottom, up = h > below && r.top > below; popEl.style.minWidth = Math.max(r.width, 260) + 'px'; popEl.style.left = Math.max(8, Math.min(r.left, window.innerWidth - popEl.offsetWidth - 8)) + 'px'; popEl.style.top = (up ? r.top - h - 4 : r.bottom + 4) + 'px'; }
+    function popKey(e) { // returns true when the key was used by the picker
+      if (!S.pop) return false; var k = e.key, p = S.pop;
+      if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); p.active = Math.max(0, Math.min(p.results.length - 1, p.active + (k === 'ArrowDown' ? 1 : -1))); Array.prototype.forEach.call(popEl.querySelectorAll('.lf-ref-opt'), function (x, i) { x.classList.toggle('is-active', i === p.active); }); p.input.setAttribute('aria-activedescendant', id + '-o' + p.active); return true; }
+      if (k === 'Escape') { e.preventDefault(); closePop(); return true; }
+      return false;
+    }
+
+    /* ---------- grid events ---------- */
+    function onGridInput(e) {
+      var el = e.target, col = el.getAttribute('data-col'); if (!col) return; var i = byId(el.getAttribute('data-id')), l = S.lines[i]; if (!l) return;
+      setField(l, col, el.value);
+      if (col === 'item') { S.pop = null; openPop(el, function (x) { setField(l, 'item', x.c); l.t = true; paintAll(); focusCell(l.id, cellsOf(l)[1] || 'qty'); }); S.pop.line = l; }
+      var row = el.closest('.lf-le__row'), vc = row && row.querySelector('.lf-le__val'), v = valueOf(l); if (vc) vc.textContent = v == null ? '—' : fmt(v);
+      if (shown(l)) { row.classList.toggle('is-error', validate(l).length > 0); }
+      paintTotals(); paintToolbar(); changed();
+    }
+    function onGridKey(e) {
+      var el = e.target, k = e.key;
+      if (el === sc) { if (S.focus && (k === 'Enter' || k === 'Tab' || k === 'ArrowDown' || k === 'ArrowUp' || k === 'F2')) { e.preventDefault(); focusCell(S.focus.id, S.focus.col); } return; }
+      var col = el.getAttribute && el.getAttribute('data-col'); if (!col) return; var lineId = el.getAttribute('data-id'), i = byId(lineId), l = S.lines[i];
+      if (popKey(e)) return;
+      if (k === 'Enter') { e.preventDefault(); if (S.pop && S.pop.active >= 0 && S.pop.results[S.pop.active]) { var x = S.pop.results[S.pop.active], cb = S.pop.onPick; closePop(); cb(x); return; } finishCell(l, col, el); move(lineId, col, 1); }
+      else if (k === 'Tab') { if (e.shiftKey) { var pv = move(lineId, col, -1); if (pv) e.preventDefault(); } else { e.preventDefault(); finishCell(l, col, el); move(lineId, col, 1); } }
+      else if (k === 'ArrowDown') { e.preventDefault(); move(lineId, col, 'down'); } else if (k === 'ArrowUp') { e.preventDefault(); move(lineId, col, 'up'); }
+      else if (k === 'ArrowRight' && el.selectionStart === el.value.length && el.selectionEnd === el.value.length) { e.preventDefault(); finishCell(l, col, el); move(lineId, col, 1); }
+      else if (k === 'ArrowLeft' && el.selectionStart === 0 && el.selectionEnd === 0) { if (move(lineId, col, -1)) e.preventDefault(); }
+      else if ((e.ctrlKey || e.metaKey) && (k === 'd' || k === 'D')) { e.preventDefault(); duplicate(lineId, col); }
+      else if ((e.ctrlKey || e.metaKey) && k === 'Delete') { e.preventDefault(); remove(lineId, col); }
+    }
+    function finishCell(l, col, el) { if (col === 'item') { var it = resolve(el.value); if (it) { setField(l, 'item', it.c); } } l.t = true; closePop(); paintToolbar(); rowRefresh(l); }
+    function rowRefresh(l) { var row = tb.querySelector('.lf-le__row[data-id="' + l.id + '"]'); if (!row) return; var v = validate(l), ex = row.contains(document.activeElement); if (!ex) { S.winKey = ''; renderRows(true); } else { row.classList.toggle('is-error', shown(l) && v.length > 0); } paintTotals(); }
+    function duplicate(lineId, col) { var i = byId(lineId), l = S.lines[i]; var c = addLine({ item: l.item || l.itemText, lot: l.lot, qty: l.qty, price: l.price, t: l.t }, i, true); if (!c) return; changed(); paintToolbar(); paintTotals(); S.winKey = ''; renderRows(true); focusCell(c.id, col || 'item'); announce(t('dup', { n: i + 1 })); }
+    function remove(lineId, col) { var i = byId(lineId); removeLine(i); if (!S.lines.length) { paintBody(); paintToolbar(); return; } var vw = view(), nl = S.lines[Math.min(i, S.lines.length - 1)]; S.winKey = ''; paintToolbar(); paintTotals(); renderRows(true); paintNotices(); if (nl) focusCell(nl.id, col || 'item'); }
+    function onPaste(e) {
+      var el = e.target, col = el.getAttribute && el.getAttribute('data-col'); if (!col || o.readOnly) return;
+      var text = (e.clipboardData || window.clipboardData).getData('text'); if (!text || (text.indexOf('\t') < 0 && text.indexOf('\n') < 0)) return;
+      e.preventDefault(); var rows = text.replace(/\r/g, '').split('\n'); if (rows.length && rows[rows.length - 1] === '') rows.pop();
+      var i0 = byId(el.getAttribute('data-id')), c0 = COLS.indexOf(col), added = 0, refused = 0, ok = 0;
+      rows.forEach(function (r, k) {
+        var vals = r.split('\t'), idx = i0 + k, l = S.lines[idx];
+        if (!l) { l = addLine({}, null, true); if (!l) { refused++; return; } added++; idx = S.lines.length - 1; }
+        vals.forEach(function (v, j) { var cn = COLS[c0 + j]; if (!cn) return; if (cn === 'lot' && !tracked(l)) { var itx = cn; } setField(l, cn, v.trim()); if (cn === 'qty' || cn === 'price') l[cn] = v.trim().replace(/[\s ]/g, ''); });
+        l.t = true; ok++;
+      });
+      changed(); S.winKey = ''; paintToolbar(); paintTotals(); renderRows(true);
+      notice({ key: 'paste', kind: refused ? 'warning' : 'success', text: refused ? t('pastedRefused', { n: ok, m: refused, max: max }) : t('pasted', { n: ok }) });
+    }
+
+    /* ---------- scan ---------- */
+    function scan(code) {
+      code = String(code || '').trim(); if (!code) return null; var it = resolve(code), msg = host.querySelector('.lf-le__scanmsg');
+      function say(text, err) { S.scanMsg = text; S.scanErr = err; if (msg) { msg.hidden = false; msg.className = 'lf-error lf-le__scanmsg' + (err ? '' : ' is-ok'); msg.innerHTML = (err ? ico('alert') : ico('check-circle')) + '<span>' + esc(text) + '</span>'; } announce(text); }
+      if (!it) { say(t('scanUnknown', { code: code }), true); return null; }
+      var idx = -1; S.lines.forEach(function (l, i) { if (idx < 0 && l.item === it.c) idx = i; });
+      var l;
+      if (idx >= 0) { l = S.lines[idx]; var q = dec(l.qty); l.qty = String((isNaN(q) ? 0 : q) + 1); l.t = true; say(t('scanned', { code: it.c, q: l.qty }), false); }
+      else { l = addLine({ item: it.c, qty: '1', t: true }, null, true); if (!l) { say(t('scanFull', { max: max }), true); return null; } idx = S.lines.length - 1; say(t('scannedNew', { code: it.c, n: idx + 1 }), false); }
+      changed(); S.flash = {}; S.flash[l.id] = 1; clearTimeout(flashTimer); flashTimer = setTimeout(function () { S.flash = {}; S.winKey = ''; renderRows(true); renderSaved(true); }, 1500);
+      scrollToLine(idx); paintAll(true); return l;
+    }
+    function scrollToLine(i) { var vw = view(), vi = vw.indexOf(i); if (vi < 0) return; if (sc) { ensureVisible(vi); S.winKey = ''; renderRows(true); } if (S.savedSc) { var rh = S.rowHc || (S.rowHc = measure('--lines-row-h-compact')); S.savedSc.scrollTop = Math.max(0, vi * rh - S.savedSc.clientHeight / 2); S.savedWin = ''; renderSaved(true); } }
+
+    /* ---------- errors ---------- */
+    function nextError() {
+      var es = errLines(); if (!es.length) return; var cur = S.errCursor, nx = es.filter(function (i) { return i > cur; })[0]; if (nx == null) nx = es[0]; S.errCursor = nx;
+      var l = S.lines[nx], e = validate(l)[0];
+      if (eff() === 'grid') { S.filter = S.filter && view().indexOf(nx) < 0 ? '' : S.filter; scrollToLine(nx); focusCell(l.id, e.col); rowStatus(l.id); }
+      else { openForm(nx, true); }
+      announce(t('rowErr', { n: nx + 1 }));
+    }
+    function validateAll() { S.showAll = true; S.lines.forEach(function (l) { l.t = true; }); paintAll(true); return errLines().length; }
+
+    /* ---------- form mode ---------- */
+    function blankDraft() { return { item: '', itemText: '', lot: '', qty: '', price: '' }; }
+    function openForm(idx, showErrs) { S.form.open = true; S.form.idx = idx == null ? -1 : idx; S.form.draft = idx == null || idx < 0 ? blankDraft() : (function (l) { return { item: l.item, itemText: l.itemText, lot: l.lot, qty: l.qty, price: l.price }; })(S.lines[idx]); S.form.errs = null; if (showErrs) { var fe = formErrs(S.form.draft); S.form.errs = Object.keys(fe).length ? fe : null; } paintBody(); var f = host.querySelector('[data-f="item"]'); if (f) f.focus(); }
+    function formErrs(d) { var e = {}, l = d; if (!l.item) e.item = l.itemText ? 'unknown' : 'item'; else if (tracked(l) && !l.lot) e.lot = 'lot'; var q = dec(l.qty); if (isNaN(q) || q <= 0) e.qty = 'qty'; if (String(l.price).trim() !== '' && isNaN(dec(l.price))) e.price = 'price'; return e; }
+    function formHtml() {
+      var f = S.form, d = f.draft, n = f.idx >= 0 ? f.idx + 1 : S.lines.length + 1, e = f.errs || {}, it = d.item && byCode[d.item.toUpperCase()], tr = !!(it && it.lot), v = valueOf(d), atMax = f.idx < 0 && S.lines.length >= max;
+      function fld(k, body, err) { return '<div class="lf-field' + (err ? ' lf-field--error' : '') + '"><label class="lf-label" for="' + id + '-f-' + k + '">' + esc(t('f.' + k)) + '</label>' + body + (err ? '<div class="lf-error" id="' + id + '-f-' + k + '-e">' + ico('alert') + '<span>' + esc(t('f.' + k) + ': ' + t('e.' + err)) + '</span></div>' : '') + '</div>'; }
+      var h = '<form class="lf-le__form" data-le="form" novalidate><h3 class="lf-le__formtitle">' + esc(f.idx >= 0 ? t('editLine', { n: n }) : t('newLine', { n: n })) + '</h3>';
+      h += fld('item', '<div class="lf-control"><input id="' + id + '-f-item" data-f="item" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="' + id + '-pop" autocomplete="off" spellcheck="false" placeholder="' + esc(t('choose')) + '" value="' + esc(it ? it.c + ' – ' + it.t : d.itemText) + '"' + (e.item ? ' aria-invalid="true" aria-describedby="' + id + '-f-item-e"' : '') + '></div>', e.item);
+      if (tr) { var ls = lots[d.item] || []; h += fld('lot', '<div class="lf-control"><select id="' + id + '-f-lot" data-f="lot"' + (e.lot ? ' aria-invalid="true"' : '') + '><option value="">' + esc(t('pickLot')) + '</option>' + ls.map(function (x) { return '<option' + (d.lot === x ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>' + ico('chevron-down', 'lf-control__chev') + '</div>', e.lot); }
+      h += '<div class="lf-le__formrow">' + fld('qty', '<div class="lf-control lf-control--num"><input id="' + id + '-f-qty" data-f="qty" inputmode="decimal" autocomplete="off" value="' + esc(d.qty) + '"' + (e.qty ? ' aria-invalid="true" aria-describedby="' + id + '-f-qty-e"' : '') + '>' + (it ? '<span class="lf-affix">' + esc(t('u.' + it.u)) + '</span>' : '') + '</div>', e.qty) +
+        fld('price', '<div class="lf-control lf-control--num"><input id="' + id + '-f-price" data-f="price" inputmode="decimal" autocomplete="off" value="' + esc(d.price) + '"' + (e.price ? ' aria-invalid="true"' : '') + '></div>', e.price) + '</div>';
+      h += '<div class="lf-field"><span class="lf-label">' + esc(t('f.value')) + '</span><span class="lf-le__fval mono">' + (v == null ? '—' : esc(fmt(v))) + '</span></div>';
+      h += '<div class="lf-form__actions"><button type="submit" class="lf-btn lf-btn--primary" data-le="saveNext"' + (atMax ? ' disabled' : '') + '>' + esc(t('saveNext')) + '</button><button type="button" class="lf-btn lf-btn--secondary" data-le="saveClose"' + (atMax ? ' disabled' : '') + '>' + esc(t('saveClose')) + '</button><button type="button" class="lf-btn lf-btn--ghost" data-le="cancel">' + esc(t('cancel')) + '</button>' + (f.idx >= 0 ? '<button type="button" class="lf-btn lf-btn--danger lf-btn--s lf-le__del" data-le="formDel">' + esc(t('delete')) + '</button>' : '') + '</div></form>';
+      return h;
+    }
+    function savedHtml() { return '<div class="lf-le__saved"><h3 class="lf-le__formtitle">' + esc(t('savedLines')) + '</h3><div class="lf-le__scroll lf-le__scroll--saved" tabindex="-1"><table class="lf-le__table lf-le__table--saved" role="presentation"><thead><tr><th class="is-idx" scope="col">#</th><th scope="col">' + esc(t('c.item')) + '</th><th class="is-num" scope="col">' + esc(t('c.qty')) + '</th><th class="is-num" scope="col">' + esc(t('c.value')) + '</th></tr></thead><tbody></tbody><tfoot><tr><td colspan="3" class="lf-le__tot-l"></td><td class="is-num lf-le__tot-v"></td></tr></tfoot></table></div></div>'; }
+    function renderSaved(force) {
+      var s = S.savedSc; if (!s) return; var tbd = s.querySelector('tbody'), vw = view(), n = vw.length, rh = S.rowHc || (S.rowHc = measure('--lines-row-h-compact'));
+      var viewH = s.clientHeight || 300, first = Math.max(0, Math.floor(s.scrollTop / rh) - OVER), last = Math.min(n, first + Math.ceil(viewH / rh) + OVER * 2), key = first + ':' + last + ':' + n; if (!force && key === S.savedWin) return; S.savedWin = key;
+      var h = sp(first * rh, 4); for (var k = first; k < last; k++) { var i = vw[k], l = S.lines[i], errs = shown(l) ? validate(l) : [], v = valueOf(l), u = unitOf(l), it = l.item && byCode[l.item.toUpperCase()];
+        h += '<tr class="lf-le__row lf-le__row--saved' + (o.readOnly ? ' is-ro' : '') + (errs.length ? ' is-error' : '') + (S.form.open && S.form.idx === i ? ' is-sel' : '') + (S.flash[l.id] ? ' is-flash' : '') + '"' + (o.readOnly ? '' : ' data-le="pick" tabindex="0" role="button" aria-label="' + esc(t('editLine', { n: i + 1 })) + '"') + ' data-i="' + i + '"><td class="is-idx">' + (errs.length ? '<span class="lf-le__errmark" role="img" aria-label="' + esc(t('rowErr', { n: i + 1 })) + '">' + ico('alert') + '</span>' : '') + (i + 1) + '</td><td><span class="lf-le__cut">' + (it ? '<b class="mono-s">' + esc(it.c) + '</b> ' + esc(it.t) : esc(l.itemText)) + '</span></td><td class="is-num">' + (isNaN(dec(l.qty)) ? esc(l.qty) : esc(fmt(dec(l.qty)) + ' ' + (u ? t('u.' + u) : ''))) + '</td><td class="is-num">' + (v == null ? '—' : esc(fmt(v))) + '</td></tr>'; }
+      h += sp((n - last) * rh, 4); tbd.innerHTML = h;
+    }
+    function saveForm(close) {
+      var f = S.form, d = f.draft; var it = resolve(d.item || d.itemText); if (it) { d.item = it.c; d.itemText = ''; if (!it.lot) d.lot = ''; }
+      var e = formErrs(d); f.errs = Object.keys(e).length ? e : null; if (f.errs) { paintBody(); var first = host.querySelector('.lf-le__form [aria-invalid="true"]'); if (first) first.focus(); announce(t('rowErr', { n: f.idx >= 0 ? f.idx + 1 : S.lines.length + 1 })); return; }
+      var n;
+      if (f.idx >= 0) { var l = S.lines[f.idx]; l.item = d.item; l.itemText = ''; l.lot = d.lot; l.qty = d.qty; l.price = d.price; l.t = true; n = f.idx + 1; }
+      else { var nl = addLine({ item: d.item, lot: d.lot, qty: d.qty, price: d.price, t: true }, null, true); if (!nl) return; n = S.lines.length; f.idx = n - 1; }
+      changed(); announce(t('saved', { n: n })); S.flash = {}; S.flash[S.lines[n - 1].id] = 1; clearTimeout(flashTimer); flashTimer = setTimeout(function () { S.flash = {}; renderSaved(true); }, 1500);
+      if (close) { S.form.open = false; S.form.idx = -1; } else { S.form.idx = -1; S.form.draft = blankDraft(); S.form.errs = null; }
+      paintBody(true); paintToolbar(); paintNotices(); if (!close) { var fi = host.querySelector('[data-f="item"]'); if (fi) fi.focus(); } scrollToLine(n - 1);
+    }
+    function formInput(e) {
+      var el = e.target, k = el.getAttribute('data-f'); if (!k) return; var d = S.form.draft;
+      if (k === 'item') { d.itemText = el.value; var it = resolve(el.value); d.item = it ? it.c : ''; S.pop = null; openPop(el, function (x) { d.item = x.c; d.itemText = ''; if (!x.lot) d.lot = ''; paintBody(); var q = host.querySelector('[data-f="' + (x.lot ? 'lot' : 'qty') + '"]'); if (q) q.focus(); }); S.pop.line = d; }
+      else d[k] = el.value;
+      var v = valueOf(d), fv = host.querySelector('.lf-le__fval'); if (fv) fv.textContent = v == null ? '—' : fmt(v);
+    }
+
+    /* ---------- composition ---------- */
+    function bodyHtml() {
+      if (o.noPermission) return '<div class="lf-le__state"><div class="lf-empty">' + ico('alert', 'lf-empty__icon') + '<p class="lf-empty__title">' + esc(t('noPerm')) + '</p><p class="lf-empty__text">' + esc(t('noPermText')) + '</p></div></div>';
+      if (o.state === 'loading') { var h = '<div class="lf-le__state lf-le__skel" aria-busy="true" aria-label="' + esc(t('loading')) + '">'; for (var i = 0; i < 9; i++) h += '<span class="lf-skel"></span>'; return h + '</div>'; }
+      if (o.state === 'error') return '<div class="lf-le__state"><div class="lf-banner lf-banner--danger" role="alert">' + ico('alert', 'lf-icon--18') + '<div><strong>' + esc(t('errTitle')) + '</strong><p>' + esc(t('errText')) + '</p></div><button type="button" class="lf-btn lf-btn--secondary" data-le="retry">' + esc(t('retry')) + '</button></div></div>';
+      var m = eff();
+      if (!S.lines.length && !(m === 'form' && S.form.open)) {
+        return '<div class="lf-le__state"><div class="lf-empty">' + ico('layers', 'lf-empty__icon') + '<p class="lf-empty__title">' + esc(t('empty')) + '</p><p class="lf-empty__text">' + esc(o.readOnly ? t('readOnly') : t('emptyText')) + '</p>' + (o.readOnly ? '' : '<div class="lf-btn-row"><button type="button" class="lf-btn lf-btn--secondary" data-le="add2">' + ico('plus') + esc(t('add')) + '</button><button type="button" class="lf-btn lf-btn--secondary" data-le="import">' + ico('upload') + esc(t('imp')) + '</button></div>') + '</div></div>';
+      }
+      if (o.readOnly && m === 'form') return '<div class="lf-le__formwrap lf-le__formwrap--ro">' + savedHtml() + '</div>';
+      if (m === 'grid') return gridShell() + '<div class="lf-le__emptyview lf-empty" hidden>' + ico('search', 'lf-empty__icon') + '<p class="lf-empty__title">' + esc(t('noMatchLines')) + '</p><p class="lf-empty__text">' + esc(t('noMatchLinesText')) + '</p><button type="button" class="lf-btn lf-btn--secondary" data-le="clearq">' + esc(t('clearSearch')) + '</button></div>';
+      return '<div class="lf-le__formwrap">' + (S.form.open ? '<div class="lf-le__formcol">' + formHtml() + '</div>' : '<div class="lf-le__formcol lf-le__formcol--closed"><button type="button" class="lf-btn lf-btn--primary" data-le="add2"' + (S.lines.length >= max ? ' disabled' : '') + '>' + ico('plus') + esc(t('add')) + '</button></div>') + savedHtml() + '</div>';
+    }
+    function paintBody(keepScroll) {
+      closePop(); var body = host.querySelector('.lf-le__body'); body.innerHTML = bodyHtml(); sc = body.querySelector('.lf-le__scroll:not(.lf-le__scroll--saved)'); tb = sc && sc.querySelector('tbody'); S.savedSc = body.querySelector('.lf-le__scroll--saved'); S.winKey = ''; S.savedWin = '';
+      if (sc) { /* column widths are remembered by LFColResize */ LFColResize.attach(sc.querySelector('table'), { id: 'lines-grid', screen: o.screen || 'lines', cols: [{ id: 'item', w: 34, min: 120 }, { id: 'lot', w: 16, min: 80 }, { id: 'qty', w: 13, min: 80 }, { id: 'price', w: 13, min: 80 }, { id: 'value', w: 0, min: 80 }], label: function (cid, th) { return t('c.' + cid); }, enabled: function () { return true; } }); }
+      S.hadLines = S.lines.length > 0; paintTotals(); renderRows(true); renderSaved(true); paintNotices();
+    }
+    function paintAll(keep) { if ((S.lines.length > 0) !== S.hadLines && !(eff() === 'form' && S.form.open)) { paintBody(); paintToolbar(); return; } paintToolbar(); paintTotals(); S.winKey = ''; S.savedWin = ''; renderRows(true); renderSaved(true); paintNotices(); }
+    function build() {
+      host.classList.add('lf-le'); host.setAttribute('data-mode', eff()); host.setAttribute('data-readonly', o.readOnly ? 'true' : 'false');
+      var showTools = !o.noPermission && o.state !== 'loading' && o.state !== 'error';
+      host.innerHTML = (showTools ? toolbar() : '') + '<div class="lf-le__notices"></div><div class="lf-le__body"></div><div class="lf-le__live sr-only" aria-live="polite"></div>';
+      paintBody(); paintToolbar();
+    }
+
+    /* ---------- events ---------- */
+    on(host, 'click', function (e) {
+      var b = e.target.closest('[data-le]'); if (!b) return; var a = b.getAttribute('data-le');
+      if (a === 'mode') { S.mode = b.getAttribute('data-m'); LFPrefs.setLinesMode(o.screen, S.mode); host.setAttribute('data-mode', eff()); build(); }
+      else if (a === 'add') { if (eff() === 'grid') { var l = addLine({}); if (l) { scrollToLine(S.lines.length - 1); focusCell(l.id, 'item'); } } else openForm(null); }
+      else if (a === 'add2') { if (eff() === 'grid' || o.readOnly) { var l2 = addLine({}); if (l2) { build(); focusCell(l2.id, 'item'); } } else { if (!S.lines.length) { S.form.open = true; build(); openForm(null); } else openForm(null); } }
+      else if (a === 'dup') duplicate(b.getAttribute('data-id'), 'item');
+      else if (a === 'del') remove(b.getAttribute('data-id'), 'item');
+      else if (a === 'nexterr') nextError();
+      else if (a === 'import') { if (o.onImport) o.onImport(ctrl); }
+      else if (a === 'dismiss') dismiss(b.getAttribute('data-key'));
+      else if (a === 'clearq') { S.filter = ''; var q = host.querySelector('[data-le="search"]'); if (q) q.value = ''; paintAll(); }
+      else if (a === 'pick') { openForm(+b.getAttribute('data-i')); }
+      else if (a === 'saveNext') { e.preventDefault(); saveForm(false); } else if (a === 'saveClose') { e.preventDefault(); saveForm(true); }
+      else if (a === 'cancel') { S.form.open = false; S.form.idx = -1; S.form.errs = null; paintBody(); }
+      else if (a === 'formDel') { var i = S.form.idx; removeLine(i); S.form.open = false; S.form.idx = -1; paintBody(); paintToolbar(); paintNotices(); }
+      else if (a === 'retry') { if (o.onRetry) o.onRetry(); }
+    });
+    on(host, 'submit', function (e) { e.preventDefault(); saveForm(false); });
+    on(host, 'input', function (e) {
+      var el = e.target, a = el.getAttribute('data-le');
+      if (a === 'search') { S.filter = el.value; S.errCursor = -1; paintAll(); }
+      else if (el.hasAttribute('data-col')) onGridInput(e); else if (el.hasAttribute('data-f')) formInput(e);
+    });
+    on(host, 'change', function (e) { var el = e.target; if (el.getAttribute('data-f') === 'lot') S.form.draft.lot = el.value; });
+    on(host, 'keydown', function (e) {
+      var el = e.target;
+      if (el.getAttribute && el.getAttribute('data-le') === 'scan' && e.key === 'Enter') { e.preventDefault(); scan(el.value); el.value = ''; return; }
+      if (el === sc || (el.hasAttribute && el.hasAttribute('data-col'))) { onGridKey(e); return; }
+      if (el.getAttribute && el.getAttribute('data-f') === 'item') { if (popKey(e)) return; if (e.key === 'Enter' && S.pop && S.pop.active >= 0 && S.pop.results[S.pop.active]) { e.preventDefault(); var x = S.pop.results[S.pop.active], cb = S.pop.onPick; closePop(); cb(x); } }
+      if (el.getAttribute && el.getAttribute('data-le') === 'pick' && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openForm(+el.getAttribute('data-i')); }
+      if (e.key === 'Escape' && S.form.open && eff() === 'form' && !S.pop && el.closest && el.closest('.lf-le__form')) { S.form.open = false; paintBody(); }
+    });
+    on(host, 'focusin', function (e) {
+      var el = e.target; if (el.hasAttribute && el.hasAttribute('data-col')) { S.focus = { id: el.getAttribute('data-id'), col: el.getAttribute('data-col'), s: el.selectionStart, e: el.selectionEnd }; rowStatus(S.focus.id); if (el.select && e.relatedTarget && el.getAttribute('data-col') === 'item') el.select(); }
+    });
+    on(host, 'focusout', function (e) {
+      var el = e.target; if (el.hasAttribute && el.hasAttribute('data-col')) { var l = S.lines[byId(el.getAttribute('data-id'))]; if (l) { if (el.getAttribute('data-col') === 'item') { var it = resolve(el.value); if (it && it.c !== l.item) { setField(l, 'item', it.c); } } l.t = true; setTimeout(function () { var ae = document.activeElement, row = ae && ae.closest && ae.closest('.lf-le__row'); if (!row || row.getAttribute('data-id') !== l.id) { if (!ae || !ae.hasAttribute || !ae.hasAttribute('data-col')) closePop(); if (tb && tb.isConnected) { S.winKey = ''; renderRows(true); paintToolbar(); paintTotals(); } } }, 0); } }
+    });
+    on(host, 'paste', onPaste);
+    on(host, 'scroll', function (e) { if (e.target === sc) { cancelAnimationFrame(raf); raf = requestAnimationFrame(function () { renderRows(false); if (S.pop && S.pop.input) placePop(S.pop.input); }); } else if (e.target === S.savedSc) { cancelAnimationFrame(raf); raf = requestAnimationFrame(function () { renderSaved(false); }); } }, true);
+    on(document, 'mousedown', function docDown(e) { if (popEl && !popEl.contains(e.target) && !(S.pop && S.pop.input === e.target)) closePop(); });
+    var lastEff = ''; function relayout() { var m = eff(); if (lastEff && m !== lastEff) { host.setAttribute('data-mode', m); build(); } lastEff = m; if (sc) { S.winKey = ''; renderRows(true); } if (S.savedSc) { S.savedWin = ''; renderSaved(true); } }
+    if (window.ResizeObserver) { ro = new ResizeObserver(relayout); ro.observe(host); }
+
+    /* ---------- public ---------- */
+    ctrl.getLines = function () { return S.lines.map(function (l) { return { item: l.item || l.itemText, lot: l.lot, qty: l.qty, price: l.price }; }); };
+    ctrl.setLines = function (arr) { S.lines = (arr || []).slice(0, max).map(norm); S.filter = ''; build(); };
+    ctrl.addLine = function (d) { return addLine(d); };
+    ctrl.scan = scan; ctrl.validateAll = function () { return validateAll(); }; ctrl.nextError = nextError; ctrl.errorCount = function () { return errLines().length; };
+    ctrl.setMode = function (m) { S.mode = m; LFPrefs.setLinesMode(o.screen, m); build(); }; ctrl.mode = function () { return eff(); };
+    ctrl.filter = function (q) { S.filter = q; var f = host.querySelector('[data-le="search"]'); if (f) f.value = q; paintAll(); };
+    ctrl.scrollToLine = function (i) { scrollToLine(i); };
+    ctrl.openForm = openForm; ctrl.focusCell = function (i, col) { focusCell(S.lines[i].id, col || 'item'); };
+    ctrl.mountedRows = function () { return tb ? tb.querySelectorAll('.lf-le__row').length : 0; };
+    ctrl.rowIds = function () { return S.lines.map(function (l) { return l.id; }); };
+    ctrl.importRows = function (rows) { // rows: [{item, lot, qty, price}] from the product's xlsx import; returns { added, refused: [{row, reason}] }
+      var added = 0, refused = [];
+      rows.forEach(function (r, k) {
+        var it = resolve(r.item), n = k + 1, q = dec(r.qty);
+        if (!it) { refused.push({ row: n, reason: t('r.unknown', { x: r.item }) }); return; }
+        if (isNaN(q) || q <= 0) { refused.push({ row: n, reason: t('r.qty') }); return; }
+        if (it.lot && !r.lot) { refused.push({ row: n, reason: t('r.lot') }); return; }
+        if (S.lines.length >= max) { refused.push({ row: n, reason: t('r.max') }); return; }
+        var l = norm({ item: it.c, lot: it.lot ? r.lot : '', qty: r.qty, price: r.price, t: true }); S.lines.push(l); added++;
+      });
+      changed(); S.winKey = ''; S.savedWin = ''; paintToolbar(); paintTotals(); renderRows(true); renderSaved(true);
+      notice({ key: 'import', kind: refused.length ? 'warning' : 'success', text: refused.length ? t('imported', { n: added, m: refused.length }) : t('importedAll', { n: added }), details: refused });
+      return { added: added, refused: refused };
+    };
+    ctrl.destroy = function () { if (ro) ro.disconnect(); listeners.forEach(function (l) { l[0].removeEventListener(l[1], l[2], l[3]); }); listeners = []; clearTimeout(flashTimer); cancelAnimationFrame(raf); closePop(); host.innerHTML = ''; };
+    ctrl.resolve = resolve; ctrl.relayout = relayout; ctrl.flush = function () { cancelAnimationFrame(raf); renderRows(false); renderSaved(false); };
+
+    S.lines = (o.lines || []).slice(0, Math.max(max, (o.lines || []).length)).map(norm);
+    if (o.showErrors) S.showAll = true;
+    build();
+    return ctrl;
+  }
+  return { create: create, strings: T, modes: ['grid', 'form'] };
+})();
+/* LFLINESEDITOR:end */

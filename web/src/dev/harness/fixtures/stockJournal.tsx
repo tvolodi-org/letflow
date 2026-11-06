@@ -58,7 +58,7 @@ const MOVEMENTS = [
   },
 ]
 
-const routes: FixtureRoute[] = [
+export const journalRoutes: FixtureRoute[] = [
   {
     match: (path, method) => path === '/api/v1/entities/query' && method === 'POST',
     reply: (state, _p, body) => {
@@ -93,8 +93,9 @@ const shell = (page: React.ReactElement) => (
 )
 
 export const stockJournalScreens: HarnessScreen[] = [
-  { name: 'stock-journal-split', routes, render: () => shell(<MovementsPage initialSelectedId="jr-1" />) },
-  { name: 'stock-journal-v1-expanded', routes, render: () => shell(<MovementsPage initialOpenId="jr-2" />) },
-  { name: 'stock-journal-v3-details', routes, render: () => shell(<MovementsPage initialSelectedId="jr-1" initialDetail />) },
-  { name: 'stock-journal-v2-sheet', routes, render: () => shell(<MovementsPage variant="v2" initialSelectedId="jr-1" initialDetail />) },
+  { name: 'stock-journal-split', routes: journalRoutes, render: () => shell(<MovementsPage initialSelectedId="jr-1" />) },
+  { name: 'stock-journal-v1-expanded', routes: journalRoutes, render: () => shell(<MovementsPage initialOpenId="jr-2" />) },
+  { name: 'stock-journal-v3-details', routes: journalRoutes, render: () => shell(<MovementsPage initialSelectedId="jr-1" initialDetail />) },
+  { name: 'stock-journal-v2-sheet', routes: journalRoutes, render: () => shell(<MovementsPage variant="v2" initialSelectedId="jr-1" initialDetail />) },
+  { name: 'stock-journal-v1-filters', routes: journalRoutes, render: () => shell(<MovementsPage initialFiltersOpen />) },
 ]
