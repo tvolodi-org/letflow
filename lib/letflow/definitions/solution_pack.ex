@@ -569,11 +569,15 @@ defmodule Letflow.Definitions.SolutionPack do
         ) :: {:ok, [EntityDefinition.t()]} | {:error, term()}
   def install_entity_definitions(document, names, actor_id, opts, owner)
       when is_list(names) and is_list(opts) do
+    {skip_existing?, opts} = Keyword.pop(opts, :skip_existing_shape, false)
+
     with {:ok, parsed} <- parse_document(document),
          :ok <- check_unsupported_sections(parsed),
          :ok <- check_schema_version(parsed),
          {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix(opts)),
-         [_ | _] = selected <- Enum.filter(parsed.entity_definitions, &(&1.name in names)) do
+         [_ | _] = matched <- Enum.filter(parsed.entity_definitions, &(&1.name in names)),
+         selected = if(skip_existing?, do: reject_existing_shape(matched, opts), else: matched),
+         true <- selected != [] or {:skipped, []} do
       Repo.transaction(fn ->
         with :ok <- lock_packed_entity_names(selected, opts),
              {:ok, created} <- create_packed_entity_definitions(selected, actor_id, opts, owner) do
@@ -584,8 +588,98 @@ defmodule Letflow.Definitions.SolutionPack do
       end)
     else
       [] -> {:error, :no_matching_entity_definition}
+      {:skipped, []} -> {:ok, []}
       {:error, _reason} = error -> error
     end
+  end
+
+  # REQ-770: `opts[:skip_existing_shape]` leaves out an entry whose logical shape (fields, indexes,
+  # foreign keys, constraints; not display name or description) the tenant already stores for that name
+  # in any version: the `(tenant, name, logical shape)` unique index would refuse a second row, and
+  # there is nothing structural to upgrade.
+  defp reject_existing_shape(entries, opts) do
+    Enum.reject(entries, fn packed ->
+      name = Map.get(packed.definition_json, :name)
+      shape = Letflow.Entities.Definition.Shape.logical_shape_of(packed.definition_json)
+
+      Repo.exists?(
+        from(d in EntityDefinition, where: d.name == ^name and d.logical_shape_version == ^shape),
+        prefix: prefix(opts)
+      )
+    end)
+  end
+
+  @doc """
+  REQ-770 (module upgrade apply): creates the selected process definitions of a pack document as
+  stamped DRAFT versions for a tenant that already has the pack's module installed. `selection` is a
+  list of `{process_key, pack_version}`. Writes no `solution_pack_installs` row and never activates.
+  The version row is `pack_version` when `(key, pack_version)` is free in the tenant, else
+  `"<pack_version>-<opts[:draft_suffix]>"` (the target module version). Each goes through
+  `Definitions.create_owned/3` with `owner` (the stamp), and the pack's `variable_schemas` for the
+  created definitions are registered through the shared path. One transaction (joins the caller's).
+  Returns `{:ok, ["key@version", ...]}`; an empty selection writes nothing.
+  """
+  @spec install_process_drafts(
+          document :: map(),
+          selection :: [{String.t(), String.t()}],
+          actor_id :: Ecto.UUID.t(),
+          opts :: Definitions.opts(),
+          owner :: ManagedTypes.owner()
+        ) :: {:ok, [String.t()]} | {:error, term()}
+  def install_process_drafts(_document, [], _actor_id, _opts, _owner), do: {:ok, []}
+
+  def install_process_drafts(document, selection, actor_id, opts, owner)
+      when is_list(selection) and is_list(opts) do
+    {suffix, opts} = Keyword.pop(opts, :draft_suffix)
+
+    with {:ok, parsed} <- parse_document(document),
+         :ok <- check_unsupported_sections(parsed),
+         :ok <- check_schema_version(parsed),
+         {:ok, decoded_schemas} <- decode_variable_schemas(parsed.variable_schemas),
+         {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix(opts)) do
+      selected =
+        for packed <- parsed.definitions,
+            {packed.process_key, packed.version} in selection,
+            do: packed
+
+      Repo.transaction(fn ->
+        with {:ok, versioned} <- free_draft_versions(selected, suffix, opts),
+             {:ok, installed} <- create_packed_definitions(versioned, actor_id, opts, owner),
+             {:ok, _written, _warnings} <-
+               register_packed_schemas(installed, decoded_schemas, opts) do
+          Enum.map(installed, fn {_packed, created} -> "#{created.name}@#{created.version}" end)
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+    end
+  end
+
+  defp free_draft_versions(selected, suffix, opts) do
+    Enum.reduce_while(selected, {:ok, []}, fn packed, {:ok, acc} ->
+      cond do
+        not draft_version_taken?(packed.process_key, packed.version, opts) ->
+          {:cont, {:ok, [packed | acc]}}
+
+        is_binary(suffix) and
+            not draft_version_taken?(packed.process_key, "#{packed.version}-#{suffix}", opts) ->
+          {:cont, {:ok, [%{packed | version: "#{packed.version}-#{suffix}"} | acc]}}
+
+        true ->
+          {:halt, {:error, {:draft_version_taken, packed.process_key}}}
+      end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp draft_version_taken?(name, version, opts) do
+    Repo.exists?(
+      from(d in ProcessDefinition, where: d.name == ^name and d.version == ^version),
+      prefix: prefix(opts)
+    )
   end
 
   @doc """

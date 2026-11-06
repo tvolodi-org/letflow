@@ -3,6 +3,7 @@
  *  tenant_defaults }`; PUT takes `{ preferences: { key: value | null } }` and merges (`null` resets a key).
  *  No tenant id is sent: the route takes the tenant from the auth context (INV-10). */
 import { client } from './client'
+import { emptyLayout, parseLayoutJson } from '@/lib/layoutPrefs'
 
 export const DOCUMENT_LAYOUT_KEY = 'ui.document_layout'
 export const DOCUMENT_LAYOUT_DEFAULT_KEY = 'ui.document_layout_default'
@@ -29,24 +30,13 @@ export interface UiLayout {
 }
 
 export function emptyUiLayout(): UiLayout {
-  return { v: 1, shell: { sidenav: {} }, screens: {} }
+  return emptyLayout()
 }
 
-/** Tolerant parse of the stored value: anything that is not a JSON object string gives the empty layout. */
+/** Tolerant parse of the stored value: anything that is not a JSON object string gives the empty layout; the
+ *  rest is sanitized with the twin of the server rules (`lib/layoutPrefs.ts`). */
 export function parseUiLayout(raw: unknown): UiLayout {
-  if (typeof raw !== 'string') return emptyUiLayout()
-  try {
-    const doc: unknown = JSON.parse(raw)
-    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return emptyUiLayout()
-    const d = doc as Partial<UiLayout>
-    return {
-      v: 1,
-      shell: { sidenav: { ...(d.shell?.sidenav ?? {}) } },
-      screens: d.screens && typeof d.screens === 'object' ? d.screens : {},
-    }
-  } catch {
-    return emptyUiLayout()
-  }
+  return parseLayoutJson(raw)
 }
 
 export function serializeUiLayout(layout: UiLayout): string {

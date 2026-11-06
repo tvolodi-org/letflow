@@ -152,14 +152,18 @@
   --field-w-m: 304px;
   --field-w-l: 480px;
   --master-width: 360px;
-  --doc-list-width: 248px;
-  --doc-header-width: 304px;
+  --doc-list-width: clamp(248px, 13vw, 400px);
+  --doc-header-width: clamp(304px, 21vw, 620px);
   --dialog-w: 520px;
   --dialog-w-l: 760px;
-  --registry-list-width: 520px;
-  --journal-details-width: 400px;
-  --z-nav: 100;
+  --registry-list-width: clamp(520px, 36vw, 900px);
+  --journal-details-width: clamp(520px, 34vw, 900px);
+  --sidenav-collapsed-width: 64px;
+  --splitter-hit: 16px;
+  --lines-row-h: 40px;
+  --lines-row-h-compact: 36px;
   --z-topbar: 250; /* above the test-environment banner (200), below popovers' own layer */
+  --z-nav: 100;
   --z-sticky: 50;
   --z-popover: 300;
   --z-modal: 500;
