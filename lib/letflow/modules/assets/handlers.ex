@@ -13,7 +13,8 @@ defmodule Letflow.Modules.Assets.Handlers do
   runbook until slice L7). The posting command is rebuilt here from LITERAL keys of the string-keyed
   `posting` argument (no `String.to_atom`, scans H4); `ledger_id` is always `"assets"`, and a
   `prefix`, `subject_id` or `credential` in the arguments is never copied: the platform fills them
-  from the context. `post_document` accepts only the cause `commission` (C11 widens it),
+  from the context. `post_document` accepts the closed list of causes `commission`, `change`, `handover` and
+  `writeoff` (C11, GH #3889),
   `reverse_document` only `reversal`.
 
   A second mark of the same kind for one document violates the unique constraint of the mark type,
@@ -25,8 +26,9 @@ defmodule Letflow.Modules.Assets.Handlers do
   @type result :: {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
 
   @spec post_document(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
-  def post_document(multi, ctx, %{"posting" => %{"cause" => "commission"}} = args),
-    do: run(multi, ctx, args, "posted", [])
+  def post_document(multi, ctx, %{"posting" => %{"cause" => cause}} = args)
+      when cause in ["commission", "change", "handover", "writeoff"],
+      do: run(multi, ctx, args, "posted", [])
 
   def post_document(_multi, _ctx, _args), do: {:error, :invalid_arguments}
 
@@ -96,12 +98,14 @@ defmodule Letflow.Modules.Assets.Handlers do
      }}
   end
 
-  defp command(%{"cause" => "commission", "lines" => lines} = posting) when is_list(lines) do
+  defp command(%{"cause" => cause, "lines" => lines} = posting)
+       when cause in ["commission", "change", "handover", "writeoff"] and is_list(lines) do
     with {:ok, lines} <- lines(lines) do
       {:ok,
        %{
          ledger_id: "assets",
-         cause: "commission",
+         cause: cause,
+         reason_code: Map.get(posting, "reason_code"),
          document_type: Map.get(posting, "document_type"),
          document_id: Map.get(posting, "document_id"),
          client_op_id: Map.get(posting, "client_op_id"),
@@ -134,6 +138,7 @@ defmodule Letflow.Modules.Assets.Handlers do
        line_id: Map.get(line, "line_id"),
        asset: Map.get(line, "asset"),
        quantity: Map.get(line, "quantity"),
+       from: side(Map.get(line, "from")),
        to: side(Map.get(line, "to"))
      }}
   end

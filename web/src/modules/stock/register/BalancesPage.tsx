@@ -1,6 +1,6 @@
 /** BalancesPage — GH 3767 / REQ-724. Current balances of the stock register: five filters, names instead of ids,
  *  quantity text as the route answers it, Load more. Reads the latest basis only (no basis / cutoff_seq key). */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
@@ -28,10 +28,26 @@ import { useNames } from './stockNames'
 import { DateValueHint } from '@/components/ui/DateValueHint'
 import { formatLocalInput } from '@/i18n/format'
 import { formatQuantity } from '@/lib/formatQuantity'
-import { MasterDetail } from '@/components/ui/MasterDetail'
+import { Registry } from '@/components/ui/registry/Registry'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { SplitWrap, useSplit } from '@/components/ui/layout/Splitter'
+import { useColResize } from '@/components/ui/layout/ColumnResize'
+import { isWideHost } from '@/components/ui/layout/isWideHost'
+import { useUiMessages } from '@/components/ui/uiMessages'
 import { BalanceHistoryPanel } from './BalanceHistoryPanel'
 
 const ACTIVE_ONLY: never[] = []
+
+/** Default widths (percent, the last column is the flexible one) and smallest widths (px) of the list columns. */
+const LIST_COLS = [
+  { id: 'sku', w: 22, min: 120 },
+  { id: 'location', w: 17, min: 100 },
+  { id: 'org_unit', w: 13, min: 90 },
+  { id: 'responsible', w: 13, min: 90 },
+  { id: 'lot', w: 10, min: 80 },
+  { id: 'unit', w: 10, min: 110 },
+  { id: 'quantity', w: 0, min: 100 },
+]
 
 const rowId = (r: BalanceRow) => `${r.sku}|${r.location}|${r.org_unit}|${r.responsible ?? ''}|${r.lot ?? ''}|${r.unit_ref}`
 
@@ -122,21 +138,67 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
     )
   const selectedRow = selected === null ? null : (rows.find((r) => rowId(r) === selected) ?? null)
 
-  const table = (
+  const ui = useUiMessages()
+  const gridRef = useRef<HTMLDivElement>(null)
+  const layerRef = useRef<HTMLDivElement>(null)
+  const tableRef = useRef<HTMLTableElement>(null)
+  useSplit(gridRef, layerRef, {
+    id: 'list',
+    screen: 'stock.balances',
+    unit: 'pct',
+    sized: 'before',
+    vars: ['--lf-pane-1'],
+    min: [320],
+    flexMin: 360,
+    collapsible: [0],
+    labels: [t('stock.balances.listPane')],
+    defaults: [60],
+    panes: () => [
+      gridRef.current?.querySelector<HTMLElement>(':scope > .lf-reg__list') ?? null,
+      gridRef.current?.querySelector<HTMLElement>(':scope > .lf-reg__details') ?? null,
+    ],
+    enabled: () => isWideHost(gridRef.current),
+  })
+  useColResize(tableRef, {
+    id: 'list',
+    screen: 'stock.balances',
+    cols: LIST_COLS,
+    minTable: true,
+    enabled: () => isWideHost(gridRef.current),
+  })
+
+  const list = (
+    <section className="lf-card lf-reg__list" aria-label={t('stock.balances.listPane')}>
+      <div className="lf-reg__body">
+        <DataTable
+          columns={columns}
+          data={rows}
+          isLoading={query.isPending}
+          getRowId={rowId}
+          onRowClick={(r) => setSelected(rowId(r))}
+          selectedId={selected}
+          emptyMessage={t('stock.balances.empty')}
+          emptyText={t('stock.balances.emptyText')}
+          labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
+          tableRef={tableRef}
+        />
+      </div>
+      <div className="lf-reg__foot">
+        <LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
+      </div>
+    </section>
+  )
+  const details = selectedRow ? (
     <>
-      <DataTable
-        columns={columns}
-        data={rows}
-        isLoading={query.isPending}
-        getRowId={rowId}
-        onRowClick={(r) => setSelected(rowId(r))}
-        selectedId={selected}
-        emptyMessage={t('stock.balances.empty')}
-        emptyText={t('stock.balances.emptyText')}
-        labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
-      />
-      <LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
+      <div className="lf-reg__backrow">
+        <Button variant="ghost" size="sm" className="lf-reg__back" onClick={() => setSelected(null)} data-testid="master-detail-back">
+          {ui.back}
+        </Button>
+      </div>
+      <BalanceHistoryPanel row={selectedRow} asOf={asOf} onClose={() => setSelected(null)} name={name} />
     </>
+  ) : (
+    <EmptyState title={t('stock.balances.pickRow')} text={t('stock.balances.pickRowText')} data-testid="balances-pick-row" />
   )
 
   return (
@@ -223,29 +285,13 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
           </p>
         )
       )}
-      {query.isError ? (
-        <RegisterError error={query.error} onRetry={() => void query.refetch()} />
-      ) : (
-        <>
-          {selectedRow ? (
-            <div
-              onKeyDown={(e) => {
-                if (e.key === 'Escape' && !e.defaultPrevented) setSelected(null)
-              }}
-            >
-              <MasterDetail
-                masterWidth="wide"
-                detailOpen
-                onBack={() => setSelected(null)}
-                master={table}
-                detail={<BalanceHistoryPanel row={selectedRow} asOf={asOf} onClose={() => setSelected(null)} name={name} />}
-              />
-            </div>
-          ) : (
-            table
-          )}
-        </>
-      )}
+      {query.isError && <RegisterError error={query.error} onRetry={() => void query.refetch()} />}
+      {/* stays mounted on a load error (hidden) so the splitter keeps its container */}
+      <div hidden={query.isError}>
+        <SplitWrap layerRef={layerRef}>
+          <Registry layout="split" list={list} details={details} detailOpen={selectedRow != null} onClose={() => setSelected(null)} gridRef={gridRef} />
+        </SplitWrap>
+      </div>
     </>
   )
 }

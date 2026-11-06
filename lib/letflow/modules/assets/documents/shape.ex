@@ -3,8 +3,8 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
   GH #3891 / REQ-751 (assets C10): the pure shape check of an asset document request body (save and
   replace). No database, no clock. Mirrors `Letflow.Modules.Stock.Documents.Shape` for the asset
   kinds. `parse/2` returns the normalised document or the first refusal, in this order:
-  `unknown_kind`, `field_not_allowed`, `field_required`, `field_invalid`, `event_time_invalid`,
-  `lines_count`.
+  `unknown_kind`, `field_not_allowed`, `field_required`, `field_invalid`, `reason_invalid`,
+  `reason_required` (write off only), `event_time_invalid`, `lines_count`.
 
   A refusal is `{:error, {reason, extras}}` with `extras` a map of the fixed keys `"field"` and
   `"line_no"`; a supplied value is never echoed. Server-set keys (`document_id`, `header_id`,
@@ -23,7 +23,9 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
   @note_max 500
   @line_keys ~w(asset_id quantity)
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
-  @optional_empty ~w(location_id actual_user_id)
+  @optional_empty ~w(location_id actual_user_id from_location_id to_location_id from_actual_user_id to_actual_user_id)
+  @reason_text_max 500
+  @reason_codes ~w(disposed lost broken expired other)
 
   @type refusal :: {:error, {String.t(), map()}}
 
@@ -42,6 +44,7 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
          :ok <- allowed(body, spec),
          :ok <- required(body, spec),
          {:ok, header} <- header(body, spec),
+         {:ok, header} <- reason(header, spec),
          {:ok, event_time} <- event_time(body["event_time"]),
          {:ok, raw_lines} <- raw_lines(body["lines"]),
          {:ok, lines} <- lines(raw_lines) do
@@ -103,6 +106,27 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
 
   defp header_value(key, "", acc, _spec) when key in @optional_empty, do: {:cont, {:ok, acc}}
 
+  defp header_value("reason_code", value, acc, _spec) do
+    if value in @reason_codes,
+      do: {:cont, {:ok, Map.put(acc, "reason_code", value)}},
+      else: {:halt, refuse("reason_invalid", %{"field" => "reason_code"})}
+  end
+
+  defp header_value("reason_text", value, acc, _spec) when is_binary(value) do
+    text = :unicode.characters_to_nfc_binary(value)
+
+    cond do
+      not String.valid?(value) or not is_binary(text) or byte_size(text) > @reason_text_max ->
+        {:halt, refuse("field_invalid", %{"field" => "reason_text"})}
+
+      String.trim(text) == "" ->
+        {:cont, {:ok, acc}}
+
+      true ->
+        {:cont, {:ok, Map.put(acc, "reason_text", text)}}
+    end
+  end
+
   defp header_value("note", value, acc, _spec) when is_binary(value) do
     note = :unicode.characters_to_nfc_binary(value)
 
@@ -119,6 +143,15 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
       _bad -> {:halt, refuse("field_invalid", %{"field" => key})}
     end
   end
+
+  # Write off only: the reason `other` needs a text.
+  defp reason(%{"reason_code" => "other"} = header, _spec) do
+    if Map.has_key?(header, "reason_text"),
+      do: {:ok, header},
+      else: refuse("reason_required", %{"field" => "reason_text"})
+  end
+
+  defp reason(header, _spec), do: {:ok, header}
 
   @doc "Canonical lowercase uuid text of a binary, else `:error`."
   @spec uuid(term()) :: {:ok, String.t()} | :error

@@ -6,9 +6,10 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
   record type, line record type, process definition, ledger cause, number prefix and offline
   `device_id` a kind uses, and which header keys it accepts.
 
-  `side/2` is the ONE place that maps the header of a kind to the `to` side of its lines
-  (`%{org_unit, location, material_responsible, actual_user}`); the master checks, the posting command
-  and the binding check all call it, so they cannot disagree. The commission has a `to` side only.
+  `sides/2` is the ONE place that maps the header of a kind to the `{from, to}` sides of its lines
+  (`%{org_unit, location, material_responsible, actual_user}` or `nil`); the master checks, the posting
+  command and the binding check all call it, so they cannot disagree. The commission has a `to` side
+  only, the write off a `from` side only, the change and the hand over both (GH #3889 / REQ-753, C11).
   """
 
   @table [
@@ -23,6 +24,52 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
       header_keys:
         ~w(org_unit_id location_id material_responsible_id actual_user_id event_time note),
       required: ~w(org_unit_id material_responsible_id event_time),
+      id_keys: ~w(org_unit_id location_id material_responsible_id actual_user_id),
+      completion_node: "post"
+    },
+    %{
+      kind: "change",
+      type_key: "assets_change",
+      line_type: "assets_change_line",
+      definition: "assets_change",
+      cause: "change",
+      prefix: "ACH",
+      device_id: "assets-change",
+      header_keys:
+        ~w(org_unit_id location_id from_material_responsible_id from_actual_user_id to_material_responsible_id to_actual_user_id event_time note),
+      required:
+        ~w(org_unit_id event_time from_material_responsible_id to_material_responsible_id),
+      id_keys:
+        ~w(org_unit_id location_id from_material_responsible_id from_actual_user_id to_material_responsible_id to_actual_user_id),
+      completion_node: "post"
+    },
+    %{
+      kind: "handover",
+      type_key: "assets_handover",
+      line_type: "assets_handover_line",
+      definition: "assets_handover",
+      cause: "handover",
+      prefix: "AHO",
+      device_id: "assets-handover",
+      header_keys:
+        ~w(org_unit_id from_location_id from_material_responsible_id from_actual_user_id to_org_unit_id to_location_id to_material_responsible_id to_actual_user_id event_time note),
+      required:
+        ~w(org_unit_id event_time from_material_responsible_id to_org_unit_id to_material_responsible_id),
+      id_keys:
+        ~w(org_unit_id from_location_id from_material_responsible_id from_actual_user_id to_org_unit_id to_location_id to_material_responsible_id to_actual_user_id),
+      completion_node: "post"
+    },
+    %{
+      kind: "writeoff",
+      type_key: "assets_writeoff",
+      line_type: "assets_writeoff_line",
+      definition: "assets_writeoff",
+      cause: "writeoff",
+      prefix: "AWO",
+      device_id: "assets-writeoff",
+      header_keys:
+        ~w(org_unit_id location_id material_responsible_id actual_user_id reason_code reason_text event_time note),
+      required: ~w(org_unit_id event_time material_responsible_id reason_code),
       id_keys: ~w(org_unit_id location_id material_responsible_id actual_user_id),
       completion_node: "post"
     }
@@ -84,22 +131,104 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
     Map.new(spec.header_keys, fn key -> {key, Map.get(view, Map.fetch!(@atoms, key))} end)
   end
 
-  @doc """
-  The `to` side of every line of a document of `spec`, from the header field map `header` (string
-  keys). A missing optional field is `nil`.
-  """
-  @spec side(spec(), map()) :: %{
+  @type side :: %{
           org_unit: term(),
           location: term(),
           material_responsible: term(),
           actual_user: term()
         }
-  def side(%{kind: "commission"}, header) do
+
+  @doc """
+  The `{from, to}` sides of every line of a document of `spec`, from the header field map `header`
+  (string keys). A side a kind does not have is `nil`; a missing optional field is `nil`.
+  """
+  @spec sides(spec(), map()) :: {side() | nil, side() | nil}
+  def sides(%{kind: "commission"}, header) do
+    {nil, side(header, "org_unit_id", "location_id", "material_responsible_id", "actual_user_id")}
+  end
+
+  def sides(%{kind: "change"}, header) do
+    {side(
+       header,
+       "org_unit_id",
+       "location_id",
+       "from_material_responsible_id",
+       "from_actual_user_id"
+     ),
+     side(header, "org_unit_id", "location_id", "to_material_responsible_id", "to_actual_user_id")}
+  end
+
+  def sides(%{kind: "handover"}, header) do
+    {side(
+       header,
+       "org_unit_id",
+       "from_location_id",
+       "from_material_responsible_id",
+       "from_actual_user_id"
+     ),
+     side(
+       header,
+       "to_org_unit_id",
+       "to_location_id",
+       "to_material_responsible_id",
+       "to_actual_user_id"
+     )}
+  end
+
+  def sides(%{kind: "writeoff"}, header) do
+    {side(header, "org_unit_id", "location_id", "material_responsible_id", "actual_user_id"), nil}
+  end
+
+  @doc """
+  The header key behind each slot of the `:from` / `:to` side of `spec` (for the `"field"` extra of a
+  refusal): `%{org_unit: key, location: key, material_responsible: key, actual_user: key}`.
+  """
+  @spec side_fields(spec(), :from | :to) :: %{atom() => String.t()}
+  def side_fields(%{kind: "change"}, :from),
+    do:
+      fields("org_unit_id", "location_id", "from_material_responsible_id", "from_actual_user_id")
+
+  def side_fields(%{kind: "change"}, :to),
+    do: fields("org_unit_id", "location_id", "to_material_responsible_id", "to_actual_user_id")
+
+  def side_fields(%{kind: "handover"}, :from),
+    do:
+      fields(
+        "org_unit_id",
+        "from_location_id",
+        "from_material_responsible_id",
+        "from_actual_user_id"
+      )
+
+  def side_fields(%{kind: "handover"}, :to),
+    do:
+      fields(
+        "to_org_unit_id",
+        "to_location_id",
+        "to_material_responsible_id",
+        "to_actual_user_id"
+      )
+
+  def side_fields(%{kind: "writeoff"}, :from),
+    do: fields("org_unit_id", "location_id", "material_responsible_id", "actual_user_id")
+
+  def side_fields(%{kind: "commission"}, :to),
+    do: fields("org_unit_id", "location_id", "material_responsible_id", "actual_user_id")
+
+  defp side(header, unit, location, responsible, user) do
     %{
-      org_unit: Map.get(header, "org_unit_id"),
-      location: Map.get(header, "location_id"),
-      material_responsible: Map.get(header, "material_responsible_id"),
-      actual_user: Map.get(header, "actual_user_id")
+      org_unit: Map.get(header, unit),
+      location: Map.get(header, location),
+      material_responsible: Map.get(header, responsible),
+      actual_user: Map.get(header, user)
     }
   end
+
+  defp fields(unit, location, responsible, user),
+    do: %{
+      org_unit: unit,
+      location: location,
+      material_responsible: responsible,
+      actual_user: user
+    }
 end

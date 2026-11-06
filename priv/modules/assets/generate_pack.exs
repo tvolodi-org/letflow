@@ -16,6 +16,12 @@ entity_types = ~w(
   assets_card
   assets_commission
   assets_commission_line
+  assets_change
+  assets_change_line
+  assets_handover
+  assets_handover_line
+  assets_writeoff
+  assets_writeoff_line
   assets_posting_mark
 )
 
@@ -235,12 +241,33 @@ process_definitions = [
     "reverse",
     "reverse_document",
     base_args ++ ["reason_code"]
+  ),
+  process_definition.(
+    "00501000-0000-0040-0081-000000003889",
+    "assets_change",
+    "post",
+    "post_document",
+    base_args
+  ),
+  process_definition.(
+    "00501000-0000-0040-0082-000000003889",
+    "assets_handover",
+    "post",
+    "post_document",
+    base_args
+  ),
+  process_definition.(
+    "00501000-0000-0040-0083-000000003889",
+    "assets_writeoff",
+    "post",
+    "post_document",
+    base_args
   )
 ]
 
 document = %{
   "pack_id" => "letflow-assets",
-  "version" => "0.2.0",
+  "version" => "0.3.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
   # Carried for symmetry with export/3's output, which emits it.
   # parse_document/1 never reads this key -- a document omitting it still
