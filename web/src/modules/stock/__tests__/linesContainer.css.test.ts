@@ -11,4 +11,8 @@ describe('lf-lines container-query card mode', () => {
     expect(css).toMatch(/@container lf-lines \(max-width: 700px\)/)
     expect(css).toMatch(/@container lf-lines \(max-width: 1000px\)/)
   })
+  it('C1 wide screens put the lines under the header so the table fits', () => {
+    expect(css).toMatch(/@media \(min-width: 1440px\)/)
+    expect(css).toContain('"list top" "list header" "list lines"')
+  })
 })

@@ -66,6 +66,17 @@ samp {
    components.css has for phones (copied here because that file is an exact copy of the design release; the design repo
    needs the same rules, design-notes.md "lf-lines container-query card mode"). */
 .lf-doc__lines { container: lf-lines / inline-size; }
+/* T-1433 R9b: --content-max-width caps the shell, so the three-column template leaves the lines card ~530 px at any
+   screen, always below the 700 px card threshold. From the design's wide breakpoint the lines go under the header in
+   the right pane (~850 px), so the real table (# / Item / Lot / Quantity / Unit price / Line value + totals) shows. */
+@media (min-width: 1440px) {
+  .lf-doc:not([data-layout="tabs"]) {
+    grid-template-columns: var(--doc-list-width) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    align-content: start;
+    grid-template-areas: "list top" "list header" "list lines";
+  }
+}
 @container lf-lines (max-width: 700px) {
   .lf-doc__lines .lf-lines--zebra tbody.lf-lines__item:nth-of-type(even) > tr:not(.is-error):not(.lf-lines__msg) > td { background: none; }
   .lf-doc__lines .lf-lines { min-width: 0; }
