@@ -46,7 +46,7 @@ export function useSplit(
       h.destroy()
       handle.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- attach once per container/store/screen/split id
+    // attach once per container/store/screen/split id
   }, [store, containerRef, layerRef, opts.id, opts.screen])
 
   // after every render: re-read the sizes, rebuild handles for the panes that are shown, re-place
