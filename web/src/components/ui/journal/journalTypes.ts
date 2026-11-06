@@ -34,6 +34,10 @@ export interface JournalOp {
   docHref?: string
   item: string
   itemMore: number
+  /** "code - title" of the first leg's place; empty when masked or without legs. */
+  location: string
+  /** Other places in the legs (the list shows "+n"). */
+  locationMore: number
   qty: string
   qtySign: JournalSign
   status: JournalStatus
