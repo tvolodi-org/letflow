@@ -1,6 +1,7 @@
 import { ToastContainer } from '@/components/ui/Toast'
 import { useEffect, useState } from 'react'
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { Link, Outlet, NavLink, useLocation } from 'react-router-dom'
+import { SlidersHorizontal } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { P, useAccess, type Permission } from '@/auth/access'
@@ -14,6 +15,7 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher'
 import { UI_LOCALES, UI_LOCALE_LABELS, useUiLocale, useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { navLabel, navMessages } from './navMessages'
+import { mySettingsMessages } from '@/pages/me/mySettingsMessages'
 import { TenantSwitcher } from '@/auth/TenantSwitcher'
 import { dlqApi } from '@/api/dlq'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -187,11 +189,22 @@ export function AppShell() {
           onMenuToggle={() => setNavOpen((o) => !o)}
           menuControls="app-sidenav"
           end={
-            <LanguageSwitcher
-              locales={UI_LOCALES.map((code) => ({ code, label: UI_LOCALE_LABELS[code] }))}
-              current={uiLocale}
-              onChange={(code) => setUiLocale(code as (typeof UI_LOCALES)[number])}
-            />
+            <>
+              <Link
+                to="/me/settings"
+                className="lf-btn lf-btn--ghost lf-btn--icon"
+                aria-label={mySettingsMessages[uiLocale].link}
+                title={mySettingsMessages[uiLocale].link}
+                data-testid="topbar-my-settings"
+              >
+                <SlidersHorizontal className="lf-icon" aria-hidden="true" />
+              </Link>
+              <LanguageSwitcher
+                locales={UI_LOCALES.map((code) => ({ code, label: UI_LOCALE_LABELS[code] }))}
+                current={uiLocale}
+                onChange={(code) => setUiLocale(code as (typeof UI_LOCALES)[number])}
+              />
+            </>
           }
         />
         <main id="main-content" className="lf-content" tabIndex={-1}>
