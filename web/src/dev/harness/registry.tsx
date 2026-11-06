@@ -26,6 +26,7 @@ import { stockBalanceHistoryScreens } from './fixtures/stockBalanceHistory'
 import { stockJournalScreens } from './fixtures/stockJournal'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
 import { stockDocumentsEditScreens } from './fixtures/stockDocumentsEdit'
+import { stockDocumentsLayoutScreens } from './fixtures/stockDocumentsLayout'
 import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
 import { stockOpeningScreens } from './fixtures/stockOpening'
 import { stockCountScreens } from './fixtures/stockCounts'
@@ -261,6 +262,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockJournalScreens,
     ...stockDocumentsScreens,
     ...stockDocumentsEditScreens,
+    ...stockDocumentsLayoutScreens,
     ...stockTwoSidesScreens,
     ...stockOpeningScreens,
     ...stockCountScreens,
