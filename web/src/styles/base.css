@@ -67,12 +67,22 @@ samp {
    components.css has for phones (copied here because that file is an exact copy of the design release; the design repo
    needs the same rules, design-notes.md "lf-lines container-query card mode"). */
 .lf-doc__lines { container: lf-lines / inline-size; }
+/* T-1448 (gui_review: grid scrolled sideways at 1440): while a draft is edited on a wide screen the list column steps aside
+   (Back returns to it), so the header and the lines editor share the whole content width and every grid column fits. */
+@media (min-width: 1440px) {
+  .lf-doc:has(.lf-le[data-readonly="false"]) { grid-template-columns: var(--doc-header-width) minmax(0, 1fr); grid-template-areas: "top top" "header lines"; }
+  .lf-doc:has(.lf-le[data-readonly="false"]) > .lf-doc__list { display: none; }
+}
+.lf-le, .lf-le__body, .lf-le__formwrap { scrollbar-color: var(--line-strong) transparent; color-scheme: inherit; }
 /* T-1448: the lines editor (lf-le) fills the lines card; it needs a definite height to scroll inside itself. */
 .lf-doc__lines .lf-le { height: min(70vh, 720px); min-height: 22rem; }
-.lf-doc__lines .lf-le__table:not(.lf-le__table--saved) { min-width: 46rem; }
+.lf-doc__lines .lf-le__table:not(.lf-le__table--saved) { min-width: 36rem; }
 .lf-doc__lines .lf-le__table--wide { min-width: 74rem; }
 .lf-le__table th.is-grow { width: 30%; }
-.lf-le__table:not(.lf-le__table--saved) th.is-num { width: 7.5rem; }
+.lf-le__table:not(.lf-le__table--saved) th.is-num { width: 6.5rem; }
+.lf-le__table:not(.lf-le__table--saved) th.is-col-quantity { width: 8.5rem; }
+.lf-le__table:not(.lf-le__table--saved) th.is-idx { width: 3rem; }
+.lf-le__table:not(.lf-le__table--saved) th.is-act { width: 6.5rem; }
 .lf-lines--edit { min-width: 38rem; }
 /* T-1438: components.css gives the table a min-width of about 632 px, 2 px more than the ~630 px lines card, so the view table
    showed a full-width horizontal scrollbar (measured: scroll box 630, table 632). A view table has no inputs that need the floor;

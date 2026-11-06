@@ -502,7 +502,7 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
                   {t('c.idx')}
                 </th>
                 {columns.map((c) => (
-                  <th key={c.key} scope="col" className={[c.num ? 'is-num' : '', c.grow ? 'is-grow' : ''].filter(Boolean).join(' ') || undefined}>
+                  <th key={c.key} scope="col" className={[c.num ? 'is-num' : '', c.grow ? 'is-grow' : '', `is-col-${c.key}`].filter(Boolean).join(' ')}>
                     {c.label}
                   </th>
                 ))}

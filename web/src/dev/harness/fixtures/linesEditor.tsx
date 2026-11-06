@@ -149,14 +149,41 @@ const pasteInto = (text: string) => {
   if (!qty) return false
   const dt = new DataTransfer()
   dt.setData('text', text)
-  qty.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+  const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true })
+  Object.defineProperty(ev, 'clipboardData', { value: dt })
+  qty.dispatchEvent(ev)
   return true
 }
 const scan = (code: string) => {
   const input = document.querySelector<HTMLInputElement>('.lf-le__scanf input')
   if (!input) return false
+  // The item catalog is loaded once a row shows an item code (a scan before that answers "not found").
+  const loaded = Array.from(document.querySelectorAll<HTMLInputElement>('[data-testid="line-editor-row"] input')).some((i) => i.value.startsWith('GATEA'))
+  if (!loaded && document.querySelector('[data-testid="line-editor-row"]')) return false
   setValue(input, code)
   input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  return true
+}
+
+/** Scans the barcode again every 700 ms for 8 s, so the row flash (1.5 s by design) is on in the shot whenever it is taken. */
+const holdScan = (code: string) => {
+  const started = Date.now()
+  let first = true
+  let last = 0
+  return () => {
+    if (Date.now() - started > 8000) return true
+    if (first || Date.now() - last > 700) {
+      if (!scan(code)) return false
+      first = false
+      last = Date.now()
+    }
+    return false
+  }
+}
+const searchFor = (q: string) => {
+  const input = document.querySelector<HTMLInputElement>('.lf-le__searchf input')
+  if (!input) return false
+  setValue(input, q)
   return true
 }
 
@@ -180,6 +207,49 @@ function Direct({ state }: { state: 'loading' | 'error' | 'noperm' }): ReactElem
         searchText={(l) => l.a}
       />
     </section>,
+  )
+}
+
+type Demo = { a: string; q: string }
+/** The import result, rendered on the component itself: the stock document screen ships no Import entry (the button is
+ *  hidden by the owner's decision of the Gate B rework), so the design state is shown with a caller that does. */
+function ImportDemo(): ReactElement {
+  const [m, setM] = useState<'grid' | 'form'>('grid')
+  const [lines, setLines] = useState<Demo[]>([{ a: 'GATEA-M-2611 – Milk 2.5% 1 l', q: '4' }])
+  return withAuth(
+    <Script step={() => {
+      const b = button(['Import lines from Excel', 'Импорт строк из Excel', 'Excel-ден жолдарды импорттау'])
+      if (!b) return false
+      b.click()
+      return true
+    }}>
+      <section className="lf-card lf-doc__lines" style={{ height: 520 }}>
+        <LFLinesEditor<Demo>
+          screenId="lines-import"
+          lines={lines}
+          onChange={setLines}
+          columns={[
+            { key: 'a', label: 'Item', grow: true, view: (l) => l.a },
+            { key: 'q', label: 'Quantity', num: true, view: (l) => l.q },
+          ]}
+          blank={() => ({ a: '', q: '' })}
+          duplicate={(l) => ({ ...l })}
+          isBlank={(l) => l.a === ''}
+          max={100}
+          mode={m}
+          onModeChange={setM}
+          state="ready"
+          searchText={(l) => l.a}
+          onImport={(ctl) =>
+            ctl.importRows([
+              { line: { a: 'GATEA-B-0042 – Wheat bread, sliced', q: '12' } },
+              { line: { a: 'GATEA-S-0007 – Sugar, granulated, 1 kg', q: '3' } },
+              { line: { a: 'NOPE-1', q: '4' }, reason: 'Item NOPE-1 not found' },
+            ])
+          }
+        />
+      </section>
+    </Script>,
   )
 }
 
@@ -207,7 +277,10 @@ export const linesEditorScreens: HarnessScreen[] = [
   screen('lines-grid-paste', '/lines-1', () => (mode('grid'), withAuth(
     <Script step={editThen(() => pasteInto('GATEA-B-0042\t\t12,5\t340\nGATEA-S-0007\t\t3\t520\nNOPE-1\t\t4\t10'))}><Page /></Script>))),
   screen('lines-grid-scan', '/lines-20', () => (mode('grid'), withAuth(
-    <Script step={editThen(() => scan('GATEA-T-0311'))}><Page /></Script>))),
+    <Script step={editThen(holdScan('460004'))}><Page /></Script>))),
+  screen('lines-grid-search', '/lines-20', () => (mode('grid'), withAuth(
+    <Script step={editThen(() => searchFor('zzz-no-such-line'))}><Page /></Script>))),
+  screen('lines-view-draft', '/lines-20', () => (mode('grid'), withAuth(<Page />))),
   screen('lines-grid-readonly', '/lines-posted-150', () => (mode('grid'), withAuth(<Page />))),
   screen('lines-form-editing', '/lines-20', () => (mode('form'), withAuth(
     <Script step={editThen(() => {
@@ -242,6 +315,7 @@ export const linesEditorScreens: HarnessScreen[] = [
       </AuthContext.Provider>
     ),
   },
+  { name: 'lines-grid-import', routes, render: () => <ImportDemo /> },
   { name: 'lines-loading', routes, render: () => <Direct state="loading" /> },
   { name: 'lines-error', routes, render: () => <Direct state="error" /> },
   { name: 'lines-noperm', routes, render: () => <Direct state="noperm" /> },
@@ -252,6 +326,6 @@ export const linesEditorScreens: HarnessScreen[] = [
         add.click()
         return false
       }
-      return scan('4600012')
+      return holdScan('460002')()
     }}><DocumentNewPage /></Script>)) },
 ]
