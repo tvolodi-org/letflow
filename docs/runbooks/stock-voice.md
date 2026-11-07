@@ -86,3 +86,7 @@ open owner question), and the answer is checked on the server by `VoiceDraft.che
 
 A request holds a tenant admission slot for up to two provider calls of 60 s each; a per-user rate limit is an
 open owner question.
+
+## Regression tests
+
+A fixed phrase list (ru, kk) with expected drafts: `docs/runbooks/stock-voice-regression.md`.
