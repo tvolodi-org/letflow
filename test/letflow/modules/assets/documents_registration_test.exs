@@ -41,16 +41,21 @@ defmodule Letflow.Modules.Assets.DocumentsRegistrationTest do
 
   test "R1 two write handlers post to the assets ledger and write only the mark type" do
     handlers = Assets.manifest().write_handlers
-    assert Enum.map(handlers, & &1.name) == ["post_document", "reverse_document"]
 
-    for h <- handlers do
+    assert Enum.map(handlers, & &1.name) == [
+             "post_document",
+             "reverse_document",
+             "post_kind_change"
+           ]
+
+    for h <- Enum.take(handlers, 2) do
       assert h.posts_ledger == "assets"
       assert h.targets == ["assets_posting_mark"]
       assert {Letflow.Modules.Assets.Handlers, fun} = h.function
       assert fun == String.to_existing_atom(h.name)
     end
 
-    [post, reverse] = handlers
+    [post, reverse | _] = handlers
 
     assert post.args |> Map.keys() |> Enum.sort() ==
              ~w(document_id document_type mark org_unit_id posting version_no)
@@ -125,7 +130,8 @@ defmodule Letflow.Modules.Assets.DocumentsRegistrationTest do
              "assets_reversal",
              "assets_change",
              "assets_handover",
-             "assets_writeoff"
+             "assets_writeoff",
+             "assets_kind_change"
            ]
 
     for {d, node, handler} <- [

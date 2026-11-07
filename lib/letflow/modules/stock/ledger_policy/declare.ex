@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   | cause | `from` | `to` | legs per line |
   |---|---|---|---|
   | receipt, opening | absent | required | `+q` at `to` |
-  | issue, write_off | required | absent | `-q` at `from` |
+  | issue, write_off, kind_change_out | required | absent | `-q` at `from` |
   | transfer, hand_over, return | required | required, different from `from` in org_unit, location or responsible | `-q` at `from`, `+q` at `to` |
   | count_difference (REQ-718) | exactly one of the two | exactly one of the two | `+q` at `to` or `-q` at `from`; up to 200 lines (REQ-718) |
 
@@ -44,6 +44,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
     "opening" => :to,
     "issue" => :from,
     "write_off" => :from,
+    "kind_change_out" => :from,
     "count_difference" => :either
   }
   @client_time_keys [:event_time, :client_event_time, :device_id, :client_seq]
@@ -155,7 +156,7 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
   defp legs(cause, base, _from, to) when cause in ["receipt", "opening"],
     do: [leg(base, to, false)]
 
-  defp legs(cause, base, from, _to) when cause in ["issue", "write_off"],
+  defp legs(cause, base, from, _to) when cause in ["issue", "write_off", "kind_change_out"],
     do: [leg(base, from, true)]
 
   # REQ-718: a surplus line has a `to` side (+q), a shortage line a `from` side (-q).
@@ -189,7 +190,8 @@ defmodule Letflow.Modules.Stock.LedgerPolicy do
     with {:ok, to} <- side(to), do: {:ok, nil, to}
   end
 
-  defp sides(cause, from, to) when cause in ["issue", "write_off"] and is_nil(to) do
+  defp sides(cause, from, to)
+       when cause in ["issue", "write_off", "kind_change_out"] and is_nil(to) do
     with {:ok, from} <- side(from), do: {:ok, from, nil}
   end
 

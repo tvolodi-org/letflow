@@ -170,7 +170,10 @@ defmodule Letflow.Modules.Assets.Documents do
          :ok <- draft?(view),
          {:ok, _issued} <- issue_in_lock(prefix, id, actor, Keyword.get(opts, :activator)) do
       if Kinds.get(view.kind).posts?, do: start_posting(prefix, id, actor)
-      fetch(prefix, id, Keyword.get(opts, :authorized))
+
+      fetch(prefix, id, Keyword.get(opts, :authorized),
+        stock_authorized: Keyword.get(opts, :stock_authorized)
+      )
     end
   end
 
@@ -185,7 +188,6 @@ defmodule Letflow.Modules.Assets.Documents do
         {:error, reason} -> Repo.rollback(reason)
       end
 
-      # A kind that does not post (change of kind) has no process definition to activate.
       if Kinds.get(view.kind).posts? do
         case Posting.ensure_active(prefix, Kinds.get(view.kind).definition, activator) do
           :ok -> :ok
@@ -417,15 +419,15 @@ defmodule Letflow.Modules.Assets.Documents do
   The document `id` with its header and lines, or `{:error, :not_found}` (a malformed id, an unknown
   id, a discarded draft and another tenant's id are all that one answer).
   """
-  @spec fetch(String.t(), term(), term()) :: {:ok, map()} | {:error, :not_found}
-  def fetch(prefix, id, authorized \\ nil) when is_binary(prefix) do
+  @spec fetch(String.t(), term(), term(), keyword()) :: {:ok, map()} | {:error, :not_found}
+  def fetch(prefix, id, authorized \\ nil, opts \\ []) when is_binary(prefix) do
     with {:ok, id} <- cast(id),
          %Document{} = document <- Repo.get(Document, id, prefix: prefix),
          %{} = spec <- Kinds.by_type_key(document.type_key),
          %DocumentVersion{} = version <- live_version(prefix, id),
          {:ok, header} <- header(prefix, spec, id) do
       base = view(prefix, spec, document, version, header)
-      {:ok, Map.merge(base, Posting.state_fields(prefix, base, authorized))}
+      {:ok, Map.merge(base, Posting.state_fields(prefix, base, authorized, opts))}
     else
       _none -> {:error, :not_found}
     end

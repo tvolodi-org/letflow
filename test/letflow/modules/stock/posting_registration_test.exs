@@ -61,10 +61,13 @@ defmodule Letflow.Modules.Stock.PostingRegistrationTest do
            ]
 
     # REQ-718 added `post_count` (same arguments as `post_document`)
-    assert [post, reverse, count] = m.write_handlers
+    # REQ-760 added `post_kind_change_out` (same arguments again)
+    assert [post, reverse, count, kind_out] = m.write_handlers
 
-    assert {post.name, reverse.name, count.name} ==
-             {"post_document", "reverse_document", "post_count"}
+    assert {post.name, reverse.name, count.name, kind_out.name} ==
+             {"post_document", "reverse_document", "post_count", "post_kind_change_out"}
+
+    assert kind_out.args == post.args
 
     assert count.args == post.args
 

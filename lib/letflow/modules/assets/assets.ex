@@ -35,8 +35,15 @@ defmodule Letflow.Modules.Assets do
   a fifth document kind `kind_change` (a stock SKU becomes an asset card) on the same `/documents` routes,
   with record types `assets_kind_change` and `assets_kind_change_line` and the document type
   `assets_kind_change` (AKC). It is drafted and issued (the master checks of section 5 run at issue, reading
-  the catalog, locations, org and the card register) but posts nothing and creates no card; both belong to
-  REQ-760. Because the checks read `catalog_items` and `stock`, the module now depends on both.
+  the catalog, locations, org and the card register). Because the checks read `catalog_items` and `stock`, the
+  module now depends on both.
+
+  **Posting a change of kind** (C15 part 3A, version 0.9.0, REQ-760 / GH #3901): issuing a `kind_change` starts the
+  process definition `assets_kind_change`; completing its task runs two write handlers in ONE transaction:
+  `post_kind_change` (this module: the mark, one `assets_card` per line, the asset entry with cause `kind_change_in`)
+  and `post_kind_change_out` (module `stock`: the mark and the stock entry with cause `kind_change_out`), both with the
+  same `correlation_id`. The card ids are derived by the platform (`HandlerWrites.next_record_id/1`). The reversal of the
+  pair is part 3B.
 
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
@@ -136,7 +143,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.8.0",
+    version: "0.9.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
@@ -222,6 +229,20 @@ defmodule Letflow.Modules.Assets do
           "posting" => %{required: true}
         },
         posts_ledger: "assets"
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "post_kind_change",
+        function: {Letflow.Modules.Assets.Handlers, :post_kind_change},
+        targets: ["assets_posting_mark", "assets_card"],
+        args: %{
+          "document_id" => %{required: true},
+          "document_type" => %{required: true},
+          "version_no" => %{required: true},
+          "org_unit_id" => %{required: true},
+          "mark" => %{required: true},
+          "posting" => %{required: true}
+        },
+        posts_ledger: "assets"
       }
     ],
     ledger: %{
@@ -238,7 +259,8 @@ defmodule Letflow.Modules.Assets do
           "commission" => %{sign_rule: :positive, reason_required: false},
           "change" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "handover" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
-          "writeoff" => %{sign_rule: :negative, reason_required: true}
+          "writeoff" => %{sign_rule: :negative, reason_required: true},
+          "kind_change_in" => %{sign_rule: :positive, reason_required: false}
         },
         key_bounds: [],
         permissions: %{

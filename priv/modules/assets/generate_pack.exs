@@ -229,6 +229,44 @@ end
 
 base_args = ~w(document_id document_type version_no org_unit_id mark posting)
 
+# GH #3901 / REQ-760: the change of kind posts two entries in ONE task completion: the asset
+# side (module assets: mark, cards, entry) and the stock side (module stock: mark, entry). The stock
+# line takes the `stock_posting` variable as its `posting`.
+kind_change_definition = fn ->
+  stock_args = Map.put(posting_args.(base_args), "posting", %{"var" => "stock_posting"})
+
+  %{
+    "definition_id" => "00501000-0000-0040-0084-000000003901",
+    "process_key" => "assets_kind_change",
+    "version" => "1.0.0",
+    "graph" => %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "post",
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{
+            "role" => "TENANT_ADMIN",
+            "module_writes" => [
+              %{
+                "module" => "assets",
+                "handler" => "post_kind_change",
+                "args" => posting_args.(base_args)
+              },
+              %{"module" => "stock", "handler" => "post_kind_change_out", "args" => stock_args}
+            ]
+          }
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "post"},
+        %{"id" => "e2", "source" => "post", "target" => "end"}
+      ]
+    }
+  }
+end
+
 process_definitions = [
   process_definition.(
     "00501000-0000-0040-0080-000000003891",
@@ -264,12 +302,13 @@ process_definitions = [
     "post",
     "post_document",
     base_args
-  )
+  ),
+  kind_change_definition.()
 ]
 
 document = %{
   "pack_id" => "letflow-assets",
-  "version" => "0.3.0",
+  "version" => "0.4.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
   # Carried for symmetry with export/3's output, which emits it.
   # parse_document/1 never reads this key -- a document omitting it still

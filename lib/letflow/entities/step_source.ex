@@ -184,6 +184,25 @@ defmodule Letflow.Entities.StepSource do
     do: raise(ArgumentError, "malformed step source: line_index / handler")
 
   @doc """
+  REQ-760: the record id a step create of this source gets. A pure function of the idempotency
+  key (so of the platform-set origin id, line index and ordinal), never of a caller value: a
+  forged task variable cannot choose an existing record's id. Unique per write, because the key
+  is. A SHA-256 prefix with the version nibble 8 and the variant bits 10.
+  """
+  @spec record_id(t()) :: Ecto.UUID.t()
+  def record_id(%__MODULE__{} = source), do: record_id_for_key(idempotency_key(source))
+
+  @doc "`record_id/1` from an already derived idempotency key (what `Records.command_multi/3` holds)."
+  @spec record_id_for_key(String.t()) :: Ecto.UUID.t()
+  def record_id_for_key(key) when is_binary(key) do
+    <<a::48, _v::4, b::12, _var::2, c::62, _rest::binary>> =
+      :crypto.hash(:sha256, "letflow.step.record:" <> key)
+
+    {:ok, uuid} = Ecto.UUID.load(<<a::48, 8::4, b::12, 2::2, c::62>>)
+    uuid
+  end
+
+  @doc """
   The namespace key of this write's `{:line, key}` Multi steps: the `line_index` of a
   declarative line, `20 + line_index * 50 + handler.ordinal` of a handler write.
   """

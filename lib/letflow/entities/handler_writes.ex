@@ -165,6 +165,31 @@ defmodule Letflow.Entities.HandlerWrites do
 
   def create(_multi, _ctx, _command), do: {:error, :invalid_write_command}
 
+  @doc """
+  REQ-760: the record id the NEXT `create/3` of this call will give its record (the ordinal
+  `create/3` would take, not consumed). Derived by the platform from the step source
+  (`StepSource.record_id/1`), never chosen by the caller. A handler that must name the record it
+  creates (a posting leg at a new card) calls this immediately before the `create/3`; `post/3`
+  shares the ordinal counter. Refused like `create/3` for an absent or forged context, and in a
+  dry build (the ledger pre-step).
+  """
+  @spec next_record_id(HandlerContext.t()) ::
+          {:ok, Ecto.UUID.t()} | {:error, :invalid_write_command | :too_many_writes}
+  def next_record_id(%HandlerContext{} = ctx) do
+    with {:ok, token} <- fetch_token(ctx),
+         :not_dry <- dry_mode(token),
+         true <- valid_context?(ctx),
+         {:ok, ordinal} <- next_ordinal(token),
+         {:ok, source} <- source_for(ctx, ordinal) do
+      {:ok, StepSource.record_id(source)}
+    else
+      {:error, :too_many_writes} = error -> error
+      _refused -> {:error, :invalid_write_command}
+    end
+  end
+
+  def next_record_id(_ctx), do: {:error, :invalid_write_command}
+
   defp dry_mode(token), do: if(Map.has_key?(token, :dry), do: :dry, else: :not_dry)
 
   @doc """
@@ -300,34 +325,40 @@ defmodule Letflow.Entities.HandlerWrites do
     if used >= @max_writes_per_call, do: {:error, :too_many_writes}, else: {:ok, used + 1}
   end
 
-  defp build_write(multi, ctx, owner, ordinal, entity_type, field_values) do
-    key = StepSource.call_key(ctx.line_index) + ordinal
+  # The StepSource of the write with `ordinal` in this handler call: ONE builder for `build_write/6`
+  # and `next_record_id/1`, so the id a handler is told is the id the create gets.
+  defp source_for(ctx, ordinal) do
     {origin_tag, origin_id} = ctx.origin
 
     origin_attrs =
       if origin_tag == :task, do: %{task_id: origin_id}, else: %{dispatch_id: origin_id}
+
+    StepSource.new(
+      Map.merge(origin_attrs, %{
+        instance_id: ctx.instance_id,
+        node_id: ctx.node_id,
+        definition_id: ctx.definition_id,
+        definition_version: ctx.definition_version,
+        line_index: ctx.line_index,
+        activator_id: ctx.activator_id,
+        handler: %{
+          module_id: ctx.handler.module_id,
+          name: ctx.handler.name,
+          ordinal: ordinal
+        }
+      })
+    )
+  end
+
+  defp build_write(multi, ctx, owner, ordinal, entity_type, field_values) do
+    key = StepSource.call_key(ctx.line_index) + ordinal
 
     with :ok <- check_type_access(ctx, entity_type),
          :ok <- check_restrictions(ctx, entity_type, field_values),
          # REQ-636: a guard; check_target/2 admits only the handler module's managed types, which
          # the check skips (the owner validates its own references).
          :ok <- ReferenceCheck.check(entity_type, field_values, ctx.prefix),
-         {:ok, source} <-
-           StepSource.new(
-             Map.merge(origin_attrs, %{
-               instance_id: ctx.instance_id,
-               node_id: ctx.node_id,
-               definition_id: ctx.definition_id,
-               definition_version: ctx.definition_version,
-               line_index: ctx.line_index,
-               activator_id: ctx.activator_id,
-               handler: %{
-                 module_id: ctx.handler.module_id,
-                 name: ctx.handler.name,
-                 ordinal: ordinal
-               }
-             })
-           ),
+         {:ok, source} <- source_for(ctx, ordinal),
          {:ok, line_multi} <-
            Records.command_multi(
              %{
