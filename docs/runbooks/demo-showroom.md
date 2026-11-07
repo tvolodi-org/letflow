@@ -21,6 +21,8 @@ build, and it is safe to run again after every upgrade.
 (ordered) count: two open counts of one unit may not share a location, and the Sales team's count needs a chair
 with a user account; order one on the screen.
 
+Operator inputs for the public demo instance (realm files, smoke read, platform tenant bootstrap, survival counts): `docs/demo/README.md`. On the demo the password grant uses the client `letflow-demo-smoke` (`BPM_IDP_CLIENT_ID=letflow-demo-smoke`).
+
 ## How to run
 
 Needs `bash`, `curl`, `jq`, GNU `date`, `cksum`. Everything comes from the environment; nothing secret is in the
