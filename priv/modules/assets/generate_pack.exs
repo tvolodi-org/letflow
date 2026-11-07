@@ -23,6 +23,8 @@ entity_types = ~w(
   assets_writeoff
   assets_writeoff_line
   assets_posting_mark
+  assets_kind_change
+  assets_kind_change_line
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole

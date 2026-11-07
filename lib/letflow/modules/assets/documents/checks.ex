@@ -61,6 +61,9 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
 
   @doc "Runs the master checks of `view` (the document map of `Letflow.Modules.Assets.Documents`)."
   @spec masters(String.t(), map()) :: :ok | refusal()
+  def masters(prefix, %{kind: "kind_change"} = view),
+    do: Letflow.Modules.Assets.Documents.KindChangeChecks.run(prefix, view)
+
   def masters(prefix, %{kind: kind} = view) when kind in ["change", "handover", "writeoff"],
     do: sided_masters(prefix, Kinds.get(kind), view)
 
@@ -167,7 +170,9 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
     end
   end
 
-  defp org_unit(prefix, id) do
+  @doc false
+  @spec org_unit(String.t(), term()) :: :ok | refusal()
+  def org_unit(prefix, id) do
     ok? =
       match?({:ok, %{"entity_type" => "org_unit"}}, Org.lookup(prefix, id)) and
         Org.active?(prefix, id)
@@ -175,7 +180,9 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
     check(ok?, "org_unit_not_active", %{})
   end
 
-  defp employee(prefix, id, field),
+  @doc false
+  @spec employee(String.t(), term(), String.t()) :: :ok | refusal()
+  def employee(prefix, id, field),
     do: check(Org.active_employee?(prefix, id), "employee_not_active", %{"field" => field})
 
   defp optional_employee(_prefix, nil, _field), do: :ok
