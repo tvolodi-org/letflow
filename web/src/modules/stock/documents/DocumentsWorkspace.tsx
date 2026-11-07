@@ -8,7 +8,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { Printer } from 'lucide-react'
 import { OfficialFormMenu } from '../forms/OfficialFormMenu'
-import { formsForDocument, officialFormLang } from '../forms/officialForms'
+import { formsForDocument } from '../forms/officialForms'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
@@ -201,32 +201,17 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
               </Button>
             )}
             <OfficialFormMenu
-              forms={formsForDocument(doc)}
+              forms={[...formsForDocument(doc), ...(documentHasZ5(doc) ? (['z5'] as const) : [])]}
               busyKey={pdf.busyKey}
               onPick={(form, format, lang) =>
-                void pdf.run(`form-${form}-${format}`, () => documentsApi.printForm(doc.id, 'z2', format, lang), `${doc.number ?? doc.id}-Z-2.${format}`, printErrorMessageId)
+                void pdf.run(
+                  `form-${form}-${format}`,
+                  () => documentsApi.printForm(doc.id, form === 'z5' ? 'z5' : 'z2', format, lang),
+                  `${doc.number ?? doc.id}${form === 'z5' ? '_Z-5' : '-Z-2'}.${format}`,
+                  printErrorMessageId,
+                )
               }
             />
-            {documentHasZ5(doc) &&
-              (['pdf', 'docx'] as const).map((format) => (
-                <Button
-                  key={format}
-                  variant="secondary"
-                  icon={<Printer className="lf-icon" aria-hidden="true" />}
-                  loading={pdf.busyKey === `z5-${format}`}
-                  onClick={() =>
-                    void pdf.run(
-                      `z5-${format}`,
-                      () => documentsApi.printForm(doc.id, 'z5', format, officialFormLang(getUiLocale())),
-                      `${doc.number ?? doc.id}_Z-5.${format}`,
-                      printErrorMessageId,
-                    )
-                  }
-                  data-testid={`document-print-z5-${format}`}
-                >
-                  {t(format === 'pdf' ? 'stock.doc.printZ5Pdf' : 'stock.doc.printZ5Docx')}
-                </Button>
-              ))}
           </>
         }
       >

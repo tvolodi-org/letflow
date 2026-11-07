@@ -51,13 +51,19 @@ describe('F1/F2 which documents show the menu', () => {
   it.each([
     ['draft', 'issue'],
     ['reversed', 'issue'],
-    ['issued', 'transfer'],
     ['posted', 'receipt'],
     ['issued', 'hand_over'],
     ['issued', 'return'],
   ])('state %s, kind %s: none', async (state, kind) => {
     await open(state, kind)
     expect(screen.queryByTestId('official-form-menu')).toBeNull()
+  })
+  it('a transfer shows the one menu with Z-5 only (T-1441)', async () => {
+    await open('issued', 'transfer')
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    expect(screen.getByTestId('form-z5-pdf')).toBeInTheDocument()
+    expect(screen.queryByTestId('form-z2-pdf')).toBeNull()
+    expect(screen.queryByTestId('document-print-z5-pdf')).toBeNull()
   })
   it('the registry rules', () => {
     expect(formsForDocument({ kind: 'issue', state: 'issued' })).toEqual(['z2'])
