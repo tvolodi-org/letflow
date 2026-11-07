@@ -2,7 +2,7 @@
  *  head (kind + document link + status), then the sections the module passes in; JournalLegs draws the legs both
  *  inline under a row (compact) and in the pane. Classes `lf-jrn__*` and `lf-reg__*` come from components.css. */
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import { ArrowLeft, ChevronLeft, ChevronRight, Layers, X } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Layers, Maximize2, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '../Button'
 import { EmptyState } from '../EmptyState'
@@ -156,6 +156,8 @@ export interface JournalDetailsLabels {
   legs: JournalLegsLabels
   blankTitle: string
   blankText: string
+  /** Label of the wide-screen Details button (only drawn with `onOpenFull`). */
+  details?: string
 }
 
 export interface JournalDetailsProps {
@@ -168,6 +170,8 @@ export interface JournalDetailsProps {
   onBack: () => void
   onPrev: () => void
   onNext: () => void
+  /** Wide screens: opens the full-screen view (Back, previous/next). No button when absent. */
+  onOpenFull?: () => void
   /** Sections after the head: fields card, links card (the module builds them from RegistryFields / RegistrySection). */
   fields: ReactNode
   links: ReactNode
@@ -247,6 +251,18 @@ export function JournalDetails(p: JournalDetailsProps) {
               ))}
           </h2>
           <JournalStatusPill status={op.status} label={op.statusLabel} />
+          {p.onOpenFull && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="lf-jrn__fullbtn"
+              icon={<Maximize2 className="lf-icon" aria-hidden="true" />}
+              onClick={p.onOpenFull}
+              data-testid="journal-open-full"
+            >
+              {L.details}
+            </Button>
+          )}
         </div>
       </div>
       {p.fields}

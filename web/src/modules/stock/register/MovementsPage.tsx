@@ -125,6 +125,17 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
     setFocusRow(null)
   }, [focusRow])
 
+  // The full-screen view opened (wide Details button): focus Back; leave it if the selected operation left the list.
+  const hasSelected = selectedOp !== null
+  useEffect(() => {
+    if (!detailOpen) return
+    if (!hasSelected) {
+      if (query.isSuccess) setDetailOpen(false)
+      return
+    }
+    document.querySelector<HTMLElement>('[data-testid="journal-back"]')?.focus()
+  }, [detailOpen, hasSelected, query.isSuccess])
+
   const closeDetails = () => {
     setDetailOpen(false)
     setFocusRow(selectedId)
@@ -320,6 +331,7 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
         legs: legsLabels,
         blankTitle: t('stock.journal.blank'),
         blankText: t('stock.journal.blankText'),
+        details: t('stock.journal.details'),
       }}
       op={selectedOp}
       loading={state === 'loading'}
@@ -328,6 +340,7 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
       onBack={closeDetails}
       onPrev={() => step(-1)}
       onNext={() => step(1)}
+      onOpenFull={() => setDetailOpen(true)}
       fields={fields}
       links={links}
       layoutScreen={LAYOUT_SCREEN}
