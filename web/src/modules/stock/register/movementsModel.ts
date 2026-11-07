@@ -104,6 +104,7 @@ export function toJournalOps(rows: MovementRow[], c: MovementsMapContext): Journ
       const rev = rows.find((r) => r.reverses_entry_id === row.entry_id)
       if (rev?.document_number) statusNote = c.t('stock.journal.reversedBy', { d: rev.document_number })
     }
+    const places = uniq(open.map((l) => l.location ?? '').filter((x) => x !== ''))
     const known = (CAUSES as readonly string[]).includes(row.cause)
     return {
       id: row.entry_id,
@@ -117,6 +118,8 @@ export function toJournalOps(rows: MovementRow[], c: MovementsMapContext): Journ
       docHref: documentHref(row),
       item: itemIds.length > 0 ? c.name('catalog_item', itemIds[0]) : '',
       itemMore: Math.max(0, itemIds.length - 1),
+      location: places.length > 0 ? c.name('location_node', places[0]) : '',
+      locationMore: Math.max(0, places.length - 1),
       qty,
       qtySign,
       status,

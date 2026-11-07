@@ -115,7 +115,7 @@ defmodule Letflow.Modules.Stock.OpeningRouterTest do
       })
 
       refused(ctx, O.body(m, %{"lines" => []}), 422, "lines_count")
-      refused(ctx, O.body(m, %{"lines" => List.duplicate(O.line(m), 101)}), 422, "lines_count")
+      refused(ctx, O.body(m, %{"lines" => List.duplicate(O.line(m), 1001)}), 422, "lines_count")
 
       refused(
         ctx,

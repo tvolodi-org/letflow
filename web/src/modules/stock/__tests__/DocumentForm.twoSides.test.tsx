@@ -5,7 +5,7 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { stockMessages } from '../stockMessages'
-import { DOCS, LIST, MASTERS, fakeMasters, refusal, rec, renderStock, stockDoc, withPost } from './stockTestKit'
+import { DOCS, LIST, MASTERS, addFirstLine, fakeMasters, pickItem, refusal, rec, renderStock, stockDoc, withPost } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -43,7 +43,6 @@ const form = () => within(screen.getByTestId('document-form'))
 const pick = (side: 'from' | 'to', label: string, value: string) =>
   fireEvent.change(within(group(side)).getByLabelText(label), { target: { value } })
 const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-const firstRow = () => screen.getAllByTestId('line-editor-row')[0]
 
 async function ready() {
   await form().findAllByRole('option', { name: 'Branch store' })
@@ -60,11 +59,9 @@ async function fillSides(from: [string, string, string], to: [string, string, st
   }
 }
 async function fillLine() {
-  const row = firstRow()
-  await within(row).findByRole('option', { name: 'Bolt M8' })
-  fireEvent.change(within(row).getByLabelText('Item'), { target: { value: 'i1' } })
+  const row = await addFirstLine()
+  await pickItem(row, 'i1')
   fireEvent.change(within(row).getByLabelText('Quantity'), { target: { value: '2' } })
-  await within(row).findByText('pcs')
 }
 const LINES = [{ catalog_item_id: 'i1', catalog_uom_id: 'm1', quantity: '2' }]
 
@@ -118,8 +115,9 @@ describe('T1 create per kind', () => {
       for (const l of ['Org unit', 'Location', 'Responsible']) expect(within(group(side)).getByLabelText(l)).toBeInTheDocument()
     }
     for (const l of [/^Counterparty/, /^Supplier document/, /^Received on/, /^Reason/]) expect(form().queryByLabelText(l)).not.toBeInTheDocument()
-    expect(within(firstRow()).queryByLabelText(/^Unit price/)).not.toBeInTheDocument()
-    expect(within(firstRow()).queryByRole('textbox', { name: /Unit/ })).toBeNull()
+    const row = await addFirstLine()
+    expect(within(row).queryByLabelText(/^Unit price/)).not.toBeInTheDocument()
+    expect(within(row).queryByRole('textbox', { name: /Unit/ })).toBeNull()
   })
   it('T1e hand over copies From org unit and location into To until To is touched', async () => {
     renderStock(`${NEW}?kind=hand_over`, withPost)

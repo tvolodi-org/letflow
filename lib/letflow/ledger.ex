@@ -159,10 +159,13 @@ defmodule Letflow.Ledger do
   @control ~r/[\x00-\x1f\x7f]/
   @limit Decimal.new("1.0E+21")
   @page_cap 200
+  # REQ-774: at most this many rows per INSERT statement (a leg row has ~25 columns, so 500 rows stay far
+  # below the 65,535 bind parameters of PostgreSQL); all chunks run in the one completion transaction.
+  @insert_chunk 500
 
   @type reconciliation :: Reconcile.reconciliation()
 
-  @doc "The one page cap of the read side: the most legs one posting can carry."
+  @doc "The one page cap of the read side: entries or balance rows per page (not legs per entry; a posting can carry 2000 legs, REQ-774)."
   @spec page_cap() :: pos_integer()
   def page_cap, do: @page_cap
 
@@ -914,8 +917,10 @@ defmodule Letflow.Ledger do
   defp min_decimal(values), do: Enum.reduce(values, &if(Decimal.lt?(&1, &2), do: &1, else: &2))
 
   defp insert_missing_balances(prefix, ledger_id, groups) do
-    for %{key: key, legs: [first | _], pin: pin} <- groups do
-      row =
+    # Rows of one multi-row INSERT go in VALUES order, which is the ascending key order of `groups`, so the
+    # insert-if-absent step keeps the ascending lock order (A3) across chunks too.
+    rows =
+      for %{key: key, legs: [first | _], pin: pin} <- groups do
         key_columns(key)
         |> Map.merge(%{
           ledger_id: ledger_id,
@@ -924,9 +929,11 @@ defmodule Letflow.Ledger do
           max_on_hand: pin,
           last_posting_seq: 0
         })
+      end
 
-      Repo.insert_all("ledger_balance", [row], prefix: prefix, on_conflict: :nothing)
-    end
+    rows
+    |> Enum.chunk_every(@insert_chunk)
+    |> Enum.each(&Repo.insert_all("ledger_balance", &1, prefix: prefix, on_conflict: :nothing))
 
     :ok
   end
@@ -1121,7 +1128,9 @@ defmodule Letflow.Ledger do
         })
       end
 
-    Repo.insert_all("ledger_leg", leg_rows, prefix: prefix)
+    leg_rows
+    |> Enum.chunk_every(@insert_chunk)
+    |> Enum.each(&Repo.insert_all("ledger_leg", &1, prefix: prefix))
 
     for {%{key: [k1, k2, k3, k4, k5, k6, k7, k8], legs: legs}, row} <- Enum.zip(groups, locked) do
       new_on_hand = Enum.reduce(legs, row.on_hand, &Decimal.add(&2, &1.quantity))

@@ -15,14 +15,22 @@ import { roleLabelsScreens } from './roleLabelsFixtures'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
 import { docLayoutScreens } from './fixtures/docLayouts'
+import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
 import { assetsScreens } from './fixtures/assets'
 import { stockR7Screens } from './fixtures/stockR7'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
+import { leftoversR15Screens, leftoversR15ShellScreens } from './fixtures/leftoversR15'
+import { assetsDocumentsScreens } from './fixtures/assetsDocuments'
 import { stockScreens } from './fixtures/stock'
 import { stockBalanceHistoryScreens } from './fixtures/stockBalanceHistory'
+import { stockBalancesLayoutScreens } from './fixtures/stockBalancesLayout'
 import { stockJournalScreens } from './fixtures/stockJournal'
+import { stockJournalLayoutScreens } from './fixtures/stockJournalLayout'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
+import { stockDocumentsEditScreens } from './fixtures/stockDocumentsEdit'
+import { linesEditorScreens } from './fixtures/linesEditor'
+import { stockDocumentsLayoutScreens } from './fixtures/stockDocumentsLayout'
 import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
 import { stockOpeningScreens } from './fixtures/stockOpening'
 import { stockCountScreens } from './fixtures/stockCounts'
@@ -246,14 +254,23 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...catalogItemsScreens,
     ...locationsScreens,
     ...docLayoutScreens,
+    ...layoutBaseScreens,
     ...officialFormsScreens,
     ...assetsScreens,
+    ...assetsDocumentsScreens,
     ...stockR7Screens,
     ...sessionNoticeScreens,
+    ...leftoversR15Screens,
+    ...leftoversR15ShellScreens,
     ...stockScreens,
     ...stockBalanceHistoryScreens,
+    ...stockBalancesLayoutScreens,
     ...stockJournalScreens,
+    ...stockJournalLayoutScreens,
     ...stockDocumentsScreens,
+    ...stockDocumentsEditScreens,
+    ...linesEditorScreens,
+    ...stockDocumentsLayoutScreens,
     ...stockTwoSidesScreens,
     ...stockOpeningScreens,
     ...stockCountScreens,

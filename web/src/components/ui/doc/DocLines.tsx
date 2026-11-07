@@ -1,9 +1,11 @@
 /** DocLines — the compact lines table of the platform document form (`lf-lines`): sticky header, zebra rows, one
  *  `tbody` per line so a row and its error messages stay together, an add strip and a totals row. Cells are the
  *  caller's; every cell carries `data-label` (under 640 px a line becomes a card). Generic: no module words. */
-import React from 'react'
+import React, { useRef } from 'react'
 import { AlertCircle, Plus, X } from 'lucide-react'
 import { Button } from '../Button'
+import { useColResize, type ColSpec } from '../layout/ColumnResize'
+import { useLayoutMessages } from '../layout/layoutMessages'
 
 export interface DocColumn {
   key: string
@@ -12,6 +14,8 @@ export interface DocColumn {
   num?: boolean
   /** Class suffix of the design's column width rule (`is-<cls>`); defaults to the key. */
   cls?: string
+  /** Stable id of the column in the remembered layout (`[a-z0-9-]{1,24}`); a column without one is not resizable. */
+  colId?: string
 }
 
 export interface DocLinesTableProps {
@@ -25,13 +29,24 @@ export interface DocLinesTableProps {
   footer?: React.ReactNode
   /** Extra table hook for a wide column set (see base.css `lf-lines--wide`). */
   wide?: boolean
+  /** Resizable columns, widths remembered per user: table id, layout-screen id and the column defaults. */
+  resize?: { id: string; screen: string; cols: ColSpec[] }
   'data-testid'?: string
 }
 
-export function DocLinesTable({ columns, lineLabel, editing, removeLabel, children, footer, wide, ...rest }: DocLinesTableProps) {
+export function DocLinesTable({ columns, lineLabel, editing, removeLabel, children, footer, wide, resize, ...rest }: DocLinesTableProps) {
+  const tableRef = useRef<HTMLTableElement>(null)
+  const m = useLayoutMessages()
+  useColResize(tableRef, {
+    id: resize?.id ?? 'lines',
+    screen: resize?.screen ?? '',
+    cols: resize?.cols ?? [],
+    label: (_id, th) => `${m.resizeColumn}: ${th.textContent?.trim() ?? ''}`,
+    enabled: () => !!resize && (tableRef.current?.closest('.lf-doc')?.clientWidth ?? 0) > 640,
+  })
   return (
     <div className="lf-doc__scroll">
-      <table className={wide ? 'lf-lines lf-lines--zebra lf-lines--wide' : 'lf-lines lf-lines--zebra'} data-testid={rest['data-testid']}>
+      <table ref={tableRef} className={['lf-lines lf-lines--zebra', wide ? 'lf-lines--wide' : '', editing ? 'lf-lines--edit' : ''].filter(Boolean).join(' ')} data-testid={rest['data-testid']}>
         <thead>
           <tr>
             <th scope="col" className="is-idx">
@@ -39,7 +54,7 @@ export function DocLinesTable({ columns, lineLabel, editing, removeLabel, childr
               <span className="sr-only">{lineLabel}</span>
             </th>
             {columns.map((c) => (
-              <th key={c.key} scope="col" className={c.num ? `is-${c.cls ?? c.key} is-num` : `is-${c.cls ?? c.key}`}>
+              <th key={c.key} scope="col" data-col={resize ? c.colId : undefined} className={c.num ? `is-${c.cls ?? c.key} is-num` : `is-${c.cls ?? c.key}`}>
                 {c.label}
               </th>
             ))}

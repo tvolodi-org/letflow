@@ -27,6 +27,9 @@ written from this file after the owner has answered the questions in section 4.
   `docs/assets/asset-register.md`, `docs/assets/government-lists.md`, the entity definitions under
   `priv/modules/*/entity_definitions/`, and the print code of E1a/E1b
   (`lib/letflow/modules/stock/count_print.ex`, `document_print.ex`, `document_print_source.ex`).
+* Section 8 (T-1453, owner decisions of 2026-11-07) gives every one of the 51 forms its checked ru/kk code pair, its
+  BIN/IIN source, its signer rule and its VAT rule, or the requirement registered for the gap (REQ-776 to REQ-778);
+  it settles G1 for printing and the signer and VAT parts of G4 and G5 that decisions (b) to (d) cover.
 * Marks: **proposal** = the business analyst's proposal; **default** = what the print does until the owner answers
   (always: leave the field blank, never invent a value). No answer is given here to any owner question.
 * The forms are shown by their Russian names (Z = "З", Inv = "Инв", DA = "ДА"), as the catalog does. The Kazakh code
@@ -238,8 +241,8 @@ the Russian draft folder). The Kazakh edition has the 10 annexes the Russian fol
 | 3 | КО-3 | КО-3 | КІРІС ЖӘНЕ ШЫҒЫС КАССА ҚҰЖАТТАРЫН ТІРКЕУ ЖУРНАЛЫ |  |
 | 4 | КО-4 | КО-4 | КАССА КІТАБЫ |  |
 | 5 | КО-5 | КО-5 | КАССИР ҚАБЫЛДАҒАН ЖӘНЕ БЕРГЕН АҚШАНЫ ЖӘНЕ ОНЫҢ БАЛАМАЛАРЫН ЕСЕПКЕ АЛУ (КІТАБЫ) |  |
-| 6 | С-1 | С-1 | СЕНІМХАТ |  |
-| 7 | С-2 | С-2 | БЕРІЛГЕН СЕНІМХАТТАРДЫ ЕСЕПКЕ АЛУ ЖУРНАЛЫ |  |
+| 6 | Д-1 | С-1 | СЕНІМХАТ |  |
+| 7 | Д-2 | С-2 | БЕРІЛГЕН СЕНІМХАТТАРДЫ ЕСЕПКЕ АЛУ ЖУРНАЛЫ |  |
 | 8 | Т-1 | Е-1 | ЕСЕП АЙЫРЫСУ ВЕДОМОСТІ (КІТАБЫ) |  |
 | 9 | Т-2 | Е-2 | (title line not detected by the text extract; open annex 9) |  |
 | 10 | Т-3 | Е-3 | АВАНСТЫҚ ЕСЕП |  |
@@ -282,8 +285,8 @@ the Russian draft folder). The Kazakh edition has the 10 annexes the Russian fol
 | 47 | Инв-16 | Түг-16 | ҰЗАҚ МЕРЗІМДІ АКТИВТЕРДІ ТҮГЕНДЕУ НӘТИЖЕЛЕРІНІҢ САЛЫСТЫРМАЛЫ ВЕДОМОСІ | Inv-16 |
 | 48 | Инв-17 | Түг-17 | БИОЛОГИЯЛЫҚ АКТИВТЕРДІ ТҮГЕНДЕУ НӘТИЖЕЛЕРІНІҢ САЛЫСТЫРУ ТІЗІМДЕМЕСІ |  |
 | 49 | Инв-18 | Түг-18 | ҚОРЛАРДЫ ТҮГЕНДЕУ НӘТИЖЕЛЕРІНІҢ САЛЫСТЫРУ ВЕДОМОСІ | Inv-18 (3.3) |
-| 50 | Ж-1 | Ж-1 | ОРЫНДАЛҒАН ЖҰМЫСТАРДЫҢ (КӨРСЕТІЛГЕН ҚЫЗМЕТТЕРДІҢ) АКТІЛЕРІ |  |
-| 51 | С-1 (2026 draft folder) | А-1 | БУХГАЛТЕРЛІК АНЫҚТАМА |  |
+| 50 | Р-1 | Ж-1 | ОРЫНДАЛҒАН ЖҰМЫСТАРДЫҢ (КӨРСЕТІЛГЕН ҚЫЗМЕТТЕРДІҢ) АКТІЛЕРІ |  |
+| 51 | С-1 | А-1 | БУХГАЛТЕРЛІК АНЫҚТАМА |  |
 
 Kazakh terms the stock and count forms use, as printed (for the later build; no translation is made here):
 `Ұйым (жеке кәсіпкер)` organisation (individual entrepreneur), `ЖСН/БСН` IIN/BIN, `Құжат нөмірі` document number,
@@ -417,3 +420,201 @@ Q22 (asset cost on DA-4: `book_value` or `acquisition_cost`). Q16 is reworded in
   a fact Letflow does not hold).
 * **Proof:** `test/letflow/modules/stock/form_count_router_test.exs` (real router, real token, both formats, both languages,
   scope, row cap), `form_count_test.exs` (mappers), `test/letflow/documents/form_print_wide_test.exs` (engine).
+
+## 7. Z-3 and Z-5 on the print engine (E5c, T-1417)
+
+* **Built:** Z-5 (ru) / Q-5 (kk), annex 29, for an issued `transfer`: `GET /documents/:id/print?form=z5&format=pdf|docx&lang=ru|kk`
+  (permission `StockRead`; another kind answers 422 `print_not_available`; hand over and return keep the E1b act, open
+  question Q19). Z-3 (ru) / Q-3 (kk), annex 27, the stock card of one item at one place:
+  `GET /modules/stock/stock-card/print?sku&location[&lot]&format=pdf|docx&lang=ru|kk` (permission `StockRead`).
+  Buttons: "Form Z-5" PDF/Word next to the print button of a transfer; "Stock card Z-3" PDF/Word on the balances screen,
+  enabled once an item and a location are chosen. The English screen prints the Russian form (the forms exist in ru and kk).
+  All new catalog entries are `kk_status: official` (kk text copied from the Adilet edition).
+* **Z-5 filled from Letflow:** organisation name and BIN of the sending unit's legal entity, number, date, sending and
+  receiving structural unit (with the location name after a slash), responsible person (also the releaser), the
+  receiver's name on the "received" line, line number, item name and code, unit, issued quantity and its total.
+  **Blank:** basis (G7), planned quantity (G9), price and amount (G5), amounts in words (G10), "allowed by" and "checked
+  by", every signer position (G4), sort, brand and size (G13).
+* **Z-3 filled from Letflow** (built from the ledger movements the caller may read: income is a positive leg quantity,
+  expense a negative one, balance is the running sum; a scoped reader's masked legs are skipped): organisation name and
+  BIN, structural unit, item name and code, unit of measure, the lot's mark and expiry date when a lot is asked for, and
+  per movement the date (tenant zone), document number, line number, income, expense, balance. **Blank:** counterparty
+  ("from whom received or to whom issued"; available for receipts in principle, left out of this slice), accounting unit of
+  finished output, kind of production, sort, profile, size, account, price, person responsible, shop, executor, the control
+  signature and the precious-materials note. A card of more than 1000 entries answers 422 `card_too_long`; no visible
+  movement answers 404. The header is a list of plain lines, not the multi-cell arrangement of the official sheet.
+* **Differences found while reading annexes 27 and 29** (ru 2026 draft against the kk edition): the kk edition of Z-3 has
+  a "Қойма" (warehouse) line that the ru draft lacks (not printed); Z-5 signers are listed "allowed, checked, released,
+  received" in the ru draft and "allowed, released, checked, received" in the kk edition (one layout per form: the ru order
+  is used in both languages); the kk text of the "total quantity in words" line reads "саны атауы" and is kept as printed;
+  the annex 29 note in the kk edition says the annex was restated by order No. 402 of 19.08.2013.
+* The proof is `test/letflow/modules/stock/form_z5_router_test.exs` and `stock_card_router_test.exs` (real router, real
+  token, ru and kk, pdf and docx), with the pure mappers in `form_z5_test.exs` and `stock_card_source_test.exs`.
+
+## 8. All 51 forms: code pair, BIN/IIN source, signer rule, VAT rule (E2/E5, T-1453)
+
+Owner decisions relayed by the PM on 2026-11-07: (a) the team checks the Kazakh code pairs itself; (b) the BIN/IIN
+comes from the attribute of the org unit, legal entity, counterparty or employee record that the form needs, and a
+missing attribute is registered as a requirement; (c) the signers are the members of the commission appointed by the
+head's order, plus the persons by whom the assets are counted or who are accountable for them, per form; (d) the VAT
+rule depends on the form and on the rates of the Tax Code. A gap that this section does not close has a requirement
+id; no gap blocks phase E.
+
+### 8.1 Sources and how the code pairs were checked
+
+* Russian codes: (1) the 41 draft files, the code line ("Форма З-2", "Форма № ДА-3") read from each file by a script
+  (python3 standard library, read only); (2) the list of annexes of the **current Russian edition** of order No. 562
+  ("1) форму КО-1 согласно приложению 1; ..."), read on 2026-11-07 from the mirror cdb.kz
+  (cdb.kz/sistema/pravovaya-baza/ob-utverzhdenii-form-pervichnykh-uchetnykh-dokumentov/), because the Russian page of
+  adilet.zan.kz is rendered by script and returns no text to a plain download. For the 41 annexes in the folder the
+  two Russian sources agree on every code (script compare, no difference).
+* Kazakh codes: the list of annexes of the current Kazakh edition ("1) осы бұйрыққа 1-қосымшаға сәйкес КО-1
+  нысаны; ...", lines 78 to 178 of `adilet-kk-562-text.txt`) and the code line above each annex; they agree.
+* **Corrections to section 3.7** found by this check (the table is corrected in place): annex 6 is **Д-1** in Russian
+  (доверенность; kk С-1 СЕНІМХАТ), annex 7 is **Д-2** in Russian (kk С-2), annex 50 is **Р-1** in Russian (акт
+  выполненных работ; kk Ж-1), and annex 51 is **С-1** in the current Russian edition too, not only in the 2026 draft
+  folder (kk А-1). So the code letters do not convert one to one: Д- = С- for annexes 6 and 7, Р- = Ж- for annex 50,
+  С- = А- for annex 51, and the kk letter С- names annexes 6 and 7, not 51. The key of a form stays its annex number.
+* The 2026 amending order (draft): its explanatory note says the change is editorial (the word "тенге" becomes
+  "теңге" after the 2026 Constitution) and its order text says it enters into force on 2026-07-01. A registered
+  amending order was not found in this run (the uchet.kz question service also reports none up to 2026-07-07). The
+  draft keeps every code of the current Russian edition. If a registered text differs, section 0 applies.
+
+### 8.2 BIN/IIN source (decision (b))
+
+* Every one of the 51 forms has **one combined field** "ИИН/БИН" (ru, in the 2026 draft spelled out "Индивидуальный
+  идентификационный номер/Бизнес идентификационный номер") / "ЖСН/БСН" (kk) for the organisation or individual
+  entrepreneur that keeps the form. The only exception is the Russian draft of З-3 (annex 27), which has no such
+  field; its Kazakh form Қ-3 has `ЖСН/БСН` (print it in kk only, as each language's own form has it).
+* **Own organisation** (code **LE** in 8.5): `org_legal_entity.bin` of the legal entity of the document's org unit
+  (`org_unit.legal_entity_id`), as the built prints Z-2, Z-5, Z-3, Inv-10 and Inv-18 already do. Both identifiers are 12
+  digits and the form has one field, so an individual entrepreneur is entered as a legal entity whose `bin` holds the
+  IIN (UAT assumption, to be confirmed by the process owner). This closes gap G1 for printing: no separate IIN field
+  is needed, and the text "IIN never stored (G1)" in the moduledocs of the prints means only that the field is named
+  `bin`.
+* **Other party** (code **CP**): `catalog_counterparty.tax_id` of the counterparty (optional, format not checked,
+  REQ-604). Forms with a second identifier: С-1 / Д-1 (annex 6: the receiver and the payer), А-2 (annex 12: the
+  sender and the consignor), Түг-4 / Инв-4 (annex 35: each debtor and creditor). For ҰМА-1 / ДА-1 (annex 16) between two
+  legal entities of one tenant (Q21), the receiver's identifier is the other legal entity's `bin`.
+* **Employee**: no form of the 51 asks for the IIN of a person (every ИИН/БИН field belongs to an organisation or an
+  entrepreneur; the labour forms Т-1 to Т-3 identify a person by the personnel number, which is `org_employee.code`).
+  No employee attribute is needed, so no requirement is registered for it.
+* Org unit: no form asks for an identifier of a structural unit; the unit prints by name (`org_unit.name`).
+
+### 8.3 Signer rule (decision (c))
+
+Signer kinds used in the table of 8.5, with where Letflow takes each from:
+
+| Code | Signer on the form | Letflow source |
+|---|---|---|
+| C | commission: chair and members ("Председатель комиссии", "Члены комиссии" / `Комиссия төрағасы`, `Комиссия мүшелері`), appointed by the head's order | count: `count_order.chair_employee_id` and `count_commission_member` (the count order is the order; its `number` and `issued_at`); stock write-off: REQ-776; asset write-off: REQ-777; any other form: no Letflow document |
+| M | materially responsible person(s) ("Материально-ответственное лицо", "лицо, ответственное за сохранность" / `Материалдық жауапты тұлға`): the person by whom the assets are counted or who is accountable | count: `count_sheet_line.responsible_employee_id` of the lines; stock document: `responsible_id`; asset card and asset documents: `material_responsible_id` |
+| P | the persons who hand over and receive ("Сдал" / "Принял", "Отпустил" / "Получил", "Запасы получил") | `from_responsible_id` and `to_responsible_id` of a transfer, hand over or return; `responsible_id` of a receipt ("Принял") or issue ("Отпустил"); a receiver outside the organisation (Z-2) is not stored (G3): blank line |
+| H | head of the organisation ("УТВЕРЖДАЮ Руководитель", "Отпуск разрешил", "Руководитель") | not in decision (c) and no slot in Letflow: a blank line, signed by hand (default of G4) |
+| A | chief accountant or accountant ("Главный бухгалтер", "Бухгалтер", "Проверил", "Указанные данные проверил") | as H: a blank line, signed by hand |
+| K | cashier ("Кассир", "Получил кассир") | as H; the cash forms have no Letflow document |
+| X | another party: customer and contractor or installer representative, executor, the person to whom a power of attorney is issued, "Ответственный за поставку" where it is not the responsible employee | a blank line, signed by hand |
+
+The name and position of a person printed from Letflow are `org_employee.full_name` and `org_position.name` through
+`position_id` (as the built prints do); the signature itself is always by hand. A person the caller's scope hides
+prints neither name nor position (INV-2, section 6.1).
+
+### 8.4 VAT rule (decision (d))
+
+* Tax Code of the Republic of Kazakhstan of 18 July 2025 No. 214-VIII (in force since 2026-01-01), article 503 "Ставки
+  налога на добавленную стоимость" (text read on 2026-11-07 from kodeksy-kz.com and buhgpt.kz, both giving the Adilet
+  text): **item 1** 16 percent, the basic rate on the taxable turnover and taxable import; **item 2** 5 percent from
+  2026-01-01 and 10 percent from 2027-01-01 for medicines, medical devices and their components, technical
+  rehabilitation aids (list set by the Government) and licensed medical services; **item 3** 10 percent for domestic
+  periodical printed media; **item 4** 0 percent for the turnovers of chapter 47 (for example export); **item 5** at
+  deregistration from VAT, stock at the rate of the deregistration date, fixed and biological assets at the rate of
+  their acquisition date. Exempt turnovers (no VAT) are listed in other articles of the Code and are not mapped here
+  item by item: the user chooses "none" for them.
+* Only **two** of the 51 forms have a VAT field (script search for "НДС" in the 41 Russian files and for "ҚҚС" in the
+  Kazakh text found hits in annexes 16 and 26 only):
+  * **З-2 / Қ-2** (annex 26), columns 8 "Сумма с НДС" and 9 "Сумма НДС": a sale of stock to a third party is a
+    taxable turnover; the rate is the one of article 503 that applies to the goods (16, 5 or 10, 0) or none. Letflow
+    has no price or rate on the issue: **REQ-778** (price without VAT and rate per issue line, columns 7 to 9 and their
+    totals; rounding is a UAT assumption to be confirmed by the process owner).
+  * **ҰМА-1 / ДА-1** (annex 16), "Стоимость реализации с НДС": filled only when the transfer is a sale to another
+    organisation, at the rate of item 1 unless the asset falls under item 2, 3 or 4 or is exempt. An asset hand over
+    inside one tenant is not a sale, so the cell stays blank; a sale between organisations is open question Q21 and
+    is not registered here, because no asset document of that kind exists or is planned in phase E.
+* Every other form (49 of 51): **no VAT field; nothing about VAT is printed.** A price or sum column on such a form
+  (for example З-1 price and sum, Инв-10 sums) prints the stored value as entered, without a VAT split.
+
+### 8.5 The table
+
+Letflow document: "none" means the form has no document in Letflow and is outside the assets and stock counting
+application of phase A to F (owner decisions D-060 to D-063); its rules are still given so a later build starts from
+them. Signer codes from 8.3 in the order of the form; a code in brackets is a blank line signed by hand.
+
+| Annex | ru | kk | Form (short) | Letflow document | BIN/IIN source | Signer rule | VAT rule |
+|---|---|---|---|---|---|---|---|
+| 1 | КО-1 | КО-1 | cash receipt order | none | LE | (A), (K) | no VAT field |
+| 2 | КО-2 | КО-2 | cash payment order | none | LE | (H), (A), receiver (X), (K) | no VAT field |
+| 3 | КО-3 | КО-3 | journal of cash documents | none | LE | no signer line | no VAT field |
+| 4 | КО-4 | КО-4 | cash book (kk only here) | none | LE | (A), (K) | no VAT field |
+| 5 | КО-5 | КО-5 | book of cash given to and taken from the cashier | none | LE | cashier receipts in the table (K) | no VAT field |
+| 6 | Д-1 | С-1 | power of attorney (kk only here) | none | LE; receiver and payer: CP | (H), (A), the person receiving it (X) | no VAT field |
+| 7 | Д-2 | С-2 | journal of powers of attorney (kk only here) | none | LE | the person receiving it, in the table (X) | no VAT field |
+| 8 | Т-1 | Е-1 | payroll sheet (book) | none | LE | no signer line (person by personnel number) | no VAT field |
+| 9 | Т-2 | Е-2 | payroll payment sheet | none | LE | (H), (A), compiled by and checked by (A) | no VAT field |
+| 10 | Т-3 | Е-3 | advance report | none | LE | (H), (A) | no VAT field |
+| 11 | А-1 | А-1 | act of acceptance of assets | none | LE | (H), (X) | no VAT field |
+| 12 | А-2 | А-2 | act of acceptance of an asset for installation | none | LE; sender and consignor: CP | (H), C, M | no VAT field |
+| 13 | А-3 | А-3 | act of handing an asset over for installation | none | LE | customer and installer (X), M | no VAT field |
+| 14 | А-4 | А-4 | act of defects found in an asset (kk only here) | none | LE | M, executor's representative (X) | no VAT field |
+| 15 | А-5 | А-5 | act of acceptance of repaired or modernised assets | none | LE | (H), M, C, P, (A) | no VAT field |
+| 16 | ДА-1 | ҰМА-1 | act of acceptance and transfer of long-term assets | asset hand over (REQ-753) | LE; receiver: CP or the other legal entity's `bin` | (H) of both parties, M, P | sale value with VAT: rate of art. 503 when it is a sale; internal hand over: blank (8.4) |
+| 17 | ДА-2 | ҰМА-2 | inventory card of long-term assets | asset card | LE | M, filled in by (A) | no VAT field |
+| 18 | ДА-3 | ҰМА-3 | act of disposal (write-off) of long-term assets | asset write-off (REQ-753) | LE | (H), C (REQ-777), M, (A) | no VAT field |
+| 19 | ДА-4 | ҰМА-4 | internal movement invoice of long-term assets | asset hand over or change of responsible (REQ-753) | LE | P, (A) | no VAT field |
+| 20 | БА-1 | БА-1 | act of acceptance and transfer of biological assets | none | LE | (H) of both parties, M, P, (A) | no VAT field |
+| 21 | БА-2 | БА-2 | inventory card of biological assets | none | LE | M | no VAT field |
+| 22 | БА-3 | БА-3 | act of write-off of biological assets | none | LE | (H), C, M, (A) | no VAT field |
+| 23 | ОС-1 | НҚ-1 | card of leased fixed assets (kk only here) | none | LE | no signer line | no VAT field |
+| 24 | ОС-2 | НҚ-2 | act of write-off of vehicles | none | LE | (H), C, M, (A) | no VAT field |
+| 25 | З-1 | Қ-1 | receipt order of stock | receipt | LE | P: "Принял" `responsible_id`, "Сдал" (X) | no VAT field |
+| 26 | З-2 | Қ-2 | invoice for issue of stock to a third party | issue (built, section 6) | LE | (H), (A), P: "Отпустил" `responsible_id`, "Запасы получил" blank (G3) | columns 8 and 9: rate of art. 503 per line, REQ-778 |
+| 27 | З-3 | Қ-3 | stock card | ledger read (built, section 7) | ru draft: no field; kk: LE | control signature (A) | no VAT field |
+| 28 | З-4 | Қ-4 | act of receipt of stock from dismantled fixed assets | none (Q20) | LE | (H), customer and contractor (X) | no VAT field |
+| 29 | З-5 | Қ-5 | internal movement invoice of stock | transfer (built, section 7) | LE (sending unit) | (H), (A) "Проверил", P from and to responsible | no VAT field |
+| 30 | З-6 | Қ-6 | act of write-off of stock | write-off | LE | (H), C (REQ-776), M `responsible_id` | no VAT field |
+| 31 | З-7 | Қ-7 | sheet of stock balances in a warehouse | ledger read | LE | M, (A) | no VAT field |
+| 32 | Инв-1 | Түг-1 | count act of stock in transit | none (count kind not built, Q12) | LE | C, M | no VAT field |
+| 33 | Инв-2 | Түг-2 | count act of investments | none | LE | M | no VAT field |
+| 34 | Инв-3 | Түг-3 | count act of shipped stock | none (Q12) | LE | C | no VAT field |
+| 35 | Инв-4 | Түг-4 | count act of receivables and payables | none | LE; each debtor and creditor: CP | C, (A) | no VAT field |
+| 36 | Инв-5 | Түг-5 | count act of precious metals (kk only here) | none | LE | M, C | no VAT field |
+| 37 | Инв-6 | Түг-6 | count act of cash | none | LE | M, C | no VAT field |
+| 38 | Инв-7 | Түг-7 | count list of stock in custody | none (Q12) | LE | M, C | no VAT field |
+| 39 | Инв-8 | Түг-8 | count list of long-term assets | asset count (not built) | LE | M, C, checked by (A) | no VAT field |
+| 40 | Инв-9 | Түг-9 | count list of biological assets | none | LE | M, C | no VAT field |
+| 41 | Инв-10 | Түг-10 | count list of stock | count sheet (built, section 6.1) | LE | M line responsibles, C count order | no VAT field |
+| 42 | Инв-11 | Түг-11 | count list of investments | none | LE | M, C, checked by (A) | no VAT field |
+| 43 | Инв-12 | Түг-12 | list of long-term assets for a count (kk only here) | none | LE | M | no VAT field |
+| 44 | Инв-13 | Түг-13 | count label of stock (kk only here) | none | LE | M, a commission member (C) | no VAT field |
+| 45 | Инв-14 | Түг-14 | count list of strict-accounting forms | none | LE | M, C, checked by (A) | no VAT field |
+| 46 | Инв-15 | Түг-15 | list of inventory cards of biological assets (kk only here) | none | LE | no signer line | no VAT field |
+| 47 | Инв-16 | Түг-16 | comparison sheet of a count of long-term assets | asset differences (not built) | LE | (A), M | no VAT field |
+| 48 | Инв-17 | Түг-17 | comparison sheet of a count of biological assets | none | LE | (A), M | no VAT field |
+| 49 | Инв-18 | Түг-18 | comparison sheet of a count of stock | count differences (built, section 6.1) | LE | (A), M line responsibles | no VAT field |
+| 50 | Р-1 | Ж-1 | act of completed works (services) (kk only here) | none | LE (the form's one ЖСН/БСН) | executor and customer (X) | no VAT field |
+| 51 | С-1 | А-1 | accounting certificate | none | LE | (H), (A) (first and second signature) | no VAT field |
+
+"(kk only here)": the Russian draft folder has no file for the annex; its Russian code is from the current Russian
+edition (8.1) and its signers are read from the Kazakh text.
+
+### 8.6 What is registered for the gaps
+
+| Gap | Forms | Requirement |
+|---|---|---|
+| commission of a stock write-off | З-6 / Қ-6 | REQ-776 |
+| commission of an asset write-off | ДА-3 / ҰМА-3 | REQ-777 (after REQ-753) |
+| price and VAT rate on an issue line, Z-2 columns 7 to 9 | З-2 / Қ-2 | REQ-778 |
+
+Not registered, with the reason: the IIN (8.2: covered by the existing `bin` and `tax_id`); the head, accountant
+and cashier lines (8.3: outside decision (c), blank lines by hand); VAT on ДА-1 (8.4: no inter-organisation sale in
+phase E, Q21); and every form whose Letflow document is "none" (outside the application of phases A to F). None of
+these blocks phase E.

@@ -33,7 +33,7 @@ defmodule Letflow.CreateEntityScopeDeclarationsTest do
          schema: schema
        } do
     assert {@version, CreateEntityScopeDeclarations} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -6)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -7)
 
     assert %{rows: [[0]]} =
              Repo.query!(~s|SELECT count(*) FROM "#{schema}".entity_scope_declarations|)

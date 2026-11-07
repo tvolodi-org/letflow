@@ -14,6 +14,15 @@ definitions_dir = Path.join(pack_dir, "entity_definitions")
 # Emitted order; install is order-insensitive, activation order is on_install/3's list.
 entity_types = ~w(
   assets_card
+  assets_commission
+  assets_commission_line
+  assets_change
+  assets_change_line
+  assets_handover
+  assets_handover_line
+  assets_writeoff
+  assets_writeoff_line
+  assets_posting_mark
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole
@@ -181,17 +190,93 @@ packed =
     }
   end)
 
+# GH #3890 / REQ-752: one HUMAN_TASK with one module_writes line. The role label is only a label
+# (graph check CHK-09 wants one): the ledger authority step decides who may complete the task
+# (AssetsPost / AssetsReverse).
+posting_args = fn names ->
+  Map.new(names, fn name -> {name, %{"var" => name}} end)
+end
+
+process_definition = fn id, key, node, handler, names ->
+  %{
+    "definition_id" => id,
+    "process_key" => key,
+    "version" => "1.0.0",
+    "graph" => %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => node,
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{
+            "role" => "TENANT_ADMIN",
+            "module_writes" => [
+              %{"module" => "assets", "handler" => handler, "args" => posting_args.(names)}
+            ]
+          }
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => node},
+        %{"id" => "e2", "source" => node, "target" => "end"}
+      ]
+    }
+  }
+end
+
+base_args = ~w(document_id document_type version_no org_unit_id mark posting)
+
+process_definitions = [
+  process_definition.(
+    "00501000-0000-0040-0080-000000003891",
+    "assets_commission",
+    "post",
+    "post_document",
+    base_args
+  ),
+  process_definition.(
+    "00501000-0000-0040-0080-000000003890",
+    "assets_reversal",
+    "reverse",
+    "reverse_document",
+    base_args ++ ["reason_code"]
+  ),
+  process_definition.(
+    "00501000-0000-0040-0081-000000003889",
+    "assets_change",
+    "post",
+    "post_document",
+    base_args
+  ),
+  process_definition.(
+    "00501000-0000-0040-0082-000000003889",
+    "assets_handover",
+    "post",
+    "post_document",
+    base_args
+  ),
+  process_definition.(
+    "00501000-0000-0040-0083-000000003889",
+    "assets_writeoff",
+    "post",
+    "post_document",
+    base_args
+  )
+]
+
 document = %{
   "pack_id" => "letflow-assets",
-  "version" => "0.1.0",
+  "version" => "0.3.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
   # Carried for symmetry with export/3's output, which emits it.
   # parse_document/1 never reads this key -- a document omitting it still
   # parses. Fixed, not DateTime.utc_now/0, so regeneration from unchanged
   # sources is byte-identical and a spurious diff never appears.
   "exported_at" => "2026-10-19T00:00:00Z",
-  # Process definitions are the next P2 deliverable, not this pack's.
-  "definitions" => [],
+  # GH #3890 / REQ-752: the two posting process definitions (start -> one HUMAN_TASK -> end).
+  # Install leaves them as module-stamped drafts; the issue and reverse routes activate them lazily.
+  "definitions" => process_definitions,
   "variable_schemas" => [],
   # MUST stay []. decision 0027 makes a non-empty array permanently rejected by
   # check_unsupported_sections/1 with {:error, :unsupported_pack_section}.

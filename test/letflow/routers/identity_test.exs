@@ -180,6 +180,7 @@ defmodule Letflow.Routers.IdentityTest do
                  "email",
                  "id",
                  "inserted_at",
+                 "roles",
                  "status",
                  "updated_at",
                  "username"

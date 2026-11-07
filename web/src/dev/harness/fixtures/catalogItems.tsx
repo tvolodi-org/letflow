@@ -3,6 +3,8 @@
 import type { ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
+import { LayoutPrefsProvider } from '@/hooks/useLayoutPrefs'
+import { makeRoutes as prefRoutes } from './layoutBase'
 import ItemsPage from '@/modules/catalog_items/items/ItemsPage'
 import type { EntityRecord, UserSession } from '@/types/api'
 import type { FixtureRoute, HarnessScreen } from '../types'
@@ -92,17 +94,29 @@ function screen(selected: boolean): ReactElement {
   return (
     <AuthContext.Provider value={AUTH}>
       <AccessStateProvider state={{ status: 'ready', info: { roles: [], platform_tenant: false, permissions: ['StockRead'] } }}>
-        <div className="lf-main">
-          <main className="lf-content">
-            <ItemsPage initialItemId={selected ? SELECTED : undefined} />
-          </main>
-        </div>
+        <LayoutPrefsProvider>
+          <div className="lf-main">
+            <main className="lf-content lf-content--fluid">
+              <ItemsPage initialItemId={selected ? SELECTED : undefined} />
+            </main>
+          </div>
+        </LayoutPrefsProvider>
       </AccessStateProvider>
     </AuthContext.Provider>
   )
 }
 
+/** A stored layout (what the preferences route answers): list pane 45 %, code column 24 %. */
+const SEED_REMEMBERED = {
+  v: 1,
+  shell: { sidenav: {} },
+  screens: { 'stock.registry.items': { panes: { list: [45] }, cols: { list: { code: 34, name: 24 } } } },
+}
+
 export const catalogItemsScreens: HarnessScreen[] = [
-  { name: 'catalog-items', routes, render: () => screen(false) },
-  { name: 'catalog-items-detail', routes, render: () => screen(true) },
+  { name: 'catalog-items', routes: [...prefRoutes(null), ...routes], render: () => screen(false) },
+  { name: 'catalog-items-detail', routes: [...prefRoutes(null), ...routes], render: () => screen(true) },
+  // the same screen at 1920 / 2560 / 3440 (the shot script sets the viewport): fluid, no centred column
+  { name: 'catalog-items-wide', routes: [...prefRoutes(null), ...routes], render: () => screen(true) },
+  { name: 'catalog-items-remembered', routes: [...prefRoutes(SEED_REMEMBERED), ...routes], render: () => screen(true) },
 ]

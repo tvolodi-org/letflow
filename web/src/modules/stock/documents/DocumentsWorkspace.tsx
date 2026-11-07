@@ -8,14 +8,12 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { Printer } from 'lucide-react'
 import { OfficialFormMenu } from '../forms/OfficialFormMenu'
-import { formsForDocument } from '../forms/officialForms'
+import { formsForDocument, officialFormLang } from '../forms/officialForms'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
 import { actorLabel } from '@/lib/references/actorLabel'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
-import { formatQuantity } from '@/lib/formatQuantity'
-import { formatMoney } from '@/lib/formatDecimal'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -25,7 +23,7 @@ import { StatusPill } from '@/components/ui/StatusPill'
 import { DocBar, DocBlank, DocCard, DocField, DocFields, DocGroup, DocLayout } from '@/components/ui/doc/DocLayout'
 import { useDocumentLayout } from '@/hooks/useDocumentLayout'
 import { DocumentTabs } from './DocumentTabs'
-import { DocLineItem, DocLinesTable, DocLinesTotal } from '@/components/ui/doc/DocLines'
+import { LinesEditor } from './LinesEditor'
 import { RegisterError } from '../register/RegisterShell'
 import { usePdfDownload } from '../register/usePdfDownload'
 import { stockQueryKeys } from '../register/stockQueryKeys'
@@ -37,20 +35,26 @@ import { documentsApi, type StockDocument } from './documents.api'
 import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
 import { DOCUMENTS_PATH, DocumentList } from './DocumentList'
-import { lineColumns } from './lineColumns'
+import { DOCUMENTS_LAYOUT_SCREEN } from './lineColumns'
+import { useLayoutPrefs } from '@/hooks/useLayoutPrefs'
+import { useLayoutMessages } from '@/components/ui/layout/layoutMessages'
 import {
   DOC_KINDS,
   DOC_STATES,
+  documentHasZ5,
   documentPrintable,
   formatEventTime,
   isOpening,
   isTwoSide,
   printErrorMessageId,
+  lineFromDocument,
   sidesOf,
-  sumDecimals,
   type DocKind,
 } from './documentsModel'
 import { stateTone } from './stateTone'
+
+const NO_ERRORS: Record<string, string> = {}
+const noop = (): void => undefined
 
 export type WorkspaceMode = 'list' | 'view' | 'create'
 
@@ -161,27 +165,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
   const row = (label: string, value: string | null | undefined, mono = false, always = true) =>
     always || value ? <DocField label={label} value={value ? value : dash} mono={mono} empty={!value} /> : null
   const hasPosting = Boolean(doc.issued_at || doc.posted_at || doc.posted_by || doc.reversed_at || doc.reversed_by)
-  const columns = lineColumns(doc.kind as DocKind, t)
-  const withValue = isReceipt || opening
-  const total = withValue ? sumDecimals(lines.map((l) => l.line_value ?? '')) : null
-
-  const cell = (key: string, l: (typeof lines)[number]) => {
-    switch (key) {
-      case 'item': return name('catalog_item', l.catalog_item_id)
-      case 'lot': return name('catalog_lot', l.catalog_lot_id) || dash
-      case 'quantity': return (
-        <span className="lf-lines__qty">
-          <span>{formatQuantity(l.quantity, intl.locale)}</span>
-          <span className="lf-lines__unit">{name('catalog_uom', l.catalog_uom_id)}</span>
-        </span>
-      )
-      case 'location': return name('location_node', l.location_id) || dash
-      case 'responsible': return name('org_employee', l.responsible_id) || dash
-      case 'receivedOn': return <span className="mono">{l.received_on ?? dash}</span>
-      case 'unitPrice': return <span className="mono">{formatMoney(l.unit_price, intl.locale) || dash}</span>
-      default: return <span className="mono">{formatMoney(l.line_value, intl.locale) || dash}</span>
-    }
-  }
+  const viewLines = lines.map(lineFromDocument)
 
   return (
     <>
@@ -223,6 +207,26 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
                 void pdf.run(`form-${form}-${format}`, () => documentsApi.printForm(doc.id, 'z2', format, lang), `${doc.number ?? doc.id}-Z-2.${format}`, printErrorMessageId)
               }
             />
+            {documentHasZ5(doc) &&
+              (['pdf', 'docx'] as const).map((format) => (
+                <Button
+                  key={format}
+                  variant="secondary"
+                  icon={<Printer className="lf-icon" aria-hidden="true" />}
+                  loading={pdf.busyKey === `z5-${format}`}
+                  onClick={() =>
+                    void pdf.run(
+                      `z5-${format}`,
+                      () => documentsApi.printForm(doc.id, 'z5', format, officialFormLang(getUiLocale())),
+                      `${doc.number ?? doc.id}_Z-5.${format}`,
+                      printErrorMessageId,
+                    )
+                  }
+                  data-testid={`document-print-z5-${format}`}
+                >
+                  {t(format === 'pdf' ? 'stock.doc.printZ5Pdf' : 'stock.doc.printZ5Docx')}
+                </Button>
+              ))}
           </>
         }
       >
@@ -272,41 +276,18 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
           </section>
         ))}
       </DocCard>
-      <DocCard area="lines" title={t('stock.doc.lines')} count={lines.length}>
-        {lines.length === 0 ? (
-          <div className="lf-doc__empty">
-            <div className="lf-empty">
-              <p className="lf-empty__title">{t('stock.doc.lines.none')}</p>
-            </div>
+      <LinesEditor
+        kind={doc.kind as DocKind}
+        lines={viewLines}
+        errors={NO_ERRORS}
+        onChange={noop}
+        readOnly
+        footer={
+          <div className="lf-btn-row">
+            <Button variant="ghost" onClick={() => void query.refetch()}>{t('stock.doc.reload')}</Button>
           </div>
-        ) : (
-          <DocLinesTable
-            columns={columns}
-            lineLabel={t('stock.doc.col.lineNo')}
-            data-testid="document-lines"
-            footer={
-              <DocLinesTotal
-                labelSpan={withValue ? columns.length : columns.length + 1}
-                label={`${t('stock.doc.lines.total')}: ${lines.length}`}
-                cells={withValue ? [formatMoney(total, intl.locale) || dash] : []}
-              />
-            }
-          >
-            {lines.map((l, i) => (
-              <DocLineItem key={l.line_no} index={i} lineLabel={t('stock.doc.col.lineNo')} messageId={`ln-${i}-err`} colSpan={columns.length + 1} testId="line-row">
-                {columns.map((c) => (
-                  <td key={c.key} className={c.num ? 'is-num' : undefined} data-label={c.label}>
-                    {cell(c.key, l)}
-                  </td>
-                ))}
-              </DocLineItem>
-            ))}
-          </DocLinesTable>
-        )}
-        <div className="lf-btn-row">
-          <Button variant="ghost" onClick={() => void query.refetch()}>{t('stock.doc.reload')}</Button>
-        </div>
-      </DocCard>
+        }
+      />
     </>
   )
 }
@@ -341,10 +322,21 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
   const back = () => navigate(DOCUMENTS_PATH)
   const layout = useDocumentLayout()
   const docState = mode === 'create' ? 'new' : mode === 'view' ? 'existing' : 'none'
+  const store = useLayoutPrefs()
+  const lm = useLayoutMessages()
   return (
     <>
-      <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.doc.title')} lede={t('stock.doc.lede')} />
-      <DocLayout detailOpen={mode !== 'list'} layout={layout} docState={docState} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">
+      <PageHeader
+        eyebrow={t('stock.eyebrow')}
+        title={t('stock.doc.title')}
+        lede={t('stock.doc.lede')}
+        actions={
+          <Button variant="ghost" onClick={() => store.resetScreen(DOCUMENTS_LAYOUT_SCREEN)} data-testid="reset-layout">
+            {lm.resetLayout}
+          </Button>
+        }
+      />
+      <DocLayout screen={DOCUMENTS_LAYOUT_SCREEN} detailOpen={mode !== 'list'} layout={layout} docState={docState} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">
         <DocumentList selectedId={mode === 'view' ? id : undefined} />
         {mode === 'list' && <DocBlank title={t('stock.doc.blank.title')} text={t('stock.doc.blank.text')} />}
         {mode === 'view' && id && <DocumentView key={id} id={id} onBack={back} />}

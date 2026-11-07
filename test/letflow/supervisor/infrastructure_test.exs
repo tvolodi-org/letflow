@@ -150,6 +150,21 @@ defmodule Letflow.Supervisor.InfrastructureTest do
     assert length(ids) == 27
   end
 
+  test "REQ-772: the upgrade-on-deploy child follows MigrationReplayBoot and is temporary" do
+    {:ok, {_flags, specs}} = Letflow.Supervisor.Infrastructure.init([])
+    ids = Enum.map(specs, & &1.id)
+    replay = Enum.find_index(ids, &(&1 == Letflow.TenantProvisioning.MigrationReplayBoot))
+    assert replay
+    assert Enum.at(ids, replay + 1) == Letflow.ModuleUpgrade.Boot
+    spec = Enum.at(specs, replay + 1)
+    assert spec.restart == :temporary
+    # an :ignore child is not listed by which_children, so the 27-id list above is unchanged
+    refute Letflow.ModuleUpgrade.Boot in Enum.map(
+             Supervisor.which_children(Letflow.Supervisor.Infrastructure),
+             &elem(&1, 0)
+           )
+  end
+
   test "ISS-0224: SandboxPool.TaskSupervisor precedes SandboxPool" do
     ids =
       Letflow.Supervisor.Infrastructure
