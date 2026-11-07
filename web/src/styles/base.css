@@ -158,3 +158,26 @@ samp {
 
 /* T-1334: keep the close button beside the title in the register details panel (as the stock history panel). */
 .lf-reg__details .lf-detail-head { flex-wrap: nowrap; }
+
+/* T-1439 R12b: Movements journal on a wide screen. The Details button opens the full-screen view (Back, previous/next)
+   that components.css only styles under 900 px; the list table keeps room for Status and the item reference and
+   scrolls inside its own box, never the page. The design repo needs the same rules on its next release. */
+@media (max-width: 900px) {
+  .lf-jrn__fullbtn { display: none; }
+}
+@media (min-width: 901px) {
+  .lf-jrn[data-detail="open"] { grid-template-columns: minmax(0, 1fr); }
+  .lf-jrn[data-detail="open"] > .lf-jrn__list { display: none; }
+  .lf-jrn[data-detail="open"] .lf-jrn__details { position: static; max-width: 960px; }
+  .lf-jrn[data-detail="open"] .lf-jrn__bar { display: flex; }
+  .lf-jrn[data-detail="open"] .lf-reg__backrow { display: block; }
+  .lf-jrn[data-detail="open"] .lf-jrn__close { display: none; }
+  .lf-jrn[data-detail="open"] .lf-jrn__fullbtn { display: none; }
+  .lf-jrn__list { min-width: 0; }
+  .lf-jrn__list .lf-table-wrap { overflow-x: auto; }
+  .lf-jrn__table { min-width: 52rem; }
+  .lf-jrn__table .c-date { min-width: 11.5rem; }
+  .lf-jrn__table .c-item .lf-ref { max-width: 26ch; }
+  .lf-jrn__table .c-kind { max-width: 20ch; }
+  .lf-jrn__table .c-st { white-space: nowrap; min-width: 9rem; }
+}

@@ -71,7 +71,10 @@ export const journalRoutes: FixtureRoute[] = [
   },
   {
     match: (path, method) => path === '/api/v1/modules/stock/movements' && method === 'GET',
-    reply: (state) => ({ status: 200, body: { next_cursor: null, rows: state === 'empty' ? [] : MOVEMENTS } }),
+    reply: (state) =>
+      state === 'error'
+        ? { status: 500, body: { error: 'internal' } }
+        : { status: 200, body: { next_cursor: null, rows: state === 'empty' ? [] : MOVEMENTS } },
   },
   {
     match: (path, method) => path.startsWith('/api/v1/modules/stock/documents/') && method === 'GET',
@@ -92,10 +95,16 @@ const shell = (page: React.ReactElement) => (
   </AuthContext.Provider>
 )
 
+/** The movements route answers 403: the register's no-access state (T-1439 state table). */
+const noPermRoutes: FixtureRoute[] = journalRoutes.map((r) =>
+  r.match('/api/v1/modules/stock/movements', 'GET') ? { ...r, reply: () => ({ status: 403, body: { error: 'forbidden' } }) } : r,
+)
+
 export const stockJournalScreens: HarnessScreen[] = [
   { name: 'stock-journal-split', routes: journalRoutes, render: () => shell(<MovementsPage initialSelectedId="jr-1" />) },
   { name: 'stock-journal-v1-expanded', routes: journalRoutes, render: () => shell(<MovementsPage initialOpenId="jr-2" />) },
   { name: 'stock-journal-v3-details', routes: journalRoutes, render: () => shell(<MovementsPage initialSelectedId="jr-1" initialDetail />) },
   { name: 'stock-journal-v2-sheet', routes: journalRoutes, render: () => shell(<MovementsPage variant="v2" initialSelectedId="jr-1" initialDetail />) },
+  { name: 'stock-journal-noperm', routes: noPermRoutes, render: () => shell(<MovementsPage />) },
   { name: 'stock-journal-v1-filters', routes: journalRoutes, render: () => shell(<MovementsPage initialFiltersOpen />) },
 ]
