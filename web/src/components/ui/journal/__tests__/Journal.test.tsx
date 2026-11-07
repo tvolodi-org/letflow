@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { LAYOUT_STORAGE_KEY, createLayoutStore } from '@/lib/layoutStore'
 import { resetDefaultLayoutStore } from '@/hooks/useLayoutPrefs'
-import { JournalDetails, JournalLegTable } from '../JournalDetails'
+import { JournalLegTable } from '../JournalDetails'
 import {
   DEFAULT_JOURNAL_VARIANT, JOURNAL_LAYOUTS, JournalDetails, JOURNAL_VARIANTS, Journal, JournalList, isJournalVariant,
   type JournalListProps, type JournalOp, type JournalVariant,
@@ -136,7 +136,7 @@ describe('D1 wide Details button (T-1439)', () => {
   }
   const view = (onOpenFull?: () => void) => (
     <MemoryRouter>
-      <JournalDetails labels={labels} op={op('a')} hasPrev={false} hasNext onBack={vi.fn()} onPrev={vi.fn()} onNext={vi.fn()}
+      <JournalDetails labels={labels} op={op('a')} hasPrev={false} hasNext layoutScreen="test.journal" onBack={vi.fn()} onPrev={vi.fn()} onNext={vi.fn()}
         onOpenFull={onOpenFull} fields={null} links={null} />
     </MemoryRouter>
   )
