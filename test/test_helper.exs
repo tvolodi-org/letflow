@@ -73,7 +73,9 @@ ExUnit.start(
     :wasm_hang,
     :lua_wallclock_race,
     :ledger_throughput,
-    :stock_document_volume
+    :stock_document_volume,
+    :voice_live,
+    :voice_audio
   ]
 )
 
