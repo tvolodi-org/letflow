@@ -78,3 +78,12 @@ describe('U3 paste rows', () => {
     expect(normalizeDecimal(' abc ')).toBe('abc')
   })
 })
+
+describe('LE2 computeWindow after the list shrank', () => {
+  it('a stale scroll position past the end still windows the last rows', async () => {
+    const { computeWindow } = await import('../useVirtualRows')
+    const w = computeWindow(1, 40, 32000, 400, 8)
+    expect(w.first).toBe(0)
+    expect(w.last).toBe(1)
+  })
+})

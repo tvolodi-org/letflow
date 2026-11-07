@@ -73,6 +73,8 @@ const DOCS: Record<string, Record<string, unknown>> = {
   'lines-1': doc('lines-1', 1),
   'lines-20': doc('lines-20', 20),
   'lines-100': doc('lines-100', 100),
+  'lines-150': doc('lines-150', 150),
+  'lines-1000': doc('lines-1000', 1000),
   'lines-posted-150': doc('lines-posted-150', 150, { state: 'posted', number: 'RC-000150', posted_at: '2026-11-03T10:00:00Z' }),
   'lines-bad': doc('lines-bad', 3, {
     lines: mkLines(3).map((l, i) => (i === 1 ? { ...l, quantity: '0' } : i === 2 ? { ...l, catalog_item_id: '' } : l)),
@@ -141,7 +143,10 @@ const editThen = (after: () => boolean) => {
       }
       return false
     }
-    return after()
+    const done = after()
+    // The lines card sits under the header card when the list column is shown: bring it to the top of the window.
+    if (done) document.querySelector('.lf-doc__lines')?.scrollIntoView({ block: 'start' })
+    return done
   }
 }
 const pasteInto = (text: string) => {
@@ -180,6 +185,13 @@ const holdScan = (code: string) => {
     return false
   }
 }
+/** Scrolls the lines panel to `at` (0..1) of its height, so the sticky header and totals show over rows from the middle. */
+const scrollLines = (at: number) => {
+  const el = document.querySelector<HTMLElement>('[data-testid="lines-scroll"]')
+  if (!el || !document.querySelector('[data-testid="line-editor-row"]')) return false
+  el.scrollTop = el.scrollHeight * at
+  return true
+}
 const searchFor = (q: string) => {
   const input = document.querySelector<HTMLInputElement>('.lf-le__searchf input')
   if (!input) return false
@@ -190,7 +202,7 @@ const searchFor = (q: string) => {
 function Direct({ state }: { state: 'loading' | 'error' | 'noperm' }): ReactElement {
   const [m, setM] = useState<'grid' | 'form'>('grid')
   return withAuth(
-    <section className="lf-card lf-doc__lines" style={{ height: 420 }}>
+    <section className="lf-card lf-doc__lines" style={{ height: 420, width: '100%' }}>
       <LFLinesEditor<{ a: string }>
         screenId="lines-direct"
         lines={[{ a: '' }]}
@@ -199,7 +211,7 @@ function Direct({ state }: { state: 'loading' | 'error' | 'noperm' }): ReactElem
         blank={() => ({ a: '' })}
         duplicate={(l) => l}
         isBlank={() => true}
-        max={100}
+        max={1000}
         mode={m}
         onModeChange={setM}
         state={state === 'noperm' ? 'ready' : state}
@@ -210,10 +222,34 @@ function Direct({ state }: { state: 'loading' | 'error' | 'noperm' }): ReactElem
   )
 }
 
+/** The empty document with the import entry (a saved opening draft with no lines yet). */
+function EmptyImportDemo(): ReactElement {
+  const [m, setM] = useState<'grid' | 'form'>('grid')
+  const [lines, setLines] = useState<{ a: string }[]>([{ a: '' }])
+  return withAuth(
+    <section className="lf-card lf-doc__lines" style={{ height: 420, width: '100%' }}>
+      <LFLinesEditor<{ a: string }>
+        screenId="lines-empty-import"
+        lines={lines}
+        onChange={setLines}
+        columns={[{ key: 'a', label: 'Item', view: (l) => l.a }]}
+        blank={() => ({ a: '' })}
+        duplicate={(l) => l}
+        isBlank={(l) => l.a === ''}
+        max={1000}
+        mode={m}
+        onModeChange={setM}
+        searchText={(l) => l.a}
+        onImport={() => undefined}
+      />
+    </section>,
+  )
+}
+
 type Demo = { a: string; q: string }
 /** The import result, rendered on the component itself: the stock document screen ships no Import entry (the button is
  *  hidden by the owner's decision of the Gate B rework), so the design state is shown with a caller that does. */
-function ImportDemo(): ReactElement {
+function ImportDemo({ server }: { server?: boolean }): ReactElement {
   const [m, setM] = useState<'grid' | 'form'>('grid')
   const [lines, setLines] = useState<Demo[]>([{ a: 'GATEA-M-2611 – Milk 2.5% 1 l', q: '4' }])
   return withAuth(
@@ -223,7 +259,7 @@ function ImportDemo(): ReactElement {
       b.click()
       return true
     }}>
-      <section className="lf-card lf-doc__lines" style={{ height: 520 }}>
+      <section className="lf-card lf-doc__lines" style={{ height: 520, width: '100%' }}>
         <LFLinesEditor<Demo>
           screenId="lines-import"
           lines={lines}
@@ -235,13 +271,15 @@ function ImportDemo(): ReactElement {
           blank={() => ({ a: '', q: '' })}
           duplicate={(l) => ({ ...l })}
           isBlank={(l) => l.a === ''}
-          max={100}
+          max={1000}
           mode={m}
           onModeChange={setM}
           state="ready"
           searchText={(l) => l.a}
           onImport={(ctl) =>
-            ctl.importRows([
+            server
+              ? ctl.showResult({ added: 38, refused: [{ row: 12, reason: 'Item NOPE-1 not found' }, { row: 40, reason: 'The quantity must be above zero' }] })
+              : ctl.importRows([
               { line: { a: 'GATEA-B-0042 – Wheat bread, sliced', q: '12' } },
               { line: { a: 'GATEA-S-0007 – Sugar, granulated, 1 kg', q: '3' } },
               { line: { a: 'NOPE-1', q: '4' }, reason: 'Item NOPE-1 not found' },
@@ -266,7 +304,9 @@ export const linesEditorScreens: HarnessScreen[] = [
   { name: 'lines-grid-empty', routes, initialPath: '/?kind=issue', render: () => (mode('grid'), withAuth(<DocumentNewPage />)) },
   screen('lines-grid-1line', '/lines-1', () => (mode('grid'), withAuth(<OpenInEdit><Page /></OpenInEdit>))),
   screen('lines-grid-20lines', '/lines-20', () => (mode('grid'), withAuth(<OpenInEdit><Page /></OpenInEdit>))),
-  screen('lines-grid-max', '/lines-100', () => (mode('grid'), withAuth(<OpenInEdit><Page /></OpenInEdit>))),
+  screen('lines-grid-max', '/lines-1000', () => (mode('grid'), withAuth(<Script step={editThen(() => scrollLines(0))}><Page /></Script>))),
+  screen('lines-grid-150', '/lines-150', () => (mode('grid'), withAuth(<Script step={editThen(() => scrollLines(0.4))}><Page /></Script>))),
+  screen('lines-grid-1000', '/lines-1000', () => (mode('grid'), withAuth(<Script step={editThen(() => scrollLines(0.7))}><Page /></Script>))),
   screen('lines-grid-validation', '/lines-bad', () => (mode('grid'), withAuth(
     <Script step={editThen(() => {
       const save = button(SAVE_LABELS)
@@ -316,6 +356,8 @@ export const linesEditorScreens: HarnessScreen[] = [
     ),
   },
   { name: 'lines-grid-import', routes, render: () => <ImportDemo /> },
+  { name: 'lines-import-result', routes, render: () => <ImportDemo server /> },
+  { name: 'lines-empty-import', routes, render: () => <EmptyImportDemo /> },
   { name: 'lines-loading', routes, render: () => <Direct state="loading" /> },
   { name: 'lines-error', routes, render: () => <Direct state="error" /> },
   { name: 'lines-noperm', routes, render: () => <Direct state="noperm" /> },

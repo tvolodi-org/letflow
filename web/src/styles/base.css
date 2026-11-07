@@ -76,6 +76,12 @@ samp {
 .lf-le, .lf-le *, .lf-le__body, .lf-le__formwrap { scrollbar-color: var(--line-strong) transparent; color-scheme: inherit; }
 /* T-1448: the lines editor (lf-le) fills the lines card; it needs a definite height to scroll inside itself. */
 .lf-doc__lines .lf-le { height: min(70vh, 720px); min-height: 22rem; }
+/* LE2 (T-1449): where the viewport is tall the panel fills what is left under the header and the action bar, so its own
+   scroller carries the rows (sticky header and totals) and the page does not scroll; the fixed height above stays as the
+   fallback (stacked layout under 900 px, short windows). */
+@media (min-width: 900px) and (min-height: 700px) {
+  .lf-doc__lines .lf-le { height: clamp(22rem, calc(100dvh - 15rem), 64rem); }
+}
 .lf-doc__lines .lf-le__table:not(.lf-le__table--saved) { min-width: 36rem; }
 .lf-doc__lines .lf-le__table--wide { min-width: 74rem; }
 .lf-le__table th.is-grow { width: 30%; }

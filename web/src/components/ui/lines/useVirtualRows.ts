@@ -20,8 +20,10 @@ export interface VirtualWindow {
 
 export function computeWindow(count: number, rowH: number, scrollTop: number, viewH: number, overscan: number): VirtualWindow {
   const h = viewH > 0 ? viewH : rowH * 12
-  const first = Math.max(0, Math.floor(scrollTop / rowH) - overscan)
-  const last = Math.min(count, Math.ceil((scrollTop + h) / rowH) + overscan)
+  // The list can shrink under a stale scroll position (a search narrows it): never window past its end.
+  const top = Math.min(scrollTop, Math.max(0, count * rowH - h))
+  const first = Math.max(0, Math.floor(top / rowH) - overscan)
+  const last = Math.min(count, Math.ceil((top + h) / rowH) + overscan)
   return { first, last, padTop: first * rowH, padBottom: Math.max(0, (count - last) * rowH) }
 }
 

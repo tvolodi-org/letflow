@@ -3,7 +3,7 @@
  *  opening balance, plus location, responsible and the real receipt date for an opening balance) and hands the editor its
  *  catalog, validation, scan, totals and the remembered mode. The editor owns grid, line by line, keyboard, paste, search.
  *  The form state keeps >= 1 line (a PUT replaces the whole list); a sole empty line is shown as the empty state. */
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useRef, type ChangeEvent, type ReactNode } from 'react'
 import { useIntl } from 'react-intl'
 import { formatMoney } from '@/lib/formatDecimal'
 import { formatQuantity } from '@/lib/formatQuantity'
@@ -12,7 +12,7 @@ import { LFLinesEditor } from '@/components/ui/lines/LFLinesEditor'
 import { ItemPicker } from '@/components/ui/lines/ItemPicker'
 import { normalizeDecimal } from '@/components/ui/lines/pasteRows'
 import { formatLines } from '@/components/ui/lines/linesMessages'
-import type { LeCellCtx, LeColumn, LeError, LeScanResult } from '@/components/ui/lines/types'
+import type { LeCellCtx, LeColumn, LeError, LeImportController, LeScanResult } from '@/components/ui/lines/types'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { useLinesMode } from '@/hooks/useLinesMode'
 import { Select } from '@/components/ui/Select'
@@ -22,6 +22,10 @@ import { usePickerOptions, type PickerOption } from '../register/stockPickers'
 import { MAX_LINES, emptyLine, sumDecimals, validateLine, type DocKind, type LineForm } from './documentsModel'
 import { DOCUMENTS_LAYOUT_SCREEN, lineColumns, lineColumnSpecs } from './lineColumns'
 import { buildCatalog, itemLabel } from './linesCatalog'
+import { documentsApi, type StockDocument } from './documents.api'
+import { OPENING_LINE_TYPE, importErrorText, summariseImport } from './openingImport'
+import { MAX_FILE_BYTES } from '@/pages/admin/import/importModel'
+import { runImport } from '@/pages/admin/import/importApi'
 
 export const LINES_SCREEN_ID = 'stock-documents.lines'
 
@@ -76,6 +80,8 @@ export function LinesEditor(props: {
   noPermission?: boolean
   /** Rendered inside the card, under the editor. */
   footer?: ReactNode
+  /** Import from Excel (opening documents): the route writes the lines of the saved draft, so the screen reloads them. */
+  importer?: { documentId: string; disabledReason?: string; onImported: (fresh: StockDocument) => void }
 }) {
   const intl = useIntl()
   const locale = useUiLocale()
@@ -186,6 +192,34 @@ export function LinesEditor(props: {
   const live = (l: LineForm): LeError[] =>
     Object.entries(validateLine(kind, l)).map(([field, id]) => ({ col: FIELD_COL[field], message: t(id) }))
 
+  const imp = props.importer
+  const fileRef = useRef<HTMLInputElement>(null)
+  const ctlRef = useRef<LeImportController<LineForm> | null>(null)
+  const onImportFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    const ctl = ctlRef.current
+    if (!file || !imp || !ctl) return
+    if (file.size > MAX_FILE_BYTES) {
+      ctl.showError(t('stock.doc.import.tooBig'))
+      return
+    }
+    let summary
+    try {
+      summary = summariseImport(locale, await runImport(OPENING_LINE_TYPE, file, false))
+    } catch (err) {
+      ctl.showError(importErrorText(locale, err))
+      return
+    }
+    try {
+      imp.onImported(await documentsApi.get(imp.documentId))
+    } catch {
+      ctl.showError(t('stock.doc.import.reloadFailed'))
+      return
+    }
+    ctl.showResult(summary)
+  }
+
   const total = withValue ? sumDecimals(lines.map((l) => l.lineValue)) : null
 
   return (
@@ -210,8 +244,11 @@ export function LinesEditor(props: {
         showErrors={props.showErrors}
         searchText={(l) => `${itemLabel(catalog.byId(l.itemId) ?? { id: '', code: '', title: '' })} ${l.quantity}`}
         scan={(code, ls) => scanLines(code, ls, catalog.resolve)}
+        onImport={imp ? (ctl) => { ctlRef.current = ctl; fileRef.current?.click() } : undefined}
+        importDisabledReason={imp?.disabledReason}
         totals={withValue ? () => ({ col: 'lineValue', node: formatMoney(total, intl.locale) || dash }) : undefined}
       />
+      {imp && <input ref={fileRef} type="file" accept=".xlsx" hidden tabIndex={-1} aria-hidden="true" data-testid="lines-import-file" onChange={(e) => void onImportFile(e)} />}
       {props.footer}
     </DocCard>
   )

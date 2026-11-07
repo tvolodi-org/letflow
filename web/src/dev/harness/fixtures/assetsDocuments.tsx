@@ -47,6 +47,7 @@ const base = {
 const POSTING = { posted_at: '2026-11-03T10:00:00Z', posted_by: '5c1f0d2e-7a3b-4c4d-8e9f-0a1b2c3d4e5f' }
 const DOCS: Record<string, Record<string, unknown>> = {
   'doc-posted': { id: 'doc-posted', kind: 'commission', state: 'posted', number: 'ACM-2026-000042', ...POSTING, ...base },
+  'doc-posted-150': { id: 'doc-posted-150', kind: 'commission', state: 'posted', number: 'ACM-2026-000150', ...POSTING, ...base, lines: Array.from({ length: 150 }, (_, i) => ({ line_id: `m${i}`, line_no: i + 1, asset_id: `a${(i % 3) + 1}`, quantity: `${1 + (i % 4)}.000000000` })) },
   'doc-draft': { id: 'doc-draft', kind: 'commission', state: 'draft', number: null, ...base },
   'doc-issued': { id: 'doc-issued', kind: 'handover', state: 'issued', number: 'AHO-2026-000007', issued_at: '2026-11-03T09:30:00Z', org_unit_id: 'u1', from_location_id: 'l1', from_material_responsible_id: 'e1', from_actual_user_id: null, to_org_unit_id: 'u2', to_location_id: null, to_material_responsible_id: 'e2', to_actual_user_id: 'e2', event_time: '2026-11-03T09:15:00Z', note: null, lines },
   'doc-reversed': { id: 'doc-reversed', kind: 'writeoff', state: 'reversed', number: 'AWO-2026-000003', ...POSTING, reversed_at: '2026-11-04T08:00:00Z', reversed_by: '5c1f0d2e-7a3b-4c4d-8e9f-0a1b2c3d4e5f', org_unit_id: 'u1', location_id: 'l1', material_responsible_id: 'e1', actual_user_id: null, reason_code: 'broken', reason_text: 'Dropped from the loading ramp', event_time: '2026-11-02T08:00:00Z', note: null, lines: [lines[0]] },
@@ -162,6 +163,7 @@ export const assetsDocumentsScreens: HarnessScreen[] = [
   view('asset-document-draft', 'doc-draft'),
   view('asset-document-issued', 'doc-issued'),
   view('asset-document-posted', 'doc-posted'),
+  view('asset-document-posted-150', 'doc-posted-150'),
   view('asset-document-reverse', 'doc-posted', (e) => <OpenReverse>{e}</OpenReverse>),
   view('asset-document-reversed', 'doc-reversed'),
   view('asset-document-mismatch', 'doc-mismatch'),

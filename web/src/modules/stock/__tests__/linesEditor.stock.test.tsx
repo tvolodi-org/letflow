@@ -161,6 +161,6 @@ describe('S5 the line limit lives in one place', () => {
     renderStock(`${LIST}/new?kind=issue`, withPost)
     const row = await addFirstLine()
     await pickItem(row, 'i1')
-    expect(screen.getByText('1 of 100 lines')).toBeInTheDocument()
+    expect(screen.getByText('1 of 1000 lines')).toBeInTheDocument()
   })
 })
