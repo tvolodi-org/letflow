@@ -7,9 +7,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { LAYOUT_STORAGE_KEY, createLayoutStore } from '@/lib/layoutStore'
 import { resetDefaultLayoutStore } from '@/hooks/useLayoutPrefs'
-import { JournalDetails, JournalLegTable } from '../JournalDetails'
+import { JournalLegTable } from '../JournalDetails'
 import {
-  DEFAULT_JOURNAL_VARIANT, JOURNAL_LAYOUTS, JOURNAL_VARIANTS, Journal, JournalList, isJournalVariant,
+  DEFAULT_JOURNAL_VARIANT, JOURNAL_LAYOUTS, JournalDetails, JOURNAL_VARIANTS, Journal, JournalList, isJournalVariant,
   type JournalListProps, type JournalOp, type JournalVariant,
 } from '..'
 
@@ -126,6 +126,43 @@ describe('J5 keys', () => {
     expect(onRow).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
     fireEvent.keyDown(rows[0], { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('D1 wide Details button (T-1439)', () => {
+  const labels = {
+    pane: 'Pane', back: 'Back', prev: 'Prev', next: 'Next', close: 'Close', sections: 'Op', position: '1 of 3', legsTitle: 'Legs',
+    legs: LEGS, blankTitle: 'b', blankText: 'b', details: 'Details',
+  }
+  const view = (onOpenFull?: () => void) => (
+    <MemoryRouter>
+      <JournalDetails labels={labels} op={op('a')} hasPrev={false} hasNext layoutScreen="test.journal" onBack={vi.fn()} onPrev={vi.fn()} onNext={vi.fn()}
+        onOpenFull={onOpenFull} fields={null} links={null} />
+    </MemoryRouter>
+  )
+  it('draws the button with the label and calls the handler; absent without the prop', () => {
+    const open = vi.fn()
+    const { unmount } = render(view(open))
+    const b = screen.getByTestId('journal-open-full')
+    expect(b).toHaveTextContent('Details')
+    fireEvent.click(b)
+    expect(open).toHaveBeenCalledTimes(1)
+    unmount()
+    render(view())
+    expect(screen.queryByTestId('journal-open-full')).toBeNull()
+  })
+})
+
+describe('C1 base.css keeps the T-1439 rules', () => {
+  it('has the full-screen and table rules', async () => {
+    const { readFileSync } = await import('node:fs')
+    const css = readFileSync('src/styles/base.css', 'utf8')
+    const at = css.indexOf('T-1439 R12b')
+    expect(at).toBeGreaterThan(-1)
+    const block = css.slice(at)
+    expect(block).toContain('.lf-jrn__table { min-width')
+    expect(block).toContain('[data-detail="open"] > .lf-jrn__list')
+    expect(block).toContain('.lf-jrn__fullbtn')
   })
 })
 

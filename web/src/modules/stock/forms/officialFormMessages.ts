@@ -2,6 +2,8 @@
 export const formEn: Record<string, string> = {
   'stock.form.menu': 'Official form',
   'stock.form.z2': 'Z-2 form',
+  'stock.form.z3': 'Z-3 form',
+  'stock.form.z5': 'Z-5 form',
   'stock.form.inv10': 'Inv-10 form',
   'stock.form.inv18': 'Inv-18 form',
   'stock.form.fmt.docx': '.docx',
@@ -13,6 +15,8 @@ export const formEn: Record<string, string> = {
 export const formRu: Record<string, string> = {
   'stock.form.menu': 'Официальная форма',
   'stock.form.z2': 'Форма З-2',
+  'stock.form.z3': 'Форма З-3',
+  'stock.form.z5': 'Форма З-5',
   'stock.form.inv10': 'Форма Инв-10',
   'stock.form.inv18': 'Форма Инв-18',
   'stock.form.fmt.docx': '.docx',
@@ -24,6 +28,8 @@ export const formRu: Record<string, string> = {
 export const formKk: Record<string, string> = {
   'stock.form.menu': 'Ресми нысан',
   'stock.form.z2': 'Ж-2 нысаны',
+  'stock.form.z3': 'Қ-3 нысаны',
+  'stock.form.z5': 'Қ-5 нысаны',
   'stock.form.inv10': 'Түг-10 нысаны',
   'stock.form.inv18': 'Түг-18 нысаны',
   'stock.form.fmt.docx': '.docx',

@@ -2,8 +2,11 @@
 /** M1–M5 — GH 3767 / REQ-724; M7–M9, JP — T-1422 (GATE B R12): the movements screen on the journal component (network mocked). */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
+import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
+import MovementsPage from '../register/MovementsPage'
 import { MOV, fakeMasters, renderStock, routeCalls } from './stockTestKit'
 import { saveBlob } from '../register/saveBlob'
 
@@ -48,6 +51,23 @@ const stockGet = (routes: Record<string, unknown>) =>
     if (path in routes) return routes[path]
     throw { status: 404, message: 'x', code: '404' }
   })
+
+describe('T-1439 filters drawer at first render', () => {
+  it('initialFiltersOpen opens the filters; closed by default', async () => {
+    const view = (open: boolean) => (
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter><MovementsPage initialFiltersOpen={open} /></MemoryRouter>
+      </QueryClientProvider>
+    )
+    const first = render(view(false))
+    await rowsOf()
+    expect(document.querySelector('[data-filters]')?.getAttribute('data-filters')).toBe('closed')
+    first.unmount()
+    render(view(true))
+    await rowsOf()
+    expect(document.querySelector('[data-filters]')?.getAttribute('data-filters')).toBe('open')
+  })
+})
 
 describe('M1 query keys', () => {
   it('filters send only cause, document_type, document_id, from_seq and to_seq', async () => {
@@ -400,5 +420,54 @@ describe('JP narrow behaviour (V1 inline legs, Details opens the full-screen pan
     fireEvent.click(await screen.findByTestId('journal-details-btn'))
     fireEvent.keyDown(screen.getByTestId('journal-back'), { key: 'Escape' })
     expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
+  })
+})
+
+describe('JW wide screen (T-1439 R12b: Details button opens the full-screen view)', () => {
+  const TWO = { next_cursor: null, rows: [ENTRY, { ...ENTRY, entry_id: 'en2', posting_seq: 16 }] }
+
+  it('D2 Details opens the pane with Back focused; Back closes it and focuses the row', async () => {
+    clientMock.get.mockResolvedValue(TWO)
+    renderStock(MOV)
+    const [row] = await rowsOf()
+    fireEvent.click(row)
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
+    fireEvent.click(await screen.findByTestId('journal-open-full'))
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'open')
+    await waitFor(() => expect(screen.getByTestId('journal-back')).toHaveFocus())
+    fireEvent.click(screen.getByTestId('journal-back'))
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
+    await waitFor(() => expect(row).toHaveFocus())
+  })
+
+  it('D3 previous / next walk the rows and stop at the ends', async () => {
+    clientMock.get.mockResolvedValue(TWO)
+    renderStock(MOV)
+    fireEvent.click((await rowsOf())[0])
+    fireEvent.click(await screen.findByTestId('journal-open-full'))
+    expect(screen.getByTestId('journal-pos')).toHaveTextContent('1 of 2')
+    expect(screen.getByTestId('journal-prev')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('journal-next'))
+    expect(screen.getByTestId('journal-pos')).toHaveTextContent('2 of 2')
+    expect(screen.getByTestId('journal-next')).toBeDisabled()
+  })
+
+  it('D4 Escape closes the full-screen view', async () => {
+    renderStock(MOV)
+    fireEvent.click((await rowsOf())[0])
+    fireEvent.click(await screen.findByTestId('journal-open-full'))
+    fireEvent.keyDown(screen.getByTestId('journal-back'), { key: 'Escape' })
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed')
+  })
+
+  it('D5 the view closes when the selected operation leaves the list', async () => {
+    clientMock.get.mockImplementation(async (_p: string, params?: Record<string, string>) =>
+      params?.['cause'] === 'receipt' ? { next_cursor: null, rows: [] } : { next_cursor: null, rows: [ENTRY] })
+    renderStock(MOV)
+    fireEvent.click((await rowsOf())[0])
+    fireEvent.click(await screen.findByTestId('journal-open-full'))
+    expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'open')
+    fireEvent.change(screen.getByLabelText('Cause'), { target: { value: 'receipt' } })
+    await waitFor(() => expect(screen.getByTestId('journal')).toHaveAttribute('data-detail', 'closed'))
   })
 })

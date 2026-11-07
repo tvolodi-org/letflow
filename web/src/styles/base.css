@@ -148,9 +148,14 @@ samp {
 .lf-count-sheet .lf-table th, .lf-count-sheet .lf-table td { padding-inline: var(--space-2); }
 /* T-1399 R7 gui_review: the last cell of a master list keeps the table's right padding so a status pill ends inside the row. */
 .lf-md__master .lf-table th:last-child, .lf-md__master .lf-table td:last-child { padding-inline-end: var(--space-4); }
-/* T-1434: the "Official form" menu opens from the trigger's left edge and stays inside a narrow screen. */
-.lf-formmenu .lf-lang__menu { left: 0; right: auto; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
+/* T-1434/T-1441: the "Official form" menu opens from the trigger's right edge (the trigger ends the action row) and
+   stays inside the screen; OfficialFormMenu adds --start when the right-anchored menu would clip on the left. */
+.lf-formmenu .lf-lang__menu { right: 0; left: auto; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
+.lf-formmenu--start .lf-lang__menu { left: 0; right: auto; }
 .lf-formmenu .lf-lang__item { grid-template-columns: 1fr auto; }
+.lf-formmenu .lf-lang__item[aria-disabled="true"] { height: auto; padding-block: var(--space-2); color: var(--ink-muted); cursor: not-allowed; }
+.lf-formmenu .lf-lang__item[aria-disabled="true"]:hover { background: transparent; color: var(--ink-muted); }
+.lf-formmenu__reason { grid-column: 1 / -1; font: 400 12px/16px var(--font-sans); }
 
 /* T-1442: the design's `.lf-content--fluid` (components.css, before `.lf-content`) loses to `.lf-content` on equal
    specificity, so the cap stayed. Doubling the class restores the intended order; report to the design repo, then drop. */
@@ -164,3 +169,26 @@ samp {
 .lf-doc__group--side { font: var(--type-body-s); letter-spacing: normal; text-transform: none; color: var(--ink); }
 .lf-doc__group--side > legend { font: 500 12px/16px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
 .lf-doc__group--side > p[role="alert"] { margin: 0; padding: 0 var(--space-4); color: var(--danger); }
+
+/* T-1439 R12b: Movements journal on a wide screen. The Details button opens the full-screen view (Back, previous/next)
+   that components.css only styles under 900 px; the list table keeps room for Status and the item reference and
+   scrolls inside its own box, never the page. The design repo needs the same rules on its next release. */
+@media (max-width: 900px) {
+  .lf-jrn__fullbtn { display: none; }
+}
+@media (min-width: 901px) {
+  .lf-jrn[data-detail="open"] { grid-template-columns: minmax(0, 1fr); }
+  .lf-jrn[data-detail="open"] > .lf-jrn__list { display: none; }
+  .lf-jrn[data-detail="open"] .lf-jrn__details { position: static; max-width: 960px; }
+  .lf-jrn[data-detail="open"] .lf-jrn__bar { display: flex; }
+  .lf-jrn[data-detail="open"] .lf-reg__backrow { display: block; }
+  .lf-jrn[data-detail="open"] .lf-jrn__close { display: none; }
+  .lf-jrn[data-detail="open"] .lf-jrn__fullbtn { display: none; }
+  .lf-jrn__list { min-width: 0; }
+  .lf-jrn__list .lf-table-wrap { overflow-x: auto; }
+  .lf-jrn__table { min-width: 52rem; }
+  .lf-jrn__table .c-date { min-width: 11.5rem; }
+  .lf-jrn__table .c-item .lf-ref { max-width: 26ch; }
+  .lf-jrn__table .c-kind { max-width: 20ch; }
+  .lf-jrn__table .c-st { white-space: nowrap; min-width: 9rem; }
+}
