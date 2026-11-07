@@ -3,6 +3,7 @@
 import { useEffect, type ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
+import DocumentNewPage from '@/modules/assets/documents/DocumentNewPage'
 import DocumentPage from '@/modules/assets/documents/DocumentPage'
 import DocumentsPage from '@/modules/assets/documents/DocumentsPage'
 import BalancesPage from '@/modules/assets/register/BalancesPage'
@@ -150,6 +151,31 @@ function OpenReverse({ children }: { children: ReactElement }): ReactElement {
   return children
 }
 
+/** Harness only: clicks the first button whose label is one of these (a shot cannot click): Edit, Save in every shipped language. */
+function ClickButton({ labels, children }: { labels: string[]; children: ReactElement }): ReactElement {
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find((b) => labels.includes(b.textContent?.trim() ?? ''))
+      if (btn) {
+        btn.click()
+        window.clearInterval(id)
+      }
+    }, 150)
+    return () => window.clearInterval(id)
+  }, [labels])
+  return children
+}
+const EDIT_LABELS = ['Edit', 'Изменить', 'Өзгерту']
+const SAVE_LABELS = ['Save', 'Сохранить', 'Сақтау']
+
+const creating = (name: string, kind: string, extra?: (el: ReactElement) => ReactElement): HarnessScreen => ({
+  name,
+  routes,
+  initialPath: `/new?kind=${kind}`,
+  routePattern: '/new',
+  render: () => withAuth((extra ?? ((e) => e))(<DocumentNewPage />)),
+})
+
 const view = (name: string, id: string, extra?: (el: ReactElement) => ReactElement): HarnessScreen => ({
   name,
   routes,
@@ -161,6 +187,11 @@ const view = (name: string, id: string, extra?: (el: ReactElement) => ReactEleme
 export const assetsDocumentsScreens: HarnessScreen[] = [
   { name: 'asset-documents', routes, render: () => withAuth(<DocumentsPage />) },
   view('asset-document-draft', 'doc-draft'),
+  view('asset-document-edit', 'doc-draft', (e) => <ClickButton labels={EDIT_LABELS}>{e}</ClickButton>),
+  creating('asset-document-new', 'commission'),
+  creating('asset-document-new-handover', 'handover'),
+  creating('asset-document-new-writeoff', 'writeoff'),
+  creating('asset-document-new-errors', 'change', (e) => <ClickButton labels={SAVE_LABELS}>{e}</ClickButton>),
   view('asset-document-issued', 'doc-issued'),
   view('asset-document-posted', 'doc-posted'),
   view('asset-document-posted-150', 'doc-posted-150'),
