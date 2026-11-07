@@ -166,6 +166,108 @@ function unimportedCatalogs(
   )
 }
 
+/**
+ * kk values that equal the ru value on purpose (T-1357): accepted Kazakh loanwords
+ * written the same in Cyrillic, or proper nouns. Key = `<catalog>:<dotpath>`, value = reason.
+ * Every other kk value that is a copy of ru (and differs from en) is Russian text on a
+ * Kazakh screen and fails `kkRussianCopies`. All kk texts here are machine drafts
+ * until the owner's native check (docs/assets/i18n-gaps.md).
+ */
+const KK_SAME_AS_RU_OK: Record<string, string> = {
+  'lines:c.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'assets:assets.cause.reversal':
+    'accounting term, used unchanged in Kazakh books and forms',
+  'assets:assets.field.currency': 'loanword, same spelling in Kazakh',
+  'assets:assets.journal.export': 'loanword, same spelling in Kazakh',
+  'assets:assets.journal.operation': 'loanword, same spelling in Kazakh',
+  'assets:assets.journal.status.reversal':
+    'accounting term, used unchanged in Kazakh books and forms',
+  'assets:assets.reg.col.asset': 'loanword, same spelling in Kazakh',
+  'assets:assets.reg.filter.asset': 'loanword, same spelling in Kazakh',
+  'catalog_items:catalog_items.col.item':
+    'item: Kazakh screens already write позиция in running text',
+  'catalog_items:catalog_items.create.item':
+    'item: Kazakh screens already write позиция in running text',
+  'catalog_items:catalog_items.edit.item':
+    'item: Kazakh screens already write позиция in running text',
+  'catalog_items:catalog_items.eyebrow': 'loanword, same spelling in Kazakh',
+  'catalog_items:catalog_items.items.cause.reversal':
+    'accounting term, used unchanged in Kazakh books and forms',
+  'catalog_items:catalog_items.items.eyebrow':
+    'loanword, same spelling in Kazakh',
+  'catalog_items:catalog_items.items.kind.material':
+    'loanword, same spelling in Kazakh',
+  'catalog_items:catalog_items.items.listTitle':
+    'loanword, same spelling in Kazakh',
+  'catalog_items:catalog_items.items.rel.lot':
+    'lot: Kazakh screens already write Партия/Партиялар',
+  'catalog_items:catalog_items.items.title':
+    'loanword, same spelling in Kazakh',
+  'catalog_items:catalog_items.items.tracking.lot':
+    'lot: Kazakh screens already write Партия/Партиялар',
+  'catalog_items:import.type.catalog_item': 'loanword, same spelling in Kazakh',
+  'codes:codes.kind.barcode': 'loanword, same spelling in Kazakh',
+  'codes:codes.kind.qr': 'loanword, same spelling in Kazakh',
+  'codes:codes.target.catalog_item':
+    'item: Kazakh screens already write позиция in running text',
+  'codes:codes.target.catalog_lot':
+    'lot: Kazakh screens already write Партия/Партиялар',
+  'entities:entities.field.tag_id': 'loanword, same spelling in Kazakh',
+  'entities:entities.reports.aggregate.fn': 'loanword, same spelling in Kazakh',
+  'exam:exam.builder.field.mode': 'loanword, same spelling in Kazakh',
+  'exam:exam.grading.answer.scoreLabel': 'loanword, same spelling in Kazakh',
+  'import:import.steps.file': 'loanword, same spelling in Kazakh',
+  'import:import.steps.import': 'loanword, same spelling in Kazakh',
+  'lines:f.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'locations:locations.common.code': 'loanword, same spelling in Kazakh',
+  'locations:locations.common.segment': 'loanword, same spelling in Kazakh',
+  'locations:locations.type.quarantine': 'loanword, same spelling in Kazakh',
+  'nav:groups.platform': 'loanword, same spelling in Kazakh',
+  'nav:items./admin/audit': 'loanword, same spelling in Kazakh',
+  'nav:items./admin/catalog/items': 'loanword, same spelling in Kazakh',
+  'org:org.common.code': 'loanword, same spelling in Kazakh',
+  'reference:docType.stock_reversal':
+    'accounting term, used unchanged in Kazakh books and forms',
+  'stock:counts.col.item':
+    'item: Kazakh screens already write позиция in running text',
+  'stock:counts.col.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:counts.scan.title': 'loanword, same spelling in Kazakh',
+  'stock:counts.surplus.item':
+    'item: Kazakh screens already write позиция in running text',
+  'stock:counts.surplus.lot':
+    'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:stock.col.item':
+    'item: Kazakh screens already write позиция in running text',
+  'stock:stock.col.lot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:stock.doc.field.counterparty': 'loanword, same spelling in Kazakh',
+  'stock:stock.filter.lot':
+    'lot: Kazakh screens already write Партия/Партиялар',
+  'stock:stock.filter.sku':
+    'item: Kazakh screens already write позиция in running text',
+  'stock:stock.journal.reversalOf':
+    'accounting term, used unchanged in Kazakh books and forms',
+  'stock:stock.journal.status.reversal':
+    'accounting term, used unchanged in Kazakh books and forms',
+  'stock:stock.movements.export': 'loanword, same spelling in Kazakh',
+  'tasks:colItem': 'loanword, same spelling in Kazakh',
+  'tasks:colLot': 'lot: Kazakh screens already write Партия/Партиялар',
+  'tasks:definition': 'loanword, same spelling in Kazakh',
+};
+
+/** Lists `<catalog>:<key> = value` for every kk value that is the ru value (not en) and not allowlisted. */
+function kkRussianCopies(
+  name: string,
+  catalog: Record<Locale, unknown>,
+): string[] {
+  const ru = new Map(flattenStrings(catalog.ru))
+  const en = new Map(flattenStrings(catalog.en))
+  return flattenStrings(catalog.kk)
+    .filter(([key, kk]) => kk === ru.get(key) && kk !== en.get(key))
+    .map(([key, kk]) => [`${name}:${key}`, kk])
+    .filter(([id]) => !(id in KK_SAME_AS_RU_OK))
+    .map(([id, kk]) => `${id} = '${kk}'`)
+}
+
 describe('catalog-completeness — T-1457: every en/ru/kk key present and non-empty', () => {
   // --- flat catalogs (Record<Locale, Record<string, string>>) ---
 
@@ -278,6 +380,44 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('assets register (sub-catalog): all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('assets.register', fromSplit(registerEn, registerRu, registerKk))
+  })
+
+  it('kk is not a copy of ru (T-1357): every catalog', () => {
+    const flat: Array<[string, Record<Locale, unknown>]> = [
+      ['login', loginMessages],
+      ['entities', entitiesMessages],
+      ['solutionOverrides', solutionOverridesMessages],
+      ['import', importMessages],
+      ['assets', assetsMessages],
+      ['catalog_items', catalogItemsMessages],
+      ['codes', codesMessages],
+      ['exam', examMessages],
+      ['locations', locationsMessages],
+      ['org', orgMessages],
+      ['stock', stockMessages],
+      ['lines', linesMessages as Record<Locale, Record<string, string>>],
+      // assets.register and stock.documents are merged into assets and stock above
+      ['assets.documents', fromSplit(assetsDocEn, assetsDocRu, assetsDocKk)],
+      ['stock.forms', fromSplit(formEn, formRu, formKk)],
+      ['formMessages', formMessages],
+      ['layoutMessages', layoutMessages],
+      ['nav', navMessages],
+      ['ui', uiMessages],
+      ['mySettings', mySettingsMessages],
+      ['tasks', TASK_MESSAGES],
+      ['reference', REFERENCE_MESSAGES],
+    ]
+    const copies = flat.flatMap(([name, cat]) => kkRussianCopies(name, cat))
+    expect(
+      copies,
+      'kk is a copy of ru: write Kazakh or allowlist with a reason',
+    ).toEqual([])
+  })
+
+  it('kkRussianCopies flags a Russian copy (seeded fixture)', () => {
+    const bad = { en: { a: 'Lot' }, ru: { a: 'Партия' }, kk: { a: 'Партия' } }
+    expect(kkRussianCopies('fx', bad)).toEqual(["fx:a = 'Партия'"])
+    expect(kkRussianCopies('fx', { ...bad, kk: { a: 'Топтама' } })).toEqual([])
   })
 
   it('every *Messages.ts catalog file is imported by this test', () => {
