@@ -66,7 +66,7 @@ export function AssetSideGroup({ side, value, onChange, errors, fields, orgUnits
   const group = errors[`side.${side}`]
   const label = t(`assets.doc.side.${side}`)
   return (
-    <fieldset data-testid={`side-${side}`} aria-label={label} className="lf-doc__group">
+    <fieldset data-testid={`side-${side}`} aria-label={label} className="lf-doc__group lf-doc__group--side">
       <legend>{label}</legend>
       {group && <p role="alert">{t(group)}</p>}
       <div className="lf-doc__fields">
