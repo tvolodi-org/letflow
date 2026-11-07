@@ -78,10 +78,16 @@ Line `kind_change_line`:
 | `material_responsible_id` | string (materially responsible employee) | yes | org_employee |
 | `actual_user_id` | string (actual user employee) | no | org_employee |
 | `asset_card_id` | string (the card created by this line, set at posting) | no | asset card type (from C1) |
+| `inventory_number` | string, 1 to 64 bytes | yes | none (checked against the cards at issue, REQ-759) |
+| `asset_name` | string, 1 to 200 bytes | yes | none |
 
 Every quantity is a decimal field with `decimal_strict: true`, as in REQ-679 criterion 3. A fixed-asset line
 has quantity 1 and creates one asset card; a low-value line creates one asset card carrying the line's
 quantity. No price or value field exists on this document (section 9, open question 1).
+
+As built (REQ-759, GH #3902, module `assets` 0.8.0) the record types carry the prefix of the module:
+`assets_kind_change` and `assets_kind_change_line`, and the numbered document type is `assets_kind_change`
+(prefix `AKC`). The kind `kind_change` is a fifth value of the `kind` field of the asset document routes.
 
 ## 3. The two postings
 

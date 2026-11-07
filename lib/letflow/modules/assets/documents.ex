@@ -5,7 +5,7 @@ defmodule Letflow.Modules.Assets.Documents do
   the versioned document (`Letflow.Documents`, decision 0056) behind them. It mirrors
   `Letflow.Modules.Stock.Documents`: module `assets` cannot call `stock` (boundary
   Rule 4, and a stock install must not become a precondition of the asset register), so the glue is
-  copied, not shared; `Kinds` is a table of four kinds (C10 commission; C11 change, handover, write off), one issue lock for all of them. A shared extraction is a follow-up.
+  copied, not shared; `Kinds` is a table of five kinds (C10 commission; C11 change, handover, write off; C15 change of kind, which posts nothing, REQ-759), one issue lock for all of them (so the inventory number checks of a change of kind serialise with every other issue). A shared extraction is a follow-up.
   Public functions: `save/3`, `replace/4`, `discard/3`, `issue/4` (writes) and `fetch/3`, `list/2`
   (reads); posting and reversal live in `Letflow.Modules.Assets.Documents.Posting`. The tenant is the
   `prefix` argument and nothing else (INV-1); the router derives it from the token.
@@ -169,7 +169,7 @@ defmodule Letflow.Modules.Assets.Documents do
          {:ok, view} <- fetch(prefix, id),
          :ok <- draft?(view),
          {:ok, _issued} <- issue_in_lock(prefix, id, actor, Keyword.get(opts, :activator)) do
-      start_posting(prefix, id, actor)
+      if Kinds.get(view.kind).posts?, do: start_posting(prefix, id, actor)
       fetch(prefix, id, Keyword.get(opts, :authorized))
     end
   end
@@ -185,9 +185,12 @@ defmodule Letflow.Modules.Assets.Documents do
         {:error, reason} -> Repo.rollback(reason)
       end
 
-      case Posting.ensure_active(prefix, Kinds.get(view.kind).definition, activator) do
-        :ok -> :ok
-        :error -> Repo.rollback(:definition_not_active)
+      # A kind that does not post (change of kind) has no process definition to activate.
+      if Kinds.get(view.kind).posts? do
+        case Posting.ensure_active(prefix, Kinds.get(view.kind).definition, activator) do
+          :ok -> :ok
+          :error -> Repo.rollback(:definition_not_active)
+        end
       end
 
       case issue_once(prefix, id, actor) do
@@ -473,17 +476,17 @@ defmodule Letflow.Modules.Assets.Documents do
 
     prefix
     |> then(&Repo.all(query, prefix: &1))
-    |> Enum.map(&line_view/1)
+    |> Enum.map(&line_view(spec, &1))
     |> Enum.sort_by(& &1.line_no)
   end
 
-  defp line_view({record_id, fv}) do
-    %{
-      line_id: record_id,
-      line_no: fv["line_no"],
-      asset_id: fv["asset_id"],
-      quantity: fv["quantity"]
-    }
+  # The line keys of the kind (`Kinds`), plus the server-set `asset_card_id` of a change of kind.
+  defp line_view(spec, {record_id, fv}) do
+    keys =
+      if spec.kind == "kind_change", do: spec.line_keys ++ ["asset_card_id"], else: spec.line_keys
+
+    Map.new(keys, fn key -> {Kinds.line_atom(key), fv[key]} end)
+    |> Map.merge(%{line_id: record_id, line_no: fv["line_no"]})
   end
 
   defp view(prefix, spec, document, version, {header_id, fv}) do

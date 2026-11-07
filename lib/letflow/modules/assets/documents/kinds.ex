@@ -10,7 +10,15 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
   (`%{org_unit, location, material_responsible, actual_user}` or `nil`); the master checks, the posting
   command and the binding check all call it, so they cannot disagree. The commission has a `to` side
   only, the write off a `from` side only, the change and the hand over both (GH #3889 / REQ-753, C11).
+  The fifth kind `kind_change` (GH #3902 / REQ-759, C15) does not post: `posts?` is false, its process
+  definition, ledger cause, device id and completion node are `nil`, and it has NO `sides/2` or
+  `side_fields/2` clause (they are never called for it). `line_keys` and `line_required` say which body
+  keys a line accepts and needs, so `Shape` and `Documents` serve every kind from this table.
   """
+
+  # The body keys of a change of kind line (REQ-759). `asset_card_id` is a stored, server-set field
+  # (REQ-760 fills it): it is rendered but never accepted.
+  @kind_change_line_keys ~w(catalog_item_id catalog_uom_id catalog_lot_id quantity stock_location_id stock_responsible_id target_kind asset_org_unit_id asset_location_id material_responsible_id actual_user_id inventory_number asset_name)
 
   @table [
     %{
@@ -25,7 +33,10 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
         ~w(org_unit_id location_id material_responsible_id actual_user_id event_time note),
       required: ~w(org_unit_id material_responsible_id event_time),
       id_keys: ~w(org_unit_id location_id material_responsible_id actual_user_id),
-      completion_node: "post"
+      completion_node: "post",
+      posts?: true,
+      line_keys: ~w(asset_id quantity),
+      line_required: ~w(asset_id quantity)
     },
     %{
       kind: "change",
@@ -41,7 +52,10 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
         ~w(org_unit_id event_time from_material_responsible_id to_material_responsible_id),
       id_keys:
         ~w(org_unit_id location_id from_material_responsible_id from_actual_user_id to_material_responsible_id to_actual_user_id),
-      completion_node: "post"
+      completion_node: "post",
+      posts?: true,
+      line_keys: ~w(asset_id quantity),
+      line_required: ~w(asset_id quantity)
     },
     %{
       kind: "handover",
@@ -57,7 +71,10 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
         ~w(org_unit_id event_time from_material_responsible_id to_org_unit_id to_material_responsible_id),
       id_keys:
         ~w(org_unit_id from_location_id from_material_responsible_id from_actual_user_id to_org_unit_id to_location_id to_material_responsible_id to_actual_user_id),
-      completion_node: "post"
+      completion_node: "post",
+      posts?: true,
+      line_keys: ~w(asset_id quantity),
+      line_required: ~w(asset_id quantity)
     },
     %{
       kind: "writeoff",
@@ -71,7 +88,26 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
         ~w(org_unit_id location_id material_responsible_id actual_user_id reason_code reason_text event_time note),
       required: ~w(org_unit_id event_time material_responsible_id reason_code),
       id_keys: ~w(org_unit_id location_id material_responsible_id actual_user_id),
-      completion_node: "post"
+      completion_node: "post",
+      posts?: true,
+      line_keys: ~w(asset_id quantity),
+      line_required: ~w(asset_id quantity)
+    },
+    %{
+      kind: "kind_change",
+      type_key: "assets_kind_change",
+      line_type: "assets_kind_change_line",
+      definition: nil,
+      cause: nil,
+      prefix: "AKC",
+      device_id: nil,
+      header_keys: ~w(org_unit_id event_time reason_text note),
+      required: ~w(org_unit_id event_time),
+      id_keys: ~w(org_unit_id),
+      completion_node: nil,
+      posts?: false,
+      line_keys: @kind_change_line_keys,
+      line_required: @kind_change_line_keys -- ~w(catalog_lot_id actual_user_id asset_org_unit_id)
     }
   ]
 
@@ -79,14 +115,17 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
           kind: String.t(),
           type_key: String.t(),
           line_type: String.t(),
-          definition: String.t(),
-          cause: String.t(),
+          definition: String.t() | nil,
+          cause: String.t() | nil,
           prefix: String.t(),
-          device_id: String.t(),
+          device_id: String.t() | nil,
           header_keys: [String.t()],
           required: [String.t()],
           id_keys: [String.t()],
-          completion_node: String.t()
+          completion_node: String.t() | nil,
+          posts?: boolean(),
+          line_keys: [String.t()],
+          line_required: [String.t()]
         }
 
   @doc "Every spec, in the order of the closed kind set."
@@ -101,9 +140,9 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
   @spec type_keys() :: [String.t()]
   def type_keys, do: Enum.map(@table, & &1.type_key)
 
-  @doc "The process definition names of all kinds."
+  @doc "The process definition names of all kinds that post (a kind without one has none)."
   @spec definition_names() :: [String.t()]
-  def definition_names, do: Enum.map(@table, & &1.definition)
+  def definition_names, do: @table |> Enum.map(& &1.definition) |> Enum.reject(&is_nil/1)
 
   @doc "The spec of `kind`, or `nil`."
   @spec get(term()) :: spec() | nil
@@ -118,6 +157,16 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
          |> Enum.flat_map(& &1.header_keys)
          |> Enum.uniq()
          |> Map.new(&{&1, String.to_atom(&1)})
+
+  @line_atoms @table
+              |> Enum.flat_map(& &1.line_keys)
+              |> Kernel.++(["asset_card_id"])
+              |> Enum.uniq()
+              |> Map.new(&{&1, String.to_atom(&1)})
+
+  @doc "The atom of a line key of the closed table (`spec.line_keys` or `asset_card_id`)."
+  @spec line_atom(String.t()) :: atom()
+  def line_atom(key), do: Map.fetch!(@line_atoms, key)
 
   @doc "The view (atom-key) map of a header field map `fv` (string keys), keys of `spec.header_keys`."
   @spec view_fields(spec(), map()) :: map()
