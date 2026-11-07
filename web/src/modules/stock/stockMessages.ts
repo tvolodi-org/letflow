@@ -21,7 +21,7 @@ const en: Record<string, string> = {
   'stock.balances.exportFailed': 'The file could not be exported. Try again.',
   'stock.balances.cardPdf': 'Stock card Z-3 (PDF)',
   'stock.balances.cardDocx': 'Stock card Z-3 (Word)',
-  'stock.balances.cardHint': 'Choose an item and a location to print the stock card.',
+  'stock.balances.cardHint': 'Choose an item and a place to print the stock card.',
   'stock.balances.cardEmpty': 'No movements of this item at this location that you may see.',
   'stock.filter.asOf': 'As of date',
   'stock.filter.asOfHint': 'Balance at the end of the chosen day in the tenant time zone. Empty means now.',

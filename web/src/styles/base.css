@@ -148,9 +148,14 @@ samp {
 .lf-count-sheet .lf-table th, .lf-count-sheet .lf-table td { padding-inline: var(--space-2); }
 /* T-1399 R7 gui_review: the last cell of a master list keeps the table's right padding so a status pill ends inside the row. */
 .lf-md__master .lf-table th:last-child, .lf-md__master .lf-table td:last-child { padding-inline-end: var(--space-4); }
-/* T-1434: the "Official form" menu opens from the trigger's left edge and stays inside a narrow screen. */
-.lf-formmenu .lf-lang__menu { left: 0; right: auto; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
+/* T-1434/T-1441: the "Official form" menu opens from the trigger's right edge (the trigger ends the action row) and
+   stays inside the screen; OfficialFormMenu adds --start when the right-anchored menu would clip on the left. */
+.lf-formmenu .lf-lang__menu { right: 0; left: auto; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
+.lf-formmenu--start .lf-lang__menu { left: 0; right: auto; }
 .lf-formmenu .lf-lang__item { grid-template-columns: 1fr auto; }
+.lf-formmenu .lf-lang__item[aria-disabled="true"] { height: auto; padding-block: var(--space-2); color: var(--ink-muted); cursor: not-allowed; }
+.lf-formmenu .lf-lang__item[aria-disabled="true"]:hover { background: transparent; color: var(--ink-muted); }
+.lf-formmenu__reason { grid-column: 1 / -1; font: 400 12px/16px var(--font-sans); }
 
 /* T-1442: the design's `.lf-content--fluid` (components.css, before `.lf-content`) loses to `.lf-content` on equal
    specificity, so the cap stayed. Doubling the class restores the intended order; report to the design repo, then drop. */
