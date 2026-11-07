@@ -13,6 +13,7 @@ import { useSearchParams } from 'react-router-dom'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { Select } from '@/components/ui/Select'
+import { ResetLayoutButton } from '@/components/ui/layout/ResetLayoutButton'
 import { Registry, RegistryDetailsSkeleton, RegistryList, type RegistryColumn, type RegistryChip } from '@/components/ui/registry'
 import { useReferenceLabels } from '@/lib/references'
 import { DELETED_FALSE } from '../catalogItems.api'
@@ -27,8 +28,8 @@ import {
 
 const ITEM_PARAM = 'item'
 const FILTERS = [DELETED_FALSE]
-// five columns share the 520 px list: the title is cut earlier than the design's 26ch (a width limit, no colour or spacing)
-const TITLE_CUT = { maxWidth: '11ch' } as const
+/** Layout screen id: splitter and column widths are remembered under it (ui.layout). */
+const ITEMS_SCREEN = 'stock.registry.items'
 
 function ItemsInner({ initialItemId }: { initialItemId?: string }) {
   const intl = useIntl()
@@ -83,19 +84,20 @@ function ItemsInner({ initialItemId }: { initialItemId?: string }) {
   }
 
   const columns: RegistryColumn<(typeof all)[number]>[] = [
-    { key: 'code', header: t('col.code'), mono: true, sortable: true, render: (r) => r.code },
-    { key: 'name', header: t('col.title'), sortable: true, render: (r) => (
-        <span className="lf-reg__title" style={TITLE_CUT} title={r.name}>
+    { key: 'code', header: t('col.code'), mono: true, sortable: true, width: { w: 25, min: 80 }, render: (r) => r.code },
+    { key: 'name', header: t('col.title'), sortable: true, width: { w: 28, min: 100 }, render: (r) => (
+        <span className="lf-reg__title" title={r.name}>
           {r.name}
         </span>
       ),
     },
-    { key: 'unit', header: t('col.unit'), optional: true, render: (r) => label('catalog_uom', r.uomId) },
-    { key: 'tracking', header: t('col.tracking'), optional: true, render: (r) => t(`tracking.${r.tracking}`) },
+    { key: 'unit', header: t('col.unit'), mono: true, optional: true, width: { w: 10, min: 50 }, render: (r) => label('catalog_uom', r.uomId) },
+    { key: 'tracking', header: t('col.tracking'), optional: true, width: { w: 14, min: 70 }, render: (r) => t(`tracking.${r.tracking}`) },
     {
       key: 'status',
       header: t('col.status'),
       sortable: true,
+      width: { w: 0, min: 90 },
       render: (r) => (
         <StatusPill tone={r.active ? 'success' : 'neutral'} glyph={r.active ? 'dot' : 'ring'}>
           {t(r.active ? 'status.active' : 'status.retired')}
@@ -161,6 +163,7 @@ function ItemsInner({ initialItemId }: { initialItemId?: string }) {
       rangeText={t('range', { from: shown.from, to: shown.to, total: sorted.length })}
       empty={{ title: t('empty.title'), text: t('empty.text') }}
       noMatch={{ title: t('noMatch.title'), text: t('noMatch.text') }}
+      colResize={{ screen: ITEMS_SCREEN }}
     />
   )
 
@@ -170,7 +173,7 @@ function ItemsInner({ initialItemId }: { initialItemId?: string }) {
   else if (!selected) details = <ItemNotFound />
   else details = <ItemDetails key={selected.id} item={selected} onBack={() => open(null)} />
 
-  return <Registry layout="split" list={list} details={details} detailOpen={detailOpen} onClose={() => open(null)} />
+  return <Registry layout="split" screen={ITEMS_SCREEN} list={list} details={details} detailOpen={detailOpen} onClose={() => open(null)} />
 }
 
 export default function ItemsPage({ initialItemId }: { initialItemId?: string } = {}) {
@@ -188,5 +191,5 @@ export default function ItemsPage({ initialItemId }: { initialItemId?: string } 
 function ItemsHeader() {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id: `catalog_items.items.${id}` })
-  return <PageHeader eyebrow={t('eyebrow')} title={t('title')} lede={t('lede')} />
+  return <PageHeader eyebrow={t('eyebrow')} title={t('title')} lede={t('lede')} actions={<ResetLayoutButton screen={ITEMS_SCREEN} />} />
 }

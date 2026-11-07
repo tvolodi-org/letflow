@@ -122,6 +122,36 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
       assert Enum.map(again["lines"], & &1["line_no"]) == [1, 2, 3]
     end
 
+    test "L1-HTTP 1000 lines are saved, 1001 are refused with lines_count and nothing is written",
+         ctx do
+      m = ctx.ma
+      line = hd(D.body(m)["lines"])
+      before = D.counts(ctx.a.schema_name)
+
+      conn =
+        D.request(
+          :post,
+          "/documents",
+          ctx.tok_a,
+          D.body(m, nil, %{"lines" => List.duplicate(line, 1001)})
+        )
+
+      assert reason(conn, 422) == "lines_count"
+      assert D.counts(ctx.a.schema_name) == before
+
+      big =
+        D.request(
+          :post,
+          "/documents",
+          ctx.tok_a,
+          D.body(m, nil, %{"lines" => List.duplicate(line, 1000)})
+        )
+        |> status!(201)
+
+      assert length(big["lines"]) == 1000
+      assert Enum.map(big["lines"], & &1["line_no"]) == Enum.to_list(1..1000)
+    end
+
     test "A-RT-3 DELETE discards the draft and soft-deletes header and lines", ctx do
       doc = save!(ctx)
       assert D.request(:delete, "/documents/#{doc["id"]}", ctx.tok_a) |> status!(204) == nil
@@ -162,7 +192,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
         {"event_time_invalid", D.body(m, "2026-11-04T10:00:00")},
         {"event_time_invalid", D.body(m, "garbage")},
         {"lines_count", D.body(m, nil, %{"lines" => []})},
-        {"lines_count", D.body(m, nil, %{"lines" => List.duplicate(line, 101)})},
+        {"lines_count", D.body(m, nil, %{"lines" => List.duplicate(line, 1001)})},
         {"quantity_invalid", D.body(m, nil, %{"lines" => [%{line | "quantity" => "abc"}]})},
         {"quantity_invalid", D.body(m, nil, %{"lines" => [%{line | "quantity" => "0"}]})},
         {"quantity_invalid", D.body(m, nil, %{"lines" => [%{line | "quantity" => "-1"}]})},
@@ -327,7 +357,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
       D.request(:post, "/documents/#{doc["id"]}/issue", ctx.tok_a)
 
       assert doc |> Map.keys() |> Enum.sort() ==
-               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posting_check received_on responsible_id reversed_at reversed_by state supplier_document_ref)
+               ~w(counterparty_id entry_id event_time header_id id issued_at kind lines location_id note number org_unit_id posted_at posted_by posted_by_label posting_check received_on responsible_id reversed_at reversed_by reversed_by_label state supplier_document_ref)
 
       assert doc["lines"] |> hd() |> Map.keys() |> Enum.sort() ==
                ~w(catalog_item_id catalog_lot_id catalog_uom_id line_id line_no line_value quantity unit_price)

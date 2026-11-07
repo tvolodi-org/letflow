@@ -65,7 +65,7 @@ defmodule Letflow.Modules.Stock.TwoSideRouterTest do
                  Enum.sort(
                    ~w(id kind state number issued_at header_id org_unit_id event_time note lines) ++
                      sides ++
-                     ~w(posted_at posted_by entry_id reversed_at reversed_by posting_check)
+                     ~w(posted_at posted_by posted_by_label entry_id reversed_at reversed_by reversed_by_label posting_check)
                  )
 
         assert doc["kind"] == kind and doc["state"] == "draft" and doc["number"] == nil

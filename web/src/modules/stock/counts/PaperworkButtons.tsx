@@ -8,7 +8,9 @@ import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { getUiLocale } from '@/i18n/uiLocaleStore'
 import { usePdfDownload } from '../register/usePdfDownload'
-import { countsApi, type CountOrder, type PaperworkKind } from './counts.api'
+import { OfficialFormMenu } from '../forms/OfficialFormMenu'
+import { formsForCount, type OfficialFormFormat, type OfficialFormId, type OfficialFormLang } from '../forms/officialForms'
+import { countsApi, type CountForm, type CountOrder, type PaperworkKind } from './counts.api'
 import { paperworkAvailable, parseFilename, printReasonMessageId, reasonMessageId } from './countsModel'
 
 const KINDS: PaperworkKind[] = ['order', 'sheet', 'differences']
@@ -35,8 +37,16 @@ export function PaperworkButtons({ order }: { order: CountOrder }) {
   // REQ-738: the print language is the UI language at the moment of the click.
   const print = (k: PaperworkKind) =>
     run(`print-${k}`, () => countsApi.print(order.id, k, getUiLocale()), `count-${label}-${k}.pdf`, printReasonMessageId)
+  // T-1418/T-1434: the official forms exist in ru and kk only; the menu passes the language (kk UI kk, else ru).
+  const printForm = (k: PaperworkKind, form: OfficialFormId, format: OfficialFormFormat, lang: OfficialFormLang) =>
+    run(
+      `form-${form}-${format}`,
+      () => countsApi.printForm(order.id, k, form as CountForm, format, lang),
+      `count-${label}-${form}.${format}`,
+      printReasonMessageId,
+    )
   const download = (k: PaperworkKind) =>
-    run(k, () => countsApi.paperwork(order.id, k), `count-${label}-${k}.xlsx`, reasonMessageId)
+    run(k, () => countsApi.paperwork(order.id, k, getUiLocale()), `count-${label}-${k}.xlsx`, reasonMessageId)
   return (
     <div className="lf-form" data-testid="paperwork">
       {error !== null && <Banner tone="danger">{t(error)}</Banner>}
@@ -63,6 +73,12 @@ export function PaperworkButtons({ order }: { order: CountOrder }) {
             >
               {t(`counts.print.${k}`)}
             </Button>
+            <OfficialFormMenu
+              forms={formsForCount(k)}
+              busyKey={busyKey}
+              testIdSuffix={k}
+              onPick={(form, format, lang) => void printForm(k, form, format, lang)}
+            />
           </Fragment>
         ))}
       </div>

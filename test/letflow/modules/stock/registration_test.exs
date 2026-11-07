@@ -47,7 +47,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.14.0"
+    assert m.version == "0.15.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
@@ -90,7 +90,15 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              :StockCountRecord
            ]
 
-    assert m.role_grants == %{}
+    assert m.role_grants == %{
+             STOREKEEPER: [
+               :StockRead,
+               :StockPost,
+               :StockReverse,
+               :StockCountOrder,
+               :StockCountRecord
+             ]
+           }
 
     assert m.scope_declarations == %{
              "stock_receipt" => {:column, "org_unit_id"},
@@ -128,6 +136,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"GET", "/documents", :StockRead},
              {"GET", "/documents/:id", :StockRead},
              {"GET", "/documents/:id/print", :StockRead},
+             {"GET", "/stock-card/print", :StockRead},
              {"POST", "/documents/:id/post", :StockPost},
              {"POST", "/documents/:id/reverse", :StockReverse},
              {"POST", "/documents/:id/cancel", :StockReverse},
@@ -230,7 +239,10 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
 
   test "T-R-RULE8: no Rule 8 violation and no SQL names in the module files" do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
-    assert length(files) == 28
+    # T-1416: form_z2.ex (pure Z-2 data map, no Repo) makes 31.
+    # T-1418: form_count.ex, form_count_inv18.ex and form_count_inv10.ex (pure data maps, no Repo) make 34.
+    # T-1417: form_z3.ex, form_z5.ex (pure) and stock_card_source.ex (reads through Ledger) make 37.
+    assert length(files) == 37
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
@@ -242,9 +254,10 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # REQ-719: count_paperwork_source.ex reads issued versions and one offset statement (own tables only).
     # REQ-736: count_print.ex is pure (no Repo, no query); it is only counted here.
     # REQ-700: counts.ex reads and writes the count record types (Repo, Ecto.Query), never a ledger table.
+    # GH 3735 R7: document_numbers.ex reads the core document and type rows (own tables) for the movement number.
     own_tables = fn path ->
       path =~
-        ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex|count_differences\.ex|count_paperwork_source\.ex)}
+        ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex|count_differences\.ex|count_paperwork_source\.ex|document_numbers\.ex)}
     end
 
     for {path, source} <- sources,

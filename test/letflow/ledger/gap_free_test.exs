@@ -334,7 +334,10 @@ defmodule Letflow.Ledger.GapFreeTest do
                  # REQ-637 part C (reconcile/2): a reviewed addition, three literal statements
                  "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
                  "SELECT set_config('statement_timeout', $1, true)",
-                 "SELECT pg_try_advisory_xact_lock(hashtext($1), hashtext($2))"
+                 "SELECT pg_try_advisory_xact_lock(hashtext($1), hashtext($2))",
+                 # REQ-764: the hold lock (Hold), shared by postings and exclusive for a module
+                 "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                 "SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))"
                ])
 
       # REQ-710: Storage is the partition catalog reader and creator, never called from a posting.

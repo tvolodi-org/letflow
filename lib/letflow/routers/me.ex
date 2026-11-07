@@ -14,6 +14,8 @@ defmodule Letflow.Routers.Me do
   | handle_list_memberships | `GET /me/memberships` | `Letflow.Identity.list_memberships_for_subject/1` | `:MembershipsRead` | 200 |
   | handle_list_modules | `GET /me/modules` | `Letflow.Modules.Installs.list_installed/1` | `:MyModulesRead` | 200 |
   | handle_get_access | `GET /me/access` | `Letflow.Api.Authorization` (pure, per request) | `:MyAccessRead` | 200 |
+  | handle_get_preferences | `GET /me/preferences` | `Letflow.UserPreferences.list/2` | `:MyAccessRead` | 200 |
+  | handle_put_preferences | `PUT /me/preferences` | `Letflow.UserPreferences.put/3` | `:MyPreferencesSet` | 200 / 422 |
 
   ## `GET /me/modules` (REQ-403)
 
@@ -41,6 +43,18 @@ defmodule Letflow.Routers.Me do
   id, never read from the context. Hand-built body (INV-2) with exactly
   three keys, `roles`, `permissions`, `platform_tenant`; no user id, no
   tenant id, no path/query/header value is read.
+
+  ## `/me/preferences` (T-1389)
+
+  The caller's own preferences (a server-side whitelist of keys, see `Letflow.UserPreferences`).
+  The user id comes only from `conn.assigns.auth_context`; no route takes a user or tenant id, so
+  there is no read of another user's preferences, for a tenant admin either. `PUT` merges the
+  listed keys (`null` resets a key) and is all-or-nothing. Errors are 422 with fixed texts; only a
+  whitelisted or well-formed key name is echoed. The key `ui.layout` is a JSON string (at most
+  8192 bytes) that is stored and returned in its sanitized form.
+
+  `GET` also returns `effective` (user value, else tenant default `ui.document_layout_default`, else
+  `"row"`) and `tenant_defaults` (T-1390); the tenant id comes from the auth context only.
 
   ## `:MembershipsRead` permission — CANDIDATE deliberately excluded
 
@@ -85,6 +99,7 @@ defmodule Letflow.Routers.Me do
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
   alias Letflow.PlatformTenant
+  alias Letflow.UserPreferences
 
   authz_get "/memberships", :MembershipsRead, scope: :self_service do
     handle_list_memberships(conn)
@@ -98,7 +113,54 @@ defmodule Letflow.Routers.Me do
     handle_get_access(conn)
   end
 
+  authz_get "/preferences", :MyAccessRead, scope: :self_service do
+    handle_get_preferences(conn)
+  end
+
+  authz_put "/preferences", :MyPreferencesSet, scope: :self_service do
+    handle_put_preferences(conn)
+  end
+
   authz_unmatched(:ordinary)
+
+  # ── GET/PUT /me/preferences (T-1389) ─────────────────────────────────────
+
+  defp handle_get_preferences(conn) do
+    {prefix, user_id} = preferences_identity(conn)
+
+    case Identity.get_tenant(conn.assigns.auth_context.tenant_id) do
+      {:ok, tenant} ->
+        Response.ok(conn, %{
+          "preferences" => UserPreferences.list(prefix, user_id),
+          "effective" => UserPreferences.effective(prefix, user_id, tenant.settings),
+          "tenant_defaults" => UserPreferences.tenant_defaults(tenant.settings)
+        })
+
+      _ ->
+        Response.internal_error(conn)
+    end
+  end
+
+  defp handle_put_preferences(conn) do
+    {prefix, user_id} = preferences_identity(conn)
+
+    case UserPreferences.put(prefix, user_id, preferences_body(conn)) do
+      {:ok, preferences} -> Response.ok(conn, %{"preferences" => preferences})
+      {:error, {:invalid, detail}} -> Response.unprocessable(conn, detail)
+      {:error, _other} -> Response.internal_error(conn)
+    end
+  end
+
+  defp preferences_identity(conn) do
+    {Keyword.fetch!(conn.assigns.scoped_opts, :prefix), conn.assigns.auth_context.user_id}
+  end
+
+  defp preferences_body(conn) do
+    case conn.body_params do
+      %{"preferences" => prefs} -> prefs
+      _ -> nil
+    end
+  end
 
   # ── GET /me/memberships (design §2.2) ───────────────────────────────────
 
@@ -190,7 +252,10 @@ defmodule Letflow.Routers.Me do
     Response.ok(conn, %{
       "roles" => roles |> Enum.map(&Atom.to_string/1) |> Enum.uniq() |> Enum.sort(),
       "permissions" => permissions |> Enum.uniq() |> Enum.sort(),
-      "platform_tenant" => platform_tenant?
+      "platform_tenant" => platform_tenant?,
+      # The caller's own tenant user record id (what task assignee refs and actor refs hold);
+      # the SPA cannot derive it from the token `sub` (the IdP lookup key, not this id).
+      "user_id" => Map.get(auth_context, :user_id)
     })
   end
 

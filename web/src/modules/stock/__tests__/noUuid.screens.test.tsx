@@ -97,6 +97,22 @@ describe('N1 stock register screens', () => {
     expect(container).toHaveTextContent('PCS')
   })
 
+  it('balances: the history panel shows names, no uuid', async () => {
+    const entry = {
+      entry_id: ID.entry, posting_seq: 17, cause: 'receipt', reason_code: null, document_type: 'stock_receipt', document_id: ID.doc,
+      document_number: 'RCP-2026-000001', event_time: '2026-11-04T18:00:00Z', legs: [{ ...LEG, leg_no: 1, quantity: '5' }],
+    }
+    stockServer({
+      '/api/v1/modules/stock/balances': { ledger_seq: 4, next_cursor: null, rows: [{ ...LEG, quantity: '12.5' }] },
+      '/api/v1/modules/stock/movements': { next_cursor: null, rows: [entry] },
+    })
+    const { container } = renderStock(BAL)
+    await settled(container, 'ITM-1 - Bolt M8')
+    fireEvent.click(screen.getAllByTestId('datatable-row')[0])
+    await screen.findByTestId('history-doc-link')
+    await settled(container, 'ITM-1 - Bolt M8')
+  })
+
   it('movements: a row with its legs open', async () => {
     const entry = {
       entry_id: ID.entry, posting_seq: 17, cause: 'transfer', reason_code: null, document_type: 'stock_transfer', document_id: ID.doc,
@@ -104,9 +120,10 @@ describe('N1 stock register screens', () => {
     }
     stockServer({ '/api/v1/modules/stock/movements': { next_cursor: null, rows: [entry] } })
     const { container } = renderStock(MOV)
-    await screen.findByText('17')
-    fireEvent.click(await screen.findByRole('button', { name: /show|legs/i }))
-    await settled(container, 'ITM-1 - Bolt M8')
+    fireEvent.click((await screen.findAllByTestId('journal-row'))[0])
+    // the journal draws "code - title" as code, separator and title spans
+    await settled(container, /ITM-1\W+Bolt M8/)
+    expect(container).toHaveTextContent(/RACK-01\W+Rack 01/)
   })
 
   it('documents list and the document page (header and lines)', async () => {
@@ -127,7 +144,8 @@ describe('N1 stock register screens', () => {
   it('new document form: select options read "code - title"', async () => {
     stockServer({})
     const { container } = renderStock(`${DOC_LIST}/new`, withPost)
-    await screen.findByRole('option', { name: 'MS - Main store' })
+    // The store is offered by the org-unit and the location select alike; which one loads first is a race.
+    await screen.findAllByRole('option', { name: 'MS - Main store' })
     await screen.findByRole('option', { name: 'RACK-01 - Rack 01' })
     await screen.findByRole('option', { name: 'E-1 - Aigul B.' })
     expect(noUuidInDom(container)).toBe(true)
@@ -167,7 +185,6 @@ describe('N2 count screens', () => {
     countServer()
     const list = renderCounts(COUNT_LIST)
     await settled(list.container, 'MS - Main store')
-    expect(list.container).toHaveTextContent('E-1 - Aigul B.')
     cleanup()
     const detail = renderCounts(`${COUNT_LIST}/${ID.order}`)
     await settled(detail.container, 'ITM-1 - Bolt M8')

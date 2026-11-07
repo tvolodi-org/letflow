@@ -1,0 +1,25 @@
+{
+  "name": "assets_card",
+  "display_name": "Asset card",
+  "description": "GH #3894 / REQ-748, docs/assets/asset-register.md section 3, owner decision D-097, decisions 0050 D6, 0051 M4, 0076 R7. The asset card of module assets (Russian: Карточка актива; Kazakh: Актив карточкасы). One row per asset; the card holds no location, no responsible person, no actual user and no quantity: those live only in the register. inventory_number is unique per tenant (uq_assets_card_inventory_number). org_unit_id is the record_id of an org_unit of module org; it is another pack, so it has no foreign key and the write logic checks it. It is the scope column of the card (scope declaration {:column, org_unit_id}, immutable). kind is fixed, low_value or intangible. currency is optional text; the tenant currency is the module setting currency (KZT by default). The decimals are exact strings (decimal_strict) and information only. valid_until is allowed only for kind intangible (write rule, a later step). active false retires the card; there is no delete. external_ref_system and external_ref_id are the nullable import key, unique as a pair.",
+  "fields": [
+    {"name": "inventory_number", "type": "string", "required": true, "queried": true},
+    {"name": "name", "type": "string", "required": true, "queried": true},
+    {"name": "kind", "type": "enum", "required": true, "queried": true, "enum_values": ["fixed", "low_value", "intangible"]},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "acquisition_date", "type": "date"},
+    {"name": "currency", "type": "string"},
+    {"name": "acquisition_cost", "type": "decimal", "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true},
+    {"name": "accumulated_depreciation", "type": "decimal", "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true},
+    {"name": "book_value", "type": "decimal", "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true},
+    {"name": "depreciation_as_of", "type": "date"},
+    {"name": "valid_until", "type": "date", "queried": true},
+    {"name": "active", "type": "boolean", "required": true, "queried": true},
+    {"name": "external_ref_system", "type": "string", "queried": true},
+    {"name": "external_ref_id", "type": "string", "queried": true}
+  ],
+  "constraints": [
+    {"name": "uq_assets_card_inventory_number", "type": "unique", "fields": ["inventory_number"]},
+    {"name": "uq_assets_card_external_ref", "type": "unique", "fields": ["external_ref_system", "external_ref_id"]}
+  ]
+}

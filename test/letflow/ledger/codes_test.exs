@@ -15,6 +15,7 @@ defmodule Letflow.Ledger.CodesTest do
              {"posting_already_reversed", 409},
              {"posting_is_reversal", 409},
              {"posting_is_paired", 409},
+             {"posting_held", 409},
              {"idempotency_key_reuse", 409},
              {"client_seq_conflict", 409},
              {"event_time_in_future", 422},
@@ -27,14 +28,15 @@ defmodule Letflow.Ledger.CodesTest do
            ]
   end
 
-  test "T-ERR-4b the aliasable subset and the reserved list are unchanged" do
+  test "T-ERR-4b the aliasable subset and the reserved list (REQ-764: posting_held added)" do
     assert Codes.aliasable() == [
              "insufficient_balance",
              "balance_bound_exceeded",
              "unit_mismatch",
              "posting_not_balanced",
              "posting_already_reversed",
-             "posting_is_reversal"
+             "posting_is_reversal",
+             "posting_held"
            ]
 
     core = Enum.map(Codes.core(), &elem(&1, 0))
@@ -64,6 +66,7 @@ defmodule Letflow.Ledger.CodesTest do
              "movement_not_found",
              "not_found",
              "posting_already_reversed",
+             "posting_held",
              "posting_is_paired",
              "posting_is_reversal",
              "posting_not_balanced",

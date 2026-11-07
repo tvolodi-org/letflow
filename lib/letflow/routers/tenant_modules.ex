@@ -13,7 +13,9 @@ defmodule Letflow.Routers.TenantModules do
   Routes, all gated by `:ModulesManage` (tenant scope: `TENANT_ADMIN`, and the platform tenant's
   `PLATFORM_ADMIN`, per the roles matrix): `POST /` (full path `POST /api/v1/tenant/modules`),
   `PUT /:module_id/settings`, and (REQ-578) `POST /:module_id/uninstall` and
-  `POST /:module_id/reactivate`. The last two take `{"rationale": "<non-blank text>"}`, answer
+  `POST /:module_id/reactivate`. (REQ-768) `POST /:module_id/upgrade/plan` is the read-only upgrade plan report
+  (`Letflow.Modules.UpgradePlan`). (REQ-770) `POST /:module_id/upgrade` applies a plan without data steps in one
+  transaction (`Letflow.ModuleUpgrade.Apply`; body `plan_hash`, `rationale`, optional `ack_destructive`). The uninstall and reactivate routes take `{"rationale": "<non-blank text>"}`, answer
   200 `{module_id, status}`, 404 (not installed / not uninstalled), 409 with a `code`
   (`dependents_installed`, `open_work_exists`, `upgrade_required`) and 422. While `Installs.uninstall_enabled?/0` is
   false (default) they answer exactly what the same caller gets on an unknown path of this router.
@@ -48,8 +50,10 @@ defmodule Letflow.Routers.TenantModules do
 
   alias Letflow.Api.Authorization
   alias Letflow.Api.Response
+  alias Letflow.ModuleUpgrade.Apply
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
+  alias Letflow.Modules.UpgradePlan
   alias Letflow.PlatformTenant
 
   authz_post "/", :ModulesManage do
@@ -66,6 +70,14 @@ defmodule Letflow.Routers.TenantModules do
 
   authz_post "/:module_id/reactivate", :ModulesManage do
     handle_transition(conn, conn.params["module_id"], :reactivate)
+  end
+
+  authz_post "/:module_id/upgrade/plan", :ModulesManage do
+    handle_upgrade_plan(conn, conn.params["module_id"])
+  end
+
+  authz_post "/:module_id/upgrade", :ModulesManage do
+    handle_upgrade(conn, conn.params["module_id"])
   end
 
   authz_unmatched(:ordinary)
@@ -153,6 +165,63 @@ defmodule Letflow.Routers.TenantModules do
   end
 
   defp run_transition(conn, _module_id, _action), do: Response.not_found(conn)
+
+  # ── POST /:module_id/upgrade/plan (REQ-768, decision 0080) ─────────────
+  # Read-only report (one `planned` journal row). `prefix` and actor only from the auth context;
+  # the body is not read. Unknown module and not installed answer the same 404 (INV-5).
+  defp handle_upgrade_plan(conn, module_id) when is_binary(module_id) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+    actor_id = conn.assigns.auth_context.user_id
+
+    case UpgradePlan.plan(module_id, actor_id, prefix: prefix) do
+      {:ok, report} ->
+        Response.ok(conn, report)
+
+      {:error, reason} when reason in [:unknown_module, :not_installed] ->
+        Response.not_found(conn)
+
+      {:error, :plan_failed} ->
+        Response.internal_error(conn)
+    end
+  end
+
+  defp handle_upgrade_plan(conn, _module_id), do: Response.not_found(conn)
+
+  # ── POST /:module_id/upgrade (REQ-770, decision 0080) ──────────────────
+  # `prefix` and actor only from the auth context; the body is read for `rationale`, `plan_hash` and
+  # `ack_destructive` only. Unknown module and not installed answer the same 404 (INV-5).
+  defp handle_upgrade(conn, module_id) when is_binary(module_id) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+    actor_id = conn.assigns.auth_context.user_id
+
+    case Apply.apply_upgrade(module_id, actor_id, conn.body_params, prefix: prefix) do
+      {:ok, body} ->
+        Response.ok(conn, body)
+
+      {:error, :rationale_required} ->
+        Response.unprocessable(conn, "rationale is required")
+
+      {:error, :plan_hash_required} ->
+        Response.unprocessable(conn, "plan_hash is required")
+
+      {:error, :ack_destructive_invalid} ->
+        Response.unprocessable(conn, "ack_destructive must be a list")
+
+      {:error, :not_found} ->
+        Response.not_found(conn)
+
+      {:error, {:refused, code, extras}} ->
+        Response.module_upgrade_refused(conn, code, extras)
+
+      {:error, {:failed, "internal_error"}} ->
+        Response.internal_error(conn)
+
+      {:error, {:failed, code}} ->
+        Response.module_upgrade_refused(conn, "upgrade_failed", %{"error_code" => code})
+    end
+  end
+
+  defp handle_upgrade(conn, _module_id), do: Response.not_found(conn)
 
   # ── POST /tenant/modules (design §2.3/§2.4) ─────────────────────────────
 

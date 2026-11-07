@@ -9,6 +9,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
   require Logger
 
+  alias Letflow.Api.Authorization
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.ScopeGate
@@ -78,13 +79,36 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
   @doc false
   def handle_import_records(conn, entity_type) do
-    {conn, scope} = ScopeGate.scope_set(conn, :EntitiesRecordsImport)
+    storekeeper_only? = storekeeper_only_import?(conn.assigns.auth_context)
+    {conn, scope} = import_scope(conn, entity_type)
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> managed_import(conn, entity_type, scope)
       :write_denied -> Response.forbidden(conn, "insufficient permissions")
+      # D-093 / decision 0081 D4: a caller who holds Import only through STOREKEEPER imports
+      # module-managed types with a registered import function and nothing else.
+      _access when storekeeper_only? -> Response.forbidden(conn, "insufficient permissions")
       access -> import_records_with_access(conn, entity_type, access, scope, nil)
     end
+  end
+
+  # D-093 / decision 0081 D4: STOREKEEPER's import covers `stock_opening_line` only, so its (tenant-wide)
+  # grant must not widen another role's scoped import of any other type through the union of roles.
+  defp import_scope(conn, "stock_opening_line"),
+    do: ScopeGate.scope_set(conn, :EntitiesRecordsImport)
+
+  defp import_scope(conn, _entity_type),
+    do: ScopeGate.scope_set_without_role(conn, :EntitiesRecordsImport, :STOREKEEPER)
+
+  # True when no held role other than STOREKEEPER allows the import permission.
+  defp storekeeper_only_import?(auth_context) do
+    roles = Authorization.roles_from_strings(Map.get(auth_context, :roles, []))
+
+    :STOREKEEPER in roles and
+      not Enum.any?(
+        roles -- [:STOREKEEPER],
+        &Authorization.role_allows?(&1, :EntitiesRecordsImport)
+      )
   end
 
   # REQ-651 (decision 0077 D5): a managed type imports only when its owning module registered an
@@ -95,12 +119,26 @@ defmodule Letflow.Routers.Entities.RecordImport do
     prefix = prefix!(conn)
 
     with {:ok, module_id} <- ManagedTypes.owner_of(entity_type, prefix),
+         :ok <- storekeeper_managed_allowed(conn, module_id, entity_type),
          :ok <- Catalog.import_function(module_id, entity_type) do
       access = RecordAccess.managed_open(conn.assigns.auth_context.user_id, entity_type, prefix)
       import_records_with_access(conn, entity_type, access, scope, {:managed, module_id})
     else
-      _no_import_function -> Response.send_problem(conn, Error.entity_type_managed())
+      {:error, :storekeeper_managed_import} ->
+        Response.forbidden(conn, "insufficient permissions")
+
+      _no_import_function ->
+        Response.send_problem(conn, Error.entity_type_managed())
     end
+  end
+
+  # D-093 / decision 0081 D4: a STOREKEEPER-only caller imports the stock opening line and no
+  # other module-managed type (locations, catalog items and org data stay admin work).
+  defp storekeeper_managed_allowed(conn, module_id, entity_type) do
+    if storekeeper_only_import?(conn.assigns.auth_context) and
+         not (module_id == "stock" and entity_type == "stock_opening_line"),
+       do: {:error, :storekeeper_managed_import},
+       else: :ok
   end
 
   defp import_records_with_access(conn, entity_type, access, scope, managed) do
@@ -791,6 +829,24 @@ defmodule Letflow.Routers.Entities.RecordImport do
               :price_invalid
             ] do
     %{"type" => Atom.to_string(reason)}
+  end
+
+  # REQ-762: the asset card import's constant refusals (no cell text).
+  defp import_reason_json(reason)
+       when reason in [
+              :asset_kind_invalid,
+              :asset_valid_until_not_allowed,
+              :asset_kind_locked,
+              :asset_currency_mismatch,
+              :asset_inventory_number_taken,
+              :asset_row_invalid,
+              :card_inactive
+            ] do
+    %{"type" => Atom.to_string(reason)}
+  end
+
+  defp import_reason_json({:asset_field_required, header}) when is_binary(header) do
+    %{"type" => "asset_field_required", "header" => header}
   end
 
   defp import_reason_json({:line_invalid, nil}), do: %{"type" => "line_invalid"}

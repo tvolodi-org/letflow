@@ -59,6 +59,10 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     "lib/letflow/modules/codes/writes.ex" => 2,
     # REQ-662: the link writers (create, update) of module locations
     "lib/letflow/modules/locations/links.ex" => 2,
+    # REQ-750: the asset card writers (create, update) of module assets
+    "lib/letflow/modules/assets/cards.ex" => 2,
+    # REQ-751: the asset document context (header and line create and update, soft delete)
+    "lib/letflow/modules/assets/documents.ex" => 5,
     "lib/letflow/modules/locations/tree.ex" => 2,
     # REQ-660: the legal company and site writers of module org
     "lib/letflow/modules/org/masters.ex" => 2,

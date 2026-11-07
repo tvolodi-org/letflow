@@ -1,5 +1,5 @@
 /** Harness fixtures of the stock document screens (task T-1233, REQ-722). Invented data only. */
-import type { ReactElement } from 'react'
+import { useEffect, type ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import DocumentNewPage from '@/modules/stock/documents/DocumentNewPage'
@@ -31,7 +31,7 @@ const MASTERS: Record<string, EntityRecord[]> = {
 }
 
 const lines = [
-  { line_id: 'ln1', line_no: 1, catalog_item_id: 'i1', catalog_uom_id: 'm1', catalog_lot_id: 't1', quantity: '12.000', unit_price: '450000.00', line_value: '5400000.00' },
+  { line_id: 'ln1', line_no: 1, catalog_item_id: 'i1', catalog_uom_id: 'm1', catalog_lot_id: 't1', quantity: '1.000000000', unit_price: '450000.000000000', line_value: '5400000.00' },
   { line_id: 'ln2', line_no: 2, catalog_item_id: 'i2', catalog_uom_id: 'm1', catalog_lot_id: null, quantity: '250.000', unit_price: '3500.00', line_value: '875000.00' },
 ]
 const base = {
@@ -51,7 +51,7 @@ const ROWS = [
   { id: 'doc-wo', kind: 'write_off', state: 'reversed', number: 'WO-000003', org_unit_id: 'u1', event_time: '2026-10-28T08:00:00Z' },
 ]
 
-const routes: FixtureRoute[] = [
+export const routes: FixtureRoute[] = [
   {
     match: (path, method) => path === '/api/v1/entities/query' && method === 'POST',
     reply: (state, _p, body) => {
@@ -75,16 +75,16 @@ const routes: FixtureRoute[] = [
   },
 ]
 
-const AUTH = {
+export const AUTH = {
   session: { token: 'harness', tenant_id: 'harness-tenant' } as unknown as UserSession,
   isAuthenticated: true,
 } as unknown as AuthContextValue
-const ACCESS = {
+export const ACCESS = {
   status: 'ready' as const,
   info: { roles: [], platform_tenant: false, permissions: ['StockRead', 'StockPost', 'StockReverse'] },
 }
 
-function withAuth(page: ReactElement): ReactElement {
+export function withAuth(page: ReactElement): ReactElement {
   return (
     <AuthContext.Provider value={AUTH}>
       <AccessStateProvider state={ACCESS}>
@@ -96,10 +96,30 @@ function withAuth(page: ReactElement): ReactElement {
   )
 }
 
+/** Harness only: opens the loaded draft in edit mode (the edit state is local to the screen, a screenshot cannot click). */
+/** Harness only: the Edit / Save draft button labels in every shipped language (the shots run in en, ru and kk). */
+export const EDIT_LABELS = ['Edit', 'Изменить', 'Өзгерту']
+export const SAVE_LABELS = ['Save draft', 'Сохранить черновик', 'Жобаны сақтау']
+
+export function OpenInEdit({ children }: { children: ReactElement }): ReactElement {
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find((b) => EDIT_LABELS.includes(b.textContent?.trim() ?? ''))
+      if (btn) {
+        btn.click()
+        window.clearInterval(id)
+      }
+    }, 150)
+    return () => window.clearInterval(id)
+  }, [])
+  return children
+}
+
 export const stockDocumentsScreens: HarnessScreen[] = [
   { name: 'stock-documents', routes, render: () => withAuth(<DocumentsPage />) },
   { name: 'stock-document-posted', routes, initialPath: '/doc-posted', routePattern: '/:id', render: () => withAuth(<DocumentPage />) },
   { name: 'stock-document-draft', routes, initialPath: '/doc-draft', routePattern: '/:id', render: () => withAuth(<DocumentPage />) },
+  { name: 'stock-document-draft-edit', routes, initialPath: '/doc-draft', routePattern: '/:id', render: () => withAuth(<OpenInEdit><DocumentPage /></OpenInEdit>) },
   { name: 'stock-document-new-receipt', routes, initialPath: '/?kind=receipt', render: () => withAuth(<DocumentNewPage />) },
   { name: 'stock-document-new-issue', routes, initialPath: '/?kind=issue', render: () => withAuth(<DocumentNewPage />) },
   { name: 'stock-document-new-writeoff', routes, initialPath: '/?kind=write_off', render: () => withAuth(<DocumentNewPage />) },

@@ -16,6 +16,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderWithAccess } from '@/auth/access/testing'
+import { accessState, type AccessFixtureName } from '@/auth/access/fixtures'
 import { noUuidInDom } from '@/test-utils/noUuidInDom'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { ToastContainer } from '@/components/ui/Toast'
@@ -77,7 +78,7 @@ function freshWorld(): World {
 
 const doc = (id: string, number: string) => ({
   id, kind: 'issue', state: 'draft', number, org_unit_id: ORG, location_id: LOC, event_time: '2026-11-05T08:00:00Z',
-  lines: [{ line_no: 1, catalog_item_id: ITEM, catalog_uom_id: UOM, catalog_lot_id: null, quantity: '2.000' }, { line_no: 2, catalog_item_id: ITEM, catalog_uom_id: UOM, catalog_lot_id: null, quantity: '1.000' }],
+  lines: [{ line_no: 1, catalog_item_id: ITEM, catalog_uom_id: UOM, catalog_lot_id: null, quantity: '2.000000000' }, { line_no: 2, catalog_item_id: ITEM, catalog_uom_id: UOM, catalog_lot_id: null, quantity: '1.000' }],
 })
 const MASTER: Record<string, Record<string, unknown>> = {
   [ORG]: { code: 'WH-1', name: 'Warehouse team' }, [LOC]: { code: 'A-01', name: 'Rack A' }, [ITEM]: { code: 'LAP-01', name: 'Laptop' }, [UOM]: { code: 'pcs' },
@@ -127,14 +128,14 @@ function installBackend() {
   }))
 }
 
-function renderPage(sub = ISSUER, access: Parameters<typeof renderWithAccess>[1] = 'tenantAdmin') {
-  currentSub = sub
+function renderPage(sub = ISSUER, access: AccessFixtureName = 'tenantAdmin', tokenSub = sub) {
+  currentSub = tokenSub
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return renderWithAccess(
     <QueryClientProvider client={qc}>
       <MemoryRouter><TaskInboxPage /><ToastContainer /></MemoryRouter>
     </QueryClientProvider>,
-    access,
+    accessState(access, sub),
   )
 }
 
@@ -166,7 +167,7 @@ describe('My Tasks, stock flows (GATE B R3)', () => {
     expect(container.textContent).toContain('A-01 - Rack A')
     await waitFor(() => expect(screen.getAllByTestId('task-issuer')[0]).toHaveTextContent('You'))
     expect(screen.getAllByTestId('task-age')[0]).toHaveTextContent(/3 minutes ago/)
-    await waitFor(() => expect(screen.getAllByTestId('task-lines-summary')[0]).toHaveTextContent('2 lines: LAP-01 - Laptop × 2.000 pcs, +1 more'))
+    await waitFor(() => expect(screen.getAllByTestId('task-lines-summary')[0]).toHaveTextContent('2 lines: LAP-01 - Laptop × 2 pcs, +1 more'))
     expect(noUuidInDom(container)).toBe(true)
   })
 
@@ -232,6 +233,34 @@ describe('My Tasks, stock flows (GATE B R3)', () => {
     await user.click(await screen.findByTestId('task-complete-button'))
     expect(await screen.findByTestId('task-error')).toHaveTextContent(TASK_MESSAGES.en.errInsufficientStock)
     expect(screen.getByTestId('task-complete-button')).toBeInTheDocument()
+  })
+
+  it('T-1412 a task claimed by the signed-in user (tenant user id, not the token sub) stays in My Tasks with Complete', async () => {
+    world.tasks[T_POST] = { ...(world.tasks[T_POST] as object), assignee_type: 'USER', assignee_ref: ISSUER }
+    renderPage(ISSUER, 'tenantAdmin', SECOND)
+    const user = userEvent.setup()
+    const rows = await screen.findAllByTestId('task-row')
+    const row = rows.find((r) => r.getAttribute('data-task-id') === T_POST)!
+    await user.click(row)
+    expect(await screen.findByTestId('task-complete-button')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-claim-button')).not.toBeInTheDocument()
+  })
+
+  it('T-1412 a token sub equal to another id never makes a task mine', async () => {
+    world.tasks[T_POST] = { ...(world.tasks[T_POST] as object), assignee_type: 'USER', assignee_ref: SECOND }
+    renderPage(ISSUER, 'tenantAdmin', SECOND)
+    const user = userEvent.setup()
+    const rows = await screen.findAllByTestId('task-row')
+    await user.click(rows.find((r) => r.getAttribute('data-task-id') === T_POST)!)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.queryByTestId('task-complete-button')).not.toBeInTheDocument()
+  })
+
+  it('T-1412 times are shown in the tenant zone (Asia/Almaty), not the browser zone', async () => {
+    world.tasks[T_POST] = { ...(world.tasks[T_POST] as object), created_at: '2026-11-05T16:35:00Z' }
+    renderPage()
+    const row = (await screen.findAllByTestId('task-row')).find((r) => r.getAttribute('data-task-id') === T_POST)!
+    expect(within(row).getByTestId('task-age').getAttribute('title')).toContain('21:35')
   })
 
   it('T8 an empty inbox shows "No pending tasks"', async () => {

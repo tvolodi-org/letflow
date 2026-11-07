@@ -221,6 +221,47 @@ defmodule Letflow.Modules.CatalogUpgradeShapesTest do
     )
   end
 
+  describe "REQ-770: a step-less manifest upgrades inside its declared window" do
+    setup do
+      {:ok, m: manifest("1.3.0", [], %{min_upgradable_from: "1.0.0"})}
+    end
+
+    test "U1 inside the window the path is empty", %{m: m} do
+      assert Catalog.upgrade_path(m, "1.0.0", "1.3.0") == {:ok, []}
+      assert Catalog.upgrade_path(m, "1.1.0", "1.3.0") == {:ok, []}
+      assert Catalog.upgrade_path(m, "1.0.0", "1.2.0") == {:ok, []}
+      assert Catalog.upgrade_path(Map.delete(m, :migrations), "1.0.0", "1.3.0") == {:ok, []}
+    end
+
+    test "U2 outside the window it stays no path", %{m: m} do
+      assert Catalog.upgrade_path(m, "0.9.0", "1.3.0") ==
+               {:error, {:no_upgrade_path, "0.9.0", "1.3.0"}}
+
+      assert Catalog.upgrade_path(m, "1.0.0", "1.4.0") ==
+               {:error, {:no_upgrade_path, "1.0.0", "1.4.0"}}
+
+      assert Catalog.upgrade_path(m, "1.3.0", "1.2.0") ==
+               {:error, {:no_upgrade_path, "1.3.0", "1.2.0"}}
+    end
+
+    test "U3 without a declared window there is still no path" do
+      m = manifest("1.3.0", [], %{})
+
+      assert Catalog.upgrade_path(m, "1.0.0", "1.3.0") ==
+               {:error, {:no_upgrade_path, "1.0.0", "1.3.0"}}
+    end
+
+    test "U4 a manifest with steps keeps the chain rule (a gap is no path)" do
+      m =
+        manifest("1.3.0", [step("a", "1.0.0", "1.1.0"), step("c", "1.2.0", "1.3.0")], %{
+          min_upgradable_from: "1.0.0"
+        })
+
+      assert Catalog.upgrade_path(m, "1.0.0", "1.3.0") ==
+               {:error, {:no_upgrade_path, "1.0.0", "1.3.0"}}
+    end
+  end
+
   describe "criterion 9: no manifest hash moves" do
     test "H1 registered manifests hash to the pre-change values" do
       for m <- Catalog.all_manifests(), m.id in @real_ids do

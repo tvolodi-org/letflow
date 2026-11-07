@@ -6,7 +6,7 @@ defmodule Letflow.Ledger.HandlerPost do
   ## Build time (`build/3`, inside a handler call; no lock, no write)
 
     * B1 the per-call token and the context (as `create/3`; absent or forged is `:invalid_context`);
-    * B2 the size caps (256 KiB command, 200 legs), BEFORE the policy is called;
+    * B2 the size caps (1 MiB command, 2000 legs; REQ-774), BEFORE the policy is called;
     * B3 the registration's `declare/2` through `Catalog.declare_posting/2` (zero queries; a raise,
       exit or throw keeps no text);
     * B4 the core re-validation (`Validate.posting/3`, the call `Ledger` makes at run time) plus the
@@ -20,11 +20,23 @@ defmodule Letflow.Ledger.HandlerPost do
 
   ## Run time
 
-    1. `{:line, key, :ledger_post}` PLANS only: origin (`{:task, _}`, or `{:dispatch, _}` when the
+    1. `{:line, key, :ledger_post}` PLANS only (REQ-764: it takes the shared hold lock and calls the
+       registration's optional `posting_guard`, below): origin (`{:task, _}`, or `{:dispatch, _}` when the
        service apply's `:pre_ledger_lock` result is present, REQ-688, and the node's consent flag
        is set: else the typed `ledger_origin_not_supported` / `ledger_consent_missing`),
        `Authority.check/1` (credential, roles from the database, scope), then the deferred
-       refusal, then `{:ok, {:planned, capability}}`. It locks nothing and writes nothing.
+       refusal, then the guard, then `{:ok, {:planned, capability}}`. It takes no ledger lock and
+       writes nothing.
+
+       The guard (REQ-764, decision 0073 "Amended by REQ-764"): with a `posting_guard` the plan step
+       takes `Ledger.hold_shared!/2` of the posting's ledger id (held to the end of the transaction;
+       the module's own change takes `Ledger.hold_exclusive!/2`) and calls `module.function(prefix,
+       summary)` once, with the capability's prefix and `%{ledger_id, cause, document_type,
+       document_id, keys}`. `:ok` goes on; `{:held, held_by}` (1..64 of `A-Za-z0-9._/-`) refuses as
+       `posting_held` (409, aliasable) wrapped as `{:ledger_held, facts, refusal}` so the engine can
+       audit it after the rollback; any other answer, a raise, a throw or an exit is
+       `{:failed, index, :ledger_post}`. No guard, no lock: the step is unchanged. A dry build
+       adds no step, so it calls no guard.
     2. `lock_steps/3`, appended once by `StepWrites` after the LAST handler call, takes the ONE lock
        step of decision 0073 A3 over the union of all planned postings (`Ledger.lock_postings/1`:
        insert-if-absent ascending, `FOR UPDATE` ascending, counters ascending by ledger id) and then
@@ -52,8 +64,8 @@ defmodule Letflow.Ledger.HandlerPost do
   alias Letflow.Ledger.Failure
   alias Letflow.Ledger.Validate
 
-  @max_command_bytes 262_144
-  @max_legs 200
+  @max_command_bytes 1_048_576
+  @max_legs 2000
   @max_postings 2
   @origin_key_node ~r/\A[A-Za-z0-9._-]{1,64}\z/
 
@@ -263,10 +275,108 @@ defmodule Letflow.Ledger.HandlerPost do
 
   defp plan(cap) do
     with {:ok, read?} <- authority(cap),
-         :ok <- release(cap) do
+         :ok <- release(cap),
+         :ok <- run_guard(cap) do
       {:ok, {:planned, %{cap | read_disclosed: read?}}}
     end
   end
+
+  # REQ-764: the optional posting guard of the registration. The SHARED hold lock of the ledger id
+  # is taken first (held to the end of the transaction), then the guard is called once with the
+  # capability's tenant prefix and a neutral summary. Only `:ok` and a well-formed `{:held, label}`
+  # are answers; everything else, a raise, a throw or an exit included, fails closed and keeps no
+  # text of the answer (INV-8).
+  @held_by ~r/\A[A-Za-z0-9._\/-]{1,64}\z/
+
+  defp run_guard(%{registration: %{posting_guard: %{module: module, function: function}}} = cap) do
+    with {:ok, summary} <- guard_summary(cap) do
+      Ledger.hold_shared!(cap.prefix, summary.ledger_id)
+
+      case call_guard(module, function, cap.prefix, summary) do
+        :ok ->
+          :ok
+
+        {:held, held_by} ->
+          held =
+            aliased({:ledger_refused, :posting_held, "posting_held", %{held_by: held_by}}, cap)
+
+          facts = %{
+            module_id: cap.module_id,
+            ledger_id: summary.ledger_id,
+            cause: summary.cause,
+            document_type: summary.document_type,
+            document_id: summary.document_id,
+            held_by: held_by
+          }
+
+          {:error, {:ledger_held, facts, held}}
+
+        :failed ->
+          {:error, :ledger_guard_failed}
+      end
+    end
+  end
+
+  defp run_guard(_cap), do: :ok
+
+  defp call_guard(module, function, prefix, summary) do
+    case apply(module, function, [prefix, summary]) do
+      :ok ->
+        :ok
+
+      {:held, held_by} when is_binary(held_by) ->
+        if Regex.match?(@held_by, held_by), do: {:held, held_by}, else: :failed
+
+      _other ->
+        :failed
+    end
+  rescue
+    _exception -> :failed
+  catch
+    _kind, _reason -> :failed
+  end
+
+  # `ledger_id, cause, document_type, document_id, keys` and nothing else. `keys` are the distinct
+  # balance keys of the legs as maps from the registration's slot names to the slot values; a
+  # reversal's come from the reversed entry (prefix- and ledger-scoped read; no row gives `[]`).
+  defp guard_summary(cap) do
+    with {:ok, posting} <- Validate.posting(cap.posting, cap.command, cap.registration) do
+      {ks, type, id} = guard_keys(cap, posting)
+      names = Enum.map(cap.registration.slots, & &1.name)
+
+      keys =
+        ks
+        |> Enum.map(&Enum.take(&1, length(names)))
+        |> Enum.uniq()
+        |> Enum.sort()
+        |> Enum.map(fn k -> names |> Enum.zip(k) |> Map.new() end)
+
+      {:ok,
+       %{
+         ledger_id: posting.ledger_id,
+         cause: posting.cause,
+         document_type: type,
+         document_id: id,
+         keys: keys
+       }}
+    else
+      _invalid -> {:error, :ledger_guard_failed}
+    end
+  end
+
+  defp guard_keys(cap, %{reversal: true} = posting) do
+    case Ledger.guard_reversal(cap.prefix, posting.ledger_id, posting.reverses_entry_id) do
+      {:ok, target} ->
+        {target.ks, posting.document_type || target.document_type,
+         posting.document_id || target.document_id}
+
+      :error ->
+        {[], posting.document_type, posting.document_id}
+    end
+  end
+
+  defp guard_keys(_cap, posting),
+    do: {Enum.map(posting.legs, & &1.k), posting.document_type, posting.document_id}
 
   defp authority(cap) do
     case Authority.check_with_read(cap) do

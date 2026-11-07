@@ -47,7 +47,8 @@
     {
       "files": [
         "src/modules/registry.ts",
-        "src/dev/harness/**"
+        "src/dev/harness/**",
+        "src/__tests__/catalog-completeness.test.ts"
       ],
       "rules": {
         "no-restricted-imports": "off"
@@ -74,7 +75,8 @@
               "**/locations/**",
               "**/codes/**",
               "**/catalog_items/**",
-              "**/stock/**"
+              "**/stock/**",
+              "**/assets/**"
             ]
           }
         ]
@@ -101,7 +103,8 @@
               "**/locations/**",
               "**/codes/**",
               "**/catalog_items/**",
-              "**/stock/**"
+              "**/stock/**",
+              "**/assets/**"
             ]
           }
         ]
@@ -128,7 +131,8 @@
               "**/org/**",
               "**/codes/**",
               "**/catalog_items/**",
-              "**/stock/**"
+              "**/stock/**",
+              "**/assets/**"
             ]
           }
         ]
@@ -155,7 +159,8 @@
               "**/org/**",
               "**/locations/**",
               "**/catalog_items/**",
-              "**/stock/**"
+              "**/stock/**",
+              "**/assets/**"
             ]
           }
         ]
@@ -182,7 +187,8 @@
               "**/org/**",
               "**/locations/**",
               "**/codes/**",
-              "**/stock/**"
+              "**/stock/**",
+              "**/assets/**"
             ]
           }
         ]
@@ -209,7 +215,36 @@
               "**/org/**",
               "**/locations/**",
               "**/codes/**",
-              "**/catalog_items/**"
+              "**/catalog_items/**",
+              "**/assets/**"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/modules/assets/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@/modules/*/**",
+              "!@/modules/assets/**",
+              "!@/modules/registry",
+              "!@/modules/types",
+              "**/modules/*/**",
+              "!**/modules/assets/**",
+              "!**/modules/registry",
+              "!**/modules/types",
+              "**/exam/**",
+              "**/org/**",
+              "**/locations/**",
+              "**/codes/**",
+              "**/catalog_items/**",
+              "**/stock/**"
             ]
           }
         ]

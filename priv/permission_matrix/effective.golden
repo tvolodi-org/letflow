@@ -1,11 +1,16 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.14.0
-# roles: 8
-# permissions: 80
-# rows: 640
+# modules: assets@0.7.0,catalog_items@0.3.0,codes@0.3.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.15.0
+# roles: 9
+# permissions: 86
+# rows: 774
 # columns: role permission allowed owner via
+AGENT_RUNNER AssetsCardWrite false module:assets -
+AGENT_RUNNER AssetsPost false module:assets -
+AGENT_RUNNER AssetsRead false module:assets -
+AGENT_RUNNER AssetsReconcile false module:assets -
+AGENT_RUNNER AssetsReverse false module:assets -
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
 AGENT_RUNNER AttachmentsRead false core -
@@ -55,6 +60,7 @@ AGENT_RUNNER MetricsRead false core -
 AGENT_RUNNER ModulesManage false core -
 AGENT_RUNNER MyAccessRead true core core
 AGENT_RUNNER MyModulesRead true core core
+AGENT_RUNNER MyPreferencesSet true core core
 AGENT_RUNNER NotificationTemplatesManage false core -
 AGENT_RUNNER NumberSequencesManage false core -
 AGENT_RUNNER OrgEmployeesWrite false module:org -
@@ -86,6 +92,11 @@ AGENT_RUNNER TenantsManage false core -
 AGENT_RUNNER TokensManage false core -
 AGENT_RUNNER UsersGroupsRolesManage false core -
 AGENT_RUNNER WebhooksManage false core -
+CANDIDATE AssetsCardWrite false module:assets -
+CANDIDATE AssetsPost false module:assets -
+CANDIDATE AssetsRead false module:assets -
+CANDIDATE AssetsReconcile false module:assets -
+CANDIDATE AssetsReverse false module:assets -
 CANDIDATE AttachmentLinksIssue false core -
 CANDIDATE AttachmentsManage false core -
 CANDIDATE AttachmentsRead false core -
@@ -135,6 +146,7 @@ CANDIDATE MetricsRead false core -
 CANDIDATE ModulesManage false core -
 CANDIDATE MyAccessRead true core core
 CANDIDATE MyModulesRead true core core
+CANDIDATE MyPreferencesSet true core core
 CANDIDATE NotificationTemplatesManage false core -
 CANDIDATE NumberSequencesManage false core -
 CANDIDATE OrgEmployeesWrite false module:org -
@@ -166,6 +178,11 @@ CANDIDATE TenantsManage false core -
 CANDIDATE TokensManage false core -
 CANDIDATE UsersGroupsRolesManage false core -
 CANDIDATE WebhooksManage false core -
+PLATFORM_ADMIN AssetsCardWrite true module:assets core
+PLATFORM_ADMIN AssetsPost true module:assets core
+PLATFORM_ADMIN AssetsRead true module:assets core
+PLATFORM_ADMIN AssetsReconcile true module:assets core
+PLATFORM_ADMIN AssetsReverse true module:assets core
 PLATFORM_ADMIN AttachmentLinksIssue true core core
 PLATFORM_ADMIN AttachmentsManage true core core
 PLATFORM_ADMIN AttachmentsRead true core core
@@ -215,6 +232,7 @@ PLATFORM_ADMIN MetricsRead true core core
 PLATFORM_ADMIN ModulesManage true core core
 PLATFORM_ADMIN MyAccessRead true core core
 PLATFORM_ADMIN MyModulesRead true core core
+PLATFORM_ADMIN MyPreferencesSet true core core
 PLATFORM_ADMIN NotificationTemplatesManage true core core
 PLATFORM_ADMIN NumberSequencesManage true core core
 PLATFORM_ADMIN OrgEmployeesWrite true module:org core
@@ -246,6 +264,11 @@ PLATFORM_ADMIN TenantsManage true core core
 PLATFORM_ADMIN TokensManage true core core
 PLATFORM_ADMIN UsersGroupsRolesManage true core core
 PLATFORM_ADMIN WebhooksManage true core core
+PROCESS_DESIGNER AssetsCardWrite false module:assets -
+PROCESS_DESIGNER AssetsPost false module:assets -
+PROCESS_DESIGNER AssetsRead false module:assets -
+PROCESS_DESIGNER AssetsReconcile false module:assets -
+PROCESS_DESIGNER AssetsReverse false module:assets -
 PROCESS_DESIGNER AttachmentLinksIssue true core core
 PROCESS_DESIGNER AttachmentsManage false core -
 PROCESS_DESIGNER AttachmentsRead true core core
@@ -295,6 +318,7 @@ PROCESS_DESIGNER MetricsRead false core -
 PROCESS_DESIGNER ModulesManage false core -
 PROCESS_DESIGNER MyAccessRead true core core
 PROCESS_DESIGNER MyModulesRead true core core
+PROCESS_DESIGNER MyPreferencesSet true core core
 PROCESS_DESIGNER NotificationTemplatesManage false core -
 PROCESS_DESIGNER NumberSequencesManage false core -
 PROCESS_DESIGNER OrgEmployeesWrite false module:org -
@@ -326,6 +350,11 @@ PROCESS_DESIGNER TenantsManage false core -
 PROCESS_DESIGNER TokensManage false core -
 PROCESS_DESIGNER UsersGroupsRolesManage false core -
 PROCESS_DESIGNER WebhooksManage false core -
+PROCESS_OPERATOR AssetsCardWrite false module:assets -
+PROCESS_OPERATOR AssetsPost false module:assets -
+PROCESS_OPERATOR AssetsRead false module:assets -
+PROCESS_OPERATOR AssetsReconcile false module:assets -
+PROCESS_OPERATOR AssetsReverse false module:assets -
 PROCESS_OPERATOR AttachmentLinksIssue true core core
 PROCESS_OPERATOR AttachmentsManage true core core
 PROCESS_OPERATOR AttachmentsRead true core core
@@ -375,6 +404,7 @@ PROCESS_OPERATOR MetricsRead true core core
 PROCESS_OPERATOR ModulesManage false core -
 PROCESS_OPERATOR MyAccessRead true core core
 PROCESS_OPERATOR MyModulesRead true core core
+PROCESS_OPERATOR MyPreferencesSet true core core
 PROCESS_OPERATOR NotificationTemplatesManage false core -
 PROCESS_OPERATOR NumberSequencesManage false core -
 PROCESS_OPERATOR OrgEmployeesWrite false module:org -
@@ -406,6 +436,97 @@ PROCESS_OPERATOR TenantsManage false core -
 PROCESS_OPERATOR TokensManage false core -
 PROCESS_OPERATOR UsersGroupsRolesManage false core -
 PROCESS_OPERATOR WebhooksManage true core core
+STOREKEEPER AssetsCardWrite false module:assets -
+STOREKEEPER AssetsPost false module:assets -
+STOREKEEPER AssetsRead false module:assets -
+STOREKEEPER AssetsReconcile false module:assets -
+STOREKEEPER AssetsReverse false module:assets -
+STOREKEEPER AttachmentLinksIssue false core -
+STOREKEEPER AttachmentsManage false core -
+STOREKEEPER AttachmentsRead false core -
+STOREKEEPER AuditRead false core -
+STOREKEEPER CatalogLotsWrite false module:catalog_items -
+STOREKEEPER CodesRead false module:codes -
+STOREKEEPER CodesWrite false module:codes -
+STOREKEEPER DefinitionsRead false core -
+STOREKEEPER DefinitionsRollback false core -
+STOREKEEPER DefinitionsWrite false core -
+STOREKEEPER DlqOperate false core -
+STOREKEEPER DocumentHold false core -
+STOREKEEPER DocumentPrintTemplatesManage false core -
+STOREKEEPER DocumentsRetentionManage false core -
+STOREKEEPER EntitiesAggregate false core -
+STOREKEEPER EntitiesAttachmentsManage false core -
+STOREKEEPER EntitiesAttachmentsRead false core -
+STOREKEEPER EntitiesDefinitionsRead true core core
+STOREKEEPER EntitiesDefinitionsWrite false core -
+STOREKEEPER EntitiesExtensionsManage false core -
+STOREKEEPER EntitiesQuery true core core
+STOREKEEPER EntitiesRecordsExport false core -
+STOREKEEPER EntitiesRecordsExportUnredacted false core -
+STOREKEEPER EntitiesRecordsImport true core core
+STOREKEEPER EntitiesRecordsWrite false core -
+STOREKEEPER EntitiesRestrictionsManage false core -
+STOREKEEPER EntitiesViewsManage false core -
+STOREKEEPER ExamAuthoringWrite false module:exam -
+STOREKEEPER ExamCertificateIssue false module:exam -
+STOREKEEPER ExamGradingRead false module:exam -
+STOREKEEPER ExamGradingWrite false module:exam -
+STOREKEEPER ExamSessionRead false module:exam -
+STOREKEEPER ExamSessionReportEvent false module:exam -
+STOREKEEPER ExamSessionSave false module:exam -
+STOREKEEPER ExamSessionStart false module:exam -
+STOREKEEPER ExamSessionSubmit false module:exam -
+STOREKEEPER HelpRead true core core
+STOREKEEPER InstancesAdvanceTimer false core -
+STOREKEEPER InstancesCancel false core -
+STOREKEEPER InstancesRead false core -
+STOREKEEPER InstancesStart false core -
+STOREKEEPER IntegrationMappingsManage false core -
+STOREKEEPER LabelsManage false core -
+STOREKEEPER LocationsWrite false module:locations -
+STOREKEEPER MembershipsRead true core core
+STOREKEEPER MetricsRead false core -
+STOREKEEPER ModulesManage false core -
+STOREKEEPER MyAccessRead true core core
+STOREKEEPER MyModulesRead true core core
+STOREKEEPER MyPreferencesSet true core core
+STOREKEEPER NotificationTemplatesManage false core -
+STOREKEEPER NumberSequencesManage false core -
+STOREKEEPER OrgEmployeesWrite false module:org -
+STOREKEEPER OrgStructureWrite false module:org -
+STOREKEEPER PlatformServicesManage false core -
+STOREKEEPER ProcurementLineRecord false module:procurement -
+STOREKEEPER ProcurementRequestDecide false module:procurement -
+STOREKEEPER ProcurementRequestRead false module:procurement -
+STOREKEEPER ProcurementRequestWrite false module:procurement -
+STOREKEEPER PromotionsManage false core -
+STOREKEEPER PromotionsRead false core -
+STOREKEEPER PublicReadHandlesIssue false core -
+STOREKEEPER RolesManage false core -
+STOREKEEPER ScheduledJobsManage false core -
+STOREKEEPER ScriptsPublish false core -
+STOREKEEPER ScriptsWrite false core -
+STOREKEEPER SolutionOverridesManage false core -
+STOREKEEPER StockCountOrder true module:stock grant
+STOREKEEPER StockCountRecord true module:stock grant
+STOREKEEPER StockPost true module:stock grant
+STOREKEEPER StockRead true module:stock grant
+STOREKEEPER StockReconcile false module:stock -
+STOREKEEPER StockReverse true module:stock grant
+STOREKEEPER TasksAssign false core -
+STOREKEEPER TasksComplete true core core
+STOREKEEPER TasksRead true core core
+STOREKEEPER TenantSettingsManage false core -
+STOREKEEPER TenantsManage false core -
+STOREKEEPER TokensManage false core -
+STOREKEEPER UsersGroupsRolesManage false core -
+STOREKEEPER WebhooksManage false core -
+TASK_WORKER AssetsCardWrite false module:assets -
+TASK_WORKER AssetsPost false module:assets -
+TASK_WORKER AssetsRead false module:assets -
+TASK_WORKER AssetsReconcile false module:assets -
+TASK_WORKER AssetsReverse false module:assets -
 TASK_WORKER AttachmentLinksIssue true core core
 TASK_WORKER AttachmentsManage false core -
 TASK_WORKER AttachmentsRead true core core
@@ -455,6 +576,7 @@ TASK_WORKER MetricsRead false core -
 TASK_WORKER ModulesManage false core -
 TASK_WORKER MyAccessRead true core core
 TASK_WORKER MyModulesRead true core core
+TASK_WORKER MyPreferencesSet true core core
 TASK_WORKER NotificationTemplatesManage false core -
 TASK_WORKER NumberSequencesManage false core -
 TASK_WORKER OrgEmployeesWrite false module:org -
@@ -486,6 +608,11 @@ TASK_WORKER TenantsManage false core -
 TASK_WORKER TokensManage false core -
 TASK_WORKER UsersGroupsRolesManage false core -
 TASK_WORKER WebhooksManage false core -
+TENANT_ADMIN AssetsCardWrite true module:assets core
+TENANT_ADMIN AssetsPost true module:assets core
+TENANT_ADMIN AssetsRead true module:assets core
+TENANT_ADMIN AssetsReconcile true module:assets core
+TENANT_ADMIN AssetsReverse true module:assets core
 TENANT_ADMIN AttachmentLinksIssue true core core
 TENANT_ADMIN AttachmentsManage true core core
 TENANT_ADMIN AttachmentsRead true core core
@@ -535,6 +662,7 @@ TENANT_ADMIN MetricsRead true core core
 TENANT_ADMIN ModulesManage true core core
 TENANT_ADMIN MyAccessRead true core core
 TENANT_ADMIN MyModulesRead true core core
+TENANT_ADMIN MyPreferencesSet true core core
 TENANT_ADMIN NotificationTemplatesManage true core core
 TENANT_ADMIN NumberSequencesManage true core core
 TENANT_ADMIN OrgEmployeesWrite true module:org core
@@ -566,6 +694,11 @@ TENANT_ADMIN TenantsManage false core -
 TENANT_ADMIN TokensManage true core core
 TENANT_ADMIN UsersGroupsRolesManage true core core
 TENANT_ADMIN WebhooksManage true core core
+TENANT_AUDITOR AssetsCardWrite false module:assets -
+TENANT_AUDITOR AssetsPost false module:assets -
+TENANT_AUDITOR AssetsRead false module:assets -
+TENANT_AUDITOR AssetsReconcile false module:assets -
+TENANT_AUDITOR AssetsReverse false module:assets -
 TENANT_AUDITOR AttachmentLinksIssue false core -
 TENANT_AUDITOR AttachmentsManage false core -
 TENANT_AUDITOR AttachmentsRead true core core
@@ -615,6 +748,7 @@ TENANT_AUDITOR MetricsRead true core core
 TENANT_AUDITOR ModulesManage false core -
 TENANT_AUDITOR MyAccessRead true core core
 TENANT_AUDITOR MyModulesRead true core core
+TENANT_AUDITOR MyPreferencesSet true core core
 TENANT_AUDITOR NotificationTemplatesManage false core -
 TENANT_AUDITOR NumberSequencesManage false core -
 TENANT_AUDITOR OrgEmployeesWrite false module:org -

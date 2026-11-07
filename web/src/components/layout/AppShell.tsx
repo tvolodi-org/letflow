@@ -1,6 +1,7 @@
 import { ToastContainer } from '@/components/ui/Toast'
-import { useEffect, useState } from 'react'
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, Outlet, NavLink, useLocation } from 'react-router-dom'
+import { ChevronsLeft, SlidersHorizontal } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { P, useAccess, type Permission } from '@/auth/access'
@@ -14,6 +15,7 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher'
 import { UI_LOCALES, UI_LOCALE_LABELS, useUiLocale, useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { navLabel, navMessages } from './navMessages'
+import { mySettingsMessages } from '@/pages/me/mySettingsMessages'
 import { TenantSwitcher } from '@/auth/TenantSwitcher'
 import { dlqApi } from '@/api/dlq'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -21,6 +23,19 @@ import { useBranding } from '@/theming/BrandingContext'
 import { useInstalledModules } from '@/hooks/useInstalledModules'
 import { getInstalledImportTypes, getInstalledModuleNavItems } from '@/modules/registry'
 import { isModulesUninstallEnabled } from '@/config/modulesUninstallFlag'
+import { useLayoutPrefs } from '@/hooks/useLayoutPrefs'
+import { useSplit } from '@/components/ui/layout/Splitter'
+import { layoutMessages } from '@/components/ui/layout/layoutMessages'
+import { NavIcon } from './navIcons'
+
+const NARROW_QUERY = '(max-width: 900px)'
+const isNarrow = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(NARROW_QUERY).matches
+/** Width of the collapsed side nav: the design token, read from the computed style (64 px fallback). */
+const collapsedNavWidth = () => {
+  if (typeof document === 'undefined') return 64
+  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidenav-collapsed-width'))
+  return Number.isFinite(v) ? v : 64
+}
 
 export type NavGroup = 'work' | 'tenantAdmin' | 'platform'
 
@@ -90,7 +105,16 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/admin/event-retention', group: 'platform', label: 'Event Retention', permission: P.TenantsManage, platformOnly: true },
 ]
 
-export function AppShell() {
+/** `fluid` lets the content fill wide windows (`lf-content--fluid`: no `--content-max-width` cap, clamp-token panes).
+ *  Default off: prose and short forms keep the capped column; data screens opt in (I2..I5 decide how). */
+/** Data screens that fill wide windows (one path per line, so sibling screens add theirs without a conflict). */
+const FLUID_PATHS = [
+  '/admin/catalog/items',
+  '/admin/stock/movements',
+  '/admin/stock/balances',
+]
+
+export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {}) {
   const { session, logout } = useAuth()
   const uiLocale = useUiLocale()
   const setUiLocale = useUiLocaleStore((s) => s.setLocale)
@@ -98,7 +122,39 @@ export function AppShell() {
   const tenantKeys = useTenantScopedQueryKeys()
   const { appName, logoUrl } = useBranding()
   const [navOpen, setNavOpen] = useState(false)
+  // Side nav: collapsed flag and width are remembered (ui.layout, shell.sidenav); the drawer under 900 px is unchanged.
+  const store = useLayoutPrefs()
+  const lm = layoutMessages[uiLocale]
+  const appRef = useRef<HTMLDivElement>(null)
+  const layerRef = useRef<HTMLDivElement>(null)
+  const [navCollapsed, setNavCollapsed] = useState(() => !!store.getShell().collapsed)
+  const [narrow, setNarrow] = useState(isNarrow)
+  useEffect(() => {
+    if (!window.matchMedia) return
+    const mq = window.matchMedia(NARROW_QUERY)
+    const on = () => setNarrow(mq.matches)
+    mq.addEventListener?.('change', on)
+    return () => mq.removeEventListener?.('change', on)
+  }, [])
+  const navSplit = useSplit(appRef, layerRef, {
+    id: 'sidenav',
+    shell: true,
+    unit: 'px',
+    vars: ['--sidenav-width'],
+    sized: 'before',
+    min: [200],
+    max: [360],
+    flexMin: 320,
+    collapsible: [0],
+    collapsedSize: collapsedNavWidth(),
+    labels: [lm.navResize],
+    panes: () => [document.getElementById('app-sidenav'), document.getElementById('app-main')],
+    enabled: () => !isNarrow(),
+    onCollapse: (c) => setNavCollapsed(!!c[0]),
+  })
+  const navState = narrow || !navCollapsed ? 'expanded' : 'collapsed'
   const { pathname } = useLocation()
+  const fluid = fluidProp || FLUID_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
   // The drawer closes on navigation and on Escape.
   useEffect(() => setNavOpen(false), [pathname])
   useEffect(() => {
@@ -134,7 +190,7 @@ export function AppShell() {
     .filter((g) => g.items.length > 0)
 
   return (
-    <div className={navOpen ? 'lf-app is-nav-open' : 'lf-app'}>
+    <div ref={appRef} className={navOpen ? 'lf-app is-nav-open' : 'lf-app'} data-nav={navState}>
       <SkipLink label="Skip to main content" />
       {/* Sidebar: night in both themes; a drawer under 900px (is-nav-open on .lf-app). */}
       <aside className="lf-sidenav lf-night" id="app-sidenav" data-testid="sidenav">
@@ -152,7 +208,8 @@ export function AppShell() {
             <div key={g.id} className="lf-sidenav__group" role="group" aria-label={navMessages[uiLocale].groups[g.id]} data-testid={`nav-group-${g.id}`}>
               <div className="lf-sidenav__label">{navMessages[uiLocale].groups[g.id]}</div>
               {g.items.map((n) => (
-                <NavLink key={n.to} to={n.to} className="lf-sidenav__item">
+                <NavLink key={n.to} to={n.to} className="lf-sidenav__item" title={navLabel(uiLocale, n.to, n.label)}>
+                  <NavIcon to={n.to} label={navLabel(uiLocale, n.to, n.label)} />
                   <span>{navLabel(uiLocale, n.to, n.label)}</span>
                   {n.to === '/dlq' && dlqSeverity !== 'none' && (
                     <span
@@ -169,11 +226,24 @@ export function AppShell() {
         </nav>
 
         <div className="lf-sidenav__foot">
+          <button
+            type="button"
+            className="lf-sidenav__toggle"
+            data-testid="sidenav-toggle"
+            aria-expanded={navState === 'expanded'}
+            aria-controls="app-sidenav"
+            aria-label={navState === 'collapsed' ? lm.navExpand : lm.navCollapse}
+            title={navState === 'collapsed' ? lm.navExpand : lm.navCollapse}
+            onClick={() => navSplit.current?.toggle(0)}
+          >
+            <ChevronsLeft className="lf-icon" aria-hidden="true" />
+            {navState === 'expanded' && <span>{lm.navCollapse}</span>}
+          </button>
           <div data-testid="user-display-name">{session?.display_name}</div>
           <div data-testid="user-roles">{access.roles.join(', ')}</div>
           <div className="lf-btn-row">
             <button type="button" data-testid="logout-button" className="lf-btn lf-btn--ghost lf-btn--s" onClick={logout}>
-              Sign out
+              {navMessages[uiLocale].signOut}
             </button>
             <ThemeToggle />
           </div>
@@ -181,20 +251,31 @@ export function AppShell() {
       </aside>
       {navOpen && <div className="lf-scrim" data-testid="nav-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />}
 
-      <div className="lf-main">
+      <div className="lf-main" id="app-main">
         <TopBar
           menuOpen={navOpen}
           onMenuToggle={() => setNavOpen((o) => !o)}
           menuControls="app-sidenav"
           end={
-            <LanguageSwitcher
-              locales={UI_LOCALES.map((code) => ({ code, label: UI_LOCALE_LABELS[code] }))}
-              current={uiLocale}
-              onChange={(code) => setUiLocale(code as (typeof UI_LOCALES)[number])}
-            />
+            <>
+              <Link
+                to="/me/settings"
+                className="lf-btn lf-btn--ghost lf-btn--icon"
+                aria-label={mySettingsMessages[uiLocale].link}
+                title={mySettingsMessages[uiLocale].link}
+                data-testid="topbar-my-settings"
+              >
+                <SlidersHorizontal className="lf-icon" aria-hidden="true" />
+              </Link>
+              <LanguageSwitcher
+                locales={UI_LOCALES.map((code) => ({ code, label: UI_LOCALE_LABELS[code] }))}
+                current={uiLocale}
+                onChange={(code) => setUiLocale(code as (typeof UI_LOCALES)[number])}
+              />
+            </>
           }
         />
-        <main id="main-content" className="lf-content" tabIndex={-1}>
+        <main id="main-content" className={fluid ? 'lf-content lf-content--fluid' : 'lf-content'} tabIndex={-1}>
           <TestEnvironmentBanner />
           <SessionNotice />
           <ApiConnectivityBanner />
@@ -202,6 +283,7 @@ export function AppShell() {
         </main>
       </div>
       <ToastContainer />
+      <div className="lf-split-layer" ref={layerRef} />
     </div>
   )
 }

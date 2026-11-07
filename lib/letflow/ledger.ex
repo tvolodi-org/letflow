@@ -159,10 +159,13 @@ defmodule Letflow.Ledger do
   @control ~r/[\x00-\x1f\x7f]/
   @limit Decimal.new("1.0E+21")
   @page_cap 200
+  # REQ-774: at most this many rows per INSERT statement (a leg row has ~25 columns, so 500 rows stay far
+  # below the 65,535 bind parameters of PostgreSQL); all chunks run in the one completion transaction.
+  @insert_chunk 500
 
   @type reconciliation :: Reconcile.reconciliation()
 
-  @doc "The one page cap of the read side: the most legs one posting can carry."
+  @doc "The one page cap of the read side: entries or balance rows per page (not legs per entry; a posting can carry 2000 legs, REQ-774)."
   @spec page_cap() :: pos_integer()
   def page_cap, do: @page_cap
 
@@ -174,6 +177,41 @@ defmodule Letflow.Ledger do
           {:ok, reconciliation()}
           | {:error, :reconcile_busy | :invalid_cursor | :invalid_opts | :run_expired}
   defdelegate reconcile(authorized, opts), to: Reconcile
+
+  @doc """
+  REQ-764: takes the EXCLUSIVE hold lock of `ledger_id` in the caller's transaction
+  (`pg_advisory_xact_lock` on `hashtextextended(prefix || ':ledger_hold:' || ledger_id, 0)`, one
+  bound parameter). A module that changes what its posting guard reads takes it first: every
+  posting transaction that already passed its guard (it holds the shared lock) has committed
+  before the change is made, and every later one reads the change. Raises `ArgumentError` outside
+  a transaction, for a prefix that is not a tenant schema name and for an empty ledger id.
+  """
+  @spec hold_exclusive!(String.t(), String.t()) :: :ok
+  defdelegate hold_exclusive!(prefix, ledger_id), to: Letflow.Ledger.Hold, as: :exclusive!
+
+  @doc false
+  # The SHARED side, taken by the platform in the plan step of `HandlerPost`, before the guard call.
+  @spec hold_shared!(String.t(), String.t()) :: :ok
+  defdelegate hold_shared!(prefix, ledger_id), to: Letflow.Ledger.Hold, as: :shared!
+
+  @doc false
+  # REQ-764: the slot values (`k`) of the distinct balance keys, and the document reference, of the
+  # entry a reversal targets. The same prefix- and ledger-scoped read as `resolve_reversal/2`, no
+  # lock (immutable rows); a target of another ledger id or tenant is "no row" (`:error`).
+  @spec guard_reversal(String.t(), String.t(), String.t()) ::
+          {:ok,
+           %{ks: [[String.t()]], document_type: String.t() | nil, document_id: String.t() | nil}}
+          | :error
+  def guard_reversal(prefix, ledger_id, target_id) do
+    case read_reversal_target(prefix, ledger_id, target_id) do
+      nil ->
+        :error
+
+      target ->
+        ks = prefix |> derive_legs(ledger_id, target_id) |> Enum.map(& &1.k) |> Enum.uniq()
+        {:ok, %{ks: ks, document_type: target.document_type, document_id: target.document_id}}
+    end
+  end
 
   @doc false
   @spec post(Capability.t()) ::
@@ -359,18 +397,7 @@ defmodule Letflow.Ledger do
     ledger_id = posting.ledger_id
     target_id = posting.reverses_entry_id
 
-    target =
-      from(e in "ledger_entry",
-        where: e.ledger_id == ^ledger_id and e.id == type(^target_id, Ecto.UUID),
-        select: %{
-          cause: e.cause,
-          reverses_entry_id: type(e.reverses_entry_id, Ecto.UUID),
-          document_type: e.document_type,
-          document_id: e.document_id,
-          correlation_id: e.correlation_id
-        }
-      )
-      |> Repo.one(prefix: prefix)
+    target = read_reversal_target(prefix, ledger_id, target_id)
 
     cond do
       target == nil ->
@@ -394,6 +421,20 @@ defmodule Letflow.Ledger do
           {:ok, %{part | posting: posting, groups: groups, reversal: %{target: target}}}
         end
     end
+  end
+
+  defp read_reversal_target(prefix, ledger_id, target_id) do
+    from(e in "ledger_entry",
+      where: e.ledger_id == ^ledger_id and e.id == type(^target_id, Ecto.UUID),
+      select: %{
+        cause: e.cause,
+        reverses_entry_id: type(e.reverses_entry_id, Ecto.UUID),
+        document_type: e.document_type,
+        document_id: e.document_id,
+        correlation_id: e.correlation_id
+      }
+    )
+    |> Repo.one(prefix: prefix)
   end
 
   # The exact negation of the target's legs: same slots, unit, attrs and line id, leg_no order kept.
@@ -876,8 +917,10 @@ defmodule Letflow.Ledger do
   defp min_decimal(values), do: Enum.reduce(values, &if(Decimal.lt?(&1, &2), do: &1, else: &2))
 
   defp insert_missing_balances(prefix, ledger_id, groups) do
-    for %{key: key, legs: [first | _], pin: pin} <- groups do
-      row =
+    # Rows of one multi-row INSERT go in VALUES order, which is the ascending key order of `groups`, so the
+    # insert-if-absent step keeps the ascending lock order (A3) across chunks too.
+    rows =
+      for %{key: key, legs: [first | _], pin: pin} <- groups do
         key_columns(key)
         |> Map.merge(%{
           ledger_id: ledger_id,
@@ -886,9 +929,11 @@ defmodule Letflow.Ledger do
           max_on_hand: pin,
           last_posting_seq: 0
         })
+      end
 
-      Repo.insert_all("ledger_balance", [row], prefix: prefix, on_conflict: :nothing)
-    end
+    rows
+    |> Enum.chunk_every(@insert_chunk)
+    |> Enum.each(&Repo.insert_all("ledger_balance", &1, prefix: prefix, on_conflict: :nothing))
 
     :ok
   end
@@ -1083,7 +1128,9 @@ defmodule Letflow.Ledger do
         })
       end
 
-    Repo.insert_all("ledger_leg", leg_rows, prefix: prefix)
+    leg_rows
+    |> Enum.chunk_every(@insert_chunk)
+    |> Enum.each(&Repo.insert_all("ledger_leg", &1, prefix: prefix))
 
     for {%{key: [k1, k2, k3, k4, k5, k6, k7, k8], legs: legs}, row} <- Enum.zip(groups, locked) do
       new_on_hand = Enum.reduce(legs, row.on_hand, &Decimal.add(&2, &1.quantity))

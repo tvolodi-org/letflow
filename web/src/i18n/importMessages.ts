@@ -161,7 +161,7 @@ const REASONS: Record<string, Triple> = {
   field_invalid: ['A field value is not valid.', 'Недопустимое значение поля.', 'Өріс мәні жарамсыз.'],
   document_not_draft: ['The document is no longer a draft.', 'Документ уже не черновик.', 'Құжат енді қаралама емес.'],
   org_unit_mismatch: ['The org unit differs from that of the document.', 'Орг. единица отличается от единицы документа.', 'Ұйымдық бірлік құжаттағыдан өзгеше.'],
-  lines_count: ['A document holds at most 100 lines.', 'В документе не более 100 строк.', 'Құжатта 100 жолдан артық болмайды.'],
+  lines_count: ['A document holds at most 1000 lines.', 'В документе не более 1000 строк.', 'Құжатта 1000 жолдан артық болмайды.'],
   quantity_invalid: ['The quantity is not valid.', 'Недопустимое количество.', 'Саны жарамсыз.'],
   price_invalid: ['The price or value is not valid.', 'Недопустимая цена или сумма.', 'Баға немесе сома жарамсыз.'],
   line_invalid: ['The line is not valid.', 'Недопустимая строка.', 'Жол жарамсыз.'],

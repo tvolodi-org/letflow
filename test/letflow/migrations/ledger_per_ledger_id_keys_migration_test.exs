@@ -223,9 +223,9 @@ defmodule Letflow.LedgerPerLedgerIdKeysMigrationTest do
     schema: schema,
     tenant_id: tenant_id
   } do
-    # REQ-710, REQ-711, REQ-626, REQ-577, REQ-635 and REQ-623 and REQ-624 register later migrations: CreateLedgerPartitionedTables and MoveLedgerFksToPartitions after it
+    # REQ-710, REQ-711, REQ-626, REQ-577, REQ-635 and REQ-623, REQ-624 and T-1389 register later migrations: CreateLedgerPartitionedTables and MoveLedgerFksToPartitions after it
     assert {@version, CreateLedgerPerLedgerIdKeys} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -9)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -12)
 
     old = ~s(ALTER TABLE "#{schema}".ledger_entry)
     Repo.query!("#{old} DROP CONSTRAINT ledger_entry_subject_op_key")

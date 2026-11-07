@@ -3,12 +3,10 @@
 import type { CountOrder, CountOrderBody, PaperworkKind } from './counts.api'
 import type { StatusTone } from '@/components/ui/StatusPill'
 import { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD, STOCK_POST, STOCK_REVERSE } from '../stockPermissions'
-import { formatDateTimeInZone } from '@/i18n/format'
+import { STOCK_TIME_ZONE, formatStockDateTime } from '../register/stockRegisterModel'
+import { zonedLocalToIso } from '../documents/documentsModel'
 export { STOCK_COUNT_ORDER, STOCK_COUNT_RECORD, STOCK_POST, STOCK_REVERSE }
 
-/** Tenant time zone until the tenant setting exists: assumption of REQ-702, owner may change at GATE B (UTC+5, no DST). */
-export const TENANT_TIME_ZONE = 'Asia/Almaty'
-const TZ_OFFSET = '+05:00'
 
 
 export const COUNT_STATUSES = ['draft', 'ordered', 'counting', 'counted', 'signed', 'posted', 'cancelled'] as const
@@ -98,7 +96,7 @@ export const EMPTY_ORDER_FORM: OrderForm = {
  *  (seconds are dropped). Empty when the text is not a local time. */
 export function zonedToIso(local: string): string {
   const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(local.trim())
-  return m ? `${m[1]}T${m[2]}:00${TZ_OFFSET}` : ''
+  return m ? (zonedLocalToIso(`${m[1]}T${m[2]}`) ?? '') : ''
 }
 
 function parts(iso: string): Record<string, string> | null {
@@ -106,7 +104,7 @@ function parts(iso: string): Record<string, string> | null {
   if (Number.isNaN(d.getTime())) return null
   const out: Record<string, string> = {}
   for (const p of new Intl.DateTimeFormat('en-GB', {
-    timeZone: TENANT_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    timeZone: STOCK_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).formatToParts(d)) out[p.type] = p.value
   return out
 }
@@ -117,9 +115,9 @@ export function isoToLocalInput(iso: string | null | undefined): string {
   return p ? `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}` : ''
 }
 
-/** ISO instant -> `YYYY-MM-DD HH:mm` in the tenant zone, for tables and logs. */
+/** ISO instant -> the stock date-time format (`formatStockDateTime`) in the tenant zone, for tables and logs. */
 export function formatInZone(iso: string | null | undefined): string {
-  return formatDateTimeInZone(iso, { timeZone: TENANT_TIME_ZONE, enStyle: 'iso' })
+  return formatStockDateTime(iso)
 }
 
 /** The whole draft, every key every time; an empty note is null. */
@@ -186,12 +184,15 @@ export function shortageOf(err: unknown): { item: string; location: string } | n
 }
 
 export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const
+/** T-1418: reasons only the official form route (`?form=`) gives; their messages live under counts.form.reason. */
+export const FORM_REASONS = ['invalid_form', 'invalid_format', 'print_too_large'] as const
 
 /** REQ-738: message id of a refused print: its own 422 reason, 404 not found, anything else the generic message. */
 export function printReasonMessageId(err: unknown): string {
   const status = (err as { status?: unknown } | null | undefined)?.status
   const reason = reasonOf(err)
   if (status === 422 && reason !== null && (PRINT_REASONS as readonly string[]).includes(reason)) return `counts.print.reason.${reason}`
+  if (status === 422 && reason !== null && (FORM_REASONS as readonly string[]).includes(reason)) return `counts.form.reason.${reason}`
   if (status === 404) return 'counts.error.notFound'
   return 'counts.error.generic'
 }

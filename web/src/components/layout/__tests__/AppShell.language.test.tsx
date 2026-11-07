@@ -8,6 +8,7 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import type { UserSession } from '@/types/api'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { navMessages } from '../navMessages'
+import { mySettingsMessages } from '@/pages/me/mySettingsMessages'
 import { UI_LOCALES } from '@/i18n/uiLocaleStore'
 import { NAV_ITEMS } from '../AppShell'
 
@@ -73,6 +74,16 @@ async function renderShell() {
 }
 
 describe('AppShell language switch', () => {
+  it('L7 has the My settings link in the TopBar, named in the current language', async () => {
+    await renderShell()
+    const link = within(screen.getByTestId('topbar')).getByTestId('topbar-my-settings')
+    expect(link).toHaveAttribute('href', '/me/settings')
+    expect(link).toHaveAccessibleName(mySettingsMessages.en.link)
+    await userEvent.click(screen.getByTestId('language-switcher-trigger'))
+    await userEvent.click(screen.getByRole('menuitemradio', { name: /Русский/ }))
+    expect(screen.getByTestId('topbar-my-settings')).toHaveAccessibleName(mySettingsMessages.ru.link)
+  })
+
   it('has the switcher in the TopBar with the three languages', async () => {
     await renderShell()
     const bar = screen.getByTestId('topbar')
@@ -97,6 +108,17 @@ describe('AppShell language switch', () => {
     expect(window.localStorage.getItem('lf-locale')).toBe('kk')
   })
 
+  it('the Sign out entry follows the language', async () => {
+    await renderShell()
+    expect(screen.getByTestId('logout-button')).toHaveTextContent('Sign out')
+    await userEvent.click(screen.getByTestId('language-switcher-trigger'))
+    await userEvent.click(screen.getByRole('menuitemradio', { name: /Русский/ }))
+    expect(screen.getByTestId('logout-button')).toHaveTextContent('Выйти')
+    await userEvent.click(screen.getByTestId('language-switcher-trigger'))
+    await userEvent.click(screen.getByRole('menuitemradio', { name: /Қазақша/ }))
+    expect(screen.getByTestId('logout-button')).toHaveTextContent('Шығу')
+  })
+
   it('keyboard: arrows and Escape work in the TopBar switcher', async () => {
     await renderShell()
     const user = userEvent.setup()
@@ -110,6 +132,20 @@ describe('AppShell language switch', () => {
 })
 
 describe('nav catalog', () => {
+  it('L-4: module nav routes (locations, stock) have a word in en, ru and kk', () => {
+    const routes = [
+      '/admin/locations',
+      '/admin/locations/links',
+      '/admin/stock/documents',
+      '/admin/stock/balances',
+      '/admin/stock/movements',
+      '/admin/stock/counts',
+    ]
+    for (const l of UI_LOCALES) for (const to of routes) expect(navMessages[l].items[to], `${l} ${to}`).toBeTruthy()
+    expect(navMessages.ru.items['/admin/stock/balances']).not.toBe(navMessages.en.items['/admin/stock/balances'])
+    expect(navMessages.kk.items['/admin/stock/counts']).not.toBe(navMessages.en.items['/admin/stock/counts'])
+  })
+
   it('every NAV_ITEMS route and group has a word in en, ru and kk', () => {
     for (const l of UI_LOCALES) {
       for (const n of NAV_ITEMS) expect(navMessages[l].items[n.to], `${l} ${n.to}`).toBeTruthy()

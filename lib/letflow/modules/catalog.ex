@@ -113,6 +113,14 @@ defmodule Letflow.Modules.Catalog do
     end)
   end
 
+  @doc "True while the asset expiry reminder flag is on (C12); the Poller's only view of the assets module."
+  @spec asset_expiry_enabled?() :: boolean()
+  def asset_expiry_enabled?, do: Letflow.Modules.Assets.Reminders.enabled?()
+
+  @doc "One tenant's asset expiry reminder pass (C12); never raises."
+  @spec asset_expiry_sweep(prefix :: String.t()) :: :ok
+  def asset_expiry_sweep(prefix), do: Letflow.Modules.Assets.Reminders.sweep(prefix)
+
   @doc """
   Creates a record of an entity type that a module manages (GH #2680 slice 3) through that module's
   own authoring surface: a system path with no HTTP user, for the mix seed task. A type with no
@@ -1221,12 +1229,18 @@ defmodule Letflow.Modules.Catalog do
         semver_compare(to, version) == :gt -> no_path
         semver_compare(from, to) == :gt -> no_path
         semver_compare(from, to) == :eq -> {:ok, []}
-        true -> walk_steps(usable_steps(manifest), from, to) || no_path
+        true -> walk_or_stepless(usable_steps(manifest), from, to, no_path)
       end
     else
       no_path
     end
   end
+
+  # REQ-770: a manifest with no usable migration steps that declares a window
+  # (`min_upgradable_from`) states "every version in [min, version] upgrades without steps".
+  # Without a declared window `min == version`, so this clause is never reached for from < to.
+  defp walk_or_stepless([], _from, _to, _no_path), do: {:ok, []}
+  defp walk_or_stepless(steps, from, to, no_path), do: walk_steps(steps, from, to) || no_path
 
   defp usable_steps(manifest) do
     case Map.get(manifest, :migrations, []) do

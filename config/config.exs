@@ -60,6 +60,7 @@ config :letflow, :lua_platform_time_source, Letflow.Engine.Lua.Platform.SystemCl
 # GH #3162 (REQ-544) adds Letflow.Modules.Procurement;
 # GH #3501 (REQ-625) adds Letflow.Modules.Locations;
 # GH #3588 (REQ-648) adds Letflow.Modules.Codes; GH #3707 (REQ-687) adds Letflow.Modules.Stock;
+# GH #3894 (REQ-748) adds Letflow.Modules.Assets;
 # config/test.exs appends the test-only fixture modules on top.
 config :letflow, :modules, [
   Letflow.Modules.Exam,
@@ -68,7 +69,8 @@ config :letflow, :modules, [
   Letflow.Modules.Procurement,
   Letflow.Modules.Locations,
   Letflow.Modules.Codes,
-  Letflow.Modules.Stock
+  Letflow.Modules.Stock,
+  Letflow.Modules.Assets
 ]
 
 # GH #2682 / REQ-511 (design lib/letflow/design/req511-exam-content-snapshot.md section 10 and
@@ -174,6 +176,7 @@ config :letflow, :record_trigger_backlog_cap, 10_000
 # REQ-597 / GH #3363: exam notification mails (the exam_result mail after a scored submit). Default
 # off. Read only by Letflow.Modules.Exam.Notifications.enabled?/0.
 config :letflow, :exam_notifications_enabled, false
+config :letflow, :asset_notifications_enabled, false
 
 # REQ-590 / GH #3338: tenant logo upload (PUT/DELETE /api/v1/tenant/logo). Default off: the routes
 # answer the ordinary 404 until a deployment turns it on.

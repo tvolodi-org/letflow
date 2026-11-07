@@ -72,7 +72,7 @@ describe('W3 dry run and confirm', () => {
     expect(clientMock.postRaw).toHaveBeenCalledWith(`${BASE}/import?upsert_by=external_ref&dry_run=true`, file, XLSX)
     expect(screen.getByTestId('import-counts')).toHaveTextContent(/7\s*Refused/)
     expect(screen.getByText('The document is no longer a draft.')).toBeInTheDocument()
-    expect(screen.getByText('A document holds at most 100 lines.')).toBeInTheDocument()
+    expect(screen.getByText('A document holds at most 1000 lines.')).toBeInTheDocument()
     expect(screen.queryByText(/unknown reason/i)).not.toBeInTheDocument()
   })
 

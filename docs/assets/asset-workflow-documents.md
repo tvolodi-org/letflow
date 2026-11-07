@@ -75,6 +75,13 @@ Common line fields: `id` (string, yes, none), `header_id` (string, FK in pack, y
 yes, none), `asset_id` (string, yes, asset card of C1), `quantity` (decimal strict, yes, greater than zero,
 none).
 
+**Built by C11 (GH #3889, REQ-753, module version 0.7.0).** The kinds `change`, `handover` and `writeoff` use the
+record types `assets_change`, `assets_handover`, `assets_writeoff` (each with a `_line` type), not the proposed
+`asset_*` names, and the prefixes ACH, AHO, AWO. The actual user fields are optional in every kind (a commission may
+leave the user empty, and a later document must be able to match that balance row). `reason_invalid` and
+`reason_required` of a write off are refused when the document is saved. The card `org_unit_id` is not yet updated
+by a posted hand over (follow-up part 2).
+
 ## 2. Commission
 
 **Meaning (proposal, to be confirmed by the owner at GATE C):** commission puts an asset into the asset
@@ -252,6 +259,15 @@ One shape, built later by the implementing requirement:
 * **Dedupe:** a dedupe on `template_key` and `trigger_ref` alone allows one reminder per asset for ever, so a
   renewed expiry date needs a second reminder key. The choice of that key is an **open design question for the
   implementing requirement**.
+
+**Built by C12** (`Letflow.Modules.Assets.Reminders`): the lead time is the module setting
+`expiry_reminder_lead_days` (1..3650, no default; absent means no reminder); the flag is
+`:asset_notifications_enabled` (default off); the `trigger_ref` is a UUID derived from the card id and its
+`valid_until`, so a renewed date sends again; the call is the synchronous `Notifications.deliver/6` (the async
+`start_delivery/5` could double send between ticks). The material responsible employee is read through
+`Letflow.Modules.Assets.Responsible.employee_id/2`, which answers none until the asset register (C8, C10)
+exists: nothing is sent in production until that function is wired, and the "positive balance" condition
+moves there too.
 
 ## 10. Open owner questions
 

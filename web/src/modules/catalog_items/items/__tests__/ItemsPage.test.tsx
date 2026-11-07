@@ -38,7 +38,7 @@ function data() {
   }
 }
 
-type Gets = { balances?: unknown; movements?: unknown; balancesError?: { status: number } }
+type Gets = { balances?: unknown; movements?: unknown; balancesError?: { status: number }; movementsError?: { status: number } }
 
 function setup(gets: Gets = {}) {
   clientMock.post.mockReset()
@@ -49,6 +49,7 @@ function setup(gets: Gets = {}) {
       if (gets.balancesError) throw { status: gets.balancesError.status, message: 'x', code: 'x' }
       return gets.balances ?? { rows: [], next_cursor: null }
     }
+    if (gets.movementsError) throw { status: gets.movementsError.status, message: 'x', code: 'x' }
     return gets.movements ?? { rows: [], next_cursor: null }
   })
 }
@@ -174,7 +175,7 @@ describe('A4/A6 details: references, Related, History', () => {
     expect(related).toHaveTextContent('12 PCS')
     const hist = await screen.findByTestId('registry-history')
     expect(hist).toHaveTextContent('Count adjustment')
-    expect(hist).toHaveTextContent('2026-10-29 15:15')
+    expect(hist).toHaveTextContent('Oct 29, 2026 15:15')
     const overview = screen.getByTestId('registry-section-overview')
     await waitFor(() => expect(overview).toHaveTextContent('PCS'))
     expect(overview).toHaveTextContent('Lot')
@@ -191,6 +192,36 @@ describe('A4/A6 details: references, Related, History', () => {
     expect(await screen.findByTestId('registry-history')).toHaveTextContent('29-10-2026 15:15')
   })
 
+  it('History shows the translated document type in Russian, raw for an unknown one', async () => {
+    vi.stubGlobal('navigator', { ...navigator, languages: ['ru'], language: 'ru' })
+    const rows = [
+      { entry_id: 'e1', posting_seq: 5, cause: 'receipt', document_type: 'stock_receipt', event_time: '2026-10-29T10:15:00Z' },
+      { entry_id: 'e2', posting_seq: 6, cause: 'receipt', document_type: 'weird_type', event_time: '2026-10-29T10:16:00Z' },
+    ]
+    setup({ balances: BAL, movements: { rows, next_cursor: null } })
+    renderLots(`${ITEMS}?item=${I1}`)
+    const hist = await screen.findByTestId('registry-history')
+    expect(hist).toHaveTextContent('Приход')
+    expect(hist).not.toHaveTextContent('stock_receipt')
+    expect(hist).toHaveTextContent('weird_type')
+  })
+
+  it('H1-H3 History shows the cause once, the type only when it differs, then the number', async () => {
+    const rows = [
+      { entry_id: 'e1', posting_seq: 5, cause: 'receipt', document_type: 'stock_receipt', document_number: 'RCP-2026-000003', event_time: '2026-10-29T10:15:00Z' },
+      { entry_id: 'e2', posting_seq: 6, cause: 'count_difference', document_type: 'stock_count', document_number: 'CNT-9', event_time: '2026-10-29T10:16:00Z' },
+      { entry_id: 'e3', posting_seq: 7, cause: 'receipt', document_type: 'stock_receipt', event_time: '2026-10-29T10:17:00Z' },
+    ]
+    setup({ balances: BAL, movements: { rows, next_cursor: null } })
+    renderLots(`${ITEMS}?item=${I1}`)
+    const hist = await screen.findByTestId('registry-history')
+    const text = hist.textContent ?? ''
+    expect(text).toContain('Receipt · RCP-2026-000003')
+    expect(text).not.toMatch(/Receipt · Receipt/)
+    expect(text).toMatch(/Receipt(?! ·)/)
+    expect(text).toMatch(/· CNT-9/)
+  })
+
   it('empty stock and history show their lines; a 403 shows the no-permission line', async () => {
     renderLots(`${ITEMS}?item=${I1}`)
     expect(await screen.findByTestId('registry-related-empty')).toBeInTheDocument()
@@ -199,6 +230,20 @@ describe('A4/A6 details: references, Related, History', () => {
     setup({ balancesError: { status: 403 } })
     renderLots(`${ITEMS}?item=${I1}`)
     expect(await screen.findByTestId('registry-related-noperm')).toBeInTheDocument()
+  })
+
+  it('a 400 on the movements shows the history error line, not the empty line', async () => {
+    setup({ movementsError: { status: 400 } })
+    renderLots(`${ITEMS}?item=${I1}`)
+    expect(await screen.findByTestId('registry-history-error')).toBeInTheDocument()
+    expect(screen.queryByTestId('registry-history-empty')).not.toBeInTheDocument()
+  })
+
+  it('the Unit cell is mono so a code never wraps', async () => {
+    renderLots(ITEMS)
+    const tr = await row('BOLT')
+    const unit = Array.from(tr.querySelectorAll('td')).find((td) => td.textContent === 'PCS')
+    expect(unit).toHaveClass('mono')
   })
 
   it('a 500 on the balances shows a section error, not a crash', async () => {
@@ -279,5 +324,27 @@ describe('A10 permission through the real route', () => {
     expect(await screen.findByText(/do not have access/i)).toBeInTheDocument()
     renderLots(ITEMS, withoutAtom)
     expect(clientMock.post).not.toHaveBeenCalledWith('/api/v1/entities/query', expect.anything())
+  })
+})
+
+describe('T-1446 I5 splitter, columns and reset layout', () => {
+  it('T8 every header carries data-col and the reset layout button is on the page', async () => {
+    renderLots(ITEMS)
+    await row('BOLT')
+    expect(screen.getAllByRole('columnheader').map((h) => h.getAttribute('data-col'))).toEqual(['code', 'name', 'unit', 'tracking', 'status'])
+    expect(screen.getByTestId('reset-layout')).toHaveTextContent('Reset layout')
+    expect(document.querySelector('.lf-reg__title')?.getAttribute('style')).toBeNull()
+  })
+
+  it('T8b reset layout forgets the stored sizes of the screen', async () => {
+    localStorage.setItem('lf.prefs.ui.layout.v1.anon', JSON.stringify({ v: 1, screens: { 'stock.registry.items': { cols: { list: { code: 25 } } } } }))
+    const { resetDefaultLayoutStore } = await import('@/hooks/useLayoutPrefs')
+    resetDefaultLayoutStore()
+    renderLots(ITEMS)
+    await row('BOLT')
+    fireEvent.click(screen.getByTestId('reset-layout'))
+    const th = document.querySelector('th[data-col=code]') as HTMLElement
+    await waitFor(() => expect(th.style.width).not.toBe('25%'))
+    resetDefaultLayoutStore()
   })
 })

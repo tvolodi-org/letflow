@@ -52,6 +52,7 @@ defmodule Letflow.Modules.CatalogTest do
       # GH #3501 (REQ-625) adds Letflow.Modules.Locations right after Procurement.
       # GH #3588 (REQ-648) adds Letflow.Modules.Codes right after Locations.
       # GH #3707 (REQ-687) adds Letflow.Modules.Stock right after Codes.
+      # GH #3894 (REQ-748) adds Letflow.Modules.Assets right after Stock.
       assert Catalog.entry_modules() == [
                Letflow.Modules.Exam,
                Letflow.Modules.Org,
@@ -60,6 +61,7 @@ defmodule Letflow.Modules.CatalogTest do
                Letflow.Modules.Locations,
                Letflow.Modules.Codes,
                Letflow.Modules.Stock,
+               Letflow.Modules.Assets,
                Letflow.Modules.Fixture,
                Letflow.Modules.FixtureDependent,
                Letflow.Modules.FixtureFailingInstall,
@@ -79,6 +81,8 @@ defmodule Letflow.Modules.CatalogTest do
                Letflow.Modules.FixturePoints,
                # REQ-684
                Letflow.Modules.FixtureLedgerPost,
+               # REQ-758
+               Letflow.Modules.FixtureXpostOwner,
                # REQ-711
                Letflow.Modules.FixtureLedgerStorage,
                # REQ-636
@@ -94,13 +98,13 @@ defmodule Letflow.Modules.CatalogTest do
       assert Catalog.fetch("does-not-exist") == {:error, :not_found}
     end
 
-    test "config/config.exs registers exactly [Exam, Org, CatalogItems, Procurement, Locations, Codes, Stock]" do
+    test "config/config.exs registers exactly [Exam, Org, CatalogItems, Procurement, Locations, Codes, Stock, Assets]" do
       # REQ-408 added Letflow.Modules.Exam to config/config.exs; the test
       # env (config/test.exs) adds the fixture modules for test coverage.
       config_source = File.read!(Path.join([File.cwd!(), "config", "config.exs"]))
 
       assert config_source =~
-               ~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems,\s*Letflow\.Modules\.Procurement,\s*Letflow\.Modules\.Locations,\s*Letflow\.Modules\.Codes,\s*Letflow\.Modules\.Stock\s*\]/
+               ~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems,\s*Letflow\.Modules\.Procurement,\s*Letflow\.Modules\.Locations,\s*Letflow\.Modules\.Codes,\s*Letflow\.Modules\.Stock,\s*Letflow\.Modules\.Assets\s*\]/
     end
   end
 
@@ -385,7 +389,8 @@ defmodule Letflow.Modules.CatalogTest do
         Letflow.Modules.Procurement,
         Letflow.Modules.Locations,
         Letflow.Modules.Codes,
-        Letflow.Modules.Stock
+        Letflow.Modules.Stock,
+        Letflow.Modules.Assets
       ]
 
       for module <- prod do

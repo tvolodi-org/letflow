@@ -52,11 +52,11 @@ defmodule Letflow.Ledger.PostBalanceTest do
     keys = Capability.__struct__() |> Map.keys() |> List.delete(:__struct__) |> Enum.sort()
 
     # REQ-686 adds the one NON-enforced field `read_disclosed` (default false), REQ-688 the
-    # NON-enforced `consented` (default false); the twelve enforced keys stay the same.
+    # NON-enforced `consented` (default false), REQ-764 the NON-enforced `module_id` (default nil); the twelve enforced keys stay the same.
     assert keys ==
              Enum.sort(
                ~w(prefix registration_name registration command posting subject_id actor_id origin_key
-                  origin instance_id credential deferred_refusal read_disclosed consented)a
+                  origin instance_id credential deferred_refusal read_disclosed consented module_id)a
              )
 
     assert Capability.__struct__().read_disclosed == false
@@ -126,6 +126,31 @@ defmodule Letflow.Ledger.PostBalanceTest do
     nothing_written(schema)
   end
 
+  test "L3-1 REQ-774: 2000 legs are one entry written in chunks, 2001 are refused", %{
+    schema: schema
+  } do
+    legs = fn n -> for i <- 1..n, do: Fx.leg(["a#{i}"], 1) end
+
+    invalid(Fx.post_tx(Fx.capability(schema, "receipt", legs.(2001))), :too_many_legs)
+    nothing_written(schema)
+
+    {posted, statements} =
+      Fx.record(fn -> Fx.post!(Fx.capability(schema, "receipt", legs.(2000))) end)
+
+    assert posted
+    assert Fx.count(schema, "ledger_entry") == 1
+    assert Fx.count(schema, "ledger_leg") == 2000
+    assert Fx.count(schema, "ledger_balance") == 2000
+
+    leg_statements =
+      for {sql, params} <- statements,
+          sql =~ ~s|INSERT INTO "#{schema}"."ledger_leg"|,
+          do: length(params)
+
+    assert length(leg_statements) == 4
+    assert Enum.all?(leg_statements, &(&1 < 500 * 40))
+  end
+
   test "T-AC1f other core rules are refused invalid_posting, nothing written", %{schema: schema} do
     post = fn cause, legs, opts -> Fx.post_tx(Fx.capability(schema, cause, legs, opts)) end
     ok = Fx.leg(["a"], 1)
@@ -133,7 +158,7 @@ defmodule Letflow.Ledger.PostBalanceTest do
     invalid(post.("reversal", [ok], []), :posting_shape)
     invalid(post.("nope", [ok], []), :unknown_cause)
     invalid(post.("receipt", [], []), :no_legs)
-    invalid(post.("receipt", List.duplicate(ok, 201), []), :too_many_legs)
+    invalid(post.("receipt", List.duplicate(ok, 2001), []), :too_many_legs)
     invalid(post.("receipt", [Fx.leg(["a"], 1.5)], []), :quantity_invalid, 1)
     invalid(post.("receipt", [Fx.leg(["a"], "0.0000000001")], []), :quantity_scale, 1)
     invalid(post.("receipt", [Fx.leg([""], 1)], []), :k1_empty, 1)

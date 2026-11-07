@@ -50,8 +50,11 @@ function renderShell(state: AccessState) {
 }
 
 function navLabels(): string[] {
-  // The skip link (REQ-608) is not a nav entry.
-  return screen.queryAllByRole('link').filter(a => a.getAttribute('href') !== '#main-content').map(a => a.textContent ?? '')
+  // The skip link (REQ-608) and the top-bar My settings icon link (T-1391) are not nav entries.
+  return screen
+    .queryAllByRole('link')
+    .filter(a => a.getAttribute('href') !== '#main-content' && a.getAttribute('data-testid') !== 'topbar-my-settings')
+    .map(a => a.textContent ?? '')
 }
 
 describe('AppShell nav from /me/access', () => {
@@ -115,6 +118,7 @@ const GROUPS_BY_ROLE: Record<AccessFixtureName, string[]> = {
   operator: [WORK, TENANT_ADMIN],
   taskWorker: [WORK],
   auditor: [WORK, TENANT_ADMIN],
+  storekeeper: [WORK],
   agentRunner: [],
   candidate: [],
 }

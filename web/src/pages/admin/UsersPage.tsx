@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { P, useAccess } from '@/auth/access'
+import { P, useAccess, roleLabel } from '@/auth/access'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, rolesApi } from '@/api/identity'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -11,6 +11,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { formatDate } from '@/i18n/format'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 
 // NOTE: user active/inactive is rendered as a tokenized custom badge, not
 // StatusBadge (REQ-272) -- StatusBadgeDomain has no "user" member (only
@@ -72,6 +73,7 @@ export default function UsersPage() {
     setter(selectedIds.includes(roleId) ? selectedIds.filter((id) => id !== roleId) : [...selectedIds, roleId])
   }
 
+  const uiLocale = useUiLocale()
   const columns: DataTableColumn<User>[] = [
     { id: 'username', header: 'Username', accessor: displayUsername },
     { id: 'display_name', header: 'Display name', accessor: (u) => u.display_name },
@@ -80,7 +82,7 @@ export default function UsersPage() {
       id: 'roles',
       header: 'Roles',
       accessor: (u) => (
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{roleList(u).join(', ')}</span>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{roleList(u).map((name) => roleLabel(name, uiLocale)).join(', ')}</span>
       ),
     },
     {
@@ -92,7 +94,7 @@ export default function UsersPage() {
         </span>
       ),
     },
-    { id: 'created', header: 'Created', accessor: (u) => formatDate(u.inserted_at) },
+    { id: 'created', header: 'Created', accessor: (u) => formatDate(u.inserted_at, { year: 'numeric', month: 'short', day: 'numeric' }, uiLocale) },
   ]
 
   return (
@@ -153,7 +155,7 @@ export default function UsersPage() {
                   checked={createRoleIds.includes(role.id)}
                   onChange={() => toggleRole(role.id, createRoleIds, setCreateRoleIds)}
                 />
-                <span>{role.name}</span>
+                <span>{roleLabel(role.name)}</span>
               </label>
             ))}
           </div>

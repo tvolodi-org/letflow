@@ -52,7 +52,7 @@ of the apply left the instance ACTIVE with a lost token (ISS-0928 only made that
 
 Public codes: `write_not_permitted`, `validation_failed`, `entity_append_only`,
 `entity_type_inactive`, `entity_write_contention`, `entity_write_failed`,
-`entity_write_needs_reactivation`.
+`entity_write_needs_reactivation`, `upgrade_required` (REQ-771: the tenant's module is not upgraded to the build yet; detail `hash_mismatch`).
 
 ## Contention is retried by the engine, bounded
 
@@ -173,7 +173,7 @@ Consequences to plan for:
 * A deploy that changes a handler-bearing module's manifest surface (the strict manifest-hash pilot
   limit of `docs/runbooks/module-write-handlers-manifest-hash.md`) leaves HUMAN tasks pending. On
   a SERVICE node the external call has already happened, so each in-flight service completion lands
-  in ERROR (`write_not_permitted`, detail `hash_mismatch`) instead of waiting. Coordinate such a
+  in ERROR (`write_not_permitted`, or `upgrade_required` when that is the only reason, detail `hash_mismatch`) instead of waiting. Coordinate such a
   deploy so no service call of an affected definition is in flight, or expect to re-drive those
   instances after the upgrade path (decision 0055) exists.
 * A tenant that was never replayed to the `TASK_ENTITY_WRITES_APPLIED` v3 schema lands in ERROR

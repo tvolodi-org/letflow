@@ -9,7 +9,9 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
-import { DocBar, DocCard, DocEdit, DocFields } from '@/components/ui/doc/DocLayout'
+import { DocBar, DocCard, DocEdit, DocFields, useDocTabs } from '@/components/ui/doc/DocLayout'
+import { firstProblemTab, paneOfKey, problemsByPane } from '@/components/ui/doc/docLayouts'
+import { DocumentTabs } from './DocumentTabs'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
@@ -21,6 +23,7 @@ import { stockQueryKeys } from '../register/stockQueryKeys'
 import { STOCK_POST } from '../stockPermissions'
 import { documentsApi, type StockDocument } from './documents.api'
 import { LinesEditor } from './LinesEditor'
+import { sameLines } from './openingImport'
 import { SideGroup } from './SideGroup'
 import {
   DOC_KINDS,
@@ -63,6 +66,8 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
   const [form, setForm] = useState<FormState>(() => (doc ? formFromDocument(doc) : emptyForm(kind)))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
+  const [attempted, setAttempted] = useState(false)
+  const { tabsLayout, setTab } = useDocTabs()
   const orgUnits = usePickerOptions('org_unit')
   const locations = usePickerOptions('location_node')
   const employees = usePickerOptions('org_employee')
@@ -93,8 +98,10 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
     },
     onError: (e) => {
       const placed = placeError(e)
-      if (placed.key) setErrors({ [placed.key]: placed.messageId })
-      else setBanner(t(placed.messageId))
+      if (placed.key) {
+        setErrors({ [placed.key]: placed.messageId })
+        if (tabsLayout) setTab(paneOfKey(placed.key))
+      } else setBanner(t(placed.messageId))
     },
   })
 
@@ -102,9 +109,15 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
 
   const submit = () => {
     setBanner(null)
+    setAttempted(true)
     const check = validateForm(form)
     setErrors(check.errors)
-    if (Object.keys(check.errors).length > 0) return
+    if (Object.keys(check.errors).length > 0) {
+      // Tab layout: Save moves to the first tab with a problem (the badge on the other tab keeps its count).
+      const first = firstProblemTab(problemsByPane(check.errors))
+      if (tabsLayout && first) setTab(first)
+      return
+    }
     save.mutate(buildBody(form))
   }
   const err = (key: string) => (errors[`header.${key}`] ? t(errors[`header.${key}`]) : undefined)
@@ -112,6 +125,27 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
   const two = isTwoSide(form.kind)
   const opening = isOpening(form.kind)
   const orgFixedSide = form.kind === 'return' ? 'to' : 'from'
+
+  // Import from Excel: only an opening draft that is saved, has its external reference pair and has no unsaved edits.
+  const saved = doc ? formFromDocument(doc) : undefined
+  const importReason = !doc || !saved
+    ? t('stock.doc.import.saveFirst')
+    : saved.externalRefSystem === '' || saved.externalRefId === ''
+      ? t('stock.doc.import.noRef')
+      : !sameLines(form.lines, saved.lines) || form.externalRefSystem !== saved.externalRefSystem || form.externalRefId !== saved.externalRefId
+        ? t('stock.doc.import.dirty')
+        : undefined
+  const importer = opening
+    ? {
+        documentId: doc?.id ?? '',
+        disabledReason: importReason,
+        onImported: (fresh: StockDocument) => {
+          patch({ lines: formFromDocument(fresh).lines })
+          void qc.invalidateQueries({ queryKey: stockQueryKeys.documentsAll(tenantId) })
+          void qc.invalidateQueries({ queryKey: stockQueryKeys.document(tenantId, fresh.id) })
+        },
+      }
+    : undefined
 
   const E = DocEdit
   return (
@@ -134,6 +168,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
       >
         {banner && <Banner tone="danger">{banner}</Banner>}
       </DocBar>
+      <DocumentTabs lineCount={form.lines.length} problems={problemsByPane(errors)} />
       <DocCard area="header" title={t('stock.doc.header')} data-testid="document-form">
         <DocFields editing>
           {onKindChange && (
@@ -269,7 +304,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
           )}
         </DocFields>
       </DocCard>
-      <LinesEditor kind={form.kind} lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} />
+      <LinesEditor kind={form.kind} lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} showErrors={attempted} importer={importer} />
     </>
   )
 }

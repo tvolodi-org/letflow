@@ -254,6 +254,27 @@ const auditor: AccessInfo = {
   ],
 }
 
+const storekeeper: AccessInfo = {
+  roles: ['STOREKEEPER'],
+  platform_tenant: false,
+  permissions: [
+    'EntitiesDefinitionsRead',
+    'EntitiesQuery',
+    'EntitiesRecordsImport',
+    'HelpRead',
+    'MembershipsRead',
+    'MyAccessRead',
+    'MyModulesRead',
+    'StockCountOrder',
+    'StockCountRecord',
+    'StockPost',
+    'StockRead',
+    'StockReverse',
+    'TasksComplete',
+    'TasksRead',
+  ],
+}
+
 export const ACCESS_FIXTURES = {
   platformAdmin,
   designer,
@@ -263,12 +284,14 @@ export const ACCESS_FIXTURES = {
   candidate,
   tenantAdmin,
   auditor,
+  storekeeper,
 } as const satisfies Record<string, AccessInfo>
 
 export type AccessFixtureName = keyof typeof ACCESS_FIXTURES
 
-export function accessState(name: AccessFixtureName): AccessState {
-  return { status: 'ready', info: ACCESS_FIXTURES[name] }
+/** `userId` stands for the caller's tenant user record id (`user_id` of GET /me/access). */
+export function accessState(name: AccessFixtureName, userId?: string): AccessState {
+  return { status: 'ready', info: userId ? { ...ACCESS_FIXTURES[name], user_id: userId } : ACCESS_FIXTURES[name] }
 }
 
 export const LOADING_STATE: AccessState = { status: 'loading' }

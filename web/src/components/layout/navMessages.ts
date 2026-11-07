@@ -8,11 +8,13 @@ export type NavGroupId = 'work' | 'tenantAdmin' | 'platform'
 export interface NavCatalog {
   groups: Record<NavGroupId, string>
   items: Record<string, string>
+  signOut: string
 }
 
 export const navMessages: Record<UiLocale, NavCatalog> = {
   en: {
     groups: { work: 'Work', tenantAdmin: 'Tenant administration', platform: 'Platform' },
+    signOut: 'Sign out',
     items: {
       '/instances': 'Instances',
       '/tasks': 'My Tasks',
@@ -47,10 +49,20 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
       '/exam': 'Exams',
       '/admin/questions': 'Question Bank',
       '/exam/grading': 'Grading',
+      '/admin/locations': 'Locations',
+      '/admin/locations/links': 'Location links',
+      '/admin/stock/balances': 'Balances',
+      '/admin/stock/movements': 'Movements',
+      '/admin/stock/counts': 'Counts',
+      '/admin/assets/cards': 'Asset cards',
+      '/admin/assets/documents': 'Asset documents',
+      '/admin/assets/balances': 'Asset balances',
+      '/admin/assets/movements': 'Asset movements',
     },
   },
   ru: {
     groups: { work: 'Работа', tenantAdmin: 'Администрирование', platform: 'Платформа' },
+    signOut: 'Выйти',
     items: {
       '/instances': 'Экземпляры',
       '/tasks': 'Мои задачи',
@@ -85,10 +97,20 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
       '/exam': 'Экзамены',
       '/admin/questions': 'Банк вопросов',
       '/exam/grading': 'Оценивание',
+      '/admin/locations': 'Места хранения',
+      '/admin/locations/links': 'Связи мест',
+      '/admin/stock/balances': 'Остатки',
+      '/admin/stock/movements': 'Движения',
+      '/admin/stock/counts': 'Инвентаризации',
+      '/admin/assets/cards': 'Карточки активов',
+      '/admin/assets/documents': 'Документы по активам',
+      '/admin/assets/balances': 'Остатки активов',
+      '/admin/assets/movements': 'Движения активов',
     },
   },
   kk: {
     groups: { work: 'Жұмыс', tenantAdmin: 'Әкімшілік', platform: 'Платформа' },
+    signOut: 'Шығу',
     items: {
       '/instances': 'Орындалып жатқан процестер',
       '/tasks': 'Менің тапсырмаларым',
@@ -123,6 +145,15 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
       '/exam': 'Емтихандар',
       '/admin/questions': 'Сұрақтар банкі',
       '/exam/grading': 'Бағалау',
+      '/admin/locations': 'Орындар',
+      '/admin/locations/links': 'Орын байланыстары',
+      '/admin/stock/balances': 'Қалдықтар',
+      '/admin/stock/movements': 'Қозғалыстар',
+      '/admin/stock/counts': 'Түгендеулер',
+      '/admin/assets/cards': 'Актив карточкалары',
+      '/admin/assets/documents': 'Активтер құжаттары',
+      '/admin/assets/balances': 'Активтер қалдығы',
+      '/admin/assets/movements': 'Активтер қозғалысы',
     },
   },
 }

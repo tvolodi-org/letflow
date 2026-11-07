@@ -65,12 +65,15 @@ Letflow.TenantSchemaReaper.sweep_template_build_orphans(Letflow.Repo)
 # lua_wallclock_race test/letflow/engine/lua/executor_test.exs`.
 # REQ-686: the ledger counter throughput run (T-LD-1) is a 4 x 60 s measurement, run on demand with
 # `mix test --only ledger_throughput`.
+# REQ-774: the stock document volume run (100/500/1000 lines of a receipt and a transfer, a few minutes) is
+# on demand: `mix test --only stock_document_volume`.
 ExUnit.start(
   exclude: [
     :keycloak,
     :wasm_hang,
     :lua_wallclock_race,
     :ledger_throughput,
+    :stock_document_volume,
     :voice_live,
     :voice_audio
   ]

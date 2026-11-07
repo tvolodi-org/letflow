@@ -2,21 +2,171 @@
  *  title bar with actions, a header card and a lines card in one grid. Wide: list | header | lines; medium: list and
  *  header, lines below; narrow (<900 px): the selected document replaces the list (`data-detail="open"`) and a back
  *  button shows. The arrangement is the registered layout `row` (rule 11); no per-screen CSS. Generic: no module words. */
-import React from 'react'
-import { ArrowLeft } from 'lucide-react'
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import { Button } from '../Button'
+import { SplitWrap, useSplit } from '../layout/Splitter'
+import { useLayoutMessages } from '../layout/layoutMessages'
+import { DEFAULT_DOC_LAYOUT, DOC_LAYOUTS, defaultTabFor, type DocLayoutName, type DocPane } from './docLayouts'
 
 export interface DocLayoutProps {
   /** True when a document (or a new one) is open: on narrow screens it replaces the list. */
   detailOpen: boolean
   children: React.ReactNode
   'data-testid'?: string
+  /** The registered layout (docLayouts.ts); `row` when absent. */
+  layout?: DocLayoutName
+  /** Whether a document is open and how it opens: a new one on its default tab, an existing one on its own. */
+  docState?: 'new' | 'existing' | 'none'
+  /** Identity of the open document; the tab the user chose is kept only while this stays the same. */
+  docKey?: string
+  /** Layout-screen id: when set, the panes get splitters whose sizes are remembered per user under this id (`ui.layout`). */
+  screen?: string
 }
 
-export function DocLayout({ detailOpen, children, ...rest }: DocLayoutProps) {
+interface DocTabsContext {
+  tabsLayout: boolean
+  activeTab: DocPane | null
+  setTab: (pane: DocPane) => void
+}
+
+const NO_TABS: DocTabsContext = { tabsLayout: false, activeTab: null, setTab: () => undefined }
+const DocTabs = createContext<DocTabsContext>(NO_TABS)
+
+/** Tab state of the surrounding DocLayout (a no-op context outside one). */
+export function useDocTabs(): DocTabsContext {
+  return useContext(DocTabs)
+}
+
+export function DocLayout({ detailOpen, children, layout = DEFAULT_DOC_LAYOUT, docState = 'none', docKey = '', screen, ...rest }: DocLayoutProps) {
+  // The user's choice is kept per document key: another document (or a draft turned into a saved one) falls back to the default.
+  const [chosen, setChosen] = useState<{ key: string; pane: DocPane } | null>(null)
+  const tabsLayout = DOC_LAYOUTS[layout].tabs !== null && docState !== 'none'
+  const fallback = docState === 'none' ? null : defaultTabFor(layout, docState)
+  const activeTab = tabsLayout ? (chosen && chosen.key === docKey ? chosen.pane : fallback) : null
+  const ctx: DocTabsContext = { tabsLayout, activeTab, setTab: (pane) => setChosen({ key: docKey, pane }) }
+  const grid = (ref?: React.Ref<HTMLDivElement>) => (
+    <div
+      ref={ref}
+      className="lf-doc"
+      data-layout={layout}
+      data-tab={activeTab ?? undefined}
+      data-detail={detailOpen ? 'open' : undefined}
+      data-testid={rest['data-testid']}
+    >
+      <DocTabs.Provider value={ctx}>{children}</DocTabs.Provider>
+    </div>
+  )
+  return screen ? <SplitDocLayout screen={screen} render={grid} /> : grid()
+}
+
+/** The panes of the grid that are shown, in order (the design's `paneList`); picked by class so the cards keep their markup. */
+function docPanes(grid: HTMLElement | null): (HTMLElement | null)[] {
+  if (!grid) return []
+  const first = (cls: string) => grid.querySelector<HTMLElement>(`:scope > .${cls}`)
+  const list = first('lf-doc__list')
+  const header = first('lf-doc__header')
+  const lines = first('lf-doc__lines')
+  const side = first('lf-doc__top') ?? first('lf-doc__blank')
+  if (grid.getAttribute('data-layout') === 'tabs') return [list, side]
+  if (!header) return side && !first('lf-doc__top') ? [list, side] : [list]
+  return grid.clientWidth >= 1440 && lines ? [list, header, lines] : [list, header]
+}
+
+/** DocLayout with splitters: `SplitWrap` + `useSplit` around the grid. A MutationObserver on the grid's direct children
+ *  refreshes the handles when a card comes or goes (the document query and the edit toggle live below DocLayout). */
+function SplitDocLayout({ screen, render }: { screen: string; render: (ref: React.Ref<HTMLDivElement>) => React.ReactElement }) {
+  const m = useLayoutMessages()
+  const gridRef = useRef<HTMLDivElement>(null)
+  const layerRef = useRef<HTMLDivElement>(null)
+  const handle = useSplit(gridRef, layerRef, {
+    id: 'row',
+    screen,
+    unit: 'pct',
+    vars: ['--lf-pane-1', '--lf-pane-2'],
+    sized: 'before',
+    min: [200, 260],
+    flexMin: 320,
+    collapsible: [0],
+    labels: [m.splitList, m.splitHeader],
+    panes: () => docPanes(gridRef.current),
+    enabled: () => (gridRef.current?.clientWidth ?? 0) > 900,
+  })
+  useEffect(() => {
+    const grid = gridRef.current
+    if (!grid || typeof MutationObserver === 'undefined') return
+    const mo = new MutationObserver(() => handle.current?.refresh())
+    mo.observe(grid, { childList: true })
+    return () => mo.disconnect()
+  }, [handle])
+  return <SplitWrap layerRef={layerRef}>{render(gridRef)}</SplitWrap>
+}
+
+const tabId = (pane: DocPane) => `lf-doc-tab-${pane}`
+const panelId = (pane: DocPane) => `lf-doc-panel-${pane}`
+
+export interface DocTabListProps {
+  labels: Record<DocPane, string>
+  ariaLabel: string
+  lineCount?: number
+  /** Problem count per pane; a pane with problems shows a danger badge (also when it is the hidden one). */
+  problems?: Record<DocPane, number>
+  problemLabel: (count: number) => string
+}
+
+/** The tab block of a tab layout (a direct grid child of `.lf-doc`, placed after `DocBar`); renders nothing otherwise. */
+export function DocTabList({ labels, ariaLabel, lineCount, problems, problemLabel }: DocTabListProps) {
+  const { tabsLayout, activeTab, setTab } = useDocTabs()
+  const listRef = useRef<HTMLDivElement>(null)
+  if (!tabsLayout) return null
+  const panes: readonly DocPane[] = ['header', 'lines']
+  const move = (to: number) => {
+    const pane = panes[to]
+    if (!pane) return
+    setTab(pane)
+    listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus()
+  }
+  const onKeyDown = (event: React.KeyboardEvent, index: number) => {
+    const last = panes.length - 1
+    let target: number | null = null
+    if (event.key === 'ArrowRight') target = index === last ? 0 : index + 1
+    else if (event.key === 'ArrowLeft') target = index === 0 ? last : index - 1
+    else if (event.key === 'Home') target = 0
+    else if (event.key === 'End') target = last
+    if (target === null) return
+    event.preventDefault()
+    move(target)
+  }
+  const tabbable = Math.max(0, panes.findIndex((p) => p === activeTab))
   return (
-    <div className="lf-doc" data-layout="row" data-detail={detailOpen ? 'open' : undefined} data-testid={rest['data-testid']}>
-      {children}
+    <div className="lf-doc__tablist lf-tabs" role="tablist" aria-label={ariaLabel} ref={listRef} data-testid="document-tabs">
+      {panes.map((pane, index) => {
+        const n = problems?.[pane] ?? 0
+        return (
+          <button
+            key={pane}
+            type="button"
+            role="tab"
+            id={tabId(pane)}
+            className="lf-tab"
+            aria-selected={pane === activeTab}
+            aria-controls={panelId(pane)}
+            tabIndex={index === tabbable ? 0 : -1}
+            onClick={() => setTab(pane)}
+            onKeyDown={(e) => onKeyDown(e, index)}
+            data-testid={`document-tab-${pane}`}
+          >
+            {labels[pane]}
+            {pane === 'lines' && lineCount !== undefined && <span className="lf-count">{lineCount}</span>}
+            {n > 0 && (
+              <span className="lf-count lf-count--danger" role="img" aria-label={problemLabel(n)} data-testid={`document-tab-${pane}-problems`}>
+                <AlertTriangle className="lf-icon" aria-hidden="true" />
+                {n}
+              </span>
+            )}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -67,8 +217,10 @@ export function DocCard(props: {
   children: React.ReactNode
   'data-testid'?: string
 }) {
+  const { tabsLayout } = useDocTabs()
+  const panel = tabsLayout ? { role: 'tabpanel', id: panelId(props.area), 'aria-labelledby': tabId(props.area), tabIndex: 0 } : {}
   return (
-    <section className={`lf-card lf-doc__${props.area}`} aria-label={props.title} data-testid={props['data-testid']}>
+    <section className={`lf-card lf-doc__${props.area}`} aria-label={props.title} data-testid={props['data-testid']} {...panel}>
       <div className="lf-doc__head">
         <h3 className="lf-doc__section">
           {props.title}

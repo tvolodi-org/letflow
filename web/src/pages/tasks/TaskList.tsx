@@ -1,10 +1,12 @@
 /** TaskList — T-1380. The rows of the task inbox: the action in words, the document (number and kind), org unit and
  *  location as "code - title", who issued it, the age and a one-line summary of the lines. Never an id. */
+import { formatQuantity } from '@/lib/formatQuantity'
 import type { Task } from '@/types/api'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import type { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import type { ReferenceType } from '@/lib/references/referenceLabel'
-import { formatDateTime } from '@/i18n/format'
+import { formatDateTimeInZone } from '@/i18n/format'
+import { TASKS_TIME_ZONE } from './taskTimeZone'
 import { actionKind, ageText, fill } from './taskInboxModel'
 import type { TaskContext } from './useTaskDocument'
 import type { TaskMessages } from './taskMessages'
@@ -25,11 +27,11 @@ export interface TaskListProps {
 }
 
 /** "2 lines: first line" summary: item, quantity and unit of the first line, then how many more. */
-function linesSummary(ctx: TaskContext | null | undefined, m: TaskMessages, label: TaskListProps['label']): string {
+function linesSummary(ctx: TaskContext | null | undefined, m: TaskMessages, label: TaskListProps['label'], locale: string): string {
   const lines = ctx?.doc?.lines ?? []
   if (lines.length === 0) return ''
   const first = lines[0]
-  const head = `${label('catalog_item', first.catalog_item_id)} × ${first.quantity} ${label('catalog_uom', first.catalog_uom_id)}`.trim()
+  const head = `${label('catalog_item', first.catalog_item_id)} × ${formatQuantity(first.quantity, locale)} ${label('catalog_uom', first.catalog_uom_id)}`.trim()
   const count = lines.length === 1 ? m.linesOne : fill(m.linesMany, lines.length)
   return lines.length > 1 ? `${count}: ${head}, ${fill(m.moreLines, lines.length - 1)}` : `${count}: ${head}`
 }
@@ -55,7 +57,7 @@ export function TaskList(p: TaskListProps) {
               .join(' · ')
             const issuer = ctx?.issuerId ? (ctx.issuerId === p.userId ? p.refMsg.you : p.refMsg.anotherUser) : ''
             const selected = p.selectedId === task.id
-            const summary = linesSummary(ctx, m, p.label)
+            const summary = linesSummary(ctx, m, p.label, p.locale)
             return (
               <tr
                 key={task.id}
@@ -90,7 +92,7 @@ export function TaskList(p: TaskListProps) {
                     </div>
                   )}
                   {issuer !== '' && <div className="lf-muted" data-testid="task-issuer">{m.issuedBy}: {issuer}</div>}
-                  <div className="lf-muted" data-testid="task-age" title={formatDateTime(task.created_at)}>
+                  <div className="lf-muted" data-testid="task-age" title={formatDateTimeInZone(task.created_at, { timeZone: TASKS_TIME_ZONE, locale: p.locale })}>
                     {ageText(task.created_at, p.now, p.locale)}
                   </div>
                 </td>

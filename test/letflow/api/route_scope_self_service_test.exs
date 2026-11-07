@@ -40,7 +40,9 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
     "GET /help/resolved HelpRead",
     "GET /me/memberships MembershipsRead",
     "GET /me/modules MyModulesRead",
-    "GET /me/access MyAccessRead"
+    "GET /me/access MyAccessRead",
+    "GET /me/preferences MyAccessRead",
+    "PUT /me/preferences MyPreferencesSet"
     | @filter_lines
   ]
 
@@ -396,6 +398,19 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
                    key: :MyAccessRead,
                    class: :self_service,
                    ruling: "SEC-REQ-449-access"
+                 },
+                 # T-1389: the first non-GET self_service entry (the caller's own preferences)
+                 %{
+                   route: "GET /me/preferences",
+                   key: :MyAccessRead,
+                   class: :self_service,
+                   ruling: "SEC-T1389-prefs-get"
+                 },
+                 %{
+                   route: "PUT /me/preferences",
+                   key: :MyPreferencesSet,
+                   class: :self_service,
+                   ruling: "SEC-T1389-prefs-put"
                  }
                ]
                |> Enum.sort_by(& &1.route)
@@ -501,7 +516,12 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       # REQ-736 (GH #3861) added the count print route line (235 -> 236).
       # REQ-737 (GH #3860) added the document print route line (236 -> 237).
       # REQ-741 (GH #3879) added the two stock voice draft lines (237 -> 239).
-      assert length(snapshot) == 239
+      # REQ-768 (GH #3920) added the module upgrade plan route line (242 -> 243).
+      # REQ-749 (GH #3893) added the three assets register read lines (242 -> 245).
+      # T-1417 (E5c) added the stock card print route line (246 -> 247).
+      # REQ-770 (GH #3918) added the module upgrade apply route line (247 -> 248).
+      assert length(snapshot) == 255
+      # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
 
       for l <- @removed_lines, do: refute(l in snapshot, l)
     end

@@ -49,7 +49,9 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
     "lib/letflow/modules/manifest_hash.ex",
     # REQ-713 (deliberate edit): the stock module manifest DECLARES its `write_handlers`
     # (data in the compiled manifest, read by the Catalog); it never resolves or calls one.
-    "lib/letflow/modules/stock/stock.ex"
+    "lib/letflow/modules/stock/stock.ex",
+    # C10: the assets module manifest declares its `write_handlers` the same way.
+    "lib/letflow/modules/assets/assets.ex"
   ]
   # R2 (deliberate edit): `ManagedTypes.module_owner/1` calls `Catalog.manifest_hash/1` to
   # fill the `Owner` stamp inputs (`version`, `manifest_hash`); nothing else outside the
@@ -71,7 +73,14 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
     # REQ-578 (deliberate edit): `Installs.reactivate/3` reads the compiled hash through
     # `Catalog.manifest_hash/1` to refuse `upgrade_required` when it differs from the hash the
     # row was installed with. A read only; it never resolves or calls a handler.
-    "lib/letflow/modules/installs.ex"
+    "lib/letflow/modules/installs.ex",
+    # REQ-768 (deliberate edit): the dry-run upgrade plan reads the compiled hash through
+    # `Catalog.manifest_hash/1`. A read only; it never resolves or calls a handler.
+    "lib/letflow/modules/upgrade_plan.ex",
+    # REQ-772 (deliberate edit): the boot-time upgrade child reads the compiled hash through
+    # `Catalog.manifest_hash/1` to stamp its journal rows. A read only; it never resolves or
+    # calls a handler.
+    "lib/letflow/module_upgrade/boot.ex"
   ]
 
   @api_names [:write_handler, :write_handler_in, :call_write_handler, :manifest_hash]

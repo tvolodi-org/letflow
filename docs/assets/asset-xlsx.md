@@ -1,9 +1,10 @@
 # Asset xlsx: import and export of asset cards, depreciation included
 
-Status: specification, not built (REQ-729, GH #3792, assets phase C item C4). Docs only: no code, no migration,
-no definition JSON, no manifest key, no test, no seed, no route, no screen. The assets module, its import function
-and its export reads are later requirements, written from this file after the owner's gate of phase B (D-063,
-D-085).
+Status: specification (REQ-729, GH #3792, assets phase C item C4). The import (sections 1 to 5) is built by REQ-762
+(GH #3899, assets module 0.4.0): `Letflow.Modules.Assets.Import.import_card/3`, registered in the manifest key
+`:import_functions`. It adds one reason not listed in section 4: `card_inactive` (the existing card is retired). The
+reason `asset_kind_locked` is mapped from `Cards` `:kind_locked`, which arrives with REQ-752 (GH #3890); until then it
+cannot occur. The export reads are a later requirement.
 
 Sources: owner decisions D-061 (depreciation is an information field, imported or typed, not calculated), D-062
 (xlsx in the first version), D-063 (a manual gate ends each phase) and D-085 (phase C specifications are written
@@ -144,8 +145,9 @@ A second xlsx export, of the asset register balances:
   `ledger_seq`), in the shape of decision 0079 D8.
 - A file holds only the rows the caller's read of the asset ledger answers, never more.
 - No money column: money is never in the register (REQ-689 criterion 7).
-- Its read route belongs to the later asset register read requirement and is not specified here. Like the stock
-  exports, it is not promised to re-import.
+- Its route is `GET /api/v1/modules/assets/balances?format=xlsx` (REQ-763): file `asset-balances.xlsx`, sheets
+  `balances` and `report`, one page per file (`next_cursor` on the report sheet). Like the stock exports, it is not
+  promised to re-import.
 
 ## 8. Open owner questions
 

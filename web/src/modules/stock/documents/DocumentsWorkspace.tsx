@@ -7,10 +7,12 @@ import { useIntl } from 'react-intl'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { Printer } from 'lucide-react'
+import { OfficialFormMenu } from '../forms/OfficialFormMenu'
+import { formsForDocument, officialFormLang } from '../forms/officialForms'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
-import { actorLabel, tokenSubject } from '@/lib/references/actorLabel'
+import { actorLabel } from '@/lib/references/actorLabel'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
@@ -19,7 +21,9 @@ import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { DocBar, DocBlank, DocCard, DocField, DocFields, DocGroup, DocLayout } from '@/components/ui/doc/DocLayout'
-import { DocLineItem, DocLinesTable, DocLinesTotal } from '@/components/ui/doc/DocLines'
+import { useDocumentLayout } from '@/hooks/useDocumentLayout'
+import { DocumentTabs } from './DocumentTabs'
+import { LinesEditor } from './LinesEditor'
 import { RegisterError } from '../register/RegisterShell'
 import { usePdfDownload } from '../register/usePdfDownload'
 import { stockQueryKeys } from '../register/stockQueryKeys'
@@ -31,20 +35,26 @@ import { documentsApi, type StockDocument } from './documents.api'
 import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
 import { DOCUMENTS_PATH, DocumentList } from './DocumentList'
-import { lineColumns } from './lineColumns'
+import { DOCUMENTS_LAYOUT_SCREEN } from './lineColumns'
+import { useLayoutPrefs } from '@/hooks/useLayoutPrefs'
+import { useLayoutMessages } from '@/components/ui/layout/layoutMessages'
 import {
   DOC_KINDS,
   DOC_STATES,
+  documentHasZ5,
   documentPrintable,
   formatEventTime,
   isOpening,
   isTwoSide,
   printErrorMessageId,
+  lineFromDocument,
   sidesOf,
-  sumDecimals,
   type DocKind,
 } from './documentsModel'
 import { stateTone } from './stateTone'
+
+const NO_ERRORS: Record<string, string> = {}
+const noop = (): void => undefined
 
 export type WorkspaceMode = 'list' | 'view' | 'create'
 
@@ -79,6 +89,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
   const intl = useIntl()
   const t = (m: string) => intl.formatMessage({ id: m })
   const { session } = useAuth()
+  const access = useAccess()
   const tenantId = session?.tenant_id ?? ''
   const uiLocale = useUiLocale()
   const [editing, setEditing] = useState(false)
@@ -149,30 +160,12 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
   }
 
   const refMsg = REFERENCE_MESSAGES[uiLocale]
-  const actor = (ref: string | null | undefined) => actorLabel(ref, tokenSubject(session?.token), refMsg)
+  const actor = (ref: string | null | undefined, label?: string | null) =>
+    ref && ref === access.userId ? refMsg.you : label || actorLabel(ref, access.userId, refMsg)
   const row = (label: string, value: string | null | undefined, mono = false, always = true) =>
     always || value ? <DocField label={label} value={value ? value : dash} mono={mono} empty={!value} /> : null
-  const columns = lineColumns(doc.kind as DocKind, t)
-  const withValue = isReceipt || opening
-  const total = withValue ? sumDecimals(lines.map((l) => l.line_value ?? '')) : null
-
-  const cell = (key: string, l: (typeof lines)[number]) => {
-    switch (key) {
-      case 'item': return name('catalog_item', l.catalog_item_id)
-      case 'lot': return name('catalog_lot', l.catalog_lot_id) || dash
-      case 'quantity': return (
-        <span className="lf-lines__qty">
-          <span>{l.quantity}</span>
-          <span className="lf-lines__unit">{name('catalog_uom', l.catalog_uom_id)}</span>
-        </span>
-      )
-      case 'location': return name('location_node', l.location_id) || dash
-      case 'responsible': return name('org_employee', l.responsible_id) || dash
-      case 'receivedOn': return <span className="mono">{l.received_on ?? dash}</span>
-      case 'unitPrice': return <span className="mono">{l.unit_price ?? dash}</span>
-      default: return <span className="mono">{l.line_value ?? dash}</span>
-    }
-  }
+  const hasPosting = Boolean(doc.issued_at || doc.posted_at || doc.posted_by || doc.reversed_at || doc.reversed_by)
+  const viewLines = lines.map(lineFromDocument)
 
   return (
     <>
@@ -207,6 +200,33 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
                 {t('stock.doc.print')}
               </Button>
             )}
+            <OfficialFormMenu
+              forms={formsForDocument(doc)}
+              busyKey={pdf.busyKey}
+              onPick={(form, format, lang) =>
+                void pdf.run(`form-${form}-${format}`, () => documentsApi.printForm(doc.id, 'z2', format, lang), `${doc.number ?? doc.id}-Z-2.${format}`, printErrorMessageId)
+              }
+            />
+            {documentHasZ5(doc) &&
+              (['pdf', 'docx'] as const).map((format) => (
+                <Button
+                  key={format}
+                  variant="secondary"
+                  icon={<Printer className="lf-icon" aria-hidden="true" />}
+                  loading={pdf.busyKey === `z5-${format}`}
+                  onClick={() =>
+                    void pdf.run(
+                      `z5-${format}`,
+                      () => documentsApi.printForm(doc.id, 'z5', format, officialFormLang(getUiLocale())),
+                      `${doc.number ?? doc.id}_Z-5.${format}`,
+                      printErrorMessageId,
+                    )
+                  }
+                  data-testid={`document-print-z5-${format}`}
+                >
+                  {t(format === 'pdf' ? 'stock.doc.printZ5Pdf' : 'stock.doc.printZ5Docx')}
+                </Button>
+              ))}
           </>
         }
       >
@@ -222,6 +242,7 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
           </Banner>
         )}
       </DocBar>
+      <DocumentTabs lineCount={lines.length} />
       <DocCard area="header" title={t('stock.doc.header')}>
         <DocFields data-testid="document-header">
           {row(t('stock.doc.col.number'), doc.number, true)}
@@ -229,20 +250,20 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
           {!two && row(t('stock.col.orgUnit'), name('org_unit', doc.org_unit_id))}
           {!two && !opening && row(t('stock.col.location'), name('location_node', doc.location_id))}
           {!two && !opening && row(t('stock.col.responsible'), name('org_employee', doc.responsible_id))}
-          {isReceipt && row(t('stock.doc.field.counterparty'), name('catalog_counterparty', doc.counterparty_id))}
-          {isReceipt && row(t('stock.doc.field.supplierRef'), doc.supplier_document_ref, true)}
-          {isReceipt && row(t('stock.doc.field.receivedOn'), doc.received_on, true)}
+          {isReceipt && row(t('stock.doc.field.counterparty'), name('catalog_counterparty', doc.counterparty_id), false, false)}
+          {isReceipt && row(t('stock.doc.field.supplierRef'), doc.supplier_document_ref, true, false)}
+          {isReceipt && row(t('stock.doc.field.receivedOn'), doc.received_on, true, false)}
           {doc.reason_code && row(t('stock.doc.field.reasonCode'), known(['lost', 'damaged', 'used_up', 'other'], 'stock.doc.writeOffReason', doc.reason_code))}
           {doc.reason_text && row(t('stock.doc.field.reasonText'), doc.reason_text)}
-          {row(t('stock.doc.field.note'), doc.note)}
+          {row(t('stock.doc.field.note'), doc.note, false, false)}
           {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefSystem'), doc.external_ref_system, true)}
           {opening && doc.external_ref_id && row(t('stock.doc.field.externalRefId'), doc.external_ref_id, true)}
-          <DocGroup>{t('stock.doc.group.posting')}</DocGroup>
-          {row(t('stock.doc.field.issuedAt'), doc.issued_at ? when(doc.issued_at) : null, true)}
-          {row(t('stock.doc.field.postedAt'), doc.posted_at ? when(doc.posted_at) : null, true)}
-          {row(t('stock.doc.field.postedBy'), actor(doc.posted_by))}
-          {row(t('stock.doc.field.reversedAt'), doc.reversed_at ? when(doc.reversed_at) : null, true)}
-          {row(t('stock.doc.field.reversedBy'), actor(doc.reversed_by))}
+          {hasPosting && <DocGroup>{t('stock.doc.group.posting')}</DocGroup>}
+          {row(t('stock.doc.field.issuedAt'), doc.issued_at ? when(doc.issued_at) : null, true, false)}
+          {row(t('stock.doc.field.postedAt'), doc.posted_at ? when(doc.posted_at) : null, true, false)}
+          {row(t('stock.doc.field.postedBy'), actor(doc.posted_by, doc.posted_by_label), false, false)}
+          {row(t('stock.doc.field.reversedAt'), doc.reversed_at ? when(doc.reversed_at) : null, true, false)}
+          {row(t('stock.doc.field.reversedBy'), actor(doc.reversed_by, doc.reversed_by_label), false, false)}
         </DocFields>
         {two && (['from', 'to'] as const).map((side) => (
           <section key={side} data-testid={`view-side-${side}`} aria-label={t(`stock.doc.side.${side}`)}>
@@ -255,41 +276,18 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
           </section>
         ))}
       </DocCard>
-      <DocCard area="lines" title={t('stock.doc.lines')} count={lines.length}>
-        {lines.length === 0 ? (
-          <div className="lf-doc__empty">
-            <div className="lf-empty">
-              <p className="lf-empty__title">{t('stock.doc.lines.none')}</p>
-            </div>
+      <LinesEditor
+        kind={doc.kind as DocKind}
+        lines={viewLines}
+        errors={NO_ERRORS}
+        onChange={noop}
+        readOnly
+        footer={
+          <div className="lf-btn-row">
+            <Button variant="ghost" onClick={() => void query.refetch()}>{t('stock.doc.reload')}</Button>
           </div>
-        ) : (
-          <DocLinesTable
-            columns={columns}
-            lineLabel={t('stock.doc.col.lineNo')}
-            data-testid="document-lines"
-            footer={
-              <DocLinesTotal
-                labelSpan={withValue ? columns.length : columns.length + 1}
-                label={`${t('stock.doc.lines.total')}: ${lines.length}`}
-                cells={withValue ? [total ?? dash] : []}
-              />
-            }
-          >
-            {lines.map((l, i) => (
-              <DocLineItem key={l.line_no} index={i} lineLabel={t('stock.doc.col.lineNo')} messageId={`ln-${i}-err`} colSpan={columns.length + 1} testId="line-row">
-                {columns.map((c) => (
-                  <td key={c.key} className={c.num ? 'is-num' : undefined} data-label={c.label}>
-                    {cell(c.key, l)}
-                  </td>
-                ))}
-              </DocLineItem>
-            ))}
-          </DocLinesTable>
-        )}
-        <div className="lf-btn-row">
-          <Button variant="ghost" onClick={() => void query.refetch()}>{t('stock.doc.reload')}</Button>
-        </div>
-      </DocCard>
+        }
+      />
     </>
   )
 }
@@ -322,10 +320,23 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
   const navigate = useNavigate()
   const { can } = useAccess()
   const back = () => navigate(DOCUMENTS_PATH)
+  const layout = useDocumentLayout()
+  const docState = mode === 'create' ? 'new' : mode === 'view' ? 'existing' : 'none'
+  const store = useLayoutPrefs()
+  const lm = useLayoutMessages()
   return (
     <>
-      <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.doc.title')} lede={t('stock.doc.lede')} />
-      <DocLayout detailOpen={mode !== 'list'} data-testid="document-workspace">
+      <PageHeader
+        eyebrow={t('stock.eyebrow')}
+        title={t('stock.doc.title')}
+        lede={t('stock.doc.lede')}
+        actions={
+          <Button variant="ghost" onClick={() => store.resetScreen(DOCUMENTS_LAYOUT_SCREEN)} data-testid="reset-layout">
+            {lm.resetLayout}
+          </Button>
+        }
+      />
+      <DocLayout screen={DOCUMENTS_LAYOUT_SCREEN} detailOpen={mode !== 'list'} layout={layout} docState={docState} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">
         <DocumentList selectedId={mode === 'view' ? id : undefined} />
         {mode === 'list' && <DocBlank title={t('stock.doc.blank.title')} text={t('stock.doc.blank.text')} />}
         {mode === 'view' && id && <DocumentView key={id} id={id} onBack={back} />}

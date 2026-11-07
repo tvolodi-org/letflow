@@ -1,10 +1,22 @@
 /** stockRegisterModel — GH 3767 / REQ-724. Pure helpers of the balances and movements screens: query keys of the
  *  routes, the cause and document-type words, the posting range check, error classes. */
+import { formatDateTimeInZone } from '@/i18n/format'
+import { getUiLocale } from '@/i18n/uiLocaleStore'
 import type { ReferenceType } from '@/lib/references/referenceLabel'
 import type { BalanceRow, MovementLeg, MovementRow } from './stock.api'
 
-/** Tenant time zone until the tenant setting exists (REQ-703): assumption, owner may change at GATE B. */
+/** Tenant time zone of every stock screen: the REQ-703 server default (`TenantTimezone.default/0`). The web has no
+ *  read route for the tenant setting, so this one constant is the single place that names the zone. */
 export const STOCK_TIME_ZONE = 'Asia/Almaty'
+
+/** The one date-time formatter of the stock screens: tenant zone, the UI language's single format
+ *  (ru/kk/uz `DD-MM-YYYY HH:mm`, en `Nov 5, 2026 16:24`). Empty for null/undefined/''. */
+export function formatStockDateTime(
+  iso: string | null | undefined,
+  o: { locale?: string; seconds?: boolean } = {},
+): string {
+  return formatDateTimeInZone(iso, { timeZone: STOCK_TIME_ZONE, locale: o.locale ?? getUiLocale(), seconds: o.seconds })
+}
 
 export const CAUSES = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'reversal', 'opening', 'count_difference'] as const
 export const DOCUMENT_TYPES = [
@@ -31,6 +43,7 @@ export interface BalanceFilters {
 }
 export interface MovementFilters {
   cause: string
+  document_type: string
   document_id: string
   from_seq: string
   to_seq: string
@@ -78,6 +91,7 @@ export function movementParams(f: MovementFilters): Record<string, string> {
   const bad = rangeError(f.from_seq, f.to_seq)
   return nonEmpty([
     ['cause', f.cause],
+    ['document_type', f.document_type],
     ['document_id', f.document_id],
     ['from_seq', bad ? '' : f.from_seq],
     ['to_seq', bad ? '' : f.to_seq],
@@ -136,4 +150,19 @@ export function movementNameIds(rows: MovementRow[]): NameIds {
     }
   }
   return out
+}
+
+/** The document cell shared by Movements and the balance history: `number - kind` linked to the document, the kind
+ *  word alone when the row has no number, null (the screen shows a dash) without a document type. */
+export function documentCell(
+  row: Pick<MovementRow, 'document_type' | 'document_id' | 'document_number'>,
+  kindLabel: (documentType: string) => string,
+): { text: string; to: string | null } | null {
+  if (!row.document_type) return null
+  const kind = kindLabel(row.document_type)
+  if (!row.document_number) return { text: kind, to: null }
+  return {
+    text: `${row.document_number} - ${kind}`,
+    to: row.document_id ? `/admin/stock/documents/${row.document_id}` : null,
+  }
 }

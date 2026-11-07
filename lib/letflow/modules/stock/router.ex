@@ -86,9 +86,10 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts` (`status`, `org_unit_id`, `limit`, `cursor`) | `StockRead` | 200 `rows, next_cursor` |
   | `GET /counts/:id` | `StockRead` | 200 order view |
   | `GET /counts/:id/document` | `StockRead` | 200 issued summary, no content bytes |
-  | `GET /counts/:id/paperwork/:kind` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document, 422 `document_not_issued` |
-  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; transfer, hand over, return; `lang` default `ru`) | `StockRead` | 200 `application/pdf` of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
-  | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`) | `StockRead` | 200 `application/pdf` of the issued document, 422 `invalid_lang`, `document_not_issued`, `print_unsupported_character` |
+  | `GET /counts/:id/paperwork/:kind[?lang=ru\|kk\|en]` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document (labels and times localized with `lang`, snake_case keys without), 422 `document_not_issued` or `invalid_lang` |
+  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416; `form=z5` the form Z-5 / Q-5 of an issued `transfer`, T-1417) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
+  | `GET /stock-card/print?sku&location[&lot]&format=pdf\|docx&lang=ru\|kk` (T-1417; official form Z-3 / Q-3, the stock card of one item at one place, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_format`, `invalid_lang`, `card_too_long` (more than 1000 entries), `print_unsupported_character` |
+  | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character` |
 
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
   so a scoped caller gets the same 404 for an order of another unit as for an unknown id. When the
@@ -152,6 +153,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.Scope
+  alias Letflow.Documents.FormPrint
   alias Letflow.Ledger
   alias Letflow.Modules.Stock.Access
   alias Letflow.Modules.Stock.Counts
@@ -159,8 +161,15 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.CountPrint
   alias Letflow.Modules.Stock.DocumentPrint
   alias Letflow.Modules.Stock.DocumentPrintSource
+  alias Letflow.Modules.Stock.DocumentNumbers
   alias Letflow.Modules.Stock.Documents
   alias Letflow.Modules.Stock.Documents.Posting
+  alias Letflow.Modules.Stock.FormCountInv10
+  alias Letflow.Modules.Stock.FormCountInv18
+  alias Letflow.Modules.Stock.FormZ2
+  alias Letflow.Modules.Stock.FormZ3
+  alias Letflow.Modules.Stock.FormZ5
+  alias Letflow.Modules.Stock.StockCardSource
   alias Letflow.Modules.Stock.Views
   alias Letflow.Modules.Stock.VoiceService
   alias Letflow.Modules.Stock.XlsxExport
@@ -173,7 +182,13 @@ defmodule Letflow.Modules.Stock.Router do
   @optional_empty ~w(responsible lot)
   @text_filters ~w(cause document_type document_id correlation_id)
   @balance_keys ~w(basis cutoff_seq as_of as_of_date limit cursor format scope_subtree) ++ @slots
-  @movement_keys ~w(from_seq to_seq limit cursor format scope_subtree) ++ @text_filters
+  @movement_keys ~w(from_seq to_seq limit cursor format scope_subtree) ++ @slots ++ @text_filters
+  @card_keys ~w(sku location lot format lang)
+  # T-1416/T-1417: the official forms printed from a document: kinds it may print, mapper, file suffix.
+  @document_forms %{
+    "z2" => {["issue"], &FormZ2.data/2, "_Z-2"},
+    "z5" => {["transfer"], &FormZ5.data/2, "_Z-5"}
+  }
 
   authz_get "/balances", :StockRead do
     with_read(conn, fn conn, authorized ->
@@ -206,12 +221,17 @@ defmodule Letflow.Modules.Stock.Router do
       with {:ok, params} <- params(conn, @movement_keys),
            {:ok, format} <- format(params),
            {:ok, filters} <- entry_filters(params),
+           {:ok, filters} <- movement_slot_filter(params, filters),
            {:ok, filters} <- subtree_filter(params, filters),
            {:ok, page} <- page(params, :integer) do
         case Ledger.entries(authorized, filters, page) do
           {:ok, %{rows: rows, next_cursor: next}} ->
             body = %{
-              rows: Enum.map(rows, &Views.stock_movement/1),
+              rows:
+                DocumentNumbers.put_numbers(
+                  authorized.prefix,
+                  Enum.map(rows, &Views.stock_movement/1)
+                ),
               next_cursor: if(next, do: Integer.to_string(next))
             }
 
@@ -224,6 +244,42 @@ defmodule Letflow.Modules.Stock.Router do
         end
       else
         {:error, reason} -> refuse(conn, reason)
+      end
+    end)
+  end
+
+  # T-1417 (E5c): the stock card (official form Z-3 / Q-3) of one item at one place, built from the
+  # ledger movements the caller may read. Same guard as `/movements`.
+  authz_get "/stock-card/print", :StockRead do
+    with_read(conn, fn conn, authorized ->
+      with {:ok, params} <- params(conn, @card_keys),
+           {:ok, format} <- form_format(params["format"]),
+           {:ok, lang} <- form_lang(params["lang"]),
+           {:ok, filters} <- slot_filters(Map.take(params, ["sku", "location", "lot"])),
+           true <- Map.has_key?(filters, "sku") and Map.has_key?(filters, "location"),
+           {:ok, card} <-
+             StockCardSource.read(
+               authorized,
+               filters["sku"],
+               filters["location"],
+               non_empty(filters["lot"])
+             ),
+           {:ok, bin} <- FormPrint.build("z3", FormZ3.data(card), lang, format) do
+        {type, ext} = form_type(format)
+        code = card.header.nom |> to_string()
+
+        send_binary(
+          conn,
+          bin,
+          type,
+          CountPaperworkSource.file_name("stock-card_#{code}_Z-3", ext)
+        )
+      else
+        {:invalid, reason} -> unprocessable(conn, reason)
+        false -> refuse(conn, :invalid_filter)
+        {:error, :not_found} -> Response.not_found(conn)
+        {:error, :card_too_long} -> unprocessable(conn, "card_too_long")
+        {:error, reason} -> form_failure(conn, reason)
       end
     end)
   end
@@ -353,9 +409,15 @@ defmodule Letflow.Modules.Stock.Router do
   # REQ-737: the printed act of an issued transfer, hand over or return; same guard as the read.
   authz_get "/documents/:id/print", :StockRead do
     with_access(conn, :read, fn conn, access ->
-      case print_lang(query_params(conn)["lang"]) do
-        {:ok, lang} -> print_document(conn, access.prefix, lang)
-        :invalid_lang -> unprocessable(conn, "invalid_lang")
+      query = query_params(conn)
+
+      if Map.has_key?(query, "form") do
+        print_form(conn, access.prefix, query)
+      else
+        case print_lang(query["lang"]) do
+          {:ok, lang} -> print_document(conn, access.prefix, lang)
+          :invalid_lang -> unprocessable(conn, "invalid_lang")
+        end
       end
     end)
   end
@@ -559,9 +621,15 @@ defmodule Letflow.Modules.Stock.Router do
   @paperwork_kinds %{"order" => :order, "sheet" => :sheet, "differences" => :differences}
 
   authz_get "/counts/:id/paperwork/:kind", :StockRead do
-    case Map.fetch(@paperwork_kinds, conn.params["kind"]) do
-      {:ok, kind} -> paperwork(conn, kind)
+    # T-1435: a missing `lang` keeps the old English snake_case workbook; only an explicit one localizes.
+    query = query_params(conn)
+
+    with {:ok, kind} <- Map.fetch(@paperwork_kinds, conn.params["kind"]),
+         {:ok, lang} <- paperwork_lang(query["lang"]) do
+      paperwork(conn, kind, lang)
+    else
       :error -> Response.not_found(conn)
+      :invalid_lang -> unprocessable(conn, "invalid_lang")
     end
   end
 
@@ -569,12 +637,19 @@ defmodule Letflow.Modules.Stock.Router do
   @print_langs %{"ru" => :ru, "kk" => :kk, "en" => :en}
 
   authz_get "/counts/:id/print/:kind", :StockRead do
-    with {:ok, kind} <- Map.fetch(@paperwork_kinds, conn.params["kind"]),
-         {:ok, lang} <- print_lang(query_params(conn)["lang"]) do
-      print(conn, kind, lang)
+    query = query_params(conn)
+
+    with {:ok, kind} <- Map.fetch(@paperwork_kinds, conn.params["kind"]) do
+      if Map.has_key?(query, "form") do
+        print_count_form(conn, kind, query)
+      else
+        case print_lang(query["lang"]) do
+          {:ok, lang} -> print(conn, kind, lang)
+          :invalid_lang -> unprocessable(conn, "invalid_lang")
+        end
+      end
     else
       :error -> Response.not_found(conn)
-      :invalid_lang -> unprocessable(conn, "invalid_lang")
     end
   end
 
@@ -704,9 +779,9 @@ defmodule Letflow.Modules.Stock.Router do
   end
 
   # REQ-719: the same prologue as `count_write/4`, answering a workbook instead of JSON.
-  defp paperwork(conn, kind) do
+  defp paperwork(conn, kind, lang) do
     with_paperwork_ctx(conn, fn prefix, ctx ->
-      case CountPaperworkSource.fetch(prefix, conn.params["id"], kind, ctx) do
+      case CountPaperworkSource.fetch(prefix, conn.params["id"], kind, ctx, lang) do
         {:ok, binary, name} ->
           send_xlsx(conn, binary, name)
 
@@ -775,6 +850,131 @@ defmodule Letflow.Modules.Stock.Router do
         Response.internal_error(conn)
     end
   end
+
+  # T-1416/T-1417: `?form=z2|z5&format=pdf|docx&lang=ru|kk`, the official form Z-2 / Q-2 of an issued
+  # `issue` or Z-5 / Q-5 of an issued `transfer`.
+  defp print_form(conn, prefix, query) do
+    with {:ok, form} <- form_param(query["form"]),
+         {:ok, format} <- form_format(query["format"]),
+         {:ok, lang} <- form_lang(query["lang"]) do
+      {kinds, mapper, suffix} = Map.fetch!(@document_forms, form)
+      tenant_id = conn.assigns |> Map.get(:auth_context, %{}) |> Map.get(:tenant_id)
+
+      with {:ok, %{issued: issued, names: names}} <-
+             DocumentPrintSource.read(prefix, conn.params["id"], tenant_id,
+               kinds: kinds,
+               legal_entities: true
+             ),
+           {:ok, bin} <- FormPrint.build(form, mapper.(issued, names), lang, format) do
+        {type, ext} = form_type(format)
+        name = CountPaperworkSource.file_name(to_string(issued.number_label) <> suffix, ext)
+        send_binary(conn, bin, type, name)
+      else
+        {:error, :not_found} -> Response.not_found(conn)
+        {:error, reason} -> form_failure(conn, reason)
+      end
+    else
+      {:invalid, reason} -> unprocessable(conn, reason)
+    end
+  end
+
+  defp form_failure(conn, reason) when reason in [:print_not_available, :document_not_issued],
+    do: unprocessable(conn, Atom.to_string(reason))
+
+  defp form_failure(conn, :unsupported_glyph),
+    do: unprocessable(conn, "print_unsupported_character")
+
+  defp form_failure(conn, {:render_failed, rules}) do
+    Logger.error("stock form print render failed: " <> Enum.map_join(rules, ",", &inspect/1))
+    Response.internal_error(conn)
+  end
+
+  defp form_failure(conn, :invalid_filter), do: refuse(conn, :invalid_filter)
+  defp form_failure(conn, _internal), do: Response.internal_error(conn)
+
+  defp non_empty(""), do: nil
+  defp non_empty(value), do: value
+
+  defp form_param(form) when form in ["z2", "z5"], do: {:ok, form}
+  defp form_param(_), do: {:invalid, "invalid_form"}
+
+  # T-1418: the official count forms: `?form=inv18` on the differences document (annex 49, Tug-18)
+  # and `?form=inv10` on the sheet (annex 41, Tug-10), `&format=pdf|docx&lang=ru|kk`. Same read path
+  # and scope rules as the E1a print (`CountPaperworkSource.read_form/4`).
+  @count_forms %{
+    "inv18" => {:differences, FormCountInv18, "Inv-18"},
+    "inv10" => {:sheet, FormCountInv10, "Inv-10"}
+  }
+
+  defp print_count_form(conn, kind, query) do
+    with {:ok, {form_kind, mapper, suffix}} <- count_form_param(query["form"], kind),
+         {:ok, format} <- form_format(query["format"]),
+         {:ok, lang} <- form_lang(query["lang"]) do
+      with_paperwork_ctx(conn, fn prefix, ctx ->
+        with {:ok, %{issued: issued, names: names}} <-
+               CountPaperworkSource.read_form(prefix, conn.params["id"], form_kind, ctx),
+             :ok <- count_form_size(format, issued),
+             {:ok, bin} <-
+               FormPrint.build(query["form"], mapper.data(issued, names), lang, format) do
+          {type, ext} = form_type(format)
+
+          name =
+            CountPaperworkSource.file_name("#{issued.number_label}\u005F#{suffix}", ext)
+
+          send_binary(conn, bin, type, name)
+        else
+          {:error, :not_found} ->
+            Response.not_found(conn)
+
+          {:error, reason} when reason in [:document_not_issued, :print_too_large] ->
+            unprocessable(conn, Atom.to_string(reason))
+
+          {:error, :unsupported_glyph} ->
+            unprocessable(conn, "print_unsupported_character")
+
+          {:error, {:render_failed, rules}} ->
+            Logger.error(
+              "stock count form print render failed: " <> Enum.map_join(rules, ",", &inspect/1)
+            )
+
+            Response.internal_error(conn)
+        end
+      end)
+    else
+      {:invalid, reason} -> unprocessable(conn, reason)
+    end
+  end
+
+  # `inv18` pairs with the differences document, `inv10` with the sheet; anything else is refused.
+  defp count_form_param(form, kind) do
+    case Map.fetch(@count_forms, form) do
+      {:ok, {^kind, _, _} = entry} -> {:ok, entry}
+      _ -> {:invalid, "invalid_form"}
+    end
+  end
+
+  # The PDF engine takes at most 1000 table rows; the totals row is one of them.
+  defp count_form_size(:pdf, issued),
+    do: if(CountPaperworkSource.pdf_too_large?(issued), do: {:error, :print_too_large}, else: :ok)
+
+  defp count_form_size(_, _issued), do: :ok
+
+  defp form_format(nil), do: {:ok, :pdf}
+  defp form_format("pdf"), do: {:ok, :pdf}
+  defp form_format("docx"), do: {:ok, :docx}
+  defp form_format(_), do: {:invalid, "invalid_format"}
+
+  defp form_lang(nil), do: {:ok, "ru"}
+  defp form_lang(lang) when lang in ["ru", "kk"], do: {:ok, lang}
+  defp form_lang(_), do: {:invalid, "invalid_lang"}
+
+  defp form_type(:pdf), do: {"application/pdf", "pdf"}
+
+  defp form_type(:docx),
+    do: {"application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"}
+
+  defp paperwork_lang(nil), do: {:ok, nil}
+  defp paperwork_lang(lang), do: print_lang(lang)
 
   defp print_lang(nil), do: {:ok, :ru}
 
@@ -932,9 +1132,11 @@ defmodule Letflow.Modules.Stock.Router do
     |> Plug.Conn.send_resp(200, binary)
   end
 
-  defp send_pdf(conn, binary, name) do
+  defp send_pdf(conn, binary, name), do: send_binary(conn, binary, "application/pdf", name)
+
+  defp send_binary(conn, binary, type, name) do
     conn
-    |> Plug.Conn.put_resp_content_type("application/pdf", nil)
+    |> Plug.Conn.put_resp_content_type(type, nil)
     |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="#{name}"))
     |> Plug.Conn.put_resp_header("cache-control", "no-store")
     |> Plug.Conn.send_resp(200, binary)
@@ -1053,6 +1255,17 @@ defmodule Letflow.Modules.Stock.Router do
        |> put_unless_nil("to_seq", to)}
     else
       _bad -> {:error, :invalid_filter}
+    end
+  end
+
+  # The slots (`sku location org_unit responsible lot`, validated like the balances route) narrow the
+  # movements to entries with ONE leg carrying all the given pairs (the core `leg_slots` filter); an
+  # empty `responsible`/`lot` means "the leg has none". It is how a balance row drills to its history.
+  defp movement_slot_filter(params, filters) do
+    with {:ok, slots} <- slot_filters(params) do
+      if slots == %{},
+        do: {:ok, filters},
+        else: {:ok, Map.put(filters, "leg_slots", slots)}
     end
   end
 

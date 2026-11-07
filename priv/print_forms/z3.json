@@ -1,0 +1,43 @@
+{
+  "form_layout_version": 1,
+  "form": "z3",
+  "annex": 27,
+  "blocks": [
+    {"type": "text", "label": "z3.annex"},
+    {"type": "text", "label": "z3.form_code"},
+    {"type": "field", "label": "z2.org", "key": "org_name"},
+    {"type": "field", "label": "z2.bin", "key": "org_bin"},
+    {"type": "title", "label": "z3.title"},
+    {"type": "field", "label": "z3.struct_unit", "key": "struct_unit"},
+    {"type": "field", "label": "z3.prod_kind", "key": "prod_kind"},
+    {"type": "field", "label": "z3.mark", "key": "mark"},
+    {"type": "field", "label": "z3.sort", "key": "sort"},
+    {"type": "field", "label": "z3.profile", "key": "profile"},
+    {"type": "field", "label": "z3.size", "key": "size"},
+    {"type": "field", "label": "z3.account", "key": "account"},
+    {"type": "field", "label": "z2.c3", "key": "nom"},
+    {"type": "field", "label": "z2.c4", "key": "unit"},
+    {"type": "field", "label": "z3.price", "key": "price"},
+    {"type": "field", "label": "z3.shelf", "key": "shelf"},
+    {"type": "field", "label": "z2.responsible", "key": "responsible"},
+    {"type": "field", "label": "z3.shop", "key": "shop"},
+    {"type": "field", "label": "z3.executor", "key": "executor"},
+    {"type": "field", "label": "z3.item_name", "key": "item_name"},
+    {
+      "type": "table",
+      "rows": "rows",
+      "columns": [
+        {"key": "date", "label": "z3.c1"},
+        {"key": "doc_number", "label": "z3.c2"},
+        {"key": "no", "label": "z2.c1"},
+        {"key": "party", "label": "z3.c4"},
+        {"key": "unit_out", "label": "z3.c5"},
+        {"key": "income", "label": "z3.c6"},
+        {"key": "expense", "label": "z3.c7"},
+        {"key": "balance", "label": "z3.c8"},
+        {"key": "control", "label": "z3.c9"}
+      ]
+    },
+    {"type": "field", "label": "z3.precious", "key": "precious"}
+  ]
+}

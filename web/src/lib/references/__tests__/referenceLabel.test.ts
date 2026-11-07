@@ -7,6 +7,8 @@ const r = (fv: Record<string, unknown>) => ({ field_values: fv })
 describe('labelOfRecord', () => {
   it('is "code - title" when both exist', () => {
     expect(labelOfRecord('catalog_item', r({ code: 'ITM-1', name: 'Bolt M8' }))).toBe('ITM-1 - Bolt M8')
+    // Q1 (T-1334): an asset card shows its inventory number and name
+    expect(labelOfRecord('assets_card', r({ inventory_number: 'FA-0001', name: 'Delivery van' }))).toBe('FA-0001 - Delivery van')
     expect(labelOfRecord('org_employee', r({ code: 'E-7', full_name: 'Aigul B.' }))).toBe('E-7 - Aigul B.')
   })
   it('is the one that exists when only one does', () => {

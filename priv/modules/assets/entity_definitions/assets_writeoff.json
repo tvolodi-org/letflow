@@ -1,0 +1,65 @@
+{
+  "name": "assets_writeoff",
+  "display_name": "Asset write off (header)",
+  "description": "GH #3889 / REQ-753 (assets C11), docs/assets/asset-workflow-documents.md. The header of a write off of assets (cause writeoff, prefix AWO). It is written only by module assets (managed type), same shape rules as assets_commission: document_id is the id of the versioned document that carries state and number; org_unit_id is the issuing (handing) org unit, the scope column. Master ids are record ids of other modules (no foreign key; checked at issue). After issue nothing of the header changes. No price or value is stored.",
+  "fields": [
+    {
+      "name": "document_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "event_time",
+      "type": "datetime",
+      "required": true
+    },
+    {
+      "name": "org_unit_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "location_id",
+      "type": "string"
+    },
+    {
+      "name": "material_responsible_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "actual_user_id",
+      "type": "string"
+    },
+    {
+      "name": "reason_code",
+      "type": "enum",
+      "required": true,
+      "enum_values": [
+        "disposed",
+        "lost",
+        "broken",
+        "expired",
+        "other"
+      ]
+    },
+    {
+      "name": "reason_text",
+      "type": "string"
+    },
+    {
+      "name": "note",
+      "type": "string"
+    }
+  ],
+  "indexes": [
+    {
+      "name": "idx_assets_writeoff_document_id",
+      "fields": [
+        "document_id"
+      ]
+    }
+  ]
+}

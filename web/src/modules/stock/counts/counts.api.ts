@@ -35,8 +35,10 @@ export interface CountOrder {
   entry_id?: string | null
   posted_at?: string | null
   posted_by?: string | null
+  posted_by_label?: string | null
   reversed_at?: string | null
   reversed_by?: string | null
+  reversed_by_label?: string | null
   posting_check?: 'ok' | 'mismatch' | null
   posting_document_id?: string | null
   posting_number?: string | null
@@ -74,6 +76,8 @@ export interface CountEntry {
   quantity_after: string | null
   entered_by?: string | null
   entered_by_employee_id?: string | null
+  /** Person name (employee "code - name", else the user's name), display only; absent when it cannot be resolved. */
+  entered_by_label?: string | null
   entered_at: string | null
 }
 export interface SurplusBody {
@@ -119,6 +123,10 @@ export interface SignatureRow {
   marked_at: string
 }
 export type PaperworkKind = 'order' | 'sheet' | 'differences'
+/** T-1418: the official count forms and their file formats and languages (forms exist in ru and kk only). */
+export type CountForm = 'inv18' | 'inv10'
+export type CountFormFormat = 'docx' | 'pdf'
+export type CountFormLang = 'ru' | 'kk'
 export interface CountPage<T> {
   rows: T[]
   next_cursor: string | null
@@ -147,7 +155,11 @@ export const countsApi = {
   post: (id: string) => client.post<CountOrder>(`${BASE}/${id}/post`),
   reverse: (id: string, body: ReverseBody) => client.post<CountOrder>(`${BASE}/${id}/reverse`, body),
   postingRecord: (id: string) => client.post<CountOrder>(`${BASE}/${id}/posting-record`),
-  paperwork: (id: string, kind: PaperworkKind) => client.getBlob(`${BASE}/${id}/paperwork/${kind}`),
+  paperwork: (id: string, kind: PaperworkKind, lang?: UiLocale) =>
+    client.getBlob(`${BASE}/${id}/paperwork/${kind}`, lang ? { lang } : undefined),
   print: (id: string, kind: PaperworkKind, lang: UiLocale) => client.getBlob(`${BASE}/${id}/print/${kind}`, { lang }),
+  /** T-1418: the official form (Inv-18 on the differences, Inv-10 on the sheet) as .docx or PDF, ru or kk. */
+  printForm: (id: string, kind: PaperworkKind, form: CountForm, format: CountFormFormat, lang: CountFormLang) =>
+    client.getBlob(`${BASE}/${id}/print/${kind}`, { form, format, lang }),
   entries: (id: string, params: Record<string, string>) => client.get<CountPage<CountEntry>>(`${BASE}/${id}/entries`, params),
 }

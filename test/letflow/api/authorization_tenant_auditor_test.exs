@@ -38,7 +38,8 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :MembershipsRead,
     :PromotionsRead,
     :MyModulesRead,
-    :MyAccessRead
+    :MyAccessRead,
+    :MyPreferencesSet
   ]
 
   # The 27 core permissions the auditor does NOT hold (41 core permissions minus the 14 above).
@@ -93,11 +94,12 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     do: %AccessContext{user_id: "u-req448", roles: roles, platform_tenant?: platform_tenant?}
 
   describe "roles/0" do
-    test "returns eight atoms ending in TENANT_AUDITOR, the seven existing roles first and unchanged" do
+    test "returns nine atoms ending in STOREKEEPER, the seven existing roles first and unchanged" do
       roles = Authorization.roles()
 
-      assert length(roles) == 8
-      assert List.last(roles) == :TENANT_AUDITOR
+      assert length(roles) == 9
+      assert Enum.at(roles, 7) == :TENANT_AUDITOR
+      assert List.last(roles) == :STOREKEEPER
 
       assert Enum.take(roles, 7) == [
                :PLATFORM_ADMIN,
@@ -112,7 +114,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
   end
 
   describe "AC1: the grant rule" do
-    test "for every p in permissions/0, role_allows?(:TENANT_AUDITOR, p) is true exactly for the 15 literal atoms and false for every other core and Catalog permission" do
+    test "for every p in permissions/0, role_allows?(:TENANT_AUDITOR, p) is true exactly for the 16 literal atoms and false for every other core and Catalog permission" do
       permissions = Authorization.permissions()
       assert length(permissions) > length(Authorization.core_permissions())
 
@@ -125,7 +127,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
 
       granted = Enum.filter(permissions, &Authorization.role_allows?(:TENANT_AUDITOR, &1))
       assert Enum.sort(granted) == Enum.sort(@auditor_granted)
-      assert length(granted) == 15
+      assert length(granted) == 16
     end
 
     test "the refused core set is the literal 40, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
@@ -230,7 +232,8 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
               :MembershipsRead,
               :PromotionsRead,
               :MyModulesRead,
-              :MyAccessRead
+              :MyAccessRead,
+              :MyPreferencesSet
             ] do
           assert Authorization.evaluate_access(ctx([:TENANT_AUDITOR], flag), key).kind == :Allow,
                  "#{inspect(key)} platform_tenant?=#{flag}"

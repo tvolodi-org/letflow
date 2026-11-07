@@ -767,6 +767,8 @@ defmodule Letflow.Entities.StepWrites do
       credential: Map.get(ctx, :credential),
       activator_id: ctx.activator_id,
       manifest_hash: owner_manifest_hash(ctx),
+      # REQ-758: the stamp's module, so the recheck can tell a cross-module posting line from the owner's.
+      owner_module_id: owner_module_id(ctx),
       variable_labels: labels,
       ledger_consent:
         Map.get(ctx, :consented, ctx.node_id in Map.get(ctx, :ledger_consent_nodes, []))
@@ -775,6 +777,9 @@ defmodule Letflow.Entities.StepWrites do
 
   defp owner_manifest_hash(%{owner: %{manifest_hash: hash}}) when is_binary(hash), do: hash
   defp owner_manifest_hash(_ctx), do: nil
+
+  defp owner_module_id(%{owner: %{module_id: id}}) when is_binary(id), do: id
+  defp owner_module_id(_ctx), do: nil
 
   defp sort_type(%{"entity_type" => type}) when is_binary(type), do: type
   defp sort_type(_line), do: ""
@@ -1120,6 +1125,11 @@ defmodule Letflow.Entities.StepWrites do
   # internal failure.
   defp interpret_line(i, _name, :ledger_post, {:ledger_denied, detail}),
     do: {:refused, i, :write_not_permitted, detail}
+
+  # REQ-764: a guard hold carries its audit facts for the engine (`Engine` reads them from the
+  # failed step's reason); the line outcome is that of the inner `posting_held` refusal.
+  defp interpret_line(i, _name, :ledger_post, {:ledger_held, _facts, refusal}),
+    do: HandlerPost.failure(i, refusal)
 
   defp interpret_line(i, _name, :ledger_post, reason), do: HandlerPost.failure(i, reason)
 

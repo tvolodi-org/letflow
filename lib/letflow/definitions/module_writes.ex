@@ -20,9 +20,9 @@ defmodule Letflow.Definitions.ModuleWrites do
   activated and the tenant's CURRENT state (reads only, no lock):
 
     1. the row carries the ownership stamp an install put on it (`OwnerStamp.from_row/1`) and
-       the line names the stamp's module;
+       the line names the stamp's module (or is a posting line the cross-module rule below allows);
     2. the module is installed in this tenant and its installed manifest hash equals the
-       stamp's `owner_manifest_hash` AND, strictly, the manifest hash of the module compiled
+       stamp's `owner_manifest_hash` (or the stamp is in `accepted_manifest_hashes`, REQ-769) AND, strictly, the manifest hash of the module compiled
        into this build (decision OQ-R3: no drift tolerance);
     3. the handler resolves in the compiled `Letflow.Modules.Catalog` now;
     4. the graph still hashes to the stamp's `owner_body_hash`;
@@ -42,6 +42,25 @@ defmodule Letflow.Definitions.ModuleWrites do
   (`module_writes_duplicate_ledger_posting`), and a posting line on a `SERVICE_TASK` is refused
   (`module_writes_ledger_on_service_task`) unless the node carries `ledger_post_consent: true`
   (REQ-688). These are activation-only checks in `violations/6`.
+
+  ## Cross-module posting lines (REQ-758, decision 0082)
+
+  A definition stamped by module M may carry a line of ANOTHER module N only when ALL hold:
+
+    * (a) N is in the compiled manifest `depends_on` of M (direct dependencies only);
+    * (b) the line's handler in N resolves now and registers `posts_ledger`;
+    * (c) the same node carries a posting line of M itself;
+    * (d) N is installed in the tenant and its installed manifest hash equals N's compiled hash
+      (no accepted-hash tolerance: N is not the stamp, so there is no stamp hash to compare).
+
+  Failing (a), (b) or (c) answers `module_write_stamp_mismatch`, the code a foreign line got before, so
+  nothing leaks about which condition failed; failing (d) answers the existing
+  `module_write_module_not_installed` / `module_write_hash_mismatch`. The stamp checks of M (installed,
+  hash, body unchanged) stay on the N line, so a tampered node cannot reach N. Any other line of
+  another module keeps answering `module_write_stamp_mismatch`. The posting-line checks above (cap of
+  two, one ledger id once, no SERVICE_TASK without consent) already look at posting lines of any
+  module and need no change. Posting authority stays per registration: each posting is authorized at
+  run time by its own registration's permission, never by the activation.
 
   ## Hashes
 
@@ -156,14 +175,7 @@ defmodule Letflow.Definitions.ModuleWrites do
   @spec line_violations([term()], map(), non_neg_integer(), String.t()) :: [violation()]
   def line_violations(writes, definition, entity_write_count, prefix)
       when is_list(writes) and is_integer(entity_write_count) and is_binary(prefix) do
-    stamp_state = stamp_state(definition, prefix)
-
-    writes
-    |> Enum.with_index()
-    |> Enum.flat_map(fn {line, index} ->
-      for code <- line_codes(line, stamp_state),
-          do: %{index: entity_write_count + index, code: code}
-    end)
+    resolved_line_violations(writes, definition, entity_write_count, prefix, nil, :strict)
   end
 
   # Entity lines alone above the cap are reported by the entity validator already; this adds
@@ -259,36 +271,112 @@ defmodule Letflow.Definitions.ModuleWrites do
 
   defp posting_ledger_ids(_line), do: nil
 
+  @doc """
+  REQ-768: the violations of one node's `module_writes` as `violations/6` would report them with no
+  activator codes, but judged against the GIVEN install hashes instead of the tenant's stored ones
+  (`%{installed: binary, accepted: [binary]}`). Used only by `Letflow.Modules.UpgradePlan` to answer
+  "does this stamp still pass after the upgrade?" from the tenant row and the compiled manifest; the
+  hashes are never request-derived. Activation and run time call `violations/6` and
+  `line_violations/4`, which read the database as before.
+  """
+  @spec node_violations_with_hashes(
+          Graph.Node.t(),
+          term(),
+          map(),
+          non_neg_integer(),
+          String.t(),
+          %{installed: binary(), accepted: [binary()]}
+        ) :: [violation()]
+  def node_violations_with_hashes(
+        %Graph.Node{node_type: node_type} = node,
+        writes,
+        definition,
+        entity_write_count,
+        prefix,
+        %{installed: installed, accepted: accepted} = hashes
+      )
+      when is_binary(installed) and is_list(accepted) do
+    node_codes =
+      cond do
+        not is_list(writes) -> [:module_writes_not_a_list]
+        node_type not in @node_types -> [:module_writes_node_type_not_supported]
+        true -> []
+      end
+
+    if is_list(writes) and node_type in @node_types do
+      Enum.map(node_codes, &%{index: 0, code: &1}) ++
+        cap_violations(writes, entity_write_count) ++
+        resolved_line_violations(writes, definition, entity_write_count, prefix, hashes, :strict) ++
+        ledger_violations(node, writes, entity_write_count)
+    else
+      Enum.map(node_codes, &%{index: 0, code: &1})
+    end
+  end
+
+  @doc """
+  REQ-771: `line_violations/4` for the engine's RUN-TIME authorization. Identical, except that the
+  one cause "installed hash differs from the hash compiled into this build" (the tenant's module is
+  not upgraded yet) is reported as `:module_write_upgrade_required` instead of
+  `:module_write_hash_mismatch`, so the caller can answer the clear 409. Activation and the upgrade
+  plan keep `line_violations/4` and `node_violations_with_hashes/6`.
+  """
+  @spec runtime_line_violations([term()], map(), non_neg_integer(), String.t()) :: [violation()]
+  def runtime_line_violations(writes, definition, entity_write_count, prefix)
+      when is_list(writes) and is_integer(entity_write_count) and is_binary(prefix) do
+    resolved_line_violations(writes, definition, entity_write_count, prefix, nil, :runtime)
+  end
+
+  defp resolved_line_violations(writes, definition, entity_write_count, prefix, hashes, mode) do
+    stamp_state = stamp_state(definition, prefix, hashes, mode)
+
+    writes
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {line, index} ->
+      for code <- line_codes(line, stamp_state, writes, prefix),
+          do: %{index: entity_write_count + index, code: code}
+    end)
+  end
+
   # ── stamp-level state, resolved ONCE per node ────────────────────────────────────────────
 
   # {:ok, stamp, stamp_codes} | {:error, :module_write_stamp_missing}
   #
   # `stamp_codes` are the line-independent refusals (not installed, hash mismatch, body
   # changed), computed once; the handler-dependent ones are evaluated per line.
-  defp stamp_state(definition, prefix) do
+  #
+  # `hashes` is nil (read the tenant row) or the injected post-upgrade hashes (REQ-768).
+  defp stamp_state(definition, prefix, hashes, mode) do
     case OwnerStamp.from_row(definition) do
       :none ->
         {:error, :module_write_stamp_missing}
 
       {:ok, stamp} ->
-        {:ok, stamp, stamp_codes(stamp, definition, prefix)}
+        {:ok, stamp, stamp_codes(stamp, definition, prefix, hashes, mode)}
     end
   end
 
-  defp stamp_codes(stamp, definition, prefix) do
+  defp stamp_codes(stamp, definition, prefix, hashes, mode) do
     install_codes =
-      case Installs.installed_manifest_hash(stamp.module_id, prefix: prefix) do
+      case install_hashes_for(stamp.module_id, prefix, hashes) do
         {:error, :not_installed} ->
           [:module_write_module_not_installed]
 
         {:error, :no_installed_hash} ->
           [:module_write_hash_mismatch]
 
-        {:ok, installed} ->
+        {:ok, %{installed: installed, accepted: accepted}} ->
           cond do
-            installed != stamp.manifest_hash -> [:module_write_hash_mismatch]
-            compiled_differs?(stamp.module_id, installed) -> [:module_write_hash_mismatch]
-            true -> []
+            # REQ-769: the stamp is the installed hash or an accepted earlier one.
+            stamp.manifest_hash != installed and stamp.manifest_hash not in accepted ->
+              [:module_write_hash_mismatch]
+
+            compiled_differs?(stamp.module_id, installed) ->
+              if mode == :runtime,
+                do: [:module_write_upgrade_required],
+                else: [:module_write_hash_mismatch]
+
+            true ->
+              []
           end
       end
 
@@ -306,6 +394,12 @@ defmodule Letflow.Definitions.ModuleWrites do
     install_codes ++ body_codes
   end
 
+  defp install_hashes_for(module_id, prefix, nil),
+    do: Installs.install_hashes(module_id, prefix: prefix)
+
+  defp install_hashes_for(_module_id, _prefix, %{installed: _, accepted: _} = hashes),
+    do: {:ok, hashes}
+
   # Strict equality with the module compiled into THIS build. A module that is not compiled
   # in is reported by the per-line handler lookup instead, so it is not a hash difference.
   defp compiled_differs?(module_id, installed_hash) do
@@ -317,10 +411,10 @@ defmodule Letflow.Definitions.ModuleWrites do
 
   # ── per-line codes ───────────────────────────────────────────────────────────────────────
 
-  defp line_codes(line, _stamp_state) when not is_map(line) or is_struct(line),
+  defp line_codes(line, _stamp_state, _writes, _prefix) when not is_map(line) or is_struct(line),
     do: [:module_write_line_malformed]
 
-  defp line_codes(line, stamp_state) do
+  defp line_codes(line, stamp_state, writes, prefix) do
     cond do
       not Enum.all?(Map.keys(line), &is_binary/1) ->
         [:module_write_line_malformed]
@@ -329,7 +423,7 @@ defmodule Letflow.Definitions.ModuleWrites do
         [:module_write_unknown_key]
 
       true ->
-        identity_codes(line) ++ resolved_codes(line, stamp_state)
+        identity_codes(line) ++ resolved_codes(line, stamp_state, writes, prefix)
     end
   end
 
@@ -343,7 +437,7 @@ defmodule Letflow.Definitions.ModuleWrites do
   end
 
   # Everything that needs a well-formed `module` and `handler`.
-  defp resolved_codes(line, stamp_state) do
+  defp resolved_codes(line, stamp_state, writes, prefix) do
     module = Map.get(line, "module")
     handler = Map.get(line, "handler")
 
@@ -352,14 +446,56 @@ defmodule Letflow.Definitions.ModuleWrites do
         {:error, code} ->
           [code]
 
-        {:ok, %{module_id: stamp_module}, _stamp_codes} when stamp_module != module ->
-          [:module_write_stamp_mismatch]
+        {:ok, %{module_id: stamp_module}, stamp_codes} when stamp_module != module ->
+          cross_module_codes(stamp_module, stamp_codes, line, writes, prefix)
 
         {:ok, _stamp, stamp_codes} ->
           stamp_codes ++ handler_codes(module, handler, line)
       end
     else
       []
+    end
+  end
+
+  # REQ-758 (decision 0082): a line of a module other than the stamp's. (a), (b) and (c) are
+  # compiled-manifest facts; any failure is the old `module_write_stamp_mismatch`. (d) reads the
+  # tenant's install row of N.
+  defp cross_module_codes(stamp_module, stamp_codes, line, writes, prefix) do
+    %{"module" => module, "handler" => handler} = line
+
+    if depends_on?(stamp_module, module) and posting_ledger_ids(line) != nil and
+         own_posting_line?(stamp_module, writes) do
+      stamp_codes ++
+        dependency_install_codes(module, prefix) ++ handler_codes(module, handler, line)
+    else
+      [:module_write_stamp_mismatch]
+    end
+  end
+
+  defp depends_on?(stamp_module, module) do
+    case Catalog.fetch(stamp_module) do
+      {:ok, entry} -> module in entry.manifest().depends_on
+      {:error, :not_found} -> false
+    end
+  end
+
+  defp own_posting_line?(stamp_module, writes) do
+    Enum.any?(writes, fn
+      %{"module" => ^stamp_module} = line -> posting_ledger_ids(line) != nil
+      _other -> false
+    end)
+  end
+
+  defp dependency_install_codes(module, prefix) do
+    case Installs.install_hashes(module, prefix: prefix) do
+      {:error, :not_installed} ->
+        [:module_write_module_not_installed]
+
+      {:error, :no_installed_hash} ->
+        [:module_write_hash_mismatch]
+
+      {:ok, %{installed: installed}} ->
+        if compiled_differs?(module, installed), do: [:module_write_hash_mismatch], else: []
     end
   end
 

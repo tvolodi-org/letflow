@@ -65,3 +65,4 @@ web/tests/e2e/.pipeline-state/
 # The frontend env template is tracked on purpose (the blanket `.env.*` rule
 # above would otherwise swallow it).
 !web/.env.example
+.e2e/

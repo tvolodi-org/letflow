@@ -314,6 +314,7 @@ config :letflow, :modules, [
   Letflow.Modules.Locations,
   Letflow.Modules.Codes,
   Letflow.Modules.Stock,
+  Letflow.Modules.Assets,
   Letflow.Modules.Fixture,
   Letflow.Modules.FixtureDependent,
   Letflow.Modules.FixtureFailingInstall,
@@ -346,6 +347,9 @@ config :letflow, :modules, [
   # REQ-684 / GH #3698: two ledger registrations, a posting handler and a policy
   # (test/support/modules/fixture_ledger_post/).
   Letflow.Modules.FixtureLedgerPost,
+  # REQ-758 / GH #3903: module M of the cross-module posting line tests; depends on fixture_ledger_post
+  # (test/support/modules/fixture_xpost_owner/).
+  Letflow.Modules.FixtureXpostOwner,
   # REQ-711 / GH #3751: ledger storage at install and reactivate
   # (test/support/modules/fixture_ledger_storage/).
   Letflow.Modules.FixtureLedgerStorage,
@@ -406,6 +410,7 @@ config :letflow, :record_triggers_enabled, false
 # REQ-597 / GH #3363: exam notification mails (the exam_result mail after a scored submit). Default
 # off. Read only by Letflow.Modules.Exam.Notifications.enabled?/0.
 config :letflow, :exam_notifications_enabled, false
+config :letflow, :asset_notifications_enabled, false
 
 # REQ-620 / GH #3463: same as config/dev.exs -- lets CreateLedgerTables.down run. Not set in
 # config/prod.exs or config/runtime.exs.

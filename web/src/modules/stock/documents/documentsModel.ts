@@ -8,6 +8,7 @@ import { STOCK_TIME_ZONE } from '../register/stockRegisterModel'
 import { STOCK_POST, STOCK_REVERSE } from '../stockPermissions'
 import type { DocumentLine, StockDocument } from './documents.api'
 import { formatDateTimeInZone } from '@/i18n/format'
+import { roundDecimalText } from '@/lib/formatQuantity'
 
 export const DOC_KINDS = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return', 'opening'] as const
 export type DocKind = (typeof DOC_KINDS)[number]
@@ -19,7 +20,8 @@ export const isOpening = (kind: string): boolean => kind === 'opening'
 export const DOC_STATES = ['draft', 'issued', 'posted', 'reversed', 'cancelled'] as const
 export const WRITE_OFF_REASONS = ['lost', 'damaged', 'used_up', 'other'] as const
 export const REVERSE_REASONS = ['wrong_document', 'wrong_quantity', 'wrong_master_data', 'other'] as const
-export const MAX_LINES = 100
+/** Mirrors `Shape.max_lines` of the server (1000, REQ-774): the one web declaration of the line cap. */
+export const MAX_LINES = 1000
 export const TEXT_MAX = 500
 export const REF_MAX = 200
 
@@ -78,7 +80,14 @@ export function documentErrorMessageId(err: unknown): string {
 
 export const PRINT_KINDS = ['transfer', 'hand_over', 'return'] as const
 export const PRINT_STATES = ['issued', 'posted', 'reversed'] as const
-export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const
+export const PRINT_REASONS = [
+  'document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang', 'invalid_form', 'invalid_format', 'card_too_long',
+] as const
+
+/** T-1417: Z-5 (internal movement invoice) exists for a transfer that has been issued. */
+export function documentHasZ5(doc: { kind: string; state: string }): boolean {
+  return doc.kind === 'transfer' && documentPrintable(doc)
+}
 
 /** REQ-738: the PDF exists for a transfer, hand over or return that has been issued. */
 export function documentPrintable(doc: { kind: string; state: string }): boolean {
@@ -142,7 +151,7 @@ export function nowZonedLocal(tz: string = STOCK_TIME_ZONE): string {
 
 export function formatEventTime(iso: string | null | undefined, locale: string, dash: string, tz: string = STOCK_TIME_ZONE): string {
   if (!iso) return dash
-  return formatDateTimeInZone(iso, { timeZone: tz, locale, intlLocale: locale, enStyle: 'intl' })
+  return formatDateTimeInZone(iso, { timeZone: tz, locale })
 }
 
 // ---- actions -----------------------------------------------------------------------------------------------
@@ -237,10 +246,16 @@ export function emptyForm(kind: DocKind, eventTime: string = nowZonedLocal()): F
 
 const s = (v: string | null | undefined): string => v ?? ''
 
+/** Decimal text for an input: the server sends 9 decimals; only trailing zeros go (no rounding, so a save keeps the value). */
+export function editDecimal(v: string | null | undefined): string {
+  const t = (v ?? '').trim()
+  return t === '' ? '' : (roundDecimalText(t, 9) ?? t)
+}
+
 export function lineFromDocument(l: DocumentLine): LineForm {
   return {
     itemId: s(l.catalog_item_id), uomId: s(l.catalog_uom_id), lotId: s(l.catalog_lot_id),
-    quantity: s(l.quantity), unitPrice: s(l.unit_price), lineValue: s(l.line_value),
+    quantity: editDecimal(l.quantity), unitPrice: editDecimal(l.unit_price), lineValue: editDecimal(l.line_value),
     locationId: s(l.location_id), responsibleId: s(l.responsible_id), receivedOn: s(l.received_on),
     externalRefSystem: s(l.external_ref_system), externalRefId: s(l.external_ref_id),
   }
@@ -294,6 +309,27 @@ export interface FormCheck {
   errors: Record<string, string>
 }
 
+/** The checks of one line (field -> message id). Shared by the whole-form validation and the lines editor, which shows them
+ *  per line while the user types. */
+export function validateLine(kind: DocKind, l: LineForm): Record<string, string> {
+  const errors: Record<string, string> = {}
+  const opening = isOpening(kind)
+  if (l.itemId === '') errors['itemId'] = 'stock.doc.error.field_required'
+  else if (l.uomId === '') errors['itemId'] = 'stock.doc.error.unit_not_valid'
+  if (!isDecimalAboveZero(l.quantity)) errors['quantity'] = 'stock.doc.error.quantity_invalid'
+  if (opening) {
+    if (l.locationId === '') errors['locationId'] = 'stock.doc.error.field_required'
+    if (l.responsibleId === '') errors['responsibleId'] = 'stock.doc.error.field_required'
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(l.receivedOn)) errors['receivedOn'] = 'stock.doc.error.field_required'
+    else if (l.receivedOn > nowZonedLocal().slice(0, 10)) errors['receivedOn'] = 'stock.doc.error.received_on_in_future'
+  }
+  if (kind === 'receipt' || opening) {
+    if (l.unitPrice !== '' && !isDecimalNonNegative(l.unitPrice)) errors['unitPrice'] = 'stock.doc.error.price_invalid'
+    if (l.lineValue !== '' && !isDecimalNonNegative(l.lineValue)) errors['lineValue'] = 'stock.doc.error.price_invalid'
+  }
+  return errors
+}
+
 export function validateForm(f: FormState): FormCheck {
   const errors: Record<string, string> = {}
   const req = (key: string, v: string) => {
@@ -339,20 +375,7 @@ export function validateForm(f: FormState): FormCheck {
   if (!two && !opening && f.kind !== 'receipt' && f.reasonText.length > TEXT_MAX) errors['header.reasonText'] = 'stock.doc.error.textTooLong'
   if (f.lines.length < 1 || f.lines.length > MAX_LINES) errors['lines'] = 'stock.doc.error.lines_count'
   f.lines.forEach((l, i) => {
-    const k = `lines.${i}`
-    if (l.itemId === '') errors[`${k}.itemId`] = 'stock.doc.error.field_required'
-    else if (l.uomId === '') errors[`${k}.itemId`] = 'stock.doc.error.unit_not_valid'
-    if (!isDecimalAboveZero(l.quantity)) errors[`${k}.quantity`] = 'stock.doc.error.quantity_invalid'
-    if (opening) {
-      if (l.locationId === '') errors[`${k}.locationId`] = 'stock.doc.error.field_required'
-      if (l.responsibleId === '') errors[`${k}.responsibleId`] = 'stock.doc.error.field_required'
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(l.receivedOn)) errors[`${k}.receivedOn`] = 'stock.doc.error.field_required'
-      else if (l.receivedOn > nowZonedLocal().slice(0, 10)) errors[`${k}.receivedOn`] = 'stock.doc.error.received_on_in_future'
-    }
-    if (f.kind === 'receipt' || opening) {
-      if (l.unitPrice !== '' && !isDecimalNonNegative(l.unitPrice)) errors[`${k}.unitPrice`] = 'stock.doc.error.price_invalid'
-      if (l.lineValue !== '' && !isDecimalNonNegative(l.lineValue)) errors[`${k}.lineValue`] = 'stock.doc.error.price_invalid'
-    }
+    for (const [field, id] of Object.entries(validateLine(f.kind, l))) errors[`lines.${i}.${field}`] = id
   })
   return { errors }
 }

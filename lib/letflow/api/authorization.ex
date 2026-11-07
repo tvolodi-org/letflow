@@ -6,9 +6,9 @@ defmodule Letflow.Api.Authorization do
   no I/O, never raises on any input. See
   `lib/letflow/design/req069-authorization.md` for the full design.
 
-  ## Eight roles (REQ-448)
+  ## Nine roles (REQ-448, D-093)
 
-  `role/0` has eight members: `PLATFORM_ADMIN`, `PROCESS_DESIGNER`,
+  `role/0` has nine members: `PLATFORM_ADMIN`, `PROCESS_DESIGNER`,
   `PROCESS_OPERATOR`, `TASK_WORKER`, `AGENT_RUNNER`, `CANDIDATE`,
   `TENANT_ADMIN` (REQ-447) and `TENANT_AUDITOR` (REQ-448). `TENANT_ADMIN` is
   allowed a permission iff `permission_scope/1` of it is `:tenant`; never a
@@ -283,6 +283,13 @@ defmodule Letflow.Api.Authorization do
   effective role list is empty (no groups, or only a dropped `PLATFORM_ADMIN`)
   still gets its own, empty, answer instead of a 403.
 
+  ## `:MyPreferencesSet` (T-1389) — role-agnostic, granted to every role including CANDIDATE
+
+  The write of `PUT /me/preferences` (the caller's own display settings, rows keyed by the
+  authenticated user id). Granted like `:MyAccessRead`. The name deliberately does not end in
+  `Write`/`Manage`: a TENANT_AUDITOR may set its own layout, and the auditor test that refuses
+  every write-class permission does not apply. The read of the same path reuses `:MyAccessRead`.
+
   ## Catalog-sourced permissions and role grants (REQ-401, D4)
 
   `permissions/0` and `role_allows?/2` are both widened by REQ-401 to also
@@ -304,6 +311,7 @@ defmodule Letflow.Api.Authorization do
           | :CANDIDATE
           | :TENANT_ADMIN
           | :TENANT_AUDITOR
+          | :STOREKEEPER
 
   @type permission ::
           :DefinitionsWrite
@@ -342,6 +350,7 @@ defmodule Letflow.Api.Authorization do
           | :ModulesManage
           | :MyModulesRead
           | :MyAccessRead
+          | :MyPreferencesSet
           | :PlatformServicesManage
           | :TenantSettingsManage
           | :PromotionsRead
@@ -415,6 +424,7 @@ defmodule Letflow.Api.Authorization do
           | :ModulesManage
           | :MyModulesRead
           | :MyAccessRead
+          | :MyPreferencesSet
           | :ScopeNodePathsConsistencyRead
           | :ScopeEnforcementRead
           | :ScopeEnforcementManage
@@ -466,7 +476,8 @@ defmodule Letflow.Api.Authorization do
     :AGENT_RUNNER,
     :CANDIDATE,
     :TENANT_ADMIN,
-    :TENANT_AUDITOR
+    :TENANT_AUDITOR,
+    :STOREKEEPER
   ]
 
   @permissions [
@@ -505,6 +516,7 @@ defmodule Letflow.Api.Authorization do
     :ModulesManage,
     :MyModulesRead,
     :MyAccessRead,
+    :MyPreferencesSet,
     :EntitiesRestrictionsManage,
     # ISS-0993 (design iss0993-platform-scope-separation.md section 5)
     :PlatformServicesManage,
@@ -555,12 +567,12 @@ defmodule Letflow.Api.Authorization do
                       end
                     )
 
-  @doc "All eight `Role` values, R-Co's exact names plus ISS-0646's `CANDIDATE`, REQ-447's `TENANT_ADMIN` (every tenant-scope permission, never a platform-scope one) and REQ-448's read-only `TENANT_AUDITOR`. See `roles_from_strings/1` for untrusted-input conversion."
+  @doc "All nine `Role` values, R-Co's exact names plus ISS-0646's `CANDIDATE`, REQ-447's `TENANT_ADMIN` (every tenant-scope permission, never a platform-scope one) and REQ-448's read-only `TENANT_AUDITOR` and D-093's `STOREKEEPER` (decision 0081). See `roles_from_strings/1` for untrusted-input conversion."
   @spec roles() :: [role()]
   def roles, do: @roles
 
   @doc """
-  All fifty-five core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All fifty-six core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -756,6 +768,7 @@ defmodule Letflow.Api.Authorization do
   defp role_from_string("CANDIDATE"), do: :CANDIDATE
   defp role_from_string("TENANT_ADMIN"), do: :TENANT_ADMIN
   defp role_from_string("TENANT_AUDITOR"), do: :TENANT_AUDITOR
+  defp role_from_string("STOREKEEPER"), do: :STOREKEEPER
   defp role_from_string(_other), do: nil
 
   @doc """
@@ -1363,6 +1376,10 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/tenant/modules/:module_id/uninstall"), do: :ModulesManage
   def endpoint_policy_key("POST", "/tenant/modules/:module_id/reactivate"), do: :ModulesManage
 
+  # REQ-768 — dry-run upgrade plan (read-only report, one planned journal row).
+  def endpoint_policy_key("POST", "/tenant/modules/:module_id/upgrade/plan"), do: :ModulesManage
+  def endpoint_policy_key("POST", "/tenant/modules/:module_id/upgrade"), do: :ModulesManage
+
   # REQ-415 — solution install: one atomic call installs a bundle of modules
   # in dependency order. Same :ModulesManage gate as the per-module install
   # route above (PLATFORM_ADMIN-only, per REQ-401/D5).
@@ -1405,6 +1422,11 @@ defmodule Letflow.Api.Authorization do
   # REQ-449 — Letflow.Routers.Me's GET /me/access (full path
   # /api/v1/me/access). See this module's moduledoc "MyAccessRead" section.
   def endpoint_policy_key("GET", "/me/access"), do: :MyAccessRead
+
+  # T-1389: per-user preferences store (Letflow.Routers.Me). The read reuses the role-agnostic
+  # :MyAccessRead; the write is the role-agnostic :MyPreferencesSet (own rows only).
+  def endpoint_policy_key("GET", "/me/preferences"), do: :MyAccessRead
+  def endpoint_policy_key("PUT", "/me/preferences"), do: :MyPreferencesSet
 
   # REQ-401 §4 — the Catalog-module route fallback. Every module route is
   # mounted at `/modules/<id>/<rest>` (relative to `/api/v1`, same convention
@@ -1651,6 +1673,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:RecordTriggerBindingsManage), do: :ScriptsPublish
   def required_permission(:MyModulesRead), do: :MyModulesRead
   def required_permission(:MyAccessRead), do: :MyAccessRead
+  def required_permission(:MyPreferencesSet), do: :MyPreferencesSet
 
   # REQ-496 (design D11): same holders as the tree-write permission (0050 D7);
   # tenant scope, so no new permission atom.
@@ -1765,6 +1788,9 @@ defmodule Letflow.Api.Authorization do
   # REQ-449 — same shape, second clause (the first one above must stay first).
   def role_allows?(_role, :MyAccessRead), do: true
 
+  # T-1389 — third clause, same shape: the caller's own display preferences.
+  def role_allows?(_role, :MyPreferencesSet), do: true
+
   def role_allows?(role, permission) do
     core_role_allows?(role, permission) or permission in Letflow.Modules.Catalog.role_grants(role)
   end
@@ -1773,6 +1799,7 @@ defmodule Letflow.Api.Authorization do
   @spec role_allows_without_module_grants?(role(), permission() | atom()) :: boolean()
   def role_allows_without_module_grants?(_role, :MyModulesRead), do: true
   def role_allows_without_module_grants?(_role, :MyAccessRead), do: true
+  def role_allows_without_module_grants?(_role, :MyPreferencesSet), do: true
 
   def role_allows_without_module_grants?(role, permission),
     do: core_role_allows?(role, permission)
@@ -1950,5 +1977,24 @@ defmodule Letflow.Api.Authorization do
         :HelpRead,
         :MembershipsRead,
         :PromotionsRead
+      ]
+
+  # D-093 / decision 0081: STOREKEEPER holds the stock permissions through the
+  # stock manifest's role_grants (Catalog fallback in role_allows?/2). This is
+  # the closed CORE list: own tasks (count and approval tasks), reference-data
+  # reads for forms and pickers, and the xlsx import of opening lines (guarded
+  # in Routers.Entities.RecordImport to module-managed types). No write,
+  # manage, export, token, user, role, module, settings or audit permission,
+  # never a platform-scope one.
+  defp core_role_allows?(:STOREKEEPER, permission),
+    do:
+      permission in [
+        :HelpRead,
+        :MembershipsRead,
+        :TasksRead,
+        :TasksComplete,
+        :EntitiesDefinitionsRead,
+        :EntitiesQuery,
+        :EntitiesRecordsImport
       ]
 end

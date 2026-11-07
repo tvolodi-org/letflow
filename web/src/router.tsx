@@ -25,6 +25,7 @@ import GroupsPage from '@/pages/admin/GroupsPage'
 import TokensPage from '@/pages/admin/TokensPage'
 import AuditLogPage from '@/pages/admin/AuditLogPage'
 import AppearanceSettingsPage from '@/pages/admin/AppearanceSettingsPage'
+import MySettingsPage from '@/pages/me/MySettingsPage'
 import HealthDashboardPage from '@/pages/admin/HealthDashboardPage'
 import MetricsPage from '@/pages/admin/MetricsPage'
 import DlqPage from '@/pages/dlq/DlqPage'
@@ -128,12 +129,13 @@ export const router = createBrowserRouter([
       { path: 'instances/:id', element: <InstanceDetailPage /> },
       { path: 'instances/:id/attachments/:attachmentId', element: <AttachmentViewerPage /> },
       { path: 'tasks', element: <TaskInboxPage /> },
-      { path: 'admin/users', element: <UsersPage /> },
-      { path: 'admin/users/:userId', element: <UserDetailPage /> },
-      { path: 'admin/groups', element: <GroupsPage /> },
-      { path: 'admin/tokens', element: <TokensPage /> },
-      { path: 'admin/audit', element: <AuditLogPage /> },
+      { path: 'admin/users', element: <RequirePermission permission={P.UsersGroupsRolesManage}><UsersPage /></RequirePermission> },
+      { path: 'admin/users/:userId', element: <RequirePermission permission={P.UsersGroupsRolesManage}><UserDetailPage /></RequirePermission> },
+      { path: 'admin/groups', element: <RequirePermission permission={P.UsersGroupsRolesManage}><GroupsPage /></RequirePermission> },
+      { path: 'admin/tokens', element: <RequirePermission permission={P.TokensManage}><TokensPage /></RequirePermission> },
+      { path: 'admin/audit', element: <RequirePermission permission={P.AuditRead}><AuditLogPage /></RequirePermission> },
       { path: 'admin/appearance', element: <AppearanceSettingsPage /> },
+      { path: 'me/settings', element: <MySettingsPage /> },
       { path: 'admin/print-templates', element: <RequirePermission permission={P.DocumentPrintTemplatesManage}><PrintTemplatesPage /></RequirePermission> },
       { path: 'admin/import', element: <RequirePermission permission={P.EntitiesRecordsImport}><MasterDataImportPage /></RequirePermission> },
       { path: 'admin/module-lifecycle', element: <ModuleLifecycleRoute /> },
@@ -168,8 +170,8 @@ export const router = createBrowserRouter([
         ),
       },
       { path: 'admin/event-retention', element: platformPage(P.TenantsManage, <EventRetentionPage />) },
-      { path: 'dlq', element: <DlqPage /> },
-      { path: 'webhooks', element: <WebhooksPage /> },
+      { path: 'dlq', element: <RequirePermission permission={P.DlqOperate}><DlqPage /></RequirePermission> },
+      { path: 'webhooks', element: <RequirePermission permission={P.WebhooksManage}><WebhooksPage /></RequirePermission> },
       // REQ-393: tenant-agnostic entity-list browse screen (filter/sort/page-size)
       { path: 'entities/:entityType', element: <EntityListBrowserPage /> },
       // REQ-634: saved report builder; EntitiesQuery is the read permission of the report routes

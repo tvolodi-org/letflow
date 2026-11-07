@@ -32,6 +32,11 @@ vi.mock('@/auth/AuthContext', () => ({
   useAuth: (...args: unknown[]) => mockUseAuth(...args),
 }))
 
+// T-1442: the real provider needs react-query; it is covered by hooks/__tests__/useLayoutPrefs.test.tsx.
+vi.mock('@/hooks/useLayoutPrefs', () => ({
+  LayoutPrefsProvider: ({ children }: { children: unknown }) => children,
+}))
+
 let appShellMountCount = 0
 
 vi.mock('../AppShell', () => ({
