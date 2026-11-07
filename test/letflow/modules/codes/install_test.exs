@@ -150,7 +150,7 @@ defmodule Letflow.Modules.Codes.InstallTest do
       m = Letflow.Modules.Codes.manifest()
       assert m.permissions == [:CodesWrite, :CodesRead]
       assert m.role_grants == %{}
-      assert length(m.route_policies) == 6
+      assert length(m.route_policies) == 7
     end
   end
 end

@@ -20,7 +20,7 @@ defmodule Letflow.Modules.Codes.RegistrationTest do
   test "R-02: id codes, no dependencies, the three managed types, one write permission, no grants" do
     m = Codes.manifest()
     assert m.id == "codes"
-    assert m.version == "0.3.0"
+    assert m.version == "0.4.0"
     assert m.depends_on == []
     assert m.manages_entity_types == @types
     assert m.pack == "modules/codes/pack.json"
@@ -34,11 +34,12 @@ defmodule Letflow.Modules.Codes.RegistrationTest do
     assert m.role_grants == %{}
     assert m.depends_on == []
     assert Codes.router() == Letflow.Modules.Codes.Router
-    assert length(m.route_policies) == 6
-    assert length(Enum.uniq(m.route_policies)) == 6
+    assert length(m.route_policies) == 7
+    assert length(Enum.uniq(m.route_policies)) == 7
     assert {"POST", "/resolve", :CodesRead} in m.route_policies
+    assert {"POST", "/labels", :CodesRead} in m.route_policies
 
-    writes = Enum.reject(m.route_policies, &(elem(&1, 1) == "/resolve"))
+    writes = Enum.reject(m.route_policies, &(elem(&1, 1) in ["/resolve", "/labels"]))
     assert length(writes) == 5
 
     assert Enum.all?(writes, fn {method, _path, atom} ->
