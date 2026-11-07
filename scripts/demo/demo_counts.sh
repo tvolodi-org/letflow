@@ -12,7 +12,7 @@
 # Environment: PSQL, the command that runs psql against the demo database and reads the statement on stdin,
 # default `psql "$DATABASE_URL" -X -A -t -F ' '`. Infra may set it to for example
 # `docker exec -i <postgres> psql -U <user> -d <db> -X -A -t -F ' '`. No password is read or printed here.
-# Keys (see docs/demo/README.md): tenants, tenant.<slug>.status.<status>, .modules_active, .module.<id>, .users,
+# Keys (see docs/runbooks/demo-operator-inputs.md): tenants, tenant.<slug>.status.<status>, .modules_active, .module.<id>, .users,
 # .users_active, .records.<entity_type>, .ledger_entries.<cause>, .ledger_legs, .documents.
 # Exit codes: 0 ok, 1 data lost (compare) or psql failed, 2 bad input.
 set -euo pipefail

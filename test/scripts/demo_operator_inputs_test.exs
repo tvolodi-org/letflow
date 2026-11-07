@@ -43,7 +43,7 @@ defmodule Letflow.Scripts.DemoOperatorInputsTest do
   T-1473 (D-108): the operator inputs for the demo instance. S1-S5 `scripts/demo_smoke_read.sh` through a real
   Letflow listener and a fake token endpoint; C1-C3 `scripts/demo/demo_counts.sh`; R1 the realm files; D1 the
   README; B1 `scripts/demo/demo_platform_bootstrap.sh` with a stub release; E1 its Elixir expression on the test
-  database; P1 the CI path rule for `docs/demo/`.
+  database.
   """
 
   use Letflow.DataCase, async: false
@@ -54,9 +54,9 @@ defmodule Letflow.Scripts.DemoOperatorInputsTest do
   @smoke "scripts/demo_smoke_read.sh"
   @counts "scripts/demo/demo_counts.sh"
   @bootstrap "scripts/demo/demo_platform_bootstrap.sh"
-  @readme "docs/demo/README.md"
-  @showroom "docs/demo/realm/demo-showroom.json"
-  @platform "docs/demo/realm/demo-platform.json"
+  @readme "docs/runbooks/demo-operator-inputs.md"
+  @showroom "docs/runbooks/demo-realm/demo-showroom.json"
+  @platform "docs/runbooks/demo-realm/demo-platform.json"
   @canary "CANARY-smoke-pw-4c1d"
 
   defp need_tools!(tools) do
@@ -548,27 +548,6 @@ defmodule Letflow.Scripts.DemoOperatorInputsTest do
       assert {:ok, _} = Letflow.Release.backfill_platform_roles(start: false, halt: false)
       regs = Letflow.TenantProvisioning.list_registrations() |> Enum.filter(&(&1.tenant_id == id))
       assert {:ok, []} = Letflow.Identity.RoleBackfill.missing_role_groups(registrations: regs)
-    end
-  end
-
-  # ---------------------------------------------------------------------------------------------
-  # P1: the CI path rule
-  # ---------------------------------------------------------------------------------------------
-  describe "CI path rule" do
-    test "P1 docs/demo/ changes run the backend gate" do
-      need_tools!(~w(bash))
-
-      for path <- [@readme, @showroom, @platform] do
-        {out, 0} =
-          System.cmd("bash", [
-            "-c",
-            "printf '%s\\n' \"$1\" | bash scripts/ci_changed_paths.sh",
-            "_",
-            path
-          ])
-
-        assert out =~ "backend=true", "#{path}: #{out}"
-      end
     end
   end
 end

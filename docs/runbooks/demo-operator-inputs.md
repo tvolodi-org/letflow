@@ -9,8 +9,8 @@ Files:
 
 | File | Purpose |
 |---|---|
-| `docs/demo/realm/demo-showroom.json` | Keycloak realm `demo-showroom` (the showroom tenant) |
-| `docs/demo/realm/demo-platform.json` | Keycloak realm `demo-platform` (the platform tenant, operator only) |
+| `docs/runbooks/demo-realm/demo-showroom.json` | Keycloak realm `demo-showroom` (the showroom tenant) |
+| `docs/runbooks/demo-realm/demo-platform.json` | Keycloak realm `demo-platform` (the platform tenant, operator only) |
 | `scripts/demo_smoke_read.sh` | O2: password grant, then one authenticated read |
 | `scripts/demo/demo_counts.sh` | O2: "demo data survived" as counts, `snapshot` and `compare` |
 | `scripts/demo/demo_platform_bootstrap.sh` | O3: platform tenant and `PLATFORM_ADMIN` on a fresh database |
