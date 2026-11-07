@@ -12,6 +12,12 @@ defmodule Letflow.Modules.Codes.Router do
   | `POST /:id/retire` | `CodesWrite` | `retire_code/3` | 200 |
   | `POST /:id/value` (body `value`) | `CodesWrite` | `change_code_value/4` | 200 |
   | `POST /resolve` (body `value`, no `idempotency_key`) | `CodesRead` | `resolve/2` | 200 |
+  | `POST /labels` (body `code_ids`, no `idempotency_key`) | `CodesRead` | `Labels.render/1` | 200 PDF |
+
+  `POST /labels` (GH #4017 / REQ-779) writes nothing: 1..1000 distinct `code_tag` ids, one label
+  each, in list order. An id that is not a live `code_tag` of the tenant is the same 404 as an
+  unknown id (INV-5); a code that cannot be printed is 422 `entry_invalid` with `index` and
+  `entry_reason` (never the value); a repeated id is `duplicate_in_batch`.
 
   `POST /resolve` writes nothing. A `not_assigned` code, or an assigned code whose target type is
   `:tenant_wide` (`Letflow.Entities.ScopeDeclaration.for_type/2`), is 200 with the resolve map. A
@@ -40,11 +46,16 @@ defmodule Letflow.Modules.Codes.Router do
   alias Letflow.Api.Response
   alias Letflow.Entities.ScopeDeclaration
   alias Letflow.Modules.Codes
+  alias Letflow.Modules.Codes.Labels
 
   @not_found [:code_not_found, :target_not_found]
 
   authz_post "/resolve", :CodesRead do
     resolve_action(conn)
+  end
+
+  authz_post "/labels", :CodesRead do
+    labels_action(conn)
   end
 
   authz_post "/receive", :CodesWrite do
@@ -94,6 +105,87 @@ defmodule Letflow.Modules.Codes.Router do
       {:error, _} = error -> render(conn, error, 200)
       _ -> render(conn, {:error, {:field_invalid, "value"}}, 200)
     end
+  end
+
+  @max_label_ids 1000
+
+  defp labels_action(conn) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+
+    body =
+      case conn.body_params do
+        %{"_json" => _} -> %{}
+        map when is_map(map) -> map
+        _ -> %{}
+      end
+
+    with :ok <- check_keys(body, ["code_ids"]),
+         {:ok, ids} <- label_ids(body["code_ids"]),
+         :ok <- no_duplicates(ids),
+         {:ok, codes} <- load_tags(prefix, ids) do
+      case Labels.render(codes) do
+        {:ok, pdf} -> send_pdf(conn, pdf)
+        {:error, :no_codes} -> render(conn, {:error, {:field_invalid, "code_ids"}}, 200)
+        {:error, _} = error -> render(conn, error, 200)
+      end
+    else
+      :not_found -> Response.not_found(conn)
+      {:error, _} = error -> render(conn, error, 200)
+    end
+  end
+
+  defp label_ids(ids) when is_list(ids) and ids != [] and length(ids) <= @max_label_ids do
+    if Enum.all?(ids, &is_binary/1), do: {:ok, ids}, else: {:error, {:field_invalid, "code_ids"}}
+  end
+
+  defp label_ids(_other), do: {:error, {:field_invalid, "code_ids"}}
+
+  defp no_duplicates(ids) do
+    keys = Enum.map(ids, &id_key/1)
+
+    keys
+    |> Enum.with_index()
+    |> Enum.reduce_while(MapSet.new(), fn {key, i}, seen ->
+      if MapSet.member?(seen, key),
+        do: {:halt, {:error, {:entry_invalid, i, :duplicate_in_batch}}},
+        else: {:cont, MapSet.put(seen, key)}
+    end)
+    |> case do
+      {:error, _} = error -> error
+      _seen -> :ok
+    end
+  end
+
+  defp id_key(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> uuid
+      :error -> id
+    end
+  end
+
+  defp load_tags(prefix, ids) do
+    ids
+    |> Enum.reduce_while([], fn id, acc ->
+      case Codes.lookup(prefix, id) do
+        {:ok, %{"entity_type" => "code_tag"} = tag} -> {:cont, [tag | acc]}
+        _ -> {:halt, :not_found}
+      end
+    end)
+    |> case do
+      :not_found -> :not_found
+      tags -> {:ok, Enum.reverse(tags)}
+    end
+  end
+
+  defp send_pdf(conn, pdf) do
+    conn
+    |> Plug.Conn.put_resp_content_type("application/pdf", nil)
+    |> Plug.Conn.put_resp_header(
+      "content-disposition",
+      ~s(attachment; filename="code-labels.pdf")
+    )
+    |> Plug.Conn.put_resp_header("cache-control", "no-store")
+    |> Plug.Conn.send_resp(200, pdf)
   end
 
   defp render_resolve(

@@ -117,8 +117,9 @@ defmodule Letflow.Api.TasksRouteClassesTest do
       # REQ-749 (GH #3893) added the three assets register read lines (242 -> 245).
       # T-1417 (E5c) added the stock card print route line (246 -> 247).
       # REQ-770 (GH #3918) added the module upgrade apply route line (247 -> 248).
-      assert length(snapshot) == 255
+      assert length(snapshot) == 256
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
+      # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 
       for line <- @filter_lines ++ @resolver_lines do
         refute line in snapshot, line

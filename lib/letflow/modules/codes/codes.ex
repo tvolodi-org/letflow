@@ -39,6 +39,9 @@ defmodule Letflow.Modules.Codes do
   scan route `POST /resolve` (GH #3797 / REQ-730, version 0.3.0, permission `:CodesRead`) does so in
   its fail-closed form: only a `:tenant_wide` target type resolves.
 
+  The label route `POST /labels` (GH #4017 / REQ-779, version 0.4.0, permission `:CodesRead`) prints
+  `barcode` and `qr` codes as a PDF sheet (`Letflow.Modules.Codes.Labels`, `Letflow.Modules.Codes.Code128`).
+
   ## Read API contract
 
   `prefix` must be derived server-side from the authenticated tenant, never from HTTP input:
@@ -67,7 +70,7 @@ defmodule Letflow.Modules.Codes do
   @impl true
   defmanifest(
     id: "codes",
-    version: "0.3.0",
+    version: "0.4.0",
     depends_on: [],
     pack: "modules/codes/pack.json",
     permissions: [:CodesWrite, :CodesRead],
@@ -80,7 +83,8 @@ defmodule Letflow.Modules.Codes do
       {"POST", "/:id/release", :CodesWrite},
       {"POST", "/:id/retire", :CodesWrite},
       {"POST", "/:id/value", :CodesWrite},
-      {"POST", "/resolve", :CodesRead}
+      {"POST", "/resolve", :CodesRead},
+      {"POST", "/labels", :CodesRead}
     ],
     manages_entity_types: ["code_tag", "code_assignment", "code_value_change"],
     scope_declarations: %{
