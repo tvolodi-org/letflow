@@ -337,9 +337,50 @@ describe('M8 reversal status and links', () => {
   })
 })
 
+/** jsdom has no layout: give the journal element a width. */
+function areaWidth(w: number) {
+  const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.getAttribute('data-testid') === 'journal' ? w : ((real?.get?.call(this) as number) ?? 0)
+  })
+}
+
+describe('J3 wide: operations and legs table side by side', () => {
+  afterEach(() => vi.restoreAllMocks())
+  it('J3-2 a row click at a wide area only selects (no inline legs), the legs table shows in the pane', async () => {
+    areaWidth(1200)
+    renderStock(MOV)
+    const [row] = await rowsOf()
+    fireEvent.click(row)
+    expect(row).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByTestId('journal-legsrow')).not.toBeInTheDocument()
+    const table = await screen.findByTestId('journal-legtable')
+    expect(within(table).getAllByTestId('journal-legrow')).toHaveLength(2)
+    expect(screen.getAllByRole('separator').length).toBeGreaterThan(0)
+  })
+
+  it('J3-2 an area of 800 px expands inline even when the window is wide (matchMedia says wide)', async () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    areaWidth(800)
+    renderStock(MOV)
+    const [row] = await rowsOf()
+    fireEvent.click(row)
+    expect(await screen.findByTestId('journal-legsrow')).toBeInTheDocument()
+    vi.unstubAllGlobals()
+  })
+
+  it('J3-7 the operations table has a Location column with the first place', async () => {
+    renderStock(MOV)
+    const [row] = await rowsOf()
+    await waitFor(() => expect(row.querySelector('.c-loc')).toHaveTextContent('Shelf A'))
+    expect(screen.getByRole('columnheader', { name: /Location/ })).toBeInTheDocument()
+  })
+})
+
 describe('JP narrow behaviour (V1 inline legs, Details opens the full-screen pane)', () => {
-  afterEach(() => vi.unstubAllGlobals())
-  const narrow = () => vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('900'), media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  afterEach(() => vi.restoreAllMocks())
+  // the layout follows the journal AREA (container query), not the window: no matchMedia is involved
+  const narrow = () => areaWidth(500)
 
   it('a row click expands the legs inline; Details opens the pane; Back closes it and focuses the row', async () => {
     narrow()

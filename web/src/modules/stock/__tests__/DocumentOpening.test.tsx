@@ -5,7 +5,7 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { stockMessages } from '../stockMessages'
-import { DOCS, LIST, MOV, fakeDocument, fakeMasters, refusal, renderStock, stockDoc, withPost } from './stockTestKit'
+import { DOCS, LIST, MOV, addFirstLine, fakeDocument, pickItem, fakeMasters, refusal, renderStock, stockDoc, withPost } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -46,11 +46,11 @@ describe('T1410 line card title', () => {
   it('the index cell label is the bare word, so the card reads Line 1 once', async () => {
     renderStock(`${LIST}/new?kind=opening`, withPost)
     await form().findByRole('option', { name: 'Main store' })
-    for (const row of screen.getAllByTestId('line-editor-row')) {
-      const idx = row.querySelector('td.is-idx')
-      expect(idx?.getAttribute('data-label')).toBe('Line')
-      expect(idx?.getAttribute('data-label')).not.toMatch(/\d/)
-    }
+    // T-1448: the grid has one header word for the index column; rows carry only the number.
+    await addFirstLine()
+    const heads = Array.from(document.querySelectorAll('th.is-idx')).map((h) => h.textContent)
+    expect(heads).toEqual(['Line'])
+    for (const row of screen.getAllByTestId('line-editor-row')) expect(row.querySelector('td.is-idx')?.textContent).toMatch(/^\d+$/)
   })
 })
 
@@ -63,13 +63,13 @@ describe('O1 create', () => {
     await form().findByRole('option', { name: 'Main store' })
     expect(form().queryByLabelText('Event time')).not.toBeInTheDocument()
     expect(form().getByLabelText('Org unit')).toBeInTheDocument()
-    expect(screen.getAllByLabelText('Location')).toHaveLength(1)
+    expect(screen.queryAllByLabelText('Location')).toHaveLength(0)
     pick('Org unit', 'u1')
-    const row = screen.getAllByTestId('line-editor-row')[0]
-    await within(row).findByRole('option', { name: 'Bolt M8' })
+    const row = await addFirstLine()
+    expect(screen.getAllByLabelText('Location')).toHaveLength(1)
     await within(row).findByRole('option', { name: 'Shelf A' })
     await within(row).findByRole('option', { name: 'Aigul B.' })
-    pick('Item', 'i1', row)
+    await pickItem(row, 'i1')
     pick('Quantity', '3', row)
     pick('Location', 'l1', row)
     pick('Responsible', 'e1', row)
@@ -92,11 +92,10 @@ describe('O1 create', () => {
     expect(form().getByLabelText(/External system/)).toBeInTheDocument()
     pick('Org unit', 'u1')
     pick(/External system/, 'erp')
-    const row = screen.getAllByTestId('line-editor-row')[0]
-    await within(row).findByRole('option', { name: 'Bolt M8' })
+    const row = await addFirstLine()
     await within(row).findByRole('option', { name: 'Shelf A' })
     await within(row).findByRole('option', { name: 'Aigul B.' })
-    pick('Item', 'i1', row)
+    await pickItem(row, 'i1')
     pick('Quantity', '3', row)
     pick('Location', 'l1', row)
     pick('Responsible', 'e1', row)
@@ -120,7 +119,8 @@ describe('O1 create', () => {
     await form().findByRole('option', { name: 'Main store' })
     pick('Org unit', 'u1')
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-    expect((await screen.findAllByText('This field is required.')).length).toBeGreaterThan(0)
+    // The lines editor lists the failing lines in its badge; the row's messages show in the status line when it is focused.
+    expect(await screen.findByText('1 line has errors', { exact: false })).toBeInTheDocument()
     expect(clientMock.post.mock.calls.filter(([p]) => p === DOCS)).toHaveLength(0)
   })
 })

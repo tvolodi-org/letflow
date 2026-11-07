@@ -314,3 +314,16 @@ A registration may declare a posting guard, and the platform serialises it again
 **Lock order.** A HUMAN_TASK completion with a guarded posting takes: tasks, projection, ancestors, the entity-type rows of class (6), then the shared hold lock and the guard's reads (no row lock), then the ledger lock step (balance rows ascending, counter rows; class 5b), then the tail (audit chain, sequences, projection updates). The SERVICE origin takes its pre-ledger locks first and the shared hold lock in the plan step after them. A module transaction that takes the exclusive hold lock takes no ledger lock and no lock of a type that a posting handler of the same registration writes.
 
 **Decision 0079 section 4.** It places the freeze check "in the stock module, in its own write path before `HandlerWrites.post/3`". A handler is pure (scan H4), so that place does not exist for a posting made by a human task; the check is the registered guard in the plan step instead. The reviewer or the owner of 0079 may amend section 4 to match. A guard must not treat a reversal as exempt by its document reference alone: a reversal carries the reversed entry's `document_type` and `document_id`, and its `cause` is `reversal`.
+
+## Amended by REQ-774 (stock documents at volume, part 1)
+
+- The leg cap of one posting is 2000 (`@max_legs` in `Letflow.Ledger.Validate` and `Letflow.Ledger.HandlerPost`), the
+  command cap 1 MiB (1,048,576 bytes). The two-posting rule A2 is unchanged: one document still posts as ONE entry.
+- Legs and new balance rows are written in chunks of at most 500 rows per INSERT statement, all inside the one
+  completion transaction (the ascending balance-key lock order is kept). Atomicity is unchanged: a failure in any chunk
+  rolls the whole posting back.
+- The database CHECK constraints `ledger_entry_leg_count_check` and `ledger_leg_leg_no_check` (200) are widened to 2000
+  on the parent and on every existing partition by the tenant migration `20261106200001_raise_posting_leg_cap`. Until it
+  has run for an installed tenant, a posting above 200 legs rolls back on the check, with no data damage.
+- `page_cap` (200) limits entries or balance rows per read page, not legs per entry. The stock manifest, its hash and the
+  registration are unchanged. The `count_difference` cause (200 lines) and the assets caps are unchanged.

@@ -3,6 +3,8 @@
  *  native-speaker check. */
 
 import { getUiLocale } from '@/i18n/uiLocaleStore'
+import { documentsEn, documentsKk, documentsRu } from './documents/documentsMessages'
+import { registerEn, registerKk, registerRu } from './register/registerMessages'
 
 export const ASSETS_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type AssetsUiLocale = (typeof ASSETS_UI_LOCALES)[number]
@@ -259,4 +261,9 @@ const kk: Record<string, string> = {
   'assets.error.request_refused': 'Сұраным қабылданбады.',
 }
 
-export const assetsMessages: Record<AssetsUiLocale, Record<string, string>> = { en, ru, kk }
+/** The catalog of the whole module: the card screen's own ids plus the document and register screens' (C14). */
+export const assetsMessages: Record<AssetsUiLocale, Record<string, string>> = {
+  en: { ...en, ...documentsEn, ...registerEn },
+  ru: { ...ru, ...documentsRu, ...registerRu },
+  kk: { ...kk, ...documentsKk, ...registerKk },
+}

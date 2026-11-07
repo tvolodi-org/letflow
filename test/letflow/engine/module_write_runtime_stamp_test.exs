@@ -274,14 +274,47 @@ defmodule Letflow.Engine.ModuleWriteRuntimeStampTest do
   end
 
   describe "the hash triple at run time (TDV T2)" do
-    test "installed == stamp but != the compiled manifest hash is refused" do
+    test "installed == stamp but != the compiled manifest hash: upgrade_required (REQ-771)" do
       ctx = Mw.case!("gh2590-r4b-rs-compiled", :module)
       other = String.duplicate("d", 64)
 
       Mw.set_stamp_hash!(ctx, other)
       Mw.set_installed_hash!(ctx.schema, "fixture_ledger", other)
 
+      before = written(ctx)
+      assert {:error, :module_upgrade_required} = Fx.complete(ctx, %{"label" => "L1"})
+      assert written(ctx) == before
+      assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+      assert [entry] = Fx.audit_rows(ctx.schema, "entity_write.refused")
+      assert entry.after_state["code"] == "write_not_permitted"
+      assert entry.after_state["detail"] == "hash_mismatch"
+    end
+
+    test "stamp != installed and installed != compiled stays 403 (cause b wins)" do
+      ctx = Mw.case!("gh2590-r4b-rs-both", :module)
+      Mw.set_stamp_hash!(ctx, String.duplicate("e", 64))
+      Mw.set_installed_hash!(ctx.schema, "fixture_ledger", String.duplicate("d", 64))
+
       assert_refused(ctx, 0, :hash_mismatch)
+    end
+
+    test "not upgraded AND a changed body is not the only reason: stays 403" do
+      ctx = Mw.case!("gh2590-r4b-rs-mixed", :module)
+      other = String.duplicate("d", 64)
+      Mw.set_stamp_hash!(ctx, other)
+      Mw.set_installed_hash!(ctx.schema, "fixture_ledger", other)
+
+      Mw.tamper_snapshot!(ctx, fn graph ->
+        update_in(graph, ["nodes"], fn nodes ->
+          Enum.map(nodes, fn
+            %{"id" => "ht"} = node -> put_in(node, ["attributes", "x_tamper"], true)
+            node -> node
+          end)
+        end)
+      end)
+
+      assert {:error, {:entity_write_refused, 0, :write_not_permitted}} =
+               Fx.complete(ctx, %{"label" => "L1"})
     end
 
     test "installed == compiled but != the stamp is refused" do

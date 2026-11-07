@@ -1668,6 +1668,68 @@ defmodule Letflow.IdentityTest do
     end
   end
 
+  describe "roles_by_user/2 (T-1435 U1-U3)" do
+    defp t1435_bind!(schema_name, user_id, group_name, role_name) do
+      {:ok, group} = Identity.create_group(%{"name" => group_name}, prefix: schema_name)
+
+      {:ok, _} =
+        %Letflow.Identity.TenantRole{}
+        |> Letflow.Identity.TenantRole.changeset(%{
+          name: role_name,
+          kind: :platform_role,
+          group_id: group.id
+        })
+        |> Repo.insert(prefix: schema_name)
+
+      {:ok, _} = Identity.add_group_member(group.id, user_id, prefix: schema_name)
+    end
+
+    defp t1435_user!(tenant, schema_name) do
+      {:ok, %{user: user}} =
+        Identity.provision_oidc_user(identity_context(), tenant.id, jit_config(),
+          prefix: schema_name
+        )
+
+      user
+    end
+
+    test "U1/U3: the role of a user in a bound group once each, [] (absent) for a user in no group" do
+      %{tenant: tenant, schema_name: schema_name} = provisioned_tenant!()
+      user = t1435_user!(tenant, schema_name)
+      t1435_bind!(schema_name, user.id, "t1435-g1", "STOREKEEPER")
+      {:ok, g2} = Identity.create_group(%{"name" => "t1435-g2"}, prefix: schema_name)
+
+      {:ok, _} =
+        %Letflow.Identity.TenantRole{}
+        |> Letflow.Identity.TenantRole.changeset(%{
+          name: "AUDITOR",
+          kind: :platform_role,
+          group_id: g2.id
+        })
+        |> Repo.insert(prefix: schema_name)
+
+      {:ok, _} = Identity.add_group_member(g2.id, user.id, prefix: schema_name)
+      other = Ecto.UUID.generate()
+
+      assert Identity.roles_by_user([user.id, other], prefix: schema_name) == %{
+               user.id => ["AUDITOR", "STOREKEEPER"]
+             }
+
+      assert Identity.roles_by_user([], prefix: schema_name) == %{}
+    end
+
+    test "U2: another tenant's schema never contributes a role" do
+      %{tenant: t1, schema_name: s1} = provisioned_tenant!()
+      %{tenant: t2, schema_name: s2} = provisioned_tenant!()
+      u1 = t1435_user!(t1, s1)
+      u2 = t1435_user!(t2, s2)
+      t1435_bind!(s2, u2.id, "t1435-other", "STOREKEEPER")
+
+      assert Identity.roles_by_user([u1.id, u2.id], prefix: s1) == %{}
+      assert Identity.roles_by_user([u2.id], prefix: s2) == %{u2.id => ["STOREKEEPER"]}
+    end
+  end
+
   # ISS-0778 T2 (design §5): docs/issues/ISS-0778.yaml's root cause was that no code
   # path anywhere in this codebase ever created a tenant_role row binding a
   # platform-role literal (e.g. "PLATFORM_ADMIN") to a group -- so

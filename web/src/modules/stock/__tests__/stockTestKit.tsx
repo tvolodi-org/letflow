@@ -1,8 +1,8 @@
 /** Shared helpers of the stock register tests (GH 3767 / REQ-724): access state, a fake server over a mocked client. */
-import { render } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useRoutes } from 'react-router-dom'
-import { vi } from 'vitest'
+import { expect, vi } from 'vitest'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
 import type { EntityRecord } from '@/types/api'
@@ -136,4 +136,23 @@ export function fakeDocument(client: ClientMock, doc: Record<string, unknown>) {
 
 export function postsTo(client: ClientMock, suffix: string): unknown[][] {
   return client.post.mock.calls.filter(([p]) => p === `${DOCS}/${suffix}`)
+}
+
+/** T-1448: a new draft shows the empty state of the lines editor; the first Add line opens the first row. */
+export async function addFirstLine(): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByRole('button', { name: 'Add line' }))
+  return (await screen.findAllByTestId('line-editor-row'))[0]
+}
+
+export const ITEM_NAMES: Record<string, string> = { i1: 'Bolt M8', i2: 'Nut M8' }
+
+/** Types the item's name into the item cell of `row` and leaves the cell, as a user does; waits until the catalog answered
+ *  (the unit of the item shows in the quantity cell). */
+export async function pickItem(row: HTMLElement, id: string): Promise<void> {
+  await waitFor(() => {
+    const input = within(row).getByLabelText('Item')
+    fireEvent.change(input, { target: { value: ITEM_NAMES[id] } })
+    fireEvent.blur(input)
+    expect(within(row).getByText('pcs')).toBeInTheDocument()
+  })
 }

@@ -9,7 +9,7 @@ defmodule Letflow.Modules.Stock.DocumentPrintSource do
   Isolation: the tenant is the `prefix` of the token only (INV-1); an unknown, malformed,
   discarded or other-tenant id is `{:error, :not_found}` (INV-5). The route has already proved
   tenant-wide read access, so no name is hidden. Name reads are one indexed read per distinct id
-  (at most 100 lines). A time zone offset is one bound-parameter statement per instant, shared
+  (at most 1000 lines since REQ-774; print layout at that size is not measured). A time zone offset is one bound-parameter statement per instant, shared
   with the count paperwork (`CountPaperworkSource.offset/2`).
 
   This module holds no query of its own: it reads through `Documents`, `CountPaperworkSource` and

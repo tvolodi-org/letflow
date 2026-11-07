@@ -44,9 +44,13 @@ describe('P1 downloads', () => {
     expect(screen.queryByTestId('paperwork-differences')).toBeNull()
     await userEvent.click(screen.getByTestId('paperwork-sheet'))
     await waitFor(() => expect(downloads).toEqual(['CNT-0001-sheet.xlsx']))
-    expect(clientMock.getBlob).toHaveBeenCalledWith(`${BASE}/c1/paperwork/sheet`)
+    expect(clientMock.getBlob).toHaveBeenCalledWith(`${BASE}/c1/paperwork/sheet`, { lang: 'en' })
     await userEvent.click(screen.getByTestId('paperwork-order'))
-    await waitFor(() => expect(clientMock.getBlob).toHaveBeenCalledWith(`${BASE}/c1/paperwork/order`))
+    await waitFor(() => expect(clientMock.getBlob).toHaveBeenCalledWith(`${BASE}/c1/paperwork/order`, { lang: 'en' }))
+    // X6: the UI language is sent
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    await userEvent.click(screen.getByTestId('paperwork-order'))
+    await waitFor(() => expect(clientMock.getBlob).toHaveBeenLastCalledWith(`${BASE}/c1/paperwork/order`, { lang: 'ru' }))
   })
   it('falls back to a name built from the number when there is no header', async () => {
     fakeCounts(clientMock, { orders: [ISSUED] })

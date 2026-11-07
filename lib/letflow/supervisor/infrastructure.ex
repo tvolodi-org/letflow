@@ -55,6 +55,10 @@ defmodule Letflow.Supervisor.Infrastructure do
      boot hook that replays tenant-scoped migrations against every
      already-provisioned tenant; `start_link/1` always returns `:ignore` --
      see that module's own moduledoc)
+  3b. `Letflow.ModuleUpgrade.Boot` (REQ-772: a one-shot hook that applies Class-A
+     module upgrade plans without steps for every tenant when the flag
+     `:module_upgrade_on_boot` is on, default off; always `:ignore`, never fails
+     boot; directly after child 3 so tenant columns and journal exist)
   4. `Letflow.Oidc.ProviderRegistry` (REQ-370: a `DynamicSupervisor` of
      per-realm `Oidcc.ProviderConfiguration.Worker`s, replacing the former
      single static worker child — see that module's own moduledoc and
@@ -232,6 +236,9 @@ defmodule Letflow.Supervisor.Infrastructure do
       # route until tenant-scoped replay has finished for every tenant.
       # start_link/1 always returns :ignore, never raises -- see its own moduledoc.
       Letflow.TenantProvisioning.MigrationReplayBoot,
+      # REQ-772 (decision 0080 Q3): upgrade on deploy, flag `:module_upgrade_on_boot` default off;
+      # after the replay so every tenant has the journal and the hash column; always :ignore.
+      Letflow.ModuleUpgrade.Boot,
       # REQ-370 (design req370-multi-issuer-oidc-verification.md §4): a
       # DynamicSupervisor owning one Oidcc.ProviderConfiguration.Worker per
       # trusted realm, started lazily on first verification attempt rather

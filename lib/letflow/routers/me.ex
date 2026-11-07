@@ -50,7 +50,8 @@ defmodule Letflow.Routers.Me do
   The user id comes only from `conn.assigns.auth_context`; no route takes a user or tenant id, so
   there is no read of another user's preferences, for a tenant admin either. `PUT` merges the
   listed keys (`null` resets a key) and is all-or-nothing. Errors are 422 with fixed texts; only a
-  whitelisted or well-formed key name is echoed.
+  whitelisted or well-formed key name is echoed. The key `ui.layout` is a JSON string (at most
+  8192 bytes) that is stored and returned in its sanitized form.
 
   `GET` also returns `effective` (user value, else tenant default `ui.document_layout_default`, else
   `"row"`) and `tenant_defaults` (T-1390); the tenant id comes from the auth context only.

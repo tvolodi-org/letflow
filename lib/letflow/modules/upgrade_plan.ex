@@ -13,7 +13,7 @@ defmodule Letflow.Modules.UpgradePlan do
   - the pack's process definitions as `unchanged` or `new_draft` (the plan creates nothing);
   - whether every stamped definition still passes the activation check AFTER the upgrade (the
     installed hash becomes the compiled one, the current installed hash joins the accepted
-    list: exactly what the apply slice will write);
+    list: exactly what `Letflow.ModuleUpgrade.Apply` will write);
   - the upgrade path steps, whether a path exists (`upgrade_path_available`; a tenant below the
     module's `min_upgradable_from` gets a normal 200 report with the marker and the apply slices
     must refuse on it), `applicable_on_boot` (decision 0080 Q3), and `plan_hash`.

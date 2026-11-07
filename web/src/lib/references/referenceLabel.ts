@@ -10,6 +10,7 @@ export type ReferenceType =
   | 'catalog_lot'
   | 'catalog_uom'
   | 'catalog_counterparty'
+  | 'assets_card'
 
 /** The fields that make the label of a type: `code`, then `title` (either may be absent). A type with no title field
  *  shows the code only; `fallback` is used when the code is empty (a unit shows its name). */
@@ -21,6 +22,7 @@ export const REFERENCE_FIELDS: Record<ReferenceType, { code?: string; title?: st
   catalog_counterparty: { code: 'code', title: 'name' },
   catalog_lot: { code: 'code' },
   catalog_uom: { code: 'code', fallback: 'name' },
+  assets_card: { code: 'inventory_number', title: 'name' },
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

@@ -15,7 +15,9 @@ defmodule Letflow.Modules.Assets.PackDriftTest do
   alias Letflow.Entities.Definition.Shape
 
   @dir Path.join([File.cwd!(), "priv", "modules", "assets"])
-  @types ~w(assets_card)
+  @types ~w(assets_card assets_commission assets_commission_line assets_change assets_change_line
+            assets_handover assets_handover_line assets_writeoff assets_writeoff_line
+            assets_posting_mark)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 
@@ -43,6 +45,27 @@ defmodule Letflow.Modules.Assets.PackDriftTest do
     )
   end
 
+  # Atomises the string-keyed maps of an optional list key; a constraint `type` becomes an atom.
+  defp atomise_list(doc, key) do
+    case Map.fetch(doc, key) do
+      {:ok, items} ->
+        Map.put(
+          doc,
+          key,
+          Enum.map(items, fn item ->
+            item = Map.new(item, fn {k, v} -> {String.to_existing_atom(k), v} end)
+
+            if key == :constraints,
+              do: Map.update!(item, :type, &String.to_existing_atom/1),
+              else: item
+          end)
+        )
+
+      :error ->
+        doc
+    end
+  end
+
   # Atom-keyed Definition document from the source JSON .
   defp atomise(raw) do
     raw
@@ -53,15 +76,12 @@ defmodule Letflow.Modules.Assets.PackDriftTest do
         Map.update!(f, :type, &String.to_existing_atom/1)
       end)
     end)
-    |> Map.update!(:constraints, fn cs ->
-      Enum.map(cs, fn c ->
-        c = Map.new(c, fn {k, v} -> {String.to_existing_atom(k), v} end)
-        Map.update!(c, :type, &String.to_existing_atom/1)
-      end)
-    end)
+    |> atomise_list(:indexes)
+    |> atomise_list(:foreign_keys)
+    |> atomise_list(:constraints)
   end
 
-  test "P-01: the pack holds exactly the one entity definition, in the source set, and nothing else" do
+  test "P-01: the pack holds exactly the source entity definitions and the two posting processes" do
     document = pack()
 
     assert document["pack_id"] == "letflow-assets"
@@ -69,7 +89,15 @@ defmodule Letflow.Modules.Assets.PackDriftTest do
     assert document["entity_definitions"] |> Enum.map(& &1["name"]) |> Enum.sort() ==
              Enum.sort(@types)
 
-    assert document["definitions"] == []
+    assert document["definitions"] |> Enum.map(& &1["process_key"]) ==
+             [
+               "assets_commission",
+               "assets_reversal",
+               "assets_change",
+               "assets_handover",
+               "assets_writeoff"
+             ]
+
     assert document["variable_schemas"] == []
     assert document["service_catalog_entries"] == []
     assert document["manifest"] == %{"required_roles" => []}

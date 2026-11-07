@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { P, useAccess } from '@/auth/access'
 import { useTenantContext } from '@/auth/useTenantContext'
 import { definitionsApi } from '@/api/definitions'
 import { instancesApi } from '@/api/instances'
@@ -23,10 +24,14 @@ function SkeletonBox(): JSX.Element {
 export default function TenantDashboardPage(): JSX.Element {
   const { tenantDisplayName, isUnknown } = useTenantContext()
   const tenantKeys = useTenantScopedQueryKeys()
+  const access = useAccess()
+  // A role without DefinitionsRead (the storekeeper) would get 403 here and lose the whole dashboard.
+  const canReadDefinitions = access.isReady && access.can(P.DefinitionsRead)
 
   const { data: definitions, isLoading: loadingDefs, isError: errorDefs, error: defsError, refetch: refetchDefs } = useQuery({
     queryKey: tenantKeys.definitions.list({ page_size: 5 }),
     queryFn: () => definitionsApi.list({ page_size: 5 }),
+    enabled: canReadDefinitions,
   })
 
   const { data: instances, isLoading: loadingInstances } = useQuery({
@@ -39,7 +44,7 @@ export default function TenantDashboardPage(): JSX.Element {
     queryFn: () => tasksApi.list({ status: 'PENDING', page_size: 1 }),
   })
 
-  const rendererState: RendererState = loadingDefs ? 'loading' : errorDefs ? classifyError(defsError) : 'success'
+  const rendererState: RendererState = !canReadDefinitions ? 'success' : loadingDefs ? 'loading' : errorDefs ? classifyError(defsError) : 'success'
 
   return (
     <div style={{ padding: '2rem', maxWidth: '900px' }}>
@@ -78,6 +83,7 @@ export default function TenantDashboardPage(): JSX.Element {
       >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem' }}>
         {/* Recent Definitions */}
+        {canReadDefinitions && (
         <div
           data-testid="tile-definitions"
           style={{
@@ -109,6 +115,7 @@ export default function TenantDashboardPage(): JSX.Element {
             </div>
           )}
         </div>
+        )}
 
         {/* Active Instances */}
         <div

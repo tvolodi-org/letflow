@@ -62,22 +62,39 @@ samp {
 .lf-lines--wide td.is-open-item, .lf-lines--wide td.is-open-lot { overflow: hidden; }
 
 /* T-1410 R9: the lines card is a size container, so a table cannot widen it. Inside the app shell the card is ~530 px at
-   1440: below 700 px (1000 px for the 8-column opening balance) each line becomes a card, with the same rules that
+   1440, so card mode is for phones only (card under 520 px); a wider card keeps the real table, which scrolls sideways
+   inside .lf-doc__scroll when it is narrower than the table (T-1438: edit tables keep a floor width below), with the same rules that
    components.css has for phones (copied here because that file is an exact copy of the design release; the design repo
    needs the same rules, design-notes.md "lf-lines container-query card mode"). */
 .lf-doc__lines { container: lf-lines / inline-size; }
-/* T-1433 R9b: --content-max-width caps the shell, so the three-column template leaves the lines card ~530 px at any
-   screen, always below the 700 px card threshold. From the design's wide breakpoint the lines go under the header in
-   the right pane (~850 px), so the real table (# / Item / Lot / Quantity / Unit price / Line value + totals) shows. */
-@media (min-width: 1440px) {
-  .lf-doc:not([data-layout="tabs"]) {
-    grid-template-columns: var(--doc-list-width) minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(0, 1fr);
-    align-content: start;
-    grid-template-areas: "list top" "list header" "list lines";
-  }
+/* T-1448 (gui_review: grid scrolled sideways at 1440): while a draft is edited on a wide screen the list column steps aside
+   (Back returns to it), so the header and the lines editor share the whole content width and every grid column fits. */
+@container lfhost (min-width: 1440px) {
+  .lf-doc:has(.lf-le[data-readonly="false"]) { grid-template-columns: var(--lf-pane-2, var(--doc-header-width)) minmax(0, 1fr); grid-template-areas: "top top" "header lines"; }
+  .lf-doc:has(.lf-le[data-readonly="false"]) > .lf-doc__list { display: none; }
 }
-@container lf-lines (max-width: 700px) {
+.lf-le, .lf-le *, .lf-le__body, .lf-le__formwrap { scrollbar-color: var(--line-strong) transparent; color-scheme: inherit; }
+/* T-1448: the lines editor (lf-le) fills the lines card; it needs a definite height to scroll inside itself. */
+.lf-doc__lines .lf-le { height: min(70vh, 720px); min-height: 22rem; }
+/* LE2 (T-1449): where the viewport is tall the panel fills what is left under the header and the action bar, so its own
+   scroller carries the rows (sticky header and totals) and the page does not scroll; the fixed height above stays as the
+   fallback (stacked layout under 900 px, short windows). */
+@media (min-width: 900px) and (min-height: 700px) {
+  .lf-doc__lines .lf-le { height: clamp(22rem, calc(100dvh - 15rem), 64rem); }
+}
+.lf-doc__lines .lf-le__table:not(.lf-le__table--saved) { min-width: 36rem; }
+.lf-doc__lines .lf-le__table--wide { min-width: 74rem; }
+.lf-le__table th.is-grow { width: 30%; }
+.lf-le__table:not(.lf-le__table--saved) th.is-num { width: 6.5rem; }
+.lf-le__table:not(.lf-le__table--saved) th.is-col-quantity { width: 8.5rem; }
+.lf-le__table:not(.lf-le__table--saved) th.is-idx { width: 3rem; }
+.lf-le__table:not(.lf-le__table--saved) th.is-act { width: 6.5rem; }
+.lf-lines--edit { min-width: 38rem; }
+/* T-1438: components.css gives the table a min-width of about 632 px, 2 px more than the ~630 px lines card, so the view table
+   showed a full-width horizontal scrollbar (measured: scroll box 630, table 632). A view table has no inputs that need the floor;
+   edit keeps its own floor above and the wide opening table keeps width: max-content. */
+.lf-doc__lines .lf-lines:not(.lf-lines--edit):not(.lf-lines--wide) { min-width: 0; }
+@container lf-lines (max-width: 520px) {
   .lf-doc__lines .lf-lines--zebra tbody.lf-lines__item:nth-of-type(even) > tr:not(.is-error):not(.lf-lines__msg) > td { background: none; }
   .lf-doc__lines .lf-lines { min-width: 0; }
   .lf-doc__lines .lf-lines thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -110,40 +127,6 @@ samp {
   .lf-doc__lines .lf-lines tfoot td.is-rm { display: none; }
   .lf-doc__lines .lf-lines__add { display: block; }
 }
-@container lf-lines (max-width: 1000px) {
-  .lf-doc__lines .lf-lines--zebra.lf-lines--wide tbody.lf-lines__item:nth-of-type(even) > tr:not(.is-error):not(.lf-lines__msg) > td { background: none; }
-  .lf-doc__lines .lf-lines.lf-lines--wide { width: 100%; min-width: 0; }
-  .lf-doc__lines .lf-lines.lf-lines--wide { min-width: 0; }
-  .lf-doc__lines .lf-lines.lf-lines--wide thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .lf-doc__lines .lf-lines.lf-lines--wide, .lf-doc__lines .lf-lines.lf-lines--wide tbody, .lf-doc__lines .lf-lines.lf-lines--wide tfoot, .lf-doc__lines .lf-lines.lf-lines--wide td { display: block; width: 100%; }
-  .lf-doc__lines .lf-lines.lf-lines--wide tbody { margin: var(--space-3) 0 0; padding: 0 var(--space-3); }
-  .lf-doc__lines .lf-lines.lf-lines--wide tbody:last-of-type { padding-bottom: var(--space-3); }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; background: var(--paper-raised); border: 1px solid var(--line-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
-  .lf-doc__lines .lf-lines.lf-lines--wide tbody.lf-lines__item:hover > tr > td, .lf-doc__lines .lf-lines--zebra.lf-lines--wide tbody.lf-lines__item:nth-of-type(even) > tr > td { background: none; }
-  .lf-doc__lines .lf-lines.lf-lines--wide td, .lf-doc__lines .lf-lines.lf-lines--wide th:first-child, .lf-doc__lines .lf-lines.lf-lines--wide td:first-child, .lf-doc__lines .lf-lines.lf-lines--wide td:last-child { height: auto; padding: 3px 0; border: 0; background: none; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row > td { grid-column: 1 / -1; display: grid; grid-template-columns: calc(var(--field-w-s) * 0.85) minmax(0, 1fr); gap: var(--space-3); align-items: center; text-align: left; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row > td::before { content: attr(data-label); color: var(--ink-muted); font: var(--type-label); white-space: normal; overflow-wrap: break-word; min-width: 0; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-idx { grid-column: 1; width: auto; padding-bottom: var(--space-2); color: var(--ink-muted); font: 500 13px/20px var(--font-mono); }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-idx { display: block; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-idx::before { content: attr(data-label) " "; color: inherit; font: inherit; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-rm::before { display: none; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-rm { grid-column: 2; grid-row: 1; grid-template-columns: auto; width: auto; justify-self: end; padding: 0; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row > td.is-num { text-align: left; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__qty { justify-content: flex-start; }
-  .lf-doc__lines .lf-lines.lf-lines--wide td.is-num { text-align: left; }
-  .lf-doc__lines .lf-lines.lf-lines--wide .lf-control--num input { text-align: left; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row > td:nth-child(2) { border-top: 1px solid var(--line); padding-top: var(--space-2); }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row.is-error { background: var(--danger-tint); border-color: var(--danger); border-bottom: 0; border-radius: var(--radius-md) var(--radius-md) 0 0; --ink-faint: var(--ink-muted); }
-  .lf-doc__lines .lf-lines--wide .lf-lines__row.is-error > td, .lf-doc__lines .lf-lines--wide .lf-lines__row.is-error:hover > td, .lf-doc__lines .lf-lines--wide .lf-lines__row.is-error > td:first-child { background: none; box-shadow: none; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__msg { display: block; background: var(--danger-tint); border: 1px solid var(--danger); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); padding: 0 var(--space-3) var(--space-3); }
-  .lf-doc__lines .lf-lines--wide .lf-lines__msg > td { background: none; box-shadow: none; padding: 0; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__add > td { padding: 0; }
-  .lf-doc__lines .lf-lines.lf-lines--wide tfoot tr { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-3); padding: var(--space-3); background: var(--paper-sunken); border-top: 1px solid var(--line-strong); }
-  .lf-doc__lines .lf-lines.lf-lines--wide tfoot td { display: block; width: auto; height: auto; padding: 0; position: static; border: 0; background: none; }
-  .lf-doc__lines .lf-lines.lf-lines--wide tfoot td.is-num { margin-left: auto; }
-  .lf-doc__lines .lf-lines.lf-lines--wide tfoot td.is-rm { display: none; }
-  .lf-doc__lines .lf-lines--wide .lf-lines__add { display: block; }
-}
 
 /* Long ru/kk column labels wrap instead of being cut by the fixed table layout (rule 4). */
 .lf-lines th { white-space: normal; height: auto; min-height: var(--row-h-compact); padding-top: var(--space-1); padding-bottom: var(--space-1); vertical-align: bottom; }
@@ -151,6 +134,8 @@ samp {
 /* T-1399 R7: app-side additions to the released components.css (kept here so that file stays an exact copy of the
    design repo release; the design repo needs the same rules on its next release). */
 .lf-topbar { z-index: var(--z-topbar); }
+/* T-1438: the glass tint let the scrolled action bar (Save draft / Back) show through under the language menu. */
+.lf-topbar { background: var(--paper); backdrop-filter: none; }
 .lf-md__detail { min-width: 0; }
 .lf-md--wide { grid-template-columns: minmax(380px, 460px) minmax(0, 1fr); }
 @media (max-width: 1100px) {
@@ -166,6 +151,13 @@ samp {
 /* T-1434: the "Official form" menu opens from the trigger's left edge and stays inside a narrow screen. */
 .lf-formmenu .lf-lang__menu { left: 0; right: auto; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
 .lf-formmenu .lf-lang__item { grid-template-columns: 1fr auto; }
+
+/* T-1442: the design's `.lf-content--fluid` (components.css, before `.lf-content`) loses to `.lf-content` on equal
+   specificity, so the cap stayed. Doubling the class restores the intended order; report to the design repo, then drop. */
+.lf-content.lf-content--fluid { max-width: none; }
+
+/* T-1334: keep the close button beside the title in the register details panel (as the stock history panel). */
+.lf-reg__details .lf-detail-head { flex-wrap: nowrap; }
 
 /* T-1439 R12b: Movements journal on a wide screen. The Details button opens the full-screen view (Back, previous/next)
    that components.css only styles under 900 px; the list table keeps room for Status and the item reference and

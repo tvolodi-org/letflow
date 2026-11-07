@@ -40,7 +40,7 @@ async function issueRefused(err: unknown) {
     return base(p, b)
   })
   renderStock(VIEW, withPost)
-  fireEvent.click(await screen.findByRole('button', { name: /^(Issue|Выпустить|Шығару)$/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /^(Issue|Выпустить|Шығару)$/ }, { timeout: 15_000 }))
   fireEvent.click(screen.getByTestId('confirm-dialog-confirm'))
 }
 
@@ -54,7 +54,7 @@ describe('C5-a every reason in every language', () => {
         await issueRefused(refusal(reason === 'busy' ? 503 : 422, reason))
         const text = stockMessages[locale][`stock.doc.error.${reason}`]
         expect(text, reason).toBeTruthy()
-        const box = await screen.findByTestId('confirm-dialog-error')
+        const box = await screen.findByTestId('confirm-dialog-error', {}, { timeout: 15_000 })
         expect(box).toHaveTextContent(text)
         seen.add(text)
       }

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** M1–M4 — T-1333 / C13: the module definition, nav items, install guard and permission guard. */
+/** M1–M4 — T-1333 / C13, T-1334 / C14 (N1): the module definition, nav items, install guard and permission guard. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -7,7 +7,7 @@ import { MemoryRouter, useRoutes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { UserSession } from '@/types/api'
 import type { AccessState } from '@/auth/access/types'
-import { withAtom, withoutAtom } from './assetsTestKit'
+import { withoutAtom } from './assetsTestKit'
 
 expect.extend(jestDomMatchers)
 
@@ -59,22 +59,42 @@ async function renderShell(access: AccessState, installed: { module_id: string; 
   )
 }
 
+const withAtom: AccessState = {
+  status: 'ready',
+  info: { roles: [], platform_tenant: false, permissions: ['AssetsCardWrite', 'AssetsRead'] },
+}
+const onlyCardWrite: AccessState = {
+  status: 'ready',
+  info: { roles: [], platform_tenant: false, permissions: ['AssetsCardWrite'] },
+}
 const LOC = [{ module_id: 'assets', version: '1.0.0' }]
-const LINKS: [string, string][] = [['Asset cards', '/admin/assets/cards']]
+/** label, path, the atom the nav item and the route need. */
+const LINKS: [string, string, string][] = [
+  ['Asset cards', '/admin/assets/cards', 'AssetsCardWrite'],
+  ['Asset documents', '/admin/assets/documents', 'AssetsRead'],
+  ['Asset balances', '/admin/assets/balances', 'AssetsRead'],
+  ['Asset movements', '/admin/assets/movements', 'AssetsRead'],
+]
 
 describe('M1 definition', () => {
-  it('is registered with one nav item on AssetsCardWrite', async () => {
+  it('is registered with the card item on AssetsCardWrite and the three register items on AssetsRead (N1)', async () => {
     const { assetsModuleDefinition } = await import('../index')
     const { REGISTERED_MODULES } = await import('@/modules/registry')
     expect(REGISTERED_MODULES.map((m) => m.id)).toContain('assets')
     expect(assetsModuleDefinition.id).toBe('assets')
     expect(assetsModuleDefinition.navItems.map((n) => [n.label, n.to, n.permission])).toEqual(
-      LINKS.map(([l, to]) => [l, to, 'AssetsCardWrite']),
+      LINKS.map(([l, to, atom]) => [l, to, atom]),
     )
   })
 })
 
 describe('M2 nav', () => {
+  it('shows only the card link with AssetsCardWrite alone (N1)', async () => {
+    await renderShell(onlyCardWrite, LOC)
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Asset cards' })).toBeInTheDocument())
+    for (const [name] of LINKS.slice(1)) expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
+  })
+
   it('shows the link with the atom when assets is installed', async () => {
     await renderShell(withAtom, LOC)
     for (const [name, href] of LINKS) {

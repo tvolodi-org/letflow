@@ -35,7 +35,7 @@ defmodule Letflow.Modules.Stock.Documents.Shape do
 
   alias Letflow.Modules.Stock.Documents.Kinds
 
-  @max_lines 100
+  @max_lines 1000
   @note_max 500
   @line_required ~w(catalog_item_id catalog_uom_id quantity)
   @line_keys @line_required ++ ["catalog_lot_id"]

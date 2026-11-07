@@ -45,9 +45,13 @@ const KIND_ICON: Record<string, ReactNode> = {
   count_difference: <ClipboardList className="lf-icon" aria-hidden="true" />,
 }
 
-/** The CSS switches the layout at 900 px; the behaviour of a row click follows the same width. */
-function isNarrow(): boolean {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 900px)').matches
+const LAYOUT_SCREEN = 'stock.journal'
+
+/** The CSS switches the layout at 900 px of the journal AREA (a container query), not of the window: with the side nav
+ *  open a 1100 px window has a narrower area. The row click follows the same measure as the divider and the column handles. */
+function areaNarrow(): boolean {
+  const w = document.querySelector<HTMLElement>('[data-testid="journal"]')?.clientWidth ?? 0
+  return w > 0 && w <= 900 // 0: not laid out (no measure), treated as wide
 }
 
 interface InnerProps {
@@ -140,7 +144,7 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
     setSelectedId(id)
   }
   const onRow = (op: JournalOp) => {
-    if (!isNarrow()) return select(op.id)
+    if (!areaNarrow()) return select(op.id)
     if (variant === 'v1') {
       select(op.id)
       setExpandedId(expandedId === op.id ? null : op.id)
@@ -176,6 +180,8 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
     heldBy: t('stock.journal.heldBy'),
     hiddenUnit: t('stock.leg.hiddenUnit'),
     change: t('stock.journal.change'),
+    location: t('stock.col.location'),
+    item: t('stock.col.item'),
   }
 
   const filtersNode = (
@@ -214,6 +220,7 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
     <JournalList
       titleId="mv-list-title"
       variant={variant}
+      layoutScreen={LAYOUT_SCREEN}
       state={state}
       errorNode={query.isError ? <RegisterError error={query.error} onRetry={() => void query.refetch()} /> : undefined}
       ops={ops}
@@ -256,6 +263,7 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
           doc: t('stock.col.document'),
           item: t('stock.col.item'),
           qty: t('stock.col.quantity'),
+          location: t('stock.col.location'),
           status: t('stock.col.status'),
         },
         legs: legsLabels,
@@ -335,13 +343,23 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
       onOpenFull={() => setDetailOpen(true)}
       fields={fields}
       links={links}
+      layoutScreen={LAYOUT_SCREEN}
     />
   )
 
   return (
     <>
       <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.movements.title')} lede={t('stock.movements.lede')} />
-      <Journal variant={variant} list={list} details={details} detailOpen={detailOpen} filtersOpen={filtersOpen} onClose={closeDetails} />
+      <Journal
+        variant={variant}
+        list={list}
+        details={details}
+        detailOpen={detailOpen}
+        filtersOpen={filtersOpen}
+        onClose={closeDetails}
+        layoutScreen={LAYOUT_SCREEN}
+        splitLabel={t('stock.journal.pane')}
+      />
     </>
   )
 }
@@ -354,19 +372,10 @@ export default function MovementsPage({
   variant = DEFAULT_JOURNAL_VARIANT,
   initialDetail = false,
   initialFiltersOpen = false,
-}: {
-  initialOpenId?: string
-  initialSelectedId?: string
-  variant?: JournalVariant
-  initialDetail?: boolean
-  initialFiltersOpen?: boolean
-} = {}) {
+}: { initialOpenId?: string; initialSelectedId?: string; variant?: JournalVariant; initialDetail?: boolean; initialFiltersOpen?: boolean } = {}) {
   return (
     <StockIntlProvider>
-      <MovementsInner
-        initialOpenId={initialOpenId ?? null} initialSelectedId={initialSelectedId ?? null} variant={variant} initialDetail={initialDetail}
-        initialFiltersOpen={initialFiltersOpen}
-      />
+      <MovementsInner initialOpenId={initialOpenId ?? null} initialSelectedId={initialSelectedId ?? null} variant={variant} initialDetail={initialDetail} initialFiltersOpen={initialFiltersOpen} />
     </StockIntlProvider>
   )
 }

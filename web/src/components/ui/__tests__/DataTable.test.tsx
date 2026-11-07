@@ -141,3 +141,19 @@ describe('REQ-274 — DataTable', () => {
     expect(within(rows[0]).getByTestId('datatable-cell-name')).toHaveTextContent('Charlie')
   })
 })
+
+describe('T-1445 C4 tableRef and data-col', () => {
+  it('tableRef is the table element and every th carries its column key', () => {
+    const ref = { current: null as HTMLTableElement | null }
+    render(
+      <DataTable
+        columns={[{ key: 'a', label: 'A', render: () => 'x' }, { id: 'b', header: 'B', accessor: () => 'y' }]}
+        data={[{ id: '1' }]}
+        emptyMessage="none"
+        tableRef={ref}
+      />,
+    )
+    expect(ref.current?.tagName).toBe('TABLE')
+    expect(Array.from(ref.current!.querySelectorAll('th')).map((t) => t.getAttribute('data-col'))).toEqual(['a', 'b'])
+  })
+})

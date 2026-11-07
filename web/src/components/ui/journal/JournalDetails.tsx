@@ -1,12 +1,14 @@
 /** JournalDetails — the details pane of the journal: bar (Back, previous/next with "n of N", Close for the sheet),
  *  head (kind + document link + status), then the sections the module passes in; JournalLegs draws the legs both
  *  inline under a row (compact) and in the pane. Classes `lf-jrn__*` and `lf-reg__*` come from components.css. */
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { ArrowLeft, ChevronLeft, ChevronRight, Layers, Maximize2, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '../Button'
 import { EmptyState } from '../EmptyState'
 import { StatusPill, type StatusGlyph, type StatusTone } from '../StatusPill'
+import { useColResize, type ColSpec } from '../layout/ColumnResize'
+import { useLayoutMessages } from '../layout/layoutMessages'
 import { RegistryDetailsSkeleton, RegistrySection } from '../registry'
 import type { JournalLeg, JournalOp, JournalSign, JournalStatus } from './journalTypes'
 
@@ -59,6 +61,59 @@ export interface JournalLegsLabels {
   heldBy: string
   hiddenUnit: string
   change: string
+  /** Column names of the legs table. */
+  location: string
+  item: string
+}
+
+/** Widths of the legs table in percent of the table (the last column, the change, takes the rest). */
+const LEG_COLS: ColSpec[] = [
+  { id: 'loc', w: 40, min: 120 },
+  { id: 'item', w: 34, min: 120 },
+  { id: 'chg', w: 0, min: 80 },
+]
+
+/** The legs as a table with resizable columns; the CSS shows it when the details pane is 520 px wide or more. */
+export function JournalLegTable({ legs, labels, screen }: { legs: JournalLeg[]; labels: JournalLegsLabels; screen: string }) {
+  const ref = useRef<HTMLTableElement>(null)
+  const word = useLayoutMessages().resizeColumn
+  useColResize(ref, {
+    id: 'legs',
+    screen,
+    cols: LEG_COLS,
+    label: (_id, th) => `${word}: ${th.textContent?.trim() ?? ''}`,
+  })
+  return (
+    <table className="lf-jrn__legtable" ref={ref} aria-label={labels.legs} data-testid="journal-legtable">
+      <thead>
+        <tr>
+          <th scope="col" data-col="loc">{labels.location}</th>
+          <th scope="col" data-col="item">{labels.item}</th>
+          <th scope="col" data-col="chg" className="is-num">{labels.change}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {legs.map((l) => (
+          <tr key={l.id} data-testid="journal-legrow">
+            {l.hidden ? (
+              <td colSpan={2}><span className="lf-muted">{labels.hiddenUnit}</span></td>
+            ) : (
+              <>
+                <td>
+                  <JournalRef text={l.location} />
+                  {l.holder !== '' && <div><span className="lf-jrn__holder">{labels.heldBy} {l.holder}</span></div>}
+                </td>
+                <td><JournalRef text={l.item} /></td>
+              </>
+            )}
+            <td className="is-num">
+              <span className="lf-jrn__delta"><JournalSigned sign={l.sign} text={l.qty} /></span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
 }
 
 export function JournalLegs({ legs, compact, labels }: { legs: JournalLeg[]; compact?: boolean; labels: JournalLegsLabels }) {
@@ -120,10 +175,34 @@ export interface JournalDetailsProps {
   /** Sections after the head: fields card, links card (the module builds them from RegistryFields / RegistrySection). */
   fields: ReactNode
   links: ReactNode
+  /** Screen id of the remembered layout (column widths of the legs table). */
+  layoutScreen: string
+}
+
+/** True while the element is 520 px wide or more (the width at which the CSS swaps the leg cards for the table). The
+ *  state change re-renders, so the column handles bind after a drag of the divider crosses that width. */
+function useTableMode(ref: RefObject<HTMLElement>, active: boolean): void {
+  const [, setMode] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !active || typeof ResizeObserver === 'undefined') return
+    let last = el.clientWidth >= 520
+    const ro = new ResizeObserver(() => {
+      const now = el.clientWidth >= 520
+      if (now !== last) {
+        last = now
+        setMode(now)
+      }
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref, active])
 }
 
 export function JournalDetails(p: JournalDetailsProps) {
   const L = p.labels
+  const rootRef = useRef<HTMLDivElement>(null)
+  useTableMode(rootRef, !p.loading && p.op !== null)
   if (p.loading) {
     return <div className="lf-jrn__details" aria-label={L.pane}><RegistryDetailsSkeleton /></div>
   }
@@ -138,7 +217,7 @@ export function JournalDetails(p: JournalDetailsProps) {
   }
   const op = p.op
   return (
-    <div className="lf-jrn__details" id="jr-details" aria-label={L.pane} data-testid="journal-details">
+    <div className="lf-jrn__details" id="jr-details" ref={rootRef} aria-label={L.pane} data-testid="journal-details">
       <div className="lf-jrn__handle" aria-hidden="true" />
       <div className="lf-jrn__bar">
         <div className="lf-reg__backrow">
@@ -189,6 +268,7 @@ export function JournalDetails(p: JournalDetailsProps) {
       {p.fields}
       <RegistrySection pane="legs" id="jr-legs" title={L.legsTitle} count={op.legs.length}>
         <JournalLegs legs={op.legs} labels={L.legs} />
+        <JournalLegTable legs={op.legs} labels={L.legs} screen={p.layoutScreen} />
       </RegistrySection>
       {p.links}
     </div>

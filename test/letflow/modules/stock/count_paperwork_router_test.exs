@@ -169,6 +169,16 @@ defmodule Letflow.Modules.Stock.CountPaperworkRouterTest do
                "signatures"
              ]
 
+      # T-1435 X5: ?lang= localizes; an unknown one is 422 invalid_lang
+      ru = call(:get, "/counts/#{id}/paperwork/order?lang=ru", x.chair_tok)
+      assert ru.status == 200
+      assert Map.keys(sheets(ru.resp_body)) |> Enum.sort() == ["Документ", "Охват", "Подписи"]
+
+      assert status!(call(:get, "/counts/#{id}/paperwork/order?lang=de", x.chair_tok), 422)[
+               "reason"
+             ] ==
+               "invalid_lang"
+
       assert status!(download(id, "sheet", x.chair_tok), 422)["reason"] == "document_not_issued"
 
       assert status!(download(id, "differences", x.chair_tok), 422)["reason"] ==

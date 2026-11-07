@@ -3,6 +3,7 @@ DELETE /definitions/:id DefinitionsDelete
 DELETE /entity-type-hooks/:entity_type EntityTypeHooksManage
 DELETE /instances/:id/attachments/:attachment_id AttachmentsManage
 DELETE /integration-mappings/:id IntegrationMappingsManage
+DELETE /modules/assets/documents/:id AssetsPost
 DELETE /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 DELETE /modules/stock/documents/:id StockPost
 DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
@@ -30,6 +31,8 @@ GET /instances/storage-usage AttachmentsRead
 GET /integration-mappings IntegrationMappingsManage
 GET /integration-mappings/:id IntegrationMappingsManage
 GET /modules/assets/balances AssetsRead
+GET /modules/assets/documents AssetsRead
+GET /modules/assets/documents/:id AssetsRead
 GET /modules/assets/movements AssetsRead
 GET /modules/assets/reconcile AssetsReconcile
 GET /modules/exam/exam-sessions/:id ExamSessionRead
@@ -60,6 +63,7 @@ GET /modules/stock/documents/:id StockRead
 GET /modules/stock/documents/:id/print StockRead
 GET /modules/stock/movements StockRead
 GET /modules/stock/reconcile StockReconcile
+GET /modules/stock/stock-card/print StockRead
 GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage
@@ -123,6 +127,9 @@ POST /instances/:id/reconstruct InstancesCancel
 POST /integration-mappings IntegrationMappingsManage
 POST /modules/assets/cards AssetsCardWrite
 POST /modules/assets/cards/:id/retire AssetsCardWrite
+POST /modules/assets/documents AssetsPost
+POST /modules/assets/documents/:id/issue AssetsPost
+POST /modules/assets/documents/:id/reverse AssetsReverse
 POST /modules/catalog_items/lots CatalogLotsWrite
 POST /modules/catalog_items/lots/:id/retire CatalogLotsWrite
 POST /modules/codes/:id/assign CodesWrite
@@ -219,6 +226,7 @@ POST /tenant/config-bundle/import TenantSettingsManage
 POST /tenant/modules ModulesManage
 POST /tenant/modules/:module_id/reactivate ModulesManage
 POST /tenant/modules/:module_id/uninstall ModulesManage
+POST /tenant/modules/:module_id/upgrade ModulesManage
 POST /tenant/modules/:module_id/upgrade/plan ModulesManage
 POST /tenant/solutions ModulesManage
 POST /tenants TenantsManage
@@ -230,6 +238,7 @@ POST /webhooks/subscriptions WebhookSubscriptionsManage
 PUT /definitions/:id DefinitionsUpdate
 PUT /entity-type-hooks/:entity_type EntityTypeHooksManage
 PUT /integration-mappings/:id IntegrationMappingsManage
+PUT /modules/assets/documents/:id AssetsPost
 PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
 PUT /modules/stock/counts/:id StockCountOrder
