@@ -132,7 +132,7 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
   }, [flash])
   const [live, setLive] = useState('')
   const [notice, setNotice] = useState<Notice | null>(null)
-  const atMax = lines.length >= max && !emptyDoc
+  const atMax = !readOnly && lines.length >= max && !emptyDoc
   const announce = (s: string) => setLive(s)
 
   // ---- virtual rows (grid and saved table) ----
@@ -367,6 +367,24 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
     [base, baseIds, max, apply, touch, t],
   )
 
+  const showResult = useCallback(
+    (r: { added: number; refused: { row: number; reason: string }[] }) => {
+      const text = r.refused.length > 0 ? t('imported', { n: r.added, m: r.refused.length }) : t('importedAll', { n: r.added })
+      setNotice({ kind: r.refused.length > 0 ? 'warn' : 'ok', text, details: r.refused })
+      announce(text)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [t],
+  )
+  const showError = useCallback(
+    (message: string) => {
+      setNotice({ kind: 'warn', text: message })
+      announce(message)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
   // ---- line by line form ----
   const [form, setForm] = useState<FormState<L>>({ open: false, idx: -1, draft: blank(), showErr: false })
   function openForm(idx: number) {
@@ -425,7 +443,7 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
 
   // ================================ render ================================
   const showImport = !readOnly && props.onImport
-  const importCtl: LeImportController<L> = { importRows }
+  const importCtl: LeImportController<L> = { importRows, showResult, showError }
   const rowErrorMark = (i: number) => {
     const n = i + 1
     return errorsByLine.has(i) ? (
@@ -718,7 +736,7 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
     if (state === 'loading') return <LoadingState />
     if (state === 'error') return <ErrorState onRetry={props.onRetry} />
     if (readOnly && lines.length === 0) return <EmptyState readOnly />
-    if (emptyDoc && effMode === 'grid' && !readOnly) return <EmptyState onAdd={addLine} />
+    if (emptyDoc && effMode === 'grid' && !readOnly) return <EmptyState onAdd={addLine} onImport={showImport ? () => props.onImport!(importCtl) : undefined} importDisabledReason={props.importDisabledReason} />
     if (effMode === 'grid') {
       return (
         <>
@@ -799,7 +817,7 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
               </Button>
             )}
             {showImport && (
-              <Button variant="secondary" size="sm" icon={<Upload className="lf-icon" aria-hidden="true" />} onClick={() => props.onImport!(importCtl)}>
+              <Button variant="secondary" size="sm" icon={<Upload className="lf-icon" aria-hidden="true" />} onClick={() => props.onImport!(importCtl)} disabled={props.importDisabledReason !== undefined || atMax} title={props.importDisabledReason}>
                 {t('imp')}
               </Button>
             )}

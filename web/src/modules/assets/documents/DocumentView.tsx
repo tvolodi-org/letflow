@@ -16,19 +16,26 @@ import { Banner } from '@/components/ui/Banner'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { DocBar, DocCard, DocField, DocFields, DocGroup } from '@/components/ui/doc/DocLayout'
-import { DocLineItem, DocLinesTable, DocLinesTotal } from '@/components/ui/doc/DocLines'
+import { LFLinesEditor } from '@/components/ui/lines/LFLinesEditor'
+import type { LeColumn } from '@/components/ui/lines/types'
+import { useLinesMode } from '@/hooks/useLinesMode'
 import { Button } from '@/components/ui/Button'
 import { assetsQueryKeys } from '../assetsQueryKeys'
 import { useNames } from '../assetsNames'
 import { RegisterError } from '../register/RegisterShell'
 import { movementsLinkFor, type NameIds } from '../register/registerModel'
-import { assetDocumentsApi, type AssetDocument } from './assetDocuments.api'
+import { assetDocumentsApi, type AssetDocument, type AssetDocumentLine } from './assetDocuments.api'
 import { DocumentActions } from './DocumentActions'
 import { DocumentTabs } from './DocumentTabs'
 import { DOCUMENTS_PATH } from './DocumentList'
 import { ASSET_DOCUMENTS_LAYOUT_SCREEN, lineColumnSpecs, lineColumns } from './lineColumns'
 import { DOC_KINDS, DOC_STATES, WRITEOFF_REASONS, formatEventTime, isTwoSide, sidesOf } from './documentsModel'
 import { stateTone } from './stateTone'
+
+type AssetLine = AssetDocumentLine
+const noop = () => undefined
+/** The read-only editor never adds a line; the editor contract still asks for a blank one. */
+const blankLine = (): AssetLine => ({ line_no: 0, asset_id: '', quantity: '' })
 
 function nameIds(doc: AssetDocument): NameIds {
   const out: NameIds = {}
@@ -60,6 +67,7 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
     retry: false,
   }] })
   const doc = query.data
+  const [linesMode, setLinesMode] = useLinesMode('lf-asset-lines')
   const name = useNames(doc ? [nameIds(doc)] : [])
   const dash = t('assets.common.dash')
   const when = (iso: string | null | undefined) => formatEventTime(iso, intl.locale, dash)
@@ -104,6 +112,10 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
   const two = isTwoSide(doc.kind)
   const sides = sidesOf(doc)
   const columns = lineColumns(t)
+  const editorColumns: LeColumn<AssetLine>[] = [
+    { key: 'asset', colId: 'item', label: columns[0].label, grow: true, view: (l) => name('assets_card', l.asset_id) },
+    { key: 'quantity', colId: 'qty', label: columns[1].label, num: true, view: (l) => formatQuantity(l.quantity, intl.locale) },
+  ]
   const refMsg = REFERENCE_MESSAGES[uiLocale]
   const actor = (ref: string | null | undefined, label?: string | null) =>
     ref && ref === access.userId ? refMsg.you : label || actorLabel(ref, access.userId, refMsg)
@@ -191,20 +203,22 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
             </div>
           </div>
         ) : (
-          <DocLinesTable
-            columns={columns}
-            lineLabel={t('assets.doc.col.lineNo')}
-            data-testid="document-lines"
+          <LFLinesEditor<AssetLine>
+            screenId="lf-asset-lines"
+            readOnly
+            lines={lines}
+            onChange={noop}
+            columns={editorColumns}
+            blank={blankLine}
+            duplicate={(l) => l}
+            isBlank={() => false}
+            max={lines.length}
+            mode={linesMode}
+            onModeChange={setLinesMode}
+            searchText={(l) => `${name('assets_card', l.asset_id)} ${l.quantity}`}
+            totals={() => ({ col: 'asset', node: `${t('assets.doc.lines.total')}: ${lines.length}` })}
             resize={{ id: 'lines', screen: ASSET_DOCUMENTS_LAYOUT_SCREEN, cols: lineColumnSpecs() }}
-            footer={<DocLinesTotal labelSpan={columns.length + 1} label={`${t('assets.doc.lines.total')}: ${lines.length}`} cells={[]} />}
-          >
-            {lines.map((l, i) => (
-              <DocLineItem key={l.line_no} index={i} lineLabel={t('assets.doc.col.lineNo')} messageId={`ln-${i}-err`} colSpan={columns.length + 1} testId="line-row">
-                <td data-label={columns[0].label}>{name('assets_card', l.asset_id)}</td>
-                <td className="is-num" data-label={columns[1].label}>{formatQuantity(l.quantity, intl.locale)}</td>
-              </DocLineItem>
-            ))}
-          </DocLinesTable>
+          />
         )}
         <div className="lf-btn-row">
           <Button variant="ghost" onClick={() => void query.refetch()}>{t('assets.doc.reload')}</Button>

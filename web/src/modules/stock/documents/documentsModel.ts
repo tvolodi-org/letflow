@@ -20,7 +20,8 @@ export const isOpening = (kind: string): boolean => kind === 'opening'
 export const DOC_STATES = ['draft', 'issued', 'posted', 'reversed', 'cancelled'] as const
 export const WRITE_OFF_REASONS = ['lost', 'damaged', 'used_up', 'other'] as const
 export const REVERSE_REASONS = ['wrong_document', 'wrong_quantity', 'wrong_master_data', 'other'] as const
-export const MAX_LINES = 100
+/** Mirrors `Shape.max_lines` of the server (1000, REQ-774): the one web declaration of the line cap. */
+export const MAX_LINES = 1000
 export const TEXT_MAX = 500
 export const REF_MAX = 200
 

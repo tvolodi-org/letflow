@@ -27,3 +27,10 @@ describe('lf-lines container-query card mode', () => {
     for (const label of ['Изменить', 'Өзгерту', 'Сохранить черновик', 'Жобаны сақтау']) expect(fx).toContain(label)
   })
 })
+
+describe('LE2-T9 the lines panel fills the window and keeps a fixed fallback', () => {
+  it('base.css keeps the fixed height and adds a viewport fill rule for wide, tall windows', () => {
+    expect(css).toContain('.lf-doc__lines .lf-le { height: min(70vh, 720px); min-height: 22rem; }')
+    expect(css).toMatch(/@media \(min-width: 900px\) and \(min-height: 700px\) \{\s*\.lf-doc__lines \.lf-le \{ height: clamp\(22rem, calc\(100dvh - 15rem\), 64rem\); \}/)
+  })
+})

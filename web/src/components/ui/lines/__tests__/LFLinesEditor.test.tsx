@@ -291,3 +291,58 @@ describe('import', () => {
     expect(screen.getByTestId('lines-notice')).toHaveTextContent('1 lines added, 1 refused')
   })
 })
+
+describe('LE2 volume and import entry', () => {
+  type Ctl = Parameters<NonNullable<LFLinesEditorProps<Ln>['onImport']>>[0]
+  it('LE2-T2 showResult prints "N lines added, M refused" with the reasons, showError a warning', async () => {
+    let ctl: Ctl | undefined
+    render(<Host initial={mk(2)} max={50} onImport={(c) => { ctl = c }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Import lines from Excel' }))
+    act(() => ctl!.showResult({ added: 7, refused: [{ row: 3, reason: 'bad item' }, { row: 9, reason: 'bad qty' }] }))
+    const notice = screen.getByTestId('lines-notice')
+    expect(notice).toHaveTextContent('7 lines added, 2 refused')
+    expect(notice).toHaveTextContent('bad item')
+    expect(notice).toHaveTextContent('bad qty')
+    expect(rows()).toHaveLength(2) // showResult never touches the lines: the caller stored them
+    act(() => ctl!.showResult({ added: 4, refused: [] }))
+    expect(screen.getByTestId('lines-notice')).toHaveTextContent('4 lines added')
+    act(() => ctl!.showError('The file is over the limits'))
+    expect(screen.getByTestId('lines-notice')).toHaveTextContent('The file is over the limits')
+  })
+
+  it('LE2-T3 the empty state offers the import only when an importer is given; disabled with its reason; hidden read-only', () => {
+    const onImport = vi.fn()
+    const { rerender } = render(<Host onImport={onImport} />)
+    fireEvent.click(screen.getByTestId('lines-empty-import'))
+    expect(onImport).toHaveBeenCalledTimes(1)
+    rerender(<Host onImport={onImport} importDisabledReason="Save the draft first" />)
+    expect(screen.getByTestId('lines-empty-import')).toBeDisabled()
+    expect(screen.getByTestId('lines-empty-import')).toHaveAttribute('title', 'Save the draft first')
+    cleanup()
+    render(<Host />)
+    expect(screen.queryByTestId('lines-empty-import')).not.toBeInTheDocument()
+    cleanup()
+    render(<Host onImport={onImport} readOnly />)
+    expect(screen.queryByTestId('lines-empty-import')).not.toBeInTheDocument()
+  })
+
+  it('LE2-T3b at the maximum the import button is disabled', () => {
+    render(<Host initial={mk(5)} onImport={() => undefined} />)
+    expect(screen.getByRole('button', { name: 'Import lines from Excel' })).toBeDisabled()
+  })
+
+  it('LE2-T6 1000 lines: search keeps the original numbers, Next error brings a row outside the window into view', async () => {
+    const lines = Array.from({ length: 1000 }, (_, i) => ({ item: 'i1', qty: i === 800 ? '' : String(i + 1), ref: '' }))
+    render(<Host initial={lines} max={1000} showErrors />)
+    expect(screen.getByText(/1 line has errors/)).toBeInTheDocument()
+    expect(rows().length).toBeLessThanOrEqual(30)
+    fireEvent.click(screen.getByRole('button', { name: /Next error/ }))
+    await waitFor(() => expect(rows().some((r) => within(r).queryByLabelText<HTMLInputElement>('Quantity')?.value === '')).toBe(true))
+    expect(rows().length).toBeLessThanOrEqual(30)
+    fireEvent.change(screen.getByLabelText('Search in the lines'), { target: { value: '999' } })
+    const first = rows()[0]!
+    expect(within(first).getByLabelText('Quantity')).toHaveValue('999')
+    expect(first.textContent).toContain('999')
+    expect(screen.getByText(/1 of 1000 lines shown/)).toBeInTheDocument()
+  })
+})

@@ -47,7 +47,7 @@ export function ErrorState({ onRetry }: { onRetry?: () => void }) {
   )
 }
 
-export function EmptyState({ readOnly, onAdd, addDisabled }: { readOnly?: boolean; onAdd?: () => void; addDisabled?: boolean }) {
+export function EmptyState({ readOnly, onAdd, addDisabled, onImport, importDisabledReason }: { readOnly?: boolean; onAdd?: () => void; addDisabled?: boolean; onImport?: () => void; importDisabledReason?: string }) {
   const t = useLinesT()
   return (
     <div className="lf-le__state" data-testid="lines-empty">
@@ -60,6 +60,11 @@ export function EmptyState({ readOnly, onAdd, addDisabled }: { readOnly?: boolea
             <Button variant="primary" onClick={onAdd} disabled={addDisabled}>
               {t('add')}
             </Button>
+            {onImport && (
+              <Button variant="secondary" onClick={onImport} disabled={importDisabledReason !== undefined} title={importDisabledReason} data-testid="lines-empty-import">
+                {t('imp')}
+              </Button>
+            )}
           </div>
         )}
       </div>

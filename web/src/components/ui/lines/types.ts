@@ -106,6 +106,8 @@ export interface LFLinesEditorProps<L> {
   scan?: (code: string, lines: L[]) => LeScanResult<L>
   /** Import entry; absent = no button. The caller adds rows through `controller.importRows`. */
   onImport?: (controller: LeImportController<L>) => void
+  /** Import is shown but cannot run now; the text says why (a title on the disabled button). */
+  importDisabledReason?: string
   /** A total shown in the sticky footer under the column `col`. */
   totals?: (lines: L[]) => { col: string; node: ReactNode } | null
   /** Prefix of DOM ids and aria ids (tests, labels). */
@@ -117,4 +119,8 @@ export interface LFLinesEditorProps<L> {
 
 export interface LeImportController<L> {
   importRows: (rows: { line: L; reason?: string }[]) => void
+  /** The caller already stored the lines (the server wrote them): show "N lines added, M refused" with the reasons. */
+  showResult: (r: { added: number; refused: { row: number; reason: string }[] }) => void
+  /** The import failed as a whole; `message` is already translated. */
+  showError: (message: string) => void
 }
