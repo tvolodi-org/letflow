@@ -373,7 +373,6 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
       setNotice({ kind: r.refused.length > 0 ? 'warn' : 'ok', text, details: r.refused })
       announce(text)
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [t],
   )
   const showError = useCallback(
@@ -381,7 +380,6 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
       setNotice({ kind: 'warn', text: message })
       announce(message)
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   )
 
