@@ -28,7 +28,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
       "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
       "hand_over" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
       "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
-      "count_difference" => %{sign_rule: :any, reason_required: true}
+      "count_difference" => %{sign_rule: :any, reason_required: true},
+      "kind_change_out" => %{sign_rule: :negative, reason_required: false}
     },
     key_bounds: [],
     permissions: %{
@@ -47,7 +48,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.15.0"
+    assert m.version == "0.16.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
@@ -78,7 +79,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert Enum.map(m.write_handlers, & &1.name) == [
              "post_document",
              "reverse_document",
-             "post_count"
+             "post_count",
+             "post_kind_change_out"
            ]
 
     assert m.permissions == [
@@ -192,7 +194,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert Enum.all?(r.slots, &(&1.format == :uuid))
 
     assert Map.keys(r.causes) |> Enum.sort() ==
-             ~w(count_difference hand_over issue opening receipt return transfer write_off)
+             ~w(count_difference hand_over issue kind_change_out opening receipt return transfer write_off)
 
     # REQ-718: one cause, sign rule any, a reason required
     assert r.causes["count_difference"] == %{sign_rule: :any, reason_required: true}

@@ -30,8 +30,9 @@ defmodule Letflow.Modules.Stock.Handlers do
   @type result :: {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
 
   @spec post_document(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
-  def post_document(_multi, _ctx, %{"posting" => %{"cause" => "count_difference"}}),
-    do: {:error, :invalid_arguments}
+  def post_document(_multi, _ctx, %{"posting" => %{"cause" => cause}})
+      when cause in ["count_difference", "kind_change_out"],
+      do: {:error, :invalid_arguments}
 
   def post_document(multi, ctx, args), do: run(multi, ctx, args, "posted", [])
 
@@ -50,6 +51,15 @@ defmodule Letflow.Modules.Stock.Handlers do
   end
 
   def post_count(_multi, _ctx, _args), do: {:error, :invalid_arguments}
+
+  # REQ-760: the stock leg of a change of kind. Only the cause `kind_change_out` is accepted;
+  # `post_document` refuses it in return. The posting carries the shared `correlation_id`.
+  @spec post_kind_change_out(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
+          result()
+  def post_kind_change_out(multi, ctx, %{"posting" => %{"cause" => "kind_change_out"}} = args),
+    do: run(multi, ctx, args, "posted", [])
+
+  def post_kind_change_out(_multi, _ctx, _args), do: {:error, :invalid_arguments}
 
   @spec reverse_document(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
   def reverse_document(multi, ctx, args), do: run(multi, ctx, args, "reversed", ["reason_code"])

@@ -332,9 +332,12 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
 
     cond do
       last == :HandlerWrites ->
-        if fun in [:create, :post] and length(args) == 3,
-          do: [],
-          else: [{:handler_writes, fun}]
+        cond do
+          fun in [:create, :post] and length(args) == 3 -> []
+          # REQ-760: the platform-derived record id of the next create.
+          fun == :next_record_id and length(args) == 1 -> []
+          true -> [{:handler_writes, fun}]
+        end
 
       {parts, fun} in @atom_creators ->
         [{:atom_creation, fun}]
@@ -621,6 +624,8 @@ end", {:call, :from}},
         # REQ-685: post/3 is the second handler-facing call; its arity-2 form and the platform seam
         # `HandlerPost` uses are not.
         {body.("HandlerWrites.post(m, c)"), {:handler_writes, :post}},
+        # REQ-760: next_record_id/1 is the third handler-facing call; other arities are not.
+        {body.("HandlerWrites.next_record_id(c, 1)"), {:handler_writes, :next_record_id}},
         {body.("HandlerWrites.__token__(c)"), {:handler_writes, :__token__}},
         {body.("HandlerWrites.__next_ordinal__(c)"), {:handler_writes, :__next_ordinal__}},
         {body.("HandlerWrites.__record__(c, [])"), {:handler_writes, :__record__}},
@@ -681,6 +686,18 @@ end", {:call, :from}},
       """
 
       assert purity_violations(full_alias) == []
+
+      # REQ-760 (S3): next_record_id/1 is allowed in a handler file.
+      next_id = """
+      defmodule H do
+        def h(multi, ctx, _args) do
+          {:ok, _id} = Letflow.Entities.HandlerWrites.next_record_id(ctx)
+          {:ok, multi}
+        end
+      end
+      """
+
+      assert purity_violations(next_id) == []
     end
   end
 end
