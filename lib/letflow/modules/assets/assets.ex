@@ -31,6 +31,13 @@ defmodule Letflow.Modules.Assets do
   main to QA) has no `assets` partitions: the read routes answer empty lists, a posting would be
   refused `:ledger_storage_missing`, and the upgrade plan lists the ledger under `missing_ledger_storage`.
 
+  **Change of kind** (C15 part 1, version 0.8.0, REQ-759 / GH #3902; spec `docs/assets/change-of-kind.md`):
+  a fifth document kind `kind_change` (a stock SKU becomes an asset card) on the same `/documents` routes,
+  with record types `assets_kind_change` and `assets_kind_change_line` and the document type
+  `assets_kind_change` (AKC). It is drafted and issued (the master checks of section 5 run at issue, reading
+  the catalog, locations, org and the card register) but posts nothing and creates no card; both belong to
+  REQ-760. Because the checks read `catalog_items` and `stock`, the module now depends on both.
+
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
   declared by a tenant (decision 0051 M4), so it cannot be edited later.
@@ -68,7 +75,9 @@ defmodule Letflow.Modules.Assets do
     "assets_handover_line",
     "assets_writeoff",
     "assets_writeoff_line",
-    "assets_posting_mark"
+    "assets_posting_mark",
+    "assets_kind_change",
+    "assets_kind_change_line"
   ]
 
   # GH #3891 / REQ-751: the document type of the commission (prefix ACM, numbering restarts each year).
@@ -108,6 +117,15 @@ defmodule Letflow.Modules.Assets do
       number_pad: 6,
       legal_entity_required: false,
       declared_fields: %{}
+    },
+    %{
+      key: "assets_kind_change",
+      owner_module: "assets",
+      numbering_scope: :year,
+      number_prefix: "AKC",
+      number_pad: 6,
+      legal_entity_required: false,
+      declared_fields: %{}
     }
   ]
 
@@ -118,8 +136,8 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.7.0",
-    depends_on: ["locations", "org"],
+    version: "0.8.0",
+    depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
     role_grants: %{},
@@ -157,7 +175,9 @@ defmodule Letflow.Modules.Assets do
       "assets_handover_line",
       "assets_writeoff",
       "assets_writeoff_line",
-      "assets_posting_mark"
+      "assets_posting_mark",
+      "assets_kind_change",
+      "assets_kind_change_line"
     ],
     scope_declarations: %{
       "assets_card" => {:column, "org_unit_id"},
@@ -169,7 +189,9 @@ defmodule Letflow.Modules.Assets do
       "assets_handover_line" => {:column, "org_unit_id"},
       "assets_writeoff" => {:column, "org_unit_id"},
       "assets_writeoff_line" => {:column, "org_unit_id"},
-      "assets_posting_mark" => {:column, "org_unit_id"}
+      "assets_posting_mark" => {:column, "org_unit_id"},
+      "assets_kind_change" => {:column, "org_unit_id"},
+      "assets_kind_change_line" => {:column, "org_unit_id"}
     },
     write_handlers: [
       %Letflow.Modules.WriteHandlerSpec{

@@ -72,17 +72,17 @@ defmodule Letflow.Modules.Assets.CardInstallTest do
     assert "inventory_number" in expected
   end
 
-  test "A-INS-2: without locations (which needs org), then with org only, the install is refused and leaves no trace" do
+  test "A-INS-2: step by step, a missing dependency refuses the install and leaves no trace" do
     fx = Fx.provisioned_tenant!("gh3894-dep")
     opts = [prefix: fx.schema_name, rationale: "GH-3894 dependency test"]
 
     assert Installs.install("assets", Ecto.UUID.generate(), opts) ==
-             {:error, {:dependency_not_installed, "locations"}}
+             {:error, {:dependency_not_installed, "catalog_items"}}
 
     Fx.install_module!(fx.tenant_id, "org")
 
     assert Installs.install("assets", Ecto.UUID.generate(), opts) ==
-             {:error, {:dependency_not_installed, "locations"}}
+             {:error, {:dependency_not_installed, "catalog_items"}}
 
     assert definition_rows(fx.schema_name) == []
     assert promotions(fx.tenant_id) == []

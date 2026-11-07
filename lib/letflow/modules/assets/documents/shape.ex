@@ -15,13 +15,22 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
   (no number, no float) with at most 9 decimals, stored with exactly 9 decimals (the form of a strict
   decimal field). The VALUE rule of the quantity (whole, above zero, 1 for fixed and intangible
   assets) is an issue check (`Checks`, `quantity_invalid`). `line_no` is the position 1..n.
+
+  The line keys come from the kind table (`Kinds`, `line_keys` / `line_required`). A change of kind
+  (`kind_change`, REQ-759) line has sixteen body keys: ids are canonical uuid text (an empty
+  `catalog_lot_id` or `actual_user_id` is absent), `target_kind` is `low_value` or `fixed`,
+  `inventory_number` (1..64 bytes) and `asset_name` (1..200 bytes) are NFC trimmed text, and an absent
+  `asset_org_unit_id` is the header's org unit. `asset_card_id` is server-set and `field_not_allowed`.
   """
 
   alias Letflow.Modules.Assets.Documents.Kinds
 
   @max_lines 100
   @note_max 500
-  @line_keys ~w(asset_id quantity)
+  @line_optional_empty ~w(catalog_lot_id actual_user_id)
+  @target_kinds ~w(low_value fixed)
+  @inventory_number_max 64
+  @asset_name_max 200
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
   @optional_empty ~w(location_id actual_user_id from_location_id to_location_id from_actual_user_id to_actual_user_id)
   @reason_text_max 500
@@ -47,7 +56,7 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
          {:ok, header} <- reason(header, spec),
          {:ok, event_time} <- event_time(body["event_time"]),
          {:ok, raw_lines} <- raw_lines(body["lines"]),
-         {:ok, lines} <- lines(raw_lines) do
+         {:ok, lines} <- lines(raw_lines, spec, header) do
       {:ok, %{kind: kind, header: Map.put(header, "event_time", event_time), lines: lines}}
     end
   end
@@ -188,11 +197,11 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
 
   defp raw_lines(_other), do: refuse("field_invalid", %{"field" => "lines"})
 
-  defp lines(raw) do
+  defp lines(raw, spec, header) do
     raw
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, []}, fn {line, no}, {:ok, acc} ->
-      case line(line, no) do
+      case line(line, no, spec, header) do
         {:ok, parsed} -> {:cont, {:ok, [parsed | acc]}}
         {:error, _} = error -> {:halt, error}
       end
@@ -203,43 +212,82 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
     end
   end
 
-  defp line(line, no) when is_map(line) and not is_struct(line) do
-    with :ok <- line_allowed(line, no),
-         :ok <- line_required(line, no),
-         {:ok, asset} <- asset_id(line["asset_id"], no),
-         {:ok, quantity} <- quantity(line["quantity"], no) do
-      {:ok, %{"line_no" => no, "asset_id" => asset, "quantity" => quantity}}
+  defp line(line, no, spec, header) when is_map(line) and not is_struct(line) do
+    with :ok <- line_allowed(line, no, spec),
+         :ok <- line_required(line, no, spec),
+         {:ok, values} <- line_values(line, no, spec) do
+      {:ok, values |> default_asset_unit(header) |> Map.put("line_no", no)}
     end
   end
 
-  defp line(_line, no), do: refuse("field_invalid", %{"field" => "lines", "line_no" => no})
+  defp line(_line, no, _spec, _header),
+    do: refuse("field_invalid", %{"field" => "lines", "line_no" => no})
 
-  defp line_allowed(line, no) do
-    case line |> Map.keys() |> Enum.reject(&(&1 in @line_keys)) |> Enum.sort() do
+  defp line_allowed(line, no, spec) do
+    case line |> Map.keys() |> Enum.reject(&(&1 in spec.line_keys)) |> Enum.sort() do
       [] -> :ok
       [key | _] -> refuse("field_not_allowed", %{"field" => printable(key), "line_no" => no})
     end
   end
 
-  defp line_required(line, no) do
-    case Enum.find(@line_keys, &(not Map.has_key?(line, &1))) do
+  defp line_required(line, no, spec) do
+    case Enum.find(spec.line_required, &(not Map.has_key?(line, &1))) do
       nil -> :ok
       key -> refuse("field_required", %{"field" => key, "line_no" => no})
     end
   end
 
-  defp asset_id(value, no) do
-    case uuid(value) do
-      {:ok, id} -> {:ok, id}
-      :error -> refuse("field_invalid", %{"field" => "asset_id", "line_no" => no})
+  # Values in `spec.line_keys` order; an optional id given as "" is dropped.
+  defp line_values(line, no, spec) do
+    Enum.reduce_while(spec.line_keys, {:ok, %{}}, fn key, {:ok, acc} ->
+      case Map.fetch(line, key) do
+        :error ->
+          {:cont, {:ok, acc}}
+
+        {:ok, ""} when key in @line_optional_empty ->
+          {:cont, {:ok, acc}}
+
+        {:ok, value} ->
+          case line_value(key, value) do
+            {:ok, parsed} -> {:cont, {:ok, Map.put(acc, key, parsed)}}
+            :error -> {:halt, refuse("field_invalid", %{"field" => key, "line_no" => no})}
+          end
+      end
+    end)
+  end
+
+  defp line_value("quantity", text) do
+    if is_binary(text) and Regex.match?(@quantity, text),
+      do: {:ok, text |> Decimal.new() |> Decimal.round(9) |> Decimal.to_string(:normal)},
+      else: :error
+  end
+
+  defp line_value("target_kind", value) when value in @target_kinds, do: {:ok, value}
+  defp line_value("target_kind", _value), do: :error
+  defp line_value("inventory_number", value), do: text(value, @inventory_number_max)
+  defp line_value("asset_name", value), do: text(value, @asset_name_max)
+  defp line_value(_id_key, value), do: uuid(value)
+
+  # NFC, trimmed, 1..max bytes; the value is stored as trimmed text.
+  defp text(value, max) when is_binary(value) do
+    nfc = :unicode.characters_to_nfc_binary(value)
+
+    with true <- String.valid?(value) and is_binary(nfc),
+         trimmed = String.trim(nfc),
+         true <- byte_size(trimmed) in 1..max do
+      {:ok, trimmed}
+    else
+      _bad -> :error
     end
   end
 
-  defp quantity(text, no) do
-    if is_binary(text) and Regex.match?(@quantity, text),
-      do: {:ok, text |> Decimal.new() |> Decimal.round(9) |> Decimal.to_string(:normal)},
-      else: refuse("field_invalid", %{"field" => "quantity", "line_no" => no})
-  end
+  defp text(_value, _max), do: :error
+
+  # A change of kind line without an asset org unit takes the header's.
+  defp default_asset_unit(%{"inventory_number" => _} = values, header),
+    do: Map.put_new(values, "asset_org_unit_id", header["org_unit_id"])
+
+  defp default_asset_unit(values, _header), do: values
 
   defp refuse(reason, extras \\ %{}), do: {:error, {reason, extras}}
 

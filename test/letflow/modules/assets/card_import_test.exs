@@ -55,7 +55,7 @@ defmodule Letflow.Modules.Assets.CardImportTest do
     {:ok, _} = Letflow.Entities.EventTypes.seed!(t.schema_name)
     on_exit(fn -> S.drop_pack_rows!(t.tenant_id) end)
 
-    for m <- ["org", "locations", "assets"] do
+    for m <- ["org", "catalog_items", "locations", "codes", "stock", "assets"] do
       {:ok, _} =
         Installs.install(m, Ecto.UUID.generate(),
           prefix: t.schema_name,
@@ -171,7 +171,7 @@ defmodule Letflow.Modules.Assets.CardImportTest do
   test "R1: the manifest registers the import function and validates" do
     m = Assets.manifest()
     assert m.import_functions == [%{entity_type: "assets_card", function: :import_card}]
-    assert m.version == "0.7.0"
+    assert m.version == "0.8.0"
     assert Catalog.validate(m) == :ok
     assert Catalog.import_function("assets", "assets_card") == :ok
   end

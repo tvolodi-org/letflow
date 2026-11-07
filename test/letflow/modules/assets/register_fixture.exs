@@ -64,8 +64,8 @@ defmodule Letflow.AssetsRegisterFixture do
       {:ok, _seeded} = Letflow.Entities.EventTypes.seed!(tenant.schema_name)
       on_exit(fn -> drop_pack_rows!(tenant.tenant_id) end)
 
-      # assets depends on org and locations (install order: org first).
-      for module_id <- ["org", "locations", "assets"] do
+      # assets depends on org, locations, catalog_items and stock (stock needs codes).
+      for module_id <- ["org", "catalog_items", "locations", "codes", "stock", "assets"] do
         {:ok, _} =
           Installs.install(module_id, Ecto.UUID.generate(),
             prefix: tenant.schema_name,
