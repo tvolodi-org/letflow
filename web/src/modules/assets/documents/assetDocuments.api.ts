@@ -1,5 +1,5 @@
-/** assetDocuments.api — T-1334 / C14. Calls of the asset document routes (C10, C11): list, get, discard, issue and
- *  reverse. Create and replace come with the draft forms (follow-up task). No call sends a tenant identifier; the
+/** assetDocuments.api — T-1334 / C14. Calls of the asset document routes (C10, C11): list, get, create, replace
+ *  (T-1469: the draft forms), discard, issue and reverse. No call sends a tenant identifier; the
  *  document routes take no idempotency key. */
 import { client } from '@/api/client'
 
@@ -57,9 +57,14 @@ export interface AssetDocument {
   posting_check?: string | null
 }
 
+/** The body of create (with `kind`) and replace (the whole header and the whole line list). */
+export type AssetDocumentBody = Record<string, unknown>
+
 export const assetDocumentsApi = {
   list: (params: Record<string, string>) => client.get<AssetDocumentsPageBody>(BASE, params),
   get: (id: string) => client.get<AssetDocument>(`${BASE}/${encodeURIComponent(id)}`),
+  create: (body: AssetDocumentBody) => client.post<AssetDocument>(BASE, body),
+  replace: (id: string, body: AssetDocumentBody) => client.put<AssetDocument>(`${BASE}/${encodeURIComponent(id)}`, body),
   discard: (id: string) => client.delete<void>(`${BASE}/${encodeURIComponent(id)}`),
   issue: (id: string) => client.post<AssetDocument>(`${BASE}/${encodeURIComponent(id)}/issue`),
   reverse: (id: string, body: { reason_code: string; reason_text?: string }) =>

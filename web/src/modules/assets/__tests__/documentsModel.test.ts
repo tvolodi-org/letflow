@@ -11,12 +11,12 @@ import { assetsMessages } from '../assetsMessages'
 const can = (...atoms: string[]) => (a: string) => atoms.includes(a)
 
 describe('M1 actionsFor', () => {
-  it('draft: discard and issue need AssetsPost; posted: reverse needs AssetsReverse; no other state has an action', () => {
-    expect(actionsFor('draft', can('AssetsPost'))).toEqual({ discard: true, issue: true, reverse: false })
-    expect(actionsFor('draft', can('AssetsRead', 'AssetsReverse'))).toEqual({ discard: false, issue: false, reverse: false })
-    expect(actionsFor('posted', can('AssetsReverse'))).toEqual({ discard: false, issue: false, reverse: true })
-    expect(actionsFor('posted', can('AssetsPost'))).toEqual({ discard: false, issue: false, reverse: false })
-    for (const s of ['issued', 'reversed', 'cancelled']) expect(actionsFor(s, can('AssetsPost', 'AssetsReverse'))).toEqual({ discard: false, issue: false, reverse: false })
+  it('draft: edit, discard and issue need AssetsPost; posted: reverse needs AssetsReverse; no other state has an action', () => {
+    expect(actionsFor('draft', can('AssetsPost'))).toEqual({ edit: true, discard: true, issue: true, reverse: false })
+    expect(actionsFor('draft', can('AssetsRead', 'AssetsReverse'))).toEqual({ edit: false, discard: false, issue: false, reverse: false })
+    expect(actionsFor('posted', can('AssetsReverse'))).toEqual({ edit: false, discard: false, issue: false, reverse: true })
+    expect(actionsFor('posted', can('AssetsPost'))).toEqual({ edit: false, discard: false, issue: false, reverse: false })
+    for (const s of ['issued', 'reversed', 'cancelled']) expect(actionsFor(s, can('AssetsPost', 'AssetsReverse'))).toEqual({ edit: false, discard: false, issue: false, reverse: false })
   })
 })
 

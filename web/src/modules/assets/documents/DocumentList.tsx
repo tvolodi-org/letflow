@@ -1,17 +1,19 @@
 /** DocumentList — T-1334 / C14. The list pane of the asset document workspace (`lf-doc__list`): filters kind, state and
  *  org unit (the only keys the list route takes), one button per document (number, state, kind, date, org unit),
  *  Load more, and the loading, empty and error states. The selected document is marked `aria-current`; a click opens
- *  it in the panel beside the list, which stays mounted. Times in the tenant time zone. No New button yet: the draft
- *  forms come in the follow-up task. */
+ *  it in the panel beside the list, which stays mounted. Times in the tenant time zone. Users with AssetsPost get one New
+ *  button per kind (the draft form, T-1469). */
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
+import { useAccess } from '@/auth/access/useAccess'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
+import { ASSETS_POST } from '../assetsPermissions'
 import { assetsQueryKeys } from '../assetsQueryKeys'
 import { useNames } from '../assetsNames'
 import { usePickerOptions } from '../assetsPickers'
@@ -33,6 +35,7 @@ export function DocumentList({ selectedId }: { selectedId: string | undefined })
   const t = (id: string) => intl.formatMessage({ id })
   const { session } = useAuth()
   const navigate = useNavigate()
+  const { can } = useAccess()
   const tenantId = session?.tenant_id ?? ''
   const [filters, setFilters] = useState<Filters>(EMPTY)
   const patch = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }))
@@ -56,6 +59,15 @@ export function DocumentList({ selectedId }: { selectedId: string | undefined })
   return (
     <section className="lf-card lf-doc__list" aria-label={t('assets.doc.title')} data-testid="document-list">
       <div className="lf-doc__tools">
+        {can(ASSETS_POST) && (
+          <div className="lf-btn-row" data-testid="document-new" role="group" aria-label={t('assets.doc.action.new')}>
+            {DOC_KINDS.map((k) => (
+              <Button key={k} variant="secondary" size="sm" onClick={() => navigate(`${DOCUMENTS_PATH}/new?kind=${k}`)}>
+                {t(`assets.doc.new.${k}`)}
+              </Button>
+            ))}
+          </div>
+        )}
         <Select
           label={t('assets.doc.col.kind')}
           value={filters.kind}

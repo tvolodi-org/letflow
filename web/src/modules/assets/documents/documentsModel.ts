@@ -66,17 +66,19 @@ export function formatEventTime(iso: string | null | undefined, locale: string, 
 }
 
 export interface DocActions {
+  edit: boolean
   discard: boolean
   issue: boolean
   reverse: boolean
 }
 
-/** Buttons by state and by the access atom of the route (convenience only: the server enforces). Part 1 has no
- *  Edit, New, Retry posting or Cancel: the assets router has no such routes (post is the inbox step). */
+/** Buttons by state and by the access atom of the route (convenience only: the server enforces). Edit is the draft form
+ *  (replace route, T-1469); there is no Retry posting or Cancel: the assets router has no such routes (post is the inbox step). */
 export function actionsFor(state: string, can: (atom: string) => boolean): DocActions {
   const post = can(ASSETS_POST)
   const rev = can(ASSETS_REVERSE)
   return {
+    edit: state === 'draft' && post,
     discard: state === 'draft' && post,
     issue: state === 'draft' && post,
     reverse: state === 'posted' && rev,

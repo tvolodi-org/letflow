@@ -1,8 +1,9 @@
 /** DocumentView — T-1334 / C14. One asset document in the panel beside the list (header card and lines card on the
  *  platform document form): number, event time, the org unit, location and people of the kind's sides, the reason of a
  *  write off, the posting group, the lines (asset and quantity) and the banners (posting mismatch, waiting for the post
- *  task). Read-only; the actions are `DocumentActions`. Escape closes the document (not while a dialog is open). */
-import { useEffect } from 'react'
+ *  task). Read-only; the actions are `DocumentActions`. A draft has an Edit action that swaps the view for the draft form
+ *  (T-1469). Escape closes the document (not while a dialog is open, and not while the form is open). */
+import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
@@ -26,6 +27,7 @@ import { RegisterError } from '../register/RegisterShell'
 import { movementsLinkFor, type NameIds } from '../register/registerModel'
 import { assetDocumentsApi, type AssetDocument, type AssetDocumentLine } from './assetDocuments.api'
 import { DocumentActions } from './DocumentActions'
+import { DocumentForm } from './DocumentForm'
 import { DocumentTabs } from './DocumentTabs'
 import { DOCUMENTS_PATH } from './DocumentList'
 import { ASSET_DOCUMENTS_LAYOUT_SCREEN, lineColumnSpecs, lineColumns } from './lineColumns'
@@ -67,6 +69,7 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
     retry: false,
   }] })
   const doc = query.data
+  const [editing, setEditing] = useState(false)
   const [linesMode, setLinesMode] = useLinesMode('lf-asset-lines')
   const name = useNames(doc ? [nameIds(doc)] : [])
   const dash = t('assets.common.dash')
@@ -78,12 +81,12 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
-      if (document.querySelector('[role="dialog"], dialog[open]')) return
+      if (editing || document.querySelector('[role="dialog"], dialog[open]')) return
       navigate(DOCUMENTS_PATH)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [navigate])
+  }, [navigate, editing])
 
   if (query.isPending) {
     return (
@@ -107,6 +110,9 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
   }
 
   const kindName = known(DOC_KINDS, 'assets.doc.kind', doc.kind)
+  if (editing && doc.state === 'draft') {
+    return <DocumentForm doc={doc} title={`${t('assets.doc.editTitle')}: ${kindName}`} onBack={onBack} onCancel={() => setEditing(false)} onDone={() => setEditing(false)} />
+  }
   const lines = [...doc.lines].sort((a, b) => a.line_no - b.line_no)
   const tone = stateTone(doc.state)
   const two = isTwoSide(doc.kind)
@@ -150,7 +156,7 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
         backLabel={t('assets.doc.back')}
         actions={
           <>
-            <DocumentActions doc={doc} />
+            <DocumentActions doc={doc} onEdit={() => setEditing(true)} />
             {(doc.state === 'posted' || doc.state === 'reversed') && (
               <Link to={movementsLinkFor(doc.id)}>{t('assets.doc.movementsLink')}</Link>
             )}
