@@ -18,6 +18,7 @@ import { usePdfDownload } from './usePdfDownload'
 import { parseFilename } from '../counts/countsModel'
 import { getUiLocale } from '@/i18n/uiLocaleStore'
 import { printErrorMessageId } from '../documents/documentsModel'
+import { OfficialFormMenu } from '../forms/OfficialFormMenu'
 import { officialFormLang } from '../forms/officialForms'
 import { stockApi, type BalanceRow, type BalancesPageBody } from './stock.api'
 import { usePickerOptions } from './stockPickers'
@@ -124,7 +125,7 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
   const cardError = (err: unknown) => ((err as { status?: unknown } | null)?.status === 404 ? 'stock.balances.cardEmpty' : printErrorMessageId(err))
   const onCard = (format: 'pdf' | 'docx') =>
     void card.run(
-      `card-${format}`,
+      `form-z3-${format}`,
       () =>
         stockApi.stockCard({
           sku: filters.sku,
@@ -209,18 +210,12 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
             <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
               {t('stock.balances.export')}
             </Button>
-            {(['pdf', 'docx'] as const).map((format) => (
-              <Button
-                key={format}
-                variant="secondary"
-                loading={card.busyKey === `card-${format}`}
-                disabled={!cardReady}
-                onClick={() => onCard(format)}
-                data-testid={`stock-card-${format}`}
-              >
-                {t(format === 'pdf' ? 'stock.balances.cardPdf' : 'stock.balances.cardDocx')}
-              </Button>
-            ))}
+            <OfficialFormMenu
+              forms={['z3']}
+              busyKey={card.busyKey}
+              disabledForms={cardReady ? undefined : { z3: 'stock.balances.cardHint' }}
+              onPick={(_form, format) => onCard(format)}
+            />
           </>
         }
       />

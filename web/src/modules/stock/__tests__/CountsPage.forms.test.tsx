@@ -37,28 +37,45 @@ const SHEET_ONLY = order({ status: 'counted', issued_at: '2026-11-09T08:00:00Z',
 const BOTH = order({ status: 'counted', issued_at: '2026-11-09T08:00:00Z', sheet_document_id: 'd1', differences_document_id: 'd2' })
 const file = (cd: string | null) => ({ blob: new Blob(['x']), contentType: 'application/octet-stream', contentDisposition: cd })
 
-describe('W1 which form buttons show', () => {
-  it('Inv-10 only with an issued sheet, Inv-18 only with an issued differences document', async () => {
+const ORDER_ONLY = order({ status: 'ordered', issued_at: '2026-11-09T08:00:00Z' })
+
+describe('W1 which form items are offered', () => {
+  it('one menu; Inv-10 and Inv-18 disabled with a reason until their paperwork is issued', async () => {
+    fakeCounts(clientMock, { orders: [ORDER_ONLY] })
+    renderCounts(`${LIST}/c1`)
+    await screen.findByTestId('print-order')
+    expect(screen.getAllByTestId('official-form-menu')).toHaveLength(1)
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    for (const id of ['form-inv10-docx', 'form-inv10-pdf', 'form-inv18-docx', 'form-inv18-pdf']) {
+      expect(screen.getByTestId(id)).toHaveAttribute('aria-disabled', 'true')
+    }
+    expect(screen.getAllByText(countsEn['counts.form.needSheet'])).toHaveLength(2)
+    expect(screen.getAllByText(countsEn['counts.form.needDifferences'])).toHaveLength(2)
+    await userEvent.click(screen.getByTestId('form-inv10-pdf'))
+    await userEvent.keyboard(' ')
+    expect(clientMock.getBlob).not.toHaveBeenCalled()
+  })
+  it('Inv-10 enabled with an issued sheet, Inv-18 stays disabled; both with both', async () => {
     fakeCounts(clientMock, { orders: [SHEET_ONLY] })
     renderCounts(`${LIST}/c1`)
     await screen.findByTestId('print-order')
-    expect(screen.getByTestId('official-form-menu-sheet')).toBeInTheDocument()
-    expect(screen.queryByTestId('official-form-menu-differences')).toBeNull()
-    expect(screen.queryByTestId('official-form-menu-order')).toBeNull()
-    await userEvent.click(screen.getByTestId('official-form-menu-sheet'))
-    expect(screen.getByTestId('form-inv10-docx')).toBeInTheDocument()
-    expect(screen.getByTestId('form-inv10-pdf')).toBeInTheDocument()
-    expect(screen.queryByTestId('form-inv18-docx')).toBeNull()
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    expect(screen.getByTestId('form-inv10-docx')).not.toHaveAttribute('aria-disabled')
+    expect(screen.getByTestId('form-inv18-docx')).toHaveAttribute('aria-disabled', 'true')
     cleanup()
 
     fakeCounts(clientMock, { orders: [BOTH] })
     renderCounts(`${LIST}/c1`)
     await screen.findByTestId('print-order')
-    await userEvent.click(screen.getByTestId('official-form-menu-sheet'))
-    for (const id of ['form-inv10-docx', 'form-inv10-pdf']) expect(screen.getByTestId(id)).toBeInTheDocument()
-    await userEvent.click(screen.getByTestId('official-form-menu-differences')) // outside click closes the sheet menu
-    for (const id of ['form-inv18-docx', 'form-inv18-pdf']) expect(screen.getByTestId(id)).toBeInTheDocument()
-    expect(screen.queryByTestId('form-inv10-docx')).toBeNull()
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    for (const id of ['form-inv10-docx', 'form-inv10-pdf', 'form-inv18-docx', 'form-inv18-pdf']) {
+      expect(screen.getByTestId(id)).not.toHaveAttribute('aria-disabled')
+    }
+  })
+  it('the new reason ids exist in en, ru and kk', () => {
+    for (const k of ['counts.form.needSheet', 'counts.form.needDifferences']) {
+      for (const c of [countsEn, countsRu, countsKk]) expect(c[k]?.trim(), k).toBeTruthy()
+    }
   })
 })
 
@@ -72,7 +89,7 @@ describe('W2 download and language', () => {
     fakeCounts(clientMock, { orders: [BOTH] })
     clientMock.getBlob.mockResolvedValue(file('attachment; filename="CD-2026-0001_Inv-18.docx"'))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('official-form-menu-differences'))
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
     await userEvent.click(screen.getByTestId('form-inv18-docx'))
     await waitFor(() => expect(downloads).toEqual(['CD-2026-0001_Inv-18.docx']))
     expect(clientMock.getBlob).toHaveBeenCalledTimes(1)
@@ -82,7 +99,7 @@ describe('W2 download and language', () => {
     fakeCounts(clientMock, { orders: [SHEET_ONLY] })
     clientMock.getBlob.mockResolvedValue(file(null))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('official-form-menu-sheet'))
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
     await userEvent.click(screen.getByTestId('form-inv10-pdf'))
     await waitFor(() => expect(downloads).toEqual(['count-CNT-0001-inv10.pdf']))
     expect(clientMock.getBlob).toHaveBeenCalledWith(`${BASE}/c1/print/sheet`, { form: 'inv10', format: 'pdf', lang: 'ru' })
@@ -94,7 +111,7 @@ describe('W3 refusals', () => {
     fakeCounts(clientMock, { orders: [BOTH] })
     clientMock.getBlob.mockRejectedValue(problem(422, r))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('official-form-menu-differences'))
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
     await userEvent.click(screen.getByTestId('form-inv18-pdf'))
     const id = r === 'document_not_issued' ? `counts.print.reason.${r}` : `counts.form.reason.${r}`
     expect(await screen.findByText(countsEn[id])).toBeInTheDocument()
@@ -118,12 +135,11 @@ describe('W4 single flight', () => {
     let done: (v: ReturnType<typeof file>) => void = () => {}
     clientMock.getBlob.mockReturnValue(new Promise((res) => { done = res }))
     renderCounts(`${LIST}/c1`)
-    await userEvent.click(await screen.findByTestId('official-form-menu-differences'))
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
     const btn = screen.getByTestId('form-inv18-docx')
     await userEvent.click(btn)
-    await userEvent.click(screen.getByTestId('official-form-menu-differences'))
-    await userEvent.click(screen.getByTestId('official-form-menu-sheet'))
-    await userEvent.click(screen.queryByTestId('form-inv10-pdf') ?? btn)
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    expect(screen.getByTestId('official-form-menu')).toBeDisabled()
     expect(clientMock.getBlob).toHaveBeenCalledTimes(1)
     done(file(null))
     await waitFor(() => expect(downloads).toHaveLength(1))
