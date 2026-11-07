@@ -13,6 +13,8 @@
  * individual split exports are also checked separately to catch gaps at their source.
  */
 import { describe, it, expect } from 'vitest'
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 
 import { loginMessages } from '@/i18n/loginMessages'
 import { entitiesMessages } from '@/i18n/entitiesMessages'
@@ -46,6 +48,17 @@ import {
   formRu,
   formKk,
 } from '@/modules/stock/forms/officialFormMessages'
+import { linesMessages } from '@/components/ui/lines/linesMessages'
+import {
+  documentsEn as assetsDocEn,
+  documentsRu as assetsDocRu,
+  documentsKk as assetsDocKk,
+} from '@/modules/assets/documents/documentsMessages'
+import {
+  registerEn,
+  registerRu,
+  registerKk,
+} from '@/modules/assets/register/registerMessages'
 import { formMessages } from '@/components/ui/formMessages'
 import { layoutMessages } from '@/components/ui/layout/layoutMessages'
 import { navMessages } from '@/components/layout/navMessages'
@@ -121,6 +134,36 @@ function fromSplit(
   kk: Record<string, string>,
 ): Record<Locale, Record<string, string>> {
   return { en, ru, kk }
+}
+
+/** Files named `*Messages.ts` that are not catalogs (REQ-781). */
+const NOT_A_CATALOG = [
+  { file: 'i18n/useMergedEntitiesMessages.ts', reason: 'a hook, not a catalog' },
+]
+
+/** Repo-relative (to src/) posix paths of every `*Messages.ts` file outside `__tests__`. */
+function findMessageCatalogFiles(dir: string, root = dir): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    if (e.isDirectory()) {
+      return e.name === '__tests__' ? [] : findMessageCatalogFiles(path.join(dir, e.name), root)
+    }
+    return e.name.endsWith('Messages.ts')
+      ? [path.relative(root, path.join(dir, e.name)).split(path.sep).join('/')]
+      : []
+  })
+}
+
+/** Files that the given test source neither imports (by full `@/` path) nor exempts. */
+function unimportedCatalogs(
+  files: string[],
+  source: string,
+  exempt: Array<{ file: string }>,
+): string[] {
+  const importLines = source.split('\n').filter((l) => /^\s*(import\b|\}?\s*from\s)/.test(l))
+  const text = importLines.join('\n')
+  return files.filter(
+    (f) => !exempt.some((x) => x.file === f) && !text.includes(`'@/${f.replace(/\.ts$/, '')}'`),
+  )
 }
 
 describe('catalog-completeness — T-1457: every en/ru/kk key present and non-empty', () => {
@@ -221,5 +264,41 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('REFERENCE_MESSAGES (structured): no empty values in any locale', () => {
     checkStructuredCatalog('reference', REFERENCE_MESSAGES)
+  })
+
+  // --- REQ-781: lines editor, asset sub-catalogs, and the left-out-file scan ---
+
+  it('linesMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('lines', linesMessages as Record<Locale, Record<string, string>>)
+  })
+
+  it('assets documents (sub-catalog): all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('assets.documents', fromSplit(assetsDocEn, assetsDocRu, assetsDocKk))
+  })
+
+  it('assets register (sub-catalog): all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('assets.register', fromSplit(registerEn, registerRu, registerKk))
+  })
+
+  it('every *Messages.ts catalog file is imported by this test', () => {
+    const files = findMessageCatalogFiles(path.resolve(__dirname, '..'))
+    expect(files).toContain('components/ui/lines/linesMessages.ts')
+    const source = readFileSync(path.resolve(__dirname, 'catalog-completeness.test.ts'), 'utf8')
+    for (const f of files) {
+      const missing = unimportedCatalogs([f], source, NOT_A_CATALOG)
+      expect(missing, `catalog file ${f} is not imported by catalog-completeness.test.ts`).toEqual([])
+    }
+  })
+
+  it('unimportedCatalogs flags a left-out file (seeded fixture)', () => {
+    const source = "import { x } from '@/modules/assets/assetsMessages'\n"
+    const files = [
+      'components/ui/lines/linesMessages.ts',
+      'modules/assets/assetsMessages.ts',
+      'i18n/useMergedEntitiesMessages.ts',
+    ]
+    expect(unimportedCatalogs(files, source, NOT_A_CATALOG)).toEqual([
+      'components/ui/lines/linesMessages.ts',
+    ])
   })
 })
