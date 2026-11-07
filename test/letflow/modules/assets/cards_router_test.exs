@@ -25,8 +25,26 @@ defmodule Letflow.Modules.Assets.CardsRouterTest do
 
   setup do
     ctx = S.setup_oidc!([:a, :b, :s, :n])
-    a = tenant!("ast-ra", ctx.names.a, ["org", "locations", "assets"])
-    b = tenant!("ast-rb", ctx.names.b, ["org", "locations", "assets"])
+
+    a =
+      tenant!("ast-ra", ctx.names.a, [
+        "org",
+        "catalog_items",
+        "locations",
+        "codes",
+        "stock",
+        "assets"
+      ])
+
+    b =
+      tenant!("ast-rb", ctx.names.b, [
+        "org",
+        "catalog_items",
+        "locations",
+        "codes",
+        "stock",
+        "assets"
+      ])
 
     ctx
     |> Map.merge(%{
@@ -307,7 +325,16 @@ defmodule Letflow.Modules.Assets.CardsRouterTest do
   end
 
   test "T-2: a TENANT_ADMIN with a scoped grant gets the same 404, nothing written", ctx do
-    s = tenant!("ast-rs", ctx.names.s, ["org", "locations", "assets"])
+    s =
+      tenant!("ast-rs", ctx.names.s, [
+        "org",
+        "catalog_items",
+        "locations",
+        "codes",
+        "stock",
+        "assets"
+      ])
+
     scoped = S.token(ctx, :s, ["TENANT_ADMIN"], sub: "scoped-writer")
     req(:get, @base <> "/none", scoped)
 

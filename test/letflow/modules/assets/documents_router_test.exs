@@ -273,7 +273,16 @@ defmodule Letflow.Modules.Assets.DocumentsRouterTest do
   end
 
   test "S1 a scoped TENANT_ADMIN cannot save, issue, reverse or read documents", ctx do
-    s = tenant!("ast-ds", ctx.names.s, ["org", "locations", "assets"])
+    s =
+      tenant!("ast-ds", ctx.names.s, [
+        "org",
+        "catalog_items",
+        "locations",
+        "codes",
+        "stock",
+        "assets"
+      ])
+
     scoped = S.token(ctx, :s, ["TENANT_ADMIN"], sub: "scoped-doc-writer")
     D.request(:get, "/documents", scoped)
 

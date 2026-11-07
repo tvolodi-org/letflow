@@ -1,0 +1,15 @@
+{
+  "name": "assets_kind_change",
+  "display_name": "Asset change of kind (header)",
+  "description": "GH #3902 / REQ-759 (assets C15 part 2), docs/assets/change-of-kind.md sections 2 and 8. The header of a change of kind document: a stock SKU becomes an asset card. Written only by module assets (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number (AKC) and the issued time: no number, status or posted time is stored here. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7) and the stock side org unit. event_time is the time of the change, ISO 8601 with offset, stored in UTC. This document posts nothing and creates no card (REQ-760 does); after issue nothing of the header changes.",
+  "fields": [
+    {"name": "document_id", "type": "string", "required": true, "queried": true},
+    {"name": "event_time", "type": "datetime", "required": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "reason_text", "type": "string"},
+    {"name": "note", "type": "string"}
+  ],
+  "indexes": [
+    {"name": "idx_assets_kind_change_document_id", "fields": ["document_id"]}
+  ]
+}

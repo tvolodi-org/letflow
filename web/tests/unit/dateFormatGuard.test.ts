@@ -23,6 +23,7 @@ export const BANNED: { name: string; re: RegExp }[] = [
 /** file (relative to src, forward slashes) -> pattern names allowed there, each with its reason. */
 const ALLOW: Record<string, { names: string[]; reason: string }> = {
   'i18n/format.ts': { names: ['Intl.DateTimeFormat'], reason: 'the shared formatter itself' },
+  'modules/assets/documents/documentForm.ts': { names: ['Intl.DateTimeFormat'], reason: 'offsetMinutes: zone arithmetic for the input value, not display' },
   'modules/stock/documents/documentsModel.ts': { names: ['Intl.DateTimeFormat'], reason: 'offsetMinutes: zone arithmetic for the input value, not display' },
   'modules/stock/counts/countsModel.ts': { names: ['Intl.DateTimeFormat'], reason: 'parts(): the datetime-local input value, not display' },
 }

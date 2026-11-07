@@ -1,7 +1,7 @@
 /** DocumentActions — T-1334 / C14. The action bar of the asset document view: Issue and Discard (draft), Reverse
- *  (posted). A button shows only when the user's access lists the atom of its route and the state allows it; the
- *  server stays the authority. Confirm dialogs for discard and issue, a reason dialog for reverse. There is no Edit,
- *  Retry or Cancel: the draft forms are the follow-up task, and the assets router has no post or cancel route. */
+ *  (posted), Edit (draft, opens the form in the view). A button shows only when the user's access lists the atom of its
+ *  route and the state allows it; the server stays the authority. Confirm dialogs for discard and issue, a reason dialog
+ *  for reverse. There is no Retry or Cancel: the assets router has no post or cancel route. */
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useNavigate } from 'react-router-dom'
@@ -19,7 +19,7 @@ import { REVERSE_REASONS, TEXT_MAX, actionsFor, documentErrorInfo, documentError
 
 type Dlg = 'discard' | 'issue' | 'reverse' | null
 
-export function DocumentActions({ doc }: { doc: AssetDocument }) {
+export function DocumentActions({ doc, onEdit }: { doc: AssetDocument; onEdit?: () => void }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { can } = useAccess()
@@ -74,9 +74,10 @@ export function DocumentActions({ doc }: { doc: AssetDocument }) {
     run.mutate('reverse')
   }
 
-  if (!acts.discard && !acts.issue && !acts.reverse) return null
+  if (!acts.edit && !acts.discard && !acts.issue && !acts.reverse) return null
   return (
     <div className="lf-btn-row" data-testid="document-actions">
+      {acts.edit && onEdit && <Button variant="secondary" onClick={onEdit}>{t('assets.doc.action.edit')}</Button>}
       {acts.issue && <Button variant="primary" onClick={() => setDlg('issue')}>{t('assets.doc.action.issue')}</Button>}
       {acts.discard && <Button variant="danger" onClick={() => setDlg('discard')}>{t('assets.doc.action.discard')}</Button>}
       {acts.reverse && <Button variant="danger" onClick={() => setDlg('reverse')}>{t('assets.doc.action.reverse')}</Button>}

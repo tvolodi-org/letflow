@@ -39,6 +39,9 @@ The completeness test (`web/src/__tests__/catalog-completeness.test.ts`) enforce
 that no key is **missing** or **empty** in any locale. This doc tracks what is
 present but not yet translated.
 
+The completeness test also checks `linesMessages` and the two asset sub-catalogs
+(`assets.documents`, `assets.register`), and fails when a `*Messages.ts` file is not imported by it (REQ-781).
+
 ### login
 
 **ru** — 1 key(s) same as en:
@@ -52,6 +55,18 @@ login.email.placeholder: "name@example.com"
 ```
 login.email.placeholder: "name@example.com"
 ```
+
+### lines
+
+No key has the English value.
+
+### assets.documents
+
+No key has the English value.
+
+### assets.register
+
+No key has the English value.
 
 ### assets
 

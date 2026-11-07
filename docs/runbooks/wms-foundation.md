@@ -657,10 +657,17 @@ the code that holds it; paths are cited without line numbers.
    reversal of a two-leg document is refused the same way when the asset has moved on since.
 9. **Upgrade needed after deploy.** An install of `assets` 0.5.0 or older has no commission record types, and one of
    0.6.0 or older has no change, hand over or write off record types or process
-   definitions until the module upgrade (`lib/letflow/modules/upgrade_plan.ex`) is applied; until then the new write
+   definitions, and one of 0.7.0 or older has no change of kind record types, until the module upgrade (`lib/letflow/modules/upgrade_plan.ex`) is applied; until then the new write
    routes answer 500 without detail. Existing rows are not changed.
 10. **The xlsx files are one page each and not promised to re-import.** The card export (`POST
    /api/v1/entities/records/assets_card/export?format=xlsx`) holds at most 200 cards and writes `org_unit_id` as a
    record id; the balances export (`GET /api/v1/modules/assets/balances?format=xlsx`) holds one page of the rows the
    caller reads, and the `next_cursor` row of its `report` sheet continues (GH #3898, REQ-763,
    `lib/letflow/modules/assets/xlsx_export.ex`).
+11. **A change of kind is issued, not posted (C15 part 2, REQ-759).** The document `kind_change` (number `AKC` +
+   `-<year>-<n>`) is drafted and issued on the `/documents` routes; at issue it checks the item, unit, lot,
+   tracking, both locations, the asset org unit, the links, the employees, the quantity and the inventory number
+   (`lib/letflow/modules/assets/documents/kind_change_checks.ex`). It posts nothing, creates no card and starts no
+   process (REQ-760), so it stays `issued`, and `POST /documents/:id/reverse` answers 409 `document_not_posted`.
+   Module `assets` now needs `catalog_items` and `stock` installed. Two issued documents with the same inventory
+   number are not told apart until the card is created (the unique constraint settles it).

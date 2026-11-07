@@ -32,9 +32,11 @@ defmodule Letflow.AssetsFixture do
   @doc "A provisioned tenant (a `ScopedGrantsFixture` map) with org, locations and assets installed."
   def installed_tenant!(slug_prefix) do
     fx = provisioned_tenant!(slug_prefix)
-    install_module!(fx.tenant_id, "org")
-    install_module!(fx.tenant_id, "locations")
-    install_module!(fx.tenant_id, "assets")
+
+    for module_id <- ~w(org catalog_items locations codes stock assets) do
+      install_module!(fx.tenant_id, module_id)
+    end
+
     fx
   end
 

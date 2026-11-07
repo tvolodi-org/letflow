@@ -18,8 +18,8 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.7.0"
-    assert m.depends_on == ["locations", "org"]
+    assert m.version == "0.8.0"
+    assert m.depends_on == ["catalog_items", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 
     assert m.permissions == [
@@ -51,7 +51,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     assert m.manages_entity_types ==
              ~w(assets_card assets_commission assets_commission_line assets_change assets_change_line
                 assets_handover assets_handover_line assets_writeoff assets_writeoff_line
-                assets_posting_mark)
+                assets_posting_mark assets_kind_change assets_kind_change_line)
 
     assert m.scope_declarations ==
              Map.new(m.manages_entity_types, &{&1, {:column, "org_unit_id"}})

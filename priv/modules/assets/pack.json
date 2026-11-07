@@ -982,6 +982,171 @@
       "entity_definition_id": "c94db604-08c9-b9d8-8fce-a0096c2d9e4e",
       "logical_shape_version": "a5ead807f2b333c991b938aa09a3d8dcdb84b1885fc8e5de8e6dcc269470634d",
       "name": "assets_posting_mark"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3902 / REQ-759 (assets C15 part 2), docs/assets/change-of-kind.md sections 2 and 8. The header of a change of kind document: a stock SKU becomes an asset card. Written only by module assets (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number (AKC) and the issued time: no number, status or posted time is stored here. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7) and the stock side org unit. event_time is the time of the change, ISO 8601 with offset, stored in UTC. This document posts nothing and creates no card (REQ-760 does); after issue nothing of the header changes.",
+        "display_name": "Asset change of kind (header)",
+        "fields": [
+          {
+            "name": "document_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "event_time",
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "reason_text",
+            "type": "string"
+          },
+          {
+            "name": "note",
+            "type": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "document_id"
+            ],
+            "name": "idx_assets_kind_change_document_id"
+          }
+        ],
+        "name": "assets_kind_change"
+      },
+      "display_name": "Asset change of kind (header)",
+      "entity_definition_id": "bbd6ea41-8a2b-314e-08a4-5e8f0e94e4ef",
+      "logical_shape_version": "795839ea66d203292254ccf74b2af5dfb817fd897ee150b7b69e8943e4e31afa",
+      "name": "assets_kind_change"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3902 / REQ-759 (assets C15 part 2), docs/assets/change-of-kind.md section 2. One line of a change of kind: a stock SKU (item, unit, optional lot, quantity, stock location and stock responsible) that becomes an asset (target kind, asset org unit, asset location, material responsible, optional actual user, inventory number, name). header_id is the record_id of the assets_kind_change header (not the document id); the foreign_keys entry promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column). line_no is the position 1..n. asset_card_id stays empty here: the card is created by the posting of REQ-760. The ids point to records of other packs (no foreign key); the module checks them at issue. quantity is an exact decimal (precision 24, scale 9, decimal_strict); the value rule is checked at issue. There is no price or value field. Written only by module assets.",
+        "display_name": "Asset change of kind (line)",
+        "fields": [
+          {
+            "name": "header_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "line_no",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "catalog_item_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_uom_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "catalog_lot_id",
+            "type": "string"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "quantity",
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "name": "stock_location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "stock_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "low_value",
+              "fixed"
+            ],
+            "name": "target_kind",
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "asset_org_unit_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_location_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "material_responsible_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "actual_user_id",
+            "type": "string"
+          },
+          {
+            "name": "asset_card_id",
+            "type": "string"
+          },
+          {
+            "name": "inventory_number",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_name",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "header_id",
+            "name": "fk_assets_kind_change_line_header_id",
+            "references_entity": "assets_kind_change"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "header_id"
+            ],
+            "name": "idx_assets_kind_change_line_header_id"
+          }
+        ],
+        "name": "assets_kind_change_line"
+      },
+      "display_name": "Asset change of kind (line)",
+      "entity_definition_id": "6677ecf3-b012-bc68-8e9e-2936656310b6",
+      "logical_shape_version": "eed21f023116369f11e5161364dd6cc89a02a0511815cd557498af428bab05dd",
+      "name": "assets_kind_change_line"
     }
   ],
   "exported_at": "2026-10-19T00:00:00Z",

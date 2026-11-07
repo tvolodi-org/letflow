@@ -18,7 +18,7 @@ const clientMock = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), put: vi.fn()
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const VIEW = `${LIST}/d1`
-const BUTTONS = ['Issue', 'Discard', 'Reverse', 'Edit', 'New document', 'Retry posting', 'Cancel document']
+const BUTTONS = ['Issue', 'Discard', 'Reverse', 'Edit', 'Retry posting', 'Cancel document']
 const present = () => BUTTONS.filter((b) => screen.queryByRole('button', { name: b }) !== null)
 
 beforeEach(() => {
@@ -178,7 +178,7 @@ describe('A1 actions', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Reverse' }))
     await waitFor(() => expect(postsTo(clientMock, 'd1/reverse')).toEqual([[`${DOCS}/d1/reverse`, { reason_code: 'wrong_quantity' }]]))
   })
-  it('buttons follow the atom and the state; there is never an Edit, New, Retry or Cancel', async () => {
+  it('buttons follow the atom and the state; Edit is for a draft with AssetsPost; there is never a Retry or Cancel', async () => {
     renderAssets(VIEW, withRead)
     await screen.findByTestId('document-lines')
     expect(present()).toEqual([])
@@ -189,7 +189,7 @@ describe('A1 actions', () => {
     cleanup()
     renderAssets(VIEW, withAll)
     await screen.findByRole('button', { name: 'Issue' })
-    expect(present()).toEqual(['Issue', 'Discard'])
+    expect(present()).toEqual(['Issue', 'Discard', 'Edit'])
     for (const state of ['issued', 'reversed', 'cancelled']) {
       cleanup()
       fakeDocument(clientMock, assetDoc({ state, number: 'ACM-1' }))

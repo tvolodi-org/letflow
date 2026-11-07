@@ -14,6 +14,9 @@ export interface PickerOption {
   fields?: Record<string, unknown>
 }
 
+/** One shared empty list: a new [] on every render while loading would change every memo keyed on the options. */
+const NO_OPTIONS: PickerOption[] = []
+
 export function usePickerOptions(type: MasterType, extra: EntityQueryFilterClause[] = [], enabled = true): PickerOption[] {
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
@@ -38,5 +41,5 @@ export function usePickerOptions(type: MasterType, extra: EntityQueryFilterClaus
     enabled,
     retry: false,
   }] })
-  return q.data ?? []
+  return q.data ?? NO_OPTIONS
 }
