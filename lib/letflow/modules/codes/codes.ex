@@ -71,6 +71,9 @@ defmodule Letflow.Modules.Codes do
   defmanifest(
     id: "codes",
     version: "0.4.0",
+    # REQ-770: step-less module, every version since 0.1.0 differs only in permissions and routes
+    # (entity types and pack.json are unchanged), so any 0.1.0..0.4.0 install upgrades in place (T-1485).
+    min_upgradable_from: "0.1.0",
     depends_on: [],
     pack: "modules/codes/pack.json",
     permissions: [:CodesWrite, :CodesRead],

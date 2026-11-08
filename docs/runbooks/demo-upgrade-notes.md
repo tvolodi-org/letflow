@@ -121,7 +121,7 @@ no steps, declares `min_upgradable_from` and `from` lies in `[min_upgradable_fro
 | `org` 0.3.0 | none | 0.3.0 only | 0.1.0, 0.2.0: no path | org writes refused; the seed script fails at its first org write (`STOP: ... HTTP 409`) |
 | `locations` 0.4.0 | none | 0.4.0 only | 0.1.0 .. 0.3.0: no path | same |
 | `catalog_items` 0.3.0 | none | 0.3.0 only | 0.1.0, 0.2.0: no path | same |
-| `codes` 0.3.0 | none | 0.3.0 only | 0.1.0, 0.2.0: no path | same |
+| `codes` 0.4.0 | `min_upgradable_from: "0.1.0"` (T-1485) | 0.1.0 .. 0.4.0 | none below 0.1.0 | none: a QA tenant on 0.3.0 (gate-b5) now plans and applies |
 | `assets` 0.8.0 | none | 0.8.0 only | 0.1.0 .. 0.7.0: no path | same |
 
 Every version bump below is therefore a build that breaks an in-place promote of a demo that sits on the version before it,
@@ -148,7 +148,7 @@ unless a window or step was declared with it. Builds that bumped (commit, date, 
 | locations | `c1ce8cc22`, `95b2a7ef8`, `b6d91d665`, `cb002500b` | 2026-10-30 .. 2026-11-03 | 0.1.0 > 0.4.0 | location tree, org unit links, write permission |
 | org | `12ae85d3d`, `eaa1f1e49`, `acf6be347` | 2026-10-19 .. 2026-11-03 | 0.1.0 > 0.3.0 | employees as records, routes and write permissions |
 | catalog_items | `e6650bb86`, `83589a94e`, `e77837a71` | 2026-10-19 .. 2026-11-03 | 0.1.0 > 0.3.0 | routes, item tracking policy (none, lot, serial, expiry) |
-| codes | `d9f967f71`, `94d21b5e4`, `e8df61e8f` | 2026-11-02 .. 2026-11-04 | 0.1.0 > 0.3.0 | routes, scan lookup route `POST /resolve` |
+| codes | `d9f967f71`, `94d21b5e4`, `e8df61e8f`, `e38844c84` | 2026-11-02 .. 2026-11-08 | 0.1.0 > 0.4.0 | routes, scan lookup route `POST /resolve`, label route `POST /labels` |
 
 Classes of decision 0055 D2 (A optional field or new type survives; B required field without a covering step needs the
 administrator's acknowledgement; C rename or removal is refused): the class of a given pair is computed by the plan route at
@@ -159,7 +159,7 @@ that is a B candidate; read the plan.
 
 What breaks the demo, as a standing list:
 
-1. **A version bump of `org`, `locations`, `catalog_items`, `codes` or `assets` in a build.** No window, so the promote of an
+1. **A version bump of `org`, `locations`, `catalog_items` or `assets` in a build** (`codes` has had a window since T-1485). No window, so the promote of an
    existing demo is refused for that module (`409 no_upgrade_path`, exit 3 of the check). Fix in the same change that bumps:
    declare `min_upgradable_from` (a step-less module with only class A changes) or a migration step (REQ-773); otherwise the
    demo needs a database rebuild and a fresh seed. A task that bumps a module version should say so in its PR.
