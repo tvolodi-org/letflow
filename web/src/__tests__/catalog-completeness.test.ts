@@ -65,6 +65,7 @@ import { navMessages } from '@/components/layout/navMessages'
 import { uiMessages } from '@/components/ui/uiMessages'
 import { mySettingsMessages } from '@/pages/me/mySettingsMessages'
 import { TASK_MESSAGES } from '@/pages/tasks/taskMessages'
+import { dashboardMessages } from '@/pages/dashboard/dashboardMessages'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 
 const LOCALES = ['en', 'ru', 'kk'] as const
@@ -358,6 +359,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('mySettingsMessages (structured): no empty values in any locale', () => {
     checkStructuredCatalog('mySettings', mySettingsMessages)
+  })
+
+  it('dashboardMessages (structured): no empty values in any locale', () => {
+    checkStructuredCatalog('dashboard', dashboardMessages)
   })
 
   it('TASK_MESSAGES (structured): no empty values in any locale', () => {
