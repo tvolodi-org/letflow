@@ -38,6 +38,9 @@ defmodule Letflow.Scripts.DemoShowroomSeedTest do
      port: port,
      token1: tok.("demo-admin"),
      token2: tok.("demo-admin2"),
+     token_al: tok.("admin-login"),
+     token_ul: tok.("user-login"),
+     token_smoke: tok.("demo-smoke"),
      stranger: S.token(ctx, :nobody, ["TENANT_ADMIN"], sub: "stranger", exp: exp),
      slug: t.tenant.slug}
   end
@@ -197,6 +200,105 @@ defmodule Letflow.Scripts.DemoShowroomSeedTest do
     assert code == 1, out
     assert out =~ "STOP:" and out =~ "no-such-tenant", out
     assert records(c.t.schema_name, "catalog_item") == 0
+  end
+
+  defp signin_logins(c, tokens) do
+    for t <- tokens, do: {200, _, _} = get(c, "/me/modules", t)
+  end
+
+  defp employee_users(schema) do
+    %{rows: rows} =
+      Repo.query!(
+        ~s|SELECT field_values->>'code', field_values->>'user_id' FROM "#{schema}".entity_record_latest WHERE entity_type = 'org_employee' AND NOT deleted|
+      )
+
+    Map.new(rows, fn [code, uid] -> {code, uid} end)
+  end
+
+  @logins [{"ADMIN_LOGIN_USERNAME", "admin-login"}, {"USER_LOGIN_USERNAME", "user-login"}]
+
+  @tag timeout: 600_000
+  test "L1 L2: admin-login and user-login are linked to E005 and E004, demo-smoke stays unlinked, repeatable",
+       c do
+    signin_logins(c, [c.token_al, c.token_ul, c.token_smoke])
+    schema = c.t.schema_name
+
+    {out, 0} = run(c, @logins)
+    assert out =~ "ok   admin-login linked to a user account", out
+    assert out =~ "ok   user-login linked to a user account", out
+    refute out =~ "STOP", out
+
+    users = employee_users(schema)
+    for code <- ~w(DEMO-E001 DEMO-E003 DEMO-E004 DEMO-E005), do: assert(users[code], code)
+    assert users |> Map.values() |> Enum.reject(&is_nil/1) |> Enum.uniq() |> length() == 4
+
+    {200, _, body} = get(c, "/identity/users?search=demo-smoke&page_size=50")
+    smoke = Enum.find(Jason.decode!(body)["items"], &(&1["username"] == "demo-smoke"))
+    refute Enum.any?(Map.values(users), &(&1 == smoke["id"]))
+
+    before = snapshot(schema)
+    {out2, 0} = run(c, @logins)
+    refute out2 =~ "STOP", out2
+    assert snapshot(schema) == before
+    assert employee_users(schema) == users
+  end
+
+  test "L3: without the variables E004 and E005 stay unlinked and the skip is logged", c do
+    {out, 0} = run(c)
+    assert out =~ "skip link admin-login: no username given", out
+    assert out =~ "skip link user-login: no username given", out
+    users = employee_users(c.t.schema_name)
+    assert users["DEMO-E004"] == nil and users["DEMO-E005"] == nil
+  end
+
+  test "L4: logins that never signed in are skipped with a note and nothing is linked", c do
+    {out, 0} = run(c, @logins)
+    assert out =~ "no account admin-login yet", out
+    assert out =~ "no account user-login yet", out
+    users = employee_users(c.t.schema_name)
+    assert users["DEMO-E004"] == nil and users["DEMO-E005"] == nil
+  end
+
+  test "L5: a login already linked to another employee is a note, not a STOP", c do
+    signin_logins(c, [c.token_ul])
+    {_, 0} = run(c)
+    {200, _, body} = get(c, "/identity/users?search=user-login&page_size=50")
+    uid = Enum.find(Jason.decode!(body)["items"], &(&1["username"] == "user-login"))["id"]
+
+    {:ok, {{_, 200, _}, _, _}} =
+      :httpc.request(
+        :patch,
+        {String.to_charlist(
+           "http://127.0.0.1:#{c.port}/api/v1/modules/org/employees/#{employee_id(c, "DEMO-E002")}"
+         ),
+         [
+           {~c"authorization", ~c"Bearer #{c.token1}"},
+           {~c"x-tenant-slug", String.to_charlist(c.slug)}
+         ], ~c"application/json", Jason.encode!(%{user_id: uid, idempotency_key: "l5-hand"})},
+        [],
+        body_format: :binary
+      )
+
+    {out, 0} = run(c, [{"USER_LOGIN_USERNAME", "user-login"}])
+    assert out =~ "note link user-login", out
+    refute out =~ "STOP", out
+  end
+
+  defp employee_id(c, code) do
+    %{rows: [[id]]} =
+      Repo.query!(
+        ~s|SELECT record_id::text FROM "#{c.t.schema_name}".entity_record_latest WHERE entity_type = 'org_employee' AND field_values->>'code' = $1|,
+        [code]
+      )
+
+    id
+  end
+
+  test "D9b: a bad or clashing login name exits 2 and names the variable", c do
+    {out, code} = run(c, [{"ADMIN_LOGIN_USERNAME", "bad name"}])
+    assert code == 2 and out =~ "ADMIN_LOGIN_USERNAME"
+    {out, code} = run(c, [{"USER_LOGIN_USERNAME", "demo-admin2"}])
+    assert code == 2 and out =~ "USER_LOGIN_USERNAME"
   end
 
   test "D9: bad input exits 2 before any request", c do
