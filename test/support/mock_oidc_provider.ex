@@ -62,7 +62,9 @@ defmodule Letflow.Support.MockOidcProvider do
   spawns a linked, unsupervised accept-loop process (test-only; never added to
   `Letflow.Application`'s supervision tree), and registers `ExUnit.Callbacks.on_exit/1`
   to kill the acceptor and close the listening socket, so no port or process leaks
-  into the next test.
+  into the next test. The acceptor serves for the whole test, however long setup runs
+  before the first request; `opts[:accept_timeout]` (default 15 s) is only how often its
+  `:gen_tcp.accept/2` call wakes up (`mock_oidc_provider_test.exs` uses a short one).
 
   Returns `%{base_url:, realms: %{realm => %{issuer:, jwk:, kid:}}}` -- `realms`
   carries each realm's own PRIVATE `JOSE.JWK.t()`, used by `sign_token/3` below to
@@ -74,11 +76,13 @@ defmodule Letflow.Support.MockOidcProvider do
   @typedoc "One realm's fixture key material and issuer, as returned by `start/1`."
   @type realm_fixture :: %{issuer: String.t(), jwk: JOSE.JWK.t(), kid: String.t()}
 
-  @spec start(realms :: [String.t()]) :: %{
+  @spec start(realms :: [String.t()], opts :: keyword()) :: %{
           base_url: String.t(),
           realms: %{String.t() => realm_fixture()}
         }
-  def start(realms) when is_list(realms) and realms != [] do
+  def start(realms, opts \\ []) when is_list(realms) and realms != [] do
+    accept_timeout = Keyword.get(opts, :accept_timeout, 15_000)
+
     {:ok, listen_socket} =
       :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
 
@@ -90,7 +94,7 @@ defmodule Letflow.Support.MockOidcProvider do
 
     routes = build_routes(base_url, realm_fixtures)
 
-    acceptor = spawn_link(fn -> accept_loop(listen_socket, routes) end)
+    acceptor = spawn_link(fn -> accept_loop(listen_socket, routes, accept_timeout) end)
 
     ExUnit.Callbacks.on_exit(fn ->
       Process.exit(acceptor, :kill)
@@ -194,11 +198,18 @@ defmodule Letflow.Support.MockOidcProvider do
   # Accept loop -- one connection at a time, GET-only, no request body to parse.
   # ---------------------------------------------------------------------------------
 
-  defp accept_loop(listen_socket, routes) do
-    case :gen_tcp.accept(listen_socket, 15_000) do
+  # An accept timeout is only a polling interval, not an idle limit: the loop keeps
+  # serving until `on_exit/1` closes the socket (`:closed`) or kills the acceptor. A test
+  # whose setup runs longer than the timeout before its first token check (several
+  # tenants with module installs) must still find the server up.
+  defp accept_loop(listen_socket, routes, accept_timeout) do
+    case :gen_tcp.accept(listen_socket, accept_timeout) do
       {:ok, client_socket} ->
         handle_connection(client_socket, routes)
-        accept_loop(listen_socket, routes)
+        accept_loop(listen_socket, routes, accept_timeout)
+
+      {:error, :timeout} ->
+        accept_loop(listen_socket, routes, accept_timeout)
 
       {:error, :closed} ->
         :ok

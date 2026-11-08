@@ -786,6 +786,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
       # REQ-688 adds `dry_postings/4` (the ledger pre-step's write-free dry build) and the hooks
       # `__facts__/1` (consent, pre-step result and dry flag of the per-call token) and
       # `__dry_collect__/2`, both called by `HandlerPost` only.
+      # REQ-760 adds `next_record_id/1` (a platform-derived record id from the step source).
       assert public == [
                __declare__: 2,
                __dry_collect__: 2,
@@ -801,6 +802,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
                dry_postings: 4,
                lock_types: 3,
                lock_types: 4,
+               next_record_id: 1,
                post: 3,
                prepare_targets: 2,
                registered_targets: 1

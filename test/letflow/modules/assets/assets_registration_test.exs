@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.8.0"
+    assert m.version == "0.9.0"
     assert m.depends_on == ["catalog_items", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 

@@ -5,7 +5,7 @@ defmodule Letflow.Modules.Assets.KindChangeIssueTest do
   GH #3902 / REQ-759 (assets C15 part 2), criteria 3 and 4: the master checks at issue of a change of
   kind through the real `Letflow.Router` with an OIDC bearer (I1 one refusal per reason, I2 accepted
   lines, I3 the check order), and the issue itself (B1 numbered once, content equals the saved draft,
-  no ledger entry, no card, no process; B2 reverse is 409 `document_not_posted`). Committed tenants,
+  no ledger entry, no card, one pending posting task; B2 reverse is 409 `document_not_posted`). Committed tenants,
   Sandbox `:auto`, `async: false`.
   """
 
@@ -186,8 +186,9 @@ defmodule Letflow.Modules.Assets.KindChangeIssueTest do
         prefix: ctx.schema
       )
 
-    assert instances == 0
-    assert D.pending_task(ctx, saved["id"], "post") == nil
+    # REQ-760: the issue now starts the posting instance (one pending `post` task); nothing is posted.
+    assert instances == 1
+    assert D.pending_task(ctx, saved["id"], "post") != nil
 
     again = D.request(:post, "/documents/#{saved["id"]}/issue", ctx.tok_a)
     assert D.status!(again, 409)["reason"] == "document_not_draft"

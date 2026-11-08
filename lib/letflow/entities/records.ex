@@ -1011,7 +1011,7 @@ defmodule Letflow.Entities.Records do
       ctx = %{
         kind: :create,
         entity_type: line.entity_type,
-        record_id: Ecto.UUID.generate(),
+        record_id: StepSource.record_id_for_key(line.idempotency_key),
         field_values: field_values,
         definition: definition,
         existing_record: nil,

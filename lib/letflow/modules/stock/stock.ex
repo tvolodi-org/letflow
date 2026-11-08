@@ -109,6 +109,13 @@ defmodule Letflow.Modules.Stock do
   (`Letflow.Modules.Stock.DocumentPrint`, `DocumentPrintSource`), rendered from the issued version content.
   No migration, record type or permission.
 
+  ## Change of kind, stock leg (REQ-760 / GH #3901; version 0.16.0)
+
+  The cause `kind_change_out` (negative, one leg per line at `from`) and the write handler
+  `post_kind_change_out` post the stock side of an assets change of kind (process definition
+  `assets_kind_change` of module `assets`). `post_document` refuses that cause. A module installed at an
+  earlier version has no upgrade hook for it (reinstall; QA only).
+
   ## Count print (REQ-736 / GH #3861; version 0.12.0)
 
   One more read route, `GET /counts/:id/print/:kind?lang=ru|kk|en` (`StockRead`): the same three issued
@@ -287,7 +294,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.15.0",
+    version: "0.16.0",
     # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
     min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
@@ -439,6 +446,20 @@ defmodule Letflow.Modules.Stock do
           "posting" => %{required: true}
         },
         posts_ledger: "stock"
+      },
+      %Letflow.Modules.WriteHandlerSpec{
+        name: "post_kind_change_out",
+        function: {Letflow.Modules.Stock.Handlers, :post_kind_change_out},
+        targets: ["stock_posting_mark"],
+        args: %{
+          "document_id" => %{required: true},
+          "document_type" => %{required: true},
+          "version_no" => %{required: true},
+          "org_unit_id" => %{required: true},
+          "mark" => %{required: true},
+          "posting" => %{required: true}
+        },
+        posts_ledger: "stock"
       }
     ],
     import_functions: [%{entity_type: "stock_opening_line", function: :import_opening_line}],
@@ -460,7 +481,8 @@ defmodule Letflow.Modules.Stock do
           "transfer" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "hand_over" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "return" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
-          "count_difference" => %{sign_rule: :any, reason_required: true}
+          "count_difference" => %{sign_rule: :any, reason_required: true},
+          "kind_change_out" => %{sign_rule: :negative, reason_required: false}
         },
         key_bounds: [],
         permissions: %{

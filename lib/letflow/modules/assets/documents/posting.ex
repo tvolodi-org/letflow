@@ -47,6 +47,7 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
   alias Letflow.Entities.Record.Latest
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Ledger
+  alias Letflow.Modules.Assets.Documents.KindChangePosting
   alias Letflow.Modules.Assets.Documents.Kinds
   alias Letflow.Repo
 
@@ -151,18 +152,29 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
     spec = Kinds.get(view.kind)
 
     with :ok <- start_seam(),
-         {:ok, command} <- post_command(spec, view, issued) do
-      vars = %{
-        "document_id" => view.id,
-        "document_type" => spec.type_key,
-        "version_no" => issued.version_no,
-        "org_unit_id" => view.org_unit_id,
-        "mark" => "posted",
-        "posting" => command
-      }
+         {:ok, command, extra} <- post_commands(spec, view, issued) do
+      vars =
+        Map.merge(extra, %{
+          "document_id" => view.id,
+          "document_type" => spec.type_key,
+          "version_no" => issued.version_no,
+          "org_unit_id" => view.org_unit_id,
+          "mark" => "posted",
+          "posting" => command
+        })
 
       start(prefix, spec.definition, "assets-post", issued.version_id, view.id, vars, actor)
     end
+  end
+
+  # A change of kind posts two entries: the asset command is `posting`, the stock one `stock_posting`.
+  defp post_commands(%{kind: "kind_change"}, view, issued) do
+    with {:ok, %{assets: assets, stock: stock}} <- KindChangePosting.commands(view, issued),
+         do: {:ok, assets, %{"stock_posting" => stock}}
+  end
+
+  defp post_commands(spec, view, issued) do
+    with {:ok, command} <- post_command(spec, view, issued), do: {:ok, command, %{}}
   end
 
   @doc "Starts one `assets_reversal` instance (see the moduledoc)."
@@ -320,7 +332,8 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
   end
 
   # The ledger policy takes whole-number text ("200"), the record holds "200.000000000".
-  defp whole_text(text) do
+  @doc false
+  def whole_text(text) do
     case Decimal.parse(to_string(text)) do
       {%Decimal{} = d, ""} ->
         if Decimal.equal?(Decimal.round(d, 0), d),
@@ -357,6 +370,9 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
          {:ok, view} <- fetch.(prefix, id),
          marks = marks(prefix, [view.id]) |> Map.get(view.id, %{}),
          :ok <- reversible(prefix, view, marks),
+         # REQ-760 part A: the pair reversal of a change of kind is part B; the plain reversal
+         # would reverse only the asset entry and the ledger refuses a half of a pair.
+         :ok <- not_kind_change(view),
          {:ok, entry_id} <- posting_entry(authorized, view),
          :ok <- active(prefix, @reversal_definition, activator),
          %{} = issued <- issued(prefix, view.id) || {:error, :internal},
@@ -373,6 +389,9 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
       _other -> {:error, :internal}
     end
   end
+
+  defp not_kind_change(%{kind: "kind_change"}), do: {:error, :posting_inconsistent}
+  defp not_kind_change(_view), do: :ok
 
   defp active(prefix, name, activator) do
     case ensure_active(prefix, name, activator) do
@@ -517,24 +536,36 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
   reversed_by, posting_check`. `authorized` is the caller's ledger read authorization (or `nil`:
   `posting_check` is then `nil`).
   """
-  @spec state_fields(String.t(), map(), term()) :: map()
-  def state_fields(prefix, base, authorized) do
+  @spec state_fields(String.t(), map(), term(), keyword()) :: map()
+  def state_fields(prefix, base, authorized, opts \\ []) do
     marks = marks(prefix, [base.id]) |> Map.get(base.id, %{})
     state = derive_state(base.state, marks)
     rows = if authorized, do: entries(authorized, base.id), else: :error
     kind = Kinds.get(base.kind)
     posted = posted_row(rows, kind.cause)
 
-    %{
-      state: state,
-      posted_at: marks |> Map.get("posted") |> mark_at(),
-      posted_by: if(marks["posted"], do: completer(prefix, base.id, kind.completion_node)),
-      entry_id: posted && posted.entry_id,
-      reversed_at: marks |> Map.get("reversed") |> mark_at(),
-      reversed_by: if(marks["reversed"], do: completer(prefix, base.id, "reverse")),
-      posting_check: posting_check(base, state, marks, rows, prefix, kind)
-    }
+    Map.merge(
+      %{
+        state: state,
+        posted_at: marks |> Map.get("posted") |> mark_at(),
+        posted_by: if(marks["posted"], do: completer(prefix, base.id, kind.completion_node)),
+        entry_id: posted && posted.entry_id,
+        reversed_at: marks |> Map.get("reversed") |> mark_at(),
+        reversed_by: if(marks["reversed"], do: completer(prefix, base.id, "reverse")),
+        posting_check: posting_check(base, state, marks, rows, prefix, kind, opts)
+      },
+      card_lines(base, posted)
+    )
   end
+
+  # REQ-760 part A: the card of each line of a posted change of kind, derived from the asset entry
+  # (the stored `asset_card_id` is empty until part B). Other kinds and unposted documents: no change.
+  defp card_lines(%{kind: "kind_change", lines: lines}, %{} = posted) do
+    ids = KindChangePosting.card_ids(posted)
+    %{lines: Enum.map(lines, &Map.put(&1, :asset_card_id, Map.get(ids, &1.line_id)))}
+  end
+
+  defp card_lines(_base, _posted), do: %{}
 
   defp derive_state("issued", marks) do
     cond do
@@ -566,10 +597,32 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
 
   defp posted_row(_unavailable, _cause), do: nil
 
-  defp posting_check(_base, _state, _marks, :error, _prefix, _kind), do: nil
-  defp posting_check(_base, _state, _marks, :truncated, _prefix, _kind), do: "mismatch"
+  defp posting_check(_base, _state, _marks, :error, _prefix, _kind, _opts), do: nil
+  defp posting_check(_base, _state, _marks, :truncated, _prefix, _kind, _opts), do: "mismatch"
 
-  defp posting_check(base, state, marks, {:ok, rows}, prefix, kind) do
+  # A change of kind: two registers. Without the stock read authorization the check is unavailable.
+  defp posting_check(
+         base,
+         state,
+         marks,
+         {:ok, rows} = asset_rows,
+         prefix,
+         %{kind: "kind_change"},
+         opts
+       ) do
+    stock_rows =
+      if opts[:stock_authorized], do: entries(opts[:stock_authorized], base.id), else: :error
+
+    cond do
+      rows == [] and marks == %{} -> nil
+      state == "draft" -> "mismatch"
+      stock_rows == :error -> nil
+      not Map.has_key?(marks, "posted") -> "mismatch"
+      true -> KindChangePosting.check(prefix, base, asset_rows, stock_rows)
+    end
+  end
+
+  defp posting_check(base, state, marks, {:ok, rows}, prefix, kind, _opts) do
     postings = Enum.filter(rows, &(&1.cause == kind.cause))
     reversals = Enum.filter(rows, &(&1.cause == "reversal"))
 

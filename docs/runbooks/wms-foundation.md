@@ -32,7 +32,7 @@ was written.
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:332`.
+   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:363`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -163,7 +163,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
    `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:332`.
+   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:363`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -658,10 +658,22 @@ the code that holds it; paths are cited without line numbers.
    record id; the balances export (`GET /api/v1/modules/assets/balances?format=xlsx`) holds one page of the rows the
    caller reads, and the `next_cursor` row of its `report` sheet continues (GH #3898, REQ-763,
    `lib/letflow/modules/assets/xlsx_export.ex`).
-11. **A change of kind is issued, not posted (C15 part 2, REQ-759).** The document `kind_change` (number `AKC` +
+11. **A change of kind posts two entries and creates the cards (C15 parts 2 and 3A, REQ-759, REQ-760).** The document `kind_change` (number `AKC` +
    `-<year>-<n>`) is drafted and issued on the `/documents` routes; at issue it checks the item, unit, lot,
    tracking, both locations, the asset org unit, the links, the employees, the quantity and the inventory number
-   (`lib/letflow/modules/assets/documents/kind_change_checks.ex`). It posts nothing, creates no card and starts no
-   process (REQ-760), so it stays `issued`, and `POST /documents/:id/reverse` answers 409 `document_not_posted`.
-   Module `assets` now needs `catalog_items` and `stock` installed. Two issued documents with the same inventory
+   (`lib/letflow/modules/assets/documents/kind_change_checks.ex`). Issue starts the process definition
+   `assets_kind_change` (modules `assets` 0.9.0 and `stock` 0.16.0); completing its `post` task runs the handlers
+   `post_kind_change` and `post_kind_change_out` in ONE transaction: one `assets_card` per line, the stock entry
+   (`kind_change_out`, negative legs, unit = the line unit), the asset entry (`kind_change_in`, positive legs at the
+   new cards, unit `pcs`) and both posted marks, with one shared `correlation_id`. Any failure (stock below the
+   quantity, missing `StockPost` or `AssetsPost`, an inventory number taken after issue) leaves nothing. The card
+   ids come from the platform (`HandlerWrites.next_record_id/1`), never from the task variables. Limits: the cards
+   are created through `HandlerWrites.create/3`, so no `assets_card.created` audit entry is written (the record event
+   and the `ledger.posted` audit entries carry the actor) and the `Cards` rules beyond field validation are not run
+   (the org unit is checked at issue); `asset_card_id` of a line is derived on read from the asset entry; the stored
+   field stays empty; `posting_check` needs `StockRead` (else `null`) and detects a forged `posting` variable as
+   `mismatch`. `POST /documents/:id/reverse` of a posted change of kind answers 409 `posting_inconsistent` (the pair
+   reversal is part 3B); there is no cancel or retry route. A change of kind issued on QA under assets 0.8.0 has no
+   instance and the next issue answers 409 `definition_not_active` until the module is reinstalled: redraft it.
+   Module `assets` needs `catalog_items` and `stock` installed. Two issued documents with the same inventory
    number are not told apart until the card is created (the unique constraint settles it).

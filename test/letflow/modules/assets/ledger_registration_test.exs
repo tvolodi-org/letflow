@@ -51,7 +51,8 @@ defmodule Letflow.Modules.Assets.LedgerRegistrationTest do
                  "commission" => %{sign_rule: :positive, reason_required: false},
                  "change" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
                  "handover" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
-                 "writeoff" => %{sign_rule: :negative, reason_required: true}
+                 "writeoff" => %{sign_rule: :negative, reason_required: true},
+                 "kind_change_in" => %{sign_rule: :positive, reason_required: false}
                },
                key_bounds: [],
                permissions: %{

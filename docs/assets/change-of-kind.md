@@ -88,6 +88,7 @@ quantity. No price or value field exists on this document (section 9, open quest
 As built (REQ-759, GH #3902, module `assets` 0.8.0) the record types carry the prefix of the module:
 `assets_kind_change` and `assets_kind_change_line`, and the numbered document type is `assets_kind_change`
 (prefix `AKC`). The kind `kind_change` is a fifth value of the `kind` field of the asset document routes.
+REQ-760 part A (module `assets` 0.9.0, `stock` 0.16.0) posts the pair and creates the cards; the reversal of the pair is part B.
 
 ## 3. The two postings
 
