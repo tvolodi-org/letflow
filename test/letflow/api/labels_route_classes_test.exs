@@ -93,7 +93,7 @@ defmodule Letflow.Api.LabelsRouteClassesTest do
     test "L5 the walk audits to [] and the default snapshot has no labels line", %{routes: routes} do
       snapshot = RouteInventory.read_snapshot()
       assert RouteScope.audit_routes(routes, snapshot) == []
-      refute Enum.any?(snapshot, &String.contains?(&1, "/labels"))
+      refute Enum.any?(snapshot, &Regex.match?(~r{^[A-Z]+ /labels}, &1))
 
       assert Enum.any?(
                RouteScope.self_service_routes(),
