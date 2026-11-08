@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import {
-  DOC_KINDS, DOC_REASONS, HEADER_KEYS, REVERSE_REASONS, actionsFor, documentErrorMessageId, reasonTextError, sidesOf,
+  DOC_KINDS, DOC_REASONS, HEADER_KEYS, REVERSE_REASONS, actionsFor, documentErrorInfo, documentErrorMessageId, reasonTextError, sidesOf,
 } from '../documents/documentsModel'
 import type { AssetDocument } from '../documents/assetDocuments.api'
 import { assetsMessages } from '../assetsMessages'
@@ -57,9 +57,31 @@ describe('M1 sidesOf', () => {
   })
   it('the header keys of every kind equal Kinds.header_keys', () => {
     const src = readFileSync(path.resolve(__dirname, '../../../../../lib/letflow/modules/assets/documents/kinds.ex'), 'utf-8')
-    // `kind_change` (REQ-759, C15) is backend-only for now: no web screen or header keys yet.
-    const blocks = [...src.matchAll(/kind: "(\w+)"[\s\S]*?header_keys:\s*~w\(([^)]*)\)/g)].filter((b) => b[1] !== 'kind_change')
+    const blocks = [...src.matchAll(/kind: "(\w+)"[\s\S]*?header_keys:\s*~w\(([^)]*)\)/g)]
     expect(blocks.map((b) => b[1])).toEqual([...DOC_KINDS])
     for (const b of blocks) expect(b[2].trim().split(/\s+/)).toEqual([...HEADER_KEYS[b[1] as keyof typeof HEADER_KEYS]])
+  })
+})
+
+describe('K1/K9b change of kind', () => {
+  const root = path.resolve(__dirname, '../../../../../lib/letflow/modules')
+  it('K9b: every reason atom of the issue checks is in DOC_REASONS (none falls to "unknown")', () => {
+    const checks = readFileSync(path.resolve(root, 'assets/documents/kind_change_checks.ex'), 'utf-8')
+    const stock = readFileSync(path.resolve(root, 'stock/documents/checks.ex'), 'utf-8')
+    // check(<cond>, "reason", extras) and the tracking reasons returned by `tracking_reason/1`
+    const issue = [...checks.matchAll(/"([a-z_]+)",\s*(?:Map\.put\(\s*)?extras/g)].map((m) => m[1]).filter((r) => !r.endsWith('_id') && r !== 'stock' && r !== 'asset') // field and side names passed to helpers
+    const tracking = [...stock.matchAll(/def tracking_reason\([^)]*\)[^\n]*?, do: "([a-z_]+)"/g)].map((m) => m[1])
+    expect(issue.length).toBeGreaterThanOrEqual(9)
+    expect(tracking).toEqual(expect.arrayContaining(['lot_required', 'lot_not_allowed', 'lot_expiry_missing', 'tracking_invalid']))
+    for (const r of [...issue, ...tracking]) expect(DOC_REASONS as readonly string[], r).toContain(r)
+  })
+  it('K8: Reverse is closed for a change of kind (the server refuses it), kept for the other kinds', () => {
+    const can = (...a: string[]) => (atom: string) => a.includes(atom)
+    expect(actionsFor('posted', can('AssetsReverse'), 'kind_change').reverse).toBe(false)
+    for (const k of ['commission', 'change', 'handover', 'writeoff']) expect(actionsFor('posted', can('AssetsReverse'), k).reverse).toBe(true)
+    expect(actionsFor('draft', can('AssetsPost'), 'kind_change')).toEqual({ edit: true, discard: true, issue: true, reverse: false })
+  })
+  it('a not_linked refusal carries its side', () => {
+    expect(documentErrorInfo({ status: 422, details: { reason: 'not_linked', side: 'asset', line_no: 2 } })).toMatchObject({ side: 'asset', lineNo: 2 })
   })
 })

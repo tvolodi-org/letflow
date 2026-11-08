@@ -25,6 +25,7 @@ import { assetsQueryKeys } from '../assetsQueryKeys'
 import { assetDocumentsApi, type AssetDocument } from './assetDocuments.api'
 import { AssetLinesEditor } from './AssetLinesEditor'
 import { AssetSideGroup } from './AssetSideGroup'
+import { KindChangeLinesEditor } from './KindChangeLinesEditor'
 import { DocumentTabs } from './DocumentTabs'
 import { DOCUMENTS_PATH } from './DocumentList'
 import { buildBody, emptyForm, formFromDocument, placeError, validateForm, type FormState, type SideForm } from './documentForm'
@@ -86,7 +87,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
       onDone(saved)
     },
     onError: (e) => {
-      const placed = placeError(e)
+      const placed = placeError(e, form.kind)
       if (placed.key) {
         setErrors({ [placed.key]: placed.messageId })
         if (tabsLayout) setTab(paneOfKey(placed.key))
@@ -116,6 +117,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
   }
   const err = (key: string) => (errors[`header.${key}`] ? t(errors[`header.${key}`]) : undefined)
   const two = isTwoSide(form.kind)
+  const kc = form.kind === 'kind_change'
   const sideProps = { orgUnits, locations, employees, errors }
   const E = DocEdit
   return (
@@ -138,7 +140,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
       >
         {banner && <Banner tone="danger">{banner}</Banner>}
       </DocBar>
-      <DocumentTabs lineCount={form.lines.length} problems={problemsByPane(errors)} />
+      <DocumentTabs lineCount={form.kind === 'kind_change' ? form.kcLines.length : form.lines.length} problems={problemsByPane(errors)} />
       <DocCard area="header" title={t('assets.doc.header')} data-testid="document-form">
         <DocFields editing>
           {onKindChange ? (
@@ -178,7 +180,17 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
               ))}
             </>
           )}
-          {!two && (
+          {kc && (
+            <>
+              <AssetSideGroup bare side="from" value={form.from} onChange={(p) => patchSide('from', p)} fields={['orgUnitId']} orgUnitFixed={edit} {...sideProps} />
+              <E full>
+                <Field label={t('assets.doc.field.reasonText')} error={err('reasonText')} optional>
+                  <textarea rows={2} value={form.reasonText} onChange={(e) => patch({ reasonText: e.target.value })} />
+                </Field>
+              </E>
+            </>
+          )}
+          {!two && !kc && (
             <AssetSideGroup bare side="from" value={form.from} onChange={(p) => patchSide('from', p)} fields={['orgUnitId', 'locationId', 'responsibleId', 'userId']} orgUnitFixed={edit} {...sideProps} />
           )}
           {form.kind === 'writeoff' && (
@@ -207,7 +219,11 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
           </E>
         </DocFields>
       </DocCard>
-      <AssetLinesEditor lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} showErrors={attempted} />
+      {kc ? (
+        <KindChangeLinesEditor lines={form.kcLines} errors={errors} onChange={(kcLines) => patch({ kcLines })} showErrors={attempted} />
+      ) : (
+        <AssetLinesEditor lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} showErrors={attempted} />
+      )}
     </>
   )
 }

@@ -22,6 +22,7 @@ import { stockR7Screens } from './fixtures/stockR7'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
 import { leftoversR15Screens, leftoversR15ShellScreens } from './fixtures/leftoversR15'
 import { assetsDocumentsScreens } from './fixtures/assetsDocuments'
+import { assetsKindChangeScreens } from './fixtures/assetsDocumentsKindChange'
 import { stockScreens } from './fixtures/stock'
 import { stockBalanceHistoryScreens } from './fixtures/stockBalanceHistory'
 import { stockBalancesLayoutScreens } from './fixtures/stockBalancesLayout'
@@ -258,6 +259,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...officialFormsScreens,
     ...assetsScreens,
     ...assetsDocumentsScreens,
+    ...assetsKindChangeScreens,
     ...stockR7Screens,
     ...sessionNoticeScreens,
     ...leftoversR15Screens,

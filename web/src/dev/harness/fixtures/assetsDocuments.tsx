@@ -121,7 +121,7 @@ const ACCESS = {
   info: { roles: [], platform_tenant: false, permissions: ['AssetsRead', 'AssetsPost', 'AssetsReverse'] },
 }
 
-function withAuth(page: ReactElement): ReactElement {
+export function withAuth(page: ReactElement): ReactElement {
   return (
     <AuthContext.Provider value={AUTH}>
       <AccessStateProvider state={ACCESS}>
@@ -152,7 +152,7 @@ function OpenReverse({ children }: { children: ReactElement }): ReactElement {
 }
 
 /** Harness only: clicks the first button whose label is one of these (a shot cannot click): Edit, Save in every shipped language. */
-function ClickButton({ labels, children }: { labels: string[]; children: ReactElement }): ReactElement {
+export function ClickButton({ labels, children }: { labels: string[]; children: ReactElement }): ReactElement {
   useEffect(() => {
     const id = window.setInterval(() => {
       const btn = Array.from(document.querySelectorAll('button')).find((b) => labels.includes(b.textContent?.trim() ?? ''))
@@ -165,8 +165,8 @@ function ClickButton({ labels, children }: { labels: string[]; children: ReactEl
   }, [labels])
   return children
 }
-const EDIT_LABELS = ['Edit', 'Изменить', 'Өзгерту']
-const SAVE_LABELS = ['Save', 'Сохранить', 'Сақтау']
+export const EDIT_LABELS = ['Edit', 'Изменить', 'Өзгерту']
+export const SAVE_LABELS = ['Save', 'Сохранить', 'Сақтау']
 
 const creating = (name: string, kind: string, extra?: (el: ReactElement) => ReactElement): HarnessScreen => ({
   name,

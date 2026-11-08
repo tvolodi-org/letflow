@@ -25,8 +25,19 @@ export interface AssetCatalog extends Omit<LeCatalog, 'byId'> {
   byId: (id: string) => AssetLeItem | null
 }
 
-export function buildAssetCatalog(options: readonly PickerOption[]): AssetCatalog {
-  const items = options.map(toLeItem)
+/** A stock item as the change of kind editor needs it: code, name, base unit and whether it has lots (T-1336). */
+export function toItemLeItem(o: PickerOption): LeItem {
+  const f = o.fields ?? {}
+  const code = str(f['code'])
+  const title = str(f['name']) || (code === '' ? o.label : '')
+  // The policy `none` is the only one with no lots; an unknown policy keeps the lot cell (the server decides).
+  return { id: o.value, code, title: title || code, unitId: str(f['base_uom_id']), lotTracked: str(f['tracking_policy']) !== 'none', barcode: str(f['barcode']) }
+}
+
+export const buildAssetCatalog = (options: readonly PickerOption[]): AssetCatalog => catalogOf(options.map(toLeItem))
+export const buildItemCatalog = (options: readonly PickerOption[]): LeCatalog => catalogOf(options.map(toItemLeItem))
+
+function catalogOf<T extends LeItem>(items: T[]): Omit<LeCatalog, 'byId'> & { byId: (id: string) => T | null } {
   const byIdMap = new Map(items.map((i) => [i.id, i]))
   return {
     byId: (id) => byIdMap.get(id) ?? null,
