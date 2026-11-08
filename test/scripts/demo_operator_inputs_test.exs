@@ -448,6 +448,9 @@ defmodule Letflow.Scripts.DemoOperatorInputsTest do
 
       assert readme =~ "BPM_IDP_BASE_URL" and tenant_config =~ "BPM_IDP_BASE_URL"
 
+      assert readme =~ "LETFLOW_DEFAULT_TENANT_SLUG" and
+               tenant_config =~ "LETFLOW_DEFAULT_TENANT_SLUG"
+
       assert readme =~
                "VITE_OIDC_AUTHORITY=https://auth-demo.letflow.ai-dala.com/realms/demo-showroom"
 

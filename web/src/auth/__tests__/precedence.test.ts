@@ -6,11 +6,16 @@
  * login hint is additive. The pre-existing tenantConfig / buildRedirectArgs
  * tests stay unmodified and cover the single-source rows.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resolveRealmFromUrl } from '../tenantConfig'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchTenantConfig, resetTenantConfigCache, resolveRealmFromUrl } from '../tenantConfig'
+import { client } from '@/api/client'
 import { buildRedirectArgs } from '../oidcRedirectArgs'
 
+vi.mock('@/api/client', () => ({ client: { get: vi.fn() } }))
+
 beforeEach(() => {
+  resetTenantConfigCache()
+  vi.mocked(client.get).mockReset()
   sessionStorage.clear()
   window.history.pushState({}, '', '/')
 })
@@ -59,5 +64,30 @@ describe('buildRedirectArgs login hint', () => {
 
   it('still returns undefined with no realm, even with a hint', () => {
     expect(buildRedirectArgs(undefined, { loginHint: 'u@example.org' })).toBeUndefined()
+  })
+})
+
+describe('default tenant selection order (T-1481)', () => {
+  const cfg = { oidc_authority: 'https://idp/realms/x', client_id: 'c' }
+
+  it('?realm=a with stored b asks the backend for realm a', async () => {
+    vi.mocked(client.get).mockResolvedValue(cfg)
+    sessionStorage.setItem('bpm_realm_slug', 'realm-b')
+    window.history.pushState({}, '', '/?realm=realm-a')
+    await fetchTenantConfig('demo.example.org')
+    expect(client.get).toHaveBeenCalledWith('/api/tenant-config', { realm: 'realm-a' })
+  })
+
+  it('stored slug only asks for the stored realm', async () => {
+    vi.mocked(client.get).mockResolvedValue(cfg)
+    sessionStorage.setItem('bpm_realm_slug', 'realm-b')
+    await fetchTenantConfig('demo.example.org')
+    expect(client.get).toHaveBeenCalledWith('/api/tenant-config', { realm: 'realm-b' })
+  })
+
+  it('neither sends only the host so the backend configured default decides', async () => {
+    vi.mocked(client.get).mockResolvedValue(cfg)
+    await fetchTenantConfig('demo.example.org')
+    expect(client.get).toHaveBeenCalledWith('/api/tenant-config', { host: 'demo.example.org' })
   })
 })

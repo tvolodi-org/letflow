@@ -37,6 +37,7 @@ BPM_IDP_BASE_URL=https://auth-demo.letflow.ai-dala.com         # what GET /api/t
 VITE_OIDC_AUTHORITY=https://auth-demo.letflow.ai-dala.com/realms/demo-showroom   # web build fallback only, see O5
 VITE_OIDC_CLIENT_ID=letflow-web                                # web build fallback only
 CORS_ALLOWED_ORIGINS=https://demo.letflow.ai-dala.com          # comma list; empty means no cross-origin caller is allowed
+LETFLOW_DEFAULT_TENANT_SLUG=showroom                           # slug of the tenant the app lands on without ?realm= or a remembered slug, see O5
 LETFLOW_PLATFORM_TENANT_ID=<uuid printed by demo_platform_bootstrap.sh create>
 ```
 
@@ -56,15 +57,13 @@ kcadm.sh set-password -r demo-showroom --username demo-smoke --new-password "$(c
 from `OIDC_CLIENT_ID` (`Letflow.Routers.TenantConfig`). `VITE_OIDC_AUTHORITY` and `VITE_OIDC_CLIENT_ID` are only the fallback
 when that request fails, so one build serves every promote.
 
-**Limit (finding):** `?host=` has no host-to-tenant binding. A visit to `https://demo.letflow.ai-dala.com/` with no
-`?realm=` and no remembered slug is answered with the constant default realm `bpm-default`
-(`TenantConfig.resolve_realm(nil, _)`), which the demo Keycloak does not have. The public demo link is therefore
-
-`https://demo.letflow.ai-dala.com/?realm=showroom`
-
-(the slug is remembered in the browser session afterwards). Infra may add an nginx redirect of `/` without arguments to that
-link. A deep link opened in a fresh tab without `?realm=` still lands on `bpm-default`. A real fix is a product change and is
-not part of this task.
+**Default tenant (runtime setting `LETFLOW_DEFAULT_TENANT_SLUG`).** `?host=` has no host-to-tenant binding, so a visit
+to `https://demo.letflow.ai-dala.com/` with no `?realm=` and no remembered slug is answered with the default tenant. Set
+`LETFLOW_DEFAULT_TENANT_SLUG=showroom` in the backend environment (a tenant slug, not a realm id; read per request, restart
+the backend to change it, no web rebuild). The root URL and deep links in a fresh tab then land on the showroom realm. Order
+of choice: `?realm=` first, then the slug remembered in the browser session, then this default. Unset or empty keeps the
+constant `bpm-default` (QA and production). A slug that is unknown, inactive or has no realm also falls back to
+`bpm-default`. `https://demo.letflow.ai-dala.com/?realm=showroom` still works; an nginx redirect is no longer needed.
 
 ## O3: a fresh database, the platform tenant and an internal Keycloak URL
 
@@ -172,7 +171,7 @@ printing and imports, so `proxy_read_timeout 60s` is enough, and `client_max_bod
 
 ## Findings
 
-* The demo root URL needs `?realm=showroom` (see O5).
+* The demo root URL lands on showroom once `LETFLOW_DEFAULT_TENANT_SLUG=showroom` is set (see O5).
 * No internal Keycloak URL (see O3).
 * `Letflow.Release` has no function that creates the platform tenant; the bootstrap script runs an `rpc` expression. Promote it
   into `Release` if infra wants an `eval`-only path.
