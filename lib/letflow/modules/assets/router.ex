@@ -335,7 +335,8 @@ defmodule Letflow.Modules.Assets.Router do
   defp doc_render(conn, {:error, reason}, _status), do: doc_refuse(conn, reason)
 
   @doc_conflicts ~w(document_not_draft document_not_posted document_reversed reversal_pending
-                    posting_inconsistent definition_not_active posting_not_available)a
+                    posting_inconsistent definition_not_active posting_not_available
+                    external_ref_taken)a
 
   defp doc_refuse(conn, :not_found), do: Response.not_found(conn)
 

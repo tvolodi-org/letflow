@@ -1,0 +1,122 @@
+# T-1493 (BA, assets G6): old assets arrive by xlsx import of opening lines into a DRAFT asset opening document; the same file again changes nothing; a changed row updates its line; nothing is posted.
+# Covers REQ-784 criteria 1 to 4 and 7 (decision docs/migration/decisions/0083-asset-opening-document.md D7, docs/assets/asset-xlsx.md section 5a).
+# Sources: docs/migration/decisions/0083-asset-opening-document.md D7 and D9 item 4; docs/uat/ba-decisions/T-1486.md gap G6; docs/assets/asset-xlsx.md section 5a (columns, reasons, caps);
+# lib/letflow/modules/assets/documents/opening_import.ex (moduledoc: per-row order of refusals); docs/assets/asset-workflow-documents.md section 5a (the pair, the check route).
+#
+# SCREEN GAP (stated, not invented): the asset opening document has no web screen yet (G5 part 3) and the import has no upload screen. Every step is an API step (via: api); nothing here can be clicked in a browser on QA today.
+# POSTING GAP: G5 part 2 (the process and the posting of an opening) is not built, so an imported draft cannot be issued yet. This scenario stops at the draft and the check route.
+# ROSTER GAP: the roster has no assets-scope actor. The import needs a tenant-wide administrator, so the actor is the SwiftRoute administrator.
+---
+id: assets-opening-import-1-draft-lines-from-xlsx
+scope: assets
+title: An administrator imports the opening lines of existing assets from an xlsx file into a draft opening document; a second import changes nothing and a changed row updates its line
+version: "1.0"
+tags: [assets, opening, import, xlsx, draft]
+
+description: >
+  SwiftRoute has the assets module installed. The administrator imports three asset cards by xlsx (the card import), creates a draft asset opening document for one organisation unit with its own external
+  reference, and imports a file of opening lines: each row names the document, the card, the location and the responsible person by their external ids, with a quantity. The three rows create three lines
+  in the draft. Importing the same file again reports every row as unchanged. A file with one changed quantity reports that row as updated and the others as unchanged, and the line keeps its position. A line
+  that breaks a rule of the opening (the same card twice at one placement) imports anyway and the check of the document names the reason. At the end the document is still a draft with no number, and nothing
+  is posted to the asset register.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: The assets module is installed and active for SwiftRoute with the organisation unit, location and employee masters it needs, each with an external id under the system "erp".
+    check: system_seeded
+    detail: If the master data cannot be prepared through the company's own administration, report BLOCKED for the whole scenario.
+  - description: The administrator holds TENANT_ADMIN (a tenant-wide grant).
+    check: system_seeded
+    detail: Per the actor roster. A scoped administrator cannot run an upsert import.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator imports an xlsx file of three asset cards (external ids CARD-1, CARD-2, CARD-3; one fixed asset, one low-value asset, one intangible asset) with the card import. The answer is noted.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator creates a draft asset opening document for the organisation unit with the external reference "erp" / "OPEN-1" and one first line. The answer is noted as D1 (document id, state "draft").
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator imports an xlsx file of three rows with the columns header_id, asset_id, location_id, material_responsible_id, actual_user_id, quantity, external_ref_system and external_ref_id.
+      Every row has header_id "OPEN-1", external_ref_system "erp", and row ids ROW-1, ROW-2, ROW-3 for CARD-1, CARD-2, CARD-3, quantity 1, 5 and 1. The answer is noted as I1, the document is read and noted as D2.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator imports the same file again. The answer is noted as I2 and the document is read again as D3.
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator imports the same file with the quantity of ROW-2 changed from 5 to 8. The answer is noted as I3 and the document is read as D4.
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator imports one more row ROW-4 for CARD-1 at the same location and the same responsible person as ROW-1, then asks for the check of the document. The answers are noted as I4 and C1.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator reads the document and the asset register balances. The answers are noted as D5 and B1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The import creates one line per new row in the draft document.
+    verification:
+      method: api_response
+      detail: Step 3 answers 200 with three results "created". D2 is a draft with the first line and three lines carrying the external reference ids ROW-1, ROW-2 and ROW-3, quantities "1.000000000", "5.000000000" and "1.000000000".
+      evidence: I1 and D2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Old assets cannot be brought into the register in bulk.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: Importing the same file again changes nothing.
+    verification:
+      method: api_response
+      detail: Step 4 answers 200 with three results "unchanged"; D3 has the same lines as D2 and the same version.
+      evidence: I2, D2 and D3 side by side.
+    on_fail:
+      severity: MAJOR
+      business_impact: A repeated upload duplicates or rewrites lines.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A changed row updates its own line and keeps its position.
+    verification:
+      method: api_response
+      detail: Step 5 answers results "unchanged", "updated", "unchanged"; in D4 the line ROW-2 has quantity "8.000000000" and the same line number and line id as in D3; the line count is unchanged.
+      evidence: I3, D3 and D4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A corrected file cannot fix a line, or it moves or duplicates lines.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A line that breaks an opening rule is imported and reported by the check, not refused by the import.
+    verification:
+      method: api_response
+      detail: Step 6 answers "created" for ROW-4. C1 answers 200 with ok false and the reason "duplicate_asset" on the later line of CARD-1.
+      evidence: I4 and C1.
+    on_fail:
+      severity: MINOR
+      business_impact: The user cannot see and fix the problem on the screen, or the import silently drops the row.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: The import only writes a draft; nothing is issued or posted.
+    verification:
+      method: api_response
+      detail: D5 has state "draft", no number and no issued time; the register balances B1 show no quantity for CARD-1, CARD-2 and CARD-3 from this document.
+      evidence: D5 and B1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Unchecked lines would reach the asset register.
+      suggested_action: route_to_elixir_dev

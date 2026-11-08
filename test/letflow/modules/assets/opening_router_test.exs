@@ -120,6 +120,47 @@ defmodule Letflow.Modules.Assets.OpeningRouterTest do
     end
   end
 
+  describe "G6 the external reference pair" do
+    test "H-1 two headers with the same pair: 409 external_ref_taken", ctx do
+      pair = %{"external_ref_system" => "erp", "external_ref_id" => "H-1"}
+      save!(ctx, pair)
+
+      json =
+        D.request(:post, "/documents", ctx.tok_a, D.opening_body(ctx.ma, pair)) |> D.status!(409)
+
+      assert json["reason"] == "external_ref_taken"
+    end
+
+    test "H-2 a replace keeping its own pair is allowed; taking another's is 409", ctx do
+      pair = %{"external_ref_system" => "erp", "external_ref_id" => "H-2"}
+      doc = save!(ctx, pair)
+      other = save!(ctx, %{"external_ref_system" => "erp", "external_ref_id" => "H-2b"})
+
+      again = D.request(:put, "/documents/#{doc["id"]}", ctx.tok_a, D.opening_body(ctx.ma, pair))
+      assert D.status!(again, 200)["external_ref_id"] == "H-2"
+
+      json =
+        D.request(:put, "/documents/#{other["id"]}", ctx.tok_a, D.opening_body(ctx.ma, pair))
+        |> D.status!(409)
+
+      assert json["reason"] == "external_ref_taken"
+    end
+
+    test "H-3 save returns the pair of the header and of a line", ctx do
+      line =
+        D.opening_line(ctx.ma, ctx.ma.fixed, %{
+          "external_ref_system" => "erp",
+          "external_ref_id" => "L-1"
+        })
+
+      pair = %{"external_ref_system" => "erp", "external_ref_id" => "H-3", "lines" => [line]}
+      doc = save!(ctx, pair)
+      assert doc["external_ref_system"] == "erp" and doc["external_ref_id"] == "H-3"
+      assert [%{"external_ref_system" => "erp", "external_ref_id" => "L-1"}] = doc["lines"]
+      assert D.get!(ctx, doc["id"]) == doc
+    end
+  end
+
   describe "C1 and C3 the check route" do
     test "C1 a clean draft is ok with empty reasons and nothing is written", ctx do
       doc = save!(ctx)

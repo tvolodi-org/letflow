@@ -29,12 +29,14 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
 
   @max_lines 100
   @note_max 500
-  @line_optional_empty ~w(catalog_lot_id actual_user_id location_id)
+  @line_optional_empty ~w(catalog_lot_id actual_user_id location_id external_ref_system external_ref_id)
   @target_kinds ~w(low_value fixed)
   @inventory_number_max 64
   @asset_name_max 200
   @quantity ~r/\A(0|[1-9][0-9]{0,14})(\.[0-9]{1,9})?\z/
-  @optional_empty ~w(location_id actual_user_id from_location_id to_location_id from_actual_user_id to_actual_user_id)
+  @ref_keys ~w(external_ref_system external_ref_id)
+  @ref_max 128
+  @optional_empty ~w(external_ref_system external_ref_id location_id actual_user_id from_location_id to_location_id from_actual_user_id to_actual_user_id)
   @reason_text_max 500
   @reason_codes ~w(disposed lost broken expired other)
 
@@ -56,9 +58,11 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
          :ok <- required(body, spec),
          {:ok, header} <- header(body, spec),
          {:ok, header} <- reason(header, spec),
+         :ok <- ref_pair(header, %{"field" => "external_ref_id"}),
          {:ok, header} <- with_event_time(header, body, spec),
          {:ok, raw_lines} <- raw_lines(body["lines"]),
-         {:ok, lines} <- lines(raw_lines, spec, header) do
+         {:ok, lines} <- lines(raw_lines, spec, header),
+         :ok <- distinct_refs(lines) do
       {:ok, %{kind: kind, header: header, lines: lines}}
     end
   end
@@ -146,6 +150,13 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
       else: {:halt, refuse("field_invalid", %{"field" => "note"})}
   end
 
+  defp header_value(key, value, acc, _spec) when key in @ref_keys do
+    case ref_text(value) do
+      {:ok, text} -> {:cont, {:ok, Map.put(acc, key, text)}}
+      :error -> {:halt, refuse("field_invalid", %{"field" => key})}
+    end
+  end
+
   defp header_value(key, value, acc, spec) do
     with true <- key in spec.id_keys,
          {:ok, id} <- uuid(value) do
@@ -228,7 +239,8 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
   defp line(line, no, spec, header) when is_map(line) and not is_struct(line) do
     with :ok <- line_allowed(line, no, spec),
          :ok <- line_required(line, no, spec),
-         {:ok, values} <- line_values(line, no, spec) do
+         {:ok, values} <- line_values(line, no, spec),
+         :ok <- ref_pair(values, %{"field" => "external_ref_id", "line_no" => no}) do
       {:ok, values |> default_asset_unit(header) |> Map.put("line_no", no)}
     end
   end
@@ -275,6 +287,7 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
       else: :error
   end
 
+  defp line_value(key, value) when key in @ref_keys, do: ref_text(value)
   defp line_value("target_kind", value) when value in @target_kinds, do: {:ok, value}
   defp line_value("target_kind", _value), do: :error
   defp line_value("inventory_number", value), do: text(value, @inventory_number_max)
@@ -295,6 +308,45 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
   end
 
   defp text(_value, _max), do: :error
+
+  # The external reference pair (opening header and line only; other kinds refuse the keys as not
+  # allowed): 1..128 characters, NFC, no control character.
+  defp ref_text(value) when is_binary(value) do
+    text = String.valid?(value) && :unicode.characters_to_nfc_binary(value)
+
+    if is_binary(text) and String.length(text) in 1..@ref_max and
+         not String.match?(text, ~r/[\x00-\x1f\x7f]/),
+       do: {:ok, text},
+       else: :error
+  end
+
+  defp ref_text(_other), do: :error
+
+  # Exactly both or neither of the pair.
+  defp ref_pair(map, extras) do
+    if Map.has_key?(map, "external_ref_system") == Map.has_key?(map, "external_ref_id"),
+      do: :ok,
+      else: refuse("external_ref_pair", extras)
+  end
+
+  # Two lines of one body must not carry the same pair (the import finds a line by its pair).
+  defp distinct_refs(lines) do
+    lines
+    |> Enum.filter(&Map.has_key?(&1, "external_ref_id"))
+    |> Enum.reduce_while(MapSet.new(), fn line, seen ->
+      pair = {line["external_ref_system"], line["external_ref_id"]}
+
+      if MapSet.member?(seen, pair),
+        do:
+          {:halt,
+           refuse("field_invalid", %{"field" => "external_ref_id", "line_no" => line["line_no"]})},
+        else: {:cont, MapSet.put(seen, pair)}
+    end)
+    |> case do
+      {:error, _} = error -> error
+      _seen -> :ok
+    end
+  end
 
   # A change of kind line without an asset org unit takes the header's.
   defp default_asset_unit(%{"inventory_number" => _} = values, header),

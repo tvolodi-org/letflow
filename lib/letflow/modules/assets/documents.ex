@@ -99,8 +99,12 @@ defmodule Letflow.Modules.Assets.Documents do
         }
 
         case Documents.create_draft(prefix, draft_attrs, actor) do
-          {:ok, %{document: document}} -> write_new(prefix, spec, document.id, doc, actor)
-          {:error, reason} -> Repo.rollback(draft_error(reason))
+          {:ok, %{document: document}} ->
+            ref_free!(prefix, spec, document.id, doc)
+            write_new(prefix, spec, document.id, doc, actor)
+
+          {:error, reason} ->
+            Repo.rollback(draft_error(reason))
         end
       end)
     end
@@ -120,6 +124,7 @@ defmodule Letflow.Modules.Assets.Documents do
         if locked.state != "draft", do: Repo.rollback(:document_not_draft)
 
         spec = Kinds.get(doc.kind)
+        ref_free!(prefix, spec, id, doc)
         write_header!(prefix, spec, :update, locked.header_id, id, doc, actor)
         write_lines!(prefix, spec, locked, doc, actor)
 
@@ -132,6 +137,152 @@ defmodule Letflow.Modules.Assets.Documents do
       end)
     end
   end
+
+  @opening_line_keys ~w(asset_id location_id material_responsible_id actual_user_id quantity external_ref_system external_ref_id)
+
+  @doc """
+  G6 (decision 0083 D7): creates or replaces ONE line of the draft opening document `document_id` (the
+  xlsx import path, `Letflow.Modules.Assets.Documents.OpeningImport`). `line` is a parsed line (string
+  keys, `Shape.parse/2` output; its `line_no` is ignored). The line is found by its
+  `external_ref_system` / `external_ref_id` pair within the document: none is a new line with the next
+  `line_no`, one whose stored values equal `line` writes nothing. Under the document row lock, with the
+  draft re-read; the versioned draft content is rebuilt from the header and all lines (the content a
+  PUT would store). Returns `{:ok, {line_id, :created | :updated | :unchanged}}` or
+  `{:error, :not_found | :document_not_draft | :lines_count | :busy | :internal}`.
+
+  Transaction safety: `ManagedImport.dry_run/3` runs a whole file in ONE outer transaction, and a
+  `Repo.rollback/1` of a nested transaction poisons it (the core then replays the file, at most 20
+  times). So every EXPECTED refusal (unknown or non-opening document, not a draft, the 101st line, a
+  merged body the shape check refuses) is decided before the first write and returned as a plain value
+  out of the transaction function: no rollback, no replay, the outer transaction stays usable. Only an
+  unexpected failure after a write rolls back.
+  """
+  @spec upsert_opening_line(String.t(), String.t(), map(), String.t()) ::
+          {:ok, {String.t(), :created | :updated | :unchanged}} | {:error, term()}
+  def upsert_opening_line(prefix, document_id, line, actor) when is_binary(prefix) do
+    result = tx(fn -> upsert_opening_locked(prefix, document_id, line, actor) end)
+
+    case result do
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:ok, {:ok, _} = ok} -> ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp upsert_opening_locked(prefix, document_id, line, actor) do
+    with {:ok, id} <- cast(document_id),
+         %Document{} <-
+           Repo.one(from(d in Document, where: d.id == ^id, lock: "FOR UPDATE"), prefix: prefix),
+         {:ok, locked} <- fetch(prefix, id),
+         :ok <- opening?(locked) |> opening_not_found(),
+         :ok <- draft?(locked) do
+      spec = Kinds.get("opening")
+      pair = {line["external_ref_system"], line["external_ref_id"]}
+      existing = Enum.find(locked.lines, &({&1.external_ref_system, &1.external_ref_id} == pair))
+      upsert_opening_plan(prefix, spec, locked, existing, line, actor)
+    else
+      nil -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp opening_not_found(:ok), do: :ok
+  defp opening_not_found({:error, _}), do: {:error, :not_found}
+
+  defp upsert_opening_plan(prefix, spec, locked, nil, line, actor) do
+    if length(locked.lines) >= Shape.max_lines() do
+      {:error, :lines_count}
+    else
+      new = Map.put(line, "line_no", length(locked.lines) + 1)
+
+      with {:ok, doc} <- opening_content(locked, Enum.map(locked.lines, &stored_line/1) ++ [new]) do
+        line_id = create_line!(prefix, spec, locked.header_id, locked.org_unit_id, new, actor)
+        refresh_opening_content!(prefix, locked.id, doc, actor)
+        {:ok, {line_id, :created}}
+      end
+    end
+  end
+
+  defp upsert_opening_plan(prefix, spec, locked, old, line, actor) do
+    new = Map.put(line, "line_no", old.line_no)
+
+    if stored_line(old) == new do
+      {:ok, {old.line_id, :unchanged}}
+    else
+      lines =
+        Enum.map(locked.lines, fn l ->
+          if l.line_id == old.line_id, do: new, else: stored_line(l)
+        end)
+
+      with {:ok, doc} <- opening_content(locked, lines) do
+        update_line!(prefix, spec, old.line_id, locked.header_id, locked.org_unit_id, new, actor)
+        refresh_opening_content!(prefix, locked.id, doc, actor)
+        {:ok, {old.line_id, :updated}}
+      end
+    end
+  end
+
+  # The stored line as the shape check returns it (string keys, absent optional keys dropped).
+  defp stored_line(view) do
+    base = Map.new(@opening_line_keys, fn key -> {key, Map.get(view, Kinds.line_atom(key))} end)
+    base |> Map.put("line_no", view.line_no) |> Map.reject(fn {_k, v} -> is_nil(v) end)
+  end
+
+  # The document a PUT of header + `lines` would store, or a plain refusal (nothing written yet). A
+  # refusal here comes from the stored lines, not from the row: it is logged and answered `:internal`.
+  defp opening_content(locked, lines) do
+    body =
+      Kinds.get("opening")
+      |> Kinds.header_of(locked)
+      |> Map.reject(fn {_k, v} -> is_nil(v) end)
+      |> Map.merge(%{"kind" => "opening", "lines" => Enum.map(lines, &Map.delete(&1, "line_no"))})
+
+    case Shape.parse(body, {:replace, "opening"}) do
+      {:ok, doc} -> {:ok, doc}
+      {:error, reason} -> {:error, log_internal(reason)}
+    end
+  end
+
+  defp refresh_opening_content!(prefix, id, doc, actor) do
+    case Documents.edit_draft(prefix, id, content(doc), actor) do
+      {:ok, _version} -> :ok
+      {:error, reason} -> Repo.rollback(draft_error(reason))
+    end
+  end
+
+  # REQ-725 pattern (stock): the external reference pair of an opening header may be held by one live
+  # opening header. Two saves of the same pair serialise on a transaction-scoped advisory lock (a
+  # bound parameter, the tenant prefix in the text), then the live headers are searched. A table
+  # constraint cannot do this: soft-deleted rows would keep the pair taken.
+  defp ref_free!(prefix, %{kind: "opening"} = kind, document_id, doc) do
+    with system when is_binary(system) <- doc.header["external_ref_system"],
+         ref when is_binary(ref) <- doc.header["external_ref_id"] do
+      lock_text = "assets_opening_ref:" <> prefix <> ":" <> system <> ":" <> ref
+
+      case Repo.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lock_text]) do
+        {:ok, _result} -> :ok
+        {:error, reason} -> Repo.rollback(log_internal(reason))
+      end
+
+      taken? =
+        Repo.exists?(
+          from(r in Latest,
+            where:
+              r.entity_type == ^kind.type_key and not r.deleted and
+                fragment("?->>'external_ref_system' = ?", r.field_values, ^system) and
+                fragment("?->>'external_ref_id' = ?", r.field_values, ^ref) and
+                fragment("?->>'document_id' <> ?", r.field_values, ^document_id)
+          ),
+          prefix: prefix
+        )
+
+      if taken?, do: Repo.rollback(:external_ref_taken), else: :ok
+    else
+      _no_pair -> :ok
+    end
+  end
+
+  defp ref_free!(_prefix, _kind, _document_id, _doc), do: :ok
 
   @doc "Discards draft `id`: the versioned draft is discarded, the header and lines are soft-deleted."
   @spec discard(String.t(), term(), String.t()) :: :ok | {:error, term()}
