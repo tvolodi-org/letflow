@@ -65,6 +65,7 @@ case "$1" in
     here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
     SMOKE_REALM="${SMOKE_REALM:-demo-platform}" \
     SMOKE_USER="${SMOKE_USER:-demo-platform-admin}" \
+    SMOKE_TENANT_SLUG="${SMOKE_TENANT_SLUG:-platform}" \
     SMOKE_READ_PATH=/api/v1/me/access \
     EXPECT_JQ='.platform_tenant == true and ((.roles | index("PLATFORM_ADMIN")) != null)' \
       bash "$here/../demo_smoke_read.sh"
