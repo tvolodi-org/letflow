@@ -5,7 +5,7 @@ import { ASSETS_POST, ASSETS_REVERSE } from '../assetsPermissions'
 import { ASSETS_TIME_ZONE } from '../register/registerModel'
 import type { AssetDocument } from './assetDocuments.api'
 
-export const DOC_KINDS = ['commission', 'change', 'handover', 'writeoff', 'kind_change'] as const
+export const DOC_KINDS = ['commission', 'change', 'handover', 'writeoff', 'kind_change', 'opening'] as const
 export type DocKind = (typeof DOC_KINDS)[number]
 export const DOC_STATES = ['draft', 'issued', 'posted', 'reversed', 'cancelled'] as const
 /** `Posting.@reasons` (lib/letflow/modules/assets/documents/posting.ex). */
@@ -114,6 +114,7 @@ export interface SideView {
  *  commission and writeoff have one side (the same on both). */
 export function sidesOf(doc: AssetDocument): { from: SideView; to: SideView } {
   switch (doc.kind) {
+    case 'opening':
     case 'kind_change': {
       // No sides: the stock side and the asset side are per line (never read for this kind).
       const none = { orgUnitId: doc.org_unit_id, locationId: null, responsibleId: null, userId: null }
@@ -146,4 +147,5 @@ export const HEADER_KEYS: Record<DocKind, readonly string[]> = {
   handover: ['org_unit_id', 'from_location_id', 'from_material_responsible_id', 'from_actual_user_id', 'to_org_unit_id', 'to_location_id', 'to_material_responsible_id', 'to_actual_user_id', 'event_time', 'note'],
   writeoff: ['org_unit_id', 'location_id', 'material_responsible_id', 'actual_user_id', 'reason_code', 'reason_text', 'event_time', 'note'],
   kind_change: ['org_unit_id', 'event_time', 'reason_text', 'note'],
+  opening: ['org_unit_id', 'note', 'external_ref_system', 'external_ref_id'],
 }
