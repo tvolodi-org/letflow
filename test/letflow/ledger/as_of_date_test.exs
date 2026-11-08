@@ -27,10 +27,14 @@ defmodule Letflow.Ledger.AsOfDateTest do
 
   # The tenant's "today" in the zone the test sets for it (`offset` seconds east of UTC), so the
   # expectation holds at every time of day and never names a date that is in the future there.
-  defp day_in(offset, days_ago),
-    do: DateTime.utc_now() |> DateTime.add(offset) |> DateTime.to_date() |> Date.add(-days_ago)
+  defp day_in(offset, days_ago, now \\ nil),
+    do:
+      (now || DateTime.utc_now())
+      |> DateTime.add(offset)
+      |> DateTime.to_date()
+      |> Date.add(-days_ago)
 
-  defp tokyo_day(days_ago), do: day_in(@jst, days_ago)
+  defp jst_day(days_ago), do: day_in(@jst, days_ago)
 
   # 00:00 of the day after `date` in Tokyo, as a UTC instant
   defp boundary(date) do
@@ -75,14 +79,14 @@ defmodule Letflow.Ledger.AsOfDateTest do
   } do
     :ok = Fx.put_tenant_settings!(fx, %{"timezone" => "Mars/Olympus"})
 
-    {result, sql} = queries(fn -> Ledger.balances_on_date(a, tokyo_day(1), :latest, %{}, %{}) end)
+    {result, sql} = queries(fn -> Ledger.balances_on_date(a, jst_day(1), :latest, %{}, %{}) end)
     assert result == {:error, :invalid_timezone}
     refute Enum.any?(sql, &(&1 =~ "ledger_"))
 
     nobody = %{a | tenant_id: nil}
 
     assert {:error, :invalid_timezone} =
-             Ledger.balances_on_date(nobody, tokyo_day(1), :latest, %{}, %{})
+             Ledger.balances_on_date(nobody, jst_day(1), :latest, %{}, %{})
   end
 
   test "T-AD-3 authorize/3 carries the tenant id of the conn", %{fx: fx, auth: a} do
@@ -90,7 +94,7 @@ defmodule Letflow.Ledger.AsOfDateTest do
   end
 
   test "T-AD-4 the day boundary: b minus 1us is in the day, b is not", %{schema: s, auth: a} do
-    d = tokyo_day(3)
+    d = jst_day(3)
     b = boundary(d)
     post_at!(s, "receipt", ["in", "l"], 3, DateTime.add(b, -1, :microsecond))
     post_at!(s, "receipt", ["edge", "l"], 5, b)
@@ -111,7 +115,7 @@ defmodule Letflow.Ledger.AsOfDateTest do
     auth: a
   } do
     post_at!(s, "receipt", ["k", "l"], 1, DateTime.add(DateTime.utc_now(), -3600))
-    assert {:ok, r} = Ledger.balances_on_date(a, tokyo_day(0), :latest, %{}, %{})
+    assert {:ok, r} = Ledger.balances_on_date(a, jst_day(0), :latest, %{}, %{})
     assert r |> Map.keys() |> Enum.sort() == @report_keys
     assert r.timezone == "Asia/Tokyo"
 
@@ -122,7 +126,7 @@ defmodule Letflow.Ledger.AsOfDateTest do
   end
 
   test "T-AD-6 receipt then reversal: 10, 10, 0 and the zero row stays", %{schema: s, auth: a} do
-    d1 = tokyo_day(5)
+    d1 = jst_day(5)
     at = fn d -> DateTime.add(boundary(d), -3600) end
     post_at!(s, "receipt", ["k", "l"], 10, at.(d1))
     post_at!(s, "issue", ["k", "l"], -10, at.(Date.add(d1, 2)))
@@ -134,7 +138,7 @@ defmodule Letflow.Ledger.AsOfDateTest do
   end
 
   test "T-AD-7 the same (D, N) reads the same after a later posting", %{schema: s, auth: a} do
-    d = tokyo_day(2)
+    d = jst_day(2)
     at = DateTime.add(boundary(d), -7200)
     for _ <- 1..3, do: post_at!(s, "receipt", ["k", "l"], 1, at)
 
@@ -161,7 +165,7 @@ defmodule Letflow.Ledger.AsOfDateTest do
     post_at!(s, "receipt", ["k", "l"], 2, DateTime.add(DateTime.utc_now(), -60))
 
     {{:ok, r}, sql} =
-      queries(fn -> Ledger.balances_on_date(a, tokyo_day(0), :latest, %{}, %{}) end)
+      queries(fn -> Ledger.balances_on_date(a, jst_day(0), :latest, %{}, %{}) end)
 
     {:ok, current} = Ledger.balances(a, {:posting_seq, :latest}, %{}, %{})
     assert r.rows == current.rows
@@ -177,7 +181,7 @@ defmodule Letflow.Ledger.AsOfDateTest do
 
   test "T2 a date after the tenant today is refused before any ledger read", %{auth: a} do
     {result, sql} =
-      queries(fn -> Ledger.balances_on_date(a, tokyo_day(-1), :latest, %{}, %{}) end)
+      queries(fn -> Ledger.balances_on_date(a, jst_day(-1), :latest, %{}, %{}) end)
 
     assert result == {:error, :as_of_date_in_future}
     refute Enum.any?(sql, &(&1 =~ "ledger_"))
@@ -192,7 +196,7 @@ defmodule Letflow.Ledger.AsOfDateTest do
     post_at!(other.schema_name, "receipt", ["same", "l"], 7, at)
     post_at!(other.schema_name, "receipt", ["only_b", "l"], 1, at)
 
-    day = tokyo_day(0)
+    day = jst_day(0)
     {:ok, ra} = Ledger.balances_on_date(a, day, :latest, %{}, %{})
     {:ok, rb} = Ledger.balances_on_date(b, day, :latest, %{}, %{})
     assert qty(ra, "same") == [5] and qty(ra, "only_b") == []
@@ -220,5 +224,15 @@ defmodule Letflow.Ledger.AsOfDateTest do
     assert doc =~ "00:00 of the day after"
     assert doc =~ "one"
     assert doc =~ "microsecond"
+  end
+
+  test "T-AD-11 day_in/3 follows the tenant zone at every hour of the day" do
+    for hour <- 0..23 do
+      now = DateTime.new!(~D[2026-11-09], Time.new!(hour, 30, 0), "Etc/UTC")
+      almaty = day_in(@almaty, 0, now)
+      assert almaty == now |> DateTime.add(5 * 3600) |> DateTime.to_date()
+      # the old helper (Tokyo date for an Almaty tenant) is ahead of Almaty from 15:00Z to 19:00Z
+      assert Date.compare(day_in(@jst, 0, now), almaty) == :gt == hour in 15..18
+    end
   end
 end
