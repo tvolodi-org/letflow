@@ -53491,7 +53491,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-782 -- the engine registers the issue; task T-1492 delivers it with Refs on GH #4037 (parts 2 and 3 remain)
+    gh: 4037
     # Source: task T-1492, decision docs/migration/decisions/0083-asset-opening-document.md (proposed), docs/uat/ba-decisions/T-1486.md gap G5.
     description: >
       Part 1 of three of gap G5. Part 2 (later task): the cause opening in the ledger registration and declare/2, the process
