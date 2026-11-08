@@ -5,7 +5,7 @@
  *  button per kind (the draft form, T-1469). */
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
-import { ASSETS_POST } from '../assetsPermissions'
+import { ASSETS_CARD_WRITE, ASSETS_POST } from '../assetsPermissions'
 import { assetsQueryKeys } from '../assetsQueryKeys'
 import { useNames } from '../assetsNames'
 import { usePickerOptions } from '../assetsPickers'
@@ -115,7 +115,14 @@ export function DocumentList({ selectedId }: { selectedId: string | undefined })
         <div className="lf-doc__empty">
           <div className="lf-empty">
             <p className="lf-empty__title">{t('assets.doc.empty')}</p>
-            <p className="lf-empty__text">{t('assets.doc.emptyText')}</p>
+            {Object.keys(params).length === 0 ? (
+              <>
+                <p className="lf-empty__text" data-testid="empty-first">{t('assets.doc.emptyFirst')}</p>
+                {can(ASSETS_CARD_WRITE) && <Link to="/admin/assets/cards">{t('assets.doc.noCards.link')}</Link>}
+              </>
+            ) : (
+              <p className="lf-empty__text">{t('assets.doc.emptyText')}</p>
+            )}
           </div>
         </div>
       ) : (

@@ -1012,6 +1012,29 @@ defmodule Letflow.Routers.InstancesTest do
       assert Map.has_key?(body, "next_cursor")
     end
 
+    test "T-1495 B1: list item carries definition_id only (no name/version); the id resolves them" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t1495-b1")
+      {instance_id, definition} = start_instance!(tenant.schema_name)
+
+      conn = build_conn("GET", "/", tenant, %{roles: ["PROCESS_OPERATOR"]}) |> dispatch()
+
+      assert conn.status == 200
+
+      item =
+        Enum.find(Jason.decode!(conn.resp_body)["items"], &(&1["instance_id"] == instance_id))
+
+      assert item["definition_id"] == definition.id
+      refute Map.has_key?(item, "definition_name")
+      refute Map.has_key?(item, "definition_version")
+
+      # The web resolves name/version from this id via the definition detail read.
+      assert {:ok, resolved} =
+               Definitions.get_by_id(item["definition_id"], prefix: tenant.schema_name)
+
+      assert resolved.name == definition.name
+      assert resolved.version == definition.version
+    end
+
     test "GET /:id/history returns the INSTANCE_STARTED event" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req080-ac1c")
       {instance_id, _def} = start_instance!(tenant.schema_name)
