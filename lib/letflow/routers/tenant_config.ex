@@ -114,10 +114,13 @@ defmodule Letflow.Routers.TenantConfig do
        has a non-nil `idp_realm_id`, that wins and the host branch is
        **skipped**.
     2. Otherwise `?host=<hostname>` — see below; today this always falls
-       through to the default realm, with that realm's own tenant branding.
-    3. Otherwise, or on any miss, or on **any** error — the default realm
-       (branding of the default realm's tenant when it can be read, else the
-       platform default).
+       through to the default tenant, with that tenant's own branding.
+    3. Otherwise, or on any miss, or on **any** error — the default tenant: the
+       tenant whose slug is in the runtime env var `LETFLOW_DEFAULT_TENANT_SLUG`
+       when it resolves to an active tenant with a realm (T-1481; set to
+       `showroom` on the demo), else the constant realm `bpm-default`
+       (branding of that realm's tenant when it can be read, else the platform
+       default). The web's order is `?realm=`, remembered slug, then this.
 
   ## `?host=` is accepted, and today always falls through to the default
 
@@ -318,27 +321,47 @@ defmodule Letflow.Routers.TenantConfig do
   # branding helper never performs a second, independent DB lookup for the
   # same slug in the same request.
   defp resolve_realm(slug, host) when is_binary(slug) do
-    case Identity.safe_get_tenant_by_slug(slug, "tenant-config") do
-      {:ok, %Tenant{idp_realm_id: realm_id} = tenant}
-      when is_binary(realm_id) and realm_id != "" and tenant.status != :inactive ->
-        {realm_id, tenant, tenant_type_value(tenant), slug}
+    case servable_tenant(slug) do
+      {:ok, tenant} ->
+        {tenant.idp_realm_id, tenant, tenant_type_value(tenant), slug}
 
-      _miss_or_nil_realm_or_error ->
+      :error ->
         resolve_realm(nil, host)
     end
   end
 
   # Steps 2 and 3: ?host=<hostname>, or neither parameter. Letflow has no
-  # host->tenant binding, so both name the default realm -- and answer with the
-  # branding of the tenant that owns that realm (GH #2936), not the platform
-  # default, so a saved brand colour survives a normal page load. Both routes
-  # converge on default_realm_tenant/0, so they stay provably identical. See the
-  # moduledoc; do NOT add a hostname table here.
+  # host->tenant binding, so both name the default tenant: the one named by the
+  # runtime env var LETFLOW_DEFAULT_TENANT_SLUG when it resolves to a servable
+  # tenant (T-1481, demo sets it to showroom), else the constant default realm.
+  # Either way the answer carries the branding of the tenant that owns that realm
+  # (GH #2936), so a saved brand colour survives a normal page load. Both routes
+  # converge here, so they stay provably identical. See the moduledoc; do NOT add
+  # a hostname table here.
   #
   # tenant_type is nil here even though the default tenant is non-nil: only the
   # slug-resolved branch above may disclose a type (REQ-472, INV-5).
-  defp resolve_realm(nil, _host_or_absent),
-    do: {@default_realm, default_realm_tenant(), nil, @default_realm}
+  defp resolve_realm(nil, _host_or_absent) do
+    with slug when is_binary(slug) <- non_empty(System.get_env("LETFLOW_DEFAULT_TENANT_SLUG")),
+         {:ok, tenant} <- servable_tenant(slug) do
+      {tenant.idp_realm_id, tenant, nil, slug}
+    else
+      _unset_or_unservable -> {@default_realm, default_realm_tenant(), nil, @default_realm}
+    end
+  end
+
+  # A tenant that may name its realm: found by slug, non-empty idp_realm_id, not
+  # inactive (the same guard the logo route applies). Never raises.
+  defp servable_tenant(slug) do
+    case Identity.safe_get_tenant_by_slug(slug, "tenant-config") do
+      {:ok, %Tenant{idp_realm_id: realm_id} = tenant}
+      when is_binary(realm_id) and realm_id != "" and tenant.status != :inactive ->
+        {:ok, tenant}
+
+      _miss_or_nil_realm_or_error ->
+        :error
+    end
+  end
 
   # Explicit named-key read, closed to the two known values (INV-2).
   defp tenant_type_value(%Tenant{tenant_type: type}) when type in ["test", "production"],
