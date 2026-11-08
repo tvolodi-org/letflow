@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.9.0"
+    assert m.version == "0.10.0"
     assert m.depends_on == ["catalog_items", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 
@@ -30,7 +30,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              :AssetsReconcile
            ]
 
-    assert m.role_grants == %{}
+    assert m.role_grants == %{STOREKEEPER: [:AssetsRead, :AssetsPost]}
 
     assert m.route_policies == [
              {"POST", "/cards", :AssetsCardWrite},

@@ -18,6 +18,9 @@ describe('role labels (T-1317, T-14)', () => {
     expect(roleLabel('STOREKEEPER', 'en')).toBe('Storekeeper')
     expect(roleLabel('STOREKEEPER', 'ru')).toBe('Кладовщик')
     expect(roleLabel('STOREKEEPER', 'kk')).toBe('Қоймашы')
+    expect(roleDescription('STOREKEEPER', 'en')).toContain('assets')
+    expect(roleDescription('STOREKEEPER', 'ru')).toContain('активов')
+    expect(roleDescription('STOREKEEPER', 'kk')).toContain('активтерді')
     expect(roleLabel('warehouse-approvers', 'ru')).toBe('warehouse-approvers')
     expect(roleDescription('warehouse-approvers', 'ru')).toBe('')
   })
@@ -25,6 +28,9 @@ describe('role labels (T-1317, T-14)', () => {
   it('the storekeeper fixture holds stock permissions and no administration', () => {
     const permissions = ACCESS_FIXTURES.storekeeper.permissions as readonly string[]
     expect(permissions).toContain('StockPost')
+    expect(permissions).toContain('AssetsRead')
+    expect(permissions).toContain('AssetsPost')
+    expect(permissions).not.toContain('AssetsReverse')
     expect(permissions).not.toContain('UsersGroupsRolesManage')
     expect(permissions).not.toContain('EntitiesRecordsWrite')
   })
