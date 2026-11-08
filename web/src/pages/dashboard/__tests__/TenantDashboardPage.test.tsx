@@ -6,6 +6,7 @@ import { cleanup, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithAccess } from '@/auth/access/testing'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import TenantDashboardPage from '../TenantDashboardPage'
 expect.extend(jestDomMatchers)
 
@@ -31,6 +32,7 @@ function renderDash(fixture: 'storekeeper' | 'tenantAdmin') {
 
 afterEach(() => {
   cleanup()
+  useUiLocaleStore.getState().setLocaleTransient(null)
   vi.clearAllMocks()
 })
 
@@ -52,5 +54,21 @@ describe('T-1435 dashboard', () => {
     renderDash('tenantAdmin')
     expect(await screen.findByText('Onboarding')).toBeInTheDocument()
     expect(screen.getByTestId('tile-definitions')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['en', 'Change of asset kind', 'Asset write-off'],
+    ['ru', 'Смена вида актива', 'Списание актива'],
+    ['kk', 'Актив түрін ауыстыру', 'Активті есептен шығару'],
+  ] as const)('T2/T3 %s: friendly names, raw key only in title, neutral welcome', async (loc, a, b) => {
+    useUiLocaleStore.getState().setLocaleTransient(loc)
+    m.defs.mockResolvedValue({ items: [{ id: 'd1', name: 'assets_kind_change' }, { id: 'd2', name: 'assets_writeoff' }] })
+    m.inst.mockResolvedValue({ items: [] })
+    m.tasks.mockResolvedValue({ items: [] })
+    const { container } = renderDash('tenantAdmin')
+    expect(await screen.findByText(a)).toHaveAttribute('title', 'assets_kind_change')
+    expect(screen.getByText(b)).toBeInTheDocument()
+    expect(screen.queryByText('assets_kind_change')).toBeNull()
+    expect(container.textContent).not.toMatch(/BPM|workspace/i)
   })
 })

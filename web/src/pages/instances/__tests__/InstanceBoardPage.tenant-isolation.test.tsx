@@ -31,6 +31,7 @@ vi.mock('@/hooks/useInstances', () => ({
 vi.mock('@/hooks/useDefinitions', () => ({
   useDefinitions: vi.fn(() => ({ data: undefined })),
   useDefinition: vi.fn(() => ({ data: undefined, isLoading: false })),
+  useDefinitionsByIds: vi.fn(() => ({ definitions: new Map([['def-111', { name: 'My Flow', version: '1.0.0' }]]), pending: new Set() })),
 }))
 
 vi.mock('@/auth/AuthContext', () => ({
@@ -102,8 +103,6 @@ describe('ENV-04 AC-5 — InstanceBoardPage tenant isolation', () => {
     const INSTANCE = {
       instance_id: 'aa000000-0000-0000-0000-000000000001',
       definition_id: 'def-111',
-      definition_name: 'My Flow',
-      definition_version: '1.0.0',
       status: 'ACTIVE' as const,
       current_nodes: [] as string[],
       variables: {},

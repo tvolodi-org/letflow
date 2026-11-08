@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useInstances, useStartInstance } from '@/hooks/useInstances'
-import { useDefinitions, useDefinition } from '@/hooks/useDefinitions'
+import { useDefinitions, useDefinition, useDefinitionsByIds } from '@/hooks/useDefinitions'
 import { P, useAccess } from '@/auth/access'
 import { usePolling } from '@/hooks/usePolling'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -10,6 +10,7 @@ import type { ProcessInstance, InstanceStatus } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { Button } from '@/components/ui/Button'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import { classifyError, type RendererState } from '@/utils/classifyError'
@@ -136,6 +137,7 @@ export default function InstanceBoardPage() {
     page_size: pageSize,
   })
   const polling = usePolling({ queryKeyPrefix: tenantKeys.instances.all() })
+  const { definitions: defsById, pending: pendingDefs } = useDefinitionsByIds((instancesQuery.data?.items ?? []).map((i) => i.definition_id))
 
   const startInstance = useStartInstance()
 
@@ -291,7 +293,15 @@ export default function InstanceBoardPage() {
     {
       id: 'definition',
       header: 'Definition',
-      accessor: (inst) => `${inst.definition_name} v${inst.definition_version}`,
+      accessor: (inst) => {
+        const def = defsById.get(inst.definition_id)
+        if (def) return `${def.name} v${def.version}`
+        // Still resolving: a placeholder, not the em dash (which means "could not be loaded").
+        if (pendingDefs.has(inst.definition_id)) {
+          return <Skeleton width="8rem" />
+        }
+        return '—'
+      },
     },
     {
       id: 'status',
@@ -333,7 +343,7 @@ export default function InstanceBoardPage() {
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '.6rem', marginBottom: '.8rem' }}>
         <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-          Last refreshed: {toRefreshLabel(polling.lastRefreshedAt)}
+          Last refreshed: {toRefreshLabel(polling.lastRefreshedAt ?? (instancesQuery.dataUpdatedAt ? new Date(instancesQuery.dataUpdatedAt).toISOString() : null))}
         </span>
         <Button
           variant="secondary"
