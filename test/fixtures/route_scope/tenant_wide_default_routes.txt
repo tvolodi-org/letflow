@@ -136,6 +136,7 @@ POST /modules/codes/:id/assign CodesWrite
 POST /modules/codes/:id/release CodesWrite
 POST /modules/codes/:id/retire CodesWrite
 POST /modules/codes/:id/value CodesWrite
+POST /modules/codes/labels CodesRead
 POST /modules/codes/receive CodesWrite
 POST /modules/codes/resolve CodesRead
 POST /modules/exam/authoring/:entity_type ExamAuthoringWrite
