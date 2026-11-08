@@ -24,8 +24,12 @@ export function useDefinition(id: string) {
 }
 
 /** Resolves definition name/version for many ids (the instances list sends definition_id only).
- *  Shares the detail cache with useDefinition; an id that fails to load is simply absent. */
-export function useDefinitionsByIds(ids: string[]): Map<string, ProcessDefinition> {
+ *  Shares the detail cache with useDefinition; an id that fails to load is absent from `definitions`
+ *  and not in `pending`, an id still resolving is in `pending`. */
+export function useDefinitionsByIds(ids: string[]): {
+  definitions: Map<string, ProcessDefinition>
+  pending: Set<string>
+} {
   const definitionKeys = useTenantScopedQueryKeys().definitions
   const unique = Array.from(new Set(ids.filter(Boolean)))
   const results = useQueries({
@@ -35,13 +39,15 @@ export function useDefinitionsByIds(ids: string[]): Map<string, ProcessDefinitio
       retry: false,
     })),
   })
-  const signature = results.map((r, i) => `${unique[i]}:${r.dataUpdatedAt}`).join('|')
+  const signature = results.map((r, i) => `${unique[i]}:${r.dataUpdatedAt}:${r.isPending ? 'p' : 'd'}`).join('|')
   return useMemo(() => {
-    const map = new Map<string, ProcessDefinition>()
+    const definitions = new Map<string, ProcessDefinition>()
+    const pending = new Set<string>()
     results.forEach((r, i) => {
-      if (r.data) map.set(unique[i], r.data)
+      if (r.data) definitions.set(unique[i], r.data)
+      else if (r.isPending) pending.add(unique[i])
     })
-    return map
+    return { definitions, pending }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature])
 }

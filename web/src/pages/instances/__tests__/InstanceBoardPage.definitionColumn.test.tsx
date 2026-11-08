@@ -60,6 +60,7 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
   }
 })
 
+import { definitionsApi } from '@/api/definitions'
 import InstanceBoardPage from '@/pages/instances/InstanceBoardPage'
 
 afterEach(() => {
@@ -97,5 +98,16 @@ describe('InstanceBoardPage — Definition column (T-1495)', () => {
     expect(screen.getByText(/Not yet refreshed/)).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('Order v3')).toBeInTheDocument())
     expect(screen.queryByText(/Not yet refreshed/)).not.toBeInTheDocument()
+  })
+
+  it('W4: while a definition is still loading the cell is a skeleton, not an em dash', async () => {
+    let release: (v: unknown) => void = () => {}
+    vi.mocked(definitionsApi.get).mockImplementation(
+      () => new Promise((resolve) => { release = resolve }) as never,
+    )
+    renderBoard()
+    await waitFor(() => expect(screen.getAllByTestId('skeleton').length).toBeGreaterThan(0))
+    expect(screen.queryByText('—', { selector: 'td' })).toBeNull()
+    release({ id: 'def-ok', name: 'Order', version: '3', status: 'ACTIVE', graph: { nodes: [], edges: [] } })
   })
 })

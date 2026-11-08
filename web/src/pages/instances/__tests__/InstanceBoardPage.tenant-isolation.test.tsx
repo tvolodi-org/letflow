@@ -31,7 +31,7 @@ vi.mock('@/hooks/useInstances', () => ({
 vi.mock('@/hooks/useDefinitions', () => ({
   useDefinitions: vi.fn(() => ({ data: undefined })),
   useDefinition: vi.fn(() => ({ data: undefined, isLoading: false })),
-  useDefinitionsByIds: vi.fn(() => new Map([['def-111', { name: 'My Flow', version: '1.0.0' }]])),
+  useDefinitionsByIds: vi.fn(() => ({ definitions: new Map([['def-111', { name: 'My Flow', version: '1.0.0' }]]), pending: new Set() })),
 }))
 
 vi.mock('@/auth/AuthContext', () => ({
