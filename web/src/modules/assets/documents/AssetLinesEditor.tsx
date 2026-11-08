@@ -5,6 +5,8 @@
  *  (a PUT replaces the whole list); a sole empty line is shown as the empty state. No import: there is no import route. */
 import { useMemo, type ReactNode } from 'react'
 import { useIntl } from 'react-intl'
+import { Link } from 'react-router-dom'
+import { useAccess } from '@/auth/access/useAccess'
 import { formatQuantity } from '@/lib/formatQuantity'
 import { DocCard } from '@/components/ui/doc/DocLayout'
 import { LFLinesEditor } from '@/components/ui/lines/LFLinesEditor'
@@ -15,7 +17,8 @@ import type { LeCellCtx, LeColumn, LeError, LeScanResult } from '@/components/ui
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { useLinesMode } from '@/hooks/useLinesMode'
 import { useNames } from '../assetsNames'
-import { usePickerOptions } from '../assetsPickers'
+import { usePickerState } from '../assetsPickers'
+import { ASSETS_CARD_WRITE } from '../assetsPermissions'
 import { buildAssetCatalog, assetLabel } from './assetLinesCatalog'
 import { MAX_LINES, emptyLine, validateLine, type LineForm } from './documentForm'
 import { ASSET_DOCUMENTS_LAYOUT_SCREEN, lineColumnSpecs, lineColumns } from './lineColumns'
@@ -60,7 +63,8 @@ export function AssetLinesEditor(props: {
   const t = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id }, values)
   const [mode, setMode] = useLinesMode(ASSET_LINES_SCREEN_ID)
   const { lines } = props
-  const options = usePickerOptions('assets_card')
+  const { can } = useAccess()
+  const { options, status } = usePickerState('assets_card')
   const catalog = useMemo(() => buildAssetCatalog(options), [options])
   const name = useNames(lines.filter((l) => l.assetId !== '').length > 0 ? [{ assets_card: lines.filter((l) => l.assetId !== '').map((l) => l.assetId) }] : [])
   const dash = t('assets.common.dash')
@@ -139,6 +143,17 @@ export function AssetLinesEditor(props: {
 
   return (
     <DocCard area="lines" title={t('assets.doc.lines')} count={lines.length} data-testid="lines-card">
+      {status === 'ready' && options.length === 0 && (
+        <div className="lf-empty" role="status" data-testid="no-cards">
+          <p className="lf-empty__title">{t('assets.doc.noCards.title')}</p>
+          <p className="lf-empty__text">{t('assets.doc.noCards.text')}</p>
+          {can(ASSETS_CARD_WRITE) ? (
+            <Link to="/admin/assets/cards">{t('assets.doc.noCards.link')}</Link>
+          ) : (
+            <p className="lf-empty__text">{t('assets.doc.noCards.askAdmin')}</p>
+          )}
+        </div>
+      )}
       <LFLinesEditor<LineForm>
         screenId={ASSET_LINES_SCREEN_ID}
         resize={{ id: 'lines-edit', screen: ASSET_DOCUMENTS_LAYOUT_SCREEN, cols: lineColumnSpecs() }}

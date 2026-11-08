@@ -198,3 +198,8 @@ samp {
 @media (max-width: 600px) {
   .lf-toolbar__end { width: 100%; }
 }
+/* T-1487: below 1440 the list column is as high as the detail pane (height: 0 + min-height: 100%). With no documents the
+   detail pane is a short "nothing selected" card, so the list (tools and the first-use guidance) collapsed to a strip. */
+@container lfhost (max-width: 1439px) {
+  .lf-doc__list:has(.lf-doc__empty) { height: auto; }
+}
