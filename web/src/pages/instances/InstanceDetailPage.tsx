@@ -95,7 +95,7 @@ export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const tenantKeys = useTenantScopedQueryKeys()
 
-  const { data: instance, isLoading, isError, error, refetch } = useInstance(id!)
+  const { data: instance, isLoading, isError, error, refetch, dataUpdatedAt } = useInstance(id!)
   const { data: definition } = useDefinition(instance?.definition_id ?? '')
   const { data: pendingTasks } = useTasks({ status: 'PENDING', instance_id: id })
   const cancel = useCancelInstance()
@@ -251,7 +251,7 @@ export default function InstanceDetailPage() {
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '.6rem', marginBottom: '.8rem' }}>
         <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-          Last refreshed: {toRefreshLabel(polling.lastRefreshedAt)}
+          Last refreshed: {toRefreshLabel(polling.lastRefreshedAt ?? (dataUpdatedAt ? new Date(dataUpdatedAt).toISOString() : null))}
         </span>
         <Button
           variant="secondary"

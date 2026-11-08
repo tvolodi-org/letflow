@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useInstances, useStartInstance } from '@/hooks/useInstances'
-import { useDefinitions, useDefinition } from '@/hooks/useDefinitions'
+import { useDefinitions, useDefinition, useDefinitionsByIds } from '@/hooks/useDefinitions'
 import { P, useAccess } from '@/auth/access'
 import { usePolling } from '@/hooks/usePolling'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -136,6 +136,7 @@ export default function InstanceBoardPage() {
     page_size: pageSize,
   })
   const polling = usePolling({ queryKeyPrefix: tenantKeys.instances.all() })
+  const defsById = useDefinitionsByIds((instancesQuery.data?.items ?? []).map((i) => i.definition_id))
 
   const startInstance = useStartInstance()
 
@@ -291,7 +292,10 @@ export default function InstanceBoardPage() {
     {
       id: 'definition',
       header: 'Definition',
-      accessor: (inst) => `${inst.definition_name} v${inst.definition_version}`,
+      accessor: (inst) => {
+        const def = defsById.get(inst.definition_id)
+        return def ? `${def.name} v${def.version}` : '—'
+      },
     },
     {
       id: 'status',
@@ -333,7 +337,7 @@ export default function InstanceBoardPage() {
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '.6rem', marginBottom: '.8rem' }}>
         <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-          Last refreshed: {toRefreshLabel(polling.lastRefreshedAt)}
+          Last refreshed: {toRefreshLabel(polling.lastRefreshedAt ?? (instancesQuery.dataUpdatedAt ? new Date(instancesQuery.dataUpdatedAt).toISOString() : null))}
         </span>
         <Button
           variant="secondary"

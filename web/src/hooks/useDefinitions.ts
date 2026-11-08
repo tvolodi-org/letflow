@@ -1,8 +1,9 @@
 /** TanStack Query hooks — query key factories + hooks for all APIs */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMemo } from 'react'
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import { definitionsApi } from '@/api/definitions'
 import { definitionRollbackApi } from '@/api/definitionRollback'
-import type { DefinitionStatus, CreateDefinitionRequest } from '@/types/api'
+import type { DefinitionStatus, CreateDefinitionRequest, ProcessDefinition } from '@/types/api'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 
 export function useDefinitions(params?: { status?: DefinitionStatus; name?: string }) {
@@ -20,6 +21,29 @@ export function useDefinition(id: string) {
     queryFn: () => definitionsApi.get(id),
     enabled: !!id,
   })
+}
+
+/** Resolves definition name/version for many ids (the instances list sends definition_id only).
+ *  Shares the detail cache with useDefinition; an id that fails to load is simply absent. */
+export function useDefinitionsByIds(ids: string[]): Map<string, ProcessDefinition> {
+  const definitionKeys = useTenantScopedQueryKeys().definitions
+  const unique = Array.from(new Set(ids.filter(Boolean)))
+  const results = useQueries({
+    queries: unique.map((id) => ({
+      queryKey: definitionKeys.detail(id),
+      queryFn: () => definitionsApi.get(id),
+      retry: false,
+    })),
+  })
+  const signature = results.map((r, i) => `${unique[i]}:${r.dataUpdatedAt}`).join('|')
+  return useMemo(() => {
+    const map = new Map<string, ProcessDefinition>()
+    results.forEach((r, i) => {
+      if (r.data) map.set(unique[i], r.data)
+    })
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature])
 }
 
 export function useCreateDefinition() {
