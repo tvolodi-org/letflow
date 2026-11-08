@@ -175,7 +175,11 @@ No answer is given here to any of them.
    reading in section 6 (tenant setting plus a card field that must match it) is left for the owner to confirm.
 2. Whether the actual user may be empty. This file proposes optional (UAT assumption). Source: REQ-689 criterion 10.
 3. Which unit holds the card of a low-value asset whose quantity is split over balance rows of several org units,
-   and whether the other unit sees the card. Source: section 7.1 and 0076 R7.
+   and whether the other unit sees the card. Source: section 7.1 and 0076 R7. **Marked for the owner** (T-1486,
+   2026-11-08): still unanswered. The commission refuses a card of another org unit (`org_unit_mismatch`), and the
+   asset opening document of decision 0083 keeps that rule (its Q3); a hand over of part of a low-value quantity to
+   another org unit is not refused today (`Letflow.Modules.Assets.Documents.Checks`: the hand over runs no
+   `org_unit_mismatch`), so the split can already arise and the card then keeps its first org unit.
 4. Whether an intangible card may carry more than one seat. This file proposes at most 1 per card (UAT
    assumption). Source: REQ-689 criterion 10.
 5. Decided by D-097: `inventory_number` is unique per tenant (also with several BIN in one tenant, D-062). Old

@@ -20,6 +20,7 @@ import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
 import { assetsScreens } from './fixtures/assets'
 import { stockR7Screens } from './fixtures/stockR7'
+import { envBannerScreens } from './fixtures/envBanner'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
 import { leftoversR15Screens, leftoversR15ShellScreens } from './fixtures/leftoversR15'
 import { assetsDocumentsScreens } from './fixtures/assetsDocuments'
@@ -265,6 +266,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...assetsDocumentsScreens,
     ...assetsKindChangeScreens,
     ...stockR7Screens,
+    ...envBannerScreens,
     ...sessionNoticeScreens,
     ...leftoversR15Screens,
     ...leftoversR15ShellScreens,

@@ -59,7 +59,10 @@ defmodule Letflow.Routers.TenantConfig do
   ## What this endpoint discloses, and what it must never disclose
 
   The body has four top-level keys: `oidc_authority`, `client_id`, `branding`
-  and `tenant_type` (REQ-472). `tenant_type` is `"test"`, `"production"` or
+  and `tenant_type` (REQ-472), plus the optional instance-global `env_label` (T-1494:
+  the `LETFLOW_ENV_LABEL` operator setting for the test-environment banner; absent when
+  the variable is unset, a platform setting and not a tenant attribute, so INV-2 and
+  INV-5 are unaffected). `tenant_type` is `"test"`, `"production"` or
   `null`; it is non-null only on the branch that resolved a real realm through
   `?realm=<slug>`, and `null` on every default branch (unknown slug, nil or
   empty realm, lookup failure, `?host=`, no parameter), so those bodies stay
@@ -296,9 +299,20 @@ defmodule Letflow.Routers.TenantConfig do
       realm_id
       |> config_map(tenant)
       |> Map.put("tenant_type", tenant_type)
+      |> put_env_label()
       |> update_in(["branding"], &put_logo(&1, tenant, logo_slug))
 
     Response.ok(conn, body)
+  end
+
+  # T-1494: instance-global display label for the test-environment banner. Unset env var
+  # -> no key (legacy banner); set -> trimmed, capped at 40 chars ("" turns the banner off).
+  # Not a tenant attribute and not secret, so every branch returns the same value (INV-5).
+  defp put_env_label(body) do
+    case System.get_env("LETFLOW_ENV_LABEL") do
+      nil -> body
+      value -> Map.put(body, "env_label", value |> String.trim() |> String.slice(0, 40))
+    end
   end
 
   # REQ-591: the uploaded logo replaces branding.logo_url only when the flag is on and
