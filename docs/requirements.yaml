@@ -53514,3 +53514,30 @@ requirements:
       - "7. Another tenant's document, card, location and employee ids answer like unknown ones (404 and plain check reasons); a caller without AssetsPost gets the refusal of the other document routes."
       - "8. Module assets is 0.10.0, the pack is 0.5.0 and regenerated, the permission matrix golden and the route-scope pins are updated, and mix letflow.check.static passes."
     depends_on: [REQ-782, REQ-751, REQ-752, REQ-762]
+  - id: REQ-784
+    title: "Assets G6: xlsx import of asset opening lines into a draft opening document (import function, external reference pair on header and line, upsert by pair); no posting"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-783 -- no GitHub issue for gap G6 yet; the operator registers it
+    # Source: task T-1493, decision docs/migration/decisions/0083-asset-opening-document.md D7 and D9 item 4, docs/uat/ba-decisions/T-1486.md gap G6.
+    description: >
+      Gap G6. Old assets arrive by xlsx (D-097 item 3): the card import (REQ-762) puts the cards in, this import places them.
+      It adds the import function import_opening_line of the assets manifest for the managed type assets_opening_line
+      (core route POST /entities/records/assets_opening_line/import?upsert_by=external_ref, no new route, no new permission),
+      the optional external reference pair (external_ref_system, external_ref_id) on the opening header and line (the pair
+      REQ-783 left to G6) with a uniqueness rule for the header (409 external_ref_taken), Documents.upsert_opening_line/4
+      and two API-step UAT scenarios. Every reference cell is an external id under the row's system; the import writes
+      drafts only, never posts and does not run the D4 checks. Expected refusals are plain values so a dry run with many
+      cap refusals costs no replay.
+    acceptance_criteria:
+      - "1. An xlsx with the columns header_id, asset_id, location_id, material_responsible_id, actual_user_id, quantity, external_ref_system and external_ref_id fills a draft opening document; every reference is an external id under the row's system; unknown, inactive and foreign ids give reference_not_found or reference_inactive with the field."
+      - "2. Upsert by the pair: a new row creates a line, an equal row is unchanged (no new draft version), a changed row updates the line and keeps its line_no."
+      - "3. The import writes drafts only: a non-draft document is document_not_draft, a non-opening header reference_not_found; it issues nothing, posts nothing and does not run the D4 checks (POST /documents/:id/check shows them)."
+      - "4. At most 200 rows per file and 100 lines per document (the 101st line is lines_count); quantity must be above zero for an import (zero and negative are quantity_invalid, a non-number is the core's csv_invalid_decimal); reasons are constant and carry no cell text."
+      - "5. A dry run answers like the real import and writes nothing; more than 20 cap refusals in one dry run cost no replay and never answer dry_run_unavailable."
+      - "6. Another tenant naming this tenant's header or card gets reference_not_found and nothing changes; a scoped caller and a STOREKEEPER-only caller are refused for assets_opening_line."
+      - "7. The opening header and line carry the optional pair (both or neither, at most 128 characters), unique among live headers (409 external_ref_taken); a replace that omits the pair drops it."
+      - "8. Two UAT scenario files under test/fixtures/uat/scenarios/assets/ pass mix letflow.check_uat_scenario_schema."
+      - "9. Module assets is 0.11.0, the pack 0.6.0 and regenerated, the manifest hash golden and the docs are updated, and mix letflow.check.static passes."
+    depends_on: [REQ-783, REQ-762]

@@ -160,7 +160,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.10.0",
+    version: "0.11.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
@@ -298,7 +298,10 @@ defmodule Letflow.Modules.Assets do
         policy: {Letflow.Modules.Assets.LedgerPolicy, :declare}
       }
     },
-    import_functions: [%{entity_type: "assets_card", function: :import_card}]
+    import_functions: [
+      %{entity_type: "assets_card", function: :import_card},
+      %{entity_type: "assets_opening_line", function: :import_opening_line}
+    ]
   )
 
   @doc """
@@ -310,6 +313,15 @@ defmodule Letflow.Modules.Assets do
           {:ok, map()} | {:error, term()}
   def import_card(prefix, entry, ctx),
     do: Letflow.Modules.Assets.Import.import_card(prefix, entry, ctx)
+
+  @doc """
+  The import function of `assets_opening_line` (G6, decision 0083 D7, manifest `:import_functions`): one
+  row of a file into a DRAFT opening document. See `Letflow.Modules.Assets.Documents.OpeningImport`.
+  """
+  @spec import_opening_line(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_opening_line(prefix, entry, ctx),
+    do: Letflow.Modules.Assets.Documents.OpeningImport.row(prefix, entry, ctx)
 
   @impl true
   def router, do: Letflow.Modules.Assets.Router

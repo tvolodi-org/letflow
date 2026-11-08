@@ -120,6 +120,28 @@ the card and answers that row `updated`; in the audit trail it is a card update,
 example that `book_value` equals `acquisition_cost` minus `accumulated_depreciation`). A wrong figure in a file
 is therefore stored as typed.
 
+## 5a. Opening lines (G6, assets 0.11.0, decision 0083 D7)
+
+`POST /api/v1/entities/records/assets_opening_line/import?upsert_by=external_ref` fills a DRAFT opening document from an
+xlsx file by the managed import path (the import function `import_opening_line` of the assets manifest,
+`Letflow.Modules.Assets.Documents.OpeningImport`). The header is created first (`POST /documents`) with its own external
+reference pair; cards are imported first (section 1).
+
+- Columns (the entity field names): `header_id`, `asset_id`, `location_id`, `material_responsible_id`, `actual_user_id`,
+  `quantity`, `external_ref_system`, `external_ref_id`; optional `org_unit_id`. Every reference cell is an EXTERNAL id under
+  the row's own `external_ref_system`; `location_id` and `actual_user_id` may be empty. A column that is not a field of
+  the line (for example `price`) is refused by the core reader (`xlsx_unknown_header`).
+- Upsert by the row's pair within the document: a new pair creates a line (next `line_no`), an equal row is `unchanged`,
+  a changed row updates the line and keeps its `line_no`.
+- Row reasons (constant, no cell text): `reference_not_found` / `reference_inactive` with the field, `document_not_draft`,
+  `org_unit_mismatch`, `lines_count` (the 101st line of a document), `quantity_invalid` (zero or negative; a non-number is
+  the core's `csv_invalid_decimal`), `line_invalid`.
+- At most 200 data rows per file; at most 100 lines per document. Draft only: the import never issues or posts, and it does
+  not run the checks of the opening (duplicate asset, location rules, card linked, already in the register); the check
+  route `POST /documents/:id/check` shows them.
+- Who: a tenant-wide caller with the import permission (as for cards); a scoped caller cannot run upsert mode and the
+  STOREKEEPER import is for module `stock` only.
+
 ## 6. Card export
 
 The asset cards are exported through the existing record export `POST /entities/records/assets_card/export?format=xlsx`
@@ -153,7 +175,7 @@ A second xlsx export, of the asset register balances:
 
 No answer is given here to any of them.
 
-1. How old assets are placed into the register in bulk: by an xlsx import of commission lines into draft
+1. (Answered by decision 0083 and built in G6, section 5a.) How old assets are placed into the register in bulk: by an xlsx import of commission lines into draft
    commission documents, or by an asset opening document reusing decision 0079 D1 to D6. Source: decision 0079
    Q4. Superseded (T-1486, REQ-782): a commission cannot carry an old date (0073 D-T), so old assets are placed by
    the asset opening document of decision 0083 (proposed, to be accepted at the gate of phase C): the cards come in
