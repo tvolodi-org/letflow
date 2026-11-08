@@ -5,6 +5,9 @@ import { definitionsApi } from '@/api/definitions'
 import { instancesApi } from '@/api/instances'
 import { tasksApi } from '@/api/tasks'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { dashboardMessages } from './dashboardMessages'
+import { definitionLabel } from './definitionLabels'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 
@@ -23,6 +26,8 @@ function SkeletonBox(): JSX.Element {
 
 export default function TenantDashboardPage(): JSX.Element {
   const { tenantDisplayName, isUnknown } = useTenantContext()
+  const locale = useUiLocale()
+  const t = dashboardMessages[locale]
   const tenantKeys = useTenantScopedQueryKeys()
   const access = useAccess()
   // A role without DefinitionsRead (the storekeeper) would get 403 here and lose the whole dashboard.
@@ -56,7 +61,7 @@ export default function TenantDashboardPage(): JSX.Element {
       </h1>
 
       <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
-        Welcome to your BPM workspace. Here is a summary of your current activity.
+        {t.welcome}
       </p>
 
       {isUnknown && (
@@ -72,7 +77,7 @@ export default function TenantDashboardPage(): JSX.Element {
             fontSize: '.875rem',
           }}
         >
-          Tenant name could not be loaded. Contact your administrator.
+          {t.tenantUnknown}
         </div>
       )}
 
@@ -95,7 +100,7 @@ export default function TenantDashboardPage(): JSX.Element {
           }}
         >
           <div style={{ fontSize: '.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '.75rem' }}>
-            Recent Definitions
+            {t.recentDefinitions}
           </div>
           {loadingDefs ? (
             <SkeletonBox />
@@ -104,13 +109,14 @@ export default function TenantDashboardPage(): JSX.Element {
               {(definitions?.items ?? []).slice(0, 5).map((d) => (
                 <div
                   key={d.id}
+                  title={d.name}
                   style={{ fontSize: '.875rem', color: 'var(--text-primary)', padding: '.25rem 0', borderBottom: '1px solid var(--color-neutral-100)' }}
                 >
-                  {d.name}
+                  {definitionLabel(d.name, locale)}
                 </div>
               ))}
               {(!definitions?.items || definitions.items.length === 0) && (
-                <div style={{ color: 'var(--text-disabled)', fontSize: '.875rem' }}>No definitions yet.</div>
+                <div style={{ color: 'var(--text-disabled)', fontSize: '.875rem' }}>{t.noDefinitions}</div>
               )}
             </div>
           )}
@@ -129,7 +135,7 @@ export default function TenantDashboardPage(): JSX.Element {
           }}
         >
           <div style={{ fontSize: '.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '.75rem' }}>
-            Active Instances
+            {t.activeInstances}
           </div>
           {loadingInstances ? (
             <SkeletonBox />
@@ -155,7 +161,7 @@ export default function TenantDashboardPage(): JSX.Element {
           }}
         >
           <div style={{ fontSize: '.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '.75rem' }}>
-            Pending Tasks
+            {t.pendingTasks}
           </div>
           {loadingTasks ? (
             <SkeletonBox />
