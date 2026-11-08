@@ -36,6 +36,51 @@ PDF. A float total of the balance quantities is logged for the human (`info:`) a
 manifest hashes are **not** compared: an upgrade is meant to change them. The output holds names, counts and checksums only,
 no record content and no token. The snapshot file holds the same.
 
+## Apply the chain: `scripts/demo_upgrade_chain.sh` (T-1480)
+
+`scripts/demo_upgrade_chain.sh` (bash, curl, jq; HTTP only) is what infra's `promote-demo.sh` runs between the snapshot and
+the verify. For every tenant in `TENANT_SLUG` (comma or space separated, default `showroom`) and every installed module
+(dependency order: org, locations, catalog_items, codes, stock, assets, then the rest) it asks the read-only plan
+(`POST /tenant/modules/:module_id/upgrade/plan`, REQ-768); when the plan is pending and a path is available it applies it
+(`POST /tenant/modules/:module_id/upgrade`, REQ-770, with the plan's `plan_hash` and a rationale); it asks the plan again and
+requires `up_to_date`. It never sends `ack_destructive`: a class B step stays an administrator's decision and shows as pending.
+
+```
+export BASE_URL=https://demo.example.org TENANT_SLUG=showroom
+export ACCESS_TOKEN=...                       # or ADMIN_USERNAME + ADMIN_PASSWORD + ADMIN_REALM (password grant)
+bash scripts/demo/demo_upgrade_check.sh snapshot /var/tmp/demo-before.json
+bash scripts/demo_upgrade_chain.sh                                             # DRY_RUN=1 plans only
+bash scripts/demo/demo_upgrade_check.sh verify   /var/tmp/demo-before.json
+```
+
+Which admin: both routes are tenant routes (`:ModulesManage`), reached through the caller's own tenant. The token must be one
+the demo tenant accepts: the demo tenant's administrator (TENANT_ADMIN). An OIDC token resolves its tenant from its issuer and
+ignores `X-Tenant-Slug`, so a PLATFORM_ADMIN token minted through the platform tenant's issuer reaches the platform tenant, not
+`showroom`, and an API token is refused on these routes. The script supports both input forms (`ACCESS_TOKEN`, or admin
+credentials) and does not guess: when the token is not accepted the first call ends with `STOP: ... HTTP 401/403/404`; then
+infra must supply a demo-tenant administrator's token. One token serves every slug (one demo realm).
+
+One line per tenant and module on stderr, then `RESULT:`; only slugs, module ids, versions, status codes and the answer's
+`code` field are printed, no token and no record content:
+
+```
+applied showroom/stock: 0.3.0 -> 0.4.0
+ok      showroom/org: up_to_date 0.5.0
+pending showroom/assets: 0.1.0 -> 0.2.0 (path available: false, no_upgrade_path)
+```
+
+| Exit | Meaning | What to do |
+|---|---|---|
+| 0 | every module upgraded or already current | done |
+| 1 | `DIFF <slug>/<module>`: after the apply the plan still says pending | stop, as for exit 1 of the check |
+| 2 | missing tool or bad input, nothing requested | fix the call |
+| 3 | a module is still pending (no path, apply refused with 409/422, or `DRY_RUN=1`) | see "Breakage list"; an administrator acts |
+| 4 | a request failed: `STOP:` line (sign-in, tenant, network, 5xx) | look at the line |
+
+Idempotent: the second run sees `up_to_date` everywhere, sends no apply, prints only `ok` lines and exits 0. Optional inputs:
+`UPGRADE_RATIONALE` (default `demo promote: module upgrade chain`), `DRY_RUN=1`. Proved by `test/scripts/demo_upgrade_chain_test.exs`
+(real HTTP; the password grant and an apply refused with `ack_required` or a stale `plan_hash` are not exercised there).
+
 ## What the test proves, and its limit
 
 `test/scripts/demo_upgrade_check_test.exs` runs both scripts through a real HTTP listener (`Bandit` + `curl`), signed in
