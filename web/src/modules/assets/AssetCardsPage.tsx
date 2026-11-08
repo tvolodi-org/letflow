@@ -168,7 +168,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
             </>
           }
         />
-        <div className="lf-card__body">
+        <div className="lf-card__body lf-form">
           {active ? (
             <AssetCardForm key={selected.record_id} record={selected} write={write} onDone={formDone} onCancel={closePanel} />
           ) : (

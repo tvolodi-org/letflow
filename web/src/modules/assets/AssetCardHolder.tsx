@@ -5,7 +5,6 @@ import { useIntl } from 'react-intl'
 import { useQuery } from '@tanstack/react-query'
 import { useAccess } from '@/auth/access/useAccess'
 import { useAuth } from '@/auth/AuthContext'
-import { FormSection } from '@/components/ui/FormSection'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { formatQuantity } from '@/lib/formatQuantity'
 import { classifyError, type RendererState } from '@/utils/classifyError'
@@ -37,8 +36,8 @@ function HolderRows({ cardId }: { cardId: string }) {
   const state: RendererState = query.isError ? classifyError(query.error) : query.isPending ? 'loading' : 'success'
 
   return (
-    <div className="lf-form" data-testid="asset-holder">
-      <FormSection title={t('assets.holder.title')}>
+    <section className="lf-form__section" data-testid="asset-holder">
+      <h3 className="lf-form__title">{t('assets.holder.title')}</h3>
       {query.isError ? (
         <RegisterError error={query.error} onRetry={() => void query.refetch()} />
       ) : (
@@ -65,7 +64,6 @@ function HolderRows({ cardId }: { cardId: string }) {
           )}
         </QueryStateBoundary>
       )}
-      </FormSection>
-    </div>
+    </section>
   )
 }

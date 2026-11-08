@@ -89,6 +89,7 @@ const balancesRoute = (reply: () => { status: number; body: unknown }): FixtureR
 })
 const rowsRoutes = [balancesRoute(() => ({ status: 200, body: { rows: [BALANCE_ROW], next_cursor: null } })), ...routes]
 const noRowsRoutes = [balancesRoute(() => ({ status: 200, body: { rows: [], next_cursor: null } })), ...routes]
+const pendingRoutes = [{ ...balancesRoute(() => ({ status: 200, body: {} })), pending: true }, ...routes]
 const errorRoutes = [balancesRoute(() => ({ status: 500, body: {} })), ...routes]
 const READER: AccessState = {
   status: 'ready',
@@ -125,5 +126,6 @@ export const assetsScreens: HarnessScreen[] = [
   { name: 'asset-cards-holder-none', routes: noRowsRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-3" />, READER) },
   { name: 'asset-cards-holder-retired', routes: rowsRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-8" />, READER) },
   { name: 'asset-cards-holder-noperm', routes: rowsRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, WRITER_ONLY) },
+  { name: 'asset-cards-holder-loading', routes: pendingRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, READER) },
   { name: 'asset-cards-holder-error', routes: errorRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, READER) },
 ]
