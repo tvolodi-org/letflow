@@ -21,8 +21,23 @@ export interface AssetDocumentsPageBody {
 export interface AssetDocumentLine {
   line_id?: string
   line_no: number
+  /** The four kinds' line; a change of kind line carries the keys below instead. */
   asset_id: string
   quantity: string
+  // Change of kind (REQ-759): stock side, then asset side. `asset_card_id` is server-set and never sent.
+  catalog_item_id?: string
+  catalog_uom_id?: string
+  catalog_lot_id?: string | null
+  stock_location_id?: string
+  stock_responsible_id?: string
+  target_kind?: string
+  asset_org_unit_id?: string | null
+  asset_location_id?: string
+  material_responsible_id?: string
+  actual_user_id?: string | null
+  inventory_number?: string
+  asset_name?: string
+  asset_card_id?: string | null
 }
 /** A document view: the union of the header keys of the four kinds (`Kinds.header_keys`); a kind carries its own. */
 export interface AssetDocument {

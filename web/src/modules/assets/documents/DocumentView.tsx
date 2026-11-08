@@ -30,7 +30,7 @@ import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
 import { DocumentTabs } from './DocumentTabs'
 import { DOCUMENTS_PATH } from './DocumentList'
-import { ASSET_DOCUMENTS_LAYOUT_SCREEN, lineColumnSpecs, lineColumns } from './lineColumns'
+import { ASSET_DOCUMENTS_LAYOUT_SCREEN, kindChangeColumnSpecs, kindChangeLineColumns, lineColumnSpecs, lineColumns } from './lineColumns'
 import { DOC_KINDS, DOC_STATES, WRITEOFF_REASONS, formatEventTime, isTwoSide, sidesOf } from './documentsModel'
 import { stateTone } from './stateTone'
 
@@ -51,7 +51,20 @@ function nameIds(doc: AssetDocument): NameIds {
     add('org_employee', side.responsibleId)
     add('org_employee', side.userId)
   }
-  for (const l of doc.lines) add('assets_card', l.asset_id)
+  for (const l of doc.lines) {
+    add('assets_card', l.asset_id)
+    // Change of kind: the stock side and the asset side of each line, and the card once posted.
+    add('catalog_item', l.catalog_item_id)
+    add('catalog_uom', l.catalog_uom_id)
+    add('catalog_lot', l.catalog_lot_id)
+    add('location_node', l.stock_location_id)
+    add('location_node', l.asset_location_id)
+    add('org_employee', l.stock_responsible_id)
+    add('org_employee', l.material_responsible_id)
+    add('org_employee', l.actual_user_id)
+    add('org_unit', l.asset_org_unit_id)
+    add('assets_card', l.asset_card_id)
+  }
   return out
 }
 
@@ -118,10 +131,31 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
   const two = isTwoSide(doc.kind)
   const sides = sidesOf(doc)
   const columns = lineColumns(t)
-  const editorColumns: LeColumn<AssetLine>[] = [
-    { key: 'asset', colId: 'item', label: columns[0].label, grow: true, view: (l) => name('assets_card', l.asset_id) },
-    { key: 'quantity', colId: 'qty', label: columns[1].label, num: true, view: (l) => formatQuantity(l.quantity, intl.locale) },
-  ]
+  const kc = doc.kind === 'kind_change'
+  const ref = (type: Parameters<typeof name>[0], id: string | null | undefined) => (id ? name(type, id) : dash)
+  const kcView: Record<string, (l: AssetLine) => string> = {
+    item: (l) => ref('catalog_item', l.catalog_item_id),
+    unit: (l) => ref('catalog_uom', l.catalog_uom_id),
+    lot: (l) => ref('catalog_lot', l.catalog_lot_id),
+    quantity: (l) => formatQuantity(l.quantity, intl.locale),
+    stockLocation: (l) => ref('location_node', l.stock_location_id),
+    stockResponsible: (l) => ref('org_employee', l.stock_responsible_id),
+    targetKind: (l) => (l.target_kind ? t(`assets.doc.kc.target.${l.target_kind}`) : dash),
+    inventoryNumber: (l) => l.inventory_number || dash,
+    assetName: (l) => l.asset_name || dash,
+    // A blank asset org unit was defaulted to the header unit by the server.
+    assetOrgUnit: (l) => ref('org_unit', l.asset_org_unit_id ?? doc.org_unit_id),
+    assetLocation: (l) => ref('location_node', l.asset_location_id),
+    materialResponsible: (l) => ref('org_employee', l.material_responsible_id),
+    actualUser: (l) => ref('org_employee', l.actual_user_id),
+    assetCard: (l) => ref('assets_card', l.asset_card_id),
+  }
+  const editorColumns: LeColumn<AssetLine>[] = kc
+    ? kindChangeLineColumns(t, true).map((c) => ({ key: c.key, colId: c.colId, label: c.label, num: c.num, grow: c.key === 'item', view: kcView[c.key]! }))
+    : [
+        { key: 'asset', colId: 'item', label: columns[0].label, grow: true, view: (l) => name('assets_card', l.asset_id) },
+        { key: 'quantity', colId: 'qty', label: columns[1].label, num: true, view: (l) => formatQuantity(l.quantity, intl.locale) },
+      ]
   const refMsg = REFERENCE_MESSAGES[uiLocale]
   const actor = (ref: string | null | undefined, label?: string | null) =>
     ref && ref === access.userId ? refMsg.you : label || actorLabel(ref, access.userId, refMsg)
@@ -180,8 +214,8 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
           {row(t('assets.doc.col.number'), doc.number, true)}
           {row(t('assets.reg.col.time'), when(doc.event_time), true)}
           {(!two || doc.kind === 'change') && row(t('assets.reg.col.orgUnit'), name('org_unit', sides.from.orgUnitId))}
-          {(!two || doc.kind === 'change') && row(t('assets.reg.col.location'), name('location_node', sides.from.locationId))}
-          {!two && sideRows(sides.from, false)}
+          {!kc && (!two || doc.kind === 'change') && row(t('assets.reg.col.location'), name('location_node', sides.from.locationId))}
+          {!two && !kc && sideRows(sides.from, false)}
           {doc.reason_code && row(t('assets.doc.field.reasonCode'), known(WRITEOFF_REASONS, 'assets.doc.writeoffReason', doc.reason_code))}
           {doc.reason_text && row(t('assets.doc.field.reasonText'), doc.reason_text)}
           {row(t('assets.doc.field.note'), doc.note, false, false)}
@@ -221,9 +255,9 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
             max={lines.length}
             mode={linesMode}
             onModeChange={setLinesMode}
-            searchText={(l) => `${name('assets_card', l.asset_id)} ${l.quantity}`}
-            totals={() => ({ col: 'asset', node: `${t('assets.doc.lines.total')}: ${lines.length}` })}
-            resize={{ id: 'lines', screen: ASSET_DOCUMENTS_LAYOUT_SCREEN, cols: lineColumnSpecs() }}
+            searchText={(l) => (kc ? `${kcView['item']!(l)} ${l.inventory_number ?? ''} ${l.asset_name ?? ''} ${l.quantity}` : `${name('assets_card', l.asset_id)} ${l.quantity}`)}
+            totals={() => ({ col: kc ? 'item' : 'asset', node: `${t('assets.doc.lines.total')}: ${lines.length}` })}
+            resize={{ id: kc ? 'kc-lines' : 'lines', screen: ASSET_DOCUMENTS_LAYOUT_SCREEN, cols: kc ? kindChangeColumnSpecs(true) : lineColumnSpecs() }}
           />
         )}
         <div className="lf-btn-row">

@@ -6,6 +6,10 @@
 import { ASSETS_TIME_ZONE } from '../register/registerModel'
 import type { AssetDocument } from './assetDocuments.api'
 import {
+  buildKindChangeLines, emptyKindChangeLine, kindChangeLinesFromDocument, kindChangeRefusalField,
+  validateKindChangeLines, type KindChangeLine,
+} from './kindChangeForm'
+import {
   TEXT_MAX, WRITEOFF_REASONS, documentErrorInfo, documentErrorMessageId, isTwoSide, sidesOf,
   type DocKind,
 } from './documentsModel'
@@ -32,6 +36,8 @@ export interface FormState {
   reasonText: string
   note: string
   lines: LineForm[]
+  /** The lines of a change of kind (another shape); only the list of the form's kind is validated and sent. */
+  kcLines: KindChangeLine[]
 }
 
 export const emptyLine = (): LineForm => ({ assetId: '', quantity: '1' })
@@ -80,7 +86,7 @@ export const nowZonedLocal = (tz: string = ASSETS_TIME_ZONE): string => isoToZon
 // ---- state -------------------------------------------------------------------------------------------------
 
 export function emptyForm(kind: DocKind, eventTime: string = nowZonedLocal()): FormState {
-  return { kind, from: emptySide(), to: emptySide(), eventTime, reasonCode: '', reasonText: '', note: '', lines: [emptyLine()] }
+  return { kind, from: emptySide(), to: emptySide(), eventTime, reasonCode: '', reasonText: '', note: '', lines: [emptyLine()], kcLines: [emptyKindChangeLine()] }
 }
 
 const s = (v: string | null | undefined): string => v ?? ''
@@ -92,7 +98,9 @@ export function formFromDocument(doc: AssetDocument): FormState {
   const side = (v: ReturnType<typeof sidesOf>['from']): SideForm => ({
     orgUnitId: s(v.orgUnitId), locationId: s(v.locationId), responsibleId: s(v.responsibleId), userId: s(v.userId),
   })
-  const lines = [...doc.lines].sort((a, b) => a.line_no - b.line_no).map((l) => ({ assetId: l.asset_id, quantity: trimZeros(l.quantity) }))
+  const isKc = kind === 'kind_change'
+  const lines = isKc ? [] : [...doc.lines].sort((a, b) => a.line_no - b.line_no).map((l) => ({ assetId: l.asset_id, quantity: trimZeros(l.quantity) }))
+  const kcLines = isKc ? kindChangeLinesFromDocument(doc.lines) : []
   return {
     kind,
     from: side(sides.from),
@@ -102,6 +110,7 @@ export function formFromDocument(doc: AssetDocument): FormState {
     reasonText: s(doc.reason_text),
     note: s(doc.note),
     lines: lines.length > 0 ? lines : [emptyLine()],
+    kcLines: kcLines.length > 0 ? kcLines : [emptyKindChangeLine()],
   }
 }
 
@@ -139,6 +148,14 @@ export function validateForm(f: FormState, cardOf?: (id: string) => LineCard | u
   const errors: Record<string, string> = {}
   const required = 'assets.doc.error.field_required'
   if (zonedLocalToIso(f.eventTime) === null) errors['header.eventTime'] = 'assets.doc.error.eventTimeRequired'
+  if (f.kind === 'kind_change') {
+    // Header: org unit, event time, optional reason text and note; the people and places are per line.
+    if (f.from.orgUnitId === '') errors['side.from.orgUnitId'] = required
+    if (f.reasonText.length > TEXT_MAX) errors['header.reasonText'] = 'assets.doc.error.textTooLong'
+    if (f.note.length > TEXT_MAX) errors['header.note'] = 'assets.doc.error.textTooLong'
+    if (f.kcLines.length < 1 || f.kcLines.length > MAX_LINES) errors['lines'] = 'assets.doc.error.lines_count'
+    return { errors: { ...errors, ...validateKindChangeLines(f.kcLines) } }
+  }
   if (f.from.orgUnitId === '') errors['side.from.orgUnitId'] = required
   if (f.from.responsibleId === '') errors['side.from.responsibleId'] = required
   if (f.kind === 'change') {
@@ -185,6 +202,13 @@ export function buildBody(f: FormState, withKind = true): Record<string, unknown
   if (withKind) body['kind'] = f.kind
   const { from, to } = f
   body['org_unit_id'] = from.orgUnitId
+  if (f.kind === 'kind_change') {
+    opt('reason_text', f.reasonText)
+    body['event_time'] = zonedLocalToIso(f.eventTime)
+    opt('note', f.note)
+    body['lines'] = buildKindChangeLines(f.kcLines)
+    return body
+  }
   switch (f.kind) {
     case 'change':
       opt('location_id', from.locationId)
@@ -230,11 +254,17 @@ const FIELD_KEYS: Record<string, string> = {
 const LINE_FIELD_KEYS: Record<string, string> = { asset_id: 'assetId', quantity: 'quantity' }
 
 /** `{ key, messageId }` for a save refusal; `key` is null when it belongs to the whole form (banner). */
-export function placeError(err: unknown): { key: string | null; messageId: string } {
+export function placeError(err: unknown, form?: DocKind): { key: string | null; messageId: string } {
   const info = documentErrorInfo(err)
   const messageId = documentErrorMessageId(err)
   if (info.reason === 'sides_equal') return { key: 'sides', messageId }
   if (info.reason === 'lines_count') return { key: 'lines', messageId }
+  if (form === 'kind_change' && info.lineNo === undefined && info.reason === 'org_unit_not_active') return { key: 'side.from.orgUnitId', messageId }
+  if (info.lineNo !== undefined && form === 'kind_change') {
+    const field = kindChangeRefusalField(info.reason, info.field, info.side)
+    const i = info.lineNo - 1
+    return { key: field ? `lines.${i}.${field}` : `lines.${i}`, messageId: info.reason === 'not_linked' && (info.side === 'asset' || info.side === 'stock') ? `${messageId}_${info.side}` : messageId }
+  }
   if (info.lineNo !== undefined) {
     const field = info.field !== undefined ? (LINE_FIELD_KEYS[info.field] ?? 'assetId') : info.reason === 'quantity_invalid' ? 'quantity' : undefined
     const i = info.lineNo - 1

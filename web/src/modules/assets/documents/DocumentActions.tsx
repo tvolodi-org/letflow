@@ -32,7 +32,7 @@ export function DocumentActions({ doc, onEdit }: { doc: AssetDocument; onEdit?: 
   const [code, setCode] = useState('')
   const [text, setText] = useState('')
   const [touched, setTouched] = useState(false)
-  const acts = actionsFor(doc.state, can)
+  const acts = actionsFor(doc.state, can, doc.kind)
 
   const close = () => {
     setDlg(null)
