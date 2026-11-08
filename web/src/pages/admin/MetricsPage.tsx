@@ -45,8 +45,10 @@ export default function MetricsPage() {
     return <Navigate to="/instances" replace />
   }
 
-  const rendererState: RendererState = isLoading ? 'loading' : isError ? classifyError(error) : 'success'
-  const showParseError = (error as Error | null)?.message === 'PROM_PARSE_ERROR'
+  // A 200 that is not Prometheus text (for example the SPA fallback page) means this origin does not serve
+  // /metrics: show a "not available" state instead of the generic failure with a useless Retry.
+  const showParseError = isError && (error as Error | null)?.message === 'PROM_PARSE_ERROR'
+  const rendererState: RendererState = isLoading ? 'loading' : isError && !showParseError ? classifyError(error) : 'success'
 
   return (
     <div style={{ padding: '1.5rem' }}>
@@ -61,8 +63,8 @@ export default function MetricsPage() {
         columns={[{ widthPercent: 40 }, { widthPercent: 40 }, { widthPercent: 20 }]}
       >
       {showParseError && (
-        <div style={{ marginBottom: '1rem', padding: '.75rem .9rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-error-border)', background: 'var(--color-error-tint)', color: 'var(--color-error-dark)' }}>
-          Metrics payload could not be parsed as Prometheus exposition text.
+        <div role="status" style={{ marginBottom: '1rem', padding: '.75rem .9rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-error-border)', background: 'var(--color-error-tint)', color: 'var(--color-error-dark)' }}>
+          Metrics are not available on this deployment: the /metrics endpoint did not return Prometheus text.
         </div>
       )}
 
