@@ -38,6 +38,7 @@ VITE_OIDC_AUTHORITY=https://auth-demo.letflow.ai-dala.com/realms/demo-showroom  
 VITE_OIDC_CLIENT_ID=letflow-web                                # web build fallback only
 CORS_ALLOWED_ORIGINS=https://demo.letflow.ai-dala.com          # comma list; empty means no cross-origin caller is allowed
 LETFLOW_DEFAULT_TENANT_SLUG=showroom                           # slug of the tenant the app lands on without ?realm= or a remembered slug, see O5
+LETFLOW_ENV_LABEL=                                             # banner text; empty = no TEST ENVIRONMENT banner, unset = default banner (QA), see O5
 LETFLOW_PLATFORM_TENANT_ID=<uuid printed by demo_platform_bootstrap.sh create>
 ```
 
@@ -64,6 +65,11 @@ the backend to change it, no web rebuild). The root URL and deep links in a fres
 of choice: `?realm=` first, then the slug remembered in the browser session, then this default. Unset or empty keeps the
 constant `bpm-default` (QA and production). A slug that is unknown, inactive or has no realm also falls back to
 `bpm-default`. `https://demo.letflow.ai-dala.com/?realm=showroom` still works; an nginx redirect is no longer needed.
+
+**Environment banner (runtime setting `LETFLOW_ENV_LABEL`).** The yellow banner shows for test-type tenants. Three states:
+unset keeps the default `TEST ENVIRONMENT` banner (QA); set to empty (or blanks) hides it (the demo instance sets it empty);
+set to text shows that text instead (trimmed, at most 40 characters, not translated). The backend serves it as `env_label` in
+`GET /api/tenant-config` and the SPA reads it at load: restart the backend to change it, no web rebuild.
 
 ## O3: a fresh database, the platform tenant and an internal Keycloak URL
 
