@@ -5,7 +5,32 @@ import { metricsApi, parsePrometheusText, type PrometheusMetricFamily, type Prom
 import { P, useAccess, AccessPending } from '@/auth/access'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { classifyError, type RendererState } from '@/utils/classifyError'
+
+const MESSAGES = {
+  en: {
+    title: 'Metrics',
+    refreshing: 'Refreshing…',
+    unavailable: 'Metrics are not available on this deployment: the /metrics endpoint did not return Prometheus text.',
+    unavailableTag: 'Not available',
+    none: 'No metrics are currently exposed.',
+  },
+  ru: {
+    title: 'Метрики',
+    refreshing: 'Обновление…',
+    unavailable: 'Метрики недоступны в этой установке: endpoint /metrics вернул не текст Prometheus.',
+    unavailableTag: 'Недоступно',
+    none: 'Сейчас метрики не публикуются.',
+  },
+  kk: {
+    title: 'Метрикалар',
+    refreshing: 'Жаңартылуда…',
+    unavailable: 'Бұл орнатуда метрикалар қолжетімсіз: /metrics endpoint Prometheus мәтінін қайтармады.',
+    unavailableTag: 'Қолжетімсіз',
+    none: 'Қазір метрикалар жарияланбаған.',
+  },
+} as const
 
 const SAMPLE_COLUMNS: DataTableColumn<PrometheusMetricSample>[] = [
   { id: 'name', header: 'Sample', accessor: (sample) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>{sample.name}</span> },
@@ -36,6 +61,7 @@ export function usePrometheusMetrics(): UseQueryResult<PrometheusMetricFamily[]>
 
 export default function MetricsPage() {
   const access = useAccess()
+  const m = MESSAGES[useUiLocale()]
   const isAllowed = access.can(P.MetricsRead)
   const { data, isLoading, isError, error, isFetching, refetch } = usePrometheusMetrics()
 
@@ -53,8 +79,8 @@ export default function MetricsPage() {
   return (
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '1.25rem' }}>
-        <h2 style={{ margin: 0 }}>Metrics</h2>
-        {isFetching && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-info-dark)' }}>Refreshing…</span>}
+        <h2 style={{ margin: 0 }}>{m.title}</h2>
+        {isFetching && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-info-dark)' }}>{m.refreshing}</span>}
       </div>
 
       <QueryStateBoundary
@@ -63,13 +89,13 @@ export default function MetricsPage() {
         columns={[{ widthPercent: 40 }, { widthPercent: 40 }, { widthPercent: 20 }]}
       >
       {showParseError && (
-        <div role="status" style={{ marginBottom: '1rem', padding: '.75rem .9rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-error-border)', background: 'var(--color-error-tint)', color: 'var(--color-error-dark)' }}>
-          Metrics are not available on this deployment: the /metrics endpoint did not return Prometheus text.
+        <div role="status" style={{ marginBottom: '1rem', padding: '.75rem .9rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-default)', background: 'var(--surface-card)', color: 'var(--text-primary)' }}>
+          <strong>{m.unavailableTag}.</strong> {m.unavailable}
         </div>
       )}
 
       {data && data.length === 0 && (
-        <div style={{ marginTop: '.5rem', color: 'var(--text-secondary)' }}>No metrics are currently exposed.</div>
+        <div style={{ marginTop: '.5rem', color: 'var(--text-secondary)' }}>{m.none}</div>
       )}
 
       {(data ?? []).map((family) => (

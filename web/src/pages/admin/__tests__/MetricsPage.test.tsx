@@ -21,6 +21,7 @@ vi.mock('@/api/metrics', async (importOriginal) => {
 
 import { metricsApi } from '@/api/metrics'
 import MetricsPage from '@/pages/admin/MetricsPage'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { renderWithAccess } from '@/auth/access/testing'
 
 const mockText = vi.mocked(metricsApi.prometheusText)
@@ -73,5 +74,17 @@ describe('MetricsPage', () => {
     mockText.mockResolvedValue('')
     renderPage()
     expect(await screen.findByText('No metrics are currently exposed.')).toBeInTheDocument()
+  })
+
+  it('M6: the not-available banner comes from the catalog (ru) with a text tag', async () => {
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    try {
+      mockText.mockResolvedValue('<!doctype html><html><body>app</body></html>')
+      renderPage()
+      expect(await screen.findByText(/Метрики недоступны в этой установке/)).toBeInTheDocument()
+      expect(screen.getByText('Недоступно.')).toBeInTheDocument()
+    } finally {
+      useUiLocaleStore.getState().setLocaleTransient('en')
+    }
   })
 })
