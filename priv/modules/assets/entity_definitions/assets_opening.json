@@ -1,0 +1,13 @@
+{
+  "name": "assets_opening",
+  "display_name": "Asset opening (header)",
+  "description": "GH #4037 (assets G5 part 1), decision 0083 D3, docs/assets/asset-workflow-documents.md section 1.4. The header of an asset opening document (existing assets enter the register at the posting time of the document). It is written only by module assets (managed type). document_id is the id of the versioned document of Letflow.Documents (decision 0056) that carries the state, the gap-free number and the issued time: no number, status or posted time is stored here. org_unit_id is the issuing org unit (queried; the scope column of decision 0076 R7); every card on a line must belong to it. There is no event_time: an opening is posted at its posting time, never backdated. After issue nothing of the header changes.",
+  "fields": [
+    {"name": "document_id", "type": "string", "required": true, "queried": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "note", "type": "string"}
+  ],
+  "indexes": [
+    {"name": "idx_assets_opening_document_id", "fields": ["document_id"]}
+  ]
+}

@@ -149,6 +149,8 @@ currency. The product never converts between currencies. The money fields stay i
 
 ## 7. Quantity and access
 
+*Opening document (decision 0083, G5 part 1 built, GH #4037): existing cards can be drafted and checked on an opening document (`kind: opening`); it does not post yet, so no asset enters the register through it until part 2.*
+
 ### 7.1 Quantity
 
 The quantity of an asset is the sum of its balance rows in the register (`on_hand`), not a card field. A

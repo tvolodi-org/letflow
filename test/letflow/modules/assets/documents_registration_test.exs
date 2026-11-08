@@ -63,13 +63,13 @@ defmodule Letflow.Modules.Assets.DocumentsRegistrationTest do
     assert Map.keys(reverse.args) -- Map.keys(post.args) == ["reason_code"]
   end
 
-  test "R1 seven document route policies, no new permission atom" do
+  test "R1 eight document route policies, no new permission atom" do
     m = Assets.manifest()
 
     docs =
       Enum.filter(m.route_policies, fn {_, path, _} -> String.starts_with?(path, "/documents") end)
 
-    assert length(docs) == 7
+    assert length(docs) == 8
 
     assert Enum.uniq(for {_, _, perm} <- docs, do: perm) |> Enum.sort() == [
              :AssetsPost,

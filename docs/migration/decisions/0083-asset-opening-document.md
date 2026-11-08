@@ -211,6 +211,14 @@ Each is written from this record after the owner accepts it:
 3. **G5 part 3 (web):** the opening document on the asset documents screen, with the per-line check results.
 4. **G6:** the xlsx import of opening lines (D7) and its UAT scenarios.
 
+**Status of the build (T-1492, GH #4037, REQ-783).** Part 1 is built (assets 0.10.0); the status of this record stays
+"proposed". Deviations from the list above: (a) the external reference pair of D3 is not built (it belongs to the line
+import, G6, and has no check; G6 adds the fields with one more pack bump); (b) issue runs every check of D4 and then
+answers 409 `posting_not_available` (nothing issued, no number), because without the process of part 2 an issued
+opening could never post or be reversed; part 2 removes the refusal; (c) the register-balance half of the "once" rule
+(a non-zero quantity in the register) needs the caller's ledger authorization and goes to part 2; part 1 counts issued,
+non-reversed commission and opening documents.
+
 ## Out of scope
 
 Creating cards from an opening line (D2); depreciation calculation (D-061); import of historical movements; the card's

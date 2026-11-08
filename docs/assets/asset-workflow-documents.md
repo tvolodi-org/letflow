@@ -187,6 +187,18 @@ Line fields: common only.
 
 The ledger reason is filled from `reason_code` and `reason_text`.
 
+### 5a. Opening (G5 part 1 built, assets 0.10.0, GH #4037, decision 0083)
+
+The sixth kind `opening` (prefix AOP, records `assets_opening` and `assets_opening_line`) places existing cards in the
+register at the posting time of the document. Header: `org_unit_id` (required), `note`; there is no `event_time`.
+Line (one per card and placement): `asset_id`, `material_responsible_id`, `quantity` required; `location_id`,
+`actual_user_id` optional. Drafts are saved, replaced, discarded, fetched and listed on the `/documents` routes;
+`POST /documents/:id/check` shows every line's reasons and writes nothing. Reasons per line, in this order:
+`card_not_active`, `duplicate_asset`, `quantity_invalid`, `org_unit_mismatch`, `location_required` /
+`location_not_allowed`, `not_linked`, `employee_not_active` (the `fields` name the key), `asset_already_in_register`
+(any card kind: an issued, not reversed commission or opening holds the asset). Issue repeats the checks and, until
+part 2 adds the process and the posting, answers 409 `posting_not_available` for a clean opening.
+
 ## 6. Conservation of the two-leg causes
 
 Change and hand over post two legs with opposite signs, equal quantity and the same Asset per line. The sign
