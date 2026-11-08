@@ -202,6 +202,12 @@ Line (one per card and placement): `asset_id`, `material_responsible_id`, `quant
 (any card kind: an issued, not reversed commission or opening holds the asset). Issue repeats the checks and, until
 part 2 adds the process and the posting, answers 409 `posting_not_available` for a clean opening.
 
+G6 (assets 0.11.0, T-1493) adds the optional external reference pair `external_ref_system` / `external_ref_id` (both or
+neither, at most 128 characters) on the header and on each line. A header pair is unique among live opening headers
+(409 `external_ref_taken`); a line pair is unique within its document. A PUT replaces the whole document, so a client
+sends back the pair of the header and of every line it loaded; one that omits it drops it. The pair is what the xlsx
+import of lines uses (`docs/assets/asset-xlsx.md`, section 5a).
+
 ## 6. Conservation of the two-leg causes
 
 Change and hand over post two legs with opposite signs, equal quantity and the same Asset per line. The sign

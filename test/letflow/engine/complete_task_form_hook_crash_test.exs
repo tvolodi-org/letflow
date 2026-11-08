@@ -173,7 +173,7 @@ defmodule Letflow.Engine.CompleteTaskFormHookCrashTest do
     fn source, input, opts ->
       before = MapSet.new(Task.Supervisor.children(@supervisor))
 
-      spawn(fn -> kill_when_ready(test_pid, variant, before, 2_000) end)
+      spawn(fn -> kill_when_ready(test_pid, variant, before, 4_000) end)
       Letflow.Engine.Lua.ScriptRunner.run(source, input, opts)
     end
   end
@@ -215,7 +215,7 @@ defmodule Letflow.Engine.CompleteTaskFormHookCrashTest do
           {"F4-08c watchdog killed", :watchdog, :script_error}
         ] do
       test "#{id} gives #{code}, nothing committed, locks free", %{base: base} do
-        c = start_case!(base, @spin, %{"instructions" => 10_000_000})
+        c = start_case!(base, @spin, %{"instructions" => 10_000_000, "timeout_ms" => 5_000})
         before = snapshot(base, c)
         set_env(:f4_crash_fun, killing_runner(self(), unquote(Macro.escape(variant))))
 

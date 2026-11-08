@@ -1,0 +1,109 @@
+# T-1493 (BA, assets G6): the opening-line import refuses bad rows with a constant reason per row and writes nothing for them; a worker without import rights is refused; another company gets the same answer as for an unknown document.
+# Covers REQ-784 criteria 1, 3, 4 and 6 (decision docs/migration/decisions/0083-asset-opening-document.md D7, docs/assets/asset-xlsx.md section 5a).
+# Sources: docs/assets/asset-xlsx.md section 5a (reasons: reference_not_found, reference_inactive, document_not_draft, org_unit_mismatch, lines_count, quantity_invalid); lib/letflow/modules/assets/documents/opening_import.ex (moduledoc);
+# docs/agents/instructions/security-invariants.md INV-5 (not found and forbidden are indistinguishable to a caller who may not know the resource exists).
+#
+# SCREEN GAP (stated, not invented): the asset opening document has no web screen yet (G5 part 3) and the import has no upload screen. Every step is an API step (via: api).
+# ROSTER GAP: the roster has no assets-scope actor and no second company with an assets module. The administrator of SwiftRoute is the importer, the TASK_WORKER of SwiftRoute is the refused worker,
+# and the other company is BilimBaga (its administrator is the only second-company actor with a tenant-wide grant in the roster).
+# NOT UAT-observable: the replay count of a dry run (a unit test counts it); the 101st line needs a file of 100 rows and is covered by the product's own tests (dry and real, 150 rows).
+---
+id: assets-opening-import-2-refusals-and-other-company
+scope: assets
+title: Bad rows of an opening-line file are refused one by one with a fixed reason and nothing is written for them; a worker is refused and another company cannot reach the document
+version: "1.0"
+tags: [assets, opening, import, xlsx, refusal, tenancy]
+
+description: >
+  SwiftRoute has a draft asset opening document "OPEN-1" and imported asset cards. The administrator imports a file of bad rows: an unknown document, an unknown card, an unknown location, an unknown responsible
+  person, a retired card, a quantity of zero, a negative quantity and a quantity that is not a number. Each row is refused with its own fixed reason, a row that is fine in the same file is created, and the
+  document keeps only the good line. A
+  task worker who holds no import right is refused for the whole file. The administrator of another company who names the document "OPEN-1" and a card of SwiftRoute gets the same answer as for an unknown
+  document, and the SwiftRoute document is not changed.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has the assets module installed, the draft opening document "OPEN-1" with one first line, asset cards CARD-1 (active) and CARD-RETIRED (retired), a location and a responsible person with external ids under "erp".
+    check: system_seeded
+    detail: Prepared as in scenario assets-opening-import-1. If a retired card cannot be prepared, report BLOCKED for step 2 only.
+  - description: BilimBaga has the assets module installed and its own masters.
+    check: system_seeded
+    detail: If BilimBaga has no assets module, report BLOCKED for step 5 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator reads the draft document OPEN-1 and notes the line count and the version as D1.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator imports a file of nine rows, all with header_id "OPEN-1" except where stated: R1 header_id "NO-SUCH"; R2 an unknown card; R3 an unknown location; R4 an unknown responsible person;
+      R5 the retired card; R6 quantity 0; R7 quantity -3; R8 quantity "abc"; R9 a good row for CARD-1 with quantity 1. The answer is noted as I1 and the document is read as D2.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator imports a file with an extra column "price". The answer is noted as I2 and the document is read as D3.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: worker
+    action: >
+      The task worker imports a file with one good row. The answer is noted as I3.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: other_admin
+    action: >
+      The administrator of the other company imports a file with one row naming the header "OPEN-1" and the SwiftRoute card CARD-1. The answer is noted as I4; then the SwiftRoute administrator reads OPEN-1 again as D4.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Each bad row is refused with its own fixed reason, the good row is created, and nothing else is written.
+    verification:
+      method: api_response
+      detail: Step 2 answers 200 with nine results in order of the file. R1 to R5 are "reference_not_found" (R1 header_id, R2 asset_id, R3 location_id, R4 material_responsible_id) and "reference_inactive" (R5 asset_id); R6 and R7 are "quantity_invalid"; R8 is "csv_invalid_decimal"; R9 is "created". No result carries the text of a cell. D2 has exactly one more line than D1.
+      evidence: I1, D1 and D2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A bad file silently loads wrong lines or stops at the first problem.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A file with a column that is not a field of the line is refused whole.
+    verification:
+      method: http_status
+      detail: Step 3 answers a 4xx that says the column is not a field of the entity type; D3 equals D2.
+      evidence: I2, D2 and D3.
+    on_fail:
+      severity: MINOR
+      business_impact: Unknown columns such as a price could be ignored or stored.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A worker without the import right is refused and nothing is written.
+    verification:
+      method: http_status
+      detail: Step 4 answers 403; D3 and the document after the step are equal.
+      evidence: I3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone could change the opening balance of the company.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: Another company naming this company's document and card gets the same answer as for an unknown one, and nothing changes.
+    verification:
+      method: api_response
+      detail: Step 5 answers 200 with one result "reference_not_found" (the same as an unknown header) for the other company; D4 equals D3.
+      evidence: I4, D3 and D4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could find out, or change, the data of another company.
+      suggested_action: route_to_elixir_dev

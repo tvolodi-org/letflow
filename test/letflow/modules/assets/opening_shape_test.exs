@@ -32,11 +32,11 @@ defmodule Letflow.Modules.Assets.OpeningShapeTest do
     assert {spec.type_key, spec.line_type, spec.prefix} ==
              {"assets_opening", "assets_opening_line", "AOP"}
 
-    assert spec.header_keys == ~w(org_unit_id note)
+    assert spec.header_keys == ~w(org_unit_id note external_ref_system external_ref_id)
     refute "event_time" in spec.header_keys
 
     assert spec.line_keys ==
-             ~w(asset_id location_id material_responsible_id actual_user_id quantity)
+             ~w(asset_id location_id material_responsible_id actual_user_id quantity external_ref_system external_ref_id)
 
     refute spec.posts?
     assert spec.definition == nil
@@ -82,5 +82,69 @@ defmodule Letflow.Modules.Assets.OpeningShapeTest do
 
     assert {:ok, %{lines: [%{"quantity" => "2.500000000"}]}} =
              refusal(opening(%{"lines" => [line(%{"quantity" => "2.5"})]}))
+  end
+
+  describe "G6 the external reference pair" do
+    test "S-1 both or neither, on the header and on a line" do
+      assert {:error, {"external_ref_pair", %{"field" => "external_ref_id"}}} =
+               refusal(opening(%{"external_ref_system" => "erp"}))
+
+      assert {:error, {"external_ref_pair", %{"line_no" => 1}}} =
+               refusal(opening(%{"lines" => [line(%{"external_ref_id" => "L1"})]}))
+
+      assert {:ok, %{header: %{"external_ref_system" => "erp", "external_ref_id" => "H1"}}} =
+               refusal(opening(%{"external_ref_system" => "erp", "external_ref_id" => "H1"}))
+
+      pair = %{"external_ref_system" => "erp", "external_ref_id" => "L1"}
+
+      assert {:ok, %{lines: [%{"external_ref_id" => "L1"}]}} =
+               refusal(opening(%{"lines" => [line(pair)]}))
+    end
+
+    test "S-2 an empty pair is absent; a bad value is field_invalid" do
+      empty = %{"external_ref_system" => "", "external_ref_id" => ""}
+      assert {:ok, %{header: header}} = refusal(opening(empty))
+      refute Map.has_key?(header, "external_ref_id")
+
+      too_long = %{
+        "external_ref_system" => "erp",
+        "external_ref_id" => String.duplicate("x", 129)
+      }
+
+      assert {:error, {"field_invalid", %{"field" => "external_ref_id"}}} =
+               refusal(opening(too_long))
+
+      control = %{"external_ref_system" => "erp", "external_ref_id" => "a\nb"}
+      assert {:error, {"field_invalid", _}} = refusal(opening(control))
+    end
+
+    test "S-3 two lines of one body with the same pair: the later one is field_invalid" do
+      pair = %{"external_ref_system" => "erp", "external_ref_id" => "L1"}
+
+      assert {:error, {"field_invalid", %{"field" => "external_ref_id", "line_no" => 2}}} =
+               refusal(opening(%{"lines" => [line(pair), line(pair)]}))
+    end
+
+    test "S-4 the other kinds still refuse the pair as field_not_allowed" do
+      body = %{
+        "kind" => "commission",
+        "org_unit_id" => @c,
+        "material_responsible_id" => @b,
+        "event_time" => "2025-01-01T00:00:00Z",
+        "external_ref_system" => "erp",
+        "external_ref_id" => "X",
+        "lines" => [%{"asset_id" => @a, "quantity" => "1"}]
+      }
+
+      assert {:error, {"field_not_allowed", %{"field" => "external_ref_id"}}} = refusal(body)
+    end
+
+    test "S-5 draft validation still accepts quantity 0 and refuses -3" do
+      assert {:ok, %{lines: [%{"quantity" => "0.000000000"}]}} =
+               refusal(opening(%{"lines" => [line(%{"quantity" => "0"})]}))
+
+      assert {:error, {"field_invalid", %{"field" => "quantity"}}} =
+               refusal(opening(%{"lines" => [line(%{"quantity" => "-3"})]}))
+    end
   end
 end

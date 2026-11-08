@@ -51,7 +51,7 @@ defmodule Letflow.Modules.Assets do
   `POST /documents/:id/check` (every line's reasons, writes nothing). Drafts and the checks only: issuing an
   opening answers 409 `posting_not_available` until part 2 adds the process and the ledger cause. No SQL migration.
 
-  **Card holder** (T-1488 / G1-a, version 0.11.0): the card's `org_unit_id` is optional and no longer typed; the
+  **Card holder** (T-1488 / G1-a, version 0.12.0): the card's `org_unit_id` is optional and no longer typed; the
   routes refuse it, a new card has none, and its holder (org unit, location, responsible, user) is read from the
   register. A card with an empty unit is visible to tenant-wide principals only. Relaxing `required` is a class B
   change, so tenants on 0.9.0 are re-seeded (no in-place upgrade). Setting the column by a posting is G2.
@@ -165,7 +165,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.11.0",
+    version: "0.12.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
@@ -303,7 +303,10 @@ defmodule Letflow.Modules.Assets do
         policy: {Letflow.Modules.Assets.LedgerPolicy, :declare}
       }
     },
-    import_functions: [%{entity_type: "assets_card", function: :import_card}]
+    import_functions: [
+      %{entity_type: "assets_card", function: :import_card},
+      %{entity_type: "assets_opening_line", function: :import_opening_line}
+    ]
   )
 
   @doc """
@@ -315,6 +318,15 @@ defmodule Letflow.Modules.Assets do
           {:ok, map()} | {:error, term()}
   def import_card(prefix, entry, ctx),
     do: Letflow.Modules.Assets.Import.import_card(prefix, entry, ctx)
+
+  @doc """
+  The import function of `assets_opening_line` (G6, decision 0083 D7, manifest `:import_functions`): one
+  row of a file into a DRAFT opening document. See `Letflow.Modules.Assets.Documents.OpeningImport`.
+  """
+  @spec import_opening_line(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_opening_line(prefix, entry, ctx),
+    do: Letflow.Modules.Assets.Documents.OpeningImport.row(prefix, entry, ctx)
 
   @impl true
   def router, do: Letflow.Modules.Assets.Router
