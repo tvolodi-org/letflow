@@ -310,7 +310,7 @@ process_definitions = [
 
 document = %{
   "pack_id" => "letflow-assets",
-  "version" => "0.5.0",
+  "version" => "0.6.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
   # Carried for symmetry with export/3's output, which emits it.
   # parse_document/1 never reads this key -- a document omitting it still

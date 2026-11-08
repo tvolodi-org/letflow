@@ -170,8 +170,8 @@ defmodule Letflow.Modules.Assets.CardImportTest do
 
   test "R1: the manifest registers the import function and validates" do
     m = Assets.manifest()
-    assert m.import_functions == [%{entity_type: "assets_card", function: :import_card}]
-    assert m.version == "0.10.0"
+    assert %{entity_type: "assets_card", function: :import_card} in m.import_functions
+    assert m.version == "0.11.0"
     assert Catalog.validate(m) == :ok
     assert Catalog.import_function("assets", "assets_card") == :ok
   end

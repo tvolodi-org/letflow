@@ -189,9 +189,12 @@ As 0079 D6:
 
 As 0079 D5: lines are imported through the managed import path of decision 0077 D5 into a **draft** opening document,
 upsert by external ref only, at most 200 data rows per file (0077 D2), cells holding external ids; an import never
-posts. Template columns (proposal): `document`, `asset`, `location`, `material_responsible`, `actual_user`, `quantity`,
-`external_ref_system`, `external_ref_id`. The asset cell names the card by its external ref (the card import writes
-that pair). This is gap G6 and has its own requirement.
+posts. Template columns (built in G6, T-1493, assets 0.11.0): `header_id`, `asset_id`, `location_id`, `material_responsible_id`,
+`actual_user_id`, `quantity`, `external_ref_system`, `external_ref_id` (an optional `org_unit_id`). They are the entity
+field names, because the core reader maps header cells to entity fields; the proposal's `document` and `asset` are
+`header_id` and `asset_id`. `header_id` names the opening header by its own external ref pair; the asset cell names the
+card by its external ref (the card import writes that pair). The import writes drafts only and does not run the D4
+checks (the check route shows them); a quantity must be above zero for an import. This is gap G6.
 
 ## D8. What the card shows
 
@@ -209,11 +212,13 @@ Each is written from this record after the owner accepts it:
 2. **G5 part 2 (posting):** the cause `opening` in the registration and in `declare/2`, the process definition
    `assets_opening` of D5, the posting with no client event time (D1), reversal (D6).
 3. **G5 part 3 (web):** the opening document on the asset documents screen, with the per-line check results.
-4. **G6:** the xlsx import of opening lines (D7) and its UAT scenarios.
+4. **G6:** the xlsx import of opening lines (D7) and its UAT scenarios. Built in T-1493 (assets 0.11.0): the pair on the
+   header and line, `Documents.upsert_opening_line/4`, `Documents.OpeningImport`, two API-step scenarios under
+   `test/fixtures/uat/scenarios/assets/`.
 
 **Status of the build (T-1492, GH #4037, REQ-783).** Part 1 is built (assets 0.10.0); the status of this record stays
 "proposed". Deviations from the list above: (a) the external reference pair of D3 is not built (it belongs to the line
-import, G6, and has no check; G6 adds the fields with one more pack bump); (b) issue runs every check of D4 and then
+import, G6, and has no check; G6 added the fields with one more pack bump, 0.10.0 > 0.11.0); (b) issue runs every check of D4 and then
 answers 409 `posting_not_available` (nothing issued, no number), because without the process of part 2 an issued
 opening could never post or be reversed; part 2 removes the refusal; (c) the register-balance half of the "once" rule
 (a non-zero quantity in the register) needs the caller's ledger authorization and goes to part 2; part 1 counts issued,

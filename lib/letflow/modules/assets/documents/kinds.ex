@@ -120,12 +120,13 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
       cause: "opening",
       prefix: "AOP",
       device_id: nil,
-      header_keys: ~w(org_unit_id note),
+      header_keys: ~w(org_unit_id note external_ref_system external_ref_id),
       required: ~w(org_unit_id),
       id_keys: ~w(org_unit_id),
       completion_node: nil,
       posts?: false,
-      line_keys: ~w(asset_id location_id material_responsible_id actual_user_id quantity),
+      line_keys:
+        ~w(asset_id location_id material_responsible_id actual_user_id quantity external_ref_system external_ref_id),
       line_required: ~w(asset_id material_responsible_id quantity)
     }
   ]
