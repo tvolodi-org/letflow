@@ -40,6 +40,7 @@ import { stockCountScreens } from './fixtures/stockCounts'
 import { stockCountDiffScreens } from './fixtures/stockCountsDiff'
 import { stockCountPostingScreens } from './fixtures/stockCountsPosting'
 import { queryStatesScreens } from './fixtures/queryStates'
+import { metricsScreens } from './fixtures/metrics'
 import { taskInboxScreens } from './fixtures/taskInbox'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
@@ -284,6 +285,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockCountDiffScreens,
     ...stockCountPostingScreens,
     ...queryStatesScreens,
+    ...metricsScreens,
     ...roleLabelsScreens,
     ...taskInboxScreens,
     ...instancesBoardScreens,
