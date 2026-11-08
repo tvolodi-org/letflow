@@ -70,6 +70,12 @@ the same change that changed the shape. On a build without the assets module (or
 is skipped with `skip assets: ...` and the script still exits 0. The check that an upgrade did not break the chain
 is running this script on the new build.
 
+## Checking an upgrade
+
+After every promote, `scripts/demo/demo_upgrade_check.sh` (snapshot before, verify after) shows that the module upgrade
+chain kept every record, document, posting and balance, and which module is still pending. The builds that break an in-place
+promote and the exit codes are in `docs/runbooks/demo-upgrade-notes.md`.
+
 ## Reset
 
 The script never deletes anything. To start again, drop the tenant (`DELETE /admin/v1/tenants/:id` with the
