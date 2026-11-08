@@ -25,6 +25,8 @@ entity_types = ~w(
   assets_posting_mark
   assets_kind_change
   assets_kind_change_line
+  assets_opening
+  assets_opening_line
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole
@@ -308,7 +310,7 @@ process_definitions = [
 
 document = %{
   "pack_id" => "letflow-assets",
-  "version" => "0.4.0",
+  "version" => "0.5.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
   # Carried for symmetry with export/3's output, which emits it.
   # parse_document/1 never reads this key -- a document omitting it still

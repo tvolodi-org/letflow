@@ -36,7 +36,7 @@ defmodule Letflow.Modules.Assets.KindChangeRegistrationTest do
       assert m.scope_declarations[type] == {:column, "org_unit_id"}
     end
 
-    assert List.last(m.manages_entity_types) == "assets_kind_change_line"
+    assert "assets_kind_change_line" in m.manages_entity_types
     assert Letflow.Modules.Catalog.validate(m) == :ok
   end
 

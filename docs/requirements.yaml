@@ -53486,3 +53486,31 @@ requirements:
       - "7. Later work and questions: section D9 lists the later requirements (G5 part 1 server without posting, G5 part 2 posting, G5 part 3 web, G6 line import), and the section 'Open owner questions' has at least the questions of the role that issues and approves, the second person, the low-value split over several org units (pointing to asset-register.md section 8 question 3), the 'once' rule and whether acquisition_date is required, each with a default."
       - "8. Stale lines: question 1 of section 8 of docs/assets/asset-xlsx.md says the proposal of commission documents typed one by one is withdrawn and points to decision 0083; question 3 of section 8 of docs/assets/asset-register.md is marked for the owner, still unanswered, and says that a hand over of part of a low-value quantity to another org unit is not refused today; git diff --stat origin/main...HEAD lists only these two files, the new record and docs/requirements.yaml."
     depends_on: [REQ-677, REQ-689, REQ-690, REQ-729, REQ-751, REQ-752, REQ-762]
+  - id: REQ-783
+    title: "Assets G5 part 1: the asset opening document, drafts and checks (kind opening, record types, document type AOP, the check route, the widened 'once' rule); no posting"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-782 -- the engine registers the issue; task T-1492 delivers it with Refs on GH #4037 (parts 2 and 3 remain)
+    # Source: task T-1492, decision docs/migration/decisions/0083-asset-opening-document.md (proposed), docs/uat/ba-decisions/T-1486.md gap G5.
+    description: >
+      Part 1 of three of gap G5. Part 2 (later task): the cause opening in the ledger registration and declare/2, the process
+      assets_opening (submit, then approve with distinct_from), the posting with no client event time, the reversal, the
+      register-balance half of the 'once' rule and the removal of the temporary refusal below. Part 3 (later task): the
+      web screen with ru/kk and the screenshot matrix. Part 1 adds the sixth kind opening to the closed kind table (header
+      org_unit_id and note, no event_time; line asset_id, location_id, material_responsible_id, actual_user_id, quantity),
+      the record types assets_opening and assets_opening_line, the document type AOP, the pack and module version bump,
+      save, replace, discard, fetch and list on the existing /documents routes, the per-line checks of decision 0083 D4
+      (module OpeningChecks) with the new route POST /documents/:id/check, and the 'once' rule between commission and
+      opening documents. Issue runs every check and then answers 409 posting_not_available (nothing issued, no number)
+      until part 2. The external reference pair of D3 is left to G6.
+    acceptance_criteria:
+      - "1. The kind table has opening (prefix AOP, header keys org_unit_id and note without event_time, five line keys, posts? false); a body with event_time is field_not_allowed."
+      - "2. An opening is saved, fetched, listed (kind=opening), replaced as a whole and discarded through POST/GET/PUT/DELETE /api/v1/modules/assets/documents with a real token."
+      - "3. POST /documents/:id/check on an opening draft answers 200 ok, header and per-line reasons (card_not_active, duplicate_asset, quantity_invalid, org_unit_mismatch, location_required, location_not_allowed, not_linked, employee_not_active with field, asset_already_in_register) and writes nothing; 409 document_not_draft, 422 unknown_kind for another kind, 404 for an unknown or foreign id."
+      - "4. Issue of an opening with a failing line answers 422 with the first failing line's reason, line_no and field; a clean opening answers 409 posting_not_available, stays a draft and takes no number."
+      - "5. An asset held by an issued, non-reversed commission or opening document is refused asset_already_in_register on an opening line (any card kind) and on a commission line (fixed and intangible); a reversal mark lifts it; a draft never holds."
+      - "6. A low-value asset may be split over placements on several lines; the same placement twice, or a fixed or intangible asset twice, is duplicate_asset on the later line."
+      - "7. Another tenant's document, card, location and employee ids answer like unknown ones (404 and plain check reasons); a caller without AssetsPost gets the refusal of the other document routes."
+      - "8. Module assets is 0.10.0, the pack is 0.5.0 and regenerated, the permission matrix golden and the route-scope pins are updated, and mix letflow.check.static passes."
+    depends_on: [REQ-782, REQ-751, REQ-752, REQ-762]

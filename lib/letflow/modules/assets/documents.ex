@@ -5,7 +5,7 @@ defmodule Letflow.Modules.Assets.Documents do
   the versioned document (`Letflow.Documents`, decision 0056) behind them. It mirrors
   `Letflow.Modules.Stock.Documents`: module `assets` cannot call `stock` (boundary
   Rule 4, and a stock install must not become a precondition of the asset register), so the glue is
-  copied, not shared; `Kinds` is a table of five kinds (C10 commission; C11 change, handover, write off; C15 change of kind, which posts nothing, REQ-759), one issue lock for all of them (so the inventory number checks of a change of kind serialise with every other issue). A shared extraction is a follow-up.
+  copied, not shared; `Kinds` is a table of six kinds (C10 commission; C11 change, handover, write off; C15 change of kind, REQ-759; G5 opening, which cannot be issued yet, see below), one issue lock for all of them (so the inventory number checks of a change of kind serialise with every other issue). A shared extraction is a follow-up.
   Public functions: `save/3`, `replace/4`, `discard/3`, `issue/4` (writes) and `fetch/3`, `list/2`
   (reads); posting and reversal live in `Letflow.Modules.Assets.Documents.Posting`. The tenant is the
   `prefix` argument and nothing else (INV-1); the router derives it from the token.
@@ -29,6 +29,9 @@ defmodule Letflow.Modules.Assets.Documents do
     optional key (`location_id`, `actual_user_id`, `note`) is removed and a line left out is deleted.
     A client sends back every header field and every line field it loaded. The issuing org unit of
     the versioned draft cannot change: a body with another `org_unit_id` is `field_invalid`.
+  * The opening (G5 part 1, decision 0083) is saved, replaced, discarded, fetched and listed like the
+    others; `check/2` shows every line's reasons. `issue/4` runs all its checks and then answers
+    `{:error, :posting_not_available}` (nothing issued, no number): part 2 adds the process and the posting.
   * Replace and discard lock the `documents` row (`FOR UPDATE`) first, the lock `Letflow.Documents`
     takes, so concurrent replace, discard and issue serialise; the draft is re-read under the lock.
   * Issue takes a per-tenant advisory lock (a bound text parameter), runs the checks inside it, makes
@@ -59,6 +62,7 @@ defmodule Letflow.Modules.Assets.Documents do
   alias Letflow.Modules.Assets
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Kinds
+  alias Letflow.Modules.Assets.Documents.OpeningChecks
   alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Assets.Documents.Shape
   alias Letflow.Repo
@@ -188,6 +192,10 @@ defmodule Letflow.Modules.Assets.Documents do
         {:error, reason} -> Repo.rollback(reason)
       end
 
+      # Part 1 of the opening (G5): every check ran, but nothing can post it yet (no process definition,
+      # no ledger cause), so it is not issued. Part 2 deletes this clause.
+      if not issuable?(view.kind), do: Repo.rollback(:posting_not_available)
+
       if Kinds.get(view.kind).posts? do
         case Posting.ensure_active(prefix, Kinds.get(view.kind).definition, activator) do
           :ok -> :ok
@@ -211,11 +219,42 @@ defmodule Letflow.Modules.Assets.Documents do
     end
   end
 
+  defp issuable?("opening"), do: false
+  defp issuable?(_kind), do: true
+
+  defp issue_checks(prefix, %{kind: "opening"} = view), do: Checks.masters(prefix, view)
+
   defp issue_checks(prefix, view) do
     with :ok <- Checks.event_time(view.event_time, now()) do
       Checks.masters(prefix, view)
     end
   end
+
+  @doc """
+  The advisory check of draft `id` of an opening: every check on every line, nothing written, no lock,
+  no number. Returns `{:ok, %{ok: boolean, header: [reason], lines: [%{line_no, reasons, fields}]}}`;
+  `{:error, :not_found}` for an unknown id, `{:error, {"unknown_kind", %{}}}` for another kind and
+  `{:error, :document_not_draft}` for a document that is not a draft. The issue repeats the checks.
+  """
+  @spec check(String.t(), term()) :: {:ok, map()} | {:error, term()}
+  def check(prefix, id) when is_binary(prefix) do
+    with {:ok, id} <- cast(id),
+         {:ok, view} <- fetch(prefix, id),
+         :ok <- opening?(view),
+         :ok <- draft?(view) do
+      result = OpeningChecks.check_all(prefix, view)
+
+      {:ok,
+       %{
+         ok: result.header == [] and Enum.all?(result.lines, &(&1.reasons == [])),
+         header: result.header,
+         lines: result.lines
+       }}
+    end
+  end
+
+  defp opening?(%{kind: "opening"}), do: :ok
+  defp opening?(_view), do: {:error, {"unknown_kind", %{}}}
 
   # A failed start after the issue committed is not an error: the number is spent (gap-free
   # numbering) and the document stays issued (no retry route in C10; the runbook says so).
