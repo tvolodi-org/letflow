@@ -175,6 +175,11 @@ defmodule Letflow.Documents.PrintLayout.Pdf do
     ["0.5 w ", num(x1), " ", num(y), " m ", num(x2), " ", num(y), " l S\n"]
   end
 
+  # A filled rectangle (x, y, width, height), same 1/100 pt units; default fill is black.
+  defp op({:rect, x, y, w, h}, _cids) do
+    [num(x), " ", num(y), " ", num(w), " ", num(h), " re f\n"]
+  end
+
   defp hex_run(cps, cids) do
     for cp <- cps, do: cid4(Map.fetch!(cids, cp))
   end
