@@ -17,7 +17,7 @@ defmodule Letflow.Modules.Assets.PackDriftTest do
   @dir Path.join([File.cwd!(), "priv", "modules", "assets"])
   @types ~w(assets_card assets_commission assets_commission_line assets_change assets_change_line
             assets_handover assets_handover_line assets_writeoff assets_writeoff_line
-            assets_posting_mark assets_kind_change assets_kind_change_line)
+            assets_posting_mark assets_kind_change assets_kind_change_line assets_opening assets_opening_line)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 

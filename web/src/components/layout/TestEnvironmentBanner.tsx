@@ -1,4 +1,5 @@
 import type React from 'react'
+import { getCachedTenantConfig } from '@/auth/tenantConfig'
 import { useTenantContext } from '@/auth/useTenantContext'
 import { useUiLocale, type UiLocale } from '@/i18n/uiLocaleStore'
 
@@ -13,6 +14,11 @@ export function TestEnvironmentBanner(): React.ReactElement | null {
   const locale = useUiLocale()
 
   if (tenantType !== 'test') {
+    return null
+  }
+
+  const envLabel = getCachedTenantConfig().env_label
+  if (envLabel === '') {
     return null
   }
 
@@ -35,7 +41,7 @@ export function TestEnvironmentBanner(): React.ReactElement | null {
         fontSize: '.875rem',
       }}
     >
-      <span style={{ fontWeight: 700 }}>{TEXT[locale].label}</span>
+      <span style={{ fontWeight: 700 }}>{envLabel ?? TEXT[locale].label}</span>
     </div>
   )
 }

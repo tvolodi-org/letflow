@@ -7,20 +7,27 @@
  * TC-ENV04-03: does NOT render banner when tenant_type is null (REQ-470)
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { render, screen, cleanup } from '@testing-library/react'
 expect.extend(jestDomMatchers)
 
 vi.mock('@/auth/useTenantContext')
+vi.mock('@/auth/tenantConfig', () => ({ getCachedTenantConfig: vi.fn() }))
 
 import { TestEnvironmentBanner } from '../TestEnvironmentBanner'
 import { useTenantContext } from '@/auth/useTenantContext'
+import { getCachedTenantConfig } from '@/auth/tenantConfig'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const mockUseTenantContext = vi.mocked(useTenantContext)
+
+const mockConfig = vi.mocked(getCachedTenantConfig)
+const cfg = (env_label?: string) => ({ oidc_authority: 'a', client_id: 'c', ...(env_label === undefined ? {} : { env_label }) })
+
+beforeEach(() => mockConfig.mockReturnValue(cfg()))
 
 afterEach(() => {
   cleanup()
@@ -87,5 +94,29 @@ describe('R7 — banner text and stacking', () => {
     mockUseTenantContext.mockReturnValue(ctx('test'))
     render(<TestEnvironmentBanner />)
     expect(screen.getByTestId('test-environment-banner').style.top).toBe('var(--topbar-height)')
+  })
+})
+
+describe('T-1494 — env_label runtime setting', () => {
+  it('W1: empty env_label hides the banner for a test tenant', () => {
+    mockUseTenantContext.mockReturnValue(ctx('test'))
+    mockConfig.mockReturnValue(cfg(''))
+    const { container } = render(<TestEnvironmentBanner />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('W2: env_label text replaces the default text', () => {
+    mockUseTenantContext.mockReturnValue(ctx('test'))
+    mockConfig.mockReturnValue(cfg('DEMO BETA'))
+    render(<TestEnvironmentBanner />)
+    expect(screen.getByText('DEMO BETA')).toBeVisible()
+    expect(screen.queryByText('TEST ENVIRONMENT')).not.toBeInTheDocument()
+  })
+
+  it('W4: env_label text on a production tenant renders nothing', () => {
+    mockUseTenantContext.mockReturnValue(ctx('production'))
+    mockConfig.mockReturnValue(cfg('DEMO BETA'))
+    const { container } = render(<TestEnvironmentBanner />)
+    expect(container).toBeEmptyDOMElement()
   })
 })

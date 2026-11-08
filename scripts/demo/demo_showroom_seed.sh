@@ -25,6 +25,9 @@
 #     ADMIN_USERNAME is also needed with ACCESS_TOKEN: it is linked to the storekeeper employee (chair of the count).
 #   Optional second administrator (the opening balance needs a second person to approve it):
 #     ACCESS_TOKEN2 or ADMIN2_USERNAME + ADMIN2_PASSWORD (+ ADMIN2_REALM). Without it the opening stays issued.
+#   Optional demo logins made by infra (usernames only, never passwords; each needs one sign-in first, otherwise skipped):
+#     ADMIN_LOGIN_USERNAME  linked to DEMO-E005 (Aigerim Sadykova, Head office); USER_LOGIN_USERNAME to DEMO-E004
+#     (Arman Kassymov, Sales team). demo-smoke is never linked.
 #   Optional tenant creation (platform administrator): PLATFORM_ACCESS_TOKEN + DEMO_REALM + DEMO_HOSTNAME.
 #     Created through POST /api/v1/onboarding when TENANT_SLUG does not exist. The realm and the Keycloak
 #     accounts are infra's job (D-016, D-018); this script never creates them.
@@ -57,6 +60,16 @@ ADMIN_USERNAME="${ADMIN_USERNAME:-}"
 [[ -z "$ADMIN_USERNAME" || "$ADMIN_USERNAME" =~ ^[A-Za-z0-9_.@-]+$ ]] || fail_input "ADMIN_USERNAME has unexpected characters"
 ADMIN2_USERNAME="${ADMIN2_USERNAME:-}"
 [[ -z "$ADMIN2_USERNAME" || "$ADMIN2_USERNAME" =~ ^[A-Za-z0-9_.@-]+$ ]] || fail_input "ADMIN2_USERNAME has unexpected characters"
+ADMIN_LOGIN_USERNAME="${ADMIN_LOGIN_USERNAME:-}"
+[[ -z "$ADMIN_LOGIN_USERNAME" || "$ADMIN_LOGIN_USERNAME" =~ ^[A-Za-z0-9_.@-]+$ ]] || fail_input "ADMIN_LOGIN_USERNAME has unexpected characters"
+USER_LOGIN_USERNAME="${USER_LOGIN_USERNAME:-}"
+[[ -z "$USER_LOGIN_USERNAME" || "$USER_LOGIN_USERNAME" =~ ^[A-Za-z0-9_.@-]+$ ]] || fail_input "USER_LOGIN_USERNAME has unexpected characters"
+for _v in ADMIN_LOGIN_USERNAME USER_LOGIN_USERNAME; do   # a user belongs to one employee
+  [ -z "${!_v}" ] || { [ "${!_v}" != "$ADMIN_USERNAME" ] && [ "${!_v}" != "$ADMIN2_USERNAME" ]; } \
+    || fail_input "$_v must not equal ADMIN_USERNAME or ADMIN2_USERNAME (a user belongs to one employee)"
+done
+[ -z "$ADMIN_LOGIN_USERNAME" ] || [ "$ADMIN_LOGIN_USERNAME" != "$USER_LOGIN_USERNAME" ] \
+  || fail_input "ADMIN_LOGIN_USERNAME and USER_LOGIN_USERNAME must differ"
 [[ "${ADMIN_REALM:-x}" =~ ^[A-Za-z0-9_.-]+$ && "${ADMIN2_REALM:-x}" =~ ^[A-Za-z0-9_.-]+$ ]] || fail_input "realm has unexpected characters"
 
 API="${BASE_URL%/}/api/v1"
@@ -240,7 +253,7 @@ E_ACC=$(employee "${TAG}-E005" "Aigerim Sadykova" "$U_HQ")     # accountant
 
 # A count needs a chair with a user (chair_without_user); the accounts exist after the first sign-in.
 LINKED_KEEP=0
-link_user() { # username employee_id label
+link_user() { # username employee_id label [soft]
   local uid
   [ -n "$1" ] || { log "skip link $3: no username given"; return 0; }
   api GET "/identity/users?search=$1&page_size=50"
@@ -250,7 +263,7 @@ link_user() { # username employee_id label
   api PATCH "/modules/org/employees/$2" "$(jq -nc --arg u "$uid" --arg k "$(key "link:$3")" '{user_id:$u, idempotency_key:$k}')"
   case "$STATUS" in
     200) log "ok   $3 linked to a user account" ;;
-    *) die "link $3: HTTP $STATUS $(reason)" ;;
+    *) if [ "${4:-}" = soft ]; then log "note link $3: HTTP $STATUS $(reason) (optional link, continuing)"; else die "link $3: HTTP $STATUS $(reason)"; fi ;;
   esac
   return 0
 }
@@ -259,6 +272,9 @@ if [ "$HAVE_ADMIN2" = 1 ]; then
   AUTH_USE="$AUTH2_CFG"; api GET /me/modules; AUTH_USE="$AUTH_CFG"   # the account exists after one request
   link_user "$ADMIN2_USERNAME" "$E_SALES" "sales-manager"
 fi
+# The logins infra made for the owner and clients (optional, soft): the accounts exist after their first sign-in.
+link_user "$ADMIN_LOGIN_USERNAME" "$E_ACC" "admin-login" soft
+link_user "$USER_LOGIN_USERNAME" "$E_SALES2" "user-login" soft
 
 # ---------------------------------------------------------------------------------------------
 # 3. location tree
@@ -675,6 +691,8 @@ log "== done. Data set '$DEMO_TAG' on tenant '$TENANT_SLUG': codes start with $T
   echo "Demo logins (passwords are kept by the operator, never printed):"
   echo "  ${ADMIN_USERNAME:-<token user>}   tenant administrator; storekeeper Saule Zhumabek, chair of the count"
   [ -z "$ADMIN2_USERNAME" ] || echo "  $ADMIN2_USERNAME   second administrator; sales manager Dana Omarova, approves the opening balance"
+  [ -z "$ADMIN_LOGIN_USERNAME" ] || echo "  $ADMIN_LOGIN_USERNAME   organisation administrator; linked to Aigerim Sadykova (Head office)"
+  [ -z "$USER_LOGIN_USERNAME" ] || echo "  $USER_LOGIN_USERNAME   task worker; linked to Arman Kassymov (Sales team)"
   echo "Scanner codes: $BC_LAPTOP, $BC_CEMENT, $BC_MILK; location QR: $QR_R1 (Rack 01)"
   echo "Open first: Stock balances, Movements journal, Documents (every kind), the stock count (Inv-10 / Inv-18 print), Asset cards."
 }

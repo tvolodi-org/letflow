@@ -155,7 +155,10 @@ No answer is given here to any of them.
 
 1. How old assets are placed into the register in bulk: by an xlsx import of commission lines into draft
    commission documents, or by an asset opening document reusing decision 0079 D1 to D6. Source: decision 0079
-   Q4. This file proposes commission documents typed one by one in the first version (UAT assumption).
+   Q4. Superseded (T-1486, REQ-782): a commission cannot carry an old date (0073 D-T), so old assets are placed by
+   the asset opening document of decision 0083 (proposed, to be accepted at the gate of phase C): the cards come in
+   by this import first, then opening lines place them, typed or imported. The earlier proposal of commission
+   documents typed one by one is withdrawn.
 2. Whether one asset list file that joins card and register values (the government list of `assets.md`) is an
    export of this item or a report of phase E. Source: `assets.md`, section "Reports and import".
 3. Whether 200 rows per file (0077 D2, a UAT assumption) is enough for an asset list. Source: decision 0077 D2.

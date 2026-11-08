@@ -22,13 +22,14 @@ defmodule Letflow.Modules.Assets.Router do
   | `PUT /documents/:id` | `AssetsPost` | `Documents.replace/4` | 200 document |
   | `DELETE /documents/:id` | `AssetsPost` | `Documents.discard/3` | 204 |
   | `POST /documents/:id/issue` | `AssetsPost` | `Documents.issue/4` | 200 document (starts the posting instance) |
+  | `POST /documents/:id/check` | `AssetsPost` | `Documents.check/2` | 200 `ok, header, lines` (opening drafts only; writes nothing) |
   | `POST /documents/:id/reverse` | `AssetsReverse` | `Posting.reverse/6` | 200 document (starts the reversal instance) |
   | `GET /documents` | `AssetsRead` | `Documents.list/2` | 200 `rows, next_cursor` |
   | `GET /documents/:id` | `AssetsRead` | `Documents.fetch/3` | 200 document |
 
   Refusals: not found (malformed, unknown, discarded and other-tenant ids, one body) 404; 409
   `document_not_draft`, `document_not_posted`, `document_reversed`, `reversal_pending`,
-  `posting_inconsistent`, `definition_not_active`; 503 `busy`; 422 with a fixed `reason` (and only the
+  `posting_inconsistent`, `definition_not_active`, `posting_not_available` (an opening cannot be issued yet); 503 `busy`; 422 with a fixed `reason` (and only the
   extension keys `field` / `line_no`) for shape, master and reason refusals; 500 without detail. The
   tenant is `Access.check/2`'s prefix only, never a path or body key (INV-1, INV-10).
 
@@ -230,6 +231,15 @@ defmodule Letflow.Modules.Assets.Router do
     end)
   end
 
+  authz_post "/documents/:id/check", :AssetsPost do
+    with_doc_access(conn, :post, fn conn, access ->
+      case Documents.check(access.prefix, conn.params["id"]) do
+        {:ok, result} -> Response.ok(conn, result)
+        {:error, reason} -> doc_refuse(conn, reason)
+      end
+    end)
+  end
+
   authz_post "/documents/:id/reverse", :AssetsReverse do
     with_doc_access(conn, :reverse, fn conn, access ->
       case read_authorized(conn) do
@@ -325,7 +335,7 @@ defmodule Letflow.Modules.Assets.Router do
   defp doc_render(conn, {:error, reason}, _status), do: doc_refuse(conn, reason)
 
   @doc_conflicts ~w(document_not_draft document_not_posted document_reversed reversal_pending
-                    posting_inconsistent definition_not_active)a
+                    posting_inconsistent definition_not_active posting_not_available)a
 
   defp doc_refuse(conn, :not_found), do: Response.not_found(conn)
 

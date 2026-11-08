@@ -20,7 +20,10 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
   location rule of the card kind (`location_not_allowed` for intangible, `location_required` for fixed
   and low value), the location is active and linked to the org unit (`not_linked`), and a fixed or
   intangible asset is not already in the register (`asset_already_in_register`: another commission
-  document that is issued and not reversed holds it). A master retired between this check and the
+  document that is issued and not reversed holds it; since G5 part 1 an issued, non-reversed opening
+  document holds it too). `masters/2` of an opening runs
+  `Letflow.Modules.Assets.Documents.OpeningChecks` (every line, reasons per line; the first failure is
+  the refusal). A master retired between this check and the
   posting is not caught until slice L7 (runbook).
   """
 
@@ -61,6 +64,15 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
 
   @doc "Runs the master checks of `view` (the document map of `Letflow.Modules.Assets.Documents`)."
   @spec masters(String.t(), map()) :: :ok | refusal()
+  def masters(prefix, %{kind: "opening"} = view) do
+    case Letflow.Modules.Assets.Documents.OpeningChecks.first_failure(
+           Letflow.Modules.Assets.Documents.OpeningChecks.check_all(prefix, view)
+         ) do
+      nil -> :ok
+      {reason, extras} -> {:error, {reason, extras}}
+    end
+  end
+
   def masters(prefix, %{kind: "kind_change"} = view),
     do: Letflow.Modules.Assets.Documents.KindChangeChecks.run(prefix, view)
 
@@ -217,13 +229,24 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
   end
 
   defp card(prefix, asset_id, extras) do
-    case ReadApi.lookup(prefix, asset_id, ["assets_card"]) do
-      {:ok, %{"active" => true} = card} -> {:ok, card}
-      _unknown_or_retired -> {:error, {"card_not_active", extras}}
+    case card_lookup(prefix, asset_id) do
+      {:ok, card} -> {:ok, card}
+      :error -> {:error, {"card_not_active", extras}}
     end
   end
 
-  defp quantity_ok?(kind, quantity) do
+  @doc false
+  @spec card_lookup(String.t(), term()) :: {:ok, map()} | :error
+  def card_lookup(prefix, asset_id) do
+    case ReadApi.lookup(prefix, asset_id, ["assets_card"]) do
+      {:ok, %{"active" => true} = card} -> {:ok, card}
+      _unknown_or_retired -> :error
+    end
+  end
+
+  @doc false
+  @spec quantity_ok?(term(), term()) :: boolean()
+  def quantity_ok?(kind, quantity) do
     case Decimal.parse(to_string(quantity)) do
       {%Decimal{} = q, ""} ->
         whole? = Decimal.equal?(Decimal.round(q, 0), q)
@@ -256,12 +279,26 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
 
   defp in_register(_prefix, _card, _asset_id, _extras), do: :ok
 
-  defp held?(prefix, asset_id) do
+  # The documents that can hold an asset in the register: a commission and (G5) an opening.
+  @holders [
+    {"assets_commission", "assets_commission_line"},
+    {"assets_opening", "assets_opening_line"}
+  ]
+
+  @doc false
+  @spec held?(String.t(), term()) :: boolean()
+  def held?(prefix, asset_id) do
+    Enum.any?(@holders, fn {header_type, line_type} ->
+      held_by?(prefix, asset_id, header_type, line_type)
+    end)
+  end
+
+  defp held_by?(prefix, asset_id, header_type, line_type) do
     header_ids =
       Repo.all(
         from(l in Latest,
           where:
-            l.entity_type == "assets_commission_line" and not l.deleted and
+            l.entity_type == ^line_type and not l.deleted and
               fragment("?->>'asset_id' = ?", l.field_values, ^asset_id),
           select: fragment("?->>'header_id'", l.field_values)
         ),
@@ -275,20 +312,19 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
       end)
       |> Enum.uniq()
 
-    doc_ids = document_ids(prefix, header_ids)
+    doc_ids = document_ids(prefix, header_type, header_ids)
     issued = issued_ids(prefix, doc_ids)
     marks = Posting.marks(prefix, issued)
 
     Enum.any?(issued, fn id -> not Map.has_key?(Map.get(marks, id, %{}), "reversed") end)
   end
 
-  defp document_ids(_prefix, []), do: []
+  defp document_ids(_prefix, _header_type, []), do: []
 
-  defp document_ids(prefix, header_ids) do
+  defp document_ids(prefix, header_type, header_ids) do
     Repo.all(
       from(h in Latest,
-        where:
-          h.entity_type == "assets_commission" and not h.deleted and h.record_id in ^header_ids,
+        where: h.entity_type == ^header_type and not h.deleted and h.record_id in ^header_ids,
         select: fragment("?->>'document_id'", h.field_values)
       ),
       prefix: prefix

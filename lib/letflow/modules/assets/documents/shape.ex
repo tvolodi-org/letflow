@@ -21,13 +21,15 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
   `catalog_lot_id` or `actual_user_id` is absent), `target_kind` is `low_value` or `fixed`,
   `inventory_number` (1..64 bytes) and `asset_name` (1..200 bytes) are NFC trimmed text, and an absent
   `asset_org_unit_id` is the header's org unit. `asset_card_id` is server-set and `field_not_allowed`.
+  An opening (G5 part 1) has no `event_time`; its line is `asset_id`, `quantity`, `material_responsible_id`
+  and the optional `location_id` and `actual_user_id` (an empty one is absent).
   """
 
   alias Letflow.Modules.Assets.Documents.Kinds
 
   @max_lines 100
   @note_max 500
-  @line_optional_empty ~w(catalog_lot_id actual_user_id)
+  @line_optional_empty ~w(catalog_lot_id actual_user_id location_id)
   @target_kinds ~w(low_value fixed)
   @inventory_number_max 64
   @asset_name_max 200
@@ -54,10 +56,10 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
          :ok <- required(body, spec),
          {:ok, header} <- header(body, spec),
          {:ok, header} <- reason(header, spec),
-         {:ok, event_time} <- event_time(body["event_time"]),
+         {:ok, header} <- with_event_time(header, body, spec),
          {:ok, raw_lines} <- raw_lines(body["lines"]),
          {:ok, lines} <- lines(raw_lines, spec, header) do
-      {:ok, %{kind: kind, header: Map.put(header, "event_time", event_time), lines: lines}}
+      {:ok, %{kind: kind, header: header, lines: lines}}
     end
   end
 
@@ -179,6 +181,17 @@ defmodule Letflow.Modules.Assets.Documents.Shape do
   end
 
   def parse_event_time(_other), do: :error
+
+  # The opening header has no `event_time` (decision 0083 D1): with the key absent from the kind's
+  # `header_keys` a body carrying it is already `field_not_allowed`.
+  defp with_event_time(header, body, spec) do
+    if "event_time" in spec.header_keys do
+      with {:ok, event_time} <- event_time(body["event_time"]),
+           do: {:ok, Map.put(header, "event_time", event_time)}
+    else
+      {:ok, header}
+    end
+  end
 
   defp event_time(text) do
     case parse_event_time(text) do

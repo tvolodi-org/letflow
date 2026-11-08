@@ -24,6 +24,8 @@ export interface TenantConfig {
   branding?: Branding
   /** REQ-470: 'test' | 'production'; absent or null when the tenant is unknown. */
   tenant_type?: 'production' | 'test' | null
+  /** T-1494: instance banner label. Absent = default banner text; '' = no banner. */
+  env_label?: string
 }
 
 let _cachedConfig: TenantConfig | null = null

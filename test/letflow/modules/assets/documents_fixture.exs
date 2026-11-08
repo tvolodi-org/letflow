@@ -253,7 +253,9 @@ defmodule Letflow.AssetsDocsFixture do
               "assets_handover",
               "assets_handover_line",
               "assets_writeoff",
-              "assets_writeoff_line"
+              "assets_writeoff_line",
+              "assets_opening",
+              "assets_opening_line"
             ] and not r.deleted
         ),
         :count,
@@ -315,6 +317,67 @@ defmodule Letflow.AssetsDocsFixture do
       },
       extra
     )
+  end
+
+  @doc "A valid opening body for `m` (G5): one fixed card at the location, quantity 1."
+  def opening_body(m, extra \\ %{}) do
+    Map.merge(
+      %{
+        "kind" => "opening",
+        "org_unit_id" => m.unit,
+        "note" => "opening balance",
+        "lines" => [opening_line(m, m.fixed)]
+      },
+      extra
+    )
+  end
+
+  @doc "An opening line of `asset` at `m`'s place; `extra` overrides keys."
+  def opening_line(m, asset, extra \\ %{}) do
+    Map.merge(
+      %{
+        "asset_id" => asset,
+        "location_id" => m.location,
+        "material_responsible_id" => m.employee,
+        "actual_user_id" => m.employee2,
+        "quantity" => "1"
+      },
+      extra
+    )
+  end
+
+  @doc """
+  Issues the saved draft `id` straight through `Letflow.Documents` (the route refuses an opening in
+  part 1, so a test that needs an issued opening goes around it). Returns the issued version.
+  """
+  def issue_directly!(ctx, id) do
+    {:ok, issued} =
+      Letflow.Documents.issue(ctx.schema, %{document_id: id, actor_id: Ecto.UUID.generate()})
+
+    issued
+  end
+
+  @doc "Writes the `reversed` posting mark of document `id` (as the reversal handler does)."
+  def mark_reversed!(ctx, id, type_key, unit) do
+    {:ok, _} =
+      Letflow.Entities.Records.create_record(
+        %{
+          entity_type: "assets_posting_mark",
+          field_values: %{
+            "document_id" => id,
+            "document_type" => type_key,
+            "version_no" => 1,
+            "mark" => "reversed",
+            "org_unit_id" => unit
+          },
+          actor_id: Ecto.UUID.generate(),
+          idempotency_key: Ecto.UUID.generate()
+        },
+        ctx.schema,
+        Letflow.Entities.ManagedTypes.owner_for!(Letflow.Modules.Assets)
+      )
+
+    :ok
   end
 
   @doc "A second place in `schema`: unit, linked location, one employee."

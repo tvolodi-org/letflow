@@ -45,7 +45,13 @@ defmodule Letflow.Modules.Assets do
   same `correlation_id`. The card ids are derived by the platform (`HandlerWrites.next_record_id/1`). The reversal of the
   pair is part 3B.
 
-  **Card holder** (T-1488 / G1-a, version 0.10.0): the card's `org_unit_id` is optional and no longer typed; the
+  **Asset opening document** (G5 part 1, version 0.10.0, GH #4037, decision 0083, proposed): a sixth document kind
+  `opening` (existing cards enter the register at their posting time) on the same `/documents` routes, with record
+  types `assets_opening` and `assets_opening_line`, the document type `assets_opening` (AOP), and the route
+  `POST /documents/:id/check` (every line's reasons, writes nothing). Drafts and the checks only: issuing an
+  opening answers 409 `posting_not_available` until part 2 adds the process and the ledger cause. No SQL migration.
+
+  **Card holder** (T-1488 / G1-a, version 0.11.0): the card's `org_unit_id` is optional and no longer typed; the
   routes refuse it, a new card has none, and its holder (org unit, location, responsible, user) is read from the
   register. A card with an empty unit is visible to tenant-wide principals only. Relaxing `required` is a class B
   change, so tenants on 0.9.0 are re-seeded (no in-place upgrade). Setting the column by a posting is G2.
@@ -89,7 +95,9 @@ defmodule Letflow.Modules.Assets do
     "assets_writeoff_line",
     "assets_posting_mark",
     "assets_kind_change",
-    "assets_kind_change_line"
+    "assets_kind_change_line",
+    "assets_opening",
+    "assets_opening_line"
   ]
 
   # GH #3891 / REQ-751: the document type of the commission (prefix ACM, numbering restarts each year).
@@ -138,6 +146,15 @@ defmodule Letflow.Modules.Assets do
       number_pad: 6,
       legal_entity_required: false,
       declared_fields: %{}
+    },
+    %{
+      key: "assets_opening",
+      owner_module: "assets",
+      numbering_scope: :year,
+      number_prefix: "AOP",
+      number_pad: 6,
+      legal_entity_required: false,
+      declared_fields: %{}
     }
   ]
 
@@ -148,7 +165,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.10.0",
+    version: "0.11.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
@@ -173,6 +190,7 @@ defmodule Letflow.Modules.Assets do
       {"PUT", "/documents/:id", :AssetsPost},
       {"DELETE", "/documents/:id", :AssetsPost},
       {"POST", "/documents/:id/issue", :AssetsPost},
+      {"POST", "/documents/:id/check", :AssetsPost},
       {"POST", "/documents/:id/reverse", :AssetsReverse},
       {"GET", "/documents", :AssetsRead},
       {"GET", "/documents/:id", :AssetsRead}
@@ -189,7 +207,9 @@ defmodule Letflow.Modules.Assets do
       "assets_writeoff_line",
       "assets_posting_mark",
       "assets_kind_change",
-      "assets_kind_change_line"
+      "assets_kind_change_line",
+      "assets_opening",
+      "assets_opening_line"
     ],
     scope_declarations: %{
       "assets_card" => {:column, "org_unit_id"},
@@ -203,7 +223,9 @@ defmodule Letflow.Modules.Assets do
       "assets_writeoff_line" => {:column, "org_unit_id"},
       "assets_posting_mark" => {:column, "org_unit_id"},
       "assets_kind_change" => {:column, "org_unit_id"},
-      "assets_kind_change_line" => {:column, "org_unit_id"}
+      "assets_kind_change_line" => {:column, "org_unit_id"},
+      "assets_opening" => {:column, "org_unit_id"},
+      "assets_opening_line" => {:column, "org_unit_id"}
     },
     write_handlers: [
       %Letflow.Modules.WriteHandlerSpec{

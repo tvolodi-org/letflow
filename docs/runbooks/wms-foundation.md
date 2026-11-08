@@ -683,3 +683,16 @@ the code that holds it; paths are cited without line numbers.
    instance and the next issue answers 409 `definition_not_active` until the module is reinstalled: redraft it.
    Module `assets` needs `catalog_items` and `stock` installed. Two issued documents with the same inventory
    number are not told apart until the card is created (the unique constraint settles it).
+12. **The asset opening document, part 1 (G5, GH #4037, decision 0083, assets 0.10.0).** The sixth document kind `opening`
+   (number `AOP` + `-<year>-<n>`) places existing cards in the register at the posting time of the document. Its header is
+   `org_unit_id` and `note` (no `event_time`: a body carrying one is `field_not_allowed`); a line is `asset_id`,
+   `material_responsible_id`, `quantity` and the optional `location_id` and `actual_user_id` (one line per card and
+   placement; a low-value asset may be split over placements). It is saved, replaced, discarded, fetched and listed on the
+   `/documents` routes. `POST /documents/:id/check` (`AssetsPost`, drafts of an opening only; writes nothing, takes no
+   lock) answers `ok`, the `header` reasons and, per line, all `reasons` and `fields`
+   (`lib/letflow/modules/assets/documents/opening_checks.ex`). Issue runs the same checks and refuses with the first
+   failing line (422 `reason`, `line_no`, `field`); a clean opening answers 409 `posting_not_available` (nothing issued, no
+   number): the process, the posting, the reversal and the register-balance half of "once" are part 2, the web screen is
+   part 3. "Once" in part 1 counts issued, non-reversed commission and opening documents (`asset_already_in_register`,
+   any card kind for an opening). The external reference pair of decision 0083 D3 is not built (it belongs to the line
+   import, G6, one more pack bump). The module upgrade has no window (see `demo-upgrade-notes.md`).

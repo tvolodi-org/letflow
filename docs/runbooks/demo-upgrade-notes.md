@@ -122,7 +122,8 @@ no steps, declares `min_upgradable_from` and `from` lies in `[min_upgradable_fro
 | `locations` 0.4.0 | none | 0.4.0 only | 0.1.0 .. 0.3.0: no path | same |
 | `catalog_items` 0.3.0 | none | 0.3.0 only | 0.1.0, 0.2.0: no path | same |
 | `codes` 0.4.0 | `min_upgradable_from: "0.1.0"` (T-1485) | 0.1.0 .. 0.4.0 | none below 0.1.0 | none: a QA tenant on 0.3.0 (gate-b5) now plans and applies |
-| `assets` 0.10.0 | none | 0.10.0 only | 0.1.0 .. 0.9.0: no path (0.10.0, T-1488, makes `assets_card.org_unit_id` optional: class B, no in-place upgrade) | same: re-seed |
+| `assets` 0.10.0 | none | 0.10.0 only | 0.1.0 .. 0.9.0: no path | same (G5 part 1 bumped 0.9.0 > 0.10.0 without a window: a demo on 0.9.0 refuses asset writes until it is reinstalled or re-seeded, as for the earlier bumps) |
+| `assets` 0.11.0 | none | 0.11.0 only | 0.1.0 .. 0.10.0: no path (0.11.0, T-1488, makes `assets_card.org_unit_id` optional: class B, no in-place upgrade) | same: re-seed |
 
 Every version bump below is therefore a build that breaks an in-place promote of a demo that sits on the version before it,
 unless a window or step was declared with it. Builds that bumped (commit, date, step, subject):
@@ -144,7 +145,9 @@ unless a window or step was declared with it. Builds that bumped (commit, date, 
 | stock | `c3f875e6a` | 2026-11-05 | 0.12.0 > 0.13.0 | printed hand-over documents as PDF |
 | stock | `7b8f4346a` | 2026-11-05 | 0.13.0 > 0.14.0 | voice routes |
 | stock | `a131f14e5` | 2026-11-05 | 0.14.0 > 0.15.0 | storekeeper role permissions |
-| assets | `cd6ddfd22` .. `6df6fc632` | 2026-11-05 .. 2026-11-07 | 0.1.0 > 0.10.0, nine bumps | card write path, expiry reminder, xlsx import, ledger registration, asset documents, `kind_change` document type, card holder from the register (0.10.0, T-1488) |
+| assets | `cd6ddfd22` .. `6df6fc632` | 2026-11-05 .. 2026-11-07 | 0.1.0 > 0.8.0, seven bumps | card write path, expiry reminder, xlsx import, ledger registration, asset documents, `kind_change` document type |
+| assets | G5 part 1 (GH #4037, T-1492) | 2026-11-08 | 0.9.0 > 0.10.0 | `opening` document kind (drafts, `POST /documents/:id/check`), record types `assets_opening` and `assets_opening_line` |
+| assets | T-1488 (GH #3893) | 2026-11-08 | 0.10.0 > 0.11.0 | card holder from the register: `org_unit_id` optional on the card, refused on the card routes |
 | locations | `c1ce8cc22`, `95b2a7ef8`, `b6d91d665`, `cb002500b` | 2026-10-30 .. 2026-11-03 | 0.1.0 > 0.4.0 | location tree, org unit links, write permission |
 | org | `12ae85d3d`, `eaa1f1e49`, `acf6be347` | 2026-10-19 .. 2026-11-03 | 0.1.0 > 0.3.0 | employees as records, routes and write permissions |
 | catalog_items | `e6650bb86`, `83589a94e`, `e77837a71` | 2026-10-19 .. 2026-11-03 | 0.1.0 > 0.3.0 | routes, item tracking policy (none, lot, serial, expiry) |
