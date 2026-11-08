@@ -433,6 +433,12 @@ Each limit names the GH issue or the code that holds it; paths are cited without
     `tenant_wide`, is 200 with the `resolve/2` map; a retired or conflicting code is 200 with the sent value and
     null keys. An unknown code, and an assigned code whose target type is scoped or undeclared (fail closed),
     are the same 404 (`lib/letflow/modules/codes/router.ex`).
+20. **Label route (GH #4017, REQ-779, codes 0.4.0).** `POST /api/v1/modules/codes/labels` (body `code_ids`, 1 to 1000
+    distinct `code_tag` ids, no other key) needs `CodesRead` and answers a PDF (`code-labels.pdf`, A4, 3 x 8 labels,
+    `Letflow.Modules.Codes.Labels`; Code 128 set B for kind `barcode`, QR level M for `qr`). It writes nothing. An id
+    that is not a live `code_tag` of the tenant is the same 404 as an unknown id; a code that cannot be printed (kind
+    `epc` or `tid`, retired, value not encodable, glyph missing, longer than 20 characters) is 422 `entry_invalid`
+    with the index and `entry_reason`, never the value. The sheet size and the 20-character limit are UAT assumptions.
 
 ## Stock module limits
 
