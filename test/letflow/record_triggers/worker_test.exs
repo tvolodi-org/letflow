@@ -206,8 +206,11 @@ defmodule Letflow.RecordTriggers.WorkerTest do
       {summary, _} = Worker.run_tick([schema], 0)
 
       assert summary.claimed == 2 and summary.done == 2
-      assert fetch(schema, r1.id).done_at <= fetch(schema, r2.id).done_at
-      assert fetch(schema, r1.id).claimed_at <= fetch(schema, r2.id).claimed_at
+
+      assert DateTime.compare(fetch(schema, r1.id).done_at, fetch(schema, r2.id).done_at) != :gt
+
+      assert DateTime.compare(fetch(schema, r1.id).claimed_at, fetch(schema, r2.id).claimed_at) !=
+               :gt
     end
 
     test "C3c: a dead earlier row does not block the later one", %{schema: schema} do
@@ -281,7 +284,9 @@ defmodule Letflow.RecordTriggers.WorkerTest do
 
       {_, 2} = Worker.run_tick([a, b], 1)
 
-      assert fetch(b, rb.id).claimed_at <= fetch(a, ra.id).claimed_at
+      # DateTime.compare, not `<=`: `<=` on structs is term order (microsecond before
+      # second), so 54.997532 vs 55.002370 compared as "later" and flaked in CI.
+      assert DateTime.compare(fetch(b, rb.id).claimed_at, fetch(a, ra.id).claimed_at) != :gt
     end
 
     test "C4c: a zero tick budget claims nothing", %{schema: schema} do

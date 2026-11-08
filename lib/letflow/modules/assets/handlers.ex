@@ -32,6 +32,81 @@ defmodule Letflow.Modules.Assets.Handlers do
 
   def post_document(_multi, _ctx, _args), do: {:error, :invalid_arguments}
 
+  # REQ-760: posts a change of kind. In ONE transaction: the mark, one `assets_card` per line (its
+  # id derived by the platform, `HandlerWrites.next_record_id/1`, never taken from the arguments) and
+  # the asset entry (cause `kind_change_in`) whose legs name those cards. `asset` of a posting line in
+  # the arguments is ignored. Created through `HandlerWrites.create/3` only: the `assets_card.created`
+  # audit entry and the `Cards` rules beyond field validation are not run (runbook).
+  @spec post_kind_change(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
+  def post_kind_change(
+        multi,
+        ctx,
+        %{"posting" => %{"cause" => "kind_change_in", "lines" => [_ | _] = lines} = posting} =
+          args
+      ) do
+    with true <- valid_args?(args, {"posted", []}),
+         true <- Enum.all?(lines, &is_map/1),
+         {:ok, multi} <- create_mark(multi, ctx, args, []),
+         {:ok, multi, card_ids} <- create_cards(multi, ctx, lines),
+         {:ok, command} <- kind_change_command(posting, lines, card_ids) do
+      case HandlerWrites.post(multi, ctx, command) do
+        {:ok, multi} -> {:ok, multi}
+        {:error, _contract_error} -> {:error, :not_permitted}
+      end
+    else
+      false -> {:error, :invalid_arguments}
+      :error -> {:error, :invalid_arguments}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def post_kind_change(_multi, _ctx, _args), do: {:error, :invalid_arguments}
+
+  defp create_cards(multi, ctx, lines) do
+    Enum.reduce_while(lines, {:ok, multi, []}, fn line, {:ok, multi, ids} ->
+      to = Map.get(line, "to")
+
+      values = %{
+        "inventory_number" => Map.get(line, "inventory_number"),
+        "name" => Map.get(line, "asset_name"),
+        "kind" => Map.get(line, "target_kind"),
+        "org_unit_id" => if(is_map(to), do: Map.get(to, "org_unit")),
+        "active" => true
+      }
+
+      with {:ok, card_id} <- HandlerWrites.next_record_id(ctx),
+           {:ok, multi} <-
+             HandlerWrites.create(multi, ctx, %{entity_type: "assets_card", field_values: values}) do
+        {:cont, {:ok, multi, [card_id | ids]}}
+      else
+        {:error, _contract_error} -> {:halt, {:error, :not_permitted}}
+      end
+    end)
+    |> case do
+      {:ok, multi, ids} -> {:ok, multi, Enum.reverse(ids)}
+      error -> error
+    end
+  end
+
+  defp kind_change_command(posting, lines, card_ids) do
+    with {:ok, built} <- lines(Enum.zip_with(lines, card_ids, &Map.put(&1, "asset", &2))) do
+      {:ok,
+       %{
+         ledger_id: "assets",
+         cause: "kind_change_in",
+         reason_code: Map.get(posting, "reason_code"),
+         document_type: Map.get(posting, "document_type"),
+         document_id: Map.get(posting, "document_id"),
+         correlation_id: Map.get(posting, "correlation_id"),
+         client_op_id: Map.get(posting, "client_op_id"),
+         device_id: Map.get(posting, "device_id"),
+         client_seq: Map.get(posting, "client_seq"),
+         client_event_time: Map.get(posting, "client_event_time"),
+         lines: built
+       }}
+    end
+  end
+
   @spec reverse_document(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
   def reverse_document(multi, ctx, %{"posting" => %{"cause" => "reversal"}} = args),
     do: run(multi, ctx, args, "reversed", ["reason_code"])

@@ -1,0 +1,175 @@
+{
+  "id": "demo-showroom",
+  "realm": "demo-showroom",
+  "enabled": true,
+  "displayName": "Letflow demo showroom",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "maxFailureWaitSeconds": 900,
+  "roles": {
+    "realm": [
+      {
+        "name": "PLATFORM_ADMIN"
+      },
+      {
+        "name": "PROCESS_DESIGNER"
+      },
+      {
+        "name": "PROCESS_OPERATOR"
+      },
+      {
+        "name": "TASK_WORKER"
+      },
+      {
+        "name": "AGENT_RUNNER"
+      },
+      {
+        "name": "CANDIDATE"
+      },
+      {
+        "name": "TENANT_ADMIN"
+      },
+      {
+        "name": "TENANT_AUDITOR"
+      },
+      {
+        "name": "STOREKEEPER"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "letflow-web",
+      "name": "Letflow Web",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "https://demo.letflow.ai-dala.com/*",
+        "https://demo.letflow.ai-dala.com/auth/callback*"
+      ],
+      "webOrigins": [
+        "https://demo.letflow.ai-dala.com"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://demo.letflow.ai-dala.com/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "letflow-web-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "letflow-web",
+            "included.custom.audience": "",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "letflow-demo-smoke",
+      "name": "Letflow demo smoke and seed (password grant, no browser)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "protocolMappers": [
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "letflow-web-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "letflow-web",
+            "included.custom.audience": "",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "demo-admin",
+      "email": "demo-admin@example.com",
+      "firstName": "Demo",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "realmRoles": [
+        "TENANT_ADMIN"
+      ]
+    },
+    {
+      "username": "demo-admin2",
+      "email": "demo-admin2@example.com",
+      "firstName": "Demo",
+      "lastName": "Approver",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "realmRoles": [
+        "TENANT_ADMIN"
+      ]
+    },
+    {
+      "username": "demo-smoke",
+      "email": "demo-smoke@example.com",
+      "firstName": "Demo",
+      "lastName": "Smoke",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "realmRoles": [
+        "TASK_WORKER"
+      ]
+    }
+  ]
+}

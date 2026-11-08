@@ -216,7 +216,11 @@ defmodule Letflow.Modules.Assets.Router do
 
   authz_post "/documents/:id/issue", :AssetsPost do
     with_doc_access(conn, :post, fn conn, access ->
-      opts = [activator: Letflow.Api.Context.activator(conn), authorized: read_authorized(conn)]
+      opts = [
+        activator: Letflow.Api.Context.activator(conn),
+        authorized: read_authorized(conn),
+        stock_authorized: read_authorized_stock(conn)
+      ]
 
       doc_render(
         conn,
@@ -234,7 +238,8 @@ defmodule Letflow.Modules.Assets.Router do
 
         authorized ->
           who = %{actor_id: access.actor_id, activator: Letflow.Api.Context.activator(conn)}
-          fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized) end
+          opts = [stock_authorized: read_authorized_stock(conn)]
+          fetch = fn prefix, id -> Documents.fetch(prefix, id, authorized, opts) end
 
           result =
             Posting.reverse(
@@ -263,7 +268,8 @@ defmodule Letflow.Modules.Assets.Router do
   authz_get "/documents/:id", :AssetsRead do
     with_doc_access(conn, :read, fn conn, access ->
       authorized = read_authorized(conn)
-      doc_render(conn, Documents.fetch(access.prefix, conn.params["id"], authorized), 200)
+      opts = [stock_authorized: read_authorized_stock(conn)]
+      doc_render(conn, Documents.fetch(access.prefix, conn.params["id"], authorized, opts), 200)
     end)
   end
 
@@ -282,6 +288,15 @@ defmodule Letflow.Modules.Assets.Router do
   # `posting_check`; `nil` when the ledger refuses, and the check is then `nil` too.
   defp read_authorized(conn) do
     case Ledger.authorize(conn, @ledger, :read) do
+      {:ok, authorized} -> authorized
+      :error -> nil
+    end
+  end
+
+  # REQ-760: the stock register read authorization, for the `posting_check` of a change of kind
+  # (`nil`, and the check `nil`, when the caller may not read the stock ledger).
+  defp read_authorized_stock(conn) do
+    case Ledger.authorize(conn, "stock", :read) do
       {:ok, authorized} -> authorized
       :error -> nil
     end

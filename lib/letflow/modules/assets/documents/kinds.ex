@@ -10,14 +10,14 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
   (`%{org_unit, location, material_responsible, actual_user}` or `nil`); the master checks, the posting
   command and the binding check all call it, so they cannot disagree. The commission has a `to` side
   only, the write off a `from` side only, the change and the hand over both (GH #3889 / REQ-753, C11).
-  The fifth kind `kind_change` (GH #3902 / REQ-759, C15) does not post: `posts?` is false, its process
-  definition, ledger cause, device id and completion node are `nil`, and it has NO `sides/2` or
-  `side_fields/2` clause (they are never called for it). `line_keys` and `line_required` say which body
+  The fifth kind `kind_change` (GH #3902 / REQ-759, C15; posts since REQ-760) posts TWO entries (stock
+  `kind_change_out`, assets `kind_change_in`) from `Letflow.Modules.Assets.Documents.KindChangePosting`, so
+  it has NO `sides/2` or `side_fields/2` clause (they are never called for it). `line_keys` and `line_required` say which body
   keys a line accepts and needs, so `Shape` and `Documents` serve every kind from this table.
   """
 
   # The body keys of a change of kind line (REQ-759). `asset_card_id` is a stored, server-set field
-  # (REQ-760 fills it): it is rendered but never accepted.
+  # (derived on read from the asset entry until REQ-760 part B stores it): it is rendered but never accepted.
   @kind_change_line_keys ~w(catalog_item_id catalog_uom_id catalog_lot_id quantity stock_location_id stock_responsible_id target_kind asset_org_unit_id asset_location_id material_responsible_id actual_user_id inventory_number asset_name)
 
   @table [
@@ -97,15 +97,15 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
       kind: "kind_change",
       type_key: "assets_kind_change",
       line_type: "assets_kind_change_line",
-      definition: nil,
-      cause: nil,
+      definition: "assets_kind_change",
+      cause: "kind_change_in",
       prefix: "AKC",
-      device_id: nil,
+      device_id: "assets-kind-change",
       header_keys: ~w(org_unit_id event_time reason_text note),
       required: ~w(org_unit_id event_time),
       id_keys: ~w(org_unit_id),
-      completion_node: nil,
-      posts?: false,
+      completion_node: "post",
+      posts?: true,
       line_keys: @kind_change_line_keys,
       line_required: @kind_change_line_keys -- ~w(catalog_lot_id actual_user_id asset_org_unit_id)
     }

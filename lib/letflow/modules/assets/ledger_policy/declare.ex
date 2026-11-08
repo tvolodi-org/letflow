@@ -14,7 +14,7 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
 
   | cause | `from` | `to` | legs per line |
   |---|---|---|---|
-  | commission | absent | required | `+q` at `to` |
+  | commission, kind_change_in | absent | required | `+q` at `to` |
   | writeoff | required | absent | `-q` at `from` (needs `reason_code`) |
   | change | required | required, same org_unit and location, different responsible or user | `-q` at `from`, `+q` at `to` |
   | handover | required | required, different org_unit or location | `-q` at `from`, `+q` at `to` |
@@ -41,7 +41,7 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
 
   @max_lines 100
   @unit "pcs"
-  @one_leg %{"commission" => :to, "writeoff" => :from}
+  @one_leg %{"commission" => :to, "writeoff" => :from, "kind_change_in" => :to}
   @two_leg ~w(change handover)
   @header [:reason_code, :document_type, :document_id, :related_document_id, :correlation_id]
 
@@ -140,7 +140,9 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
 
   defp reason(_cause, _command), do: :ok
 
-  defp legs("commission", base, _from, to), do: [leg(base, to, false)]
+  defp legs(cause, base, _from, to) when cause in ["commission", "kind_change_in"],
+    do: [leg(base, to, false)]
+
   defp legs("writeoff", base, from, _to), do: [leg(base, from, true)]
   defp legs(_cause, base, from, to), do: [leg(base, from, true), leg(base, to, false)]
 
@@ -171,7 +173,7 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
     end
   end
 
-  defp sides("commission", from, to) when is_nil(from) do
+  defp sides(cause, from, to) when cause in ["commission", "kind_change_in"] and is_nil(from) do
     with {:ok, to} <- side(to), do: {:ok, nil, to}
   end
 

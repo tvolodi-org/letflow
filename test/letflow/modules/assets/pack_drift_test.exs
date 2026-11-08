@@ -95,7 +95,8 @@ defmodule Letflow.Modules.Assets.PackDriftTest do
                "assets_reversal",
                "assets_change",
                "assets_handover",
-               "assets_writeoff"
+               "assets_writeoff",
+               "assets_kind_change"
              ]
 
     assert document["variable_schemas"] == []
