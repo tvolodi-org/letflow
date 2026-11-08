@@ -33,7 +33,7 @@ defmodule Letflow.Modules.Assets.KindChangePostingRegistrationTest do
     assert out.targets == ["stock_posting_mark"] and out.posts_ledger == "stock"
 
     pack = File.read!("priv/modules/assets/pack.json") |> Jason.decode!()
-    assert pack["version"] == "0.4.0"
+    assert pack["version"] == "0.5.0"
     definition = Enum.find(pack["definitions"], &(&1["process_key"] == "assets_kind_change"))
     assert [task] = Enum.filter(definition["graph"]["nodes"], &(&1["node_type"] == "HUMAN_TASK"))
     assert task["id"] == "post"

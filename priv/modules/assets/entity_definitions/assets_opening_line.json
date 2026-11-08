@@ -1,0 +1,21 @@
+{
+  "name": "assets_opening_line",
+  "display_name": "Asset opening (line)",
+  "description": "GH #4037 (assets G5 part 1), decision 0083 D3, docs/assets/asset-workflow-documents.md section 1.4. One line of an asset opening document: one asset card at one placement (location, material responsible, actual user) and a quantity. header_id is the record_id of the assets_opening header (not the document id); the foreign_keys entry fk_assets_opening_line_header_id promotes it to a uuid column with ON DELETE RESTRICT (inert on the soft-delete path). org_unit_id is the header's value copied by the module (queried; the scope column of decision 0076 R7). line_no is the position 1..n. asset_id is the record id of an assets_card; location_id, material_responsible_id and actual_user_id are record ids of modules locations and org (other packs: no foreign key; checked at issue). quantity is an exact decimal (precision 24, scale 9, decimal_strict); the value rule is checked at issue. Written only by module assets; after issue nothing of a line changes.",
+  "fields": [
+    {"name": "header_id", "type": "string", "required": true, "queried": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true},
+    {"name": "line_no", "type": "integer", "required": true},
+    {"name": "asset_id", "type": "string", "required": true},
+    {"name": "location_id", "type": "string"},
+    {"name": "material_responsible_id", "type": "string", "required": true},
+    {"name": "actual_user_id", "type": "string"},
+    {"name": "quantity", "type": "decimal", "required": true, "decimal_precision": 24, "decimal_scale": 9, "decimal_strict": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_assets_opening_line_header_id", "field": "header_id", "references_entity": "assets_opening"}
+  ],
+  "indexes": [
+    {"name": "idx_assets_opening_line_header_id", "fields": ["header_id"]}
+  ]
+}
