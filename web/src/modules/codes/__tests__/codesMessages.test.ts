@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { CODES_UI_LOCALES, codesMessages, resolveUiLocale } from '../codesMessages'
-import { CODE_KINDS, CODE_REASONS, ENTRY_REASONS, STATUSES, TARGET_TYPES } from '../codesModel'
+import {
+  CODE_KINDS, CODE_REASONS, ENTRY_REASONS, LABEL_ENTRY_REASONS, STATUSES, TARGET_TYPES, isPrintable, labelEntryMessageId,
+} from '../codesModel'
+import { rec as labelRec } from './codesTestKit'
 
 const DIR = path.resolve(__dirname, '..')
 
@@ -45,5 +48,22 @@ describe('E2 codesMessages', () => {
     expect(resolveUiLocale(['ru-RU'])).toBe('ru')
     expect(resolveUiLocale(['de', 'kk'])).toBe('kk')
     expect(resolveUiLocale(['de'])).toBe('en')
+  })
+})
+
+describe('E3b label messages and helpers (M1, U1)', () => {
+  it('M1 every label entry reason has a text in all three locales', () => {
+    for (const loc of ['en', 'ru', 'kk'] as const)
+      for (const r of [...LABEL_ENTRY_REASONS, 'unknown']) expect(codesMessages[loc][`codes.labelEntry.${r}`]).toBeTruthy()
+  })
+  it('U1 isPrintable and labelEntryMessageId', () => {
+    const mk = (kind: string, status: string) => labelRec('x', 'code_tag', { kind, status, value: 'v' })
+    expect(isPrintable(mk('barcode', 'assigned'))).toBe(true)
+    expect(isPrintable(mk('qr', 'not_assigned'))).toBe(true)
+    expect(isPrintable(mk('epc', 'not_assigned'))).toBe(false)
+    expect(isPrintable(mk('barcode', 'retired'))).toBe(false)
+    expect(labelEntryMessageId('value_too_long')).toBe('codes.labelEntry.value_too_long')
+    expect(labelEntryMessageId('nope')).toBe('codes.labelEntry.unknown')
+    expect(labelEntryMessageId(undefined)).toBe('codes.labelEntry.unknown')
   })
 })

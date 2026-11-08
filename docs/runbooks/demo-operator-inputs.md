@@ -37,6 +37,7 @@ BPM_IDP_BASE_URL=https://auth-demo.letflow.ai-dala.com         # what GET /api/t
 VITE_OIDC_AUTHORITY=https://auth-demo.letflow.ai-dala.com/realms/demo-showroom   # web build fallback only, see O5
 VITE_OIDC_CLIENT_ID=letflow-web                                # web build fallback only
 CORS_ALLOWED_ORIGINS=https://demo.letflow.ai-dala.com          # comma list; empty means no cross-origin caller is allowed
+LETFLOW_DEFAULT_TENANT_SLUG=showroom                           # slug of the tenant the app lands on without ?realm= or a remembered slug, see O5
 LETFLOW_PLATFORM_TENANT_ID=<uuid printed by demo_platform_bootstrap.sh create>
 ```
 
@@ -56,15 +57,13 @@ kcadm.sh set-password -r demo-showroom --username demo-smoke --new-password "$(c
 from `OIDC_CLIENT_ID` (`Letflow.Routers.TenantConfig`). `VITE_OIDC_AUTHORITY` and `VITE_OIDC_CLIENT_ID` are only the fallback
 when that request fails, so one build serves every promote.
 
-**Limit (finding):** `?host=` has no host-to-tenant binding. A visit to `https://demo.letflow.ai-dala.com/` with no
-`?realm=` and no remembered slug is answered with the constant default realm `bpm-default`
-(`TenantConfig.resolve_realm(nil, _)`), which the demo Keycloak does not have. The public demo link is therefore
-
-`https://demo.letflow.ai-dala.com/?realm=showroom`
-
-(the slug is remembered in the browser session afterwards). Infra may add an nginx redirect of `/` without arguments to that
-link. A deep link opened in a fresh tab without `?realm=` still lands on `bpm-default`. A real fix is a product change and is
-not part of this task.
+**Default tenant (runtime setting `LETFLOW_DEFAULT_TENANT_SLUG`).** `?host=` has no host-to-tenant binding, so a visit
+to `https://demo.letflow.ai-dala.com/` with no `?realm=` and no remembered slug is answered with the default tenant. Set
+`LETFLOW_DEFAULT_TENANT_SLUG=showroom` in the backend environment (a tenant slug, not a realm id; read per request, restart
+the backend to change it, no web rebuild). The root URL and deep links in a fresh tab then land on the showroom realm. Order
+of choice: `?realm=` first, then the slug remembered in the browser session, then this default. Unset or empty keeps the
+constant `bpm-default` (QA and production). A slug that is unknown, inactive or has no realm also falls back to
+`bpm-default`. `https://demo.letflow.ai-dala.com/?realm=showroom` still works; an nginx redirect is no longer needed.
 
 ## O3: a fresh database, the platform tenant and an internal Keycloak URL
 
@@ -95,6 +94,22 @@ roles. Every step can be repeated: `create` finds the slug and prints the same u
 `demo_platform_bootstrap.sh --print-elixir` prints the expression for an operator without the
 script. Exit codes: 0 done, 1 a step failed, 2 bad input.
 
+## First install: the exact order
+
+On an empty database the smoke cannot pass before the seed has made the showroom tenant. Do these in order:
+
+1. **Empty DB boot.** Start the backend on a database with no tenant (`/health` answers; `LETFLOW_PLATFORM_TENANT_ID` is not set yet).
+2. **Realm import.** Import both realm files and set the passwords (O3 table, step 1).
+3. **Platform tenant.** `demo_platform_bootstrap.sh create` (prints `PLATFORM_TENANT_ID=<uuid>`).
+4. **Pin and restart.** Set `LETFLOW_PLATFORM_TENANT_ID`, restart the backend, run `demo_platform_bootstrap.sh finish`, then `verify` (this smoke passes already).
+5. **Platform token.** Mint `PLATFORM_ACCESS_TOKEN` in realm `demo-platform` (O3 table, step 6).
+6. **Seed.** Run the showroom seed; it creates the `showroom` tenant.
+7. **Smoke.** `scripts/demo_smoke_read.sh` (login and authenticated read) must now print `PASS`.
+8. **Repeat.** Every step can be repeated safely.
+
+Before step 6 the showroom smoke exits **3** (`tenant not seeded yet`) by design: `promote-demo.sh` treats exit 3 on a first install as
+"run the seed, then repeat the smoke", and on a later promote (the tenant existed before) as a failure.
+
 ## O2: smoke path and "demo data survived"
 
 **Smoke path.** One authenticated read endpoint: `GET /api/v1/me/modules` (every role may call it; it is tenant-scoped through
@@ -108,7 +123,12 @@ BASE_URL=http://127.0.0.1:3311 KEYCLOAK_URL=https://auth-demo.letflow.ai-dala.co
 ```
 
 Output is one line: `PASS login+read /api/v1/me/modules modules=<n>` (exit 0), or `FAIL login: HTTP <code>` /
-`FAIL read: HTTP <code>` (exit 1); exit 2 is bad input. It never prints the password, token or body. Defaults are in the script
+`FAIL read: HTTP <code>` (exit 1); exit 2 is bad input; exit **3** with `NOT SEEDED: tenant not seeded yet (...)` means the login worked, the
+read answered 401 and the public `GET /api/tenant-config?realm=<slug>` resolves the slug to the default realm (`bpm-default`), i.e. the
+tenant does not exist yet (first install before the seed). The backend answers 401 for a bad token and for a missing tenant alike on
+purpose, so the script asks tenant-config; `SMOKE_TENANT_SLUG` (default `showroom`) and `SMOKE_DEFAULT_REALM` (default `bpm-default`)
+tune that check. Any other 401 stays `FAIL read` (exit 1). `demo_platform_bootstrap.sh verify` passes `SMOKE_TENANT_SLUG=platform`
+(its tenant must be bound to realm `demo-platform`, otherwise a 401 there also reads as exit 3). It never prints the password, token or body. Defaults are in the script
 header; `SMOKE_REALM`, `SMOKE_CLIENT_ID`, `SMOKE_USER`, `SMOKE_READ_PATH` and `EXPECT_JQ` can be overridden. After five wrong
 passwords Keycloak locks the user for a while; the script never retries.
 
@@ -151,7 +171,7 @@ printing and imports, so `proxy_read_timeout 60s` is enough, and `client_max_bod
 
 ## Findings
 
-* The demo root URL needs `?realm=showroom` (see O5).
+* The demo root URL lands on showroom once `LETFLOW_DEFAULT_TENANT_SLUG=showroom` is set (see O5).
 * No internal Keycloak URL (see O3).
 * `Letflow.Release` has no function that creates the platform tenant; the bootstrap script runs an `rpc` expression. Promote it
   into `Release` if infra wants an `eval`-only path.

@@ -31,6 +31,19 @@ export const CODE_REASONS = [
 /** Reasons of one rejected entry of a batch (`entry_reason`). */
 export const ENTRY_REASONS = ['value_invalid', 'kind_invalid', 'duplicate_in_batch', 'value_taken'] as const
 
+/** Kinds the E3a label route can draw (Code 128 and QR); the server stays the authority. */
+export const PRINTABLE_KINDS = ['barcode', 'qr'] as const
+
+/** `entry_reason` values of a rejected label entry (labels.ex). */
+export const LABEL_ENTRY_REASONS = [
+  'kind_not_printable',
+  'code_retired',
+  'value_not_encodable',
+  'unsupported_glyph',
+  'value_too_long',
+  'duplicate_in_batch',
+] as const
+
 export type CodeReason = (typeof CODE_REASONS)[number]
 
 export function textOf(record: EntityRecord, key: string): string {
@@ -103,4 +116,16 @@ export function entryReasonMessageId(entryReason: string | undefined): string {
 /** The code of a target record (falls back to the name). */
 export function targetCode(record: EntityRecord | undefined): string {
   return record ? textOf(record, 'code') || textOf(record, 'name') : ''
+}
+
+/** A code can be put on a label sheet: a printable kind and not retired (mirrors the server's refusals). */
+export function isPrintable(record: EntityRecord): boolean {
+  return (PRINTABLE_KINDS as readonly string[]).includes(textOf(record, 'kind')) && textOf(record, 'status') !== 'retired'
+}
+
+/** The message id of a rejected label entry. */
+export function labelEntryMessageId(entryReason: string | undefined): string {
+  return (LABEL_ENTRY_REASONS as readonly string[]).includes(entryReason ?? '')
+    ? `codes.labelEntry.${entryReason}`
+    : 'codes.labelEntry.unknown'
 }

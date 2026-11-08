@@ -13,10 +13,14 @@
 #   SMOKE_CLIENT_ID      default letflow-demo-smoke (the client with direct grants)
 #   SMOKE_USER           default demo-smoke
 #   SMOKE_READ_PATH      default /api/v1/me/modules
+#   SMOKE_TENANT_SLUG    slug of the tenant the smoke user belongs to, default showroom (T-1482)
+#   SMOKE_DEFAULT_REALM  the realm the public tenant-config answers for an unknown slug, default bpm-default
 #   EXPECT_JQ            jq filter that must be true on the answer,
 #                        default '(.installed_modules | length) >= 1'
 # Output: one line, `PASS login+read <path> modules=<n>` or `FAIL <step>: HTTP <code>`. Never the password, the
-# token or the answer body. Exit 0 pass, 1 fail, 2 bad input (nothing was requested).
+# token or the answer body. Exit 0 pass, 1 fail, 2 bad input (nothing was requested), 3 tenant not seeded yet
+# (login ok, the read answered 401, and the public GET /api/tenant-config?realm=<slug> says the slug has no tenant:
+# a first install before the seed; the backend answers 401 for a bad token and for a missing tenant alike on purpose).
 # Needs: bash, curl, jq, mktemp.
 set -euo pipefail
 set +x
@@ -32,6 +36,8 @@ SMOKE_REALM="${SMOKE_REALM:-demo-showroom}"
 SMOKE_CLIENT_ID="${SMOKE_CLIENT_ID:-letflow-demo-smoke}"
 SMOKE_USER="${SMOKE_USER:-demo-smoke}"
 SMOKE_READ_PATH="${SMOKE_READ_PATH:-/api/v1/me/modules}"
+SMOKE_TENANT_SLUG="${SMOKE_TENANT_SLUG:-showroom}"
+SMOKE_DEFAULT_REALM="${SMOKE_DEFAULT_REALM:-bpm-default}"
 EXPECT_JQ="${EXPECT_JQ:-(.installed_modules | length) >= 1}"
 
 [ -n "${SMOKE_PASSWORD_FILE:-}" ] || fail_input "set SMOKE_PASSWORD_FILE to the file holding the smoke user's password"
@@ -40,6 +46,8 @@ EXPECT_JQ="${EXPECT_JQ:-(.installed_modules | length) >= 1}"
 [[ "$SMOKE_REALM" =~ ^[A-Za-z0-9_.-]+$ ]] || fail_input "SMOKE_REALM has unexpected characters"
 [[ "$SMOKE_CLIENT_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || fail_input "SMOKE_CLIENT_ID has unexpected characters"
 [[ "$SMOKE_USER" =~ ^[A-Za-z0-9_.@-]+$ ]] || fail_input "SMOKE_USER has unexpected characters"
+[[ "$SMOKE_TENANT_SLUG" =~ ^[A-Za-z0-9_.-]+$ ]] || fail_input "SMOKE_TENANT_SLUG has unexpected characters"
+[[ "$SMOKE_DEFAULT_REALM" =~ ^[A-Za-z0-9_.-]+$ ]] || fail_input "SMOKE_DEFAULT_REALM has unexpected characters"
 [[ "$SMOKE_READ_PATH" =~ ^/[A-Za-z0-9_./?=\&-]*$ ]] || fail_input "SMOKE_READ_PATH has unexpected characters"
 
 # The password: strip a trailing CR/LF only; an inner newline means the wrong file.
@@ -72,6 +80,19 @@ unset token
 
 code=$(curl -sS --max-time 30 -o "$RESP" -w '%{http_code}' -K "$WORK/auth.cfg" \
   -H 'Accept: application/json' "${BASE_URL%/}$SMOKE_READ_PATH" || true)
+if [ "${code:-000}" = "401" ]; then
+  # 401 is also what an unseeded tenant answers. Ask the public tenant-config (no token) whether the slug resolves.
+  tc=$(curl -sS --max-time 30 -o "$WORK/tc.json" -w '%{http_code}' -H 'Accept: application/json' \
+    "${BASE_URL%/}/api/tenant-config?realm=$SMOKE_TENANT_SLUG" || true)
+  if [ "${tc:-000}" = "200" ]; then
+    auth=$(jq -r '.oidc_authority // empty' "$WORK/tc.json" 2>/dev/null || true)
+    auth="${auth%/}"
+    if [ -n "$auth" ] && [ "${auth##*/}" = "$SMOKE_DEFAULT_REALM" ]; then
+      printf 'NOT SEEDED: tenant not seeded yet (login ok, slug %s has no tenant; run the seed, then repeat the smoke)\n' "$SMOKE_TENANT_SLUG"
+      exit 3
+    fi
+  fi
+fi
 [ "${code:-000}" = "200" ] || { printf 'FAIL read: HTTP %s\n' "${code:-000}"; exit 1; }
 jq -e "$EXPECT_JQ" "$RESP" >/dev/null 2>&1 || { printf 'FAIL read: HTTP 200 but the answer does not satisfy EXPECT_JQ\n'; exit 1; }
 n=$(jq -r '(.installed_modules // []) | length' "$RESP" 2>/dev/null || echo 0)

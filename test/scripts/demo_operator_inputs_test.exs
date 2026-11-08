@@ -87,7 +87,7 @@ defmodule Letflow.Scripts.DemoOperatorInputsTest do
       need_tools!(~w(bash curl jq mktemp))
       {:ok, _} = Application.ensure_all_started(:inets)
 
-      ctx = S.setup_oidc!([:a, :b])
+      ctx = S.setup_oidc!([:a, :b, :c])
       t = S.tenant!("smk", Map.fetch!(ctx.names, :a))
       empty = S.tenant!("smk0", Map.fetch!(ctx.names, :b), install: false)
       pid = start_supervised!({Bandit, plug: Letflow.Router, port: 0}, id: :router)
@@ -195,10 +195,32 @@ defmodule Letflow.Scripts.DemoOperatorInputsTest do
       assert code == 1
       assert out =~ "FAIL read"
 
+      # S7: the slug resolves to a real tenant, so a rejected token stays a failure, not "not seeded"
       bogus = start_idp_again!(c, "not-a-token")
-      {out, code} = smoke(bogus)
+      {out, code} = smoke(bogus, [{"SMOKE_TENANT_SLUG", c.t.tenant.slug}])
       assert code == 1
       assert out =~ "FAIL read: HTTP 401"
+    end
+
+    @tag timeout: 120_000
+    test "S6 login ok but no tenant for the slug: tenant not seeded yet, exit 3", c do
+      # realm :c has a Keycloak user (the fake IdP) but no tenant; the read answers 401 like a bad token would
+      tok = token(c, :c)
+      c = start_idp!(c, tok)
+      {out, code} = smoke(c, [{"SMOKE_TENANT_SLUG", "never-seeded"}])
+      assert code == 3, out
+      assert out =~ "tenant not seeded yet"
+      refute out =~ "HTTP 401"
+      refute out =~ @canary
+      refute out =~ tok
+    end
+
+    @tag timeout: 120_000
+    test "S8 a slug with unexpected characters exits 2", c do
+      c = start_idp!(c, token(c, :a))
+      {_out, code} = smoke(c, [{"SMOKE_TENANT_SLUG", "a b;c"}])
+      assert code == 2
+      refute_receive {:idp, _, _}, 200
     end
 
     defp start_idp_again!(c, token) do
@@ -426,6 +448,9 @@ defmodule Letflow.Scripts.DemoOperatorInputsTest do
 
       assert readme =~ "BPM_IDP_BASE_URL" and tenant_config =~ "BPM_IDP_BASE_URL"
 
+      assert readme =~ "LETFLOW_DEFAULT_TENANT_SLUG" and
+               tenant_config =~ "LETFLOW_DEFAULT_TENANT_SLUG"
+
       assert readme =~
                "VITE_OIDC_AUTHORITY=https://auth-demo.letflow.ai-dala.com/realms/demo-showroom"
 
@@ -441,6 +466,12 @@ defmodule Letflow.Scripts.DemoOperatorInputsTest do
           ] do
         assert readme =~ needle
       end
+
+      # T-1482: the numbered first-install order and the distinct smoke code
+      assert readme =~ "## First install: the exact order"
+      assert readme =~ "tenant not seeded yet" and readme =~ "exit **3**"
+      assert readme =~ "SMOKE_TENANT_SLUG"
+      assert readme =~ ~r/^1\. \*\*Empty DB boot/m and readme =~ ~r/^7\. \*\*Smoke/m
 
       assert readme =~ "No separate internal Keycloak URL"
       assert readme =~ "no web rebuild per promote"
