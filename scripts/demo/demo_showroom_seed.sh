@@ -642,8 +642,8 @@ if [ "$HAVE_ASSETS" = 1 ]; then
   card() { # number name kind cost
     local have; have=$(card_lookup "$1" || true)
     if [ -n "$have" ]; then log "ok   asset card $1 (exists)"; printf '%s' "$have"; return 0; fi
-    write "$AM/cards" "$(jq -nc --arg n "$1" --arg nm "$2" --arg k "$3" --arg u "$U_WH" --arg c "$4" --arg d "$(date -u -d '-200 days' +%F)" --arg ik "$(key "card:$1")" \
-      '{inventory_number:$n, name:$nm, kind:$k, org_unit_id:$u, acquisition_date:$d, acquisition_cost:$c, book_value:$c, idempotency_key:$ik}')" "asset card $1"
+    write "$AM/cards" "$(jq -nc --arg n "$1" --arg nm "$2" --arg k "$3" --arg c "$4" --arg d "$(date -u -d '-200 days' +%F)" --arg ik "$(key "card:$1")" \
+      '{inventory_number:$n, name:$nm, kind:$k, acquisition_date:$d, acquisition_cost:$c, book_value:$c, idempotency_key:$ik}')" "asset card $1"
   }
   A1=$(card "${TAG}-A-001" "Принтер лазерный HP" fixed "180000")
   A2=$(card "${TAG}-A-002" "Laptop Lenovo T14" fixed "520000")
