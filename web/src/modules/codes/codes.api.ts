@@ -22,6 +22,8 @@ export const codesApi = {
   retire: (id: string, key: string) => client.post<unknown>(`${BASE}/${seg(id)}/retire`, { idempotency_key: key }),
   changeValue: (id: string, value: string, key: string) =>
     client.post<unknown>(`${BASE}/${seg(id)}/value`, { value, idempotency_key: key }),
+  /** E3a label sheet (REQ-779): the body is exactly `code_ids` (the route takes no idempotency key and no tenant). */
+  labels: (codeIds: string[]) => client.postBlob(`${BASE}/labels`, { code_ids: codeIds }),
 }
 
 const MAX_PAGES = 50

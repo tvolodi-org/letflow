@@ -192,3 +192,9 @@ samp {
   .lf-jrn__table .c-kind { max-width: 20ch; }
   .lf-jrn__table .c-st { white-space: nowrap; min-width: 9rem; }
 }
+
+/* Toolbar end group wraps so long ru/kk labels never overflow the viewport (T-1355). */
+.lf-toolbar__end { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+@media (max-width: 600px) {
+  .lf-toolbar__end { width: 100%; }
+}

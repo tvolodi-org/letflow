@@ -8,7 +8,7 @@
  *  Escape. Targets are read through the generic query route (no other module's code is imported). */
 import { useEffect, useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
-import { Search, Plus, X } from 'lucide-react'
+import { Search, Plus, Printer, X } from 'lucide-react'
 import { useAccess } from '@/auth/access/useAccess'
 import { Button } from '@/components/ui/Button'
 import { Checkbox, Radio } from '@/components/ui/Checkbox'
@@ -34,9 +34,12 @@ import {
   CODE_ASSIGNMENT,
   CODE_KINDS,
   CODE_TAG,
+  MAX_BATCH,
   STATUSES,
   TARGET_TYPES,
   entryReasonMessageId,
+  isPrintable,
+  labelEntryMessageId,
   parseLines,
   reasonOf,
   targetCode,
@@ -44,6 +47,7 @@ import {
 } from './codesModel'
 import { CODES_WRITE } from './codesPermissions'
 import { useCodesWrite } from './useCodesWrite'
+import { useLabelsPrint } from './useLabelsPrint'
 import { formatDate } from '@/i18n/format'
 
 type Cmd =
@@ -83,6 +87,17 @@ export interface CodesInitial {
   selectedId?: string
   receive?: boolean
   assignId?: string
+  /** Codes ticked for printing at first render. */
+  labelIds?: string[]
+  /** Show the limit hint at first render. */
+  labelLimit?: boolean
+  /** Start with a failed label request: a rejected entry (422) or a gone code (404). */
+  labelFailure?: 'entry' | 'notFound'
+}
+
+const HARNESS_FAILURES = {
+  entry: { status: 422, message: 'x', code: '422', details: { reason: 'entry_invalid', index: 1, entry_reason: 'value_too_long' } },
+  notFound: { status: 404, message: 'x', code: '404', details: {} },
 }
 
 function CodesInner({ initial }: { initial?: CodesInitial }) {
@@ -106,6 +121,10 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
   const [draft, setDraft] = useState<{ id: string; value: string } | null>(null)
   const [retiring, setRetiring] = useState<EntityRecord | null>(null)
   const [lastOp, setLastOp] = useState<Cmd['op'] | null>(null)
+  const [labelIds, setLabelIds] = useState<string[]>(initial?.labelIds ?? [])
+  const [limitHint, setLimitHint] = useState(initial?.labelLimit ?? false)
+  const [sentIds, setSentIds] = useState<string[]>(initial?.labelIds ?? [])
+  const labels = useLabelsPrint(initial?.labelFailure ? HARNESS_FAILURES[initial.labelFailure] : null)
 
   const rows = useCodeRows(CODE_TAG, `status:${status}|value:${valueFilter}`, [
     DELETED_FALSE,
@@ -117,6 +136,12 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
     const loaded = rows.data ?? []
     return showRetired || status === 'retired' ? loaded : loaded.filter((c) => textOf(c, 'status') !== 'retired')
   }, [rows.data, showRetired, status])
+  // Ticked ids that left the list (filter changed, code retired or gone) are dropped: no ghost id is sent.
+  const codeIds = useMemo(() => new Set(codes.map((c) => c.record_id)), [codes])
+  const ticked = labelIds.filter((id) => codeIds.has(id))
+  const printable = codes.filter(isPrintable)
+  const someNotPrintable = printable.length < codes.length
+  const allTicked = printable.length > 0 && printable.every((c) => ticked.includes(c.record_id))
   const selected = codes.find((c) => c.record_id === selectedId) ?? null
   const assigning = codes.find((c) => c.record_id === assigningId) ?? null
   const anyAssigned = codes.some((c) => textOf(c, 'status') === 'assigned')
@@ -185,6 +210,31 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
 
   function retry() {
     for (const q of [rows, open, historyRows, ...targetQueries]) void q.refetch()
+  }
+
+  function tickRow(id: string, on: boolean) {
+    labels.clearError()
+    if (!on) return setLabelIds(ticked.filter((x) => x !== id))
+    if (ticked.length >= MAX_BATCH) return setLimitHint(true)
+    setLimitHint(false)
+    setLabelIds([...ticked, id])
+  }
+
+  function tickAll(on: boolean) {
+    labels.clearError()
+    if (!on) {
+      setLimitHint(false)
+      return setLabelIds([])
+    }
+    const ids = printable.map((c) => c.record_id)
+    setLimitHint(ids.length > MAX_BATCH)
+    setLabelIds(ids.slice(0, MAX_BATCH))
+  }
+
+  async function printLabels(ids: string[]) {
+    setSentIds(ids)
+    const result = await labels.print(ids)
+    if (result === 'ok') toast.success(t('codes.labels.done', { count: ids.length }))
   }
 
   function selectRow(r: EntityRecord) {
@@ -280,6 +330,25 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
     )
   }
 
+  /** The tick box of a row; the click must not open the panel. */
+  const tickCell = (c: EntityRecord) => (
+    <span role="presentation" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <Checkbox
+        label={<span className="sr-only">{t('codes.labels.selectRow', { value: textOf(c, 'value') })}</span>}
+        checked={ticked.includes(c.record_id)}
+        disabled={!isPrintable(c)}
+        onChange={(on) => tickRow(c.record_id, on)}
+        data-testid={`label-tick-${c.record_id}`}
+      />
+    </span>
+  )
+  const tickCol: DataTableColumn<EntityRecord> = {
+    key: 'tick',
+    label: '',
+    render: tickCell,
+    hideStackLabel: true,
+  }
+
   const valueCol: DataTableColumn<EntityRecord> = {
     key: 'value',
     label: t('codes.common.value'),
@@ -297,6 +366,7 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
   // Beside the detail panel the list is narrow: one column, the status pill under the value.
   const columns: DataTableColumn<EntityRecord>[] = selected
     ? [
+        tickCol,
         {
           key: 'value',
           label: t('codes.common.value'),
@@ -311,6 +381,7 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
         },
       ]
     : [
+        tickCol,
         valueCol,
         {
           key: 'kind',
@@ -373,6 +444,18 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
           status={pill(st)}
           actions={
             <>
+              {isPrintable(selected) && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<Printer className="lf-icon" aria-hidden="true" />}
+                  loading={labels.isPending}
+                  onClick={() => void printLabels([selected.record_id])}
+                  data-testid="label-print-one"
+                >
+                  {t('codes.labels.printOne')}
+                </Button>
+              )}
               {canWrite && st === 'not_assigned' && (
                 <Button variant="primary" size="sm" onClick={() => startAssign(selected)}>
                   {t('codes.action.assign')}
@@ -468,6 +551,19 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
     )
   }
 
+  const labelInfo = reasonOf(labels.error)
+  const labelEntry = labelInfo.reason === 'entry_invalid' && labelInfo.index !== undefined
+  const labelBanner = labels.error ? (
+    <Banner tone="danger">
+      {labelEntry
+        ? t('codes.labels.entryError', {
+            position: (labelInfo.index ?? 0) + 1,
+            value: textOf(codes.find((c) => c.record_id === sentIds[labelInfo.index ?? 0]) ?? ({ field_values: {} } as EntityRecord), 'value') || dash,
+            reason: t(labelEntryMessageId(labelInfo.entryReason)),
+          })
+        : errorText(intl, labels.error)}
+    </Banner>
+  ) : null
   const rowBanner = rowError && lastOp !== 'assign' && lastOp !== 'value' ? <Banner tone="danger">{rowError}</Banner> : null
 
   return (
@@ -517,6 +613,29 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
           </Button>
           <div className="lf-toolbar__end">
             <Checkbox
+              label={t('codes.labels.selectAll')}
+              checked={allTicked}
+              disabled={printable.length === 0}
+              onChange={tickAll}
+              data-testid="label-tick-all"
+            />
+            <Button
+              variant="secondary"
+              size="md"
+              icon={<Printer className="lf-icon" aria-hidden="true" />}
+              disabled={ticked.length === 0 || labels.isPending}
+              loading={labels.isPending}
+              onClick={() => void printLabels(ticked)}
+              data-testid="label-print"
+            >
+              {t('codes.labels.print', { count: ticked.length })}
+            </Button>
+            {ticked.length > 0 && (
+              <Button variant="ghost" size="md" onClick={() => tickAll(false)} data-testid="label-clear">
+                {t('codes.labels.clear')}
+              </Button>
+            )}
+            <Checkbox
               label={t('codes.list.showRetired')}
               checked={showRetired}
               onChange={(on) => {
@@ -528,6 +647,9 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
           </div>
         </FilterBar>
         {rowBanner}
+        {labelBanner}
+        {limitHint && <Banner tone="info">{t('codes.labels.limit', { max: MAX_BATCH })}</Banner>}
+        {someNotPrintable && <p className="caption">{t('codes.labels.notPrintable')}</p>}
         {selected ? <MasterDetail master={table} detail={detail} detailOpen onBack={() => setSelectedId(null)} /> : table}
       </CodesShell>
 
