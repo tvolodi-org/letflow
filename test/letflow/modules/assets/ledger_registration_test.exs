@@ -35,7 +35,7 @@ defmodule Letflow.Modules.Assets.LedgerRegistrationTest do
              :AssetsReconcile
            ]
 
-    assert m.role_grants == %{STOREKEEPER: [:AssetsRead, :AssetsPost]}
+    assert m.role_grants == %{}
 
     assert m.ledger == %{
              "assets" => %{

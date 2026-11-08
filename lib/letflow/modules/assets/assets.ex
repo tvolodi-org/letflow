@@ -21,9 +21,9 @@ defmodule Letflow.Modules.Assets do
   causes `commission` (positive), `change` and `handover` (zero sum per asset), `writeoff` (negative,
   a reason required), unit `pcs`. The pure policy is `Letflow.Modules.Assets.LedgerPolicy`, the read
   names are `Letflow.Modules.Assets.Views`, and three read routes (`balances`, `movements`,
-  `reconcile`) live in `Letflow.Modules.Assets.Router`. The permissions `AssetsRead` and `AssetsPost` are granted to STOREKEEPER (C19, version 0.10.0,
-  D-097); `AssetsReverse`, `AssetsReconcile` and `AssetsCardWrite` have no role grants, so only TENANT_ADMIN
-  and PLATFORM_ADMIN hold them. The commission document (C10, version 0.6.0, REQ-751 / REQ-752; C11, version 0.7.0, REQ-753, adds the change of responsible or user `assets_change` (ACH), the hand over `assets_handover` (AHO) and the write off `assets_writeoff` (AWO) on the same routes, with their line types and process definitions) is the first poster:
+  `reconcile`) live in `Letflow.Modules.Assets.Router`. The permissions `AssetsPost`, `AssetsReverse`,
+  `AssetsRead` and `AssetsReconcile` have no role grants, so only TENANT_ADMIN and PLATFORM_ADMIN hold
+  them. The commission document (C10, version 0.6.0, REQ-751 / REQ-752; C11, version 0.7.0, REQ-753, adds the change of responsible or user `assets_change` (ACH), the hand over `assets_handover` (AHO) and the write off `assets_writeoff` (AWO) on the same routes, with their line types and process definitions) is the first poster:
   record types `assets_commission`, `assets_commission_line` and `assets_posting_mark`, write handlers
   `post_document` and `reverse_document`, process definitions `assets_commission` and
   `assets_reversal`, seven `/documents` routes (`Letflow.Modules.Assets.Documents`). The storage is created at
@@ -143,11 +143,11 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.10.0",
+    version: "0.9.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
-    role_grants: %{STOREKEEPER: [:AssetsRead, :AssetsPost]},
+    role_grants: %{},
     required_roles: [],
     settings_schema: %{
       "type" => "object",

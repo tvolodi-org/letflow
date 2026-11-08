@@ -239,28 +239,18 @@ defmodule Letflow.Modules.Assets.KindChangePostingTest do
     assert Decimal.equal?(stock_total(ctx, m, ctx.tok_a), Decimal.new(10))
   end
 
-  test "B2 a completer who may post neither stock nor assets is refused: nothing is committed",
-       ctx do
+  test "B2 a completer who may post stock but not assets is refused: nothing is committed", ctx do
     m = ctx.ka
     receive_stock!(ctx.schema, ctx.tok_a, m, "25")
     id = issue!(ctx, m)["id"]
     before = snapshot(ctx, id)
     task = pending(ctx.schema, id)
 
-    holder = TokenMintFixture.role_holder!(ctx.schema, ["TASK_WORKER"])
-    assert {:error, _refusal} = complete_as(ctx, task, holder)
-    assert_nothing(ctx, id, before, task)
-  end
-
-  test "B2b the storekeeper holds StockPost and AssetsPost (D-097): the posting commits", ctx do
-    m = ctx.ka
-    receive_stock!(ctx.schema, ctx.tok_a, m, "25")
-    id = issue!(ctx, m)["id"]
-    task = pending(ctx.schema, id)
-    holder = TokenMintFixture.role_holder!(ctx.schema, ["STOREKEEPER"])
-
-    assert {:ok, _} = complete_as(ctx, task, holder)
-    assert Repo.get!(Letflow.Engine.Task, task.id, prefix: ctx.schema).status != :pending
+    for roles <- [["STOREKEEPER"], ["TASK_WORKER"]] do
+      holder = TokenMintFixture.role_holder!(ctx.schema, roles)
+      assert {:error, _refusal} = complete_as(ctx, task, holder)
+      assert_nothing(ctx, id, before, task)
+    end
   end
 
   test "B3 an inventory number taken after issue: nothing is committed", ctx do

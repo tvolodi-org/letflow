@@ -23,7 +23,6 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
     :EntitiesQuery,
     :EntitiesRecordsImport
   ]
-  @assets_atoms [:AssetsRead, :AssetsPost]
   @fake_id "99999999-9999-4999-8999-999999999999"
 
   describe "the role (pure)" do
@@ -32,23 +31,16 @@ defmodule Letflow.Modules.Stock.StorekeeperTest do
       assert Authorization.roles_from_strings(["STOREKEEPER"]) == [:STOREKEEPER]
 
       granted =
-        for p <-
-              Authorization.permissions() ++
-                @stock_atoms ++
-                [:StockReconcile] ++
-                @assets_atoms ++ [:AssetsReverse, :AssetsReconcile, :AssetsCardWrite],
+        for p <- Authorization.permissions() ++ @stock_atoms ++ [:StockReconcile],
             Authorization.role_allows?(:STOREKEEPER, p),
             do: p
 
       # MyModulesRead / MyAccessRead / MyPreferencesSet are role-agnostic
-      expected =
-        @stock_atoms ++
-          @assets_atoms ++ @core_atoms ++ [:MyModulesRead, :MyAccessRead, :MyPreferencesSet]
-
+      expected = @stock_atoms ++ @core_atoms ++ [:MyModulesRead, :MyAccessRead, :MyPreferencesSet]
       assert Enum.sort(Enum.uniq(granted)) == Enum.sort(expected)
 
       for denied <-
-            ~w(StockReconcile AssetsReverse AssetsReconcile AssetsCardWrite EntitiesRecordsWrite EntitiesRecordsExport UsersGroupsRolesManage
+            ~w(StockReconcile EntitiesRecordsWrite EntitiesRecordsExport UsersGroupsRolesManage
                TokensManage AuditRead ModulesManage TenantSettingsManage DefinitionsWrite
                InstancesStart EntitiesDefinitionsWrite RolesManage)a do
         refute Authorization.role_allows?(:STOREKEEPER, denied), inspect(denied)

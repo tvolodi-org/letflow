@@ -258,8 +258,6 @@ const storekeeper: AccessInfo = {
   roles: ['STOREKEEPER'],
   platform_tenant: false,
   permissions: [
-    'AssetsPost',
-    'AssetsRead',
     'EntitiesDefinitionsRead',
     'EntitiesQuery',
     'EntitiesRecordsImport',

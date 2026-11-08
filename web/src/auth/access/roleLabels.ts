@@ -51,9 +51,9 @@ export const ROLE_LABELS: Record<Role, Record<UiLocale, RoleText>> = {
     kk: { name: 'Аудитор', description: 'Деректерді, тапсырмаларды және аудит журналын оқиды; ештеңені өзгертпейді.' },
   },
   STOREKEEPER: {
-    en: { name: 'Storekeeper', description: 'Stock documents, counts, balances and movements; reads and posts assets; no administration.' },
-    ru: { name: 'Кладовщик', description: 'Складские документы, инвентаризации, остатки и движения; просмотр и проведение активов; без администрирования.' },
-    kk: { name: 'Қоймашы', description: 'Қойма құжаттары, түгендеу, қалдықтар мен қозғалыстар; активтерді көру және жүргізу; әкімшілік құқықсыз.' },
+    en: { name: 'Storekeeper', description: 'Stock documents, counts, balances and movements; no administration.' },
+    ru: { name: 'Кладовщик', description: 'Складские документы, инвентаризации, остатки и движения; без администрирования.' },
+    kk: { name: 'Қоймашы', description: 'Қойма құжаттары, түгендеу, қалдықтар мен қозғалыстар; әкімшілік құқықсыз.' },
   },
 }
 

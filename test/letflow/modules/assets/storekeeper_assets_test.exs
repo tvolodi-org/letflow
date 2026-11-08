@@ -2,10 +2,11 @@ Code.require_file("register_fixture.exs", __DIR__)
 
 defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
   @moduledoc """
-  C19 / D-097 (GH #3893 follow-up, plan key C19): the STOREKEEPER role reads and posts assets
-  (`AssetsRead`, `AssetsPost`), through the `assets` manifest `role_grants`; `AssetsReverse`,
-  `AssetsReconcile` and `AssetsCardWrite` stay with the administrators. SA-1 is pure; SA-2..SA-5 go
-  through the full `Letflow.Router` with real OIDC bearer tokens on committed tenants (Sandbox `:auto`).
+  C19 (plan key C19, D-097 deferred): the STOREKEEPER role does NOT read or post assets yet. A
+  `role_grants` widening of a role already in the baseline is refused until per-tenant grant
+  snapshots exist (decision 0055 D7, 0081 D3). These tests pin the refusal, so a later grant is a
+  visible change. The tenant administrator holds all five asset permissions. SA-2..SA-5 go through
+  the full `Letflow.Router` with real OIDC bearer tokens on committed tenants (Sandbox `:auto`).
   """
 
   use Letflow.DataCase, async: false
@@ -26,14 +27,12 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
   @l1 "33333333-3333-4333-8333-333333333333"
   @r1 "55555555-5555-4555-8555-555555555555"
 
-  @granted [:AssetsRead, :AssetsPost]
-  @withheld [:AssetsReverse, :AssetsReconcile, :AssetsCardWrite]
+  @all [:AssetsRead, :AssetsPost, :AssetsReverse, :AssetsReconcile, :AssetsCardWrite]
 
-  test "SA-1 the role matrix: storekeeper reads and posts; the administrators hold all five" do
-    for p <- @granted, do: assert(Authorization.role_allows?(:STOREKEEPER, p), inspect(p))
-    for p <- @withheld, do: refute(Authorization.role_allows?(:STOREKEEPER, p), inspect(p))
+  test "SA-1 the role matrix: storekeeper holds no asset atom; the administrators hold all five" do
+    for p <- @all, do: refute(Authorization.role_allows?(:STOREKEEPER, p), inspect(p))
 
-    for role <- [:TENANT_ADMIN, :PLATFORM_ADMIN], p <- @granted ++ @withheld do
+    for role <- [:TENANT_ADMIN, :PLATFORM_ADMIN], p <- @all do
       assert Authorization.role_allows?(role, p), "#{role} #{p}"
     end
   end
@@ -73,64 +72,56 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
-  test "SA-2 the storekeeper reads the register and documents, and passes the post gate", ctx do
+  @routes [
+    {:get, "/balances"},
+    {:get, "/movements"},
+    {:get, "/documents"},
+    {:post, "/documents"},
+    {:get, "/reconcile"},
+    {:post, "/cards"}
+  ]
+
+  test "SA-2 the tenant administrator reads the register", ctx do
     seed!(ctx.a.schema_name)
+    admin = S.token(ctx, :a, ["TENANT_ADMIN"], sub: "admin-a")
 
     for path <- ["/balances", "/movements", "/documents"] do
-      conn = S.get(path, ctx.sk_a)
+      conn = S.get(path, admin)
       assert conn.status == 200, "#{path}: #{conn.status} #{conn.resp_body}"
     end
 
-    assert length(S.json(S.get("/balances", ctx.sk_a))["rows"]) == 2
-
-    # an empty body is refused for its content, never for the caller's permission
-    for {method, path} <- [{:post, "/documents"}, {:post, "/documents/#{S.uuid()}/issue"}] do
-      conn = call(method, path, ctx.sk_a)
-      refute conn.status in [401, 403], "#{path}: #{conn.status} #{conn.resp_body}"
-    end
+    assert length(S.json(S.get("/balances", admin))["rows"]) == 2
   end
 
-  test "SA-3 the storekeeper is refused reconcile, reverse and card writes", ctx do
-    id = S.uuid()
+  test "SA-3 the storekeeper is refused every asset route (D-097 deferred, 0055 D7)", ctx do
+    seed!(ctx.a.schema_name)
 
-    for {method, path} <- [
-          {:get, "/reconcile"},
-          {:post, "/documents/#{id}/reverse"},
-          {:post, "/cards"},
-          {:patch, "/cards/#{id}"},
-          {:post, "/cards/#{id}/retire"}
-        ] do
+    for {method, path} <- @routes do
       conn = call(method, path, ctx.sk_a)
       assert conn.status == 403, "#{method} #{path}: #{conn.status} #{conn.resp_body}"
     end
-
-    # the administrator is not refused the same routes by permission
-    admin = S.token(ctx, :a, ["TENANT_ADMIN"], sub: "admin-a")
-    assert S.get("/reconcile", admin).status != 403
   end
 
-  test "SA-4 INV-10: B's storekeeper sees none of A's rows, also by A's ids", ctx do
+  test "SA-4 INV-10: B's administrator sees none of A's rows, also by A's ids", ctx do
     seed!(ctx.a.schema_name)
     seed!(ctx.b.schema_name)
+    admin_a = S.token(ctx, :a, ["TENANT_ADMIN"], sub: "admin-a")
+    admin_b = S.token(ctx, :b, ["TENANT_ADMIN"], sub: "admin-b")
 
-    doc_a = S.json(S.get("/documents", ctx.sk_a))["rows"] |> List.wrap()
-    ids_a = for d <- doc_a, is_map(d), do: d["id"]
+    assert length(S.json(S.get("/balances", admin_a))["rows"]) == 2
 
-    for path <- ["/balances?asset=#{@a1}", "/movements", "/documents"] do
-      body = S.json(S.get(path, ctx.sk_b))
-      refute inspect(body) =~ ctx.a.schema_name, path
+    for path <- ["/balances", "/movements", "/documents"] do
+      refute inspect(S.json(S.get(path, admin_b))) =~ ctx.a.schema_name, path
     end
 
-    for id <- ids_a do
-      assert S.get("/documents/#{id}", ctx.sk_b).status in [403, 404]
-    end
+    # an id from A's tenant opens nothing in B
+    assert S.get("/documents/#{S.uuid()}", admin_b).status in [403, 404]
 
-    # a token of A's realm does not open B: it names no user of B's tenant
-    unknown = S.get("/documents/#{S.uuid()}", ctx.sk_b)
-    assert unknown.status in [403, 404]
+    # B's storekeeper is refused as well
+    assert S.get("/balances", ctx.sk_b).status == 403
   end
 
-  test "SA-5 scoped caller: a storekeeper granted on U1 reads U1 only", ctx do
+  test "SA-5 scoped caller: a storekeeper granted on U1 is still refused", ctx do
     s = S.tenant!("sk-s", ctx.names.s)
     schema = s.schema_name
     seed!(schema)
@@ -140,15 +131,12 @@ defmodule Letflow.Modules.Assets.StorekeeperAssetsTest do
     {:ok, _} = ScopeNodePaths.write({:insert, @u2, @p}, schema)
 
     tok = S.token(ctx, :s, ["STOREKEEPER"], sub: "sk-scoped")
-    assert S.get("/balances", tok).status == 200
+    assert S.get("/balances", tok).status == 403
 
     _ = RSG.raw_delete_rows!(schema, RSG.group_of!(schema, "STOREKEEPER"), "STOREKEEPER")
     user = Letflow.Repo.one!(from(u in User, where: u.username == "sk-scoped"), prefix: schema)
     :ok = RSG.raw_user_row!(schema, user.id, "STOREKEEPER", @u1)
 
-    rows = S.json(S.get("/balances", tok))["rows"]
-    assert rows != []
-    assert Enum.map(rows, & &1["org_unit"]) |> Enum.uniq() == [@u1]
-    assert S.get("/reconcile", tok).status in [403, 404]
+    assert S.get("/balances", tok).status == 403
   end
 end

@@ -15,7 +15,7 @@ tenants derive from `roles/0`, so no migration is needed. Assignable to a user o
   `StockCountRecord`. `StockReconcile` is withheld (administrative reconciliation view; one line to grant it).
 * A closed core list: `HelpRead`, `MembershipsRead`, `TasksRead`, `TasksComplete`, `EntitiesDefinitionsRead`, `EntitiesQuery`,
   `EntitiesRecordsImport`. No write, manage, export, token, user, role, module, settings or audit permission; no platform-scope one.
-* D-097: asset permissions arrive with C19 (T-1339) as a one-line addition to the same `role_grants`.
+* D-097: the asset grant (`AssetsRead`, `AssetsPost`) is deferred. A `role_grants` widening of a role already in the baseline is refused until per-tenant grant snapshots exist (D3 below; 0055 D7, open point 1 ruling 2026-10-15), so T-1339 delivered C19 without it. Once snapshots exist (or the owner amends 0055), it is a one-line addition to the assets manifest.
 
 ## D3: the permission-matrix tool
 
