@@ -469,10 +469,24 @@ defmodule Letflow.Modules.Assets.OpeningImportTest do
       conn = import_file([row(b_im, "X-1", %{"header_id" => "H1"})], ctx.tok_b)
       assert outcomes(conn) == ["reference_not_found"]
 
-      # tenant B's own masters, but tenant A's card external id
+      # tenant B's own draft header "H1" and masters, but tenant A's card external id: the header
+      # resolves, so the refusal comes from the card lookup and names asset_id
+      b_doc = save_b_doc!(ctx, b_im)
+      b_before = D.request(:get, "/documents/#{b_doc["id"]}", ctx.tok_b) |> D.status!(200)
+
       stolen = row(b_im, "X-2", %{"header_id" => "H1", "asset_id" => ctx.im.m.refs["asset_id"]})
-      assert outcomes(import_file([stolen], ctx.tok_b)) == ["reference_not_found"]
+      conn = import_file([stolen], ctx.tok_b)
+      assert outcomes(conn) == ["reference_not_found"]
+      assert reasons(conn) == [%{"type" => "reference_not_found", "header" => "asset_id"}]
+
+      # control: B's own card against the same header imports
+      own = row(b_im, "X-3", %{"header_id" => "H1"})
+      assert outcomes(import_file([own], ctx.tok_b)) == ["created"]
+
       assert doc(ctx) == before
+
+      b_after = D.request(:get, "/documents/#{b_doc["id"]}", ctx.tok_b) |> D.status!(200)
+      assert length(b_after["lines"]) == length(b_before["lines"]) + 1
     end
 
     test "G6-14: a TASK_WORKER, a STOREKEEPER and a scoped admin are refused", ctx do
@@ -526,6 +540,40 @@ defmodule Letflow.Modules.Assets.OpeningImportTest do
       assert length(doc(ctx)["lines"]) == 5
     end
 
+    test "G6-15b: a PUT that omits the pair removes it, and a re-import cannot match the stale value",
+         ctx do
+      assert outcomes(imp(ctx, placements(ctx.im))) == List.duplicate("created", 4)
+      d = doc(ctx)
+      keep = ~w(asset_id location_id material_responsible_id actual_user_id quantity)
+
+      body =
+        d
+        |> Map.take(~w(org_unit_id note))
+        |> Map.put(
+          "lines",
+          Enum.map(d["lines"], &(&1 |> Map.take(keep) |> Map.reject(fn {_, v} -> is_nil(v) end)))
+        )
+
+      put = D.request(:put, "/documents/#{d["id"]}", ctx.tok_a, body) |> D.status!(200)
+      assert put["external_ref_id"] == nil
+      assert Enum.all?(put["lines"], &(&1["external_ref_id"] == nil))
+
+      fetched = doc(ctx)
+      assert fetched["external_ref_id"] == nil and fetched["external_ref_system"] == nil
+      assert pair_lines(ctx) == []
+      assert length(fetched["lines"]) == 5
+
+      # the header pair is gone: a re-import naming H1 finds no header and adds no line
+      conn = imp(ctx, placements(ctx.im))
+      assert Enum.uniq(outcomes(conn)) == ["reference_not_found"]
+
+      assert Enum.uniq(reasons(conn)) == [
+               %{"type" => "reference_not_found", "header" => "header_id"}
+             ]
+
+      assert length(doc(ctx)["lines"]) == 5
+    end
+
     test "G6-17: the function inside an outer transaction leaves it usable", ctx do
       id = ctx.im.doc["id"]
 
@@ -564,6 +612,27 @@ defmodule Letflow.Modules.Assets.OpeningImportTest do
         refute ManagedImport.poisoned?()
       end)
     end
+  end
+
+  # A draft opening document with header pair "H1" in tenant B, saved through B's token.
+  defp save_b_doc!(ctx, b_im) do
+    m = b_im.m
+
+    body =
+      D.opening_body(m, %{
+        "external_ref_system" => @sys,
+        "external_ref_id" => "H1",
+        "lines" => [
+          %{
+            "asset_id" => m.base,
+            "location_id" => m.location,
+            "material_responsible_id" => m.employee,
+            "quantity" => "1"
+          }
+        ]
+      })
+
+    D.request(:post, "/documents", ctx.tok_b, body) |> D.status!(201)
   end
 
   # Tenant B needs its own header "H1" lookalike-free masters; the rows only need B's refs.
