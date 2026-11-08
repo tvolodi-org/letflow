@@ -32,6 +32,10 @@ const USERS = [
   { id: 'u3', username: 'saule', display_name: 'Saule Nurpeisova', email: 'saule@example.test', status: 'inactive', roles: [] },
 ].map(u => ({ ...u, auth_source: 'local', inserted_at: '2026-11-06T09:00:00Z', updated_at: '2026-11-06T09:00:00Z' }))
 
+const ASSET_DEFS = ['assets_kind_change', 'assets_writeoff', 'assets_handover', 'assets_change', 'assets_reversal'].map((name, i) => ({
+  id: `d${i}`, name, description: null, version: 1, status: 'ACTIVE',
+}))
+
 export const leftoversR15Screens: HarnessScreen[] = [
   {
     name: 'r15-users',
@@ -61,6 +65,24 @@ export const leftoversR15Screens: HarnessScreen[] = [
       </AuthContext.Provider>
     ),
   },
+  ...[
+    { name: 'r15-dashboard-defs', items: ASSET_DEFS },
+    { name: 'r15-dashboard-empty', items: [] },
+  ].map(({ name, items }): HarnessScreen => ({
+    name,
+    routes: [
+      { match: p => p.startsWith('/api/v1/definitions'), reply: () => ({ status: 200, body: { items, next_cursor: null, count: items.length } }) },
+      { match: p => p.startsWith('/api/v1/instances'), reply: () => ({ status: 200, body: { items: [], next_cursor: null, count: 0 } }) },
+      { match: p => p.startsWith('/api/v1/tasks'), reply: () => ({ status: 200, body: { items: [], next_cursor: null, count: 3 } }) },
+    ],
+    render: () => (
+      <AuthContext.Provider value={auth}>
+        <AccessStateProvider state={access([P.DefinitionsRead])}>
+          <main className="lf-content"><TenantDashboardPage /></main>
+        </AccessStateProvider>
+      </AuthContext.Provider>
+    ),
+  })),
   {
     name: 'r15-denied',
     routes: [{ match: p => p === '/api/v1/me/modules', reply: () => ({ status: 200, body: { installed_modules: [] } }) }],
