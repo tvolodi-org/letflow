@@ -13,6 +13,8 @@ defmodule Letflow.Ledger.AsOfDateTest do
   alias Letflow.LedgerFixture, as: Fx
 
   @jst 9 * 3600
+  # Asia/Almaty, the default tenant zone, is a fixed +05:00 (no DST since 2024)
+  @almaty 5 * 3600
   @report_keys ~w(as_of as_of_date basis coverage cutoff_seq filters ledger_id ledger_seq next_cursor rows timezone)a
 
   setup do
@@ -23,8 +25,12 @@ defmodule Letflow.Ledger.AsOfDateTest do
     %{fx: fx, schema: fx.schema_name, auth: Fx.authorized!(fx)}
   end
 
-  defp tokyo_day(days_ago),
-    do: DateTime.utc_now() |> DateTime.add(@jst) |> DateTime.to_date() |> Date.add(-days_ago)
+  # The tenant's "today" in the zone the test sets for it (`offset` seconds east of UTC), so the
+  # expectation holds at every time of day and never names a date that is in the future there.
+  defp day_in(offset, days_ago),
+    do: DateTime.utc_now() |> DateTime.add(offset) |> DateTime.to_date() |> Date.add(-days_ago)
+
+  defp tokyo_day(days_ago), do: day_in(@jst, days_ago)
 
   # 00:00 of the day after `date` in Tokyo, as a UTC instant
   defp boundary(date) do
@@ -110,8 +116,8 @@ defmodule Letflow.Ledger.AsOfDateTest do
     assert r.timezone == "Asia/Tokyo"
 
     :ok = Fx.put_tenant_settings!(fx, %{})
-    # Almaty is behind Tokyo: tokyo_day(0) is a future date there late in the UTC day.
-    assert {:ok, d} = Ledger.balances_on_date(a, tokyo_day(1), :latest, %{}, %{})
+    # Almaty is behind Tokyo: use the date in Almaty's own zone, not the Tokyo one.
+    assert {:ok, d} = Ledger.balances_on_date(a, day_in(@almaty, 0), :latest, %{}, %{})
     assert d.timezone == "Asia/Almaty"
   end
 
