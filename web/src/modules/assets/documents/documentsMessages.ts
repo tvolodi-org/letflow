@@ -435,7 +435,7 @@ export const documentsKk: Record<string, string> = {
   'assets.doc.kind.kind_change': 'Есептеу түрін ауыстыру',
   'assets.doc.new.kind_change': 'Есептеу түрін жаңа ауыстыру',
   'assets.doc.kc.stock': 'Қор',
-  'assets.doc.kc.asset': 'Актив',
+  'assets.doc.kc.asset': 'Актив жағы',
   'assets.doc.kc.col.item': 'Қор: позиция',
   'assets.doc.kc.col.unit': 'Қор: өлшем бірлігі',
   'assets.doc.kc.col.lot': 'Қор: партия',
