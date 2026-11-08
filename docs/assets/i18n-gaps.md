@@ -33,7 +33,8 @@ Generated at T-1457 implementation time by running the catalog analysis
 
 A row means the **ru** or **kk** value is identical to the **en** value — likely not yet
 translated. Some are intentional (email placeholder `name@example.com`, `PDF`, short
-codes): mark those "intentional" during the native-speaker review (T-1357).
+codes) and are **intentional**: `login.email.placeholder`, the `*.common.dash` keys, `EPC`, `TID`,
+`PDF`, `.docx`, `+{n}`, `…`. They need no translation (marked at T-1357).
 
 The completeness test (`web/src/__tests__/catalog-completeness.test.ts`) enforces
 that no key is **missing** or **empty** in any locale. This doc tracks what is
@@ -191,3 +192,21 @@ loading: "…"
 ```
 loading: "…"
 ```
+
+## Kazakh texts for the native check (owner, T-1357)
+
+Every `kk` text of the web catalogs that is not taken from `priv/print_forms/messages.json`
+(official) is a **machine draft** until the owner's native speaker signs it off.
+
+A second check, `kk is not a copy of ru` in `catalog-completeness.test.ts`, finds `kk` values
+equal to the `ru` value (Russian text on a Kazakh screen). At T-1357 it found 55 such
+`catalog:key` pairs. After reading them against the rest of the kk catalogs, none was changed:
+each is an accepted loanword spelled the same in Kazakh and already used so elsewhere in kk text
+(`Партия`/`Партиялар`, `позиция`, `Штрихкодтар`, `Сторно`, `Код`, `Файл`, `Импорт`, `Аудит`,
+`Номенклатура`, ...). They sit in the `KK_SAME_AS_RU_OK` map of the test, each with a reason.
+**Owner decision wanted:** if the native check prefers a distinct Kazakh word (for example
+`Топтама` for lot), change the `kk` value and delete the map entry; the test then guards the rest.
+A new copy of a Russian word in a `kk` column fails the test until it is translated or listed.
+
+Left out: the official forms DA-1..DA-4, Inv-1/3/7/8/16, Z-1/4/6/7 are not built (only
+Z-2, Z-3, Z-5, Inv-10, Inv-18 ship); they are new-form work, not translation gaps.

@@ -57,7 +57,8 @@ describe('M1 sidesOf', () => {
   })
   it('the header keys of every kind equal Kinds.header_keys', () => {
     const src = readFileSync(path.resolve(__dirname, '../../../../../lib/letflow/modules/assets/documents/kinds.ex'), 'utf-8')
-    const blocks = [...src.matchAll(/kind: "(\w+)"[\s\S]*?header_keys:\s*~w\(([^)]*)\)/g)]
+    // `kind_change` (REQ-759, C15) is backend-only for now: no web screen or header keys yet.
+    const blocks = [...src.matchAll(/kind: "(\w+)"[\s\S]*?header_keys:\s*~w\(([^)]*)\)/g)].filter((b) => b[1] !== 'kind_change')
     expect(blocks.map((b) => b[1])).toEqual([...DOC_KINDS])
     for (const b of blocks) expect(b[2].trim().split(/\s+/)).toEqual([...HEADER_KEYS[b[1] as keyof typeof HEADER_KEYS]])
   })
