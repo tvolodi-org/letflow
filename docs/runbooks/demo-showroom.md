@@ -74,7 +74,7 @@ is running this script on the new build.
 
 After every promote, `scripts/demo/demo_upgrade_check.sh` (snapshot before, verify after) shows that the module upgrade
 chain kept every record, document, posting and balance, and which module is still pending. The builds that break an in-place
-promote and the exit codes are in `docs/runbooks/demo-upgrade-notes.md`.
+promote and the exit codes are in `docs/runbooks/demo-upgrade-notes.md`. The promote itself applies the chain with `scripts/demo_upgrade_chain.sh` (same notes).
 
 ## Reset
 
