@@ -5,7 +5,32 @@ import { metricsApi, parsePrometheusText, type PrometheusMetricFamily, type Prom
 import { P, useAccess, AccessPending } from '@/auth/access'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { classifyError, type RendererState } from '@/utils/classifyError'
+
+const MESSAGES = {
+  en: {
+    title: 'Metrics',
+    refreshing: 'Refreshing…',
+    unavailable: 'Metrics are not available on this deployment: the /metrics endpoint did not return Prometheus text.',
+    unavailableTag: 'Not available',
+    none: 'No metrics are currently exposed.',
+  },
+  ru: {
+    title: 'Метрики',
+    refreshing: 'Обновление…',
+    unavailable: 'Метрики недоступны в этой установке: endpoint /metrics вернул не текст Prometheus.',
+    unavailableTag: 'Недоступно',
+    none: 'Сейчас метрики не публикуются.',
+  },
+  kk: {
+    title: 'Метрикалар',
+    refreshing: 'Жаңартылуда…',
+    unavailable: 'Бұл орнатуда метрикалар қолжетімсіз: /metrics endpoint Prometheus мәтінін қайтармады.',
+    unavailableTag: 'Қолжетімсіз',
+    none: 'Қазір метрикалар жарияланбаған.',
+  },
+} as const
 
 const SAMPLE_COLUMNS: DataTableColumn<PrometheusMetricSample>[] = [
   { id: 'name', header: 'Sample', accessor: (sample) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>{sample.name}</span> },
@@ -36,6 +61,7 @@ export function usePrometheusMetrics(): UseQueryResult<PrometheusMetricFamily[]>
 
 export default function MetricsPage() {
   const access = useAccess()
+  const m = MESSAGES[useUiLocale()]
   const isAllowed = access.can(P.MetricsRead)
   const { data, isLoading, isError, error, isFetching, refetch } = usePrometheusMetrics()
 
@@ -45,14 +71,16 @@ export default function MetricsPage() {
     return <Navigate to="/instances" replace />
   }
 
-  const rendererState: RendererState = isLoading ? 'loading' : isError ? classifyError(error) : 'success'
-  const showParseError = (error as Error | null)?.message === 'PROM_PARSE_ERROR'
+  // A 200 that is not Prometheus text (for example the SPA fallback page) means this origin does not serve
+  // /metrics: show a "not available" state instead of the generic failure with a useless Retry.
+  const showParseError = isError && (error as Error | null)?.message === 'PROM_PARSE_ERROR'
+  const rendererState: RendererState = isLoading ? 'loading' : isError && !showParseError ? classifyError(error) : 'success'
 
   return (
-    <div style={{ padding: '1.5rem' }}>
+    <div style={{ padding: '1.5rem', minWidth: 0, maxWidth: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '1.25rem' }}>
-        <h2 style={{ margin: 0 }}>Metrics</h2>
-        {isFetching && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-info-dark)' }}>Refreshing…</span>}
+        <h2 style={{ margin: 0 }}>{m.title}</h2>
+        {isFetching && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-info-dark)' }}>{m.refreshing}</span>}
       </div>
 
       <QueryStateBoundary
@@ -61,30 +89,32 @@ export default function MetricsPage() {
         columns={[{ widthPercent: 40 }, { widthPercent: 40 }, { widthPercent: 20 }]}
       >
       {showParseError && (
-        <div style={{ marginBottom: '1rem', padding: '.75rem .9rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-error-border)', background: 'var(--color-error-tint)', color: 'var(--color-error-dark)' }}>
-          Metrics payload could not be parsed as Prometheus exposition text.
+        <div role="status" style={{ marginBottom: '1rem', padding: '.75rem .9rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-default)', background: 'var(--surface-card)', color: 'var(--text-primary)' }}>
+          <strong>{m.unavailableTag}.</strong> {m.unavailable}
         </div>
       )}
 
       {data && data.length === 0 && (
-        <div style={{ marginTop: '.5rem', color: 'var(--text-secondary)' }}>No metrics are currently exposed.</div>
+        <div style={{ marginTop: '.5rem', color: 'var(--text-secondary)' }}>{m.none}</div>
       )}
 
       {(data ?? []).map((family) => (
-        <section key={family.name} style={{ marginBottom: '1.25rem', background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+        <section key={family.name} style={{ marginBottom: '1.25rem', background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', minWidth: 0, maxWidth: '100%' }}>
           <header style={{ padding: '.65rem .8rem', background: 'var(--surface-page)', borderBottom: '1px solid var(--border-default)' }}>
-            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center' }}>
-              <strong style={{ fontFamily: 'var(--font-mono)' }}>{family.name}</strong>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem .6rem', alignItems: 'center', minWidth: 0 }}>
+              <strong style={{ fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere', minWidth: 0 }}>{family.name}</strong>
               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{family.type}</span>
             </div>
             {family.help && <div style={{ marginTop: '.2rem', color: 'var(--text-secondary)', fontSize: 'var(--text-xs)' }}>{family.help}</div>}
           </header>
 
-          <DataTable
-            columns={SAMPLE_COLUMNS}
-            data={family.samples}
-            emptyMessage="No samples for this metric family."
-          />
+          <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+            <DataTable
+              columns={SAMPLE_COLUMNS}
+              data={family.samples}
+              emptyMessage="No samples for this metric family."
+            />
+          </div>
         </section>
       ))}      </QueryStateBoundary>    </div>
   )
