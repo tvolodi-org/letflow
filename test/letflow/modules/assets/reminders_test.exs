@@ -56,7 +56,7 @@ defmodule Letflow.Modules.Assets.RemindersTest do
         extra
       )
 
-    {:ok, card} = Cards.create_card(schema, attrs, opts())
+    {:ok, card} = Cards.create_card(schema, attrs, Map.put(opts(), :holder_source, :import))
     card
   end
 

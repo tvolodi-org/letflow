@@ -37,7 +37,6 @@ export interface Form {
   inventory_number: string
   name: string
   kind: string
-  org_unit_id: string
   acquisition_date: string
   currency: string
   acquisition_cost: string
@@ -51,7 +50,6 @@ export const EMPTY_FORM: Form = {
   inventory_number: '',
   name: '',
   kind: 'fixed',
-  org_unit_id: '',
   acquisition_date: '',
   currency: '',
   acquisition_cost: '',
@@ -61,7 +59,7 @@ export const EMPTY_FORM: Form = {
   valid_until: '',
 }
 
-const REQUIRED_KEYS = ['inventory_number', 'name', 'org_unit_id'] as const
+const REQUIRED_KEYS = ['inventory_number', 'name'] as const
 const OPTIONAL_KEYS = [
   'acquisition_date',
   'currency',

@@ -421,7 +421,7 @@
             "type": "unique"
           }
         ],
-        "description": "GH #3894 / REQ-748, docs/assets/asset-register.md section 3, owner decision D-097, decisions 0050 D6, 0051 M4, 0076 R7. The asset card of module assets (Russian: Карточка актива; Kazakh: Актив карточкасы). One row per asset; the card holds no location, no responsible person, no actual user and no quantity: those live only in the register. inventory_number is unique per tenant (uq_assets_card_inventory_number). org_unit_id is the record_id of an org_unit of module org; it is another pack, so it has no foreign key and the write logic checks it. It is the scope column of the card (scope declaration {:column, org_unit_id}, immutable). kind is fixed, low_value or intangible. currency is optional text; the tenant currency is the module setting currency (KZT by default). The decimals are exact strings (decimal_strict) and information only. valid_until is allowed only for kind intangible (write rule, a later step). active false retires the card; there is no delete. external_ref_system and external_ref_id are the nullable import key, unique as a pair.",
+        "description": "GH #3894 / REQ-748, docs/assets/asset-register.md section 3, owner decision D-097, decisions 0050 D6, 0051 M4, 0076 R7. The asset card of module assets (Russian: Карточка актива; Kazakh: Актив карточкасы). One row per asset; the card holds no location, no responsible person, no actual user and no quantity: those live only in the register. inventory_number is unique per tenant (uq_assets_card_inventory_number). org_unit_id is the record_id of an org_unit of module org; it is another pack, so it has no foreign key and the write logic checks it. It is optional (T-1488): empty until a document or the import sets it, never typed by a route; an empty value is visible to tenant-wide principals only. It is the scope column of the card (scope declaration {:column, org_unit_id}, immutable). kind is fixed, low_value or intangible. currency is optional text; the tenant currency is the module setting currency (KZT by default). The decimals are exact strings (decimal_strict) and information only. valid_until is allowed only for kind intangible (write rule, a later step). active false retires the card; there is no delete. external_ref_system and external_ref_id are the nullable import key, unique as a pair.",
         "display_name": "Asset card",
         "fields": [
           {
@@ -450,7 +450,6 @@
           {
             "name": "org_unit_id",
             "queried": true,
-            "required": true,
             "type": "string"
           },
           {
@@ -512,7 +511,7 @@
       },
       "display_name": "Asset card",
       "entity_definition_id": "1cdfbd2c-8b56-31a6-5aab-9eec562480bd",
-      "logical_shape_version": "f1bf5a491e09c88f66d2a5bd18426e88bae98392a484d8fcff70f2bf59992381",
+      "logical_shape_version": "c037e0efd4905195c336734c731f38e7816678edf4971c631b31064979afe4c4",
       "name": "assets_card"
     },
     {

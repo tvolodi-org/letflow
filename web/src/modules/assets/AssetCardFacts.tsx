@@ -6,7 +6,7 @@ import { formatDate } from '@/i18n/format'
 import type { EntityRecord } from '@/types/api'
 import { textOf } from './assetsModel'
 
-export function AssetCardFacts({ record, unitLabel }: { record: EntityRecord; unitLabel: string }) {
+export function AssetCardFacts({ record }: { record: EntityRecord }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const dash = t('assets.common.dash')
@@ -17,7 +17,6 @@ export function AssetCardFacts({ record, unitLabel }: { record: EntityRecord; un
   const rows: [string, string, boolean][] = [
     [t('assets.field.number'), textOf(record, 'inventory_number'), true],
     [t('assets.field.kind'), kind === '' ? '' : t(`assets.kind.${kind}`), false],
-    [t('assets.field.orgUnit'), unitLabel, false],
     [t('assets.field.acquisitionDate'), date('acquisition_date'), true],
     [t('assets.field.currency'), textOf(record, 'currency'), true],
     ...(kind === 'intangible' ? ([[t('assets.field.validUntil'), date('valid_until'), true]] as [string, string, boolean][]) : []),

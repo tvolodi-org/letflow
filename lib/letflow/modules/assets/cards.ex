@@ -9,8 +9,8 @@ defmodule Letflow.Modules.Assets.Cards do
   Rules, in this order, nothing written on a refusal: (update, retire) the card exists
   (`:card_not_found`: not a uuid, unknown, deleted, another type or another tenant, one answer) and is
   active (`:card_inactive`, also for a second retire); the key allow-list (`{:field_not_allowed, key}`;
-  `active` is not a caller key); `org_unit_id` is a live, active `org_unit` (`:org_unit_not_active`;
-  checked on create, and on update only when the body carries the key); `valid_until` only for kind
+  `active` is not a caller key); (import only) `org_unit_id`, when present, is a live, active
+  `org_unit` (`:org_unit_not_active`); `valid_until` only for kind
   `intangible` (`:valid_until_not_allowed`, judged on the merged document); `currency`, when given,
   equals the tenant currency (`:currency_mismatch`; an empty one is dropped). Then the record errors of
   `Records` pass through: a duplicate `inventory_number` or external reference pair (per tenant,
@@ -31,7 +31,14 @@ defmodule Letflow.Modules.Assets.Cards do
   database failure of the entry rolls the write back as `{:error, :audit_failed}`.
 
   `prefix` must come from the authenticated tenant on the server side, never from attrs or opts. `opts`
-  (a map; a missing key raises `ArgumentError`): `:actor_id` (uuid), `:idempotency_key` (text).
+  (a map; a missing key raises `ArgumentError`): `:actor_id` (uuid), `:idempotency_key` (text);
+  optional `:holder_source`, only `:import` (the xlsx import).
+
+  Card holder (T-1488 / G1-a): `org_unit_id` is optional and is not a caller key: the route write
+  path refuses it (`{:field_not_allowed, "org_unit_id"}`), so a new card has no org unit and its
+  holder is read from the register. Only the import (`holder_source: :import`) may still carry it; it
+  is then a live, active `org_unit`. A card with an empty unit is visible to tenant-wide principals
+  only (the scope filter `column IN set` matches no value).
   """
 
   import Ecto.Query, only: [from: 2]
@@ -46,10 +53,12 @@ defmodule Letflow.Modules.Assets.Cards do
   alias Letflow.Repo
 
   @types ["assets_card"]
-  @allowed ~w(inventory_number name kind org_unit_id acquisition_date currency acquisition_cost
+  @allowed ~w(inventory_number name kind acquisition_date currency acquisition_cost
               accumulated_depreciation book_value depreciation_as_of valid_until
               external_ref_system external_ref_id)
-  @required ~w(inventory_number name kind org_unit_id)
+  # The import is the one channel that may still carry the unit (D-097; G6 revisits it).
+  @import_allowed ["org_unit_id" | @allowed]
+  @required ~w(inventory_number name kind)
 
   @doc """
   Creates an active card in tenant schema `prefix` and returns the live record map (string keys,
@@ -69,8 +78,8 @@ defmodule Letflow.Modules.Assets.Cards do
       Repo.transaction(fn ->
         fv = new_doc(attrs)
 
-        with :ok <- check_keys(attrs),
-             :ok <- check_org_unit(prefix, attrs, true),
+        with :ok <- check_keys(attrs, opts),
+             :ok <- check_org_unit(prefix, attrs, opts),
              :ok <- check_rules(prefix, fv),
              {:ok, record_id} <- create_doc(prefix, fv, actor_id, idem),
              {:ok, card} <- ReadApi.lookup(prefix, record_id, @types),
@@ -97,8 +106,8 @@ defmodule Letflow.Modules.Assets.Cards do
     change = fn fv -> merge(fv, attrs) end
 
     check = fn fv, merged ->
-      with :ok <- check_keys(attrs),
-           :ok <- check_org_unit(prefix, attrs, false),
+      with :ok <- check_keys(attrs, opts),
+           :ok <- check_org_unit(prefix, attrs, opts),
            :ok <- check_rules(prefix, merged) do
         if merged == fv, do: :noop, else: :ok
       end
@@ -217,17 +226,21 @@ defmodule Letflow.Modules.Assets.Cards do
   defp check_active(%{"active" => true}), do: :ok
   defp check_active(_card), do: {:error, :card_inactive}
 
-  defp check_keys(attrs) do
-    case attrs |> Map.keys() |> Enum.reject(&(&1 in @allowed)) |> Enum.sort() do
+  defp check_keys(attrs, opts) do
+    allowed = if import?(opts), do: @import_allowed, else: @allowed
+
+    case attrs |> Map.keys() |> Enum.reject(&(&1 in allowed)) |> Enum.sort() do
       [] -> :ok
       [key | _] -> {:error, {:field_not_allowed, key}}
     end
   end
 
-  # `always?`: create checks the unit even when the key is absent (a missing unit is not active).
-  defp check_org_unit(prefix, attrs, always?) do
-    if always? or Map.has_key?(attrs, "org_unit_id") do
-      if org_unit_active?(prefix, Map.get(attrs, "org_unit_id")),
+  defp import?(opts), do: Map.get(opts, :holder_source) == :import
+
+  # Only the import can carry a unit; a present unit must be live and active.
+  defp check_org_unit(prefix, attrs, opts) do
+    if import?(opts) and not blank?(Map.get(attrs, "org_unit_id")) do
+      if org_unit_active?(prefix, attrs["org_unit_id"]),
         do: :ok,
         else: {:error, :org_unit_not_active}
     else

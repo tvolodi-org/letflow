@@ -65,7 +65,7 @@ localized_text).
 | inventory_number | string | required | none | unique per tenant (decided, D-097) |
 | name | string | required | none | |
 | kind | enum | required | none | values `fixed`, `low_value`, `intangible` |
-| org_unit_id | string | required | org_unit record (module org) | the org unit that holds the card; a cross-pack declarative id checked in write logic (decision 0076 R6 rule 5) |
+| org_unit_id | string | optional | org_unit record (module org) | empty until the first commission posts; not typed by the routes (they refuse the key, T-1488); the holder shown on the card is read from the register. Only the xlsx import may still carry it (D-097). Setting it from a posting is item G2 |
 | acquisition_date | date | optional | none | the real receipt date, kept as a field because the ledger refuses an event time older than 96 hours (0073 D-T) |
 | currency | string | optional | none | one currency per tenant, KZT by default (D-097); see section 6. Empty means the tenant currency |
 | acquisition_cost | decimal | optional | none | `decimal_strict` true; information only (section 6) |
@@ -160,12 +160,14 @@ not yet commissioned asset whose card stays (D-061: registers are read-only and 
 ### 7.2 Access
 
 - `assets_card` has the scope declaration `{:column, "org_unit_id"}` (decision 0076 R7: asset cards scoped by org
-  unit; D-067), immutable once set (decision 0051 M4).
+  unit; D-067), immutable once set (decision 0051 M4). A card with an empty `org_unit_id` is visible to
+  tenant-wide principals only (T-1488: `column IN set` matches no scoped reader).
 - Balances and movements of the asset ledger are scoped by the scope slot `org_unit` (0076 R7). Their scoped read
   is item B6 (REQ-682).
 - A scoped principal cannot post until slice L6 (0073 OQ-21).
 - For a `fixed` or `intangible` asset the card's `org_unit_id` equals the `org_unit` slot of the asset's balance
-  row with quantity 1, kept equal by the documents of item C2 in the same transaction as the posting.
+  row with quantity 1, kept equal by the documents of item C2 in the same transaction as the posting. Setting and moving it by a posting is
+  item G2 (needs a handler-facing update); until then it is empty for a new card and the register is the authority.
 
 ## 8. Open owner questions
 

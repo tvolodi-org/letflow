@@ -16,7 +16,7 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
   (extras `"line_no"`): the card exists in this tenant and is active (`card_not_active`: unknown,
   retired and another tenant's id are one answer), the asset is not on an earlier line
   (`duplicate_asset`), the quantity is a whole number above zero and exactly 1 for a fixed or
-  intangible card (`quantity_invalid`), the card's org unit is the header's (`org_unit_mismatch`), the
+  intangible card (`quantity_invalid`), the card's org unit, when it has one, is the header's (`org_unit_mismatch`), the
   location rule of the card kind (`location_not_allowed` for intangible, `location_required` for fixed
   and low value), the location is active and linked to the org unit (`not_linked`), and a fixed or
   intangible asset is not already in the register (`asset_already_in_register`: another commission
@@ -209,7 +209,7 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
     with {:ok, card} <- card(prefix, line.asset_id, extras),
          :ok <- check(not MapSet.member?(seen, line.asset_id), "duplicate_asset", extras),
          :ok <- check(quantity_ok?(card["kind"], line.quantity), "quantity_invalid", extras),
-         :ok <- check(card["org_unit_id"] == view.org_unit_id, "org_unit_mismatch", extras),
+         :ok <- check(card["org_unit_id"] in [nil, view.org_unit_id], "org_unit_mismatch", extras),
          :ok <- location_rule(card["kind"], view.location_id, extras),
          :ok <- linked(prefix, view, extras) do
       in_register(prefix, card, line.asset_id, extras)

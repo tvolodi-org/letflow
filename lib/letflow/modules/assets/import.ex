@@ -54,7 +54,11 @@ defmodule Letflow.Modules.Assets.Import do
       attrs = desired(cells, unit_id, ref)
 
       opts = fn suffix ->
-        %{actor_id: ctx.actor_id, idempotency_key: ctx.idempotency_key <> suffix}
+        %{
+          actor_id: ctx.actor_id,
+          idempotency_key: ctx.idempotency_key <> suffix,
+          holder_source: :import
+        }
       end
 
       case ReadApi.lookup_by_external_ref(prefix, "assets_card", ref.system, ref.id, [
