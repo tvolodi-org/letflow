@@ -77,7 +77,7 @@ export default function MetricsPage() {
   const rendererState: RendererState = isLoading ? 'loading' : isError && !showParseError ? classifyError(error) : 'success'
 
   return (
-    <div style={{ padding: '1.5rem' }}>
+    <div style={{ padding: '1.5rem', minWidth: 0, maxWidth: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '1.25rem' }}>
         <h2 style={{ margin: 0 }}>{m.title}</h2>
         {isFetching && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-info-dark)' }}>{m.refreshing}</span>}
@@ -99,20 +99,22 @@ export default function MetricsPage() {
       )}
 
       {(data ?? []).map((family) => (
-        <section key={family.name} style={{ marginBottom: '1.25rem', background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+        <section key={family.name} style={{ marginBottom: '1.25rem', background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', minWidth: 0, maxWidth: '100%' }}>
           <header style={{ padding: '.65rem .8rem', background: 'var(--surface-page)', borderBottom: '1px solid var(--border-default)' }}>
-            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center' }}>
-              <strong style={{ fontFamily: 'var(--font-mono)' }}>{family.name}</strong>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem .6rem', alignItems: 'center', minWidth: 0 }}>
+              <strong style={{ fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere', minWidth: 0 }}>{family.name}</strong>
               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{family.type}</span>
             </div>
             {family.help && <div style={{ marginTop: '.2rem', color: 'var(--text-secondary)', fontSize: 'var(--text-xs)' }}>{family.help}</div>}
           </header>
 
-          <DataTable
-            columns={SAMPLE_COLUMNS}
-            data={family.samples}
-            emptyMessage="No samples for this metric family."
-          />
+          <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+            <DataTable
+              columns={SAMPLE_COLUMNS}
+              data={family.samples}
+              emptyMessage="No samples for this metric family."
+            />
+          </div>
         </section>
       ))}      </QueryStateBoundary>    </div>
   )
