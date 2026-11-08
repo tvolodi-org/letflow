@@ -108,7 +108,8 @@ export interface Token {
 export interface ProcessInstance {
   instance_id: string
   definition_id: string
-  // definition_name and definition_version not emitted by GET /instances/:id (ISS-0809)
+  // definition_name and definition_version are emitted by neither GET /instances nor GET /instances/:id
+  // (ISS-0809, T-1495): resolve them from definition_id (useDefinition / useDefinitionsByIds)
   definition_name?: string
   definition_version?: string
   correlation_key?: string
