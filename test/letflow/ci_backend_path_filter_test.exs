@@ -469,4 +469,43 @@ defmodule Letflow.CiBackendPathFilterTest do
       assert violations(re) == []
     end
   end
+
+  # T-1509: web DOC_KINDS mirrors the backend document kinds (documentsModel M1 compares the web
+  # header keys with Kinds.header_keys). A backend-only change to a kinds file used to skip the
+  # frontend gate and turn main red (#4024, T-1508), so each kinds file must also set frontend=true.
+  describe "document kinds files also run the frontend gate" do
+    @kinds_files [
+      "lib/letflow/modules/assets/documents/kinds.ex",
+      "lib/letflow/modules/stock/documents/kinds.ex"
+    ]
+
+    defp run_filter(paths) do
+      {out, 0} =
+        System.cmd("bash", ["-c", ~S{printf '%s\n' "$@" | bash "$0"}, @rules_sh | paths])
+
+      out |> String.split("\n", trim: true) |> Map.new(&List.to_tuple(String.split(&1, "=")))
+    end
+
+    for file <- @kinds_files do
+      test "#{file} sets frontend=true and backend=true" do
+        assert run_filter([unquote(file)]) ==
+                 %{"backend" => "true", "frontend" => "true", "mobile" => "false"}
+      end
+
+      test "#{file} exists and defines header_keys (rule cannot rot)" do
+        assert File.read!(unquote(file)) =~ "header_keys"
+      end
+    end
+
+    test "every lib file defining header_keys: kinds is in the frontend rule" do
+      {out, 0} = System.cmd("git", ["grep", "-l", "header_keys:", "--", "lib/letflow/modules"])
+      defining = String.split(out, "\n", trim: true)
+      assert Enum.sort(defining) == Enum.sort(@kinds_files)
+    end
+
+    test "another backend-only file still leaves frontend=false" do
+      assert %{"backend" => "true", "frontend" => "false"} =
+               run_filter(["lib/letflow/modules/stock/documents/shape.ex"])
+    end
+  end
 end
