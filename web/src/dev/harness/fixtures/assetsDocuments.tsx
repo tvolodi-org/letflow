@@ -118,7 +118,7 @@ const AUTH = {
 } as unknown as AuthContextValue
 const ACCESS = {
   status: 'ready' as const,
-  info: { roles: [], platform_tenant: false, permissions: ['AssetsRead', 'AssetsPost', 'AssetsReverse'] },
+  info: { roles: [], platform_tenant: false, permissions: ['AssetsRead', 'AssetsPost', 'AssetsReverse', 'AssetsCardWrite'] },
 }
 
 export function withAuth(page: ReactElement): ReactElement {
@@ -168,9 +168,22 @@ export function ClickButton({ labels, children }: { labels: string[]; children: 
 export const EDIT_LABELS = ['Edit', 'Изменить', 'Өзгерту']
 export const SAVE_LABELS = ['Save', 'Сохранить', 'Сақтау']
 
-const creating = (name: string, kind: string, extra?: (el: ReactElement) => ReactElement): HarnessScreen => ({
+/** Harness only: the same server with no asset cards (the first-use state). */
+const routesNoCards: FixtureRoute[] = routes.map((r, i) =>
+  i !== 0
+    ? r
+    : {
+        ...r,
+        reply: (state, p, body) =>
+          (body as { entity_type?: string } | undefined)?.entity_type === 'assets_card'
+            ? { status: 200, body: { items: [], next_cursor: null } }
+            : r.reply(state, p, body),
+      },
+)
+
+const creating = (name: string, kind: string, extra?: (el: ReactElement) => ReactElement, r: FixtureRoute[] = routes): HarnessScreen => ({
   name,
-  routes,
+  routes: r,
   initialPath: `/new?kind=${kind}`,
   routePattern: '/new',
   render: () => withAuth((extra ?? ((e) => e))(<DocumentNewPage />)),
@@ -189,6 +202,7 @@ export const assetsDocumentsScreens: HarnessScreen[] = [
   view('asset-document-draft', 'doc-draft'),
   view('asset-document-edit', 'doc-draft', (e) => <ClickButton labels={EDIT_LABELS}>{e}</ClickButton>),
   creating('asset-document-new', 'commission'),
+  creating('asset-document-new-nocards', 'commission', undefined, routesNoCards),
   creating('asset-document-new-handover', 'handover'),
   creating('asset-document-new-writeoff', 'writeoff'),
   creating('asset-document-new-errors', 'change', (e) => <ClickButton labels={SAVE_LABELS}>{e}</ClickButton>),

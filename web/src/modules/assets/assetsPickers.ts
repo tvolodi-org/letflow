@@ -17,7 +17,14 @@ export interface PickerOption {
 /** One shared empty list: a new [] on every render while loading would change every memo keyed on the options. */
 const NO_OPTIONS: PickerOption[] = []
 
+export type PickerStatus = 'loading' | 'error' | 'ready'
+
 export function usePickerOptions(type: MasterType, extra: EntityQueryFilterClause[] = [], enabled = true): PickerOption[] {
+  return usePickerState(type, extra, enabled).options
+}
+
+/** The options and whether they are loading, failed or ready (a first-use notice must not flash while loading). */
+export function usePickerState(type: MasterType, extra: EntityQueryFilterClause[] = [], enabled = true): { options: PickerOption[]; status: PickerStatus } {
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   const scope = JSON.stringify(extra)
@@ -41,5 +48,6 @@ export function usePickerOptions(type: MasterType, extra: EntityQueryFilterClaus
     enabled,
     retry: false,
   }] })
-  return q.data ?? NO_OPTIONS
+  const status: PickerStatus = q.isError ? 'error' : q.isSuccess ? 'ready' : 'loading'
+  return { options: q.data ?? NO_OPTIONS, status }
 }
