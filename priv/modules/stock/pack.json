@@ -1538,7 +1538,7 @@
     },
     {
       "definition_json": {
-        "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled when the count is opened and sheet_document_id when it is closed (REQ-701). REQ-717: sheet_signed_at, differences_document_id, differences_number, differences_issued_at and differences_signed_at are filled by the signing and differences steps; old rows lack them. REQ-718: posting_document_id, posting_number and posting_issued_at are filled when the chair issues the posting record; old rows lack them.",
+        "description": "REQ-700 / GH #3737. The header of a count order (inventory taking): one org unit, a kind (full or selective), the planned period, the chair, a status and the issued document. status is draft, ordered, counting, counted, signed, posted or cancelled. org_unit_id is the scope column (decision 0076 R7). Master references (org unit, employee) are record ids checked in code (0076 R6), not foreign keys. cut_off_at and cutoff_seq are filled when the count is opened and sheet_document_id when it is closed (REQ-701). REQ-717: sheet_signed_at, differences_document_id, differences_number, differences_issued_at and differences_signed_at are filled by the signing and differences steps; old rows lack them. REQ-718: posting_document_id, posting_number and posting_issued_at are filled when the chair issues the posting record; old rows lack them. REQ-765: freeze_locations is the flag of the freeze mode (default false); freeze_started_at, freeze_until, freeze_ended_at, freeze_end_reason and freeze_state are the freeze fields (freeze_state is the lazily stored state, the read computes it from the data); old rows lack them.",
         "display_name": "Count order",
         "fields": [
           {
@@ -1662,6 +1662,30 @@
           {
             "name": "posting_issued_at",
             "type": "datetime"
+          },
+          {
+            "name": "freeze_locations",
+            "type": "boolean"
+          },
+          {
+            "name": "freeze_state",
+            "type": "string"
+          },
+          {
+            "name": "freeze_started_at",
+            "type": "datetime"
+          },
+          {
+            "name": "freeze_until",
+            "type": "datetime"
+          },
+          {
+            "name": "freeze_ended_at",
+            "type": "datetime"
+          },
+          {
+            "name": "freeze_end_reason",
+            "type": "string"
           }
         ],
         "indexes": [
@@ -1677,7 +1701,7 @@
       },
       "display_name": "Count order",
       "entity_definition_id": "45573d30-45d7-3626-82e0-0b0f034df9ac",
-      "logical_shape_version": "765fb0933d2b2b9216ca88e28bc0ff44d0d26ed21b7ea78ca1811291b4bb1fbf",
+      "logical_shape_version": "8a820378febdef8fe36c6c5b59878f4bef009cbe22cab5eeb1be33c812dfbb3a",
       "name": "count_order"
     },
     {
@@ -2066,6 +2090,52 @@
       "entity_definition_id": "6b56a708-c09a-ee8c-c55e-8c256520139d",
       "logical_shape_version": "27e319e942eb7eaf90dc86d7b392072d3d9dfbbc5c0a91605237c88bd66a498f",
       "name": "count_signature"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-765 / GH #3906. One frozen location of a count order in freeze mode: the order's roots and every location below them, taken once at the cut-off. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column. A balance key is frozen when its org unit and location are a pair of an order whose freeze is in force.",
+        "display_name": "Count freeze location",
+        "fields": [
+          {
+            "name": "count_order_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "location_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "count_order_id",
+            "name": "fk_count_freeze_location_order_id",
+            "references_entity": "count_order"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "count_order_id"
+            ],
+            "name": "idx_count_freeze_location_order_id"
+          }
+        ],
+        "name": "count_freeze_location"
+      },
+      "display_name": "Count freeze location",
+      "entity_definition_id": "1d4ac514-9e99-f80c-efe9-27b8602da7c4",
+      "logical_shape_version": "c41d404c2dc2258d98c506946b68e5247da362f3129dcc3fdab9971e080b6eb2",
+      "name": "count_freeze_location"
     },
     {
       "definition_json": {

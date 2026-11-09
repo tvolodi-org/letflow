@@ -235,6 +235,17 @@ describe('My Tasks, stock flows (GATE B R3)', () => {
     expect(screen.getByTestId('task-complete-button')).toBeInTheDocument()
   })
 
+  it('T7b a location_frozen refusal (REQ-765) on complete is a readable message and the task stays', async () => {
+    world.tasks[T_POST] = { ...(world.tasks[T_POST] as object), assignee_type: 'USER', assignee_ref: ISSUER }
+    world.completeRefusal = { status: 409, body: { error: 'location_frozen', details: { held_by: 'CO-2026-0001' } } }
+    renderPage()
+    const user = userEvent.setup()
+    await user.click((await screen.findAllByTestId('task-row')).find((r) => r.getAttribute('data-task-id') === T_POST)!)
+    await user.click(await screen.findByTestId('task-complete-button'))
+    expect(await screen.findByTestId('task-error')).toHaveTextContent(TASK_MESSAGES.en.errLocationFrozen)
+    expect(screen.getByTestId('task-complete-button')).toBeInTheDocument()
+  })
+
   it('T-1412 a task claimed by the signed-in user (tenant user id, not the token sub) stays in My Tasks with Complete', async () => {
     world.tasks[T_POST] = { ...(world.tasks[T_POST] as object), assignee_type: 'USER', assignee_ref: ISSUER }
     renderPage(ISSUER, 'tenantAdmin', SECOND)

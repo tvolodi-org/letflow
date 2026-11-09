@@ -40,7 +40,11 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     },
     scope_slot: "org_unit",
     max_event_lateness_hours: 96,
-    error_aliases: %{"insufficient_balance" => "insufficient_stock"},
+    error_aliases: %{
+      "insufficient_balance" => "insufficient_stock",
+      "posting_held" => "location_frozen"
+    },
+    posting_guard: %{module: Letflow.Modules.Stock.FreezeGuard, function: :check},
     policy: %{module: Letflow.Modules.Stock.LedgerPolicy, function: :declare}
   }
 
@@ -48,7 +52,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     m = Stock.manifest()
     assert Catalog.validate(m) == :ok
     assert m.id == "stock"
-    assert m.version == "0.16.0"
+    assert m.version == "0.17.0"
     assert m.depends_on == ["catalog_items", "codes", "locations", "org"]
     assert m.pack == "modules/stock/pack.json"
 
@@ -71,6 +75,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "count_sheet_line",
              "count_entry",
              "count_signature",
+             "count_freeze_location",
              "stock_posting_mark",
              "stock_opening",
              "stock_opening_line"
@@ -121,6 +126,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              "count_sheet_line" => {:column, "org_unit_id"},
              "count_entry" => {:column, "org_unit_id"},
              "count_signature" => {:column, "org_unit_id"},
+             "count_freeze_location" => {:column, "org_unit_id"},
              "stock_posting_mark" => {:column, "org_unit_id"},
              "stock_opening" => {:column, "org_unit_id"},
              "stock_opening_line" => {:column, "org_unit_id"}
@@ -148,6 +154,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"POST", "/counts/:id/cancel", :StockCountOrder},
              {"GET", "/counts", :StockRead},
              {"GET", "/counts/:id", :StockRead},
+             {"GET", "/frozen-locations", :StockRead},
              {"GET", "/counts/:id/document", :StockRead},
              {"GET", "/counts/:id/paperwork/:kind", :StockRead},
              {"GET", "/counts/:id/print/:kind", :StockRead},
@@ -206,7 +213,13 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     assert r.permissions == @registration.permissions
     assert r.scope_slot == "org_unit"
     assert r.max_event_lateness_hours == 96
-    assert r.error_aliases == %{"insufficient_balance" => "insufficient_stock"}
+
+    assert r.error_aliases == %{
+             "insufficient_balance" => "insufficient_stock",
+             "posting_held" => "location_frozen"
+           }
+
+    assert r.posting_guard == %{module: Letflow.Modules.Stock.FreezeGuard, function: :check}
     assert r.policy == %{module: Letflow.Modules.Stock.LedgerPolicy, function: :declare}
   end
 
@@ -243,8 +256,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     files = Path.wildcard("lib/letflow/modules/stock/**/*.ex")
     # T-1416: form_z2.ex (pure Z-2 data map, no Repo) makes 31.
     # T-1418: form_count.ex, form_count_inv18.ex and form_count_inv10.ex (pure data maps, no Repo) make 34.
-    # T-1417: form_z3.ex, form_z5.ex (pure) and stock_card_source.ex (reads through Ledger) make 37.
-    assert length(files) == 37
+    # T-1417: form_z3.ex, form_z5.ex (pure) and stock_card_source.ex (reads through Ledger) make 37; REQ-765 freeze_guard.ex and freeze_state.ex make 39.
+    assert length(files) == 39
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
@@ -256,10 +269,12 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # REQ-719: count_paperwork_source.ex reads issued versions and one offset statement (own tables only).
     # REQ-736: count_print.ex is pure (no Repo, no query); it is only counted here.
     # REQ-700: counts.ex reads and writes the count record types (Repo, Ecto.Query), never a ledger table.
+    # REQ-765: freeze_state.ex reads the count order and freeze rows and writes the freeze audit entries (own tables only);
+    # freeze_guard.ex is pure over it (no Repo), both are counted here (36).
     # GH 3735 R7: document_numbers.ex reads the core document and type rows (own tables) for the movement number.
     own_tables = fn path ->
       path =~
-        ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex|count_differences\.ex|count_paperwork_source\.ex|document_numbers\.ex)}
+        ~r{stock/(documents(\.ex|/)|counts\.ex|count_sheet\.ex|count_differences\.ex|count_paperwork_source\.ex|document_numbers\.ex|freeze_state\.ex)}
     end
 
     for {path, source} <- sources,

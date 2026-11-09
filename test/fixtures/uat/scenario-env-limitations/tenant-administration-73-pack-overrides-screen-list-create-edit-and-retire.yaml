@@ -1,0 +1,12 @@
+scenario_id: tenant-administration-73-pack-overrides-screen-list-create-edit-and-retire
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "REQ-631 criterion 2, the loading and server-error states of the overrides list; criterion 3, a submission lost to a network fault"
+reason: >
+  The loading state lasts a fraction of a second on a healthy server and the server-error state needs a stopped or failing server; a UAT actor can do neither on the QA server. The empty, populated and not-found states and every
+  form refusal are covered by the scenario. The loading and error states are web unit tests of the implementing change.
+recorded_by: BA
+recorded_at: "2026-11-09"
+issue_ref: "GH #3523"
+review: >
+  Revisit when the QA setup can hold a request open or fail a request on demand.

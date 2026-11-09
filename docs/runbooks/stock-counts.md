@@ -116,12 +116,12 @@ and `posting_document/3`. The signed differences sheet is posted to the stock le
 `to` side, a shortage `-q` at the `from` side, quantity the absolute difference). It replaces the pair
 `count_surplus` / `count_shortage` of decision 0079 section 8: an entry has one cause and a sheet usually has both signs.
 
-**Assumption, owner may change at GATE B (D-086): the count freeze is NOT built** (decision 0079 section 4, split plan
-row C7, no requirement yet). Stock postings inside the count scope between the cut-off and the posting are NOT blocked.
+**Assumption, owner may change at GATE B (D-086): in the default mode the count freeze is not built** (decision 0079
+section 4, split plan row C7; the optional freeze mode is the next section). Stock postings inside the count scope between the cut-off and the posting are NOT blocked.
 A difference is therefore posted as a delta (counted minus book at the cut-off, the `difference` of the issued line), so
 that a movement made meanwhile stays valid and the balance ends at balance-now plus delta. Known gaps:
 
-1. The freeze is not built. Nothing stops a movement during counting.
+1. In the default mode the freeze is not built. Nothing stops a movement during counting.
 2. A shortage can exceed the current balance if goods left after the cut-off: the ledger refuses `insufficient_stock`
    when the post task is completed, the task stays pending and the count stays `signed`.
 3. A count posted after later movements reports the delta, not "counted = balance".
@@ -162,6 +162,41 @@ tenant-wide ledger read, else 404 (fail closed). The posting and the reversal ca
 
 The stock module is installed on no tenant yet; an existing install takes the new pack definition and the three new
 optional `count_order` fields through the module-upgrade path (old rows lack them, all reads tolerate that).
+
+## The freeze locations mode (REQ-765, GH #3906; module `stock` 0.17.0)
+
+Owner decision D-094. A count order may carry `freeze_locations` (boolean, an input of create and update, default
+`false`, part of the issued `count.order` content). The no-freeze count above stays the default and is unchanged.
+
+* **Start.** `POST /counts/:id/open` of such an order freezes the order's roots and every location below them (taken
+  once at the cut-off, stored as `count_freeze_location` rows; a location created later is not frozen). The order gets
+  `freeze_started_at` (= `cut_off_at`), `freeze_until` and `freeze_state` `active`; one audit entry
+  `stock.count.freeze_started` (ids, number of locations, `freeze_until`; no quantity).
+* **Refusal.** While the freeze is in force the stock posting guard (`Letflow.Modules.Stock.FreezeGuard`, the
+  `posting_guard` of REQ-764) refuses every posting on a frozen key with `409 location_frozen` and `held_by` the count
+  order number (receipt, issue, write off, transfer, hand over and return on either side, opening, and the reversal of
+  any of them). A key is frozen by the **pair rule** (decision 0079 section 4): its org unit is the order's org unit AND
+  its location is in the frozen set; the same place for another org unit is not frozen. The task stays pending and can be
+  completed after the freeze ends. The only exemption is the count's own posting (`count.differences` and the order's
+  differences document). Core audits each refusal as `ledger.posting_held`.
+* **End.** The state is always computed from the data: `active` until the first of cancel (`ended`/`cancelled`, at once,
+  audit `stock.count.freeze_ended`), the `posted` mark of the count (`ended`/`posted`) or the time limit (`expired`).
+  The limit is the module setting `count_freeze_limit_minutes` (1 to 5760, default 120, read at the open and stored as
+  `freeze_until`; set with `PUT /api/v1/tenant/modules/stock/settings`). An expired count is posted as the plain delta.
+  The stored fields (`freeze_state`, `freeze_ended_at`, `freeze_end_reason`) for posted and expired follow lazily at the
+  first count write after the end, with one audit entry (`freeze_ended` or `freeze_expired`); a late stored value never
+  changes what is refused. A signed order cannot be cancelled, so its freeze ends by posting or by the limit.
+* **Reads.** `GET /counts/:id` and the list answer `freeze_locations`, `freeze_state`, `freeze_started_at`,
+  `freeze_until`, `freeze_ended_at`, `freeze_end_reason`. `GET /frozen-locations` (`StockRead`; query `location_id`,
+  `limit`, `cursor`) lists the frozen locations in force, one row per location and count order with `location_id`,
+  `org_unit_id`, `count_order_id`, `count_number`, `freeze_until`, only for org units in the caller's scope.
+* **Lock order.** Open takes the order lock, then `Letflow.Ledger.hold_exclusive!/2`, then reads the order and the book
+  inside the transaction (see the moduledoc of `FreezeGuard`), so a posting that passed the guard before the open is in
+  the sheet and every later one is refused.
+
+Assumptions, owner may change at GATE B: the pair rule rather than the whole place, the refused task stays pending, no
+scheduled expiry job, the flag cannot change after issue. Existing installs take the new type and fields through the
+module-upgrade path; no row exists before, nothing is backfilled.
 
 ## Org units and the document service
 

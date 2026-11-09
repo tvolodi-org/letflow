@@ -50,6 +50,8 @@ defmodule Letflow.Modules.Stock.CountSheet do
   alias Letflow.Modules.ReadApi
   alias Letflow.Modules.Stock.ActorLabel
   alias Letflow.Modules.Stock.Counts
+  alias Letflow.Modules.Stock.FreezeGuard
+  alias Letflow.Modules.Stock.FreezeState
   alias Letflow.Modules.Stock.Views
   alias Letflow.Repo
 
@@ -76,9 +78,18 @@ defmodule Letflow.Modules.Stock.CountSheet do
          :ok <- chair(prefix, header, actor),
          :ok <- status(header, "ordered"),
          now = DateTime.truncate(DateTime.utc_now(), :microsecond),
-         :ok <- due(header, now),
-         locations = locations(prefix, header["record_id"]),
-         {:ok, n, rows} <- read_book(authorized, header["org_unit_id"], locations, now),
+         :ok <- due(header, now) do
+      if header["freeze_locations"] == true,
+        do: open_frozen(prefix, header, authorized, scope, actor, opts),
+        else: open_plain(prefix, header, authorized, scope, actor, now, opts)
+    end
+  end
+
+  # The no-freeze count (REQ-701): the book is read before the transaction.
+  defp open_plain(prefix, header, authorized, scope, actor, now, opts) do
+    locations = locations(prefix, header["record_id"])
+
+    with {:ok, n, rows} <- read_book(authorized, header["org_unit_id"], locations, now),
          {:ok, lines} <- build_lines(header, rows) do
       Repo.transaction(fn ->
         lock_order!(prefix, header["record_id"])
@@ -102,6 +113,92 @@ defmodule Letflow.Modules.Stock.CountSheet do
         end
       end)
       |> view_after(prefix, header["record_id"], opts)
+    end
+  end
+
+  # REQ-765: the freeze count. Lock order (see `Letflow.Modules.Stock.FreezeGuard`): the order lock,
+  # then the exclusive hold of the ledger, then the order and the book are read INSIDE the
+  # transaction, so a posting that passed the guard before the hold is in the book and every later
+  # one reads the freeze. The cut-off is taken after the hold. No ledger lock is taken.
+  defp open_frozen(prefix, header, authorized, scope, actor, opts) do
+    Repo.transaction(fn ->
+      lock_order!(prefix, header["record_id"])
+      Ledger.hold_exclusive!(prefix, "stock")
+      FreezeGuard.hook(:open_locked)
+      now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+      with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
+           :ok <- status(fresh, "ordered"),
+           :ok <- due(fresh, now),
+           locations = locations(prefix, fresh["record_id"]),
+           {:ok, n, rows} <- read_book(authorized, fresh["org_unit_id"], locations, now),
+           {:ok, lines} <- build_lines(fresh, rows),
+           :ok <- create_all(prefix, lines, actor),
+           :ok <- create_freeze_rows(prefix, fresh, locations, actor),
+           started = DateTime.to_iso8601(now),
+           until =
+             DateTime.to_iso8601(DateTime.add(now, FreezeState.limit_minutes(prefix), :minute)),
+           fv =
+             fresh
+             |> Map.drop(@kept)
+             |> Map.merge(%{
+               "status" => "counting",
+               "cut_off_at" => started,
+               "cutoff_seq" => n,
+               "freeze_state" => "active",
+               "freeze_started_at" => started,
+               "freeze_until" => until
+             }),
+           {:ok, _} <- update_record(prefix, fresh["record_id"], "count_order", fv, actor),
+           :ok <- audit(prefix, actor, "opened", fresh["record_id"], "ordered", "counting", nil),
+           :ok <-
+             FreezeState.audit(
+               prefix,
+               actor,
+               "freeze_started",
+               Map.put(fv, "record_id", fresh["record_id"]),
+               nil,
+               %{
+                 "locations" => length(locations),
+                 "freeze_until" => until
+               }
+             ) do
+        :ok
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> view_after(prefix, header["record_id"], opts)
+  end
+
+  defp create_freeze_rows(prefix, order, locations, actor) do
+    Enum.reduce_while(locations, :ok, fn loc, :ok ->
+      fv = %{
+        "count_order_id" => order["record_id"],
+        "location_id" => loc,
+        "org_unit_id" => order["org_unit_id"]
+      }
+
+      case create_record(prefix, "count_freeze_location", fv, actor) do
+        {:ok, _} -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  @doc false
+  # REQ-765: the fresh header inside a write transaction (after `lock_order!/2`), with the end of an
+  # over freeze (posted or expired) stored and audited once; re-read when something was stored so the
+  # caller's rewrite of the header keeps the stored freeze fields.
+  def fetch_settled(prefix, id, scope, actor) do
+    with {:ok, fresh} <- fetch(prefix, id, scope) do
+      write = &update_record(prefix, fresh["record_id"], "count_order", &1, actor)
+
+      case FreezeState.settle(prefix, actor, fresh, write) do
+        :unchanged -> {:ok, fresh}
+        :settled -> fetch(prefix, id, scope)
+        {:error, _} = error -> error
+      end
     end
   end
 
@@ -223,7 +320,7 @@ defmodule Letflow.Modules.Stock.CountSheet do
       Repo.transaction(fn ->
         lock_order!(prefix, header["record_id"])
 
-        with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
+        with {:ok, fresh} <- fetch_settled(prefix, header["record_id"], scope, actor),
              :ok <- status(fresh, "counting"),
              {:ok, line} <- find_line(prefix, fresh["record_id"], no),
              before = line["counted_quantity"],
@@ -476,7 +573,7 @@ defmodule Letflow.Modules.Stock.CountSheet do
     Repo.transaction(fn ->
       lock_order!(prefix, header["record_id"])
 
-      with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
+      with {:ok, fresh} <- fetch_settled(prefix, header["record_id"], scope, actor),
            :ok <- status(fresh, "counting") do
         case scan_duplicate(prefix, fresh["record_id"], doc) do
           {:done, {:ok, view}} -> view
@@ -573,7 +670,7 @@ defmodule Letflow.Modules.Stock.CountSheet do
       Repo.transaction(fn ->
         lock_order!(prefix, header["record_id"])
 
-        with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
+        with {:ok, fresh} <- fetch_settled(prefix, header["record_id"], scope, actor),
              :ok <- status(fresh, "counting"),
              :ok <- no_duplicate(prefix, fresh["record_id"], doc),
              no = next_number(prefix, "count_sheet_line", fresh["record_id"], "line_no"),
@@ -715,7 +812,7 @@ defmodule Letflow.Modules.Stock.CountSheet do
       Repo.transaction(fn ->
         lock_order!(prefix, header["record_id"])
 
-        with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
+        with {:ok, fresh} <- fetch_settled(prefix, header["record_id"], scope, actor),
              :ok <- status(fresh, "counting"),
              lines = all_lines(prefix, fresh["record_id"]),
              :ok <- all_counted(lines),
