@@ -14,6 +14,7 @@ defmodule Letflow.Router do
   | GET    | /metrics            | `Letflow.Routers.MetricsExposition`| **none**  | none (ETS only)  |
   | GET    | /api/public/:kind/:handle | `Letflow.Routers.PublicRead` | **none**  | global `public_read_handles` + tenant-scoped resource |
   | POST   | /api/login-discovery | `Letflow.Routers.LoginDiscovery`  | **none**  | global `tenant_login_directory` + `tenants` |
+  | *      | /api/signup          | `Letflow.Routers.Signup`          | **none**  | global `signup_requests` (flag, default off) |
   | *      | /api/v1/…           | `Letflow.Plugs.ApiPipeline`        | delegated | delegated |
   | *      | _                   | `Letflow.Api.Response.not_found/1` | none      | none      |
 
@@ -149,6 +150,11 @@ defmodule Letflow.Router do
   # (decision 0028). Off by default in :prod via its own enabled_gate/2. See
   # Letflow.Routers.LoginDiscovery's moduledoc.
   forward("/api/login-discovery", to: Letflow.Routers.LoginDiscovery)
+
+  # Public by design (T-1579, decision 0084) -- the tenant sign-up, part 1: record a request and
+  # verify its e-mail link. Off by default (LETFLOW_SIGNUP_ENABLED); creates no tenant. A sibling
+  # forward before /api/v1, never under AuthPipeline. See Letflow.Routers.Signup's moduledoc.
+  forward("/api/signup", to: Letflow.Routers.Signup)
 
   forward("/api/v1", to: Letflow.Plugs.ApiPipeline)
 
