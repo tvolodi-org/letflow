@@ -11,6 +11,7 @@
 /// `docs/mobile/architecture.md` §1. Built starting REQ-421 (MOB-2).
 library;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_appauth/flutter_appauth.dart'
     show AuthorizationTokenResponse;
@@ -20,6 +21,7 @@ import 'package:go_router/go_router.dart';
 import '../api/api_client.dart';
 import '../api/api_error.dart' show ForbiddenError;
 import '../api/transport_policy.dart';
+import '../auth/app_auth_platform.dart';
 import '../auth/auth.dart';
 import '../definitions/definitions.dart'
     show ActiveDefinitionCacheHolder, DefinitionCacheOpener;
@@ -160,7 +162,7 @@ Future<BootstrapResult?> runTenantBootstrap(
   required HttpGateway client,
   required TenantTokenStore tokenStore,
   required ActiveRealmHolder activeRealm,
-  AppAuthAdapter appAuthAdapter = const RealAppAuthAdapter(),
+  AppAuthAdapter? appAuthAdapter,
   TransportPolicy? transportPolicy,
   ActiveDefinitionCacheHolder? definitionCache,
   DefinitionCacheOpener? cacheOpener,
@@ -190,7 +192,7 @@ Future<BootstrapResult?> runTenantBootstrap(
   try {
     tokenResponse = await authenticateWithTenant(
       config,
-      appAuthAdapter: appAuthAdapter,
+      appAuthAdapter: appAuthAdapter ?? defaultAppAuthAdapter(),
     );
   } catch (_) {
     return const BootstrapFailure(BootstrapFailureReason.oidcFailure);
@@ -365,7 +367,7 @@ Future<BootstrapResult?> switchTenant(
   required HttpGateway client,
   required TenantTokenStore tokenStore,
   required ActiveRealmHolder activeRealm,
-  AppAuthAdapter appAuthAdapter = const RealAppAuthAdapter(),
+  AppAuthAdapter? appAuthAdapter,
   TransportPolicy? transportPolicy,
   ActiveDefinitionCacheHolder? definitionCache,
   DefinitionCacheOpener? cacheOpener,
@@ -526,11 +528,21 @@ class BootstrapController extends ChangeNotifier {
     required this.activeRealm,
     required this.definitionCache,
     required this.pinnedFormCache,
-    this.appAuthAdapter = const RealAppAuthAdapter(),
+    AppAuthAdapter? appAuthAdapter,
     this.cacheOpener,
     this.pinnedFormCacheOpener,
     ActiveTenantLocaleHolder? tenantLocale,
-  }) : tenantLocale = tenantLocale ?? ActiveTenantLocaleHolder();
+    this.webMode = kIsWeb,
+    WebPendingSignIn? Function()? webPending,
+  }) : appAuthAdapter = appAuthAdapter ?? defaultAppAuthAdapter(),
+       webPending = webPending ?? peekWebPendingSignIn,
+       tenantLocale = tenantLocale ?? ActiveTenantLocaleHolder();
+
+  /// Web (PWA M2): sign-in is a full-page redirect, so a session is resumed
+  /// by finishing a pending redirect or silently restarting it. Injectable
+  /// so tests need no browser.
+  final bool webMode;
+  final WebPendingSignIn? Function() webPending;
 
   final HttpGateway client;
   final TenantTokenStore tokenStore;
@@ -562,6 +574,7 @@ class BootstrapController extends ChangeNotifier {
   BootstrapUiState get state => _state;
 
   Future<void> beginBootstrap(String slug) async {
+    rememberWebSignInSlug(slug);
     _state = const BootstrapUiState(phase: BootstrapPhase.loading);
     notifyListeners();
 
@@ -596,6 +609,16 @@ class BootstrapController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A failing IdP must not loop on reload: drop the pointer so the next
+  /// start shows the slug entry.
+  Future<void> _clearPointerOnFailure({bool force = false}) async {
+    if (force || _state.phase == BootstrapPhase.failure) {
+      try {
+        await clearLastActiveTenant(tokenStore);
+      } catch (_) {}
+    }
+  }
+
   /// Returns to the slug-entry screen (used by the tenant-not-found
   /// screen's retry action, and by a generic "start over").
   void resetToEntry() {
@@ -609,6 +632,7 @@ class BootstrapController extends ChangeNotifier {
   /// [_switchTenantTopLevel] tear-off — see that variable's doc comment
   /// for why).
   Future<void> switchTenant(String slug) async {
+    rememberWebSignInSlug(slug);
     _state = const BootstrapUiState(phase: BootstrapPhase.loading);
     notifyListeners();
 
@@ -671,6 +695,30 @@ class BootstrapController extends ChangeNotifier {
   /// best-effort offline-resume attempt, never one that can crash app
   /// start or block the normal online bootstrap flow that follows.
   Future<void> attemptSessionResume() async {
+    if (webMode) {
+      try {
+        final pending = webPending();
+        if (pending != null) {
+          // Back from the IdP: finishes the code exchange.
+          await beginBootstrap(pending.slug);
+          await _clearPointerOnFailure();
+          return;
+        }
+        final p = await readLastActiveTenant(tokenStore);
+        if (p != null && await tokenStore.read(p.realmUrl) == null) {
+          // Tokens are memory-only on web: restart sign-in; silent while the
+          // Keycloak SSO session lives.
+          await beginBootstrap(p.slug);
+          await _clearPointerOnFailure();
+          return;
+        }
+      } catch (_) {
+        await _clearPointerOnFailure(force: true);
+        _state = BootstrapUiState.unauthenticated;
+        notifyListeners();
+        return;
+      }
+    }
     try {
       final pointer = await readLastActiveTenant(tokenStore);
       if (pointer == null) {
@@ -748,7 +796,7 @@ final Provider<ApiClient> apiClientProvider = Provider<ApiClient>((ref) {
   return ApiClient.create(
     tokenStore: ref.watch(tenantTokenStoreProvider),
     activeRealm: ref.watch(activeRealmHolderProvider),
-    appAuthAdapter: const RealAppAuthAdapter(),
+    appAuthAdapter: defaultAppAuthAdapter(),
     // `ref.read` here is deferred until a 401-refresh failure actually
     // calls this closure — it is never evaluated while `apiClientProvider`
     // itself is being built, so this does not create a build-time circular

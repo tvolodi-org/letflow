@@ -15,6 +15,8 @@ import 'package:flutter_appauth/flutter_appauth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../api/api_client.dart' show TenantConfig;
+import 'app_auth_platform.dart' show webPointerKv;
+import 'kv_store.dart';
 
 /// Matches the Keycloak client's sole registered `redirectUris` entry
 /// (REQ-418 §1.1) — literal, fixed, never derived from tenant config.
@@ -76,6 +78,23 @@ class TokenSet {
   }
 }
 
+/// [KvStore] over `flutter_secure_storage` — the native backend.
+class _SecureKv implements KvStore {
+  const _SecureKv(this._s);
+
+  final FlutterSecureStorage _s;
+
+  @override
+  Future<String?> read(String key) => _s.read(key: key);
+
+  @override
+  Future<void> write(String key, String value) =>
+      _s.write(key: key, value: value);
+
+  @override
+  Future<void> delete(String key) => _s.delete(key: key);
+}
+
 /// The one token-store class (REQ-421 design §4). Keyed by `realmUrl`, not
 /// the entered slug — the secure-storage key is derived from the
 /// backend-verified `realm_url`, never the user-claimed slug, which is
@@ -88,7 +107,19 @@ class TokenSet {
 /// here — see REQ-422 design §"OQ-6" if a later requirement expects them
 /// under this label.
 class TenantTokenStore {
-  const TenantTokenStore(this._storage);
+  const TenantTokenStore(FlutterSecureStorage storage)
+    : _secure = storage,
+      _tokensKv = null,
+      _pointerKv = null;
+
+  /// Backends chosen by the caller (web, tests). `tokens` holds credentials,
+  /// `pointer` only the non-secret last-active-tenant pointer.
+  const TenantTokenStore.withBackends({
+    required KvStore tokens,
+    required KvStore pointer,
+  }) : _secure = null,
+       _tokensKv = tokens,
+       _pointerKv = pointer;
 
   /// Hardened production constructor (REQ-422 §1.2, MOB-5, BUILDS item 1) —
   /// the only call site that should ever construct a [TenantTokenStore] in
@@ -112,6 +143,12 @@ class TenantTokenStore {
   /// parameter is needed to opt into it; passing the plain `AndroidOptions()`
   /// default *is* the hardened choice under this pinned version.
   factory TenantTokenStore.production() {
+    // Web (PWA M2, D-112): tokens in memory only, the pointer in browser storage
+    // through a store that accepts that one key. See README, "Web sign-in".
+    final ptr = webPointerKv();
+    if (kIsWeb && ptr != null) {
+      return TenantTokenStore.withBackends(tokens: MemoryKv(), pointer: ptr);
+    }
     const storage = FlutterSecureStorage(
       aOptions: AndroidOptions(),
       iOptions: IOSOptions(
@@ -121,7 +158,14 @@ class TenantTokenStore {
     return const TenantTokenStore(storage);
   }
 
-  final FlutterSecureStorage _storage;
+  // `const` constructors cannot wrap the storage in a [KvStore], so the
+  // native wrapper is made on demand.
+  final FlutterSecureStorage? _secure;
+  final KvStore? _tokensKv;
+  final KvStore? _pointerKv;
+
+  KvStore get _tokens => _tokensKv ?? _SecureKv(_secure!);
+  KvStore get _pointer => _pointerKv ?? _SecureKv(_secure!);
 
   static String _keyFor(String realmUrl) => 'letflow.tenant_tokens.$realmUrl';
 
@@ -130,20 +174,17 @@ class TenantTokenStore {
   /// responsible for catching it and routing to
   /// `SecureStorageUnavailableScreen`.
   Future<void> store(String realmUrl, TokenSet tokens) {
-    return _storage.write(
-      key: _keyFor(realmUrl),
-      value: jsonEncode(tokens.toJson()),
-    );
+    return _tokens.write(_keyFor(realmUrl), jsonEncode(tokens.toJson()));
   }
 
   Future<TokenSet?> read(String realmUrl) async {
-    final raw = await _storage.read(key: _keyFor(realmUrl));
+    final raw = await _tokens.read(_keyFor(realmUrl));
     if (raw == null) return null;
     return TokenSet.fromJson(jsonDecode(raw) as Map<String, dynamic>);
   }
 
   Future<void> delete(String realmUrl) {
-    return _storage.delete(key: _keyFor(realmUrl));
+    return _tokens.delete(_keyFor(realmUrl));
   }
 }
 
@@ -175,14 +216,14 @@ class LastActiveTenantPointer {
 }
 
 /// Writes [pointer] via [tokenStore]'s own storage instance (same-library
-/// access to its private `_storage` field — see [TenantTokenStore]).
+/// access to its private `_pointer` field — see [TenantTokenStore]).
 Future<void> writeLastActiveTenant(
   TenantTokenStore tokenStore,
   LastActiveTenantPointer pointer,
 ) {
-  return tokenStore._storage.write(
-    key: _lastActiveTenantKey,
-    value: jsonEncode(pointer.toJson()),
+  return tokenStore._pointer.write(
+    _lastActiveTenantKey,
+    jsonEncode(pointer.toJson()),
   );
 }
 
@@ -191,7 +232,7 @@ Future<void> writeLastActiveTenant(
 Future<LastActiveTenantPointer?> readLastActiveTenant(
   TenantTokenStore tokenStore,
 ) async {
-  final raw = await tokenStore._storage.read(key: _lastActiveTenantKey);
+  final raw = await tokenStore._pointer.read(_lastActiveTenantKey);
   if (raw == null) return null;
   return LastActiveTenantPointer.fromJson(
     jsonDecode(raw) as Map<String, dynamic>,
@@ -202,7 +243,7 @@ Future<LastActiveTenantPointer?> readLastActiveTenant(
 /// `ActiveDefinitionCacheHolder.closeAndClear()` is: `switchTenant`'s
 /// pre-delete branch and `logout`.
 Future<void> clearLastActiveTenant(TenantTokenStore tokenStore) {
-  return tokenStore._storage.delete(key: _lastActiveTenantKey);
+  return tokenStore._pointer.delete(_lastActiveTenantKey);
 }
 
 /// Fake-adapter seam for `flutter_appauth` (REQ-421 design §3.2) — the
