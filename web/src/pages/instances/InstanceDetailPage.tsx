@@ -5,6 +5,8 @@ import '@xyflow/react/dist/style.css'
 import { useInstance, useCancelInstance, useInstanceTimeline } from '@/hooks/useInstances'
 import { useTasks } from '@/hooks/useTasks'
 import { useDefinition } from '@/hooks/useDefinitions'
+import { DefinitionName, definitionDisplayText } from '@/components/ui/DefinitionName'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { P, useAccess } from '@/auth/access'
 import { usePolling } from '@/hooks/usePolling'
 import { useHistoryScrubber } from '@/hooks/useHistoryScrubber'
@@ -93,6 +95,7 @@ function useReadonlyGraph(
 
 export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const uiLocale = useUiLocale()
   const tenantKeys = useTenantScopedQueryKeys()
 
   const { data: instance, isLoading, isError, error, refetch, dataUpdatedAt } = useInstance(id!)
@@ -180,7 +183,7 @@ export default function InstanceDetailPage() {
         // useDefinition(instance?.definition_id) instead. Render a neutral
         // placeholder while that fetch is still in flight rather than the
         // literal string "undefined".
-        { key: 'Definition', value: definition ? `${definition.name} v${definition.version}` : '—' },
+        { key: 'Definition', value: definition ? <DefinitionName name={definition.name} version={definition.version} /> : '—' },
         {
           key: 'Status',
           value: <StatusBadge status={instance.status} domain="instance" size="sm" />,
@@ -374,7 +377,7 @@ export default function InstanceDetailPage() {
       <CancelInstanceDialog
         open={showCancelDialog}
         instanceId={instance.instance_id}
-        instanceName={definition ? `${definition.name} v${definition.version}` : '—'}
+        instanceName={definition ? definitionDisplayText(definition.name, definition.version, uiLocale) : '—'}
         onConfirm={onCancelConfirm}
         onCancel={() => setShowCancelDialog(false)}
         isPending={cancel.isPending}
