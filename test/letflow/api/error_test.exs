@@ -183,6 +183,16 @@ defmodule Letflow.Api.ErrorTest do
       assert upgrade["code"] == "upgrade_required"
     end
 
+    test "T-1548 E1: 503 deploy-skew errors have distinct codes and fixed text" do
+      old = decode(Error.module_data_version_too_old())
+      assert old["status"] == 503
+      assert old["code"] == "module_upgrade_required"
+      ahead = decode(Error.module_version_ahead())
+      assert ahead["status"] == 503
+      assert ahead["code"] == "module_version_ahead"
+      refute old["code"] == decode(Error.module_upgrade_required())["code"]
+    end
+
     test "E2: open_work_exists is 409 with a constant code and two counts, no ids" do
       open_work = decode(Error.module_open_work_exists(2, 3))
       assert open_work["status"] == 409

@@ -20,6 +20,7 @@ defmodule Letflow.Modules.Fixture do
   defmanifest(
     id: "fixture",
     version: "0.1.0",
+    min_data_version: "0.1.0",
     depends_on: [],
     pack: nil,
     permissions: [:FixtureRead],

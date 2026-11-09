@@ -311,6 +311,37 @@ defmodule Letflow.Api.Error do
   end
 
   @doc """
+  HTTP 503 — the tenant's stored module data version is below this build's `min_data_version`
+  (decision 0055 D5, mount gate). Not the 409 `module_upgrade_required/0`, which is hash-based.
+  Fixed text: no module id, version or hash.
+  """
+  @spec module_data_version_too_old() :: t()
+  def module_data_version_too_old do
+    %__MODULE__{
+      type: @problems_base <> "module-upgrade-required",
+      title: "Module Upgrade Required",
+      status: 503,
+      detail: "the module data of this tenant must be upgraded before this build can serve it",
+      extensions: %{"code" => "module_upgrade_required"}
+    }
+  end
+
+  @doc """
+  HTTP 503 — the tenant's stored module data version is above this build's `:version` (a build older
+  than the data; decision 0055 D5). Fixed text.
+  """
+  @spec module_version_ahead() :: t()
+  def module_version_ahead do
+    %__MODULE__{
+      type: @problems_base <> "module-version-ahead",
+      title: "Module Version Ahead",
+      status: 503,
+      detail: "the module data of this tenant is newer than this build can serve",
+      extensions: %{"code" => "module_version_ahead"}
+    }
+  end
+
+  @doc """
   HTTP 409 — Module Upgrade Refused (REQ-770, decision 0080). `code` is one of the closed set of
   refusal and failure codes of the upgrade apply (`plan_mismatch`, `no_upgrade_path`,
   `upgrade_forbidden`, `ack_mismatch`, `upgrade_needs_runner`, `upgrade_running`, `upgrade_failed`);
