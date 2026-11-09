@@ -25,6 +25,12 @@ defmodule Letflow.Signup.Request do
     field(:terms_version, :string)
     field(:terms_accepted_at, :utc_datetime_usec)
     field(:verified_at, :utc_datetime_usec)
+    # T-1593: realm step (decision 0085). The one-time password is never a column.
+    field(:idp_realm_id, :string)
+    field(:idp_issuer, :string)
+    field(:template_version, :string)
+    field(:claimed_at, :utc_datetime_usec)
+    field(:credential_sent_at, :utc_datetime_usec)
 
     timestamps()
   end

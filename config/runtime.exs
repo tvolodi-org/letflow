@@ -368,9 +368,40 @@ if signup_enabled and config_env() not in [:dev, :test] do
   end
 end
 
+# T-1593 (decision 0085): the realm step. URL + token + hostname domain are all-or-nothing; the URL must be
+# http:// on a loopback / private address (INV-9). The token is checked for presence only and is NOT put
+# in the application config (INV-4): the client reads it from the environment at call time.
+signup_prov_url = System.get_env("LETFLOW_SIGNUP_PROVISIONER_URL")
+signup_prov_token = System.get_env("LETFLOW_SIGNUP_PROVISIONER_TOKEN")
+signup_hostname_domain = System.get_env("LETFLOW_SIGNUP_HOSTNAME_DOMAIN")
+signup_set? = fn v -> v not in [nil, ""] end
+
+if Enum.any?([signup_prov_url, signup_prov_token, signup_hostname_domain], signup_set?) do
+  if not Enum.all?([signup_prov_url, signup_prov_token, signup_hostname_domain], signup_set?) do
+    raise "LETFLOW_SIGNUP_PROVISIONER_URL, LETFLOW_SIGNUP_PROVISIONER_TOKEN and " <>
+            "LETFLOW_SIGNUP_HOSTNAME_DOMAIN must be set together. The values are not echoed."
+  end
+
+  if not Letflow.Signup.RealmProvisioner.valid_base_url?(signup_prov_url) do
+    raise "environment variable LETFLOW_SIGNUP_PROVISIONER_URL must be http://<loopback or private IP, " <>
+            "or localhost>:<port> with no credentials or path. The value is not echoed."
+  end
+
+  if not Regex.match?(~r/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/, signup_hostname_domain) do
+    raise "environment variable LETFLOW_SIGNUP_HOSTNAME_DOMAIN must be a lower-case DNS domain. " <>
+            "The value is not echoed."
+  end
+
+  if not signup_enabled do
+    raise "LETFLOW_SIGNUP_PROVISIONER_URL is set but LETFLOW_SIGNUP_ENABLED is not true: refusing to boot."
+  end
+end
+
 config :letflow, Letflow.Signup,
   enabled: signup_enabled,
   base_url: signup_base_url,
+  provisioner_url: if(signup_set?.(signup_prov_url), do: signup_prov_url),
+  hostname_domain: if(signup_set?.(signup_hostname_domain), do: signup_hostname_domain),
   pending_cap: signup_int.("LETFLOW_SIGNUP_PENDING_CAP", 50),
   ip_hourly_cap: signup_int.("LETFLOW_SIGNUP_IP_HOURLY_CAP", 5),
   resend_interval_seconds: signup_int.("LETFLOW_SIGNUP_RESEND_INTERVAL_SECONDS", 60),
