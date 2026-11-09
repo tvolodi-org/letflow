@@ -176,7 +176,21 @@ defmodule Letflow.Plugs.AuthPipeline do
     if Identity.tenant_purged?(id), do: {:error, {:tenant_purged, id}}, else: :ok
   end
 
+  # GH T-1558: a presented-but-wrong credential is marked so `Letflow.Plugs.AuthAttemptLimit`
+  # (before-send hook) spends one token of the caller's failure bucket. A missing header and an
+  # expired API token carry no guess and are not marked. Status and body are unchanged.
+  defp counted_failure?({:error, {class, _}})
+       when class in [:verify, :realm, :tenant, :ownership, :claims],
+       do: true
+
+  defp counted_failure?({:error, {:api_token, reason}}),
+    do: reason != :expired and reason != :header_missing
+
+  defp counted_failure?(_), do: false
+
   defp handle_auth_error(conn, error) do
+    conn = if counted_failure?(error), do: put_private(conn, :auth_failed, true), else: conn
+
     case error do
       {:error, {:tenant_purged, _id}} ->
         reject(conn, 403, "tenant_inactive", "tenant is deactivated")
