@@ -53519,7 +53519,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-783 -- no GitHub issue for gap G6 yet; the operator registers it
+    gh: 4058
     # Source: task T-1493, decision docs/migration/decisions/0083-asset-opening-document.md D7 and D9 item 4, docs/uat/ba-decisions/T-1486.md gap G6.
     description: >
       Gap G6. Old assets arrive by xlsx (D-097 item 3): the card import (REQ-762) puts the cards in, this import places them.
@@ -53546,7 +53546,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-572 -- no GitHub issue for phase F item F1 yet; the engine registers it
+    gh: 4057
     # Source: task T-1197; ai-dala-portfolio/architectures/assets.md (open question 7, phase F row); letflow-team/project/assets-gap-analysis.md section 6 item 8; portfolio decisions D-016, D-019 items 3, 7 and 9, D-063, D-086.
     description: >
       Phase F (assets.md, phase table) says the customer can "use it for real" and needs Letflow production, backups and
