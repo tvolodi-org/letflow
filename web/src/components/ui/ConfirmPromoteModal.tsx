@@ -2,13 +2,15 @@ import type React from 'react'
 
 export interface ConfirmPromoteModalProps {
   definitionName: string
+  /** Friendly name for the sentence; falls back to `definitionName`. */
+  displayName?: string
   onConfirm: () => void
   onCancel: () => void
   isLoading: boolean
 }
 
 export function ConfirmPromoteModal(props: ConfirmPromoteModalProps): React.ReactElement {
-  const { definitionName, onConfirm, onCancel, isLoading } = props
+  const { definitionName, displayName, onConfirm, onCancel, isLoading } = props
 
   return (
     <div
@@ -51,7 +53,7 @@ export function ConfirmPromoteModal(props: ConfirmPromoteModalProps): React.Reac
             lineHeight: 1.55,
           }}
         >
-          {`You are about to promote '${definitionName}' to production. This will create a DRAFT version that requires separate activation. Confirm?`}
+          {`You are about to promote '${displayName ?? definitionName}' to production. This will create a DRAFT version that requires separate activation. Confirm?`}
         </p>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.5rem' }}>
           <button

@@ -15,6 +15,7 @@ import { Field } from '@/components/ui/Field'
 import { Button } from '@/components/ui/Button'
 import { DetailHeader } from '@/components/ui/DetailHeader'
 import { StatusBadge } from '@/components/ui/StatusBadge'
+import { DefinitionName } from '@/components/ui/DefinitionName'
 import { Banner } from '@/components/ui/Banner'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { useReferenceLabels, type ReferenceIds } from '@/lib/references/useReferenceLabels'
@@ -231,7 +232,7 @@ export function TaskDetail({ taskId, onClose, m, locale, userId }: {
 
       <dl className="lf-dl">
         <dt>{m.definition}</dt>
-        <dd data-testid="instance-definition-name">{task.definition_name ?? '—'}</dd>
+        <dd data-testid="instance-definition-name">{task.definition_name ? <DefinitionName name={task.definition_name} /> : '—'}</dd>
         <dt>{refMsg.instanceLabel}</dt>
         <dd data-testid="instance-id" data-instance-id={task.instance_id}>{subjectOf(task.instance_id)}</dd>
         {task.correlation_key && (
