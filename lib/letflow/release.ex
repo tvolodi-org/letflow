@@ -21,6 +21,9 @@ defmodule Letflow.Release do
   a pepper, an email address or a tenant id; a failure is a count, not a reason string. Both
   backfills are idempotent: a re-run creates nothing.
 
+  T-1568 adds `restore_smoke/1`, the app-side check of the backup restore test
+  (`Letflow.Release.RestoreSmoke`, `docs/runbooks/backup-restore.md`).
+
   See `docs/runbooks/release-backfills.md`. `Letflow.Release.IdempotencySquats` and the other
   `Letflow.Release.*` modules are separate operator entry points.
 
@@ -273,6 +276,19 @@ defmodule Letflow.Release do
         IO.puts("ERROR #{reason_label(reason)}")
     end
 
+    halt_or_return(result, opts)
+  end
+
+  @doc """
+  T-1568 -- smoke check of a RESTORED database for `scripts/backup/restore_test.sh`: prints one
+  `smoke=...` line (counts and fixed tokens) and halts non-zero on failure. Options (tests):
+  `:registrations`, `:halt` (default `true`), `:start` (default `true`).
+  """
+  @spec restore_smoke(keyword()) :: {:ok | :error, map()}
+  def restore_smoke(opts \\ []) do
+    maybe_start(opts)
+    result = Letflow.Release.RestoreSmoke.run(Keyword.take(opts, [:registrations]))
+    IO.puts(Letflow.Release.RestoreSmoke.format_line(result))
     halt_or_return(result, opts)
   end
 
