@@ -10,6 +10,7 @@ import React, { useState } from 'react'
 import type { ApiError } from '@/types/api'
 import { ConflictResolver } from './ConflictResolver'
 import { FetchError } from './FetchError'
+import { useFeedbackMessages } from './feedbackMessages'
 
 export interface StaleVersionErrorProps {
   /** The 409 ApiError, including details.xResourceVersion. */
@@ -28,6 +29,7 @@ export interface StaleVersionErrorProps {
 
 export function StaleVersionError(props: StaleVersionErrorProps): React.ReactElement {
   const { error, serverPayload, localDraft, onRefetch, onSaveMerged, onDiscardConfirmed } = props
+  const m = useFeedbackMessages()
   const [refetchError, setRefetchError] = useState<Error | null>(null)
 
   const conflictVersion =
@@ -60,10 +62,10 @@ export function StaleVersionError(props: StaleVersionErrorProps): React.ReactEle
         }}
       >
         <p style={{ margin: 0, fontWeight: 500 }}>
-          This record has been updated by another user since you started editing.
+          {m.staleTitle}
         </p>
         <p style={{ margin: '.5rem 0 0', fontSize: '.85rem' }}>
-          Choose how to resolve the conflict.
+          {m.staleHint}
         </p>
       </div>
 

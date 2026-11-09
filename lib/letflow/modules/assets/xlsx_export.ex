@@ -21,6 +21,7 @@ defmodule Letflow.Modules.Assets.XlsxExport do
   """
 
   alias Elixlsx.{Sheet, Workbook}
+  alias Letflow.Documents.XlsxStyle
 
   @file_name "asset-balances.xlsx"
   @balance_header ~w(asset org_unit location material_responsible actual_user unit_ref quantity last_posting_seq)
@@ -72,8 +73,8 @@ defmodule Letflow.Modules.Assets.XlsxExport do
   defp write(rows, report) do
     workbook = %Workbook{
       sheets: [
-        %Sheet{name: "balances", rows: rows},
-        %Sheet{name: "report", rows: [["key", "value"] | report]}
+        XlsxStyle.style(%Sheet{name: "balances", rows: rows}),
+        XlsxStyle.style(%Sheet{name: "report", rows: [["key", "value"] | report]})
       ]
     }
 

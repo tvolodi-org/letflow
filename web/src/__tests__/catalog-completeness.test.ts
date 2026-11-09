@@ -77,6 +77,10 @@ import { uiMessages } from '@/components/ui/uiMessages'
 import { mySettingsMessages } from '@/pages/me/mySettingsMessages'
 import { TASK_MESSAGES } from '@/pages/tasks/taskMessages'
 import { dashboardMessages } from '@/pages/dashboard/dashboardMessages'
+import { feedbackMessages } from '@/components/ui/feedbackMessages'
+import { usersMessages } from '@/pages/admin/usersMessages'
+import { instancesMessages } from '@/pages/instances/instancesMessages'
+import { definitionsMessages } from '@/pages/definitions/definitionsMessages'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 
 const LOCALES = ['en', 'ru', 'kk'] as const
@@ -390,6 +394,15 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkStructuredCatalog('dashboard', dashboardMessages)
   })
 
+  it.each([
+    ['feedback', feedbackMessages],
+    ['users', usersMessages],
+    ['instances', instancesMessages],
+    ['definitions', definitionsMessages],
+  ] as const)('%sMessages (structured, T-1553): no empty values in any locale', (name, catalog) => {
+    checkStructuredCatalog(name, catalog)
+  })
+
   it('TASK_MESSAGES (structured): no empty values in any locale', () => {
     checkStructuredCatalog('tasks', TASK_MESSAGES)
   })
@@ -437,6 +450,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['mySettings', mySettingsMessages],
       ['tasks', TASK_MESSAGES],
       ['reference', REFERENCE_MESSAGES],
+      ['feedback', feedbackMessages],
+      ['users', usersMessages],
+      ['instances', instancesMessages],
+      ['definitions', definitionsMessages],
     ]
     const copies = flat.flatMap(([name, cat]) => kkRussianCopies(name, cat))
     expect(

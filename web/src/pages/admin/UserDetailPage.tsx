@@ -7,6 +7,8 @@ import type { User } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { classifyError, type RendererState } from '@/utils/classifyError'
+import { useFeedbackMessages } from '@/components/ui/feedbackMessages'
+import { saveErrorText } from '@/utils/saveError'
 
 function userId(user: User): string {
   return user.user_id ?? user.id
@@ -22,6 +24,7 @@ export default function UserDetailPage() {
   const { userId: routeUserId = '' } = useParams()
   const navigate = useNavigate()
   const access = useAccess()
+  const feedback = useFeedbackMessages()
   const isAllowed = access.can(P.UsersGroupsRolesManage)
 
   const userQuery = useAdminUser(routeUserId)
@@ -96,7 +99,7 @@ export default function UserDetailPage() {
               },
               {
                 onSuccess: () => setSubmitMessage('Saved'),
-                onError: (error) => setSubmitMessage((error as Error).message),
+                onError: (error) => setSubmitMessage(saveErrorText(error, feedback)),
               },
             )
           }}
@@ -215,7 +218,7 @@ export default function UserDetailPage() {
               setSubmitMessage('User deactivated')
             },
             onError: (error) => {
-              setSubmitMessage((error as Error).message)
+              setSubmitMessage(saveErrorText(error, feedback))
             },
           })
         }}
