@@ -2,6 +2,7 @@
 /// `lib/bootstrap/navigation_bootstrap.dart`.
 library;
 
+export 'camera_status_view.dart' show CameraStatusView;
 export 'codes_routes.dart' show codesRoutes, kCodesScanPath;
 export 'codes_resolve.dart'
     show
@@ -16,4 +17,6 @@ export 'scan_source.dart'
         ScanEvent,
         ScanDetected,
         ScanPermissionRefused,
+        ScanCameraUnavailable,
+        CameraPhase,
         scanSourceProvider;

@@ -694,4 +694,45 @@ void main() {
       expect(tr('stock.doc.error.sides_equal'), isNot(contains('stock.doc')));
     });
   }
+
+  // PWA M4 S7: the document scan sheet waits for the tap on web, and tells
+  // a refused camera from an unavailable one.
+  group('scan sheet camera', () {
+    testWidgets('S7a: intro before the tap, camera starts on the tap', (
+      tester,
+    ) async {
+      source.needsUserTap = true;
+      await _pump(tester, '$kStockDocumentsPath/new/transfer');
+      await _tap(tester, 'stock-doc-scan-location-to');
+      expect(source.starts, 0);
+      expect(find.byKey(const Key('stock-doc-scan-camera-intro')), findsOne);
+      expect(find.byKey(const Key('fake-preview')), findsNothing);
+      expect(find.byKey(const Key('stock-doc-scan-typed')), findsOneWidget);
+      await _tap(tester, 'stock-doc-scan-camera-start');
+      expect(source.starts, 1);
+      expect(find.byKey(const Key('fake-preview')), findsOneWidget);
+    });
+
+    testWidgets('S7b: refused and unavailable texts, typed field stays', (
+      tester,
+    ) async {
+      await _pump(tester, '$kStockDocumentsPath/new/transfer');
+      await _tap(tester, 'stock-doc-scan-location-to');
+      expect(source.starts, 1); // native: no tap needed
+      source.unavailable();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('stock-doc-scan-camera-unavailable')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('fake-preview')), findsNothing);
+      source.refuse();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('stock-doc-scan-camera-refused')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('stock-doc-scan-typed')), findsOneWidget);
+    });
+  });
 }
