@@ -99,7 +99,14 @@ One rule per line. Reason codes introduced by this file are constants and carry 
 10. A row equal to the stored card is `unchanged` and writes no event (0077 D6); a new card is `created`, a changed
     one `updated` (`Letflow.Entities.ManagedImport`).
 11. A refused row changes nothing; the other rows of the file are still processed and reported per row, as in
-    the managed import of 0077 D5 point 3.
+    the managed import of 0077 D5 point 3. The screen "Import data" asks for `atomic=true` (T-1556): the whole file runs in
+    one transaction and is committed only when no row is refused; otherwise nothing is written, the answer carries
+    `"applied": false` and the clerk fixes the refused rows and uploads the whole file again (rows are matched by external
+    id, so nothing is duplicated). Without `atomic` the API keeps the partial-success behaviour above.
+    A refused row names its row (`line`), its column (`header`, for a cell or field refusal and for the constant reasons
+    that have one: `inventory_number`, `kind`, `currency`, `valid_until`, `quantity`, `org_unit_id`, `external_ref_id`)
+    and a reason the screen shows in Russian, Kazakh and English. A wrong xlsx header answers 422 with the unchanged
+    detail string and a `headers` member that lists up to five offending header names.
 12. A target of a reference must come earlier in the file or be stored already (0077 D5 point 4).
 
 ## 4. No placement, no posting
