@@ -27,6 +27,7 @@ import { useLayoutPrefs } from '@/hooks/useLayoutPrefs'
 import { useSplit } from '@/components/ui/layout/Splitter'
 import { layoutMessages } from '@/components/ui/layout/layoutMessages'
 import { NavIcon } from './navIcons'
+import { NotificationBell } from './NotificationBell'
 import { visibleNavGroups, type NavGroup, type NavItem } from './navVisibility'
 
 const NARROW_QUERY = '(max-width: 900px)'
@@ -245,6 +246,7 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
           menuControls="app-sidenav"
           end={
             <>
+              <NotificationBell />
               <Link
                 to="/me/settings"
                 className="lf-btn lf-btn--ghost lf-btn--icon"

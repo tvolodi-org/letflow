@@ -218,6 +218,7 @@ defmodule Letflow.TenantFixture do
     "user_entity_grants",
     "user_entity_type_grants",
     "user_entity_type_write_grants",
+    "user_notifications",
     "user_preferences",
     "users",
     "variable_schemas",
