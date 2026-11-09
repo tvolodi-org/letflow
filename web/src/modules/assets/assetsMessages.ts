@@ -19,6 +19,8 @@ export function resolveUiLocale(candidates?: readonly string[]): AssetsUiLocale 
 }
 
 const en: Record<string, string> = {
+  'import.type.assets_card': 'Asset cards',
+  'import.type.assets_opening_line': 'Asset opening lines',
   'assets.common.dash': '—',
   'assets.common.save': 'Save',
   'assets.common.cancel': 'Cancel',
@@ -109,6 +111,8 @@ const en: Record<string, string> = {
 }
 
 const ru: Record<string, string> = {
+  'import.type.assets_card': 'Карточки активов',
+  'import.type.assets_opening_line': 'Начальные остатки активов',
   'assets.common.dash': '—',
   'assets.common.save': 'Сохранить',
   'assets.common.cancel': 'Отмена',
@@ -199,6 +203,8 @@ const ru: Record<string, string> = {
 }
 
 const kk: Record<string, string> = {
+  'import.type.assets_card': 'Активтер карточкалары',
+  'import.type.assets_opening_line': 'Активтердің бастапқы қалдықтары',
   'assets.common.dash': '—',
   'assets.common.save': 'Сақтау',
   'assets.common.cancel': 'Бас тарту',

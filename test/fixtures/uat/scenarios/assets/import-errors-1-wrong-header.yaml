@@ -1,0 +1,44 @@
+# T-1556 (BA batch 2 item 4): a wrong header row. Sources: lib/letflow/routers/entities/record_import.ex (xlsx 422 with the offending header names), web/src/pages/admin/import.
+---
+id: import-errors-1-wrong-header
+scope: assets
+title: A file with a wrong column name is refused whole and the message names the column
+version: "1.0"
+tags: [assets, import, xlsx, header, ru, kk, en]
+
+description: >
+  The administrator uploads an asset cards file whose header row has a column "Inv no" instead of "inventory_number". The whole file is refused, the message names the wrong column, offers the template, and nothing is imported.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the assets module installed. The administrator opens the screen "Import data" and has an xlsx file ready as described in the steps.
+    check: system_seeded
+    detail: If the asset imports are not offered on the screen "Import data", report BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator picks "Asset cards", chooses a file whose first row has the column "Inv no", and checks it. The count of asset cards is noted as C1.
+    expect_refusal: true
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator switches the language to Russian, then Kazakh, and reads the message each time. The count of asset cards is read again as C2.
+    expect_refusal: true
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The wrong column is named and nothing is imported.
+    verification:
+      method: screen_text
+      detail: The screen says that the column "Inv no" is not in this data type and points to the template. The message is shown in Russian, Kazakh and English (the clerk switches the language) and names the column and the reason in plain words. C2 equals C1.
+      evidence: Screenshots in three languages, C1 and C2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The clerk cannot tell which column to fix.
+      suggested_action: route_to_elixir_dev

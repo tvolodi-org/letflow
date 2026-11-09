@@ -18,7 +18,7 @@ vi.mock('@/api/client', async (importOriginal) => {
 
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const DRY_PATH = '/api/v1/entities/records/org_unit/import?upsert_by=external_ref&dry_run=true'
-const REAL_PATH = '/api/v1/entities/records/org_unit/import?upsert_by=external_ref'
+const REAL_PATH = '/api/v1/entities/records/org_unit/import?upsert_by=external_ref&atomic=true'
 
 beforeEach(() => {
   clientMock.postRaw.mockReset()
@@ -66,7 +66,8 @@ describe('D1 dry run', () => {
     chooseFile(xlsxFile())
     fireEvent.click(screen.getByTestId('import-check'))
     const row = await screen.findByTestId('datatable-row')
-    expect(row).toHaveTextContent('code: code violates required')
+    expect(row).toHaveTextContent('code: A value is required.')
+    expect(row).not.toHaveTextContent('violates required')
   })
 })
 

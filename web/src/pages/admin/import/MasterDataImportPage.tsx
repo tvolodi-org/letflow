@@ -27,13 +27,16 @@ import { useToast } from '@/hooks/useToast'
 import { useInstalledModules } from '@/hooks/useInstalledModules'
 import { getImportTypesFor } from '@/modules/registry'
 import { ImportIntlProvider } from '@/i18n/ImportIntlProvider'
+import type { UiLocale } from '@/i18n/uiLocaleStore'
 import { downloadTemplate, runImport } from './importApi'
 import {
   MAX_FILE_BYTES,
-  ROW_REASON_TYPES,
   classifyImportError,
   countResults,
+  reasonSentence,
+  refusedRowsCsv,
   violationField,
+  violationText,
   type ImportAnswer,
   type ImportErrorKind,
   type ImportResultRow,
@@ -44,6 +47,7 @@ type Phase =
   | { name: 'working'; what: 'template' | 'check' | 'import' }
   | { name: 'checked'; answer: ImportAnswer }
   | { name: 'done'; answer: ImportAnswer }
+  | { name: 'notApplied'; answer: ImportAnswer }
   | { name: 'error'; error: ImportErrorKind }
 
 type Outcome = 'created' | 'updated' | 'unchanged' | 'refused'
@@ -70,14 +74,17 @@ function saveBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+function localeOf(intl: ReturnType<typeof useIntl>): UiLocale {
+  return (['en', 'ru', 'kk'] as const).find((l) => l === intl.locale) ?? 'en'
+}
+
 function ReasonText({ row }: { row: ImportResultRow }) {
   const intl = useIntl()
   const reason = row.reason
   if (!reason) return null
-  const known = (ROW_REASON_TYPES as readonly string[]).includes(reason.type)
-  const text = known
-    ? intl.formatMessage({ id: `import.reason.${reason.type}` })
-    : intl.formatMessage({ id: 'import.reason.unknown' }, { type: reason.type })
+  const locale = localeOf(intl)
+  // The violation list below carries each rule; the sentence above is the reason alone.
+  const text = reasonSentence(locale, { ...reason, violations: undefined })
   return (
     <span className="lf-cell-2">
       {reason.header ? (
@@ -92,7 +99,7 @@ function ReasonText({ row }: { row: ImportResultRow }) {
           {reason.violations.map((v, i) => (
             <li key={i}>
               <span className="mono">{violationField(v)}</span>
-              {v.message ? `: ${v.message}` : v.code ? `: ${v.code}` : ''}
+              {`: ${violationText(locale, v)}`}
             </li>
           ))}
         </ul>
@@ -101,7 +108,7 @@ function ReasonText({ row }: { row: ImportResultRow }) {
   )
 }
 
-function ResultTable({ results }: { results: ImportResultRow[] }) {
+function ResultTable({ results, hypothetical = false }: { results: ImportResultRow[]; hypothetical?: boolean }) {
   const intl = useIntl()
   const columns: DataTableColumn<ImportResultRow>[] = [
     {
@@ -110,9 +117,10 @@ function ResultTable({ results }: { results: ImportResultRow[] }) {
       render: (r) => {
         const outcome = outcomeOf(r)
         const look = OUTCOME_LOOK[outcome]
+        const id = hypothetical && outcome !== 'refused' ? `import.outcome.would_${outcome}` : `import.outcome.${outcome}`
         return (
           <StatusPill tone={look.tone} glyph={look.glyph}>
-            {intl.formatMessage({ id: `import.outcome.${outcome}` })}
+            {intl.formatMessage({ id })}
           </StatusPill>
         )
       },
@@ -138,11 +146,13 @@ function ResultTable({ results }: { results: ImportResultRow[] }) {
   )
 }
 
-function Counts({ results }: { results: ImportResultRow[] }) {
+function Counts({ results, hypothetical = false }: { results: ImportResultRow[]; hypothetical?: boolean }) {
   const intl = useIntl()
   const c = countResults(results)
   const item = (outcome: Outcome, value: number) => ({
-    label: intl.formatMessage({ id: `import.outcome.${outcome}` }),
+    label: intl.formatMessage({
+      id: hypothetical && (outcome === 'created' || outcome === 'updated') ? `import.counts.would${outcome === 'created' ? 'Created' : 'Updated'}` : `import.outcome.${outcome}`,
+    }),
     value,
     glyph: OUTCOME_LOOK[outcome].glyph,
     tone: outcome === 'refused' ? ('danger' as const) : undefined,
@@ -162,6 +172,9 @@ function errorText(intl: ReturnType<typeof useIntl>, error: ImportErrorKind): st
     case 'limits':
       return intl.formatMessage({ id: 'import.error.limits' })
     case 'xlsx':
+      if (error.headers && error.headers.length > 0 && (error.code === 'xlsx_unknown_header' || error.code === 'xlsx_duplicate_header')) {
+        return intl.formatMessage({ id: `import.error.${error.code}_named` }, { headers: error.headers.join(', ') })
+      }
       return intl.formatMessage({ id: `import.error.${error.code}` })
     case 'unprocessable':
       return intl.formatMessage({ id: 'import.error.unprocessable' }, { detail: error.detail })
@@ -199,7 +212,7 @@ function MasterDataImportPageInner() {
   const [phase, setPhase] = useState<Phase>({ name: 'idle' })
   const [templateFailed, setTemplateFailed] = useState(false)
 
-  const locale = (['en', 'ru', 'kk'] as const).find((l) => l === intl.locale) ?? 'en'
+  const locale = localeOf(intl)
   const entityType = chosen ?? types[0]?.entityType ?? ''
   const working = phase.name === 'working'
 
@@ -238,7 +251,12 @@ function MasterDataImportPageInner() {
     try {
       const answer = await runImport(entityType, file, dryRun)
       if (!Array.isArray(answer?.results)) throw new Error('unexpected import answer')
-      setPhase(dryRun ? { name: 'checked', answer } : { name: 'done', answer })
+      if (dryRun) setPhase({ name: 'checked', answer })
+      else if (answer.applied === false) {
+        // Rolled back: nothing was written. Not a success; the file picker is cleared for the corrected file.
+        setFile(null)
+        setPhase({ name: 'notApplied', answer })
+      } else setPhase({ name: 'done', answer })
     } catch (err) {
       setPhase({ name: 'error', error: classifyImportError(err) })
     }
@@ -246,7 +264,9 @@ function MasterDataImportPageInner() {
 
   const checkedClean = phase.name === 'checked' && countResults(phase.answer.results).refused === 0
   const checkedDirty = phase.name === 'checked' && !checkedClean
-  const shown = phase.name === 'checked' || phase.name === 'done' ? phase.answer : null
+  const shown = phase.name === 'checked' || phase.name === 'done' || phase.name === 'notApplied' ? phase.answer : null
+  const notApplied = phase.name === 'notApplied'
+  const refusedCount = shown ? countResults(shown.results).refused : 0
   const title = intl.formatMessage({ id: 'import.title' })
   const header = (actions?: React.ReactNode) => (
     <PageHeader
@@ -398,15 +418,15 @@ function MasterDataImportPageInner() {
             <section
               className="lf-card"
               aria-labelledby="import-result-h"
-              data-testid={phase.name === 'done' ? 'import-summary' : 'import-dry-run'}
+              data-testid={phase.name === 'done' ? 'import-summary' : notApplied ? 'import-not-applied' : 'import-dry-run'}
             >
               <div className="lf-card__head">
                 <div>
                   <h2 className="lf-card__title" id="import-result-h">
-                    {intl.formatMessage({ id: phase.name === 'done' ? 'import.summary.title' : 'import.dryRun.title' })}
+                    {intl.formatMessage({ id: phase.name === 'done' || notApplied ? 'import.summary.title' : 'import.dryRun.title' })}
                   </h2>
                   <p className="lf-muted">
-                    {intl.formatMessage({ id: phase.name === 'done' ? 'import.summary.done' : 'import.dryRun.nothingWritten' })}
+                    {intl.formatMessage({ id: phase.name === 'done' ? 'import.summary.done' : notApplied ? 'import.notApplied' : 'import.dryRun.nothingWritten' })}
                   </p>
                 </div>
                 {phase.name === 'checked' ? (
@@ -422,8 +442,26 @@ function MasterDataImportPageInner() {
                 ) : null}
               </div>
               <div className="lf-card__body lf-form">
-                <Counts results={shown.results} />
-                <ResultTable results={shown.results} />
+                {notApplied ? (
+                  <div data-testid="import-reupload">
+                    <Banner tone="warning">{intl.formatMessage({ id: 'import.reupload' })}</Banner>
+                  </div>
+                ) : null}
+                <Counts results={shown.results} hypothetical={notApplied} />
+                <ResultTable results={shown.results} hypothetical={notApplied} />
+                {refusedCount > 0 ? (
+                  <div className="lf-form__actions">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<Download className="lf-icon" aria-hidden="true" />}
+                      data-testid="import-download-refused"
+                      onClick={() => saveBlob(new Blob([refusedRowsCsv(locale, shown.results)], { type: 'text/csv;charset=utf-8' }), `${entityType}-refused-rows.csv`)}
+                    >
+                      {intl.formatMessage({ id: 'import.download.refused' })}
+                    </Button>
+                  </div>
+                ) : null}
                 {phase.name === 'checked' ? (
                   <Banner tone={checkedClean ? 'success' : 'warning'}>
                     {intl.formatMessage({ id: checkedClean ? 'import.dryRun.ready' : 'import.dryRun.fix' })}

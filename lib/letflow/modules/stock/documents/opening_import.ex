@@ -152,6 +152,9 @@ defmodule Letflow.Modules.Stock.Documents.OpeningImport do
       {:error, {"quantity_invalid", _}} ->
         {:error, :quantity_invalid}
 
+      {:error, {"price_invalid", %{"field" => field}}} when field in @line_keys ->
+        {:error, {:price_invalid, field}}
+
       {:error, {"price_invalid", _}} ->
         {:error, :price_invalid}
 

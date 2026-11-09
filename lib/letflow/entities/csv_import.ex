@@ -104,6 +104,33 @@ defmodule Letflow.Entities.CsvImport do
     end
   end
 
+  @doc """
+  The header names that made `check_header/3` fail, in first-occurrence order: the repeated names
+  for a duplicate header, the unknown ones for an unknown header, the missing one of the pair for
+  `csv_external_ref_pair` (a constant). Call it only after `check_header/3` refused the header.
+  """
+  @spec offending_headers([String.t()], map(), boolean()) :: [String.t()]
+  def offending_headers(header, field_types, upsert?) do
+    cond do
+      length(header) != length(Enum.uniq(header)) ->
+        header |> Enum.frequencies() |> Enum.filter(&(elem(&1, 1) > 1)) |> names_in_order(header)
+
+      Enum.any?(header, &(not known_header?(&1, field_types, upsert?))) ->
+        header |> Enum.reject(&known_header?(&1, field_types, upsert?)) |> Enum.uniq()
+
+      upsert? and @external_ref_system in header != @external_ref_id in header ->
+        if @external_ref_system in header, do: [@external_ref_id], else: [@external_ref_system]
+
+      true ->
+        []
+    end
+  end
+
+  defp names_in_order(frequencies, header) do
+    repeated = MapSet.new(frequencies, &elem(&1, 0))
+    header |> Enum.filter(&MapSet.member?(repeated, &1)) |> Enum.uniq()
+  end
+
   defp known_header?(name, field_types, upsert?) do
     Map.has_key?(field_types, name) or
       (upsert? and name in [@external_ref_system, @external_ref_id])
