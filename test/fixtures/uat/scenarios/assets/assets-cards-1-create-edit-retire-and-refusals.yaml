@@ -40,7 +40,7 @@ steps:
   - step: 2
     actor: admin
     action: >
-      The administrator creates a second card with inventory number INV-001, name "Laptop copy", kind fixed asset. The answer is noted as C2; the card list is read and noted as L1.
+      The administrator creates a second card with inventory number INV-001, name "Laptop copy", kind fixed asset. The answer is noted as C2.
     expect_refusal: true
     via: api
   - step: 3
@@ -74,14 +74,24 @@ steps:
   - step: 8
     actor: worker
     action: >
-      The task worker creates a card with inventory number INV-002, name "Desk", kind low-value. The answer is noted as C8; the card list is read by the administrator as L2.
+      The task worker creates a card with inventory number INV-002, name "Desk", kind low-value. The answer is noted as C8.
     expect_refusal: true
     via: api
   - step: 9
     actor: other_admin
     action: >
-      The administrator of BilimBaga changes the card INV-001 of SwiftRoute (name "Taken"), using its card id. The answer is noted as C9; then the SwiftRoute administrator reads the card as R4.
+      The administrator of BilimBaga changes the card INV-001 of SwiftRoute (name "Taken"), using its card id. The answer is noted as C9.
     expect_refusal: true
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator reads the card INV-001 again. The answer is noted as R4.
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The administrator reads the card list after steps 2 and 8 were refused. The answer is noted as L1 (also used as L2).
     via: api
 
 expected_outcomes:
@@ -100,7 +110,7 @@ expected_outcomes:
     verification:
       method: api_response
       detail: Step 2 is refused with a 4xx that does not echo the stored values; L1 holds exactly one card with number INV-001.
-      evidence: C2 and L1.
+      evidence: C2 and L1 (step 11).
     on_fail:
       severity: MAJOR
       business_impact: Two cards could carry one inventory number and the register would be ambiguous.
@@ -140,7 +150,7 @@ expected_outcomes:
     verification:
       method: http_status
       detail: Step 8 answers 403; L2 holds no card with number INV-002.
-      evidence: C8 and L2.
+      evidence: C8 and L2 (step 11).
     on_fail:
       severity: BLOCKER
       business_impact: Anyone could put assets into the register.
@@ -149,7 +159,7 @@ expected_outcomes:
     description: Another company gets the answer for an unknown card and the card is not changed.
     verification:
       method: http_status
-      detail: Step 9 answers 404, the same body as for an unknown card id; R4 has the name "Laptop 14 inch".
+      detail: Step 9 answers 404, the same body as for an unknown card id; R4 (step 10) has the name "Laptop 14 inch".
       evidence: C9 and R4.
     on_fail:
       severity: BLOCKER
