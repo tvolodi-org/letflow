@@ -446,4 +446,18 @@ defmodule Letflow.TenantSchemaReaperTest do
       assert is_integer(skipped) and skipped >= 0
     end
   end
+
+  describe "sweeps with the repo down (T-1541, suite teardown)" do
+    test "sweep_orphans/2 does not raise when the repo is not running" do
+      assert {:ok, %{reclaimed: 0, skipped_invalid_format: 0}} =
+               TenantSchemaReaper.sweep_orphans(Letflow.NoSuchRepoT1541, 0)
+    end
+
+    test "the other two sweeps do not raise when the repo is not running" do
+      assert {:ok, %{deleted: 0}} =
+               TenantSchemaReaper.sweep_service_catalog_orphans(Letflow.NoSuchRepoT1541)
+
+      TenantSchemaReaper.sweep_template_build_orphans(Letflow.NoSuchRepoT1541)
+    end
+  end
 end
