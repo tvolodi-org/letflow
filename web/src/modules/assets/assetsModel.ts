@@ -45,6 +45,8 @@ export interface Form {
   accumulated_depreciation: string
   book_value: string
   depreciation_as_of: string
+  depreciation_method: string
+  depreciation_rate: string
   valid_until: string
 }
 
@@ -58,6 +60,8 @@ export const EMPTY_FORM: Form = {
   accumulated_depreciation: '',
   book_value: '',
   depreciation_as_of: '',
+  depreciation_method: '',
+  depreciation_rate: '',
   valid_until: '',
 }
 
@@ -69,10 +73,12 @@ const OPTIONAL_KEYS = [
   'accumulated_depreciation',
   'book_value',
   'depreciation_as_of',
+  'depreciation_method',
+  'depreciation_rate',
   'valid_until',
 ] as const
 
-export const DECIMAL_KEYS = ['acquisition_cost', 'accumulated_depreciation', 'book_value'] as const
+export const DECIMAL_KEYS = ['acquisition_cost', 'accumulated_depreciation', 'book_value', 'depreciation_rate'] as const
 
 export function formOf(record: EntityRecord | null): Form {
   if (record === null) return { ...EMPTY_FORM }

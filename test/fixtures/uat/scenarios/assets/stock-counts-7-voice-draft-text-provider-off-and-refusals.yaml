@@ -1,0 +1,137 @@
+# T-1532 (BA#5, item 5 of docs/uat/ba-decisions/T-1518.md): the voice route for stock drafts on a company whose language-model step is switched off (the state of QA, because the voice settings default off): a typed phrase is answered with the transcript only and nothing is stored; wrong input is refused; a worker and another company are refused.
+# Covers REQ-741 criteria 2, 3, 6 (model step off, typed route), 7 and 8 (docs/assets/voice-port-design.md; voice settings of REQ-740 default off).
+# Sources: docs/requirements.yaml REQ-741 (typed phrase body: text and lang ru or kk; reasons field_invalid with field text, field_not_allowed, bad_language; the model step off answers 200 with the transcript, kind unknown, empty items, null location, null quantity and the notice llm_off; nothing stored), REQ-740 (settings default off).
+#
+# STUBBED PROVIDER GAP (stated, not invented): the checked draft for a spoken or typed phrase ("receive five bolts to shelf one") needs a speech provider and a language model. QA has none (accounts, keys and money are the owner's decision, D-086), and the test double of the product's own tests is not reachable from a UAT run. Therefore the happy path of the voice draft (items found in the tenant's lists, unknown codes dropped, the prompt built from the tenant's own lists only) is NOT UAT-observable here; the product's voice_router_test.exs covers it with the provider stubbed. Only the provider-off behaviour is checked in this scenario.
+# NOT UAT-observable: the audio route with real recordings (size limit 10 MB, m4a and WebM headers, the 503 "speech_off" answer), because the exact bytes of a recorded file cannot be given in the scenario as text; the log never holding the phrase or the key (a unit test captures the log); the phone's voice button and its languages (the Flutter app is not driven by the UAT runner).
+# CROSS-COMPANY GAP: no step asks another company, because the roster has no second-company actor in a company without the stock module (BilimBaga is assumed to have it in scenarios 1 to 6); the tenancy of the voice lists (a code of company A never reaches the prompt of company B) is covered by the product's own voice_router_test.exs with the provider stubbed.
+# ROSTER GAP: as in stock-counts-1 (no STOREKEEPER actor; the administrator of SwiftRoute holds the voice permission, the task worker does not).
+---
+id: stock-counts-7-voice-draft-text-provider-off-and-refusals
+scope: assets
+title: With the language-model step off, a typed voice phrase is answered with its transcript only and nothing is stored; wrong input, a task worker and another company are refused
+version: "1.0"
+tags: [assets, stock, voice, provider-off, refusal, tenancy]
+
+description: >
+  SwiftRoute has the stock module installed and the voice steps (speech to text and language model) are switched off, as on QA. The administrator sends a typed phrase in Russian, "принять пять болтов на полку один", with the language ru.
+  The answer is a draft of kind "unknown" with no items, no place and no quantity, carrying the phrase unchanged as the transcript and the notice that the language model is off; no stock document, count or other record is created.
+  The administrator also sends the phrase with the language kk and gets the same kind of answer. A body without text, a body with an extra field, and a language other than ru or kk (en) are each refused for their own reason. A task
+  worker who holds no stock posting right is refused.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+
+preconditions:
+  - description: SwiftRoute has the stock module installed, and the voice settings of the platform (speech to text and language model) are off.
+    check: system_seeded
+    detail: If a provider is switched on in the QA environment, report BLOCKED for steps 2 and 3 (their expected answer is the provider-off one) and run the others.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator reads the list of stock documents and the list of counts and notes how many there are as D1 and C1.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator sends the typed phrase "принять пять болтов на полку один" with the language ru. The answer is noted as V1.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator sends the same phrase with the language kk. The answer is noted as V2. The lists of stock documents and counts are read again as D2 and C2.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator sends a typed phrase request without the text. The answer is noted as R1.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator sends the phrase "принять пять болтов" with the language ru and, besides, a field "save" set to true. The answer is noted as R2.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator sends the phrase "принять пять болтов" with the language en. The answer is noted as R3.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: worker
+    action: >
+      The task worker sends the phrase "принять пять болтов" with the language ru. The answer is noted as R4.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The administrator reads the list of stock documents and counts once more as D3 and C3.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: With the language-model step off, the typed phrase is answered with its transcript and an empty draft.
+    verification:
+      method: api_response
+      detail: V1 answers 200 with the keys kind, items, location, to_location, quantity, transcript and dropped and the notice "llm_off"; kind is "unknown", items is empty, location, to_location and quantity are null, dropped is empty, and the transcript equals the sent phrase character for character. V2 answers the same way for the language kk.
+      evidence: V1 and V2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The phone's voice button fails instead of telling the user that the language model is off, or it invents a draft.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: Nothing is stored by a voice request, accepted or refused.
+    verification:
+      method: api_response
+      detail: D2 equals D1 and C2 equals C1; after the refused requests of steps 4 to 7, D3 equals D1 and C3 equals C1.
+      evidence: D1, D2, D3, C1, C2 and C3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A spoken phrase could create a stock document or count without the user confirming it.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A body without text is refused with the field named.
+    verification:
+      method: api_response
+      detail: Step 4 answers 422 with the reason "field_invalid" and the field "text".
+      evidence: R1.
+    on_fail:
+      severity: MINOR
+      business_impact: An empty request is answered as if it were a phrase.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A field that is not part of the request is refused.
+    verification:
+      method: api_response
+      detail: Step 5 answers 422 with the reason "field_not_allowed" naming the field "save".
+      evidence: R2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A client could try to make a voice request save a document.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: A language other than Russian or Kazakh is refused.
+    verification:
+      method: api_response
+      detail: Step 6 answers 422 with the reason "bad_language".
+      evidence: R3.
+    on_fail:
+      severity: MINOR
+      business_impact: The language model would be asked in a language the application does not support.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: A task worker without the stock posting right is refused.
+    verification:
+      method: http_status
+      detail: Step 7 answers 403.
+      evidence: R4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Any login could use the paid voice service of the company.
+      suggested_action: route_to_elixir_dev
