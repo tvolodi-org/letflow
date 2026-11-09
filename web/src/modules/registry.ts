@@ -52,6 +52,16 @@ export function getInstalledModuleNavItems(
   return getInstalledModuleDefinitions(installedModules, definitions).flatMap((definition) => definition.navItems)
 }
 
+/** The import types a user may import: installed types whose module permission `can` holds (the server
+ *  refuses the others, e.g. a storekeeper may import only stock_opening_line). Presentation only. */
+export function getImportTypesFor(
+  installedModules: InstalledModule[],
+  can: (permission: string) => boolean,
+  definitions: ModuleDefinition[] = REGISTERED_MODULES,
+): ModuleImportType[] {
+  return getInstalledImportTypes(installedModules, definitions).filter((t) => can(t.permission))
+}
+
 /** REQ-675: importable entity types of the installed modules, in REGISTERED_MODULES order and then list order. */
 export function getInstalledImportTypes(
   installedModules: InstalledModule[],

@@ -95,6 +95,7 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"priv/modules/exam/pack.json", true, true},
     {"priv/wasm_fixtures/req165_trivial.wat", true, true},
     {"priv/solutions/bilimbaga.json", true, true},
+    {"priv/permission_matrix/effective.golden", true, true},
     {"config/config.exs", true, true},
     {"mix.exs", true, true},
     {"mix.lock", true, true},

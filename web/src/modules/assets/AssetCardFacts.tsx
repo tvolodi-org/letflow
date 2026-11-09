@@ -21,9 +21,6 @@ export function AssetCardFacts({ record }: { record: EntityRecord }) {
     [t('assets.field.currency'), textOf(record, 'currency'), true],
     ...(kind === 'intangible' ? ([[t('assets.field.validUntil'), date('valid_until'), true]] as [string, string, boolean][]) : []),
     [t('assets.field.cost'), textOf(record, 'acquisition_cost'), true],
-    [t('assets.field.accumulated'), textOf(record, 'accumulated_depreciation'), true],
-    [t('assets.field.bookValue'), textOf(record, 'book_value'), true],
-    [t('assets.field.asOf'), date('depreciation_as_of'), true],
     ...(system !== '' || extId !== ''
       ? ([[t('assets.field.externalRef'), [system, extId].filter((x) => x !== '').join(' / '), true]] as [string, string, boolean][])
       : []),

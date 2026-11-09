@@ -1,0 +1,55 @@
+# PWA M5 (D-112): build the Flutter web bundle on main and publish it as a build artifact.
+# Infra downloads the artifact and serves it (hosting address and nginx are infra's); no secrets here.
+# Not part of cd.yml on purpose: that file carries the SSH deploy secrets and is pinned by tests.
+name: CD (PWA web build)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "scripts/pwa_web_*.sh"
+      - ".github/workflows/cd-pwa-web.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cd-pwa-web
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build PWA web bundle
+    if: github.repository == 'tvolodi-org/letflow'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: apps/mobile/pubspec.yaml
+          cache: true
+
+      - name: Install brotli
+        run: sudo apt-get install -y brotli
+
+      - name: Build, verify and package
+        env:
+          PWA_API_BASE_URL: ${{ vars.PWA_API_BASE_URL || 'https://qa.bizdala.com' }}
+          PWA_BASE_HREF: ${{ vars.PWA_BASE_HREF || '/' }}
+          PWA_REQUIRE_BROTLI: "1"
+        run: bash scripts/pwa_web_build.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: letflow-pwa-web
+          path: apps/mobile/build/pwa/*
+          retention-days: 30
+          if-no-files-found: error

@@ -35,9 +35,9 @@ defmodule Letflow.Modules.Assets.Import do
 
   @ignored ~w(external_ref_system external_ref_id)
   @columns ~w(inventory_number name kind org_unit_id acquisition_date currency acquisition_cost
-              accumulated_depreciation book_value depreciation_as_of valid_until)
+              accumulated_depreciation book_value depreciation_as_of depreciation_method depreciation_rate valid_until)
   @required ~w(inventory_number name kind org_unit_id)
-  @money ~w(acquisition_cost accumulated_depreciation book_value)
+  @money ~w(acquisition_cost accumulated_depreciation book_value depreciation_rate)
   @kinds ~w(fixed low_value intangible)
 
   @spec import_card(prefix :: String.t(), entry :: map(), ctx :: map()) ::
