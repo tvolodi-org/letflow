@@ -7,7 +7,7 @@ defmodule Letflow.Modules.Assets.KindsPostingTest do
   and posted first; the new document is created and issued through the document routes, its `post`
   task is claimed and completed through `/api/v1/tasks/:id/claim` and `/complete` with a bearer
   token, and the balances, movements and marks are read back through the module read routes.
-  Tests: P1 change, P2 hand over (the card org unit stays, part 2 changes it), P3 write off, P4 low
+  Tests: P1 change, P2 hand over (the card org unit follows, G2), P3 write off, P4 low
   value quantities, P5 a from side without a balance, P6 and P7 reversal, P8 a reversal after the
   asset moved on, P9 double completion and double reverse, P10 authority, P11 the binding check,
   H1 and H2 the handler. Committed tenants, Sandbox `:auto`, `async: false`.
@@ -95,9 +95,9 @@ defmodule Letflow.Modules.Assets.KindsPostingTest do
     assert {row["org_unit"], row["location"], row["material_responsible"], row["actual_user"]} ==
              {to.unit, to.location, to.employee, nil}
 
-    # part 1 does not sync the card (REQ-753 part 2): the card keeps the old unit
+    # G2 (T-1489): the card follows the posted hand over in the same transaction
     card = Repo.get_by!(Letflow.Entities.Record.Latest, [record_id: m.fixed], prefix: ctx.schema)
-    assert card.field_values["org_unit_id"] == m.unit
+    assert card.field_values["org_unit_id"] == to.unit
   end
 
   test "P3 write off: one negative leg with the reason, the balance is gone", ctx do

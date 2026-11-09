@@ -56,6 +56,14 @@ defmodule Letflow.Modules.Assets do
   register. A card with an empty unit is visible to tenant-wide principals only. Relaxing `required` is a class B
   change, so tenants on 0.9.0 are re-seeded (no in-place upgrade). Setting the column by a posting is G2.
 
+  **Card follows the hand over** (T-1489 / G2, version 0.13.0, decision 0054 R-update, D-111): the write handlers
+  `post_document` and `reverse_document` may change `assets_card.org_unit_id` (`updates`, a new field of the handler
+  registration, `Letflow.Entities.HandlerWrites.update/3`). A posted hand over moves the card of every `fixed` or
+  `intangible` line from the header unit (or an empty unit) to the destination unit in the SAME transaction as the
+  ledger entry; its reversal moves the card back when it is still at the destination. One card is one org unit
+  (owner decision D-111): a `low_value` card is not moved here (its split by a partial hand over is a follow-up).
+  Cards already moved or posted before this version are not touched.
+
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
   declared by a tenant (decision 0051 M4), so it cannot be edited later.
@@ -165,7 +173,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.12.0",
+    version: "0.13.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
@@ -231,7 +239,8 @@ defmodule Letflow.Modules.Assets do
       %Letflow.Modules.WriteHandlerSpec{
         name: "post_document",
         function: {Letflow.Modules.Assets.Handlers, :post_document},
-        targets: ["assets_posting_mark"],
+        targets: ["assets_posting_mark", "assets_card"],
+        updates: %{"assets_card" => ["org_unit_id"]},
         args: %{
           "document_id" => %{required: true},
           "document_type" => %{required: true},
@@ -245,7 +254,8 @@ defmodule Letflow.Modules.Assets do
       %Letflow.Modules.WriteHandlerSpec{
         name: "reverse_document",
         function: {Letflow.Modules.Assets.Handlers, :reverse_document},
-        targets: ["assets_posting_mark"],
+        targets: ["assets_posting_mark", "assets_card"],
+        updates: %{"assets_card" => ["org_unit_id"]},
         args: %{
           "document_id" => %{required: true},
           "document_type" => %{required: true},

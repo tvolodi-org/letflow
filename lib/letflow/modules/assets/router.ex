@@ -344,6 +344,7 @@ defmodule Letflow.Modules.Assets.Router do
     do: problem(conn, Error.conflict("request refused"), Atom.to_string(reason))
 
   defp doc_refuse(conn, :reason_invalid), do: unprocessable(conn, "reason_invalid")
+  defp doc_refuse(conn, :too_many_card_moves), do: unprocessable(conn, "too_many_card_moves")
   defp doc_refuse(conn, :invalid_filter), do: unprocessable(conn, "invalid_filter")
 
   defp doc_refuse(conn, :busy),

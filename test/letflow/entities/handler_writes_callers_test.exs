@@ -333,7 +333,7 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
     cond do
       last == :HandlerWrites ->
         cond do
-          fun in [:create, :post] and length(args) == 3 -> []
+          fun in [:create, :update, :post] and length(args) == 3 -> []
           # REQ-760: the platform-derived record id of the next create.
           fun == :next_record_id and length(args) == 1 -> []
           true -> [{:handler_writes, fun}]

@@ -169,5 +169,43 @@ defmodule Letflow.Modules.WriteHandlerSpecTest do
       assert ManifestHash.compute(Letflow.Modules.FixtureLedgerRogue.manifest()) ==
                "20f7d07cb2aa08e4e916cf3bde4fe0dcc4e73d73342d5a42edc2e64b6fae9b98"
     end
+
+    test "U6 updates (T-1489 / G2): shape, default, hash only when present, target rule" do
+      updates = %{"fxl_ledger" => ["item"]}
+      assert {:ok, %WriteHandlerSpec{updates: %{}}} = WriteHandlerSpec.new(@valid)
+
+      assert {:ok, %WriteHandlerSpec{updates: ^updates}} =
+               WriteHandlerSpec.new(Map.put(@valid, :updates, updates))
+
+      for bad <- [
+            [],
+            %{"t" => []},
+            %{"t" => [:a]},
+            %{"t" => ["a", "a"]},
+            %{t: ["a"]},
+            %{"t" => "a"}
+          ] do
+        assert {:error, {:invalid_field, :updates}} =
+                 WriteHandlerSpec.new(Map.put(@valid, :updates, bad))
+      end
+
+      base = FixtureLedger.manifest()
+      [first | rest] = base.write_handlers
+      with_updates = %{base | write_handlers: [%{first | updates: updates} | rest]}
+      assert ManifestHash.compute(with_updates) != ManifestHash.compute(base)
+
+      # the order of the fields does not matter
+      reordered = %{first | updates: %{"fxl_ledger" => ["b", "a"]}}
+      sorted = %{first | updates: %{"fxl_ledger" => ["a", "b"]}}
+
+      assert ManifestHash.compute(%{base | write_handlers: [reordered | rest]}) ==
+               ManifestHash.compute(%{base | write_handlers: [sorted | rest]})
+
+      # an update key must be one of the handler's targets (rule 10)
+      stray = %{first | updates: %{"not_a_target" => ["item"]}}
+
+      assert {:error, {:write_handler_update_not_target, _name, "not_a_target"}} =
+               Catalog.validate(%{base | write_handlers: [stray | rest]})
+    end
   end
 end

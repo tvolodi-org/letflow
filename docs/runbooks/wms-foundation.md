@@ -627,9 +627,10 @@ the code that holds it; paths are cited without line numbers.
    /documents/:id/reverse`. A change and a hand over post two legs per line (`-q` at the from key, `+q` at the to
    key), a write off one (`-q`, with its `reason_code`). The actual user is optional in every kind, so a change or hand
    over can name an empty user to match a commissioned asset that has none. A low-value asset may be changed, handed
-   over or written off in part; a fixed or intangible one only with quantity 1. A posted hand over does not yet update
-   `assets_card.org_unit_id` (REQ-753 part 2: it needs an update path in `Letflow.Entities.HandlerWrites`, create-only
-   today); the balance row is the truth, so the new kinds skip `org_unit_mismatch` and `asset_already_in_register`.
+   over or written off in part; a fixed or intangible one only with quantity 1. A posted hand over of a fixed or
+   intangible asset moves `assets_card.org_unit_id` in the same transaction (T-1489 / G2, version 0.13.0, through
+   `HandlerWrites.update/3`; a `low_value` card is not moved, D-111); the balance row stays the truth, so the new kinds skip
+   `org_unit_mismatch` and `asset_already_in_register`.
 2. **No master checks in the ledger until slice L7.** The policy and the ledger check no asset, org unit, location
    or employee against a master, and not the kind of the card (one asset per row, no location for an intangible);
    the documents check them (decision 0073 D6, GH #3893).

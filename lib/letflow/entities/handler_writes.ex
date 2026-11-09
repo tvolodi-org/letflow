@@ -13,7 +13,7 @@ defmodule Letflow.Entities.HandlerWrites do
   `ledger_consent_nodes` and records an OIDC credential; the consent and the pre-step result reach
   `post/3` through the per-call token, never through the `HandlerContext`.
 
-  ## Handler-facing API: `create/3` and `post/3`
+  ## Handler-facing API: `create/3`, `update/3` and `post/3`
 
   A module's handler builds Multi steps by calling `create/3` and, when its manifest entry names a
   `posts_ledger` registration, `post/3` (REQ-685) and nothing else (the contract is in
@@ -85,6 +85,7 @@ defmodule Letflow.Entities.HandlerWrites do
   alias Letflow.Entities.HandlerContext
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.FieldGrants
+  alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.RecordAccess
   alias Letflow.Entities.ReferenceCheck
   alias Letflow.Entities.Records
@@ -164,6 +165,47 @@ defmodule Letflow.Entities.HandlerWrites do
   end
 
   def create(_multi, _ctx, _command), do: {:error, :invalid_write_command}
+
+  @doc """
+  G2 (decision 0054 R-update): appends one allow-listed UPDATE of an existing record of a registered
+  target. `command` is `%{entity_type, record_id, expect, set}` and nothing else:
+
+    * `set` (`%{field => value}`) and `expect` (`%{field => value | [values]}`) may name only fields
+      the handler's manifest entry lists under `updates` for that type (`:update_field_not_allowed`);
+    * the record is READ at build time (no write); every `expect` pair must match the stored value
+      (a list means any of; `nil` may be a member), else the build step fails with
+      `:expectation_failed` and the whole completion rolls back;
+    * `set` is merged into the stored document and written through `Records.command_multi/3`
+      (`kind: :update`) pinned to the read row's `last_event_global_seq`: a concurrent change is
+      `:record_version_conflict` under the type's sequence lock, and rolls the completion back.
+
+  Same gate as `create/3` (context, registered target, the 49 shared write slots, type access,
+  restrictions, the `{:line, key, :policy}` step); a dry build writes nothing. There is no delete.
+  """
+  @spec update(Multi.t(), HandlerContext.t(), map()) ::
+          {:ok, Multi.t()}
+          | {:error,
+             :target_not_registered
+             | :too_many_writes
+             | :invalid_write_command
+             | :update_field_not_allowed}
+  def update(%Multi{} = multi, %HandlerContext{} = ctx, command) do
+    with {:ok, token} <- fetch_token(ctx),
+         :not_dry <- dry_mode(token),
+         {:ok, type, record_id, expect, set} <- check_update_command(ctx, command),
+         {:ok, owner} <- check_target(ctx, type),
+         :ok <- check_update_fields(ctx, type, expect, set),
+         {:ok, ordinal} <- next_ordinal(token) do
+      written = build_update(multi, ctx, owner, ordinal, {type, record_id, expect, set})
+      record_produced(token, Multi.to_list(written) -- Multi.to_list(multi))
+      {:ok, written}
+    else
+      :dry -> {:ok, multi}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def update(_multi, _ctx, _command), do: {:error, :invalid_write_command}
 
   @doc """
   REQ-760: the record id the NEXT `create/3` of this call will give its record (the ordinal
@@ -281,6 +323,40 @@ defmodule Letflow.Entities.HandlerWrites do
 
   defp check_command(_ctx, _command), do: {:error, :invalid_write_command}
 
+  defp check_update_command(
+         %HandlerContext{} = ctx,
+         %{entity_type: type, record_id: record_id, expect: expect, set: set} = command
+       )
+       when map_size(command) == 4 and is_binary(type) and is_binary(record_id) and
+              is_map(expect) and not is_struct(expect) and is_map(set) and not is_struct(set) and
+              map_size(set) > 0 do
+    with true <- valid_context?(ctx),
+         true <- Enum.all?(Map.keys(expect) ++ Map.keys(set), &is_binary/1),
+         {:ok, record_id} <- Ecto.UUID.cast(record_id) do
+      {:ok, type, record_id, expect, set}
+    else
+      _invalid -> {:error, :invalid_write_command}
+    end
+  end
+
+  defp check_update_command(_ctx, _command), do: {:error, :invalid_write_command}
+
+  # The allow-list is re-resolved from the Catalog (never from the context), like the Owner.
+  defp check_update_fields(
+         %HandlerContext{handler: %{module_id: module_id, name: name}},
+         type,
+         expect,
+         set
+       ) do
+    with {:ok, %{updates: updates}} <- Catalog.write_handler(module_id, name),
+         allowed when is_list(allowed) <- Map.get(updates, type),
+         true <- Enum.all?(Map.keys(expect) ++ Map.keys(set), &(&1 in allowed)) do
+      :ok
+    else
+      _not_allowed -> {:error, :update_field_not_allowed}
+    end
+  end
+
   defp valid_context?(%HandlerContext{
          prefix: prefix,
          origin: {tag, origin_id},
@@ -382,6 +458,58 @@ defmodule Letflow.Entities.HandlerWrites do
       {:error, reason} -> Multi.error(multi, {:line, key, :build}, reason)
     end
   end
+
+  defp build_update(multi, ctx, owner, ordinal, {entity_type, record_id, expect, set}) do
+    key = StepSource.call_key(ctx.line_index) + ordinal
+
+    with :ok <- check_type_access(ctx, entity_type),
+         :ok <- check_restrictions(ctx, entity_type, set),
+         :ok <- ReferenceCheck.check(entity_type, set, ctx.prefix),
+         {:ok, %Latest{} = row} <- read_for_update(record_id, entity_type, ctx.prefix),
+         :ok <- check_expectations(row, expect),
+         {:ok, source} <- source_for(ctx, ordinal),
+         {:ok, line_multi} <-
+           Records.command_multi(
+             %{
+               kind: :update,
+               entity_type: entity_type,
+               record_id: record_id,
+               expected_last_event_global_seq: row.last_event_global_seq,
+               field_values: Map.merge(row.field_values, set),
+               actor_id: ctx.actor_id,
+               source: source
+             },
+             ctx.prefix,
+             owner
+           ) do
+      module_id = ctx.handler.module_id
+
+      multi
+      |> Multi.append(line_multi)
+      |> Multi.run({:line, key, :policy}, fn _repo, changes ->
+        policy(Map.fetch!(changes, {:line, key, :recheck_definition}), module_id)
+      end)
+    else
+      {:error, reason} -> Multi.error(multi, {:line, key, :build}, reason)
+    end
+  end
+
+  # A missing, deleted or unreadable row all answer `{:record_not_found, id}` (INV-5).
+  defp read_for_update(record_id, entity_type, prefix) do
+    case Latest.get(record_id, entity_type, prefix) do
+      {:ok, %Latest{deleted: false} = row} -> {:ok, row}
+      _absent_or_deleted -> {:error, {:record_not_found, record_id}}
+    end
+  end
+
+  defp check_expectations(%Latest{field_values: stored}, expect) do
+    if Enum.all?(expect, fn {field, wanted} -> expected?(Map.get(stored, field), wanted) end),
+      do: :ok,
+      else: {:error, :expectation_failed}
+  end
+
+  defp expected?(stored, wanted) when is_list(wanted), do: stored in wanted
+  defp expected?(stored, wanted), do: stored == wanted
 
   # GH #2808: the same TypeAccess check, subject and refusal as a declarative line.
   defp check_type_access(ctx, entity_type) do
