@@ -22,7 +22,7 @@ defmodule Letflow.ModuleUpgrade.Rollback do
 
   Refusals, in order: `no_previous_version`, `rollback_not_recorded` (the upgrade row has no usable
   `undo` block: it was written before rollback existed, or the tenant row moved without it),
-  `module_version_ahead`, `rollback_target_mismatch`, `no_upgrade_path_from_target`,
+  `module_version_ahead`, `rollback_below_min_data_version`, `rollback_target_mismatch`, `no_upgrade_path_from_target`,
   `rollback_forbidden`, `rollback_needs_runner`, `rollback_refused`, `upgrade_running`. All answer 409
   and carry code-like extras only. With `dry_run: true` the same checks run and nothing is written; a
   refusal is then reported inside the 200 body (`rollback_possible: false`, `refusal`).
@@ -254,6 +254,9 @@ defmodule Letflow.ModuleUpgrade.Rollback do
       version_compare(row.version, manifest.version) == :gt ->
         {:error, {"module_version_ahead", %{}}}
 
+      below_min_data_version?(manifest, target) ->
+        {:error, {"rollback_below_min_data_version", %{}}}
+
       candidate.from_version != target ->
         {:error, {"rollback_target_mismatch", %{}}}
 
@@ -262,6 +265,16 @@ defmodule Letflow.ModuleUpgrade.Rollback do
 
       true ->
         steps_gate(Catalog.upgrade_path(manifest, target, row.version))
+    end
+  end
+
+  # 0055 D9: a target below the running build's `min_data_version` would leave the module behind a
+  # permanent 503 `module_upgrade_required`. The manifest field is optional (REQ-640 builds no
+  # declaration yet); absent means no floor.
+  defp below_min_data_version?(manifest, target) do
+    case Map.get(manifest, :min_data_version) do
+      min when is_binary(min) -> version_compare(target, min) == :lt
+      _none -> false
     end
   end
 

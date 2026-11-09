@@ -434,6 +434,18 @@ defmodule Letflow.Routers.TenantModulesRollbackTest do
       assert {:ok, []} = Rollback.gate(cand, manifest([]), row, "1.0.0")
     end
 
+    test "RB20 a target below min_data_version is refused" do
+      row = tenant_row("2.0.0", "b")
+      cand = candidate("1.0.0", "2.0.0")
+      floor = Map.put(manifest([]), :min_data_version, "1.5.0")
+
+      assert {:error, {"rollback_below_min_data_version", %{}}} =
+               Rollback.gate(cand, floor, row, "1.0.0")
+
+      at_floor = Map.put(manifest([]), :min_data_version, "1.0.0")
+      assert {:ok, []} = Rollback.gate(cand, at_floor, row, "1.0.0")
+    end
+
     test "RB8b the refusal order" do
       row = tenant_row("2.0.0", "b")
       m = manifest([])

@@ -98,7 +98,7 @@ constraints already promoted all stay.
 
 Refusals (`409`, nothing is written): `no_previous_version` (never upgraded, or already rolled back); `rollback_not_recorded`
 (the upgrade ran before rollback existed, so its journal row has no undo record: such a tenant cannot be rolled back, it can still
-upgrade); `module_version_ahead` (an older build is running); `rollback_target_mismatch`; `no_upgrade_path_from_target`;
+upgrade); `module_version_ahead` (an older build is running); `rollback_target_mismatch`; `rollback_below_min_data_version` (the target is below the running build's `min_data_version`, when the manifest declares one); `no_upgrade_path_from_target`;
 `rollback_forbidden` with a `step_id` (a step is lossy, `irreversible` or declares no `down`: the upgrade plan names that step
 under `point_of_no_return` before the upgrade is applied, so the admin knows it was a point of no return); `rollback_needs_runner`
 (declared `down` steps cannot run yet); `rollback_refused` with `reason: decimal_strict_change` (data would be lost); and
