@@ -210,3 +210,9 @@ A new copy of a Russian word in a `kk` column fails the test until it is transla
 
 Left out: the official forms DA-1..DA-4, Inv-1/3/7/8/16, Z-1/4/6/7 are not built (only
 Z-2, Z-3, Z-5, Inv-10, Inv-18 ship); they are new-form work, not translation gaps.
+
+## Kazakh machine drafts added by T-1553 (empty and error texts)
+
+New `kk` texts for native check: `feedbackMessages` (permission denied, stale version, rate limit, the save-refusal
+texts of `saveErrorText`), `usersMessages`, `instancesMessages`, `definitionsMessages`. Walk table:
+`docs/uat/ui-text-walk.md`.
