@@ -176,7 +176,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.14.0",
+    version: "0.15.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],

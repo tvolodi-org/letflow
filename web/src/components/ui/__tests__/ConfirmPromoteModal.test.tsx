@@ -65,4 +65,18 @@ describe('ENV-04 — ConfirmPromoteModal', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
     expect(onConfirm).not.toHaveBeenCalled()
   })
+
+  it('T2: displayName replaces the technical key in the sentence', () => {
+    render(
+      <ConfirmPromoteModal
+        definitionName="assets_writeoff"
+        displayName="Asset write-off"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        isLoading={false}
+      />,
+    )
+    expect(screen.getByText(/promote 'Asset write-off' to production/)).toBeVisible()
+    expect(screen.queryByText(/assets_writeoff/)).not.toBeInTheDocument()
+  })
 })
