@@ -5,11 +5,10 @@
 /// fetched at build time.
 library;
 
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-import 'package:sembast/sembast_io.dart';
+import 'package:sembast/sembast.dart';
 
 import 'definitions.dart';
+import 'sembast_platform.dart';
 
 class SembastDefinitionCacheRepository implements DefinitionCacheRepository {
   SembastDefinitionCacheRepository._(this._db);
@@ -104,10 +103,7 @@ class SembastDefinitionCacheRepository implements DefinitionCacheRepository {
 Future<DefinitionCacheRepository> openProductionDefinitionCache(
   String realmUrl,
 ) async {
-  final dir = await getApplicationSupportDirectory();
-  final path = p.join(dir.path, cacheFileNameFor(realmUrl));
-  return SembastDefinitionCacheRepository.open(
-    path,
-    factory: databaseFactoryIo,
-  );
+  final path = await productionDbPath(cacheFileNameFor(realmUrl));
+  final dbFactory = await productionDatabaseFactory();
+  return SembastDefinitionCacheRepository.open(path, factory: dbFactory);
 }
