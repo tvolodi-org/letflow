@@ -299,7 +299,7 @@ export const client = {
    *  request()'s existing !response.ok branch does (401/429/409/generic) --
    *  callers branch on err.status (404/410/other), not on a blob-specific
    *  error type. Used for attachment content bytes, which are never JSON. */
-  async getBlob(path: string, params?: Record<string, unknown>): Promise<{ blob: Blob; contentType: string; contentDisposition: string | null }> {
+  async getBlob(path: string, params?: Record<string, unknown>): Promise<{ blob: Blob; contentType: string; contentDisposition: string | null; headers: Headers }> {
     const url = params
       ? `${path}?${new URLSearchParams(
           Object.fromEntries(
@@ -314,7 +314,7 @@ export const client = {
     await throwOnErrorResponse(response)
     const blob = await response.blob()
     const contentType = response.headers.get('Content-Type') ?? blob.type ?? 'application/octet-stream'
-    return { blob, contentType, contentDisposition: response.headers.get('Content-Disposition') }
+    return { blob, contentType, contentDisposition: response.headers.get('Content-Disposition'), headers: response.headers }
   },
   getText(path: string, params?: Record<string, unknown>): Promise<string> {
     const url = params

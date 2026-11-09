@@ -344,7 +344,10 @@ defmodule Letflow.Api.Error do
   @doc """
   HTTP 409 — Module Upgrade Refused (REQ-770, decision 0080). `code` is one of the closed set of
   refusal and failure codes of the upgrade apply (`plan_mismatch`, `no_upgrade_path`,
-  `upgrade_forbidden`, `ack_mismatch`, `upgrade_needs_runner`, `upgrade_running`, `upgrade_failed`);
+  `upgrade_forbidden`, `ack_mismatch`, `upgrade_needs_runner`, `upgrade_running`, `upgrade_failed`) and of the
+  rollback (`no_previous_version`, `rollback_not_recorded`, `module_version_ahead`,
+  `rollback_target_mismatch`, `no_upgrade_path_from_target`, `rollback_forbidden`,
+  `rollback_needs_runner`, `rollback_refused`, `rollback_failed`);
   `extensions` carries only code-like extras (reasons, a failure code), never tenant data.
   """
   @spec module_upgrade_refused(String.t(), map()) :: t()
@@ -509,6 +512,14 @@ defmodule Letflow.Api.Error do
       detail: detail
     }
   end
+
+  @doc """
+  HTTP 422 with extra RFC 9457 extension members (GH batch2 item 4, import errors). The detail
+  string is the caller's; `extensions` must hold constants and names the caller itself sent.
+  """
+  @spec unprocessable_with(String.t(), %{optional(String.t()) => term()}) :: t()
+  def unprocessable_with(detail, extensions) when is_map(extensions),
+    do: %{unprocessable(detail) | extensions: extensions}
 
   @doc """
   HTTP 422 — Output Refused (REQ-460, design req459 §3.2). A HUMAN_TASK

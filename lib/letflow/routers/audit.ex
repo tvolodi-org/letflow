@@ -143,6 +143,10 @@ defmodule Letflow.Routers.Audit do
   alias Letflow.Api.Pagination
   alias Letflow.Api.Response
 
+  @export_cap_default 10_000
+  @export_page 200
+  @csv_header ~w(timestamp actor_name actor_id action resource_type resource_id resource_name)
+
   # A new endpoint prefix, distinct from "T:" (tenants) and "U:" (identity);
   # `decode_cursor/4`'s {:error, :wrong_endpoint} is what makes a cursor
   # minted by another endpoint fail here.
@@ -160,7 +164,8 @@ defmodule Letflow.Routers.Audit do
     conn = fetch_query_params(conn)
     query = conn.query_params
 
-    with :ok <- reject_pipeline_run_id(Map.get(query, "pipeline_run_id")),
+    with {:ok, format} <- parse_format(Map.get(query, "format")),
+         :ok <- reject_pipeline_run_id(Map.get(query, "pipeline_run_id")),
          {:ok, raw_page_size} <- Pagination.parse_page_size_param(Map.get(query, "page_size")),
          {:ok, page_size} <- Pagination.validate_page_size(raw_page_size),
          {:ok, cursor_seek} <- parse_cursor_param(Map.get(query, "cursor")),
@@ -179,8 +184,14 @@ defmodule Letflow.Routers.Audit do
         to: to
       }
 
-      render_page(conn, Audit.list_entries(params))
+      case format do
+        :json -> render_page(conn, Audit.list_entries(params), params.prefix)
+        :csv -> export_csv(conn, params, query)
+      end
     else
+      {:error, :invalid_format} ->
+        Response.unprocessable(conn, "invalid format")
+
       {:error, :invalid_page_size} ->
         Response.bad_request(conn, "invalid page_size")
 
@@ -198,8 +209,8 @@ defmodule Letflow.Routers.Audit do
     end
   end
 
-  defp render_page(conn, {:ok, %{items: items, has_more: has_more}}) do
-    Response.ok(conn, page_body(items, next_cursor(items, has_more)))
+  defp render_page(conn, {:ok, %{items: items, has_more: has_more}}, prefix) do
+    Response.ok(conn, page_body(items, next_cursor(items, has_more), names_for(items, prefix)))
   end
 
   # `Letflow.Audit.list_entries/1`'s only error return is `{:error,
@@ -210,7 +221,7 @@ defmodule Letflow.Routers.Audit do
   # catch-all `render_page/2` clause (INV-4's "no Postgrex/internal detail
   # leaks to the body" concern doesn't arise here because no such shape exists
   # to leak).
-  defp render_page(conn, {:error, :invalid_actor_id}) do
+  defp render_page(conn, {:error, :invalid_actor_id}, _prefix) do
     Response.unprocessable(conn, "invalid filter")
   end
 
@@ -291,8 +302,8 @@ defmodule Letflow.Routers.Audit do
 
   # ── Response allowlist (INV-2) ────────────────────────────────────────────
 
-  defp page_body(entries, next_cursor) do
-    items = Enum.map(entries, &audit_item/1)
+  defp page_body(entries, next_cursor, names) do
+    items = Enum.map(entries, &audit_item(&1, names))
 
     %{
       "items" => items,
@@ -304,13 +315,15 @@ defmodule Letflow.Routers.Audit do
     }
   end
 
-  # Hand-built, exactly eight keys, per design §2.1 -- never a Jason.Encoder
+  # Hand-built, exactly ten keys (T-1557 added actor_name, resource_name), per design §2.1 -- never a Jason.Encoder
   # derivation over %Letflow.Audit.Entry{}, which would leak `tenant_id`,
   # `chain_hash`, `prev_chain_hash`, `trace_id` and the schema's own
   # `inserted_at` timestamp.
-  @spec audit_item(Entry.t()) :: map()
-  defp audit_item(%Entry{} = entry) do
+  @spec audit_item(Entry.t(), %{String.t() => String.t()}) :: map()
+  defp audit_item(%Entry{} = entry, names) do
     %{
+      "actor_name" => Map.get(names, entry.actor_id),
+      "resource_name" => resource_name(entry, names),
       "audit_id" => entry.id,
       "actor_id" => entry.actor_id,
       "action" => entry.action,
@@ -327,4 +340,148 @@ defmodule Letflow.Routers.Audit do
   # establishes for NaiveDateTime columns.
   defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp iso8601(nil), do: nil
+
+  # ── Names instead of ids (T-1557) ─────────────────────────────────────────
+
+  # One batched, tenant-prefixed query per page; only the two name columns are selected.
+  # `resource_id` is a free string: only UUID-shaped ids of user-like resources are looked up.
+  @user_resources ["user", "group_member"]
+
+  defp names_for(entries, prefix) do
+    ids =
+      entries
+      |> Enum.flat_map(fn e ->
+        [e.actor_id | if(e.resource_type in @user_resources, do: [e.resource_id], else: [])]
+      end)
+      |> Enum.filter(&uuid?/1)
+      |> Enum.uniq()
+
+    Audit.user_names(ids, prefix)
+  end
+
+  defp uuid?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
+  defp uuid?(_), do: false
+
+  defp resource_name(%Entry{resource_type: type, resource_id: id}, names)
+       when type in @user_resources,
+       do: Map.get(names, id)
+
+  defp resource_name(_entry, _names), do: nil
+
+  # ── CSV export (T-1557) ───────────────────────────────────────────────────
+
+  defp parse_format(nil), do: {:ok, :json}
+  defp parse_format(""), do: {:ok, :json}
+  defp parse_format("json"), do: {:ok, :json}
+  defp parse_format("csv"), do: {:ok, :csv}
+  defp parse_format(_other), do: {:error, :invalid_format}
+
+  defp export_cap, do: Application.get_env(:letflow, :audit_export_cap, @export_cap_default)
+
+  defp export_csv(conn, params, query) do
+    cap = export_cap()
+    base = %{params | cursor: nil, page_size: @export_page}
+
+    with {:ok, entries, truncated?} <- collect_entries(base, cap),
+         names = names_for(entries, params.prefix),
+         {:ok, _entry} <- record_export(conn, params, query, length(entries)) do
+      rows =
+        Enum.map(entries, fn e ->
+          [
+            iso8601(e.timestamp),
+            Map.get(names, e.actor_id),
+            e.actor_id,
+            e.action,
+            e.resource_type,
+            e.resource_id,
+            resource_name(e, names)
+          ]
+        end)
+
+      body = [@csv_header | rows] |> Enum.map_join("\r\n", &csv_line/1)
+
+      conn
+      |> Plug.Conn.put_resp_content_type("text/csv", "utf-8")
+      |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="audit.csv"))
+      |> Plug.Conn.put_resp_header("x-audit-export-truncated", to_string(truncated?))
+      |> Plug.Conn.send_resp(200, body <> "\r\n")
+    else
+      {:error, :invalid_actor_id} -> Response.unprocessable(conn, "invalid filter")
+      {:error, _reason} -> Response.service_unavailable(conn, "audit export unavailable")
+    end
+  end
+
+  defp collect_entries(params, cap), do: collect_entries(params, cap, [], 0)
+
+  defp collect_entries(params, cap, acc, count) do
+    case Audit.list_entries(params) do
+      {:ok, %{items: items, has_more: has_more}} ->
+        room = cap - count
+        taken = Enum.take(items, room)
+        over? = length(items) > room
+        acc = [taken | acc]
+        count = count + length(taken)
+
+        cond do
+          over? or (has_more and count >= cap) ->
+            {:ok, acc |> Enum.reverse() |> Enum.concat(), true}
+
+          not has_more ->
+            {:ok, acc |> Enum.reverse() |> Enum.concat(), false}
+
+          true ->
+            collect_entries(%{params | cursor: seek_of(List.last(items))}, cap, acc, count)
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp seek_of(%Entry{timestamp: ts, id: id}), do: {ts, id}
+
+  defp record_export(conn, params, query, count) do
+    filters =
+      Map.new(~w(actor_id resource_type resource_id from to), fn k ->
+        {k, non_empty(Map.get(query, k))}
+      end)
+
+    Audit.insert_entry(
+      Letflow.Repo,
+      %{
+        actor_id: actor_id_of(conn),
+        action: "audit.exported",
+        resource_type: "audit",
+        resource_id: "export",
+        before_state: nil,
+        after_state: %{"filters" => filters, "row_count" => count},
+        trace_id: nil
+      },
+      params.prefix
+    )
+  end
+
+  defp actor_id_of(conn) do
+    case Map.get(conn.assigns, :auth_context) do
+      %{user_id: id} when is_binary(id) -> id
+      _ -> nil
+    end
+  end
+
+  defp csv_line(cells), do: Enum.map_join(cells, ",", &csv_cell/1)
+
+  defp csv_cell(nil), do: ""
+
+  defp csv_cell(value) do
+    text = to_string(value)
+
+    text =
+      if String.starts_with?(text, ["=", "+", "-", "@", "\t", "\r"]), do: "'" <> text, else: text
+
+    if String.contains?(text, [",", "\"", "\r", "\n"]) do
+      "\"" <> String.replace(text, "\"", "\"\"") <> "\""
+    else
+      text
+    end
+  end
 end

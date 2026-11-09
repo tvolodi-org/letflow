@@ -81,6 +81,35 @@ Idempotent: the second run sees `up_to_date` everywhere, sends no apply, prints 
 `UPGRADE_RATIONALE` (default `demo promote: module upgrade chain`), `DRY_RUN=1`. Proved by `test/scripts/demo_upgrade_chain_test.exs`
 (real HTTP; the password grant and an apply refused with `ack_required` or a stale `plan_hash` are not exercised there).
 
+## Rolling back an upgrade
+
+`POST /api/v1/tenant/modules/<module_id>/rollback` (T-1549, decision 0055 D9) takes one tenant's module back to the version it
+had before its last applied upgrade. Tenant admin only (`ModulesManage`), one tenant per call. Body:
+`{"rationale": "<why>", "target_version": "<the previous version>", "dry_run": true|false}`. `target_version` must equal the
+previous applied version (the `from_version` of the last upgrade that was not already rolled back), so one click cannot walk
+back by accident. Send `dry_run: true` first: it writes nothing and answers `200` with `rollback_possible`, the `refusal` code if
+any, a `point_of_no_return` text, the entity types that would be re-activated (with the names of fields and indexes the
+target definition lacks) and the count of process drafts that stay.
+
+What a rollback does: re-activates the entity definitions the upgrade replaced, puts the version and manifest hash back, adds the
+hash it held to the accepted list, writes one `kind: rollback` journal row and one `module.rollback` audit entry. What it does
+not do: drop anything. Types the upgrade created, process drafts it created, records written on the newer version and
+constraints already promoted all stay.
+
+Refusals (`409`, nothing is written): `no_previous_version` (never upgraded, or already rolled back); `rollback_not_recorded`
+(the upgrade ran before rollback existed, so its journal row has no undo record: such a tenant cannot be rolled back, it can still
+upgrade); `module_version_ahead` (an older build is running); `rollback_target_mismatch`; `rollback_below_min_data_version` (the target is below the running build's `min_data_version`, when the manifest declares one); `no_upgrade_path_from_target`;
+`rollback_forbidden` with a `step_id` (a step is lossy, `irreversible` or declares no `down`: the upgrade plan names that step
+under `point_of_no_return` before the upgrade is applied, so the admin knows it was a point of no return); `rollback_needs_runner`
+(declared `down` steps cannot run yet); `rollback_refused` with `reason: decimal_strict_change` (data would be lost); and
+`upgrade_running` (try again).
+
+**Order for a bad release: roll the tenants back first (this route), then redeploy the previous build.** The running build still
+has the newer manifest hash, so the module's writes answer `409 upgrade_required` until a new upgrade is applied or the previous
+build is deployed; the reverse order is refused (`module_version_ahead`). After a rollback upgrade-on-deploy
+(`LETFLOW_MODULE_UPGRADE_ON_BOOT`) leaves that module alone until an admin applies an upgrade again, but
+`scripts/demo_upgrade_chain.sh` will upgrade it again on its next run.
+
 ## What the test proves, and its limit
 
 `test/scripts/demo_upgrade_check_test.exs` runs both scripts through a real HTTP listener (`Bandit` + `curl`), signed in

@@ -27,6 +27,7 @@ import { AssetCardHolder } from './AssetCardHolder'
 import { AssetCardForm, unitName, type Cmd } from './AssetCardForm'
 import { AssetsIntlProvider } from './AssetsIntlProvider'
 import { AssetsShell, useAssetRows, useErrorText, useOrgUnitRows } from './AssetsShell'
+import { HelpLink } from '@/components/help/HelpLink'
 import { ASSET_KINDS, isActive, matchesSearch, textOf } from './assetsModel'
 import { useAssetsWrite, type AssetsWriteResult } from './useAssetsWrite'
 
@@ -234,7 +235,12 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
       eyebrow={t('assets.page.eyebrow')}
       lede={t('assets.page.lede')}
       queries={[rows, unitsQuery]}
-      actions={createButton}
+      actions={
+        <>
+          <HelpLink to="/admin/assets/help/cards" label={t('assets.help.link')} />
+          {createButton}
+        </>
+      }
     >
       {write.error && !dialogOpen ? (
         <Banner tone="danger">

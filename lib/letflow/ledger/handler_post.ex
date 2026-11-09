@@ -546,7 +546,8 @@ defmodule Letflow.Ledger.HandlerPost do
   @doc """
   The `ledger.posted` audit summaries of a node's posted entries (REQ-686), read from the changes
   of the lock merge: ascending by ledger id, one per entry actually written (a duplicate replay
-  writes nothing and has none). Ids, the cause, a count and the chain hash only.
+  writes nothing and has none). Ids, the cause, a count and the chain hash only, plus the
+  document type and id (T-1557: they key the `document.*` audit entry).
   """
   @spec posted_summaries(map()) :: [map()]
   def posted_summaries(changes) when is_map(changes) do
@@ -560,7 +561,9 @@ defmodule Letflow.Ledger.HandlerPost do
           posting_seq: posted.posting_seq,
           cause: posting.cause,
           leg_count: length(posting.legs),
-          chain_hash: posted.chain_hash
+          chain_hash: posted.chain_hash,
+          document_type: Map.get(posting, :document_type),
+          document_id: Map.get(posting, :document_id)
         }
       end
     else

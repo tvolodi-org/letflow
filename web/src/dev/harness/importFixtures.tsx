@@ -9,7 +9,7 @@ import MasterDataImportPage from '@/pages/admin/import/MasterDataImportPage'
 import { holdHarnessReady } from './fixtureFetch'
 import type { FixtureRoute, HarnessScreen } from './types'
 
-const AUTH: AuthContextValue = {
+export const AUTH: AuthContextValue = {
   session: {
     token: 'fixture',
     display_name: 'Fixture Admin',

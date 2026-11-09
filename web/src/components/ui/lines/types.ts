@@ -120,7 +120,8 @@ export interface LFLinesEditorProps<L> {
 export interface LeImportController<L> {
   importRows: (rows: { line: L; reason?: string }[]) => void
   /** The caller already stored the lines (the server wrote them): show "N lines added, M refused" with the reasons. */
-  showResult: (r: { added: number; refused: { row: number; reason: string }[] }) => void
+  /** `applied === false`: the import was atomic and rolled back, so nothing was added. */
+  showResult: (r: { added: number; refused: { row: number; reason: string }[]; applied?: boolean }) => void
   /** The import failed as a whole; `message` is already translated. */
   showError: (message: string) => void
 }

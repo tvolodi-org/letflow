@@ -32,6 +32,14 @@ defmodule Letflow.Entities.ManagedImport do
   are capped at 20 (`@max_replays`); beyond it the dry run is `{:error, :dry_run_unavailable}`
   and nothing was written.
 
+  ## Atomic import
+
+  `run_atomic/7` is the dry-run machinery with one difference: when the file ends with NO refused
+  row the single transaction is committed instead of rolled back. Any refused row rolls everything
+  back and the results are returned, so a file is never half-applied (a clerk fixes the refused
+  rows and uploads the whole file again; the upsert is idempotent by external id). The probe and
+  replay rules are those of the dry run. `ctx.dry_run` is `false` in a run that may commit.
+
   The function contract: no effects outside `prefix`'s database, in a dry run or not.
   """
 
@@ -67,10 +75,36 @@ defmodule Letflow.Entities.ManagedImport do
     end
   end
 
+  @doc """
+  Imports the file in ONE transaction that is committed only if no row is refused
+  (`{:ok, results}` with `applied?` true), else rolled back (`applied?` false, results still
+  describe every row). `{:error, :dry_run_unavailable}`: replay cap exceeded, nothing written.
+  """
+  @spec run_atomic(
+          module_id :: String.t(),
+          entries :: [term()],
+          entity_type :: String.t(),
+          actor_id :: String.t(),
+          request_id :: String.t(),
+          restricted :: MapSet.t(String.t()),
+          prefix :: String.t()
+        ) :: {:ok, [ImportUpsert.entry_result()], boolean()} | {:error, :dry_run_unavailable}
+  def run_atomic(module_id, entries, entity_type, actor_id, request_id, restricted, prefix) do
+    args = {module_id, entries, entity_type, actor_id, request_id, restricted, prefix}
+
+    case run_in_transaction(args, %{}, 0, true) do
+      {:ok, results, applied?} -> {:ok, results, applied?}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp import_file(args, forced, probe?), do: import_file(args, forced, probe?, probe?)
+
   defp import_file(
          {module_id, entries, entity_type, actor_id, request_id, restricted, prefix},
          forced,
-         probe?
+         probe?,
+         ctx_dry_run?
        ) do
     counter = :counters.new(1, [])
 
@@ -83,7 +117,8 @@ defmodule Letflow.Entities.ManagedImport do
           result
 
         :error ->
-          result = call(module_id, entity_type, prefix, entry, Map.put(ctx, :dry_run, probe?))
+          result =
+            call(module_id, entity_type, prefix, entry, Map.put(ctx, :dry_run, ctx_dry_run?))
 
           if probe? and match?({:error, _}, result) and poisoned?(),
             do: throw({:poisoned, index, result})
@@ -96,24 +131,44 @@ defmodule Letflow.Entities.ManagedImport do
   end
 
   defp dry_run(args, forced, replays) do
+    case run_in_transaction(args, forced, replays, false) do
+      {:ok, results, false} -> {:ok, results}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp refused?({:ok, _}), do: false
+  defp refused?(_error), do: true
+
+  # commit? false: always rolled back (dry run). commit? true: committed when no row is refused.
+  defp run_in_transaction(args, forced, replays, commit?) do
     outcome =
       Repo.transaction(fn ->
         try do
-          Repo.rollback({:dry_run, import_file(args, forced, true)})
+          results = import_file(args, forced, true, not commit?)
+
+          if commit? and not Enum.any?(results, &refused?/1) do
+            {results, true}
+          else
+            Repo.rollback({:rolled_back, results})
+          end
         catch
           {:poisoned, index, result} -> Repo.rollback({:poisoned, index, result})
         end
       end)
 
     case outcome do
-      {:error, {:dry_run, results}} ->
-        {:ok, results}
+      {:ok, {results, true}} ->
+        {:ok, results, true}
+
+      {:error, {:rolled_back, results}} ->
+        {:ok, results, false}
 
       {:error, {:poisoned, _index, _result}} when replays >= @max_replays ->
         {:error, :dry_run_unavailable}
 
       {:error, {:poisoned, index, result}} ->
-        dry_run(args, Map.put(forced, index, result), replays + 1)
+        run_in_transaction(args, Map.put(forced, index, result), replays + 1, commit?)
     end
   end
 

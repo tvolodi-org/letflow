@@ -352,4 +352,64 @@ defmodule Letflow.Modules.Stock.CountPaperworkTest do
       assert ["issued_at", "2026-11-10T10:00:00+05:00"] in doc
     end
   end
+
+  describe "T-1555 number/2 and print_time/4" do
+    test "N1 plain decimals are regrouped by language, digits never rounded" do
+      nb = "\u00A0"
+
+      for {text, ru, en} <- [
+            {"49360.500", "49#{nb}360,500", "49,360.500"},
+            {"0.5", "0,5", "0.5"},
+            {"-1234", "-1#{nb}234", "-1,234"},
+            {"999", "999", "999"},
+            {"1000000", "1#{nb}000#{nb}000", "1,000,000"},
+            {"12345678901234567890.123456789",
+             "12#{nb}345#{nb}678#{nb}901#{nb}234#{nb}567#{nb}890,123456789",
+             "12,345,678,901,234,567,890.123456789"}
+          ] do
+        assert CountPaperwork.number(text, :ru) == ru
+        assert CountPaperwork.number(text, :kk) == ru
+        assert CountPaperwork.number(text, :en) == en
+      end
+    end
+
+    test "N1b anything that is not a plain decimal is returned as stored" do
+      for text <- ["abc", "", "1e5", "1 000", "1.", ".5", "+5"],
+          do: assert(CountPaperwork.number(text, :ru) == text)
+
+      assert CountPaperwork.number(nil, :ru) == ""
+      assert CountPaperwork.number(1234, :en) == "1,234"
+    end
+
+    test "T1 time: localized plus the zone offset; an invalid text prints as stored" do
+      names = %{offsets: %{issued_at: 18_000, west: -12_600}}
+      iso = "2026-11-04T05:00:00Z"
+
+      assert CountPaperwork.print_time(iso, names, :issued_at, :ru) ==
+               "04-11-2026 10:00 (UTC+05:00)"
+
+      assert CountPaperwork.print_time(iso, names, :issued_at, :kk) ==
+               "04-11-2026 10:00 (UTC+05:00)"
+
+      assert CountPaperwork.print_time(iso, names, :issued_at, :en) ==
+               "2026-11-04 10:00 (UTC+05:00)"
+
+      assert CountPaperwork.print_time(iso, names, :west, :en) == "2026-11-04 01:30 (UTC-03:30)"
+      assert CountPaperwork.print_time("soon", names, :issued_at, :en) == "soon"
+      assert CountPaperwork.print_time(nil, names, :issued_at, :en) == ""
+    end
+
+    test "X3 count paperwork sheets: bold frozen header, widths, values unchanged" do
+      {:ok, bin} = CountPaperwork.build(:sheet, issued(sheet_content([line(1)])), names(), :en)
+      parts = parts(bin)
+      sheet2 = Map.fetch!(parts, "xl/worksheets/sheet2.xml")
+      assert sheet2 =~ "<pane"
+      assert sheet2 =~ "<cols>"
+      # the document sheet is key/value: widths, no frozen header
+      sheet1 = Map.fetch!(parts, "xl/worksheets/sheet1.xml")
+      refute sheet1 =~ "<pane"
+      assert sheet1 =~ "<cols>"
+      assert Map.fetch!(parts, "xl/styles.xml") =~ "<b val=\"1\"/>"
+    end
+  end
 end

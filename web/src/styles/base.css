@@ -220,3 +220,32 @@ samp {
 .lf-bell__time { color: var(--ink-faint); font: var(--type-mono-s); white-space: nowrap; }
 .lf-bell__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ember); }
 .lf-bell__state { margin: 0; padding: var(--space-4) var(--space-3); color: var(--ink-muted); display: grid; gap: var(--space-2); justify-items: start; }
+/* T-1559: Metrics support summary (cards of figures, one plain sentence each). Tokens only. */
+.lf-msum { margin-bottom: var(--space-6); }
+.lf-msum__title { margin: 0 0 var(--space-3); }
+.lf-msum__title--all { margin: var(--space-6) 0 0; }
+.lf-msum__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(256px, 1fr)); gap: var(--space-3); }
+.lf-msum__card { display: grid; gap: var(--space-2); align-content: start; min-width: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper-raised); }
+.lf-msum__card--routes { margin-top: var(--space-3); }
+.lf-msum__label { color: var(--ink-muted); font: var(--type-label); }
+.lf-msum__value { font: var(--type-body); font-family: var(--font-mono); font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.lf-msum__do { margin: 0; font: var(--type-body-s); color: var(--ink); }
+.lf-msum__routes { margin: 0; padding-inline-start: var(--space-4); font-family: var(--font-mono); overflow-wrap: anywhere; }
+.lf-health__do { margin: 0 0 var(--space-4); font: var(--type-body-s); }
+
+/* T-1553: the stacked table's single-cell rows (empty list, load error) are one full-width cell, not a label + value
+   grid; in the 9.5em label column the empty-state box was squeezed and pushed off the 390 px screen. */
+@media (max-width: 720px) {
+  .lf-table--stack td[colspan] { grid-template-columns: minmax(0, 1fr); padding: 0; }
+}
+
+/* T-1560: static help page (HelpTopicView): readable blocks, refusal titles apart from their explanation. */
+.lf-help { max-width: 48rem; }
+.lf-help section { margin-block-start: var(--space-6); }
+.lf-help h2 { margin-block-end: var(--space-2); }
+.lf-help ol { margin: 0; list-style: decimal; padding-inline-start: var(--space-6); }
+.lf-help li { margin-block-end: var(--space-2); }
+.lf-help dl { margin: 0; }
+.lf-help dl > div { margin-block-end: var(--space-3); }
+.lf-help dt { font-weight: 600; }
+.lf-help dd { margin: 0; color: var(--ink-muted); }
