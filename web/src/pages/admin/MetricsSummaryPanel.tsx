@@ -98,9 +98,9 @@ export const SUMMARY_MESSAGES = {
     upgrade: 'Соңғы жаңартудың нәтижесі',
     notShownDo: 'Әзірге көрсетілмейді. Пайдаланушылар баяулығына шағымданса, платформа операторынан дерекқор қосылымдарын тікелей тексеруді сұраңыз.',
   },
-} as const
+}
 
-type Messages = (typeof SUMMARY_MESSAGES)['en']
+type Messages = Record<keyof (typeof SUMMARY_MESSAGES)['en'], string>
 
 const UNMEASURED: { key: keyof Messages }[] = [{ key: 'pool' }, { key: 'jobs' }, { key: 'modules' }, { key: 'upgrade' }]
 
