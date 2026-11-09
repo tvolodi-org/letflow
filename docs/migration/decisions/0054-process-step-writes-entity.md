@@ -641,3 +641,27 @@ flag could not be re-imported. Decision: **option (b), the installer must hold `
 Rejected: (a) a pending request confirmed by an EDW holder needs a new table, route and audit trail, and the
 inactive-until-activated step already gives a second EDW-keyed decision point. (c) module code only leaves
 tenant-authored packs with no path, and module-managed types are refused the flag by D4a.2(b) anyway.
+
+## Amendment (T-1489 / assets G2): D6 handler UPDATE (`HandlerWrites.update/3`)
+
+A write handler could only create records (`create/3`) and post to the ledger (`post/3`). The assets card must follow a
+posted hand over in the same transaction (owner decision D-111: one card, one org unit), so D6 gains ONE more handler-facing
+call, with these rules:
+
+1. **Allow-list in the signed manifest.** The handler registration gets an optional `updates: %{entity_type => [field]}`
+   (default `%{}`; every type must also be in `targets`, `Catalog` rule 10 `{:write_handler_update_not_target, ..}`). It is
+   part of the manifest hash only when non-empty, so no existing hash changes. `set` and `expect` may name only those fields
+   (`:update_field_not_allowed`); the allow-list is re-resolved from the Catalog on every call, never from the context.
+2. **Expectation and version pin.** The call reads the record at build time (no write), checks every `expect` pair against
+   the stored value (a list means any of, `nil` allowed) and merges `set` into the stored document. The write is
+   `Records.command_multi/3` with `kind: :update`, `record_id` and `expected_last_event_global_seq` = the seq it read:
+   `{:line, i, :check_record_version}` re-reads the row `FOR UPDATE` under the type's sequence lock, so a concurrent change
+   is `:record_version_conflict` and the whole completion rolls back. A deleted or missing record is `{:record_not_found, id}`
+   (`write_not_permitted`, INV-5).
+3. **Same gate as create.** Context token, registered target, the 49 shared write slots (`:too_many_writes`), TypeAccess,
+   field restrictions on `set`, `ReferenceCheck` on `set`, and the `{:line, key, :policy}` step. The `:update` kind of
+   `command_multi/3` is reached only from `HandlerWrites` (`command_multi_callers_test.exs`). No delete, no create-or-update.
+4. **Residual trust gap (decision 0078 D5).** The handler reads nothing, so a `card_moves` entry in the `posting` argument is
+   cross-checked only against the arguments the handler can see (the posting's own lines and destination unit; for a reversal
+   the document's header unit). A forged posting that forges its own lines is the gap the posting argument always had; the
+   `expect` pin limits it to a card that sits at the stated source unit.

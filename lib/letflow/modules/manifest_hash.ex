@@ -100,9 +100,23 @@ defmodule Letflow.Modules.ManifestHash do
     }
 
     # REQ-684: covered only for a posting handler, so every existing handler hash is unchanged.
-    case Map.get(handler, :posts_ledger) do
-      nil -> base
-      name -> Map.put(base, "posts_ledger", name)
+    base =
+      case Map.get(handler, :posts_ledger) do
+        nil -> base
+        name -> Map.put(base, "posts_ledger", name)
+      end
+
+    # G2: the update allow-list, again only when present (a handler that updates nothing is unchanged).
+    case Map.get(handler, :updates) do
+      updates when is_map(updates) and map_size(updates) > 0 ->
+        Map.put(
+          base,
+          "updates",
+          Map.new(updates, fn {type, fields} -> {type, sorted_list(fields)} end)
+        )
+
+      _none ->
+        base
     end
   end
 

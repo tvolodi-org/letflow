@@ -22,6 +22,7 @@ defmodule Letflow.Modules.Assets.Handlers do
   """
 
   alias Letflow.Entities.HandlerWrites
+  alias Letflow.Modules.Assets.Documents.CardMoves
 
   @type result :: {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
 
@@ -116,7 +117,9 @@ defmodule Letflow.Modules.Assets.Handlers do
   defp run(multi, ctx, args, mark, extra_keys) when is_map(args) do
     with true <- valid_args?(args, {mark, extra_keys}),
          {:ok, command} <- command(Map.get(args, "posting")),
-         {:ok, multi} <- create_mark(multi, ctx, args, extra_keys) do
+         {:ok, moves} <- card_moves(Map.get(args, "posting"), args),
+         {:ok, multi} <- create_mark(multi, ctx, args, extra_keys),
+         {:ok, multi} <- move_cards(multi, ctx, posting_cause(args), moves) do
       case HandlerWrites.post(multi, ctx, command) do
         {:ok, multi} -> {:ok, multi}
         {:error, _contract_error} -> {:error, :not_permitted}
@@ -156,6 +159,81 @@ defmodule Letflow.Modules.Assets.Handlers do
       {:ok, multi} -> {:ok, multi}
       {:error, _contract_error} -> {:error, :not_permitted}
     end
+  end
+
+  # -- G2: the card moves of a hand over and of its reversal -------------------------------------------
+
+  # The optional literal key `"card_moves"` of the `posting` argument: a list of `%{"asset", "from",
+  # "to"}`. The handler reads nothing, so each entry is cross-checked against the arguments it can see
+  # (decision 0078 D5: the gap that remains is the one the posting argument always had):
+  #   * a hand over: the asset is one of the posting's own lines, `to` is that line's destination unit
+  #     and `from` is that line's source unit or nil (an empty card);
+  #   * a reversal (no lines): `to` is the document's own header unit (`org_unit_id`), `from` is the
+  #     destination it moves back from.
+  # Cause `handover` and `reversal` only; at most 45 entries (`CardMoves.max_moves/0`), no repeats.
+  defp card_moves(%{"card_moves" => moves} = posting, args) when is_list(moves) do
+    with true <- length(moves) <= CardMoves.max_moves(),
+         true <- Enum.all?(moves, &move_shape?/1),
+         true <- Enum.uniq_by(moves, &Map.get(&1, "asset")) |> length() == length(moves),
+         true <- Enum.all?(moves, &move_allowed?(&1, posting, args)) do
+      {:ok, Enum.sort_by(moves, &Map.get(&1, "asset"))}
+    else
+      _forged -> {:error, :invalid_arguments}
+    end
+  end
+
+  defp card_moves(%{"card_moves" => _other}, _args), do: {:error, :invalid_arguments}
+  defp card_moves(_posting, _args), do: {:ok, []}
+
+  defp move_shape?(%{"asset" => asset, "from" => from, "to" => to} = move) do
+    map_size(move) == 3 and uuid?(asset) and uuid?(to) and (is_nil(from) or uuid?(from))
+  end
+
+  defp move_shape?(_other), do: false
+
+  defp posting_cause(args), do: args |> Map.get("posting") |> Map.get("cause")
+
+  defp uuid?(value), do: is_binary(value) and match?({:ok, _}, Ecto.UUID.cast(value))
+
+  defp move_allowed?(move, %{"cause" => "handover", "lines" => lines}, _args)
+       when is_list(lines) do
+    Enum.any?(lines, fn
+      %{"asset" => asset, "from" => %{"org_unit" => from}, "to" => %{"org_unit" => to}} ->
+        asset == Map.get(move, "asset") and to == Map.get(move, "to") and to != from and
+          Map.get(move, "from") in [from, nil]
+
+      _other ->
+        false
+    end)
+  end
+
+  defp move_allowed?(move, %{"cause" => "reversal"}, args),
+    do:
+      Map.get(move, "to") == Map.get(args, "org_unit_id") and
+        Map.get(move, "from") != Map.get(move, "to") and Map.get(move, "from") != nil
+
+  defp move_allowed?(_move, _posting, _args), do: false
+
+  # One update per move, after the mark and before the ledger entry: a refusal of any of them (the card
+  # is not where the move says, or changed since it was read) fails the whole completion. A forward move
+  # accepts the unit it was read at or an empty unit; a reversal pins the destination exactly.
+  defp move_cards(multi, ctx, cause, moves) do
+    Enum.reduce_while(moves, {:ok, multi}, fn move, {:ok, multi} ->
+      expect =
+        if cause == "reversal", do: Map.get(move, "from"), else: [Map.get(move, "from"), nil]
+
+      command = %{
+        entity_type: "assets_card",
+        record_id: Map.get(move, "asset"),
+        expect: %{"org_unit_id" => expect},
+        set: %{"org_unit_id" => Map.get(move, "to")}
+      }
+
+      case HandlerWrites.update(multi, ctx, command) do
+        {:ok, multi} -> {:cont, {:ok, multi}}
+        {:error, _contract_error} -> {:halt, {:error, :not_permitted}}
+      end
+    end)
   end
 
   # -- the posting command: literal keys only -----------------------------------------------------

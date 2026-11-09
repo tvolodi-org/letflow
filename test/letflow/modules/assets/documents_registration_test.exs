@@ -50,7 +50,9 @@ defmodule Letflow.Modules.Assets.DocumentsRegistrationTest do
 
     for h <- Enum.take(handlers, 2) do
       assert h.posts_ledger == "assets"
-      assert h.targets == ["assets_posting_mark"]
+      # G2 (T-1489): the card is also a target, updated on its org unit field only
+      assert h.targets == ["assets_posting_mark", "assets_card"]
+      assert h.updates == %{"assets_card" => ["org_unit_id"]}
       assert {Letflow.Modules.Assets.Handlers, fun} = h.function
       assert fun == String.to_existing_atom(h.name)
     end

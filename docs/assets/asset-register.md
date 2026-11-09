@@ -168,8 +168,11 @@ not yet commissioned asset whose card stays (D-061: registers are read-only and 
   is item B6 (REQ-682).
 - A scoped principal cannot post until slice L6 (0073 OQ-21).
 - For a `fixed` or `intangible` asset the card's `org_unit_id` equals the `org_unit` slot of the asset's balance
-  row with quantity 1, kept equal by the documents of item C2 in the same transaction as the posting. Setting and moving it by a posting is
-  item G2 (needs a handler-facing update); until then it is empty for a new card and the register is the authority.
+  row with quantity 1, kept equal by the documents of item C2 in the same transaction as the posting. A posted hand over moves it (G2, T-1489, module
+  version 0.14.0): the write handlers `post_document` and `reverse_document` update the card in the posting transaction,
+  both or neither, and the reversal moves it back while the card is still at the destination. It is empty for a new card
+  until a document or the import sets it, and the register stays the authority. A `low_value` card is not moved by this
+  step (D-111 below).
 
 ## 8. Open owner questions
 
@@ -184,6 +187,10 @@ No answer is given here to any of them.
    asset opening document of decision 0083 keeps that rule (its Q3); a hand over of part of a low-value quantity to
    another org unit is not refused today (`Letflow.Modules.Assets.Documents.Checks`: the hand over runs no
    `org_unit_mismatch`), so the split can already arise and the card then keeps its first org unit.
+   **Decided (owner, D-111, 2026-11-08): one asset card is ONE org unit.** A quantity (low-value) item that must sit in
+   several org units is split by a PARTIAL hand over into separate cards. T-1489 (G2) keeps this true by never moving a
+   `low_value` card; the split itself (a new card and inventory number for the handed-over part, and its reversal) is a
+   follow-up, and G4 (T-1491) rewrites this question.
 4. Whether an intangible card may carry more than one seat. This file proposes at most 1 per card (UAT
    assumption). Source: REQ-689 criterion 10.
 5. Decided by D-097: `inventory_number` is unique per tenant (also with several BIN in one tenant, D-062). Old

@@ -31,9 +31,12 @@ defmodule Letflow.Modules.Assets.KindsRegistrationTest do
       assert m.scope_declarations[type] == {:column, "org_unit_id"}
     end
 
-    # part 1: the post handler still writes only the mark (the card sync is part 2)
-    handler = Enum.find(m.write_handlers, &(&1.name == "post_document"))
-    assert handler.targets == ["assets_posting_mark"]
+    # G2 (T-1489): the post and reverse handlers also update the card's org unit, and only that field
+    for name <- ["post_document", "reverse_document"] do
+      handler = Enum.find(m.write_handlers, &(&1.name == name))
+      assert handler.targets == ["assets_posting_mark", "assets_card"]
+      assert handler.updates == %{"assets_card" => ["org_unit_id"]}
+    end
   end
 
   test "R2 the document types: ACH, AHO, AWO, yearly, pad 6, no legal entity" do

@@ -787,6 +787,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
       # `__facts__/1` (consent, pre-step result and dry flag of the per-call token) and
       # `__dry_collect__/2`, both called by `HandlerPost` only.
       # REQ-760 adds `next_record_id/1` (a platform-derived record id from the step source).
+      # T-1489 adds `update/3` (handler-facing allow-listed `updates` write; Assets card moves).
       assert public == [
                __declare__: 2,
                __dry_collect__: 2,
@@ -805,7 +806,8 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
                next_record_id: 1,
                post: 3,
                prepare_targets: 2,
-               registered_targets: 1
+               registered_targets: 1,
+               update: 3
              ]
     end
 

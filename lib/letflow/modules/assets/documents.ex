@@ -60,6 +60,7 @@ defmodule Letflow.Modules.Assets.Documents do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Modules.Assets
+  alias Letflow.Modules.Assets.Documents.CardMoves
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Kinds
   alias Letflow.Modules.Assets.Documents.OpeningChecks
@@ -376,10 +377,26 @@ defmodule Letflow.Modules.Assets.Documents do
   defp issue_checks(prefix, %{kind: "opening"} = view), do: Checks.masters(prefix, view)
 
   defp issue_checks(prefix, view) do
-    with :ok <- Checks.event_time(view.event_time, now()) do
-      Checks.masters(prefix, view)
+    with :ok <- Checks.event_time(view.event_time, now()),
+         :ok <- Checks.masters(prefix, view) do
+      card_moves_cap(prefix, view)
     end
   end
+
+  # G2: a hand over moves its fixed and intangible cards in the posting transaction, whose write slots
+  # are limited. Checked here, before the number is spent, so the draft stays a draft (422); the
+  # posting start repeats the count on the cards it reads.
+  defp card_moves_cap(prefix, %{kind: "handover"} = view) do
+    header = Kinds.header_of(Kinds.get("handover"), view)
+    lines = Enum.map(view.lines, &%{"asset_id" => &1.asset_id})
+
+    case CardMoves.forward(prefix, header, lines) do
+      {:ok, _moves} -> :ok
+      {:error, :too_many_card_moves} -> {:error, {"too_many_card_moves", %{}}}
+    end
+  end
+
+  defp card_moves_cap(_prefix, _view), do: :ok
 
   @doc """
   The advisory check of draft `id` of an opening: every check on every line, nothing written, no lock,

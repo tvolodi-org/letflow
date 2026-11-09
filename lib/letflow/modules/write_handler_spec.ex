@@ -19,21 +19,27 @@ defmodule Letflow.Modules.WriteHandlerSpec do
   `posts_ledger` (REQ-684, decision 0073) is the one optional key: the name of a registration of the
   same manifest's `:ledger` map, or `nil` (default). A handler that carries it is a posting handler;
   `Letflow.Modules.Catalog` rule 10 checks the name exists. It is not in `@enforce_keys`.
+
+  `updates` (G2, decision 0054 R-update) is the other optional key: `%{entity_type => [field, ...]}`, the
+  fields of a target type the handler may change through `Letflow.Entities.HandlerWrites.update/3`
+  (default `%{}`: the handler updates nothing). `Catalog` rule 10 checks every key is one of the
+  handler's `targets`. It is covered by the manifest hash only when non-empty.
   """
 
   @enforce_keys [:name, :function, :targets, :args]
-  defstruct [:name, :function, :targets, :args, posts_ledger: nil]
+  defstruct [:name, :function, :targets, :args, posts_ledger: nil, updates: %{}]
 
   @type t :: %__MODULE__{
           name: String.t(),
           function: {module(), atom()},
           targets: [String.t()],
           args: %{String.t() => %{required: boolean()}},
-          posts_ledger: String.t() | nil
+          posts_ledger: String.t() | nil,
+          updates: %{optional(String.t()) => [String.t()]}
         }
 
   @required_keys [:name, :function, :targets, :args]
-  @optional_keys [:posts_ledger]
+  @optional_keys [:posts_ledger, :updates]
   @keys @required_keys ++ @optional_keys
 
   @doc "Builds a spec from a map or keyword list, rejecting missing, unknown or ill-typed fields."
@@ -81,6 +87,15 @@ defmodule Letflow.Modules.WriteHandlerSpec do
     do: is_binary(name) and Letflow.Entities.ManagedTypes.managed_name?(name)
 
   defp valid_field?(:posts_ledger, value), do: is_nil(value) or is_binary(value)
+
+  defp valid_field?(:updates, updates) when is_map(updates) and not is_struct(updates) do
+    Enum.all?(updates, fn {type, fields} ->
+      is_binary(type) and is_list(fields) and fields != [] and Enum.all?(fields, &is_binary/1) and
+        Enum.uniq(fields) == fields
+    end)
+  end
+
+  defp valid_field?(:updates, _other), do: false
 
   defp valid_field?(:function, {module, fun}), do: is_atom(module) and is_atom(fun)
   defp valid_field?(:function, _other), do: false

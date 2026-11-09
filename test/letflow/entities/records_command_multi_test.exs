@@ -300,17 +300,32 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
       assert counts(schema) == before
     end
 
-    test ":update and :delete are not supported, with no query", %{
+    test ":delete is not supported, with no query", %{schema: schema, task_id: task_id} do
+      {result, queries} =
+        PlatformTenantFixture.capture_repo_queries(fn ->
+          Records.command_multi(command(@type_a, 0, task_id, %{kind: :delete}), schema, :tenant)
+        end)
+
+      assert result == {:error, {:command_kind_not_supported, :delete}}
+      assert queries == []
+    end
+
+    test ":update needs a record id and a version, with no query (G2)", %{
       schema: schema,
       task_id: task_id
     } do
-      for kind <- [:update, :delete] do
+      for extra <- [
+            %{kind: :update},
+            %{kind: :update, record_id: "nope", expected_last_event_global_seq: 1},
+            %{kind: :update, record_id: Ecto.UUID.generate()},
+            %{kind: :update, record_id: Ecto.UUID.generate(), expected_last_event_global_seq: -1}
+          ] do
         {result, queries} =
           PlatformTenantFixture.capture_repo_queries(fn ->
-            Records.command_multi(command(@type_a, 0, task_id, %{kind: kind}), schema, :tenant)
+            Records.command_multi(command(@type_a, 0, task_id, extra), schema, :tenant)
           end)
 
-        assert result == {:error, {:command_kind_not_supported, kind}}
+        assert result == {:error, :invalid_step_source}, inspect(extra)
         assert queries == []
       end
     end
@@ -437,6 +452,91 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
       assert_raise FunctionClauseError, fn ->
         apply(Records, :command_multi, [command(@type_a, 0, task_id), schema, "x"])
       end
+    end
+  end
+
+  describe "command_multi/3 kind: :update (T-1489 / G2, U1 U3 U4)" do
+    defp created!(schema, task_id) do
+      assert {:ok, multi} = Records.command_multi(command(@type_a, 0, task_id), schema, :tenant)
+      assert {:ok, changes} = Repo.transaction(multi)
+      changes |> Map.fetch!({:line, 0, :upsert_record_latest})
+    end
+
+    defp update_command(row, line_key, task_id, overrides \\ %{}) do
+      command(
+        @type_a,
+        line_key,
+        task_id,
+        Map.merge(
+          %{
+            kind: :update,
+            record_id: row.record_id,
+            expected_last_event_global_seq: row.last_event_global_seq,
+            field_values: %{"title" => "changed", "note" => "n"}
+          },
+          overrides
+        )
+      )
+    end
+
+    test "U1 an update appends ENTITY_RECORD_UPDATED and rewrites the latest row", %{
+      schema: schema,
+      task_id: task_id
+    } do
+      row = created!(schema, task_id)
+
+      assert {:ok, multi} =
+               Records.command_multi(update_command(row, 1, task_id), schema, :tenant)
+
+      assert {:ok, changes} = Repo.transaction(multi)
+
+      assert %Latest{record_id: id, field_values: %{"title" => "changed"}} =
+               changes[{:line, 1, :upsert_record_latest}]
+
+      assert id == row.record_id
+
+      assert changes[{:line, 1, :upsert_record_latest}].last_event_global_seq >
+               row.last_event_global_seq
+
+      assert %Event{event_type: "ENTITY_RECORD_UPDATED"} = changes[{:line, 1, :insert_event}]
+
+      stored = Repo.get_by!(Latest, [record_id: row.record_id], prefix: schema)
+      assert stored.field_values["title"] == "changed"
+    end
+
+    test "U4 a stale version is a conflict and rolls back a sibling create (U3)", %{
+      schema: schema,
+      task_id: task_id
+    } do
+      row = created!(schema, task_id)
+
+      stale =
+        update_command(row, 1, task_id, %{
+          expected_last_event_global_seq: row.last_event_global_seq - 1
+        })
+
+      sibling = command(@type_b, 2, task_id)
+
+      assert {:ok, update_multi} = Records.command_multi(stale, schema, :tenant)
+      assert {:ok, create_multi} = Records.command_multi(sibling, schema, :tenant)
+
+      assert {:error, {:line, 1, :check_record_version}, :record_version_conflict, _} =
+               Multi.new()
+               |> Multi.append(create_multi)
+               |> Multi.append(update_multi)
+               |> Repo.transaction()
+
+      assert Repo.aggregate(from(l in Latest, where: l.entity_type == ^@type_b), :count,
+               prefix: schema
+             ) == 0
+
+      assert Repo.get_by!(Latest, [record_id: row.record_id], prefix: schema).field_values[
+               "title"
+             ] == "line 0"
+
+      assert Records.interpret_in_multi(
+               {:error, {:line, 1, :check_record_version}, :record_version_conflict, %{}}
+             ) == {:entity_write_refused, 1, :record_version_conflict}
     end
   end
 
