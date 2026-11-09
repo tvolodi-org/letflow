@@ -13,7 +13,7 @@ list into `scripts/ci_changed_paths.sh`. It prints three lines: `backend=`, `fro
 | Gate | Regex | Runs when a change touches |
 |---|---|---|
 | backend | `BACKEND_PATHS_RE` | `lib/`, `priv/`, `test/`, `config/`, `mix.*`, `scripts/*.sh`, `deploy/`, `.github/workflows/`, `docs/requirements.yaml`, `docs/roles.md`, `docs/runbooks/` and the other docs the suite reads by name |
-| frontend | `FRONTEND_PATHS_RE` | `web/`, `priv/labels/`, `ci.yml`, the script itself, and the two **kinds files** (below) |
+| frontend | `FRONTEND_PATHS_RE` | `web/`, `priv/labels/`, `priv/permission_matrix/`, `ci.yml`, the script itself, and the two **kinds files** (below) |
 | mobile | `MOBILE_PATHS_RE` | `apps/mobile/`, `ci.yml`, the script itself |
 
 **The kinds-files rule (T-1509).** `lib/letflow/modules/assets/documents/kinds.ex` and
@@ -87,6 +87,9 @@ Reading a failed merge-group run:
    (counts, migration version, permission golden). Merge `origin/main`, re-take the pins, push.
 5. A shard cancelled at its time limit with no failed test is not a content fault; re-run it once.
 6. A Hex timeout in `mix deps.get` is infrastructure; re-run.
+7. A gate job whose log says a leg's result is `abandoned` (for example `changes (Detect changed
+   paths) result is 'abandoned'`) lost its runner; no test ran in that leg. It is infrastructure:
+   re-run the failed jobs, or push a new commit (T-1513, 2026-11-09).
 
 Unmergeable PR checklist: merge conflict (merge `origin/main`; for registries keep both sides'
 entries), PR body fails `scripts/check_pr_gates.sh` (the `## Gates` block), a required check missing
@@ -117,12 +120,12 @@ Two worked examples from 2026-11-08:
 
 - **Docs-tests hang (T-1325, seen again on T-1513):** on a docs-only change shard 1 runs the docs
   tests with one retry. Since T-1575 (#4106) each attempt is capped at 1000 s (`timeout 1000`) and
-  the job at 38 min (`timeout-minutes: 38`), because the ~64 selected files took 567-597 s against
+  the job at 38 min (`timeout-minutes: 38`), because the selected docs-test files (about 64 in #4106) took 567-597 s against
   the old 600 s cap and were killed with exit 124. Before that fix the log showed
   `Result: N passed`, then a `could not lookup Ecto repo Letflow.Repo` exit message, and the step
   ended with `docs tests: attempt 2 failed with exit 124`. No test failed, so this is not a
   content fault. Two shapes were seen. (a) Teardown hang: the run finished and hung on exit.
-  (b) Too slow: the selected files (61 on 2026-11-09) were still running when `timeout` stopped
+  (b) Too slow: the selected files were still running when `timeout` stopped
   them; the `Finished in` line is close to the cap and the `Result:` count differs between the
   two attempts (T-1513: 852 then 1038 tests; T-1516 the same day). A `Finished in` close to the
   cap is still the sign of shape (b). Do not rework the docs: re-run the failed jobs once (the
