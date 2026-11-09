@@ -1,0 +1,45 @@
+{
+  "pack_id": "fixture-data-step",
+  "version": "0.1.0",
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "exported_at": "2026-11-10T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "definitions": [],
+  "variable_schemas": [],
+  "service_catalog_entries": [],
+  "entity_definitions": [
+    {
+      "entity_definition_id": "7c2e3d4b-1e5f-4a6b-9c7d-8e9fa0b1c2d3",
+      "name": "fds_item",
+      "display_name": "Data Step Item",
+      "logical_shape_version": "0000000000000000000000000000000000000000000000000000000000000000",
+      "definition_json": {
+        "name": "fds_item",
+        "display_name": "Data Step Item",
+        "description": "REQ-773 test fixture: a type whose 1.2.0 shape adds a required status and an optional label.",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string",
+            "queried": true,
+            "required": true
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "queried": true,
+            "required": true
+          },
+          {
+            "name": "label",
+            "type": "string",
+            "queried": true,
+            "required": false
+          }
+        ]
+      }
+    }
+  ]
+}

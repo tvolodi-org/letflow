@@ -86,7 +86,9 @@ defmodule Letflow.Modules.CatalogTest do
                # REQ-711
                Letflow.Modules.FixtureLedgerStorage,
                # REQ-636
-               Letflow.Modules.FixtureRefTargets
+               Letflow.Modules.FixtureRefTargets,
+               # REQ-773
+               Letflow.Modules.FixtureDataStep
              ]
     end
 
