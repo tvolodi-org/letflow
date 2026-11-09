@@ -1,0 +1,85 @@
+# T-1585 (BA batch 3 item 3, covers merged B2#1, #4092): what Users, Instances and Definitions say when a list is empty or a save is refused: plain words in three languages, never a server message or a code.
+# Sources: docs/uat/ui-text-walk.md (the walk table and the "Left open" list: headings and buttons of these three screens stay English), web/src/utils/saveError.ts (status classes: 400 and 422 check the fields, 401 and 403 not allowed, 404 no longer exists, 409 changed meanwhile, 429 wait N s, others could not save),
+# web/src/router.tsx (admin/users needs the users-groups-roles right, so a task worker cannot open it), web/src/__tests__/uiTextWalk.test.tsx (the product's own proof that a server body never reaches the text).
+# UAT assumption, to be confirmed by the process owner: Kazakh texts of this walk are machine drafts until a native check (docs/uat/ui-text-walk.md). The empty list of Instances and Definitions needs a company with none; the scenario uses a search term that matches nothing so any company can run it.
+# NOT UAT-observable: the status classes 404, 409 and 429 on these screens (no roster step produces them); they are the product's own unit tests.
+---
+id: tenant-administration-b3-5-empty-states-and-refused-save-texts
+scope: tenant-administration
+title: A search with no result and a refused save say plain words in three languages, with no technical code
+version: "1.0"
+tags: [tenant-admin, empty-state, error-text, ru, kk, en, refusal]
+
+description: >
+  The SwiftRoute administrator searches the Users, Instances and Definitions lists for a term that matches nothing and reads what each screen says, in English, Russian and Kazakh. The administrator then creates a user whose username is already taken and reads the refusal:
+  it tells the reader to check the fields in plain words and shows no status number, no code and no text from the server. The task worker Marco types the Users address and is refused.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+
+preconditions:
+  - description: SwiftRoute has at least one user, one process definition and one running instance. The username "marco" exists.
+    check: system_seeded
+    detail: If there is no running instance, report BLOCKED for the Instances part of step 2 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator types the search term "zzz-no-such-thing" on the Users screen and reads the text of the empty list.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator types the same term on the Instances screen and on the Definitions screen and reads the text of each empty list.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator switches the language to Russian and then to Kazakh and reads the three empty-list texts again.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator creates a user with the username "marco", which already exists, and reads the message shown after the save is refused. The number of users is counted before and after.
+    expect_refusal: true
+    via: ui
+  - step: 5
+    actor: worker
+    action: >
+      The task worker types the address of the Users screen by hand in the browser.
+    expect_refusal: true
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Empty lists say what is missing, in plain words.
+    verification:
+      method: gui_screen
+      detail: Step 1 shows "No users match" followed by the term in quotation marks; step 2 shows an empty-list sentence on each screen that does not say "undefined", a code or a status number. In step 3 the Users text is in Russian and in Kazakh (the catalogue text of each language) and differs from the English text.
+      evidence: Screenshots in three languages.
+    on_fail:
+      severity: MINOR
+      business_impact: A new user cannot tell an empty list from a broken screen.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: A refused save shows no server text and changes nothing.
+    verification:
+      method: gui_screen
+      detail: Step 4 shows one plain sentence of the kind the screen uses for a refused save (check the fields, changed meanwhile, or could not save), with no status number, no code like "conflict" and no sentence from the server. The number of users after equals the number before.
+      evidence: Screenshot and the two counts.
+    on_fail:
+      severity: MAJOR
+      business_impact: A clerk is shown a technical message and cannot act on it.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: A task worker cannot open the Users screen.
+    verification:
+      method: gui_screen
+      detail: Step 5 shows no user list (a refusal or a redirect).
+      evidence: Screenshot.
+    on_fail:
+      severity: MAJOR
+      business_impact: A worker could read and change the user list.
+      suggested_action: route_to_frontend_dev

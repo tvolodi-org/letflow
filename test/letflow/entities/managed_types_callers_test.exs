@@ -82,6 +82,8 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @stock_count_differences "lib/letflow/modules/stock/count_differences.ex"
   # REQ-651: the catalog masters' import function.
   @catalog_import "lib/letflow/modules/catalog_items/import.ex"
+  # REQ-773: the data-step fixture writes its own managed type through its Owner.
+  @fixture_data_step "test/support/modules/fixture_data_step/fixture_data_step.ex"
   @fixture_managed "test/support/modules/fixture_managed/fixture_managed.ex"
   # REQ-636: the reference-target fixture writes its own managed types through its Owner.
   @fixture_ref_targets "test/support/modules/fixture_ref_targets/fixture_ref_targets.ex"
@@ -133,6 +135,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                          @stock_count_sheet,
                          @stock_counts,
                          @stock_documents,
+                         @fixture_data_step,
                          @fixture_managed,
                          @fixture_ref_targets
                        ]
@@ -734,6 +737,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
                    @stock_count_sheet,
                    @stock_counts,
                    @stock_documents,
+                   @fixture_data_step,
                    @fixture_managed,
                    @fixture_ref_targets
                  ]

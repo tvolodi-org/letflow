@@ -1,0 +1,94 @@
+# T-1585 (BA batch 3 item 3, covers merged B2#5, #4097): who may read or export the audit log, and that another company never sees SwiftRoute's rows.
+# Sources: docs/roles.md (AuditRead granted to TENANT_ADMIN, TENANT_AUDITOR, PROCESS_OPERATOR, PLATFORM_ADMIN; not to TASK_WORKER); lib/letflow/routers/audit.ex moduledoc (a caller without AuditRead gets 403; the tenant comes from the sign-in only);
+# web/src/pages/admin/AuditLogPage.tsx (a user without AuditRead is redirected to the instances screen); priv/permission_matrix/effective.golden (TASK_WORKER AuditRead false, TENANT_AUDITOR true).
+# Roster: actor-swiftroute-marco (TASK_WORKER), actor-swiftroute-auditor (TENANT_AUDITOR), actor-bilimbaga-admin (TENANT_ADMIN of the other company). The export of a refused caller is the same route with the csv format, so it is one refusal step.
+---
+id: tenant-administration-b3-2-audit-access-and-other-company
+scope: tenant-administration
+title: A task worker is refused the audit log and its export; the auditor reads; another company sees none of SwiftRoute's rows
+version: "1.0"
+tags: [tenant-admin, audit, refusal, tenancy, auditor]
+
+description: >
+  SwiftRoute's task worker Marco has no right to the audit log: the screen sends him away and the list and the export are refused. The read-only auditor of SwiftRoute opens the log and sees the rows. The Bilimbaga administrator opens his own log and finds none of SwiftRoute's rows
+  (the document posted and reversed in scenario tenant-administration-b3-1 and the export row), even when the request names a SwiftRoute user as the filter.
+
+actors:
+  worker: actor-swiftroute-marco
+  auditor: actor-swiftroute-auditor
+  other_admin: actor-bilimbaga-admin
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: Scenario tenant-administration-b3-1 has run, so SwiftRoute's log holds "document.posted", "document.reversed" and "audit.exported" rows of the administrator.
+    check: system_seeded
+    detail: If the rows are missing, report BLOCKED for steps 3 and 4 only.
+  - description: The Bilimbaga administrator can sign in (a qa-login mapping exists for the account, as in scenario tenant-administration-9).
+    check: system_seeded
+    detail: If the account cannot sign in, report BLOCKED for steps 4 and 5 only.
+
+steps:
+  - step: 1
+    actor: worker
+    action: >
+      The task worker types the address of the Audit log screen by hand in the browser.
+    expect_refusal: true
+    via: ui
+  - step: 2
+    actor: worker
+    action: >
+      The task worker asks for the audit list directly, and asks for it again as a CSV export.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor
+    action: >
+      The SwiftRoute auditor opens the Audit log screen and reads the newest rows. The auditor looks for a way to change a row and notes none.
+    via: ui
+  - step: 4
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator opens the Audit log screen and reads the whole first page, searching for the document posted and reversed by SwiftRoute's administrator.
+    via: ui
+  - step: 5
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator asks for the audit list with the filter "User" set to the identifier of SwiftRoute's administrator, taken from the SwiftRoute CSV file of scenario tenant-administration-b3-1.
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The SwiftRoute administrator reloads the Audit log screen and reads the newest rows.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The worker is refused the screen, the list and the export.
+    verification:
+      method: http_status
+      detail: Step 1 ends on the instances screen with no audit rows shown. Both requests of step 2 are answered 403 with no audit rows in the body and no file.
+      evidence: Screenshot of step 1, statuses of step 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A worker could read who did what in the whole company.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The auditor reads and cannot change the log.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows the rows. The screen offers no edit or delete control for a row.
+      evidence: Screenshot.
+    on_fail:
+      severity: MAJOR
+      business_impact: The auditor cannot do the job, or can alter evidence.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The other company sees none of SwiftRoute's rows.
+    verification:
+      method: api_response
+      detail: In step 4 no row names SwiftRoute's administrator, the document or the export. In step 5 the answer is 200 with an empty list, never SwiftRoute rows. In step 6 the SwiftRoute list still holds the rows of the earlier scenario.
+      evidence: Screenshot of step 4, body of step 5, screenshot of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company reads another company's activity.
+      suggested_action: route_to_elixir_dev

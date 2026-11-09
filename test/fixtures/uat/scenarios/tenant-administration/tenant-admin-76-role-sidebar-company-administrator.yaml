@@ -1,0 +1,132 @@
+# T-1583 (BA batch 3, item 1): the side menu of a company administrator. The menu shows the entries an administrator can use, in the groups Work and Tenant
+# administration, and never the Platform group; a platform-only address typed by hand is refused.
+# Sources: web/src/components/layout/AppShell.tsx (NAV_ITEMS, NAV_GROUPS), web/src/components/layout/navVisibility.ts (an entry shows only when the user's permission
+# allows it; platform-only entries also need the platform company), web/src/components/layout/navMessages.ts (English entry names), web/src/router.tsx (the
+# platform pages sit behind a platform-only permission guard), web/src/components/ui/feedbackMessages.ts (English refusal text), web/src/auth/access/fixtures.ts
+# (the permissions of TENANT_ADMIN), test/fixtures/uat/actors.yaml (actor-swiftroute-alice holds TENANT_ADMIN, no PLATFORM_ADMIN), docs/roles.md.
+# Completeness (EO-002, EO-006): the thirteen core entries must all be present; "Import data" and "Module lifecycle" are conditional (an importable list type exists; the
+# feature switch is on, default off); module entries appear only for modules SwiftRoute has installed and are checked against the closed list in web/src/modules/*/index.ts
+# (navItems). Which modules are installed on QA is not fixed by the roster, so a precondition has the tester record the installed modules; every entry of an installed module must be present and no entry of a module
+# that is not installed may be shown.
+# UAT assumption, to be confirmed by the process owner: the English names of the entries are those of navMessages.ts and the browser language is English.
+# STOREKEEPER GAP: see scenario tenant-admin-77; the roster has no storekeeper actor (BLOCKED until an account is added).
+---
+id: tenant-administration-76-role-sidebar-company-administrator
+scope: tenant-administration
+title: The company administrator's side menu holds the work and company-administration entries and no platform entry, and a platform address typed by hand is refused
+version: "1.0"
+tags: [tenant-admin, sidebar, role-visibility, refusal, gui]
+
+description: >
+  The administrator of SwiftRoute signs in and reads the side menu. It has the group Work and the group Tenant administration with the core entries an
+  administrator may use, and no group called Platform. The administrator then types the address of a platform-only page (the list of companies) by hand and
+  gets the refusal text, not the page. A page the administrator may use, opened from the menu, opens normally.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: The administrator of SwiftRoute can sign in; the browser language is English.
+    check: system_seeded
+    detail: If the administrator cannot sign in, report BLOCKED for the whole scenario, not FAIL.
+  - description: The tester has the list of modules installed for the company (from the QA seeding record) and knows whether the company has an importable list type and whether the Module lifecycle feature switch is on.
+    check: system_seeded
+    detail: If the list of installed modules is not available, report BLOCKED for outcome EO-006 (UAT assumption, to be confirmed by the process owner; the roster does not fix the installed modules). The module table is in the outcome.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      Signs in and, without opening anything, reads the side menu: the names of its groups and, under each group, the names of its entries.
+    via: gui
+    produces:
+      menu_screen: the groups and the entries of the side menu
+  - step: 2
+    actor: admin
+    action: >
+      Opens the entry "Users" from the side menu.
+    via: gui
+    produces:
+      users_screen: the screen that opens
+  - step: 3
+    actor: admin
+    action: >
+      Types by hand the address of the platform page "Tenants" (the list of companies) in the browser address bar and opens it.
+    expect_refusal: true
+    via: gui
+    produces:
+      typed_screen: the screen that opens
+  - step: 4
+    actor: admin
+    action: >
+      Reads the side menu again after the refused page.
+    via: gui
+    produces:
+      menu_after_screen: the groups and the entries of the side menu
+
+expected_outcomes:
+  - id: EO-001
+    description: The menu holds the group Work with the entries Instances, My Tasks and Definitions.
+    verification:
+      method: gui_screen
+      detail: In the menu screen the group Work lists Instances, My Tasks and Definitions.
+      evidence: menu_screen.
+    on_fail:
+      severity: MAJOR
+      business_impact: An administrator cannot find the daily work pages from the menu.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The group Tenant administration holds the entries the administrator may use.
+    verification:
+      method: gui_screen
+      detail: In the menu screen the group Tenant administration lists Promotion Reviews, DLQ, Webhooks, Users, Groups, Tokens, Audit, Print Templates, Metrics and Solution Packs.
+      evidence: menu_screen.
+    on_fail:
+      severity: MAJOR
+      business_impact: An administrator cannot reach the pages needed to run the company.
+      suggested_action: route_to_frontend_dev
+  - id: EO-006
+    description: The menu holds nothing outside the closed list of entries an administrator may be shown.
+    verification:
+      method: gui_screen
+      detail: >
+        Every entry in the menu screen is one of three kinds and nothing else. (a) The thirteen core entries Instances, My Tasks, Definitions, Promotion Reviews, DLQ,
+        Webhooks, Users, Groups, Tokens, Audit, Print Templates, Metrics and Solution Packs; all thirteen are present. (b) The conditional entries Import data (only when the
+        company has at least one list type it may import) and Module lifecycle (only when its feature switch is on, default off); with the switch off Module lifecycle is absent.
+        (c) Module entries, only for modules installed in SwiftRoute, drawn from this closed list: Items, Lots, Codes, Locations, Location links, Legal companies, Sites, Org units, Positions, Employees, Stock documents, Balances, Movements, Counts, Asset cards, Asset documents, Asset balances, Asset movements, Exams, Question Bank, Grading and Exam builder, all listed under the group Work. Positive presence: for every module on the recorded installed list, all entries of that module are present under the group Work (module table: Catalog items = Items, Lots; Codes = Codes; Locations = Locations, Location links; Org = Legal companies, Sites, Org units, Positions, Employees; Stock = Stock documents, Balances, Movements, Counts; Assets = Asset cards, Asset documents, Asset balances, Asset movements; Exam = Exams, Question Bank, Grading, Exam builder); Import data is present when the company has an importable list type and absent otherwise; Module lifecycle is present when its switch is on. An entry named outside (a), (b) and (c),
+        or a module entry of a module that is not installed, fails the outcome.
+      evidence: menu_screen and menu_after_screen.
+    on_fail:
+      severity: MAJOR
+      business_impact: An extra entry would show the administrator a page that is not theirs or not installed, and a missing one hides a page they need.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: No platform entry is in the menu.
+    verification:
+      method: gui_screen
+      detail: In the menu screen there is no group called Platform and none of Health, Register Tenant, Tenants, Services, Platform Migrations or Event Retention is listed anywhere.
+      evidence: menu_screen and menu_after_screen.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company administrator would be shown the operator tools of the whole platform, which invites attempts on other companies.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: A menu entry opens its page.
+    verification:
+      method: gui_screen
+      detail: The users screen shows the list of users of SwiftRoute and not the refusal text, the access-error text or a not-found page.
+      evidence: users_screen.
+    on_fail:
+      severity: MAJOR
+      business_impact: The menu shows an entry the administrator cannot use.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: A platform-only address typed by hand is refused.
+    verification:
+      method: gui_screen
+      detail: The typed screen shows the text "You do not have access to this area. Contact your tenant administrator." with a link to My Tasks, and no list of companies.
+      evidence: typed_screen.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Hiding the entry would be cosmetic; the platform page would still open for a company administrator.
+      suggested_action: route_to_frontend_dev

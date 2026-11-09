@@ -39,3 +39,6 @@ the `:test` environment references them (same arrangement as `priv/wasm_fixtures
 * `xpost_owner.json` -- REQ-758: the one managed entity definition `fxxp_note` (append-only, one `note` string field)
   of `Letflow.Modules.FixtureXpostOwner`, the module M of the cross-module posting line tests (it depends on
   `fixture_ledger_post`, which is N). No process definitions: `Letflow.CrossPostFixture` stamps its own.
+* `data_step.json` -- REQ-773 / T-1581: one managed entity definition, `fds_item` (`name`, a
+  required `status`, an optional `label`). Used by `Letflow.Modules.FixtureDataStep`, which declares
+  two declarative data steps from 1.0.0 to 1.2.0.

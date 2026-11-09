@@ -28,11 +28,16 @@ defmodule Letflow.Modules.UpgradePlan do
 
   Class B "covered by steps" is the coarse `steps != []`; the apply slice decides per step. The
   report is built from an explicit allow-list of literal keys (no row is serialised), so no
-  hash, stamp, step body or tenant record content leaves this module. It counts nothing over
-  fields, so there is no `entity_field_restrictions` value to suppress. `plan_hash` carries a
-  version field (`"v"`) so the apply slice can extend its inputs; the code-step digest, the
-  permission-matrix digest, config values and preflight counts of 0055 D2 are not inputs yet
-  because nothing on main provides them.
+  hash, stamp, step body or tenant record content leaves this module. Data steps (REQ-773) add
+  `data_steps` (id, op, type and the number of records the step would touch), `data_step_records`
+  and `fits_one_transaction`. A count over a field listed in `entity_field_restrictions`, or over a
+  type `TypeAccess` denies the actor, is never shown (`records: nil`, and `data_step_records: nil`
+  when any step is nil): the number would be an equality oracle (INV-2); the cap decision then uses
+  the type's live record total (`Letflow.Modules.StepRecords.bound/2`) and is shown only as the
+  boolean. `plan_hash` carries a version field (`"v"`) so the apply slice can extend its inputs;
+  each step's `op` and `spec_hash` are inputs; the code-step digest, the permission-matrix digest,
+  config values and preflight counts of 0055 D2 are not inputs yet because nothing on main
+  provides them.
 
   Tenancy: the tenant schema is `opts[:prefix]` (required, from the auth context in the router),
   passed to every query (INV-1). The `plan_hash` inputs come only from the tenant row, the
@@ -50,6 +55,8 @@ defmodule Letflow.Modules.UpgradePlan do
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Installs
+  alias Letflow.Modules.StepRecords
+  alias Letflow.Modules.StepSpec
   alias Letflow.Modules.TenantModule
   alias Letflow.Modules.TenantModuleUpgrade
   alias Letflow.Repo
@@ -128,6 +135,9 @@ defmodule Letflow.Modules.UpgradePlan do
       "missing_ledger_storage" => [],
       "information" => information(manifest),
       "steps" => [],
+      "data_steps" => [],
+      "data_step_records" => 0,
+      "fits_one_transaction" => true,
       "point_of_no_return" => nil,
       "upgrade_path_available" => true,
       "path_error" => nil,
@@ -164,9 +174,13 @@ defmodule Letflow.Modules.UpgradePlan do
           "from" => step.from,
           "to" => step.to,
           "kind" => Atom.to_string(step.kind),
+          "op" => StepSpec.op_name(step),
+          "spec_hash" => if(StepSpec.spec?(step), do: StepSpec.spec_hash(step)),
           "lossy" => step.lossy == true
         }
       end
+
+    {data_steps, data_step_records, fits?} = data_step_report(steps, actor_id, prefix)
 
     applicable_on_boot =
       report_steps == [] and
@@ -208,6 +222,9 @@ defmodule Letflow.Modules.UpgradePlan do
       "missing_ledger_storage" => Letflow.Ledger.Storage.missing(prefix, ledger_ids),
       "information" => information(manifest),
       "steps" => Enum.zip_with(report_steps, steps, &Map.put(&1, "reversible", reversible?(&2))),
+      "data_steps" => data_steps,
+      "data_step_records" => data_step_records,
+      "fits_one_transaction" => fits?,
       "point_of_no_return" => point_of_no_return(report_steps, steps, row.version),
       "upgrade_path_available" => path_available?,
       "path_error" => if(path_available?, do: nil, else: "no_upgrade_path"),
@@ -215,6 +232,67 @@ defmodule Letflow.Modules.UpgradePlan do
       "plan_hash" => plan_hash,
       "plan_id" => plan_id
     }
+  end
+
+  # ── data steps (REQ-773) ───────────────────────────────────────────────────────────────
+
+  # {per-step rows, total shown, fits one transaction}. A per-step `records` is `nil` for a step on a
+  # restricted field or a type the actor is denied (INV-2); the total is `nil` if any step is nil,
+  # never a partial sum a caller could subtract from. The cap decision uses `StepRecords.bound/2`
+  # (field-independent for a restricted step) and is shown only as the boolean.
+  defp data_step_report(steps, actor_id, prefix) do
+    exec = executable_steps(steps)
+
+    rows =
+      for %{id: id, spec: spec} <- exec do
+        %{
+          "id" => id,
+          "op" => Atom.to_string(spec.op),
+          "type" => spec.type,
+          "records" => StepRecords.reportable_count(spec, prefix, actor_id)
+        }
+      end
+
+    total =
+      if Enum.any?(rows, &is_nil(&1["records"])),
+        do: nil,
+        else: Enum.reduce(rows, 0, &(&1["records"] + &2))
+
+    {rows, total, fits_one_transaction?(steps, exec, prefix)}
+  end
+
+  defp fits_one_transaction?(steps, exec, prefix) do
+    length(exec) == length(steps) and
+      data_step_bound(exec, prefix) <= Letflow.ModuleUpgrade.Settings.one_tx_max_records()
+  end
+
+  @doc """
+  The upgrade path steps of `manifest` from `from` to `to` (`[]` when there is no path). Pure.
+  """
+  @spec path_steps(map(), String.t(), String.t()) :: [Letflow.Modules.Step.t()]
+  def path_steps(manifest, from, to) do
+    case Catalog.upgrade_path(manifest, from, to) do
+      {:ok, steps} -> steps
+      {:error, _reason} -> []
+    end
+  end
+
+  @doc """
+  The steps the one-transaction apply can run, as `[%{id, spec}]` in path order: declarative steps
+  whose op is executable. Pure.
+  """
+  @spec executable_steps([Letflow.Modules.Step.t()]) :: [%{id: String.t(), spec: map()}]
+  def executable_steps(steps) do
+    for step <- steps, StepSpec.executable?(step), do: %{id: step_id(step.id), spec: step.up}
+  end
+
+  @doc """
+  The field-independent record bound of `exec` steps (`StepRecords.bound/2` summed). The apply
+  re-counts it under the advisory lock; it is never put in a response.
+  """
+  @spec data_step_bound([%{id: String.t(), spec: map()}], String.t()) :: non_neg_integer()
+  def data_step_bound(exec, prefix) do
+    Enum.reduce(exec, 0, fn %{spec: spec}, acc -> acc + StepRecords.bound(spec, prefix) end)
   end
 
   @doc """
