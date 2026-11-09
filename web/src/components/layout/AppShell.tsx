@@ -21,12 +21,13 @@ import { dlqApi } from '@/api/dlq'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { useBranding } from '@/theming/BrandingContext'
 import { useInstalledModules } from '@/hooks/useInstalledModules'
-import { getInstalledImportTypes, getInstalledModuleNavItems } from '@/modules/registry'
+import { getImportTypesFor, getInstalledModuleNavItems } from '@/modules/registry'
 import { isModulesUninstallEnabled } from '@/config/modulesUninstallFlag'
 import { useLayoutPrefs } from '@/hooks/useLayoutPrefs'
 import { useSplit } from '@/components/ui/layout/Splitter'
 import { layoutMessages } from '@/components/ui/layout/layoutMessages'
 import { NavIcon } from './navIcons'
+import { visibleNavGroups, type NavGroup, type NavItem } from './navVisibility'
 
 const NARROW_QUERY = '(max-width: 900px)'
 const isNarrow = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(NARROW_QUERY).matches
@@ -37,7 +38,7 @@ const collapsedNavWidth = () => {
   return Number.isFinite(v) ? v : 64
 }
 
-export type NavGroup = 'work' | 'tenantAdmin' | 'platform'
+export type { NavGroup }
 
 /** Sidebar groups in render order (REQ-450). A group renders only when it has a visible entry. */
 export const NAV_GROUPS: { id: NavGroup; label: string }[] = [
@@ -45,21 +46,6 @@ export const NAV_GROUPS: { id: NavGroup; label: string }[] = [
   { id: 'tenantAdmin', label: 'Tenant administration' },
   { id: 'platform', label: 'Platform' },
 ]
-
-interface NavItem {
-  to: string
-  label: string
-  /** Sidebar group; module entries (no group) go to Work. */
-  group: NavGroup
-  /** What the server enforces for the page's own calls (see the PR's element-to-permission table). */
-  permission: Permission
-  /** Also require the platform tenant (platform-only entries). */
-  platformOnly?: boolean
-  /** Build-time visibility switch, read when the nav is built (REQ-630). */
-  enabled?: () => boolean
-  /** Hidden when no installed module lists an importable type (REQ-675). */
-  needsImportTypes?: boolean
-}
 
 export const NAV_ITEMS: NavItem[] = [
   { to: '/instances', group: 'work', label: 'Instances', permission: P.InstancesRead },
@@ -179,15 +165,16 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
   const dlqSeverity = pendingDlqCount <= 0 ? 'none' : (pendingDlqCount > dlqThreshold ? 'critical' : 'warning')
 
   const moduleNavItems = getInstalledModuleNavItems(installedModules)
-  const hasImportTypes = getInstalledImportTypes(installedModules).length > 0
+  const importTypeCount = getImportTypesFor(installedModules, (p) => access.can(p as Permission)).length
   // Nothing gated renders until /me/access is ready: can() is false while loading or failed.
-  const visibleNav = [
-    ...NAV_ITEMS,
-    ...moduleNavItems.map((n) => ({ ...n, group: 'work' as const })),
-  ].filter((n) => access.can(n.permission) && (!('enabled' in n) || !n.enabled || n.enabled()) && (!('needsImportTypes' in n) || !n.needsImportTypes || hasImportTypes) && (!n.platformOnly || access.isPlatformTenant))
-  const visibleGroups = NAV_GROUPS
-    .map((g) => ({ ...g, items: visibleNav.filter((n) => n.group === g.id) }))
-    .filter((g) => g.items.length > 0)
+  const visibleGroups = visibleNavGroups({
+    groups: NAV_GROUPS,
+    items: NAV_ITEMS,
+    moduleItems: moduleNavItems,
+    can: (p) => access.can(p as Permission),
+    isPlatformTenant: access.isPlatformTenant,
+    importTypeCount,
+  })
 
   return (
     <div ref={appRef} className={navOpen ? 'lf-app is-nav-open' : 'lf-app'} data-nav={navState}>

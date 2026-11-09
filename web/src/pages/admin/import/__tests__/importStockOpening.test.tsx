@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { getInstalledImportTypes } from '@/modules/registry'
+import { getImportTypesFor, getInstalledImportTypes } from '@/modules/registry'
 import { chooseFile, chooseType, clientMock, INSTALLED, ok, refused, renderPage, xlsxFile } from './importTestKit'
 
 expect.extend(jestDomMatchers)
@@ -87,5 +87,15 @@ describe('W3 dry run and confirm', () => {
     await screen.findByTestId('import-dry-run')
     fireEvent.click(screen.getByTestId('import-confirm'))
     await waitFor(() => expect(clientMock.postRaw).toHaveBeenLastCalledWith(`${BASE}/import?upsert_by=external_ref`, file, XLSX))
+  })
+})
+
+describe('T-1522 import types per permission', () => {
+  const ALL = ['org', 'locations', 'catalog_items', 'stock'].map((m) => ({ module_id: m, version: '1' }))
+  it('a holder of StockPost alone is offered stock_opening_line and nothing else', () => {
+    expect(getImportTypesFor(ALL, (p) => p === 'StockPost').map((t) => t.entityType)).toEqual(['stock_opening_line'])
+  })
+  it('a holder of no module write permission is offered no type', () => {
+    expect(getImportTypesFor(ALL, () => false)).toEqual([])
   })
 })
