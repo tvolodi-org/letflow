@@ -51,6 +51,12 @@ defmodule Letflow.Plugs.ApiPipeline do
   been sent) `handle_errors/2` sends the constant, detail-free 500 of
   `Letflow.Api.Response.internal_error/1`. Do not remove that branch as dead code.
 
+  ## Failed-credential limit (GH T-1558)
+
+  `Letflow.Plugs.AuthAttemptLimit` (`mode: :failures`) is mounted directly after the global
+  admission plug and before `Plug.Parsers`: an address with too many failed credentials gets a
+  429 with `retry-after` before any body is read.
+
   ## Deferred plugs (not yet declared — added by owning stage)
 
   PROVENANCE (historical, not current decision authority):
@@ -88,6 +94,10 @@ defmodule Letflow.Plugs.ApiPipeline do
   # REQ-217 -- global admission gate, first plug in the chain (before
   # Plug.Parsers). See Letflow.Plugs.Admission's moduledoc.
   plug(Letflow.Plugs.Admission, pool: :global)
+
+  # GH T-1558 -- per-address 429 for repeated failed credentials; peeks before the body is read
+  # and spends a token only when AuthPipeline marks the request a failed credential.
+  plug(Letflow.Plugs.AuthAttemptLimit, mode: :failures)
 
   # 2 MB cap — large enough for any single-workflow payload while
   # preventing unbounded reads from a single request. This root

@@ -123,12 +123,12 @@ defmodule Letflow.Modules.Stock.CountPrint do
     order = Map.get(issued, :order_content, content)
     l = fn key -> Map.fetch!(@labels, key) |> Map.fetch!(lang) end
 
-    doc = doc_fields(kind, issued, content, names)
+    doc = doc_fields(kind, issued, content, names, lang)
 
     {blocks, tables} =
       case kind do
         :order -> order_part(order, names, l)
-        _ -> lines_part(kind, content, names, l)
+        _ -> lines_part(kind, content, names, l, lang)
       end
 
     signer_rows = signer_rows(kind, order, content, names, l)
@@ -160,9 +160,9 @@ defmodule Letflow.Modules.Stock.CountPrint do
 
   # -- document fields ------------------------------------------------------------------------
 
-  defp doc_fields(kind, issued, content, names) do
+  defp doc_fields(kind, issued, content, names, lang) do
     unit = CountPaperwork.unit_text(Map.get(names, :org_unit))
-    time = fn value, key -> CountPaperwork.time(value, names, key) end
+    time = fn value, key -> CountPaperwork.print_time(value, names, key, lang) end
 
     base = %{
       "number" => CountPaperwork.text(issued[:number_label]),
@@ -263,9 +263,9 @@ defmodule Letflow.Modules.Stock.CountPrint do
 
   # -- sheet and differences ------------------------------------------------------------------
 
-  defp lines_part(kind, content, names, l) do
+  defp lines_part(kind, content, names, l, lang) do
     lines = CountPaperwork.lines_of(kind, content)
-    rows = Enum.map(lines, &line_row(kind, &1, names))
+    rows = Enum.map(lines, &line_row(kind, &1, names, lang))
     chunks = if rows == [], do: [[]], else: Enum.chunk_every(rows, @max_rows)
 
     named = chunks |> Enum.with_index() |> Enum.map(fn {c, i} -> {"lines_#{i}", c} end)
@@ -278,11 +278,12 @@ defmodule Letflow.Modules.Stock.CountPrint do
     {blocks, named}
   end
 
-  defp line_row(kind, line, names) do
+  defp line_row(kind, line, names, lang) do
     loc = Map.get(Map.get(names, :locations, %{}), line["location_id"]) || %{}
     item = Map.get(Map.get(names, :items, %{}), line["catalog_item_id"]) || %{}
     emp = Map.get(Map.get(names, :employees, %{}), line["responsible_employee_id"]) || %{}
     text = &CountPaperwork.text/1
+    num = &CountPaperwork.number(&1, lang)
 
     base = %{
       "line_no" => text.(line["line_no"]),
@@ -295,14 +296,14 @@ defmodule Letflow.Modules.Stock.CountPrint do
           Map.get(Map.get(names, :units, %{}), line["unit_ref"]),
           line["unit_ref"]
         ),
-      "book_qty" => text.(line["book_quantity"]),
-      "counted_qty" => text.(line["counted_quantity"])
+      "book_qty" => num.(line["book_quantity"]),
+      "counted_qty" => num.(line["counted_quantity"])
     }
 
     if kind == :differences,
       do:
         Map.merge(base, %{
-          "difference" => text.(line["difference"]),
+          "difference" => num.(line["difference"]),
           "direction" => text.(line["direction"])
         }),
       else: base

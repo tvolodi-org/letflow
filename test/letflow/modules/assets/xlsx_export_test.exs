@@ -270,6 +270,19 @@ defmodule Letflow.Modules.Assets.XlsxExportTest do
           do: refute(Enum.any?(header, &(&1 =~ word)))
     end
 
+    test "X1 the balances sheet has a bold frozen header and fitted widths; Cyrillic stays text" do
+      name = "Ноутбук әіңғүұқөһ длинное название актива"
+      assert {:ok, bin} = XlsxExport.balances(body([row(%{asset: name})]))
+      {:ok, files} = :zip.unzip(bin, [:memory])
+      parts = Map.new(files, fn {n, c} -> {to_string(n), c} end)
+      sheet1 = Map.fetch!(parts, "xl/worksheets/sheet1.xml")
+      assert sheet1 =~ "<pane"
+      assert sheet1 =~ "<cols>"
+      assert Map.fetch!(parts, "xl/styles.xml") =~ "<b val=\"1\"/>"
+      assert [_h, [^name | _]] = sheets(bin)["balances"]
+      assert [name] == Enum.map(file_rows(bin), &elem(&1, 0))
+    end
+
     test "C18-BAL-9 a body the writer cannot encode is {:error, :xlsx_write_failed}" do
       assert {:error, :xlsx_write_failed} =
                XlsxExport.balances(%{body([row(%{})]) | filters: %{a: {1, 2}}})
