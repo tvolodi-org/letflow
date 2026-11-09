@@ -6,6 +6,7 @@ import { useAccess, AccessPending } from '@/auth/access'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { classifyError, type RendererState } from '@/utils/classifyError'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { formatTime } from '@/i18n/format'
 
 // NOTE (ISS-0532): this page used to render per-subsystem `database`/
@@ -25,8 +26,24 @@ export function useAdminHealthSnapshot(): UseQueryResult<boolean> {
   })
 }
 
+const HEALTH_MESSAGES = {
+  en: {
+    liveDo: 'The server answers. If users still report problems, open Metrics.',
+    downDo: 'The server does not answer. Check that the service is running, then tell the platform operator.',
+  },
+  ru: {
+    liveDo: 'Сервер отвечает. Если пользователи всё же жалуются на проблемы, откройте «Метрики».',
+    downDo: 'Сервер не отвечает. Проверьте, что сервис запущен, затем сообщите оператору платформы.',
+  },
+  kk: {
+    liveDo: 'Сервер жауап беріп тұр. Пайдаланушылар әлі де мәселе туралы айтса, «Метрикалар» бетін ашыңыз.',
+    downDo: 'Сервер жауап бермейді. Қызметтің іске қосылғанын тексеріңіз, содан кейін платформа операторына хабарлаңыз.',
+  },
+} as const
+
 export default function HealthDashboardPage() {
   const access = useAccess()
+  const hm = HEALTH_MESSAGES[useUiLocale()]
   const isAllowed = access.canManageTenants
   const { data: isLive, isLoading, isFetching, isError, error, dataUpdatedAt, refetch } = useAdminHealthSnapshot()
 
@@ -67,6 +84,10 @@ export default function HealthDashboardPage() {
           </span>
           <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>Backend liveness (GET /health)</span>
         </div>
+
+        <p data-testid="liveness-action" style={{ margin: '0 0 1.25rem', fontSize: 'var(--text-sm)' }}>
+          {isLive ? hm.liveDo : hm.downDo}
+        </p>
 
         <div
           data-testid="readiness-not-available"

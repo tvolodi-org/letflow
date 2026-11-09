@@ -22,6 +22,7 @@ vi.mock('@/api/metrics', async (importOriginal) => {
 import { metricsApi } from '@/api/metrics'
 import MetricsPage from '@/pages/admin/MetricsPage'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
+import { SUMMARY_MESSAGES } from '@/pages/admin/MetricsSummaryPanel'
 import { renderWithAccess } from '@/auth/access/testing'
 
 const mockText = vi.mocked(metricsApi.prometheusText)
@@ -86,5 +87,65 @@ describe('MetricsPage', () => {
     } finally {
       useUiLocaleStore.getState().setLocaleTransient('en')
     }
+  })
+
+  const counters = (req: number, err: number) =>
+    `letflow_http_requests_total{method="GET",route_template="/a",status="200"} ${req}\nletflow_http_errors_total{route_template="/a"} ${err}\n`
+
+  it('P1/P2: first poll measures, second poll shows a red error rate with its sentence and routes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+      mockText.mockResolvedValue(counters(0, 0))
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      renderWithAccess(
+        <QueryClientProvider client={qc}>
+          <MetricsPage />
+        </QueryClientProvider>,
+        'platformAdmin',
+      )
+      expect(await screen.findByTestId('support-summary')).toBeInTheDocument()
+      expect(screen.getAllByText('Measuring…').length).toBe(2)
+      expect(screen.queryByText(/NaN/)).not.toBeInTheDocument()
+      expect(screen.getByText('letflow_http_errors_total', { selector: 'strong' })).toBeInTheDocument()
+
+      vi.setSystemTime(new Date('2026-01-01T00:01:00Z'))
+      mockText.mockResolvedValue(counters(1000, 100))
+      await qc.refetchQueries()
+      await waitFor(() => expect(screen.getByTestId('figure-errors-status')).toHaveTextContent('Problem'))
+      expect(screen.getByText(SUMMARY_MESSAGES.en.errorsDo)).toBeInTheDocument()
+      expect(screen.getByTestId('error-routes')).toHaveTextContent('/a (100)')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('P3: the four unmeasured items say Not measured yet with a sentence', async () => {
+    mockText.mockResolvedValue(counters(1, 0))
+    renderPage()
+    const cards = await screen.findAllByTestId('figure-unmeasured')
+    expect(cards).toHaveLength(4)
+    for (const c of cards) {
+      expect(c).toHaveTextContent('Not measured yet')
+      expect(c).toHaveTextContent(SUMMARY_MESSAGES.en.notShownDo)
+    }
+  })
+
+  it('P4: ru renders the translated panel', async () => {
+    useUiLocaleStore.getState().setLocaleTransient('ru')
+    try {
+      mockText.mockResolvedValue(counters(1, 0))
+      renderPage()
+      expect(await screen.findByText(SUMMARY_MESSAGES.ru.heading)).toBeInTheDocument()
+      expect(screen.getAllByText(SUMMARY_MESSAGES.ru.notMeasured).length).toBe(4)
+    } finally {
+      useUiLocaleStore.getState().setLocaleTransient('en')
+    }
+  })
+
+  it('P5: en, ru and kk summary messages have the same keys', () => {
+    const keys = (o: object) => Object.keys(o).sort()
+    expect(keys(SUMMARY_MESSAGES.ru)).toEqual(keys(SUMMARY_MESSAGES.en))
+    expect(keys(SUMMARY_MESSAGES.kk)).toEqual(keys(SUMMARY_MESSAGES.en))
   })
 })
