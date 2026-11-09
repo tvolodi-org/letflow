@@ -40,6 +40,9 @@ const String pointerStoreFile = 'lib/auth/web_pointer_kv.dart';
 const Set<String> webImportFiles = {
   'lib/auth/web_browser.dart',
   'lib/auth/app_auth_platform_web.dart',
+  // PWA M4: the browser recorder reads its blob with fetch; no token, no
+  // localStorage.
+  'lib/features/stock/voice/web_recorder_port_web.dart',
 };
 const String pointerKey = 'letflow.last_active_tenant';
 
