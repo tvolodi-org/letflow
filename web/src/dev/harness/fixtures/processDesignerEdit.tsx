@@ -1,6 +1,7 @@
 /** Harness fixtures of T-1563 (process designer, slice 2): the diagram in EDIT mode. Invented data. The pane runs for
  *  real (draft, history, toolbar, panel, step list under 640 px); the starting selection, problems and banners come from
  *  its `demo` prop because the screenshot tool cannot click. Same screens serve the Playwright drag spec. */
+import { useIntl } from 'react-intl'
 import type { ReactElement } from 'react'
 import type { DefinitionGraph, NodeType, ProcessDefinition } from '@/types/api'
 import { DiagramEditPane, type DiagramEditPaneProps } from '@/components/diagram/DiagramEditPane'
@@ -49,12 +50,17 @@ const ROUTES: FixtureRoute[] = [
   { match: (p, m) => m === 'GET' && p.endsWith(`/definitions/${DEF.id}`), reply: () => ({ status: 200, body: DEF }) },
 ]
 
+function HarnessHeader({ title }: { title: string }): ReactElement {
+  const intl = useIntl()
+  return <PageHeader eyebrow={intl.formatMessage({ id: 'processDiagram.edit.pageEyebrow' })} title={title} lede={intl.formatMessage({ id: 'processDiagram.edit.pageLede' })} />
+}
+
 function frame(title: string, props: Partial<DiagramEditPaneProps> & { def?: ProcessDefinition }): ReactElement {
   return (
     <ProcessDiagramIntlProvider>
       <div className="lf-main">
         <main className="lf-content">
-          <PageHeader eyebrow="Definitions" title={title} lede="Edit the process in the diagram; saved as a draft version." />
+          <HarnessHeader title={title} />
           <DiagramEditPane def={props.def ?? DEF} editorDirty={false} onDirtyChange={() => {}} onSaved={() => {}} onReload={() => {}} demo={props.demo} />
         </main>
       </div>

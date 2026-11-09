@@ -173,6 +173,8 @@
 .lf-pd-edit__problems, .lf-pd-edit__violations, .lf-pd-edit__conns { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
 .lf-pd-edit__problems { color: var(--danger); font: var(--type-body-s); }
 .lf-pd-edit__violations { border: 1px solid var(--danger); border-radius: var(--radius-md); background: var(--danger-tint); padding: var(--space-2); }
+.lf-pd__canvas.is-edit-height { --lf-pd-canvas-h: 480px; }
+.lf-pd-edit__violations .lf-pd-edit__violation, .lf-pd-edit__violations .lf-pd-edit__violation:hover { color: var(--ink); font-weight: 400; text-align: start; height: auto; white-space: normal; }
 .lf-pd-edit__conn { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .lf-pd-edit__conn-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .lf-pd-edit__connect { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }

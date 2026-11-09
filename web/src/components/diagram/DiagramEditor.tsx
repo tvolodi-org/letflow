@@ -283,7 +283,7 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
         <ul className="lf-pd-edit__violations" aria-label={e('violations')} data-testid="edit-violations">
           {anchored.map((a, i) => (
             <li key={`${i}-${a.message}`}>
-              <Button variant="ghost" size="sm" onClick={() => selectViolation(a)} data-testid="edit-violation">
+              <Button variant="ghost" size="sm" className="lf-pd-edit__violation" onClick={() => selectViolation(a)} data-testid="edit-violation">
                 <span aria-hidden="true">⚠ </span>
                 {a.message}
               </Button>
@@ -297,8 +297,7 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
           <EditSteps graph={graph} selectedId={sel?.kind === 'node' ? sel.id : null} onSelect={(id) => setSel({ kind: 'node', id })} onApply={apply} onSelectEdge={(id) => setSel({ kind: 'edge', id })} problemsFor={problemsFor} />
         ) : (
           <div
-            className="lf-pd__canvas is-editing"
-            style={{ ['--lf-pd-canvas-h' as string]: '480px' }}
+            className="lf-pd__canvas is-editing is-edit-height"
             role="group"
             aria-label={e('canvas')}
             data-testid="diagram-canvas"

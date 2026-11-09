@@ -132,6 +132,8 @@ const UI: Record<string, Triple> = {
   'processDiagram.edit.edgeDefault': ['default', 'по умолчанию', 'әдепкі'],
   'processDiagram.edit.edgeAria': ['Connection from {from} to {to}', 'Связь от «{from}» к «{to}»', '«{from}» қадамынан «{to}» қадамына байланыс'],
   'processDiagram.edit.canvas': ['Diagram editor', 'Редактор схемы', 'Сызба өңдегіші'],
+  'processDiagram.edit.pageEyebrow': ['Definitions', 'Определения', 'Анықтамалар'],
+  'processDiagram.edit.pageLede': ['Edit the process in the diagram; saved as a draft version.', 'Редактируйте процесс на схеме; сохраняется как черновая версия.', 'Процесті диаграммада өңдеңіз; жоба нұсқасы ретінде сақталады.'],
   'processDiagram.edit.violations': ['Problems found by the validator', 'Проблемы, найденные проверкой', 'Тексеру тапқан мәселелер'],
   'processDiagram.edit.tooBig': ['Too large to edit as a drawing (more than {max} steps); edit in the list or use the Editor.', 'Слишком велика для правки на рисунке (больше {max} шагов); правьте в списке или в редакторе.', 'Сызбада өңдеуге тым үлкен ({max} қадамнан көп); тізімде немесе өңдегіште өңдеңіз.'],
   'processDiagram.edit.refusal.self_loop': ['A step cannot connect to itself.', 'Шаг нельзя соединить с самим собой.', 'Қадамды өзімен байланыстыруға болмайды.'],
