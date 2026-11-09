@@ -19,7 +19,7 @@ running server and needs no restart. A tenant upgrade cannot give a tenant new c
 | Module manifest (entities, process pack, permissions, ledgers, routes) | Yes, for the manifest itself | Yes, for each tenant that has the module | The manifest and pack file are compiled into the build. The tenant keeps the old version until plan and apply run (`POST /api/v1/tenant/modules/:module_id/upgrade/plan`, then `.../upgrade`). |
 | Permissions and role grants | Yes | No, and the upgrade cannot gate them | Live for every tenant at deploy (0055 D7). Widening a grant is refused by rule until per-tenant grants exist. |
 | Tenant-schema DB migration | Runs at boot (`TenantProvisioning.MigrationReplayBoot`) | No | The upgrade boot child starts after the replay, so new columns exist when it runs. |
-| Shared (public) schema DB migration | Run once by the deploy step before the new build takes traffic | No | UAT assumption, to be confirmed by infra: how the release invokes it is not in this repository. |
+| Shared (public) schema DB migration | Runs at boot of the node, by `Ecto.Migrator` (`Letflow.Supervisor.Infrastructure`), before the tenant replay and before any route is served | No | The migrator runs only in a compiled release (`RELEASE_NAME` set; `skip_migrations?/0`). A separate "migrate once, then roll the nodes" deploy step is a possible future procedure, not current behaviour; until then the first new node to boot migrates. |
 | Tenant data change (data step) | No | Yes, but not possible yet | The apply refuses any plan with a step (`upgrade_needs_runner`) until the runner exists (REQ-773, slice S4). |
 | Database-backed setting (tenant setting, feature flag stored in the database) | No | No | Changes at run time. |
 | Environment or boot flag (`LETFLOW_*` variables read in `config/runtime.exs`, for example `LETFLOW_MODULE_UPGRADE_ON_BOOT`) | Yes, a restart of the node | No | Read once at boot. `LETFLOW_MODULE_UPGRADE_ON_BOOT` is consumed by a one-shot boot child (`Letflow.ModuleUpgrade.Boot`); changing the variable of a running node does nothing until that node restarts. |
@@ -88,7 +88,7 @@ Rolling (two or more nodes, replace one at a time, health check between) is the 
 way to avoid downtime. Run it only when all of these hold:
 
 - [ ] Every database change in the release is expand-only (section 2).
-- [ ] The shared-schema migration has run before the first new node takes traffic.
+- [ ] The shared-schema migration has run before the first new node takes traffic. Today this happens by itself: the first new node runs `Ecto.Migrator` at boot, before it serves a request, and an old node keeps running against the already-migrated schema. That is why the expand-only rule is a hard precondition.
 - [ ] The new build is compatible with the previous web bundle and mobile app.
 - [ ] No tenant has been upgraded to a version the old build would reject. A build that
       contains slice S3 refuses a tenant whose stored module version is above its own
@@ -132,7 +132,7 @@ degrades; it does not go down.
 |---|---|
 | Code (the build) | Redeploy the previous build. Safe only while no tenant is at a version the old build rejects (a build with S3 answers 503 `module_version_ahead` for such a tenant; an older build does not), and never after a contract release. |
 | Failed tenant apply | Automatic: one transaction, the tenant stays on the old version, the journal row is `failed`. |
-| Tenant version after a done upgrade | Not built (slice S5, designed in 0055 D9). Roll forward with a corrective release. |
+| Tenant version after a done upgrade | Built (slice S5, T-1549, decision 0055 D9): `POST /api/v1/tenant/modules/:module_id/rollback`, tenant admin (`ModulesManage`), one tenant per call, body `rationale`, `target_version` (must equal the previous applied version) and `dry_run`. Send `dry_run: true` first: nothing is written and the answer says `rollback_possible` and names any refusal. It re-activates the replaced definitions and puts the version and hash back; it drops nothing. Refused with 409 (for example `no_previous_version`, `rollback_not_recorded`, `rollback_forbidden`, `module_version_ahead`): then roll forward with a corrective release. Order for a bad release: roll the tenants back first, then redeploy the previous build. Full text: `docs/runbooks/demo-upgrade-notes.md`, "Rolling back an upgrade". |
 | Shared-schema migration | Never drop to undo. Roll forward with a corrective release. |
 | Web bundle | Redeploy the files. |
 
@@ -150,15 +150,15 @@ on the previous version" item. The fix was one line, `min_upgradable_from: "0.1.
 differ only in permissions and routes, so a plan with an empty path exists and apply keeps all
 data. Test: `test/letflow/modules/codes/upgrade_http_test.exs`.
 
-The same page lists the modules (stock before 0.10.0, org, locations, catalog items, assets
-before 0.14.0) where a version bump without a declared window already leaves an older demo
-with no path; those need a re-seed. Rule: **a build that bumps a module version is not done
+The same page lists the modules (stock, org, locations, catalog items, assets and others;
+see its table of windows for the current boundary of each) where a version bump without a
+declared window already leaves an older demo with no path; those need a re-seed. Rule: **a build that bumps a module version is not done
 until a tenant on the previous version can plan and apply.**
 
 ## 6. Order of work for this subject
 
 S1 (this page), S3 (`min_data_version` gate and `module_version_ahead`; done, #4088),
-then S2 (rolling deploy on QA), S5 (rollback route), S4 (data-step runner), S6 (fleet driver),
+S5 (tenant rollback route; done, T-1549), then S2 (rolling deploy on QA), S4 (data-step runner), S6 (fleet driver),
 S7 (application package for on-site installs). Open owner questions (downtime promise,
 upgrade window default, rollback promise) are listed in `docs/uat/ba-decisions/T-1519.md`
 section 9.
