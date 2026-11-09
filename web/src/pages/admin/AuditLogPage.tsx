@@ -153,7 +153,7 @@ function AuditLogPageInner() {
         <div role="status" style={{ marginBottom: '1rem', color: 'var(--color-warning-text)' }}>{intl.formatMessage({ id: 'audit.export.truncated' })}</div>
       )}
       {exportState === 'failed' && (
-        <div role="alert" style={{ marginBottom: '1rem', color: 'var(--color-danger-text)' }}>{intl.formatMessage({ id: 'audit.export.failed' })}</div>
+        <div role="alert" style={{ marginBottom: '1rem', color: 'var(--danger)' }}>{intl.formatMessage({ id: 'audit.export.failed' })}</div>
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.65rem', marginBottom: '1rem' }}>
