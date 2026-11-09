@@ -97,3 +97,11 @@ required checks of the `main-queue` ruleset is a repository setting and is done 
 the nightly schedule and on manual dispatch, with a 90 s access token lifespan (90 and not 60: the client renews 60 s before
 expiry, so 60 s would refresh at once and prove nothing). Screenshots, the relogin log and traces are uploaded as the artifact
 `stock-e2e-results`.
+
+## Sidebar walk per role (T-1522)
+
+`web/tests/e2e/nav-role-walk.e2e.spec.ts` signs in as each role, opens every link of the sidebar and fails on a permission-denied,
+access-error or not-found page, or on any `/api/` answer with status 403 after a click. Accounts: the tenant admin pair is the
+Gate B one (`E2E_ADMIN_USER`, `E2E_ADMIN_PASSWORD`); the other roles come from `E2E_STOREKEEPER_USER/_PASSWORD`,
+`E2E_WORKER_USER/_PASSWORD` and `E2E_SCOPED_USER/_PASSWORD`. `gate_b_seed.sh` does not create the worker and scoped users, so the
+QA operator supplies them; a role whose pair is unset is skipped. The run is opt-in and is not part of the stock-e2e workflow.
