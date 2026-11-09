@@ -8,7 +8,7 @@ defmodule Letflow.Scripts.DemoShowroomSeedTest do
   The tenant is committed (Sandbox `:auto`), `async: false`.
 
   D1 runs, D2 data of every kind, D3 second run changes nothing, D4 a partial first run completes, D5 no
-  secrets printed, D6 no secrets in the repo, D7 unknown tenant stops, D8 Inv-* print reachable, D9 bad input.
+  secrets printed, D6 no secrets in the repo, D7 unknown tenant stops, D8 Inv-* print reachable, D9 bad input, O1-O7 open tasks of the demo logins (D-113).
   """
 
   use Letflow.DataCase, async: false
@@ -241,6 +241,101 @@ defmodule Letflow.Scripts.DemoShowroomSeedTest do
     refute out2 =~ "STOP", out2
     assert snapshot(schema) == before
     assert employee_users(schema) == users
+  end
+
+  defp worker_token(c, sub),
+    do: S.token(c.ctx, :a, ["TASK_WORKER"], sub: sub, exp: System.system_time(:second) + 3600)
+
+  defp user_id(c, name) do
+    {200, _, body} = get(c, "/identity/users?search=#{name}&page_size=50")
+    Enum.find(Jason.decode!(body)["items"], &(&1["username"] == name))["id"]
+  end
+
+  # [id, state, responsible_id, note] of the open-* receipts, read through the stock routes
+  defp open_docs(c) do
+    {200, _, body} = get(c, "/modules/stock/documents?kind=receipt&limit=100")
+
+    for %{"id" => id, "state" => st} <- Jason.decode!(body)["rows"],
+        {200, _, b} = get(c, "/modules/stock/documents/#{id}"),
+        d = Jason.decode!(b),
+        String.starts_with?(d["note"] || "", "demo:demo:open-") do
+      [id, st, d["responsible_id"], d["note"]]
+    end
+    |> Enum.sort_by(&List.last/1)
+  end
+
+  defp inbox(c, token) do
+    {200, _, body} = get(c, "/tasks/inbox?page_size=100", token)
+    Jason.decode!(body)["items"]
+  end
+
+  @tag timeout: 600_000
+  test "O1-O5: each login has open unclaimed post tasks; a re-run changes nothing", c do
+    signin_logins(c, [c.token_al, worker_token(c, "user-login")])
+    {out, 0} = run(c, @logins)
+    refute out =~ "STOP", out
+    schema = c.t.schema_name
+    al = user_id(c, "admin-login")
+    ul = user_id(c, "user-login")
+
+    # O1: My Tasks of user-login (a task worker: principal-scoped inbox) lists exactly its two
+    ul_items = inbox(c, worker_token(c, "user-login"))
+    assert length(ul_items) == 2, inspect(ul_items)
+
+    assert Enum.all?(
+             ul_items,
+             &(&1["status"] == "PENDING" and &1["node_id"] == "post" and
+                 &1["assignee_type"] == "USER" and &1["assignee_ref"] == ul)
+           )
+
+    {200, _, body} = get(c, "/tasks?assignee_id=#{al}&status=PENDING&page_size=100")
+    al_items = Jason.decode!(body)["items"]
+    assert length(al_items) == 3, inspect(al_items)
+    assert Enum.all?(al_items, &(&1["assignee_ref"] == al and &1["status"] == "PENDING"))
+
+    # O2: documents issued, not posted
+    docs = open_docs(c)
+    assert length(docs) == 5
+    assert Enum.all?(docs, fn [_, st | _] -> st == "issued" end), inspect(docs)
+    refute Map.get(causes(schema), "receipt", 0) > 2
+
+    # O3: material responsible is the linked employee; ru and kk texts are in the notes
+    e5 = employee_id(c, "DEMO-E005")
+    e4 = employee_id(c, "DEMO-E004")
+    assert docs |> Enum.filter(fn [_, _, r | _] -> r == e5 end) |> length() == 3
+    assert docs |> Enum.filter(fn [_, _, r | _] -> r == e4 end) |> length() == 2
+    notes = Enum.map_join(docs, "\n", fn [_, _, _, n] -> n end)
+    assert notes =~ "Алтын Қағаз" and notes =~ "Шоурум" and notes =~ "Office paper"
+
+    # O4: a second run writes nothing and does not touch the tasks
+    ids = al_items |> Enum.map(& &1["id"]) |> Enum.sort()
+    before = snapshot(schema)
+    {out2, 0} = run(c, @logins)
+    refute out2 =~ "STOP", out2
+    refute out2 =~ "(task completed)", out2
+    refute out2 =~ "addressed to the login", out2
+    assert snapshot(schema) == before, out2
+
+    # O5: still pending, same ids, none completed
+    {200, _, body2} = get(c, "/tasks?assignee_id=#{al}&status=PENDING&page_size=100")
+    assert Jason.decode!(body2)["items"] |> Enum.map(& &1["id"]) |> Enum.sort() == ids
+    assert length(inbox(c, worker_token(c, "user-login"))) == 2
+  end
+
+  @tag timeout: 600_000
+  test "O6 O7: one login only, then both; SKIP_DOCS makes none", c do
+    signin_logins(c, [c.token_al, worker_token(c, "user-login")])
+    {out0, 0} = run(c, [{"USER_LOGIN_USERNAME", "user-login"}, {"SKIP_DOCS", "1"}])
+    assert out0 =~ "skip open tasks: SKIP_DOCS=1", out0
+    assert open_docs(c) == []
+
+    {out, 0} = run(c, [{"USER_LOGIN_USERNAME", "user-login"}])
+    assert out =~ "skip open tasks admin-login: not linked", out
+    assert length(open_docs(c)) == 2
+
+    {_, 0} = run(c, @logins)
+    assert length(open_docs(c)) == 5
+    assert length(inbox(c, worker_token(c, "user-login"))) == 2
   end
 
   test "L3: without the variables E004 and E005 stay unlinked and the skip is logged", c do
