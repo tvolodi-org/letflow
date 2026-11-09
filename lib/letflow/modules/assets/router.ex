@@ -1,5 +1,9 @@
 defmodule Letflow.Modules.Assets.Router do
   @moduledoc """
+  Tenant isolation proof (T-1534): `test/letflow/modules/asset_stock_isolation_test.exs` lists every id route of this
+  router and of its sibling and proves the uniform cross-tenant 404; `asset_stock_scope_exports_test.exs` proves hidden
+  legs stay out of the scoped reader's files.
+
   GH #3892 / REQ-750: the write routes of module `assets`, mounted by `Letflow.Routers.Modules` at
   `/api/v1/modules/assets`. A thin layer over `Letflow.Modules.Assets.Cards`. The ledger read routes
   (REQ-749 / GH #3893) follow the card routes below; screens read cards through `POST /entities/query`.
