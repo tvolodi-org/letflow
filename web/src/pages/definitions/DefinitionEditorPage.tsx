@@ -45,6 +45,7 @@ import type { ValidationError } from '@/components/canvas/ValidationSummaryBar'
 import ReleaseCheckPanel from '@/components/canvas/ReleaseCheckPanel'
 import { ProcessDiagramLazy } from '@/components/diagram/ProcessDiagramLazy'
 import { ProcessDiagramIntlProvider } from '@/components/diagram/ProcessDiagramIntlProvider'
+import { DefinitionVersionsPane } from '@/components/diagram/DefinitionVersionsPane'
 import { DefinitionViewSwitch, EditRefusedBanner, type DefinitionView } from '@/components/diagram/DefinitionViewSwitch'
 import { DiagramEditPane } from '@/components/diagram/DiagramEditPane'
 import type { ReleaseCheckState } from '@/components/canvas/ReleaseCheckPanel'
@@ -796,7 +797,7 @@ export default function DefinitionEditorPage() {
           {isNew && <StatusBadge status="DRAFT" domain="definition" size="sm" />}
           {!isNew && (
             <ProcessDiagramIntlProvider>
-              <DefinitionViewSwitch view={view} onChange={handleViewChange} unsaved={dirty} canEditDiagram={hasDesignerRole} editorLocked={diagramDirty} />
+              <DefinitionViewSwitch view={view} onChange={handleViewChange} unsaved={dirty} canEditDiagram={hasDesignerRole} editorLocked={diagramDirty} canShowVersions={!isNew && !!def} />
             </ProcessDiagramIntlProvider>
           )}
         </div>
@@ -1063,6 +1064,15 @@ export default function DefinitionEditorPage() {
         <div data-testid="definition-diagram-view" style={{ flex: 1, overflow: 'auto', padding: 'var(--space-4)' }}>
           <ProcessDiagramIntlProvider>
             <ProcessDiagramLazy graph={previewGraph ?? def?.graph ?? EMPTY_GRAPH} />
+          </ProcessDiagramIntlProvider>
+        </div>
+      )}
+
+      {/* ── T-1588: versions list and read-only diff of two versions (mounted only while shown; it holds no unsaved state) ── */}
+      {view === 'versions' && def && (
+        <div data-testid="definition-versions-view" style={{ flex: 1, overflow: 'auto', padding: 'var(--space-4)' }}>
+          <ProcessDiagramIntlProvider>
+            <DefinitionVersionsPane def={def} />
           </ProcessDiagramIntlProvider>
         </div>
       )}

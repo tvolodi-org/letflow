@@ -5,7 +5,7 @@ import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import { Clock, Cog, GitBranch, Layers, Plus, User } from 'lucide-react'
 import type { NodeState } from '@/utils/canvas/instancePath'
 import { glyphClass } from '@/components/ui/StatusPill'
-import { STATE_PILL } from './diagramConfig'
+import { DIFF_PILL, STATE_PILL } from './diagramConfig'
 
 export interface DiagramNodeData {
   nodeType: string
@@ -21,6 +21,8 @@ export interface DiagramNodeData {
   editable?: boolean
   /** T-1563: violations anchored to this node (a glyph plus a word, rule 5). */
   invalid?: { count: number; word: string; messages: string[] }
+  /** T-1588: set only in a version diff: the kind and its word (a pill with a glyph, never colour alone). */
+  diff?: { kind: 'added' | 'removed' | 'changed'; word: string }
   [key: string]: unknown
 }
 
@@ -36,13 +38,19 @@ const ICONS: Record<string, typeof User> = {
 }
 
 function DiagramNodeImpl({ data }: NodeProps<DiagramFlowNode>) {
-  const { nodeType, label, typeName, subLine, state, stateName, direction, shape, editable, invalid } = data
+  const { nodeType, label, typeName, subLine, state, stateName, direction, shape, editable, invalid, diff } = data
   const Icon = ICONS[nodeType]
   const compact = shape !== undefined
   const pill = state ? STATE_PILL[state] : null
+  const diffPill = diff ? (
+    <span className={`lf-pill lf-pill--${DIFF_PILL[diff.kind].tone} lf-pd-node__pill`} data-testid="diagram-node-diff" data-diff={diff.kind}>
+      <span className={glyphClass(DIFF_PILL[diff.kind].glyph)} aria-hidden="true" data-testid="diagram-diff-glyph" />
+      {diff.word}
+    </span>
+  ) : null
   return (
     <div
-      className={`lf-pd-node lf-pd-node--${nodeType.toLowerCase().replace(/_/g, '-')}${compact ? ` lf-pd-node--compact is-${direction.toLowerCase()}` : ''}${state ? ` is-${state}` : ''}${invalid ? ' is-invalid' : ''}`}
+      className={`lf-pd-node lf-pd-node--${nodeType.toLowerCase().replace(/_/g, '-')}${compact ? ` lf-pd-node--compact is-${direction.toLowerCase()}` : ''}${state ? ` is-${state}` : ''}${invalid ? ' is-invalid' : ''}${diff ? ` is-diff-${diff.kind}` : ''}`}
       // The shape size is layout geometry (the same number dagre used), not a colour or spacing value.
       style={compact ? { ['--lf-pd-shape' as string]: `${shape}px` } : undefined}
       data-testid={`diagram-node-${nodeType}`}
@@ -64,6 +72,7 @@ function DiagramNodeImpl({ data }: NodeProps<DiagramFlowNode>) {
               {stateName}
             </span>
           )}
+          {diffPill}
         </div>
       )}
       {compact && (
@@ -76,6 +85,7 @@ function DiagramNodeImpl({ data }: NodeProps<DiagramFlowNode>) {
               {stateName}
             </span>
           )}
+          {diffPill}
         </div>
       )}
       <Handle type="source" position={direction === 'LR' ? Position.Right : Position.Bottom} isConnectable={editable === true} />
