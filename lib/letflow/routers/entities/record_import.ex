@@ -152,8 +152,12 @@ defmodule Letflow.Routers.Entities.RecordImport do
          {:ok, mode} <- check_upsert_by(body),
          :ok <- check_managed_mode(managed, mode),
          {:ok, dry_run?} <- check_dry_run(conn, body, managed),
+         {:ok, atomic?} <- check_atomic(conn, managed),
          :ok <- import_scope_check(access, scope, mode, entity_type, records, prefix) do
       import_request_id = Ecto.UUID.generate()
+      # GH #4091-batch2 item 4: an atomic import never commits next to a converter-refused row;
+      # the good rows then run as a dry run so the answer still names every refused row.
+      run_mode = import_run_mode(dry_run?, atomic?, csv_rows)
 
       case run_import_mode(
              mode,
@@ -163,7 +167,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
              import_request_id,
              prefix,
              ImportAccess.new(access, scope),
-             {managed, dry_run?}
+             {managed, run_mode}
            ) do
         # REQ-606 (decision 0067 D6): upsert mode only. A retry is safe there (rows are addressed by
         # external ref and updated in place), so a full trigger backlog answers the provisional 503
@@ -175,11 +179,20 @@ defmodule Letflow.Routers.Entities.RecordImport do
             |> Response.put_backlog_retry_after()
             |> Response.send_json(503, %{"error" => "trigger_backlog_full"})
           else
-            import_results_ok(conn, results, csv_rows, dry_run?)
+            import_results_ok(conn, results, csv_rows, dry_run?, applied_flag(atomic?, run_mode))
+          end
+
+        {:ok, results, applied?} ->
+          if backlog_full_in?(results) do
+            conn
+            |> Response.put_backlog_retry_after()
+            |> Response.send_json(503, %{"error" => "trigger_backlog_full"})
+          else
+            import_results_ok(conn, results, csv_rows, false, applied?)
           end
 
         {:ok, results} ->
-          import_results_ok(conn, results, csv_rows, dry_run?)
+          import_results_ok(conn, results, csv_rows, dry_run?, applied_flag(atomic?, run_mode))
 
         # REQ-651 D7: the dry run replay cap was exceeded; constant, nothing was written.
         {:error, :dry_run_unavailable} ->
@@ -247,6 +260,15 @@ defmodule Letflow.Routers.Entities.RecordImport do
       {:error, :invalid_dry_run} ->
         Response.unprocessable(conn, "dry_run must be true or false")
 
+      {:error, :invalid_atomic} ->
+        Response.unprocessable(conn, "atomic must be true or false")
+
+      {:error, :atomic_not_offered} ->
+        Response.unprocessable(
+          conn,
+          "atomic is offered only for module-managed types with an import function"
+        )
+
       {:error, :dry_run_not_offered} ->
         Response.unprocessable(
           conn,
@@ -263,7 +285,22 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
       {:error, reason} when reason in @xlsx_refusals ->
         Response.unprocessable(conn, Map.fetch!(@xlsx_refusal_details, reason))
+
+      # The detail string stays the constant; the offending header names go to the uploader as
+      # an extension member (up to 5, cut and printable only). No cell text is ever echoed.
+      {:error, reason, %{headers: headers}} when reason in @xlsx_refusals ->
+        Response.unprocessable_with(conn, Map.fetch!(@xlsx_refusal_details, reason), %{
+          "code" => Atom.to_string(reason),
+          "headers" => Enum.map(Enum.take(headers, 5), &printable_header/1)
+        })
     end
+  end
+
+  @header_name_max 40
+  defp printable_header(name) do
+    name
+    |> String.replace(~r/\p{C}/u, "")
+    |> String.slice(0, @header_name_max)
   end
 
   # ── CSV body (GH #3182, REQ-557) ──────────────────────────────────────
@@ -333,7 +370,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
          {:ok, bytes} <- xlsx_bytes(conn),
          :ok <- csv_upsert_param(upsert_by),
          {:ok, rows} <-
-           XlsxImport.convert(bytes, fields,
+           XlsxImport.convert_detailed(bytes, fields,
              upsert: upsert_by == "external_ref",
              max_rows: @import_record_cap
            ) do
@@ -343,6 +380,9 @@ defmodule Letflow.Routers.Entities.RecordImport do
         {:error, :csv_type_hidden}
 
       {:error, reason} = error when reason in @xlsx_refusals or reason == :invalid_upsert_by ->
+        error
+
+      {:error, reason, %{headers: _}} = error when reason in @xlsx_refusals ->
         error
 
       {:error, :too_many_records, _count} = error ->
@@ -468,12 +508,41 @@ defmodule Letflow.Routers.Entities.RecordImport do
   # GH #2659 (design 5.1): after the entity_type match, so the existing error
   # ordering is unchanged. Absent -> today's create-only import; exactly
   # "external_ref" -> the idempotent upsert; anything else (null included) -> 422.
-  defp import_results_ok(conn, results, csv_rows, dry_run?) do
+  defp import_results_ok(conn, results, csv_rows, dry_run?, applied) do
     json_results = Enum.map(results, &import_entry_result_json/1)
     body = %{"results" => merge_csv_rows(csv_rows, json_results)}
     # The member appears on a dry run only: every real-import answer is unchanged.
-    Response.ok(conn, if(dry_run?, do: Map.put(body, "dry_run", true), else: body))
+    body = if(dry_run?, do: Map.put(body, "dry_run", true), else: body)
+    # `applied` appears only when the caller asked for `atomic=true`.
+    Response.ok(conn, if(is_boolean(applied), do: Map.put(body, "applied", applied), else: body))
   end
+
+  # `?atomic=true` (managed types with an import function only): the whole file in one
+  # transaction, committed only when no row is refused. Absent/false = today's partial success.
+  # With `dry_run=true` the dry run wins and nothing is written.
+  defp check_atomic(conn, managed) do
+    value = Plug.Conn.fetch_query_params(conn).query_params["atomic"]
+
+    case {dry_run_flag(value), managed} do
+      {{:ok, false}, _} -> {:ok, false}
+      {{:ok, true}, {:managed, _}} -> {:ok, true}
+      {{:ok, true}, nil} -> {:error, :atomic_not_offered}
+      {:error, _} -> {:error, :invalid_atomic}
+    end
+  end
+
+  defp import_run_mode(true, _atomic?, _csv_rows), do: :dry_run
+  defp import_run_mode(false, false, _csv_rows), do: :real
+
+  defp import_run_mode(false, true, csv_rows) do
+    if Enum.any?(csv_rows || [], &match?(%{result: {:error, _, _}}, &1)),
+      do: :dry_run,
+      else: :atomic
+  end
+
+  # Only an atomic request reports `applied`; a forced dry run (converter-refused rows) says false.
+  defp applied_flag(true, :dry_run), do: false
+  defp applied_flag(_atomic?, _run_mode), do: nil
 
   # REQ-651: a managed type is imported by upsert only (D5).
   defp check_managed_mode({:managed, _module_id}, :create), do: {:error, :managed_requires_upsert}
@@ -539,13 +608,24 @@ defmodule Letflow.Routers.Entities.RecordImport do
          import_request_id,
          prefix,
          %ImportAccess{access: access, scope: :all},
-         {managed, dry_run?}
+         {managed, run_mode}
        ) do
     with {:ok, restricted} <- ImportUpsert.precheck(access, prefix) do
       case managed do
         nil ->
           {:ok,
            ImportUpsert.run(records, entity_type, actor_id, import_request_id, restricted, prefix)}
+
+        {:managed, module_id} when run_mode == :atomic ->
+          ManagedImport.run_atomic(
+            module_id,
+            records,
+            entity_type,
+            actor_id,
+            import_request_id,
+            restricted,
+            prefix
+          )
 
         {:managed, module_id} ->
           ManagedImport.run(
@@ -556,7 +636,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
             import_request_id,
             restricted,
             prefix,
-            dry_run?
+            run_mode == :dry_run
           )
       end
     end
@@ -712,74 +792,107 @@ defmodule Letflow.Routers.Entities.RecordImport do
   # status) -- so a failing entry's "reason" carries the same information a
   # standalone POST /entities/records/:entity_type call for that same entry
   # would surface.
-  defp import_reason_json({:record_payload_invalid, violations}) do
+  # The column a clerk fixes for a refusal that is bare in the module's own return value
+  # (constants only, never cell text: INV-2/INV-5). Row-wide refusals (`node_not_found`,
+  # `document_not_draft`, `lines_count`, `asset_row_invalid`, `card_inactive`) have no column.
+  @reason_columns %{
+    cycle: "parent_id",
+    parent_inactive: "parent_id",
+    parent_not_found: "parent_id",
+    org_unit_mismatch: "org_unit_id",
+    quantity_invalid: "quantity",
+    asset_inventory_number_taken: "inventory_number",
+    asset_inventory_number_locked: "inventory_number",
+    asset_kind_invalid: "kind",
+    asset_kind_locked: "kind",
+    asset_currency_mismatch: "currency",
+    asset_valid_until_not_allowed: "valid_until",
+    external_ref_invalid: "external_ref_id",
+    duplicate_external_ref_in_request: "external_ref_id"
+  }
+
+  # Stock opening lines keep the offending price field (`unit_price` or `line_value`).
+  @doc false
+  def import_reason_json({:price_invalid, field}) when field in ["unit_price", "line_value"],
+    do: %{"type" => "price_invalid", "header" => field}
+
+  def import_reason_json(reason) do
+    json = base_reason_json(reason)
+
+    case Map.fetch(@reason_columns, reason) do
+      {:ok, column} -> Map.put_new(json, "header", column)
+      :error -> json
+    end
+  end
+
+  defp base_reason_json({:record_payload_invalid, violations}) do
     %{"type" => "record_payload_invalid", "violations" => Enum.map(violations, &violation_map/1)}
   end
 
   # GH #2689: the entity-side size cap; no field name, no size (INV-2).
-  defp import_reason_json({:record_size_exceeded, which}) when which in [:value, :record] do
+  defp base_reason_json({:record_size_exceeded, which}) when which in [:value, :record] do
     %{"type" => "record_size_exceeded", "limit" => Atom.to_string(which)}
   end
 
-  defp import_reason_json({:definition_not_found, entity_type}) do
+  defp base_reason_json({:definition_not_found, entity_type}) do
     %{"type" => "definition_not_found", "entity_type" => entity_type}
   end
 
   # REQ-636: names the first failing field only; no received value, no case split (INV-5).
-  defp import_reason_json({:reference_invalid, [field | _]}) do
+  defp base_reason_json({:reference_invalid, [field | _]}) do
     %{"type" => "reference_invalid", "field" => field}
   end
 
-  defp import_reason_json({:payload_validation_failed, _errors}) do
+  defp base_reason_json({:payload_validation_failed, _errors}) do
     %{"type" => "payload_validation_failed"}
   end
 
   # GH #2543: two entries in one call sharing a `record_id` (so a key) but
   # with different field_values -- the second is refused, not dropped.
-  defp import_reason_json(:idempotency_key_reuse) do
+  defp base_reason_json(:idempotency_key_reuse) do
     %{"type" => "idempotency_key_reuse"}
   end
 
   # GH #2583: race only (the guard already refused managed types before the
   # body was read); constant, no detail, and not logged as an internal error.
-  defp import_reason_json(:entity_type_managed) do
+  defp base_reason_json(:entity_type_managed) do
     %{"type" => "entity_type_managed"}
   end
 
   # GH #2654: the entry overlapped an activation of its type; nothing was
   # appended for it and a retry is safe. Constant, no type name.
-  defp import_reason_json({:definition_changed, _entity_type}) do
+  defp base_reason_json({:definition_changed, _entity_type}) do
     %{"type" => "definition_changed"}
   end
 
   # GH #2659 upsert mode: constant reasons, never the ref or the type name.
   @upsert_error_reasons ImportUpsert.error_reasons()
 
-  defp import_reason_json(reason) when reason in @upsert_error_reasons do
+  defp base_reason_json(reason) when reason in @upsert_error_reasons do
     %{"type" => Atom.to_string(reason)}
   end
 
-  defp import_reason_json({:entity_append_only, _entity_type}) do
+  defp base_reason_json({:entity_append_only, _entity_type}) do
     %{"type" => "entity_append_only"}
   end
 
-  defp import_reason_json(reason)
+  defp base_reason_json(reason)
        when reason in [:tenant_not_provisioned, :invalid_schema_name] do
     %{"type" => Atom.to_string(reason)}
   end
 
   # REQ-606: create-mode entry refused for a full trigger backlog; constant, no warning log.
-  defp import_reason_json(:trigger_backlog_full), do: %{"type" => "trigger_backlog_full"}
+  defp base_reason_json(:trigger_backlog_full), do: %{"type" => "trigger_backlog_full"}
 
   # REQ-651: a managed import function refused a reference cell. `field` is a constant of the
   # module (never cell text), so the header can be named (INV-2, INV-5).
-  defp import_reason_json({reason, field})
+  defp base_reason_json({reason, field})
        when reason in [:reference_not_found, :reference_inactive] and is_binary(field) do
     %{"type" => Atom.to_string(reason), "header" => field}
   end
 
   # REQ-652: the location tree's refusals, named as the Tree function's own atoms.
-  defp import_reason_json(reason)
+  defp base_reason_json(reason)
        when reason in [
               :cycle,
               :parent_inactive,
@@ -791,7 +904,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
   end
 
   # REQ-654: the constant refusals of the org and lot write functions, named as their own atoms.
-  defp import_reason_json(reason)
+  defp base_reason_json(reason)
        when reason in [
               :unit_inactive,
               :unit_not_found,
@@ -814,13 +927,13 @@ defmodule Letflow.Routers.Entities.RecordImport do
     %{"type" => Atom.to_string(reason)}
   end
 
-  defp import_reason_json({reason, key})
+  defp base_reason_json({reason, key})
        when reason in [:field_not_allowed, :field_invalid] and is_binary(key) do
     %{"type" => Atom.to_string(reason), "header" => key}
   end
 
   # REQ-727: the stock opening line import's constant refusals (no cell text).
-  defp import_reason_json(reason)
+  defp base_reason_json(reason)
        when reason in [
               :document_not_draft,
               :org_unit_mismatch,
@@ -832,7 +945,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
   end
 
   # REQ-762: the asset card import's constant refusals (no cell text).
-  defp import_reason_json(reason)
+  defp base_reason_json(reason)
        when reason in [
               :asset_kind_invalid,
               :asset_valid_until_not_allowed,
@@ -846,17 +959,17 @@ defmodule Letflow.Routers.Entities.RecordImport do
     %{"type" => Atom.to_string(reason)}
   end
 
-  defp import_reason_json({:asset_field_required, header}) when is_binary(header) do
+  defp base_reason_json({:asset_field_required, header}) when is_binary(header) do
     %{"type" => "asset_field_required", "header" => header}
   end
 
-  defp import_reason_json({:line_invalid, nil}), do: %{"type" => "line_invalid"}
+  defp base_reason_json({:line_invalid, nil}), do: %{"type" => "line_invalid"}
 
-  defp import_reason_json({:line_invalid, field}) when is_binary(field) do
+  defp base_reason_json({:line_invalid, field}) when is_binary(field) do
     %{"type" => "line_invalid", "header" => field}
   end
 
-  defp import_reason_json(other) do
+  defp base_reason_json(other) do
     Logger.warning("entity record import entry failed: #{inspect(other)}")
     %{"type" => "internal_error"}
   end

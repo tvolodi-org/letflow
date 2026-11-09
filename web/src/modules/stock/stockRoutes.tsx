@@ -7,6 +7,7 @@ import DocumentsPage from './documents/DocumentsPage'
 import DocumentPage from './documents/DocumentPage'
 import DocumentNewPage from './documents/DocumentNewPage'
 import CountsPage from './counts/CountsPage'
+import StockHelpPage from './help/StockHelpPage'
 import { STOCK_READ } from './stockPermissions'
 
 export const stockRouteObjects: RouteObject[] = [
@@ -58,4 +59,5 @@ export const stockRouteObjects: RouteObject[] = [
       </RequirePermission>
     ),
   })),
+  { path: 'admin/stock/help/:topic', element: <StockHelpPage /> },
 ]
