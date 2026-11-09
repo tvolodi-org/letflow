@@ -229,16 +229,39 @@ brand teal `#0c6b5f`; the icons are the Letflow app icons from the SPA brand fol
 The definition caches use IndexedDB on web (`sembast_web`, chosen by the conditional import
 in `lib/definitions/sembast_platform.dart`).
 
-Not in M1: **sign-in on web** (`flutter_appauth` has no web support; a redirect + PKCE
-flow is the next milestone), web voice recording, push. iOS limits: camera only on HTTPS
+### Web sign-in (M2)
+
+`flutter_appauth` has no web support, so on web `lib/auth/web_app_auth_adapter.dart`
+(`WebAppAuthAdapter`) signs in with an own OIDC Authorization Code + PKCE (S256) full-page
+redirect; `lib/auth/app_auth_platform.dart` picks it by conditional import. Native code is
+unchanged. Per environment, infra must register the PWA redirect URI in Keycloak first:
+`docs/runbooks/mobile-web-pwa-signin.md`.
+
+**Token storage decision (web): tokens are kept in memory only.** No access, refresh or id token
+is written to localStorage, sessionStorage or IndexedDB: every browser store is readable by any
+script on the origin, and `flutter_secure_storage` on web gives no more protection than that.
+A reload therefore signs in again through the redirect, silent while the Keycloak SSO session
+lives. Token life is short (realm setting; the access token is refreshed through the adapter
+while the tab lives). Only the non-secret last-tenant pointer `{realm_url, slug}` is stored in
+localStorage, by `WebPointerKv`, which refuses any other key; the one-use sign-in record
+(state, PKCE verifier, nonce) lives in sessionStorage and is removed when the callback is
+handled. `test/guards/token_storage_boundary_guard_test.dart` enforces who may touch
+`localStorage` or import `package:web`.
+Limits: logout does not end the Keycloak SSO session (follow-up); an iOS standalone PWA that
+opens the redirect outside the app loses its sessionStorage, so that sign-in fails with a retry.
+
+Not in M2: web voice recording, push. iOS limits: camera only on HTTPS
 after a tap, no hardware scanners, storage may be cleared after 7 days unused unless the
 app is installed to the home screen, no background sync.
 
 ### Storage and offline (M3)
 
-- **Tokens on web** live in `sessionStorage` (`productionSecureStorage` in `lib/auth/auth.dart`,
-  `WebOptions(useSessionStorage: true)`), never in long-lived `localStorage`. After the PWA is closed
-  the user signs in again. Android and iOS options are unchanged.
+- **Tokens on web** (decision of M2, which supersedes the M3 sessionStorage choice for tokens) live in
+  memory only, see "Web sign-in (M2)": the plugin's AES key sits next to its ciphertext in the same
+  storage area, so sessionStorage would protect nothing from a script on the origin.
+  `productionSecureStorage` (`WebOptions(useSessionStorage: true)`) stays the native/other storage
+  configuration. After the PWA is closed or reloaded the user signs in again (Keycloak SSO makes it
+  silent). Android and iOS options are unchanged.
 - **Offline draft queue (web only, `lib/offline/`)**: saving a NEW stock document draft with no network
   stores it in IndexedDB (sembast); it survives a reload. Limits: 20 drafts, 256 KiB in total,
   64 KiB per draft; over a limit nothing is stored and the user is told. Edits of saved drafts,
