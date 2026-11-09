@@ -1,0 +1,38 @@
+# Reference nginx config for the Letflow PWA web build (PWA M5, D-112). Infra adapts it; the real
+# QA vhost lives outside this repository. Serve over HTTPS only (HSTS at the edge): the camera and
+# microphone do not work on http. The build has no service worker and no content-hashed file names,
+# so every file is revalidated (ETag / Last-Modified, a 304 when unchanged) and nothing is cached
+# for a fixed time.
+#
+# Unpack the artifact (letflow-pwa-web-<sha12>.tar) into the root below after `sha256sum -c SHA256SUMS`.
+
+server {
+    listen 443 ssl;
+    server_name pwa.example.invalid;   # infra's hosting address
+
+    root /var/www/letflow-pwa-web;
+    index index.html;
+
+    types { application/wasm wasm; }
+
+    gzip_static on;
+    # brotli_static on;   # needs ngx_brotli; Cloudflare also compresses at the edge
+
+    add_header Cache-Control "no-cache" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Permissions-Policy "camera=(self), microphone=(self)" always;
+
+    # Glyph fallback requests (the bundle points fontFallbackBaseUrl here): a real 404, never
+    # index.html, or the engine would receive HTML as a font.
+    location /fonts-fallback/ {
+        add_header Cache-Control "no-cache" always;
+        return 404;
+    }
+
+    location / {
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Permissions-Policy "camera=(self), microphone=(self)" always;
+        try_files $uri $uri/ /index.html;
+    }
+}

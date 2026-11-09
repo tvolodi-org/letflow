@@ -72,6 +72,8 @@ localized_text).
 | accumulated_depreciation | decimal | optional | none | `decimal_strict` true; information only |
 | book_value | decimal | optional | none | `decimal_strict` true; information only |
 | depreciation_as_of | date | optional | none | information only |
+| depreciation_method | string | optional | none | free text, information only (T-1530) |
+| depreciation_rate | decimal | optional | none | `decimal_strict` true; percent per year as typed, information only (T-1530) |
 | valid_until | date | optional | none | allowed only when kind is `intangible` |
 | active | boolean | required | none | false retires the card; there is no delete (REQ-748; asset-workflow-documents.md section 7 checks it before a posting) |
 | external_ref_system | string | optional | none | unique as a pair with external_ref_id |

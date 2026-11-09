@@ -26,6 +26,8 @@ import { validateSubProcessInterface } from '@/utils/canvas/interfaceValidation'
 import { useCanvasHistoryStore } from '@/stores/canvasHistoryStore'
 import { Button } from '@/components/ui/Button'
 import { ConfirmPromoteModal } from '@/components/ui/ConfirmPromoteModal'
+import { DefinitionName, definitionDisplayText } from '@/components/ui/DefinitionName'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { useDefinitionDraftStore } from '@/stores/definitionDraftStore'
@@ -77,6 +79,7 @@ function collectSubProcessInterfaceErrors(nodes: Node<CanvasNodeData>[]): Map<st
 
 export default function DefinitionEditorPage() {
   const { id } = useParams<{ id?: string }>()
+  const uiLocale = useUiLocale()
   const isNew = !id
   const { data: def, isLoading, isError, error: defError, refetch } = useDefinition(id!)
   const create = useCreateDefinition()
@@ -715,7 +718,7 @@ export default function DefinitionEditorPage() {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <h2 style={{ margin: 0, fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-primary)' }}>
-            {isNew ? 'New Definition' : def?.name ?? 'Process Designer'}
+            {isNew ? 'New Definition' : def ? <DefinitionName name={def.name} /> : 'Process Designer'}
           </h2>
           {isNew && <StatusBadge status="DRAFT" domain="definition" size="sm" />}
         </div>
@@ -1099,6 +1102,7 @@ export default function DefinitionEditorPage() {
       {showPromoteModal && def && (
         <ConfirmPromoteModal
           definitionName={def.name}
+          displayName={definitionDisplayText(def.name, undefined, uiLocale)}
           onConfirm={() => void handlePromoteConfirm()}
           onCancel={() => setShowPromoteModal(false)}
           isLoading={promoting}
