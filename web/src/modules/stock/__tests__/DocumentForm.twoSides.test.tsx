@@ -5,6 +5,7 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { stockMessages } from '../stockMessages'
+import { accessibleFormProblems } from '@/test-utils/a11yForm'
 import { DOCS, LIST, MASTERS, addFirstLine, fakeMasters, pickItem, refusal, rec, renderStock, stockDoc, withPost } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
@@ -118,6 +119,13 @@ describe('T1 create per kind', () => {
     const row = await addFirstLine()
     expect(within(row).queryByLabelText(/^Unit price/)).not.toBeInTheDocument()
     expect(within(row).queryByRole('textbox', { name: /Unit/ })).toBeNull()
+  })
+  it('K3 a refused Save moves focus to the first invalid control; every error is tied to its field', async () => {
+    renderStock(`${NEW}?kind=transfer`, withPost)
+    await ready()
+    save()
+    await waitFor(() => expect(document.activeElement?.getAttribute('aria-invalid')).toBe('true'))
+    expect(accessibleFormProblems().filter((p) => p.startsWith('aria-invalid') || p.startsWith('no accessible'))).toEqual([])
   })
   it('T1e hand over copies From org unit and location into To until To is touched', async () => {
     renderStock(`${NEW}?kind=hand_over`, withPost)

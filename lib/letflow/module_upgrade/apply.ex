@@ -20,6 +20,10 @@ defmodule Letflow.ModuleUpgrade.Apply do
   unique index on `running` rows (no `running` row is ever committed by a one-transaction apply; the
   transaction-level advisory lock is the exclusion).
 
+  The journal row's `touches` also holds an `"undo"` block (the manifest hashes before and after and
+  the ids of the entity-definition rows that were active before) that `Letflow.ModuleUpgrade.Rollback`
+  needs; an upgrade row written before it existed cannot be rolled back.
+
   Tenancy: the schema is `opts[:prefix]` only (from the auth context in the router); the request
   body is read for exactly `rationale`, `plan_hash` and `ack_destructive` (INV-1).
   """
@@ -30,6 +34,8 @@ defmodule Letflow.ModuleUpgrade.Apply do
 
   alias Letflow.Audit
   alias Letflow.Definitions.ProcessDefinition
+  alias Letflow.Entities.Definitions
+  alias Letflow.ModuleUpgrade.Rollback
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
@@ -124,17 +130,19 @@ defmodule Letflow.ModuleUpgrade.Apply do
   # ── replay ─────────────────────────────────────────────────────────────────────────────
 
   defp replay(module_id, plan_hash, prefix) do
-    row =
+    reversed = Rollback.reversed_ids(module_id, prefix)
+
+    rows =
       from(u in TenantModuleUpgrade,
         where:
           u.module_id == ^module_id and u.kind == :upgrade and u.state == :done and
             u.plan_hash == ^plan_hash,
-        order_by: [desc: u.finished_at],
-        limit: 1
+        order_by: [desc: u.finished_at]
       )
-      |> Repo.one(prefix: prefix)
+      |> Repo.all(prefix: prefix)
 
-    case row do
+    # A row a `done` rollback reversed is history, not an answer: the upgrade must run again.
+    case Enum.find(rows, &(&1.id not in reversed)) do
       %TenantModuleUpgrade{touches: %{"result" => %{} = body}} -> {:ok, body}
       _none -> :none
     end
@@ -233,6 +241,7 @@ defmodule Letflow.ModuleUpgrade.Apply do
     |> Repo.update_all([set: [state: :abandoned, finished_at: now]], prefix: prefix)
 
     selection = selection(entry_module, report)
+    previous = previous_definitions(selection.entities, prefix)
 
     pack_result =
       case Installs.apply_upgrade_pack(module_id, actor_id, rationale, selection, prefix: prefix) do
@@ -284,8 +293,26 @@ defmodule Letflow.ModuleUpgrade.Apply do
       "failing_definitions" => failing
     }
 
-    finish_journal(report["plan_id"], actor_id, rationale, body, now, prefix)
+    undo = %{
+      "from_manifest_hash" => row.manifest_hash,
+      "to_manifest_hash" => pack_result.compiled_manifest_hash,
+      "previous_definitions" => previous,
+      "new_types" => Enum.reject(selection.entities, &Map.has_key?(previous, &1))
+    }
+
+    finish_journal(report["plan_id"], actor_id, rationale, body, undo, now, prefix)
     body
+  end
+
+  # %{name => id of the entity-definition row that is ACTIVE now} for the types the upgrade touches
+  # (the activation pointer is the authority, not the row status). What a rollback re-activates.
+  defp previous_definitions(names, prefix) do
+    Enum.reduce(names, %{}, fn name, acc ->
+      case Definitions.get_active_definition_by_name(name, prefix) do
+        {:ok, %{id: id}} -> Map.put(acc, name, id)
+        _no_active_row -> acc
+      end
+    end)
   end
 
   # ── the gate (pure) ────────────────────────────────────────────────────────────────────
@@ -418,7 +445,7 @@ defmodule Letflow.ModuleUpgrade.Apply do
     :ok
   end
 
-  defp finish_journal(plan_id, actor_id, rationale, body, now, prefix) do
+  defp finish_journal(plan_id, actor_id, rationale, body, undo, now, prefix) do
     {:ok, _row} =
       TenantModuleUpgrade
       |> Repo.get!(plan_id, prefix: prefix)
@@ -428,7 +455,7 @@ defmodule Letflow.ModuleUpgrade.Apply do
         rationale: rationale,
         started_at: now,
         finished_at: DateTime.utc_now(),
-        touches: %{"result" => body}
+        touches: %{"result" => body, "undo" => undo}
       })
       |> Repo.update(prefix: prefix)
 
