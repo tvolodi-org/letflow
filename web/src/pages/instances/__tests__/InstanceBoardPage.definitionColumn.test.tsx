@@ -26,7 +26,7 @@ const listItem = (instance_id: string, definition_id: string) => ({
 vi.mock('@/api/instances', () => ({
   instancesApi: {
     list: vi.fn(async () => ({
-      items: [listItem('inst-0001-aaaa', 'def-ok'), listItem('inst-0002-bbbb', 'def-gone')],
+      items: [listItem('inst-0001-aaaa', 'def-ok'), listItem('inst-0002-bbbb', 'def-gone'), listItem('inst-0003-cccc', 'def-wo')],
       next_cursor: null,
     })),
   },
@@ -38,6 +38,9 @@ vi.mock('@/api/definitions', () => ({
     get: vi.fn(async (id: string) => {
       if (id === 'def-ok') {
         return { id, name: 'Order', version: '3', status: 'ACTIVE', graph: { nodes: [], edges: [] } }
+      }
+      if (id === 'def-wo') {
+        return { id, name: 'assets_writeoff', version: '1.0.0', status: 'ACTIVE', graph: { nodes: [], edges: [] } }
       }
       throw new Error('not found')
     }),
@@ -98,6 +101,13 @@ describe('InstanceBoardPage — Definition column (T-1495)', () => {
     expect(screen.getByText(/Not yet refreshed/)).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('Order v3')).toBeInTheDocument())
     expect(screen.queryByText(/Not yet refreshed/)).not.toBeInTheDocument()
+  })
+
+  it('D3: a catalog definition shows its friendly name and, as second line, the technical id with version', async () => {
+    renderBoard()
+    await waitFor(() => expect(screen.getByText('Asset write-off')).toBeInTheDocument())
+    expect(screen.getByTestId('definition-technical-id')).toHaveTextContent('assets_writeoff v1.0.0')
+    expect(screen.getByText('Order v3')).toBeInTheDocument()
   })
 
   it('W4: while a definition is still loading the cell is a skeleton, not an em dash', async () => {

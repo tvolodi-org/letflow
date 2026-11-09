@@ -62,7 +62,7 @@ localized_text).
 
 | Field | Type | Required | Refers to | Note |
 |---|---|---|---|---|
-| inventory_number | string | required | none | unique per tenant (decided, D-097) |
+| inventory_number | string | required | none | unique per tenant (decided, D-097); read-only after the first posted document (T-1490: 422 `inventory_number_locked`, a reversal does not lift it) |
 | name | string | required | none | |
 | kind | enum | required | none | values `fixed`, `low_value`, `intangible` |
 | org_unit_id | string | optional | org_unit record (module org) | empty until the first commission posts; not typed by the routes (they refuse the key, T-1488); the holder shown on the card is read from the register. Only the xlsx import may still carry it (D-097). Setting it from a posting is item G2 |
@@ -169,7 +169,7 @@ not yet commissioned asset whose card stays (D-061: registers are read-only and 
 - A scoped principal cannot post until slice L6 (0073 OQ-21).
 - For a `fixed` or `intangible` asset the card's `org_unit_id` equals the `org_unit` slot of the asset's balance
   row with quantity 1, kept equal by the documents of item C2 in the same transaction as the posting. A posted hand over moves it (G2, T-1489, module
-  version 0.13.0): the write handlers `post_document` and `reverse_document` update the card in the posting transaction,
+  version 0.14.0): the write handlers `post_document` and `reverse_document` update the card in the posting transaction,
   both or neither, and the reversal moves it back while the card is still at the destination. It is empty for a new card
   until a document or the import sets it, and the register stays the authority. A `low_value` card is not moved by this
   step (D-111 below).

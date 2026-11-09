@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.13.0"
+    assert m.version == "0.14.0"
     assert m.depends_on == ["catalog_items", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 
@@ -36,6 +36,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              {"POST", "/cards", :AssetsCardWrite},
              {"PATCH", "/cards/:id", :AssetsCardWrite},
              {"POST", "/cards/:id/retire", :AssetsCardWrite},
+             {"GET", "/cards/:id/lock", :AssetsRead},
              {"GET", "/balances", :AssetsRead},
              {"GET", "/movements", :AssetsRead},
              {"GET", "/reconcile", :AssetsReconcile},

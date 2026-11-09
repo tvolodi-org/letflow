@@ -17,6 +17,7 @@ import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { formatDateTime, formatTime } from '@/i18n/format'
 import { deferClickState } from '@/utils/deferClickState'
+import { DefinitionName } from '@/components/ui/DefinitionName'
 
 const STATUS_OPTIONS: InstanceStatus[] = ['ACTIVE', 'COMPLETED', 'CANCELLED', 'ERROR']
 
@@ -295,7 +296,7 @@ export default function InstanceBoardPage() {
       header: 'Definition',
       accessor: (inst) => {
         const def = defsById.get(inst.definition_id)
-        if (def) return `${def.name} v${def.version}`
+        if (def) return <DefinitionName name={def.name} version={def.version} />
         // Still resolving: a placeholder, not the em dash (which means "could not be loaded").
         if (pendingDefs.has(inst.definition_id)) {
           return <Skeleton width="8rem" />

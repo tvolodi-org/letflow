@@ -21,6 +21,7 @@ expect.extend(jestDomMatchers)
 
 const INSTANCE_ID = 'inst-1'
 const DEFINITION_ID = 'def-1'
+const DEF_NAME = vi.hoisted(() => ({ value: 'pl-rollback-fixture' }))
 
 vi.mock('@/api/instances', () => ({
   instancesApi: {
@@ -44,7 +45,7 @@ vi.mock('@/api/definitions', () => ({
   definitionsApi: {
     get: vi.fn(async () => ({
       id: DEFINITION_ID,
-      name: 'pl-rollback-fixture',
+      get name() { return DEF_NAME.value },
       version: '2.0.0',
       status: 'ACTIVE',
       graph: { nodes: [], edges: [] },
@@ -157,5 +158,28 @@ describe('InstanceDetailPage — Definition detail row', () => {
     })
 
     expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument()
+  })
+
+  it('D4: a catalog definition shows the friendly name and the technical id; the cancel text uses the friendly name', async () => {
+    DEF_NAME.value = 'assets_writeoff'
+    try {
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={[`/instances/${INSTANCE_ID}`]}>
+            <Routes>
+              <Route path="/instances/:id" element={<InstanceDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      )
+      await waitFor(() => {
+        expect(screen.getByTestId('definition-technical-id')).toHaveTextContent('assets_writeoff v2.0.0')
+        expect(screen.getByTestId('cancel-dialog-prop')).toHaveAttribute('data-instance-name', 'Asset write-off v2.0.0')
+      })
+      expect(screen.getAllByText('Asset write-off').length).toBeGreaterThan(0)
+    } finally {
+      DEF_NAME.value = 'pl-rollback-fixture'
+    }
   })
 })

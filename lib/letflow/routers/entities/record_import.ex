@@ -837,6 +837,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
               :asset_kind_invalid,
               :asset_valid_until_not_allowed,
               :asset_kind_locked,
+              :asset_inventory_number_locked,
               :asset_currency_mismatch,
               :asset_inventory_number_taken,
               :asset_row_invalid,
