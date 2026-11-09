@@ -256,7 +256,7 @@ defmodule Letflow.PwaClientKitTest do
     assert rb =~ "only after `scripts/pwa_ready_check.sh` prints `ready-check: GREEN`"
 
     for [_, p] <- Regex.scan(~r/`(test\/[a-z_\/]+_test\.dart)`/, rb) do
-      assert File.exists?(Path.join(@root, "apps/mobile/" <> p)), p
+      assert File.exists?(Path.join([@root, "apps", "mobile", p])), p
     end
   end
 
@@ -265,6 +265,6 @@ defmodule Letflow.PwaClientKitTest do
     [_, list] = Regex.run(~r/^tests="([^"]+)"/m, src)
     files = String.split(list)
     assert length(files) == 8
-    for p <- files, do: assert(File.exists?(Path.join(@root, "apps/mobile/" <> p)), p)
+    for p <- files, do: assert(File.exists?(Path.join([@root, "apps", "mobile", p])), p)
   end
 end
