@@ -634,6 +634,7 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_version(manifest),
          :ok <- validate_min_upgradable_from(manifest),
          :ok <- validate_migrations(manifest),
+         :ok <- validate_min_data_version(manifest),
          :ok <- LedgerRegistration.validate(manifest, known_manifests, entry_module) do
       validate_reference_targets(manifest)
     end
@@ -1178,6 +1179,28 @@ defmodule Letflow.Modules.Catalog do
         if semver_valid?(min) and semver_compare(min, manifest.version) != :gt,
           do: :ok,
           else: {:error, {:invalid_min_upgradable_from, min}}
+    end
+  end
+
+  # Rule 20 (decision 0055 D5). Optional; strict semver, not above `:version`, not below
+  # `:min_upgradable_from` when that is declared. Runs after rules 15-16, so both are valid here.
+  defp validate_min_data_version(manifest) do
+    case Map.fetch(manifest, :min_data_version) do
+      :error ->
+        :ok
+
+      {:ok, min} ->
+        if semver_valid?(min) and semver_compare(min, manifest.version) != :gt and
+             not below_min_upgradable_from?(min, manifest),
+           do: :ok,
+           else: {:error, {:invalid_min_data_version, min}}
+    end
+  end
+
+  defp below_min_upgradable_from?(min, manifest) do
+    case Map.fetch(manifest, :min_upgradable_from) do
+      {:ok, floor} -> semver_compare(min, floor) == :lt
+      :error -> false
     end
   end
 
