@@ -61,8 +61,7 @@ gh run view <cd run id> --log | grep 'cd-qa:'
 | `invalid run sha` | red | The triggering run's head sha is not 40 hex. Should never happen; report it. |
 | `tip unreadable` / `tip unstable (api Y, git Z)` | red | GitHub API or `git fetch` trouble, or main moved twice during the read. Rerun the CD run. |
 | `tip run unreadable (tip Y)` | red | The tip's CI run could not be listed. Rerun the CD run. |
-| `not tip (run sha X, tip Y); tip run <status>` | skip | An older run fired CD while the tip's own push run is red, cancelled, timed out, missing, unknown, or the run sha is not an ancestor of the tip. A pending tip run no longer skips (next row). |
-| `... deploying tip Y (tip run in_progress, green ancestor X)` | deploy | GH #1602: the tip's push run is still pending and the green run X that fired CD is an ancestor of the tip. The deploy is `git pull`, so it deploys the tip, which passed the merge queue (ruling OQ-1). If the tip's run later turns red, QA carries it until the next green tip. |
+| `not tip (run sha X, tip Y); tip run <status>` | skip | An older run fired CD while the tip's own push run is not green yet (or is red). The tip's run fires its own CD when it completes. |
 | `QA sha unknown (unreachable / not-json / null / not-hex), deploying tip Y` | deploy | `/health` gave no usable sha; the tip is deployed anyway. |
 | `QA sha Q unresolvable, deploying tip Y` | deploy | QA's sha is unknown to the repository (or an ambiguous short sha). |
 | `QA already at tip Y` | skip | Nothing to do. |

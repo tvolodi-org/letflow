@@ -23,9 +23,6 @@ name: CD (QA)
 # unresolvable or non-ancestor QA sha -> deploy; QA at the tip -> skip; QA behind -> deploy).
 # Every reason is logged as a `cd-qa:` line and in the step summary.
 #
-# GH #1602: a run that is not the tip while the tip's run is only PENDING (not red) no longer
-# skips; the green ancestor lets the tip be deployed, so QA is not starved by frequent merges.
-#
 # Concurrency is job-level on `deploy` (group cd-qa, never cancel in progress). A queued run
 # superseded by a newer one is harmless: every run decides from the CURRENT tip and QA sha.
 #

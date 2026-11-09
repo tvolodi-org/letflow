@@ -171,8 +171,10 @@ defmodule Letflow.Scripts.CdQaDecideTest do
     end
   end
 
-  test "row 4: run is not the tip and the tip's run is red or unknown -> skip", %{f: f} do
+  test "row 4: run is not the tip and the tip's run is not green -> skip", %{f: f} do
     for {tip_run, word} <- [
+          {"in_progress", "in_progress"},
+          {"queued", "queued"},
           {"failure", "failure"},
           {"cancelled", "cancelled"},
           {"timed_out", "timed_out"},
@@ -193,55 +195,6 @@ defmodule Letflow.Scripts.CdQaDecideTest do
         "not tip (run sha #{f["B"]}, tip #{f["C"]}); tip run #{word}"
       )
     end
-  end
-
-  # GH #1602: a pending tip run no longer starves CD. The green run that fired CD (an ancestor of
-  # the tip) lets the tip be deployed (ruling OQ-1: the tip passed the merge queue).
-  test "row 4: tip run pending and the green run is an ancestor -> deploy the tip", %{f: f} do
-    for tip_run <- ["in_progress", "queued", "requested", "waiting", "pending"] do
-      decide(f["repo"],
-        RUN_SHA: f["B"],
-        TIP: f["C"],
-        TIP_GIT: f["C"],
-        TIP_RUN: tip_run,
-        QA_HEALTH: health(f["A"])
-      )
-      |> assert_decision(
-        0,
-        true,
-        "QA sha #{f["A"]} behind tip #{f["C"]}, deploying tip (tip run #{tip_run}, green ancestor #{f["B"]})"
-      )
-    end
-  end
-
-  test "row 4: tip run pending but QA is already at the tip -> skip", %{f: f} do
-    decide(f["repo"],
-      RUN_SHA: f["B"],
-      TIP: f["C"],
-      TIP_GIT: f["C"],
-      TIP_RUN: "in_progress",
-      QA_HEALTH: health(f["C"])
-    )
-    |> assert_decision(
-      0,
-      false,
-      "QA already at tip #{f["C"]} (tip run in_progress, green ancestor #{f["B"]})"
-    )
-  end
-
-  test "row 4: tip run pending but the run sha is not on the tip's history -> skip", %{f: f} do
-    decide(f["repo"],
-      RUN_SHA: f["R"],
-      TIP: f["C"],
-      TIP_GIT: f["C"],
-      TIP_RUN: "in_progress",
-      QA_HEALTH: health(f["A"])
-    )
-    |> assert_decision(
-      0,
-      false,
-      "not tip (run sha #{f["R"]}, tip #{f["C"]}); tip run in_progress"
-    )
   end
 
   test "row 4 passes through when the tip's own run is green: an older run deploys the tip",
