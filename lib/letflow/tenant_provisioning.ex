@@ -984,7 +984,10 @@ defmodule Letflow.TenantProvisioning do
      "20261106100001_add_accepted_manifest_hashes_to_tenant_modules.exs"},
     # REQ-774: raise the posting leg cap 200 -> 2000 (the CHECK constraints of the ledger tables).
     {20_261_106_200_001, Letflow.Repo.Migrations.RaisePostingLegCap,
-     "20261106200001_raise_posting_leg_cap.exs"}
+     "20261106200001_raise_posting_leg_cap.exs"},
+    # T-1561: user_notifications table (in-app bell list; kind list closed in code, no CHECK).
+    {20_261_107_100_001, Letflow.Repo.Migrations.CreateUserNotifications,
+     "20261107100001_create_user_notifications.exs"}
   ]
 
   @doc """

@@ -83,6 +83,7 @@ import { usersMessages } from '@/pages/admin/usersMessages'
 import { instancesMessages } from '@/pages/instances/instancesMessages'
 import { definitionsMessages } from '@/pages/definitions/definitionsMessages'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
+import { notificationMessages } from '@/components/layout/notificationMessages'
 
 const LOCALES = ['en', 'ru', 'kk'] as const
 type Locale = (typeof LOCALES)[number]
@@ -381,6 +382,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('layoutMessages (structured): no empty values in any locale', () => {
     checkStructuredCatalog('layoutMessages', layoutMessages)
+  })
+
+  it('notificationMessages (structured): no empty values in any locale', () => {
+    checkStructuredCatalog('notifications', notificationMessages)
   })
 
   it('navMessages (structured): no empty values in any locale', () => {

@@ -280,6 +280,19 @@ defmodule Letflow.Api.RouteScope do
       class: :self_service,
       ruling: "SEC-T1389-prefs-put"
     },
+    # T-1561: the caller's own in-app notification list (own rows only, user id from the token).
+    %{
+      route: "GET /me/notifications",
+      key: :MyAccessRead,
+      class: :self_service,
+      ruling: "SEC-T1561-notif-get"
+    },
+    %{
+      route: "POST /me/notifications/read",
+      key: :MyPreferencesSet,
+      class: :self_service,
+      ruling: "SEC-T1561-notif-read"
+    },
     %{
       route: "GET /help/resolved",
       key: :HelpRead,

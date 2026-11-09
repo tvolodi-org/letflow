@@ -112,7 +112,9 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  "GET /me/access",
                  "GET /me/memberships",
                  "GET /me/modules",
+                 "GET /me/notifications",
                  "GET /me/preferences",
+                 "POST /me/notifications/read",
                  "PUT /me/preferences"
                ]
     end
@@ -318,6 +320,8 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  # T-1389: the caller's own preferences (PUT is the first non-GET self_service route)
                  {"GET", "/preferences", :self_service},
                  {"PUT", "/preferences", :self_service},
+                 {"GET", "/notifications", :self_service},
+                 {"POST", "/notifications/read", :self_service},
                  {"GET", "/resolved", :self_service},
                  # REQ-545: the definitions collection reads (router-local paths "/" and "/search")
                  {"GET", "/", :self_service},
