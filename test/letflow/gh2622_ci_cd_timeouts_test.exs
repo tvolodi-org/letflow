@@ -55,12 +55,12 @@ defmodule Letflow.Gh2622CiCdTimeoutsTest do
       |> Enum.find(&(&1["name"] == "Run docs tests (docs-only change)"))
     end
 
-    test "step is time-boxed and each attempt is capped at 600 s" do
+    test "step is time-boxed and each attempt is capped at 1000 s (T-1575)" do
       step = docs_step()
       assert is_integer(step["timeout-minutes"])
-      # two 10-minute attempts must fit inside the step backstop, which stays under the job's 45
-      assert step["timeout-minutes"] >= 20 and step["timeout-minutes"] < 45
-      assert step["run"] =~ "timeout 600 mix test"
+      # two 1000 s attempts must fit inside the step backstop, which stays under the job's 45
+      assert step["timeout-minutes"] >= 34 and step["timeout-minutes"] < 45
+      assert step["run"] =~ "timeout 1000 mix test"
     end
 
     test "only exit 124 (timeout) triggers the single retry" do

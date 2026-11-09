@@ -997,19 +997,19 @@ jobs:
       # `backend_static`, which is not skipped by docs_only.
       - name: Run docs tests (docs-only change)
         if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only == 'true' && matrix.shard == 1
-        timeout-minutes: 21
+        timeout-minutes: 38
         run: |
           set -euo pipefail
           mapfile -t files < <(bash scripts/ci_docs_only.sh files)
           echo "docs-only change: running ${#files[@]} docs-related test files"
           # T-1374: this step hung 24-36 min three times and held the merge queue to the job
-          # timeout. Each attempt is capped at 10 min (`timeout 600`); only a timeout (exit 124)
+          # timeout. Each attempt is capped at 1000 s (`timeout 1000`; T-1575: the ~64 files needed 567-597 s against the old 600 s cap and were killed with 124, growth with the suite; two attempts of 1000 s plus setup stay under the job's 45 min); only a timeout (exit 124)
           # starts the second and last attempt, a real test failure fails at once. The step-level
           # timeout-minutes is the backstop for both attempts plus setup, not the per-attempt cap.
           for attempt in 1 2; do
-            echo "docs tests: attempt ${attempt} of 2 (timeout 600s)"
+            echo "docs tests: attempt ${attempt} of 2 (timeout 1000s)"
             rc=0
-            timeout 600 mix test "${files[@]}" || rc=$?
+            timeout 1000 mix test "${files[@]}" || rc=$?
             if [ "$rc" -eq 0 ]; then exit 0; fi
             if [ "$rc" -ne 124 ] || [ "$attempt" -eq 2 ]; then
               echo "docs tests: attempt ${attempt} failed with exit ${rc}"
