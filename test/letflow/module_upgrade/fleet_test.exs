@@ -286,7 +286,7 @@ defmodule Letflow.ModuleUpgrade.FleetTest do
     test "F6 a success between failures resets the counter: fail, ok, fail, fail with N=3 does not halt",
          ctx do
       Application.put_env(:letflow, :module_rollout_halt_after, 3)
-      [t1, t2, t3, t4] = tenants = tenants!(4)
+      [t1, _t2, t3, t4] = tenants = tenants!(4)
 
       for t <- tenants, do: age!(t.schema_name)
       for t <- [t1, t3, t4], do: class_c!(t.schema_name)
