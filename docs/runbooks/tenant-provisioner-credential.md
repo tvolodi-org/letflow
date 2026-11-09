@@ -18,6 +18,7 @@ server; it opens exactly five routes under `/admin/v1` and nothing else.
 | `LETFLOW_PROVISIONER_DEMO_CAP` | 30 | most demo tenants (tier demo, lifecycle not deleted) at once; a create beyond it answers 409 `conflict` (0..100000; GH 3292) |
 | `LETFLOW_PROVISIONER_DEMO_ALARM` | 25 | when a create leaves the demo count at or above it, one warning log line names the count and the cap (0..100000) |
 | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | 60 | minutes between scheduled sweeps (1..10080) |
+| `LETFLOW_PROVISIONER_DEFAULT_MODULES` | org, locations, catalog_items, stock | comma-separated module ids installed (with their dependencies) when a tenant is created; `none` installs nothing (at most 20 ids). If a tenant's install failed, repeat the create call with the same `tenant_id`; find such tenants with `SELECT tenant_id, default_modules_state, default_modules_failure FROM tenant_lifecycles WHERE default_modules_state = 'failed'` |
 | `LETFLOW_PUBLIC_BASE_URL` | unset: create answers 500 | the `server_url` of the create answer (the same variable the mail adapter reads) |
 
 Boot stops, naming the variable and never its value, when a hash is not exactly 64 lowercase hex or when the write and read

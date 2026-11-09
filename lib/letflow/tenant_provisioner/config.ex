@@ -14,6 +14,7 @@ defmodule Letflow.TenantProvisioner.Config do
   | `LETFLOW_PROVISIONER_DEMO_CAP` | most demo tenants (lifecycle not deleted) before a create answers 409 (0..100000) | 30 |
   | `LETFLOW_PROVISIONER_DEMO_ALARM` | demo count at which a create logs one warning (0..100000); name as in decision 0072 | 25 |
   | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | minutes between scheduled sweeps (1..10080) | 60 |
+  | `LETFLOW_PROVISIONER_DEFAULT_MODULES` | comma-separated module ids installed (with their dependencies) on create; `none` = no install (≤ 20 ids) | org, locations, catalog_items, stock |
   | `LETFLOW_PUBLIC_BASE_URL` | the `server_url` of the create answer (the REQ-441 variable) | create answers 500 |
 
   The write and read hashes must differ (otherwise the write class would silently win).
@@ -36,6 +37,8 @@ defmodule Letflow.TenantProvisioner.Config do
   @default_alarm_threshold 25
   @default_sweep_interval_minutes 60
   @url_var "LETFLOW_PUBLIC_BASE_URL"
+  @modules_var "LETFLOW_PROVISIONER_DEFAULT_MODULES"
+  @default_modules ["org", "locations", "catalog_items", "stock"]
 
   @type parsed :: %{
           auth: keyword(),
@@ -53,6 +56,7 @@ defmodule Letflow.TenantProvisioner.Config do
          {:ok, demo_cap} <- parse_int(env, @demo_cap_var, 0..100_000),
          {:ok, alarm} <- parse_int(env, @alarm_var, 0..100_000),
          {:ok, interval} <- parse_int(env, @interval_var, 1..10_080),
+         {:ok, modules} <- parse_modules(env),
          {:ok, url} <- parse_url(env, config_env) do
       provisioner =
         Enum.reject(
@@ -62,7 +66,8 @@ defmodule Letflow.TenantProvisioner.Config do
             retention_days: retention,
             demo_cap: demo_cap,
             demo_alarm_threshold: alarm,
-            sweep_interval_minutes: interval
+            sweep_interval_minutes: interval,
+            default_modules: modules
           ],
           fn {_key, value} -> is_nil(value) end
         )
@@ -185,6 +190,30 @@ defmodule Letflow.TenantProvisioner.Config do
   @spec sweep_interval_minutes() :: pos_integer()
   def sweep_interval_minutes,
     do: setting(:sweep_interval_minutes, @default_sweep_interval_minutes)
+
+  @doc "T-1580 / decision 0072 D8: module ids installed on create (default org, locations, catalog_items, stock)."
+  @spec default_modules() :: [String.t()]
+  def default_modules, do: setting(:default_modules, @default_modules)
+
+  # Format-checked ids only (INV-7); membership in the Catalog is checked at install time.
+  defp parse_modules(env) do
+    case blank_to_nil(Map.get(env, @modules_var)) do
+      nil ->
+        {:ok, nil}
+
+      text ->
+        ids =
+          text |> String.split(",", trim: true) |> Enum.map(&String.trim/1) |> Enum.uniq()
+
+        cond do
+          ids == ["none"] -> {:ok, []}
+          ids != [] and length(ids) <= 20 and Enum.all?(ids, &module_id?/1) -> {:ok, ids}
+          true -> {:error, @modules_var}
+        end
+    end
+  end
+
+  defp module_id?(id), do: Regex.match?(~r/\A[a-z][a-z0-9_]{0,40}\z/, id)
 
   defp setting(key, default) do
     :letflow
