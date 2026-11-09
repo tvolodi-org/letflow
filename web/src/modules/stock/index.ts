@@ -6,7 +6,7 @@
  */
 import type { ModuleDefinition } from '@/modules/types'
 import { stockRouteObjects } from './stockRoutes'
-import { STOCK_READ } from './stockPermissions'
+import { STOCK_POST, STOCK_READ } from './stockPermissions'
 import { stockMessages } from './stockMessages'
 
 function importLabels(entityType: string) {
@@ -18,7 +18,7 @@ export const stockModuleDefinition: ModuleDefinition = {
   id: 'stock',
   depends_on: [],
   routeObjects: stockRouteObjects,
-  importTypes: [{ entityType: 'stock_opening_line', labels: importLabels('stock_opening_line') }],
+  importTypes: [{ entityType: 'stock_opening_line', labels: importLabels('stock_opening_line'), permission: STOCK_POST }],
   navItems: [
     { to: '/admin/stock/documents', label: 'Stock documents', permission: STOCK_READ },
     { to: '/admin/stock/balances', label: 'Balances', permission: STOCK_READ },

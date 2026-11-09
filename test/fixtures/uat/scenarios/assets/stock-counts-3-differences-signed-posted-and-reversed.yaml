@@ -1,0 +1,256 @@
+# T-1532 (BA#5, item 5 of docs/uat/ba-decisions/T-1518.md): the differences of a count: the sheet and the differences sheet are marked signed by the full commission, the differences are posted to the stock book as one posting by a human task, and the whole posting can be reversed once.
+# Covers REQ-717 criteria 2 to 4 and 6, REQ-718 criteria 2 to 8 (decision docs/migration/decisions/0079-counts-inventory-taking.md sections 8 and 9; the book is changed only by an authorised posting with a reason, WM-12).
+# Sources: docs/requirements.yaml REQ-717 (reasons not_chair, sheet_not_signed, signers_incomplete, differences_already_issued, count_state_invalid), REQ-718 (reasons count_state_invalid, posting_pending, count_posted, count_reversed, count_not_posted, reason_invalid; one entry with the cause count_difference; posting_check ok),
+# REQ-713 (reversal reason list wrong_document, wrong_quantity, wrong_master_data, other).
+#
+# ROSTER GAP (stated, not invented): as in stock-counts-1 (no STOREKEEPER actor; the administrator of SwiftRoute is the chair, the signer-marker, the poster and the reverser).
+# NOT UAT-observable: the 96-hour limits (a posting refused for a signing time more than 96 hours old, a differences signature after 96 hours: a unit test sets the clock); a shortage larger than the balance at completion (needs a movement after the cut-off; covered by the count freeze scenario for the frozen case and by unit tests for the plain case);
+# the paper signatures themselves (the system records who is marked as having signed, not the signature); the audit entries.
+---
+id: stock-counts-3-differences-signed-posted-and-reversed
+scope: assets
+title: The count differences are signed by the whole commission, posted to the stock book as one posting by a human task, checked, and reversed once; a worker and another company cannot post
+version: "1.0"
+tags: [assets, stock, counts, differences, posting, reversal, refusal, tenancy]
+
+description: >
+  SwiftRoute holds Bolt M8 10 pieces in "Hall" and Nut M8 4 pieces in "Shelf 1", both with responsible employee R1. The administrator, the chair, runs a count of "Hall" and counts 8 Bolts (two missing) and 5 Nuts (one more than the books).
+  The differences cannot be issued before the sheet is marked signed, and the sheet cannot be marked signed unless the chair and the responsible employee R1 are both named as signers. After both are marked, the chair issues the
+  differences sheet: one shortage line (Bolt M8, 2) and one surplus line (Nut M8, 1). Posting is refused before the differences sheet is marked signed. After it is marked signed, a task worker is refused the posting; the administrator
+  starts the posting, which waits as a task, and completes it: the books then show Bolt M8 8 and Nut M8 5, the count reads "posted" and the check of the posting reads "ok". A second posting is refused. The chair issues the posting record.
+  A worker cannot reverse. The administrator reverses the whole posting with a reason and completes the task: the books show Bolt M8 10 and Nut M8 4 again and the count reads "reversed"; a second reversal is refused. Another company cannot post or reverse.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has the stock module installed, "Main warehouse" with the locations "Hall" and "Shelf 1" (child of "Hall"), the active items Bolt M8 and Nut M8, the active employee R1, and exactly these stock balances in "Main warehouse" - Bolt M8 10 in "Hall" and Nut M8 4 in "Shelf 1", both with R1 as responsible.
+    check: system_seeded
+    detail: If other balances exist under "Hall", the sheet has more lines and the figures of this scenario change; report BLOCKED and name them.
+  - description: The administrator of SwiftRoute is linked to an active employee (the chair), no other count order of "Main warehouse" is open, and the posting task of a count can be completed by the administrator in the task inbox.
+    check: system_seeded
+    detail: If not, report BLOCKED for the whole scenario.
+  - description: BilimBaga has the stock module installed.
+    check: system_seeded
+    detail: If BilimBaga has no stock module, report BLOCKED for step 17 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator drafts and issues a selective count order for "Main warehouse" with the root "Hall", itself as chair, no other commission member, a planned start ten minutes ago and a planned end four hours after the start; opens the count;
+      types 8 for the Bolt M8 line and 5 for the Nut M8 line; and closes the count. The order is read as O1 (status "counted") and the stock balances of "Hall" and "Shelf 1" are read as B1.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The chair tries to issue the differences sheet before the sheet is marked signed. The answer is noted as R1.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The chair marks the sheet signed naming only the chair as signer, leaving out the responsible employee R1. The answer is noted as R2 and the signatures are read as G1.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The chair marks the sheet signed naming the chair and the responsible employee R1. The signatures are read as G2 and the order as O2.
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The chair issues the differences sheet. The sheet is read as D1 and the order as O3.
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The chair tries to issue the differences sheet a second time. The answer is noted as R3.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator tries to start the posting of the differences before the differences sheet is marked signed. The answer is noted as R4 and the balances are read as B2.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The chair marks the differences sheet signed naming the chair and the responsible employee R1. The order is read as O4.
+    via: api
+  - step: 9
+    actor: worker
+    action: >
+      The task worker tries to start the posting of the differences. The answer is noted as R5 and the balances are read as B3.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator starts the posting of the differences. The order is read as O5 (posting state) and the balances are read as B4. The administrator then tries to start the posting a second time while the first one waits; the answer is noted as R6.
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The administrator completes the waiting posting task in the task inbox. The balances of "Hall" and "Shelf 1" are read as B5, the order as O6 and the stock movements of the Bolt M8 and the Nut M8 as M1.
+    via: api
+  - step: 12
+    actor: admin
+    action: >
+      The administrator tries to start the posting of the differences a third time. The answer is noted as R7.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: admin
+    action: >
+      The chair issues the posting record. The order is read as O7.
+    via: api
+  - step: 14
+    actor: worker
+    action: >
+      The task worker tries to reverse the posting of the count with the reason "wrong_quantity". The answer is noted as R8 and the balances are read as B6.
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: admin
+    action: >
+      The administrator reverses the posting of the count with the reason "wrong_quantity", then completes the waiting reversal task in the task inbox. The balances are read as B7 and the order as O8.
+    via: api
+  - step: 16
+    actor: admin
+    action: >
+      The administrator tries to reverse the posting a second time with the reason "wrong_quantity", and tries to reverse with a reason that is not on the list ("because"). The answers are noted as R9 and R10; the balances are read as B8.
+    expect_refusal: true
+    via: api
+  - step: 17
+    actor: other_admin
+    action: >
+      The administrator of the other company tries to start the posting of the SwiftRoute count, to reverse it, and to read its posting document. The answers are noted as R11, R12 and R13; the SwiftRoute administrator reads the balances as B9.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The differences cannot be issued before the sheet is marked signed, and the sheet cannot be marked signed without everyone who must sign.
+    verification:
+      method: api_response
+      detail: Step 2 answers 422 with the reason "sheet_not_signed". Step 3 answers 422 with the reason "signers_incomplete" and G1 holds no signature of the sheet. Step 4 answers 200, G2 holds one signature of the sheet for the chair and one for R1, and O2 still has status "counted".
+      evidence: R1, R2, G1, G2 and O2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Differences could be drawn from a sheet that the commission and the responsible person have not signed.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The differences sheet has one shortage line and one surplus line, once.
+    verification:
+      method: api_response
+      detail: Step 5 answers 200; D1 is an issued document with a number label and exactly two lines - Bolt M8 with book "10", counted "8", a difference of 2 pieces with direction "shortage", and Nut M8 with book "4", counted "5", a difference of 1 piece with direction "surplus". Step 6 answers 422 with the reason "differences_already_issued".
+      evidence: D1, O3 and R3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The differences posted to the book would not match the count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: The posting is refused until the differences sheet is signed and nothing in the books changes.
+    verification:
+      method: api_response
+      detail: Step 7 answers 422 with the reason "count_state_invalid"; B2 equals B1. After step 8, O4 has status "signed".
+      evidence: R4, B1, B2 and O4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The stock book could be changed by a count nobody signed.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A task worker cannot start the posting.
+    verification:
+      method: http_status
+      detail: Step 9 answers 403; B3 equals B1.
+      evidence: R5 and B3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone could change the stock book through a count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: Starting the posting only creates a waiting task and does not change the books; a second start while it waits is refused.
+    verification:
+      method: api_response
+      detail: Step 10 answers with a 2xx status and O5 has the posting state "pending"; B4 equals B1; R6 is a 409 with the reason "posting_pending".
+      evidence: O5, B4 and R6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A posting could be doubled or could happen without the human step.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: Completing the task posts the differences as one posting; the books show the counted quantities and the posting is checked.
+    verification:
+      method: api_response
+      detail: B5 shows Bolt M8 "8" in "Hall" and Nut M8 "5" in "Shelf 1"; O6 has the posting state "posted", the posting check "ok" and an entry id; M1 shows one posting with the cause "count_difference" and two lines (minus 2 Bolts, plus 1 Nut), not two postings.
+      evidence: B5, O6 and M1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The book does not match the count, or a half-posted count leaves the book wrong.
+      suggested_action: route_to_elixir_dev
+  - id: EO-007
+    description: A posted count cannot be posted again.
+    verification:
+      method: api_response
+      detail: Step 12 answers 409 with the reason "count_posted"; the balances are still those of B5.
+      evidence: R7 and B5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The differences could be applied twice.
+      suggested_action: route_to_elixir_dev
+  - id: EO-008
+    description: The chair issues the posting record and the count reads "posted".
+    verification:
+      method: api_response
+      detail: Step 13 answers 200; O7 has status "posted" and the posting record has a number label.
+      evidence: O7.
+    on_fail:
+      severity: MINOR
+      business_impact: The audit has no fixed record of the posting.
+      suggested_action: route_to_elixir_dev
+  - id: EO-009
+    description: A task worker cannot reverse a posting.
+    verification:
+      method: http_status
+      detail: Step 14 answers 403; B6 equals B5.
+      evidence: R8 and B6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone could undo a posted count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-010
+    description: The whole posting is reversed once and the books return to the figures before the count.
+    verification:
+      method: api_response
+      detail: B7 shows Bolt M8 "10" and Nut M8 "4"; O8 has the posting state "reversed"; the issued documents of the count are unchanged.
+      evidence: B7 and O8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A wrong count cannot be corrected.
+      suggested_action: route_to_elixir_dev
+  - id: EO-011
+    description: A second reversal and an unknown reason are refused and nothing changes.
+    verification:
+      method: api_response
+      detail: Step 16 answers 409 with the reason "count_reversed" for R9 and 422 with the reason "reason_invalid" for R10; B8 equals B7.
+      evidence: R9, R10, B7 and B8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A posting could be reversed twice, or reversed without a stated reason.
+      suggested_action: route_to_elixir_dev
+  - id: EO-012
+    description: Another company cannot post, reverse or read the posting of this company's count.
+    verification:
+      method: api_response
+      detail: Step 17 answers 404 for R11, R12 and R13, each with the same body as an unknown count identifier (trace_id dropped before comparing); B9 equals B7.
+      evidence: R11, R12, R13, B7 and B9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could change another company's stock book.
+      suggested_action: route_to_elixir_dev

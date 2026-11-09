@@ -34,6 +34,15 @@ defmodule Letflow.Routers.Modules do
   "module doesn't exist" from "module exists but isn't installed for you"
   from "module exists, installed, but has no `router/0`."
 
+  ## Deploy-skew gate (decision 0055 D5, T-1548)
+
+  `resolve/2` asks `Installs.gate_state/2` (ONE query, replacing `installed?/2`) and, for an installed
+  module with a router, `Installs.version_verdict/2`: a stored data version below the manifest's
+  `min_data_version` answers 503 `module_upgrade_required`; above the build's `:version` answers 503
+  `module_version_ahead`. Both are sent before the module's own permission check, with fixed text (no
+  version, hash or module id). Every 404 branch is unchanged. This is NOT the 409 `upgrade_required`
+  (manifest-hash based, task completion and reactivate paths); the two share no code path.
+
   ## INV-1 (tenant scoping is server-derived only)
 
   `scoped_opts` here is derived exclusively from
@@ -104,6 +113,8 @@ defmodule Letflow.Routers.Modules do
         case resolve(module_id, scoped_opts) do
           {:ok, _entry_module, router} -> Plug.forward(conn, rest, router, router.init([]))
           :reject -> Response.not_found(conn)
+          {:refuse, :too_old} -> Response.module_data_version_too_old(conn)
+          {:refuse, :ahead} -> Response.module_version_ahead(conn)
         end
 
       {:error, :missing_auth_context} ->
@@ -125,18 +136,25 @@ defmodule Letflow.Routers.Modules do
   # observe which sub-check failed, preserving AC3's byte-identical 404
   # body.
   @spec resolve(module_id :: String.t(), scoped_opts :: keyword()) ::
-          {:ok, entry_module :: module(), router :: module()} | :reject
+          {:ok, entry_module :: module(), router :: module()}
+          | :reject
+          | {:refuse, :too_old | :ahead}
   defp resolve(module_id, scoped_opts) do
-    installed? = Installs.installed?(module_id, scoped_opts)
+    gate_state = Installs.gate_state(module_id, scoped_opts)
 
     case Catalog.fetch(module_id) do
       {:ok, entry_module} ->
         has_router? = function_exported?(entry_module, :router, 0)
 
-        if has_router? and installed? do
-          {:ok, entry_module, entry_module.router()}
-        else
-          :reject
+        case {has_router?, gate_state} do
+          {true, {:installed, stored}} ->
+            case Installs.version_verdict(entry_module.manifest(), stored) do
+              :ok -> {:ok, entry_module, entry_module.router()}
+              refusal -> {:refuse, refusal}
+            end
+
+          _ ->
+            :reject
         end
 
       {:error, :not_found} ->

@@ -26,8 +26,10 @@ vi.mock('@/modules/registry', () => ({
         ? [SAMPLE_FIXTURE_NAV_ITEM]
         : [],
   ),
-  getInstalledImportTypes: vi.fn((installed: InstalledModule[]) =>
-    installed.some((m) => m.module_id === 'sample') ? [{ entityType: 'sample_thing', labels: { en: 'Things', ru: 'Things', kk: 'Things' } }] : [],
+  getImportTypesFor: vi.fn((installed: InstalledModule[], can: (p: string) => boolean) =>
+    installed.some((m) => m.module_id === 'sample')
+      ? [{ entityType: 'sample_thing', permission: 'ExamSessionStart', labels: { en: 'Things', ru: 'Things', kk: 'Things' } }].filter((t) => can(t.permission))
+      : [],
   ),
   REGISTERED_MODULE_ROUTE_OBJECTS: [],
 }))

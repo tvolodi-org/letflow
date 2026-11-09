@@ -6,7 +6,7 @@ export function PermissionDenied(): React.ReactElement {
   const { isCandidate } = useAccess()
 
   return (
-    <div style={{ padding: '1.5rem' }}>
+    <div style={{ padding: '1.5rem' }} data-testid="permission-denied">
       <p style={{ marginBottom: '.75rem' }}>
         You do not have access to this area. Contact your tenant administrator.
       </p>
