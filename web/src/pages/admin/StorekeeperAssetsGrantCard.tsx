@@ -45,10 +45,9 @@ export default function StorekeeperAssetsGrantCard() {
 
   return (
     <section
-      className="lf-card"
+      className="lf-card lf-grant-card"
       aria-labelledby="storekeeper-grant-title"
       data-testid="storekeeper-grant-card"
-      style={{ padding: 'var(--space-4)', display: 'grid', gap: 'var(--space-3)' }}
     >
       <h3 id="storekeeper-grant-title">{m.title}</h3>
       <p>{m.lede}</p>
@@ -63,7 +62,7 @@ export default function StorekeeperAssetsGrantCard() {
         </Banner>
       )}
       {query.isSuccess && (
-        <div style={{ display: 'grid', gap: 'var(--space-3)', justifyItems: 'start' }}>
+        <div className="lf-grant-card__body">
           <Checkbox
             data-testid="grant-read"
             label={m.read}

@@ -13,7 +13,6 @@ export interface StorekeeperGrantMessages {
   saveError: string
   retry: string
   notInstalled: string
-  loading: string
 }
 
 export const storekeeperGrantMessages: Record<UiLocale, StorekeeperGrantMessages> = {
@@ -28,7 +27,6 @@ export const storekeeperGrantMessages: Record<UiLocale, StorekeeperGrantMessages
     saveError: 'Could not save. Nothing was changed.',
     retry: 'Retry',
     notInstalled: 'The asset module is not installed in this company.',
-    loading: 'Loading…',
   },
   ru: {
     title: 'Кладовщик: активы',
@@ -41,7 +39,6 @@ export const storekeeperGrantMessages: Record<UiLocale, StorekeeperGrantMessages
     saveError: 'Не удалось сохранить. Ничего не изменено.',
     retry: 'Повторить',
     notInstalled: 'Модуль активов в этой компании не установлен.',
-    loading: 'Загрузка…',
   },
   kk: {
     title: 'Қоймашы: активтер',
@@ -54,6 +51,5 @@ export const storekeeperGrantMessages: Record<UiLocale, StorekeeperGrantMessages
     saveError: 'Сақтау мүмкін болмады. Ештеңе өзгерген жоқ.',
     retry: 'Қайталау',
     notInstalled: 'Бұл компанияда активтер модулі орнатылмаған.',
-    loading: 'Жүктелуде…',
   },
 }
