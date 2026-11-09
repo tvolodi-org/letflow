@@ -1,0 +1,168 @@
+# T-1584 (BA): DEFINITIONS group, scenario 11: the process designer refuses a person without the design right, another company, and a definition that is not a draft.
+# Sources: docs/design/process-designer.md (slice 2 "Save": a DRAFT is saved with PATCH /definitions/:id, any other status is saved as a new draft with POST /definitions; 409 cases); docs/uat/ba-decisions/T-1582.md item 2;
+# lib/letflow/routers/definitions.ex (authz_patch and authz_post need DefinitionsWrite; render_write answers 409 "only a DRAFT definition can be modified" for a non-draft; an id of another company answers not found; POST /definitions/:id/validate needs DefinitionsRead);
+# docs/roles.md (DefinitionsWrite: TENANT_ADMIN yes, TASK_WORKER no, TENANT_AUDITOR no); docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10);
+# test/fixtures/uat/actors.yaml (actor-swiftroute-tobias TASK_WORKER; actor-swiftroute-auditor TENANT_AUDITOR; actor-bilimbaga-admin TENANT_ADMIN of another company; actor-swiftroute-alice TENANT_ADMIN).
+# The routes take the company from the sign-in; no request value selects a company. A platform operator is not used: on these routes it would act inside its own company, which is not a refusal case.
+# Sensitive actions of the flow: only "change definitions" occurs; approve, pay or release, see sensitive data and change users are not part of this flow.
+# Not UAT-observable here: the 409 for a module-owned version (needs a module-shipped definition the roster cannot choose) and the 409 for a version that already exists on the new-draft save (covered by the product's own tests).
+# Each refusal step is one request. The accepted case (a new draft of a process that is not a draft) is in its own step 9.
+---
+id: definitions-11-process-designer-refusals
+scope: definitions
+title: The process designer refuses a person without the design right, another company, and a definition that is not a draft
+version: "1.0"
+tags: [definitions, process-designer, refusal, other-company, draft]
+
+description: >
+  SwiftRoute has a DRAFT process designer_demo (version "1") and an ACTIVE process designer_live (version "1"), as in definitions-10. A worker and an auditor of SwiftRoute, who may read definitions but not design
+  them, are refused when they try to save a change to the draft or to create a new draft. The administrator of Bilimbaga, another company, is refused as "not found" when she names the SwiftRoute draft,
+  both for saving and for the live check, and the answer is the same as for an id that exists nowhere. The SwiftRoute administrator is refused when she tries to change the ACTIVE process in place,
+  and the active process is unchanged; the way the designer takes in that case, a new draft with the next version, is accepted. The draft of SwiftRoute is unchanged by every refusal.
+
+actors:
+  worker: actor-swiftroute-tobias
+  auditor: actor-swiftroute-auditor
+  designer: actor-swiftroute-alice
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has a DRAFT designer_demo version "1" (start, human task "Prepare", end) and an ACTIVE designer_live version "1" of the same shape; neither has a version "2".
+    check: system_seeded
+    detail: Setup-prepared; the same names as definitions-10. If version "2" of designer_live exists, use the next free version and note that in the report.
+  - description: Bilimbaga has no process named designer_demo or designer_live. The id of designer_demo is known to the tester as D1, the id of designer_live as L1.
+    check: system_seeded
+    detail: Setup-prepared.
+  - description: The worker, the auditor and both administrators can sign in with approved test tokens. The SwiftRoute auditor account exists (roster note of actor-swiftroute-auditor).
+    check: system_seeded
+    detail: If the auditor cannot sign in, steps 3 and the auditor part of EO-001 are BLOCKED; the rest still runs.
+
+steps:
+  - step: 1
+    actor: designer
+    action: >
+      The SwiftRoute administrator asks for the stored version of designer_demo (D1) and notes its steps, connections, status and time of last change as S0.
+    via: api
+  - step: 2
+    actor: worker
+    action: >
+      The SwiftRoute worker tries to save a changed diagram on designer_demo (D1): the same steps with one more human task "Check".
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor
+    action: >
+      The SwiftRoute auditor tries to save the same changed diagram on designer_demo (D1).
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: worker
+    action: >
+      The SwiftRoute worker tries to create a new draft designer_demo version "2" from the same changed diagram.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator tries to save the same changed diagram on designer_demo, naming the SwiftRoute id D1.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator tries to save the same changed diagram on an id that exists in no company (the id D1 with its last digit changed, checked against both companies). The answer is noted as A2; the answer of step 5 is A1.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator asks the live check to validate the same changed diagram against the SwiftRoute id D1.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: designer
+    action: >
+      The SwiftRoute administrator tries to save a changed diagram in place on the ACTIVE process designer_live (L1): the same steps with one more human task "Check".
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: designer
+    action: >
+      The SwiftRoute administrator saves the same changed diagram as a new draft: designer_live version "2" (the way the designer takes for a process that is not a draft).
+    via: api
+  - step: 10
+    actor: designer
+    action: >
+      The SwiftRoute administrator asks for the stored version of designer_demo (D1) and compares it with S0, then asks for the stored version of designer_live (L1) and notes its status and steps.
+    via: api
+  - step: 11
+    actor: designer
+    action: >
+      The SwiftRoute administrator opens designer_live in the web page and looks at the notice above the "Save" button of "Edit diagram".
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: A person without the design right is refused, both for changing the draft and for creating a new one.
+    verification:
+      method: http_status
+      detail: Steps 2, 3 and 4 are each refused as forbidden (status 403); none returns success and none stores anything.
+      evidence: The answers of steps 2, 3 and 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A worker or an auditor could change the company's processes.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Another company is refused as "not found" and cannot tell whether the SwiftRoute draft exists.
+    verification:
+      method: api_response
+      detail: Steps 5 and 7 answer 404. A1 (step 5) and A2 (step 6) are the same in status and body apart from the trace id.
+      evidence: A1, A2 and the answer of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could change, or learn about, another company's process.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A process that is not a draft cannot be changed in place.
+    verification:
+      method: api_response
+      detail: Step 8 answers 409 with the text "only a DRAFT definition can be modified".
+      evidence: The answer of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: An active process, on which documents may be running, could be rewritten under them.
+      suggested_action: route_to_backend_dev
+  - id: EO-004
+    description: The way the designer takes for a process that is not a draft is accepted and leaves the active process alone.
+    verification:
+      method: http_status
+      detail: Step 9 answers 201; step 10 shows designer_live version "1" still ACTIVE with its original steps, and a new DRAFT version "2" with the step "Check".
+      evidence: The answer of step 9 and the lists of step 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: A designer cannot improve an active process, or the improvement overwrites it.
+      suggested_action: route_to_backend_dev
+  - id: EO-005
+    description: No refusal changed the SwiftRoute draft.
+    verification:
+      method: system_state
+      detail: Step 10 shows designer_demo with the same steps, connections, status and time of last change as S0.
+      evidence: S0 and the stored version of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused request that still changed the draft means the refusal is not real.
+      suggested_action: route_to_backend_dev
+  - id: EO-006
+    description: The page tells the designer, before she saves, that a process that is not a draft is saved as a new draft.
+    verification:
+      method: screen_text
+      detail: Step 11 shows the words "This definition is" and the status, followed by "Saving creates a new draft version" and the next version number, and the button reads "Save as draft" with that version.
+      evidence: The notice and button of step 11.
+    on_fail:
+      severity: MINOR
+      business_impact: The designer is surprised that a new version appears.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the draft designer_live version "2" and keep designer_demo and designer_live version "1" as set up, if the environment allows it.
