@@ -3,10 +3,14 @@
 /// is retried by itself.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../api/api_error.dart';
 import '../../../i18n/i18n.dart';
+import '../../../offline/install_state.dart' show requestPersistentStorage;
+import '../../../offline/offline_queue.dart';
 import '../../../renderers/renderer_state.dart';
 import '../../codes/codes_resolve.dart';
 import '../voice/voice_models.dart';
@@ -21,7 +25,15 @@ class DocFormController extends ChangeNotifier {
     required this.api,
     required this.pickers,
     required this.draft,
+    this.queue,
   });
+
+  /// Web only (PWA M3): a new draft saved without a network goes here. Null on
+  /// Android / iOS (today's behaviour).
+  final OfflineDraftQueue? queue;
+
+  /// True after a Save was stored in the offline queue instead of sent.
+  bool queuedLocally = false;
 
   final StockDocumentsApi api;
   final PickerLoader pickers;
@@ -288,10 +300,37 @@ class DocFormController extends ChangeNotifier {
   Future<bool> _save() async {
     if (!draft.isSaveable) return false;
     final id = draft.id;
-    draft = id == null ? await api.save(draft) : await api.replace(id, draft);
+    if (id == null) {
+      try {
+        draft = await api.save(draft);
+      } on NetworkUnavailableError {
+        final q = queue;
+        if (q == null) rethrow;
+        return _enqueue(q);
+      }
+    } else {
+      draft = await api.replace(id, draft);
+    }
     _dirty = false;
     return true;
   }
+
+  /// Stores the new draft locally. Returns false: nothing was sent, so Issue
+  /// stops here.
+  Future<bool> _enqueue(OfflineDraftQueue q) async {
+    final result = await q.enqueue(draft.toBody(), label: _label());
+    if (result == EnqueueResult.stored) {
+      queuedLocally = true;
+      _dirty = false;
+      message = tr('offline.saved');
+      unawaited(requestPersistentStorage());
+    } else {
+      message = tr('offline.full');
+    }
+    return false;
+  }
+
+  String _label() => tr('stock.doc.kind.${draft.kind.wire}');
 
   Future<void> retry() async {
     final action = _lastAction;

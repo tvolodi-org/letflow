@@ -225,5 +225,13 @@
   "stock.voice.choose.dismiss": "Ни один",
   "stock.voice.proposal.title": "Проверьте услышанный подсчёт",
   "stock.voice.proposal.confirm": "Засчитать",
-  "stock.voice.proposal.dismiss": "Отклонить"
+  "stock.voice.proposal.dismiss": "Отклонить",
+  "offline.saved": "Нет соединения. Черновик сохранён на этом устройстве и будет отправлен при открытии приложения с соединением.",
+  "offline.full": "Нет соединения, а офлайн-список заполнен. Подключитесь, чтобы отправить этот черновик.",
+  "offline.waiting": "Ожидают отправки: {count}",
+  "offline.sendNow": "Отправить сейчас",
+  "offline.rejected": "Отклонено сервером: {reason}",
+  "offline.discard": "Удалить",
+  "offline.sent": "Отправлено: {sent}. Отклонено: {rejected}. Ожидают: {remaining}.",
+  "offline.storageWarning": "Сайт не установлен: браузер может удалить сохранённые данные через 7 дней без использования. Добавьте его на главный экран."
 }

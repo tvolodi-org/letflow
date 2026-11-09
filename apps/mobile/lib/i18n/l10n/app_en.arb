@@ -225,5 +225,13 @@
   "stock.voice.choose.dismiss": "None of these",
   "stock.voice.proposal.title": "Check the heard count",
   "stock.voice.proposal.confirm": "Count it",
-  "stock.voice.proposal.dismiss": "Dismiss"
+  "stock.voice.proposal.dismiss": "Dismiss",
+  "offline.saved": "No connection. The draft is saved on this device and will be sent when the app is opened with a connection.",
+  "offline.full": "No connection and the offline list is full. Connect to send this draft.",
+  "offline.waiting": "{count} waiting to send",
+  "offline.sendNow": "Send now",
+  "offline.rejected": "Refused by the server: {reason}",
+  "offline.discard": "Discard",
+  "offline.sent": "Sent: {sent}. Refused: {rejected}. Waiting: {remaining}.",
+  "offline.storageWarning": "This site is not installed: the browser may delete saved data after 7 days without use. Add it to the home screen."
 }

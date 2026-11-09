@@ -76,6 +76,25 @@ class TokenSet {
   }
 }
 
+/// The one [FlutterSecureStorage] configuration of the app (PWA M3, D-112).
+///
+/// On web the plugin keeps its AES key next to the ciphertext, so the data is
+/// only as safe as the storage area it sits in. With `useSessionStorage` both
+/// live in `sessionStorage`: gone when the PWA/tab process closes, never in
+/// long-lived `localStorage`. Consequence: on web the user signs in again
+/// after closing the app (the offline draft queue, in IndexedDB, survives).
+/// Android / iOS options are unchanged.
+FlutterSecureStorage productionSecureStorage({bool web = kIsWeb}) =>
+    FlutterSecureStorage(
+      aOptions: const AndroidOptions(),
+      iOptions: const IOSOptions(
+        accessibility: KeychainAccessibility.first_unlock_this_device,
+      ),
+      webOptions: web
+          ? const WebOptions(useSessionStorage: true)
+          : WebOptions.defaultOptions,
+    );
+
 /// The one token-store class (REQ-421 design §4). Keyed by `realmUrl`, not
 /// the entered slug — the secure-storage key is derived from the
 /// backend-verified `realm_url`, never the user-claimed slug, which is
@@ -111,15 +130,8 @@ class TenantTokenStore {
   /// `encryptedSharedPreferences: true` requested in the pre-v11 API. No
   /// parameter is needed to opt into it; passing the plain `AndroidOptions()`
   /// default *is* the hardened choice under this pinned version.
-  factory TenantTokenStore.production() {
-    const storage = FlutterSecureStorage(
-      aOptions: AndroidOptions(),
-      iOptions: IOSOptions(
-        accessibility: KeychainAccessibility.first_unlock_this_device,
-      ),
-    );
-    return const TenantTokenStore(storage);
-  }
+  factory TenantTokenStore.production() =>
+      TenantTokenStore(productionSecureStorage());
 
   final FlutterSecureStorage _storage;
 

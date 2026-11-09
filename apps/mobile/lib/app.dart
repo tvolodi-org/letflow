@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -51,11 +53,31 @@ class _LetflowAppState extends ConsumerState<LetflowApp> {
   void initState() {
     super.initState();
     final controller = ref.read(bootstrapControllerProvider);
+    _controller = controller;
     _router = _buildRouter(controller);
     // Fire-and-forget: a device with no last-active-tenant pointer leaves
     // state at `BootstrapPhase.unauthenticated` unconditionally (today's
     // exact behaviour, design §7.3).
     controller.attemptSessionResume();
+    // PWA M3: send the queued offline drafts once per app start, as soon as
+    // the session is network-verified (not on `resumedOffline`).
+    controller.addListener(_syncOnceWhenVerified);
+  }
+
+  late final BootstrapController _controller;
+  bool _synced = false;
+
+  void _syncOnceWhenVerified() {
+    if (_synced) return;
+    if (_controller.state.phase != BootstrapPhase.success) return;
+    _synced = true;
+    unawaited(syncOfflineQueueOnOpen(ref));
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_syncOnceWhenVerified);
+    super.dispose();
   }
 
   @override
