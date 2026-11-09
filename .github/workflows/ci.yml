@@ -228,7 +228,7 @@ jobs:
   # nothing outside this run reads these outputs (the path-filter artifact for cd.yml is gone).
   changes:
     name: Detect changed paths
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       backend: ${{ steps.filter.outputs.backend || steps.fallback.outputs.backend }}
@@ -569,7 +569,7 @@ jobs:
   # fetch-depth: 0 is required here (`letflow.lint_handoffs` uses git history).
   backend_static:
     name: Backend static checks + isolated tails
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' && needs.changes.outputs.main_red != 'true' }}
@@ -845,7 +845,7 @@ jobs:
   # ('unable to reserve cache'), which is harmless.
   backend_shard:
     name: Backend shard ${{ matrix.shard }}/${{ strategy.job-total }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' && needs.changes.outputs.main_red != 'true' }}
@@ -1040,7 +1040,7 @@ jobs:
   # re-reads the previous attempt's leg results, so a red leg stays red.
   backend:
     name: Backend gate (mix letflow.check)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: [changes, backend_static, backend_shard]
     if: ${{ always() }}
@@ -1086,7 +1086,7 @@ jobs:
   #                  descendant commit. A failed or timed-out run counts; a cancelled one does not.
   full_run_marker:
     name: Selective CI markers (main)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: [changes, backend]
     if: ${{ always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
@@ -1155,7 +1155,7 @@ jobs:
     # specs (see web/package.json's `test` script), so no browser/server
     # setup is needed here.
     name: Frontend gate (npm run check)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: changes
     # NOT `always()` (unlike the aggregator `backend`, which needs it; see its note).
@@ -1211,7 +1211,7 @@ jobs:
   # `backend`/`frontend` job-header comments for the precedent this follows.
   mobile:
     name: Mobile gate (flutter analyze + test + build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: changes
     # NOT `always()` -- same reasoning as `frontend` (see this design's §3 and
