@@ -1,0 +1,135 @@
+# T-1583 (BA batch 3, item 1): the side menu of a worker with no administration rights. Three entries, nothing administrative, and every hidden address typed by hand
+# is refused.
+# Sources: web/src/auth/access/fixtures.ts (the permissions of TASK_WORKER: instances, tasks and definitions are readable; no user, group, token, audit, webhook,
+# import, metrics or module permission), web/src/components/layout/AppShell.tsx (NAV_ITEMS), navVisibility.ts, navMessages.ts, web/src/router.tsx (RequirePermission
+# on admin/users, admin/audit, admin/import, webhooks and the platform pages), web/src/components/layout/__tests__/navRoleWalk.test.tsx (the worker sees 3 entries; a worker
+# opening Import data directly is refused), feedbackMessages.ts, test/fixtures/uat/actors.yaml (actor-swiftroute-tobias: TASK_WORKER only, no routing role).
+# STOREKEEPER GAP (stated, not invented): the task asks for a storekeeper too. The roster test/fixtures/uat/actors.yaml has no storekeeper actor (grep -i storekeeper finds
+# nothing), the same gap scenario assets-access-1 states. No storekeeper scenario is written; it follows when a storekeeper account is on the roster (the product's own walk test
+# navRoleWalk.test.tsx covers the storekeeper's 7 entries in CI). BLOCKED, not passed.
+# Not UAT-observable: the missing /me/access answer (the menu must show nothing gated while the permission answer loads or fails); it needs a failing server, so the web unit
+# test navVisibility.test.ts is its check.
+# UAT assumption, to be confirmed by the process owner: the English names of the entries are those of navMessages.ts and the browser language is English.
+---
+id: tenant-administration-77-role-sidebar-task-worker
+scope: tenant-administration
+title: A task worker's side menu holds only Instances, My Tasks and Definitions, and every administration address typed by hand is refused
+version: "1.0"
+tags: [tenant-admin, sidebar, role-visibility, refusal, gui]
+
+description: >
+  The dispatcher Tobias of SwiftRoute holds only the task-worker role. After signing in he sees one group, Work, with three entries. He types by hand the addresses of
+  Users, Audit, Import data, Webhooks and Tenants; each shows the refusal text and none shows data. The menu is still the same three entries afterwards.
+
+actors:
+  worker: actor-swiftroute-tobias
+
+preconditions:
+  - description: The dispatcher Tobias of SwiftRoute can sign in; the browser language is English.
+    check: system_seeded
+    detail: If he cannot sign in, report BLOCKED for the whole scenario, not FAIL.
+
+steps:
+  - step: 1
+    actor: worker
+    action: >
+      Signs in and reads the side menu: the names of its groups and of its entries.
+    via: gui
+    produces:
+      menu_screen: the groups and entries of the side menu
+  - step: 2
+    actor: worker
+    action: >
+      Opens the entry "My Tasks" from the side menu.
+    via: gui
+    produces:
+      tasks_screen: the screen that opens
+  - step: 3
+    actor: worker
+    action: >
+      Types by hand the address of the page "Users" in the browser address bar and opens it.
+    expect_refusal: true
+    via: gui
+    produces:
+      users_screen: the screen that opens
+  - step: 4
+    actor: worker
+    action: >
+      Types by hand the address of the page "Audit" and opens it.
+    expect_refusal: true
+    via: gui
+    produces:
+      audit_screen: the screen that opens
+  - step: 5
+    actor: worker
+    action: >
+      Types by hand the address of the page "Import data" and opens it.
+    expect_refusal: true
+    via: gui
+    produces:
+      import_screen: the screen that opens
+  - step: 6
+    actor: worker
+    action: >
+      Types by hand the address of the page "Webhooks" and opens it.
+    expect_refusal: true
+    via: gui
+    produces:
+      webhooks_screen: the screen that opens
+  - step: 7
+    actor: worker
+    action: >
+      Types by hand the address of the platform page "Tenants" and opens it.
+    expect_refusal: true
+    via: gui
+    produces:
+      tenants_screen: the screen that opens
+  - step: 8
+    actor: worker
+    action: >
+      Reads the side menu again.
+    via: gui
+    produces:
+      menu_after_screen: the groups and entries of the side menu
+
+expected_outcomes:
+  - id: EO-001
+    description: The menu holds exactly one group with exactly three entries.
+    verification:
+      method: gui_screen
+      detail: The menu screen shows the group Work with Instances, My Tasks and Definitions and no other group and no other entry.
+      evidence: menu_screen.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An ordinary employee would be shown administration entries they cannot use, and the menu would hint at what exists.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: A visible entry opens its page.
+    verification:
+      method: gui_screen
+      detail: The tasks screen shows the task list (or its empty message) and not the refusal text or a not-found page.
+      evidence: tasks_screen.
+    on_fail:
+      severity: MAJOR
+      business_impact: The worker cannot reach the daily task list.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: Each hidden address typed by hand shows the refusal text and no data.
+    verification:
+      method: gui_screen
+      detail: The screens of steps 3 to 7 each show "You do not have access to this area. Contact your tenant administrator." with a link to My Tasks, and no user list, no audit rows, no import form, no webhook list, no company list.
+      evidence: users_screen, audit_screen, import_screen, webhooks_screen and tenants_screen.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Hiding menu entries would be cosmetic; an employee could read user lists and the audit log by typing the address.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The refused pages leave the menu unchanged.
+    verification:
+      method: gui_screen
+      detail: The menu after screen equals the menu screen, three entries in one group.
+      evidence: menu_after_screen and menu_screen.
+    on_fail:
+      severity: MINOR
+      business_impact: The menu changes after a refusal, which confuses the worker.
+      suggested_action: route_to_frontend_dev

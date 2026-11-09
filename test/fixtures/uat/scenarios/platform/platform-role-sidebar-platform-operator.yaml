@@ -1,0 +1,76 @@
+# T-1583 (BA batch 3, item 1): the side menu of the platform operator. The operator signs in to the platform company and sees the extra group Platform that no company
+# user sees.
+# Sources: AppShell.tsx (NAV_ITEMS: the six entries with platformOnly: true, group platform), navVisibility.ts (platformOnly entries also need the platform company),
+# navMessages.ts, router.tsx (platformPage guards), test/fixtures/uat/actors.yaml (actor-platform-admin, tenant platform, PLATFORM_ADMIN), docs/roles.md.
+# Companion: tenant-admin-76 (a company administrator sees no Platform group) and tenant-admin-77 (a worker is refused platform addresses).
+# Not asserted: the module entries of the platform company (which modules it has installed is not fixed by the roster), and "Import data" / "Module lifecycle"
+# (shown only with an importable list type or the feature switch). This is a view check on the operator's own sign-in; no other company's data is requested.
+# UAT assumption, to be confirmed by the process owner: the English names of the entries are those of navMessages.ts and the browser language is English.
+# STOREKEEPER GAP: see tenant-admin-77; the roster has no storekeeper actor.
+---
+id: platform-role-sidebar-platform-operator
+scope: platform
+title: The platform operator's side menu has the group Platform with six entries, and each opens its page
+version: "1.0"
+tags: [platform, sidebar, role-visibility, gui]
+
+description: >
+  The platform operator signs in to the platform company and reads the side menu. Besides Work and Tenant administration it has a group Platform with Health, Register
+  Tenant, Tenants, Services, Platform Migrations and Event Retention. Each of the six entries opens its page, not a refusal.
+
+actors:
+  operator: actor-platform-admin
+
+preconditions:
+  - description: The platform operator account is seeded and can sign in; the browser language is English.
+    check: system_seeded
+    detail: If the operator cannot sign in, report BLOCKED for the whole scenario, not FAIL.
+
+steps:
+  - step: 1
+    actor: operator
+    action: >
+      Signs in and reads the side menu: the names of its groups and of the entries under each group.
+    via: gui
+    produces:
+      menu_screen: the groups and entries of the side menu
+  - step: 2
+    actor: operator
+    action: >
+      Opens, one after the other from the side menu, the entries Health, Register Tenant, Tenants, Services, Platform Migrations and Event Retention, and notes for each whether
+      a page or the refusal text opens.
+    via: gui
+    produces:
+      platform_screens: the six screens, one per entry
+
+expected_outcomes:
+  - id: EO-001
+    description: The menu has a group called Platform with exactly the six platform entries.
+    verification:
+      method: gui_screen
+      detail: The menu screen shows the group Platform with Health, Register Tenant, Tenants, Services, Platform Migrations and Event Retention and no other entry in that group.
+      evidence: menu_screen.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot reach the tools that run the platform, or sees tools that do not belong to the group.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The groups Work and Tenant administration are present for the operator too.
+    verification:
+      method: gui_screen
+      detail: The menu screen shows the group Work with Instances, My Tasks and Definitions, and the group Tenant administration with Audit, Metrics and Users.
+      evidence: menu_screen.
+    on_fail:
+      severity: MINOR
+      business_impact: The operator loses the pages of the platform company's own work.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: Each platform entry opens its page.
+    verification:
+      method: gui_screen
+      detail: None of the six screens shows the refusal text, the access-error text or a not-found page; each shows its own title.
+      evidence: platform_screens.
+    on_fail:
+      severity: MAJOR
+      business_impact: The menu shows an entry the operator cannot use.
+      suggested_action: route_to_frontend_dev
