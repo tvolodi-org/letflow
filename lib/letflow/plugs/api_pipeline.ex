@@ -285,6 +285,11 @@ defmodule Letflow.Plugs.ApiPipeline do
   # Letflow.Routers.PlatformMigrations' own moduledoc for the route table.
   forward("/platform-migrations", to: Letflow.Routers.PlatformMigrations)
 
+  # RU-S6 -- the platform fleet driver (module version rolled out tenant by tenant). Same mount
+  # reason as /platform-migrations; gated by the PLATFORM-scope :ModuleRolloutsManage. See
+  # Letflow.Routers.PlatformModuleRollouts.
+  forward("/platform-module-rollouts", to: Letflow.Routers.PlatformModuleRollouts)
+
   # REQ-377 -- the operator-facing platform-wide event-history retirement
   # screen's backend HTTP surface. Mounted here for the same structural
   # reason /platform-migrations is: a platform-wide, cross-tenant fanout

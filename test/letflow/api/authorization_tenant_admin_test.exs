@@ -58,8 +58,10 @@ defmodule Letflow.Api.AuthorizationTenantAdminTest do
 
       # Literal: the only two platform-scope core permissions (decision 0046 D2). Not derived from
       # permission_scope/1, so a drift of the scope table is caught here too.
-      assert Enum.sort(refused) == Enum.sort([:TenantsManage, :PlatformServicesManage])
-      assert length(granted) == length(permissions) - 2
+      assert Enum.sort(refused) ==
+               Enum.sort([:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage])
+
+      assert length(granted) == length(permissions) - 3
     end
 
     test "Catalog (module) permissions are granted to TENANT_ADMIN: tenant scope, independent of any manifest role_grants" do
@@ -110,7 +112,8 @@ defmodule Letflow.Api.AuthorizationTenantAdminTest do
     end
 
     test "TENANT_ADMIN is never allowed a platform-scope permission, with platform_tenant? true or false" do
-      for permission <- [:TenantsManage, :PlatformServicesManage], flag <- [true, false] do
+      for permission <- [:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage],
+          flag <- [true, false] do
         refute Authorization.has_permission_in_scope?([:TENANT_ADMIN], permission, flag),
                "has_permission_in_scope? #{inspect(permission)} flag=#{flag}"
       end

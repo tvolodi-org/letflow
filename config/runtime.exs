@@ -296,6 +296,13 @@ config :letflow,
          System.get_env("LETFLOW_MODULE_UPGRADE_ONE_TX_MAX_RECORDS")
        )
 
+# RU-S6: the fleet driver halts a rollout after this many consecutive failed tenants. Default 3.
+config :letflow,
+       :module_rollout_halt_after,
+       Letflow.ModuleUpgrade.Settings.parse_rollout_halt_after(
+         System.get_env("LETFLOW_MODULE_ROLLOUT_HALT_AFTER")
+       )
+
 config :letflow, Letflow.Plugs.ClientIp, trusted_proxies: trusted_proxies
 
 # GH T-1558: failed-credential limit per address and minute (Letflow.Plugs.AuthAttemptLimit).

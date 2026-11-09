@@ -352,6 +352,7 @@ defmodule Letflow.Api.Authorization do
           | :MyAccessRead
           | :MyPreferencesSet
           | :PlatformServicesManage
+          | :ModuleRolloutsManage
           | :TenantSettingsManage
           | :PromotionsRead
           | :PromotionsManage
@@ -520,6 +521,8 @@ defmodule Letflow.Api.Authorization do
     :EntitiesRestrictionsManage,
     # ISS-0993 (design iss0993-platform-scope-separation.md section 5)
     :PlatformServicesManage,
+    # RU-S6 (T-1594, decision 0055): the platform fleet driver. PLATFORM scope.
+    :ModuleRolloutsManage,
     :TenantSettingsManage,
     :PromotionsRead,
     :PromotionsManage,
@@ -557,7 +560,7 @@ defmodule Letflow.Api.Authorization do
   # permission without a scope fails the suite. :MetricsRead is TENANT scope
   # (OQ-13, ratified: /health and /metrics routes are global-public and stay
   # outside the pin; only the permission atom is classified).
-  @platform_permissions [:TenantsManage, :PlatformServicesManage]
+  @platform_permissions [:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage]
 
   @permission_scope Map.new(
                       @permissions,
@@ -572,7 +575,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All fifty-six core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All fifty-seven core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -605,8 +608,8 @@ defmodule Letflow.Api.Authorization do
   `:ScheduledJobsManage` (the tenant scheduled-job routes under `/scheduled-jobs`) and
   REQ-579's `:DocumentPrintTemplatesManage` (tenant print-template overrides under
   `/documents/print-overrides`) and REQ-596's `:SolutionOverridesManage` (tenant solution-pack
-  overrides under `/solution-packs/:pack_id/overrides`),
-  each TENANT_ADMIN through the derived rule.
+  overrides under `/solution-packs/:pack_id/overrides`), each TENANT_ADMIN through the derived rule,
+  plus RU-S6's platform-scope `:ModuleRolloutsManage` (the fleet driver, PLATFORM_ADMIN only).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -981,6 +984,14 @@ defmodule Letflow.Api.Authorization do
 
   def endpoint_policy_key("POST", "/platform-migrations/rollouts/:id/resume"),
     do: :TenantsManage
+
+  # RU-S6 -- the platform fleet driver (Letflow.Routers.PlatformModuleRollouts), PLATFORM scope.
+  def endpoint_policy_key("POST", "/platform-module-rollouts"), do: :ModuleRolloutsManage
+  def endpoint_policy_key("GET", "/platform-module-rollouts"), do: :ModuleRolloutsManage
+  def endpoint_policy_key("GET", "/platform-module-rollouts/:id"), do: :ModuleRolloutsManage
+
+  def endpoint_policy_key("POST", "/platform-module-rollouts/:id/resume"),
+    do: :ModuleRolloutsManage
 
   # REQ-377 -- platform-wide event-history retirement screen
   # (Letflow.Routers.EventRetention), a top-level sibling router mounted at
@@ -1597,6 +1608,7 @@ defmodule Letflow.Api.Authorization do
     do: :PlatformServicesManage
 
   def required_permission(:TenantsManage), do: :TenantsManage
+  def required_permission(:ModuleRolloutsManage), do: :ModuleRolloutsManage
   # ISS-0993 identity clauses (policy-key name == permission name).
   def required_permission(:TenantSettingsManage), do: :TenantSettingsManage
   def required_permission(:PromotionsRead), do: :PromotionsRead

@@ -67,6 +67,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :ModulesManage,
     :EntitiesRestrictionsManage,
     :PlatformServicesManage,
+    :ModuleRolloutsManage,
     :TenantSettingsManage,
     :PromotionsManage,
     :DefinitionsRollback,
@@ -130,12 +131,12 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
       assert length(granted) == 16
     end
 
-    test "the refused core set is the literal 40, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
+    test "the refused core set is the literal 41, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
       core = Authorization.core_permissions()
       granted_core = Enum.filter(core, &Authorization.role_allows?(:TENANT_AUDITOR, &1))
       refused_core = core -- granted_core
 
-      assert length(@auditor_refused_core) == 40
+      assert length(@auditor_refused_core) == 41
       assert Enum.sort(refused_core) == Enum.sort(@auditor_refused_core)
       assert Enum.sort(granted_core ++ @auditor_refused_core) == Enum.sort(core)
 
