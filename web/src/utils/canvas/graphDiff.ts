@@ -142,11 +142,32 @@ export function diffGraphs(from: DefinitionGraph | null | undefined, to: Definit
     edgeDiff.set(id, { kind, fields, origin })
     if (kind !== 'unchanged') edgeCounts[kind]++
   }
+  const usedByKey = new Map<string, Set<number>>()
   // `to` order first (pairs and additions), then what only `from` has.
   for (const [key, toList] of toGroups) {
     const fromList = fromGroups.get(key) ?? []
+    // Equal connections pair first; only the leftovers pair up as changes (in order), then add/remove.
+    const same = (a: GraphEdge, b: GraphEdge) => cond(a) === cond(b) && dflt(a) === dflt(b)
+    const used = new Set<number>()
+    const match = new Map<number, GraphEdge>()
     toList.forEach((e, i) => {
-      const before = fromList[i]
+      const j = fromList.findIndex((f, k) => !used.has(k) && same(f, e))
+      if (j >= 0) {
+        used.add(j)
+        match.set(i, fromList[j])
+      }
+    })
+    toList.forEach((_, i) => {
+      if (match.has(i)) return
+      const j = fromList.findIndex((_f, k) => !used.has(k))
+      if (j >= 0) {
+        used.add(j)
+        match.set(i, fromList[j])
+      }
+    })
+    usedByKey.set(key, used)
+    toList.forEach((e, i) => {
+      const before = match.get(i)
       if (!before) return push(e, 'added', [], { toId: e.id })
       const fields: string[] = []
       if (cond(before) !== cond(e)) fields.push('condition')
@@ -155,8 +176,10 @@ export function diffGraphs(from: DefinitionGraph | null | undefined, to: Definit
     })
   }
   for (const [key, fromList] of fromGroups) {
-    const taken = toGroups.get(key)?.length ?? 0
-    fromList.slice(taken).forEach((e) => push(e, 'removed', [], { fromId: e.id }))
+    const used = usedByKey.get(key)
+    fromList.forEach((e, k) => {
+      if (!used?.has(k)) push(e, 'removed', [], { fromId: e.id })
+    })
   }
 
   return {

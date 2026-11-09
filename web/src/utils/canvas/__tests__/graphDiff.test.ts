@@ -95,4 +95,24 @@ describe('diffGraphs', () => {
     const fewer = diffGraphs(g(BASE.nodes, [e('r', 's', 'a', { condition: 'c1' })]), from)
     expect(fewer.counts.edges.added).toBe(1)
   })
+
+  it('G12 inserting a connection before a surviving one leaves the survivor unchanged', () => {
+    const old = g(BASE.nodes, [e('o', 's', 'a', { condition: 'z' })])
+    const next = g(BASE.nodes, [e('n1', 's', 'a', { condition: 'a' }), e('o', 's', 'a', { condition: 'z' })])
+    const d = diffGraphs(old, next)
+    expect(d.counts.edges).toEqual({ added: 1, removed: 0, changed: 0 })
+    const added = d.graph.edges.filter((x) => d.edges.get(x.id)?.kind === 'added')
+    expect(added).toHaveLength(1)
+    expect(added[0].condition).toBe('a')
+  })
+
+  it('G13 deleting a connection before a surviving one removes the right one', () => {
+    const old = g(BASE.nodes, [e('n1', 's', 'a', { condition: 'a' }), e('o', 's', 'a', { condition: 'z' })])
+    const next = g(BASE.nodes, [e('o', 's', 'a', { condition: 'z' })])
+    const d = diffGraphs(old, next)
+    expect(d.counts.edges).toEqual({ added: 0, removed: 1, changed: 0 })
+    const removed = d.graph.edges.filter((x) => d.edges.get(x.id)?.kind === 'removed')
+    expect(removed[0].condition).toBe('a')
+    expect(d.graph.edges.filter((x) => x.condition === 'z')).toHaveLength(1)
+  })
 })
