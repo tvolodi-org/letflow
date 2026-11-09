@@ -169,9 +169,19 @@ defmodule Letflow.Engine.CompleteTaskFormHookCrashTest do
 
   # Delegates to the real sandbox runner after arming a killer for the worker (or the watchdog).
   # The worker is the new supervisor child whose `$callers` head is the other new child.
+  #
+  # FormValidation caps the manifest's timeout_ms at 50 ms (@max_timeout_ms), which is too
+  # tight under partition load — the killer process may not be scheduled within that window,
+  # causing the watchdog's after-clause to fire first and return {:error, :timeout} instead
+  # of {:error, :memory_limit_exceeded}. We override the ScriptRunner timeout to 5_000 ms
+  # (its own ceiling) here so the kill can always land before the deadline.
   defp killing_runner(test_pid, variant) do
     fn source, input, opts ->
       before = MapSet.new(Task.Supervisor.children(@supervisor))
+      # Override timeout_ms: FormValidation clamps the manifest value to 50 ms, but the
+      # opts passed to ScriptRunner.run are under our control here. 5_000 is the runner's
+      # own max_timeout_ms, giving the killer process ample scheduling time under load.
+      opts = Keyword.put(opts, :timeout_ms, 5_000)
 
       spawn(fn -> kill_when_ready(test_pid, variant, before, 4_000) end)
       Letflow.Engine.Lua.ScriptRunner.run(source, input, opts)
@@ -187,9 +197,25 @@ defmodule Letflow.Engine.CompleteTaskFormHookCrashTest do
     with [_, _] <- fresh,
          [worker] <- Enum.filter(fresh, &(hd_callers(&1) in fresh)),
          [watchdog] <- fresh -- [worker] do
-      case variant do
-        {:worker, reason} -> Process.exit(worker, reason)
-        :watchdog -> Process.exit(watchdog, :kill)
+      {target, exit_signal} =
+        case variant do
+          {:worker, reason} -> {worker, reason}
+          :watchdog -> {watchdog, :kill}
+        end
+
+      # Monitor before sending the exit signal so the DOWN is queued even if the process
+      # dies before we enter the receive below.
+      monitor = Process.monitor(target)
+      Process.exit(target, exit_signal)
+
+      # Await the DOWN before notifying the test. Without this wait, both the watchdog
+      # (inside ScriptRunner) and this killer process receive the DOWN concurrently; if
+      # the watchdog processes it first, ScriptRunner returns and complete/1 unblocks
+      # before the send executes — making assert_receive miss the message under load.
+      receive do
+        {:DOWN, ^monitor, :process, ^target, _} -> :ok
+      after
+        5_000 -> :ok
       end
 
       send(test_pid, {:killed, variant})
@@ -221,8 +247,10 @@ defmodule Letflow.Engine.CompleteTaskFormHookCrashTest do
 
         assert {:error, {:form_hook_failed, unquote(code)}} = complete(base, c.task)
 
-        # the kill really happened (a lost race would show :timeout instead)
-        assert_received {:killed, unquote(Macro.escape(variant))}
+        # The killer awaits the target's DOWN before sending this message; under load
+        # the DOWN delivery to the killer vs the watchdog is still concurrent, so use
+        # assert_receive (with timeout) rather than assert_received (mailbox-only check).
+        assert_receive {:killed, unquote(Macro.escape(variant))}, 2_000
         refute_received :killer_gave_up
         refute Repo.in_transaction?()
         assert snapshot(base, c) == before
