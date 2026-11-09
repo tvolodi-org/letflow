@@ -114,6 +114,10 @@ defmodule Letflow.Modules.Module do
     * `:min_upgradable_from` - **optional** (GH #3578 / REQ-640, decision 0055 D1); a strict semver
       string not higher than `:version`. Absent means the module's own `:version` (no older version
       is upgradable). Not part of the manifest hash.
+    * `:min_data_version` - **optional** (decision 0055 D5, GH #T-1548 / RU-S3); a strict semver string
+      not higher than `:version` nor lower than `:min_upgradable_from`. The lowest stored tenant data
+      version this build serves through `Letflow.Routers.Modules`; below it the mount answers 503
+      `module_upgrade_required`. Absent means no lower bound. Not part of the manifest hash.
     * `:migrations` - **optional**; an ordered list of `Letflow.Modules.Step` structs. Absent means
       `[]`. Not part of the manifest hash. Chained by `Letflow.Modules.Catalog.upgrade_path/3`.
   """
@@ -137,6 +141,7 @@ defmodule Letflow.Modules.Module do
           optional(:ledger) => %{String.t() => map()},
           optional(:reference_targets) => [String.t()],
           optional(:min_upgradable_from) => String.t(),
+          optional(:min_data_version) => String.t(),
           optional(:migrations) => [Letflow.Modules.Step.t()]
         }
 

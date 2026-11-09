@@ -46,6 +46,7 @@ import { queryStatesScreens } from './fixtures/queryStates'
 import { metricsScreens } from './fixtures/metrics'
 import { taskInboxScreens } from './fixtures/taskInbox'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
+import { processDiagramScreens } from './fixtures/processDiagram'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
@@ -263,6 +264,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...catalogItemsScreens,
     ...locationsScreens,
     ...definitionNameScreens,
+    ...processDiagramScreens,
     ...definitionNameAdminScreens,
     ...codesLabelScreens,
     ...docLayoutScreens,

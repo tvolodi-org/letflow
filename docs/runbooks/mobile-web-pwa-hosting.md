@@ -58,3 +58,5 @@ Glyphs outside Roboto (emoji, CJK) show as boxes instead of being fetched from a
 - [ ] In the browser (DevTools, Network): sign in, open a form with Russian and Kazakh text, scan once: no request to any
       host except the PWA origin and the API (none to `gstatic.com`, `jsdelivr.net`, `unpkg.com`); no missing-glyph boxes.
 - [ ] On an iPhone over HTTPS the camera opens after a tap.
+
+Client test kit and the "ready for clients" check before the link goes out: `docs/runbooks/mobile-web-pwa-ready-check.md`.
