@@ -23,6 +23,7 @@ defmodule Letflow.Modules.Stock.XlsxExport do
   """
 
   alias Elixlsx.{Sheet, Workbook}
+  alias Letflow.Documents.XlsxStyle
 
   @movements_timezone Letflow.Identity.TenantTimezone.default()
 
@@ -125,8 +126,11 @@ defmodule Letflow.Modules.Stock.XlsxExport do
   defp write(name, sheet_name, rows, report) do
     workbook = %Workbook{
       sheets: [
-        %Sheet{name: sheet_name, rows: rows},
-        %Sheet{name: "report", rows: [["key", "value"] | report] ++ [["note", @note]]}
+        XlsxStyle.style(%Sheet{name: sheet_name, rows: rows}),
+        XlsxStyle.style(%Sheet{
+          name: "report",
+          rows: [["key", "value"] | report] ++ [["note", @note]]
+        })
       ]
     }
 

@@ -111,7 +111,9 @@ defmodule Letflow.Modules.Stock.CountPrintTest do
         title = CountPrint.labels()[:"title_#{kind}"][lang]
         assert title in text
         assert Enum.any?(text, &String.ends_with?(&1, "CS-2026-1"))
-        assert Enum.any?(text, &String.ends_with?(&1, "2026-11-04T10:00:00+05:00"))
+        # T-1555: localized time plus the zone offset (was ISO)
+        local = if lang == :en, do: "2026-11-04 10:00", else: "04-11-2026 10:00"
+        assert Enum.any?(text, &String.ends_with?(&1, local <> " (UTC+05:00)"))
         assert "Chair Person" in text and "E-1" in text
 
         signers = CountPaperwork.signers(kind, issued([line(1)]).order_content, line_list(kind))
@@ -126,11 +128,16 @@ defmodule Letflow.Modules.Stock.CountPrintTest do
       end
     end
 
-    test "quantities are the stored decimal text, unchanged" do
+    test "quantities keep every stored digit; only grouping and the separator follow the language" do
       text = items(:differences, :en)
       assert "0.000000001" in text
-      assert "12345678901234.5" in text
-      assert "12345678901234.499999999" in text
+      assert "12,345,678,901,234.5" in text
+      assert "12,345,678,901,234.499999999" in text
+
+      ru = items(:differences, :ru)
+      assert "0,000000001" in ru
+      assert "12\u00A0345\u00A0678\u00A0901\u00A0234,5" in ru
+      assert "12\u00A0345\u00A0678\u00A0901\u00A0234,499999999" in ru
     end
 
     test "an order lists locations and the commission" do

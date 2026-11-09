@@ -266,6 +266,24 @@ defmodule Letflow.Modules.Stock.XlsxExportTest do
       assert "=1+1" in row and "@SUM(A1)" in row and "-1" in row and "+1" in row
     end
 
+    test "X3 stock balances and movements: bold frozen header, fitted widths, values unchanged" do
+      {:ok, balances} =
+        XlsxExport.balances(%{rows: [%{sku: "Болт", quantity: "1"}], filters: %{}})
+
+      {:ok, movements} = XlsxExport.movements(%{rows: [], next_cursor: nil}, %{})
+
+      for binary <- [balances, movements] do
+        {:ok, files} = :zip.unzip(binary, [:memory])
+        parts = Map.new(files, fn {n, c} -> {to_string(n), c} end)
+        sheet1 = Map.fetch!(parts, "xl/worksheets/sheet1.xml")
+        assert sheet1 =~ "<pane" and sheet1 =~ "<cols>"
+        assert Map.fetch!(parts, "xl/styles.xml") =~ "<b val=\"1\"/>"
+      end
+
+      assert [_h, row] = sheets(balances)["balances"]
+      assert "Болт" in row
+    end
+
     test "X-4b quantity cells and masked legs" do
       body = %{
         rows: [
