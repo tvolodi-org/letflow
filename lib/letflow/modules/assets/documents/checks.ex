@@ -92,8 +92,8 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
   # `sides_equal` (pure) first, then the org units (from, then to), the employees in header-key order,
   # then per line in `line_no` order: card, duplicate, quantity, then the location rule and the link of
   # each side that has a location. These kinds do not run `org_unit_mismatch` nor
-  # `asset_already_in_register` (a posted hand over leaves the card org unit stale until the card sync
-  # of part 2; the ledger balance is the arbiter at posting).
+  # `asset_already_in_register` (a posted hand over moves the card org unit by itself, G2, `CardMoves`;
+  # the ledger balance is the arbiter at posting).
   defp sided_masters(prefix, spec, view) do
     header = Kinds.header_of(spec, view)
     {from, to} = Kinds.sides(spec, header)

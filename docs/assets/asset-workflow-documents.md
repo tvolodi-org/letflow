@@ -82,8 +82,10 @@ none).
 record types `assets_change`, `assets_handover`, `assets_writeoff` (each with a `_line` type), not the proposed
 `asset_*` names, and the prefixes ACH, AHO, AWO. The actual user fields are optional in every kind (a commission may
 leave the user empty, and a later document must be able to match that balance row). `reason_invalid` and
-`reason_required` of a write off are refused when the document is saved. The card `org_unit_id` is not yet updated
-by a posted hand over (follow-up part 2).
+`reason_required` of a write off are refused when the document is saved. A posted hand over moves the
+card's `org_unit_id` of every `fixed` or `intangible` line to the destination unit in the posting transaction (G2, T-1489,
+module version 0.14.0; one card is one org unit, owner decision D-111), and its reversal moves the card back while the card
+is still at the destination. A `low_value` card is not moved: its split by a partial hand over is a follow-up.
 
 ## 2. Commission
 

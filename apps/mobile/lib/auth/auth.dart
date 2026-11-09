@@ -95,6 +95,25 @@ class _SecureKv implements KvStore {
   Future<void> delete(String key) => _s.delete(key: key);
 }
 
+/// The one [FlutterSecureStorage] configuration of the app (PWA M3, D-112).
+///
+/// On web the plugin keeps its AES key next to the ciphertext, so the data is
+/// only as safe as the storage area it sits in. With `useSessionStorage` both
+/// live in `sessionStorage`: gone when the PWA/tab process closes, never in
+/// long-lived browser storage. Consequence: on web the user signs in again
+/// after closing the app (the offline draft queue, in IndexedDB, survives).
+/// Android / iOS options are unchanged.
+FlutterSecureStorage productionSecureStorage({bool web = kIsWeb}) =>
+    FlutterSecureStorage(
+      aOptions: const AndroidOptions(),
+      iOptions: const IOSOptions(
+        accessibility: KeychainAccessibility.first_unlock_this_device,
+      ),
+      webOptions: web
+          ? const WebOptions(useSessionStorage: true)
+          : WebOptions.defaultOptions,
+    );
+
 /// The one token-store class (REQ-421 design §4). Keyed by `realmUrl`, not
 /// the entered slug — the secure-storage key is derived from the
 /// backend-verified `realm_url`, never the user-claimed slug, which is
@@ -145,17 +164,13 @@ class TenantTokenStore {
   factory TenantTokenStore.production() {
     // Web (PWA M2, D-112): tokens in memory only, the pointer in browser storage
     // through a store that accepts that one key. See README, "Web sign-in".
+    // The M3 sessionStorage configuration ([productionSecureStorage]) is not
+    // used for tokens on web: its AES key sits next to the ciphertext.
     final ptr = webPointerKv();
     if (kIsWeb && ptr != null) {
       return TenantTokenStore.withBackends(tokens: MemoryKv(), pointer: ptr);
     }
-    const storage = FlutterSecureStorage(
-      aOptions: AndroidOptions(),
-      iOptions: IOSOptions(
-        accessibility: KeychainAccessibility.first_unlock_this_device,
-      ),
-    );
-    return const TenantTokenStore(storage);
+    return TenantTokenStore(productionSecureStorage());
   }
 
   // `const` constructors cannot wrap the storage in a [KvStore], so the

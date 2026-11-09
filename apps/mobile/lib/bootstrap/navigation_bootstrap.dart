@@ -36,8 +36,10 @@ import '../definitions/sembast_pinned_form_cache_repository.dart'
 import '../definitions/tenant_home_screen.dart'
     show definitionCacheHolderProvider;
 import '../features/codes/codes.dart' show codesRoutes, kCodesScanPath;
-import '../features/stock/stock.dart' show stockRoutes, kStockHomePath;
+import '../features/stock/stock.dart'
+    show stockRoutes, kStockHomePath, offlineQueueProvider, offlineSyncProvider;
 import '../i18n/i18n.dart';
+import '../offline/offline_queue.dart' show OfflineDraftQueue;
 import 'bootstrap_models.dart';
 import 'error_screens.dart';
 
@@ -329,9 +331,14 @@ Future<void> logout({
   required ActiveRealmHolder activeRealm,
   ActiveDefinitionCacheHolder? definitionCache,
   ActivePinnedFormCacheHolder? pinnedFormCache,
+  OfflineDraftQueue? offlineQueue,
 }) async {
   final currentRealmUrl = activeRealm.currentRealmUrl;
   if (currentRealmUrl == null) return;
+  // PWA M3: unsent drafts belong to the signed-out person; another person on a
+  // shared device must not be able to send them. Cleared while the realm is
+  // still set (the queue is keyed by it).
+  await offlineQueue?.closeAndClear();
   await tokenStore.delete(currentRealmUrl);
   activeRealm.currentRealmUrl = null;
   activeRealm.clientId = null;
@@ -374,6 +381,7 @@ Future<BootstrapResult?> switchTenant(
   ActivePinnedFormCacheHolder? pinnedFormCache,
   PinnedFormCacheOpener? pinnedFormCacheOpener,
   ActiveTenantLocaleHolder? tenantLocale,
+  OfflineDraftQueue? offlineQueue,
 }) async {
   final previousRealmUrl = activeRealm.currentRealmUrl;
   if (previousRealmUrl != null) {
@@ -387,6 +395,8 @@ Future<BootstrapResult?> switchTenant(
       newRealmUrl = null;
     }
     if (newRealmUrl != previousRealmUrl) {
+      // PWA M3: the previous tenant's unsent drafts go with its tokens.
+      await offlineQueue?.closeAndClear();
       await tokenStore.delete(previousRealmUrl);
       activeRealm.currentRealmUrl = null;
       activeRealm.clientId = null;
@@ -427,6 +437,7 @@ final Future<void> Function({
   required ActiveRealmHolder activeRealm,
   ActiveDefinitionCacheHolder? definitionCache,
   ActivePinnedFormCacheHolder? pinnedFormCache,
+  OfflineDraftQueue? offlineQueue,
 })
 _logoutTopLevel = logout;
 
@@ -442,6 +453,7 @@ final Future<BootstrapResult?> Function(
   ActivePinnedFormCacheHolder? pinnedFormCache,
   PinnedFormCacheOpener? pinnedFormCacheOpener,
   ActiveTenantLocaleHolder? tenantLocale,
+  OfflineDraftQueue? offlineQueue,
 })
 _switchTenantTopLevel = switchTenant;
 
@@ -528,6 +540,7 @@ class BootstrapController extends ChangeNotifier {
     required this.activeRealm,
     required this.definitionCache,
     required this.pinnedFormCache,
+    this.offlineQueue,
     AppAuthAdapter? appAuthAdapter,
     this.cacheOpener,
     this.pinnedFormCacheOpener,
@@ -549,6 +562,9 @@ class BootstrapController extends ChangeNotifier {
   final ActiveRealmHolder activeRealm;
   final ActiveDefinitionCacheHolder definitionCache;
   final ActivePinnedFormCacheHolder pinnedFormCache;
+
+  /// Web only (PWA M3); null on Android / iOS.
+  final OfflineDraftQueue? offlineQueue;
 
   /// Tier (a)'s "tenant default" (REQ-429 design §4.4) — set from
   /// `TenantConfig.defaultLocale` by [runTenantBootstrap]/[switchTenant]
@@ -647,6 +663,7 @@ class BootstrapController extends ChangeNotifier {
       pinnedFormCache: pinnedFormCache,
       pinnedFormCacheOpener: pinnedFormCacheOpener,
       tenantLocale: tenantLocale,
+      offlineQueue: offlineQueue,
     );
 
     if (result == null) {
@@ -675,6 +692,7 @@ class BootstrapController extends ChangeNotifier {
       activeRealm: activeRealm,
       definitionCache: definitionCache,
       pinnedFormCache: pinnedFormCache,
+      offlineQueue: offlineQueue,
     );
     _state = BootstrapUiState.unauthenticated;
     notifyListeners();
@@ -823,9 +841,20 @@ final ChangeNotifierProvider<BootstrapController> bootstrapControllerProvider =
         activeRealm: ref.watch(activeRealmHolderProvider),
         definitionCache: ref.watch(definitionCacheHolderProvider),
         pinnedFormCache: ref.watch(pinnedFormCacheHolderProvider),
+        offlineQueue: ref.watch(offlineQueueProvider),
         tenantLocale: ref.watch(activeTenantLocaleHolderProvider),
       );
     });
+
+/// PWA M3: sends the queued offline drafts once, when the app opens with a
+/// verified session. Fire and forget; a failing sync never crashes the shell.
+Future<void> syncOfflineQueueOnOpen(WidgetRef ref) async {
+  try {
+    await ref.read(offlineSyncProvider)?.drain();
+  } on Object {
+    // Entries stay queued; the user can tap "Send now".
+  }
+}
 
 /// Renders the dedicated screen for [reason] (design §6) — the single
 /// dispatch point; never a generic fallback for one of the four named

@@ -254,6 +254,27 @@ Not in M2: web voice recording, push. iOS limits: camera only on HTTPS
 after a tap, no hardware scanners, storage may be cleared after 7 days unused unless the
 app is installed to the home screen, no background sync.
 
+### Storage and offline (M3)
+
+- **Tokens on web** (decision of M2, which supersedes the M3 sessionStorage choice for tokens) live in
+  memory only, see "Web sign-in (M2)": the plugin's AES key sits next to its ciphertext in the same
+  storage area, so sessionStorage would protect nothing from a script on the origin.
+  `productionSecureStorage` (`WebOptions(useSessionStorage: true)`) stays the native/other storage
+  configuration. After the PWA is closed or reloaded the user signs in again (Keycloak SSO makes it
+  silent). Android and iOS options are unchanged.
+- **Offline draft queue (web only, `lib/offline/`)**: saving a NEW stock document draft with no network
+  stores it in IndexedDB (sembast); it survives a reload. Limits: 20 drafts, 256 KiB in total,
+  64 KiB per draft; over a limit nothing is stored and the user is told. Edits of saved drafts,
+  Issue, Discard and every read still need the network. The queue is sent once, oldest first, when the
+  app opens with a verified session, or with **Send now** on the draft list (no background sync: iOS has
+  none). A draft the server refuses is kept with its reason until the user discards it. A resend after a
+  lost answer can create the same draft twice (no idempotency key on the server); both show in the list.
+- The queue is deleted on sign-out and on a tenant switch (a shared device must not send another
+  person's drafts), so unsent drafts are lost on an explicit sign-out.
+- **7-day warning**: in a browser tab (not installed to the home screen) the draft list shows that the
+  browser may delete saved data after 7 days without use; the app also asks the browser for persistent
+  storage (`navigator.storage.persist()`, best effort).
+
 ## Static guards
 
 `test/guards/` holds three ordinary Dart tests that fail `flutter test` (and

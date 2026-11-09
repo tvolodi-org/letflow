@@ -20,6 +20,7 @@ import 'document_kinds.dart';
 import 'document_pickers.dart';
 import 'documents_api.dart';
 import 'documents_providers.dart';
+import 'offline_providers.dart';
 import '../voice/voice_panel.dart';
 import 'picker_sheet.dart';
 import 'scan_fill_sheet.dart';
@@ -62,8 +63,12 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
   }
 
   void _attach(DocDraft draft) {
-    _controller = DocFormController(api: _api, pickers: _pickers, draft: draft)
-      ..addListener(_onChange);
+    _controller = DocFormController(
+      api: _api,
+      pickers: _pickers,
+      draft: draft,
+      queue: ref.read(offlineQueueProvider),
+    )..addListener(_onChange);
   }
 
   Future<void> _fetch() async {

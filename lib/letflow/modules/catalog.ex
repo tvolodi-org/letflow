@@ -80,7 +80,7 @@ defmodule Letflow.Modules.Catalog do
     """
 
     @enforce_keys [:module_id, :name, :entry_module, :targets, :args]
-    defstruct [:module_id, :name, :entry_module, :targets, :args, posts_ledger: nil]
+    defstruct [:module_id, :name, :entry_module, :targets, :args, posts_ledger: nil, updates: %{}]
 
     @type t :: %__MODULE__{
             module_id: String.t(),
@@ -88,7 +88,8 @@ defmodule Letflow.Modules.Catalog do
             entry_module: module(),
             targets: [String.t()],
             args: %{String.t() => %{required: boolean()}},
-            posts_ledger: String.t() | nil
+            posts_ledger: String.t() | nil,
+            updates: %{optional(String.t()) => [String.t()]}
           }
   end
 
@@ -235,7 +236,8 @@ defmodule Letflow.Modules.Catalog do
          entry_module: entry,
          targets: Enum.sort(spec.targets),
          args: spec.args,
-         posts_ledger: spec.posts_ledger
+         posts_ledger: spec.posts_ledger,
+         updates: spec.updates
        }, spec.function}
     else
       _ -> :error
@@ -539,7 +541,8 @@ defmodule Letflow.Modules.Catalog do
       name format while handlers are declared.
     * `{:write_handler_without_managed_types, name}` - no (or empty)
       `:manages_entity_types`.
-    * `{:write_handler_no_targets, name}`.
+    * `{:write_handler_no_targets, name}`;
+    * `{:write_handler_update_not_target, name, type}` (G2: an `updates` key that is not one of the handler's `targets`).
     * `{:write_handler_target_not_managed, name, target}` - target absent from
       this manifest's own `:manages_entity_types`.
     * `{:write_handler_outside_module, name}` - the handler module is not
@@ -1073,6 +1076,9 @@ defmodule Letflow.Modules.Catalog do
 
         bad = Enum.find(handler.targets, &(&1 not in managed)) ->
           {:error, {:write_handler_target_not_managed, handler.name, bad}}
+
+        bad = Enum.find(Map.keys(handler.updates), &(&1 not in handler.targets)) ->
+          {:error, {:write_handler_update_not_target, handler.name, bad}}
 
         not in_module_namespace?(module, entry_module) ->
           {:error, {:write_handler_outside_module, handler.name}}

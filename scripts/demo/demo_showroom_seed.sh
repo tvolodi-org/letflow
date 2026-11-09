@@ -28,6 +28,8 @@
 #   Optional demo logins made by infra (usernames only, never passwords; each needs one sign-in first, otherwise skipped):
 #     ADMIN_LOGIN_USERNAME  linked to DEMO-E005 (Aigerim Sadykova, Head office); USER_LOGIN_USERNAME to DEMO-E004
 #     (Arman Kassymov, Sales team). demo-smoke is never linked.
+#     Each linked login also gets open tasks (D-113): 3 and 2 stock receipts left issued, their post task addressed
+#     to the login, never claimed or completed (needs the TENANT_ADMIN role of the seed administrator).
 #   Optional tenant creation (platform administrator): PLATFORM_ACCESS_TOKEN + DEMO_REALM + DEMO_HOSTNAME.
 #     Created through POST /api/v1/onboarding when TENANT_SLUG does not exist. The realm and the Keycloak
 #     accounts are infra's job (D-016, D-018); this script never creates them.
@@ -253,8 +255,10 @@ E_ACC=$(employee "${TAG}-E005" "Aigerim Sadykova" "$U_HQ")     # accountant
 
 # A count needs a chair with a user (chair_without_user); the accounts exist after the first sign-in.
 LINKED_KEEP=0
+LINK_UID=""   # account id of the login just linked (empty: skipped or refused)
 link_user() { # username employee_id label [soft]
   local uid
+  LINK_UID=""
   [ -n "$1" ] || { log "skip link $3: no username given"; return 0; }
   api GET "/identity/users?search=$1&page_size=50"
   [ "$STATUS" = 200 ] || die "find user $1: HTTP $STATUS $(reason)"
@@ -262,7 +266,7 @@ link_user() { # username employee_id label [soft]
   [ -n "$uid" ] || { log "skip link $3: no account $1 yet (sign in once as that user, then run again)"; return 0; }
   api PATCH "/modules/org/employees/$2" "$(jq -nc --arg u "$uid" --arg k "$(key "link:$3")" '{user_id:$u, idempotency_key:$k}')"
   case "$STATUS" in
-    200) log "ok   $3 linked to a user account" ;;
+    200) log "ok   $3 linked to a user account"; LINK_UID="$uid" ;;
     *) if [ "${4:-}" = soft ]; then log "note link $3: HTTP $STATUS $(reason) (optional link, continuing)"; else die "link $3: HTTP $STATUS $(reason)"; fi ;;
   esac
   return 0
@@ -274,7 +278,9 @@ if [ "$HAVE_ADMIN2" = 1 ]; then
 fi
 # The logins infra made for the owner and clients (optional, soft): the accounts exist after their first sign-in.
 link_user "$ADMIN_LOGIN_USERNAME" "$E_ACC" "admin-login" soft
+AL_UID="$LINK_UID"
 link_user "$USER_LOGIN_USERNAME" "$E_SALES2" "user-login" soft
+UL_UID="$LINK_UID"
 
 # ---------------------------------------------------------------------------------------------
 # 3. location tree
@@ -427,7 +433,7 @@ find_doc() {
       api GET "$base/documents/$id"
       [ "$STATUS" = 200 ] || die "read $kind document: HTTP $STATUS $(reason)"
       note=$(jq -r '.note // empty' "$RESP")
-      if [ "$note" = "$marker" ]; then printf '%s %s' "$id" "$st"; return 0; fi
+      if [ "$note" = "$marker" ] || [[ "$note" == "$marker | "* ]]; then printf '%s %s' "$id" "$st"; return 0; fi
     done <<<"$ids"
     [ -n "$cursor" ] || return 0
   done
@@ -483,6 +489,50 @@ make_doc() {
   else
     complete_task "$id" "$node" "$label posted"
   fi
+}
+
+# assign_open_task DOC_ID UID LABEL: address the pending post task of the document to the user. Never claims,
+# never completes. Already addressed to that user: no write.
+assign_open_task() {
+  local doc="$1" uid="$2" label="$3" cand iid tid ty ref found="" fty="" fref=""
+  api GET "/tasks/inbox?page_size=100"
+  [ "$STATUS" = 200 ] || die "$label: GET /tasks/inbox HTTP $STATUS $(reason)"
+  cand=$(jq -r '.items[] | select(.status == "PENDING" and .node_id == "post") | "\(.id) \(.instance_id) \(.assignee_type // "-") \(.assignee_ref // "-")"' "$RESP")
+  while read -r tid iid ty ref; do
+    [ -n "${tid:-}" ] || continue
+    api GET "/instances/$iid"
+    [ "$STATUS" = 200 ] || continue
+    if jq -e --arg d "$doc" '.variables | tostring | contains($d)' "$RESP" >/dev/null; then found="$tid"; fty="$ty"; fref="$ref"; break; fi
+  done <<<"$cand"
+  if [ -z "$found" ]; then log "note $label: no pending post task (already posted or withdrawn)"; return 0; fi
+  if [ "$fty" = USER ] && [ "$fref" = "$uid" ]; then log "ok   $label (open task already addressed)"; return 0; fi
+  if [ "$fty" = USER ]; then log "note $label: task addressed to someone else, left as is"; return 0; fi
+  api POST "/tasks/$found/reassign" "$(jq -nc --arg u "$uid" '{user_id:$u}')"
+  case "$STATUS" in
+    200 | 201) log "ok   $label (open task addressed to the login)" ;;
+    *) die "$label: reassign HTTP $STATUS $(reason) (the seed administrator needs the TENANT_ADMIN role)" ;;
+  esac
+}
+
+# open_doc BASE KIND NAME BODY UID LABEL: create (when missing), issue (when a draft), address the task. Never posts.
+open_doc() {
+  local base="$1" kind="$2" name="$3" body="$4" uid="$5" label="$6" found id st
+  found=$(find_doc "$base" "$kind" "$(key "$name")")
+  if [ -n "$found" ]; then
+    read -r id st <<<"$found"
+  else
+    api POST "$base/documents" "$body"
+    case "$STATUS" in 200 | 201) ;; *) die "$label: create HTTP $STATUS $(reason)" ;; esac
+    id=$(jq -r '.id // empty' "$RESP"); [ -n "$id" ] || die "$label: no id in the answer"
+    st=draft
+  fi
+  case "$st" in
+    posted | reversed | cancelled) log "ok   $label (exists, $st)"; return 0 ;;
+    draft)
+      api POST "$base/documents/$id/issue" ""
+      case "$STATUS" in 200) log "ok   $label issued: $(jq -r '.number // "?"' "$RESP")" ;; *) die "$label: issue HTTP $STATUS $(reason)" ;; esac ;;
+  esac
+  assign_open_task "$id" "$uid" "$label"
 }
 
 COUNT_ID=""
@@ -684,6 +734,42 @@ if [ "$HAVE_ASSETS" = 1 ]; then
 fi
 
 # ---------------------------------------------------------------------------------------------
+# 11. open tasks for the demo logins (D-113): stock receipts left ISSUED, their post task addressed to the
+# linked login, unclaimed and uncompleted. Found again by the marker "<marker> | <text>"; a re-run writes nothing.
+# ---------------------------------------------------------------------------------------------
+log "== 11. open tasks for the demo logins"
+if [ "${SKIP_DOCS:-0}" = 1 ]; then
+  log "skip open tasks: SKIP_DOCS=1"
+else
+  SM="/modules/stock"
+  ev() { date -u -d "$1" +%Y-%m-%dT%H:%M:%S+00:00; }
+  open_receipt() { # name uid label unit location employee supplier_ref text item1 uom1 qty1 price1 item2 uom2 qty2 price2
+    local name="$1" uid="$2" label="$3"
+    open_doc "$SM" receipt "$name" "$(jq -nc --arg u "$4" --arg l "$5" --arg e "$6" --arg t "$(ev '-2 hours')" --arg ro "$(date -u -d '-1 day' +%F)" \
+      --arg sr "$7" --arg note "$(key "$name") | $8" --arg i1 "$9" --arg u1 "${10}" --arg q1 "${11}" --arg p1 "${12}" \
+      --arg i2 "${13}" --arg u2 "${14}" --arg q2 "${15}" --arg p2 "${16}" '
+      {kind:"receipt", org_unit_id:$u, location_id:$l, responsible_id:$e, event_time:$t, received_on:$ro, supplier_document_ref:$sr, note:$note,
+       lines:[{catalog_item_id:$i1, catalog_uom_id:$u1, quantity:$q1, unit_price:$p1, line_value:(($q1|tonumber) * ($p1|tonumber) | tostring)},
+              {catalog_item_id:$i2, catalog_uom_id:$u2, quantity:$q2, unit_price:$p2, line_value:(($q2|tonumber) * ($p2|tonumber) | tostring)}]}')" \
+      "$uid" "$label"
+  }
+  if [ -z "$AL_UID" ]; then log "skip open tasks admin-login: not linked"; else
+    open_receipt open-al-1 "$AL_UID" "open task admin-login 1" "$U_WH" "$L_R2" "$E_ACC" SUP-0101 \
+      "Office paper from Altyn Paper LLP: check and post" "$I_PAPER" "$UOM_BOX" 20 2400 "$I_GLOVES" "$UOM_PCS" 40 350
+    open_receipt open-al-2 "$AL_UID" "open task admin-login 2" "$U_WH" "$L_R2" "$E_ACC" SUP-0102 \
+      "Поступление перчаток и касок от ТОО «Алтын Қағаз»: проверить и провести" "$I_GLOVES" "$UOM_PCS" 60 350 "$I_HELMET" "$UOM_PCS" 15 3200
+    open_receipt open-al-3 "$AL_UID" "open task admin-login 3" "$U_WH" "$L_R2" "$E_ACC" SUP-0103 \
+      "«Алтын Қағаз» ЖШС-нен су мен шай түсімі: тексеріп, өткізіңіз" "$I_WATER" "$UOM_PCS" 30 900 "$I_TEA" "$UOM_PCS" 50 700
+  fi
+  if [ -z "$UL_UID" ]; then log "skip open tasks user-login: not linked"; else
+    open_receipt open-ul-1 "$UL_UID" "open task user-login 1" "$U_SALES" "$L_SHOW" "$E_SALES2" SUP-0104 \
+      "Шоурум үшін шай мен су: өткізуді күтуде" "$I_TEA" "$UOM_PCS" 24 700 "$I_WATER" "$UOM_PCS" 12 900
+    open_receipt open-ul-2 "$UL_UID" "open task user-login 2" "$U_SALES" "$L_SHOW" "$E_SALES2" SUP-0105 \
+      "Showroom restock: gloves and paper, waiting to be posted" "$I_GLOVES" "$UOM_PCS" 20 350 "$I_PAPER" "$UOM_BOX" 6 2400
+  fi
+fi
+
+# ---------------------------------------------------------------------------------------------
 # done: the demo logins WITHOUT passwords
 # ---------------------------------------------------------------------------------------------
 log "== done. Data set '$DEMO_TAG' on tenant '$TENANT_SLUG': codes start with $TAG-, external ref system $EXT."
@@ -691,8 +777,8 @@ log "== done. Data set '$DEMO_TAG' on tenant '$TENANT_SLUG': codes start with $T
   echo "Demo logins (passwords are kept by the operator, never printed):"
   echo "  ${ADMIN_USERNAME:-<token user>}   tenant administrator; storekeeper Saule Zhumabek, chair of the count"
   [ -z "$ADMIN2_USERNAME" ] || echo "  $ADMIN2_USERNAME   second administrator; sales manager Dana Omarova, approves the opening balance"
-  [ -z "$ADMIN_LOGIN_USERNAME" ] || echo "  $ADMIN_LOGIN_USERNAME   organisation administrator; linked to Aigerim Sadykova (Head office)"
-  [ -z "$USER_LOGIN_USERNAME" ] || echo "  $USER_LOGIN_USERNAME   task worker; linked to Arman Kassymov (Sales team)"
+  [ -z "$ADMIN_LOGIN_USERNAME" ] || echo "  $ADMIN_LOGIN_USERNAME   organisation administrator; linked to Aigerim Sadykova (Head office); 3 open post tasks in My Tasks"
+  [ -z "$USER_LOGIN_USERNAME" ] || echo "  $USER_LOGIN_USERNAME   task worker; linked to Arman Kassymov (Sales team); 2 open post tasks in My Tasks"
   echo "Scanner codes: $BC_LAPTOP, $BC_CEMENT, $BC_MILK; location QR: $QR_R1 (Rack 01)"
   echo "Open first: Stock balances, Movements journal, Documents (every kind), the stock count (Inv-10 / Inv-18 print), Asset cards."
 }

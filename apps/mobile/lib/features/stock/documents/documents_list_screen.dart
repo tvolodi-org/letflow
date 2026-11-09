@@ -17,7 +17,10 @@ import 'document_form_screen.dart';
 import 'document_kinds.dart';
 import 'document_refusals.dart';
 import 'documents_api.dart';
+import '../../../offline/install_state.dart';
+import '../../../offline/offline_queue.dart';
 import 'documents_providers.dart';
+import 'offline_providers.dart';
 
 class DocumentsListScreen extends ConsumerStatefulWidget {
   const DocumentsListScreen({super.key});
@@ -32,12 +35,95 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
   String? _next;
   DocKind? _kind;
   String? _notFound;
+  List<QueuedDraft> _queued = const [];
+  String? _syncNote;
+  bool _syncing = false;
 
   @override
   void initState() {
     super.initState();
     _api = StockDocumentsApi(ref.read(stockGatewayProvider));
     unawaited(_load());
+    unawaited(_loadQueue());
+  }
+
+  Future<void> _loadQueue() async {
+    final queue = ref.read(offlineQueueProvider);
+    if (queue == null) return;
+    try {
+      final list = await queue.all();
+      if (mounted) setState(() => _queued = list);
+    } on Object {
+      // An unreadable queue shows no banner; the list itself still works.
+    }
+  }
+
+  Future<void> _sendNow() async {
+    final sync = ref.read(offlineSyncProvider);
+    if (sync == null || _syncing) return;
+    setState(() => _syncing = true);
+    final report = await sync.drain();
+    if (!mounted) return;
+    setState(() {
+      _syncing = false;
+      _syncNote = tr('offline.sent')
+          .replaceAll('{sent}', '${report.sent}')
+          .replaceAll('{rejected}', '${report.rejected}')
+          .replaceAll('{remaining}', '${report.remaining}');
+    });
+    await _loadQueue();
+    if (mounted) unawaited(_load());
+  }
+
+  Future<void> _discardQueued(QueuedDraft entry) async {
+    await ref.read(offlineQueueProvider)?.remove(entry.localId);
+    await _loadQueue();
+  }
+
+  Widget _offlineBanner() {
+    final waiting = _queued.where((e) => e.rejection == null).length;
+    final warn = shouldWarnStorage(
+      currentInstallState(),
+      isWeb: ref.read(offlineQueueEnabledProvider),
+    );
+    if (_queued.isEmpty && !warn) return const SizedBox.shrink();
+    return Column(
+      key: const Key('stock-doc-offline-banner'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (waiting > 0)
+          ListTile(
+            key: const Key('stock-doc-offline-waiting'),
+            title: Text(
+              tr('offline.waiting').replaceAll('{count}', '$waiting'),
+            ),
+            subtitle: _syncNote == null ? null : Text(_syncNote!),
+            trailing: TextButton(
+              key: const Key('stock-doc-offline-send'),
+              onPressed: _syncing ? null : () => unawaited(_sendNow()),
+              child: Text(tr('offline.sendNow')),
+            ),
+          ),
+        for (final e in _queued.where((e) => e.rejection != null))
+          ListTile(
+            key: Key('stock-doc-offline-rejected-${e.localId}'),
+            title: Text(e.label),
+            subtitle: Text(
+              tr('offline.rejected').replaceAll('{reason}', e.rejection!),
+            ),
+            trailing: TextButton(
+              onPressed: () => unawaited(_discardQueued(e)),
+              child: Text(tr('offline.discard')),
+            ),
+          ),
+        if (warn)
+          Padding(
+            key: const Key('stock-doc-storage-warning'),
+            padding: const EdgeInsets.all(12),
+            child: Text(tr('offline.storageWarning')),
+          ),
+      ],
+    );
   }
 
   List<DocSummary> get _rows {
@@ -94,7 +180,10 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
     );
     if (kind == null || !mounted) return;
     await context.push('$kStockDocumentsPath/new/${kind.wire}');
-    if (mounted) unawaited(_load());
+    if (mounted) {
+      unawaited(_load());
+      unawaited(_loadQueue());
+    }
   }
 
   @override
@@ -155,6 +244,7 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
     }
     return Column(
       children: [
+        _offlineBanner(),
         Expanded(
           child: RendererStateView<List<DocSummary>>(
             state: _state,

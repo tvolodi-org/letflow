@@ -77,6 +77,11 @@ class StockDocumentsApi {
     (await _client.post(kStockDocumentsApi, data: draft.toBody())).data,
   );
 
+  /// Creates a draft from a queued body (offline queue replay).
+  Future<void> createFromBody(Map<String, dynamic> body) async {
+    await _client.post(kStockDocumentsApi, data: body);
+  }
+
   Future<DocDraft> replace(String id, DocDraft draft) async =>
       DocDraft.fromServer(
         (await _client.put(_path(id), data: draft.toBody())).data,
