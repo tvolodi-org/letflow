@@ -38,6 +38,7 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
   List<QueuedDraft> _queued = const [];
   String? _syncNote;
   bool _syncing = false;
+  bool _hintSeen = true;
 
   @override
   void initState() {
@@ -45,6 +46,19 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
     _api = StockDocumentsApi(ref.read(stockGatewayProvider));
     unawaited(_load());
     unawaited(_loadQueue());
+    unawaited(_loadHint());
+  }
+
+  Future<void> _loadHint() async {
+    final store = ref.read(installHintStoreProvider);
+    if (store == null) return;
+    final seen = await store.seen();
+    if (mounted) setState(() => _hintSeen = seen);
+  }
+
+  Future<void> _dismissHint() async {
+    setState(() => _hintSeen = true);
+    await ref.read(installHintStoreProvider)?.markSeen();
   }
 
   Future<void> _loadQueue() async {
@@ -75,6 +89,96 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
     if (mounted) unawaited(_load());
   }
 
+  Future<void> _retryQueued(QueuedDraft entry) async {
+    await ref.read(offlineQueueProvider)?.clearRejection(entry.localId);
+    await _loadQueue();
+    await _sendNow();
+  }
+
+  Future<void> _editQueued(QueuedDraft entry) async {
+    await context.push('$kStockDocumentsPath/queued/${entry.localId}');
+    if (mounted) {
+      unawaited(_load());
+      unawaited(_loadQueue());
+    }
+  }
+
+  Future<void> _confirmDiscard(QueuedDraft entry) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        content: Text(tr('offline.conflict.discardConfirm')),
+        actions: [
+          TextButton(
+            key: const Key('stock-doc-offline-discard-cancel'),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(tr('stock.doc.cancel')),
+          ),
+          TextButton(
+            key: const Key('stock-doc-offline-discard-confirm'),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(tr('offline.discard')),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _discardQueued(entry);
+  }
+
+  Widget _rejectedCard(QueuedDraft e) {
+    final detail = e.rejectionDetail;
+    final server = detail != null
+        ? refusalMessageFromDetail(detail)
+        : tr('offline.rejected').replaceAll('{reason}', e.rejection!);
+    final when = DateTime.fromMillisecondsSinceEpoch(e.createdAtMs);
+    return Card(
+      key: Key('stock-doc-offline-rejected-${e.localId}'),
+      margin: const EdgeInsets.all(8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr('offline.conflict.title'),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            Text('${e.label} ($when)'),
+            if (e.summary.isNotEmpty) Text(e.summary),
+            const SizedBox(height: 8),
+            Text(
+              tr('offline.conflict.server'),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            Text(server),
+            const SizedBox(height: 8),
+            Text(tr('offline.conflict.keepNote')),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton(
+                  key: Key('stock-doc-offline-rejected-${e.localId}-edit'),
+                  onPressed: () => unawaited(_editQueued(e)),
+                  child: Text(tr('offline.conflict.edit')),
+                ),
+                TextButton(
+                  key: Key('stock-doc-offline-rejected-${e.localId}-retry'),
+                  onPressed: () => unawaited(_retryQueued(e)),
+                  child: Text(tr('offline.conflict.retry')),
+                ),
+                TextButton(
+                  key: Key('stock-doc-offline-rejected-${e.localId}-discard'),
+                  onPressed: () => unawaited(_confirmDiscard(e)),
+                  child: Text(tr('offline.discard')),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _discardQueued(QueuedDraft entry) async {
     await ref.read(offlineQueueProvider)?.remove(entry.localId);
     await _loadQueue();
@@ -82,11 +186,17 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
 
   Widget _offlineBanner() {
     final waiting = _queued.where((e) => e.rejection == null).length;
-    final warn = shouldWarnStorage(
-      currentInstallState(),
-      isWeb: ref.read(offlineQueueEnabledProvider),
+    final isWeb = ref.read(offlineQueueEnabledProvider);
+    final installState = ref.read(installStateProvider);
+    final platform = ref.read(installPlatformProvider);
+    final hint = shouldShowInstallHint(
+      installState,
+      platform,
+      isWeb: isWeb,
+      seen: _hintSeen,
     );
-    if (_queued.isEmpty && !warn) return const SizedBox.shrink();
+    final warn = !hint && shouldWarnStorage(installState, isWeb: isWeb);
+    if (_queued.isEmpty && !warn && !hint) return const SizedBox.shrink();
     return Column(
       key: const Key('stock-doc-offline-banner'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -105,15 +215,30 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
             ),
           ),
         for (final e in _queued.where((e) => e.rejection != null))
-          ListTile(
-            key: Key('stock-doc-offline-rejected-${e.localId}'),
-            title: Text(e.label),
-            subtitle: Text(
-              tr('offline.rejected').replaceAll('{reason}', e.rejection!),
-            ),
-            trailing: TextButton(
-              onPressed: () => unawaited(_discardQueued(e)),
-              child: Text(tr('offline.discard')),
+          _rejectedCard(e),
+        if (hint)
+          Card(
+            key: const Key('stock-doc-install-hint'),
+            margin: const EdgeInsets.all(8),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tr(
+                      platform == InstallPlatform.ios
+                          ? 'offline.install.ios'
+                          : 'offline.install.android',
+                    ),
+                  ),
+                  TextButton(
+                    key: const Key('stock-doc-install-hint-dismiss'),
+                    onPressed: () => unawaited(_dismissHint()),
+                    child: Text(tr('offline.install.dismiss')),
+                  ),
+                ],
+              ),
             ),
           ),
         if (warn)

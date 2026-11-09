@@ -47,7 +47,11 @@ class OfflineSyncService {
           break;
         } on ApiError catch (error) {
           // The server refused this draft: keep it for the user to see.
-          await queue.markRejected(entry.localId, _codeOf(error));
+          await queue.markRejected(
+            entry.localId,
+            _codeOf(error),
+            detail: _detailOf(error),
+          );
           rejected++;
         }
       }
@@ -71,4 +75,16 @@ String _codeOf(ApiError error) => switch (error) {
   NotFoundError() => 'not_found',
   ModuleNotAvailableError() => 'module_not_available',
   _ => 'refused',
+};
+
+/// The parts of a refusal worth keeping; only plain strings and a line number.
+Map<String, dynamic>? _detailOf(ApiError error) => switch (error) {
+  ValidationError(:final reason, :final field, :final lineNo, :final side) ||
+  ConflictError(
+    :final reason,
+    :final field,
+    :final lineNo,
+    :final side,
+  ) => {'reason': ?reason, 'field': ?field, 'line_no': ?lineNo, 'side': ?side},
+  _ => null,
 };

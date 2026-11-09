@@ -5,10 +5,13 @@ defmodule Letflow.Modules.Step do
   `kind` (`:declarative` or `:code`), `up`, `down` (a spec, or `:irreversible` for `down`) and
   `lossy` (boolean).
 
-  This slice stores and shape-checks only: `Letflow.Modules.Catalog.validate/2` (rule 17) checks
-  the shape and `Letflow.Modules.Catalog.upgrade_path/3` orders steps into a chain. `up` and `down`
-  are only required to be non-nil; their declarative variants, the code-step fence and the
-  execution belong to later slices (0055 D3, D12 step 2c). Not part of the manifest hash.
+  `Letflow.Modules.Catalog.validate/2` (rule 17) checks the shape and
+  `Letflow.Modules.Catalog.upgrade_path/3` orders steps into a chain. A declarative `up` that is a
+  map with an `:op` key is governed by the closed vocabulary of `Letflow.Modules.StepSpec`
+  (REQ-773: `set_default`, `backfill_from_constant`, `copy_field`, with `rename_field` and
+  `settings_map` named but not executed); `Letflow.ModuleUpgrade.StepExec` runs it. Any other `up`
+  and `down` are only required to be non-nil; the code-step fence belongs to a later slice (0055 D3,
+  D12). Not part of the manifest hash.
   """
 
   @keys [:id, :from, :to, :kind, :up, :down, :lossy]

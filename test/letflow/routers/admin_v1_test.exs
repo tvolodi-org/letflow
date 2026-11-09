@@ -51,7 +51,8 @@ defmodule Letflow.Routers.AdminV1Test do
 
     Application.put_env(:letflow, Letflow.TenantProvisioner,
       allowed_hostname_suffixes: ["qa.example"],
-      demo_lifetime_days: 14
+      demo_lifetime_days: 14,
+      default_modules: []
     )
 
     Application.put_env(:letflow, :provisioner_public_base_url, @server_url)

@@ -167,6 +167,36 @@ class DocDraft {
     );
   }
 
+  /// The inverse of [toBody] for a queued body: a new draft (no id) that the
+  /// person edits in the normal form. Null when the body is unreadable.
+  static DocDraft? fromBody(Map<String, dynamic> body) {
+    final kind = DocKind.fromWire(body['kind']);
+    final rawLines = body['lines'];
+    if (kind == null || rawLines is! List) return null;
+    String text(Object? v) => v is String ? v : '';
+    final spec = documentKindSpecs[kind]!;
+    return DocDraft(
+      kind: kind,
+      eventTime: text(body['event_time']),
+      header: {
+        for (final f in spec.fields)
+          if (body[f.key] is String && (body[f.key] as String).isNotEmpty)
+            f.key: body[f.key] as String,
+      },
+      lines: [
+        for (final l in rawLines.whereType<Map>())
+          DocLine(
+            item: text(l['catalog_item_id']),
+            uom: text(l['catalog_uom_id']),
+            lot: text(l['catalog_lot_id']),
+            quantity: text(l['quantity']),
+            unitPrice: text(l['unit_price']),
+            lineValue: text(l['line_value']),
+          ),
+      ],
+    );
+  }
+
   /// The exact body of a create and of a replace: `kind`, `event_time`, the
   /// kind's non-empty header keys and every line. No key outside the kind's
   /// set is ever sent.

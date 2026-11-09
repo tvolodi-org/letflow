@@ -6,8 +6,10 @@ defmodule Letflow.ModuleUpgrade.Apply do
   definitions are created as stamped drafts, the module's ledger storage is ensured, the replaced
   manifest hash joins `tenant_modules.accepted_manifest_hashes`, the row's version and hash are
   re-written, the journal row (the upgrade journal) becomes `done` and one `module.upgrade`
-  audit entry is written. A plan with any step is refused (`upgrade_needs_runner`): the runner slice
-  (REQ-773) does not exist yet.
+  audit entry is written. Declarative data steps (REQ-773: `set_default`, `backfill_from_constant`,
+  `copy_field`) run in the same transaction through `Letflow.ModuleUpgrade.StepExec`, up to the
+  record cap `Letflow.ModuleUpgrade.Settings.one_tx_max_records/0`; a plan with a code step, a step
+  outside that vocabulary, or more records than the cap is refused (`upgrade_needs_runner`).
 
   The apply recomputes the plan with `Letflow.Modules.UpgradePlan.plan/3` inside its own transaction
   (same code the admin saw) and refuses a `plan_hash` that is not the recomputed one
@@ -16,7 +18,7 @@ defmodule Letflow.ModuleUpgrade.Apply do
   A repeat of a `done` plan answers the stored body with no write. The definition writing lives in
   `Letflow.Modules.Installs.apply_upgrade_pack/5` (caller-scan fences keep module-owner calls there).
 
-  Not done here: `on_install/3` seeds are not re-run (a new seed is a step, REQ-773); the partial
+  Not done here: `on_install/3` seeds are not re-run (a new seed is a step); the partial
   unique index on `running` rows (no `running` row is ever committed by a one-transaction apply; the
   transaction-level advisory lock is the exclusion).
 
@@ -36,8 +38,12 @@ defmodule Letflow.ModuleUpgrade.Apply do
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Entities.Definitions
   alias Letflow.ModuleUpgrade.Rollback
+  alias Letflow.ModuleUpgrade.Settings
+  alias Letflow.ModuleUpgrade.StepExec
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Installs
+  alias Letflow.Modules.StepRecords
+  alias Letflow.Modules.StepSpec
   alias Letflow.Modules.TenantModule
   alias Letflow.Modules.TenantModuleUpgrade
   alias Letflow.Modules.UpgradePlan
@@ -224,7 +230,16 @@ defmodule Letflow.ModuleUpgrade.Apply do
       Repo.rollback({:refused, "plan_mismatch", %{}})
     end
 
-    case gate(report, ack) do
+    manifest = entry_module.manifest()
+
+    exec =
+      UpgradePlan.path_steps(manifest, report["from_version"], report["to_version"])
+      |> UpgradePlan.executable_steps()
+
+    # Re-counted under the advisory lock (decision 0080 Q5); field-independent for a restricted step.
+    report = Map.put(report, "data_step_bound", UpgradePlan.data_step_bound(exec, prefix))
+
+    case gate(report, ack, Settings.one_tx_max_records()) do
       :ok -> :ok
       {:error, {code, extras}} -> Repo.rollback({:refused, code, extras})
     end
@@ -258,6 +273,8 @@ defmodule Letflow.ModuleUpgrade.Apply do
           Repo.rollback({:failed, "internal_error"})
       end
 
+    data_results = run_data_steps(exec, report, module_id, actor_id, plan_hash, prefix)
+
     {accepted, appended?, failing} =
       accepted_hashes(row, module_id, pack_result.compiled_manifest_hash, report, prefix)
 
@@ -277,7 +294,20 @@ defmodule Letflow.ModuleUpgrade.Apply do
       "accepted_hashes_added" => if(appended?, do: 1, else: 0)
     }
 
-    audit!(row, report, plan_hash, ack, rationale, counts, actor_id, prefix)
+    {body_steps, records_migrated} = data_step_body(data_results, exec, report, prefix)
+    counts = counts |> Map.put("data_steps", length(exec)) |> put_migrated(records_migrated)
+
+    audit!(
+      row,
+      report,
+      plan_hash,
+      ack,
+      rationale,
+      counts,
+      Enum.map(exec, & &1.id),
+      actor_id,
+      prefix
+    )
 
     body = %{
       "module_id" => module_id,
@@ -290,7 +320,9 @@ defmodule Letflow.ModuleUpgrade.Apply do
       "process_drafts_created" => pack_result.process_drafts,
       "ledger_ids_ensured" => pack_result.ledger_ids,
       "accepted_hash_appended" => appended?,
-      "failing_definitions" => failing
+      "failing_definitions" => failing,
+      "data_steps" => body_steps,
+      "records_migrated" => records_migrated
     }
 
     undo = %{
@@ -303,6 +335,35 @@ defmodule Letflow.ModuleUpgrade.Apply do
     finish_journal(report["plan_id"], actor_id, rationale, body, undo, now, prefix)
     body
   end
+
+  # REQ-773: the data steps, in the apply's transaction, after the definitions are active. Nothing is
+  # observable between the two inside one transaction, so this equals "between insert and
+  # activation" of the requirement text. A failure rolls the whole apply back.
+  defp run_data_steps([], _report, _module_id, _actor_id, _plan_hash, _prefix), do: []
+
+  defp run_data_steps(exec, report, module_id, actor_id, plan_hash, prefix) do
+    case StepExec.run_all(prefix, report["plan_id"], plan_hash, actor_id, module_id, exec) do
+      {:ok, results} -> results
+      {:error, :step_error} -> Repo.rollback({:failed, "step_error"})
+      {:error, :step_raised} -> Repo.rollback({:failed, "step_raised"})
+    end
+  end
+
+  # Per-step counts and the total, or none at all when ANY step touches a restricted field or a
+  # type the actor cannot read (INV-2: the body and the audit chain are read by more than the
+  # data readers, and a partial sum could be subtracted from).
+  defp data_step_body([], _exec, _report, _prefix), do: {[], 0}
+
+  defp data_step_body(results, exec, _report, prefix) do
+    if Enum.any?(exec, &StepRecords.restricted?(&1.spec, prefix)) do
+      {Enum.map(results, &Map.delete(&1, "records")), nil}
+    else
+      {results, Enum.reduce(results, 0, &(&1["records"] + &2))}
+    end
+  end
+
+  defp put_migrated(counts, nil), do: counts
+  defp put_migrated(counts, total), do: Map.put(counts, "records_migrated", total)
 
   # %{name => id of the entity-definition row that is ACTIVE now} for the types the upgrade touches
   # (the activation pointer is the authority, not the row status). What a rollback re-activates.
@@ -318,13 +379,15 @@ defmodule Letflow.ModuleUpgrade.Apply do
   # ── the gate (pure) ────────────────────────────────────────────────────────────────────
 
   @doc """
-  The refusals that depend only on the recomputed `report` and the acknowledged step ids `ack`, in
-  this order: no upgrade path, a Class C row, a Class B row with no covering step, the acknowledgement
-  set (must equal the plan's step ids when a Class B row exists, else must be empty), a plan with any
-  step (no runner exists yet). Returns `:ok` or `{:error, {code, extras}}`. Pure.
+  The refusals that depend only on the recomputed `report`, the acknowledged step ids `ack` and the
+  one-transaction record cap `cap`, in this order: no upgrade path, a Class C row, a Class B row
+  with no covering step, the acknowledgement set (must equal the plan's step ids when a Class B row
+  exists, else must be empty), a step this apply cannot run (a code step or an op outside the
+  executable vocabulary), more records than `cap` (`report["data_step_bound"]`, re-counted by the
+  caller). Returns `:ok` or `{:error, {code, extras}}`. Pure.
   """
-  @spec gate(map(), [String.t()]) :: :ok | {:error, {String.t(), map()}}
-  def gate(report, ack) when is_map(report) and is_list(ack) do
+  @spec gate(map(), [String.t()], pos_integer()) :: :ok | {:error, {String.t(), map()}}
+  def gate(report, ack, cap) when is_map(report) and is_list(ack) and is_integer(cap) do
     rows = Map.get(report, "entity_types", [])
     steps = Map.get(report, "steps", [])
     class_c = Enum.filter(rows, &(&1["class"] == "C"))
@@ -351,13 +414,21 @@ defmodule Letflow.ModuleUpgrade.Apply do
       Enum.sort(Enum.uniq(ack)) != required ->
         {:error, {"ack_mismatch", %{}}}
 
-      steps != [] ->
+      Enum.any?(steps, &(not runnable_step?(&1))) ->
+        {:error, {"upgrade_needs_runner", %{}}}
+
+      Map.get(report, "data_step_bound", 0) > cap ->
         {:error, {"upgrade_needs_runner", %{}}}
 
       true ->
         :ok
     end
   end
+
+  defp runnable_step?(%{"kind" => "declarative", "op" => op}),
+    do: op in Enum.map(StepSpec.executable_ops(), &Atom.to_string/1)
+
+  defp runnable_step?(_step), do: false
 
   defp reasons(rows),
     do: Enum.map(rows, &%{"reason" => &1["reason"], "subject" => &1["name"]})
@@ -419,7 +490,7 @@ defmodule Letflow.ModuleUpgrade.Apply do
     end
   end
 
-  defp audit!(row, report, plan_hash, ack, rationale, counts, actor_id, prefix) do
+  defp audit!(row, report, plan_hash, ack, rationale, counts, step_ids, actor_id, prefix) do
     {:ok, _entry} =
       Audit.insert_entry(
         Repo,
@@ -433,7 +504,7 @@ defmodule Letflow.ModuleUpgrade.Apply do
             "module_id" => row.module_id,
             "version" => report["to_version"],
             "plan_hash" => plan_hash,
-            "step_ids" => [],
+            "step_ids" => step_ids,
             "ack_destructive" => ack,
             "rationale" => rationale,
             "counts" => counts
