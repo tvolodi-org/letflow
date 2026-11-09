@@ -15,6 +15,7 @@ import 'package:flutter_appauth/flutter_appauth.dart' show TokenRequest;
 
 import '../auth/auth.dart'
     show AppAuthAdapter, TenantTokenStore, TokenSet, issuerOf, kOidcRedirectUrl;
+import '../auth/kv_store.dart' show OidcHttp;
 import 'api_error.dart';
 import 'transport_policy.dart';
 
@@ -391,7 +392,7 @@ class ApiClient implements WriteCapableHttpGateway {
     Future<void> Function(Duration) delayFn = Future.delayed,
     bool registerRedactingLog = true,
   }) {
-    final dio = Dio(
+    final dio = _makeTransport(
       BaseOptions(baseUrl: baseUrl ?? _apiBaseUrl, validateStatus: (_) => true),
     );
     // Transport-policy rejection (REQ-422 §4.2, MOB-5, AC5) — added
@@ -896,4 +897,43 @@ Object buildFileUploadFormData({
       contentType: DioMediaType.parse(contentType),
     ),
   });
+}
+
+/// Transport for the web sign-in (`WebAppAuthAdapter`): JSON GET and
+/// form POST through the one Dio of `lib/api/`. Not authenticated, no bearer.
+OidcHttp newOidcHttp() =>
+    _DioOidcHttp(_makeTransport(BaseOptions(validateStatus: (_) => true)));
+
+/// The single `Dio` construction site of the app (guarded by a test).
+Dio _makeTransport(BaseOptions options) => Dio(options);
+
+class _DioOidcHttp implements OidcHttp {
+  _DioOidcHttp(this._dio);
+
+  final Dio _dio;
+
+  Map<String, dynamic> _body(Response<dynamic> r) {
+    final code = r.statusCode ?? 0;
+    final data = r.data;
+    if (code < 200 || code >= 300 || data is! Map) {
+      throw StateError('OIDC endpoint answered $code');
+    }
+    return data.cast<String, dynamic>();
+  }
+
+  @override
+  Future<Map<String, dynamic>> getJson(Uri url) async =>
+      _body(await _dio.getUri<dynamic>(url));
+
+  @override
+  Future<Map<String, dynamic>> postForm(
+    Uri url,
+    Map<String, String> form,
+  ) async => _body(
+    await _dio.postUri<dynamic>(
+      url,
+      data: form,
+      options: Options(contentType: Headers.formUrlEncodedContentType),
+    ),
+  );
 }

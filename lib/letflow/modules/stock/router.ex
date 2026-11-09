@@ -462,6 +462,12 @@ defmodule Letflow.Modules.Stock.Router do
     end)
   end
 
+  authz_get "/frozen-locations", :StockRead do
+    count_write(conn, :StockRead, 200, fn prefix, opts ->
+      Counts.frozen_locations(prefix, Plug.Conn.fetch_query_params(conn).query_params, opts)
+    end)
+  end
+
   authz_get "/counts/:id", :StockRead do
     count_posting_write(conn, :StockRead, 200, fn prefix, opts ->
       Counts.get(prefix, conn.params["id"], opts)

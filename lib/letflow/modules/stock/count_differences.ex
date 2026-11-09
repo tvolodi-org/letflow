@@ -223,7 +223,8 @@ defmodule Letflow.Modules.Stock.CountDifferences do
     Repo.transaction(fn ->
       CountSheet.lock_order!(prefix, header["record_id"])
 
-      with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
+      with {:ok, fresh} <-
+             CountSheet.fetch_settled(prefix, header["record_id"], scope, opts.actor_id),
            :ok <- fun.(fresh) do
         :ok
       else

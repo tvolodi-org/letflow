@@ -34,6 +34,13 @@
 
   <title>Letflow</title>
   <link rel="manifest" href="manifest.json">
+
+  <!--
+    Self-hosted zxing-wasm (PWA M4, see zxing/README.md). The id is mobile_scanner's
+    script id, so the package does not load the library from a CDN.
+  -->
+  <script id="mobile-scanner-zxing-wasm" src="zxing/zxing-reader.iife.js"></script>
+  <script src="zxing/zxing-config.js"></script>
 </head>
 <body>
   <!--

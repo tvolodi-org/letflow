@@ -3,7 +3,7 @@
  *  early; the server stays the authority and its refusals are shown next to the named field or line, else in a banner.
  *  Assumptions (owner may change at GATE B): event time is entered in the tenant time zone (Asia/Almaty until the
  *  tenant setting exists); pickers list active records, first 200; the unit is the item's base unit. */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -18,6 +18,7 @@ import { Field } from '@/components/ui/Field'
 import { DateField, DateTimeField } from '@/components/ui/DateField'
 import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { Select } from '@/components/ui/Select'
+import { linkedEmployeeId } from '@/lib/references'
 import { usePickerOptions } from '../register/stockPickers'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { STOCK_POST } from '../stockPermissions'
@@ -59,7 +60,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
   const onKindChange = props.onKindChange
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
-  const { can } = useAccess()
+  const { can, userId } = useAccess()
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   const qc = useQueryClient()
@@ -72,11 +73,25 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
   const locations = usePickerOptions('location_node')
   const employees = usePickerOptions('org_employee')
   const counterparties = usePickerOptions('catalog_counterparty', [], form.kind === 'receipt')
-  const patch = (p: Partial<FormState>) => setForm((f) => ({ ...f, ...p }))
+  // T-1528: the signed-in user's linked employee is proposed as the responsible (the From side of two-side kinds, never
+  // the To side), once, until the user touches the field. Opening kinds have no responsible field.
+  const respTouched = useRef(doc !== undefined)
+  const linked = linkedEmployeeId(userId, employees)
+  const twoKind = isTwoSide(form.kind)
+  const respValue = twoKind ? form.from.responsibleId : form.responsibleId
+  useEffect(() => {
+    if (respTouched.current || linked === null || isOpening(form.kind) || respValue !== '') return
+    setForm((f) => (isTwoSide(f.kind) ? { ...f, from: { ...f.from, responsibleId: linked } } : { ...f, responsibleId: linked }))
+  }, [linked, form.kind, respValue])
+  const patch = (p: Partial<FormState>) => {
+    if (p.responsibleId !== undefined) respTouched.current = true
+    setForm((f) => ({ ...f, ...p }))
+  }
   // Hand over (REQ-723, owner may change at GATE B): the To org unit and location start as the From ones until To is touched.
   const toTouched = useRef(doc !== undefined)
   const patchSide = (side: 'from' | 'to', p: Partial<SideForm>) =>
     setForm((f) => {
+      if (side === 'from' && p.responsibleId !== undefined) respTouched.current = true
       if (side === 'to') toTouched.current = true
       const next = { ...f, [side]: { ...f[side], ...p } }
       if (side === 'from' && f.kind === 'hand_over' && !toTouched.current) {

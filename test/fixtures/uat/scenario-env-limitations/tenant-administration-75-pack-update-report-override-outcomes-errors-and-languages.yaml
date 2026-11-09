@@ -1,0 +1,14 @@
+scenario_id: tenant-administration-75-pack-update-report-override-outcomes-errors-and-languages
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "REQ-631 criterion 5 outcome and action property_gone; criterion 6 the screen's own 403 and 422 messages and the 409 message from a race; criterion 7 (d) the apply control for a caller who holds the module-management right but not the override-management right"
+reason: >
+  property_gone needs a shortened closed property list that only a backend test can pass (as solution-pack-update-1 records). The two rights named in criterion 7 (d) are held by exactly the same roles in docs/roles.md
+  (TENANT_ADMIN and PLATFORM_ADMIN), so no roster actor holds one without the other and no account may be invented; the screen's 403 message and the apply-needs-permission text are therefore only reachable in a web unit test.
+  The screen offers no merged choice, so its 422 message is reachable only by a direct request, which the scenario sends (step 5) but whose on-screen text it cannot show. A 409 on the screen needs two sessions deciding at once.
+  The server-side refusals (409, 422, 403) are covered by steps 4 to 6.
+recorded_by: BA
+recorded_at: "2026-11-09"
+issue_ref: "GH #3523"
+review: >
+  Revisit when the roster has a user with the module-management right and not the override-management right, or when the QA setup can serve a shortened property list.

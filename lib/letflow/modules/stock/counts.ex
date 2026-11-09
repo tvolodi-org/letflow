@@ -50,9 +50,10 @@ defmodule Letflow.Modules.Stock.Counts do
   alias Letflow.Modules.Stock.CountDifferences
   alias Letflow.Modules.Stock.CountPosting
   alias Letflow.Modules.Stock.CountSheet
+  alias Letflow.Modules.Stock.FreezeState
   alias Letflow.Repo
 
-  @input_keys ~w(org_unit_id kind planned_start planned_end chair_employee_id member_employee_ids location_ids note)
+  @input_keys ~w(org_unit_id kind planned_start planned_end chair_employee_id member_employee_ids location_ids note freeze_locations)
   @kinds ~w(full selective)
   @statuses ~w(draft ordered counting counted signed posted cancelled)
   @blocking ~w(ordered counting counted signed)
@@ -159,7 +160,8 @@ defmodule Letflow.Modules.Stock.Counts do
       "chair_employee_id" => doc.chair_employee_id,
       "member_employee_ids" => doc.member_employee_ids,
       "location_ids" => doc.location_ids,
-      "note" => doc.note || ""
+      "note" => doc.note || "",
+      "freeze_locations" => doc.freeze_locations
     }
 
     with {:ok, %{document: document}} <-
@@ -205,19 +207,23 @@ defmodule Letflow.Modules.Stock.Counts do
         # REQ-701: the same per-order lock as the sheet writes, so a cancel cannot be overwritten.
         CountSheet.lock_order!(prefix, header["record_id"])
 
-        with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
+        with {:ok, fresh} <- CountSheet.fetch_settled(prefix, header["record_id"], scope, actor),
              :ok <- cancellable?(fresh),
+             now = DateTime.utc_now(),
+             freeze_ends? = match?({"active", _}, FreezeState.state_of(prefix, fresh, now)),
              fv =
                fresh
                |> Map.drop(@kept)
                |> Map.merge(%{
                  "status" => "cancelled",
-                 "cancelled_at" => iso(DateTime.utc_now()),
+                 "cancelled_at" => iso(now),
                  "cancelled_by" => actor
-               }),
+               })
+               |> end_freeze(freeze_ends?, now),
              {:ok, _} <- update_record(prefix, fresh["record_id"], "count_order", fv, actor),
              :ok <-
-               audit(prefix, actor, "cancelled", fresh["record_id"], fresh["status"], "cancelled") do
+               audit(prefix, actor, "cancelled", fresh["record_id"], fresh["status"], "cancelled"),
+             :ok <- audit_freeze_end(prefix, actor, fresh, freeze_ends?) do
           view!(prefix, fresh["record_id"])
         else
           {:error, reason} -> Repo.rollback(reason)
@@ -251,6 +257,22 @@ defmodule Letflow.Modules.Stock.Counts do
   defdelegate reverse(prefix, id, body, opts), to: CountPosting
   defdelegate issue_posting_record(prefix, id, opts), to: CountPosting
   defdelegate posting_document(prefix, id, opts), to: CountPosting
+
+  # REQ-765: cancel ends a freeze that is in force at once (stored state, time and reason).
+  defp end_freeze(fv, false, _now), do: fv
+
+  defp end_freeze(fv, true, now),
+    do:
+      Map.merge(fv, %{
+        "freeze_state" => "ended",
+        "freeze_ended_at" => iso(now),
+        "freeze_end_reason" => "cancelled"
+      })
+
+  defp audit_freeze_end(_prefix, _actor, _fresh, false), do: :ok
+
+  defp audit_freeze_end(prefix, actor, fresh, true),
+    do: FreezeState.audit(prefix, actor, "freeze_ended", fresh, "cancelled")
 
   defp chair?(prefix, header, actor) do
     chair = header["chair_employee_id"]
@@ -436,6 +458,92 @@ defmodule Letflow.Modules.Stock.Counts do
   defp cursor_of(%{record_id: rid, field_values: fv}),
     do: Base.url_encode64(fv["planned_start"] <> "|" <> rid, padding: false)
 
+  @frozen_keys ~w(location_id limit cursor)
+
+  @doc """
+  REQ-765: the locations whose freeze is in force, one row per (location, count order) with exactly
+  `location_id, org_unit_id, count_order_id, count_number, freeze_until`, ordered by `location_id`
+  then `count_order_id`, only for org units in the caller's scope. `params` (string keys):
+  `location_id`, `limit` (1..200, default 50), `cursor` (opaque, unsigned: an honest replay only);
+  any other key is `{:field_not_allowed, key}`. Returns `{:ok, %{rows: [row], next_cursor: text | nil}}`.
+  """
+  @spec frozen_locations(String.t(), term(), map()) :: {:ok, map()} | {:error, term()}
+  def frozen_locations(prefix, params, opts) when is_binary(prefix) and is_map(opts) do
+    {_actor, scope} = opts!(opts)
+
+    with {:ok, p} <- frozen_params(params) do
+      case scope do
+        :none -> {:ok, %{rows: [], next_cursor: nil}}
+        _ -> {:ok, run_frozen(prefix, p, scope)}
+      end
+    end
+  end
+
+  defp frozen_params(params) when is_map(params) do
+    with :ok <- no_extra(params, @frozen_keys),
+         {:ok, loc} <- opt_uuid(params, "location_id"),
+         {:ok, limit} <- opt_limit(params),
+         {:ok, cursor} <- frozen_cursor(params) do
+      {:ok, %{location: loc, limit: limit, cursor: cursor}}
+    end
+  end
+
+  defp frozen_params(_), do: {:error, {:field_invalid, "params"}}
+
+  defp frozen_cursor(params) do
+    case Map.fetch(params, "cursor") do
+      :error ->
+        {:ok, nil}
+
+      {:ok, v} when is_binary(v) ->
+        with {:ok, raw} <- Base.url_decode64(v, padding: false),
+             [loc, order] <- String.split(raw, "|", parts: 2),
+             {:ok, loc} <- Ecto.UUID.cast(loc),
+             {:ok, order} <- Ecto.UUID.cast(order) do
+          {:ok, {loc, order}}
+        else
+          _ -> {:error, {:field_invalid, "cursor"}}
+        end
+
+      _ ->
+        {:error, {:field_invalid, "cursor"}}
+    end
+  end
+
+  defp run_frozen(prefix, p, scope) do
+    rows =
+      prefix
+      |> FreezeState.active(DateTime.utc_now())
+      |> Enum.filter(&unit_visible?(scope, &1.org_unit_id))
+      |> Enum.flat_map(fn order ->
+        Enum.map(order.locations, fn loc ->
+          %{
+            "location_id" => loc,
+            "org_unit_id" => order.org_unit_id,
+            "count_order_id" => order.order_id,
+            "count_number" => order.number,
+            "freeze_until" => order.freeze_until
+          }
+        end)
+      end)
+      |> Enum.filter(&(is_nil(p.location) or &1["location_id"] == p.location))
+      |> Enum.sort_by(&{&1["location_id"], &1["count_order_id"]})
+      |> Enum.filter(fn row ->
+        is_nil(p.cursor) or {row["location_id"], row["count_order_id"]} > p.cursor
+      end)
+
+    {page, rest} = Enum.split(rows, p.limit)
+
+    %{rows: page, next_cursor: if(rest == [], do: nil, else: frozen_cursor_of(List.last(page)))}
+  end
+
+  defp frozen_cursor_of(%{"location_id" => loc, "count_order_id" => order}),
+    do: Base.url_encode64(loc <> "|" <> order, padding: false)
+
+  defp unit_visible?(:all, _unit), do: true
+  defp unit_visible?({:nodes, ids}, unit), do: unit in ids
+  defp unit_visible?(_, _), do: false
+
   @doc "The scope-checked order header (`count_order` record map), no view; not found, other tenant and out of scope are alike."
   @spec header(String.t(), term(), term()) :: {:ok, map()} | {:error, :not_found}
   def header(prefix, id, scope) when is_binary(prefix), do: fetch(prefix, id, scope)
@@ -496,7 +604,8 @@ defmodule Letflow.Modules.Stock.Counts do
          {:ok, members} <- uuid_list(input, "member_employee_ids", true),
          {:ok, roots} <- uuid_list(input, "location_ids", false),
          :ok <- chair_not_member(chair, members),
-         {:ok, note} <- note(input) do
+         {:ok, note} <- note(input),
+         {:ok, freeze} <- freeze_flag(input) do
       {:ok,
        %{
          org_unit_id: unit,
@@ -506,7 +615,8 @@ defmodule Letflow.Modules.Stock.Counts do
          chair_employee_id: chair,
          member_employee_ids: members,
          location_ids: roots,
-         note: note
+         note: note,
+         freeze_locations: freeze
        }}
     end
   end
@@ -556,6 +666,14 @@ defmodule Letflow.Modules.Stock.Counts do
 
   defp chair_not_member(chair, members),
     do: if(chair in members, do: {:error, {:field_invalid, "member_employee_ids"}}, else: :ok)
+
+  # REQ-765: the freeze mode flag, a boolean, false when absent; anything else is field_invalid.
+  defp freeze_flag(input) do
+    case Map.get(input, "freeze_locations", false) do
+      v when is_boolean(v) -> {:ok, v}
+      _ -> {:error, {:field_invalid, "freeze_locations"}}
+    end
+  end
 
   defp note(input) do
     case Map.get(input, "note") do
@@ -695,7 +813,8 @@ defmodule Letflow.Modules.Stock.Counts do
         "planned_start" => doc.planned_start,
         "planned_end" => doc.planned_end,
         "chair_employee_id" => doc.chair_employee_id,
-        "status" => "draft"
+        "status" => "draft",
+        "freeze_locations" => doc.freeze_locations
       }
       |> put_note(doc.note)
 
@@ -714,7 +833,8 @@ defmodule Letflow.Modules.Stock.Counts do
         "kind" => doc.kind,
         "planned_start" => doc.planned_start,
         "planned_end" => doc.planned_end,
-        "chair_employee_id" => doc.chair_employee_id
+        "chair_employee_id" => doc.chair_employee_id,
+        "freeze_locations" => doc.freeze_locations
       })
       |> put_note(doc.note)
 
@@ -874,7 +994,8 @@ defmodule Letflow.Modules.Stock.Counts do
       member_employee_ids:
         prefix |> child_ids("count_commission_member", id, "employee_id") |> Enum.sort(),
       location_ids: prefix |> child_ids("count_order_scope", id, "location_id") |> Enum.sort(),
-      note: header["note"]
+      note: header["note"],
+      freeze_locations: header["freeze_locations"] == true
     }
   end
 
@@ -914,6 +1035,7 @@ defmodule Letflow.Modules.Stock.Counts do
       "differences_issued_at" => header["differences_issued_at"],
       "differences_signed_at" => header["differences_signed_at"]
     }
+    |> Map.merge(FreezeState.view_fields(prefix, header, DateTime.utc_now()))
   end
 
   defp opts!(opts) do

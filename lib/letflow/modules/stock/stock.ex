@@ -158,9 +158,21 @@ defmodule Letflow.Modules.Stock do
   ledger entry per signed differences sheet, one leg per difference line, posted as a DELTA (counted
   minus book at the cut-off). Reversal reuses `stock_reversal` and `reverse_document`. No migration,
   no new permission. Assumption, owner may change at GATE B (D-086): the count freeze (decision 0079
-  section 4, split plan row C7) is NOT built; postings during counting are not blocked. The module is
+  section 4, split plan row C7) is not built by REQ-718 (REQ-765 adds it as an optional mode); in the
+  default mode postings during counting are not blocked. The module is
   installed on no tenant yet; the new pack definition and the new `count_order` fields reach an
   existing install through the module-upgrade path.
+
+  ## Count freeze (REQ-765 / GH #3906; version 0.17.0)
+
+  The second count mode, freeze locations (owner decision D-094; `Letflow.Modules.Stock.FreezeState`,
+  `Letflow.Modules.Stock.FreezeGuard`): `count_order` gains the flag `freeze_locations` and the freeze
+  fields, `open/3` of such an order stores one `count_freeze_location` row per frozen location (the roots
+  and everything below them), and the posting guard of the stock registration refuses every other stock
+  posting on a frozen (org unit, location) pair with `location_frozen`, naming the count. The time limit
+  is the module setting `count_freeze_limit_minutes` (default 120). One read route, `GET
+  /frozen-locations` (`StockRead`). No migration, no new permission. The no-freeze count of REQ-718 is
+  unchanged. Assumptions, owner may change at GATE B: the pair rule, the refused task stays pending.
 
   ## Opening line import (REQ-727 / GH #3773; version 0.10.0)
 
@@ -219,6 +231,7 @@ defmodule Letflow.Modules.Stock do
     "count_sheet_line",
     "count_entry",
     "count_signature",
+    "count_freeze_location",
     "stock_posting_mark",
     "stock_opening",
     "stock_opening_line"
@@ -294,7 +307,7 @@ defmodule Letflow.Modules.Stock do
   @impl true
   defmanifest(
     id: "stock",
-    version: "0.16.0",
+    version: "0.17.0",
     # REQ-770: a step-less module that declares a window upgrades from any version in it (no data steps).
     min_upgradable_from: "0.10.0",
     depends_on: ["catalog_items", "codes", "locations", "org"],
@@ -311,7 +324,13 @@ defmodule Letflow.Modules.Stock do
       STOREKEEPER: [:StockRead, :StockPost, :StockReverse, :StockCountOrder, :StockCountRecord]
     },
     required_roles: [],
-    settings_schema: nil,
+    settings_schema: %{
+      "type" => "object",
+      "properties" => %{
+        "count_freeze_limit_minutes" => %{"type" => "integer", "minimum" => 1, "maximum" => 5760}
+      },
+      "additionalProperties" => false
+    },
     route_policies: [
       {"GET", "/balances", :StockRead},
       {"GET", "/movements", :StockRead},
@@ -334,6 +353,7 @@ defmodule Letflow.Modules.Stock do
       {"POST", "/counts/:id/cancel", :StockCountOrder},
       {"GET", "/counts", :StockRead},
       {"GET", "/counts/:id", :StockRead},
+      {"GET", "/frozen-locations", :StockRead},
       {"GET", "/counts/:id/document", :StockRead},
       {"GET", "/counts/:id/paperwork/:kind", :StockRead},
       {"GET", "/counts/:id/print/:kind", :StockRead},
@@ -376,6 +396,7 @@ defmodule Letflow.Modules.Stock do
       "count_sheet_line",
       "count_entry",
       "count_signature",
+      "count_freeze_location",
       "stock_posting_mark",
       "stock_opening",
       "stock_opening_line"
@@ -399,6 +420,7 @@ defmodule Letflow.Modules.Stock do
       "count_sheet_line" => {:column, "org_unit_id"},
       "count_entry" => {:column, "org_unit_id"},
       "count_signature" => {:column, "org_unit_id"},
+      "count_freeze_location" => {:column, "org_unit_id"},
       "stock_posting_mark" => {:column, "org_unit_id"},
       "stock_opening" => {:column, "org_unit_id"},
       "stock_opening_line" => {:column, "org_unit_id"}
@@ -493,7 +515,11 @@ defmodule Letflow.Modules.Stock do
         },
         scope_slot: "org_unit",
         max_event_lateness_hours: 96,
-        error_aliases: %{"insufficient_balance" => "insufficient_stock"},
+        posting_guard: {Letflow.Modules.Stock.FreezeGuard, :check},
+        error_aliases: %{
+          "insufficient_balance" => "insufficient_stock",
+          "posting_held" => "location_frozen"
+        },
         policy: {Letflow.Modules.Stock.LedgerPolicy, :declare}
       }
     }

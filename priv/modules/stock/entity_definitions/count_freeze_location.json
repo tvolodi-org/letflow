@@ -1,0 +1,16 @@
+{
+  "name": "count_freeze_location",
+  "display_name": "Count freeze location",
+  "description": "REQ-765 / GH #3906. One frozen location of a count order in freeze mode: the order's roots and every location below them, taken once at the cut-off. count_order_id is a real foreign key onto count_order; org_unit_id is a copy of the header's, the scope column. A balance key is frozen when its org unit and location are a pair of an order whose freeze is in force.",
+  "fields": [
+    {"name": "count_order_id", "type": "string", "required": true, "queried": true},
+    {"name": "location_id", "type": "string", "required": true, "queried": true},
+    {"name": "org_unit_id", "type": "string", "required": true, "queried": true}
+  ],
+  "foreign_keys": [
+    {"name": "fk_count_freeze_location_order_id", "field": "count_order_id", "references_entity": "count_order"}
+  ],
+  "indexes": [
+    {"name": "idx_count_freeze_location_order_id", "fields": ["count_order_id"]}
+  ]
+}

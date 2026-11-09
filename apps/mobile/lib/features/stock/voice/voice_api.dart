@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import '../../../api/api_client.dart';
 import '../count_api.dart' show kStockBase;
+import 'voice_codec.dart';
 import 'voice_models.dart';
 
 const String kVoiceDraftPath = '$kStockBase/voice/draft';
@@ -16,13 +17,16 @@ class StockVoiceApi {
 
   final PostCapableHttpGateway _client;
 
+  /// The file name and content type follow the bytes (MP4 from a phone or
+  /// Safari, WebM from Chrome); the server sniffs the bytes itself.
   Future<VoiceDraft> draftAudio(Uint8List bytes, String lang) async {
+    final format = audioUploadFormat(bytes);
     final response = await _client.post(
       kVoiceDraftPath,
       data: buildFileUploadFormData(
         bytes: bytes,
-        fileName: 'voice.m4a',
-        contentType: 'audio/mp4',
+        fileName: format.fileName,
+        contentType: format.contentType,
         partName: 'audio',
         fields: {'lang': lang},
       ),
