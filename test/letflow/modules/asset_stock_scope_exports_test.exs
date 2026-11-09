@@ -11,7 +11,7 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
   sentinels, so the absence is not vacuous. S2 also pins the masked leg's cells (blank slots, `masked` true).
   S1 stock balances xlsx, S2 stock movements xlsx, S3 assets balances xlsx, S4 stock-card print (S4b: an item
   and place whose movements are all hidden answer like an absent identifier).
-  Documents stay tenant-wide-only (assets S1, stock A-TEN-1) and counts keep their scoped contract
+  Documents stay tenant-wide-only (assets S1, stock A-TEN-1; real assets documents: asset_documents_scoped_read_test.exs S6a) and counts keep their scoped contract
   (`asset_stock_isolation_test.exs`, S6). `async: false`, committed tenants, Sandbox `:auto`.
   """
 
