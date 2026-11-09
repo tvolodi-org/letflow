@@ -40,7 +40,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator drafts and issues a full count order for "Main warehouse" with the root "Hall", itself as chair, no other commission member, a planned start ten minutes ago and a planned end four hours after the start; opens the count;
+      The administrator drafts and issues a selective count order for "Main warehouse" with the root "Hall", itself as chair, no other commission member, a planned start ten minutes ago and a planned end four hours after the start; opens the count;
       types 8 for the Bolt M8 line and 5 for the Nut M8 line; and closes the count. The order is read as O1 (status "counted") and the stock balances of "Hall" and "Shelf 1" are read as B1.
     via: api
   - step: 2

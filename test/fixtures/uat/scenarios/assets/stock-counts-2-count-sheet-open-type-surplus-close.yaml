@@ -38,7 +38,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator drafts and issues a full count order for "Main warehouse" with the root "Hall", itself as chair, a planned start ten minutes ago and a planned end four hours after the start. The issued order is noted as O1.
+      The administrator drafts and issues a selective count order for "Main warehouse" with the root "Hall", itself as chair, a planned start ten minutes ago and a planned end four hours after the start. The issued order is noted as O1.
     via: api
   - step: 2
     actor: worker

@@ -34,7 +34,7 @@ steps:
   - step: 1
     actor: admin
     action: >
-      The administrator drafts a full count order for "Main warehouse" with the root "Shelf 1", itself as chair, "freeze locations" switched on, a planned start ten minutes ago and a planned end four hours after the start, issues it and opens the count.
+      The administrator drafts a selective count order for "Main warehouse" with the root "Shelf 1", itself as chair, "freeze locations" switched on, a planned start ten minutes ago and a planned end four hours after the start, issues it and opens the count.
       The order is read as O1 (freeze state active).
     via: api
   - step: 2

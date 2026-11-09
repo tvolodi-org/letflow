@@ -18,7 +18,7 @@ description: >
   SwiftRoute has the stock module installed, the organisation unit "Main warehouse", and a location tree in which "Hall" has the child "Shelf 1" and "Yard" is a separate place linked to the same unit. The administrator, who is also an
   employee and the chair of the count, drafts a count order for "Main warehouse" with the root location "Hall", planned to start a few minutes ago and to end the same day. A draft can be changed as a whole; a field that does not belong
   to the order is refused. The administrator issues the order: it gets a number and the status "ordered". A second order for the same unit with the root "Shelf 1" (inside "Hall") is refused at issue because it overlaps the first one.
-  A third order with a planned end more than 96 hours after its start is refused. The first order, once issued, can no longer be changed as a draft. A draft that is cancelled by the chair becomes "cancelled". A task worker who holds no
+  A third order with a planned end more than 96 hours after its start is refused. The first order, once issued, can no longer be changed as a draft. A full count that leaves out a place linked to the unit is refused at issue (the other orders are of kind selective). A draft that is cancelled by the chair becomes "cancelled". A task worker who holds no
   stock permission is refused every change and every read of the count. The administrator of another company asking for the SwiftRoute order gets the same answer as for an unknown order.
 
 actors:
@@ -29,10 +29,10 @@ actors:
 preconditions:
   - description: SwiftRoute has the stock module installed, the organisation unit "Main warehouse", the locations "Hall" (with the child "Shelf 1") and "Yard", all linked to "Main warehouse", and an active employee who is linked to the signed-in user of the administrator.
     check: system_seeded
-    detail: If the administrator is not linked to an employee, report BLOCKED for steps 2 to 11 (the chair must be a linked, active employee). If the stock module or the location tree is missing, report BLOCKED for the whole scenario.
+    detail: If the administrator is not linked to an employee, report BLOCKED for steps 2 to 11 and 15 to 16 (the chair must be a linked, active employee). If the stock module or the location tree is missing, report BLOCKED for the whole scenario.
   - description: SwiftRoute has no open count order (status ordered, counting, counted or signed) for "Main warehouse" at the start.
     check: system_seeded
-    detail: An open order of the same unit would make step 3 refuse for a reason that is not the one under test; report BLOCKED for step 7 if one exists.
+    detail: An open order of the same unit would make step 5 refuse for a reason that is not the one under test; report BLOCKED for step 7 if one exists.
   - description: BilimBaga has the stock module installed.
     check: system_seeded
     detail: If BilimBaga has no stock module, report BLOCKED for step 14 only.
@@ -46,7 +46,7 @@ steps:
   - step: 2
     actor: admin
     action: >
-      The administrator drafts a full count order for "Main warehouse" with the single root location "Hall", the administrator's employee as chair, no other commission members, a planned start ten minutes ago
+      The administrator drafts a selective count order for "Main warehouse" with the single root location "Hall", the administrator's employee as chair, no other commission members, a planned start ten minutes ago
       and a planned end four hours after the start. The order is read back and noted as O1 (status, scope, chair); the list is read again as L2.
     via: api
   - step: 3
@@ -117,12 +117,24 @@ steps:
     expect_refusal: true
     via: api
 
+  - step: 15
+    actor: admin
+    action: >
+      The administrator drafts a fourth count order of kind "full" for "Main warehouse" with the single root "Hall" (the place "Yard" is also linked to the unit and is left out), the administrator's employee as chair, a planned start ten minutes ago and a planned end four hours after the start. The draft is noted as D4.
+    via: api
+  - step: 16
+    actor: admin
+    action: >
+      The administrator tries to issue the full count order D4. The answer is noted as R12 and D4 is read as O10.
+    expect_refusal: true
+    via: api
+
 expected_outcomes:
   - id: EO-001
     description: A count order is drafted with its scope and chair and the whole draft can be replaced.
     verification:
       method: api_response
-      detail: Step 2 answers 201 and O1 has status "draft", kind "full", the root "Hall" and the administrator's employee as chair; the list L2 has one order more than L1. Step 3 answers 200 and O2 shows the note "first count" with the same scope and chair.
+      detail: Step 2 answers 201 and O1 has status "draft", kind "selective", the root "Hall" and the administrator's employee as chair; the list L2 has one order more than L1. Step 3 answers 200 and O2 shows the note "first count" with the same scope and chair.
       evidence: L1, O1 and O2.
     on_fail:
       severity: MAJOR
@@ -217,4 +229,14 @@ expected_outcomes:
     on_fail:
       severity: BLOCKER
       business_impact: One company could see or learn the existence of another company's stock counts.
+      suggested_action: route_to_elixir_dev
+  - id: EO-009
+    description: A full count whose places leave out a place linked to the unit is refused at issue and stays a draft.
+    verification:
+      method: api_response
+      detail: Step 16 answers 422 with the reason "count_scope_incomplete"; O10 has status "draft" and no number.
+      evidence: R12 and O10.
+    on_fail:
+      severity: MAJOR
+      business_impact: A full count could be signed off while a place of the unit was never counted.
       suggested_action: route_to_elixir_dev
