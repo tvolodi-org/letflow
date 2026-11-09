@@ -21,10 +21,10 @@ export const catalogItemsModuleDefinition: ModuleDefinition = {
   depends_on: [],
   routeObjects: catalogItemsRouteObjects,
   importTypes: [
-    { entityType: 'catalog_uom', labels: importLabels('catalog_uom') },
-    { entityType: 'catalog_item', labels: importLabels('catalog_item') },
-    { entityType: 'catalog_counterparty', labels: importLabels('catalog_counterparty') },
-    { entityType: 'catalog_lot', labels: importLabels('catalog_lot') },
+    { entityType: 'catalog_uom', labels: importLabels('catalog_uom'), permission: CATALOG_LOTS_WRITE },
+    { entityType: 'catalog_item', labels: importLabels('catalog_item'), permission: CATALOG_LOTS_WRITE },
+    { entityType: 'catalog_counterparty', labels: importLabels('catalog_counterparty'), permission: CATALOG_LOTS_WRITE },
+    { entityType: 'catalog_lot', labels: importLabels('catalog_lot'), permission: CATALOG_LOTS_WRITE },
   ],
   navItems: [
     { to: '/admin/catalog/items', label: 'Items', permission: STOCK_READ_ATOM },

@@ -21,9 +21,9 @@ export const orgModuleDefinition: ModuleDefinition = {
   depends_on: [],
   routeObjects: orgRouteObjects,
   importTypes: [
-    { entityType: 'org_unit', labels: importLabels('org_unit') },
-    { entityType: 'org_position', labels: importLabels('org_position') },
-    { entityType: 'org_employee', labels: importLabels('org_employee') },
+    { entityType: 'org_unit', labels: importLabels('org_unit'), permission: ORG_STRUCTURE_WRITE },
+    { entityType: 'org_position', labels: importLabels('org_position'), permission: ORG_EMPLOYEES_WRITE },
+    { entityType: 'org_employee', labels: importLabels('org_employee'), permission: ORG_EMPLOYEES_WRITE },
   ],
   navItems: [
     { to: '/admin/org/legal-entities', label: 'Legal companies', permission: ORG_STRUCTURE_WRITE },

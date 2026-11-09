@@ -48,6 +48,7 @@ import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnit
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
 import { masterDataImport, masterDataImportResult } from './importFixtures'
+import { navRoleScreens } from './navRoleFixtures'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -290,6 +291,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...metricsScreens,
     ...roleLabelsScreens,
     ...taskInboxScreens,
+    ...navRoleScreens,
     ...instancesBoardScreens,
     masterDataImport,
     masterDataImportResult,
