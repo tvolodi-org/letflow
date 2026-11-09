@@ -182,3 +182,17 @@ describe('DefinitionListPage — write controls follow DefinitionsWrite (GH 2238
     expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument()
   })
 })
+
+describe('DefinitionListPage — friendly names (T-1511)', () => {
+  const WRITEOFF = { ...ACTIVE_DEF, id: 'def-wo', name: 'assets_writeoff', version: '1.0.0' }
+
+  it('D5: a catalog definition shows the label with the key as second line; an unknown name is unchanged', () => {
+    mockAuth()
+    mockDefinitions([WRITEOFF, ACTIVE_DEF])
+    renderWithAccess(<DefinitionListPage />, 'platformAdmin')
+    expect(screen.getByTestId('def-name-def-wo')).toHaveTextContent('Asset write-off')
+    expect(screen.getByTestId('def-key-def-wo')).toHaveTextContent('assets_writeoff')
+    expect(screen.getByTestId(`def-name-${ACTIVE_DEF.id}`)).toHaveTextContent('approvals')
+    expect(screen.queryByTestId(`def-key-${ACTIVE_DEF.id}`)).toBeNull()
+  })
+})

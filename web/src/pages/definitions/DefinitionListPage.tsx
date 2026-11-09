@@ -18,10 +18,13 @@ import { FilterBar } from '@/components/ui/FilterBar'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { StatusBadge } from '@/components/ui/StatusBadge'
+import { definitionLabel } from '@/pages/dashboard/definitionLabels'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
 
 
 export default function DefinitionListPage() {
   const navigate = useNavigate()
+  const uiLocale = useUiLocale()
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
   const [status, setStatus] = useState<DefinitionStatus | undefined>()
@@ -161,7 +164,9 @@ export default function DefinitionListPage() {
       header: 'Name',
       sortable: true,
       sortValue: (def) => def.name,
-      accessor: (def) => (
+      accessor: (def) => {
+        const friendly = definitionLabel(def.name, uiLocale)
+        return (
         <div>
           <span
             data-testid={`def-name-${def.id}`}
@@ -177,17 +182,27 @@ export default function DefinitionListPage() {
                 }
               })
             }}
+            title={def.name}
             style={{ color: 'var(--interactive-primary)', textDecoration: 'none', cursor: 'pointer' }}
           >
-            {isSearching ? highlightText(def.name, debouncedSearch) : def.name}
+            {isSearching ? highlightText(def.name, debouncedSearch) : friendly}
           </span>
+          {!isSearching && friendly !== def.name && (
+            <div
+              data-testid={`def-key-${def.id}`}
+              style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}
+            >
+              {def.name}
+            </div>
+          )}
           {isSearching && def.description && (
             <div style={{ fontSize: '.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
               {highlightText(def.description ?? '', debouncedSearch)}
             </div>
           )}
         </div>
-      ),
+        )
+      },
     },
     {
       id: 'version',
