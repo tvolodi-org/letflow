@@ -33,7 +33,7 @@ defmodule Letflow.Notifications do
   row (`notification_deliveries.reason` is a column CHECK; a new reason would need a tenant
   migration). An adapter failure is retried inside the delivery task (`retries: 2`, backoff from
   `config :letflow, Letflow.Notifications, retry_backoff_ms`, default 1 s / 5 s); still ONE log
-  row, written after the last attempt. The other callers of `deliver/6` (exam, assets) do not
+  row, written after the last attempt. The other callers of `deliver/6` (other modules) do not
   retry. There is no durable queue: a node restart loses an in-flight delivery.
   """
 

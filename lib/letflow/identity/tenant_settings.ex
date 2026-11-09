@@ -17,7 +17,7 @@ defmodule Letflow.Identity.TenantSettings do
 
   ## Allowed keys
 
-  Exactly nine string keys, no more, no fewer: `"app_name"`, `"logo_url"`,
+  Exactly ten string keys, no more, no fewer: `"app_name"`, `"logo_url"`,
   `"brand_colors"`, `"locales"`, `"default_locale"`, `"signatory_name"`,
   `"signatory_title"` (REQ-595), `"timezone"` (REQ-703),
   `"ui.document_layout_default"` (T-1390), `"notifications.email_copy"` (T-1571, boolean, absent = off). String-keyed (not atom)
