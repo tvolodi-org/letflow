@@ -4,7 +4,7 @@
 # import, metrics or module permission), web/src/components/layout/AppShell.tsx (NAV_ITEMS), navVisibility.ts, navMessages.ts, web/src/router.tsx (RequirePermission
 # on admin/users, admin/audit, admin/import, webhooks and the platform pages), web/src/components/layout/__tests__/navRoleWalk.test.tsx (the worker sees 3 entries; a worker
 # opening Import data directly is refused), feedbackMessages.ts, test/fixtures/uat/actors.yaml (actor-swiftroute-tobias: TASK_WORKER only, no routing role).
-# STOREKEEPER GAP (stated, not invented): the task asks for a storekeeper too. The roster test/fixtures/uat/actors.yaml has no storekeeper actor (grep -i storekeeper finds
+# STOREKEEPER GAP (GAP sidecar scenario-env-limitations/tenant-administration-78-role-sidebar-storekeeper.yaml; stated, not invented): the task asks for a storekeeper too. The roster test/fixtures/uat/actors.yaml has no storekeeper actor (grep -i storekeeper finds
 # nothing), the same gap scenario assets-access-1 states. No storekeeper scenario is written; it follows when a storekeeper account is on the roster (the product's own walk test
 # navRoleWalk.test.tsx covers the storekeeper's 7 entries in CI). BLOCKED, not passed.
 # Not UAT-observable: the missing /me/access answer (the menu must show nothing gated while the permission answer loads or fails); it needs a failing server, so the web unit
