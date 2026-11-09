@@ -80,6 +80,7 @@ describe('N1 definition', () => {
       'admin/stock/movements',
       'admin/stock/counts',
       'admin/stock/counts/:id',
+      'admin/stock/help/:topic',
     ])
     expect(stockModuleDefinition.navItems.map((n) => [n.label, n.to, n.permission])).toEqual([
       ['Stock documents', '/admin/stock/documents', 'StockRead'],

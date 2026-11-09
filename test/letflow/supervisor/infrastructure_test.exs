@@ -82,7 +82,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
     refute Letflow.Scheduler.Poller in ids
   end
 
-  test "Letflow.Supervisor.Infrastructure owns the 27 expected children, in order" do
+  test "Letflow.Supervisor.Infrastructure owns the 28 expected children, in order" do
     children = Supervisor.which_children(Letflow.Supervisor.Infrastructure)
 
     ids =
@@ -111,6 +111,8 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Plugs.PublicReadRateLimit.Bucket,
              # REQ-436: sibling leaf bucket for Letflow.Plugs.LoginDiscoveryRateLimit.
              Letflow.Plugs.LoginDiscoveryRateLimit.Bucket,
+             # GH T-1558: failed-credential / public-lookup limiter bucket.
+             Letflow.Plugs.AuthAttemptLimit.Bucket,
              # ISS-1030 PR 2: once-per-tenant-per-hour throttle for the pending-admin
              # bind's fault warning. A leaf with no ordering dependency.
              # REQ-572: fixed-window limit of the provisioner credential. A leaf.
@@ -147,7 +149,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Obs.Alerts.TaskSupervisor
            ]
 
-    assert length(ids) == 27
+    assert length(ids) == 28
   end
 
   test "REQ-772: the upgrade-on-deploy child follows MigrationReplayBoot and is temporary" do
@@ -158,7 +160,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
     assert Enum.at(ids, replay + 1) == Letflow.ModuleUpgrade.Boot
     spec = Enum.at(specs, replay + 1)
     assert spec.restart == :temporary
-    # an :ignore child is not listed by which_children, so the 27-id list above is unchanged
+    # an :ignore child is not listed by which_children, so the 28-id list above is unchanged
     refute Letflow.ModuleUpgrade.Boot in Enum.map(
              Supervisor.which_children(Letflow.Supervisor.Infrastructure),
              &elem(&1, 0)

@@ -57,7 +57,7 @@ function view(permissions: Set<string>, isPlatformTenant = false) {
 }
 
 describe('role-based sidebar (golden-backed)', () => {
-  it('N1 tenant admin: every tenant entry, work and tenant administration groups, all nine import types', () => {
+  it('N1 tenant admin: every tenant entry, work and tenant administration groups, all eleven import types', () => {
     const v = view(setFor('tenantAdmin'))
     expect(v.groups).toEqual(['work', 'tenantAdmin'])
     expect(v.labels).toEqual([
@@ -71,6 +71,7 @@ describe('role-based sidebar (golden-backed)', () => {
     expect(v.importTypes).toEqual([
       'org_unit', 'org_position', 'org_employee', 'location_node',
       'catalog_uom', 'catalog_item', 'catalog_counterparty', 'catalog_lot', 'stock_opening_line',
+      'assets_card', 'assets_opening_line',
     ])
   })
 

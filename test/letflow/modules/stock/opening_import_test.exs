@@ -357,7 +357,7 @@ defmodule Letflow.Modules.Stock.OpeningImportTest do
     test "I4-2 a row for another org unit than the header's is org_unit_mismatch", ctx do
       other = masters!(ctx.schema)
       conn = import_file(ctx, [row(ctx.im, "A", %{"org_unit_id" => "unit#{other.n}"})])
-      assert reasons(conn) == [%{"type" => "org_unit_mismatch"}]
+      assert reasons(conn) == [%{"type" => "org_unit_mismatch", "header" => "org_unit_id"}]
       assert length(lines(ctx, ctx.im.doc["id"])) == 1
     end
 
@@ -402,7 +402,7 @@ defmodule Letflow.Modules.Stock.OpeningImportTest do
     for {q, n} <- Enum.with_index(["0", "-1"], 1) do
       test "I4-4#{n} quantity #{q} is quantity_invalid", ctx do
         conn = import_file(ctx, [row(ctx.im, "Q", %{"quantity" => unquote(q)})])
-        assert reasons(conn) == [%{"type" => "quantity_invalid"}]
+        assert reasons(conn) == [%{"type" => "quantity_invalid", "header" => "quantity"}]
         assert length(lines(ctx, ctx.im.doc["id"])) == 1
       end
     end
@@ -416,6 +416,13 @@ defmodule Letflow.Modules.Stock.OpeningImportTest do
         ])
 
       assert outcomes(conn) == ["price_invalid", "price_invalid", "created"]
+
+      # T-C1b: each price refusal names its own column and the sheet line
+      assert [
+               %{"reason" => %{"header" => "unit_price"}, "line" => 2},
+               %{"reason" => %{"header" => "line_value"}, "line" => 3},
+               _
+             ] = Jason.decode!(conn.resp_body)["results"]
     end
 
     test "I4-6 nothing is posted, no instance and no mark exist", ctx do
@@ -457,7 +464,8 @@ defmodule Letflow.Modules.Stock.OpeningImportTest do
 
       assert {:error, {:line_invalid, "received_on"}} = call.(%{"received_on" => "2026-13-45"})
       assert {:error, :quantity_invalid} = call.(%{"quantity" => "abc"})
-      assert {:error, :price_invalid} = call.(%{"unit_price" => "x"})
+      assert {:error, {:price_invalid, "unit_price"}} = call.(%{"unit_price" => "x"})
+      assert {:error, {:price_invalid, "line_value"}} = call.(%{"line_value" => "x"})
       assert {:ok, %{outcome: :created}} = call.(%{})
       assert length(lines(ctx, id)) == 2
     end

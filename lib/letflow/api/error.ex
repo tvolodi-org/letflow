@@ -514,6 +514,14 @@ defmodule Letflow.Api.Error do
   end
 
   @doc """
+  HTTP 422 with extra RFC 9457 extension members (GH batch2 item 4, import errors). The detail
+  string is the caller's; `extensions` must hold constants and names the caller itself sent.
+  """
+  @spec unprocessable_with(String.t(), %{optional(String.t()) => term()}) :: t()
+  def unprocessable_with(detail, extensions) when is_map(extensions),
+    do: %{unprocessable(detail) | extensions: extensions}
+
+  @doc """
   HTTP 422 — Output Refused (REQ-460, design req459 §3.2). A HUMAN_TASK
   completion was refused before any state change because its submitted output
   lacks a `required_outputs` key or carries a value a `variable_schema` rejects;
