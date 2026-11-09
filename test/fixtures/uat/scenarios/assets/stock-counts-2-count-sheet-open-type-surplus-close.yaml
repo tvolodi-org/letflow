@@ -1,0 +1,217 @@
+# T-1532 (BA#5, item 5 of docs/uat/ba-decisions/T-1518.md): the count sheet: opening a count builds the sheet from the book quantities at the cut-off, counted quantities are typed (the last one counts, every entry is logged), a surplus line is added, closing needs every line counted.
+# Covers REQ-701 criteria 2 to 8 and REQ-702 criterion 3 (decision docs/migration/decisions/0079-counts-inventory-taking.md sections 4 to 6).
+# Sources: docs/requirements.yaml REQ-701 (reasons not_chair, count_not_due, count_state_invalid, field_invalid, line_not_found, location_not_in_count, lines_uncounted; one sheet line per non-zero balance key of the unit inside the roots), REQ-700 criterion 7 (routes' permissions).
+#
+# ROSTER GAP (stated, not invented): as in stock-counts-1 (no STOREKEEPER actor in the roster; the administrator of SwiftRoute is the chair and the only holder of the count permissions; the TASK_WORKER of SwiftRoute holds none).
+# NOT UAT-observable: that a posting made after the opening leaves the sheet's book quantities unchanged (needs a posting task and is covered by the product's own tests on a committed tenant); two concurrent opens ending with one set of lines; the audit entries of open, typed entries and close.
+---
+id: stock-counts-2-count-sheet-open-type-surplus-close
+scope: assets
+title: Opening a count builds the sheet from the book quantities, typed quantities are logged and the last one counts, a surplus line can be added, and closing needs every line counted
+version: "1.0"
+tags: [assets, stock, counts, count-sheet, typed-input, refusal]
+
+description: >
+  SwiftRoute holds Bolt M8 (10 pieces, in "Hall", responsible employee R1) and Nut M8 (4 pieces, in "Shelf 1", the child of "Hall", responsible employee R1) in "Main warehouse"; "Washer" is an active item with no stock.
+  The administrator, the chair, issues a count order for "Hall" (and so "Shelf 1") and opens the count: the sheet has exactly two lines, Bolt M8 with book 10 and Nut M8 with book 4, and nothing counted. A task worker cannot open a count.
+  The chair types 8 for the Bolts and then 7; the line shows 7 and the entry log has two entries (8, then 7). A negative quantity, a quantity that is not a number and a line number that does not exist are refused. The chair adds a surplus line
+  of 2 Washers in "Shelf 1"; a surplus line in "Yard", a place outside the count, is refused. Closing with the Nuts uncounted is refused; after the Nuts are counted (4) the count closes and the sheet becomes a fixed document; typing
+  afterwards is refused. A task worker cannot read the sheet, and the administrator of another company cannot reach the count.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has the stock module installed, "Main warehouse" with the locations "Hall", "Shelf 1" (child of "Hall") and "Yard", the active items Bolt M8, Nut M8 and Washer, and the active employee R1; the stock balances are exactly Bolt M8 10 pieces in "Hall" and Nut M8 4 pieces in "Shelf 1", both with R1 as responsible, and nothing else in "Main warehouse".
+    check: system_seeded
+    detail: If other non-zero balances exist in "Hall", "Shelf 1" or below, the sheet has more lines; report BLOCKED for steps 3 and 4 and say which balances exist.
+  - description: The administrator of SwiftRoute is linked to an active employee (the chair), and no other count order of "Main warehouse" is open.
+    check: system_seeded
+    detail: If not, report BLOCKED for the whole scenario.
+  - description: BilimBaga has the stock module installed.
+    check: system_seeded
+    detail: If BilimBaga has no stock module, report BLOCKED for step 14 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator drafts and issues a selective count order for "Main warehouse" with the root "Hall", itself as chair, a planned start ten minutes ago and a planned end four hours after the start. The issued order is noted as O1.
+    via: api
+  - step: 2
+    actor: worker
+    action: >
+      The task worker tries to open the count O1. The answer is noted as R1 and the order is read by the administrator as O2.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The chair opens the count O1. The order is read and noted as O3 (status and cut-off time) and the sheet lines are read and noted as S1.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The chair types 8 for the Bolt M8 line and then types 7 for the same line. The sheet is read as S2 and the entry log as E1.
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The chair types -1 for the Bolt M8 line; then types the text "abc" for the same line; then types 3 for a line number that does not exist. The answers are noted as R2, R3 and R4; the sheet is read as S3 and the entry log as E2.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The chair adds a surplus line of 2 Washers in the place "Shelf 1". The answer is noted as R5, the sheet as S4 and the entry log as E3.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The chair adds a surplus line of 1 Washer in the place "Yard", which is not part of the count. The answer is noted as R6 and the sheet is read as S5.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The chair closes the count while the Nut M8 line is not counted. The answer is noted as R7 and the order is read as O4.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The chair types 4 for the Nut M8 line, then closes the count. The order is read as O5 and the issued sheet document is read as H1.
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The chair types 5 for the Nut M8 line of the closed count. The answer is noted as R8 and the sheet is read as S6.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: worker
+    action: >
+      The task worker reads the sheet lines, the entry log and the sheet document of O1. The answers are noted as R9, R10 and R11.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: worker
+    action: >
+      The task worker tries to type 1 for the Bolt M8 line and to add a surplus line. The answers are noted as R12 and R13.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: other_admin
+    action: >
+      The administrator of the other company reads the sheet lines and the entry log of O1 of SwiftRoute and tries to open it. The answers are noted as R14, R15 and R16; the SwiftRoute administrator reads the sheet as S7.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: other_admin
+    action: >
+      The administrator of the other company lists its own counts. The answer is noted as R17.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker cannot open a count and the count stays ordered.
+    verification:
+      method: http_status
+      detail: Step 2 answers 403; O2 has status "ordered".
+      evidence: R1 and O2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone could start a count and fix its cut-off time.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: Opening builds the sheet from the book quantities and nothing is counted yet.
+    verification:
+      method: api_response
+      detail: Step 3 answers 200; O3 has status "counting" and a cut-off time; S1 has exactly two lines of kind book - Bolt M8 with book quantity "10" in "Hall" and Nut M8 with book quantity "4" in "Shelf 1" - both with R1 as responsible and an empty counted quantity.
+      evidence: O3 and S1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The count sheet would not show what the books say, so differences would be wrong.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: The last typed quantity counts and every typed quantity is logged.
+    verification:
+      method: api_response
+      detail: In S2 the Bolt M8 line has counted quantity "7" and book quantity still "10". E1 has two entries for it in time order - first "8", then "7" (the second with the quantity before "8") - each with the chair as user.
+      evidence: S2 and E1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A correction would hide the earlier entry, or the log would be incomplete for the audit.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A negative quantity, a text that is not a number and an unknown line are refused and nothing is recorded.
+    verification:
+      method: api_response
+      detail: Step 5 answers 422 each - R2 and R3 with the reason "field_invalid", R4 with the reason "line_not_found"; S3 equals S2 and E2 equals E1.
+      evidence: R2, R3, R4, S2, S3, E1 and E2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Bad figures could enter a count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: A surplus line is added for goods that were found and are not in the books.
+    verification:
+      method: api_response
+      detail: Step 6 answers with a 2xx status; S4 has a third line of kind surplus for Washer in "Shelf 1" with book quantity "0" and counted quantity "2"; E3 has one more entry than E2.
+      evidence: R5, S4 and E3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Goods found during a count cannot be recorded.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: A surplus line in a place outside the count is refused.
+    verification:
+      method: api_response
+      detail: Step 7 answers 422 with the reason "location_not_in_count"; S5 equals S4.
+      evidence: R6, S4 and S5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A count could record goods from places no one was ordered to count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-007
+    description: Closing with an uncounted line is refused; closing after every line is counted fixes the sheet.
+    verification:
+      method: api_response
+      detail: Step 8 answers 422 with the reason "lines_uncounted" and O4 still has status "counting". Step 9 answers 200 for the type and for the close; O5 has status "counted"; H1 is an issued document with a number label and a version number.
+      evidence: R7, O4, O5 and H1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A count could be closed with lines nobody counted, and the differences would be invented.
+      suggested_action: route_to_elixir_dev
+  - id: EO-008
+    description: A closed count accepts no more typing.
+    verification:
+      method: api_response
+      detail: Step 10 answers 422 with the reason "count_state_invalid"; S6 shows the Nut M8 line with counted quantity "4".
+      evidence: R8 and S6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A signed-off sheet could be changed afterwards.
+      suggested_action: route_to_elixir_dev
+  - id: EO-009
+    description: A task worker can neither read nor change the count sheet.
+    verification:
+      method: http_status
+      detail: Steps 11 and 12 answer 403 for every request (R9 to R13).
+      evidence: R9, R10, R11, R12 and R13.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Stock figures and counted quantities are exposed or changed by people without the right.
+      suggested_action: route_to_elixir_dev
+  - id: EO-010
+    description: Another company gets the same answer as for an unknown count, and the sheet is unchanged.
+    verification:
+      method: api_response
+      detail: Step 13 answers 404 for R14, R15 and R16, each with the same body as a count identifier that does not exist (trace_id dropped before comparing); S7 equals S6. Step 14 answers 200 and R17 does not list O1.
+      evidence: R14, R15, R16, R17, S6 and S7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could see or change another company's count.
+      suggested_action: route_to_elixir_dev
