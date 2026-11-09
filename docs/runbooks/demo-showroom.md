@@ -53,6 +53,18 @@ failed step (`STOP: ...`), 2 is a missing tool or bad input (nothing was request
 Without `PLATFORM_ACCESS_TOKEN` the tenant must already exist; the script stops at `GET /me/modules` with a clear
 line when it does not.
 
+## Open tasks for the demo logins
+
+For a login that the seed really linked, the seed leaves open work in My Tasks (D-113): `ADMIN_LOGIN_USERNAME` gets
+3 stock receipts (English, Russian, Kazakh note; responsible Aigerim Sadykova, Warehouse team / Rack 02), and
+`USER_LOGIN_USERNAME` gets 2 (Kazakh, English; responsible Arman Kassymov, Sales team / Showroom). Each receipt is
+*issued* but not posted. Its post task is routed to the TENANT_ADMIN role, so the seed addresses it to the login with
+`POST /tasks/:id/reassign`; the task stays pending and unclaimed. The seed never claims, completes or deletes these
+tasks, and a second run writes nothing (documents are found by the marker note `demo:<tag>:open-al-1 | <text>`).
+No new variables: the existing `ADMIN_LOGIN_USERNAME`, `USER_LOGIN_USERNAME` and the tenant administrator sign-in
+(that user needs the TENANT_ADMIN role). With `SKIP_DOCS=1` or an unlinked login the step is skipped. To reset one,
+cancel the document in the Documents screen.
+
 ## Running it again (idempotent)
 
 A second run changes nothing. Masters use the import route (`upsert by external ref`) or an idempotency key,
