@@ -22,6 +22,7 @@ import { useToast } from '@/hooks/useToast'
 import type { EntityRecord } from '@/types/api'
 import { assetsApi } from './assets.api'
 import { AssetCardFacts } from './AssetCardFacts'
+import { AssetCardHolder } from './AssetCardHolder'
 import { AssetCardForm, unitName, type Cmd } from './AssetCardForm'
 import { AssetsIntlProvider } from './AssetsIntlProvider'
 import { AssetsShell, useAssetRows, useErrorText, useOrgUnitRows } from './AssetsShell'
@@ -140,7 +141,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
       <>
         <DetailHeader title={t('assets.page.createTitle')} actions={closeButton} />
         <div className="lf-card__body">
-          <AssetCardForm key="new" record={null} units={units} write={write} onDone={formDone} onCancel={closePanel} />
+          <AssetCardForm key="new" record={null} write={write} onDone={formDone} onCancel={closePanel} />
         </div>
       </>
     )
@@ -167,12 +168,13 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
             </>
           }
         />
-        <div className="lf-card__body">
+        <div className="lf-card__body lf-form">
           {active ? (
-            <AssetCardForm key={selected.record_id} record={selected} units={units} write={write} onDone={formDone} onCancel={closePanel} />
+            <AssetCardForm key={selected.record_id} record={selected} write={write} onDone={formDone} onCancel={closePanel} />
           ) : (
-            <AssetCardFacts record={selected} unitLabel={unitLabel(textOf(selected, 'org_unit_id'))} />
+            <AssetCardFacts record={selected} />
           )}
+          <AssetCardHolder cardId={selected.record_id} />
         </div>
       </>
     )

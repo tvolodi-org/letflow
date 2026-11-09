@@ -51,7 +51,7 @@ The header row of an asset import file is one column per field of the `assets_ca
 | 1 | inventory_number | string | required; unique per tenant (D-097) |
 | 2 | name | string | required |
 | 3 | kind | enum | required; `fixed`, `low_value` or `intangible` |
-| 4 | org_unit_id | reference | required; external id of an org_unit (section 3 rule 1) |
+| 4 | org_unit_id | reference | required (the import is the one channel that still writes the card's unit, T-1488); external id of an org_unit (section 3 rule 1) |
 | 5 | acquisition_date | date | optional; the real receipt date |
 | 6 | currency | string | optional; empty means the tenant currency |
 | 7 | acquisition_cost | decimal | optional; `decimal_strict` |

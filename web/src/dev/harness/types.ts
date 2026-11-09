@@ -18,6 +18,8 @@ export interface FixtureReply {
 /** One fake API endpoint. `match` gets the pathname (no query string) and the method. */
 export interface FixtureRoute {
   match: (path: string, method: string) => boolean
+  /** When true this endpoint never answers in any state (a loading section next to loaded data). */
+  pending?: boolean
   /** The reply per state. `loading` never answers; `error` defaults to a 500 problem body. */
   /** `body` is the parsed JSON request body (undefined when there is none). */
   reply: (state: Exclude<HarnessState, 'loading'>, path: string, body?: unknown) => FixtureReply

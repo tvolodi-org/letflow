@@ -46,7 +46,7 @@ export function makeFixtureFetch(routes: FixtureRoute[], state: HarnessState): t
       console.warn(`[harness] no fixture for ${method} ${path}`)
       return Promise.resolve(jsonResponse(404, { title: 'No fixture', status: 404 }))
     }
-    if (state === 'loading') return new Promise<Response>(() => {})
+    if (state === 'loading' || route.pending) return new Promise<Response>(() => {})
     if (state === 'error') return Promise.resolve(jsonResponse(500, PROBLEM_500))
     const { status, body } = route.reply(state, path, parseBody(init?.body))
     inFlight += 1

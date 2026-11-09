@@ -51,6 +51,11 @@ defmodule Letflow.Modules.Assets do
   `POST /documents/:id/check` (every line's reasons, writes nothing). Drafts and the checks only: issuing an
   opening answers 409 `posting_not_available` until part 2 adds the process and the ledger cause. No SQL migration.
 
+  **Card holder** (T-1488 / G1-a, version 0.12.0): the card's `org_unit_id` is optional and no longer typed; the
+  routes refuse it, a new card has none, and its holder (org unit, location, responsible, user) is read from the
+  register. A card with an empty unit is visible to tenant-wide principals only. Relaxing `required` is a class B
+  change, so tenants on 0.9.0 are re-seeded (no in-place upgrade). Setting the column by a posting is G2.
+
   **Scope declaration** `{:column, "org_unit_id"}`: a scoped reader sees the cards of the org units
   of its grant. The declaration lives only in this compiled manifest; a managed type cannot be
   declared by a tenant (decision 0051 M4), so it cannot be edited later.
@@ -160,7 +165,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.11.0",
+    version: "0.12.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],

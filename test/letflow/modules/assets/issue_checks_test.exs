@@ -130,6 +130,30 @@ defmodule Letflow.Modules.Assets.IssueChecksTest do
     assert issued["number"] =~ ~r/\AACM-2\d{3}-000001\z/
   end
 
+  test "C1 a holderless card (no org unit) is accepted at issue; C2 a foreign unit still is not",
+       ctx do
+    m = ctx.ma
+
+    {:ok, card} =
+      Letflow.Modules.Assets.Cards.create_card(
+        ctx.schema,
+        %{
+          "inventory_number" => "C1-#{System.unique_integer([:positive])}",
+          "name" => "C1",
+          "kind" => "fixed"
+        },
+        %{actor_id: Ecto.UUID.generate(), idempotency_key: Ecto.UUID.generate()}
+      )
+
+    refute Map.has_key?(card, "org_unit_id")
+    assert D.issue!(ctx, D.body(m, %{"lines" => [line(card["record_id"])]}))["state"] == "issued"
+
+    foreign = D.card!(ctx.schema, "fixed", D.unit!(ctx.schema))
+
+    assert %{"reason" => "org_unit_mismatch"} =
+             refusal!(ctx, D.body(m, %{"lines" => [line(foreign)]}))
+  end
+
   test "I1 asset_already_in_register: a fixed card issued once cannot be issued again", ctx do
     m = ctx.ma
     first = D.issue!(ctx, D.body(m))

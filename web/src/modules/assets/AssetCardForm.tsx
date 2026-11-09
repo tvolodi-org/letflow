@@ -18,7 +18,6 @@ import {
   decimalError,
   fieldMarked,
   formOf,
-  isActive,
   textOf,
   updateBody,
   type Form,
@@ -36,12 +35,11 @@ export const unitName = (unit: EntityRecord) => textOf(unit, 'name') || textOf(u
 
 export function AssetCardForm(props: {
   record: EntityRecord | null
-  units: EntityRecord[]
   write: Write
   onDone: (result: AssetsWriteResult) => void
   onCancel: () => void
 }) {
-  const { record, units, write } = props
+  const { record, write } = props
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const [form, setForm] = useState<Form>(() => formOf(record))
@@ -56,25 +54,12 @@ export function AssetCardForm(props: {
     return fault === null ? undefined : t(fault === 'format' ? 'assets.error.decimalFormat' : 'assets.error.decimalSize')
   }
   const blocked = DECIMAL_KEYS.some((k) => decimalError(form[k]) !== null)
-  const requiredFilled = form.inventory_number.trim() !== '' && form.name.trim() !== '' && form.org_unit_id !== ''
+  const requiredFilled = form.inventory_number.trim() !== '' && form.name.trim() !== ''
   const body = isNew ? createBody(form) : updateBody(initial, form)
   const canSave = !blocked && requiredFilled && (isNew || Object.keys(body).length > 0)
 
   const invalid = (name: string) => (fieldMarked(write.error, name) ? t('assets.common.fieldInvalid') : undefined)
   const decimalError_ = (key: (typeof DECIMAL_KEYS)[number]) => decimalProblem(key) ?? invalid(key)
-
-  const unitOptions = units
-    .filter(isActive)
-    .map((u) => ({ value: u.record_id, label: unitName(u), disabled: false }))
-  if (form.org_unit_id !== '' && !unitOptions.some((o) => o.value === form.org_unit_id)) {
-    // the unit of the card is retired or not loaded: keep it as a disabled option, never show its id
-    const known = units.find((u) => u.record_id === form.org_unit_id)
-    unitOptions.push({
-      value: form.org_unit_id,
-      label: known ? unitName(known) : t('assets.common.dash'),
-      disabled: true,
-    })
-  }
 
   async function save() {
     if (!canSave || write.isPending) return
@@ -120,17 +105,8 @@ export function AssetCardForm(props: {
             error={invalid('kind')}
             onChange={(v) => patch({ kind: v, ...(v === 'intangible' ? {} : { valid_until: '' }) })}
           />
-          <Select
-            label={t('assets.field.orgUnit')}
-            width="l"
-            name="org_unit_id"
-            value={form.org_unit_id}
-            options={unitOptions}
-            placeholder={t('assets.common.dash')}
-            error={invalid('org_unit_id')}
-            onChange={(v) => patch({ org_unit_id: v })}
-          />
         </FormRow>
+        {isNew && <p className="caption lf-faint">{t('assets.form.holderHint')}</p>}
       </FormSection>
       <FormSection title={t('assets.section.acquisition')}>
         <FormRow>

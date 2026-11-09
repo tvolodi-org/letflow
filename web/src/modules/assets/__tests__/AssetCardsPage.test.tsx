@@ -155,7 +155,8 @@ describe('P4 create', () => {
     expect(screen.getByTestId('asset-save')).toBeDisabled()
     fireEvent.change(field('inventory_number'), { target: { value: 'FA-9' } })
     fireEvent.change(field('name'), { target: { value: 'New van' } })
-    fireEvent.change(field('org_unit_id'), { target: { value: 'u-2' } })
+    expect(document.querySelector('[name="org_unit_id"]')).toBeNull()
+    expect(screen.getByText(en['assets.form.holderHint'])).toBeInTheDocument()
     fireEvent.change(field('acquisition_cost'), { target: { value: '12.5' } })
     fireEvent.click(screen.getByTestId('asset-save'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
@@ -163,7 +164,7 @@ describe('P4 create', () => {
     expect(call.method).toBe('POST')
     expect(call.path).toBe('/api/v1/modules/assets/cards')
     expect(call.body).toEqual({
-      kind: 'fixed', inventory_number: 'FA-9', name: 'New van', org_unit_id: 'u-2', acquisition_cost: '12.5',
+      kind: 'fixed', inventory_number: 'FA-9', name: 'New van', acquisition_cost: '12.5',
       idempotency_key: expect.any(String),
     })
     expect(await screen.findByText(en['assets.toast.created'])).toBeInTheDocument()
@@ -178,7 +179,6 @@ describe('P4 create', () => {
     await screen.findByRole('form')
     fireEvent.change(field('inventory_number'), { target: { value: 'X' } })
     fireEvent.change(field('name'), { target: { value: 'Y' } })
-    fireEvent.change(field('org_unit_id'), { target: { value: 'u-1' } })
     fireEvent.change(field('book_value'), { target: { value: '1,5' } })
     expect(screen.getByText(en['assets.error.decimalFormat'])).toBeInTheDocument()
     expect(field('book_value')).toHaveAttribute('aria-invalid', 'true')
@@ -245,7 +245,6 @@ describe('P7 write errors', () => {
 
   it('shows the message of each reason, marks the field and keeps the form open', async () => {
     const cases: [string, string | null][] = [
-      ['org_unit_not_active', 'org_unit_id'],
       ['currency_mismatch', 'currency'],
       ['card_inactive', null],
     ]

@@ -121,6 +121,32 @@ defmodule Letflow.Modules.Assets.PostingTest do
     assert Enum.map(list["rows"], & &1["id"]) == [id]
   end
 
+  test "C3 a holderless card posts over HTTP; the register carries its holder (T-1488)", ctx do
+    m = ctx.ma
+
+    {:ok, card} =
+      Letflow.Modules.Assets.Cards.create_card(
+        ctx.schema,
+        %{
+          "inventory_number" => "C3-#{System.unique_integer([:positive])}",
+          "name" => "C3",
+          "kind" => "fixed"
+        },
+        %{actor_id: Ecto.UUID.generate(), idempotency_key: Ecto.UUID.generate()}
+      )
+
+    doc = D.issue!(ctx, D.body(m, %{"lines" => [line(card["record_id"], "1")]}))
+    posted = D.run_task!(ctx, doc["id"])
+    assert posted["state"] == "posted" and posted["posting_check"] == "ok"
+
+    balances =
+      Letflow.AssetsRegisterFixture.get("/balances?asset=#{card["record_id"]}", ctx.tok_a)
+      |> D.status!(200)
+
+    assert [row] = balances["rows"]
+    assert row["org_unit"] == m.unit and row["asset"] == card["record_id"]
+  end
+
   test "P2 post twice: a second completion is refused; one entry, one mark", ctx do
     doc = D.issue!(ctx)
     id = doc["id"]

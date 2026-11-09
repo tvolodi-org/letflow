@@ -26,17 +26,19 @@ defmodule Letflow.Modules.Assets.CardsTest do
   @actor Ecto.UUID.generate()
   defp opts(key \\ Ecto.UUID.generate()), do: %{actor_id: @actor, idempotency_key: key}
 
-  defp attrs(unit, number, extra \\ %{}) do
+  defp attrs(_unit, number, extra \\ %{}) do
     Map.merge(
       %{
         "inventory_number" => number,
         "name" => "Card #{number}",
-        "kind" => "fixed",
-        "org_unit_id" => unit
+        "kind" => "fixed"
       },
       extra
     )
   end
+
+  # The import is the only caller that may still carry the unit (T-1488).
+  defp import_opts, do: Map.put(opts(), :holder_source, :import)
 
   defp card!(schema, unit, number, extra \\ %{}) do
     {:ok, card} = Cards.create_card(schema, attrs(unit, number, extra), opts())
@@ -80,7 +82,7 @@ defmodule Letflow.Modules.Assets.CardsTest do
     assert card_count(s) == 1
   end
 
-  test "R-2: the org unit must be a live active org_unit of this tenant", %{
+  test "R-2: (import only) the org unit must be a live active org_unit of this tenant", %{
     fx: fx,
     schema: s,
     unit: u
@@ -96,13 +98,13 @@ defmodule Letflow.Modules.Assets.CardsTest do
           retired.record_id,
           site.record_id,
           foreign,
-          5,
-          nil
+          5
         ] do
       assert {:error, :org_unit_not_active} =
-               Cards.create_card(s, attrs(bad, "R2"), opts())
+               Cards.create_card(s, attrs(bad, "R2", %{"org_unit_id" => bad}), import_opts())
     end
 
+    assert {:ok, _} = Cards.create_card(s, attrs(u, "R2-Y", %{"org_unit_id" => u}), import_opts())
     card = card!(s, u, "R2-OK")
 
     assert {:error, :org_unit_not_active} =
@@ -110,14 +112,49 @@ defmodule Letflow.Modules.Assets.CardsTest do
                s,
                card["record_id"],
                %{"org_unit_id" => retired.record_id},
-               opts()
+               import_opts()
              )
 
-    assert {:error, :org_unit_not_active} =
-             Cards.update_card(s, card["record_id"], %{"org_unit_id" => nil}, opts())
+    assert card_count(s) == 2
+    assert fx.schema_name == s
+  end
+
+  test "B1: a card is created without an org unit, nothing stored for it", %{schema: s, unit: u} do
+    card = card!(s, u, "B1")
+    refute Map.has_key?(card, "org_unit_id")
+    refute Map.has_key?(stored(s, card["record_id"]), "org_unit_id")
+    assert [%{action: "assets_card.created"}] = entries(s)
+  end
+
+  test "B2: the route write path refuses org_unit_id on create and update", %{
+    schema: s,
+    unit: u
+  } do
+    assert {:error, {:field_not_allowed, "org_unit_id"}} =
+             Cards.create_card(s, attrs(u, "B2", %{"org_unit_id" => u}), opts())
+
+    card = card!(s, u, "B2B")
+
+    assert {:error, {:field_not_allowed, "org_unit_id"}} =
+             Cards.update_card(s, card["record_id"], %{"org_unit_id" => u}, opts())
 
     assert card_count(s) == 1
-    assert fx.schema_name == s
+    assert length(entries(s)) == 1
+  end
+
+  test "B3: an update keeps the unit of an old card and keeps a holderless card holderless", %{
+    schema: s,
+    unit: u
+  } do
+    {:ok, old} =
+      Cards.create_card(s, attrs(u, "B3O", %{"org_unit_id" => u}), import_opts())
+
+    {:ok, new} = Cards.create_card(s, attrs(u, "B3N"), opts())
+
+    assert {:ok, _} = Cards.update_card(s, old["record_id"], %{"name" => "X"}, opts())
+    assert {:ok, _} = Cards.update_card(s, new["record_id"], %{"name" => "Y"}, opts())
+    assert stored(s, old["record_id"])["org_unit_id"] == u
+    refute Map.has_key?(stored(s, new["record_id"]), "org_unit_id")
   end
 
   test "R-3: valid_until only for intangible, judged on the merged document", %{

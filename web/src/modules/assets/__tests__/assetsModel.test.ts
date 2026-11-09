@@ -14,8 +14,9 @@ const record = (fields: Record<string, unknown>): EntityRecord => ({
 
 describe('M1 bodies and decimals', () => {
   it('createBody drops empty optionals and never sends valid_until for a non-intangible kind or active', () => {
-    const form = { ...EMPTY_FORM, inventory_number: ' A-1 ', name: 'Van', org_unit_id: 'u-1', valid_until: '2027-01-01', acquisition_cost: '10.5' }
-    expect(createBody(form)).toEqual({ kind: 'fixed', inventory_number: 'A-1', name: 'Van', org_unit_id: 'u-1', acquisition_cost: '10.5' })
+    const form = { ...EMPTY_FORM, inventory_number: ' A-1 ', name: 'Van', valid_until: '2027-01-01', acquisition_cost: '10.5' }
+    expect(createBody(form)).toEqual({ kind: 'fixed', inventory_number: 'A-1', name: 'Van', acquisition_cost: '10.5' })
+    expect(createBody(form)).not.toHaveProperty('org_unit_id')
     expect(createBody({ ...form, kind: 'intangible' })).toMatchObject({ kind: 'intangible', valid_until: '2027-01-01' })
     expect(createBody(form)).not.toHaveProperty('active')
   })
@@ -23,6 +24,7 @@ describe('M1 bodies and decimals', () => {
   it('updateBody sends only changed keys, clears to null, never kind or active', () => {
     const initial = formOf(record({ inventory_number: 'A-1', name: 'Van', kind: 'intangible', org_unit_id: 'u-1', valid_until: '2027-01-01', currency: 'KZT' }))
     expect(updateBody(initial, initial)).toEqual({})
+    expect(updateBody(initial, { ...initial, name: 'Z' })).not.toHaveProperty('org_unit_id')
     expect(updateBody(initial, { ...initial, name: 'Truck', valid_until: '', currency: 'KZT' })).toEqual({ name: 'Truck', valid_until: null })
     expect(updateBody(initial, { ...initial, kind: 'fixed', name: 'Truck' })).not.toHaveProperty('kind')
     const fixed = formOf(record({ inventory_number: 'A-1', name: 'Van', kind: 'fixed', org_unit_id: 'u-1' }))

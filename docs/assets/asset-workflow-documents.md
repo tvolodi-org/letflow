@@ -64,6 +64,9 @@ Each document is two module-managed record types of the asset module: a **header
 
 ### 1.4 Header fields common to all four documents
 
+Note (T-1488): the card's own `org_unit_id` is neither typed nor yet moved by a posting (item G2); the commission check
+`org_unit_mismatch` accepts a card with no unit.
+
 | Field | Type | Req. | Master |
 |---|---|---|---|
 | `document_id` | string (id of the versioned document; number and state are read from it) | yes | none |

@@ -125,13 +125,12 @@ defmodule Letflow.Modules.Assets.CardsRouterTest do
     })["record_id"]
   end
 
-  defp body(unit, number, extra \\ %{}) do
+  defp body(_unit, number, extra \\ %{}) do
     Map.merge(
       %{
         "inventory_number" => number,
         "name" => "Card #{number}",
         "kind" => "fixed",
-        "org_unit_id" => unit,
         "idempotency_key" => key()
       },
       extra
@@ -207,6 +206,29 @@ defmodule Letflow.Modules.Assets.CardsRouterTest do
              403
   end
 
+  test "H-1b: a created card has no org unit; the unit cannot be set later (T-1488)", ctx do
+    c = created!(ctx, "H1B")
+    refute Map.has_key?(c, "org_unit_id")
+    id = c["record_id"]
+
+    r =
+      ok!(
+        card(ctx.tok_a, :patch, "/cards/#{id}", %{
+          "idempotency_key" => key(),
+          "org_unit_id" => ctx.unit_a
+        }),
+        422
+      )
+
+    assert r["reason"] == "field_not_allowed" and r["field"] == "org_unit_id"
+
+    # another tenant's admin cannot read or patch the holderless card (INV-5/INV-10)
+    ok!(
+      card(ctx.tok_b, :patch, "/cards/#{id}", %{"idempotency_key" => key(), "name" => "x"}),
+      404
+    )
+  end
+
   test "H-2: idempotency key required, replay and reuse", ctx do
     b = body(ctx.unit_a, "H2")
     first = ok!(card(ctx.tok_a, :post, "/cards", b), 201)
@@ -232,7 +254,9 @@ defmodule Letflow.Modules.Assets.CardsRouterTest do
 
     cases = [
       {:post, "/cards", body(ctx.unit_a, "H3A", %{"active" => false}), "field_not_allowed"},
-      {:post, "/cards", body(other, "H3B"), "org_unit_not_active"},
+      {:post, "/cards", body(other, "H3B", %{"org_unit_id" => other}), "field_not_allowed"},
+      {:patch, "/cards/#{id}", %{"idempotency_key" => key(), "org_unit_id" => other},
+       "field_not_allowed"},
       {:post, "/cards", body(ctx.unit_a, "H3C", %{"valid_until" => "2030-01-01"}),
        "valid_until_not_allowed"},
       {:post, "/cards", body(ctx.unit_a, "H3D", %{"currency" => "USD"}), "currency_mismatch"},
@@ -398,8 +422,13 @@ defmodule Letflow.Modules.Assets.CardsRouterTest do
 
     ok!(card(ctx.tok_b, :post, "/cards/#{id}/retire", %{"idempotency_key" => key()}), 404)
 
-    r = ok!(card(ctx.tok_b, :post, "/cards", body(ctx.unit_a, "T5B")), 422)
-    assert r["reason"] == "org_unit_not_active"
+    r =
+      ok!(
+        card(ctx.tok_b, :post, "/cards", body(ctx.unit_a, "T5B", %{"org_unit_id" => ctx.unit_a})),
+        422
+      )
+
+    assert r["reason"] == "field_not_allowed" and r["field"] == "org_unit_id"
 
     r =
       ok!(

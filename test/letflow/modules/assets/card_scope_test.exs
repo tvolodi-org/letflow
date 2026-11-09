@@ -116,6 +116,20 @@ defmodule Letflow.Modules.Assets.CardScopeTest do
     assert numbers(query(fx, wide, body)) == ["INV-1", "INV-2"]
   end
 
+  test "S1: a holderless card is read by tenant-wide holders only; S2: unit cards stay scoped",
+       %{fx: fx, schema: schema, u1: u1} do
+    {:ok, _} =
+      Letflow.Modules.Assets.Cards.create_card(
+        schema,
+        %{"inventory_number" => "INV-0", "name" => "No holder", "kind" => "fixed"},
+        %{actor_id: Ecto.UUID.generate(), idempotency_key: Ecto.UUID.generate()}
+      )
+
+    body = %{"entity_type" => "assets_card"}
+    assert numbers(query(fx, holder!(schema, u1), body)) == ["INV-1"]
+    assert numbers(query(fx, holder!(schema, nil), body)) == ["INV-0", "INV-1", "INV-2"]
+  end
+
   test "A-SCP-4: the admin of another tenant sees no card of this tenant (INV-10)", %{c1: c1} do
     other = Fx.installed_tenant!("gh3894-oth")
     Fx.card!(other.schema_name, "OTHER-1")
