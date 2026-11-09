@@ -158,7 +158,6 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
     } finally {
       stopSaving()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDraftDef, def, draft, version, onSaved])
 
   const save = useCallback(async () => {
@@ -177,7 +176,6 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
       }
     }
     await doSave()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDraftDef, def.id, draft.seededAt, doSave])
 
   return (
