@@ -9,6 +9,7 @@ import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { Checkbox } from '@/components/ui/Checkbox'
+import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { storekeeperGrantMessages } from './storekeeperGrantMessages'
 
@@ -51,7 +52,7 @@ export default function StorekeeperAssetsGrantCard() {
     >
       <h3 id="storekeeper-grant-title">{m.title}</h3>
       <p>{m.lede}</p>
-      {query.isLoading && <p role="status">{m.loading}</p>}
+      <QueryStateBoundary state={query.isLoading ? 'loading' : 'success'}>
       {notInstalled && <Banner tone="info">{m.notInstalled}</Banner>}
       {query.isError && !notInstalled && (
         <Banner
@@ -88,6 +89,7 @@ export default function StorekeeperAssetsGrantCard() {
           </Button>
         </div>
       )}
+      </QueryStateBoundary>
     </section>
   )
 }
