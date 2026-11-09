@@ -46,6 +46,9 @@ environment:
 # `.m4a` on Android and iOS and asks for the microphone permission itself (see
 # README, "Voice recording").
 dependencies:
+  # PWA M2 (D-112): S256 challenge for the web sign-in; `web`: sessionStorage /
+  # localStorage / location seams. Both were already transitive.
+  crypto: ^3.0.7
   dio: ^5.11.1
   flutter:
     sdk: flutter
@@ -61,6 +64,7 @@ dependencies:
   sembast: ^3.8.5
   # PWA M1 (D-112): IndexedDB backend, the only sembast store that works on web.
   sembast_web: ^2.4.4+1
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:
