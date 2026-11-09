@@ -58,6 +58,7 @@ import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
 import { masterDataImport, masterDataImportResult } from './importFixtures'
 import { importReportScreens } from './importReportFixtures'
 import { navRoleScreens } from './navRoleFixtures'
+import { a11yDialogScreens } from './fixtures/a11yDialogs'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -309,6 +310,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...roleLabelsScreens,
     ...taskInboxScreens,
     ...navRoleScreens,
+    ...a11yDialogScreens,
     ...instancesBoardScreens,
     masterDataImport,
     masterDataImportResult,
