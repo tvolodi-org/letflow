@@ -116,16 +116,21 @@ Two worked examples from 2026-11-08:
   the fix is by reading the code; say so in the PR instead of claiming a red proof.
 
 - **Docs-tests hang (T-1325, seen again on T-1513):** on a docs-only change shard 1 runs the docs
-  tests under a 600 s timeout, with one retry. The log shows `Result: N passed`, then a
-  `could not lookup Ecto repo Letflow.Repo` exit message, and the step ends with
-  `docs tests: attempt 2 failed with exit 124`. No test failed, so this is not a content fault.
-  Two shapes are seen. (a) Teardown hang: the run finished and hung on exit. (b) Too slow: the
-  selected files (61 on 2026-11-09) were still running when `timeout` stopped them; the
-  `Finished in` line is close to 600 s and the `Result:` count differs between the two attempts
-  (T-1513: 852 then 1038 tests; T-1516 the same day). Shape (b) hits every docs-only PR on a
-  loaded runner until the docs-test selection in `scripts/ci_docs_only.sh` is narrowed or split.
-  Do not rework the docs: re-run the failed jobs once (the engine's `ci_check` does this), and
-  report a repeat as a defect.
+  tests with one retry. Since T-1575 (#4106) each attempt is capped at 1000 s (`timeout 1000`) and
+  the job at 38 min (`timeout-minutes: 38`), because the ~64 selected files took 567-597 s against
+  the old 600 s cap and were killed with exit 124. Before that fix the log showed
+  `Result: N passed`, then a `could not lookup Ecto repo Letflow.Repo` exit message, and the step
+  ended with `docs tests: attempt 2 failed with exit 124`. No test failed, so this is not a
+  content fault. Two shapes were seen. (a) Teardown hang: the run finished and hung on exit.
+  (b) Too slow: the selected files (61 on 2026-11-09) were still running when `timeout` stopped
+  them; the `Finished in` line is close to the cap and the `Result:` count differs between the
+  two attempts (T-1513: 852 then 1038 tests; T-1516 the same day). A `Finished in` close to the
+  cap is still the sign of shape (b). Do not rework the docs: re-run the failed jobs once (the
+  engine's `ci_check` does this), and report a repeat as a defect against #4106.
+  A PR whose head is older than a `[main-fix]` commit keeps the old workflow file on re-run (a
+  GitHub re-run reuses the original commit and `ci.yml`), so re-running it can never pass: merge
+  main into the branch and push instead (T-1513: three attempts timed out on the pre-#4106
+  workflow).
 
 Handling:
 
