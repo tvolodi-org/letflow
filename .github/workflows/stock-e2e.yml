@@ -22,7 +22,8 @@ jobs:
   # Own workflow file, not ci.yml: ci.yml's tests pin its job names and forbid artifact uploads. docs/testing/gate-b-browser-e2e.md.
   stock_e2e:
     name: Stock browser e2e (playwright)
-    runs-on: ubuntu-latest
+    # T-1566: pinned; Playwright has no Chromium build for ubuntu-26.04 (what ubuntu-latest became), which ejected merge groups.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - name: Check out repository

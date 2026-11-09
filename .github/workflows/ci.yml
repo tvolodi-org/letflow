@@ -228,7 +228,7 @@ jobs:
   # nothing outside this run reads these outputs (the path-filter artifact for cd.yml is gone).
   changes:
     name: Detect changed paths
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       backend: ${{ steps.filter.outputs.backend || steps.fallback.outputs.backend }}
@@ -569,7 +569,7 @@ jobs:
   # fetch-depth: 0 is required here (`letflow.lint_handoffs` uses git history).
   backend_static:
     name: Backend static checks + isolated tails
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' && needs.changes.outputs.main_red != 'true' }}
@@ -845,7 +845,7 @@ jobs:
   # ('unable to reserve cache'), which is harmless.
   backend_shard:
     name: Backend shard ${{ matrix.shard }}/${{ strategy.job-total }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' && needs.changes.outputs.main_red != 'true' }}
@@ -997,19 +997,19 @@ jobs:
       # `backend_static`, which is not skipped by docs_only.
       - name: Run docs tests (docs-only change)
         if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only == 'true' && matrix.shard == 1
-        timeout-minutes: 21
+        timeout-minutes: 38
         run: |
           set -euo pipefail
           mapfile -t files < <(bash scripts/ci_docs_only.sh files)
           echo "docs-only change: running ${#files[@]} docs-related test files"
           # T-1374: this step hung 24-36 min three times and held the merge queue to the job
-          # timeout. Each attempt is capped at 10 min (`timeout 600`); only a timeout (exit 124)
+          # timeout. Each attempt is capped at 1000 s (`timeout 1000`; T-1575: the ~64 files needed 567-597 s against the old 600 s cap and were killed with 124, growth with the suite; two attempts of 1000 s plus setup stay under the job's 45 min); only a timeout (exit 124)
           # starts the second and last attempt, a real test failure fails at once. The step-level
           # timeout-minutes is the backstop for both attempts plus setup, not the per-attempt cap.
           for attempt in 1 2; do
-            echo "docs tests: attempt ${attempt} of 2 (timeout 600s)"
+            echo "docs tests: attempt ${attempt} of 2 (timeout 1000s)"
             rc=0
-            timeout 600 mix test "${files[@]}" || rc=$?
+            timeout 1000 mix test "${files[@]}" || rc=$?
             if [ "$rc" -eq 0 ]; then exit 0; fi
             if [ "$rc" -ne 124 ] || [ "$attempt" -eq 2 ]; then
               echo "docs tests: attempt ${attempt} failed with exit ${rc}"
@@ -1040,7 +1040,7 @@ jobs:
   # re-reads the previous attempt's leg results, so a red leg stays red.
   backend:
     name: Backend gate (mix letflow.check)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: [changes, backend_static, backend_shard]
     if: ${{ always() }}
@@ -1086,7 +1086,7 @@ jobs:
   #                  descendant commit. A failed or timed-out run counts; a cancelled one does not.
   full_run_marker:
     name: Selective CI markers (main)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: [changes, backend]
     if: ${{ always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
@@ -1155,7 +1155,7 @@ jobs:
     # specs (see web/package.json's `test` script), so no browser/server
     # setup is needed here.
     name: Frontend gate (npm run check)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: changes
     # NOT `always()` (unlike the aggregator `backend`, which needs it; see its note).
@@ -1211,7 +1211,7 @@ jobs:
   # `backend`/`frontend` job-header comments for the precedent this follows.
   mobile:
     name: Mobile gate (flutter analyze + test + build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: changes
     # NOT `always()` -- same reasoning as `frontend` (see this design's §3 and

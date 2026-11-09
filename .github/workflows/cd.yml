@@ -39,7 +39,7 @@ on:
 jobs:
   deploy:
     name: Deploy to QA
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
     permissions:
@@ -198,7 +198,7 @@ jobs:
   # no concurrency group. HEAD_REPO is compared, never printed.
   skip-log:
     name: Log why CD did not deploy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: ${{ !(github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository) }}
     permissions: {}

@@ -69,3 +69,7 @@ The inventory of standing PLATFORM_ADMIN tokens with no expiry, and the explicit
 one, are operator wrappers too (`Letflow.Release.platform_admin_token_inventory()` and
 `Letflow.Release.reissue_platform_admin_token/4`). They are described in
 `docs/runbooks/platform-admin-token-reissue.md`.
+
+## Restore smoke (T-1568)
+
+`bin/letflow eval "Letflow.Release.restore_smoke()"` reads a RESTORED database (point `DATABASE_URL` at the scratch copy) and prints one `smoke=...` line; `scripts/backup/restore_test.sh` runs it. See `docs/runbooks/backup-restore.md`.

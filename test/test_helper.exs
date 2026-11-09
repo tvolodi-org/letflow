@@ -67,6 +67,7 @@ Letflow.TenantSchemaReaper.sweep_template_build_orphans(Letflow.Repo)
 # `mix test --only ledger_throughput`.
 # REQ-774: the stock document volume run (100/500/1000 lines of a receipt and a transfer, a few minutes) is
 # on demand: `mix test --only stock_document_volume`.
+# T-1562: the pilot-size read measurement (20k cards, 200k register rows) is on demand: `mix test --only pilot_volume`.
 ExUnit.start(
   exclude: [
     :keycloak,
@@ -74,6 +75,7 @@ ExUnit.start(
     :lua_wallclock_race,
     :ledger_throughput,
     :stock_document_volume,
+    :pilot_volume,
     :voice_live,
     :voice_audio
   ]
