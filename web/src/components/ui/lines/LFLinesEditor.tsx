@@ -458,7 +458,7 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
       index: i,
       id: `ln-${i}-${key}`,
       invalid: errs.length > 0,
-      describedBy: errs.length > 0 ? `ln-${i}-err` : undefined,
+      describedBy: errs.length > 0 ? `ln-${i}-${key}-err` : undefined,
       patch: (p: Partial<L>) => patchLine(i, p),
       onBlur: () => touch(ids[i]!),
       inForm,
@@ -494,6 +494,11 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
               title={errs?.filter((e) => e.col === c.key).map((e) => e.message).join('. ') || undefined}
             >
               {editable ? (c.skip?.(l) ? '—' : c.cell!(cellCtx(i, c.key, false))) : c.view(l)}
+              {editable && errs?.some((e) => e.col === c.key) && (
+                <span className="sr-only" id={`ln-${i}-${c.key}-err`}>
+                  {errs.filter((e) => e.col === c.key).map((e) => e.message).join('. ')}
+                </span>
+              )}
             </td>
           )
         })}
@@ -524,17 +529,17 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
         <div className="lf-le__scroll" ref={gridV.ref} onScroll={gridV.onScroll} tabIndex={0} role="grid" aria-label={t('lines')} aria-rowcount={view.length + 1} data-testid="lines-scroll">
           <table ref={tableRef} className={`lf-le__table${columns.length > 5 ? ' lf-le__table--wide' : ''}`} role="presentation" data-testid={readOnly ? 'document-lines' : undefined}>
             <thead>
-              <tr>
-                <th className="is-idx" scope="col">
+              <tr role="row" aria-rowindex={1}>
+                <th role="columnheader" className="is-idx" scope="col">
                   {t('c.idx')}
                 </th>
                 {columns.map((c) => (
-                  <th key={c.key} scope="col" data-col={props.resize ? c.colId : undefined} className={[c.num ? 'is-num' : '', c.grow ? 'is-grow' : '', `is-col-${c.key}`].filter(Boolean).join(' ')}>
+                  <th role="columnheader" key={c.key} scope="col" data-col={props.resize ? c.colId : undefined} className={[c.num ? 'is-num' : '', c.grow ? 'is-grow' : '', `is-col-${c.key}`].filter(Boolean).join(' ')}>
                     {c.label}
                   </th>
                 ))}
                 {!readOnly && (
-                  <th className="is-act" scope="col">
+                  <th role="columnheader" className="is-act" scope="col">
                     <span className="sr-only">{t('c.act')}</span>
                   </th>
                 )}

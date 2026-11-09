@@ -289,6 +289,25 @@ module_upgrade_on_boot =
 
 config :letflow, :module_upgrade_on_boot, module_upgrade_on_boot
 config :letflow, Letflow.Plugs.ClientIp, trusted_proxies: trusted_proxies
+
+# GH T-1558: failed-credential limit per address and minute (Letflow.Plugs.AuthAttemptLimit).
+# Unset keeps the defaults; the production value is the process owner's. Never echoed.
+case Letflow.Plugs.AuthAttemptLimit.parse_failures_per_min(
+       System.get_env("LETFLOW_AUTH_FAILURES_PER_MIN")
+     ) do
+  :unset ->
+    :ok
+
+  {:ok, per_min} ->
+    config :letflow, Letflow.Plugs.AuthAttemptLimit,
+      failure_capacity: per_min,
+      failure_refill_per_sec: per_min / 60
+
+  {:error, :invalid} ->
+    raise "environment variable LETFLOW_AUTH_FAILURES_PER_MIN must be a positive integer. " <>
+            "The value is not echoed."
+end
+
 config :letflow, Letflow.Routers.LoginDiscovery, enabled: login_discovery_enabled
 
 # REQ-437 (design req434 s7, D21/D22): OPTIONAL LETFLOW_LOGIN_DISCOVERY_MODE. Unset,

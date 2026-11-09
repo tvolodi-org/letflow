@@ -559,9 +559,22 @@ defmodule Letflow.Entities.Definitions do
           | {:error, {:decimal_strict_change, [String.t()]}}
   def activate_definition(name, activator_user_id, rationale, prefix)
       when is_binary(name) and is_binary(prefix) do
-    with {:ok, entity_definition} <- get_definition_by_name(name, prefix),
-         {:ok, promoted} <-
-           gated_activation(entity_definition, activator_user_id, rationale, prefix) do
+    with {:ok, entity_definition} <- get_definition_by_name(name, prefix) do
+      activate_definition_row(entity_definition, activator_user_id, rationale, prefix)
+    end
+  end
+
+  @doc """
+  Activates exactly the given `entity_definition` row (not "the newest row of its name"), through the
+  same gate as `activate_definition/4` (strict-decimal check, activation trail with `rationale`,
+  sibling demotion, column promotions after commit). The module rollback uses it to re-activate an
+  older version after an upgrade created a newer one.
+  """
+  @spec activate_definition_row(EntityDefinition.t(), Ecto.UUID.t(), String.t(), String.t()) ::
+          {:ok, EntityDefinition.t()} | {:error, term()}
+  def activate_definition_row(%EntityDefinition{} = entity_definition, user_id, rationale, prefix)
+      when is_binary(prefix) do
+    with {:ok, promoted} <- gated_activation(entity_definition, user_id, rationale, prefix) do
       ensure_column_promotions(promoted, prefix)
       {:ok, promoted}
     end

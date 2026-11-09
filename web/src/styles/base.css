@@ -217,3 +217,9 @@ samp {
 .lf-msum__do { margin: 0; font: var(--type-body-s); color: var(--ink); }
 .lf-msum__routes { margin: 0; padding-inline-start: var(--space-4); font-family: var(--font-mono); overflow-wrap: anywhere; }
 .lf-health__do { margin: 0 0 var(--space-4); font: var(--type-body-s); }
+
+/* T-1553: the stacked table's single-cell rows (empty list, load error) are one full-width cell, not a label + value
+   grid; in the 9.5em label column the empty-state box was squeezed and pushed off the 390 px screen. */
+@media (max-width: 720px) {
+  .lf-table--stack td[colspan] { grid-template-columns: minmax(0, 1fr); padding: 0; }
+}

@@ -116,7 +116,7 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
     l = fn key -> Map.fetch!(@labels, key) |> Map.fetch!(lang) end
     {from, to} = Kinds.sides(Kinds.get(kind), header)
 
-    doc = doc_fields(issued, header, names)
+    doc = doc_fields(issued, header, names, lang)
 
     layout = %{
       "layout_schema_version" => 1,
@@ -156,7 +156,7 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
     projection = %{
       "doc" => doc,
       "sides" => side_rows(from, to, names, l),
-      "lines" => line_rows(content, names),
+      "lines" => line_rows(content, names, lang),
       "signers" => signer_rows(from, to, names, l)
     }
 
@@ -169,12 +169,12 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
 
   # -- document fields ------------------------------------------------------------------------
 
-  defp doc_fields(issued, header, names) do
+  defp doc_fields(issued, header, names, lang) do
     %{
       "number" => CountPaperwork.text(issued[:number_label]),
       "version_no" => CountPaperwork.text(issued[:version_no]),
-      "issued_at" => CountPaperwork.time(issued[:issued_at], names, :issued_at),
-      "event_time" => CountPaperwork.time(header["event_time"], names, :event_time),
+      "issued_at" => CountPaperwork.print_time(issued[:issued_at], names, :issued_at, lang),
+      "event_time" => CountPaperwork.print_time(header["event_time"], names, :event_time, lang),
       "note" => CountPaperwork.text(header["note"])
     }
   end
@@ -234,7 +234,7 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
 
   # -- lines ----------------------------------------------------------------------------------
 
-  defp line_rows(content, names) do
+  defp line_rows(content, names, lang) do
     lines = if is_list(content["lines"]), do: Enum.filter(content["lines"], &is_map/1), else: []
 
     lines
@@ -247,7 +247,7 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
         "item" => unit_cell(line["catalog_item_id"], :items, names),
         "lot" => CountPaperwork.text(lot),
         "unit" => unit_code(names, line["catalog_uom_id"]),
-        "quantity" => CountPaperwork.text(line["quantity"])
+        "quantity" => CountPaperwork.number(line["quantity"], lang)
       }
     end)
   end
