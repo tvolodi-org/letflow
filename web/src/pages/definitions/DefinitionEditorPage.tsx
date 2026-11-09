@@ -41,6 +41,9 @@ import PropertyPanel from '@/components/canvas/PropertyPanel'
 import ValidationSummaryBar from '@/components/canvas/ValidationSummaryBar'
 import type { ValidationError } from '@/components/canvas/ValidationSummaryBar'
 import ReleaseCheckPanel from '@/components/canvas/ReleaseCheckPanel'
+import { ProcessDiagramLazy } from '@/components/diagram/ProcessDiagramLazy'
+import { ProcessDiagramIntlProvider } from '@/components/diagram/ProcessDiagramIntlProvider'
+import { DefinitionViewSwitch, type DefinitionView } from '@/components/diagram/DefinitionViewSwitch'
 import type { ReleaseCheckState } from '@/components/canvas/ReleaseCheckPanel'
 
 
@@ -153,6 +156,34 @@ export default function DefinitionEditorPage() {
   // Read-only when the definition is past DRAFT, or when the caller lacks DefinitionsWrite (a direct URL
   // must not expose save, edit or release controls to a read-only role such as the auditor).
   const isReadOnly = !hasDesignerRole || (!isNew && def?.status !== 'DRAFT' && def?.status !== undefined)
+
+  // ── T-1520: Diagram | Editor switch. The editor, once mounted, is only hidden (never unmounted) so its nodes, dirty
+  // flag, undo history, draft mirror and the unsaved-changes blocker behave exactly as before.
+  const [viewChoice, setViewChoice] = useState<DefinitionView | null>(null)
+  const view: DefinitionView = isNew ? 'editor' : viewChoice ?? (isReadOnly ? 'diagram' : 'editor')
+  const [editorMounted, setEditorMounted] = useState(false)
+  useEffect(() => {
+    if (view === 'editor') setEditorMounted(true)
+  }, [view])
+  const [previewGraph, setPreviewGraph] = useState<DefinitionGraph | null>(null)
+  const handleViewChange = useCallback(
+    (next: DefinitionView) => {
+      if (next === 'diagram') {
+        const state = canvasStateRef.current
+        let graph: DefinitionGraph | null = null
+        if (editorMounted && state) {
+          try {
+            graph = flowToGraph(JSON.parse(state.nodesJSON) as Node<CanvasNodeData>[], JSON.parse(state.edgesJSON) as Edge<CanvasEdgeData>[])
+          } catch {
+            graph = null
+          }
+        }
+        setPreviewGraph(graph)
+      }
+      setViewChoice(next)
+    },
+    [editorMounted],
+  )
 
   // Convert API graph → React Flow on definition load. Computed ONCE here and
   // reused everywhere else in this component that needs the "as-stored"
@@ -718,6 +749,11 @@ export default function DefinitionEditorPage() {
             {isNew ? 'New Definition' : def?.name ?? 'Process Designer'}
           </h2>
           {isNew && <StatusBadge status="DRAFT" domain="definition" size="sm" />}
+          {!isNew && (
+            <ProcessDiagramIntlProvider>
+              <DefinitionViewSwitch view={view} onChange={handleViewChange} unsaved={dirty} />
+            </ProcessDiagramIntlProvider>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -977,8 +1013,22 @@ export default function DefinitionEditorPage() {
         </div>
       )}
 
+      {/* ── T-1520: read-only diagram of the definition (or of the editor's unsaved graph) ── */}
+      {view === 'diagram' && (
+        <div data-testid="definition-diagram-view" style={{ flex: 1, overflow: 'auto', padding: 'var(--space-4)' }}>
+          <ProcessDiagramIntlProvider>
+            <ProcessDiagramLazy graph={previewGraph ?? def?.graph ?? EMPTY_GRAPH} />
+          </ProcessDiagramIntlProvider>
+        </div>
+      )}
+
       {/* ── Main layout: Palette | Canvas | Property Panel ─────── */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      {(editorMounted || view === 'editor') && (
+      <div
+        data-testid="definition-editor-view"
+        hidden={view !== 'editor'}
+        style={{ display: view === 'editor' ? 'flex' : 'none', flex: 1, overflow: 'hidden' }}
+      >
         <ReactFlowProvider>
           <NodePalette isReadOnly={isReadOnly} onAddNode={handleAddNodeFromPalette} />
 
@@ -1040,6 +1090,7 @@ export default function DefinitionEditorPage() {
           />
         </ReactFlowProvider>
       </div>
+      )}
 
       {/* ── Unsaved changes dialog ────────────────────────────── */}
       {blocker.state === 'blocked' && (

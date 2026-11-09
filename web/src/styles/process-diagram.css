@@ -1,0 +1,141 @@
+/* process-diagram.css — T-1520 (D-114 item 2). The read-only process diagram. Tokens only; light and dark come from
+   the token themes. Status colours are the status tokens; the tenant colour (--current family) marks the active step. */
+
+.lf-pd { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.lf-pd__toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.lf-pd__toolbar-spacer { flex: 1 1 auto; }
+.lf-pd__seg { display: inline-flex; gap: var(--space-1); }
+.lf-pd__body { display: flex; gap: var(--space-4); min-width: 0; }
+.lf-pd__body.is-stacked { flex-direction: column; }
+.lf-pd__canvas {
+  position: relative; flex: 1 1 auto; min-width: 0; height: var(--lf-pd-canvas-h, 640px);
+  border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper-sunken); overflow: hidden;
+}
+.lf-pd__canvas .react-flow { background: transparent; }
+.lf-pd__canvas .react-flow__node { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.lf-pd__canvas .react-flow__node:focus-visible { outline: 2px solid var(--focus); outline-offset: var(--space-1); border-radius: var(--radius-md); }
+.lf-pd__canvas .react-flow__node.selected .lf-pd-node__shape,
+.lf-pd__canvas .react-flow__node.selected .lf-pd-node--human-task,
+.lf-pd__canvas .react-flow__node.selected .lf-pd-node--service-task { box-shadow: 0 0 0 2px var(--focus); }
+.lf-pd__canvas .react-flow__handle { opacity: 0; pointer-events: none; }
+.lf-pd__canvas .react-flow__controls { box-shadow: var(--shadow-raised); border-radius: var(--radius-md); overflow: hidden; }
+.lf-pd__canvas .react-flow__controls-button { background: var(--paper-raised); border-bottom: 1px solid var(--line); color: var(--ink); fill: var(--ink); }
+.lf-pd__canvas .react-flow__controls-button:hover { background: var(--row-hover); }
+.lf-pd__canvas .react-flow__controls-button svg { fill: var(--ink); }
+.lf-pd__canvas .react-flow__minimap { background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.lf-pd__canvas .react-flow__background { color: var(--line); }
+.lf-pd__canvas .react-flow__minimap-mask { fill: var(--paper-sunken); fill-opacity: .7; }
+.lf-pd__canvas .react-flow__minimap-node { stroke: none; }
+
+/* ── nodes ── */
+.lf-pd-node { position: relative; width: 100%; height: 100%; color: var(--ink); font: var(--type-body-s); }
+.lf-pd-node__shape {
+  display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+  background: var(--paper-raised); border: 2px solid var(--line-strong); color: var(--ink-muted);
+}
+.lf-pd-node__label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-label); color: var(--ink); }
+.lf-pd-node__sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-mono-s); color: var(--ink-muted); }
+.lf-pd-node__pill { margin-top: var(--space-1); }
+
+/* tasks: rounded rectangle with an icon */
+.lf-pd-node--human-task, .lf-pd-node--service-task, .lf-pd-node--sub-process {
+  display: flex; align-items: flex-start; gap: var(--space-2); box-sizing: border-box; padding: var(--space-2) var(--space-3);
+  background: var(--paper-raised); border: 1px solid var(--line-strong); border-radius: var(--radius-node); box-shadow: var(--shadow-raised);
+}
+.lf-pd-node--human-task .lf-pd-node__shape, .lf-pd-node--service-task .lf-pd-node__shape, .lf-pd-node--sub-process .lf-pd-node__shape {
+  flex: none; width: var(--space-6); height: var(--space-6); border: 0; border-radius: var(--radius-sm); background: var(--paper-sunken);
+}
+.lf-pd-node--human-task .lf-pd-node__shape { color: var(--current); background: var(--current-tint); }
+.lf-pd-node--sub-process { border-width: 3px; border-style: double; }
+.lf-pd-node__body { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+
+/* compact shapes: circle (START/END), diamond (gateways), clock (TIMER) with a caption below */
+.lf-pd-node--start, .lf-pd-node--end, .lf-pd-node--exclusive-gateway, .lf-pd-node--parallel-gateway, .lf-pd-node--timer {
+  display: flex; align-items: center; justify-content: center;
+}
+.lf-pd-node--start .lf-pd-node__shape, .lf-pd-node--end .lf-pd-node__shape, .lf-pd-node--timer .lf-pd-node__shape {
+  width: 100%; height: 100%; border-radius: var(--radius-full);
+}
+.lf-pd-node--start .lf-pd-node__shape { border-color: var(--success); background: var(--success-tint); }
+.lf-pd-node--end .lf-pd-node__shape { border-width: 4px; border-color: var(--ink); }
+.lf-pd-node--timer .lf-pd-node__shape { border-style: double; border-width: 4px; }
+.lf-pd-node--exclusive-gateway .lf-pd-node__shape, .lf-pd-node--parallel-gateway .lf-pd-node__shape {
+  width: 72%; height: 72%; transform: rotate(45deg); border-radius: var(--radius-sm);
+}
+.lf-pd-node--exclusive-gateway .lf-pd-node__shape .lf-icon, .lf-pd-node--parallel-gateway .lf-pd-node__shape .lf-icon { transform: rotate(-45deg); }
+.lf-pd-node__caption {
+  position: absolute; top: calc(100% + var(--space-1)); left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; max-width: 160px; text-align: center; pointer-events: none;
+}
+/* The caption sits on the outgoing edge: a canvas-coloured backing keeps the line from striking through the text. */
+.lf-pd-node__caption > .lf-pd-node__label, .lf-pd-node__caption > .lf-pd-node__sub {
+  max-width: 100%; padding: 0 var(--space-1); border-radius: var(--radius-sm); background: var(--paper-sunken);
+}
+
+/* ── node states (word + glyph are in the pill; the outline repeats it) ── */
+.lf-pd-node.is-done .lf-pd-node__shape, .lf-pd-node--human-task.is-done, .lf-pd-node--service-task.is-done, .lf-pd-node--sub-process.is-done { border-color: var(--success); }
+.lf-pd-node.is-active .lf-pd-node__shape, .lf-pd-node--human-task.is-active, .lf-pd-node--service-task.is-active, .lf-pd-node--sub-process.is-active {
+  border-color: var(--current); box-shadow: 0 0 0 3px var(--current-tint);
+}
+.lf-pd-node.is-error .lf-pd-node__shape, .lf-pd-node--human-task.is-error, .lf-pd-node--service-task.is-error, .lf-pd-node--sub-process.is-error {
+  border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-tint);
+}
+.lf-pd-node.is-skipped, .lf-pd-node.is-pending { opacity: .72; }
+.lf-pd-node.is-skipped .lf-pd-node__shape, .lf-pd-node--human-task.is-skipped, .lf-pd-node--service-task.is-skipped { border-style: dashed; border-color: var(--ink-faint); }
+.lf-pd-node.is-unclear .lf-pd-node__shape, .lf-pd-node--human-task.is-unclear, .lf-pd-node--service-task.is-unclear, .lf-pd-node--sub-process.is-unclear {
+  border-style: dashed; border-color: var(--warning);
+}
+
+/* ── edges ── */
+.lf-pd-edge { stroke: var(--line-strong); stroke-width: 1.5; fill: none; }
+.lf-pd-edge.is-taken { stroke: var(--success); stroke-width: 2.5; }
+.lf-pd-edge.is-untaken { stroke: var(--line); }
+.lf-pd-edge.is-unclear { stroke: var(--warning); stroke-dasharray: 6 4; }
+.lf-pd-arrow { fill: var(--line-strong); }
+.lf-pd-arrow.is-taken { fill: var(--success); }
+.lf-pd-arrow.is-untaken { fill: var(--line); }
+.lf-pd-arrow.is-unclear { fill: var(--warning); }
+.lf-pd-edge__label {
+  position: absolute; padding: 0 var(--space-2); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-full);
+  font: var(--type-mono-s); color: var(--ink-muted); pointer-events: all;
+}
+.lf-pd-edge__label.is-taken { color: var(--ink); border-color: var(--success); }
+/* Taken edges stay solid: dashes mean "Not certain". A running instance only gets a heavier active outline. */
+
+/* ── details panel and steps list ── */
+.lf-pd__details {
+  flex: 0 0 320px; box-sizing: border-box; padding: var(--space-4); background: var(--paper-raised);
+  border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-raised); min-width: 0;
+}
+.lf-pd__body.is-stacked .lf-pd__details { flex-basis: auto; }
+.lf-pd__details-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-3); }
+.lf-pd__details-title { margin: 0; font: var(--type-heading-3); color: var(--ink); overflow-wrap: anywhere; }
+.lf-pd__dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-3); margin: 0; }
+.lf-pd__dl-row { display: contents; }
+.lf-pd__dl dt { font: var(--type-caption); color: var(--ink-muted); }
+.lf-pd__dl dd { margin: 0; font: var(--type-body-s); color: var(--ink); overflow-wrap: anywhere; }
+.lf-pd__mono { font: var(--type-mono-s); white-space: nowrap; }
+.lf-pd__plain-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+
+.lf-pd-steps { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.lf-pd-steps__item {
+  display: grid; grid-template-columns: var(--space-8) minmax(0, 1fr) auto; align-items: start; gap: var(--space-2) var(--space-3);
+  padding: var(--space-3); background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-md);
+}
+.lf-pd-steps__item.is-active { border-color: var(--current); }
+.lf-pd-steps__item.is-error { border-color: var(--danger); }
+.lf-pd-steps__num { font: var(--type-mono-s); color: var(--ink-muted); }
+.lf-pd-steps__main { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.lf-pd-steps__button {
+  all: unset; cursor: pointer; font: var(--type-label); color: var(--ink); overflow-wrap: anywhere; border-radius: var(--radius-sm);
+}
+.lf-pd-steps__button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.lf-pd-steps__meta { font: var(--type-caption); color: var(--ink-muted); overflow-wrap: anywhere; }
+.lf-pd-steps__next { margin: 0; padding: 0; list-style: none; font: var(--type-caption); color: var(--ink-muted); }
+.lf-pd-steps__next .lf-pd__mono { white-space: normal; overflow-wrap: anywhere; }
+
+@media (max-width: 639px) {
+  .lf-pd__canvas { height: 420px; }
+}
+.lf-pd__defs { position: absolute; width: 0; height: 0; overflow: hidden; }

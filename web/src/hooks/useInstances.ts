@@ -1,7 +1,8 @@
 /** TanStack Query hooks for process instances */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef } from 'react'
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { instancesApi } from '@/api/instances'
-import type { InstanceStatus, StartInstanceRequest } from '@/types/api'
+import type { InstanceStatus, StartInstanceRequest, TimelineEntry, TimelinePage } from '@/types/api'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 
 export interface EventFilters {
@@ -62,6 +63,78 @@ export function useInstanceTimeline(
     queryFn: () => instancesApi.timeline(id, params),
     enabled: !!id && enabled,
   })
+}
+
+/** T-1520: page size and page cap of the full-timeline read (200 is the server maximum; 25 pages = 5000 events). */
+export const TIMELINE_ALL_PAGE_SIZE = 200
+export const MAX_TIMELINE_PAGES = 25
+
+export interface InstanceTimelineAll {
+  /** De-duplicated by `event_id`, ascending `sequence_num`. */
+  entries: TimelineEntry[]
+  /** False while pages are missing: a failed page, the page cap, or still loading. */
+  complete: boolean
+  truncated: boolean
+  isError: boolean
+  retry: () => void
+}
+
+/** T-1520: every timeline page of an instance, for the diagram's path evidence. Pages are fetched one after the
+ *  other until `next_cursor` is null (capped at MAX_TIMELINE_PAGES). While the instance is ACTIVE the stored pages
+ *  are re-read every 2 s (5 s beyond 3 pages): the cursor is opaque and the last page has no cursor, so a refetch of
+ *  all pages is how new events arrive. When the instance leaves ACTIVE one final refetch runs, then polling stops. */
+export function useInstanceTimelineAll(id: string, opts: { status?: InstanceStatus | string; pageSize?: number } = {}): InstanceTimelineAll {
+  const instanceKeys = useTenantScopedQueryKeys().instances
+  const pageSize = opts.pageSize ?? TIMELINE_ALL_PAGE_SIZE
+  const live = opts.status === 'ACTIVE'
+  const q = useInfiniteQuery({
+    queryKey: instanceKeys.timelineAll(id),
+    queryFn: ({ pageParam }) =>
+      instancesApi.timeline(id, { page_size: pageSize, ...(pageParam ? { cursor: pageParam } : {}) }) as Promise<TimelinePage>,
+    initialPageParam: null as string | null,
+    getNextPageParam: (last: TimelinePage, all: TimelinePage[]) =>
+      all.length >= MAX_TIMELINE_PAGES ? undefined : last?.next_cursor ?? undefined,
+    enabled: !!id,
+    retry: false,
+    refetchInterval: (query) => (live ? ((query.state.data?.pages.length ?? 0) > 3 ? 5000 : 2000) : false),
+  })
+  const { hasNextPage, isFetchingNextPage, fetchNextPage, isError, refetch } = q
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, isError, fetchNextPage])
+
+  // One final refetch when the instance leaves ACTIVE, so the last events are not missed.
+  const prevStatus = useRef(opts.status)
+  useEffect(() => {
+    if (prevStatus.current === 'ACTIVE' && opts.status !== undefined && opts.status !== 'ACTIVE') void refetch()
+    prevStatus.current = opts.status
+  }, [opts.status, refetch])
+
+  const pages = q.data?.pages
+  const lastCursor = pages && pages.length > 0 ? pages[pages.length - 1]?.next_cursor ?? null : null
+  const truncated = !!pages && pages.length >= MAX_TIMELINE_PAGES && lastCursor !== null
+  const entries = useMemo(() => {
+    const seen = new Set<string>()
+    const out: TimelineEntry[] = []
+    for (const p of pages ?? []) {
+      for (const e of p?.items ?? []) {
+        if (seen.has(e.event_id)) continue
+        seen.add(e.event_id)
+        out.push(e)
+      }
+    }
+    return out.sort((a, b) => a.sequence_num - b.sequence_num)
+  }, [pages])
+  return {
+    entries,
+    complete: !!pages && !isError && lastCursor === null,
+    truncated,
+    isError,
+    retry: () => {
+      if (hasNextPage) void fetchNextPage()
+      else void refetch()
+    },
+  }
 }
 
 export function useStartInstance() {
