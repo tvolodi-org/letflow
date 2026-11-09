@@ -21,6 +21,10 @@ defmodule Letflow.Modules.Assets.Cards do
   The card has no location, quantity or responsible-person field: those rules belong to the
   commission document (REQ-751).
 
+  Card locks (T-1490 / G3): after the first posted document that names the card, a changed
+  `inventory_number` or `kind` is `{:error, :inventory_number_locked | :kind_locked}`
+  (`Letflow.Modules.Assets.CardLocks`), judged under the card lock; the other fields stay editable.
+
   Lock: one transaction per update or retire, under an advisory lock per card, so a concurrent retire
   and update serialize and `card_inactive` is decided under the lock. Create takes no lock; the pack's
   unique constraint arbitrates two creates of one number.
@@ -48,6 +52,7 @@ defmodule Letflow.Modules.Assets.Cards do
   alias Letflow.Entities.Records
   alias Letflow.EventStore.IdempotencyRecord
   alias Letflow.Modules.Assets
+  alias Letflow.Modules.Assets.CardLocks
   alias Letflow.Modules.Org
   alias Letflow.Modules.ReadApi
   alias Letflow.Repo
@@ -105,9 +110,10 @@ defmodule Letflow.Modules.Assets.Cards do
 
     change = fn fv -> merge(fv, attrs) end
 
-    check = fn fv, merged ->
+    check = fn card, fv, merged ->
       with :ok <- check_keys(attrs, opts),
            :ok <- check_org_unit(prefix, attrs, opts),
+           :ok <- CardLocks.check(prefix, card["record_id"], fv, merged),
            :ok <- check_rules(prefix, merged) do
         if merged == fv, do: :noop, else: :ok
       end
@@ -130,7 +136,7 @@ defmodule Letflow.Modules.Assets.Cards do
       actor_id,
       idem,
       fn fv -> Map.put(fv, "active", false) end,
-      fn _fv, _merged -> :ok end,
+      fn _card, _fv, _merged -> :ok end,
       "assets_card.retired"
     )
   end
@@ -185,7 +191,16 @@ defmodule Letflow.Modules.Assets.Cards do
            {:ok, fv} <- stored_fields(prefix, card),
            merged = change.(fv),
            {:ok, card} <-
-             apply_change(prefix, card, fv, merged, check.(fv, merged), actor_id, idem, action) do
+             apply_change(
+               prefix,
+               card,
+               fv,
+               merged,
+               check.(card, fv, merged),
+               actor_id,
+               idem,
+               action
+             ) do
         card
       else
         {:error, reason} -> Repo.rollback(reason)

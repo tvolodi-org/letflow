@@ -91,6 +91,15 @@ const rowsRoutes = [balancesRoute(() => ({ status: 200, body: { rows: [BALANCE_R
 const noRowsRoutes = [balancesRoute(() => ({ status: 200, body: { rows: [], next_cursor: null } })), ...routes]
 const pendingRoutes = [{ ...balancesRoute(() => ({ status: 200, body: {} })), pending: true }, ...routes]
 const errorRoutes = [balancesRoute(() => ({ status: 500, body: {} })), ...routes]
+// T-1490: the lock route decides whether the inventory number of an existing card is read-only.
+const lockRoute = (reply: () => { status: number; body: unknown }, pending = false): FixtureRoute => ({
+  match: (path, method) => path.startsWith('/api/v1/modules/assets/cards/') && path.endsWith('/lock') && method === 'GET',
+  pending,
+  reply,
+})
+const lockedRoutes = [lockRoute(() => ({ status: 200, body: { posted: true } })), ...rowsRoutes]
+const unlockedRoutes = [lockRoute(() => ({ status: 200, body: { posted: false } })), ...rowsRoutes]
+const lockPendingRoutes = [lockRoute(() => ({ status: 200, body: {} }), true), ...rowsRoutes]
 const READER: AccessState = {
   status: 'ready',
   info: { roles: [], platform_tenant: false, permissions: ['AssetsCardWrite', 'AssetsRead'] },
@@ -128,4 +137,7 @@ export const assetsScreens: HarnessScreen[] = [
   { name: 'asset-cards-holder-noperm', routes: rowsRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, WRITER_ONLY) },
   { name: 'asset-cards-holder-loading', routes: pendingRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, READER) },
   { name: 'asset-cards-holder-error', routes: errorRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, READER) },
+  { name: 'asset-cards-lock-open', routes: unlockedRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, READER) },
+  { name: 'asset-cards-lock-posted', routes: lockedRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, READER) },
+  { name: 'asset-cards-lock-loading', routes: lockPendingRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, READER) },
 ]
