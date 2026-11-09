@@ -30,7 +30,7 @@ defmodule Letflow.Modules.Assets.CardImportTest do
 
   @xlsx "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   @header ~w(inventory_number name kind org_unit_id acquisition_date currency acquisition_cost
-             accumulated_depreciation book_value depreciation_as_of valid_until
+             accumulated_depreciation book_value depreciation_as_of depreciation_method depreciation_rate valid_until
              external_ref_system external_ref_id)
   @path "/api/v1/entities/records/assets_card/import?upsert_by=external_ref"
 
@@ -134,6 +134,8 @@ defmodule Letflow.Modules.Assets.CardImportTest do
       "accumulated_depreciation" => "100.25",
       "book_value" => "900.25",
       "depreciation_as_of" => "2025-12-31",
+      "depreciation_method" => "straight line",
+      "depreciation_rate" => "20.5",
       "external_ref_system" => "erp",
       "external_ref_id" => ext
     }
@@ -171,9 +173,24 @@ defmodule Letflow.Modules.Assets.CardImportTest do
   test "R1: the manifest registers the import function and validates" do
     m = Assets.manifest()
     assert %{entity_type: "assets_card", function: :import_card} in m.import_functions
-    assert m.version == "0.14.0"
+    assert m.version == "0.15.0"
     assert Catalog.validate(m) == :ok
     assert Catalog.import_function("assets", "assets_card") == :ok
+  end
+
+  test "I-dep: changed rate updates, empty method and rate cells clear", ctx do
+    assert outcomes(import_to(ctx.tok_a, [row("D-1", "ED1")])) == ["created"]
+
+    assert outcomes(import_to(ctx.tok_a, [row("D-1", "ED1", %{"depreciation_rate" => "25"})])) ==
+             ["updated"]
+
+    assert Decimal.equal?(card_by_ext(ctx.a.schema_name, "ED1")["depreciation_rate"], "25")
+
+    cleared = row("D-1", "ED1", %{"depreciation_rate" => nil, "depreciation_method" => nil})
+    assert outcomes(import_to(ctx.tok_a, [cleared])) == ["updated"]
+    c = card_by_ext(ctx.a.schema_name, "ED1")
+    assert c["depreciation_rate"] in [nil, ""]
+    assert c["depreciation_method"] in [nil, ""]
   end
 
   test "I1/I2/I3: created, unchanged, then updated with depreciation", ctx do
@@ -188,6 +205,8 @@ defmodule Letflow.Modules.Assets.CardImportTest do
     assert Decimal.equal?(c["accumulated_depreciation"], "100.25")
     assert Decimal.equal?(c["book_value"], "900.25")
     assert c["depreciation_as_of"] == "2025-12-31"
+    assert c["depreciation_method"] == "straight line"
+    assert Decimal.equal?(c["depreciation_rate"], "20.5")
     assert c["active"] == true
 
     before = counts(ctx.a.schema_name)
