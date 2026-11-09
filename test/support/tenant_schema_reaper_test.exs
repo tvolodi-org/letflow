@@ -106,8 +106,39 @@ defmodule Letflow.TenantSchemaReaperTest do
 
   defp naive_now, do: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
+  # GH #3842: registered tenants whose schema is gone. Every audit that walks the registry
+  # (IdempotencySquats.audit/0) reports such a row as an errored tenant, so a test of this
+  # file must not leave one behind.
+  defp registered_without_schema do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT r.tenant_id::text FROM tenant_schemas r WHERE NOT EXISTS " <>
+          "(SELECT 1 FROM information_schema.schemata s WHERE s.schema_name = r.schema_name)"
+      )
+
+    rows |> List.flatten() |> MapSet.new()
+  end
+
+  # Drops the schema AND both registry rows, whatever the sweep did or did not reclaim.
+  defp cleanup_orphan!(schema_name, row_id, tenant_id) do
+    drop_schema!(schema_name)
+    Repo.query!("DELETE FROM tenant_schemas WHERE id = $1", [Ecto.UUID.dump!(row_id)])
+    Repo.query!("DELETE FROM tenants WHERE id = $1", [Ecto.UUID.dump!(tenant_id)])
+  end
+
   setup do
     Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
+    before = registered_without_schema()
+
+    # Registered first, so it runs after every on_exit the test itself registers.
+    on_exit(fn ->
+      Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
+      leaked = MapSet.difference(registered_without_schema(), before)
+      Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :manual)
+
+      assert MapSet.size(leaked) == 0,
+             "GH #3842: test left registered tenant(s) without a schema: #{inspect(MapSet.to_list(leaked))}"
+    end)
 
     on_exit(fn ->
       Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :manual)
@@ -135,8 +166,9 @@ defmodule Letflow.TenantSchemaReaperTest do
       on_exit(fn ->
         # Best-effort cleanup in case an assertion fails before the sweep runs --
         # mirrors the "swallow-its-own-failure" idiom this project already uses for
-        # real-commit test cleanup (tenant_provisioning_test.exs's drop_schema!/1).
-        drop_schema!(schema_name)
+        # real-commit test cleanup (tenant_provisioning_test.exs's drop_schema!/1). GH #3842:
+        # also the registry rows, or a deferred sweep leaves a tenant without a schema.
+        cleanup_orphan!(schema_name, row_id, tenant.id)
       end)
 
       assert schema_exists?(schema_name)
@@ -279,7 +311,7 @@ defmodule Letflow.TenantSchemaReaperTest do
       old_provisioned_at = naive_now() |> NaiveDateTime.add(-10_000, :second)
       row_id = insert_tenant_schemas_row!(tenant.id, schema_name, old_provisioned_at)
 
-      on_exit(fn -> drop_schema!(schema_name) end)
+      on_exit(fn -> cleanup_orphan!(schema_name, row_id, tenant.id) end)
 
       # A real, separate Postgres connection tagged as a DIFFERENT mix test
       # invocation -- exactly what config/test.exs's own connections carry, just
@@ -374,7 +406,7 @@ defmodule Letflow.TenantSchemaReaperTest do
           naive_now() |> NaiveDateTime.add(-10_000, :second)
         )
 
-      on_exit(fn -> drop_schema!(schema_name) end)
+      on_exit(fn -> cleanup_orphan!(schema_name, row_id, tenant.id) end)
 
       Ecto.Adapters.SQL.Sandbox.mode(Repo, :auto)
       fake_tag = "letflow_mixtest_fake#{System.unique_integer([:positive])}"

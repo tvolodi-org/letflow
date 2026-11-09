@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../i18n/i18n.dart';
 import '../../../renderers/renderer_state.dart';
 import '../../../renderers/renderer_state_view.dart';
+import '../../codes/camera_status_view.dart';
 import '../../codes/codes_resolve.dart';
 import '../../codes/scan_controller.dart';
 import '../../codes/scan_source.dart';
@@ -44,7 +45,7 @@ class _ScanFillBodyState extends ConsumerState<_ScanFillBody> {
       resolver: CodesResolver(ref.read(stockGatewayProvider)),
       source: _source,
     )..addListener(_onChange);
-    unawaited(_controller.startScanning());
+    unawaited(_controller.prepare());
   }
 
   void _onChange() {
@@ -73,6 +74,7 @@ class _ScanFillBodyState extends ConsumerState<_ScanFillBody> {
   @override
   Widget build(BuildContext context) {
     final state = _controller.state;
+    final phase = _controller.cameraPhase;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -84,8 +86,12 @@ class _ScanFillBodyState extends ConsumerState<_ScanFillBody> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (_controller.cameraRefused)
-              Text(tr('codes.cameraRefused'))
+            if (phase != null)
+              CameraStatusView(
+                phase: phase,
+                keyPrefix: 'stock-doc-scan',
+                onStart: () => unawaited(_controller.startScanning()),
+              )
             else if (_controller.scanning)
               SizedBox(height: 200, child: _source.buildPreview()),
             TextField(

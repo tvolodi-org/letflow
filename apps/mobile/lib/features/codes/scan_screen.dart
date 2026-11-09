@@ -14,6 +14,7 @@ import '../../bootstrap/navigation_bootstrap.dart' show apiClientProvider;
 import '../../i18n/i18n.dart';
 import '../../renderers/renderer_state.dart';
 import '../../renderers/renderer_state_view.dart';
+import 'camera_status_view.dart';
 import 'codes_resolve.dart';
 import 'scan_controller.dart';
 import 'scan_source.dart';
@@ -43,7 +44,7 @@ class _CodesScanScreenState extends ConsumerState<CodesScanScreen> {
       resolver: CodesResolver(ref.read(codesGatewayProvider)),
       source: _source,
     )..addListener(_onChange);
-    unawaited(_controller.startScanning());
+    unawaited(_controller.prepare());
   }
 
   void _onChange() {
@@ -64,16 +65,18 @@ class _CodesScanScreenState extends ConsumerState<CodesScanScreen> {
   @override
   Widget build(BuildContext context) {
     final state = _controller.state;
+    final phase = _controller.cameraPhase;
     return Scaffold(
       key: const Key('codes-scan-screen'),
       appBar: AppBar(title: Text(tr('codes.scan.title'))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (_controller.cameraRefused)
-            Text(
-              key: const Key('codes-camera-refused'),
-              tr('codes.cameraRefused'),
+          if (phase != null)
+            CameraStatusView(
+              phase: phase,
+              keyPrefix: 'codes',
+              onStart: () => unawaited(_controller.startScanning()),
             )
           else if (_controller.scanning)
             SizedBox(height: 240, child: _source.buildPreview()),
@@ -105,7 +108,7 @@ class _CodesScanScreenState extends ConsumerState<CodesScanScreen> {
               onPressed: () => unawaited(_controller.retry()),
               child: Text(tr('codes.retry')),
             ),
-          if (!_controller.scanning && !_controller.cameraRefused)
+          if (!_controller.scanning && phase == null)
             TextButton(
               key: const Key('codes-scan-again'),
               onPressed: () => unawaited(_controller.scanAgain()),
