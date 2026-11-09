@@ -84,6 +84,12 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
       document_id: "doc-trf",
       lines: [S.line(m.item, "3", %{from: here, to: there})]
     })
+
+    # U2 also holds the SAME item at the SAME place, so the print filter alone cannot hide it
+    S.post!(schema, "receipt", %{
+      document_id: "doc-same-u2",
+      lines: [S.line(m.item, "4.5", %{to: S.side(@u2, m.location)})]
+    })
   end
 
   defp seed_assets!(schema) do
@@ -237,9 +243,17 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
     refute text =~ @u2
     refute text =~ "doc-hid"
     refute text =~ ctx.h.location
+    # the U2 movement of the very same item and place: absent, and the totals stay U1-only
+    refute text =~ "4.500000000"
+    refute text =~ "doc-same-u2"
+    refute text =~ "11.500000000"
 
     control = req(@stock <> "/stock-card/print?" <> q, ctx.sp) |> ok!("wordprocessingml")
-    assert docx_text(control) =~ "10.000000000"
+    ctext = docx_text(control)
+    assert ctext =~ "10.000000000"
+    # unrestricted reader: the same-key U2 movement and the totals that include it
+    assert ctext =~ "4.500000000"
+    assert ctext =~ "11.500000000"
   end
 
   test "S4b an item and place with only hidden movements answer like an absent identifier", ctx do
