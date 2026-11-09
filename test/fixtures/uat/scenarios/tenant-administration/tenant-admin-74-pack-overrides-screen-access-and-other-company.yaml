@@ -1,0 +1,198 @@
+# T-1527 (BA): TENANT ADMIN group, scenario 74: who sees the "Solution pack overrides" screen, who sees its write controls, and what another company gets.
+# Covers REQ-631 (GH #3523) criterion 7 (a, b, c): (a) the screen is under the right to read process definitions and shows the not-allowed screen, with no list request, to a caller without it;
+# (b) a caller who may read definitions but not manage overrides sees the list and no create, edit or retire control; (c) the tenant administrator sees all three. Also the server side of
+# the same gating (the server stays the authority) and criterion 2's not-found text for a company that has not installed the pack.
+# Sources: docs/requirements.yaml REQ-631 (description 4, criterion 7), REQ-596 (criterion 7: the write routes need the manage right, the read route needs the right to read definitions);
+# docs/roles.md permission matrix (DefinitionsRead: not held by TASK_WORKER alone; held by PROCESS_OPERATOR, TENANT_AUDITOR, TENANT_ADMIN. SolutionOverridesManage: TENANT_ADMIN and PLATFORM_ADMIN only);
+# test/fixtures/uat/actors.yaml (lena: TASK_WORKER + PROCESS_OPERATOR; marco: TASK_WORKER only; auditor: TENANT_AUDITOR only; alice: TENANT_ADMIN; bilimbaga admin: TENANT_ADMIN of another realm);
+# web/src/router.tsx (route solution-packs/:packId/overrides under RequirePermission with DefinitionsRead); web/src/pages/solution-packs/SolutionPackOverridesPage.tsx (controls only for the manage right).
+# Sensitive actions: change process definitions is refused in steps 5, 6 and 9. see sensitive data (another company's adjustments) is step 8 and 9. approve, pay or release and change users do not occur in this flow.
+#   Refusal steps: 4 (screen), 5, 6, 7, 8, 9 (one request each).
+# NOT UAT-OBSERVABLE (system_state, written here so it survives the merge):
+#   - criterion 7 (d) the update report's Apply button for a caller holding the module-management right but not the override right: the role matrix gives these two rights to exactly the same
+#     roles (TENANT_ADMIN, PLATFORM_ADMIN), so no roster actor holds the first without the second; a vitest check. Recorded in the sidecar of scenario 75.
+#   - criterion 7 (e) the permission is a member of the web permission list and of the access fixtures: code check of the implementing change.
+#   - A DefinitionsRead-only caller reaches the screen only by its address, since the Solution packs page needs the module-management right (open question 3 of the requirement); steps 2 and 3 therefore type the address.
+---
+id: tenant-administration-74-pack-overrides-screen-access-and-other-company
+scope: tenant-administration
+title: Only the administrator sees the write controls of the pack overrides screen, a task worker without the right to read definitions is turned away, and another company sees nothing of SwiftRoute's pack
+version: "1.0"
+tags: [solution-pack, override, gui, access, refusal, isolation, tenant-admin]
+
+description: >
+  SwiftRoute's administrator has one Active override on an installed pack. The read-only auditor and the dispatcher (who may start processes) open the overrides screen of the pack by its address: both
+  see the list with the override, its status and reason, and neither sees a New override button, an Edit or Retire button or an Actions column. The Ops Manager, a task worker who may not read process
+  definitions, opens the same address and gets the not-allowed screen with no list. The same people then try the actions directly, and the server refuses them as lacking the right: the auditor tries to
+  create an override and the dispatcher tries to retire the existing one; the Ops Manager tries to read the list. BilimBaga's administrator, whose company has not installed that pack, opens the same
+  address and tries to create an override under the same pack identifier: the screen shows "Pack or override not found." and the request is answered with the same not-found answer as for an unknown pack; nothing is written.
+  At the end the administrator's list is unchanged.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  auditor: actor-swiftroute-auditor
+  dispatcher: actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has an active installation of pack P that contains a process definition D with a task step S1 (D_ID is the id of the definition created by the installation); SwiftRoute has no override of P at the start
+    check: system_seeded
+    detail: As in scenario 73. If an override from an earlier run exists, step 1 may be skipped and the existing Active one used; if none is Active, retire nothing and create a new one in step 1.
+  - description: BilimBaga has not installed pack P and holds no override with the pack identifier of P
+    check: custom
+    detail: Set up by the platform team. If BilimBaga holds pack P, steps 8 and 9 are BLOCKED.
+  - description: The browser language is English; all five people can sign in to the web application
+    check: custom
+    detail: If an actor cannot sign in, that actor's steps are BLOCKED, not FAIL.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      Opens the overrides screen of pack P and notes the buttons, then makes an override for D_ID with the patch {"nodes.S1.label": "Zq752 access check"} and the reason "UAT: access check", and notes the screen.
+    via: gui
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch: '{"nodes.S1.label": "Zq752 access check"}'
+      reason: "UAT: access check"
+    produces:
+      admin_view: the New override button, and on the line (version 1, Active) the Edit and Retire buttons and an Actions column
+  - step: 2
+    actor: auditor
+    action: >
+      Types the overrides address of pack P and notes the screen: title, columns, the line, and every button.
+    via: gui
+    produces:
+      auditor_view: >-
+        the title "Solution pack overrides", one line with D_ID, version 1, Active and the reason "UAT: access check"; no New override, no Edit, no Retire button and no Actions column
+  - step: 3
+    actor: dispatcher
+    action: >
+      Types the overrides address of pack P and notes the screen in the same way.
+    via: gui
+    produces:
+      dispatcher_view: the same list as the auditor sees, with no New override, Edit or Retire button and no Actions column
+  - step: 4
+    actor: ops_manager
+    action: >
+      Types the overrides address of pack P and notes the screen.
+    via: gui
+    expect_refusal: true
+  - step: 5
+    actor: auditor
+    action: >
+      Tries to create an override directly (without the screen) for D_ID with the patch {"nodes.S1.label": "Zq752 by auditor"} and the reason "UAT: auditor create".
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq752 by auditor"
+      reason: "UAT: auditor create"
+    expect_refusal: true
+  - step: 6
+    actor: dispatcher
+    action: >
+      Tries to retire the existing override directly with the reason "UAT: dispatcher retire".
+    via: api
+    input:
+      reason: "UAT: dispatcher retire"
+    expect_refusal: true
+  - step: 7
+    actor: ops_manager
+    action: >
+      Tries to read the list of overrides of pack P directly.
+    via: api
+    expect_refusal: true
+  - step: 8
+    actor: other_admin
+    action: >
+      Opens the overrides address of pack P (BilimBaga has not installed it) and notes the screen.
+    via: gui
+    expect_refusal: true
+  - step: 9
+    actor: other_admin
+    action: >
+      Tries to create an override directly under the pack identifier of P, for the artefact id D_ID, with the patch {"nodes.S1.label": "Zq752 by other company"} and the reason "UAT: other company".
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq752 by other company"
+      reason: "UAT: other company"
+    expect_refusal: true
+  - step: 10
+    actor: tenant_admin
+    action: >
+      Reloads the overrides screen of pack P and notes the list.
+    via: gui
+    produces:
+      final_list: >-
+        exactly one line for D_ID, version 1, Active, reason "UAT: access check"; no line with "Zq752 by auditor" or "Zq752 by other company"
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The administrator sees the New override button and, on the line, Edit and Retire and an Actions column (step 1). The auditor (step 2) and the dispatcher (step 3) see the same list, with the
+      status and the reason, and none of these controls: they are absent from the page, not greyed out.
+    verification:
+      method: gui_screen
+      detail: The three screens compared; the buttons and the Actions column are looked for by name in steps 2 and 3.
+      evidence: Three screenshots.
+    on_fail:
+      severity: MAJOR
+      business_impact: Write controls shown to people who may not change the company's pack adjustments, or hidden from the administrator.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      In step 4 the Ops Manager gets the not-allowed screen (the same one the product shows for a screen the caller has no right to), with no list, no line and no sign of D_ID or of the override reason;
+      the direct read in step 7 is refused 403 as lack of right.
+    verification:
+      method: gui_screen
+      detail: Step 4 screen shows the not-allowed text only; step 7 answer status 403 and its body carries no override data.
+      evidence: Screenshot and the answer.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A task worker could read the company's local changes to a pack.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      The auditor's create (step 5) and the dispatcher's retire (step 6) are each refused as lack of right (403); nothing is written (step 10).
+    verification:
+      method: api_response
+      detail: Two answers, status 403, same body shape as other lack-of-right answers; no new line or version in step 10.
+      evidence: The two answers and the step 10 list.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The screen hides the controls but the server would let a read-only role change the company's pack adjustments.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      BilimBaga's administrator is answered with the not-found text on screen (step 8) and with the same not-found answer as for an unknown pack on the direct create (step 9): identical in status and body,
+      nothing of SwiftRoute's pack or override in it, and nothing written in either company.
+    verification:
+      method: api_response
+      detail: Step 9 status 404; the body equals the body of a request for a pack identifier that exists in no company; the screen of step 8 shows "Pack or override not found."
+      evidence: The answer, an answer for an unknown pack for comparison, and the screen.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could learn which packs and adjustments another company holds, or write into them.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      At the end the list shows exactly the one override of step 1 (step 10).
+    verification:
+      method: system_state
+      detail: The list read in step 10 equals the list after step 1.
+      evidence: Screenshot of the list.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused request could have left a change behind.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: The platform team retires the override of step 1 (a retired line stays as history).

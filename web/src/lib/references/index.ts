@@ -2,3 +2,4 @@ export { isUuid, labelOfRecord, REFERENCE_FIELDS, type ReferenceType } from './r
 export { REFERENCE_MESSAGES, type ReferenceMessages } from './referenceMessages'
 export { ReferenceLabel } from './ReferenceLabel'
 export { useReferenceLabels, type ReferenceIds } from './useReferenceLabels'
+export { linkedEmployeeId, type EmployeeOption } from './linkedEmployee'

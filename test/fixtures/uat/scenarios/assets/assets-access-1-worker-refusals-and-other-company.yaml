@@ -1,0 +1,178 @@
+# T-1531 (BA#4, assets): who may touch the asset register. A task worker holds no asset right and is refused on every read, post, reverse, export and import route; another company gets the answer for an unknown document and sees only its own balances.
+# Sources: docs/roles.md (module assets declares AssetsCardWrite, AssetsPost, AssetsReverse, AssetsRead, AssetsReconcile, no role_grants: only TENANT_ADMIN and PLATFORM_ADMIN hold them; the TASK_WORKER and STOREKEEPER lines),
+# docs/migration/decisions/0081-storekeeper-role.md D2 (D-097: the asset grant for the storekeeper is deferred), lib/letflow/modules/assets/router.ex (moduledoc: permissions per route, 404 for a caller who may not read and for other-tenant ids, tenant only from the token),
+# docs/agents/instructions/security-invariants.md INV-5 and INV-10.
+#
+# STOREKEEPER GAP (stated, not invented): the owner's decision D-097 and decision 0081 D2 say the storekeeper (role STOREKEEPER) holds NO asset right yet and must be refused. The actor roster has no storekeeper actor
+# (test/fixtures/uat/actors.yaml, checked by grep), so the refusal of the storekeeper is NOT checked here; the TASK_WORKER stands in only for "a user who holds no asset permission". When a storekeeper account is added to the roster, a scenario with the
+# same steps as 2 to 8 for it is the follow-up, and it must change when D-097 is delivered (the storekeeper then reads and posts assets).
+# SIDEBAR GAP: the role-based sidebar (T-1522) is not on main (grep of git log for sidebar finds only the earlier storekeeper menu fix, #3984); no scenario step is written for it.
+# NOT UAT-observable: the refusal of a scoped (org unit) caller and of an API token on the document routes (the roster has no scoped asset user and no API token actor); the cross-tenant refusals for every identifier are the product's own security tests.
+---
+id: assets-access-1-worker-refusals-and-other-company
+scope: assets
+title: A task worker is refused on every asset route; another company gets the answer for an unknown document and sees only its own balances
+version: "1.0"
+tags: [assets, access, refusal, tenancy, storekeeper]
+
+description: >
+  SwiftRoute has a posted commission of the card INV-400 (document ACM-1) and a draft commission (document DRAFT-1). The task worker Marco holds no asset permission. He is refused when he reads the balances, the movements
+  and the document list, when he saves, issues and reverses a document, when he asks for the xlsx balance and when he imports cards by xlsx; no document or balance changes. The administrator of BilimBaga, who has
+  the module too, asks for the SwiftRoute documents by their ids and gets the answer for an unknown document; its own balance list shows none of the SwiftRoute rows.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has the assets module active, the posted commission ACM-1 for card INV-400 and a draft commission DRAFT-1 (prepared as in scenario assets-documents-1).
+    check: system_seeded
+    detail: If the posted commission cannot be prepared, report BLOCKED for the whole scenario.
+  - description: BilimBaga has the assets module installed and holds no asset balance rows of INV-400.
+    check: system_seeded
+    detail: If BilimBaga has no assets module, report BLOCKED for steps 11, 12 and 14 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-400, the document ACM-1 and the document DRAFT-1. The answers are noted as B0, P0 and D0.
+    via: api
+  - step: 2
+    actor: worker
+    action: >
+      The task worker reads the balances filtered to card INV-400. The answer is noted as W1.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: worker
+    action: >
+      The task worker reads the movements. The answer is noted as W2.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: worker
+    action: >
+      The task worker reads the document list. The answer is noted as W3.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: worker
+    action: >
+      The task worker saves a draft commission with one line for card INV-400. The answer is noted as W4.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: worker
+    action: >
+      The task worker issues the draft DRAFT-1. The answer is noted as W5.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: worker
+    action: >
+      The task worker reverses the posted document ACM-1 with the reason "wrong_document". The answer is noted as W6.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: worker
+    action: >
+      The task worker asks for the balances as an xlsx file. The answer is noted as W7.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: worker
+    action: >
+      The task worker imports an xlsx file of one asset card (inventory number INV-401, name "Chair", kind low-value). The answer is noted as W8.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator reads the card list filtered to INV-401, the document ACM-1 and the document DRAFT-1. The answers are noted as L1, P1 and D1.
+    via: api
+  - step: 11
+    actor: other_admin
+    action: >
+      The administrator of BilimBaga reads the SwiftRoute document ACM-1 by its id. The answer is noted as O1.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: other_admin
+    action: >
+      The administrator of BilimBaga reverses the SwiftRoute document ACM-1 by its id with the reason "wrong_document". The answer is noted as O2.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: admin
+    action: >
+      The administrator of SwiftRoute reads ACM-1 again. The answer is noted as P2.
+    via: api
+  - step: 14
+    actor: other_admin
+    action: >
+      The administrator of BilimBaga reads its own balances filtered to card INV-400 and its own document list. The answers are noted as O3 and O4. This is not a refusal: the tenant is taken from the sign-in and the answer holds BilimBaga data only.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator sees the posted balance and both documents.
+    verification:
+      method: api_response
+      detail: B0 holds one row for INV-400 with quantity 1; P0 shows state posted; D0 shows state draft.
+      evidence: B0, P0 and D0.
+    on_fail:
+      severity: MAJOR
+      business_impact: The base of the access checks is not in place, so the refusals prove nothing.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A worker without an asset right is refused on every read route.
+    verification:
+      method: http_status
+      detail: Steps 2, 3, 4 and 8 answer 403.
+      evidence: W1, W2, W3 and W7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee could read the full register of the company, including who holds which asset.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A worker is refused when saving, issuing or reversing a document and nothing changes.
+    verification:
+      method: http_status
+      detail: Steps 5, 6 and 7 answer 403; P1 equals P0 and D1 equals D0.
+      evidence: W4, W5, W6, P1 and D1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee could post, or undo, a document that moves company assets.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A worker is refused when importing cards and no card is created.
+    verification:
+      method: http_status
+      detail: Step 9 answers 403; L1 lists no card with the number INV-401.
+      evidence: W8 and L1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee could fill the register with cards.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: Another company gets the answer for an unknown document, and the document is unchanged.
+    verification:
+      method: http_status
+      detail: Steps 11 and 12 answer 404 with the same body as for an unknown document id; P2 equals P0.
+      evidence: O1, O2 and P2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could learn about, or undo, the postings of another company.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: The other company's own lists hold none of SwiftRoute's data.
+    verification:
+      method: api_response
+      detail: Step 14 answers 200; O3 holds no row for INV-400 and O4 lists no document of SwiftRoute (no ACM-1, no DRAFT-1).
+      evidence: O3 and O4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Asset data would leak between companies.
+      suggested_action: route_to_elixir_dev

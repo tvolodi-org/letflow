@@ -27,6 +27,25 @@ final RegExp _sharedPreferencesImport = RegExp(
   r'''import\s+['"]package:shared_preferences/[^'"]+['"]''',
 );
 final RegExp _dartIoImport = RegExp(r'''import\s+['"]dart:io['"]''');
+final RegExp _localStorageUse = RegExp(r'\blocalStorage\b');
+final RegExp _packageWebImport = RegExp(
+  r'''import\s+['"]package:web/[^'"]+['"]''',
+);
+final RegExp _tokenWord = RegExp('token', caseSensitive: false);
+
+/// PWA M2 (D-112): the only file that may touch `localStorage`, and the
+/// files that may import `package:web`.
+const String sanctionedLocalStorageFile = 'lib/auth/web_browser.dart';
+const String pointerStoreFile = 'lib/auth/web_pointer_kv.dart';
+const Set<String> webImportFiles = {
+  'lib/auth/web_browser.dart',
+  'lib/auth/app_auth_platform_web.dart',
+  // PWA M4: the browser recorder reads its blob with fetch; no token, no
+  // localStorage.
+  'lib/features/stock/voice/web_recorder_port_web.dart',
+};
+const String pointerKey = 'letflow.last_active_tenant';
+
 final RegExp _fileConstruction = RegExp(r'''File\(''');
 
 /// Checks a set of in-memory Dart files (`{relativePath: content}`) for the
@@ -51,7 +70,42 @@ List<TokenStorageBoundaryViolation> checkTokenStorageBoundary({
       );
     }
 
-    final isAuthOrApi = path.startsWith('lib/auth/') || path.startsWith('lib/api/');
+    if (_localStorageUse.hasMatch(content) &&
+        path != sanctionedLocalStorageFile) {
+      violations.add(
+        TokenStorageBoundaryViolation(
+          path,
+          'uses localStorage outside $sanctionedLocalStorageFile',
+        ),
+      );
+    }
+    if (path == sanctionedLocalStorageFile && _tokenWord.hasMatch(content)) {
+      violations.add(
+        TokenStorageBoundaryViolation(
+          path,
+          'mentions token in the browser-storage file',
+        ),
+      );
+    }
+    if (path == pointerStoreFile &&
+        _tokenWord.hasMatch(content.replaceAll(pointerKey, ''))) {
+      violations.add(
+        TokenStorageBoundaryViolation(
+          path,
+          'the tenant-pointer store must not mention tokens',
+        ),
+      );
+    }
+    if (path.startsWith('lib/auth/') &&
+        _packageWebImport.hasMatch(content) &&
+        !webImportFiles.contains(path)) {
+      violations.add(
+        TokenStorageBoundaryViolation(path, 'imports package:web unexpectedly'),
+      );
+    }
+
+    final isAuthOrApi =
+        path.startsWith('lib/auth/') || path.startsWith('lib/api/');
     if (isAuthOrApi && _sharedPreferencesImport.hasMatch(content)) {
       violations.add(
         TokenStorageBoundaryViolation(
@@ -122,7 +176,9 @@ void main() {
   test('self-test: checker fires on a fixture with dart:io File(...) under'
       ' lib/api/', () {
     final violations = checkTokenStorageBoundary(
-      libFiles: {'lib/api/leaky.dart': "import 'dart:io';\nfinal f = File('x');\n"},
+      libFiles: {
+        'lib/api/leaky.dart': "import 'dart:io';\nfinal f = File('x');\n",
+      },
     );
 
     expect(violations, hasLength(1));
@@ -144,8 +200,7 @@ void main() {
   });
 
   test('self-test: a shared_preferences import OUTSIDE lib/auth/ or'
-      ' lib/api/ fires zero violations (boundary is scoped, not global)',
-      () {
+      ' lib/api/ fires zero violations (boundary is scoped, not global)', () {
     final violations = checkTokenStorageBoundary(
       libFiles: {
         'lib/renderers/form/prefs.dart':
@@ -165,5 +220,49 @@ void main() {
     );
 
     expect(violations, isEmpty);
+  });
+
+  test('self-test: localStorage outside web_browser.dart is a violation', () {
+    final v = checkTokenStorageBoundary(
+      libFiles: {'lib/auth/x.dart': 'final s = window.localStorage;\n'},
+    );
+    expect(v, hasLength(1));
+    expect(v.single.kind, contains('localStorage'));
+    expect(
+      checkTokenStorageBoundary(
+        libFiles: {
+          'lib/auth/web_browser.dart': 'final s = window.localStorage;\n',
+        },
+      ),
+      isEmpty,
+    );
+  });
+
+  test('self-test: the pointer store may not mention tokens', () {
+    expect(
+      checkTokenStorageBoundary(
+        libFiles: {
+          'lib/auth/web_pointer_kv.dart':
+              "const k = 'letflow.last_active_tenant';\n",
+        },
+      ),
+      isEmpty,
+    );
+    final v = checkTokenStorageBoundary(
+      libFiles: {'lib/auth/web_pointer_kv.dart': "final a = 'access_token';\n"},
+    );
+    expect(v, hasLength(1));
+  });
+
+  test('self-test: package:web import only in the sanctioned files', () {
+    const src = "import 'package:web/web.dart' as web;\n";
+    expect(
+      checkTokenStorageBoundary(libFiles: {'lib/auth/other.dart': src}),
+      hasLength(1),
+    );
+    expect(
+      checkTokenStorageBoundary(libFiles: {'lib/auth/web_browser.dart': src}),
+      isEmpty,
+    );
   });
 }
