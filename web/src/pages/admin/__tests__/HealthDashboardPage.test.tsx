@@ -118,4 +118,15 @@ describe('HealthDashboardPage', () => {
     expect(screen.getByTestId('liveness-badge')).toHaveTextContent('UNREACHABLE')
     expect(screen.getByTestId('readiness-not-available')).toBeInTheDocument()
   })
+
+  it('H1: LIVE and UNREACHABLE each show a plain sentence on what to do', () => {
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    mockUseQuery.mockReturnValue(queryResult({ data: true }) as unknown as ReturnType<typeof useQuery>)
+    renderWithAccess(<HealthDashboardPage />, 'platformAdmin')
+    expect(screen.getByTestId('liveness-action')).toHaveTextContent('If users still report problems, open Metrics.')
+    cleanup()
+    mockUseQuery.mockReturnValue(queryResult({ data: false }) as unknown as ReturnType<typeof useQuery>)
+    renderWithAccess(<HealthDashboardPage />, 'platformAdmin')
+    expect(screen.getByTestId('liveness-action')).toHaveTextContent('tell the platform operator')
+  })
 })
