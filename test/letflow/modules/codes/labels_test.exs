@@ -89,6 +89,15 @@ defmodule Letflow.Modules.Codes.LabelsTest do
     assert @box_w - right >= 10 * mw
   end
 
+  test "T-1555 Cyrillic and Kazakh code text renders inside its box on a QR label" do
+    value = "ӘІҢҒҮҰҚӨҺ-Ёй-123"
+    {:ok, pdf} = Labels.render([code(value, "qr")])
+    assert String.starts_with?(pdf, "%PDF-1.4")
+    [page] = Labels.layout([code(value, "qr")]).pages
+    assert Enum.any?(page, &match?({:rect, _, _, _, _}, &1))
+    assert Enum.all?(texts(page), fn {_x, _y, cps} -> List.to_string(cps) != "" end)
+  end
+
   test "L2-6 equal input gives equal bytes" do
     input = [code("A1"), code("Q1", "qr")]
     assert Labels.render(input) == Labels.render(input)

@@ -18,7 +18,13 @@ defmodule Letflow.Documents.PrintLayout.Flow do
   @line_h 1200
   @gap 200
   @pad 200
-  @sizes %{"A4" => {59_500, 84_200}, "Letter" => {61_200, 79_200}}
+  @sizes %{
+    "A4" => {59_500, 84_200},
+    "A4-landscape" => {84_200, 59_500},
+    "Letter" => {61_200, 79_200}
+  }
+  # A table up to this many data rows is kept whole on one page when it fits a page.
+  @small_table_rows 3
 
   @type violation :: %{rule: atom, path: list}
 
@@ -43,10 +49,13 @@ defmodule Letflow.Documents.PrintLayout.Flow do
       vs: []
     }
 
+    indexed = Enum.with_index(blocks, 1)
+    nexts = Enum.drop(blocks, 1) ++ [nil]
+
     st =
-      blocks
-      |> Enum.with_index(1)
-      |> Enum.reduce(st, fn {block, i}, st -> block(block, i, projection, st) end)
+      indexed
+      |> Enum.zip(nexts)
+      |> Enum.reduce(st, fn {{block, i}, next}, st -> block(block, i, projection, st, next) end)
 
     case st.vs do
       [] ->
@@ -62,19 +71,20 @@ defmodule Letflow.Documents.PrintLayout.Flow do
 
   # -- blocks ----------------------------------------------------------------------------------
 
-  defp block(%{"type" => "text", "text" => text}, i, _proj, st) do
+  # A text block directly before a table is kept with the start of that table (rule a).
+  defp block(%{"type" => "text", "text" => text}, i, proj, st, next) do
     case prepare(text, ["blocks", i, "text"]) do
-      {:ok, cps} -> flow_item(st, cps)
+      {:ok, cps} -> flow_item(keep_with_table(st, cps, i, proj, next), cps)
       {:error, v} -> violate(st, v)
     end
   end
 
-  defp block(%{"type" => "spacer", "height_mm" => mm}, _i, _proj, st) do
+  defp block(%{"type" => "spacer", "height_mm" => mm}, _i, _proj, st, _next) do
     used = st.used + mm_to_u(mm)
     if used > st.ch, do: %{new_page(st) | used: 0}, else: %{st | used: used}
   end
 
-  defp block(%{"type" => "field"} = b, i, proj, st) do
+  defp block(%{"type" => "field"} = b, i, proj, st, _next) do
     path = ["blocks", i]
 
     case read_field(proj, b["entity_type"], b["field_name"]) do
@@ -90,7 +100,7 @@ defmodule Letflow.Documents.PrintLayout.Flow do
     end
   end
 
-  defp block(%{"type" => "table"} = b, i, proj, st) do
+  defp block(%{"type" => "table"} = b, i, proj, st, _next) do
     path = ["blocks", i]
 
     case read_rows(proj, b["entity_type"]) do
@@ -99,7 +109,22 @@ defmodule Letflow.Documents.PrintLayout.Flow do
     end
   end
 
-  defp block(_other, _i, _proj, st), do: st
+  defp block(_other, _i, _proj, st, _next), do: st
+
+  defp keep_with_table(st, cps, i, proj, %{"type" => "table"} = tb) do
+    with {:ok, rows} <- read_rows(proj, tb["entity_type"]),
+         {:ok, need} <- table_need(st, tb, rows, ["blocks", i + 1]) do
+      text_h = length(wrap(cps, st.cw)) * @line_h + @gap
+
+      if text_h + need <= st.ch and st.used + text_h + need > st.ch and st.used > 0,
+        do: new_page(st),
+        else: st
+    else
+      _ -> st
+    end
+  end
+
+  defp keep_with_table(st, _cps, _i, _proj, _next), do: st
 
   defp field(st, b, value, path) do
     if b["show_if_nonempty"] == true and String.trim(value) == "" do
@@ -283,71 +308,191 @@ defmodule Letflow.Documents.PrintLayout.Flow do
   # -- tables ----------------------------------------------------------------------------------
 
   defp table(st, b, rows, path) do
-    cols = b["columns"]
-    weights = Enum.map(cols, &max(1, round(Map.get(&1, "width", 1) * 1000)))
-    total = Enum.sum(weights)
-    widths = Enum.map(weights, &div(st.cw * &1, total))
-    {xs, _} = Enum.map_reduce(widths, st.m, fn w, x -> {x, x + w} end)
-    geo = Enum.zip([xs, widths, 0..(length(cols) - 1)])
+    {geo, header, cols} = table_geo(st, b, path)
+    rep = repeat_header(st, geo, header)
 
-    header =
-      for {{_x, _w, j}, col} <- Enum.zip(geo, cols) do
-        prepare(Map.get(col, "header", ""), path ++ ["columns", j, "header"])
+    st =
+      case table_need(st, b, rows, path) do
+        {:ok, need} when need <= st.ch ->
+          if st.used + need > st.ch and st.used > 0, do: new_page(st), else: st
+
+        _ ->
+          st
       end
 
     st = row(st, geo, header, path)
 
-    Enum.reduce(rows, st, fn r, st ->
-      cells =
-        for {{_x, _w, j}, col} <- Enum.zip(geo, cols) do
-          vpath = path ++ ["columns", j, "field_name"]
-
-          with {:ok, text} <- to_text(Map.get(r, col["field_name"]), vpath),
-               do: prepare(text, vpath)
-        end
-
-      row(st, geo, cells, path)
-    end)
+    Enum.reduce(rows, st, fn r, st -> row(st, geo, data_cells(r, cols, geo, path), path, rep) end)
   end
 
-  defp row(st, geo, cells, path) do
+  # Geometry (column x/width/index), header cells and columns of a table block.
+  defp table_geo(st, b, path) do
+    cols = b["columns"]
+    weights = Enum.map(cols, &max(1, round(Map.get(&1, "width", 1) * 1000)))
+    total = Enum.sum(weights)
+    widths = Enum.map(weights, &div(st.cw * &1, total))
+
+    header =
+      for {col, j} <- Enum.with_index(cols) do
+        prepare(Map.get(col, "header", ""), path ++ ["columns", j, "header"])
+      end
+
+    widths = fit_header_words(widths, header, st.cw)
+    {xs, _} = Enum.map_reduce(widths, st.m, fn w, x -> {x, x + w} end)
+    {Enum.zip([xs, widths, 0..(length(cols) - 1)]), header, cols}
+  end
+
+  defp data_cells(r, cols, geo, path) do
+    for {{_x, _w, j}, col} <- Enum.zip(geo, cols) do
+      vpath = path ++ ["columns", j, "field_name"]
+
+      with {:ok, text} <- to_text(Map.get(r, col["field_name"]), vpath),
+           do: prepare(text, vpath)
+    end
+  end
+
+  # No header word is broken in the middle while every column can hold its longest word.
+  defp fit_header_words(widths, header, cw) do
+    mins =
+      for h <- header do
+        case h do
+          {:ok, cps} -> longest_word(cps) + 2 * @pad
+          _ -> 0
+        end
+      end
+
+    if Enum.sum(mins) > cw do
+      widths
+    else
+      w1 = Enum.zip_with(widths, mins, &max/2)
+      surplus = max(0, Enum.sum(w1) - cw)
+      excess = Enum.zip_with(w1, mins, &-/2)
+      total_excess = Enum.sum(excess)
+
+      if surplus == 0 or total_excess == 0 do
+        w1
+      else
+        take = Enum.map(excess, &div(surplus * &1, total_excess))
+        w2 = Enum.zip_with(w1, take, &-/2)
+        take_rest(w2, mins, surplus - Enum.sum(take))
+      end
+    end
+  end
+
+  defp take_rest(ws, _mins, 0), do: ws
+
+  defp take_rest(ws, mins, n) do
+    room = Enum.zip_with(ws, mins, &-/2)
+    {best, idx} = room |> Enum.with_index() |> Enum.max_by(&elem(&1, 0), fn a, b -> a >= b end)
+
+    if best <= 0,
+      do: ws,
+      else: take_rest(List.update_at(ws, idx, &(&1 - 1)), mins, n - 1)
+  end
+
+  defp longest_word(cps) do
+    cps
+    |> Enum.chunk_by(&(&1 in [32, 10]))
+    |> Enum.reject(&(hd(&1) in [32, 10]))
+    |> Enum.map(&width/1)
+    |> Enum.max(fn -> 0 end)
+  end
+
+  # Header repeated on each new page of the table; nil when a header cell is not drawable.
+  defp repeat_header(st, geo, header) do
+    if Enum.all?(header, &match?({:ok, _}, &1)) do
+      cps = Enum.map(header, &elem(&1, 1))
+      wrapped = wrap_cells(geo, cps, max_lines_for(st.ch))
+      %{wrapped: wrapped, h: row_h(wrapped)}
+    end
+  end
+
+  # Space needed to start a table: whole table when small, else header and first row.
+  defp table_need(st, b, rows, path) do
+    {geo, header, cols} = table_geo(st, b, path)
+    max_lines = max_lines_for(st.ch)
+    first = Enum.take(rows, @small_table_rows + 1)
+    cells = Enum.map(first, &data_cells(&1, cols, geo, path))
+    all = [header | cells]
+
+    if Enum.all?(all, fn r -> Enum.all?(r, &match?({:ok, _}, &1)) end) do
+      hs =
+        for r <- all do
+          wrapped = wrap_cells(geo, Enum.map(r, &elem(&1, 1)), max_lines)
+          if Enum.any?(wrapped, &(length(&1) > max_lines)), do: :tall, else: row_h(wrapped)
+        end
+
+      if :tall in hs do
+        :skip
+      else
+        [hdr | data] = hs
+
+        {:ok,
+         if(length(rows) <= @small_table_rows, do: hdr + Enum.sum(data), else: hdr + hd(data))}
+      end
+    else
+      :skip
+    end
+  end
+
+  defp max_lines_for(avail), do: max(1, div(avail - 2 * @pad, @line_h))
+
+  defp wrap_cells(geo, cell_cps, max_lines) do
+    for {{_x, w, _j}, cps} <- Enum.zip(geo, cell_cps),
+        do: wrap(cps, w - 2 * @pad, max_lines + 1)
+  end
+
+  defp row_h(wrapped),
+    do: wrapped |> Enum.map(&length/1) |> Enum.max() |> Kernel.*(@line_h) |> Kernel.+(2 * @pad)
+
+  defp row(st, geo, cells, path, rep \\ nil) do
     case for({:error, v} <- cells, do: v) do
-      [] -> place_row(st, geo, Enum.map(cells, &elem(&1, 1)), path)
+      [] -> place_row(st, geo, Enum.map(cells, &elem(&1, 1)), path, rep)
       vs -> Enum.reduce(vs, st, &violate(&2, &1))
     end
   end
 
-  defp place_row(st, geo, cell_cps, path) do
-    max_lines = max(1, div(st.ch - 2 * @pad, @line_h))
+  defp place_row(st, geo, cell_cps, path, rep) do
+    avail = if rep, do: st.ch - rep.h, else: st.ch
+    max_lines = max_lines_for(avail)
     st = Enum.reduce(cell_cps, st, &mark_used(&2, &1))
+    wrapped = wrap_cells(geo, cell_cps, max_lines)
 
-    wrapped =
-      for {{_x, w, _j}, cps} <- Enum.zip(geo, cell_cps),
-          do: wrap(cps, w - 2 * @pad, max_lines + 1)
-
-    if Enum.any?(wrapped, &(length(&1) > max_lines)) do
+    if Enum.any?(wrapped, &(length(&1) > max_lines)) or (rep && rep.h + row_h(wrapped) > st.ch) do
       violate(st, v(:row_too_tall, path))
     else
-      h = wrapped |> Enum.map(&length/1) |> Enum.max() |> Kernel.*(@line_h) |> Kernel.+(2 * @pad)
-      st = if st.used + h > st.ch and st.used > 0, do: new_page(st), else: st
-      top = st.used + @pad
+      h = row_h(wrapped)
 
-      ops =
-        for {{x, _w, _j}, lines} <- Enum.zip(geo, wrapped), lines != [] do
-          items =
-            for {line, k} <- Enum.with_index(lines), line != [] do
-              {x + @pad, baseline(st, top + k * @line_h), line}
-            end
-
-          {:item, items}
+      st =
+        if st.used + h > st.ch and st.used > 0 do
+          st = new_page(st)
+          if rep, do: draw_row(st, geo, rep.wrapped, rep.h), else: st
+        else
+          st
         end
 
-      ops = Enum.reject(ops, &match?({:item, []}, &1))
-      x_end = geo |> List.last() |> then(fn {x, w, _} -> x + w end)
-      x_start = geo |> hd() |> elem(0)
-      rule = {:rule, x_start, x_end, st.ph - st.m - st.used - h}
-      %{st | ops: [rule | Enum.reverse(ops, st.ops)], used: st.used + h}
+      draw_row(st, geo, wrapped, h)
     end
+  end
+
+  defp draw_row(st, geo, wrapped, h) do
+    top = st.used + @pad
+
+    ops =
+      for {{x, _w, _j}, lines} <- Enum.zip(geo, wrapped), lines != [] do
+        items =
+          for {line, k} <- Enum.with_index(lines), line != [] do
+            {x + @pad, baseline(st, top + k * @line_h), line}
+          end
+
+        {:item, items}
+      end
+
+    ops = Enum.reject(ops, &match?({:item, []}, &1))
+    x_end = geo |> List.last() |> then(fn {x, w, _} -> x + w end)
+    x_start = geo |> hd() |> elem(0)
+    rule = {:rule, x_start, x_end, st.ph - st.m - st.used - h}
+    %{st | ops: [rule | Enum.reverse(ops, st.ops)], used: st.used + h}
   end
 
   # -- violations ------------------------------------------------------------------------------
