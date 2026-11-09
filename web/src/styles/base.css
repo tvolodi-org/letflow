@@ -205,3 +205,15 @@ samp {
 }
 /* T-1490: a disabled text input (inventory number of a posted card) reads as read-only, like the disabled select. */
 .lf-form input:disabled { opacity: .55; cursor: not-allowed; }
+/* T-1559: Metrics support summary (cards of figures, one plain sentence each). Tokens only. */
+.lf-msum { margin-bottom: var(--space-6); }
+.lf-msum__title { margin: 0 0 var(--space-3); }
+.lf-msum__title--all { margin: var(--space-6) 0 0; }
+.lf-msum__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(256px, 1fr)); gap: var(--space-3); }
+.lf-msum__card { display: grid; gap: var(--space-2); align-content: start; min-width: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper-raised); }
+.lf-msum__card--routes { margin-top: var(--space-3); }
+.lf-msum__label { color: var(--ink-muted); font: var(--type-label); }
+.lf-msum__value { font: var(--type-body); font-family: var(--font-mono); font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.lf-msum__do { margin: 0; font: var(--type-body-s); color: var(--ink); }
+.lf-msum__routes { margin: 0; padding-inline-start: var(--space-4); font-family: var(--font-mono); overflow-wrap: anywhere; }
+.lf-health__do { margin: 0 0 var(--space-4); font: var(--type-body-s); }

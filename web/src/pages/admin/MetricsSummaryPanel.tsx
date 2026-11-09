@@ -9,6 +9,7 @@ import {
   type Reading,
 } from '@/api/metricsSummary'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
 
 export const SUMMARY_MESSAGES = {
   en: {
@@ -38,7 +39,10 @@ export const SUMMARY_MESSAGES = {
     jobs: 'Queue and background jobs',
     modules: 'Module versions per tenant',
     upgrade: 'Last upgrade result',
-    notShownDo: 'Not shown yet. If users report slowness, ask the platform operator to check the database connections directly.',
+    poolDo: 'Not shown yet. If the app is slow for everyone, ask the platform operator to check the database connections.',
+    jobsDo: 'Not shown yet. If a scheduled job did not run, ask the platform operator.',
+    modulesDo: 'Not shown yet. To see which module versions a tenant has, ask the platform operator.',
+    upgradeDo: 'Not shown yet. To learn whether the last upgrade worked, ask the platform operator.',
   },
   ru: {
     heading: 'Сводка для поддержки',
@@ -67,7 +71,10 @@ export const SUMMARY_MESSAGES = {
     jobs: 'Очередь и фоновые задачи',
     modules: 'Версии модулей по арендаторам',
     upgrade: 'Результат последнего обновления',
-    notShownDo: 'Пока не показывается. Если пользователи жалуются на медленную работу, попросите оператора платформы проверить подключения к базе напрямую.',
+    poolDo: 'Пока не показывается. Если приложение медленно работает у всех, попросите оператора платформы проверить подключения к базе.',
+    jobsDo: 'Пока не показывается. Если плановая задача не сработала, обратитесь к оператору платформы.',
+    modulesDo: 'Пока не показывается. Чтобы узнать версии модулей арендатора, обратитесь к оператору платформы.',
+    upgradeDo: 'Пока не показывается. Чтобы узнать, прошло ли последнее обновление, обратитесь к оператору платформы.',
   },
   kk: {
     heading: 'Қолдау қызметіне арналған қорытынды',
@@ -96,13 +103,21 @@ export const SUMMARY_MESSAGES = {
     jobs: 'Кезек және фондық тапсырмалар',
     modules: 'Арендаторлар бойынша модуль нұсқалары',
     upgrade: 'Соңғы жаңартудың нәтижесі',
-    notShownDo: 'Әзірге көрсетілмейді. Пайдаланушылар баяулығына шағымданса, платформа операторынан дерекқор қосылымдарын тікелей тексеруді сұраңыз.',
+    poolDo: 'Әзірге көрсетілмейді. Қолданба бәріне баяу жұмыс істесе, платформа операторынан дерекқор қосылымдарын тексеруді сұраңыз.',
+    jobsDo: 'Әзірге көрсетілмейді. Жоспарлы тапсырма орындалмаса, платформа операторына хабарласыңыз.',
+    modulesDo: 'Әзірге көрсетілмейді. Арендатордың модуль нұсқаларын білу үшін платформа операторына хабарласыңыз.',
+    upgradeDo: 'Әзірге көрсетілмейді. Соңғы жаңарту сәтті өткенін білу үшін платформа операторына хабарласыңыз.',
   },
 }
 
 type Messages = Record<keyof (typeof SUMMARY_MESSAGES)['en'], string>
 
-const UNMEASURED: { key: keyof Messages }[] = [{ key: 'pool' }, { key: 'jobs' }, { key: 'modules' }, { key: 'upgrade' }]
+const UNMEASURED: { key: keyof Messages; doKey: keyof Messages }[] = [
+  { key: 'pool', doKey: 'poolDo' },
+  { key: 'jobs', doKey: 'jobsDo' },
+  { key: 'modules', doKey: 'modulesDo' },
+  { key: 'upgrade', doKey: 'upgradeDo' },
+]
 
 const TITLE_KEY: Record<FigureId, keyof Messages> = {
   requests: 'requests',
@@ -117,11 +132,11 @@ const ACTION_KEY: Partial<Record<FigureId, keyof Messages>> = {
   slowAppend: 'slowAppendDo',
   refresh: 'refreshDo',
 }
-const STATUS_COLOR: Record<FigureStatus, string> = {
-  ok: 'var(--color-success-dark)',
-  warn: 'var(--color-warning-dark)',
-  red: 'var(--color-error-dark)',
-  unknown: 'var(--text-secondary)',
+const STATUS_PILL: Record<FigureStatus, { tone: StatusTone; glyph: StatusGlyph }> = {
+  ok: { tone: 'success', glyph: 'dot' },
+  warn: { tone: 'warning', glyph: 'half' },
+  red: { tone: 'danger', glyph: 'triangle' },
+  unknown: { tone: 'neutral', glyph: 'dash' },
 }
 
 function statusWord(m: Messages, s: FigureStatus): string {
@@ -133,14 +148,6 @@ function valueText(m: Messages, f: Figure): string {
   if (f.id === 'requests' || f.id === 'errors') return `${Math.round(f.value * 10) / 10} ${m.perMinute}`
   if (f.id === 'refresh') return `${Math.floor(f.value / 60)} ${m.minutesOld}`
   return `${Math.round(f.value * 1000) / 10}% ${m.sinceStart}`
-}
-
-const CARD: React.CSSProperties = {
-  padding: '.75rem .9rem',
-  border: '1px solid var(--border-default)',
-  borderRadius: 'var(--radius-sm)',
-  background: 'var(--surface-card)',
-  minWidth: 0,
 }
 
 export function MetricsSummaryPanel({ families, dataUpdatedAt }: { families: PrometheusMetricFamily[]; dataUpdatedAt: number }) {
@@ -158,44 +165,45 @@ export function MetricsSummaryPanel({ families, dataUpdatedAt }: { families: Pro
   const routes = topErrorRoutes(families)
 
   return (
-    <section aria-labelledby="support-summary-heading" data-testid="support-summary" style={{ marginBottom: '1.5rem' }}>
-      <h3 id="support-summary-heading" style={{ margin: '0 0 .75rem' }}>{m.heading}</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(16rem, 1fr))', gap: '.75rem' }}>
+    <section aria-labelledby="support-summary-heading" data-testid="support-summary" className="lf-msum">
+      <h3 id="support-summary-heading" className="lf-card__title lf-msum__title">{m.heading}</h3>
+      <div className="lf-msum__grid">
         {figures.map((f) => {
           const action = ACTION_KEY[f.id]
+          const pill = STATUS_PILL[f.status]
           return (
-            <div key={f.id} data-testid={`figure-${f.id}`} style={CARD}>
-              <div style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>{m[TITLE_KEY[f.id]]}</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, margin: '.2rem 0' }}>{valueText(m, f)}</div>
-              <div data-testid={`figure-${f.id}-status`} style={{ color: STATUS_COLOR[f.status], fontWeight: 700, fontSize: 'var(--text-sm)' }}>
-                {statusWord(m, f.status)}
+            <div key={f.id} data-testid={`figure-${f.id}`} className="lf-msum__card">
+              <div className="lf-msum__label">{m[TITLE_KEY[f.id]]}</div>
+              <div className="lf-msum__value">{valueText(m, f)}</div>
+              <div data-testid={`figure-${f.id}-status`}>
+                <StatusPill tone={pill.tone} glyph={pill.glyph}>{statusWord(m, f.status)}</StatusPill>
               </div>
-              {action && (f.status === 'warn' || f.status === 'red') && (
-                <p style={{ margin: '.4rem 0 0', fontSize: 'var(--text-sm)' }}>{m[action]}</p>
-              )}
+              {action && (f.status === 'warn' || f.status === 'red') && <p className="lf-msum__do">{m[action]}</p>}
             </div>
           )
         })}
-        {UNMEASURED.map(({ key }) => (
-          <div key={key} data-testid="figure-unmeasured" style={CARD}>
-            <div style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>{m[key]}</div>
-            <div style={{ fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: '.2rem 0' }}>{m.notMeasured}</div>
-            <p style={{ margin: '.4rem 0 0', fontSize: 'var(--text-sm)' }}>{m.notShownDo}</p>
+        {UNMEASURED.map(({ key, doKey }) => (
+          <div key={key} data-testid="figure-unmeasured" className="lf-msum__card">
+            <div className="lf-msum__label">{m[key]}</div>
+            <div>
+              <StatusPill tone="neutral" glyph="dash">{m.notMeasured}</StatusPill>
+            </div>
+            <p className="lf-msum__do">{m[doKey]}</p>
           </div>
         ))}
       </div>
       {routes.length > 0 && (
-        <div data-testid="error-routes" style={{ ...CARD, marginTop: '.75rem' }}>
+        <div data-testid="error-routes" className="lf-msum__card lf-msum__card--routes">
           <strong>{m.errorRoutes}</strong>
-          <ul style={{ margin: '.3rem 0', paddingLeft: '1.2rem' }}>
+          <ul className="lf-msum__routes">
             {routes.map((r) => (
-              <li key={r.route} style={{ fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere' }}>{r.route} ({r.errors})</li>
+              <li key={r.route}>{r.route} ({r.errors})</li>
             ))}
           </ul>
-          <p style={{ margin: 0, fontSize: 'var(--text-sm)' }}>{m.errorRoutesDo}</p>
+          <p className="lf-msum__do">{m.errorRoutesDo}</p>
         </div>
       )}
-      <h3 style={{ margin: '1.5rem 0 0' }}>{m.allFigures}</h3>
+      <h3 className="lf-card__title lf-msum__title lf-msum__title--all">{m.allFigures}</h3>
     </section>
   )
 }

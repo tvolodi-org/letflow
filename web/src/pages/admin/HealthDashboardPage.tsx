@@ -85,7 +85,7 @@ export default function HealthDashboardPage() {
           <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>Backend liveness (GET /health)</span>
         </div>
 
-        <p data-testid="liveness-action" style={{ margin: '0 0 1.25rem', fontSize: 'var(--text-sm)' }}>
+        <p data-testid="liveness-action" className="lf-health__do">
           {isLive ? hm.liveDo : hm.downDo}
         </p>
 

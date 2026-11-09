@@ -125,10 +125,12 @@ describe('MetricsPage', () => {
     renderPage()
     const cards = await screen.findAllByTestId('figure-unmeasured')
     expect(cards).toHaveLength(4)
-    for (const c of cards) {
+    const sentences = [SUMMARY_MESSAGES.en.poolDo, SUMMARY_MESSAGES.en.jobsDo, SUMMARY_MESSAGES.en.modulesDo, SUMMARY_MESSAGES.en.upgradeDo]
+    expect(new Set(sentences).size).toBe(4)
+    cards.forEach((c, i) => {
       expect(c).toHaveTextContent('Not measured yet')
-      expect(c).toHaveTextContent(SUMMARY_MESSAGES.en.notShownDo)
-    }
+      expect(c).toHaveTextContent(sentences[i])
+    })
   })
 
   it('P4: ru renders the translated panel', async () => {
