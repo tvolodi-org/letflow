@@ -115,7 +115,8 @@ defmodule Letflow.Api.Scope do
     the effective roles, `grants` is `:token` for a token principal.
     """
     @enforce_keys [:kind, :user_id, :prefix, :platform_tenant?, :roles, :grants]
-    defstruct @enforce_keys
+    # `role_overlay` (T-1570, D-097): the tenant's add-only grant overlay; `%{}` = baseline matrix.
+    defstruct @enforce_keys ++ [role_overlay: %{}]
 
     @type t :: %__MODULE__{
             kind: :user | :token,
@@ -123,7 +124,8 @@ defmodule Letflow.Api.Scope do
             prefix: String.t(),
             platform_tenant?: boolean(),
             roles: [Authorization.role()],
-            grants: Letflow.Api.Scope.Grants.t() | :token | :not_loaded
+            grants: Letflow.Api.Scope.Grants.t() | :token | :not_loaded,
+            role_overlay: Authorization.role_overlay()
           }
   end
 
@@ -266,7 +268,10 @@ defmodule Letflow.Api.Scope do
   # Steps 3-7 of the decision order, shared by `allowed?/3` and `allowed_set/2` so the two
   # cannot diverge (REQ-518 D1): either a final decision, or the combined effective scope.
   defp tenant_effective(principal, permission) do
-    candidates = Enum.filter(principal.roles, &Authorization.role_allows?(&1, permission))
+    overlay = principal.role_overlay
+
+    candidates =
+      Enum.filter(principal.roles, &Authorization.role_allows?(&1, permission, overlay))
 
     cond do
       candidates == [] ->
@@ -403,10 +408,19 @@ defmodule Letflow.Api.Scope do
          prefix: prefix,
          platform_tenant?: platform_tenant?,
          roles: roles,
-         grants: grants
+         grants: grants,
+         role_overlay: role_overlay_for(conn, roles, prefix)
        }}
     else
       _no_principal -> {:error, :no_principal}
+    end
+  end
+
+  # The overlay the plug assigned for this request; a context that did not pass the plug loads it once.
+  defp role_overlay_for(conn, roles, prefix) do
+    case Map.get(conn.assigns, :role_overlay) do
+      overlay when is_map(overlay) -> overlay
+      _absent -> Letflow.Api.TenantGrants.load_for(roles, prefix)
     end
   end
 

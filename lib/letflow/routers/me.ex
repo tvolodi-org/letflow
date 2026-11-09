@@ -243,9 +243,13 @@ defmodule Letflow.Routers.Me do
     platform_tenant? = PlatformTenant.platform_tenant?(Map.get(auth_context, :tenant_id))
     roles = Authorization.effective_roles(Map.get(auth_context, :roles), platform_tenant?)
 
+    # T-1570 (D-097): the same overlay the gate used (`Plugs.Authorize` assigns it), so this list,
+    # and the sidebar built from it, cannot disagree with enforcement.
+    overlay = Map.get(conn.assigns, :role_overlay, %{})
+
     permissions =
       for permission <- Authorization.permissions(),
-          Authorization.has_permission_in_scope?(roles, permission, platform_tenant?) or
+          Authorization.has_permission_in_scope?(roles, permission, platform_tenant?, overlay) or
             role_agnostic?(permission),
           do: Atom.to_string(permission)
 

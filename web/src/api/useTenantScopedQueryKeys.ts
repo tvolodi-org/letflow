@@ -76,6 +76,7 @@ export function useTenantScopedQueryKeys() {
       users: queryKeys.admin.users.bind(null, tenantId),
       userDetail: queryKeys.admin.userDetail.bind(null, tenantId),
       roles: () => queryKeys.admin.roles(tenantId),
+      roleGrants: () => queryKeys.admin.roleGrants(tenantId),
       services: queryKeys.admin.services.bind(null, tenantId),
       // NOT tenant-scoped — passed through unchanged.
       all: queryKeys.admin.all,

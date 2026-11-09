@@ -143,6 +143,7 @@ export const queryKeys = {
       ['tenant', tenantId, 'admin', 'users', filters ?? {}] as const,
     userDetail: (tenantId: string, id: string) => ['tenant', tenantId, 'admin', 'user', id] as const,
     roles: (tenantId: string) => ['tenant', tenantId, 'admin', 'roles'] as const,
+    roleGrants: (tenantId: string) => ['tenant', tenantId, 'admin', 'role-grants'] as const,
     services: (tenantId: string, filters?: { after_id?: string; limit?: number }) =>
       ['tenant', tenantId, 'admin', 'services', filters ?? {}] as const,
 

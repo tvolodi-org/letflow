@@ -38,7 +38,11 @@ defmodule Letflow.Modules.Assets.Access do
 
   defp guard(conn, permission) do
     with {:ok, _conn, %{kind: :user} = principal} <- Scope.principal_from_conn(conn),
-         true <- Enum.any?(principal.roles, &Authorization.role_allows?(&1, permission)),
+         true <-
+           Enum.any?(
+             principal.roles,
+             &Authorization.role_allows?(&1, permission, principal.role_overlay)
+           ),
          {:ok, :all} <- Scope.allowed_set(principal, permission),
          {:ok, actor} <- Ecto.UUID.cast(principal.user_id) do
       {:ok, %{prefix: principal.prefix, actor_id: actor}}
