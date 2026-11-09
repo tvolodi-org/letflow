@@ -1,0 +1,148 @@
+# T-1531 (BA#4, assets): a change of kind takes a quantity out of the stock register and creates a tracked asset card in the asset register in one posting; a fixed asset of quantity 2, a taken inventory number and a plain reversal are refused.
+# Sources: docs/assets/change-of-kind.md (sections 1, 2 and 5), lib/letflow/modules/assets/documents/kind_change_checks.ex (moduledoc: order of checks, reasons quantity_invalid, inventory_number_taken, org_unit_not_active, item_not_active),
+# lib/letflow/modules/assets/documents/posting.ex (reverse/6: a change of kind answers posting_inconsistent, the pair reversal is not built), lib/letflow/modules/assets/documents/kinds.ex (kind_change, prefix AKC, line keys).
+#
+# SCREEN GAP (stated, not invented): the change-of-kind screen exists in the web application, but the fixed reasons are read from the routes; every step is via: api.
+# ROSTER GAP: the roster has no assets-scope actor. The SwiftRoute administrator is the only actor with the asset and stock rights.
+# NOT UAT-observable: the stock balance check ("not enough in stock"): the checks module says the stock balance is not checked at issue, so the refusal reason for an over-draw is not stated by a source I could read; it is left to the stock scenarios.
+# NOT covered (stated): the reversal of a change of kind (the pair reversal is not built; step 10 shows the refusal only).
+---
+id: assets-documents-4-change-of-kind-stock-to-asset
+scope: assets
+title: A change of kind moves a quantity from the stock register to a new tracked asset card; a fixed asset of quantity 2, a taken inventory number and a plain reversal are refused
+version: "1.0"
+tags: [assets, kind-change, stock, document, balances, refusal]
+
+description: >
+  SwiftRoute holds 10 office chairs in the stock register at the location "Store" of "Head office", with the storekeeping responsible Employee A. The administrator saves a change of kind that takes 1 chair out of
+  stock and creates a low-value asset with the inventory number CHAIR-01, name "Office chair", at "Head office", location "Office 1", responsible Employee A. After issue and the task "post" the stock balance of the chairs is
+  9, the asset balance shows a new card CHAIR-01 with quantity 1, and the card exists. Refusals at issue: a fixed asset with quantity 2, a second document that uses the taken number CHAIR-01, and a line on an item that
+  is no longer active. A plain reversal of the posted change of kind is refused and nothing changes.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the stock module and the assets module active; the item "Office chair" with a unit piece; 10 pieces posted in stock at the location "Store" held by Employee A; the unit "Head office"; the location "Office 1" linked to it; an inactive item "Old chair".
+    check: system_seeded
+    detail: Prepared through the company's own administration and a stock receipt. If an inactive item cannot be prepared, report BLOCKED for steps 8 and 9 only. If the stock cannot be prepared, report BLOCKED for the whole scenario.
+  - description: No asset card with inventory number CHAIR-01 or CHAIR-02 exists.
+    check: system_seeded
+    detail: A retired card still holds its number, so a number once used is not reusable.
+  - description: The asset process definitions for the change of kind are active for SwiftRoute.
+    check: system_seeded
+    detail: Activated at the first issue; if issue answers 409 "definition_not_active", report BLOCKED for steps 2 to 5, 10 and 11.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator reads the stock balance of the item "Office chair" and the asset balance. The answers are noted as S0 and A0.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator saves a change of kind for "Head office", event time now, one line: item "Office chair", unit piece, quantity 1, stock location "Store", stock responsible Employee A, target kind low-value, asset unit "Head office", asset location "Office 1", responsible Employee A, inventory number CHAIR-01, name "Office chair";
+      issues it (a number with the prefix "AKC"); and completes its task "post" in My Tasks. The answers are noted as K1 (after issue) and K2 (the document read after the task).
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator reads the stock balance of the item and the asset balance, and reads the card with inventory number CHAIR-01. The answers are noted as S1, A1 and C1.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator saves a change of kind like step 2 but with target kind fixed asset, quantity 2 and inventory number CHAIR-02. The answer is noted as DQ (state draft).
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator issues the draft DQ. The answer is noted as E1.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator saves a change of kind like step 2 (quantity 1, low-value) with the inventory number CHAIR-01 again. The answer is noted as DN (state draft).
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator issues the draft DN. The answer is noted as E2.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The administrator saves a change of kind like step 2 with inventory number CHAIR-03 but with the inactive item "Old chair". The answer is noted as DI (state draft).
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The administrator issues the draft DI. The answer is noted as E3.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator reverses the posted change of kind K2 with the reason "wrong_document". The answer is noted as E4.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The administrator reads the stock balance of the item, the asset balance and the card list filtered to the number CHAIR-01. The answers are noted as S2, A2 and C2.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A posted change of kind lowers the stock by the quantity and creates one asset card with the asset quantity in the asset register.
+    verification:
+      method: api_response
+      detail: S0 shows 10 pieces at "Store". K1 shows the prefix "AKC" and state issued; K2 shows state posted. S1 shows 9 pieces. A1 shows one more row than A0, for the new card CHAIR-01 at "Head office", location "Office 1", responsible Employee A, quantity 1. C1 shows the card active, kind low-value, name "Office chair".
+      evidence: S0, A0, K1, K2, S1, A1 and C1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Stock and assets would disagree, so a chair is counted twice or not at all.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A fixed asset of quantity 2 is refused at issue; the draft stays a draft.
+    verification:
+      method: api_response
+      detail: Step 5 answers 422 with the reason "quantity_invalid" and the extension "line_no" 1; DQ read again shows state draft.
+      evidence: E1 and DQ.
+    on_fail:
+      severity: MAJOR
+      business_impact: One fixed asset card could stand for several items.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: An inventory number already held by a card is refused at issue.
+    verification:
+      method: api_response
+      detail: Step 7 answers 422 with the reason "inventory_number_taken"; DN stays a draft.
+      evidence: E2 and DN.
+    on_fail:
+      severity: MAJOR
+      business_impact: Two assets could carry one number, so a count by number would be ambiguous.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A line on an inactive item is refused at issue.
+    verification:
+      method: api_response
+      detail: Step 8 saves the draft (DI, state draft); step 9 answers 422 with the reason "item_not_active" for E3.
+      evidence: DI and E3.
+    on_fail:
+      severity: MINOR
+      business_impact: Assets could be created from a retired catalogue item.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: A plain reversal of a change of kind is refused and no register changes.
+    verification:
+      method: api_response
+      detail: Step 10 answers 409 with the reason "posting_inconsistent". S2 equals S1, A2 equals A1, and C2 lists the card CHAIR-01 once.
+      evidence: E4, S2, A2 and C2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A half reversal would leave the stock register without the item and the asset register still holding it.
+      suggested_action: route_to_elixir_dev

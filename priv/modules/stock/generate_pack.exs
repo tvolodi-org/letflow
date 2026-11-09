@@ -33,6 +33,7 @@ entity_types = ~w(
   count_sheet_line
   count_entry
   count_signature
+  count_freeze_location
   stock_posting_mark
 )
 

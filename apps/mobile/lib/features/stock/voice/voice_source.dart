@@ -6,8 +6,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package_recorder_port.dart';
-import 'record_voice_source.dart';
+import 'voice_source_platform.dart';
 
 sealed class VoiceStart {
   const VoiceStart();
@@ -44,7 +43,8 @@ final Provider<String?> voiceUiLocaleProvider = Provider<String?>(
   (ref) => null,
 );
 
-/// The real recorder; tests override this provider with a fake source.
+/// The real recorder (native: a temporary file; web: in memory, PWA M4);
+/// tests override this provider with a fake source.
 final Provider<VoiceSource> voiceSourceProvider = Provider<VoiceSource>(
-  (ref) => RecordVoiceSource(PackageRecorderPort()),
+  (ref) => createVoiceSource(),
 );

@@ -1,0 +1,196 @@
+# T-1531 (BA#4, assets): the commission puts a card into the register; the balances and the movements show it; the balances can be exported to xlsx; a draft can be changed and discarded; a document with a rule broken is refused and stays a draft.
+# Sources: docs/assets/asset-workflow-documents.md sections 1.4, 2, 7 and 8.1 (header fields, legs, checks, life cycle, event time 96 hours back and 5 minutes ahead), lib/letflow/modules/assets/router.ex (moduledoc: routes, balances query keys, xlsx file asset-balances.xlsx with sheets balances and report),
+# lib/letflow/modules/assets/documents/checks.ex (event_time_too_old, event_time_in_future, duplicate_asset, card_not_active), lib/letflow/modules/assets/documents/shape.ex (reasons of the shape).
+#
+# SCREEN GAP (stated, not invented): document and register screens exist in the web application, but the fixed reasons below are read from the routes; every step is via: api.
+# ROSTER GAP: the roster has no assets-scope actor. The SwiftRoute administrator is the only actor with the asset rights.
+# NOT UAT-observable: the numbering clash of two simultaneous issues (a race); the posting instance itself (internal); the 1000-line cap (a file of 1001 rows; covered by the product's own tests).
+---
+id: assets-documents-1-commission-and-balances
+scope: assets
+title: An administrator commissions an asset by a document; the register balance and the movement list show it, the balance can be exported, and a document that breaks a rule stays a draft
+version: "1.0"
+tags: [assets, commission, document, balances, xlsx, refusal]
+
+description: >
+  SwiftRoute has the active card INV-100 (fixed asset), an organisation unit "Head office", a location linked to it, and two active employees, Employee A and Employee B. The administrator saves a draft
+  commission for the unit: location, responsible Employee A, actual user Employee B, event time now, one line with the card and quantity 1. The draft is read, replaced with a note, and a second draft is
+  discarded. The first draft is checked by issue: it gets a number, becomes posted, and the balance shows the card once at the unit, location and both employees. The movement list shows one entry with the
+  cause "commission". The balance is exported as xlsx. Rule breaks are refused and nothing is posted: an event time six days back, an event time one hour ahead, the same card twice on one document, a
+  retired card. A posted document cannot be replaced or discarded.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the assets module active, the active card INV-100 (fixed), a retired card INV-RETIRED, the unit "Head office", a location linked to that unit, and active employees Employee A and Employee B.
+    check: system_seeded
+    detail: Prepared through the company's own administration (card by the card routes or import). If a retired card cannot be prepared, report BLOCKED for steps 11 and 12 only. The card has not been posted before.
+  - description: The asset process definition for the commission is active for SwiftRoute.
+    check: system_seeded
+    detail: Per the product (Documents.Posting moduledoc) it is activated when the first document is issued, and a human task "post" completes the posting; if issue answers 409 "definition_not_active", report BLOCKED for steps 8 to 10 and 14 to 17.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator saves a draft commission: unit "Head office", the location, responsible Employee A, actual user Employee B, event time now, one line with card INV-100 and quantity 1. The answer is noted as D1 (id, state draft, no number).
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator replaces the draft with the same header and line plus the note "first desk set". The answer is noted as D2; the document is read as D3.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator saves a second draft for the same unit with the same card, discards it, and reads the document list. The discard answer is noted as D4 and the list as L1.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator saves two more drafts like D1: DX with event time six days back, DY with event time one hour ahead. The answers are noted as DX and DY (state draft).
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator issues the draft DX. The answer is noted as E1.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator issues the draft DY. The answer is noted as E2.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-100. The answer is noted as B0.
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The administrator issues the draft D1 (with the note); the answer is noted as P1 (state issued, with a number). Issue opens a task "post" for the document; the administrator completes that task in My Tasks. The document is read as P2.
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-100, then the movements filtered to the cause "commission". The answers are noted as B1 and M1.
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator downloads the balances as an xlsx file. The answer is noted as X1.
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The administrator saves two more drafts: DR with one line for the retired card INV-RETIRED, DD with card INV-100 on two lines. The answers are noted as DR and DD (state draft).
+    via: api
+  - step: 12
+    actor: admin
+    action: >
+      The administrator issues the draft DR. The answer is noted as E3.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: admin
+    action: >
+      The administrator issues the draft DD. The answer is noted as E4.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-100 again. The answer is noted as B2.
+    via: api
+  - step: 15
+    actor: admin
+    action: >
+      The administrator replaces the posted document D1 with another note. The answer is noted as E5.
+    expect_refusal: true
+    via: api
+  - step: 16
+    actor: admin
+    action: >
+      The administrator discards the posted document D1. The answer is noted as E6.
+    expect_refusal: true
+    via: api
+  - step: 17
+    actor: admin
+    action: >
+      The administrator reads the document D1 again. The answer is noted as P3.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A saved commission is a draft with no number; replacing it keeps it a draft; a discarded draft disappears.
+    verification:
+      method: api_response
+      detail: Step 1 answers 201 with state "draft". Step 2 answers 200 and D3 carries the note and one line. Step 3 discard answers 204 and L1 does not list the discarded draft.
+      evidence: D1, D2, D3, D4 and L1.
+    on_fail:
+      severity: MAJOR
+      business_impact: Users cannot prepare a document before it counts.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: An event time too far back or ahead is refused and the draft stays a draft.
+    verification:
+      method: api_response
+      detail: Step 5 answers 422 with the reason "event_time_too_old"; step 6 answers 422 with the reason "event_time_in_future". B0 (step 7) holds no row for INV-100.
+      evidence: E1, E2 and B0.
+    on_fail:
+      severity: MAJOR
+      business_impact: Postings could be back-dated or dated in the future, which breaks the register.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: Issue numbers the document and opens the posting task; completing the task posts it.
+    verification:
+      method: api_response
+      detail: At step 8 the issue answers 200 and P1 shows a number with the prefix "ACM" and the state issued; after the task is completed P2 shows the same number and the state posted.
+      evidence: P1 and P2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: No asset can enter the register.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: The balance shows the card once at the unit, location and both employees, and the movement list shows one commission entry.
+    verification:
+      method: api_response
+      detail: B1 holds one row with quantity 1 for INV-100 at the unit "Head office", the location, responsible Employee A and actual user Employee B. M1 holds one entry with the cause "commission" and quantity 1.
+      evidence: B1 and M1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The register does not show what the company owns, or who holds it.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: The balance can be exported to xlsx with the same rows.
+    verification:
+      method: api_response
+      detail: Step 10 answers 200 with an xlsx file named asset-balances.xlsx whose sheets are "balances" and "report"; the sheet "balances" lists INV-100 with quantity 1.
+      evidence: X1.
+    on_fail:
+      severity: MINOR
+      business_impact: Accountants cannot take the register to a spreadsheet.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: A retired card and a card twice on one document are refused and nothing is posted.
+    verification:
+      method: api_response
+      detail: Step 12 answers 422 for E3 with the reason "card_not_active"; step 13 answers 422 for E4 with the reason "duplicate_asset"; B2 still shows quantity 1 for INV-100.
+      evidence: E3, E4 and B2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Retired cards could be put back into the register, or one asset counted twice.
+      suggested_action: route_to_elixir_dev
+  - id: EO-007
+    description: A posted document cannot be replaced or discarded.
+    verification:
+      method: api_response
+      detail: Steps 15 and 16 answer 409 with the reason "document_not_draft" for E5 and E6; P3 equals P2.
+      evidence: E5, E6, P2 and P3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A signed document could be changed after the fact, against the audit rule (documents are fixed once posted).
+      suggested_action: route_to_elixir_dev
