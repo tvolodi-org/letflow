@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useModalFocus } from '@/components/ui/useModalFocus'
 import type { CSSProperties } from 'react'
 
 type Props = {
@@ -11,10 +12,12 @@ type Props = {
 
 export function DeactivateUserDialog({ open, displayName, isSubmitting, onCancel, onConfirm }: Props) {
   const [reason, setReason] = useState('')
+  const boxRef = useRef<HTMLDivElement | null>(null)
+  useModalFocus(boxRef, { open, onClose: onCancel, busy: isSubmitting })
   if (!open) return null
 
   return (
-    <div style={overlayStyle} role="dialog" aria-modal="true" aria-label="Deactivate user">
+    <div ref={boxRef} tabIndex={-1} style={overlayStyle} role="dialog" aria-modal="true" aria-label="Deactivate user">
       <div style={dialogStyle}>
         <h3 style={{ marginTop: 0 }}>Deactivate user</h3>
         <p>

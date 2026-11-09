@@ -181,7 +181,7 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
     <div ref={appRef} className={navOpen ? 'lf-app is-nav-open' : 'lf-app'} data-nav={navState}>
       <SkipLink label="Skip to main content" />
       {/* Sidebar: night in both themes; a drawer under 900px (is-nav-open on .lf-app). */}
-      <aside className="lf-sidenav lf-night" id="app-sidenav" data-testid="sidenav">
+      <aside className="lf-sidenav lf-night" id="app-sidenav" aria-label={navMessages[uiLocale].sidebar} data-testid="sidenav">
         <div className="lf-sidenav__brand">
           <div className="lf-sidenav__tenant">
             {logoUrl != null && <img src={logoUrl} alt={appName} height={24} />}
@@ -191,7 +191,7 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
           <TenantSwitcher />
         </div>
 
-        <nav aria-label="Main">
+        <nav aria-label={navMessages[uiLocale].mainNav}>
           {visibleGroups.map((g) => (
             <div key={g.id} className="lf-sidenav__group" role="group" aria-label={navMessages[uiLocale].groups[g.id]} data-testid={`nav-group-${g.id}`}>
               <div className="lf-sidenav__label">{navMessages[uiLocale].groups[g.id]}</div>

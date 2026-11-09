@@ -32,6 +32,7 @@ import TimerNode from './nodes/TimerNode'
 import SubProcessNode from './nodes/SubProcessNode'
 import ConditionEdge from './edges/ConditionEdge'
 import ConditionDialog from './ConditionDialog'
+import { prefersReducedMotion } from '@/lib/motion'
 
 // ── Static type registries (defined outside component to prevent re-renders) ──
 
@@ -273,7 +274,7 @@ export default function ProcessCanvas({
         onDirtyChange(true)
         // Fit view after layout
         setTimeout(() => {
-          reactFlowInstance.fitView({ duration: 300 })
+          reactFlowInstance.fitView({ duration: prefersReducedMotion() ? 0 : 300 })
         }, 50)
       }
     })

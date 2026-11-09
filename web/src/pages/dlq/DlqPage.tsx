@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useModalFocus } from '@/components/ui/useModalFocus'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { dlqApi } from '@/api/dlq'
@@ -133,6 +134,8 @@ export default function DlqPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [transientStatusById, setTransientStatusById] = useState<Record<string, string>>({})
   const [discardConfirmItem, setDiscardConfirmItem] = useState<DlqEntry | null>(null)
+  const discardRef = useRef<HTMLDivElement | null>(null)
+  useModalFocus(discardRef, { open: discardConfirmItem != null, onClose: () => setDiscardConfirmItem(null) })
 
   const canOperate = useAccess().can(P.DlqOperate)
   const cursor = cursorStack.length > 0 ? cursorStack[cursorStack.length - 1] : undefined
@@ -467,6 +470,8 @@ export default function DlqPage() {
 
         {discardConfirmItem && (
           <div
+            ref={discardRef}
+            tabIndex={-1}
             data-testid="dlq-discard-dialog"
             role="dialog"
             aria-modal="true"
