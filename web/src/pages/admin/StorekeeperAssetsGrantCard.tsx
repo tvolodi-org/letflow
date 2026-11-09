@@ -43,7 +43,12 @@ export default function StorekeeperAssetsGrantCard() {
   const notInstalled = query.isError && (query.error as { status?: number } | null)?.status === 404
 
   return (
-    <section className="lf-card" aria-labelledby="storekeeper-grant-title" data-testid="storekeeper-grant-card">
+    <section
+      className="lf-card"
+      aria-labelledby="storekeeper-grant-title"
+      data-testid="storekeeper-grant-card"
+      style={{ padding: 'var(--space-4)', display: 'grid', gap: 'var(--space-3)' }}
+    >
       <h3 id="storekeeper-grant-title">{m.title}</h3>
       <p>{m.lede}</p>
       {query.isLoading && <p role="status">{m.loading}</p>}
@@ -57,7 +62,7 @@ export default function StorekeeperAssetsGrantCard() {
         </Banner>
       )}
       {query.isSuccess && (
-        <div>
+        <div style={{ display: 'grid', gap: 'var(--space-3)', justifyItems: 'start' }}>
           <Checkbox
             data-testid="grant-read"
             label={m.read}
