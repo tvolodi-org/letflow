@@ -1,0 +1,495 @@
+{
+  "cases": [
+    {
+      "name": "valid",
+      "blocking": false,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "task",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "approver"
+            }
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "task"
+          },
+          {
+            "id": "e2",
+            "source": "task",
+            "target": "end"
+          }
+        ]
+      },
+      "codes": []
+    },
+    {
+      "name": "no_end",
+      "blocking": true,
+      "storable": false,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "task",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "approver"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "task"
+          }
+        ]
+      },
+      "codes": [
+        "missing_end_node",
+        "isolated_node"
+      ]
+    },
+    {
+      "name": "isolated_node",
+      "blocking": true,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "task",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "approver"
+            }
+          },
+          {
+            "id": "lost",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "approver"
+            }
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "task"
+          },
+          {
+            "id": "e2",
+            "source": "task",
+            "target": "end"
+          }
+        ]
+      },
+      "codes": [
+        "isolated_node",
+        "unreachable_node",
+        "no_path_to_end"
+      ]
+    },
+    {
+      "name": "missing_role",
+      "blocking": true,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "task",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "task"
+          },
+          {
+            "id": "e2",
+            "source": "task",
+            "target": "end"
+          }
+        ]
+      },
+      "codes": [
+        "missing_role"
+      ]
+    },
+    {
+      "name": "bad_duration",
+      "blocking": true,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "tm",
+            "node_type": "TIMER",
+            "attributes": {
+              "duration_iso8601": "soon"
+            }
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "tm"
+          },
+          {
+            "id": "e2",
+            "source": "tm",
+            "target": "end"
+          }
+        ]
+      },
+      "codes": [
+        "invalid_duration"
+      ]
+    },
+    {
+      "name": "dangling_edge",
+      "blocking": true,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "task",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "approver"
+            }
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "task"
+          },
+          {
+            "id": "e2",
+            "source": "task",
+            "target": "end"
+          },
+          {
+            "id": "e3",
+            "source": "task",
+            "target": "ghost"
+          }
+        ]
+      },
+      "codes": [
+        "dangling_edge"
+      ]
+    },
+    {
+      "name": "script_key_no_version",
+      "blocking": true,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "svc",
+            "node_type": "SERVICE_TASK",
+            "attributes": {
+              "script_key": "calc"
+            }
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ]
+      },
+      "codes": [
+        "invalid_script_reference"
+      ]
+    },
+    {
+      "name": "script_and_service_id",
+      "blocking": true,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "svc",
+            "node_type": "SERVICE_TASK",
+            "attributes": {
+              "script_key": "calc",
+              "script_version": 1,
+              "service_id": "svc-1"
+            }
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ]
+      },
+      "codes": [
+        "conflicting_service_task_routes"
+      ]
+    },
+    {
+      "name": "script_pair_ok",
+      "blocking": false,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "svc",
+            "node_type": "SERVICE_TASK",
+            "attributes": {
+              "script_key": "calc",
+              "script_version": 1
+            }
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ]
+      },
+      "codes": []
+    },
+    {
+      "name": "undeclared_variable",
+      "blocking": false,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "gw",
+            "node_type": "EXCLUSIVE_GATEWAY"
+          },
+          {
+            "id": "a",
+            "node_type": "END"
+          },
+          {
+            "id": "b",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e0",
+            "source": "start",
+            "target": "gw"
+          },
+          {
+            "id": "e1",
+            "source": "gw",
+            "target": "a",
+            "condition": "ghost_var == \"x\"",
+            "is_default": false
+          },
+          {
+            "id": "e2",
+            "source": "gw",
+            "target": "b",
+            "condition": null,
+            "is_default": true
+          }
+        ]
+      },
+      "codes": [
+        "undeclared_variable_reference"
+      ]
+    },
+    {
+      "name": "required_output_no_schema",
+      "blocking": false,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "task",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "approver",
+              "required_outputs": [
+                "decision"
+              ]
+            }
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "task"
+          },
+          {
+            "id": "e2",
+            "source": "task",
+            "target": "end"
+          }
+        ]
+      },
+      "codes": [
+        "required_output_without_variable_schema"
+      ]
+    },
+    {
+      "name": "never_collected",
+      "blocking": false,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "task",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "approver",
+              "form_schema": {
+                "properties": {
+                  "other": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "a",
+            "node_type": "END"
+          },
+          {
+            "id": "b",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "task"
+          },
+          {
+            "id": "e2",
+            "source": "task",
+            "target": "a",
+            "condition": "ghost_var == \"x\"",
+            "is_default": false
+          },
+          {
+            "id": "e3",
+            "source": "task",
+            "target": "b",
+            "is_default": true
+          }
+        ]
+      },
+      "codes": [
+        "variable_never_collected"
+      ]
+    }
+  ]
+}

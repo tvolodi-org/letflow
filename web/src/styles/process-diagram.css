@@ -155,3 +155,30 @@
   .lf-pd__canvas { height: 420px; }
 }
 .lf-pd__defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* ── T-1563: edit mode (slice 2). Handles show only while editing; the read view above is untouched. ── */
+.lf-pd__canvas.is-editing .react-flow__handle {
+  opacity: 1; pointer-events: all; width: var(--space-3); height: var(--space-3);
+  border: 2px solid var(--focus); background: var(--paper-raised); border-radius: var(--radius-full);
+}
+.lf-pd__canvas.is-editing .react-flow__handle:hover, .lf-pd__canvas.is-editing .react-flow__handle:focus-visible { box-shadow: 0 0 0 3px var(--focus); }
+.lf-pd__canvas.is-editing .react-flow__node { cursor: grab; }
+.lf-pd__canvas.is-editing .react-flow__edge:focus-visible .lf-pd-edge { stroke: var(--focus); stroke-width: 3; }
+.lf-pd-edit__toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); }
+.lf-pd-edit__status { display: inline-flex; align-items: center; font: var(--type-body-s); color: var(--ink-muted); }
+.lf-pd-edit__reason { flex-basis: 100%; }
+.lf-pd-edit__pane { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.lf-pd-edit__panel { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.lf-pd-edit__id { margin: 0; color: var(--ink-muted); }
+.lf-pd-edit__problems, .lf-pd-edit__violations, .lf-pd-edit__conns { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.lf-pd-edit__problems { color: var(--danger); font: var(--type-body-s); }
+.lf-pd-edit__violations { border: 1px solid var(--danger); border-radius: var(--radius-md); background: var(--danger-tint); padding: var(--space-2); }
+.lf-pd__canvas.is-edit-height { --lf-pd-canvas-h: 480px; }
+.lf-pd-edit__violations .lf-pd-edit__violation, .lf-pd-edit__violations .lf-pd-edit__violation:hover { color: var(--ink); font-weight: 400; text-align: start; height: auto; white-space: normal; }
+.lf-pd-edit__conn { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.lf-pd-edit__conn-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.lf-pd-edit__connect { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.lf-pd-node.is-invalid .lf-pd-node__shape, .lf-pd-node--human-task.is-invalid, .lf-pd-node--service-task.is-invalid, .lf-pd-node--sub-process.is-invalid { border-color: var(--danger); border-style: dashed; }
+.lf-pd-node__invalid { position: absolute; top: calc(var(--space-2) * -1); right: calc(var(--space-2) * -1); z-index: 1; }
+.lf-pd-edge.is-invalid { stroke: var(--danger); stroke-dasharray: 6 4; }
+.lf-pd-edge__invalid { color: var(--danger); }

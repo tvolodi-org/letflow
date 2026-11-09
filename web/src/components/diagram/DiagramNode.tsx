@@ -17,6 +17,10 @@ export interface DiagramNodeData {
   direction: 'TB' | 'LR'
   /** Compact types: the shape size (px); the node box also holds the caption below the shape. */
   shape?: number
+  /** T-1563: set only by DiagramEditor; makes the two handles connectable. */
+  editable?: boolean
+  /** T-1563: violations anchored to this node (a glyph plus a word, rule 5). */
+  invalid?: { count: number; word: string; messages: string[] }
   [key: string]: unknown
 }
 
@@ -32,21 +36,21 @@ const ICONS: Record<string, typeof User> = {
 }
 
 function DiagramNodeImpl({ data }: NodeProps<DiagramFlowNode>) {
-  const { nodeType, label, typeName, subLine, state, stateName, direction, shape } = data
+  const { nodeType, label, typeName, subLine, state, stateName, direction, shape, editable, invalid } = data
   const Icon = ICONS[nodeType]
   const compact = shape !== undefined
   const pill = state ? STATE_PILL[state] : null
   return (
     <div
-      className={`lf-pd-node lf-pd-node--${nodeType.toLowerCase().replace(/_/g, '-')}${compact ? ` lf-pd-node--compact is-${direction.toLowerCase()}` : ''}${state ? ` is-${state}` : ''}`}
+      className={`lf-pd-node lf-pd-node--${nodeType.toLowerCase().replace(/_/g, '-')}${compact ? ` lf-pd-node--compact is-${direction.toLowerCase()}` : ''}${state ? ` is-${state}` : ''}${invalid ? ' is-invalid' : ''}`}
       // The shape size is layout geometry (the same number dagre used), not a colour or spacing value.
       style={compact ? { ['--lf-pd-shape' as string]: `${shape}px` } : undefined}
       data-testid={`diagram-node-${nodeType}`}
       data-node-type={nodeType}
       data-state={state ?? 'none'}
-      title={label}
+      title={invalid ? `${label}: ${invalid.messages.join('; ')}` : label}
     >
-      <Handle type="target" position={direction === 'LR' ? Position.Left : Position.Top} isConnectable={false} />
+      <Handle type="target" position={direction === 'LR' ? Position.Left : Position.Top} isConnectable={editable === true} />
       <div className="lf-pd-node__shape" aria-hidden="true">
         {Icon && <Icon className="lf-icon" />}
       </div>
@@ -74,7 +78,13 @@ function DiagramNodeImpl({ data }: NodeProps<DiagramFlowNode>) {
           )}
         </div>
       )}
-      <Handle type="source" position={direction === 'LR' ? Position.Right : Position.Bottom} isConnectable={false} />
+      <Handle type="source" position={direction === 'LR' ? Position.Right : Position.Bottom} isConnectable={editable === true} />
+      {invalid && (
+        <span className="lf-pill lf-pill--danger lf-pd-node__invalid" data-testid="diagram-node-invalid">
+          <span className={glyphClass('triangle')} aria-hidden="true" />
+          {invalid.word}
+        </span>
+      )}
     </div>
   )
 }
