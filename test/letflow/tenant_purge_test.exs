@@ -380,8 +380,10 @@ defmodule Letflow.TenantPurgeTest do
 
     test "R6 every public table with a tenant column is removed or on the kept list" do
       # iss060_tenant_schemas_guard_backup is a scratch table another test file (identity_migration_test) leaves in public.
+      # signup_requests (T-1579): a pre-tenant saga row; its tenant_id is only a reservation made before any tenant
+      # exists, so a purge of an existing tenant never owns it (SL2b decides when the e-mail is cleared).
       kept =
-        ~w(tenant_lifecycles onboarding_registry event_history_retirement_outcomes iss060_tenant_schemas_guard_backup)
+        ~w(tenant_lifecycles onboarding_registry event_history_retirement_outcomes iss060_tenant_schemas_guard_backup signup_requests)
 
       removed = Enum.map(TenantPurge.removed_tables(), &elem(&1, 0))
 
