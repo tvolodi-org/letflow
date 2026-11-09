@@ -66,6 +66,26 @@ partner demo): a 5 minute test cannot show a refresh at about 4 minutes there, a
 reads from the first token response is over 600 s. Run with `E2E_RELOGIN=1`; with the 5 minute default it takes about
 15 minutes (3 lifespans). The spec writes the network log, without tokens, to `web/test-results/gate-b-relogin.log`.
 
+## Performance run (manual)
+
+`web/tests/e2e/perf-lines.e2e.spec.ts` (tagged `@manual @perf`, never in CI) measures the stock lines editor in a real
+Chromium at 100, 500 and 1000 lines: open, scroll, search, validate, save, issue and post, 3 runs per cell. The results and
+limits are in `docs/status/stock-lines-browser-perf-2026-11.md`. It writes about 5,000 records per run: never against QA
+without the owner.
+
+```
+E2E_TOKEN_LIFESPAN=600 bash scripts/e2e/stack_up.sh
+set -a; . .e2e/env; set +a
+BPM_IDP_BASE_URL=http://localhost:8082 BASE_URL=http://127.0.0.1:4000 TENANT_SLUG=$E2E_TENANT_SLUG \
+  ADMIN_USERNAME=$E2E_ADMIN_USER ADMIN_PASSWORD=$E2E_ADMIN_PASSWORD ADMIN_REALM=bpm-default bash scripts/e2e/perf_lines_seed.sh
+cd web && npm ci && npx playwright install chromium
+E2E_REALM=bpm-default PERF_SIZES=100,500 npm run test:e2e:perf    # then PERF_SIZES=1000 (each call under 10 minutes)
+```
+
+`E2E_REALM=bpm-default` is needed on the local stack (without it the app shows "Unknown workspace" and the stock routes
+redirect to the dashboard). `PERF_SIZES` and `PERF_RUNS` (default 3) shorten a run. The spec prints a markdown table
+(median / max ms) and writes `web/test-results/perf-lines/<E2E_RUN_TAG>.json`, which the next Playwright run clears.
+
 ## In CI
 
 The job `Stock browser e2e (playwright)` in `.github/workflows/stock-e2e.yml` starts the same stack on the runner and runs the
@@ -77,3 +97,11 @@ required checks of the `main-queue` ruleset is a repository setting and is done 
 the nightly schedule and on manual dispatch, with a 90 s access token lifespan (90 and not 60: the client renews 60 s before
 expiry, so 60 s would refresh at once and prove nothing). Screenshots, the relogin log and traces are uploaded as the artifact
 `stock-e2e-results`.
+
+## Sidebar walk per role (T-1522)
+
+`web/tests/e2e/nav-role-walk.e2e.spec.ts` signs in as each role, opens every link of the sidebar and fails on a permission-denied,
+access-error or not-found page, or on any `/api/` answer with status 403 after a click. Accounts: the tenant admin pair is the
+Gate B one (`E2E_ADMIN_USER`, `E2E_ADMIN_PASSWORD`); the other roles come from `E2E_STOREKEEPER_USER/_PASSWORD`,
+`E2E_WORKER_USER/_PASSWORD` and `E2E_SCOPED_USER/_PASSWORD`. `gate_b_seed.sh` does not create the worker and scoped users, so the
+QA operator supplies them; a role whose pair is unset is skipped. The run is opt-in and is not part of the stock-e2e workflow.

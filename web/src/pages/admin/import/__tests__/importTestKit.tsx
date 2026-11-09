@@ -11,7 +11,11 @@ export { clientMock, INSTALLED } from './importMocks'
 export function access(...permissions: string[]): AccessState {
   return { status: 'ready', info: { roles: [], platform_tenant: false, permissions } }
 }
-export const adminAccess = access('EntitiesRecordsImport', 'EntitiesRecordsExport')
+// The tenant admin's import-related atoms: the import permission plus the module write atom each import type needs (T-1522).
+export const adminAccess = access(
+  'EntitiesRecordsImport', 'EntitiesRecordsExport',
+  'OrgStructureWrite', 'OrgEmployeesWrite', 'LocationsWrite', 'CatalogLotsWrite', 'StockPost',
+)
 
 export function renderPage(state: AccessState = adminAccess) {
   return render(

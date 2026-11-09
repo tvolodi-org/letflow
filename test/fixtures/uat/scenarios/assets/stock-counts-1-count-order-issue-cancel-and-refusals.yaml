@@ -1,0 +1,242 @@
+# T-1532 (BA#5, item 5 of docs/uat/ba-decisions/T-1518.md): the count order of the stock application: draft, issue with its checks, overlap of two open counts, cancel; refusals for a worker and for another company.
+# Covers REQ-700 criteria 2 to 5, 7 and 8 and REQ-702 criteria 2 and 4 (decision docs/migration/decisions/0079-counts-inventory-taking.md sections 1 to 4).
+# Sources: docs/requirements.yaml REQ-700 (reasons count_state_invalid, count_scope_not_linked, count_scope_overlaps, count_scope_incomplete, count_too_long, not_chair, field_invalid), REQ-702 (screens, buttons by permission and status);
+# docs/roles.md (StockCountOrder is held by TENANT_ADMIN only today; STOREKEEPER by decision 0081 D2 also holds it, see the roster gap below).
+#
+# ROSTER GAP (stated, not invented): the roster has no actor with the built-in role STOREKEEPER (owner decision D-093, decision 0081) and no actor of a company that has the stock module besides SwiftRoute's administrator.
+# A storekeeper scenario (the storekeeper creates and issues a count, is refused user administration and the module settings) is BLOCKED until the roster has such an actor; it is not written with another actor's name.
+# The administrator of SwiftRoute is the chair of the count (the chair must be an employee linked to the signed-in user); the TASK_WORKER of SwiftRoute holds no stock permission; the other company is BilimBaga (its administrator is the only second-company actor in the roster).
+# NOT UAT-observable: two concurrent issues of overlapping orders ending with exactly one ordered (a unit test runs two processes on a committed tenant); the audit entries of the order (a unit test reads them).
+---
+id: stock-counts-1-count-order-issue-cancel-and-refusals
+scope: assets
+title: A count order is drafted, issued after its checks, a second overlapping order is refused, a draft is cancelled by the chair, and a worker or another company can neither change nor see it
+version: "1.0"
+tags: [assets, stock, counts, count-order, refusal, tenancy]
+
+description: >
+  SwiftRoute has the stock module installed, the organisation unit "Main warehouse", and a location tree in which "Hall" has the child "Shelf 1" and "Yard" is a separate place linked to the same unit. The administrator, who is also an
+  employee and the chair of the count, drafts a count order for "Main warehouse" with the root location "Hall", planned to start a few minutes ago and to end the same day. A draft can be changed as a whole; a field that does not belong
+  to the order is refused. The administrator issues the order: it gets a number and the status "ordered". A second order for the same unit with the root "Shelf 1" (inside "Hall") is refused at issue because it overlaps the first one.
+  A third order with a planned end more than 96 hours after its start is refused. The first order, once issued, can no longer be changed as a draft. A full count that leaves out a place linked to the unit is refused at issue (the other orders are of kind selective). A draft that is cancelled by the chair becomes "cancelled". A task worker who holds no
+  stock permission is refused every change and every read of the count. The administrator of another company asking for the SwiftRoute order gets the same answer as for an unknown order.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has the stock module installed, the organisation unit "Main warehouse", the locations "Hall" (with the child "Shelf 1") and "Yard", all linked to "Main warehouse", and an active employee who is linked to the signed-in user of the administrator.
+    check: system_seeded
+    detail: If the administrator is not linked to an employee, report BLOCKED for steps 2 to 11 and 15 to 16 (the chair must be a linked, active employee). If the stock module or the location tree is missing, report BLOCKED for the whole scenario.
+  - description: SwiftRoute has no open count order (status ordered, counting, counted or signed) for "Main warehouse" at the start.
+    check: system_seeded
+    detail: An open order of the same unit would make step 5 refuse for a reason that is not the one under test; report BLOCKED for step 7 if one exists.
+  - description: BilimBaga has the stock module installed.
+    check: system_seeded
+    detail: If BilimBaga has no stock module, report BLOCKED for step 14 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens the list of counts and notes the number of orders as L1.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator drafts a selective count order for "Main warehouse" with the single root location "Hall", the administrator's employee as chair, no other commission members, a planned start ten minutes ago
+      and a planned end four hours after the start. The order is read back and noted as O1 (status, scope, chair); the list is read again as L2.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator replaces the whole draft O1 with a note "first count", sending every field again (the unit, the kind, the times, the chair, the members, the root "Hall"). The order is read and noted as O2.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator changes the draft O1 and adds a field that is not a field of the count order (a "price"). The answer is noted as R1 and the order is read again as O3.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator issues O1. The order is read and noted as O4 (status and number).
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator drafts a second count order for "Main warehouse" with the root "Shelf 1" (a place inside "Hall"). The draft is noted as D2.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator tries to issue the second order D2. The answer is noted as R2 and D2 is read as O5.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The administrator drafts a third count order for "Main warehouse" with the root "Yard" and a planned end 100 hours after its planned start. The draft is noted as D3.
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The administrator tries to issue the third order D3. The answer is noted as R3.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator tries to replace the whole of the issued order O1 (a different note). The answer is noted as R4 and the order is read again as O6.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The administrator cancels the draft D2 and the draft D3 as their chair. Both orders are read and noted as O7 (each with status "cancelled").
+    via: api
+  - step: 12
+    actor: worker
+    action: >
+      The task worker tries to draft a count order for "Main warehouse" with the root "Yard", tries to issue O1 again, and tries to cancel O1. The answers are noted as R5, R6 and R7; O1 is read by the administrator afterwards as O8.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: worker
+    action: >
+      The task worker opens the list of counts and the order O1. The answers are noted as R8 and R9.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: other_admin
+    action: >
+      The administrator of the other company asks for the order O1 of SwiftRoute by its identifier and lists its own counts. The answers are noted as R10 and R11; the SwiftRoute administrator then reads O1 as O9.
+    expect_refusal: true
+    via: api
+
+  - step: 15
+    actor: admin
+    action: >
+      The administrator drafts a fourth count order of kind "full" for "Main warehouse" with the single root "Hall" (the place "Yard" is also linked to the unit and is left out), the administrator's employee as chair, a planned start ten minutes ago and a planned end four hours after the start. The draft is noted as D4.
+    via: api
+  - step: 16
+    actor: admin
+    action: >
+      The administrator tries to issue the full count order D4. The answer is noted as R12 and D4 is read as O10.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A count order is drafted with its scope and chair and the whole draft can be replaced.
+    verification:
+      method: api_response
+      detail: Step 2 answers 201 and O1 has status "draft", kind "selective", the root "Hall" and the administrator's employee as chair; the list L2 has one order more than L1. Step 3 answers 200 and O2 shows the note "first count" with the same scope and chair.
+      evidence: L1, O1 and O2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A storekeeper cannot prepare a count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A field that is not part of the count order is refused and the draft is unchanged.
+    verification:
+      method: api_response
+      detail: Step 4 answers 422 with the reason "field_not_allowed" naming the field; O3 equals O2.
+      evidence: R1, O2 and O3.
+    on_fail:
+      severity: MINOR
+      business_impact: Unknown fields could be stored in a count order.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: Issuing the order gives it a number and the status "ordered".
+    verification:
+      method: api_response
+      detail: Step 5 answers 200; O4 has status "ordered" and a non-empty number label.
+      evidence: O4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A count cannot start without an issued order.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: An order whose place lies inside the place of an open order is refused at issue and stays a draft.
+    verification:
+      method: api_response
+      detail: Step 7 answers 422 with the reason "count_scope_overlaps"; O5 has status "draft" and no number.
+      evidence: R2 and O5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Two counts of the same shelf at the same time give two different truths about the stock.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: A count planned for longer than 96 hours is refused at issue.
+    verification:
+      method: api_response
+      detail: Step 9 answers 422 with the reason "count_too_long" and the order stays a draft.
+      evidence: R3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A count with no practical end blocks the stock figures.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: An issued order is fixed.
+    verification:
+      method: api_response
+      detail: Step 10 answers 422 with the reason "count_state_invalid"; O6 equals O4 (same note, same number).
+      evidence: R4, O4 and O6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The scope of a count could be changed after it was ordered.
+      suggested_action: route_to_elixir_dev
+  - id: EO-007
+    description: The chair cancels a draft and the order reads "cancelled".
+    verification:
+      method: api_response
+      detail: Step 11 answers 200 for each cancel; both orders of O7 have status "cancelled".
+      evidence: O7.
+    on_fail:
+      severity: MINOR
+      business_impact: A mistaken draft cannot be withdrawn.
+      suggested_action: route_to_elixir_dev
+  - id: EO-008
+    description: A task worker without stock permission can neither draft, issue nor cancel, and the order is unchanged.
+    verification:
+      method: http_status
+      detail: Step 12 answers 403 for each of the three requests; O8 equals O4.
+      evidence: R5, R6, R7 and O8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone could order or cancel a stock count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-009
+    description: A task worker without the read permission sees neither the list nor the order.
+    verification:
+      method: http_status
+      detail: Step 13 answers 403 for the list and for the order.
+      evidence: R8 and R9.
+    on_fail:
+      severity: MAJOR
+      business_impact: Stock figures and counts are visible to people who should not see them.
+      suggested_action: route_to_elixir_dev
+  - id: EO-010
+    description: Another company gets the same answer as for an unknown order, sees none of the SwiftRoute orders, and nothing changes.
+    verification:
+      method: api_response
+      detail: Step 14 answers 404 for O1 with the same body as an identifier that does not exist (trace_id dropped before comparing); the list of the other company does not contain O1; O9 equals O4.
+      evidence: R10, R11, O4 and O9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could see or learn the existence of another company's stock counts.
+      suggested_action: route_to_elixir_dev
+  - id: EO-009
+    description: A full count whose places leave out a place linked to the unit is refused at issue and stays a draft.
+    verification:
+      method: api_response
+      detail: Step 16 answers 422 with the reason "count_scope_incomplete"; O10 has status "draft" and no number.
+      evidence: R12 and O10.
+    on_fail:
+      severity: MAJOR
+      business_impact: A full count could be signed off while a place of the unit was never counted.
+      suggested_action: route_to_elixir_dev

@@ -22,7 +22,7 @@ export const locationsModuleDefinition: ModuleDefinition = {
   depends_on: [],
   routeObjects: locationsRouteObjects,
   importTypes: [
-    { entityType: 'location_node', labels: importLabels('location_node') },
+    { entityType: 'location_node', labels: importLabels('location_node'), permission: LOCATIONS_WRITE },
   ],
   navItems: [
     { to: '/admin/locations', label: 'Locations', permission: LOCATIONS_WRITE },

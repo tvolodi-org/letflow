@@ -88,6 +88,15 @@ describe('AppShell nav from /me/access', () => {
     }
   })
 
+  it('storekeeper: stock-side entries only, none of the tenant administration entries', () => {
+    renderShell(accessState('storekeeper'))
+    const labels = navLabels()
+    expect(labels).toContain('My Tasks')
+    for (const l of ['Users', 'Groups', 'Tokens', 'Webhooks', 'DLQ', 'Audit', 'Definitions', 'Instances', ...PLATFORM_ENTRIES]) {
+      expect(labels).not.toContain(l)
+    }
+  })
+
   it.each([
     ['loading', LOADING_STATE],
     ['error', ERROR_STATE],

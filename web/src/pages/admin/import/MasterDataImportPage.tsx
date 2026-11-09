@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Download, FileSpreadsheet } from 'lucide-react'
-import { P, useAccess } from '@/auth/access'
+import { P, useAccess, type Permission } from '@/auth/access'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
@@ -25,7 +25,7 @@ import { Tally } from '@/components/ui/Tally'
 import { TypePicker } from '@/components/ui/TypePicker'
 import { useToast } from '@/hooks/useToast'
 import { useInstalledModules } from '@/hooks/useInstalledModules'
-import { getInstalledImportTypes } from '@/modules/registry'
+import { getImportTypesFor } from '@/modules/registry'
 import { ImportIntlProvider } from '@/i18n/ImportIntlProvider'
 import { downloadTemplate, runImport } from './importApi'
 import {
@@ -193,7 +193,7 @@ function MasterDataImportPageInner() {
   const access = useAccess()
   const toast = useToast()
   const installed = useInstalledModules()
-  const types = getInstalledImportTypes(installed.data ?? [])
+  const types = getImportTypesFor(installed.data ?? [], (p) => access.can(p as Permission))
   const [chosen, setChosen] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [phase, setPhase] = useState<Phase>({ name: 'idle' })

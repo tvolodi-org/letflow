@@ -165,6 +165,21 @@ defmodule Letflow.TenantSchemaReaper do
   # format-based check.
   @template_build_display_name "Tenant Template Build (throwaway)"
 
+  # T-1541: the sweeps also run from ExUnit.after_suite/1, when the Repo may already be
+  # down; Sandbox.mode/2 then raises ("could not lookup Ecto repo"). A cleanup problem
+  # must never become a failing exit code, so the restore is best-effort.
+  defp restore_manual_mode(repo) do
+    Sandbox.mode(repo, :manual)
+  rescue
+    exception ->
+      Logger.warning(
+        "TenantSchemaReaper: could not restore manual sandbox mode (repo down?): " <>
+          Exception.message(exception)
+      )
+
+      :ok
+  end
+
   @doc """
   Reclaims `tenant_schemas` rows old enough (`provisioned_at` older than
   `min_age_seconds`) to no longer plausibly belong to an in-progress test, in this
@@ -236,7 +251,7 @@ defmodule Letflow.TenantSchemaReaper do
 
         {:ok, %{reclaimed: 0, skipped_invalid_format: 0}}
     after
-      Sandbox.mode(repo, :manual)
+      restore_manual_mode(repo)
     end
   end
 
@@ -307,7 +322,7 @@ defmodule Letflow.TenantSchemaReaper do
 
         {:ok, %{deleted: 0}}
     after
-      Sandbox.mode(repo, :manual)
+      restore_manual_mode(repo)
     end
   end
 
@@ -405,7 +420,7 @@ defmodule Letflow.TenantSchemaReaper do
 
         {:ok, %{deleted: 0, skipped_schema_present: 0}}
     after
-      Sandbox.mode(repo, :manual)
+      restore_manual_mode(repo)
     end
   end
 

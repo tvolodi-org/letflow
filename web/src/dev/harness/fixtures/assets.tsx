@@ -26,6 +26,7 @@ const CARDS: EntityRecord[] = [
   card('c-1', 'FA-0001', 'Delivery van Gazelle Next', 'u-wh', {
     acquisition_date: '2022-03-15', currency: 'KZT', acquisition_cost: '14500000.00',
     accumulated_depreciation: '5800000.00', book_value: '8700000.00', depreciation_as_of: '2026-09-30',
+    depreciation_method: 'Straight line', depreciation_rate: '20',
   }),
   card('c-2', 'FA-0002', 'Reach truck with a long model name for the wrapping check', 'u-wh', { acquisition_date: '2021-11-02', acquisition_cost: '9200000' }),
   card('c-3', 'FA-0003', 'Office laser printer', 'u-it', { acquisition_date: '2024-01-20', acquisition_cost: '185000.50' }),
@@ -36,7 +37,7 @@ const CARDS: EntityRecord[] = [
   }),
   card('c-7', 'IA-0202', 'Warehouse management add-on', 'u-wh', { kind: 'intangible', valid_until: '2026-12-31' }),
   card('c-8', 'FA-0009', 'Forklift (sold)', 'u-wh', { active: false, acquisition_cost: '6100000', book_value: '0' }),
-  card('c-9', 'FA-0010', 'Pallet jack', 'u-ast', { acquisition_cost: '310000' }),
+  card('c-9', 'FA-0010', 'Pallet jack', 'u-ast', { acquisition_cost: '310000', book_value: '250000' }),
 ]
 const UNITS: EntityRecord[] = [
   rec('u-ho', 'org_unit', { code: 'GATEA-OU-HO', name: 'Head office' }),
@@ -129,6 +130,8 @@ function withAuth(page: ReactElement, access: AccessState = WRITER_ONLY): ReactE
 export const assetsScreens: HarnessScreen[] = [
   { name: 'asset-cards', routes, render: () => withAuth(<AssetCardsPage />) },
   { name: 'asset-cards-detail', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />) },
+  { name: 'asset-cards-dep-single', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-9" />) },
+  { name: 'asset-cards-dep-none', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-2" />) },
   { name: 'asset-cards-intangible', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-6" />) },
   { name: 'asset-cards-create', routes, render: () => withAuth(<AssetCardsPage initialCreating />) },
   { name: 'asset-cards-holder', routes: rowsRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, READER) },

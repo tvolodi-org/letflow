@@ -86,7 +86,8 @@ const harnessRoutes: RouteObject[] = import.meta.env.DEV
     ]
   : []
 
-export const router = createBrowserRouter([
+/** The route tree, exported so the nav/guard parity test (navGuardParity.test.ts) and the role-walk harness can read it. */
+export const appRoutes: RouteObject[] = [
   ...harnessRoutes,
   {
     path: '/auth/callback',
@@ -190,4 +191,6 @@ export const router = createBrowserRouter([
       { path: '*', element: <NotFoundPage /> },
     ],
   },
-])
+]
+
+export const router = createBrowserRouter(appRoutes)

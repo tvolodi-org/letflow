@@ -11,11 +11,15 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { screen, cleanup } from '@testing-library/react'
+import { screen, cleanup, fireEvent, act } from '@testing-library/react'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import React from 'react'
 expect.extend(jestDomMatchers)
 
 // ── Mock heavy dependencies before importing the component ────────────────────
+
+// T-1520: the read-only diagram is lazy-loaded and needs the real React Flow; this suite checks the toolbar only.
+vi.mock('@/components/diagram/ProcessDiagramLazy', () => ({ ProcessDiagramLazy: () => null }))
 
 vi.mock('@xyflow/react', () => ({
   ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -214,5 +218,52 @@ describe('ENV-04 — DefinitionEditorPage promote button', () => {
 
     // VERDICT: DRAFT definitions must not show the Promote button even on a test tenant
     expect(screen.queryByTestId('promote-to-production-btn')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['en', 'Asset write-off'],
+    ['ru', 'Списание актива'],
+    ['kk', 'Активті есептен шығару'],
+  ] as const)('T1/T3/T6: editor header and promote sentence show the %s friendly name; the id stays as second line', (locale, label) => {
+    act(() => useUiLocaleStore.getState().setLocale(locale))
+    mockUseParams.mockReturnValue({ id: 'def-123' })
+    mockUseDefinition.mockReturnValue({
+      data: { ...ACTIVE_DEFINITION, name: 'assets_writeoff' },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useDefinition>)
+    mockUseAuth.mockReturnValue({ ...AUTH_VALUE_BASE, session: DESIGNER_SESSION })
+    mockUseTenantContext.mockReturnValue({
+      tenantType: 'test',
+      tenantSlug: 'acme-test',
+      tenantId: 'tid-001',
+      tenantDisplayName: 'Acme Test',
+      isUnknown: false,
+    })
+
+    renderWithAccess(<DefinitionEditorPage />, 'platformAdmin')
+
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(label)
+    expect(screen.getByTestId('definition-technical-id')).toHaveTextContent('assets_writeoff')
+    fireEvent.click(screen.getByTestId('promote-to-production-btn'))
+    expect(screen.getByTestId('promote-confirm-modal')).toHaveTextContent(`promote '${label}' to production`)
+    act(() => useUiLocaleStore.getState().setLocale('en'))
+  })
+
+  it('T5: a name without a catalog entry stays plain text in the header', () => {
+    mockUseParams.mockReturnValue({ id: 'def-123' })
+    mockUseDefinition.mockReturnValue({ data: ACTIVE_DEFINITION, isLoading: false } as unknown as ReturnType<typeof useDefinition>)
+    mockUseAuth.mockReturnValue({ ...AUTH_VALUE_BASE, session: DESIGNER_SESSION })
+    mockUseTenantContext.mockReturnValue({
+      tenantType: 'test',
+      tenantSlug: 'acme-test',
+      tenantId: 'tid-001',
+      tenantDisplayName: 'Acme Test',
+      isUnknown: false,
+    })
+
+    renderWithAccess(<DefinitionEditorPage />, 'platformAdmin')
+
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Onboarding Flow')
+    expect(screen.queryByTestId('definition-technical-id')).not.toBeInTheDocument()
   })
 })
