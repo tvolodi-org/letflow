@@ -14,6 +14,9 @@ expect.extend(jestDomMatchers)
 
 // ── Mock heavy dependencies before importing the component ────────────────────
 
+// T-1520: the read-only diagram is lazy-loaded and needs the real React Flow; this suite checks the toolbar only.
+vi.mock('@/components/diagram/ProcessDiagramLazy', () => ({ ProcessDiagramLazy: () => null }))
+
 vi.mock('@xyflow/react', () => ({
   ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
