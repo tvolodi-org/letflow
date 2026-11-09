@@ -80,6 +80,55 @@ defmodule Letflow.Modules.CatalogUpgradeShapesTest do
     end
   end
 
+  describe "rule 20: min_data_version" do
+    test "C1 absent validates; C2 valid at or below version validates" do
+      refute Map.has_key?(base(), :min_data_version)
+      assert Catalog.validate(base()) == :ok
+      assert Catalog.validate(with_key(:min_data_version, base().version)) == :ok
+      assert Catalog.validate(with_key(:min_data_version, "0.0.1")) == :ok
+    end
+
+    test "C3 garbage or above version is refused" do
+      for v <- ["1.0", "garbage", "9.9.9", 5, nil] do
+        assert Catalog.validate(with_key(:min_data_version, v)) ==
+                 {:error, {:invalid_min_data_version, v}}
+      end
+    end
+
+    test "C4 below min_upgradable_from is refused" do
+      m = base() |> Map.merge(%{version: "1.0.0", min_upgradable_from: "0.5.0"})
+      assert Catalog.validate(Map.put(m, :min_data_version, "0.5.0")) == :ok
+
+      assert Catalog.validate(Map.put(m, :min_data_version, "0.4.0")) ==
+               {:error, {:invalid_min_data_version, "0.4.0"}}
+    end
+  end
+
+  describe "V*: Installs.version_verdict/2" do
+    alias Letflow.Modules.Installs
+    @m %{version: "1.2.0", min_data_version: "1.0.0"}
+
+    test "V1 equal to min and in range are ok" do
+      assert Installs.version_verdict(@m, "1.0.0") == :ok
+      assert Installs.version_verdict(@m, "1.2.0") == :ok
+    end
+
+    test "V2 below min is too_old" do
+      assert Installs.version_verdict(@m, "0.9.9") == :too_old
+    end
+
+    test "V3 above build version is ahead, also without a declared minimum (G3b)" do
+      assert Installs.version_verdict(@m, "1.2.1") == :ahead
+      assert Installs.version_verdict(%{version: "1.2.0"}, "2.0.0") == :ahead
+    end
+
+    test "V4 unparsable stored: too_old with a minimum, ok without; nil too" do
+      assert Installs.version_verdict(@m, "junk") == :too_old
+      assert Installs.version_verdict(@m, nil) == :too_old
+      assert Installs.version_verdict(%{version: "1.2.0"}, "junk") == :ok
+    end
+  end
+
   describe "criterion 2: min_upgradable_from" do
     test "M1 absent validates" do
       refute Map.has_key?(base(), :min_upgradable_from)

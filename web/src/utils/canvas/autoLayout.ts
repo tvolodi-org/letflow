@@ -12,7 +12,8 @@ import type { CanvasNodeData, CanvasEdgeData } from './graphToFlow'
 
 // ── Node dimensions (matching design system + React Flow node sizes) ──────────
 
-const NODE_DIMS: Record<string, { width: number; height: number }> = {
+/** Exported for the read-only diagram layout (`readLayout.ts`), so both layouts size nodes the same way. */
+export const NODE_DIMS: Record<string, { width: number; height: number }> = {
   START: { width: 48, height: 48 },
   END: { width: 48, height: 48 },
   HUMAN_TASK: { width: 180, height: 72 },

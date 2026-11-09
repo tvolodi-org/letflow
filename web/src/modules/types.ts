@@ -18,6 +18,9 @@ export interface ModuleNavItem {
  *  the module's own message file. Core code lists these without naming a module (0039 D3). */
 export interface ModuleImportType {
   entityType: string
+  /** The module permission the server needs for this type besides EntitiesRecordsImport (a plain string,
+   *  like ModuleNavItem.permission). The menu and the type picker show the type only to a holder. */
+  permission: string
   labels: Record<'en' | 'ru' | 'kk', string>
 }
 

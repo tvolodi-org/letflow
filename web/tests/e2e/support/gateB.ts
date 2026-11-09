@@ -92,3 +92,10 @@ export function localDateTime(hours: number): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
 }
+
+/** Per-role accounts of the sidebar walk (nav-role-walk.e2e.spec.ts, T-1522); each live test skips when its pair is unset. */
+export const ROLE_ENV = {
+  storekeeper: { user: process.env.E2E_STOREKEEPER_USER ?? '', pw: process.env.E2E_STOREKEEPER_PASSWORD ?? '' },
+  worker: { user: process.env.E2E_WORKER_USER ?? '', pw: process.env.E2E_WORKER_PASSWORD ?? '' },
+  scoped: { user: process.env.E2E_SCOPED_USER ?? '', pw: process.env.E2E_SCOPED_PASSWORD ?? '' },
+}

@@ -1,32 +1,4 @@
-/** Token visualization utilities for ProcessGraphWithTokens component */
-
-/**
- * Get SVG fill colour for a token status
- */
-export function getTokenMarkerColour(status: 'active' | 'completed' | 'pending' | 'error'): string {
-  const colours: Record<'active' | 'completed' | 'pending' | 'error', string> = {
-    active:    'var(--interactive-primary)',
-    completed: 'var(--color-success)',
-    pending:   'var(--color-warning)',
-    error:     'var(--color-error)',
-  }
-  return colours[status]
-}
-
-/**
- * Compute position on node for token marker (top-right)
- */
-export function computeTokenMarkerPosition(
-  nodeWidth: number,
-  _nodeHeight: number,
-  markerSize: number = 24
-): { x: number; y: number } {
-  // Position at top-right corner with slight padding
-  return {
-    x: nodeWidth - markerSize / 2 - 4,
-    y: -(markerSize / 2) + 4,
-  }
-}
+/** Timeline tick helpers (the token-marker helpers went with the old Graph tab overlay, T-1520). */
 
 /**
  * Determine visual significance of an event for timeline tick height

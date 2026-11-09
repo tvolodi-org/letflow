@@ -281,6 +281,15 @@ defmodule Letflow.Api.Response do
   def module_open_work_exists(conn, instances, tasks),
     do: send_problem(conn, Error.module_open_work_exists(instances, tasks))
 
+  @doc "HTTP 503 — module data below the build's min_data_version. See `Error.module_data_version_too_old/0`."
+  @spec module_data_version_too_old(Plug.Conn.t()) :: Plug.Conn.t()
+  def module_data_version_too_old(conn),
+    do: send_problem(conn, Error.module_data_version_too_old())
+
+  @doc "HTTP 503 — module data newer than the build. See `Error.module_version_ahead/0`."
+  @spec module_version_ahead(Plug.Conn.t()) :: Plug.Conn.t()
+  def module_version_ahead(conn), do: send_problem(conn, Error.module_version_ahead())
+
   @doc "HTTP 409 — Module Upgrade Required (REQ-578). See `Error.module_upgrade_required/0`."
   @spec module_upgrade_required(Plug.Conn.t()) :: Plug.Conn.t()
   def module_upgrade_required(conn), do: send_problem(conn, Error.module_upgrade_required())

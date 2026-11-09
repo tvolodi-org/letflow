@@ -46,6 +46,7 @@ export function useTenantScopedQueryKeys() {
       detail: queryKeys.instances.detail.bind(null, tenantId),
       events: queryKeys.instances.events.bind(null, tenantId),
       timeline: queryKeys.instances.timeline.bind(null, tenantId),
+      timelineAll: queryKeys.instances.timelineAll.bind(null, tenantId),
       attachments: queryKeys.instances.attachments.bind(null, tenantId),
       pins: queryKeys.instances.pins.bind(null, tenantId),
     },

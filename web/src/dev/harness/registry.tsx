@@ -46,10 +46,12 @@ import { queryStatesScreens } from './fixtures/queryStates'
 import { metricsScreens } from './fixtures/metrics'
 import { taskInboxScreens } from './fixtures/taskInbox'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
+import { processDiagramScreens } from './fixtures/processDiagram'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
 import { masterDataImport, masterDataImportResult } from './importFixtures'
+import { navRoleScreens } from './navRoleFixtures'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -262,6 +264,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...catalogItemsScreens,
     ...locationsScreens,
     ...definitionNameScreens,
+    ...processDiagramScreens,
     ...definitionNameAdminScreens,
     ...codesLabelScreens,
     ...docLayoutScreens,
@@ -294,6 +297,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...metricsScreens,
     ...roleLabelsScreens,
     ...taskInboxScreens,
+    ...navRoleScreens,
     ...instancesBoardScreens,
     masterDataImport,
     masterDataImportResult,
