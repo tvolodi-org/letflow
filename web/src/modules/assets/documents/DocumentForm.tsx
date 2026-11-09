@@ -5,7 +5,7 @@
  *  Assumptions (owner may change at GATE B): event time is entered in the tenant time zone (Asia/Almaty until the tenant
  *  setting exists); pickers list active records, first 200; the org unit of a saved draft cannot change (the server
  *  refuses it on replace). */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -20,6 +20,7 @@ import { Field } from '@/components/ui/Field'
 import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { Select } from '@/components/ui/Select'
 import { ASSETS_POST } from '../assetsPermissions'
+import { linkedEmployeeId } from '@/lib/references'
 import { usePickerOptions } from '../assetsPickers'
 import { assetsQueryKeys } from '../assetsQueryKeys'
 import { assetDocumentsApi, type AssetDocument } from './assetDocuments.api'
@@ -49,7 +50,7 @@ export interface DocumentFormProps {
 export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title, onBack, onKindChange }: DocumentFormProps) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
-  const { can } = useAccess()
+  const { can, userId } = useAccess()
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   const qc = useQueryClient()
@@ -66,8 +67,17 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
   const patch = (p: Partial<FormState>) => setForm((f) => ({ ...f, ...p }))
   // Hand over: the To org unit and location start as the From ones until To is touched.
   const toTouched = useRef(edit)
+  // T-1528: the signed-in user's linked employee is proposed as the From responsible (never the To side), once, until
+  // the user touches the field.
+  const respTouched = useRef(edit)
+  const linked = linkedEmployeeId(userId, employees)
+  useEffect(() => {
+    if (respTouched.current || linked === null || form.kind === 'kind_change') return
+    if (form.from.responsibleId === '') setForm((f) => ({ ...f, from: { ...f.from, responsibleId: linked } }))
+  }, [linked, form.kind, form.from.responsibleId])
   const patchSide = (side: 'from' | 'to', p: Partial<SideForm>) =>
     setForm((f) => {
+      if (side === 'from' && p.responsibleId !== undefined) respTouched.current = true
       if (side === 'to') toTouched.current = true
       const next = { ...f, [side]: { ...f[side], ...p } }
       if (side === 'from' && f.kind === 'handover' && !toTouched.current) {

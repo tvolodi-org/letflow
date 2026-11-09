@@ -99,7 +99,10 @@ void main() {
       await tester.pumpAndSettle();
       source.controller.add(const ScanPermissionRefused());
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('stock-camera-refused')), findsOneWidget);
+      expect(
+        find.byKey(const Key('stock-count-camera-refused')),
+        findsOneWidget,
+      );
 
       await tester.enterText(find.byKey(const Key('stock-typed')), 'L');
       await tester.tap(find.byKey(const Key('stock-send')));
@@ -131,4 +134,71 @@ void main() {
       expect(find.byKey(const Key('stock-line-2')), findsOneWidget);
     },
   );
+
+  // PWA M4 S5: on web the count screen starts the camera only after a tap;
+  // a refusal and an unavailable camera have their own texts.
+  FakePutCapableHttpGateway countGateway() => FakePutCapableHttpGateway((c) {
+    if (c.path.endsWith('/lines')) {
+      return {
+        'rows': [_line()],
+        'next_cursor': null,
+      };
+    }
+    return {'id': 'c1', 'status': 'counting', 'number': 'N-7'};
+  });
+
+  testWidgets('S5a: web waits for the tap, then starts the camera once', (
+    tester,
+  ) async {
+    source.needsUserTap = true;
+    await tester.pumpWidget(
+      _app(countGateway(), const CountDetailScreen(countId: 'c1')),
+    );
+    await tester.pumpAndSettle();
+    expect(source.starts, 0);
+    expect(find.byKey(const Key('stock-count-camera-intro')), findsOneWidget);
+    expect(find.byKey(const Key('fake-preview')), findsNothing);
+    expect(find.byKey(const Key('stock-scan-again')), findsNothing);
+    expect(find.byKey(const Key('stock-typed')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('stock-count-camera-start')));
+    await tester.pumpAndSettle();
+    expect(source.starts, 1);
+    expect(find.byKey(const Key('fake-preview')), findsOneWidget);
+    expect(find.byKey(const Key('stock-count-camera-intro')), findsNothing);
+  });
+
+  testWidgets('S5b: refused and unavailable texts, typed field stays', (
+    tester,
+  ) async {
+    source.needsUserTap = true;
+    await tester.pumpWidget(
+      _app(countGateway(), const CountDetailScreen(countId: 'c1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('stock-count-camera-start')));
+    await tester.pumpAndSettle();
+    source.unavailable();
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('stock-count-camera-unavailable')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('stock-count-camera-refused')), findsNothing);
+    expect(find.byKey(const Key('fake-preview')), findsNothing);
+    expect(find.byKey(const Key('stock-typed')), findsOneWidget);
+    source.refuse();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('stock-count-camera-refused')), findsOneWidget);
+    expect(find.byKey(const Key('stock-typed')), findsOneWidget);
+  });
+
+  testWidgets('S5c: native starts the camera at once (no tap)', (tester) async {
+    await tester.pumpWidget(
+      _app(countGateway(), const CountDetailScreen(countId: 'c1')),
+    );
+    await tester.pumpAndSettle();
+    expect(source.starts, 1);
+    expect(find.byKey(const Key('stock-count-camera-intro')), findsNothing);
+    expect(find.byKey(const Key('fake-preview')), findsOneWidget);
+  });
 }
