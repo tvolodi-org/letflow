@@ -1,0 +1,124 @@
+# T-1532 (BA#5, item 5 of docs/uat/ba-decisions/T-1518.md): the posting against the frozen balance (D-094 item 6): the differences of a freeze count post exactly to the counted quantities although other receipts were refused during counting; posting ends the freeze and the refused receipt then goes through.
+# Covers REQ-765 criteria 3 to 5 (backend, merged as #4066) and REQ-718 criterion 3 for a count whose balance did not move.
+# Sources: docs/requirements.yaml REQ-765 (the only exemption is the count's own posting; the posted delta leaves each key at exactly its counted quantity; the freeze ends with the posted mark; audit and state), REQ-718 (the posting machinery is unchanged), docs/migration/decisions/0079-counts-inventory-taking.md section 4.
+#
+# SCREEN GAP (stated, not invented): the freeze screens (REQ-766) are not on main; every step is an API step.
+# ROSTER GAP: as in stock-counts-1 (no STOREKEEPER actor; the administrator of SwiftRoute is chair, signer-marker and poster).
+# NOT UAT-observable: the expiry of the time limit and the plain-delta posting after it (needs a clock the test sets; a unit test covers it); a posting of another count's differences on a frozen key (needs two open counts of the same place, which the overlap rule forbids for one unit and the pair rule makes hard to set up; unit test).
+---
+id: stock-counts-5-count-freeze-posts-against-frozen-balance-and-ends
+scope: assets
+title: The differences of a freeze count are posted although a receipt into the same place is held, the books end at exactly the counted quantity, and the posting ends the freeze so the held receipt then goes through
+version: "1.0"
+tags: [assets, stock, counts, freeze, d-094, posting]
+
+description: >
+  SwiftRoute holds Bolt M8 10 pieces in "Shelf 1" (responsible R1). The administrator issues a count of "Shelf 1" with "freeze locations" switched on, opens it, and the receipt of 5 Bolt M8 into "Shelf 1" that the administrator prepared is
+  refused as "location_frozen" when its posting task is completed. The chair counts 8 Bolts (two missing), closes the count, marks the sheet signed (chair and R1), issues the differences, marks them signed and starts the posting. The posting task
+  is completed although the place is frozen, because it is the count's own posting: the books show exactly 8 Bolts. The count then reads freeze state "ended" with the reason "posted". The held receipt is completed again and now posts: the books show
+  13 Bolts. A task worker cannot complete a posting task.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+
+preconditions:
+  - description: SwiftRoute has the stock module installed, "Main warehouse" with the location "Shelf 1" linked to it, the active item Bolt M8, the active employee R1, and exactly this stock balance - Bolt M8 10 in "Shelf 1", responsible R1; the freeze limit setting is not set or is at least 30 minutes.
+    check: system_seeded
+    detail: If another balance exists under "Shelf 1", the sheet has more lines; report BLOCKED and name it.
+  - description: The administrator of SwiftRoute is linked to an active employee (the chair), no other count order of "Main warehouse" is open, and posting tasks can be completed by the administrator in the task inbox.
+    check: system_seeded
+    detail: If not, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator drafts a full count order for "Main warehouse" with the root "Shelf 1", itself as chair, "freeze locations" switched on, a planned start ten minutes ago and a planned end four hours after the start, issues it and opens the count.
+      The order is read as O1 (freeze state active).
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator prepares and issues a receipt of 5 Bolt M8 into "Shelf 1" (responsible R1) and starts its posting. The waiting task is noted as T1 and the balances as B1.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator completes the waiting posting task T1 of the receipt. The answer is noted as R1 and the balances as B2.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The chair types 8 for the Bolt M8 line, closes the count, marks the sheet signed naming the chair and R1, issues the differences, marks them signed naming the chair and R1, and starts the posting of the differences.
+      The order is read as O2 (status "signed", posting state "pending") and the balances as B3.
+    via: api
+  - step: 5
+    actor: worker
+    action: >
+      The task worker tries to complete the waiting posting task of the count in the task inbox. The answer is noted as R2 and the balances are read as B4.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator completes the waiting posting task of the count in the task inbox. The balances of "Shelf 1" are read as B5 and the order as O3.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator completes the held receipt task T1 again. The balances are read as B6 and the list of frozen places as F1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: During counting the receipt into the counted place is held.
+    verification:
+      method: api_response
+      detail: O1 shows the freeze state "active". Step 3 answers 409 with the error "location_frozen" naming the count's number; T1 stays pending; B2 equals B1 (Bolt M8 "10").
+      evidence: O1, R1, B1 and B2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Stock could move in a place while it is counted.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The differences are ready to post after the sign-offs and a held receipt did not change the books meanwhile.
+    verification:
+      method: api_response
+      detail: O2 has status "signed" and the posting state "pending"; B3 equals B2 (Bolt M8 "10").
+      evidence: O2 and B3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The count could not be posted, or the books moved without a posting.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A task worker cannot complete the count's posting task.
+    verification:
+      method: http_status
+      detail: Step 5 is refused with a 4xx answer; B4 equals B3 and the task is still pending.
+      evidence: R2 and B4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone could post count differences.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: The count's own posting is the only posting allowed into a frozen place, and it leaves exactly the counted quantity.
+    verification:
+      method: api_response
+      detail: Step 6 answers 200; B5 shows Bolt M8 "8" in "Shelf 1"; O3 has the posting state "posted" and the posting check "ok".
+      evidence: B5 and O3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A freeze count could not be posted, or the books would not end at the counted quantity.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: Posting the count ends the freeze, and the held receipt then posts on top of the counted quantity.
+    verification:
+      method: api_response
+      detail: O3 has the freeze state "ended" with the end reason "posted"; F1 does not list "Shelf 1". Step 7 answers 200 and B6 shows Bolt M8 "13" in "Shelf 1".
+      evidence: O3, F1 and B6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Stock would stay locked after the count, or the held goods would be lost.
+      suggested_action: route_to_elixir_dev

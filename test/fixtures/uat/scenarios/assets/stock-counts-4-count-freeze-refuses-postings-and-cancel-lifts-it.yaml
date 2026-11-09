@@ -1,0 +1,185 @@
+# T-1532 (BA#5, item 5 of docs/uat/ba-decisions/T-1518.md): the count freeze (owner decision D-094): a count with "freeze locations" refuses other stock postings into its places from the moment counting starts; places outside the count still post; cancelling the count lifts the freeze and the refused posting then goes through.
+# Covers REQ-765 criteria 1 to 3, 5 (cancel part), 7 and 8 (backend, merged as #4066).
+# Sources: docs/requirements.yaml REQ-765 (freeze_state active, freeze_until = cut-off + count_freeze_limit_minutes with the default 120, the frozen set = the roots and everything below them, the refusal location_frozen naming the count by its number, the task stays pending; the pair rule: only the count's own unit is frozen), docs/migration/decisions/0079-counts-inventory-taking.md section 4 and D5 of 0081 (the no-freeze count stays the default).
+#
+# SCREEN GAP (stated, not invented): the web part of the freeze (REQ-766: the switch on the order form, the banner, the "Frozen" mark on the location tree, the message in the task inbox) is not on main (no freeze code under web/src on the day of writing). Every step is an API step; no step claims a screen. A later scenario covers the screens when REQ-766 lands.
+# ROSTER GAP: as in stock-counts-1 (no STOREKEEPER actor; the administrator of SwiftRoute is the chair and also posts the receipts).
+# NOT UAT-observable: the time limit (a count freezes for 120 minutes by default; the expiry needs a clock the test sets); the lock order of two simultaneous requests; the audit entries (stock.count.freeze_started, ledger.posting_held); a freeze of one company never refusing another company's posting with the same place names (a unit test uses two tenants; here only the list and the count are checked).
+---
+id: stock-counts-4-count-freeze-refuses-postings-and-cancel-lifts-it
+scope: assets
+title: A count with frozen locations refuses a receipt into its places while counting, lets a receipt into another place through, and lifts the freeze when the count is cancelled
+version: "1.0"
+tags: [assets, stock, counts, freeze, d-094, refusal, tenancy]
+
+description: >
+  SwiftRoute has "Main warehouse" with the places "Hall" (child "Shelf 1") and "Yard", and holds Bolt M8 10 pieces in "Hall". The administrator, the chair, issues a count order for "Hall" with "freeze locations" switched on and
+  opens the count: the order reads freeze state "active" with an end time two hours after the cut-off, and the list of frozen places holds "Hall" and "Shelf 1" (the place and everything below it) but not "Yard". The administrator
+  prepares a receipt of 5 Bolt M8 into "Shelf 1" and a receipt of 5 Bolt M8 into "Yard" and starts both postings. Completing the posting into "Shelf 1" is refused as "location_frozen" and names the count by its number; the task stays
+  waiting and the stock is unchanged. The posting into "Yard" is completed and the stock of "Yard" grows. A task worker cannot read the list of frozen places. The chair cancels the count: the freeze ends with the reason "cancelled" and the
+  waiting posting into "Shelf 1" can now be completed. The administrator of another company sees none of the frozen places and no count of SwiftRoute.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has the stock module installed, "Main warehouse" with the locations "Hall" (child "Shelf 1") and "Yard", all linked to it, the active items Bolt M8, the active employee R1, and the stock balance Bolt M8 10 in "Hall", responsible R1; the stock module setting for the freeze limit is not set (the default of 120 minutes applies).
+    check: system_seeded
+    detail: If the setting is set to another value, step 3 reports the actual end time and the scenario continues; the rule under test is "cut-off plus the setting".
+  - description: The administrator of SwiftRoute is linked to an active employee (the chair), no other count order of "Main warehouse" is open, and the posting task of a stock document can be completed by the administrator in the task inbox.
+    check: system_seeded
+    detail: If not, report BLOCKED for the whole scenario.
+  - description: BilimBaga has the stock module installed.
+    check: system_seeded
+    detail: If BilimBaga has no stock module, report BLOCKED for steps 11 and 12 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator drafts a full count order for "Main warehouse" with the root "Hall", itself as chair, "freeze locations" switched on, a planned start ten minutes ago and a planned end four hours after the start, and issues it.
+      The order is read as O1 (the freeze switch and the status).
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator reads the list of frozen places before the count is opened. The answer is noted as F0.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The chair opens the count. The order is read as O2 (freeze state, start, end time and the cut-off) and the list of frozen places as F1.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator prepares and issues a receipt of 5 Bolt M8 into "Shelf 1" (responsible R1) and a receipt of 5 Bolt M8 into "Yard" (responsible R1), and starts the posting of each. The two waiting tasks are noted as T1 (Shelf 1) and T2 (Yard); the stock balances are read as B1.
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator completes the waiting posting task T1 of the receipt into "Shelf 1". The answer is noted as R1; the task and the balances are read as T1b and B2.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator completes the waiting posting task T2 of the receipt into "Yard". The balances are read as B3.
+    via: api
+  - step: 7
+    actor: worker
+    action: >
+      The task worker reads the list of frozen places. The answer is noted as R2.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The chair cancels the count. The order is read as O3 and the list of frozen places as F2.
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The administrator completes the waiting posting task T1 again. The balances are read as B4.
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator tries to open the cancelled count again. The answer is noted as R3 and the order is read as O4.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: other_admin
+    action: >
+      The administrator of the other company lists the frozen places of its own company. The answer is noted as R4.
+    via: api
+  - step: 12
+    actor: other_admin
+    action: >
+      The administrator of the other company asks for the count O1 of SwiftRoute by its identifier. The answer is noted as R5.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The freeze is a switch of the count order, off by default and not yet in force before counting starts.
+    verification:
+      method: api_response
+      detail: Step 1 gives O1 with the freeze switch on, status "ordered" and the freeze state "none". Step 2 gives F0, which lists no place of this count.
+      evidence: O1 and F0.
+    on_fail:
+      severity: MAJOR
+      business_impact: Places would be frozen before anyone starts to count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: Opening the count starts the freeze on the root place and everything below it, for two hours by default.
+    verification:
+      method: api_response
+      detail: O2 has status "counting", the freeze state "active", a freeze start equal to the cut-off and a freeze end 120 minutes after it (or the minutes of the module setting if it is set). F1 lists "Hall" and "Shelf 1" with the number label of the count and the end time, and does not list "Yard".
+      evidence: O2 and F1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Stock could move in the counted places while people count, and the count would be wrong.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A receipt into a frozen place is refused at posting, names the count, and leaves the task waiting and the stock unchanged.
+    verification:
+      method: api_response
+      detail: Step 5 answers 409 with the error "location_frozen" and a detail holding the number label of the count O1; T1b is still pending; B2 equals B1 (Bolt M8 "10" in "Hall" and no Bolt in "Shelf 1" from this receipt).
+      evidence: R1, T1b, B1 and B2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Goods booked during the count make the counted differences wrong.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A receipt into a place outside the count is posted during the freeze.
+    verification:
+      method: api_response
+      detail: Step 6 answers 200; B3 shows Bolt M8 "5" in "Yard" and the same figures as B2 elsewhere.
+      evidence: B2 and B3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A count of one place would stop the whole warehouse.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: A task worker cannot read which places are frozen.
+    verification:
+      method: http_status
+      detail: Step 7 answers 403.
+      evidence: R2.
+    on_fail:
+      severity: MAJOR
+      business_impact: People without the stock read right learn where a count is going on.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: Cancelling the count ends the freeze at once and the refused posting then goes through.
+    verification:
+      method: api_response
+      detail: Step 8 answers 200; O3 has status "cancelled", the freeze state "ended" and the end reason "cancelled"; F2 does not list "Hall" or "Shelf 1". Step 9 answers 200 and B4 shows Bolt M8 "5" in "Shelf 1", "5" in "Yard" and "10" in "Hall".
+      evidence: O3, F2 and B4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A cancelled count would keep stock locked until the time limit.
+      suggested_action: route_to_elixir_dev
+  - id: EO-007
+    description: A cancelled count cannot be opened again.
+    verification:
+      method: api_response
+      detail: Step 10 answers 422 with the reason "count_state_invalid"; O4 equals O3.
+      evidence: R3, O3 and O4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A cancelled order could freeze stock again without a new issue.
+      suggested_action: route_to_elixir_dev
+  - id: EO-008
+    description: Another company sees no frozen place and no count of this company.
+    verification:
+      method: api_response
+      detail: Step 11 answers 200 and the list R4 holds no place of SwiftRoute (none of "Hall", "Shelf 1", "Yard" of SwiftRoute); step 12 answers 404 for R5 with the same body as an unknown count identifier (trace_id dropped before comparing).
+      evidence: R4 and R5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could see which places another company is counting.
+      suggested_action: route_to_elixir_dev

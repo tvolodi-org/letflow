@@ -1,0 +1,208 @@
+# T-1532 (BA#5, item 5 of docs/uat/ba-decisions/T-1518.md): what the phone count screens do on the server: a place is found by its code, each scan adds one unit to the line found, a retried scan is never counted twice, a typed number replaces the scanned total, an item with no line leads to a surplus line, and every refusal reason is told apart.
+# Covers REQ-716 criteria 2 to 5, 7 and 8 and REQ-733 section 2 and 3 of docs/assets/phone-flows.md (the phone sends exactly these requests; it adds no route of its own).
+# Sources: docs/requirements.yaml REQ-716 (reasons code_retired, code_not_assigned, scan_no_line, scan_ambiguous, location_not_in_count, scan_id_conflict, not_commission_member, count_state_invalid; duplicate true on a retry; code_unknown renders as 404), docs/assets/phone-flows.md sections 2 and 3, REQ-700 criterion 7 (permissions).
+#
+# SCREEN GAP (stated, not invented): the Flutter phone app (apps/mobile/lib/features/stock) cannot be driven by the UAT runner, which has a browser and an HTTP client but no phone or camera. Every step is an API step: it is the request the phone sends for that action. The camera, the permission-denied view, the offline view with a retry, the texts in Russian and Kazakh and the one-detection-one-request rule are NOT UAT-observable; the app's own widget tests cover them.
+# ROSTER GAP: as in stock-counts-1 (no STOREKEEPER actor; the administrator of SwiftRoute is the chair and so the person with the phone).
+# NOT UAT-observable: two phones sending the same scan at the same moment (a unit test runs two processes); that the scan identifier is never stored on the device.
+---
+id: stock-counts-6-phone-count-scan-duplicate-and-refusals
+scope: assets
+title: A phone counts by code - a place is found by its code, each scan adds one unit, a retried scan is not counted twice, a typed number replaces the total, and each refusal reason is told apart
+version: "1.0"
+tags: [assets, stock, counts, phone, scan, codes, refusal, tenancy]
+
+description: >
+  SwiftRoute has a count of "Shelf 1" in progress, chaired by the administrator, who is the person holding the phone. "Shelf 1" holds Bolt M8, 10 pieces, so the sheet has one line. The codes are prepared: BOLT-8 is assigned to the item Bolt M8, WASHER-1
+  to the item Washer (which has no line), SHELF-1 to the place "Shelf 1", YARD-1 to the place "Yard" (outside the count), OLD-1 is a retired code, FREE-1 is a code not assigned to anything, and NOSUCH-1 does not exist. The phone resolves SHELF-1 and
+  learns the place. Scanning BOLT-8 in "Shelf 1" twice counts 2; the second scan sent again after a network failure answers the same line and adds nothing. Scans that cannot be accepted are each refused for their own reason and record nothing. A typed
+  10 replaces the scanned 2. The Washer, which has no line, is added as a surplus line. The chair closes counting. A task worker cannot scan, and the administrator of another company cannot reach the count.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has the stock and codes modules installed, "Main warehouse" with the locations "Shelf 1" and "Yard" (linked to it), the active items Bolt M8 and Washer, the active employee R1, and exactly this stock balance - Bolt M8 10 in "Shelf 1", responsible R1.
+    check: system_seeded
+    detail: If another balance exists in "Shelf 1", the sheet has more lines; report BLOCKED and name it.
+  - description: SwiftRoute has these codes - BOLT-8 assigned to Bolt M8, WASHER-1 assigned to Washer, SHELF-1 assigned to "Shelf 1", YARD-1 assigned to "Yard", OLD-1 received and then retired, FREE-1 received and not assigned; NOSUCH-1 is not received.
+    check: system_seeded
+    detail: If a code cannot be prepared, report BLOCKED for the steps that use it (BOLT-8 and SHELF-1 for steps 3 to 8; the others only for step 6).
+  - description: The administrator of SwiftRoute is linked to an active employee (the chair), and no other count order of "Main warehouse" is open.
+    check: system_seeded
+    detail: If not, report BLOCKED for the whole scenario.
+  - description: BilimBaga has the stock module installed.
+    check: system_seeded
+    detail: If BilimBaga has no stock module, report BLOCKED for step 12 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator drafts and issues a full count order for "Main warehouse" with the root "Shelf 1", itself as chair, a planned start ten minutes ago and a planned end four hours after the start, and opens the count.
+      The phone's count list (counts in the status "counting") is read as L1 and the sheet as S1.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The phone resolves the code SHELF-1. The answer is noted as C1.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The phone sends the scan of BOLT-8 in the place "Shelf 1" with the scan identifier SC-1, then the scan of BOLT-8 in "Shelf 1" with the scan identifier SC-2. The answers are noted as A1 and A2; the sheet is read as S2.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The phone sends the scan SC-2 again (the network failed after the first try). The answer is noted as A3, the sheet as S3 and the entry log as E1.
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The phone sends the identifier SC-2 again, now with the text WASHER-1 instead of BOLT-8. The answer is noted as R1 and the entry log as E2.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The phone sends these scans in "Shelf 1", each with its own new scan identifier - WASHER-1 (an item that has no line), OLD-1, FREE-1 and NOSUCH-1 - and then the scan of BOLT-8 in the place "Yard", which is outside the count. The answers are noted as R2, R3, R4, R5 and R6; the sheet is read as S4 and the entry log as E3.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The phone types the counted quantity 10 for the Bolt M8 line. The sheet is read as S5 and the entry log as E4.
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The phone adds a surplus line of 1 Washer in "Shelf 1" (the path the phone takes after the answer "no line"). The sheet is read as S6.
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The phone closes counting. The order is read as O1.
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The phone sends the scan of BOLT-8 in "Shelf 1" with a new scan identifier SC-9 after the count was closed. The answer is noted as R7 and the sheet as S7.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: worker
+    action: >
+      The task worker sends the scan of BOLT-8 in "Shelf 1" with a new scan identifier SC-10, and reads the count list. The answers are noted as R8 and R9.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: other_admin
+    action: >
+      The administrator of the other company sends the scan of BOLT-8 in "Shelf 1" with a new scan identifier SC-11 on the count of SwiftRoute. The answer is noted as R10; the SwiftRoute administrator then reads the sheet as S8.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The phone finds the open count and learns the place from its code.
+    verification:
+      method: api_response
+      detail: L1 lists the count of step 1 with status "counting"; S1 has one line, Bolt M8 in "Shelf 1", book "10", counted empty. C1 answers the place "Shelf 1" (target type location, the identifier of "Shelf 1").
+      evidence: L1, S1 and C1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The person counting cannot start from the phone.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: Each scan adds one unit to the line found and the total is shown as text.
+    verification:
+      method: api_response
+      detail: A1 answers 200 with the Bolt M8 line and counted quantity "1"; A2 answers counted quantity "2"; S2 shows counted "2" and the duplicate field is not true in either answer.
+      evidence: A1, A2 and S2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Scanning does not count, or counts the wrong number of units.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A scan sent again after a network failure is not counted twice.
+    verification:
+      method: api_response
+      detail: A3 answers 200 with the same line and counted quantity "2" and the field duplicate true; S3 equals S2; E1 holds exactly two scan entries (SC-1 and SC-2).
+      evidence: A3, S2, S3 and E1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A weak network doubles the counted quantity and the books are posted with an invented surplus.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: The same scan identifier with another code is refused and records nothing.
+    verification:
+      method: api_response
+      detail: Step 5 answers 422 with the reason "scan_id_conflict"; E2 equals E1.
+      evidence: R1, E1 and E2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A reused scan identifier could silently overwrite or add the wrong count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: Every scan that cannot be accepted is refused for its own reason and records nothing.
+    verification:
+      method: api_response
+      detail: R2 is 422 "scan_no_line"; R3 is 422 "code_retired"; R4 is 422 "code_not_assigned"; R5 is 404 with the same body as an unknown count identifier (trace_id dropped before comparing); R6 is 422 "location_not_in_count". S4 equals S3 and E3 equals E1.
+      evidence: R2, R3, R4, R5, R6, S3, S4, E1 and E3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The person counting cannot tell what is wrong with a scan, or a wrong scan changes a count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: A typed quantity replaces the scanned total and both ways are in the log.
+    verification:
+      method: api_response
+      detail: S5 shows the Bolt M8 line with counted quantity "10". E4 has the two scan entries and one typed entry (method "typed") whose quantity before is "2" and quantity after is "10".
+      evidence: S5 and E4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A wrong scan total cannot be corrected, or the correction is not traceable.
+      suggested_action: route_to_elixir_dev
+  - id: EO-007
+    description: An item that is not on the sheet becomes a surplus line.
+    verification:
+      method: api_response
+      detail: S6 has a second line of kind surplus for Washer in "Shelf 1" with book "0" and counted "1".
+      evidence: S6.
+    on_fail:
+      severity: MAJOR
+      business_impact: Goods found during a count by phone are lost.
+      suggested_action: route_to_elixir_dev
+  - id: EO-008
+    description: After counting is closed the phone cannot add more.
+    verification:
+      method: api_response
+      detail: Step 9 answers 200 and O1 has status "counted". Step 10 answers 422 with the reason "count_state_invalid"; S7 equals S6.
+      evidence: O1, R7, S6 and S7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A closed sheet could still be changed by a late scan.
+      suggested_action: route_to_elixir_dev
+  - id: EO-009
+    description: A task worker cannot count or list counts from a phone.
+    verification:
+      method: http_status
+      detail: Step 11 answers 403 for R8 and R9.
+      evidence: R8 and R9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone with a login could change a count.
+      suggested_action: route_to_elixir_dev
+  - id: EO-010
+    description: Another company gets the same answer as for an unknown count, and the sheet is unchanged.
+    verification:
+      method: api_response
+      detail: Step 12 answers 404 for R10 with the same body as an unknown count identifier (trace_id dropped before comparing); S8 equals S7.
+      evidence: R10, S7 and S8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could change another company's count by scan.
+      suggested_action: route_to_elixir_dev
