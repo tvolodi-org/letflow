@@ -117,9 +117,14 @@ Two worked examples from 2026-11-08:
 - **Docs-tests hang (T-1325, seen again on T-1513):** on a docs-only change shard 1 runs the docs
   tests under a 600 s timeout, with one retry. The log shows `Result: N passed`, then a
   `could not lookup Ecto repo Letflow.Repo` exit message, and the step ends with
-  `docs tests: attempt 2 failed with exit 124`. All tests passed; the run hung in teardown, so
-  this is not a content fault. Do not rework the docs: re-run the failed jobs once (the engine's
-  `ci_check` does this), and report a repeat as a defect.
+  `docs tests: attempt 2 failed with exit 124`. No test failed, so this is not a content fault.
+  Two shapes are seen. (a) Teardown hang: the run finished and hung on exit. (b) Too slow: the
+  selected files (61 on 2026-11-09) were still running when `timeout` stopped them; the
+  `Finished in` line is close to 600 s and the `Result:` count differs between the two attempts
+  (T-1513: 852 then 1038 tests; T-1516 the same day). Shape (b) hits every docs-only PR on a
+  loaded runner until the docs-test selection in `scripts/ci_docs_only.sh` is narrowed or split.
+  Do not rework the docs: re-run the failed jobs once (the engine's `ci_check` does this), and
+  report a repeat as a defect.
 
 Handling:
 
