@@ -9,6 +9,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { FilterBar } from '@/components/ui/FilterBar'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { HelpLink } from '@/components/help/HelpLink'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Banner } from '@/components/ui/Banner'
@@ -168,7 +169,7 @@ function BalancesInner({ initialSelectedId = null, initialFilters }: { initialSe
 
   return (
     <>
-      <PageHeader eyebrow={t('assets.reg.eyebrow')} title={t('assets.balances.title')} lede={t('assets.balances.lede')} />
+      <PageHeader eyebrow={t('assets.reg.eyebrow')} title={t('assets.balances.title')} lede={t('assets.balances.lede')} actions={<HelpLink to="/admin/assets/help/balances" label={t('assets.help.link')} />} />
       <FilterBar
         activeChips={chips}
         onRemoveChip={(id) => set(id as keyof BalanceFilters)('')}

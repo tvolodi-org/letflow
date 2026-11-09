@@ -43,9 +43,11 @@ import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
 import { stockOpeningScreens } from './fixtures/stockOpening'
 import { stockCountScreens } from './fixtures/stockCounts'
 import { stockCountDiffScreens } from './fixtures/stockCountsDiff'
+import { helpScreens } from './fixtures/helpScreens'
 import { stockCountPostingScreens } from './fixtures/stockCountsPosting'
 import { queryStatesScreens } from './fixtures/queryStates'
 import { metricsScreens } from './fixtures/metrics'
+import { auditLogScreens } from './fixtures/auditLog'
 import { taskInboxScreens } from './fixtures/taskInbox'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
@@ -53,6 +55,7 @@ import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnit
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
 import { masterDataImport, masterDataImportResult } from './importFixtures'
+import { importReportScreens } from './importReportFixtures'
 import { navRoleScreens } from './navRoleFixtures'
 
 const verifyCertificate: HarnessScreen = {
@@ -295,9 +298,11 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockOpeningScreens,
     ...stockCountScreens,
     ...stockCountDiffScreens,
+    ...helpScreens,
     ...stockCountPostingScreens,
     ...queryStatesScreens,
     ...metricsScreens,
+    ...auditLogScreens,
     ...roleLabelsScreens,
     ...storekeeperGrantScreens,
     ...taskInboxScreens,
@@ -305,5 +310,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...instancesBoardScreens,
     masterDataImport,
     masterDataImportResult,
+    ...importReportScreens,
   ].map(s => [s.name, s]),
 )

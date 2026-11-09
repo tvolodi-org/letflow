@@ -298,10 +298,42 @@ defmodule Letflow.Modules.Assets.CardImportTest do
            ]
 
     r = results(conn)
-    assert Enum.at(r, 5)["reason"]["header"] == "name"
+
+    # T-C1b (router level): the column each refusal names, and the sheet line (header = line 1)
+    for {index, column} <- [
+          {1, "kind"},
+          {2, "valid_until"},
+          {3, "acquisition_cost"},
+          {4, "currency"},
+          {5, "name"},
+          {6, "inventory_number"}
+        ] do
+      assert Enum.at(r, index)["reason"]["header"] == column, "row #{index}"
+      assert Enum.at(r, index)["line"] == index + 2, "row #{index} line"
+    end
+
     assert Enum.at(r, 7)["reason"]["header"] == "org_unit_id"
     assert Enum.at(r, 8)["reason"]["header"] == "org_unit_id"
     assert {2, _} = counts(ctx.a.schema_name)
+  end
+
+  test "T-A1: an atomic card file with a duplicate inventory number writes nothing", ctx do
+    assert outcomes(import_to(ctx.tok_a, [row("T-1", "T1")])) == ["created"]
+    before = counts(ctx.a.schema_name)
+    file = [row("A-1", "A1"), row("T-1", "A2"), row("A-3", "A3")]
+
+    conn = import_to(ctx.tok_a, file, "&atomic=true")
+    assert conn.status == 200, conn.resp_body
+    assert Jason.decode!(conn.resp_body)["applied"] == false
+    assert outcomes(conn) == ["created", "asset_inventory_number_taken", "created"]
+    assert %{"header" => "inventory_number"} = Enum.at(results(conn), 1)["reason"]
+    assert counts(ctx.a.schema_name) == before
+
+    fixed = [row("A-1", "A1"), row("A-2", "A2"), row("A-3", "A3")]
+    ok = import_to(ctx.tok_a, fixed, "&atomic=true")
+    assert Jason.decode!(ok.resp_body)["applied"] == true
+    assert outcomes(ok) == ["created", "created", "created"]
+    assert outcomes(import_to(ctx.tok_a, fixed, "&atomic=true")) == List.duplicate("unchanged", 3)
   end
 
   test "E11: re-import with optional cells removed clears them", ctx do

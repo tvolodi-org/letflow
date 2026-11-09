@@ -59,6 +59,18 @@ defmodule Letflow.Entities.XlsxImport do
           | {:error, atom()}
           | {:error, :too_many_records, non_neg_integer()}
   def convert(binary, fields, opts \\ []) when is_binary(binary) and is_list(fields) do
+    case convert_detailed(binary, fields, opts) do
+      {:error, reason, %{} = _detail} -> {:error, reason}
+      other -> other
+    end
+  end
+
+  @doc """
+  Like `convert/3`, but a refused header answers `{:error, reason, %{headers: [name]}}` naming the
+  offending header cells (taken from the one parse that produced the header). Every other
+  refusal is exactly what `convert/3` answers.
+  """
+  def convert_detailed(binary, fields, opts \\ []) when is_binary(binary) and is_list(fields) do
     upsert? = Keyword.get(opts, :upsert, false)
     max_rows = Keyword.get(opts, :max_rows, :infinity)
 
@@ -272,8 +284,12 @@ defmodule Letflow.Entities.XlsxImport do
   # A blank header cell inside the header is not a field name: the shared check refuses "".
   defp check_header(header, field_types, upsert?) do
     case CsvImport.check_header(header, field_types, upsert?) do
-      :ok -> :ok
-      {:error, reason} -> {:error, Map.fetch!(@header_refusals, reason)}
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        {:error, Map.fetch!(@header_refusals, reason),
+         %{headers: CsvImport.offending_headers(header, field_types, upsert?)}}
     end
   end
 

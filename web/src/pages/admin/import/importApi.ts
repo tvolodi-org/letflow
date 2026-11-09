@@ -15,8 +15,9 @@ export function downloadTemplate(entityType: string): Promise<{ blob: Blob; cont
   })
 }
 
+/** A dry run sends `dry_run=true`; a real import sends `atomic=true`: the file is written whole or not at all. */
 export function runImport(entityType: string, file: Blob, dryRun: boolean): Promise<ImportAnswer> {
-  const query = dryRun ? 'upsert_by=external_ref&dry_run=true' : 'upsert_by=external_ref'
+  const query = dryRun ? 'upsert_by=external_ref&dry_run=true' : 'upsert_by=external_ref&atomic=true'
   return client.postRaw<ImportAnswer>(
     `${RECORDS}/${encodeURIComponent(entityType)}/import?${query}`,
     file,

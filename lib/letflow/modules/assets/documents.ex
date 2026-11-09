@@ -151,7 +151,7 @@ defmodule Letflow.Modules.Assets.Documents do
   PUT would store). Returns `{:ok, {line_id, :created | :updated | :unchanged}}` or
   `{:error, :not_found | :document_not_draft | :lines_count | :busy | :internal}`.
 
-  Transaction safety: `ManagedImport.dry_run/3` runs a whole file in ONE outer transaction, and a
+  Transaction safety: `ManagedImport.run_in_transaction/4` (dry run and atomic import) runs a whole file in ONE outer transaction, and a
   `Repo.rollback/1` of a nested transaction poisons it (the core then replays the file, at most 20
   times). So every EXPECTED refusal (unknown or non-opening document, not a draft, the 101st line, a
   merged body the shape check refuses) is decided before the first write and returned as a plain value

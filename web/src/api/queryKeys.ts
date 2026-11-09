@@ -25,6 +25,7 @@ type TaskListFilters = {
 type AdminAuditFilters = {
   actor?: string
   resource_type?: string
+  resource_id?: string
   from?: string
   to?: string
   cursor?: string
