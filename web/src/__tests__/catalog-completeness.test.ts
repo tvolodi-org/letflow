@@ -36,6 +36,16 @@ import { locationsMessages } from '@/modules/locations/locationsMessages'
 import { orgMessages } from '@/modules/org/orgMessages'
 import { stockMessages } from '@/modules/stock/stockMessages'
 import {
+  helpEn as assetsHelpEn,
+  helpRu as assetsHelpRu,
+  helpKk as assetsHelpKk,
+} from '@/modules/assets/help/assetsHelpMessages'
+import {
+  helpEn as stockHelpEn,
+  helpRu as stockHelpRu,
+  helpKk as stockHelpKk,
+} from '@/modules/stock/help/stockHelpMessages'
+import {
   countsEn,
   countsRu,
   countsKk,
@@ -341,6 +351,14 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('stockMessages (includes counts/documents/forms): all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('stock', stockMessages)
+  })
+
+  it('assets help (sub-catalog): all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('assets.help', fromSplit(assetsHelpEn, assetsHelpRu, assetsHelpKk))
+  })
+
+  it('stock help (sub-catalog): all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('stock.help', fromSplit(stockHelpEn, stockHelpRu, stockHelpKk))
   })
 
   it('countsMessages (sub-catalog): all en keys in ru/kk, no empty values', () => {
