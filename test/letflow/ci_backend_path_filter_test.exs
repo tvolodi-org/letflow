@@ -109,6 +109,9 @@ defmodule Letflow.CiBackendPathFilterTest do
     {".github/workflows/cd.yml", true, true},
     {"scripts/ci_changed_paths.sh", true, true},
     {"scripts/cd_qa_decide.sh", true, false},
+    {"scripts/oss_audit/scanner.py", true, true},
+    {"scripts/oss_audit/rules.py", true, true},
+    {"docs/open-source/audit-report.md", true, true},
     {".claude/agents/uat-runner.md", true, true},
     {"web/.env.example", true, true},
     {"web/vite.config.ts", true, true},
@@ -136,7 +139,8 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"apps/mobile/lib/main.dart", false, false},
     {"scripts/README.md", false, true},
     {".claude/agents/reviewer.md", false, true},
-    {"docker-compose.yml", false, true}
+    {"docker-compose.yml", false, true},
+    {"docs/open-source/other.md", false, false}
   ]
 
   # --- layer 1: extract + compile --------------------------------------------------------
