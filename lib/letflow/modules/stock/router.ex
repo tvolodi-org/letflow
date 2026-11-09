@@ -1,5 +1,9 @@
 defmodule Letflow.Modules.Stock.Router do
   @moduledoc """
+  Tenant isolation proof (T-1534): `test/letflow/modules/asset_stock_isolation_test.exs` lists every id route of this
+  router and of its sibling and proves the uniform cross-tenant 404; `asset_stock_scope_exports_test.exs` proves hidden
+  legs stay out of the scoped reader's files.
+
   REQ-687 / GH #3707: the read routes of module `stock`, mounted by `Letflow.Routers.Modules` at
   `/api/v1/modules/stock`. A thin layer over `Letflow.Ledger.authorize/3`, `balances/4`, `entries/3`
   and `reconcile/2`; no SQL here (boundary Rule 8).
