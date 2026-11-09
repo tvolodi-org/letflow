@@ -3,7 +3,7 @@
  *  exact-name filter). States: default (list + diff), empty (one version), loading, error; plus "no differences",
  *  "same version twice" and a diff with a step list at 390 px. */
 import type { ReactElement } from 'react'
-import type { DefinitionGraph, NodeType, ProcessDefinition } from '@/types/api'
+import type { DefinitionGraph, GraphNode, NodeType, ProcessDefinition } from '@/types/api'
 import { DefinitionVersionsPane } from '@/components/diagram/DefinitionVersionsPane'
 import { ProcessDiagramIntlProvider } from '@/components/diagram/ProcessDiagramIntlProvider'
 import { DefinitionViewSwitch } from '@/components/diagram/DefinitionViewSwitch'
@@ -14,7 +14,7 @@ import type { FixtureRoute, HarnessScreen } from '../types'
 /** A signed-in stand-in: the harness has no login; only `session.tenant_id` (a cache key part) is read. */
 const AUTH = { session: { token: 'harness', tenant_id: 'harness-tenant' }, isAuthenticated: true } as unknown as AuthContextValue
 
-const n = (id: string, node_type: NodeType, label: string | null, attributes: object | null = null) => ({ id, node_type, label, attributes })
+const n = (id: string, node_type: NodeType, label: string | null, attributes: Record<string, unknown> | null = null): GraphNode => ({ id, node_type, label, attributes })
 
 const V1: DefinitionGraph = {
   nodes: [
