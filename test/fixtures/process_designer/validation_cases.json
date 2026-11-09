@@ -392,6 +392,104 @@
       "codes": [
         "undeclared_variable_reference"
       ]
+    },
+    {
+      "name": "required_output_no_schema",
+      "blocking": false,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "task",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "approver",
+              "required_outputs": [
+                "decision"
+              ]
+            }
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "task"
+          },
+          {
+            "id": "e2",
+            "source": "task",
+            "target": "end"
+          }
+        ]
+      },
+      "codes": [
+        "required_output_without_variable_schema"
+      ]
+    },
+    {
+      "name": "never_collected",
+      "blocking": false,
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "task",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "approver",
+              "form_schema": {
+                "properties": {
+                  "other": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "a",
+            "node_type": "END"
+          },
+          {
+            "id": "b",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "task"
+          },
+          {
+            "id": "e2",
+            "source": "task",
+            "target": "a",
+            "condition": "ghost_var == \"x\"",
+            "is_default": false
+          },
+          {
+            "id": "e3",
+            "source": "task",
+            "target": "b",
+            "is_default": true
+          }
+        ]
+      },
+      "codes": [
+        "variable_never_collected"
+      ]
     }
   ]
 }

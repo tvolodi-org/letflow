@@ -43,3 +43,16 @@ export function redo<T>(h: History<T>): History<T> {
 export const reset = <T>(present: T): History<T> => initialHistory(present)
 export const canUndo = <T>(h: History<T>) => h.past.length > 0
 export const canRedo = <T>(h: History<T>) => h.future.length > 0
+
+/** Coalescing keys for pointer drags: every move of ONE drag gesture shares a key, the next gesture of the same step gets
+ *  a new one (the end of a drag is the change with `dragging === false`). A change that reports no drag (a keyboard nudge)
+ *  gets no key. */
+export function dragCoalescer(): (id: string, dragging: boolean | undefined) => string | undefined {
+  let gesture = 0
+  return (id, dragging) => {
+    if (dragging === undefined) return undefined
+    const key = `drag:${id}:${gesture}`
+    if (dragging === false) gesture += 1
+    return key
+  }
+}

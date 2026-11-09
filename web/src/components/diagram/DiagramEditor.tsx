@@ -4,9 +4,9 @@
  *  Enter opens its panel, Alt+Arrow nudges (Shift = far), Delete removes the selection, Ctrl/Cmd+Z and +Shift+Z (or
  *  Ctrl+Y) undo and redo, Escape closes the panel; the panel's "Connect from this step" needs no pointer. Every action
  *  is announced in an aria-live region. Under the narrow width the canvas is replaced by an editable step list. */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
-import { Background, Controls, ReactFlow, ReactFlowProvider, type Connection, type NodeChange } from '@xyflow/react'
+import { Background, Controls, ReactFlow, ReactFlowProvider, type AriaLabelConfig, type Connection, type NodeChange } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import '@/styles/process-diagram.css'
 import type { GraphValidationViolation } from '@/api/definitions'
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/Button'
 import type { DiagramDraft } from '@/hooks/useDiagramDraft'
 import { isBlocking, type DraftCheck } from '@/hooks/useValidateDraft'
 import { addNode, connect, connectionRefusal, deleteEdges, deleteNodes, moveNode, positionOf, readAttrs, MAX_NODES, type EditRefusal, type EditResult } from '@/utils/canvas/graphEdit'
+import { dragCoalescer } from '@/utils/canvas/editHistory'
 import { anchorViolations } from '@/utils/canvas/violationAnchor'
 import { nodeDims } from '@/utils/canvas/readLayout'
 import { diagramConfig } from './diagramConfig'
@@ -159,13 +160,37 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
     [graph.edges, sel, nameOf, problemsFor, intl.locale],
   )
 
+  // One drag gesture = one undo step (see dragCoalescer); keyboard nudges report no drag and are one step each.
+  const dragKey = useRef(dragCoalescer())
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       for (const c of changes) {
-        if (c.type === 'position' && c.position) draft.apply(moveNode(graph, c.id, c.position), `drag:${c.id}`)
+        if (c.type !== 'position') continue
+        const key = dragKey.current(c.id, c.dragging)
+        if (c.position) draft.apply(moveNode(graph, c.id, c.position), key)
       }
     },
     [draft, graph],
+  )
+  const ariaLabelConfig = useMemo<Partial<AriaLabelConfig>>(
+    () => {
+      const m = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.${id}` }, values)
+      return {
+        'node.a11yDescription.default': m('edit.a11y.node'),
+        'node.a11yDescription.keyboardDisabled': m('edit.a11y.node'),
+        'node.a11yDescription.ariaLiveMessage': ({ x, y }) => m('edit.a11y.moved', { x: Math.round(x), y: Math.round(y) }),
+        'edge.a11yDescription.default': m('edit.a11y.edge'),
+        'controls.ariaLabel': m('a11y.controls'),
+        'controls.zoomIn.ariaLabel': m('a11y.zoomIn'),
+        'controls.zoomOut.ariaLabel': m('a11y.zoomOut'),
+        'controls.fitView.ariaLabel': m('a11y.fitView'),
+        'controls.interactive.ariaLabel': m('a11y.interactive'),
+        'minimap.ariaLabel': m('a11y.minimap'),
+        'handle.ariaLabel': m('a11y.handle'),
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [intl.locale],
   )
   const onConnect = useCallback(
     (c: Connection) => {
@@ -318,6 +343,7 @@ function DiagramEditorInner({ draft, violations, check, toolbar, initialSelected
               minZoom={diagramConfig.minZoom}
               maxZoom={diagramConfig.maxZoom}
               proOptions={PRO_OPTIONS}
+              ariaLabelConfig={ariaLabelConfig}
               onNodesChange={onNodesChange}
               onConnect={onConnect}
               isValidConnection={isValidConnection}

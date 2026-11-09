@@ -6,6 +6,8 @@ import type { ReactElement } from 'react'
 import type { DefinitionGraph, NodeType, ProcessDefinition } from '@/types/api'
 import { DiagramEditPane, type DiagramEditPaneProps } from '@/components/diagram/DiagramEditPane'
 import { ProcessDiagramIntlProvider } from '@/components/diagram/ProcessDiagramIntlProvider'
+import ProcessDiagram from '@/components/diagram/ProcessDiagram'
+import { DefinitionViewSwitch } from '@/components/diagram/DefinitionViewSwitch'
 import { PageHeader } from '@/components/ui/PageHeader'
 import type { FixtureRoute, HarnessScreen } from '../types'
 
@@ -93,4 +95,51 @@ export const processDesignerEditScreens: HarnessScreen[] = [
   },
   { name: 'pd-edit-saved', routes: ROUTES, render: () => frame('Purchase request', { demo: { saved: true } }) },
   { name: 'pd-edit-copy', routes: ROUTES, render: () => frame('Purchase request', { def: { ...DEF, status: 'ACTIVE' } }) },
+  {
+    name: 'pd-edit-module',
+    routes: ROUTES,
+    render: () => frame('Purchase request', { def: { ...DEF, status: 'ACTIVE' }, demo: { error: { kind: 'module', message: 'a module-owned definition version cannot be modified' } } }),
+  },
+  {
+    name: 'pd-edit-duplicate',
+    routes: ROUTES,
+    render: () =>
+      frame('Purchase request', {
+        def: { ...DEF, status: 'ACTIVE' },
+        demo: { versionTaken: true, error: { kind: 'duplicate', message: 'a definition with this name and version already exists' } },
+      }),
+  },
+  { name: 'pd-edit-stale', routes: ROUTES, render: () => frame('Purchase request', { demo: { stale: true } }) },
+  {
+    // The lazy-loaded editor is still arriving: the pane shows the shared Skeleton under the view switch.
+    name: 'pd-edit-loading',
+    routes: ROUTES,
+    render: () => (
+      <ProcessDiagramIntlProvider>
+        <div className="lf-main">
+          <main className="lf-content">
+            <HarnessHeader title="Purchase request" />
+            <DefinitionViewSwitch view="edit" onChange={() => {}} unsaved={false} canEditDiagram />
+            <DiagramEditPane def={DEF} editorDirty={false} onDirtyChange={() => {}} onSaved={() => {}} onReload={() => {}} demo={{ loading: true }} />
+          </main>
+        </div>
+      </ProcessDiagramIntlProvider>
+    ),
+  },
+  {
+    // A caller without DefinitionsWrite: the view switch has no "Edit diagram" button.
+    name: 'pd-edit-noperm',
+    routes: ROUTES,
+    render: () => (
+      <ProcessDiagramIntlProvider>
+        <div className="lf-main">
+          <main className="lf-content">
+            <HarnessHeader title="Purchase request" />
+            <DefinitionViewSwitch view="diagram" onChange={() => {}} unsaved={false} canEditDiagram={false} />
+            <ProcessDiagram graph={GRAPH} />
+          </main>
+        </div>
+      </ProcessDiagramIntlProvider>
+    ),
+  },
 ]

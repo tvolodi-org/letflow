@@ -7,7 +7,9 @@
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
+import { processDiagramMessages } from '@/i18n/processDiagramMessages'
 import type { DefinitionGraph, NodeType } from '@/types/api'
 import { ProcessDiagramIntlProvider } from '../ProcessDiagramIntlProvider'
 import ProcessDiagram from '../ProcessDiagram'
@@ -40,6 +42,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  act(() => useUiLocaleStore.getState().setLocale('en'))
   vi.unstubAllGlobals()
 })
 
@@ -181,6 +184,19 @@ describe('T-1563 diagram editor', () => {
     fireEvent.click(screen.getByTestId('edit-connect-go'))
     expect(latest.graph.edges.some((e) => e.source === 'review' && e.target === 'end')).toBe(true)
     expect(screen.getByTestId('edit-live')).toHaveTextContent('Connected Review to End')
+  })
+
+  it.each(['en', 'ru', 'kk'] as const)('K10 React Flow control names and keyboard instructions are in the UI language (%s)', (loc) => {
+    act(() => useUiLocaleStore.getState().setLocale(loc))
+    renderEditor()
+    const msg = processDiagramMessages[loc]
+    expect(document.querySelector(`.react-flow__controls button[aria-label="${msg['processDiagram.a11y.zoomIn']}"]`)).not.toBeNull()
+    expect(document.querySelector(`.react-flow__controls button[aria-label="${msg['processDiagram.a11y.fitView']}"]`)).not.toBeNull()
+    expect(document.body.textContent).toContain(msg['processDiagram.edit.a11y.node'])
+    if (loc !== 'en') {
+      expect(document.body.textContent).not.toContain('Press Enter to select a node')
+      expect(document.querySelector('button[aria-label="zoom in"]')).toBeNull()
+    }
   })
 
   it('K6 every toolbar control has an accessible name', () => {

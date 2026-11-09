@@ -113,6 +113,7 @@ defmodule Letflow.Routers.DefinitionsDesignerTest do
 
         got = if resp.status == 200, do: [], else: err_codes(json(resp))
         assert got == oracle(c["graph"], declared), "preview vs oracle: #{c["name"]}"
+        assert got == Enum.sort(c["codes"]), "fixture codes: #{c["name"]} got #{inspect(got)}"
 
         # Cases the create path accepts are also compared with the stored validate.
         if Map.get(c, "storable", true) and not c["blocking"] do
@@ -209,11 +210,6 @@ defmodule Letflow.Routers.DefinitionsDesignerTest do
       body = %{"graph" => base_graph()}
       resp = build_conn("POST", "/#{d.id}/validate", tenant, [@reader], body) |> dispatch()
       refute resp.status in [401, 403, 404]
-    end
-
-    test "B8 the request body limit is the root parser's 2 MiB" do
-      src = File.read!(Path.expand("../../../lib/letflow/plugs/api_pipeline.ex", __DIR__))
-      assert src =~ "length: 2_097_152"
     end
   end
 
@@ -458,6 +454,35 @@ defmodule Letflow.Routers.DefinitionsDesignerTest do
       assert resp.status == 422
       assert "missing_role" in err_codes(json(resp))
       assert Repo.get!(ProcessDefinition, d.id, prefix: schema).updated_at == d.updated_at
+    end
+
+    test "B8 a body over the root parser's 2 MiB is refused and nothing is stored" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t1563-b8")
+      schema = tenant.schema_name
+      d = create_definition!(schema)
+      token = token_for(tenant, ["TENANT_ADMIN"])
+      edited = fixture("edited_graph.json")
+      big = Map.put(%{"graph" => edited}, "pad", String.duplicate("a", 2_200_000))
+
+      for {method, path} <- [
+            {:post, "/api/v1/definitions/#{d.id}/validate"},
+            {:patch, "/api/v1/definitions/#{d.id}"}
+          ] do
+        status =
+          try do
+            real(method, path, tenant, token, big).status
+          rescue
+            e in Plug.Conn.WrapperError ->
+              assert %Plug.Parsers.RequestTooLargeError{} = e.reason
+              Plug.Exception.status(e.reason)
+          end
+
+        assert status == 413, "#{method} #{path}"
+      end
+
+      row = Repo.get!(ProcessDefinition, d.id, prefix: schema)
+      assert row.updated_at == d.updated_at
+      assert row.graph == d.graph |> Jason.encode!() |> Jason.decode!()
     end
   end
 end

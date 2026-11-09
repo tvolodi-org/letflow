@@ -131,6 +131,17 @@ const UI: Record<string, Triple> = {
   'processDiagram.edit.discard': ['Discard changes', 'Отменить изменения', 'Өзгерістерді болдырмау'],
   'processDiagram.edit.edgeDefault': ['default', 'по умолчанию', 'әдепкі'],
   'processDiagram.edit.edgeAria': ['Connection from {from} to {to}', 'Связь от «{from}» к «{to}»', '«{from}» қадамынан «{to}» қадамына байланыс'],
+  'processDiagram.edit.a11y.node': [
+    'Press Enter to edit this step, Alt with an arrow key to move it, Delete to remove it.',
+    'Enter откроет правку шага, Alt со стрелкой переместит его, Delete удалит его.',
+    'Қадамды өңдеу үшін Enter, жылжыту үшін Alt және көрсеткі, жою үшін Delete пернесін басыңыз.',
+  ],
+  'processDiagram.edit.a11y.edge': [
+    'Connection between steps. Press Enter to edit it, Delete to remove it.',
+    'Связь между шагами. Enter откроет правку, Delete удалит связь.',
+    'Қадамдар арасындағы байланыс. Өңдеу үшін Enter, жою үшін Delete пернесін басыңыз.',
+  ],
+  'processDiagram.edit.a11y.moved': ['Step position: x {x}, y {y}', 'Положение шага: x {x}, y {y}', 'Қадам орны: x {x}, y {y}'],
   'processDiagram.edit.canvas': ['Diagram editor', 'Редактор схемы', 'Сызба өңдегіші'],
   'processDiagram.edit.pageEyebrow': ['Definitions', 'Определения', 'Анықтамалар'],
   'processDiagram.edit.pageLede': ['Edit the process in the diagram; saved as a draft version.', 'Редактируйте процесс на схеме; сохраняется как черновая версия.', 'Процесті диаграммада өңдеңіз; жоба нұсқасы ретінде сақталады.'],

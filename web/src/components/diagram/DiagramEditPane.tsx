@@ -3,10 +3,11 @@
  *  `{graph}`) for a DRAFT, POST /definitions (next version, `copy_variable_schemas_from`) for any other status.
  *  Save is off while a blocking violation is present (create/update would answer 422). Updates are last-write-wins on the
  *  server; before saving, `updated_at` is compared with the value seen at the start and a mismatch asks first (best effort). */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
+import { Field } from '@/components/ui/Field'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { definitionsApi } from '@/api/definitions'
@@ -31,7 +32,7 @@ export interface DiagramEditPaneProps {
   /** Refetch the definition (after a not_draft conflict or a stale warning). */
   onReload: () => void
   /** Screen harness only: a fixed starting state (selection, problems, a banner) for the screenshots. */
-  demo?: { selected?: Sel; violations?: GraphValidationViolation[]; error?: NonNullable<SaveError>; saved?: boolean }
+  demo?: { selected?: Sel; violations?: GraphValidationViolation[]; error?: NonNullable<SaveError>; saved?: boolean; stale?: boolean; versionTaken?: boolean; loading?: boolean }
 }
 
 function classify(err: unknown): NonNullable<SaveError> {
@@ -54,24 +55,37 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
   const isDraftDef = def.status === 'DRAFT'
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<SaveError>(demo?.error ?? null)
-  const [stale, setStale] = useState(false)
+  const [stale, setStale] = useState(demo?.stale === true)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [savedTick, setSavedTick] = useState(demo?.saved === true)
   const [version, setVersion] = useState(() => nextDraftVersion(def.version))
-  const [versionTaken, setVersionTaken] = useState(false)
+  const [versionTaken, setVersionTaken] = useState(demo?.versionTaken === true)
+  // Violations a failed save returned for the graph that was sent (kept until that graph changes).
+  const [saveProblems, setSaveProblems] = useState<{ graph: DefinitionGraph; violations: GraphValidationViolation[] } | null>(null)
 
   useEffect(() => onDirtyChange(draft.dirty), [draft.dirty, onDirtyChange])
   // Leaving the pane (unmount) never leaves a stale lock behind.
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
-  // The definition was reloaded (after a save, or "Reload"): start again from what is stored.
+  // The definition was reloaded (after a save, a refetch, or "Reload"). A clean draft follows what is stored; a draft with
+  // unsaved edits is NEVER replaced silently: it stays, and the stale warning offers Save anyway / Discard and reload.
+  const dirtyRef = useRef(draft.dirty)
+  dirtyRef.current = draft.dirty
+  const firstSeed = useRef(true)
   useEffect(() => {
-    reset(seed, def.updated_at)
+    if (firstSeed.current) {
+      firstSeed.current = false
+      return
+    }
+    if (dirtyRef.current) setStale(true)
+    else reset(seed, def.updated_at)
   }, [seed, def.updated_at, reset])
 
   const live = useValidateDraft(def.id, draft.graph, !editorDirty && !demo?.violations)
   const check: DraftCheck = demo?.violations ? { phase: 'invalid', violations: demo.violations } : live.check
-  const violations = check.phase === 'invalid' ? check.violations : []
+  const checked = check.phase === 'invalid' ? check.violations : []
+  const fromSave = saveProblems && saveProblems.graph === draft.graph ? saveProblems.violations : []
+  const violations = [...checked, ...fromSave.filter((v) => !checked.some((c) => c.code === v.code && c.message === v.message))]
   const blocking = violations.filter(isBlocking)
 
   const blockedReason =
@@ -87,6 +101,8 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
     setSaving(true)
     setError(null)
     setStale(false)
+    setSaveProblems(null)
+    const sent = draft.graph
     try {
       let saved: ProcessDefinition
       if (isDraftDef) {
@@ -100,16 +116,22 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
           copy_variable_schemas_from: def.id,
         })
       }
+      // The server acknowledged the save: only now does the draft become the clean base.
+      draft.reset(withLayoutPositions(saved.graph), saved.updated_at)
       setSavedTick(true)
       onSaved(saved, !isDraftDef)
     } catch (err) {
       const c = classify(err)
+      const x = err as { status?: number; details?: unknown }
+      if (x?.status === 422 && Array.isArray(x.details)) {
+        setSaveProblems({ graph: sent, violations: (x.details as GraphValidationViolation[]).filter((v) => v && typeof v.code === 'string') })
+      }
       if (c.kind === 'duplicate') setVersionTaken(true)
       setError(c)
     } finally {
       setSaving(false)
     }
-  }, [isDraftDef, def, draft.graph, version, onSaved])
+  }, [isDraftDef, def, draft, version, onSaved])
 
   const save = useCallback(async () => {
     if (isDraftDef) {
@@ -135,11 +157,9 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
         <Banner tone="info">
           {e('copyNote', { status: def.status, version })}
           {versionTaken && (
-            <label className="lf-pd-edit__version">
-              {' '}
-              {e('versionLabel')}{' '}
+            <Field label={e('versionLabel')} width="s">
               <input value={version} onChange={(ev) => setVersion(ev.target.value)} data-testid="edit-version-input" />
-            </label>
+            </Field>
           )}
         </Banner>
         </div>
@@ -150,7 +170,7 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
           action={
             <>
               <Button variant="secondary" size="sm" onClick={() => void doSave()} data-testid="edit-stale-anyway">{e('stale.anyway')}</Button>
-              <Button variant="ghost" size="sm" onClick={onReload} data-testid="edit-stale-reload">{e('stale.reload')}</Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDiscard(true)} data-testid="edit-stale-reload">{e('stale.reload')}</Button>
             </>
           }
         >
@@ -166,6 +186,9 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
         </Banner>
       )}
       {savedTick && !draft.dirty && !error && <div data-testid="edit-saved"><Banner tone="success">{e('saved')}</Banner></div>}
+      {demo?.loading ? (
+        <Skeleton />
+      ) : (
       <Suspense fallback={<Skeleton />}>
         <DiagramEditor
           draft={draft}
@@ -183,6 +206,7 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
           }}
         />
       </Suspense>
+      )}
       <ConfirmDialog
         open={confirmDiscard}
         title={e('discard')}
@@ -193,7 +217,10 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
         onConfirm={() => {
           draft.reset(seed, def.updated_at)
           setError(null)
+          setStale(false)
+          setSaveProblems(null)
           setConfirmDiscard(false)
+          onReload()
         }}
         onCancel={() => setConfirmDiscard(false)}
       />

@@ -33,12 +33,18 @@ const EDITED = {
 }
 
 vi.mock('@/components/diagram/DiagramEditPane', () => ({
-  DiagramEditPane: ({ onDirtyChange, onSaved, def }: { onDirtyChange: (d: boolean) => void; onSaved: (d: unknown, copied: boolean) => void; def: { id: string } }) => (
+  DiagramEditPane: ({ onDirtyChange, onSaved, def }: { onDirtyChange: (d: boolean) => void; onSaved: (d: unknown, copied: boolean) => void; def: { id: string } }) => {
+    // Local state stands for the unsaved graph and undo history: a remount would lose it.
+    const [edits, setEdits] = React.useState(0)
+    return (
     <div data-testid="edit-pane-stub">
+      <span data-testid="edit-pane-edits">{edits}</span>
+      <button onClick={() => setEdits((n) => n + 1)}>edit-once</button>
       <button onClick={() => onDirtyChange(true)}>make-dirty</button>
       <button onClick={() => { onDirtyChange(false); onSaved({ id: def.id }, false) }}>save-ok</button>
     </div>
-  ),
+    )
+  },
 }))
 vi.mock('@/components/diagram/ProcessDiagramLazy', () => ({
   ProcessDiagramLazy: ({ graph }: { graph: { nodes: { id: string; label: string | null }[] } }) => (
@@ -174,6 +180,23 @@ describe('T-1563 definition page: Edit diagram', () => {
     expect(blockerPredicates.at(-1)?.({ currentLocation: { pathname: '/a' }, nextLocation: { pathname: '/b' } })).toBe(true)
     await user.click(screen.getByText('save-ok'))
     expect(screen.getByTestId('definition-view-editor')).not.toBeDisabled()
+  })
+
+  it('R1 switching to the read-only Diagram and back keeps the unsaved diagram draft and its history', async () => {
+    const user = userEvent.setup()
+    arrange('ACTIVE')
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
+    await user.click(screen.getByTestId('definition-view-edit'))
+    await user.click(screen.getByText('edit-once'))
+    await user.click(screen.getByText('edit-once'))
+    await user.click(screen.getByText('make-dirty'))
+    await user.click(screen.getByTestId('definition-view-diagram'))
+    // hidden, not unmounted; the Editor stays locked while the draft is dirty
+    expect(screen.getByTestId('definition-edit-view')).not.toBeVisible()
+    expect(screen.getByTestId('definition-view-editor')).toBeDisabled()
+    await user.click(screen.getByTestId('definition-view-edit'))
+    expect(screen.getByTestId('definition-edit-view')).toBeVisible()
+    expect(screen.getByTestId('edit-pane-edits')).toHaveTextContent('2')
   })
 
   it('S5 an unsaved Editor change refuses Edit diagram with the reason', async () => {

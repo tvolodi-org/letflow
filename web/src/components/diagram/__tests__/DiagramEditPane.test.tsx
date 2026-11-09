@@ -62,14 +62,17 @@ const DEF: ProcessDefinition = {
 
 const onSaved = vi.fn()
 const onReload = vi.fn()
+const tree = (def: ProcessDefinition, editorDirty: boolean, qc: QueryClient) => (
+  <QueryClientProvider client={qc}>
+    <ProcessDiagramIntlProvider>
+      <DiagramEditPane def={def} editorDirty={editorDirty} onDirtyChange={vi.fn()} onSaved={onSaved} onReload={onReload} />
+    </ProcessDiagramIntlProvider>
+  </QueryClientProvider>
+)
 function mount(def: ProcessDefinition = DEF, editorDirty = false) {
-  return render(
-    <QueryClientProvider client={new QueryClient()}>
-      <ProcessDiagramIntlProvider>
-        <DiagramEditPane def={def} editorDirty={editorDirty} onDirtyChange={vi.fn()} onSaved={onSaved} onReload={onReload} />
-      </ProcessDiagramIntlProvider>
-    </QueryClientProvider>,
-  )
+  const qc = new QueryClient()
+  const r = render(tree(def, editorDirty, qc))
+  return { ...r, rerenderDef: (next: ProcessDefinition) => r.rerender(tree(next, editorDirty, qc)) }
 }
 const addStep = async () => fireEvent.click(await screen.findByTestId('edit-add'))
 const save = () => fireEvent.click(screen.getByTestId('edit-save'))
@@ -166,6 +169,58 @@ describe('T-1563 diagram edit: save', () => {
     expect(screen.getByTestId('edit-save')).not.toBeDisabled()
   })
 
+  it('R2 a refetch with unsaved edits keeps the draft and asks; a clean draft follows the refetch', async () => {
+    vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
+    vi.mocked(definitionsApi.update).mockResolvedValue(DEF)
+    const r = mount()
+    await addStep()
+    const remote = {
+      ...DEF,
+      updated_at: '2026-11-05T00:00:00Z',
+      graph: { ...DEF.graph, nodes: [...DEF.graph.nodes, { id: 'remote', node_type: 'END' as const, label: null, attributes: { position: { x: 0, y: 200 } } }] },
+    }
+    r.rerenderDef(remote)
+    await screen.findByTestId('edit-stale')
+    expect(screen.getByTestId('edit-save')).not.toBeDisabled() // still dirty: the local work was not replaced
+    fireEvent.click(screen.getByTestId('edit-stale-anyway'))
+    await waitFor(() => expect(definitionsApi.update).toHaveBeenCalledTimes(1))
+    const sent = (vi.mocked(definitionsApi.update).mock.calls[0][1] as { graph: { nodes: { id: string }[] } }).graph.nodes
+    expect(sent).toHaveLength(3) // 2 stored + the added local step; the remote node was not merged in
+    expect(sent.some((n) => n.id === 'remote')).toBe(false)
+  })
+
+  it('R2b a clean draft follows a refetch without asking', async () => {
+    vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
+    vi.mocked(definitionsApi.update).mockResolvedValue(DEF)
+    const r = mount()
+    await screen.findByTestId('edit-add')
+    r.rerenderDef({ ...DEF, updated_at: '2026-11-05T00:00:00Z', graph: { ...DEF.graph, nodes: [...DEF.graph.nodes, { id: 'remote', node_type: 'END', label: null, attributes: { position: { x: 0, y: 200 } } }] } })
+    expect(screen.queryByTestId('edit-stale')).toBeNull()
+    await addStep()
+    vi.mocked(definitionsApi.get).mockResolvedValue({ ...DEF, updated_at: '2026-11-05T00:00:00Z' })
+    save()
+    await waitFor(() => expect(definitionsApi.update).toHaveBeenCalledTimes(1))
+    expect((vi.mocked(definitionsApi.update).mock.calls[0][1] as { graph: { nodes: unknown[] } }).graph.nodes).toHaveLength(4)
+  })
+
+  it('R3 a save refused with a structured 422 shows its violations and keeps the draft, although the live check failed', async () => {
+    vi.mocked(definitionsApi.validate).mockRejectedValue({ status: 500, message: 'down', code: 'x' }) // live check unavailable
+    vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
+    vi.mocked(definitionsApi.update).mockRejectedValueOnce({
+      status: 422,
+      message: 'Invalid graph',
+      code: 'unprocessable',
+      details: [{ code: 'missing_role', message: "Node 'start' (HUMAN_TASK) is missing a non-empty 'role' attribute." }],
+    })
+    mount()
+    await addStep()
+    save()
+    const list = await screen.findByTestId('edit-violations')
+    expect(list).toHaveTextContent("Node 'start' (HUMAN_TASK) is missing a non-empty 'role' attribute.")
+    expect(screen.getByTestId('edit-save')).toBeDisabled() // blocking code: fix first
+    expect(screen.getByTestId('edit-save-reason')).toBeInTheDocument()
+  })
+
   it('S7 the advisory set agrees with the shared fixture classification (the backend test B1b checks the flags against Definitions.create)', () => {
     const fx = JSON.parse(readFileSync(resolve(__dirname, '../../../../../test/fixtures/process_designer/validation_cases.json'), 'utf8')) as {
       cases: { name: string; blocking: boolean; codes: string[] }[]
@@ -182,6 +237,11 @@ describe('T-1563 diagram edit: save', () => {
       }
     }
     for (const code of advisoryInFixture) expect(ADVISORY_CODES.has(code)).toBe(true)
+    // The two semantic-only codes added after the first review are covered by fixture cases and are advisory.
+    for (const code of ['required_output_without_variable_schema', 'variable_never_collected']) {
+      expect(advisoryInFixture.has(code), code).toBe(true)
+      expect(isBlocking({ code, message: '' })).toBe(false)
+    }
     expect(fx.cases.some((c) => c.blocking)).toBe(true)
   })
 

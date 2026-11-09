@@ -169,6 +169,12 @@ export default function DefinitionEditorPage() {
   useEffect(() => {
     if (view === 'editor') setEditorMounted(true)
   }, [view])
+  // T-1563: once opened, "Edit diagram" is only hidden when the user switches views, never unmounted, so its unsaved
+  // graph and undo history survive a look at the read-only view (and the Editor lock stays in force while it is dirty).
+  const [editMounted, setEditMounted] = useState(false)
+  useEffect(() => {
+    if (view === 'edit') setEditMounted(true)
+  }, [view])
   const [previewGraph, setPreviewGraph] = useState<DefinitionGraph | null>(null)
   // T-1563: "Edit diagram" keeps its own draft; the Editor and the draft never hold two divergent unsaved states.
   const [diagramDirty, setDiagramDirty] = useState(false)
@@ -1062,8 +1068,12 @@ export default function DefinitionEditorPage() {
       )}
 
       {/* ── T-1563: edit the diagram (the definition format is the edit model; saved through the existing routes) ── */}
-      {view === 'edit' && def && (
-        <div data-testid="definition-edit-view" style={{ flex: 1, overflow: 'auto', padding: 'var(--space-4)' }}>
+      {(editMounted || view === 'edit') && def && (
+        <div
+          data-testid="definition-edit-view"
+          hidden={view !== 'edit'}
+          style={{ flex: 1, overflow: 'auto', padding: 'var(--space-4)', display: view === 'edit' ? undefined : 'none' }}
+        >
           <ProcessDiagramIntlProvider>
             <DiagramEditPane
               key={def.id}

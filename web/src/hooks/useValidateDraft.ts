@@ -8,12 +8,17 @@ import type { DefinitionGraph } from '@/types/api'
 
 export const VALIDATE_DEBOUNCE_MS = 700
 
-/** Violation codes that are ADVISORY: the semantic checks (SemanticValidation) are reported by validate only and are not
+/** Violation codes that are ADVISORY: the semantic checks (SemanticValidation: exactly these four codes) are reported by validate only and are not
  *  part of create/update. Every other code (structure, attribute, edge, flow) makes create/update answer 422, so it BLOCKS
  *  a save; classifying by this closed advisory set means a code the client has never seen blocks (fail closed). A test (S7)
  *  checks the set against the `codes` of the fixture cases test/fixtures/process_designer/validation_cases.json, whose
  *  `blocking` flag the backend test B1b checks against Definitions.create. */
-export const ADVISORY_CODES: ReadonlySet<string> = new Set(['undeclared_variable_reference', 'incompatible_comparison_operand_types'])
+export const ADVISORY_CODES: ReadonlySet<string> = new Set([
+  'undeclared_variable_reference',
+  'incompatible_comparison_operand_types',
+  'required_output_without_variable_schema',
+  'variable_never_collected',
+])
 
 export type DraftCheck =
   | { phase: 'idle' }
