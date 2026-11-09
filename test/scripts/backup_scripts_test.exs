@@ -69,11 +69,16 @@ defmodule Letflow.Scripts.BackupScriptsTest do
 
   # ── helpers ────────────────────────────────────────────────────────────────────────────────
 
+  # The team host runs `letflow-team-postgres-1`; CI runs the job's postgres service container
+  # (name `<id>_postgres16_<id>`), the only container that matches there. Off CI only the team's
+  # container is accepted, so a sibling checkout's database is never touched.
   defp container! do
-    {out, 0} =
-      System.cmd("docker", ["ps", "--filter", "name=letflow-team", "--format", "{{.Names}}"])
+    {out, 0} = System.cmd("docker", ["ps", "--format", "{{.Names}}"])
+    names = String.split(out, "\n", trim: true)
+    team = Enum.find(names, &(&1 =~ "letflow-team" and &1 =~ "postgres"))
+    ci = if System.get_env("CI") == "true", do: Enum.find(names, &(&1 =~ "postgres"))
 
-    case out |> String.split("\n", trim: true) |> Enum.find(&(&1 =~ "postgres")) do
+    case team || ci do
       nil ->
         flunk(
           "no letflow-team postgres container is running (docker compose -p letflow-team up -d postgres)"
