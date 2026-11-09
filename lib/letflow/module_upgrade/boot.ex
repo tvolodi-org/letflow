@@ -22,6 +22,9 @@ defmodule Letflow.ModuleUpgrade.Boot do
   (the planned row of a plan left for the admin gets the system actor and the fixed rationale; a
   `failed` row when no Apply row exists), both under the tenant's own prefix.
 
+  A module whose newest `done` journal row is a rollback (`Letflow.ModuleUpgrade.Rollback`) is held:
+  it counts as `left_for_admin` and nothing is written, until an admin applies an upgrade again.
+
   Outcomes are read with `list_outcomes/0`, backed by the journal rows (actor = system actor and the
   fixed rationale), never by logs: `done` is `:upgraded`, `failed` is `:failed`, a stamped `planned`
   row is `:left_for_admin`.
@@ -132,14 +135,30 @@ defmodule Letflow.ModuleUpgrade.Boot do
   end
 
   defp module_outcome(tenant_id, schema, %TenantModule{module_id: module_id} = row) do
-    case current?(row) do
-      true -> :skipped
-      false -> upgrade_one(tenant_id, schema, module_id, row)
+    cond do
+      current?(row) -> :skipped
+      rolled_back?(schema, module_id) -> :left_for_admin
+      true -> upgrade_one(tenant_id, schema, module_id, row)
     end
   rescue
     _exception -> failed(tenant_id, schema, module_id, row, "internal_error")
   catch
     _kind, _reason -> failed(tenant_id, schema, module_id, row, "internal_error")
+  end
+
+  # An admin rolled this module back (the newest finished journal row is a `done` rollback): the
+  # tenant stays on the older version until an admin applies an upgrade again. No write.
+  defp rolled_back?(schema, module_id) do
+    latest =
+      from(u in TenantModuleUpgrade,
+        where: u.module_id == ^module_id and u.state == :done and not is_nil(u.finished_at),
+        order_by: [desc: u.finished_at, desc: u.id],
+        limit: 1,
+        select: u.kind
+      )
+      |> Repo.one(prefix: schema)
+
+    latest == :rollback
   end
 
   defp current?(%TenantModule{module_id: module_id} = row) do

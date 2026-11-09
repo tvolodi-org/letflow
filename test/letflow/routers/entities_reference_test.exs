@@ -104,13 +104,17 @@ defmodule Letflow.Routers.EntitiesReferenceTest do
             foreign,
             wrong_type,
             "not-a-uuid",
-            123
+            # distinctive: a short number like 123 occurs by chance inside the body's random ids
+            # (trace_id, request_id), which made the "not echoed" check flaky on main
+            730_419_582
           ] do
         conn = post(a, %{"title" => "x", "target" => value})
         assert conn.status == 422, "#{inspect(value)}: #{conn.resp_body}"
         assert field_names(conn) == ["target"]
-        refute conn.resp_body =~ to_string(value)
-        strip_trace(conn)
+        # the echo check looks at the body without its per-request random ids
+        stripped = strip_trace(conn)
+        refute Jason.encode!(stripped) =~ to_string(value)
+        stripped
       end
 
     # a module that is not registered at all

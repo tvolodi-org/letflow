@@ -401,8 +401,12 @@ defmodule Letflow.Documents.PrintLayout.RenderTest do
       assert pages > 1
       assert bin =~ "/Count #{pages} "
 
-      expected = ["SKU", "Name"] ++ Enum.flat_map(rows, &[&1["sku"], &1["name"]])
-      assert PdfProbe.items(bin) == expected
+      # T-1555: the header is repeated at the top of every page; the rows are in order, once each
+      items = PdfProbe.items(bin)
+      assert Enum.count(items, &(&1 == "SKU")) == pages
+
+      assert Enum.reject(items, &(&1 in ["SKU", "Name"])) ==
+               Enum.flat_map(rows, &[&1["sku"], &1["name"]])
 
       assert render(l, %{"line" => [%{"sku" => "x"} | rows]}) ==
                {:error, [%{rule: :too_many_rows, path: ["blocks", 1]}]}
