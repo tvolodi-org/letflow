@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useModalFocus } from '@/components/ui/useModalFocus'
 import { P, useAccess } from '@/auth/access'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { groupsApi, usersApi } from '@/api/identity'
@@ -36,6 +37,10 @@ export default function GroupsPage() {
   const [form, setForm] = useState({ name: '', display_name: '', description: '' })
   const [activeGroup, setActiveGroup] = useState<GroupRow | null>(null)
   const [pendingDelete, setPendingDelete] = useState<GroupRow | null>(null)
+  const membersRef = useRef<HTMLDivElement | null>(null)
+  const deleteRef = useRef<HTMLDivElement | null>(null)
+  useModalFocus(membersRef, { open: activeGroup != null && pendingDelete == null, onClose: () => setActiveGroup(null) })
+  useModalFocus(deleteRef, { open: pendingDelete != null, onClose: () => setPendingDelete(null) })
   const [selectedUserId, setSelectedUserId] = useState('')
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -239,7 +244,7 @@ export default function GroupsPage() {
       />
 
       {activeGroup && (
-        <div role="dialog" aria-modal="true" aria-label="Manage group members" style={{ position: 'fixed', inset: 0, background: 'var(--surface-overlay-slate)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 30 }}>
+        <div ref={membersRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Manage group members" style={{ position: 'fixed', inset: 0, background: 'var(--surface-overlay-slate)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 30 }}>
           <div style={{ background: 'var(--surface-card)', width: 'min(720px, 100%)', borderRadius: '12px', padding: '1.25rem', maxHeight: '85vh', overflow: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'start', marginBottom: '1rem' }}>
               <div>
@@ -314,7 +319,7 @@ export default function GroupsPage() {
       </QueryStateBoundary>
 
       {pendingDelete && (
-        <div role="dialog" aria-modal="true" aria-label="Delete group" style={{ position: 'fixed', inset: 0, background: 'var(--surface-overlay-slate)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 40 }}>
+        <div ref={deleteRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Delete group" style={{ position: 'fixed', inset: 0, background: 'var(--surface-overlay-slate)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 40 }}>
           <div style={{ background: 'var(--surface-card)', width: 'min(520px, 100%)', borderRadius: '12px', padding: '1.25rem' }}>
             <h3 style={{ marginTop: 0 }}>Delete group?</h3>
             <p style={{ color: 'var(--text-secondary)' }}>Delete {groupTitle(pendingDelete)} only if it is empty. This action cannot be undone.</p>
