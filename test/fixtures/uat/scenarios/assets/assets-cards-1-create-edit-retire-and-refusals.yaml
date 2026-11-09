@@ -1,0 +1,157 @@
+# T-1531 (BA#4, assets): the register of asset cards. The administrator creates a card, changes allowed fields, retires it; duplicate numbers, a second retire, fields the card does not accept and a worker are refused; another company cannot see the card.
+# Sources: lib/letflow/modules/assets/cards.ex (moduledoc: rule order, allow-list, refusals), lib/letflow/modules/assets/router.ex (moduledoc: routes, 404 for unknown and other-tenant ids, 422 fixed reasons, 409 idempotency_key_reuse),
+# docs/assets/asset-register.md section 3 (card fields), docs/roles.md (assets permissions are held by the tenant administrator only), docs/agents/instructions/security-invariants.md INV-5.
+#
+# SCREEN GAP (stated, not invented): the card screens exist in the web application, but this scenario drives the routes so that the fixed refusal reasons can be read; every step is via: api.
+# ROSTER GAP: the roster has no assets-scope actor. The SwiftRoute administrator creates cards, the SwiftRoute TASK_WORKER is the refused worker, the BilimBaga administrator is the other company.
+# NOT UAT-observable: the audit entry of a card write (read through the audit view by a platform auditor; no roster actor with that view for SwiftRoute); the database-failure path "audit_failed" (needs a dropped table).
+---
+id: assets-cards-1-create-edit-retire-and-refusals
+scope: assets
+title: An administrator creates, changes and retires an asset card; duplicate numbers, a second retire, unknown fields and a worker are refused; another company cannot reach the card
+version: "1.0"
+tags: [assets, cards, register, refusal, tenancy]
+
+description: >
+  SwiftRoute has the assets module installed. The administrator creates a fixed-asset card "Laptop" with inventory number INV-001 and reads it back. A second card with the same inventory number is refused
+  and no second card appears. The administrator changes the name and the book value of the card (allowed fields). A request that names a field the card does not have ("price") or a field the server sets
+  ("active") is refused and the card stays as it was. The administrator retires the card; retiring it a second time is refused. A task worker who holds no asset right is refused when creating a card. The
+  administrator of another company who names the SwiftRoute card gets the same answer as for an unknown card.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has the assets module installed and active; no card with inventory number INV-001 exists.
+    check: system_seeded
+    detail: If the module cannot be installed through the company's own administration, report BLOCKED for the whole scenario.
+  - description: BilimBaga has the assets module installed.
+    check: system_seeded
+    detail: If BilimBaga has no assets module, report BLOCKED for step 9 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator creates a card with inventory number INV-001, name "Laptop", kind fixed asset. The answer is noted as C1 (card id, active).
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator creates a second card with inventory number INV-001, name "Laptop copy", kind fixed asset. The answer is noted as C2; the card list is read and noted as L1.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator changes the card INV-001: the name becomes "Laptop 14 inch" and the book value becomes 250000. The answer is noted as C3.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator changes the card INV-001 and names a field "price" with the value 10. The answer is noted as C4; the card is read as R1.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator changes the card INV-001 and names the field "active" with the value false. The answer is noted as C5; the card is read as R2.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator retires the card INV-001. The answer is noted as C6; the card is read as R3.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator retires the card INV-001 a second time. The answer is noted as C7.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: worker
+    action: >
+      The task worker creates a card with inventory number INV-002, name "Desk", kind low-value. The answer is noted as C8; the card list is read by the administrator as L2.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: other_admin
+    action: >
+      The administrator of BilimBaga changes the card INV-001 of SwiftRoute (name "Taken"), using its card id. The answer is noted as C9; then the SwiftRoute administrator reads the card as R4.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A card is created active with the number, name and kind given.
+    verification:
+      method: api_response
+      detail: Step 1 answers 201; C1 shows INV-001, "Laptop", kind fixed and active true.
+      evidence: C1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The register cannot be started; no asset can be commissioned.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A duplicate inventory number is refused and no second card exists.
+    verification:
+      method: api_response
+      detail: Step 2 is refused with a 4xx that does not echo the stored values; L1 holds exactly one card with number INV-001.
+      evidence: C2 and L1.
+    on_fail:
+      severity: MAJOR
+      business_impact: Two cards could carry one inventory number and the register would be ambiguous.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: The allowed fields change; the card keeps its number.
+    verification:
+      method: api_response
+      detail: Step 3 answers 200; C3 shows the name "Laptop 14 inch" and the book value 250000; the inventory number is INV-001.
+      evidence: C3.
+    on_fail:
+      severity: MINOR
+      business_impact: Corrections of a card cannot be made.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A field the card does not have, or one the server sets, is refused with a fixed reason and the card is unchanged.
+    verification:
+      method: api_response
+      detail: Steps 4 and 5 answer 422 with the reason "field_not_allowed" (the field name only, never a stored value); R1 and R2 equal C3 in name, book value and active flag.
+      evidence: C4, C5, R1 and R2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A client could write price fields or reactivate a card outside the rules.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: Retire makes the card inactive; a second retire is refused.
+    verification:
+      method: api_response
+      detail: Step 6 answers 200 and R3 shows active false. Step 7 is refused with 422 and the reason "card_inactive".
+      evidence: C6, R3 and C7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A retired card could be retired again and the audit trail would show a false second event.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: A worker without an asset right cannot create a card.
+    verification:
+      method: http_status
+      detail: Step 8 answers 403; L2 holds no card with number INV-002.
+      evidence: C8 and L2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone could put assets into the register.
+      suggested_action: route_to_elixir_dev
+  - id: EO-007
+    description: Another company gets the answer for an unknown card and the card is not changed.
+    verification:
+      method: http_status
+      detail: Step 9 answers 404, the same body as for an unknown card id; R4 has the name "Laptop 14 inch".
+      evidence: C9 and R4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could change, or learn about, the assets of another company.
+      suggested_action: route_to_elixir_dev
