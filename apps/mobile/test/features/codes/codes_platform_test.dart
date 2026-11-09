@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
-    'C2a: mobile_scanner (REQ-732) and record (REQ-747) are the only additions',
+    'C2a: mobile_scanner (REQ-732), record (REQ-747) and sembast_web (PWA M1) are the only additions',
     () {
       final lines = File('pubspec.yaml').readAsLinesSync();
       final start = lines.indexOf('dependencies:');
@@ -29,6 +29,7 @@ void main() {
         'path_provider',
         'record',
         'sembast',
+        'sembast_web',
       ]);
     },
   );
@@ -61,6 +62,7 @@ void main() {
       final src = f.readAsStringSync();
       for (final banned in [
         'sembast',
+        'sembast_web',
         'flutter_secure_storage',
         'dart:io',
         'File(',

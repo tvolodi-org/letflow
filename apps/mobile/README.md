@@ -215,6 +215,25 @@ install), iOS `NSMicrophoneUsageDescription` (English only). The recording is a
 temporary file that is deleted as soon as it is read; audio and transcript are
 kept in memory only and the feature is online only.
 
+## Web / PWA (M1)
+
+`web/` makes the same Flutter code build as an installable PWA (plan D-112), for iPhone
+users without scanners. M1 is compile and installability only, no feature work.
+
+```
+flutter build web --release --dart-define=LETFLOW_API_BASE_URL=https://...   # output: build/web
+```
+
+Served from a sub-path? Add `--base-href /sub/`. The manifest colours are the design-system
+brand teal `#0c6b5f`; the icons are the Letflow app icons from the SPA brand folder (repo-root `web/public/brand`).
+The definition caches use IndexedDB on web (`sembast_web`, chosen by the conditional import
+in `lib/definitions/sembast_platform.dart`).
+
+Not in M1: **sign-in on web** (`flutter_appauth` has no web support; a redirect + PKCE
+flow is the next milestone), web voice recording, push. iOS limits: camera only on HTTPS
+after a tap, no hardware scanners, storage may be cleared after 7 days unused unless the
+app is installed to the home screen, no background sync.
+
 ## Static guards
 
 `test/guards/` holds three ordinary Dart tests that fail `flutter test` (and

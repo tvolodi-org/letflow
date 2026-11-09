@@ -6,11 +6,10 @@
 /// "Why a separate `.db` file" for the full reasoning.
 library;
 
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-import 'package:sembast/sembast_io.dart';
+import 'package:sembast/sembast.dart';
 
 import 'pinned_form_cache.dart';
+import 'sembast_platform.dart';
 
 class SembastPinnedFormCacheRepository implements PinnedFormCacheRepository {
   SembastPinnedFormCacheRepository._(this._db);
@@ -44,7 +43,9 @@ class SembastPinnedFormCacheRepository implements PinnedFormCacheRepository {
 
   @override
   Future<void> putEntry(PinnedFormCacheEntry entry) async {
-    await _entriesStore.record(entry.compositeKey).put(_db, entry.toStoredJson());
+    await _entriesStore
+        .record(entry.compositeKey)
+        .put(_db, entry.toStoredJson());
   }
 
   @override
@@ -63,7 +64,7 @@ class SembastPinnedFormCacheRepository implements PinnedFormCacheRepository {
 Future<PinnedFormCacheRepository> openProductionPinnedFormCache(
   String realmUrl,
 ) async {
-  final dir = await getApplicationSupportDirectory();
-  final path = p.join(dir.path, pinnedFormCacheFileNameFor(realmUrl));
-  return SembastPinnedFormCacheRepository.open(path, factory: databaseFactoryIo);
+  final path = await productionDbPath(pinnedFormCacheFileNameFor(realmUrl));
+  final dbFactory = await productionDatabaseFactory();
+  return SembastPinnedFormCacheRepository.open(path, factory: dbFactory);
 }

@@ -59,6 +59,8 @@ dependencies:
   path_provider: ^2.1.5
   record: ^6.2.1
   sembast: ^3.8.5
+  # PWA M1 (D-112): IndexedDB backend, the only sembast store that works on web.
+  sembast_web: ^2.4.4+1
 
 dev_dependencies:
   flutter_test:

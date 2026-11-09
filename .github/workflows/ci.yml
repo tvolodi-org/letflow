@@ -1255,3 +1255,6 @@ jobs:
       - name: Build debug APK
         if: needs.changes.outputs.mobile != 'false'
         run: flutter build apk --debug
+      - name: Build web (PWA)
+        if: needs.changes.outputs.mobile != 'false'
+        run: flutter build web --release
