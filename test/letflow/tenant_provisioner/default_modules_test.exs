@@ -87,7 +87,7 @@ defmodule Letflow.TenantProvisioner.DefaultModulesTest do
     |> Letflow.Router.call(Letflow.Router.init([]))
   end
 
-  defp create!(extra_prov \\ []) do
+  defp create!(extra_prov) do
     put_prov(extra_prov)
     payload = body()
     on_exit(fn -> drop_tenant!(payload["tenant_id"]) end)
