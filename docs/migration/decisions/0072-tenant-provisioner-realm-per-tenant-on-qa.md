@@ -231,6 +231,7 @@ All are configuration read in `config/runtime.exs` from the environment, with th
 | `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | 14 | after creation; sets `expires_at` when the request gives none; the sweep expires the demo |
 | `LETFLOW_PROVISIONER_RETENTION_DAYS` | 30 | counted from expiry or from the deletion request, then purge (and the reaper deletes the realm) |
 | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | 60 | how often the scheduled sweep runs (expire, then purge) |
+| `LETFLOW_PROVISIONER_DEFAULT_MODULES` | org, locations, catalog_items, stock | D8: module ids installed (with their dependencies) on create; `none` installs nothing |
 | `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | none (empty refuses all) | D5(b) |
 | `LETFLOW_PROVISIONER_CREDENTIAL_SHA256` | unset (routes answer 404) | D6 |
 
@@ -238,6 +239,16 @@ The implementer lists each variable with its default and reason in the PR (a new
 
 The numbers are the owner's blast-radius choice and are explicitly **starting values**: nothing in code or tests may assume 30, 25, 14 or 30 except as the defaults. The provisioner has its own demo cap and capacity errors
 (`demo_cap_reached`, `total_cap_reached`); the two caps are independent and the lower one wins.
+
+## 8a. D8. Default modules on create (T-1580, amendment)
+
+The last step of a create installs the modules named by `LETFLOW_PROVISIONER_DEFAULT_MODULES`. Rules:
+
+- The install set is the **dependency closure** of the list, in dependency order (`stock` needs `codes`, so the default four install five). `assets` is opt-in by the setting.
+- One `Installs.install/3` call per module, so a failing module rolls back only itself; its dependents are skipped, independent modules still install; `already_installed` counts as done (an administrator's uninstall is never reverted).
+- The actor is the fixed nil-UUID system id (as in `ModuleUpgrade.Boot`): no user, no role, no `auth_context`; the code path reaches no grant, role, credential or secret function.
+- A failed install never fails the create. `tenant_lifecycles.default_modules_state` (`not_applicable | pending | done | failed`) and `default_modules_failure` (`"<module_id>:<code>"`, never SQL) record it; a replay of the create call with the same `tenant_id` retries `pending` and `failed`. Rows made before the column existed are `not_applicable` and install nothing.
+- The create answer and `GET /tenants/:id` are unchanged. Sweep-driven retry is not part of this decision.
 
 ## 9. Consequences and what to build, in order
 
