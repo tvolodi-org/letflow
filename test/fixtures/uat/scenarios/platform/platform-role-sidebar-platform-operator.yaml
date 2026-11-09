@@ -3,8 +3,9 @@
 # Sources: AppShell.tsx (NAV_ITEMS: the six entries with platformOnly: true, group platform), navVisibility.ts (platformOnly entries also need the platform company),
 # navMessages.ts, router.tsx (platformPage guards), test/fixtures/uat/actors.yaml (actor-platform-admin, tenant platform, PLATFORM_ADMIN), docs/roles.md.
 # Companion: tenant-admin-76 (a company administrator sees no Platform group) and tenant-admin-77 (a worker is refused platform addresses).
-# Not asserted: the module entries of the platform company (which modules it has installed is not fixed by the roster), and "Import data" / "Module lifecycle"
-# (shown only with an importable list type or the feature switch). This is a view check on the operator's own sign-in; no other company's data is requested.
+# Completeness (EO-002): the full expected menu is the group Platform (six), Work (three), Tenant administration (ten core entries) plus the conditional Import data and
+# Module lifecycle and module entries from the closed list; which modules the platform company has installed is not fixed by the roster, so module entries are checked
+# against the closed list, not counted. This is a view check on the operator's own sign-in; no other company's data is requested.
 # UAT assumption, to be confirmed by the process owner: the English names of the entries are those of navMessages.ts and the browser language is English.
 # STOREKEEPER GAP: see tenant-admin-77; the roster has no storekeeper actor.
 ---
@@ -58,7 +59,11 @@ expected_outcomes:
     description: The groups Work and Tenant administration are present for the operator too.
     verification:
       method: gui_screen
-      detail: The menu screen shows the group Work with Instances, My Tasks and Definitions, and the group Tenant administration with Audit, Metrics and Users.
+      detail: >
+        The menu screen shows the group Work with Instances, My Tasks and Definitions, and the group Tenant administration with all ten core entries Promotion Reviews,
+        DLQ, Webhooks, Users, Groups, Tokens, Audit, Print Templates, Metrics and Solution Packs (with Import data only when the platform company has an importable
+        list type, and Module lifecycle absent while its feature switch is off). Any other entry is a module entry of a module installed in the platform company, from this closed
+        list: Items, Lots, Codes, Locations, Location links, Legal companies, Sites, Org units, Positions, Employees, Stock documents, Balances, Movements, Counts, Asset cards, Asset documents, Asset balances, Asset movements, Exams, Question Bank, Grading and Exam builder, and sits under the group Work. An entry outside these fails the outcome.
       evidence: menu_screen.
     on_fail:
       severity: MINOR
