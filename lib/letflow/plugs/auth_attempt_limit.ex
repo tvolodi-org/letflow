@@ -8,12 +8,13 @@ defmodule Letflow.Plugs.AuthAttemptLimit do
 
   Two modes (plug option `mode:`):
 
-    * `:failures` -- mounted in `Letflow.Plugs.ApiPipeline` right after the global admission
-      gate and BEFORE `Plug.Parsers`, so a refused request costs no body read. It PEEKS the
-      per-address bucket (no spend); empty -> 429 and halt. Otherwise it registers a
-      before-send hook: when `AuthPipeline` marked the request `conn.private[:auth_failed]`,
-      one token is spent. Successful requests spend nothing, so good traffic from a shared
-      address is never throttled by its own volume. A halted 429 is never counted.
+    * `:failures` -- mounted in `Letflow.Plugs.ApiPipeline` before `Plug.Parsers`. It refuses
+      nothing itself: a request is never turned away before its credential is checked, so a
+      valid JWT or API token is never throttled, whatever the address's bucket holds. It only
+      records the caller's key. When `AuthPipeline` finds a presented credential wrong it calls
+      `record_failure/1`: one token is spent and the 401 is sent; with the bucket empty the
+      answer is the constant 429 with `retry-after` instead. Successful requests, missing
+      headers, expired API tokens and expired JWTs spend nothing.
     * `:requests` -- mounted first in the two public tenant-config routers; one token per
       request.
 
@@ -23,7 +24,8 @@ defmodule Letflow.Plugs.AuthAttemptLimit do
   headers and body carry nothing cause- or tenant-dependent (INV-5).
 
   Behind a proxy that is not in the `ClientIp` trusted list every user shares one address;
-  the failures-only counting keeps good traffic unaffected, but see
+  only failed credentials are counted and valid ones are never refused, so a guesser can at most
+  receive 429 instead of 401 for its own bad tokens; see
   `docs/runbooks/auth-rate-limits.md`.
 
   Configuration: `config :letflow, Letflow.Plugs.AuthAttemptLimit, ...` (keys in
@@ -69,22 +71,33 @@ defmodule Letflow.Plugs.AuthAttemptLimit do
     end
   end
 
-  def run(conn, :failures, now_ms) do
-    {capacity, refill} = params(:failures)
-    key = key(:failures, conn)
+  def run(conn, :failures, _now_ms) do
+    # Nothing is refused here: a request is never turned away before its credential is
+    # checked, so a valid credential is never throttled. `record_failure/1` (called by
+    # `AuthPipeline` when a presented credential is wrong) spends the token and answers 429.
+    put_private(conn, :auth_limit_key, key(:failures, conn))
+  end
 
-    case Bucket.peek(key, capacity, refill, now_ms) do
-      :rate_limited ->
-        refuse(conn, :failures, key, now_ms)
+  @doc """
+  Called by `Letflow.Plugs.AuthPipeline` when a presented credential was wrong. Spends one
+  token of the caller's failure bucket; with none left, answers the constant 429 with
+  `retry-after` instead of the 401 (`{:limited, conn}`), otherwise `{:ok, conn}` and the
+  caller sends its 401. A conn without the plug's key (plug not mounted) is passed through.
+  """
+  @spec record_failure(Plug.Conn.t()) :: {:ok, Plug.Conn.t()} | {:limited, Plug.Conn.t()}
+  def record_failure(conn) do
+    case conn.private[:auth_limit_key] do
+      nil ->
+        {:ok, conn}
 
-      :ok ->
-        register_before_send(conn, fn conn ->
-          if conn.private[:auth_failed] == true do
-            Bucket.consume(key, capacity, refill, System.monotonic_time(:millisecond))
-          end
+      key ->
+        {capacity, refill} = params(:failures)
+        now_ms = System.monotonic_time(:millisecond)
 
-          conn
-        end)
+        case Bucket.consume(key, capacity, refill, now_ms) do
+          :ok -> {:ok, conn}
+          :rate_limited -> {:limited, refuse(conn, :failures, key, now_ms)}
+        end
     end
   end
 

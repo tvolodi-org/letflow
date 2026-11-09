@@ -1,6 +1,12 @@
+defmodule Letflow.Plugs.AuthAttemptLimitTest.ExpiredVerifier do
+  @moduledoc false
+  def verify_bearer_token("expired-jwt"), do: {:error, :token_expired}
+  def verify_bearer_token(_), do: {:error, :invalid_test_token}
+end
+
 defmodule Letflow.Plugs.AuthAttemptLimitTest do
   @moduledoc """
-  GH T-1558 part 1 (design `state/tasks/T-1558/design.md`, test IDs A1..A13; A14 is the child
+  GH T-1558 part 1 (design `state/tasks/T-1558/design.md`, test IDs A1..A5, A7..A13, A15, A16 (A6 'refusal before body parse' was dropped when the limiter stopped refusing before auth); A14 is the child
   count in `test/letflow/supervisor/infrastructure_test.exs`).
 
   Real `Letflow.Router`, real tenants. `async: false`: the limiter's ETS table is node-global.
@@ -155,19 +161,6 @@ defmodule Letflow.Plugs.AuthAttemptLimitTest do
     assert Bucket.size() == 0
   end
 
-  test "A6: a refused address gets 429 before the body is parsed" do
-    ip = {192, 0, 2, 6}
-    for _ <- 1..10, do: jwt_get("garbage", ip)
-
-    conn =
-      conn(:post, "/api/v1/identity/anything", "{this is not json")
-      |> put_req_header("content-type", "application/json")
-      |> from(ip)
-      |> dispatch()
-
-    assert conn.status == 429
-  end
-
   test "A7: the 4th GET /api/tenant-config from one address is 429; another address answers" do
     ip = {192, 0, 2, 7}
 
@@ -263,9 +256,11 @@ defmodule Letflow.Plugs.AuthAttemptLimitTest do
     r_a = api_token_get(token_a, tenant_a.tenant.slug, ip)
     r_b = api_token_get(token_a, tenant_b.tenant.slug, ip)
     r_unknown = api_token_get(token_a, "no-such-tenant-slug", ip)
-    assert [r_a.status, r_b.status, r_unknown.status] == [429, 429, 429]
-    assert r_a.resp_body == r_b.resp_body
-    assert r_a.resp_body == r_unknown.resp_body
+    # the valid credential is untouched; only the failing ones get the constant 429
+    assert [r_a.status, r_b.status, r_unknown.status] == [200, 429, 429]
+
+    assert Map.delete(Jason.decode!(r_b.resp_body), "trace_id") ==
+             Map.delete(Jason.decode!(r_unknown.resp_body), "trace_id")
   end
 
   test "A12: no token or slug in logs; telemetry carries only outcome and mode" do
@@ -298,5 +293,36 @@ defmodule Letflow.Plugs.AuthAttemptLimitTest do
     assert Limiter.parse_failures_per_min("10x") == {:error, :invalid}
     assert_raise ArgumentError, fn -> Limiter.validate_config!(failure_capacity: 0) end
     assert :ok = Limiter.validate_config!([])
+  end
+
+  test "A15: a valid credential from an address with an exhausted bucket is not refused" do
+    tenant = TenantFixture.provisioned_tenant!(slug_prefix: "aal-a15")
+    {_t, good} = admin_token!(tenant)
+    ip = {192, 0, 2, 15}
+
+    for _ <- 1..10, do: assert(jwt_get("garbage", ip).status == 401)
+    assert jwt_get("garbage", ip).status == 429
+
+    assert api_token_get(good, tenant.tenant.slug, ip).status == 200
+    assert api_token_get(good, tenant.tenant.slug, ip).status == 200
+  end
+
+  test "A16: an expired JWT does not spend a token" do
+    original = Application.fetch_env!(:letflow, :oidc)
+
+    Application.put_env(
+      :letflow,
+      :oidc,
+      Keyword.put(original, :token_verifier, Letflow.Plugs.AuthAttemptLimitTest.ExpiredVerifier)
+    )
+
+    on_exit(fn -> Application.put_env(:letflow, :oidc, original) end)
+
+    ip = {192, 0, 2, 16}
+    for _ <- 1..20, do: assert(jwt_get("expired-jwt", ip).status == 401)
+    assert Bucket.size() == 0
+    # a wrong token still counts
+    assert jwt_get("other", ip).status == 401
+    assert Bucket.size() == 1
   end
 end
