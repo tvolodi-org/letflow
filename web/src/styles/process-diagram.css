@@ -182,3 +182,39 @@
 .lf-pd-node__invalid { position: absolute; top: calc(var(--space-2) * -1); right: calc(var(--space-2) * -1); z-index: 1; }
 .lf-pd-edge.is-invalid { stroke: var(--danger); stroke-dasharray: 6 4; }
 .lf-pd-edge__invalid { color: var(--danger); }
+
+/* ── T-1588: version diff. Colour is never the only cue: each kind also has a border/stroke shape, a word and a glyph. ── */
+.lf-pd-node.is-diff-added .lf-pd-node__shape, .lf-pd-node--human-task.is-diff-added, .lf-pd-node--service-task.is-diff-added, .lf-pd-node--sub-process.is-diff-added {
+  border-color: var(--success); border-style: solid; border-width: 2px;
+}
+.lf-pd-node.is-diff-removed .lf-pd-node__shape, .lf-pd-node--human-task.is-diff-removed, .lf-pd-node--service-task.is-diff-removed, .lf-pd-node--sub-process.is-diff-removed {
+  border-color: var(--danger); border-style: dashed; border-width: 2px;
+}
+.lf-pd-node.is-diff-removed .lf-pd-node__label { text-decoration: line-through; }
+.lf-pd-node.is-diff-changed .lf-pd-node__shape, .lf-pd-node--human-task.is-diff-changed, .lf-pd-node--service-task.is-diff-changed, .lf-pd-node--sub-process.is-diff-changed {
+  border-color: var(--warning); border-style: double; border-width: 4px;
+}
+.lf-pd-edge.is-diff-added { stroke: var(--success); stroke-width: 2.5; }
+.lf-pd-edge.is-diff-removed { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.lf-pd-edge.is-diff-changed { stroke: var(--warning); stroke-width: 3; }
+.lf-pd-edge__label.is-diff-added { border-color: var(--success); color: var(--ink); }
+.lf-pd-edge__label.is-diff-removed { border-color: var(--danger); border-style: dashed; color: var(--ink); }
+.lf-pd-edge__label.is-diff-changed { border-color: var(--warning); color: var(--ink); }
+.lf-pd-edge__diff { display: inline-flex; align-items: center; gap: var(--space-1); font: var(--type-body-s); }
+.lf-pd-versions { display: flex; flex-direction: column; gap: var(--space-4); }
+.lf-pd-versions__table { width: 100%; border-collapse: collapse; font: var(--type-body-s); }
+.lf-pd-versions__table th, .lf-pd-versions__table td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line); vertical-align: middle; }
+.lf-pd-versions__table th { color: var(--ink-muted); font-weight: 600; }
+.lf-pd-versions__table tr.is-current td { background: var(--paper-sunken); }
+.lf-pd-versions__mono { font: var(--type-mono-s); white-space: nowrap; }
+/* width 0 + min-width 100%: the wide table scrolls inside and does not stretch the page (390 px). */
+.lf-pd-versions__scroll { overflow-x: auto; width: 0; min-width: 100%; scrollbar-color: var(--line-strong) transparent; }
+.lf-pd-versions__controls { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-end; }
+.lf-pd-versions__controls > * { flex: 1 1 var(--field-w-s); min-width: 0; }
+.lf-pd-versions__legend, .lf-pd-versions__changes { display: flex; flex-wrap: wrap; gap: var(--space-3); list-style: none; margin: 0; padding: 0; align-items: center; }
+.lf-pd-versions__changes { flex-direction: column; align-items: flex-start; gap: var(--space-2); font: var(--type-body-s); }
+.lf-pd-versions__title { font: var(--type-heading-3); margin: 0; }
+.lf-pd-versions__summary { margin: 0; font: var(--type-body); }
+.lf-pd-edge__label .lf-pd-edge__diff { margin-inline-start: var(--space-1); }
+.lf-pd-edge__label .lf-pd-edge__diff:first-child { margin-inline-start: 0; }
+.lf-pd-versions__lede { margin: 0; font: var(--type-body-s); color: var(--ink-muted); }

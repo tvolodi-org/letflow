@@ -1205,7 +1205,11 @@ defmodule Letflow.Ledger do
     with {:ok, entry} <- registration_for(ledger_id),
          {:ok, permission} <- permission_for(entry, purpose),
          {:ok, _conn, %Principal{kind: :user} = principal} <- Scope.principal_from_conn(conn),
-         true <- Enum.any?(principal.roles, &Authorization.role_allows?(&1, permission)),
+         true <-
+           Enum.any?(
+             principal.roles,
+             &Authorization.role_allows?(&1, permission, principal.role_overlay)
+           ),
          {:ok, scope} <- read_scope(principal, permission, purpose, entry),
          {:ok, names} <- slot_names(entry),
          tenant_id when is_binary(tenant_id) <- auth_tenant_id(conn) do

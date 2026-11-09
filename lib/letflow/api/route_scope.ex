@@ -87,6 +87,8 @@ defmodule Letflow.Api.RouteScope do
     :ScopeEnforcementTokensRead,
     :RoleScopeGrantsRead,
     :RoleScopeGrantsManage,
+    :RoleGrantsRead,
+    :RoleGrantsManage,
     :ServicePrincipalManage
   ]
 
