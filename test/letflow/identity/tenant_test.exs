@@ -408,11 +408,28 @@ defmodule Letflow.Identity.TenantTest do
       assert %{settings: [_]} = errors_on(changeset)
     end
 
-    test "REQ-595 A1 / REQ-703 TZ-1: the closed vocabulary is exactly the nine keys" do
+    test "REQ-595 A1 / REQ-703 TZ-1: the closed vocabulary is exactly the ten keys" do
       assert Enum.sort(Letflow.Identity.TenantSettings.allowed_keys()) ==
                Enum.sort(
-                 ~w(app_name logo_url brand_colors locales default_locale signatory_name signatory_title timezone ui.document_layout_default)
+                 ~w(app_name logo_url brand_colors locales default_locale signatory_name signatory_title timezone ui.document_layout_default notifications.email_copy)
                )
+    end
+
+    test "T-1571 E3/E4: notifications.email_copy takes true, false or nil only" do
+      tenant = insert_tenant!()
+
+      for ok <- [true, false, nil] do
+        assert Tenant.settings_changeset(tenant, %{
+                 "settings" => %{"notifications.email_copy" => ok}
+               }).valid?
+      end
+
+      for bad <- ["yes", 1] do
+        cs =
+          Tenant.settings_changeset(tenant, %{"settings" => %{"notifications.email_copy" => bad}})
+
+        refute cs.valid?
+      end
     end
 
     test "REQ-703 TZ-2a..e: an unknown, malformed or non-string timezone is refused with one error" do

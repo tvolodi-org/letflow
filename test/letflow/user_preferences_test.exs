@@ -6,7 +6,8 @@ defmodule Letflow.UserPreferencesTest do
   alias Letflow.UserPreferences
 
   test "the whitelist mirrors the web layout registry" do
-    assert UserPreferences.keys() == ["ui.document_layout", "ui.layout"]
+    assert UserPreferences.keys() == ["notifications.email", "ui.document_layout", "ui.layout"]
+    assert UserPreferences.allowed_values("notifications.email") == ["on", "off"]
     assert UserPreferences.allowed_values("ui.layout") == []
     assert UserPreferences.allowed_values("ui.document_layout") == ["row", "tabs"]
     assert UserPreferences.allowed_values("nope") == []

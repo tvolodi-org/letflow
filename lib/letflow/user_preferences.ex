@@ -23,6 +23,9 @@ defmodule Letflow.UserPreferences do
   A screen may also carry `linesMode` (T-1448), the remembered entry mode of the lines editor: exactly
   `"grid"` or `"form"`, anything else is dropped.
 
+  `notifications.email` is `"on"` (default when absent) or `"off"` (T-1571): the user's opt-out of the
+  e-mail copy of the notification bell, which the tenant switch `notifications.email_copy` enables.
+
   ## Rules
 
   `put/3` merges: each listed key is upserted, `nil` deletes the key (reset), unlisted keys are
@@ -49,7 +52,11 @@ defmodule Letflow.UserPreferences do
   @screen_id ~r/\A[a-z0-9.-]{1,48}\z/
   @split_id ~r/\A[a-z0-9-]{1,24}\z/
 
-  @keys %{"ui.document_layout" => {:enum, ["row", "tabs"]}, "ui.layout" => :layout}
+  @keys %{
+    "notifications.email" => {:enum, ["on", "off"]},
+    "ui.document_layout" => {:enum, ["row", "tabs"]},
+    "ui.layout" => :layout
+  }
 
   @doc "The whitelisted keys."
   @spec keys() :: [String.t()]
@@ -89,6 +96,20 @@ defmodule Letflow.UserPreferences do
   end
 
   defp valid_layout?(v), do: is_binary(v) and v in allowed_values(@layout_key)
+
+  @doc """
+  True when the user opted out of the e-mail copy (`notifications.email` = `"off"`). Any failure
+  counts as opted out: a mail to a person is not sent on doubt.
+  """
+  @spec email_opt_out?(String.t(), term()) :: boolean()
+  def email_opt_out?(prefix, user_id) do
+    case Ecto.UUID.cast(user_id) do
+      {:ok, id} -> Map.get(list(prefix, id), "notifications.email") == "off"
+      :error -> true
+    end
+  rescue
+    _ -> true
+  end
 
   @doc "The stored preferences of one user as `%{key => value}` (only stored keys, whitelisted ones)."
   @spec list(String.t(), String.t()) :: %{optional(String.t()) => term()}
