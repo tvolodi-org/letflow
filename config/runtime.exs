@@ -288,6 +288,14 @@ module_upgrade_on_boot =
   end
 
 config :letflow, :module_upgrade_on_boot, module_upgrade_on_boot
+
+# REQ-773 (decision 0080 Q5): record-count cap of the one-transaction data-step apply. Default 1000.
+config :letflow,
+       :module_upgrade_one_tx_max_records,
+       Letflow.ModuleUpgrade.Settings.parse_one_tx_max_records(
+         System.get_env("LETFLOW_MODULE_UPGRADE_ONE_TX_MAX_RECORDS")
+       )
+
 config :letflow, Letflow.Plugs.ClientIp, trusted_proxies: trusted_proxies
 
 # GH T-1558: failed-credential limit per address and minute (Letflow.Plugs.AuthAttemptLimit).
@@ -309,6 +317,65 @@ case Letflow.Plugs.AuthAttemptLimit.parse_failures_per_min(
 end
 
 config :letflow, Letflow.Routers.LoginDiscovery, enabled: login_discovery_enabled
+
+# T-1579 (TA-SL2a, decision 0084): the public tenant sign-up, part 1. OFF unless
+# LETFLOW_SIGNUP_ENABLED is exactly "true" (any other non-empty value raises; unset/empty is false).
+# The other variables are starting values, not rules (the owner sets real ones with the captcha /
+# terms / mail-sender decisions). Every message is fixed text: no value is echoed (INV-4).
+signup_bool = fn name ->
+  case System.get_env(name) do
+    value when value in [nil, "", "false"] ->
+      false
+
+    "true" ->
+      true
+
+    _other ->
+      raise "environment variable #{name} must be exactly true or false. The value is not echoed."
+  end
+end
+
+signup_int = fn name, default ->
+  case System.get_env(name) do
+    value when value in [nil, ""] ->
+      default
+
+    value ->
+      case Integer.parse(value) do
+        {int, ""} when int > 0 ->
+          int
+
+        _other ->
+          raise "environment variable #{name} must be a positive integer. The value is not echoed."
+      end
+  end
+end
+
+signup_enabled = signup_bool.("LETFLOW_SIGNUP_ENABLED")
+# Origin of the link in the verification mail (a different link from the login-discovery mail).
+signup_base_url = System.get_env("LETFLOW_SIGNUP_BASE_URL")
+
+if signup_enabled and config_env() not in [:dev, :test] do
+  if Letflow.Plugs.ClientIp.boot_check(config_env(), true, trusted_proxies) ==
+       {:error, :prod_requires_trusted_proxies} do
+    raise "LETFLOW_SIGNUP_ENABLED is true but LETFLOW_TRUSTED_PROXIES is empty or unset: " <>
+            "refusing to boot (the per-IP sign-up cap would key on the proxy hop)."
+  end
+
+  if not is_binary(signup_base_url) or not String.starts_with?(signup_base_url, "https://") do
+    raise "LETFLOW_SIGNUP_ENABLED is true but LETFLOW_SIGNUP_BASE_URL is not an https:// URL: " <>
+            "refusing to boot."
+  end
+end
+
+config :letflow, Letflow.Signup,
+  enabled: signup_enabled,
+  base_url: signup_base_url,
+  pending_cap: signup_int.("LETFLOW_SIGNUP_PENDING_CAP", 50),
+  ip_hourly_cap: signup_int.("LETFLOW_SIGNUP_IP_HOURLY_CAP", 5),
+  resend_interval_seconds: signup_int.("LETFLOW_SIGNUP_RESEND_INTERVAL_SECONDS", 60),
+  token_ttl_hours: signup_int.("LETFLOW_SIGNUP_TOKEN_TTL_HOURS", 24),
+  abandon_days: signup_int.("LETFLOW_SIGNUP_ABANDON_DAYS", 7)
 
 # REQ-437 (design req434 s7, D21/D22): OPTIONAL LETFLOW_LOGIN_DISCOVERY_MODE. Unset,
 # empty or all-whitespace writes nothing, so the config/config.exs default

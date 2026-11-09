@@ -1,0 +1,90 @@
+# T-1585 (BA batch 3 item 3, covers merged B2#5, #4097): the company administrator finds who posted and who reversed a document, by name, filters the list and exports it.
+# Sources: docs/uat/ba-decisions/T-1551.md item 5; lib/letflow/routers/audit.ex (GET audit: filters actor_id, resource_type, from, to; format=csv; csv header timestamp, actor_name, actor_id, action, resource_type, resource_id, resource_name; a from later than to is a 422; the export itself writes an "audit.exported" row);
+# lib/letflow/ledger/posted_audit.ex (document_attrs: document.posted, document.reversed, document.written_off, resource_type document, keyed by the document id); web/src/pages/admin/AuditLogPage.tsx and web/src/i18n/auditMessages.ts (column and filter labels, "Export CSV", the invalid-range text);
+# docs/roles.md (AuditRead: TENANT_ADMIN, TENANT_AUDITOR, PROCESS_OPERATOR, PLATFORM_ADMIN).
+# NOT UAT-observable here: the 10 000-row cap of the export and its truncated notice (needs a 10 000-row log); the entries for a changed role and a deleted group (no roster step changes a role or deletes a group in this scenario, they are the product's own tests).
+# Not yet built (checked in the merged B2#6 commit: only part 1, the rate limit, was merged): the idle "session ended" screen and server-side logout. No step is written for them.
+---
+id: tenant-administration-b3-1-audit-who-posted-reversed-filter-export
+scope: tenant-administration
+title: The administrator sees who posted and who reversed a document by name, filters the log and exports it
+version: "1.0"
+tags: [tenant-admin, audit, filters, export, ru, kk, en]
+
+description: >
+  The SwiftRoute administrator posts a draft asset document and then reverses it. On the Audit log screen the two actions appear with the administrator's name (not an identifier), the document as the object, and the time.
+  The administrator filters by user, by object type "document" and by a time range, then tries a range whose start is after its end and is stopped. The administrator exports the filtered list as a CSV file and finds the same rows with the names;
+  the export itself appears in the log afterwards.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the assets module active and a draft asset document DRAFT-1 that can be issued (prepared as in scenario assets-documents-1). The administrator's profile has a display name or a username.
+    check: system_seeded
+    detail: If DRAFT-1 cannot be prepared or issued, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator issues the draft DRAFT-1 on the Documents screen of the assets module, then reverses the posted document. The time before step 1 is noted as T0.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the Audit log screen and reads the newest rows.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator chooses her own name in the filter "User" and reads the list.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator clears the user and chooses the object type "Document" in the filter "Object type", then reads the list.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator types the time T0 in the field "From" and reads the list, then types a time one hour before T0 in the field "To" while "From" still holds T0.
+    expect_refusal: true
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator corrects the range (empty "To"), with the filter "Document" still chosen, presses "Export CSV" and opens the downloaded file audit.csv. Then the administrator reloads the Audit log screen and reads the newest row.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The posting and the reversal are visible, with a name and a time.
+    verification:
+      method: gui_screen
+      detail: Step 2 shows two rows after T0, "Document posted" and "Document reversed" (also in Russian "Документ проведён", "Документ сторнирован" and Kazakh when the language is switched), each with the administrator's name in the column "User" (a name or a username, never a bare identifier of 36 characters) and the document as the object.
+      evidence: Screenshot of the list in English and Russian.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot answer "who posted or reversed this", the first question after a mistake.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The filters narrow the list and the invalid range is stopped.
+    verification:
+      method: gui_screen
+      detail: Step 3 lists only rows of the administrator; step 4 lists only rows of type document (the two rows of step 1 are among them); in step 5 with "From" = T0 only rows from T0 onward are listed. With "To" earlier than "From" the screen shows the invalid-range text, the button "Export CSV" is disabled and no export file is produced.
+      evidence: Screenshots of steps 3, 4 and 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot narrow the log, or a wrong range silently exports everything.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The export holds the filtered rows with names and is itself logged.
+    verification:
+      method: file_content
+      detail: audit.csv has the header line timestamp, actor_name, actor_id, action, resource_type, resource_id, resource_name; it contains the rows "document.posted" and "document.reversed" of step 1 with the administrator's name in actor_name, and only rows of resource_type document. In step 6 the newest row of the log after reload is "Audit log exported" by the administrator.
+      evidence: The file audit.csv and a screenshot of the reloaded list.
+    on_fail:
+      severity: MAJOR
+      business_impact: An auditor cannot take the log away, or an export leaves no trace.
+      suggested_action: route_to_elixir_dev

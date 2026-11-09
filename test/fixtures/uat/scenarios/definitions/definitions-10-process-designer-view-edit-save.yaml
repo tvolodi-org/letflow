@@ -1,0 +1,183 @@
+# T-1584 (BA): DEFINITIONS group, scenario 10: the process designer, slices 1 and 2. Read the diagram, see where a running instance is, edit it,
+# let the live check stop a wrong definition, save it as a draft.
+# Sources: docs/design/process-designer.md (slice 1 "Instance path", "Accessibility"; slice 2 "Edit", "Live validation", "Save"); docs/uat/ba-decisions/T-1582.md item 2;
+# lib/letflow/routers/definitions.ex (POST /definitions/:id/validate answers 200 with status "valid" or 422 "definition graph failed validation"; PATCH /definitions/:id; DefinitionsRead / DefinitionsWrite);
+# docs/roles.md (DefinitionsWrite: tenant administrator yes, worker no; DefinitionsRead: tenant administrator yes, worker yes); web/src/i18n/processDiagramMessages.ts (English words quoted below);
+# web/src/pages/definitions/DefinitionEditorPage.tsx ("Edit diagram" is shown to a caller holding DefinitionsWrite); test/fixtures/uat/actors.yaml (actor-swiftroute-alice: TENANT_ADMIN; actor-swiftroute-tobias: TASK_WORKER only).
+# No process designer account exists on the roster; the tenant administrator holds the same right (DefinitionsWrite), so she is the designer here.
+# The refusals (no design right, another company, not a draft) are in definitions-11-process-designer-refusals.
+# Not UAT-observable, so not checked here (the product's own web tests cover them): the exact pixel layout and routing of edges, the keyboard shortcuts (Alt+Arrow, Ctrl+Z), the 150 and 400 step limits, and the screen-reader announcements.
+# Not checked: the exact count of problems the live check lists; the scenario only needs "at least one problem that names the broken connection".
+---
+id: definitions-10-process-designer-view-edit-save
+scope: definitions
+title: A designer reads a process diagram with the path of a running instance, edits it, is stopped by the live check, and saves a draft
+version: "1.0"
+tags: [definitions, process-designer, diagram, draft, live-check]
+
+description: >
+  SwiftRoute has a process with a start, two human tasks and an end, saved as a draft (named designer_demo, version "1"), and a second, active process (designer_live, version "1") with one running instance
+  that has completed its first task and waits at its second. The tenant administrator opens designer_live and reads its diagram: every step shows its type and name, the running instance shows
+  "Done" on the first task and "Active" on the second, and the state is a word as well as a sign, not colour only. She then opens designer_demo, switches to "Edit diagram", adds a step, drags it,
+  and connects it. When she connects a step to a place that makes the definition wrong, the live check shows a problem and "Save draft" is off. After she connects the steps correctly again the check says "Valid"
+  and she saves the draft. Reopening the definition shows the new step and connections. A worker who only reads sees the same diagram but has no "Edit diagram" switch.
+
+actors:
+  designer: actor-swiftroute-alice
+  reader: actor-swiftroute-tobias
+
+preconditions:
+  - description: SwiftRoute has a DRAFT process designer_demo, version "1" with start, human task "Prepare", human task "Approve" (role "reviewer"), end, joined in that order by three connections.
+    check: system_seeded
+    detail: Setup-prepared. If the name exists, use the next free name and note that in the report.
+  - description: SwiftRoute has an ACTIVE process designer_live, version "1", of the same shape, with one running instance whose first task "Prepare" is completed and whose second task "Approve" is open.
+    check: system_seeded
+    detail: Setup-prepared. Starting an instance needs a process operator, which this scenario does not use; if the environment has no such instance, steps 2 and the "Done / Active" part of EO-001 are BLOCKED, the rest still runs.
+  - description: The administrator and the worker of SwiftRoute can sign in with approved test tokens.
+    check: system_seeded
+    detail: See the roster notes of actor-swiftroute-alice and actor-swiftroute-tobias.
+
+steps:
+  - step: 1
+    actor: designer
+    action: >
+      The administrator opens the definition designer_live and looks at the "Diagram" view. She notes which steps are drawn, the type and name of each, and the connections between them.
+    via: gui
+  - step: 2
+    actor: designer
+    action: >
+      On the same page she opens the running instance of designer_live (the "Graph" view of the instance) and notes the word shown on "Prepare", on "Approve", and on the end step.
+    via: gui
+  - step: 3
+    actor: reader
+    action: >
+      The worker opens designer_demo, looks at the "Diagram" view, and looks at the switch above it for an "Edit diagram" button.
+    via: gui
+  - step: 4
+    actor: designer
+    action: >
+      The administrator opens designer_demo and switches to "Edit diagram". She adds a human task called "Check", drags it to a free place, and connects "Prepare" to "Check". She notes what the check area says.
+    via: gui
+  - step: 5
+    actor: designer
+    action: >
+      She tries to connect "Prepare" to "Check" a second time (a duplicate of the connection she just made) and notes the message.
+    via: gui
+  - step: 6
+    actor: designer
+    action: >
+      She makes the definition wrong on purpose: she deletes the connection from "Prepare" to "Approve" and the connection from "Approve" to the end step, so that "Approve" has no way in and no way out.
+      She notes the check area and whether "Save draft" can be pressed.
+    via: gui
+  - step: 7
+    actor: designer
+    action: >
+      Without saving, she asks the product for the stored version of designer_demo and lists its steps and connections.
+    via: api
+  - step: 8
+    actor: designer
+    action: >
+      She goes back to the page, connects "Check" to "Approve" and "Approve" to the end step. She waits for the check area and notes what it says.
+    via: gui
+  - step: 9
+    actor: designer
+    action: >
+      She presses "Save draft" and notes the message. She then closes the page, opens designer_demo again, and looks at the "Diagram" view.
+    via: gui
+  - step: 10
+    actor: designer
+    action: >
+      She asks the product for the stored version of designer_demo and lists its steps and connections.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The read view shows every step with its type and name, and the running instance shows the state of each step as a word.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 shows start, "Prepare", "Approve" and the end, joined by three connections. Step 2 shows "Done" on "Prepare" and "Active" on "Approve"; the end step shows "Not reached"
+        (or "Not certain" if the product states it cannot be sure). Each state is a word, not a colour alone.
+      evidence: A note of the words shown in steps 1 and 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A support person cannot tell where a document is stuck, or is misled about it.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: A reader without the design right sees the diagram but is offered no way to edit it.
+    verification:
+      method: page_state
+      detail: Step 3 shows the diagram of designer_demo with the same steps; the switch has "Diagram" and "Editor" but no "Edit diagram".
+      evidence: The switch as shown in step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Controls are shown to a person who will be refused; the server still refuses, so this is confusion, not a leak.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The administrator can add, move and connect steps; the live check answers while she edits.
+    verification:
+      method: gui_screen
+      detail: After step 4 the page shows a step "Check" and a connection from "Prepare" to "Check", and the check area shows "Checking…" and then a result (a problem count or "Valid") without a page reload.
+      evidence: The page after step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: The designer cannot build a process on the diagram.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: An illegal connection is refused with a message, and the diagram does not change.
+    verification:
+      method: screen_text
+      detail: Step 5 shows a message that the connection is not allowed (it duplicates an existing one), and the number of connections is the same as before step 5.
+      evidence: The message and the connection list of step 5.
+    on_fail:
+      severity: MINOR
+      business_impact: A designer could create connections that the definition format does not accept.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: A wrong definition is shown with at least one problem that names the step, and cannot be saved.
+    verification:
+      method: gui_screen
+      detail: >
+        After step 6 the check area shows a count of problems (at least 1) and a list under "Problems found by the validator" whose text names "Approve" or the missing way to the end;
+        "Save draft" is off, with the words "Fix" and the count of errors shown before saving.
+      evidence: The check area and the Save button of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A broken process could be saved and later fail when a document is started on it.
+      suggested_action: route_to_frontend_dev
+  - id: EO-006
+    description: The live check stores nothing.
+    verification:
+      method: api_response
+      detail: Step 7 lists only the original steps and connections (start, "Prepare", "Approve", end; three connections) with no step "Check", although the page showed "Check" and the wrong connections.
+      evidence: The stored version of step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A draft that is only being checked is stored by the check, or an unsaved wrong definition is stored.
+      suggested_action: route_to_backend_dev
+  - id: EO-007
+    description: After the wrong connections are restored, the check says the definition is valid and saving is possible.
+    verification:
+      method: gui_screen
+      detail: Step 8 shows "Valid" in the check area and "Save draft" is on.
+      evidence: The check area of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A correct process cannot be saved.
+      suggested_action: route_to_frontend_dev
+  - id: EO-008
+    description: The saved draft keeps the new step and connections; the definition remains a draft with the same name and version.
+    verification:
+      method: system_state
+      detail: >
+        Step 9 shows "Saved." and the reopened diagram shows the step "Check" and connections Prepare to Check, Check to Approve and Approve to the end. Step 10 lists the same steps and connections,
+        with the status DRAFT, the name designer_demo and the version "1".
+      evidence: The reopened diagram of step 9 and the stored version of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Work done in the designer is lost on saving.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the draft designer_demo if the environment allows it. designer_live and its running instance stay as set up; the scenario does not change them.

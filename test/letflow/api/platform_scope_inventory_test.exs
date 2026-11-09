@@ -234,6 +234,9 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       {"lib/letflow/routers/metrics_exposition.ex", "GET", "/"},
       {"lib/letflow/routers/mobile_tenant_config.ex", "GET", "/"},
       {"lib/letflow/routers/public_read.ex", "GET", "/:kind/:handle"},
+      {"lib/letflow/routers/signup.ex", "GET", "/config"},
+      {"lib/letflow/routers/signup.ex", "POST", "/"},
+      {"lib/letflow/routers/signup.ex", "POST", "/verify"},
       {"lib/letflow/routers/tenant_config.ex", "GET", "/"},
       {"lib/letflow/routers/tenant_config.ex", "GET", "/logo"}
     ]
@@ -336,7 +339,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
         assert entry in seen, "stale public allowlist entry #{inspect(entry)}"
       end
 
-      assert length(@public_allowlist) == 7
+      assert length(@public_allowlist) == 10
       assert length(@credential_allowlist) == 6
     end
 

@@ -355,7 +355,10 @@ config :letflow, :modules, [
   Letflow.Modules.FixtureLedgerStorage,
   # REQ-636 / GH #3556: one opted-in reference target type
   # (test/support/modules/fixture_ref_targets/).
-  Letflow.Modules.FixtureRefTargets
+  Letflow.Modules.FixtureRefTargets,
+  # REQ-773 / T-1581: two declarative data steps on a managed type
+  # (test/support/modules/fixture_data_step/).
+  Letflow.Modules.FixtureDataStep
 ]
 
 # REQ-518 (SEC ruling R-3): the ONLY place this key may be set. Catalog rule 11 and
