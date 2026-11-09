@@ -285,5 +285,7 @@ export const queryKeys = {
     modules: (tenantId: string) => ['tenant', tenantId, 'me', 'modules'] as const,
     /** T-1391 — the user's preferences and the effective values; tenant-scoped (tenant defaults are tenant data). */
     preferences: (tenantId: string) => ['tenant', tenantId, 'me', 'preferences'] as const,
+    /** T-1561 — the user's in-app notification list (the bell); tenant-scoped. */
+    notifications: (tenantId: string) => ['tenant', tenantId, 'me', 'notifications'] as const,
   },
 }

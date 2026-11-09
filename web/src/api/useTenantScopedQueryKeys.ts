@@ -152,6 +152,7 @@ export function useTenantScopedQueryKeys() {
       memberships: queryKeys.me.memberships,
       modules: () => queryKeys.me.modules(tenantId),
       preferences: () => queryKeys.me.preferences(tenantId),
+      notifications: () => queryKeys.me.notifications(tenantId),
     },
   }
 }
