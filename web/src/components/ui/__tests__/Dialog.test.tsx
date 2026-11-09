@@ -36,12 +36,12 @@ describe('Dialog', () => {
     expect(screen.getByText('Head office')).toBeInTheDocument()
   })
 
-  it('focuses the confirm button on open and returns focus to the opener on close', async () => {
+  it('focuses the first field on open and returns focus to the opener on close', async () => {
     const user = userEvent.setup()
     render(<Harness />)
     const opener = screen.getByRole('button', { name: 'Opener' })
     await user.click(opener)
-    expect(screen.getByTestId('dialog-confirm')).toHaveFocus()
+    expect(screen.getByRole('textbox', { name: 'Parent' })).toHaveFocus()
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(opener).toHaveFocus()
@@ -52,11 +52,13 @@ describe('Dialog', () => {
     render(<Harness />)
     await user.click(screen.getByRole('button', { name: 'Opener' }))
     // order: close, parent input, cancel, confirm
-    expect(screen.getByTestId('dialog-confirm')).toHaveFocus()
-    await user.tab()
+    expect(screen.getByRole('textbox', { name: 'Parent' })).toHaveFocus()
+    await user.tab({ shift: true })
     expect(screen.getByTestId('dialog-close')).toHaveFocus()
     await user.tab({ shift: true })
     expect(screen.getByTestId('dialog-confirm')).toHaveFocus()
+    await user.tab()
+    expect(screen.getByTestId('dialog-close')).toHaveFocus()
   })
 
   it('Escape calls onCancel; Escape is ignored while loading', () => {
@@ -67,6 +69,43 @@ describe('Dialog', () => {
     rerender(<Dialog open isLoading title="T" onConfirm={vi.fn()} onCancel={onCancel} />)
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('K5: without a field the confirm button is focused', () => {
+    render(<Dialog open title="T" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+    expect(screen.getByTestId('dialog-confirm')).toHaveFocus()
+  })
+
+  it('K5: Enter in a text field confirms once; textarea, disabled and loading do not', async () => {
+    const user = userEvent.setup()
+    const onConfirm = vi.fn()
+    const { rerender } = render(
+      <Dialog open title="T" onConfirm={onConfirm} onCancel={vi.fn()}>
+        <input aria-label="Name" />
+        <textarea aria-label="Note" />
+      </Dialog>,
+    )
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByRole('textbox', { name: 'Note' }))
+    await user.keyboard('{Enter}')
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+    rerender(
+      <Dialog open confirmDisabled title="T" onConfirm={onConfirm} onCancel={vi.fn()}>
+        <input aria-label="Name" />
+      </Dialog>,
+    )
+    await user.click(screen.getByRole('textbox', { name: 'Name' }))
+    await user.keyboard('{Enter}')
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+    rerender(
+      <Dialog open isLoading title="T" onConfirm={onConfirm} onCancel={vi.fn()}>
+        <input aria-label="Name" />
+      </Dialog>,
+    )
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name' }), { key: 'Enter' })
+    expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 
   it('loading disables both buttons and marks confirm with the spinner class', () => {

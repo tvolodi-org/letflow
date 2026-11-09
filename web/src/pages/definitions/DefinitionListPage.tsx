@@ -20,11 +20,16 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { definitionLabel } from '@/pages/dashboard/definitionLabels'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { fillFeedback, useFeedbackMessages } from '@/components/ui/feedbackMessages'
+import { saveErrorText } from '@/utils/saveError'
+import { definitionsMessages } from './definitionsMessages'
 
 
 export default function DefinitionListPage() {
   const navigate = useNavigate()
   const uiLocale = useUiLocale()
+  const feedback = useFeedbackMessages()
+  const dm = definitionsMessages[uiLocale]
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
   const [status, setStatus] = useState<DefinitionStatus | undefined>()
@@ -120,7 +125,7 @@ export default function DefinitionListPage() {
       setCreateValidationErrors({})
       setPendingNavId(result.id)
     } catch (err: unknown) {
-      setCreateError(err instanceof Error ? err.message : 'Failed to create definition')
+      setCreateError(saveErrorText(err, feedback))
     }
   }
 
@@ -364,7 +369,10 @@ export default function DefinitionListPage() {
       >
       {!isLoadingItems && items.length === 0 && (
         <p data-testid="empty-state" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>
-          {isSearching ? `No results found for "${debouncedSearch}"` : 'No definitions found'}
+          {isSearching ? fillFeedback(dm.emptySearch, { term: debouncedSearch }) : dm.empty}
+          {!isSearching && hasDesignerRole && (
+            <span style={{ display: 'block', marginTop: '.5rem' }}>{dm.emptyHint}</span>
+          )}
         </p>
       )}
 
@@ -388,7 +396,7 @@ export default function DefinitionListPage() {
         <DataTable<ProcessDefinition>
           columns={columns}
           data={items}
-          emptyMessage="No definitions found"
+          emptyMessage={dm.empty}
         />
       )}
 
@@ -438,7 +446,7 @@ export default function DefinitionListPage() {
             <h3 style={{ margin: '0 0 1rem' }}>Create New Definition</h3>
 
             {createError && (
-              <p style={{ color: 'var(--color-error-dark)', fontSize: '.85rem', marginBottom: '.75rem' }}>{createError}</p>
+              <p data-testid="def-create-error" role="alert" style={{ color: 'var(--color-error-dark)', fontSize: '.85rem', marginBottom: '.75rem' }}>{createError}</p>
             )}
 
             <div style={{ marginBottom: '.75rem' }}>

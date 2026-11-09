@@ -28,6 +28,7 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
   """
 
   alias Elixlsx.{Sheet, Workbook}
+  alias Letflow.Documents.XlsxStyle
 
   @type kind :: :order | :sheet | :differences
 
@@ -136,6 +137,11 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
 
   defp sheet(name, rows), do: %Sheet{name: name, rows: rows}
 
+  # Same cells; bold frozen header, fitted widths (T-1555).
+  # The first sheet (document) is key/value pairs, not a table: widths only.
+  defp style_all([doc | tables]),
+    do: [XlsxStyle.style(doc, false) | Enum.map(tables, &XlsxStyle.style/1)]
+
   # The signatures rows are built with employee ids and filled with names here.
   defp resolve(%Sheet{rows: rows} = sheet, names, lang) do
     employees = Map.get(names, :employees, %{})
@@ -154,7 +160,7 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
   end
 
   defp write(sheets, name) do
-    case Elixlsx.write_to_memory(%Workbook{sheets: sheets}, name) do
+    case Elixlsx.write_to_memory(%Workbook{sheets: style_all(sheets)}, name) do
       {:ok, {_name, binary}} -> {:ok, binary}
       _ -> {:error, :xlsx_write_failed}
     end
@@ -220,6 +226,58 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
       :error ->
         text(value)
     end
+  end
+
+  @doc false
+  # T-1555: the time of a printed act, localized like the UI plus the zone offset the stored
+  # instant was shifted by: `04-11-2026 10:00 (UTC+05:00)` (ru/kk), `2026-11-04 10:00 (UTC+05:00)` (en).
+  # A text that is not a time prints as stored.
+  def print_time(nil, _names, _key, _lang), do: ""
+
+  def print_time(value, names, key, lang) do
+    case to_utc(value) do
+      {:ok, dt} ->
+        offset = names |> Map.get(:offsets, %{}) |> Map.get(key, 0)
+        shifted = DateTime.add(dt, offset, :second)
+        "#{format_local(shifted, lang)} (UTC#{offset_text(offset)})"
+
+      :error ->
+        text(value)
+    end
+  end
+
+  defp offset_text(offset) do
+    sign = if offset < 0, do: "-", else: "+"
+    abs_off = abs(offset)
+    "#{sign}#{abs_off |> div(3600) |> pad()}:#{abs_off |> rem(3600) |> div(60) |> pad()}"
+  end
+
+  @doc false
+  # T-1555: a stored plain decimal text regrouped for print. ru/kk `49 360,500` (no-break space,
+  # comma), en `49,360.500`. Digits are never rounded or dropped; anything else is returned as stored.
+  def number(value, lang) do
+    str = text(value)
+
+    case Regex.run(~r/\A(-?)(\d+)(?:\.(\d+))?\z/, str) do
+      [_, sign, int, frac] -> group_number(sign, int, frac, lang)
+      [_, sign, int] -> group_number(sign, int, "", lang)
+      _ -> str
+    end
+  end
+
+  defp group_number(sign, int, frac, lang) do
+    {group, point} = if lang == :en, do: {",", "."}, else: {"\u00A0", ","}
+
+    grouped =
+      int
+      |> String.graphemes()
+      |> Enum.reverse()
+      |> Enum.chunk_every(3)
+      |> Enum.map(&(&1 |> Enum.reverse() |> Enum.join()))
+      |> Enum.reverse()
+      |> Enum.join(group)
+
+    sign <> grouped <> if(frac == "", do: "", else: point <> frac)
   end
 
   defp to_utc(%DateTime{} = dt), do: {:ok, dt}

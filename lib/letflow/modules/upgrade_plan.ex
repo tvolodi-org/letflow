@@ -23,6 +23,9 @@ defmodule Letflow.Modules.UpgradePlan do
   version and hash gets an empty report and no row. No definition, record, event or audit row is
   touched or read. A DB failure rolls the whole plan back and is `{:error, :plan_failed}`.
 
+  Each step carries `reversible`, and `point_of_no_return` is `nil` or the plain text naming the steps
+  a rollback could not undo (REQ rollback slice, decision 0055 D9). Neither enters the `plan_hash`.
+
   Class B "covered by steps" is the coarse `steps != []`; the apply slice decides per step. The
   report is built from an explicit allow-list of literal keys (no row is serialised), so no
   hash, stamp, step body or tenant record content leaves this module. It counts nothing over
@@ -125,6 +128,7 @@ defmodule Letflow.Modules.UpgradePlan do
       "missing_ledger_storage" => [],
       "information" => information(manifest),
       "steps" => [],
+      "point_of_no_return" => nil,
       "upgrade_path_available" => true,
       "path_error" => nil,
       "applicable_on_boot" => false,
@@ -203,13 +207,45 @@ defmodule Letflow.Modules.UpgradePlan do
       "stamped_definitions" => stamped_rows,
       "missing_ledger_storage" => Letflow.Ledger.Storage.missing(prefix, ledger_ids),
       "information" => information(manifest),
-      "steps" => report_steps,
+      "steps" => Enum.zip_with(report_steps, steps, &Map.put(&1, "reversible", reversible?(&2))),
+      "point_of_no_return" => point_of_no_return(report_steps, steps, row.version),
       "upgrade_path_available" => path_available?,
       "path_error" => if(path_available?, do: nil, else: "no_upgrade_path"),
       "applicable_on_boot" => applicable_on_boot,
       "plan_hash" => plan_hash,
       "plan_id" => plan_id
     }
+  end
+
+  @doc """
+  Whether a step can be undone by a rollback (decision 0055 D9): not lossy and a declared `down`
+  that is not `:irreversible`. A missing `down` counts as irreversible (fail closed). Pure.
+  """
+  @spec reversible?(Letflow.Modules.Step.t()) :: boolean()
+  def reversible?(%Letflow.Modules.Step{lossy: lossy, down: down}),
+    do: lossy != true and down not in [nil, :irreversible]
+
+  # nil when every step is reversible (including no steps); otherwise the plain-language text. The
+  # text is a constant plus manifest step ids and versions (no tenant data).
+  defp point_of_no_return(report_steps, steps, from_version) do
+    ids =
+      for {report_step, step} <- Enum.zip(report_steps, steps),
+          not reversible?(step),
+          do: report_step["id"]
+
+    case ids do
+      [] ->
+        nil
+
+      ids ->
+        %{
+          "step_ids" => ids,
+          "text" =>
+            "Point of no return: after this upgrade the step(s) #{Enum.join(ids, ", ")} " <>
+              "cannot be reversed. Going back to version #{from_version} will be refused, " <>
+              "and data written by those steps stays."
+        }
+    end
   end
 
   @doc """

@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { accessibleFormProblems } from '@/test-utils/a11yForm'
 import {
   DOCS, LIST, MASTERS, assetDoc, fakeDocument, fakeMasters, refusal, renderAssets, rec, withAll, withPost, withRead,
 } from './registerTestKit'
@@ -219,6 +220,9 @@ describe('F7 refusals on save', () => {
     save()
     expect(created()).toHaveLength(0)
     expect(screen.getAllByText('A required value is missing.').length).toBeGreaterThan(0)
+    // K2/K3: focus lands on the first control marked invalid, and its error text is tied to it
+    await waitFor(() => expect(document.activeElement?.getAttribute('aria-invalid')).toBe('true'))
+    expect(accessibleFormProblems().filter((p) => p.startsWith('aria-invalid') || p.startsWith('no accessible'))).toEqual([])
   })
 })
 

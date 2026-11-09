@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { fillFeedback, useFeedbackMessages } from './feedbackMessages'
 
 export interface RateLimitBackpressureProps {
   /** The numeric Retry-After value, in seconds, taken from the 429 response header. */
@@ -37,6 +38,7 @@ function sanitizeSeconds(raw: number): number {
 
 export function RateLimitBackpressure(props: RateLimitBackpressureProps): React.ReactElement {
   const { retryAfter, onRetry, surfaceLabel } = props
+  const m = useFeedbackMessages()
   const fallbackInitial = sanitizeSeconds(retryAfter)
 
   if (!Number.isFinite(retryAfter) || retryAfter <= 0) {
@@ -90,17 +92,13 @@ export function RateLimitBackpressure(props: RateLimitBackpressureProps): React.
       }}
     >
       <p style={{ marginBottom: '.75rem', fontWeight: 500 }}>
-        {surfaceLabel
-          ? `Rate limit reached while loading ${surfaceLabel}.`
-          : 'Rate limit reached.'}
+        {surfaceLabel ? fillFeedback(m.rateLimitSurface, { surface: surfaceLabel }) : m.rateLimit}
       </p>
       <p
         data-testid="retry-countdown"
         style={{ margin: 0, fontSize: '.95rem' }}
       >
-        {secondsRemaining > 0
-          ? `Retry in ${secondsRemaining}s`
-          : 'Retrying…'}
+        {secondsRemaining > 0 ? fillFeedback(m.retryIn, { n: secondsRemaining }) : m.retrying}
       </p>
       <button
         type="button"
@@ -121,7 +119,7 @@ export function RateLimitBackpressure(props: RateLimitBackpressureProps): React.
           fontSize: '.85rem',
         }}
       >
-        Retry now
+        {m.retryNow}
       </button>
     </div>
   )

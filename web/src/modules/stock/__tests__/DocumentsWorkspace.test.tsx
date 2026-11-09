@@ -128,7 +128,7 @@ describe('A3/A4/A5 lines table in edit mode', () => {
     await waitFor(() => expect(firstRows()[0]).toHaveClass('is-error'))
     expect(within(row).getByLabelText('Quantity')).toHaveAttribute('aria-invalid', 'true')
     fireEvent.focusIn(within(row).getByLabelText('Quantity'))
-    expect(await screen.findByText(/The quantity must be a decimal number above zero/)).toBeInTheDocument()
+    expect((await screen.findAllByText(/The quantity must be a decimal number above zero/)).length).toBeGreaterThan(0)
     expect(screen.getByText('1 line has errors', { exact: false })).toBeInTheDocument()
   })
 
