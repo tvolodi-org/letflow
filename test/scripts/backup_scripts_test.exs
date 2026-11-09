@@ -542,7 +542,7 @@ defmodule Letflow.Scripts.BackupScriptsTest do
       file = Path.join(set_dir(root, src), "#{src}.dump")
       bin = File.read!(file)
       mid = div(byte_size(bin), 2)
-      <<a::binary-size(mid), b, rest::binary>> = bin
+      <<a::binary-size(^mid), b, rest::binary>> = bin
       File.write!(file, <<a::binary, bxor(b, 1), rest::binary>>)
       {out, code} = run(env, "restore_test.sh")
       assert code == 4
