@@ -32,7 +32,8 @@ defmodule Letflow.Modules.CatalogLedgerHashTest do
     "FixtureLedgerRogue" => "20f7d07cb2aa08e4e916cf3bde4fe0dcc4e73d73342d5a42edc2e64b6fae9b98",
     "FixtureScoped" => "073fb6684c0a502600271bc0c257da0899a3c11090abf96ceb371e6bccfa9495",
     "FixtureDdlFailing" => "49e667a456679e3f5112affb142659f6953bd14952a8845e8e4501136ab8c7c5",
-    "FixturePoints" => "a25427d0c523854a0ab5fb9fd847b7cd441fe2662fe32639025fb1b417b7e65f"
+    "FixturePoints" => "a25427d0c523854a0ab5fb9fd847b7cd441fe2662fe32639025fb1b417b7e65f",
+    "FixtureDataStep" => "868512211460361d3ac158d2a3b6195cca48c2092313573fb44f9999cf903973"
   }
 
   defp base, do: FixtureLedgerPost.manifest()

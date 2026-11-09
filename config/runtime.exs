@@ -288,6 +288,14 @@ module_upgrade_on_boot =
   end
 
 config :letflow, :module_upgrade_on_boot, module_upgrade_on_boot
+
+# REQ-773 (decision 0080 Q5): record-count cap of the one-transaction data-step apply. Default 1000.
+config :letflow,
+       :module_upgrade_one_tx_max_records,
+       Letflow.ModuleUpgrade.Settings.parse_one_tx_max_records(
+         System.get_env("LETFLOW_MODULE_UPGRADE_ONE_TX_MAX_RECORDS")
+       )
+
 config :letflow, Letflow.Plugs.ClientIp, trusted_proxies: trusted_proxies
 
 # GH T-1558: failed-credential limit per address and minute (Letflow.Plugs.AuthAttemptLimit).
