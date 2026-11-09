@@ -1,6 +1,6 @@
 # Process designer — slice 1: the read view
 
-Status: delivered with T-1520 (D-114 item 2). Slice 2 (editing in the same picture) is a later task.
+Status: delivered with T-1520 (D-114 item 2). Slice 2 (editing in the same picture) is delivered with T-1563, see the last section.
 
 The definition format stays the **single source of truth**. Agents and the editor write the definition; the picture
 is always drawn from it and never saved. This slice adds a read-only diagram on the Definitions screen
@@ -108,3 +108,36 @@ The editor (`ProcessCanvas`) stays as it is and stays mounted while the diagram 
 (the diagram then shows "Preview of unsaved changes"). Editing in the diagram itself, saving layout, export and a
 version diff are out of this slice. A node-entered event in the backend would let the path stop inferring gateways;
 it is not part of this slice.
+
+## Slice 2: editing in the diagram (T-1563)
+
+Status: delivered with T-1563. The picture is still the definition: the edit model is the `DefinitionGraph` itself
+(`web/src/utils/canvas/graphEdit.ts`, immutable functions; `editHistory.ts`, a bounded undo/redo stack of snapshots).
+There is no second canvas model. Keys the diagram does not edit (`form_schema`, `module_writes`, `interface`,
+`distinct_from`, `endpoint`, unknown keys) are carried through unchanged. A node's `attributes` is an object on the wire
+(the server does not decode strings); the legacy JSON-string form is only read, never written. A node's position is
+`attributes.position {x, y}`; steps without one get the automatic left-to-right layout when editing starts.
+
+- **Where.** A third switch state "Edit diagram" (Diagram | Edit diagram | Editor) on the Definitions page, shown to
+  callers who may design definitions. `DiagramEditPane` seeds a draft, runs the live check and saves.
+- **Edit.** Add a step (any type except a second START), drag, connect handle to handle (handles show only in edit
+  mode), delete, edit the label and the flat properties of the type: role and assignee (human task), script key and
+  version as ONE unit (service task; a service binding is replaced only by the explicit "Use script instead"), duration
+  (timer), definition name (sub-process), a connection's condition and default flag. Illegal edits (self-loop, duplicate
+  or reversed connection, deleting START) are refused with a spoken message.
+- **Keyboard.** Tab to a step, Enter opens its panel; Alt+Arrow nudges (Shift = far); the panel's "Connect from this
+  step" select and its connection rows (Edit, Delete connection) reach every edge without a pointer; Delete; Ctrl/Cmd+Z and
+  Ctrl+Shift+Z / Ctrl+Y (ignored while typing); Escape closes. Actions are announced in an `aria-live` region. Under
+  640 px the canvas is replaced by an editable step list.
+- **Live validation.** `POST /definitions/:id/validate` takes an optional `{"graph": ...}` body and runs the same
+  validators as the server's stored check, persisting nothing; the web debounces (700 ms), keeps one request in flight and
+  drops answers for older drafts. Violations carry only code and message, so `violationAnchor.ts` marks the node or edge a
+  message names (only an id that exists in the draft); the marker is a glyph and a word.
+- **Save.** Only existing routes: a DRAFT is saved with `PATCH /definitions/:id` and the body `{graph}`; any other status
+  is saved as a new draft with `POST /definitions` (next version, `copy_variable_schemas_from` keeps the declared
+  variables). Create/update answer 422 for structure, attribute, edge and flow violations, so Save is off while one is
+  present (`ADVISORY_CODES` = the semantic codes; everything else blocks). Updates are last write wins on the server; the
+  web asks first when `updated_at` changed since editing began (best effort, a window remains). 409 cases (not a draft,
+  module-owned, version exists) each have their own banner.
+- **Not here.** Structured attributes (still the Editor), new unsaved definitions, autosave, a server-side revision check.
+  The Editor and the diagram draft never hold two divergent unsaved states: each is locked while the other is dirty.

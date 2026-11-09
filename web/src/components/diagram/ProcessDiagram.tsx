@@ -41,7 +41,7 @@ const MINIMAP_COLOUR: Record<NodeState | 'none', string> = {
 }
 
 /** The container width, from a ResizeObserver; wide when the browser has none (jsdom). */
-function useContainerWidth(): [React.RefObject<HTMLDivElement>, number] {
+export function useContainerWidth(): [React.RefObject<HTMLDivElement>, number] {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(1200)
   useEffect(() => {

@@ -1492,8 +1492,37 @@ defmodule Letflow.Definitions do
     prefix = Keyword.get(opts, :prefix)
 
     with {:ok, %ProcessDefinition{} = definition} <- get_by_id(id, opts),
-         {:ok, graph} <- convert_graph(definition.graph),
-         {:ok, declared_fields} <-
+         {:ok, graph} <- convert_graph(definition.graph) do
+      run_validators(definition, graph, prefix)
+    end
+  end
+
+  @doc """
+  The same five validators as `validate_definition_graph/2`, run over a CALLER-SUPPLIED
+  graph map (the process designer's live validation, T-1563) instead of the stored one.
+
+  Persists nothing: `get_by_id/2` first (tenant-scoped, absent and foreign ids are both
+  `{:error, :not_found}`, INV-5), then `convert_graph/1`, then `run_validators/3` against
+  the variable schemas of the STORED definition. No Repo write.
+  """
+  @spec validate_graph_preview(id :: Ecto.UUID.t(), graph_map :: map(), opts :: opts()) ::
+          {:ok, graph_validation_result()}
+          | {:error, :not_found}
+          | {:error, :graph_structure_invalid}
+          | {:error, :missing_prefix}
+          | {:error, :invalid_definition_id}
+          | common_error()
+  def validate_graph_preview(id, graph_map, opts) when is_map(graph_map) and is_list(opts) do
+    prefix = Keyword.get(opts, :prefix)
+
+    with {:ok, %ProcessDefinition{} = definition} <- get_by_id(id, opts),
+         {:ok, graph} <- convert_graph(graph_map) do
+      run_validators(definition, graph, prefix)
+    end
+  end
+
+  defp run_validators(definition, graph, prefix) do
+    with {:ok, declared_fields} <-
            VariableSchema.fetch_schemas(Repo, definition.id, prefix: prefix) do
       violations =
         Graph.validate_graph(graph).violations ++
@@ -1512,6 +1541,34 @@ defmodule Letflow.Definitions do
          violations: violations,
          warnings: warnings
        }}
+    end
+  end
+
+  @doc """
+  The declared variable schemas of definition `source_id` as `register_variable_schemas/3`
+  entries (`variable_key`, `json_schema`, `description`), so a new draft version can keep
+  them (T-1563). `get_by_id/2` first: an absent or another tenant's id is
+  `{:error, :not_found}`; the query is `prefix:`-scoped.
+  """
+  @spec variable_schema_entries(source_id :: Ecto.UUID.t(), opts :: opts()) ::
+          {:ok, [variable_schema_input()]} | {:error, :not_found} | common_error()
+  def variable_schema_entries(source_id, opts) when is_list(opts) do
+    prefix = Keyword.get(opts, :prefix)
+
+    with {:ok, %ProcessDefinition{id: id}} <- get_by_id(source_id, opts) do
+      entries =
+        from(vs in VariableSchema,
+          where: vs.definition_id == ^id,
+          order_by: vs.variable_key,
+          select: %{
+            variable_key: vs.variable_key,
+            json_schema: vs.json_schema,
+            description: vs.description
+          }
+        )
+        |> Repo.all(prefix: prefix)
+
+      {:ok, entries}
     end
   end
 
