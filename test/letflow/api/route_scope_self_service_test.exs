@@ -42,7 +42,9 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
     "GET /me/modules MyModulesRead",
     "GET /me/access MyAccessRead",
     "GET /me/preferences MyAccessRead",
-    "PUT /me/preferences MyPreferencesSet"
+    "PUT /me/preferences MyPreferencesSet",
+    "GET /me/notifications MyAccessRead",
+    "POST /me/notifications/read MyPreferencesSet"
     | @filter_lines
   ]
 
@@ -411,6 +413,19 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
                    key: :MyPreferencesSet,
                    class: :self_service,
                    ruling: "SEC-T1389-prefs-put"
+                 },
+                 # T-1561: the caller's own in-app notification list
+                 %{
+                   route: "GET /me/notifications",
+                   key: :MyAccessRead,
+                   class: :self_service,
+                   ruling: "SEC-T1561-notif-get"
+                 },
+                 %{
+                   route: "POST /me/notifications/read",
+                   key: :MyPreferencesSet,
+                   class: :self_service,
+                   ruling: "SEC-T1561-notif-read"
                  }
                ]
                |> Enum.sort_by(& &1.route)

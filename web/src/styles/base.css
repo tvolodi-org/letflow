@@ -205,6 +205,21 @@ samp {
 }
 /* T-1490: a disabled text input (inventory number of a posted card) reads as read-only, like the disabled select. */
 .lf-form input:disabled { opacity: .55; cursor: not-allowed; }
+/* T-1561: notification bell (badge, popover list). Reuses the lang-menu popover and item. */
+.lf-bell { position: relative; }
+.lf-bell__trigger { position: relative; }
+.lf-bell__badge { position: absolute; top: -4px; right: -6px; min-width: 16px; height: 16px; padding: 0 var(--space-1); border-radius: 8px; background: var(--ember); color: var(--on-ember); font: 600 11px/16px var(--font-mono); text-align: center; }
+.lf-bell__panel { width: min(360px, calc(100vw - var(--space-6))); max-height: min(480px, 70vh); overflow: auto; display: block; }
+.lf-bell__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line); }
+.lf-bell__head .lf-btn { height: auto; min-height: 28px; white-space: normal; text-align: end; }
+.lf-bell__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.lf-bell__row { width: 100%; border: 0; background: none; text-align: start; cursor: pointer; grid-template-columns: 20px 1fr auto; padding-block: var(--space-2); }
+.lf-bell__row[data-read="false"] { background: var(--current-tint); }
+.lf-bell__text { display: grid; gap: 2px; min-width: 0; }
+.lf-bell__title { color: var(--ink-muted); overflow-wrap: anywhere; }
+.lf-bell__time { color: var(--ink-faint); font: var(--type-mono-s); white-space: nowrap; }
+.lf-bell__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ember); }
+.lf-bell__state { margin: 0; padding: var(--space-4) var(--space-3); color: var(--ink-muted); display: grid; gap: var(--space-2); justify-items: start; }
 /* T-1559: Metrics support summary (cards of figures, one plain sentence each). Tokens only. */
 .lf-msum { margin-bottom: var(--space-6); }
 .lf-msum__title { margin: 0 0 var(--space-3); }

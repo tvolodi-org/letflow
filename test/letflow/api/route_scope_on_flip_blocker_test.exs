@@ -34,6 +34,8 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     "GET /me/access" => "SEC-REQ-449-access",
     "GET /me/preferences" => "SEC-T1389-prefs-get",
     "PUT /me/preferences" => "SEC-T1389-prefs-put",
+    "GET /me/notifications" => "SEC-T1561-notif-get",
+    "POST /me/notifications/read" => "SEC-T1561-notif-read",
     "GET /help/resolved" => "SEC-518-R2-help",
     "GET /definitions" => "SEC-525-R01",
     "GET /definitions/search" => "SEC-525-R04",
@@ -111,7 +113,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     test "the committed list has no :pending_sec_ruling entry and no blank ruling" do
       list = RouteScope.self_service_routes()
 
-      assert length(list) == 11
+      assert length(list) == 13
       assert pending(list) == []
       assert unruled(list) == []
       assert Enum.all?(list, &is_binary(&1.ruling))

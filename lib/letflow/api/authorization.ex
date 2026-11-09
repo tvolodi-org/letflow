@@ -1439,6 +1439,10 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/me/preferences"), do: :MyAccessRead
   def endpoint_policy_key("PUT", "/me/preferences"), do: :MyPreferencesSet
 
+  # T-1561: the in-app notification list (Letflow.Routers.Me); own rows only, same permissions.
+  def endpoint_policy_key("GET", "/me/notifications"), do: :MyAccessRead
+  def endpoint_policy_key("POST", "/me/notifications/read"), do: :MyPreferencesSet
+
   # REQ-401 §4 — the Catalog-module route fallback. Every module route is
   # mounted at `/modules/<id>/<rest>` (relative to `/api/v1`, same convention
   # every clause above uses). Resolves to the permission atom the module's

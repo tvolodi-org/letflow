@@ -39,7 +39,8 @@ export interface GraphNode {
   id: string
   node_type: NodeType
   label: string | null
-  attributes: string | null
+  /** The server stores an object (T-1563 correction). The legacy JSON-string form is only READ (parseAttributes); never write it. */
+  attributes: Record<string, unknown> | string | null
 }
 
 export interface GraphEdge {
@@ -91,6 +92,8 @@ export interface CreateDefinitionRequest {
   description?: string
   graph?: DefinitionGraph
   stage?: string | null
+  /** T-1563: a new draft version keeps the declared variables of this definition (server-side copy). */
+  copy_variable_schemas_from?: string
 }
 
 // ── Process Instances (Stage 3) ───────────────────────────────────────────────

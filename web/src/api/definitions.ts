@@ -4,6 +4,7 @@ import type {
   CreateDefinitionRequest,
   CursorPage,
   DefinitionStatus,
+  DefinitionGraph,
 } from '@/types/api'
 
 export interface PromoteResult {
@@ -58,11 +59,14 @@ export const definitionsApi = {
   activate: (id: string) =>
     client.post<ProcessDefinition>(`/api/v1/definitions/${id}/activate`),
 
-  // REQ-431 — bodyless, mirrors handle_validate/1 ignoring conn.body_params.
+  // REQ-431 — bodyless validates the STORED graph. T-1563: with `graph` the server validates that draft graph with the
+  // same validators and persists nothing (the process designer's live check).
   // Resolves clean (200); THROWS an ApiError (422, details: GraphValidationViolation[])
   // when the graph fails REQ-372's semantic checks. See §3.3 of the design doc.
-  validate: (id: string) =>
-    client.post<GraphValidationResponse>(`/api/v1/definitions/${id}/validate`),
+  validate: (id: string, graph?: DefinitionGraph) =>
+    graph
+      ? client.post<GraphValidationResponse>(`/api/v1/definitions/${id}/validate`, { graph })
+      : client.post<GraphValidationResponse>(`/api/v1/definitions/${id}/validate`),
 
   deprecate: (id: string) =>
     client.post<ProcessDefinition>(`/api/v1/definitions/${id}/deprecate`),

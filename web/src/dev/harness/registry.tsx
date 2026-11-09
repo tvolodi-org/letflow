@@ -15,6 +15,7 @@ import { roleLabelsScreens } from './roleLabelsFixtures'
 import { storekeeperGrantScreens } from './storekeeperGrantFixtures'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
+import { notificationBellScreens } from './fixtures/notificationBell'
 import { emptyErrorStates } from './fixtures/emptyErrorStates'
 import { definitionNameScreens } from './fixtures/definitionNames'
 import { definitionNameAdminScreens } from './fixtures/definitionNamesAdmin'
@@ -51,6 +52,7 @@ import { auditLogScreens } from './fixtures/auditLog'
 import { taskInboxScreens } from './fixtures/taskInbox'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
+import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
@@ -268,9 +270,11 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     codesScreen('codes-receive', { receive: true }),
     ...catalogItemsScreens,
     ...locationsScreens,
+    ...notificationBellScreens,
     ...emptyErrorStates,
     ...definitionNameScreens,
     ...processDiagramScreens,
+    ...processDesignerEditScreens,
     ...definitionNameAdminScreens,
     ...codesLabelScreens,
     ...docLayoutScreens,

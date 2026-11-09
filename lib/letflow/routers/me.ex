@@ -16,6 +16,8 @@ defmodule Letflow.Routers.Me do
   | handle_get_access | `GET /me/access` | `Letflow.Api.Authorization` (pure, per request) | `:MyAccessRead` | 200 |
   | handle_get_preferences | `GET /me/preferences` | `Letflow.UserPreferences.list/2` | `:MyAccessRead` | 200 |
   | handle_put_preferences | `PUT /me/preferences` | `Letflow.UserPreferences.put/3` | `:MyPreferencesSet` | 200 / 422 |
+  | handle_list_notifications | `GET /me/notifications` | `Letflow.UserNotifications.list/3` | `:MyAccessRead` | 200 |
+  | handle_read_notifications | `POST /me/notifications/read` | `Letflow.UserNotifications.mark_read/3`, `mark_all_read/2` | `:MyPreferencesSet` | 200 / 422 |
 
   ## `GET /me/modules` (REQ-403)
 
@@ -99,6 +101,7 @@ defmodule Letflow.Routers.Me do
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
   alias Letflow.PlatformTenant
+  alias Letflow.UserNotifications
   alias Letflow.UserPreferences
 
   authz_get "/memberships", :MembershipsRead, scope: :self_service do
@@ -121,7 +124,53 @@ defmodule Letflow.Routers.Me do
     handle_put_preferences(conn)
   end
 
+  authz_get "/notifications", :MyAccessRead, scope: :self_service do
+    handle_list_notifications(conn)
+  end
+
+  authz_post "/notifications/read", :MyPreferencesSet, scope: :self_service do
+    handle_read_notifications(conn)
+  end
+
   authz_unmatched(:ordinary)
+
+  # ── GET /me/notifications, POST /me/notifications/read (T-1561) ──────────
+  # The caller's own in-app notification list (the bell). Prefix from scoped_opts, user id from the
+  # auth context only; no tenant or user identifier in the path or body (INV-10).
+
+  defp handle_list_notifications(conn) do
+    {prefix, user_id} = preferences_identity(conn)
+
+    %{items: items, unread_count: unread} =
+      UserNotifications.list(prefix, user_id, conn.params["limit"])
+
+    Response.ok(conn, %{"notifications" => items, "unread_count" => unread})
+  end
+
+  defp handle_read_notifications(conn) do
+    {prefix, user_id} = preferences_identity(conn)
+
+    result =
+      case conn.body_params do
+        %{"all" => true} -> UserNotifications.mark_all_read(prefix, user_id)
+        %{"ids" => ids} -> UserNotifications.mark_read(prefix, user_id, ids)
+        _ -> {:error, :invalid_ids}
+      end
+
+    case result do
+      {:ok, marked} ->
+        Response.ok(conn, %{
+          "marked" => marked,
+          "unread_count" => UserNotifications.unread_count(prefix, user_id)
+        })
+
+      {:error, :invalid_ids} ->
+        Response.unprocessable(
+          conn,
+          "Send {\"ids\": [up to 100 notification ids]} or {\"all\": true}."
+        )
+    end
+  end
 
   # ── GET/PUT /me/preferences (T-1389) ─────────────────────────────────────
 
