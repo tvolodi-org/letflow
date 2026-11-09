@@ -63,6 +63,7 @@ export interface TaskMessages {
   errNotHeld: string
   errNotPending: string
   errInsufficientStock: string
+  errLocationFrozen: string
   errGeneric: string
 }
 
@@ -101,6 +102,7 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errNotHeld: 'You do not hold the role this task is for.',
     errNotPending: 'This task is no longer pending.',
     errInsufficientStock: 'Not enough stock to post this document.',
+    errLocationFrozen: 'A stock count has frozen these locations. Complete this task after the count ends or is cancelled.',
     errGeneric: 'The action failed. Try again.',
   },
   ru: {
@@ -137,6 +139,7 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errNotHeld: 'У вас нет роли, на которую назначена эта задача.',
     errNotPending: 'Задача уже не ожидает выполнения.',
     errInsufficientStock: 'Недостаточно остатка для проведения документа.',
+    errLocationFrozen: 'Эти места хранения заморожены инвентаризацией. Завершите задачу после окончания или отмены инвентаризации.',
     errGeneric: 'Не удалось выполнить действие. Повторите попытку.',
   },
   kk: {
@@ -173,6 +176,7 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errNotHeld: 'Сізде бұл тапсырма тағайындалған рөл жоқ.',
     errNotPending: 'Тапсырма енді күтуде емес.',
     errInsufficientStock: 'Құжатты өткізуге қалдық жеткіліксіз.',
+    errLocationFrozen: 'Бұл сақтау орындарын түгендеу тоңазытты. Тапсырманы түгендеу аяқталғаннан немесе бас тартылғаннан кейін орындаңыз.',
     errGeneric: 'Әрекет орындалмады. Қайталап көріңіз.',
   },
 }
