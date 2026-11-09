@@ -204,10 +204,16 @@ export default function DefinitionEditorPage() {
     },
     [editorMounted, dirty],
   )
+  // The Editor's global controls (Save, Re-layout, Raw JSON, undo/redo keys) act only while the Editor is the visible view
+  // and the diagram draft holds no unsaved edits: the hidden Editor must never be mutated or saved from the other view.
+  const editorActive = view === 'editor' && !diagramDirty
   const handleDiagramSaved = useCallback(
     (saved: ProcessDefinition, copied: boolean) => {
       useCanvasHistoryStore.getState().clear()
       setDiagramDirty(false)
+      // Put the saved definition into the detail cache BEFORE the Editor remounts, so it initializes from the saved
+      // graph and not from the stale one while the refetch is still in flight.
+      qc.setQueryData(tenantKeys.definitions.detail(saved.id), saved)
       setEditorKey((k) => k + 1)
       void qc.invalidateQueries({ queryKey: tenantKeys.definitions.all() })
       // REQ-431 §5.1: the stored graph is validated after every save, as the Editor does.
@@ -386,6 +392,7 @@ export default function DefinitionEditorPage() {
   // ── Save handler ────────────────────────────────────────────────────────────
 
   async function handleSave() {
+    if (!editorActive) return
     setError(null)
     setConditionErrors(new Map())
     // REQ-431 §5.2: a fresh save always starts from a clean server-error
@@ -577,7 +584,7 @@ export default function DefinitionEditorPage() {
 
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
-      if (isReadOnly) return
+      if (isReadOnly || !editorActive) return
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault()
         setUndoCounter((c) => c + 1)
@@ -593,7 +600,7 @@ export default function DefinitionEditorPage() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [isReadOnly])
+  }, [isReadOnly, editorActive])
 
   // ── Clear history on definition change ──────────────────────────────────────
 
@@ -816,7 +823,7 @@ export default function DefinitionEditorPage() {
               Promote to Production
             </Button>
           )}
-          {!isReadOnly && (
+          {!isReadOnly && view === 'editor' && (
             <>
               <Button
                 variant="secondary"
@@ -831,7 +838,7 @@ export default function DefinitionEditorPage() {
                 variant="secondary"
                 size="sm"
                 data-testid="btn-auto-layout"
-                onClick={() => setAutoLayoutCounter((c) => c + 1)}
+                onClick={() => { if (editorActive) setAutoLayoutCounter((c) => c + 1) }}
                 title="Auto-arrange nodes using Dagre layout"
               >
                 Re-layout
@@ -857,7 +864,7 @@ export default function DefinitionEditorPage() {
                 // gates "Submit for Release" below, where it is not
                 // load-bearing (the real EO-002 enforcement is server-side,
                 // §6.4) and cannot deadlock the same way.
-                disabled={create.isPending || validationErrors.some((e) => e.severity === 'error')}
+                disabled={!editorActive || create.isPending || validationErrors.some((e) => e.severity === 'error')}
                 title={
                   validationErrors.some((e) => e.severity === 'error')
                     ? 'Fix validation errors before saving.'
@@ -872,7 +879,7 @@ export default function DefinitionEditorPage() {
               definitions only (mirrors DefinitionListPage's own Activate
               gating). Deliberately on this same screen so the scenario's
               steps 1/3/4/5 all stay on one continuous screen. */}
-          {!isReadOnly && !isNew && def?.status === 'DRAFT' && (
+          {!isReadOnly && !isNew && view === 'editor' && def?.status === 'DRAFT' && (
             <Button
               variant="primary"
               size="sm"

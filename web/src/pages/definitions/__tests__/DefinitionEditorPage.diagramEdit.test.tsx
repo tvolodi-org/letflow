@@ -20,6 +20,7 @@ import { renderWithAccess } from '@/auth/access/testing'
 expect.extend(jestDomMatchers)
 
 const canvasMounts = { count: 0 }
+const probe = vi.hoisted(() => ({ order: [] as string[], canvasDirty: true, setQueryData: undefined as unknown as ReturnType<typeof vi.fn> }))
 const EDITED = {
   nodesJSON: JSON.stringify([
     { id: 'start', position: { x: 0, y: 0 }, data: { nodeType: 'START', name: 'Start', attributes: {} } },
@@ -63,8 +64,9 @@ function MockProcessCanvas({
 }) {
   useEffect(() => {
     canvasMounts.count += 1
+    probe.order.push('mount')
     canvasStateRef.current = EDITED
-    onDirtyChange(true)
+    onDirtyChange(probe.canvasDirty)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   return <div data-testid="mock-canvas" />
@@ -87,7 +89,7 @@ vi.mock('react-router-dom', async () => {
 })
 vi.mock('@tanstack/react-query', async () => {
   const actual = await vi.importActual('@tanstack/react-query')
-  return { ...(actual as object), useQueryClient: vi.fn(() => ({ invalidateQueries: vi.fn() })) }
+  return { ...(actual as object), useQueryClient: vi.fn(() => ({ invalidateQueries: vi.fn(), setQueryData: (...a: unknown[]) => { probe.order.push('cache'); probe.setQueryData?.(...a) } })) }
 })
 vi.mock('@/hooks/useDefinitions', () => ({
   useDefinition: vi.fn(),
@@ -163,6 +165,8 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   canvasMounts.count = 0
+  probe.order.length = 0
+  probe.canvasDirty = true
   blockerPredicates.length = 0
   act(() => useUiLocaleStore.getState().setLocale('en'))
 })
@@ -197,6 +201,34 @@ describe('T-1563 definition page: Edit diagram', () => {
     await user.click(screen.getByTestId('definition-view-edit'))
     expect(screen.getByTestId('definition-edit-view')).toBeVisible()
     expect(screen.getByTestId('edit-pane-edits')).toHaveTextContent('2')
+  })
+
+  it('P1 after a diagram save the saved definition is in the detail cache BEFORE the Editor remounts', async () => {
+    const user = userEvent.setup()
+    probe.canvasDirty = false
+    probe.setQueryData = vi.fn()
+    arrange('DRAFT')
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
+    await waitFor(() => expect(canvasMounts.count).toBe(1))
+    await user.click(screen.getByTestId('definition-view-edit'))
+    await user.click(screen.getByText('save-ok'))
+    await waitFor(() => expect(canvasMounts.count).toBe(2))
+    expect(probe.setQueryData).toHaveBeenCalledWith(expect.anything(), { id: DEF.id })
+    expect(probe.order).toEqual(['mount', 'cache', 'mount'])
+  })
+
+  it('P2 while the diagram draft is dirty the Editor controls (Save, Re-layout, Raw JSON, Submit) are gone from either view', async () => {
+    const user = userEvent.setup()
+    probe.canvasDirty = false
+    arrange('DRAFT')
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
+    await waitFor(() => expect(screen.getByTestId('btn-auto-layout')).toBeInTheDocument())
+    await user.click(screen.getByTestId('definition-view-edit'))
+    for (const id of ['btn-auto-layout', 'btn-save-definition', 'btn-show-raw-json', 'btn-submit-for-release']) expect(screen.queryByTestId(id)).toBeNull()
+    await user.click(screen.getByText('make-dirty'))
+    await user.click(screen.getByTestId('definition-view-diagram'))
+    for (const id of ['btn-auto-layout', 'btn-save-definition', 'btn-show-raw-json', 'btn-submit-for-release']) expect(screen.queryByTestId(id)).toBeNull()
+    expect(canvasMounts.count).toBe(1) // nothing remounted or touched the hidden Editor
   })
 
   it('S5 an unsaved Editor change refuses Edit diagram with the reason', async () => {

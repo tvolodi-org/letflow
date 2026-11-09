@@ -95,6 +95,50 @@ describe('T-1563 diagram edit: save', () => {
     expect(definitionsApi.create).not.toHaveBeenCalled()
   })
 
+  it('P3 edits made while a PATCH is pending are refused, not lost; the saved graph becomes the clean base', async () => {
+    vi.mocked(definitionsApi.get).mockResolvedValue(DEF)
+    let resolve!: (d: ProcessDefinition) => void
+    vi.mocked(definitionsApi.update).mockReturnValue(new Promise<ProcessDefinition>((r) => (resolve = r)))
+    mount()
+    await addStep()
+    save()
+    await waitFor(() => expect(definitionsApi.update).toHaveBeenCalledTimes(1))
+    const sentNodes = (vi.mocked(definitionsApi.update).mock.calls[0][1] as { graph: { nodes: unknown[] } }).graph.nodes.length
+    fireEvent.click(screen.getByTestId('edit-add')) // pending: refused
+    resolve({ ...DEF, graph: { ...DEF.graph, nodes: [...DEF.graph.nodes, { id: 'n3', node_type: 'HUMAN_TASK', label: null, attributes: null }] } })
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(sentNodes).toBe(3)
+    await waitFor(() => expect(screen.getByTestId('edit-save')).toBeDisabled()) // clean: nothing newer than the saved graph was dropped silently
+    expect(screen.getByTestId('edit-undo')).toBeDisabled()
+  })
+
+  it('P4 edits are also refused during the preliminary read of a DRAFT save', async () => {
+    let resolveGet!: (d: ProcessDefinition) => void
+    vi.mocked(definitionsApi.get).mockReturnValue(new Promise<ProcessDefinition>((r) => (resolveGet = r)))
+    vi.mocked(definitionsApi.update).mockResolvedValue(DEF)
+    mount()
+    await addStep()
+    save()
+    fireEvent.click(screen.getByTestId('edit-add')) // pending GET: refused
+    resolveGet(DEF)
+    await waitFor(() => expect(definitionsApi.update).toHaveBeenCalledTimes(1))
+    const body = vi.mocked(definitionsApi.update).mock.calls[0][1] as { graph: { nodes: unknown[] } }
+    expect(body.graph.nodes).toHaveLength(3) // start, end, ONE added step
+  })
+
+  it('P5 edits made while a new-version save is pending are refused', async () => {
+    let resolve!: (d: ProcessDefinition) => void
+    vi.mocked(definitionsApi.create).mockReturnValue(new Promise<ProcessDefinition>((r) => (resolve = r)))
+    mount({ ...DEF, status: 'ACTIVE' })
+    await addStep()
+    save()
+    await waitFor(() => expect(definitionsApi.create).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByTestId('edit-add'))
+    resolve({ ...DEF, id: 'def-2', version: '1.0.1' })
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect((vi.mocked(definitionsApi.create).mock.calls[0][0] as { graph: { nodes: unknown[] } }).graph.nodes).toHaveLength(3)
+  })
+
   it('S2/S6 an ACTIVE definition is saved as a new draft with the next version and the variable-schema copy', async () => {
     vi.mocked(definitionsApi.create).mockResolvedValue({ ...DEF, id: 'def-2', version: '1.0.1' })
     mount({ ...DEF, status: 'ACTIVE' })

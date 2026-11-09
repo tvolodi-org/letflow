@@ -11,7 +11,7 @@ import { Field } from '@/components/ui/Field'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { definitionsApi } from '@/api/definitions'
-import { useDiagramDraft } from '@/hooks/useDiagramDraft'
+import { useDiagramDraft, type DiagramDraft } from '@/hooks/useDiagramDraft'
 import { isBlocking, useValidateDraft, type DraftCheck } from '@/hooks/useValidateDraft'
 import type { GraphValidationViolation } from '@/api/definitions'
 import type { DefinitionGraph, ProcessDefinition } from '@/types/api'
@@ -50,10 +50,37 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
   const intl = useIntl()
   const e = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.edit.${id}` }, values)
   const seed = useMemo<DefinitionGraph>(() => withLayoutPositions(def.graph), [def.graph])
-  const draft = useDiagramDraft(seed, def.updated_at)
-  const { reset } = draft
-  const isDraftDef = def.status === 'DRAFT'
+  const rawDraft = useDiagramDraft(seed, def.updated_at)
+  const { reset } = rawDraft
   const [saving, setSaving] = useState(false)
+  // Editing is frozen for the WHOLE save (the preliminary read included): a success replaces the draft with the saved graph,
+  // so an edit made meanwhile would be lost silently. The ref is set synchronously, before React re-renders.
+  const savingRef = useRef(false)
+  const startSaving = () => {
+    savingRef.current = true
+    setSaving(true)
+  }
+  const stopSaving = () => {
+    savingRef.current = false
+    setSaving(false)
+  }
+  const draft = useMemo<DiagramDraft>(
+    () => ({
+      ...rawDraft,
+      apply: (result, key) => (savingRef.current ? 'saving' : rawDraft.apply(result, key)),
+      setGraph: (g, key) => {
+        if (!savingRef.current) rawDraft.setGraph(g, key)
+      },
+      undo: () => {
+        if (!savingRef.current) rawDraft.undo()
+      },
+      redo: () => {
+        if (!savingRef.current) rawDraft.redo()
+      },
+    }),
+    [rawDraft],
+  )
+  const isDraftDef = def.status === 'DRAFT'
   const [error, setError] = useState<SaveError>(demo?.error ?? null)
   const [stale, setStale] = useState(demo?.stale === true)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -98,7 +125,7 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
           : null
 
   const doSave = useCallback(async () => {
-    setSaving(true)
+    startSaving()
     setError(null)
     setStale(false)
     setSaveProblems(null)
@@ -129,17 +156,20 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
       if (c.kind === 'duplicate') setVersionTaken(true)
       setError(c)
     } finally {
-      setSaving(false)
+      stopSaving()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDraftDef, def, draft, version, onSaved])
 
   const save = useCallback(async () => {
+    startSaving()
     if (isDraftDef) {
       // Best effort only: a window remains between this read and the PATCH (no server-side revision check exists).
       try {
         const fresh = await definitionsApi.get(def.id)
         if (draft.seededAt && fresh.updated_at !== draft.seededAt) {
           setStale(true)
+          stopSaving()
           return
         }
       } catch {
@@ -147,6 +177,7 @@ export function DiagramEditPane({ def, editorDirty, onDirtyChange, onSaved, onRe
       }
     }
     await doSave()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDraftDef, def.id, draft.seededAt, doSave])
 
   return (

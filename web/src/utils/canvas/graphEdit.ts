@@ -28,6 +28,7 @@ export type EditRefusal =
   | 'too_many_edges'
   | 'unknown_node'
   | 'unknown_edge'
+  | 'saving'
 
 export type EditResult = { ok: true; graph: DefinitionGraph; id?: string } | { ok: false; reason: EditRefusal }
 

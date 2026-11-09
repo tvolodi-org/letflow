@@ -156,6 +156,7 @@ const UI: Record<string, Triple> = {
   'processDiagram.edit.refusal.too_many_nodes': ['The definition has the most steps allowed.', 'В определении максимум допустимых шагов.', 'Анықтамада рұқсат етілген қадамдардың ең көбі бар.'],
   'processDiagram.edit.refusal.too_many_edges': ['The definition has the most connections allowed.', 'В определении максимум допустимых связей.', 'Анықтамада рұқсат етілген байланыстардың ең көбі бар.'],
   'processDiagram.edit.refusal.unknown_node': ['That step no longer exists.', 'Такого шага больше нет.', 'Мұндай қадам енді жоқ.'],
+  'processDiagram.edit.refusal.saving': ['The draft is being saved; edit again when it is done.', 'Черновик сохраняется; продолжите правку после сохранения.', 'Жоба сақталуда; сақталған соң қайта өңдеңіз.'],
   'processDiagram.edit.refusal.unknown_edge': ['That connection no longer exists.', 'Такой связи больше нет.', 'Мұндай байланыс енді жоқ.'],
   'processDiagram.edit.announce.connected': ['Connected {from} to {to}', 'Соединено: «{from}» → «{to}»', 'Байланыстырылды: «{from}» → «{to}»'],
   'processDiagram.edit.announce.deleted': ['Deleted {name}', 'Удалён шаг «{name}»', '«{name}» қадамы жойылды'],
