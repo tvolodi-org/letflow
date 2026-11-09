@@ -22,7 +22,19 @@ defmodule Letflow.Notifications do
 
   The log holds no subject, body, recipient address or error text, and this module never
   logs or inspects them: only fixed log lines (INV-4). Tenant data is reached with the
-  tenant's `:prefix` only (INV-1). There is no retry and no queue.
+  tenant's `:prefix` only (INV-1).
+
+  ## E-mail copy of the bell (T-1571)
+
+  The assignment mail is the e-mail copy of the bell entry and is gated: the tenant setting
+  `notifications.email_copy` must be `true` (absent = off, no log row); the user must not have
+  set the preference `notifications.email` to `"off"`; and at most 20 assignment mails per
+  recipient per rolling hour are sent (counted from the tenant's own log rows). Skips write no
+  row (`notification_deliveries.reason` is a column CHECK; a new reason would need a tenant
+  migration). An adapter failure is retried inside the delivery task (`retries: 2`, backoff from
+  `config :letflow, Letflow.Notifications, retry_backoff_ms`, default 1 s / 5 s); still ONE log
+  row, written after the last attempt. The other callers of `deliver/6` (exam, assets) do not
+  retry. There is no durable queue: a node restart loses an in-flight delivery.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -42,6 +54,8 @@ defmodule Letflow.Notifications do
   @supervisor Letflow.Notifications.TaskSupervisor
   @default_locale "en"
   @max_value_chars 500
+  @email_copy_per_hour 20
+  @default_backoff_ms [1_000, 5_000]
 
   @doc """
   Starts the `task_assigned` delivery for a committed (re)assignment. Never raises; returns `:ok`.
@@ -51,7 +65,7 @@ defmodule Letflow.Notifications do
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, _pid} <-
            Task.Supervisor.start_child(@supervisor, fn ->
-             deliver_task_assigned(task, user_id, prefix, tenant_id)
+             deliver_assignment_copy(task, user_id, prefix, tenant_id)
            end) do
       :ok
     else
@@ -104,29 +118,91 @@ defmodule Letflow.Notifications do
 
   def start_delivery(_template_key, _user_id, _trigger_ref, _values_fun, _prefix), do: :ok
 
+  @doc false
+  @spec deliver_assignment_copy(EngineTask.t(), term(), String.t(), String.t()) :: :ok
+  def deliver_assignment_copy(task, user_id, prefix, tenant_id) do
+    cond do
+      not email_copy_enabled?(tenant_id) ->
+        :ok
+
+      Letflow.UserPreferences.email_opt_out?(prefix, user_id) ->
+        Logger.info("notifications: email copy skipped (opt-out)")
+        :ok
+
+      rate_limited?(prefix, user_id) ->
+        Logger.info("notifications: email copy skipped (rate limit)")
+        :ok
+
+      true ->
+        deliver_task_assigned(task, user_id, prefix, tenant_id, retries: 2)
+    end
+  rescue
+    _exception ->
+      Logger.warning("notifications: email copy check failed")
+      :ok
+  catch
+    _kind, _reason ->
+      Logger.warning("notifications: email copy check failed")
+      :ok
+  end
+
+  # Only a stored `true` enables; a missing tenant, nil settings or any other value is off.
+  defp email_copy_enabled?(tenant_id) do
+    case Repo.get(Tenant, tenant_id) do
+      %Tenant{settings: %{"notifications.email_copy" => true}} -> true
+      _other -> false
+    end
+  end
+
+  # Fail closed: a count that cannot be read counts as limited (rescued by the caller).
+  defp rate_limited?(prefix, user_id) do
+    case Ecto.UUID.cast(user_id) do
+      {:ok, id} ->
+        since = DateTime.add(DateTime.utc_now(), -3600, :second)
+
+        count =
+          Repo.aggregate(
+            from(d in Delivery,
+              where:
+                d.recipient_user_id == ^id and d.template_key == "task_assigned" and
+                  d.inserted_at > ^since
+            ),
+            :count,
+            prefix: prefix
+          )
+
+        count >= @email_copy_per_hour
+
+      :error ->
+        true
+    end
+  end
+
   @doc """
   Renders, sends and logs one `task_assigned` mail; writes exactly one log row. Runs inside the
   delivery task; public for tests. Never raises.
   """
   @spec deliver_task_assigned(EngineTask.t(), term(), String.t(), String.t()) :: :ok
-  def deliver_task_assigned(task, user_id, prefix, tenant_id) do
+  def deliver_task_assigned(task, user_id, prefix, tenant_id, opts \\ []) do
     deliver(
       "task_assigned",
       user_id,
       task.id,
       fn user, prefix, tenant -> values(task, user, prefix, tenant) end,
       prefix,
-      tenant_id
+      tenant_id,
+      opts
     )
   end
 
   @doc false
-  @spec deliver(String.t(), term(), term(), function(), String.t(), String.t()) :: :ok
-  def deliver(template_key, user_id, trigger_ref, values_fun, prefix, tenant_id) do
+  @spec deliver(String.t(), term(), term(), function(), String.t(), String.t(), keyword()) :: :ok
+  def deliver(template_key, user_id, trigger_ref, values_fun, prefix, tenant_id, opts \\ []) do
+    retries = Keyword.get(opts, :retries, 0)
     tenant = safe(fn -> Repo.get(Tenant, tenant_id) end)
     locale = locale_of(tenant)
 
-    {status, reason} = outcome(template_key, values_fun, user_id, prefix, tenant, locale)
+    {status, reason} = outcome(template_key, values_fun, user_id, prefix, tenant, locale, retries)
 
     log(
       %{
@@ -146,10 +222,13 @@ defmodule Letflow.Notifications do
     _kind, _reason -> warn_write_failed()
   end
 
-  defp outcome(template_key, values_fun, user_id, prefix, tenant, locale) do
+  defp outcome(template_key, values_fun, user_id, prefix, tenant, locale, retries) do
     case recipient(user_id, prefix) do
-      {:ok, user} -> render_and_send(template_key, values_fun, user, prefix, tenant, locale)
-      :none -> {"skipped", "no_email"}
+      {:ok, user} ->
+        render_and_send(template_key, values_fun, user, prefix, tenant, locale, retries)
+
+      :none ->
+        {"skipped", "no_email"}
     end
   end
 
@@ -163,27 +242,53 @@ defmodule Letflow.Notifications do
     end
   end
 
-  defp render_and_send(template_key, values_fun, user, prefix, tenant, locale) do
+  defp render_and_send(template_key, values_fun, user, prefix, tenant, locale, retries) do
     with values when is_map(values) <- safe(fn -> values_fun.(user, prefix, tenant) end),
          {:ok, %{subject: subject, body: body}} <-
            NotificationTemplates.preview(prefix, template_key, locale, nil, nil, values) do
-      send_message(%{to: user.email, subject: subject, body: body})
+      send_message(%{to: user.email, subject: subject, body: body}, retries)
     else
       _error -> {"failed", "adapter_error"}
     end
   end
 
-  defp send_message(message) do
+  defp send_message(message, retries) do
     adapter = Dispatch.adapter()
 
     if adapter == Noop do
       {"skipped", "adapter_noop"}
     else
-      case run_adapter(adapter, message) do
+      case run_with_retries(adapter, message, retries, backoffs()) do
         :ok -> {"sent", nil}
         _failure -> {"failed", "adapter_error"}
       end
     end
+  end
+
+  defp run_with_retries(adapter, message, retries, backoffs) do
+    case run_adapter(adapter, message) do
+      :ok ->
+        :ok
+
+      _failure when retries > 0 ->
+        {wait, rest} =
+          case backoffs do
+            [w | r] -> {w, r}
+            [] -> {0, []}
+          end
+
+        if wait > 0, do: Process.sleep(wait)
+        run_with_retries(adapter, message, retries - 1, rest)
+
+      failure ->
+        failure
+    end
+  end
+
+  defp backoffs do
+    :letflow
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:retry_backoff_ms, @default_backoff_ms)
   end
 
   defp run_adapter(adapter, message) do
