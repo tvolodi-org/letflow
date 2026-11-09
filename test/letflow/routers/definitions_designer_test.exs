@@ -22,6 +22,8 @@ defmodule Letflow.Routers.DefinitionsDesignerTest do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.SemanticValidation
+  alias Letflow.Identity
+  alias Letflow.Identity.User
   alias Letflow.TenantFixture
 
   @opts Letflow.Routers.Definitions.init([])
@@ -351,6 +353,111 @@ defmodule Letflow.Routers.DefinitionsDesignerTest do
       conflict = save.(by_name["script_and_service_id"])
       assert conflict.status == 422
       assert "conflicting_service_task_routes" in err_codes(json(conflict))
+    end
+
+    test "H4 a module-owned definition answers 409 and stays unchanged" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t1563-h4")
+      schema = tenant.schema_name
+      owner = Letflow.Entities.ManagedTypes.module_owner(Letflow.Modules.FixtureLedger)
+
+      assert {:ok, %ProcessDefinition{} = d} =
+               Definitions.create_owned(
+                 %{
+                   name: uniq("t1563-owned"),
+                   version: "1.0.0",
+                   graph: base_graph(),
+                   created_by: Ecto.UUID.generate()
+                 },
+                 [prefix: schema],
+                 owner
+               )
+
+      resp =
+        build_conn("PATCH", "/#{d.id}", tenant, [@designer], %{
+          "graph" => fixture("edited_graph.json")
+        })
+        |> dispatch()
+
+      assert resp.status == 409
+      assert json(resp)["detail"] =~ "module-owned"
+
+      assert Letflow.Repo.get!(ProcessDefinition, d.id, prefix: schema).graph
+             |> Map.get("nodes")
+             |> length() ==
+               length(base_graph()["nodes"])
+    end
+  end
+
+  describe "H1 the draft save through the full pipeline (a real bearer token)" do
+    defp token_for(tenant, roles) do
+      user =
+        %User{}
+        |> Ecto.Changeset.change(%{
+          username: "t1563-user-#{Ecto.UUID.generate()}",
+          display_name: "T-1563 designer",
+          email: "t1563-#{Ecto.UUID.generate()}@example.com",
+          password_hash: "__NO_PASSWORD_SET__",
+          status: :active,
+          auth_source: :internal
+        })
+        |> Repo.insert!(prefix: tenant.schema_name)
+
+      {:ok, %{plaintext: plaintext}} =
+        Identity.create_token(user.id, %{roles: roles, expires_at: nil},
+          prefix: tenant.schema_name
+        )
+
+      plaintext
+    end
+
+    defp real(method, path, tenant, token, body) do
+      conn(method, path, Jason.encode!(body))
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> put_req_header("x-tenant-slug", tenant.tenant.slug)
+      |> Letflow.Router.call(Letflow.Router.init([]))
+    end
+
+    test "PATCH /api/v1/definitions/:id with {graph} stores the graph and leaves the rest alone" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t1563-h1")
+      schema = tenant.schema_name
+      d = create_definition!(schema, nil, %{description: "keep me"})
+      token = token_for(tenant, ["TENANT_ADMIN"])
+      edited = fixture("edited_graph.json")
+
+      resp = real(:patch, "/api/v1/definitions/#{d.id}", tenant, token, %{"graph" => edited})
+      assert resp.status == 200, resp.resp_body
+
+      stored = Repo.get!(ProcessDefinition, d.id, prefix: schema)
+      assert length(stored.graph["nodes"]) == length(edited["nodes"])
+      assert {stored.name, stored.version, stored.description} == {d.name, d.version, "keep me"}
+    end
+
+    test "a graph that fails the validators is refused with 422 and nothing is stored" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t1563-h1b")
+      schema = tenant.schema_name
+      d = create_definition!(schema)
+      token = token_for(tenant, ["TENANT_ADMIN"])
+      bad = Enum.find(cases(), &(&1["name"] == "missing_role"))["graph"]
+
+      resp = real(:patch, "/api/v1/definitions/#{d.id}", tenant, token, %{"graph" => bad})
+      assert resp.status == 422
+
+      assert Repo.get!(ProcessDefinition, d.id, prefix: schema).graph ==
+               d.graph |> Jason.encode!() |> Jason.decode!()
+    end
+
+    test "the live check with a graph body answers through the real pipeline and stores nothing" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t1563-v")
+      schema = tenant.schema_name
+      d = create_definition!(schema)
+      token = token_for(tenant, ["TENANT_ADMIN"])
+      bad = Enum.find(cases(), &(&1["name"] == "missing_role"))["graph"]
+
+      resp = real(:post, "/api/v1/definitions/#{d.id}/validate", tenant, token, %{"graph" => bad})
+      assert resp.status == 422
+      assert "missing_role" in err_codes(json(resp))
+      assert Repo.get!(ProcessDefinition, d.id, prefix: schema).updated_at == d.updated_at
     end
   end
 end

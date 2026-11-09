@@ -6,6 +6,7 @@
  * persisted attributes and auto-generates positions for new/positionless nodes.
  */
 
+import { parseAttributes } from './readLayout'
 import type { Node, Edge } from '@xyflow/react'
 import type { DefinitionGraph, NodeType } from '@/types/api'
 
@@ -63,10 +64,8 @@ export function graphToFlow(graph: DefinitionGraph): GraphToFlowResult {
   // Map node IDs to their persisted positions
   const persistedPositions = new Map<string, { x: number; y: number }>()
   for (const gn of graph.nodes) {
-    let attrsParsed: Record<string, unknown> = {}
-    if (gn.attributes) {
-      try { attrsParsed = JSON.parse(gn.attributes) } catch { /* ignore */ }
-    }
+    // T-1563: the server stores an object; the legacy JSON-string form is still read.
+    const attrsParsed: Record<string, unknown> = parseAttributes(gn.attributes)
     if (attrsParsed?.position && typeof attrsParsed.position === 'object') {
       const pos = attrsParsed.position as { x: number; y: number }
       if (typeof pos.x === 'number' && typeof pos.y === 'number') {

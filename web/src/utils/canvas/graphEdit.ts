@@ -8,6 +8,7 @@
  * string. This module reads both and WRITES an object (what `Graph.from_map` validates).
  */
 import type { DefinitionGraph, GraphEdge, GraphNode, NodeType } from '@/types/api'
+import { layoutDefinition } from './readLayout'
 
 /** Mirrors `@max_nodes` / `@max_edges` in lib/letflow/definitions/graph.ex (a test pins the numbers to that source). */
 export const MAX_NODES = 500
@@ -213,4 +214,20 @@ export function nextDraftVersion(version: string): string {
   const m = /^(.*?)(\d+)$/.exec(version)
   if (!m) return `${version}.1`
   return `${m[1]}${Number(m[2]) + 1}`
+}
+
+/** The graph with a position for every node: nodes that have none get the automatic (dagre) layout position, so a
+ *  "move" is real and the saved definition keeps the drawing. Nodes with a position are untouched. */
+export function withLayoutPositions(g: DefinitionGraph): DefinitionGraph {
+  if (g.nodes.every((n) => positionOf(n) !== null)) return g
+  const laid = layoutDefinition(g, 'LR')
+  const at = new Map(laid.nodes.map((n) => [n.id, { x: n.x, y: n.y }]))
+  return {
+    ...g,
+    nodes: g.nodes.map((n) => {
+      if (positionOf(n) !== null || !attributesEditable(n)) return n
+      const p = at.get(n.id)
+      return p ? withAttrs(n, { ...readAttrs(n), position: { x: Math.round(p.x), y: Math.round(p.y) } }) : n
+    }),
+  }
 }

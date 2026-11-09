@@ -5,7 +5,7 @@
  * and save workflow. Replaces the old JSON textarea as the primary editor.
  */
 
-import { useParams, useBlocker } from 'react-router-dom'
+import { Navigate, useParams, useBlocker } from 'react-router-dom'
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { ReactFlowProvider } from '@xyflow/react'
@@ -18,7 +18,7 @@ import { mapSemanticViolationsToValidationErrors } from '@/utils/canvas/semantic
 import { P, useAccess } from '@/auth/access'
 import { useTenantContext } from '@/auth/useTenantContext'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
-import type { DefinitionGraph } from '@/types/api'
+import type { DefinitionGraph, ProcessDefinition } from '@/types/api'
 import type { CanvasNodeData, CanvasEdgeData } from '@/utils/canvas/graphToFlow'
 import { graphToFlow } from '@/utils/canvas/graphToFlow'
 import { flowToGraph } from '@/utils/canvas/flowToGraph'
@@ -45,7 +45,8 @@ import type { ValidationError } from '@/components/canvas/ValidationSummaryBar'
 import ReleaseCheckPanel from '@/components/canvas/ReleaseCheckPanel'
 import { ProcessDiagramLazy } from '@/components/diagram/ProcessDiagramLazy'
 import { ProcessDiagramIntlProvider } from '@/components/diagram/ProcessDiagramIntlProvider'
-import { DefinitionViewSwitch, type DefinitionView } from '@/components/diagram/DefinitionViewSwitch'
+import { DefinitionViewSwitch, EditRefusedBanner, type DefinitionView } from '@/components/diagram/DefinitionViewSwitch'
+import { DiagramEditPane } from '@/components/diagram/DiagramEditPane'
 import type { ReleaseCheckState } from '@/components/canvas/ReleaseCheckPanel'
 
 
@@ -169,8 +170,18 @@ export default function DefinitionEditorPage() {
     if (view === 'editor') setEditorMounted(true)
   }, [view])
   const [previewGraph, setPreviewGraph] = useState<DefinitionGraph | null>(null)
+  // T-1563: "Edit diagram" keeps its own draft; the Editor and the draft never hold two divergent unsaved states.
+  const [diagramDirty, setDiagramDirty] = useState(false)
+  const [editRefused, setEditRefused] = useState(false)
+  const [editorKey, setEditorKey] = useState(0)
+  const [goTo, setGoTo] = useState<string | null>(null)
   const handleViewChange = useCallback(
     (next: DefinitionView) => {
+      if (next === 'edit' && dirty) {
+        setEditRefused(true)
+        return
+      }
+      setEditRefused(false)
       if (next === 'diagram') {
         const state = canvasStateRef.current
         let graph: DefinitionGraph | null = null
@@ -185,7 +196,24 @@ export default function DefinitionEditorPage() {
       }
       setViewChoice(next)
     },
-    [editorMounted],
+    [editorMounted, dirty],
+  )
+  const handleDiagramSaved = useCallback(
+    (saved: ProcessDefinition, copied: boolean) => {
+      useCanvasHistoryStore.getState().clear()
+      setDiagramDirty(false)
+      setEditorKey((k) => k + 1)
+      void qc.invalidateQueries({ queryKey: tenantKeys.definitions.all() })
+      // REQ-431 §5.1: the stored graph is validated after every save, as the Editor does.
+      void validateDefinition.mutateAsync(saved.id).catch(() => undefined)
+      if (copied) {
+        setViewChoice('edit')
+        setGoTo(`/definitions/${saved.id}`)
+      } else {
+        void refetch()
+      }
+    },
+    [qc, tenantKeys, validateDefinition, refetch],
   )
 
   // Convert API graph → React Flow on definition load. Computed ONCE here and
@@ -571,12 +599,13 @@ export default function DefinitionEditorPage() {
 
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
-      dirty && currentLocation.pathname !== nextLocation.pathname,
+      (dirty || diagramDirty) && currentLocation.pathname !== nextLocation.pathname,
   )
 
   const handleDiscardAndProceed = useCallback(() => {
     if (blocker.state === 'blocked') {
       setDirty(false)
+      setDiagramDirty(false)
       blocker.proceed()
     }
   }, [blocker])
@@ -589,14 +618,14 @@ export default function DefinitionEditorPage() {
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (dirty) {
+      if (dirty || diagramDirty) {
         e.preventDefault()
         e.returnValue = ''
       }
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [dirty])
+  }, [dirty, diagramDirty])
 
   // ── Palette add-node via double-click ──────────────────────────────────────
 
@@ -754,7 +783,7 @@ export default function DefinitionEditorPage() {
           {isNew && <StatusBadge status="DRAFT" domain="definition" size="sm" />}
           {!isNew && (
             <ProcessDiagramIntlProvider>
-              <DefinitionViewSwitch view={view} onChange={handleViewChange} unsaved={dirty} />
+              <DefinitionViewSwitch view={view} onChange={handleViewChange} unsaved={dirty} canEditDiagram={hasDesignerRole} editorLocked={diagramDirty} />
             </ProcessDiagramIntlProvider>
           )}
         </div>
@@ -1025,9 +1054,33 @@ export default function DefinitionEditorPage() {
         </div>
       )}
 
+      {goTo && <Navigate to={goTo} replace />}
+      {editRefused && dirty && view === 'editor' && (
+        <ProcessDiagramIntlProvider>
+          <EditRefusedBanner />
+        </ProcessDiagramIntlProvider>
+      )}
+
+      {/* ── T-1563: edit the diagram (the definition format is the edit model; saved through the existing routes) ── */}
+      {view === 'edit' && def && (
+        <div data-testid="definition-edit-view" style={{ flex: 1, overflow: 'auto', padding: 'var(--space-4)' }}>
+          <ProcessDiagramIntlProvider>
+            <DiagramEditPane
+              key={def.id}
+              def={def}
+              editorDirty={dirty}
+              onDirtyChange={setDiagramDirty}
+              onSaved={handleDiagramSaved}
+              onReload={() => void refetch()}
+            />
+          </ProcessDiagramIntlProvider>
+        </div>
+      )}
+
       {/* ── Main layout: Palette | Canvas | Property Panel ─────── */}
       {(editorMounted || view === 'editor') && (
       <div
+        key={editorKey}
         data-testid="definition-editor-view"
         hidden={view !== 'editor'}
         style={{ display: view === 'editor' ? 'flex' : 'none', flex: 1, overflow: 'hidden' }}

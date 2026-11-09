@@ -39,7 +39,8 @@ export interface GraphNode {
   id: string
   node_type: NodeType
   label: string | null
-  attributes: string | null
+  /** The server stores an object (T-1563 correction). The legacy JSON-string form is only READ (parseAttributes); never write it. */
+  attributes: Record<string, unknown> | string | null
 }
 
 export interface GraphEdge {
