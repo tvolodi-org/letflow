@@ -237,6 +237,7 @@ in `lib/definitions/sembast_platform.dart`).
 loaded (zxing, CanvasKit and Roboto are bundled; `web/flutter_bootstrap.js` points the glyph fallback at the same origin),
 precompresses and packs the result into `build/pwa/`. CI job `CD (PWA web build)` does the same on main and publishes the
 artifact; see `docs/runbooks/mobile-web-pwa-hosting.md`.
+Before the link goes to clients: `docs/runbooks/mobile-web-pwa-ready-check.md` (client test script in ru/kk/en and the "ready for clients" check).
 
 ### Web sign-in (M2)
 

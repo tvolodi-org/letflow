@@ -472,6 +472,61 @@ defmodule Letflow.Modules.Installs do
   end
 
   @doc """
+  The deploy-skew gate's single query (decision 0055 D5): the stored data version of `module_id`
+  when it is active for the tenant at `opts[:prefix]`, else `:not_installed`. ONE round trip, the
+  same indexed lookup as `installed?/2`, so the mount's INV-5 timing parity holds. Raises on a
+  missing `:prefix` like `installed?/2`.
+  """
+  @spec gate_state(module_id :: String.t(), opts()) ::
+          :not_installed | {:installed, version :: String.t() | nil}
+  def gate_state(module_id, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    query =
+      from(m in TenantModule,
+        where: m.module_id == ^module_id and m.status == :active,
+        select: m.version,
+        limit: 1
+      )
+
+    case Repo.all(query, prefix: prefix) do
+      [] -> :not_installed
+      [version | _] -> {:installed, version}
+    end
+  end
+
+  @doc """
+  Pure verdict of the deploy-skew gate for a manifest and a stored data version (decision 0055 D5).
+  `:ahead` when the stored version is above the build's `:version` (every module); `:too_old` when the
+  manifest declares `:min_data_version` and the stored version is below it (or unparsable, fail
+  closed); else `:ok`. An unparsable stored version with no declared minimum is served. Never raises.
+  """
+  @spec version_verdict(manifest :: map(), stored :: term()) :: :ok | :too_old | :ahead
+  def version_verdict(manifest, stored) when is_map(manifest) do
+    stored_v = parse_version(stored)
+    build_v = parse_version(Map.get(manifest, :version))
+    min_v = parse_version(Map.get(manifest, :min_data_version))
+    min_declared? = Map.has_key?(manifest, :min_data_version)
+
+    cond do
+      stored_v != nil and build_v != nil and Version.compare(stored_v, build_v) == :gt -> :ahead
+      not min_declared? -> :ok
+      stored_v == nil or min_v == nil -> :too_old
+      Version.compare(stored_v, min_v) == :lt -> :too_old
+      true -> :ok
+    end
+  end
+
+  defp parse_version(value) when is_binary(value) do
+    case Version.parse(value) do
+      {:ok, v} -> v
+      :error -> nil
+    end
+  end
+
+  defp parse_version(_), do: nil
+
+  @doc """
   Creates the pack's entity definition `name` (inactive, stamped with the module's `managed_by`)
   in a tenant that has `module_id` installed but lacks it (REQ-582; used by
   `Letflow.Entities.ManagedTypes.AssignmentDefinition`). Writes no `tenant_modules` or
