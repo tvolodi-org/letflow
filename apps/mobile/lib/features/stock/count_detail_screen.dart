@@ -54,7 +54,8 @@ class _CountDetailScreenState extends ConsumerState<CountDetailScreen> {
 
   Future<void> _start() async {
     await _c.load();
-    await _c.startScanning();
+    // Web: the camera waits for the user's tap (PWA M4); native starts now.
+    await _c.prepare();
   }
 
   void _onChange() {
@@ -124,10 +125,11 @@ class _CountDetailScreenState extends ConsumerState<CountDetailScreen> {
             onPressed: c.clearPlace,
             child: Text(tr('stock.count.place.set')),
           ),
-        if (c.cameraRefused)
-          Text(
-            key: const Key('stock-camera-refused'),
-            tr('codes.cameraRefused'),
+        if (c.cameraPhase case final phase?)
+          CameraStatusView(
+            phase: phase,
+            keyPrefix: 'stock-count',
+            onStart: () => unawaited(c.startScanning()),
           )
         else if (c.scanning)
           SizedBox(height: 200, child: _source.buildPreview()),
@@ -141,7 +143,7 @@ class _CountDetailScreenState extends ConsumerState<CountDetailScreen> {
           onPressed: () => unawaited(c.submitScan(_typed.text)),
           child: Text(tr('stock.scan.send')),
         ),
-        if (!c.scanning && !c.cameraRefused)
+        if (!c.scanning && c.cameraPhase == null)
           TextButton(
             key: const Key('stock-scan-again'),
             onPressed: () => unawaited(c.scanAgain()),

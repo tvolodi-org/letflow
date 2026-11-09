@@ -10,6 +10,10 @@ class FakeScanSource implements ScanSource {
   int stops = 0;
   bool disposed = false;
 
+  /// Web-like when true: the screens wait for the "Start camera" tap.
+  @override
+  bool needsUserTap = false;
+
   @override
   Stream<ScanEvent> get events => controller.stream;
 
@@ -26,4 +30,8 @@ class FakeScanSource implements ScanSource {
   void dispose() => disposed = true;
 
   void detect(String? text) => controller.add(ScanDetected(text));
+
+  void refuse() => controller.add(const ScanPermissionRefused());
+
+  void unavailable() => controller.add(const ScanCameraUnavailable());
 }

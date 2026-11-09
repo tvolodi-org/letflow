@@ -98,6 +98,12 @@ class CountDetailController extends ChangeNotifier {
   RendererState<Object?>? failure;
   bool scanning = false;
   bool cameraRefused = false;
+
+  /// No camera, an unsupported browser, an insecure page or a failed start.
+  bool cameraUnavailable = false;
+
+  /// Web: the camera waits for the user's tap on "Start camera".
+  bool awaitingTap = false;
   bool busy = false;
 
   /// The last scan answer was a retry of an already counted scan.
@@ -176,20 +182,56 @@ class CountDetailController extends ChangeNotifier {
 
   // -- scanning ---------------------------------------------------------------
 
+  /// What the camera area shows instead of the preview, or null.
+  CameraPhase? get cameraPhase => cameraRefused
+      ? CameraPhase.refused
+      : cameraUnavailable
+      ? CameraPhase.unavailable
+      : awaitingTap
+      ? CameraPhase.awaitingTap
+      : null;
+
+  /// Starts the camera at once, except where the source needs a user tap
+  /// first (web, PWA M4), where it only shows the intro.
+  Future<void> prepare() async {
+    if (source.needsUserTap) {
+      awaitingTap = true;
+      _notify();
+      return;
+    }
+    await startScanning();
+  }
+
+  /// Also the handler of the "Start camera" button; a second tap while the
+  /// camera is starting does nothing.
   Future<void> startScanning() async {
-    if (cameraRefused) return;
+    awaitingTap = false;
+    if (cameraRefused || cameraUnavailable || scanning) {
+      _notify();
+      return;
+    }
     scanning = true;
     _notify();
     await source.start();
   }
 
-  Future<void> scanAgain() => startScanning();
+  /// A retry after "unavailable"; a refusal stays.
+  Future<void> scanAgain() {
+    cameraUnavailable = false;
+    return startScanning();
+  }
 
   Future<void> onEvent(ScanEvent event) async {
     switch (event) {
       case ScanPermissionRefused():
         cameraRefused = true;
         scanning = false;
+        awaitingTap = false;
+        _notify();
+      case ScanCameraUnavailable():
+        cameraUnavailable = true;
+        scanning = false;
+        awaitingTap = false;
         _notify();
       case ScanDetected(:final text):
         // `scanning` flips synchronously: extra detections are dropped.
