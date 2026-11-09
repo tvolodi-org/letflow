@@ -114,6 +114,13 @@ Two worked examples from 2026-11-08:
   killer deadline and an explicit `timeout_ms`. It could not be reproduced on a quiet host, so
   the fix is by reading the code; say so in the PR instead of claiming a red proof.
 
+- **Docs-tests hang (T-1325, seen again on T-1513):** on a docs-only change shard 1 runs the docs
+  tests under a 600 s timeout, with one retry. The log shows `Result: N passed`, then a
+  `could not lookup Ecto repo Letflow.Repo` exit message, and the step ends with
+  `docs tests: attempt 2 failed with exit 124`. All tests passed; the run hung in teardown, so
+  this is not a content fault. Do not rework the docs: re-run the failed jobs once (the engine's
+  `ci_check` does this), and report a repeat as a defect.
+
 Handling:
 
 1. Quote the failing test name and the sibling tests' durations from the same log. Do not name
