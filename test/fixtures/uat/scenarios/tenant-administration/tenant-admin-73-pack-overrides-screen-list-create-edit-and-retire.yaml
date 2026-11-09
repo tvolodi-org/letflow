@@ -1,0 +1,257 @@
+# T-1527 (BA): TENANT ADMIN group, scenario 73: the "Solution pack overrides" web screen of one installed pack: list states, create, edit (next version), retire, history.
+# Covers REQ-631 (GH #3523) criterion 2 (list states: empty, populated with one line per override, not-found), criterion 3 (create and edit: the form is filled with
+# the latest patch, the whole patch is sent back, a missing reason is blocked, a property that cannot be overridden is shown as a field message and nothing is saved,
+# a second active override for the same artefact is shown as a field message) and criterion 4 (retire after a confirmation with a reason, the retired line is
+# read-only, an orphaned line offers retire only, no earlier version can be edited or deleted).
+# Sources: docs/requirements.yaml REQ-631 (description 2, criteria 2 to 4), REQ-596 (routes, reasons property_not_overridable, override_exists, override_version_taken);
+# web/src/pages/solution-packs/SolutionPackOverridesPage.tsx (buttons New override, Edit, Retire, Confirm retire, Cancel, Save; the status words); web/src/i18n/solutionOverridesMessages.ts
+# (the texts quoted below); web/src/router.tsx (route solution-packs/:packId/overrides under DefinitionsRead); docs/roles.md (SolutionOverridesManage: TENANT_ADMIN only).
+# Sensitive actions: change process definitions (the override itself) is steps 3 to 9. The refusals of those who may not write are in scenario 74; approve, pay or release, see sensitive data,
+#   change users do not occur in this flow. Refusal steps here: 6, 7 and 8 (each is one refused submission; nothing is saved).
+# NOT UAT-OBSERVABLE (system_state, written here so it survives the merge):
+#   - The loading state ("Loading overrides") lasts a fraction of a second on a healthy server and cannot be held on screen by a UAT actor.
+#   - The error state for a server fault (the "server could not be reached" text) needs a stopped server; a UAT actor cannot stop the QA server. The not-found text IS observable (step 2).
+#   - Criterion 1 (no change under lib/, priv/, config/; the api module calls only the named paths and sends no tenant id) and criterion 4 "no PATCH, PUT or DELETE request is issued by the
+#     screen": a code and network-trace check of the implementing change (web unit tests), not an action of a user. What a user can see is step 12: no control exists to change an earlier version.
+#   - Criterion 10 (npm run check, REVIEWER and SECURITY-REVIEWER verdicts): gates of the implementing change.
+# Preconditions that the QA setup must provide: see the preconditions below; if the pack or the tenant administrator cannot sign in to the web application, the scenario is BLOCKED.
+---
+id: tenant-administration-73-pack-overrides-screen-list-create-edit-and-retire
+scope: tenant-administration
+title: The administrator keeps local adjustments of an installed pack on the overrides screen, writes newer versions and retires one, and the screen shows only what the server accepted
+version: "1.0"
+tags: [solution-pack, override, gui, tenant-admin, lifecycle, refusal, empty-state, not-found]
+
+description: >
+  SwiftRoute has installed a process pack. Its administrator opens the overrides screen of that pack: the screen says the pack has no overrides yet. She makes a new override for one
+  process of the pack (a new label for one step) with a reason; the line appears with status Active and version 1. She opens it for editing: the form shows the saved patch, she changes the
+  label and saves, and the same line shows version 2 (still one line for the override). She tries three things that the screen must not accept: saving without a reason (blocked in the form, nothing sent),
+  a patch that touches a property that cannot be overridden (a message on the form, the list unchanged) and a second new override for the same process while the first is active (a message on the form,
+  the list unchanged). She retires the override with a reason after a confirmation: the line shows Retired with no Edit and no Retire button. An override that the server marks as orphaned
+  (its pack process has gone) offers Retire only. An address of an unknown pack shows the same not-found text as an unknown override would.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has an active installation of pack P that contains a process definition D with a task step S1; D_ID is the id of the definition created for D by that installation (every artefact id below is D_ID)
+    check: system_seeded
+    detail: As in scenario 64 (an active SwiftRoute installation of one process pack). If the company has no such installation, the scenario is BLOCKED.
+  - description: SwiftRoute has no override of pack P at the start (no line of any status), and no label of any override contains the words "Zq731"
+    check: system_seeded
+    detail: If a line exists from an earlier run, the empty-state step 1 cannot show the empty message; retire the active ones through this screen, note it, and mark step 1 BLOCKED (a retired line stays in the list, history is never deleted).
+  - description: For step 11 only, an override of pack P exists whose process was removed by a later pack update, so the server lists it as orphaned
+    check: custom
+    detail: Prepared by the platform team (an update of pack P that drops a process which has an override). If it cannot be prepared, steps 11 and EO-006 are BLOCKED; the other steps run.
+  - description: The browser language is English
+    check: custom
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      Signs in to the web application, opens the Solution packs page, finds pack P and follows its "Manage overrides" link. The screen is noted: its title, the text shown in place of the list,
+      and the buttons on the page.
+    via: gui
+    produces:
+      empty_screen: the title "Solution pack overrides", the text "This pack has no overrides yet.", and a "New override" button
+  - step: 2
+    actor: tenant_admin
+    action: >
+      Types into the address bar the overrides address of a pack identifier that does not exist in SwiftRoute (for example the pack identifier of P with "-nope" added at the end). The screen is noted.
+    via: gui
+    input:
+      pack_identifier: the identifier of pack P with "-nope" added
+    produces:
+      not_found_screen: the text "Pack or override not found."
+  - step: 3
+    actor: tenant_admin
+    action: >
+      On pack P's overrides screen she presses "New override". The form asks for Artefact type (a choice, "process_definition" is the first), Artefact id, Patch (JSON object) and Reason. She keeps artefact type "process_definition", enters the artefact id D_ID,
+      the patch {"nodes.S1.label": "Zq731 check the order"} and the reason "UAT: relabel S1", and presses Save.
+    via: gui
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch: '{"nodes.S1.label": "Zq731 check the order"}'
+      reason: "UAT: relabel S1"
+    produces:
+      line_v1: >-
+        one line for D_ID, version 1, status Active, reason "UAT: relabel S1", "Made against" showing the installed version of P
+  - step: 4
+    actor: tenant_admin
+    action: >
+      Presses Edit on the line. The form is noted (the patch field), then she changes the label in the patch to "Zq731 check the order twice", sets the reason "UAT: second wording" and presses Save.
+    via: gui
+    input:
+      patch: '{"nodes.S1.label": "Zq731 check the order twice"}'
+      reason: "UAT: second wording"
+    produces:
+      form_before_save: the patch field holds the saved patch of version 1, the label "Zq731 check the order"
+      line_v2: >-
+        still ONE line for D_ID, now version 2, status Active, reason "UAT: second wording"
+  - step: 5
+    actor: tenant_admin
+    action: >
+      Presses Edit on the line again (the Reason field opens empty), leaves it empty and presses Save.
+    via: gui
+    input:
+      reason: "(left empty)"
+    produces:
+      reason_message: the form shows "Enter a reason." and stays open; the line still shows version 2
+  - step: 6
+    actor: tenant_admin
+    action: >
+      Presses Edit, enters a patch that changes a property which an override may not change: {"nodes.S1.type": "start"}, reason "UAT: not allowed", and presses Save. The patch goes back unchanged.
+    via: gui
+    input:
+      patch: '{"nodes.S1.type": "start"}'
+      reason: "UAT: not allowed"
+    expect_refusal: true
+  - step: 7
+    actor: tenant_admin
+    action: >
+      Cancels the form. Presses "New override" and tries to create a second override for the same artefact type "process_definition" and the same artefact id D_ID, with the patch
+      {"nodes.S1.label": "Zq731 second"} and the reason "UAT: second override", and presses Save.
+    via: gui
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch: '{"nodes.S1.label": "Zq731 second"}'
+      reason: "UAT: second override"
+    expect_refusal: true
+  - step: 8
+    actor: tenant_admin
+    action: >
+      Cancels the form. Presses "New override", leaves Artefact id empty, enters the patch {"nodes.S1.label": "Zq731 no id"} and the reason "UAT: no id", and presses Save.
+    via: gui
+    input:
+      artefact_id: ""
+      patch: '{"nodes.S1.label": "Zq731 no id"}'
+      reason: "UAT: no id"
+    expect_refusal: true
+  - step: 9
+    actor: tenant_admin
+    action: >
+      Reloads the screen and notes the list. Then presses Retire on the line. A box titled "Retire this override?" asks for a reason; the Confirm retire button cannot be pressed while the reason is empty. She notes that, then enters
+      "UAT: no longer needed" and presses Confirm retire.
+    via: gui
+    input:
+      retire_reason: "UAT: no longer needed"
+    produces:
+      list_after_reload: one line, version 2, Active, with the reason from step 4
+      retired_line: the same line now shows status Retired
+  - step: 10
+    actor: tenant_admin
+    action: >
+      Looks at the retired line and at the whole list: which buttons are on the retired line, how many lines exist for D_ID, and whether any control offers to change or delete an earlier version.
+    via: gui
+    produces:
+      retired_view: the retired line has no Edit and no Retire button; exactly one line for D_ID; no control to edit or delete a version
+  - step: 11
+    actor: tenant_admin
+    action: >
+      Opens the overrides screen of pack P in the state prepared for this step (an override whose pack process has gone) and notes the buttons on its line.
+    via: gui
+    produces:
+      orphaned_line: status Orphaned, a Retire button, and no Edit button
+  - step: 12
+    actor: tenant_admin
+    action: >
+      Creates a new override for D_ID again (allowed, the first one is retired) with the patch {"nodes.S1.label": "Zq731 after retire"} and the reason "UAT: start again", and notes the list.
+    via: gui
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch: '{"nodes.S1.label": "Zq731 after retire"}'
+      reason: "UAT: start again"
+    produces:
+      new_override: a new Active line with its own version 1 beside the Retired one
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      With no override the screen shows the title "Solution pack overrides", the text "This pack has no overrides yet." and a "New override" button (step 1). An unknown pack address shows the
+      text "Pack or override not found." (step 2).
+    verification:
+      method: gui_screen
+      detail: Screen text of steps 1 and 2.
+      evidence: Screenshots of both screens.
+    on_fail:
+      severity: MAJOR
+      business_impact: An administrator cannot tell an empty pack from a broken one, or is told something wrong about an unknown pack.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      Step 3 adds one line with version 1, status Active, the reason and the pack version it was made against; only after the server accepted it. Step 4 opens the form with the saved patch and saving
+      gives version 2 on the same single line (one line per override, the latest version).
+    verification:
+      method: gui_screen
+      detail: The list after step 3 and after step 4; the patch field in step 4 before saving.
+      evidence: Screenshots of the list and of the form.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot create or revise a local adjustment, or sees history as separate lines.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      Step 5 is blocked in the form with "Enter a reason." and the line still shows version 2 (no new version written).
+    verification:
+      method: gui_screen
+      detail: The message and the list after step 5.
+      evidence: Screenshot.
+    on_fail:
+      severity: MAJOR
+      business_impact: An adjustment could be saved without the reason that the audit trail depends on.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      The submissions of steps 6, 7 and 8 are each refused: step 6 shows "The patch changes a property that cannot be overridden." on the form, step 7 shows "An override for this artefact already exists.",
+      step 8 shows "Enter an artefact id."; after each, the list is exactly as before (no new line, no new version) and the patch typed stays in the form.
+    verification:
+      method: gui_screen
+      detail: The message of each step and the list after each step (still one Active line, version 2).
+      evidence: Three screenshots and the list after step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A forbidden change to a pack process, or a duplicate adjustment, could appear to be saved.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      Step 9: after a reload the list shows the saved state; Confirm retire is not available while the reason is empty; with a reason the line shows Retired (step 10: no Edit and no
+      Retire button, one line for D_ID, no control to edit or delete an earlier version).
+    verification:
+      method: gui_screen
+      detail: The list after reload, the retire box with the button not available while the reason is empty, the retired line.
+      evidence: Screenshots.
+    on_fail:
+      severity: MAJOR
+      business_impact: A retired adjustment could be edited again, or history could be changed.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: >
+      The orphaned line (step 11) shows status Orphaned, a Retire button and no Edit button. Step 12 shows that a new Active line can be made once the earlier one is retired, with version 1.
+    verification:
+      method: gui_screen
+      detail: Buttons on the orphaned line; the list after step 12.
+      evidence: Screenshots.
+    on_fail:
+      severity: MAJOR
+      business_impact: An adjustment whose pack process has gone could be edited, or a retired one blocks a new adjustment.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: >
+      Nothing in steps 6 to 8 was stored: reading the list again after step 12 shows exactly the lines of EO-005 and EO-006 and no line or version carrying "Zq731 second", "Zq731 no id" or the property
+      "nodes.S1.type".
+    verification:
+      method: system_state
+      detail: The overrides list for pack P read after step 12 (as the administrator, through the screen).
+      evidence: Screenshot of the list.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused change could be kept in the company's data.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: The platform team retires any override still Active in pack P for SwiftRoute (retired lines stay as history) and, if prepared for step 11, restores the pack installation.

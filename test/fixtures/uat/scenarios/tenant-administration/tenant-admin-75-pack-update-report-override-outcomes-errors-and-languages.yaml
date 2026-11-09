@@ -1,0 +1,241 @@
+# T-1527 (BA): TENANT ADMIN group, scenario 75: the pack update review screen shows what would happen to the company's overrides; the apply errors; Russian and Kazakh labels.
+# Covers REQ-631 (GH #3523) criterion 5 (outcomes kept with and without the warning, override_conflict counted as unresolved and offering keep or take only, orphaned non-blocking,
+# and after the apply the actions advanced, retired, orphaned, left unchanged; an entry without an override renders as before), criterion 6 (409 unresolved conflict, 403 on apply, 422 merged
+# refused: the server's side of each is steps 4 to 6; the screen's side: step 9 shows the chosen resolutions kept), criterion 8 (the distinctive value 987654.321 and the patch appear nowhere on the report),
+# criterion 9 (Russian and Kazakh labels: steps 7 and 8, 12).
+# Sources: docs/requirements.yaml REQ-631 (description 3, 4, 5, criteria 5, 6, 8, 9), REQ-617 (outcomes, 409, 403, 422); sibling scenarios solution-pack-update-1-overrides-kept-advanced-and-orphaned and
+# solution-pack-update-2-override-conflict-blocks-until-decided (same pack setup, same replies from the server side); web/src/components/solution-packs/UpdateReviewGroupList.tsx (labels "Keep ours" and "Take theirs",
+# the overrides heading, notes); web/src/pages/solution-packs/SolutionPackUpdateReviewPage.tsx (error messages); web/src/i18n/solutionOverridesMessages.ts (en, ru, kk texts quoted below; the browser language selects the language).
+# Sensitive actions: change process definitions (the apply) is refused in steps 3 to 6 (one request each). who may apply: step 6 (auditor). approve, pay or release, see sensitive data (987654.321: EO-004), change users: not part of this flow.
+# The Apply button on screen is not available while a decision is missing (step 3 observes it); the 409 reply itself is therefore only reachable by a direct request (step 4).
+# NOT UAT-OBSERVABLE (written here so it survives the merge; GAP sidecar test/fixtures/uat/scenario-env-limitations/tenant-administration-75-pack-update-report-override-outcomes-errors-and-languages.yaml):
+#   - property_gone, outcome and action: needs a shortened closed property list that only a backend test can pass (as the sibling scenario 1 records); the label rendering is a web unit test.
+#   - The screen message for a 403 on apply ("You may not apply this update. Your choices are kept.") and the apply-needs-permission text: a caller who may apply updates but not manage overrides does not exist
+#     in the role matrix (the two rights are held by the same two roles); step 6 shows the server refusal for a caller with neither. A vitest check.
+#   - The screen message for a 422 merged refusal: the screen offers no merged choice, so only a direct request (step 5) reaches it.
+#   - Criterion 5 "an entry without an override renders identically to a snapshot of today's render": a snapshot comparison in unit tests; step 1 only has the user compare entry E with the old look.
+#   - Criterion 6 "keep the chosen resolutions in the form" for a 409 from a race: needs two sessions deciding at once.
+---
+id: tenant-administration-75-pack-update-report-override-outcomes-errors-and-languages
+scope: tenant-administration
+title: The pack update screen shows what happens to the company's overrides, blocks on a conflict until the administrator decides, and speaks Russian and Kazakh
+version: "1.0"
+tags: [solution-pack, override, update, gui, conflict, refusal, i18n, tenant-admin]
+
+description: >
+  SwiftRoute installed process pack P at 2.0.0 with processes A, B, C, D1, D2 and E; the administrator keeps an override for A, B, C, D1 and D2 (A's label carries the number 987654.321); E has none. Version 2.1.0
+  leaves A as installed, changes in B a part the company did not touch, drops C, and changes the same first-step label of D1 and D2 (the company also edited D2's installed copy). The administrator opens the Solution packs page,
+  enters P and the 2.1.0 document and reads the review: A is kept; B is kept with a warning that the pack changed; C is orphaned and does not block; D1 and D2 are listed under "Override conflicts" as needing a decision; E looks as it did before overrides existed.
+  Apply is not available until D1 and D2 have a decision. A direct apply without decisions is refused (conflict, nothing written), a direct apply that asks for a merged result for D1 is refused (merged results are not supported),
+  and the read-only auditor's direct apply is refused as lack of right. The administrator reads the same review in Russian and Kazakh, then in English decides "Keep ours" for D1 and "Take theirs" for D2 and applies: the screen lists what
+  happened to each override (moved to the new version, retired, orphaned). Applying the same update again shows the moved overrides as left unchanged. The overrides screen then shows Active, Retired and Orphaned statuses, in Russian and in Kazakh.
+  Nowhere on the report are the number 987654.321 or the patch shown.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  auditor: actor-swiftroute-auditor
+
+preconditions:
+  - description: >
+      SwiftRoute has an active installation of pack P at version 2.0.0 with processes A, B, C, D1, D2 and E; the administrator can paste the pack document of version 2.1.0 (A equal to installed; B differs only in the responsible role; C absent;
+      D1 and D2 differ in the label of the first step; E equal) into the update form, and the company's installed copy of D2 was edited (a different label of its first step); no update of P has been applied
+    check: custom
+    detail: Setup-prepared as in solution-pack-update-2-override-conflict-blocks-until-decided and solution-pack-update-1-overrides-kept-advanced-and-orphaned (one pack combining both). If the pack cannot be installed at 2.0.0 or D2's copy cannot be edited, the scenario is BLOCKED. The pack document of 2.1.0 is handed to the run by the platform team as a file; its exact text is theirs to keep and is the same for every step.
+  - description: SwiftRoute has an active override for each of A, B, C, D1 and D2 on the label path of the first step, each label starting with "Zq987654"; A's label is "Zq987654 keep A 987654.321"; E has none
+    check: custom
+    detail: Created in setup through the overrides screen of scenario 73 or the routes of scenario 64. If one cannot be created, the scenario is BLOCKED.
+  - description: The browser language can be switched between English, Russian and Kazakh
+    check: custom
+    detail: If it cannot, steps 7, 8 and 12 are BLOCKED; the others run in English.
+  - description: The auditor and the administrator can sign in to the web application
+    check: system_seeded
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      In English, opens the Solution packs page, enters the identifier of P and the 2.1.0 pack document, and starts the review. The review screen is noted entry by entry: for each of A, B, C, D1, D2 and E, the note about the override (if any),
+      the group it sits in, the choices offered, and the Apply update button.
+    via: gui
+    produces:
+      review_screen: >
+        A "Your override is kept" with no warning; B "Your override is kept" and "The override is kept, but this part of the pack has changed."; C "Override is orphaned" and "This does not block the update.";
+        D1 and D2 "Override needs a decision" under the heading "Override conflicts" with "Keep your override or take the incoming version."; E with no override note; D1 and D2 offer "Keep ours" and "Take theirs" and no third choice; Apply update not available
+  - step: 2
+    actor: tenant_admin
+    action: >
+      Looks through the whole review screen for the number 987654.321, for the words "Zq987654", for the property path of the labels ("nodes.S1.label") and for any patch value.
+    via: gui
+    produces:
+      no_data: none of the four is found anywhere on the screen
+  - step: 3
+    actor: tenant_admin
+    action: >
+      Tries to press the Apply update button while no decision has been chosen for D1 and D2.
+    via: gui
+    expect_refusal: true
+  - step: 4
+    actor: tenant_admin
+    action: >
+      Tries to apply the update directly (without the screen) with the same 2.1.0 lists and no decision at all.
+    via: api
+    input:
+      target_version: "2.1.0"
+      resolutions: "none"
+    expect_refusal: true
+  - step: 5
+    actor: tenant_admin
+    action: >
+      Tries to apply the update directly with decision "keep_local" for D2 and the decision "merged" (with some resolved content, a JSON object text) for D1.
+    via: api
+    input:
+      target_version: "2.1.0"
+      D1: "merged, resolved content: any JSON object text"
+      D2: keep_local
+    expect_refusal: true
+  - step: 6
+    actor: auditor
+    action: >
+      Tries to apply the update directly with the same lists and valid decisions for D1 (keep_local) and D2 (take_incoming).
+    via: api
+    input:
+      target_version: "2.1.0"
+      D1: keep_local
+      D2: take_incoming
+    expect_refusal: true
+  - step: 7
+    actor: tenant_admin
+    action: >
+      Switches the browser language to Russian and opens the review again (same pack, same document). Notes the override notes of A, B, C and D1 and the heading of the conflicts group.
+    via: gui
+    produces:
+      review_ru: >
+        A "Ваше переопределение сохраняется"; B the same and "Переопределение сохранено, но эта часть пакета изменилась."; C "Переопределение осталось без объекта" and "Это не блокирует обновление.";
+        D1 "Переопределение требует решения" under "Конфликты переопределений" with "Оставьте своё переопределение или примите входящую версию."
+  - step: 8
+    actor: tenant_admin
+    action: >
+      Switches the browser language to Kazakh and opens the review again. Notes the same four notes and the heading.
+    via: gui
+    produces:
+      review_kk: >
+        A "Сіздің қайта анықтауыңыз сақталады"; B the same and "Қайта анықтау сақталды, бірақ пакеттің бұл бөлігі өзгерген."; C "Қайта анықтау жетімсіреп қалды" and "Бұл жаңартуды тоқтатпайды.";
+        D1 "Қайта анықтау келіссөзді қажет етеді" under "Қайта анықтау қайшылықтары" with "Өз қайта анықтауыңызды сақтаңыз немесе келетін нұсқаны алыңыз."
+  - step: 9
+    actor: tenant_admin
+    action: >
+      Switches the browser language back to English, opens the review once more, chooses "Keep ours" for D1 only and notes the Apply update button, then chooses "Take theirs" for D2 and notes the button again; then presses Apply update.
+    via: gui
+    produces:
+      apply_report: >
+        Apply update not available with D1 only decided; available once both are chosen. After the apply, under "What happened to the overrides": A, B and D1 "Override moved to the new version"; D2 "Override retired"; C "Override orphaned";
+        the chosen decisions stay shown; no note names 987654.321 or any patch
+  - step: 10
+    actor: tenant_admin
+    action: >
+      Opens the review of the same 2.1.0 document a second time and presses Apply update again (no decision is left to make), then notes "What happened to the overrides".
+    via: gui
+    produces:
+      second_apply: the overrides that were moved (A, B, D1) show "Override left unchanged"; no new retired or orphaned action appears
+  - step: 11
+    actor: tenant_admin
+    action: >
+      Opens the overrides screen of pack P in English and notes the status of the line of each of A, B, C, D1 and D2.
+    via: gui
+    produces:
+      statuses_en: A, B, D1 "Active"; D2 "Retired"; C "Orphaned"
+  - step: 12
+    actor: tenant_admin
+    action: >
+      Switches the browser language to Russian and notes the overrides screen (title, the column "Status", the three status words), then to Kazakh and notes the same.
+    via: gui
+    produces:
+      statuses_ru_kk: >
+        Russian: title "Переопределения пакета решений", column "Статус", "Активно", "Выведено", "Без основы".
+        Kazakh: title "Шешімдер пакетінің қайта анықтаулары", column "Күйі", "Белсенді", "Шығарылған", "Негізсіз қалған"
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The review (step 1) shows the notes listed for A, B, C, D1, D2 and E exactly: kept without and with the warning, orphaned with the non-blocking note, the two override conflicts under their own heading with the two choices
+      only, E with no override note; Apply update is not available while the two conflicts have no decision.
+    verification:
+      method: gui_screen
+      detail: Each entry's note, group and choices read from the screen.
+      evidence: Screenshot of the whole review.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot see which of the company's local changes an update touches before applying it.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      Step 3: Apply update cannot be pressed with no decision, and nothing is applied; in step 9 it is still unavailable with only D1 decided.
+    verification:
+      method: gui_screen
+      detail: The button state in step 3 and after the first choice in step 9; the screen after step 3 shows no applied report.
+      evidence: Two screenshots.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An update could be applied over a company override that nobody decided on.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      The direct apply without decisions (step 4) is refused as a conflict (409) naming one artefact still needing a decision; the direct apply with a merged result for D1 (step 5) is refused as
+      unprocessable (422) with the reason "override_merge_unsupported"; the auditor's direct apply (step 6) is refused as lack of right (403). After all three nothing is recorded: the review of step 9 still lists D1 and D2 as needing a decision.
+    verification:
+      method: api_response
+      detail: >-
+        Three answers: status 409, status 422 with detail override_merge_unsupported, status 403. The review at step 9 still lists both conflicts as undecided.
+      evidence: The three answers and the step 9 screen.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused update could still change what the company changed on purpose, or a read-only role could apply updates.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      No screen of the review or of the applied report (steps 1, 2, 7, 8, 9, 10) shows the number 987654.321, the words "Zq987654", the property path or any patch value.
+    verification:
+      method: gui_screen
+      detail: The screen text searched in each step.
+      evidence: Screenshots; the search result for each.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Company-specific adjustment content could leak into a report that more people can read.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      The Russian (step 7) and Kazakh (step 8) review notes are exactly those listed, no English left in them; after switching back, English returns.
+    verification:
+      method: gui_screen
+      detail: The notes of A, B, C and D1, the warning and the heading read in each language.
+      evidence: Screenshots of both languages.
+    on_fail:
+      severity: MINOR
+      business_impact: Russian- and Kazakh-speaking administrators get English or empty labels for the new notes.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: >
+      After the apply of step 9 the report lists A, B and D1 as "Override moved to the new version", D2 as "Override retired", C as "Override orphaned"; the second apply (step 10) lists A, B and D1 as "Override left unchanged".
+    verification:
+      method: gui_screen
+      detail: The list under "What happened to the overrides" after each apply.
+      evidence: Two screenshots.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot tell what the update did to the company's overrides.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: >
+      The overrides screen shows A, B, D1 Active, D2 Retired and C Orphaned in English (step 11) and the listed words in Russian and Kazakh (step 12).
+    verification:
+      method: gui_screen
+      detail: The status column in three languages.
+      evidence: Screenshots.
+    on_fail:
+      severity: MINOR
+      business_impact: The state of an override after an update is not readable in the user's language.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: The platform team restores pack P to 2.0.0 for SwiftRoute or installs a fresh pack (applied updates and retired lines stay as history), and sets the browser language back to English.
