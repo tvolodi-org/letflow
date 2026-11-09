@@ -15,6 +15,7 @@ import { roleLabelsScreens } from './roleLabelsFixtures'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
 import { definitionNameScreens } from './fixtures/definitionNames'
+import { definitionNameAdminScreens } from './fixtures/definitionNamesAdmin'
 import { codesLabelScreens } from './fixtures/codesLabels'
 import { docLayoutScreens } from './fixtures/docLayouts'
 import { layoutBaseScreens } from './fixtures/layoutBase'
@@ -261,6 +262,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...catalogItemsScreens,
     ...locationsScreens,
     ...definitionNameScreens,
+    ...definitionNameAdminScreens,
     ...codesLabelScreens,
     ...docLayoutScreens,
     ...layoutBaseScreens,
