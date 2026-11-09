@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
-    'C2a: mobile_scanner (REQ-732), record (REQ-747) and sembast_web (PWA M1) are the only additions',
+    'C2a: mobile_scanner (REQ-732), record (REQ-747) and sembast_web (PWA M1), crypto and web (PWA M2) are the only additions',
     () {
       final lines = File('pubspec.yaml').readAsLinesSync();
       final start = lines.indexOf('dependencies:');
@@ -17,6 +17,7 @@ void main() {
           .map((l) => l.trim().split(':').first)
           .toList();
       expect(deps, [
+        'crypto',
         'dio',
         'flutter',
         'flutter_appauth',
@@ -30,6 +31,7 @@ void main() {
         'record',
         'sembast',
         'sembast_web',
+        'web',
       ]);
     },
   );
