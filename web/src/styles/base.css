@@ -203,3 +203,5 @@ samp {
 @container lfhost (max-width: 1439px) {
   .lf-doc__list:has(.lf-doc__empty) { height: auto; }
 }
+/* T-1490: a disabled text input (inventory number of a posted card) reads as read-only, like the disabled select. */
+.lf-form input:disabled { opacity: .55; cursor: not-allowed; }

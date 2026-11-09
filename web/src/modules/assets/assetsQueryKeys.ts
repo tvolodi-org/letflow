@@ -10,5 +10,6 @@ export const assetsQueryKeys = {
   balances: (tenantId: string, params: string) => ['assets', tenantId, 'balances', params] as const,
   balanceHistory: (tenantId: string, params: string) => ['assets', tenantId, 'balance-history', params] as const,
   movements: (tenantId: string, params: string) => ['assets', tenantId, 'movements', params] as const,
+  cardLock: (tenantId: string, id: string) => ['assets', tenantId, 'card-lock', id] as const,
   options: (tenantId: string, type: string, scope: string) => ['assets', tenantId, 'options', type, scope] as const,
 }
