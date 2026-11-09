@@ -21,7 +21,8 @@ running server and needs no restart. A tenant upgrade cannot give a tenant new c
 | Tenant-schema DB migration | Runs at boot (`TenantProvisioning.MigrationReplayBoot`) | No | The upgrade boot child starts after the replay, so new columns exist when it runs. |
 | Shared (public) schema DB migration | Run once by the deploy step before the new build takes traffic | No | UAT assumption, to be confirmed by infra: how the release invokes it is not in this repository. |
 | Tenant data change (data step) | No | Yes, but not possible yet | The apply refuses any plan with a step (`upgrade_needs_runner`) until the runner exists (REQ-773, slice S4). |
-| Feature flag or tenant setting | No | No | Already changes at run time. |
+| Database-backed setting (tenant setting, feature flag stored in the database) | No | No | Changes at run time. |
+| Environment or boot flag (`LETFLOW_*` variables read in `config/runtime.exs`, for example `LETFLOW_MODULE_UPGRADE_ON_BOOT`) | Yes, a restart of the node | No | Read once at boot. `LETFLOW_MODULE_UPGRADE_ON_BOOT` is consumed by a one-shot boot child (`Letflow.ModuleUpgrade.Boot`); changing the variable of a running node does nothing until that node restarts. |
 | Web bundle (`web/`) | No server restart | No | Users must reload; an open tab runs the old bundle against the new API. |
 | Mobile app | Store release, cannot be forced | No | Old apps call the new API. |
 
@@ -42,7 +43,8 @@ with appup/relup). **We do not do this.** Reasons:
 4. With two nodes, a plain restart of one node at a time gives the same "no downtime" with a
    much simpler failure mode.
 
-Safe to change without a release: data and settings (feature flags, tenant settings).
+Safe to change without a release or restart: data and database-backed settings. Environment
+variables and boot flags need a restart of the node.
 
 ## 2. Expand / contract checklist for a database or module-data change
 
@@ -71,7 +73,7 @@ Before merging a change that touches the database or a module's stored data:
       manifest covers them. If you cannot cover them, say so in the PR and in
       `docs/runbooks/demo-upgrade-notes.md` (the table of windows).
 - [ ] After the release: upgrade every tenant (admin action, the upgrade-on-deploy flag for
-      Class A, or `scripts/demo_upgrade_chain.sh` for the demo fleet) and check each plan
+      Class A set on the final new-build restart, or `scripts/demo_upgrade_chain.sh` for the demo fleet) and check each plan
       reads `up_to_date`.
 - [ ] **Contract release (later).** Remove the old thing, and only now raise `min_data_version`.
       Only after every tenant with the module installed was upgraded at the previous release,
@@ -90,9 +92,16 @@ way to avoid downtime. Run it only when all of these hold:
       `module_version_ahead` is **not built** (slice S3), so this is a rule you keep by hand:
       do not run tenant upgrades until the last old node is gone, or you cannot roll the
       code back.
-- [ ] The upgrade-on-deploy flag `LETFLOW_MODULE_UPGRADE_ON_BOOT` (default off; exactly `true`
-      or `false`) is understood. With two nodes it is safe: the apply takes a per-tenant and
-      module advisory lock and the second caller is refused with `upgrade_running`.
+- [ ] `LETFLOW_MODULE_UPGRADE_ON_BOOT=false` (the default; exactly `true` or `false`) on **every**
+      node for the whole mixed-build window. When it is `true`, a node that boots applies every
+      eligible Class A upgrade at once (`Letflow.ModuleUpgrade.Boot`). The advisory lock only
+      stops two nodes applying the same upgrade twice (the second is refused with
+      `upgrade_running`); it does not stop an old node from serving a tenant that was just
+      upgraded. So the flag must be off until the last old node is gone. The flag is read at
+      boot, so set it before the nodes start.
+- [ ] After the last old node is drained, apply the upgrades explicitly (admin action, or
+      `scripts/demo_upgrade_chain.sh` for the demo fleet), or restart with the flag `true`
+      as a deliberate final step on the new build only.
 - [ ] Migration replay is assumed idempotent when two nodes start within seconds. UAT
       assumption, not yet confirmed.
 - [ ] A health check is defined between nodes. The rolling procedure on QA (two nodes, drain,
