@@ -6,8 +6,8 @@
 # (the permissions of TENANT_ADMIN), test/fixtures/uat/actors.yaml (actor-swiftroute-alice holds TENANT_ADMIN, no PLATFORM_ADMIN), docs/roles.md.
 # Completeness (EO-002, EO-006): the thirteen core entries must all be present; "Import data" and "Module lifecycle" are conditional (an importable list type exists; the
 # feature switch is on, default off); module entries appear only for modules SwiftRoute has installed and are checked against the closed list in web/src/modules/*/index.ts
-# (navItems). Which modules are installed on QA is not fixed by the roster, so the scenario checks that every shown entry is on the closed list and that no entry of a module
-# that is not installed is shown, not an exact module count.
+# (navItems). Which modules are installed on QA is not fixed by the roster, so a precondition has the tester record the installed modules; every entry of an installed module must be present and no entry of a module
+# that is not installed may be shown.
 # UAT assumption, to be confirmed by the process owner: the English names of the entries are those of navMessages.ts and the browser language is English.
 # STOREKEEPER GAP: see scenario tenant-admin-77; the roster has no storekeeper actor (BLOCKED until an account is added).
 ---
@@ -29,6 +29,9 @@ preconditions:
   - description: The administrator of SwiftRoute can sign in; the browser language is English.
     check: system_seeded
     detail: If the administrator cannot sign in, report BLOCKED for the whole scenario, not FAIL.
+  - description: The tester has the list of modules installed for the company (from the QA seeding record) and knows whether the company has an importable list type and whether the Module lifecycle feature switch is on.
+    check: system_seeded
+    detail: If the list of installed modules is not available, report BLOCKED for outcome EO-006 (UAT assumption, to be confirmed by the process owner; the roster does not fix the installed modules). The module table is in the outcome.
 
 steps:
   - step: 1
@@ -90,7 +93,7 @@ expected_outcomes:
         Every entry in the menu screen is one of three kinds and nothing else. (a) The thirteen core entries Instances, My Tasks, Definitions, Promotion Reviews, DLQ,
         Webhooks, Users, Groups, Tokens, Audit, Print Templates, Metrics and Solution Packs; all thirteen are present. (b) The conditional entries Import data (only when the
         company has at least one list type it may import) and Module lifecycle (only when its feature switch is on, default off); with the switch off Module lifecycle is absent.
-        (c) Module entries, only for modules installed in SwiftRoute, drawn from this closed list: Items, Lots, Codes, Locations, Location links, Legal companies, Sites, Org units, Positions, Employees, Stock documents, Balances, Movements, Counts, Asset cards, Asset documents, Asset balances, Asset movements, Exams, Question Bank, Grading and Exam builder, all listed under the group Work. An entry named outside (a), (b) and (c),
+        (c) Module entries, only for modules installed in SwiftRoute, drawn from this closed list: Items, Lots, Codes, Locations, Location links, Legal companies, Sites, Org units, Positions, Employees, Stock documents, Balances, Movements, Counts, Asset cards, Asset documents, Asset balances, Asset movements, Exams, Question Bank, Grading and Exam builder, all listed under the group Work. Positive presence: for every module on the recorded installed list, all entries of that module are present under the group Work (module table: Catalog items = Items, Lots; Codes = Codes; Locations = Locations, Location links; Org = Legal companies, Sites, Org units, Positions, Employees; Stock = Stock documents, Balances, Movements, Counts; Assets = Asset cards, Asset documents, Asset balances, Asset movements; Exam = Exams, Question Bank, Grading, Exam builder); Import data is present when the company has an importable list type and absent otherwise; Module lifecycle is present when its switch is on. An entry named outside (a), (b) and (c),
         or a module entry of a module that is not installed, fails the outcome.
       evidence: menu_screen and menu_after_screen.
     on_fail:

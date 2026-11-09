@@ -26,6 +26,9 @@ preconditions:
   - description: The platform operator account is seeded and can sign in; the browser language is English.
     check: system_seeded
     detail: If the operator cannot sign in, report BLOCKED for the whole scenario, not FAIL.
+  - description: The tester has the list of modules installed for the company (from the QA seeding record) and knows whether the company has an importable list type and whether the Module lifecycle feature switch is on.
+    check: system_seeded
+    detail: If the list of installed modules is not available, report BLOCKED for outcome EO-006 (UAT assumption, to be confirmed by the process owner; the roster does not fix the installed modules). The module table is in the outcome.
 
 steps:
   - step: 1
@@ -63,7 +66,7 @@ expected_outcomes:
         The menu screen shows the group Work with Instances, My Tasks and Definitions, and the group Tenant administration with all ten core entries Promotion Reviews,
         DLQ, Webhooks, Users, Groups, Tokens, Audit, Print Templates, Metrics and Solution Packs (with Import data only when the platform company has an importable
         list type, and Module lifecycle absent while its feature switch is off). Any other entry is a module entry of a module installed in the platform company, from this closed
-        list: Items, Lots, Codes, Locations, Location links, Legal companies, Sites, Org units, Positions, Employees, Stock documents, Balances, Movements, Counts, Asset cards, Asset documents, Asset balances, Asset movements, Exams, Question Bank, Grading and Exam builder, and sits under the group Work. An entry outside these fails the outcome.
+        list: Items, Lots, Codes, Locations, Location links, Legal companies, Sites, Org units, Positions, Employees, Stock documents, Balances, Movements, Counts, Asset cards, Asset documents, Asset balances, Asset movements, Exams, Question Bank, Grading and Exam builder, and sits under the group Work. Positive presence: for every module on the recorded installed list, all entries of that module are present under the group Work (module table: Catalog items = Items, Lots; Codes = Codes; Locations = Locations, Location links; Org = Legal companies, Sites, Org units, Positions, Employees; Stock = Stock documents, Balances, Movements, Counts; Assets = Asset cards, Asset documents, Asset balances, Asset movements; Exam = Exams, Question Bank, Grading, Exam builder); Import data is present when the company has an importable list type and absent otherwise; Module lifecycle is present when its switch is on. An entry outside these fails the outcome.
       evidence: menu_screen.
     on_fail:
       severity: MINOR
