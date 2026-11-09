@@ -19,7 +19,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
 
   test "R1 (REQ-717) count_signature, the five count_order fields, the five routes, version 0.9.0" do
     m = Stock.manifest()
-    assert m.version == "0.16.0" and Catalog.validate(m) == :ok
+    assert m.version == "0.17.0" and Catalog.validate(m) == :ok
     assert "count_signature" in m.manages_entity_types
     assert m.scope_declarations["count_signature"] == {:column, "org_unit_id"}
 
@@ -143,7 +143,7 @@ defmodule Letflow.Modules.Stock.CountsRegistrationTest do
              &(elem(&1, 1) == "stock" and String.starts_with?(elem(&1, 0), "count_"))
            ) ==
              Enum.map(
-               ~w(count_commission_member count_entry count_order count_order_scope count_sheet_line count_signature),
+               ~w(count_commission_member count_entry count_freeze_location count_order count_order_scope count_sheet_line count_signature),
                &{&1, "stock", :active}
              )
 

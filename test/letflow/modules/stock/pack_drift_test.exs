@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
   alias Letflow.Entities.Definition.Shape
 
   @dir Path.join([File.cwd!(), "priv", "modules", "stock"])
-  @types ~w(stock_receipt stock_receipt_line stock_opening stock_opening_line stock_issue stock_issue_line stock_writeoff stock_writeoff_line stock_transfer stock_transfer_line stock_handover stock_handover_line stock_return stock_return_line count_order count_order_scope count_commission_member count_sheet_line count_entry count_signature stock_posting_mark)
+  @types ~w(stock_receipt stock_receipt_line stock_opening stock_opening_line stock_issue stock_issue_line stock_writeoff stock_writeoff_line stock_transfer stock_transfer_line stock_handover stock_handover_line stock_return stock_return_line count_order count_order_scope count_commission_member count_sheet_line count_entry count_signature count_freeze_location stock_posting_mark)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 
@@ -66,7 +66,7 @@ defmodule Letflow.Modules.Stock.PackDriftTest do
 
   defp atom_keys(map), do: Map.new(map, fn {k, v} -> {String.to_existing_atom(k), v} end)
 
-  test "P-01: the pack holds exactly the eighteen entity definitions, in the source set, and nothing else" do
+  test "P-01: the pack holds exactly the twenty-two entity definitions, in the source set, and nothing else" do
     document = pack()
 
     assert document["pack_id"] == "letflow-stock"
