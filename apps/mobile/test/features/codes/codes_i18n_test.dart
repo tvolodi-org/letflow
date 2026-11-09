@@ -23,4 +23,22 @@ void main() {
       }
     }
   });
+
+  test('I1: the PWA M4 camera texts exist in en/ru/kk', () {
+    for (final l in ['en', 'ru', 'kk']) {
+      final arb =
+          jsonDecode(File('lib/i18n/l10n/app_$l.arb').readAsStringSync())
+              as Map<String, dynamic>;
+      for (final k in [
+        'codes.camera.intro',
+        'codes.camera.start',
+        'codes.camera.refused',
+        'codes.camera.unavailable',
+      ]) {
+        final v = arb[k];
+        expect(v is String && v.trim().isNotEmpty, isTrue, reason: '$l:$k');
+      }
+      expect(arb.containsKey('codes.cameraRefused'), isFalse, reason: l);
+    }
+  });
 }

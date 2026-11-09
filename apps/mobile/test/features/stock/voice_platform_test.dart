@@ -34,12 +34,14 @@ void main() {
     },
   );
 
-  test('P2b: package:record is imported only by package_recorder_port', () {
-    final hits = _dartFiles('lib')
-        .where((f) => f.readAsStringSync().contains("package:record/"))
-        .map((f) => f.path.split('/').last)
-        .toList();
-    expect(hits, ['package_recorder_port.dart']);
+  test('P2b: package:record is imported only by the two recorder ports', () {
+    final hits =
+        _dartFiles('lib')
+            .where((f) => f.readAsStringSync().contains("package:record/"))
+            .map((f) => f.path.split('/').last)
+            .toList()
+          ..sort();
+    expect(hits, ['package_recorder_port.dart', 'web_recorder_port_web.dart']);
   });
 
   test('S2: voice code stores nothing and only one file touches dart:io', () {
@@ -58,6 +60,41 @@ void main() {
         expect(text, isNot(contains('dart:io')), reason: name);
         expect(text, isNot(contains('File(')), reason: name);
       }
+    }
+  });
+
+  test('G1: the web build compiles no file-based recorder (PWA M4)', () {
+    final provider = File(
+      'lib/features/stock/voice/voice_source.dart',
+    ).readAsStringSync();
+    expect(provider, contains("import 'voice_source_platform.dart';"));
+    expect(provider, isNot(contains('record_voice_source.dart')));
+    expect(provider, isNot(contains('package_recorder_port.dart')));
+    final selector = File(
+      'lib/features/stock/voice/voice_source_platform.dart',
+    ).readAsStringSync();
+    expect(
+      selector,
+      contains("if (dart.library.js_interop) 'voice_source_platform_web.dart'"),
+    );
+    final web = File(
+      'lib/features/stock/voice/voice_source_platform_web.dart',
+    ).readAsStringSync();
+    expect(web, isNot(contains('record_voice_source.dart')));
+    expect(web, isNot(contains('path_provider')));
+    for (final f in _dartFiles('lib/features/stock/voice')) {
+      final name = f.path.split('/').last;
+      if (!name.startsWith('web_')) continue;
+      final text = f.readAsStringSync();
+      expect(text, isNot(contains('path_provider')), reason: name);
+      expect(text, isNot(contains('localStorage')), reason: name);
+    }
+    for (final f in _dartFiles('lib/features/codes')) {
+      expect(
+        f.readAsStringSync(),
+        isNot(contains('package:web/')),
+        reason: f.path,
+      );
     }
   });
 

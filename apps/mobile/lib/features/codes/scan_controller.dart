@@ -22,11 +22,43 @@ class CodesScanController extends ChangeNotifier {
   RendererState<CodeResolution>? state;
   bool scanning = false;
   bool cameraRefused = false;
+
+  /// No camera, an unsupported browser, an insecure page or a failed start.
+  bool cameraUnavailable = false;
+
+  /// Web: the camera waits for the user's tap on "Start camera".
+  bool awaitingTap = false;
   String? lastText;
   bool _disposed = false;
 
+  /// What the camera area shows instead of the preview, or null.
+  CameraPhase? get cameraPhase => cameraRefused
+      ? CameraPhase.refused
+      : cameraUnavailable
+      ? CameraPhase.unavailable
+      : awaitingTap
+      ? CameraPhase.awaitingTap
+      : null;
+
+  /// The screen's first call: starts the camera at once, except where the
+  /// source needs a user tap first (web), where it only shows the intro.
+  Future<void> prepare() async {
+    if (source.needsUserTap) {
+      awaitingTap = true;
+      _notify();
+      return;
+    }
+    await startScanning();
+  }
+
+  /// Also the handler of the "Start camera" button; a second tap while the
+  /// camera is starting does nothing.
   Future<void> startScanning() async {
-    if (cameraRefused) return;
+    awaitingTap = false;
+    if (cameraRefused || cameraUnavailable || scanning) {
+      _notify();
+      return;
+    }
     scanning = true;
     _notify();
     await source.start();
@@ -37,6 +69,12 @@ class CodesScanController extends ChangeNotifier {
       case ScanPermissionRefused():
         cameraRefused = true;
         scanning = false;
+        awaitingTap = false;
+        _notify();
+      case ScanCameraUnavailable():
+        cameraUnavailable = true;
+        scanning = false;
+        awaitingTap = false;
         _notify();
       case ScanDetected(:final text):
         // Extra detections while a request is in flight (or after one) are
@@ -83,8 +121,11 @@ class CodesScanController extends ChangeNotifier {
     if (text != null) await lookUp(text);
   }
 
+  /// A retry after "unavailable" (the user may have fixed the device or
+  /// the page); a refusal stays until the user changes the permission.
   Future<void> scanAgain() async {
     state = null;
+    cameraUnavailable = false;
     await startScanning();
   }
 

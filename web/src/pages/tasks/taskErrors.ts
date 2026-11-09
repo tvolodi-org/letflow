@@ -13,6 +13,7 @@ export function taskErrorText(err: unknown, kind: ActionKind, m: TaskMessages): 
   if (isSeparationOfDuties(err)) return m.sod[kind]
   const text = bodyText(err)
   if (text.includes('insufficient_stock') || text.includes('insufficient stock')) return m.errInsufficientStock
+  if (text.includes('location_frozen')) return m.errLocationFrozen
   if (text.includes('different user')) return m.errAlreadyTaken
   if (text.includes('not pending')) return m.errNotPending
   if (text.includes('role') || text.includes('group')) return m.errNotHeld
