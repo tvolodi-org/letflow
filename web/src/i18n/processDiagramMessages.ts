@@ -220,7 +220,7 @@ const UI: Record<string, Triple> = {
   'processDiagram.versions.col.by': ["Created by", "Автор", "Авторы"],
   'processDiagram.versions.col.when': ["Created", "Создана", "Құрылған"],
   'processDiagram.versions.current': ["Current", "Текущая", "Ағымдағы"],
-  'processDiagram.versions.module': ["Module {name}", "Модуль {name}", "Модуль {name}"],
+  'processDiagram.versions.module': ["Module {name}", "Модуль {name}", "{name} модулі"],
   'processDiagram.versions.compareWith': ["Compare with this version", "Сравнить с этой версией", "Осы нұсқамен салыстыру"],
   'processDiagram.versions.base': ["Base version", "Базовая версия", "Негізгі нұсқа"],
   'processDiagram.versions.compare': ["Compare version", "Сравниваемая версия", "Салыстырылатын нұсқа"],
