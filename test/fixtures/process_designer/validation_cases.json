@@ -1,0 +1,368 @@
+{
+ "cases": [
+  {
+   "name": "valid",
+   "blocking": false,
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "node_type": "START"
+     },
+     {
+      "id": "task",
+      "node_type": "HUMAN_TASK",
+      "attributes": {
+       "role": "approver"
+      }
+     },
+     {
+      "id": "end",
+      "node_type": "END"
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "source": "start",
+      "target": "task"
+     },
+     {
+      "id": "e2",
+      "source": "task",
+      "target": "end"
+     }
+    ]
+   }
+  },
+  {
+   "name": "no_end",
+   "blocking": true,
+   "storable": false,
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "node_type": "START"
+     },
+     {
+      "id": "task",
+      "node_type": "HUMAN_TASK",
+      "attributes": {
+       "role": "approver"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "source": "start",
+      "target": "task"
+     }
+    ]
+   }
+  },
+  {
+   "name": "isolated_node",
+   "blocking": true,
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "node_type": "START"
+     },
+     {
+      "id": "task",
+      "node_type": "HUMAN_TASK",
+      "attributes": {
+       "role": "approver"
+      }
+     },
+     {
+      "id": "lost",
+      "node_type": "HUMAN_TASK",
+      "attributes": {
+       "role": "approver"
+      }
+     },
+     {
+      "id": "end",
+      "node_type": "END"
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "source": "start",
+      "target": "task"
+     },
+     {
+      "id": "e2",
+      "source": "task",
+      "target": "end"
+     }
+    ]
+   }
+  },
+  {
+   "name": "missing_role",
+   "blocking": true,
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "node_type": "START"
+     },
+     {
+      "id": "task",
+      "node_type": "HUMAN_TASK"
+     },
+     {
+      "id": "end",
+      "node_type": "END"
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "source": "start",
+      "target": "task"
+     },
+     {
+      "id": "e2",
+      "source": "task",
+      "target": "end"
+     }
+    ]
+   }
+  },
+  {
+   "name": "bad_duration",
+   "blocking": true,
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "node_type": "START"
+     },
+     {
+      "id": "tm",
+      "node_type": "TIMER",
+      "attributes": {
+       "duration_iso8601": "soon"
+      }
+     },
+     {
+      "id": "end",
+      "node_type": "END"
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "source": "start",
+      "target": "tm"
+     },
+     {
+      "id": "e2",
+      "source": "tm",
+      "target": "end"
+     }
+    ]
+   }
+  },
+  {
+   "name": "dangling_edge",
+   "blocking": true,
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "node_type": "START"
+     },
+     {
+      "id": "task",
+      "node_type": "HUMAN_TASK",
+      "attributes": {
+       "role": "approver"
+      }
+     },
+     {
+      "id": "end",
+      "node_type": "END"
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "source": "start",
+      "target": "task"
+     },
+     {
+      "id": "e2",
+      "source": "task",
+      "target": "end"
+     },
+     {
+      "id": "e3",
+      "source": "task",
+      "target": "ghost"
+     }
+    ]
+   }
+  },
+  {
+   "name": "script_key_no_version",
+   "blocking": true,
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "node_type": "START"
+     },
+     {
+      "id": "svc",
+      "node_type": "SERVICE_TASK",
+      "attributes": {
+       "script_key": "calc"
+      }
+     },
+     {
+      "id": "end",
+      "node_type": "END"
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "source": "start",
+      "target": "svc"
+     },
+     {
+      "id": "e2",
+      "source": "svc",
+      "target": "end"
+     }
+    ]
+   }
+  },
+  {
+   "name": "script_and_service_id",
+   "blocking": true,
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "node_type": "START"
+     },
+     {
+      "id": "svc",
+      "node_type": "SERVICE_TASK",
+      "attributes": {
+       "script_key": "calc",
+       "script_version": 1,
+       "service_id": "svc-1"
+      }
+     },
+     {
+      "id": "end",
+      "node_type": "END"
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "source": "start",
+      "target": "svc"
+     },
+     {
+      "id": "e2",
+      "source": "svc",
+      "target": "end"
+     }
+    ]
+   }
+  },
+  {
+   "name": "script_pair_ok",
+   "blocking": false,
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "node_type": "START"
+     },
+     {
+      "id": "svc",
+      "node_type": "SERVICE_TASK",
+      "attributes": {
+       "script_key": "calc",
+       "script_version": 1
+      }
+     },
+     {
+      "id": "end",
+      "node_type": "END"
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "source": "start",
+      "target": "svc"
+     },
+     {
+      "id": "e2",
+      "source": "svc",
+      "target": "end"
+     }
+    ]
+   }
+  },
+  {
+   "name": "undeclared_variable",
+   "blocking": false,
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "node_type": "START"
+     },
+     {
+      "id": "gw",
+      "node_type": "EXCLUSIVE_GATEWAY"
+     },
+     {
+      "id": "a",
+      "node_type": "END"
+     },
+     {
+      "id": "b",
+      "node_type": "END"
+     }
+    ],
+    "edges": [
+     {
+      "id": "e0",
+      "source": "start",
+      "target": "gw"
+     },
+     {
+      "id": "e1",
+      "source": "gw",
+      "target": "a",
+      "condition": "ghost_var == \"x\"",
+      "is_default": false
+     },
+     {
+      "id": "e2",
+      "source": "gw",
+      "target": "b",
+      "condition": null,
+      "is_default": true
+     }
+    ]
+   }
+  }
+ ]
+}

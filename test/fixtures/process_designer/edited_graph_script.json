@@ -1,0 +1,32 @@
+{
+ "nodes": [
+  {
+   "id": "start",
+   "node_type": "START"
+  },
+  {
+   "id": "svc",
+   "node_type": "SERVICE_TASK",
+   "attributes": {
+    "script_key": "calc",
+    "script_version": 1
+   }
+  },
+  {
+   "id": "end",
+   "node_type": "END"
+  }
+ ],
+ "edges": [
+  {
+   "id": "e1",
+   "source": "start",
+   "target": "svc"
+  },
+  {
+   "id": "e2",
+   "source": "svc",
+   "target": "end"
+  }
+ ]
+}

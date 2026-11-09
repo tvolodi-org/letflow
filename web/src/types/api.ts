@@ -91,6 +91,8 @@ export interface CreateDefinitionRequest {
   description?: string
   graph?: DefinitionGraph
   stage?: string | null
+  /** T-1563: a new draft version keeps the declared variables of this definition (server-side copy). */
+  copy_variable_schemas_from?: string
 }
 
 // ── Process Instances (Stage 3) ───────────────────────────────────────────────

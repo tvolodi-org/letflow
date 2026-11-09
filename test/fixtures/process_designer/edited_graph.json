@@ -1,0 +1,48 @@
+{
+ "nodes": [
+  {
+   "id": "start",
+   "node_type": "START"
+  },
+  {
+   "id": "task",
+   "node_type": "HUMAN_TASK",
+   "attributes": {
+    "role": "approver"
+   }
+  },
+  {
+   "id": "n_human_task_1",
+   "node_type": "HUMAN_TASK",
+   "label": "Review",
+   "attributes": {
+    "role": "auditor",
+    "position": {
+     "x": 320,
+     "y": 80
+    }
+   }
+  },
+  {
+   "id": "end",
+   "node_type": "END"
+  }
+ ],
+ "edges": [
+  {
+   "id": "e1",
+   "source": "start",
+   "target": "task"
+  },
+  {
+   "id": "e2",
+   "source": "task",
+   "target": "n_human_task_1"
+  },
+  {
+   "id": "e_3",
+   "source": "n_human_task_1",
+   "target": "end"
+  }
+ ]
+}
