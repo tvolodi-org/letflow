@@ -493,6 +493,67 @@ defmodule Letflow.Scripts.BackupScriptsTest do
       assert Enum.all?(String.split(after_run), &(&1 in String.split(before)))
     end
 
+    test "R9a default limits, R9b override, R9c forbidden flag refused (exit 2)", %{
+      env: env,
+      tmp_dir: tmp
+    } do
+      dump!(env)
+      env = put_env(env, "RESTORE_TARGET", "container")
+      shim = Path.join(tmp, "shim")
+      log = Path.join(tmp, "docker_run.log")
+      File.mkdir_p!(shim)
+      real = System.find_executable("docker")
+
+      File.write!(Path.join(shim, "docker"), """
+      #!/usr/bin/env bash
+      [[ "$1" == run ]] && echo "$*" >>"#{log}"
+      exec "#{real}" "$@"
+      """)
+
+      File.chmod!(Path.join(shim, "docker"), 0o755)
+      path = {"PATH", shim <> ":" <> System.get_env("PATH")}
+      smoke = {"RESTORE_SMOKE_CMD", "true"}
+
+      {out, code} = run(env, "restore_test.sh", [], [path, smoke])
+      assert code == 0, out
+      [run1] = File.read!(log) |> String.split("\n", trim: true)
+
+      for flag <- ~w(--cpus=1 --memory=1g --memory-swap=1g --pids-limit=512),
+          do: assert(run1 =~ flag)
+
+      File.rm!(log)
+
+      {out, code} =
+        run(env, "restore_test.sh", [], [
+          path,
+          smoke,
+          {"RESTORE_DOCKER_ARGS", "--cpus=2 --memory=2g"}
+        ])
+
+      assert code == 0, out
+      [run2] = File.read!(log) |> String.split("\n", trim: true)
+      assert run2 =~ "--cpus=2 --memory=2g"
+      refute run2 =~ "--pids-limit"
+
+      File.rm!(log)
+
+      for bad <- [
+            "--privileged",
+            "--volume=/etc:/x",
+            "--mount=type=bind,src=/,dst=/h",
+            "--network=host",
+            "--cpus 2",
+            "-v",
+            "--pid=host"
+          ] do
+        {out, code} = run(env, "restore_test.sh", [], [path, smoke, {"RESTORE_DOCKER_ARGS", bad}])
+        assert code == 2, "#{bad}: #{out}"
+        assert out =~ ~r/^restore_test FAIL step=target exit=2 detail=docker_args_/
+      end
+
+      refute File.exists?(log)
+    end
+
     test "R2 a tampered manifest count: exit 1 and the line names the key", %{
       root: root,
       env: env,
