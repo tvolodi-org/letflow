@@ -139,7 +139,17 @@ Handling:
 5. Cluster-wide guards on the team's shared Postgres (`pg_stat_activity` reaper tests,
    `admin_shutdown`) can fail from sibling tasks; that is not CI's flake, say so in findings.
 
-## 5. Quick reference
+## 5. Runner images are pinned
+
+Every job in `.github/workflows/` runs on `ubuntu-24.04`, not `ubuntu-latest` (T-1566).
+
+Why: GitHub moved `ubuntu-latest` to `ubuntu-26.04`. Playwright has no Chromium build for it
+(`Playwright does not support chromium on ubuntu26.04-x64`), so `Stock browser e2e (playwright)` failed
+in merge groups and each failure ejected the whole group, although CI had passed.
+
+When changing the image, move all workflows together and run the stock e2e job on the new image first.
+
+## 6. Quick reference
 
 | Symptom | Look at | Do |
 |---|---|---|
@@ -148,4 +158,5 @@ Handling:
 | Group red, PR was green | shard log, `Result:` lines | section 3 step 4 |
 | Fails only at certain hours | test uses wall clock / zones | section 4, T-1505 |
 | Shard timed out, no failed test | job status | re-run once |
+| Group red on `Stock browser e2e`, "does not support chromium" | `runs-on:` image | section 5 |
 | Tag stale after revert | `git push origin :refs/tags/ci-main-red` | report why |
