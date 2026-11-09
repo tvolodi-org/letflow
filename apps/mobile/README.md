@@ -277,13 +277,14 @@ app is installed to the home screen, no background sync.
   64 KiB per draft; over a limit nothing is stored and the user is told. Edits of saved drafts,
   Issue, Discard and every read still need the network. The queue is sent once, oldest first, when the
   app opens with a verified session, or with **Send now** on the draft list (no background sync: iOS has
-  none). A draft the server refuses is kept with its reason until the user discards it. A resend after a
+  none). A draft the server refuses (for example the person was deactivated or the place is frozen for a count) is never changed, resent or deleted by the queue: the draft list shows the saved draft and the server's answer side by side, and the user chooses **Edit and resend** (reopens the draft in the normal form; the old entry is removed only after the new save succeeded or was stored), **Send again**, or **Discard** (asks first). The queue holds only new drafts, so a replay can never overwrite a server document. A resend after a
   lost answer can create the same draft twice (no idempotency key on the server); both show in the list.
 - The queue is deleted on sign-out and on a tenant switch (a shared device must not send another
   person's drafts), so unsent drafts are lost on an explicit sign-out.
 - **7-day warning**: in a browser tab (not installed to the home screen) the draft list shows that the
   browser may delete saved data after 7 days without use; the app also asks the browser for persistent
   storage (`navigator.storage.persist()`, best effort).
+- **Install hint**: on iPhone/iPad Safari and Android browsers the draft list shows once, in ru/kk/en, how to add the app to the home screen (static text, no `beforeinstallprompt`). "Got it" stores a flag in its own IndexedDB file (`letflow_install_hint`) that sign-out does not clear.
 
 ### Scanner and voice on Safari (M4)
 

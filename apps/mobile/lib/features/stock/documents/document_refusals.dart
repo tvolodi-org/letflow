@@ -24,6 +24,7 @@ const List<String> kRefusalReasons = [
   'quantity_invalid',
   'reason_required',
   'reason_too_long',
+  'location_frozen',
 ];
 
 const List<String> kFieldKeys = [
@@ -69,6 +70,21 @@ String? refusalMessage(ApiError error) {
     default:
       return null;
   }
+}
+
+/// The text for a refusal stored in the offline queue (see
+/// `QueuedDraft.rejectionDetail`); unknown values are never echoed.
+String refusalMessageFromDetail(Map<String, dynamic> detail) {
+  final reason = detail['reason'];
+  final field = detail['field'];
+  final line = detail['line_no'];
+  final side = detail['side'];
+  return _compose(
+    reason is String ? reason : null,
+    field is String ? field : null,
+    line is int ? line : null,
+    side is String ? side : null,
+  );
 }
 
 String _compose(String? reason, String? field, int? lineNo, String? side) {
