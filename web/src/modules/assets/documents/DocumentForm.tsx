@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
+import { useFocusFirstInvalid } from '@/components/ui/doc/useFocusFirstInvalid'
 import { DocBar, DocCard, DocEdit, DocFields, useDocTabs } from '@/components/ui/doc/DocLayout'
 import { firstProblemTab, paneOfKey, problemsByPane } from '@/components/ui/doc/docLayouts'
 import { Banner } from '@/components/ui/Banner'
@@ -60,6 +61,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
   const [banner, setBanner] = useState<string | null>(null)
   const [attempted, setAttempted] = useState(false)
   const { tabsLayout, setTab } = useDocTabs()
+  const focusInvalid = useFocusFirstInvalid()
   const orgUnits = usePickerOptions('org_unit')
   const locations = usePickerOptions('location_node')
   const employees = usePickerOptions('org_employee')
@@ -101,6 +103,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
       if (placed.key) {
         setErrors({ [placed.key]: placed.messageId })
         if (tabsLayout) setTab(paneOfKey(placed.key))
+        focusInvalid()
       } else setBanner(t(placed.messageId))
     },
   })
@@ -121,6 +124,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
       // Tab layout: Save moves to the first tab with a problem (the badge on the other tab keeps its count).
       const first = firstProblemTab(problemsByPane(check.errors))
       if (tabsLayout && first) setTab(first)
+      focusInvalid()
       return
     }
     save.mutate(buildBody(form, !edit))

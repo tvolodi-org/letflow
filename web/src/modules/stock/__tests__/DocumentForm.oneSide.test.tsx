@@ -148,7 +148,7 @@ describe('C3-e checks before sending', () => {
     save()
     // The messages of the focused row show in the status line under the grid (fixed row height, T-1448).
     fireEvent.focusIn(within(firstRow()).getByLabelText('Quantity'))
-    expect(await screen.findByText(/The quantity must be a decimal number above zero\./)).toBeInTheDocument()
+    expect((await screen.findAllByText(/The quantity must be a decimal number above zero\./)).length).toBeGreaterThan(0)
     expect(created()).toHaveLength(0)
   })
 

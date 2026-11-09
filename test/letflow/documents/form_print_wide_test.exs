@@ -204,4 +204,32 @@ defmodule Letflow.Documents.FormPrintWideTest do
       assert total.([%{"surplus_qty" => "1"}, %{"surplus_qty" => "abc"}])["surplus_qty"] == ""
     end
   end
+
+  describe "T-1555 paper: landscape PDF, docx header rows and signature keep" do
+    test "W1 every official form (9 to 14 columns) prints on a landscape A4" do
+      {:ok, wide} = FormPrint.build("inv18", wide_data(), "ru", :pdf)
+      assert wide =~ "/MediaBox [0 0 842 595]"
+
+      data = %{"lines" => [%{"no" => "1", "name" => "A", "nom" => "B", "unit" => "pcs"}]}
+      {:ok, z2} = FormPrint.build("z2", data, "ru", :pdf)
+      assert z2 =~ "/MediaBox [0 0 842 595]"
+    end
+
+    test "D2 docx: header and number rows repeat on each page, no row splits across pages" do
+      {:ok, docx} = FormPrint.build("inv18", wide_data(), "ru", :docx)
+      xml = docx_xml(docx)
+      rows = Regex.scan(~r/<w:tr>(.*?)<\/w:tr>/s, xml) |> Enum.map(&List.last/1)
+      assert rows != []
+      assert Enum.all?(rows, &(&1 =~ "<w:cantSplit/>"))
+      heads = Enum.filter(rows, &(&1 =~ "<w:tblHeader/>"))
+      # grouped header: two rows, plus the row of column numbers, for each of the two tables
+      assert length(heads) >= 3
+      assert length(rows) > length(heads)
+    end
+
+    test "D3 docx: the signature line is kept with its caption" do
+      {:ok, docx} = FormPrint.build("inv18", wide_data(), "ru", :docx)
+      assert docx_xml(docx) =~ "<w:pPr><w:keepNext/></w:pPr>"
+    end
+  end
 end
