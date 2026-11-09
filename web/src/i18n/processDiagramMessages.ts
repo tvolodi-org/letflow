@@ -68,7 +68,7 @@ const UI: Record<string, Triple> = {
   'processDiagram.details.title': ['Step details', 'Сведения о шаге', 'Қадам туралы мәлімет'],
   'processDiagram.details.close': ['Close', 'Закрыть', 'Жабу'],
   'processDiagram.details.type': ['Type', 'Тип', 'Түрі'],
-  'processDiagram.details.id': ['Id', 'Id', 'Id'],
+  'processDiagram.details.id': ['Id', 'Идентификатор', 'Сәйкестендіргіш'],
   'processDiagram.details.state': ['State', 'Состояние', 'Күйі'],
   'processDiagram.details.role': ['Role', 'Роль', 'Рөл'],
   'processDiagram.details.assignee': ['Assignee', 'Исполнитель', 'Орындаушы'],
@@ -87,6 +87,20 @@ const UI: Record<string, Triple> = {
   'processDiagram.details.subDefinition': ['Called definition', 'Вызываемое определение', 'Шақырылатын анықтама'],
   'processDiagram.details.otherAttributes': ['{count} other attributes', 'Других атрибутов: {count}', 'Басқа атрибуттар: {count}'],
   'processDiagram.details.next': ['Next', 'Далее', 'Келесі'],
+  // Screen-reader texts of React Flow (ariaLabelConfig), worded for a read-only view.
+  'processDiagram.a11y.node': [
+    'Press Enter to show the step details.',
+    'Нажмите Enter, чтобы открыть сведения о шаге.',
+    'Қадам туралы мәліметті ашу үшін Enter пернесін басыңыз.',
+  ],
+  'processDiagram.a11y.edge': ['Transition between steps.', 'Переход между шагами.', 'Қадамдар арасындағы өту.'],
+  'processDiagram.a11y.controls': ['Diagram view controls', 'Управление видом схемы', 'Сызба көрінісін басқару'],
+  'processDiagram.a11y.zoomIn': ['Zoom in', 'Увеличить', 'Үлкейту'],
+  'processDiagram.a11y.zoomOut': ['Zoom out', 'Уменьшить', 'Кішірейту'],
+  'processDiagram.a11y.fitView': ['Show the whole diagram', 'Показать схему целиком', 'Сызбаны толық көрсету'],
+  'processDiagram.a11y.interactive': ['Lock the view', 'Закрепить вид', 'Көріністі бекіту'],
+  'processDiagram.a11y.minimap': ['Overview map of the diagram', 'Обзорная карта схемы', 'Сызбаның шолу картасы'],
+  'processDiagram.a11y.handle': ['Connection point', 'Точка соединения', 'Қосылу нүктесі'],
   'processDiagram.details.ifCondition': ['if {condition}', 'если {condition}', 'егер {condition}'],
 }
 

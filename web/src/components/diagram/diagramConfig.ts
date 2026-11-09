@@ -17,7 +17,12 @@ export const diagramConfig = {
   canvasPadding: 48,
   canvasMinHeight: 360,
   canvasMaxHeight: 700,
+  /** Extra canvas height kept under the drawing for the minimap (bottom right; --space-24 tall plus its margins). */
+  minimapReserve: 128,
   minZoom: 0.2,
+  /** The first view never shrinks the drawing below this scale, so canvas text stays readable (13 px labels at
+   *  about 12 px); a larger drawing is panned. The "fit view" control can still show it whole. */
+  readableZoom: 0.9,
   maxZoom: 1.5,
   /** Form fields listed in the details panel before "+n more". */
   formFieldCap: 12,

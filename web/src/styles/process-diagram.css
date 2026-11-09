@@ -22,6 +22,7 @@
 .lf-pd__canvas .react-flow__controls-button { background: var(--paper-raised); border-bottom: 1px solid var(--line); color: var(--ink); fill: var(--ink); }
 .lf-pd__canvas .react-flow__controls-button:hover { background: var(--row-hover); }
 .lf-pd__canvas .react-flow__controls-button svg { fill: var(--ink); }
+.lf-pd__canvas .react-flow__minimap svg { width: var(--field-w-s); height: var(--space-24); }
 .lf-pd__canvas .react-flow__minimap { background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-md); }
 .lf-pd__canvas .react-flow__background { color: var(--line); }
 .lf-pd__canvas .react-flow__minimap-mask { fill: var(--paper-sunken); fill-opacity: .7; }
@@ -48,29 +49,44 @@
 .lf-pd-node--human-task .lf-pd-node__shape { color: var(--current); background: var(--current-tint); }
 .lf-pd-node--sub-process { border-width: 3px; border-style: double; }
 .lf-pd-node__body { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.lf-pd-node__body > .lf-pd-node__label {
+  white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
 
-/* compact shapes: circle (START/END), diamond (gateways), clock (TIMER) with a caption below */
-.lf-pd-node--start, .lf-pd-node--end, .lf-pd-node--exclusive-gateway, .lf-pd-node--parallel-gateway, .lf-pd-node--timer {
-  display: flex; align-items: center; justify-content: center;
-}
-.lf-pd-node--start .lf-pd-node__shape, .lf-pd-node--end .lf-pd-node__shape, .lf-pd-node--timer .lf-pd-node__shape {
-  width: 100%; height: 100%; border-radius: var(--radius-full);
-}
+/* compact shapes: circle (START/END), diamond (gateways), clock (TIMER). The node box (laid out by dagre) holds the
+   shape at its top and the caption below it, so edges, edge labels and other nodes keep clear of the caption. */
+.lf-pd-node--compact { display: flex; flex-direction: column; align-items: center; }
+.lf-pd-node--compact > .lf-pd-node__shape { flex: none; width: var(--lf-pd-shape); height: var(--lf-pd-shape); }
+.lf-pd-node--start .lf-pd-node__shape, .lf-pd-node--end .lf-pd-node__shape, .lf-pd-node--timer .lf-pd-node__shape { border-radius: var(--radius-full); }
 .lf-pd-node--start .lf-pd-node__shape { border-color: var(--success); background: var(--success-tint); }
 .lf-pd-node--end .lf-pd-node__shape { border-width: 4px; border-color: var(--ink); }
 .lf-pd-node--timer .lf-pd-node__shape { border-style: double; border-width: 4px; }
-.lf-pd-node--exclusive-gateway .lf-pd-node__shape, .lf-pd-node--parallel-gateway .lf-pd-node__shape {
-  width: 72%; height: 72%; transform: rotate(45deg); border-radius: var(--radius-sm);
+/* A diamond: a square of 72 % of the shape size, rotated, centred in the shape's square. */
+.lf-pd-node--compact.lf-pd-node--exclusive-gateway > .lf-pd-node__shape, .lf-pd-node--compact.lf-pd-node--parallel-gateway > .lf-pd-node__shape {
+  width: calc(var(--lf-pd-shape) * .72); height: calc(var(--lf-pd-shape) * .72); margin: calc(var(--lf-pd-shape) * .14) 0;
+  transform: rotate(45deg); border-radius: var(--radius-sm);
 }
 .lf-pd-node--exclusive-gateway .lf-pd-node__shape .lf-icon, .lf-pd-node--parallel-gateway .lf-pd-node__shape .lf-icon { transform: rotate(-45deg); }
 .lf-pd-node__caption {
-  position: absolute; top: calc(100% + var(--space-1)); left: 50%; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; max-width: 160px; text-align: center; pointer-events: none;
+  position: relative; display: flex; flex-direction: column; align-items: center; width: 100%; margin-top: var(--space-1);
+  text-align: center; pointer-events: none;
 }
-/* The caption sits on the outgoing edge: a canvas-coloured backing keeps the line from striking through the text. */
+/* In a top-to-bottom drawing the outgoing edge leaves the shape and passes behind the caption: a canvas-coloured
+   backing keeps the line from striking through the text. */
 .lf-pd-node__caption > .lf-pd-node__label, .lf-pd-node__caption > .lf-pd-node__sub {
   max-width: 100%; padding: 0 var(--space-1); border-radius: var(--radius-sm); background: var(--paper-sunken);
 }
+.lf-pd-node__caption > .lf-pd-node__label {
+  white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
+/* Handles sit on the shape, not on the caption box: under the shape (TB), at its left and right sides (LR). */
+.lf-pd__canvas .lf-pd-node--compact.is-tb .react-flow__handle-bottom { top: var(--lf-pd-shape); bottom: auto; transform: translate(-50%, -50%); }
+.lf-pd__canvas .lf-pd-node--compact.is-lr .react-flow__handle-left { left: calc(50% - var(--lf-pd-shape) / 2); }
+.lf-pd__canvas .lf-pd-node--compact.is-lr .react-flow__handle-right { right: auto; left: calc(50% + var(--lf-pd-shape) / 2); transform: translate(-50%, -50%); }
+/* Left to right the box keeps the caption's space above the shape too: the shape sits in the middle, the caption
+   right under it. */
+.lf-pd-node--compact.is-lr { justify-content: center; }
+.lf-pd-node--compact.is-lr > .lf-pd-node__caption { position: absolute; top: calc(50% + var(--lf-pd-shape) / 2); left: 0; }
 
 /* ── node states (word + glyph are in the pill; the outline repeats it) ── */
 .lf-pd-node.is-done .lf-pd-node__shape, .lf-pd-node--human-task.is-done, .lf-pd-node--service-task.is-done, .lf-pd-node--sub-process.is-done { border-color: var(--success); }
@@ -96,7 +112,7 @@
 .lf-pd-arrow.is-untaken { fill: var(--line); }
 .lf-pd-arrow.is-unclear { fill: var(--warning); }
 .lf-pd-edge__label {
-  position: absolute; padding: 0 var(--space-2); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  position: absolute; padding: 0 var(--space-2); max-width: 200px; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-full);
   font: var(--type-mono-s); color: var(--ink-muted); pointer-events: all;
 }

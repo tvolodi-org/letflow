@@ -89,7 +89,18 @@ Edges are never animated (dashes are reserved for "Not certain"). Light and dark
 
 Starting values in `diagramConfig`: above 150 nodes the minimap is off and only visible elements are rendered;
 above 400 nodes only the step list is shown, with a banner. Below 640 px of width the step list replaces the canvas;
-from 900 px the details panel sits beside the canvas and a plain chain is laid out left to right.
+from 900 px the details panel sits beside the canvas and a plain chain is laid out left to right (any other graph
+takes the direction that shows more of it at a readable scale).
+
+## Readability and routing
+
+The first view never shrinks the drawing below 0.9 (`diagramConfig.readableZoom`), so canvas text stays legible; a
+larger drawing starts at its beginning and is panned (the "fit view" control still shows it whole). An instance view
+starts with its active or failed step in view. Task boxes are sized so a label up to the edge-label length fits at
+1:1 (two lines at most). A compact shape's box includes its caption, edge labels get their own space in the dagre
+layout, and edges follow the dagre route as a smooth curve, so no label covers a caption and an edge that skips ranks
+bends around the steps between its ends. React Flow's screen-reader texts (`ariaLabelConfig`) come from the catalog
+in en/ru/kk and are worded for a read-only view.
 
 ## Slice 2 hooks
 

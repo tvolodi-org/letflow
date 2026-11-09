@@ -7,9 +7,12 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { DefinitionGraph, NodeType } from '@/types/api'
 import ProcessDiagram from '../ProcessDiagram'
+import { IntlProvider } from 'react-intl'
 import { ProcessDiagramIntlProvider } from '../ProcessDiagramIntlProvider'
+import { processDiagramMessages } from '@/i18n/processDiagramMessages'
 import { NODE_TYPES } from '../diagramConfig'
 import { summariseNode } from '../nodeSummary'
+import { basisPath } from '../DiagramEdge'
 import { deriveInstancePath, timelineEvidence } from '@/utils/canvas/instancePath'
 expect.extend(jestDomMatchers)
 
@@ -207,5 +210,38 @@ describe('ProcessDiagram', () => {
     unmount()
     renderDiagram({ graph: null })
     expect(screen.getByTestId('diagram-no-graph')).toBeInTheDocument()
+  })
+
+  it('A1 React Flow screen-reader texts come from the catalog in every language, worded for a read-only view', () => {
+    for (const locale of ['en', 'ru', 'kk'] as const) {
+      const msg = processDiagramMessages[locale]
+      const { container, unmount } = render(
+        <IntlProvider locale={locale} defaultLocale="en" messages={msg}>
+          <div style={{ width: 1200, height: 700 }}>
+            <ProcessDiagram graph={ALL_TYPES} />
+          </div>
+        </IntlProvider>,
+      )
+      const text = container.textContent ?? ''
+      expect(text).toContain(msg['processDiagram.a11y.node'])
+      expect(text).not.toMatch(/Press delete|remove it/)
+      expect(container.querySelector(`[aria-label="${msg['processDiagram.a11y.zoomIn']}"]`)).not.toBeNull()
+      expect(container.querySelector(`[aria-label="${msg['processDiagram.a11y.fitView']}"]`)).not.toBeNull()
+      expect(container.querySelector(`[aria-label="${msg['processDiagram.a11y.controls']}"]`)).not.toBeNull()
+      // The minimap names itself through an SVG <title>.
+      expect(container.querySelector('.react-flow__minimap title')?.textContent).toBe(msg['processDiagram.a11y.minimap'])
+      expect(container.querySelector('[aria-label="Zoom In"], [aria-label="Control Panel"]')).toBeNull()
+      expect(text).not.toContain('Mini Map')
+      unmount()
+    }
+  })
+
+  it('R1 an edge route is drawn as one smooth curve from the first to the last point', () => {
+    const d = basisPath([{ x: 0, y: 0 }, { x: 0, y: 50 }, { x: 100, y: 100 }, { x: 100, y: 150 }])
+    expect(d.startsWith('M0,0')).toBe(true)
+    expect(d.endsWith('L100,150')).toBe(true)
+    expect(d.match(/C/g)).toHaveLength(3)
+    expect(basisPath([{ x: 1, y: 2 }, { x: 3, y: 4 }])).toBe('M1,2L3,4')
+    expect(basisPath([])).toBe('')
   })
 })

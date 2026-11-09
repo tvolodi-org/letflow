@@ -15,6 +15,8 @@ export interface DiagramNodeData {
   state?: NodeState
   stateName?: string
   direction: 'TB' | 'LR'
+  /** Compact types: the shape size (px); the node box also holds the caption below the shape. */
+  shape?: number
   [key: string]: unknown
 }
 
@@ -30,13 +32,15 @@ const ICONS: Record<string, typeof User> = {
 }
 
 function DiagramNodeImpl({ data }: NodeProps<DiagramFlowNode>) {
-  const { nodeType, label, typeName, subLine, state, stateName, direction } = data
+  const { nodeType, label, typeName, subLine, state, stateName, direction, shape } = data
   const Icon = ICONS[nodeType]
-  const compact = nodeType === 'START' || nodeType === 'END' || nodeType.endsWith('_GATEWAY') || nodeType === 'TIMER'
+  const compact = shape !== undefined
   const pill = state ? STATE_PILL[state] : null
   return (
     <div
-      className={`lf-pd-node lf-pd-node--${nodeType.toLowerCase().replace(/_/g, '-')}${state ? ` is-${state}` : ''}`}
+      className={`lf-pd-node lf-pd-node--${nodeType.toLowerCase().replace(/_/g, '-')}${compact ? ` lf-pd-node--compact is-${direction.toLowerCase()}` : ''}${state ? ` is-${state}` : ''}`}
+      // The shape size is layout geometry (the same number dagre used), not a colour or spacing value.
+      style={compact ? { ['--lf-pd-shape' as string]: `${shape}px` } : undefined}
       data-testid={`diagram-node-${nodeType}`}
       data-node-type={nodeType}
       data-state={state ?? 'none'}

@@ -6,11 +6,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useIntl } from 'react-intl'
 import { ArrowDown, ArrowRight } from 'lucide-react'
-import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, type FitViewOptions } from '@xyflow/react'
+import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type AriaLabelConfig, type FitViewOptions } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import '@/styles/process-diagram.css'
 import type { DefinitionGraph } from '@/types/api'
-import { isChain, layoutDefinition, type LayoutDirection } from '@/utils/canvas/readLayout'
+import { initialViewport, isChain, layoutDefinition, visibleShare, type LayoutDirection, type ReadLayout } from '@/utils/canvas/readLayout'
 import type { InstancePath, NodeState } from '@/utils/canvas/instancePath'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
@@ -25,7 +25,8 @@ import { useDiagramText } from './useDiagramText'
 
 const nodeTypes = { diagram: DiagramNode }
 const edgeTypes = { diagram: DiagramEdge }
-// Module-level so React Flow does not re-fit on every render (see the infinite-loop note in ProcessCanvas.tsx).
+// Module-level so React Flow does not re-fit on every render (see the infinite-loop note in ProcessCanvas.tsx). Used by
+// the "fit view" control only; the first view is `initialViewport` (readable scale, start of the drawing in view).
 const FIT_VIEW_OPTIONS: FitViewOptions = { padding: 0.15, maxZoom: 1 }
 const PRO_OPTIONS = { hideAttribution: true }
 
@@ -91,21 +92,37 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
   const [containerRef, width] = useContainerWidth()
   const wide = width >= diagramConfig.wideWidth
   const narrow = width < diagramConfig.narrowWidth
-  const chain = useMemo(() => (graph ? isChain(graph) : false), [graph])
   const [userDirection, setUserDirection] = useState<LayoutDirection | null>(null)
-  const direction: LayoutDirection = userDirection ?? (wide && chain ? 'LR' : 'TB')
   const [mode, setMode] = useState<'diagram' | 'steps'>(props.initialMode ?? 'diagram')
   const [selected, setSelected] = useState<string | null>(props.initialSelected ?? null)
 
-  const layout = useMemo(() => layoutDefinition(graph, direction), [graph, direction])
+  // dagre reserves space for each edge label, so the layout needs the label text (locale-dependent for "default").
+  const defaultLabel = m('edge.default')
+  const edgeLabel = useCallback(
+    (e: { condition?: string; isDefault: boolean }) => {
+      const full = e.condition ?? (e.isDefault ? defaultLabel : null)
+      return full ? cutLabel(full) : null
+    },
+    [defaultLabel],
+  )
+  const layoutTB = useMemo(() => layoutDefinition(graph, 'TB', edgeLabel), [graph, edgeLabel])
+  const autoLR = userDirection === null && wide && layoutTB.nodes.length <= diagramConfig.hugeGraphNodes
+  const layoutLR = useMemo(
+    () => (userDirection === 'LR' || autoLR ? layoutDefinition(graph, 'LR', edgeLabel) : null),
+    [graph, edgeLabel, userDirection, autoLR],
+  )
+  const chain = useMemo(() => (graph ? isChain(graph) : false), [graph])
+  // Wide screens: a chain reads left to right; otherwise the direction that shows more of the drawing at a readable
+  // scale (ties stay top to bottom).
+  const direction: LayoutDirection =
+    userDirection ??
+    (autoLR && layoutLR && (chain || shareOf(layoutLR, width) > shareOf(layoutTB, width)) ? 'LR' : 'TB')
+  const layout = direction === 'LR' && layoutLR ? layoutLR : layoutTB
   const count = layout.nodes.length
   const huge = count > diagramConfig.hugeGraphNodes
   const big = count > diagramConfig.bigGraphNodes
   const showSteps = narrow || huge || mode === 'steps'
-  // The canvas grows with the drawing (within limits), so a tall definition is not shrunk into a fixed box.
-  const canvasHeight = Math.round(
-    Math.min(Math.max(layout.height + diagramConfig.canvasPadding, diagramConfig.canvasMinHeight), diagramConfig.canvasMaxHeight),
-  )
+  const canvasHeight = canvasHeightOf(layout, !big)
 
   const select = useCallback(
     (id: string | null) => {
@@ -140,7 +157,16 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
           connectable: false,
           selected: selected === n.id,
           ariaLabel: [label, typeName, stateName].filter(Boolean).join(', '),
-          data: { nodeType: n.nodeType, label, typeName, subLine: summariseNode(n.nodeType, n.attributes, labelOf).subLine, state: st, stateName, direction },
+          data: {
+            nodeType: n.nodeType,
+            label,
+            typeName,
+            subLine: summariseNode(n.nodeType, n.attributes, labelOf).subLine,
+            state: st,
+            stateName,
+            direction,
+            shape: n.shape,
+          },
         }
       }),
     [layout.nodes, path, t, selected, direction, labelOf],
@@ -155,11 +181,51 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
           target: e.target,
           type: 'diagram',
           focusable: false,
-          data: { label: full ? cutLabel(full) : null, fullLabel: full, state: path?.edges.get(e.id) },
+          data: {
+            label: full ? cutLabel(full) : null,
+            fullLabel: full,
+            state: path?.edges.get(e.id),
+            points: e.points,
+            exitBelowCaption: e.exitBelowCaption,
+            labelX: e.labelX,
+            labelY: e.labelY,
+          },
         }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [layout.edges, path, intl.locale],
+  )
+
+  const ariaLabelConfig = useMemo<Partial<AriaLabelConfig>>(
+    () => ({
+      // React Flow 12 shows `keyboardDisabled` while keyboard access is ON (and `default` when it is off): both get
+      // the read-only wording, nothing about moving or deleting.
+      'node.a11yDescription.default': m('a11y.node'),
+      'node.a11yDescription.keyboardDisabled': m('a11y.node'),
+      'edge.a11yDescription.default': m('a11y.edge'),
+      'controls.ariaLabel': m('a11y.controls'),
+      'controls.zoomIn.ariaLabel': m('a11y.zoomIn'),
+      'controls.zoomOut.ariaLabel': m('a11y.zoomOut'),
+      'controls.fitView.ariaLabel': m('a11y.fitView'),
+      'controls.interactive.ariaLabel': m('a11y.interactive'),
+      'minimap.ariaLabel': m('a11y.minimap'),
+      'handle.ariaLabel': m('a11y.handle'),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [intl.locale],
+  )
+  // An instance view starts with its active (or failed) step in view.
+  const focusId = useMemo(() => {
+    if (!path) return null
+    for (const want of ['active', 'error'] as const) {
+      for (const [id, n] of path.nodes) if (n.state === want) return id
+    }
+    return null
+  }, [path])
+  const focus = focusId ? layout.nodes.find((n) => n.id === focusId) : undefined
+  const firstView = useMemo(
+    () => initialViewport(layout, { width, height: canvasHeight }, diagramConfig.readableZoom, !big, focus),
+    [layout, width, canvasHeight, big, focus],
   )
 
   const selectedNode = selected ? layout.nodes.find((n) => n.id === selected) ?? null : null
@@ -246,6 +312,7 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
                 ))}
               </defs>
             </svg>
+            <FirstView viewport={firstView} />
             <ReactFlow
               nodes={flowNodes}
               edges={flowEdges}
@@ -256,8 +323,9 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
               edgesFocusable={false}
               elementsSelectable
               nodesFocusable
-              fitView
+              defaultViewport={firstView}
               fitViewOptions={FIT_VIEW_OPTIONS}
+              ariaLabelConfig={ariaLabelConfig}
               minZoom={diagramConfig.minZoom}
               maxZoom={diagramConfig.maxZoom}
               onlyRenderVisibleElements={big}
@@ -270,8 +338,8 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
               }}
             >
               <Background gap={24} />
-              <Controls position="top-left" showInteractive={false} />
-              {!big && <MiniMap position="top-right" pannable zoomable nodeColor={(n) => MINIMAP_COLOUR[(n.data as { state?: NodeState }).state ?? 'none']} />}
+              <Controls position="top-left" showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
+              {!big && <MiniMap position="bottom-right" pannable zoomable nodeColor={(n) => MINIMAP_COLOUR[(n.data as { state?: NodeState }).state ?? 'none']} />}
             </ReactFlow>
           </div>
         )}
@@ -287,4 +355,28 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
       </div>
     </div>
   )
+}
+
+/** Canvas height: grows with the drawing (within limits), so a tall definition is not shrunk into a fixed box; with
+ *  a minimap, room for it is kept under the drawing (the first view then keeps the drawing at the top). */
+function canvasHeightOf(layout: ReadLayout, minimap: boolean): number {
+  const reserve = minimap ? diagramConfig.minimapReserve : 0
+  return Math.round(
+    Math.min(Math.max(layout.height + diagramConfig.canvasPadding + reserve, diagramConfig.canvasMinHeight), diagramConfig.canvasMaxHeight),
+  )
+}
+
+function shareOf(layout: ReadLayout, width: number): number {
+  return visibleShare(layout, { width, height: canvasHeightOf(layout, false) }, diagramConfig.readableZoom)
+}
+
+/** Applies the first view again when the drawing or the canvas size changes (direction switch, resize). A user's
+ *  own pan and zoom are kept otherwise. */
+function FirstView({ viewport }: { viewport: { x: number; y: number; zoom: number } }) {
+  const { setViewport } = useReactFlow()
+  const { x, y, zoom } = viewport
+  useEffect(() => {
+    void setViewport({ x, y, zoom })
+  }, [setViewport, x, y, zoom])
+  return null
 }
