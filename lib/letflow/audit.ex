@@ -400,6 +400,25 @@ defmodule Letflow.Audit do
     |> Repo.one(prefix: prefix)
   end
 
+  @doc """
+  T-1557: `%{user_id => name}` for the given user ids in tenant schema `prefix`; the name is the
+  display name, else the username. Only those two columns are read (never email or hash). One query.
+  """
+  @spec user_names([String.t()], String.t()) :: %{String.t() => String.t()}
+  def user_names([], _prefix), do: %{}
+
+  def user_names(ids, prefix) when is_list(ids) and is_binary(prefix) do
+    from(u in Letflow.Identity.User,
+      where: u.id in ^ids,
+      select: {u.id, u.display_name, u.username}
+    )
+    |> Repo.all(prefix: prefix)
+    |> Map.new(fn {id, display_name, username} ->
+      name = if is_binary(display_name) and display_name != "", do: display_name, else: username
+      {to_string(id), name}
+    end)
+  end
+
   defp validate_actor_id(nil), do: {:ok, nil}
   defp validate_actor_id(""), do: {:ok, nil}
 

@@ -1,7 +1,10 @@
 import { Fragment, useMemo, useState } from 'react'
+import { useIntl } from 'react-intl'
 import { Navigate } from 'react-router-dom'
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
+import { usersApi } from '@/api/identity'
+import { AuditIntlProvider } from '@/i18n/AuditIntlProvider'
 import { auditApi, type AuditEntry, type AuditLogFilters } from '@/api/audit'
 import type { CursorPage } from '@/types/api'
 import { JsonDiffView } from '@/components/ui/JsonDiffView'
@@ -41,13 +44,31 @@ export function useAuditLog(filters: AuditLogFilters): UseQueryResult<CursorPage
   })
 }
 
+const OBJECT_TYPES = [
+  'document', 'ledger_entry', 'user', 'group', 'group_member', 'role_binding', 'token', 'task', 'instance', 'definition',
+] as const
+
+const inputStyle = { padding: '.45rem .6rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)' } as const
+
 export default function AuditLogPage() {
+  return (
+    <AuditIntlProvider>
+      <AuditLogPageInner />
+    </AuditIntlProvider>
+  )
+}
+
+function AuditLogPageInner() {
+  const intl = useIntl()
   const adminKeys = useTenantScopedQueryKeys().admin
   const access = useAccess()
   const isAllowed = access.can(P.AuditRead)
 
   const [actor, setActor] = useState('')
   const [resourceType, setResourceType] = useState('')
+  const [resourceId, setResourceId] = useState('')
+  const [exporting, setExporting] = useState(false)
+  const [exportState, setExportState] = useState<'idle' | 'truncated' | 'failed'>('idle')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [cursorStack, setCursorStack] = useState<string[]>([])
@@ -58,11 +79,12 @@ export default function AuditLogPage() {
   const filters = useMemo<AuditLogFilters>(() => ({
     actor: actor || undefined,
     resource_type: resourceType || undefined,
+    resource_id: resourceId.trim() || undefined,
     from: from || undefined,
     to: to || undefined,
     cursor,
     page_size: pageSize,
-  }), [actor, resourceType, from, to, cursor, pageSize])
+  }), [actor, resourceType, resourceId, from, to, cursor, pageSize])
 
   const validFilters = isValidIsoDate(from) && isValidIsoDate(to) && isFilterRangeValid(from, to)
   const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
@@ -71,6 +93,38 @@ export default function AuditLogPage() {
     enabled: validFilters,
     refetchInterval: 30_000,
   })
+
+  const usersFilters = { page_size: 200 }
+  const usersQuery = useQuery({
+    queryKey: adminKeys.users(usersFilters),
+    queryFn: () => usersApi.list(usersFilters),
+    enabled: isAllowed,
+  })
+  const users = usersQuery.data?.items ?? []
+
+  const onExport = async () => {
+    setExporting(true)
+    setExportState('idle')
+    try {
+      const { blob, truncated } = await auditApi.exportCsv(filters)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'audit.csv'
+      a.click()
+      URL.revokeObjectURL(url)
+      setExportState(truncated ? 'truncated' : 'idle')
+    } catch {
+      setExportState('failed')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const actionLabel = (action: string): string => {
+    const id = `audit.action.${action}`
+    return id in intl.messages ? intl.formatMessage({ id }) : action
+  }
 
   const rendererState: RendererState = isLoading ? 'loading' : isError ? classifyError(error) : 'success'
 
@@ -84,66 +138,80 @@ export default function AuditLogPage() {
   const hasResults = (data?.items.length ?? 0) > 0
 
   return (
-    <div style={{ padding: '1.5rem' }}>
+    <div style={{ padding: '1.5rem', minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '1.25rem' }}>
-        <h2 style={{ margin: 0 }}>Audit Log</h2>
-        {isFetching && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-info-dark)' }}>Refreshing…</span>}
+        <h2 style={{ margin: 0 }}>{intl.formatMessage({ id: 'audit.title' })}</h2>
+        {isFetching && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-info-dark)' }}>{intl.formatMessage({ id: 'audit.refreshing' })}</span>}
+        <span style={{ marginLeft: 'auto' }}>
+          <Button variant="secondary" size="sm" disabled={!validFilters || exporting} onClick={() => { void onExport() }}>
+            {intl.formatMessage({ id: exporting ? 'audit.exporting' : 'audit.export' })}
+          </Button>
+        </span>
       </div>
 
+      {exportState === 'truncated' && (
+        <div role="status" style={{ marginBottom: '1rem', color: 'var(--color-warning-text)' }}>{intl.formatMessage({ id: 'audit.export.truncated' })}</div>
+      )}
+      {exportState === 'failed' && (
+        <div role="alert" style={{ marginBottom: '1rem', color: 'var(--danger)' }}>{intl.formatMessage({ id: 'audit.export.failed' })}</div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.65rem', marginBottom: '1rem' }}>
-        <input
+        <select
+          aria-label={intl.formatMessage({ id: 'audit.filter.user' })}
           value={actor}
-          onChange={(e) => {
-            setActor(e.target.value)
-            setCursorStack([])
-          }}
-          placeholder="Actor ID"
-          style={{ padding: '.45rem .6rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)' }}
-        />
-        <input
+          onChange={(e) => { setActor(e.target.value); setCursorStack([]) }}
+          style={inputStyle}
+        >
+          <option value="">{intl.formatMessage({ id: 'audit.filter.anyUser' })}</option>
+          {users.map((u) => (
+            <option key={u.id} value={u.id}>{u.display_name || u.username}</option>
+          ))}
+        </select>
+        <select
+          aria-label={intl.formatMessage({ id: 'audit.filter.type' })}
           value={resourceType}
-          onChange={(e) => {
-            setResourceType(e.target.value)
-            setCursorStack([])
-          }}
-          placeholder="Resource type"
-          style={{ padding: '.45rem .6rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)' }}
+          onChange={(e) => { setResourceType(e.target.value); setCursorStack([]) }}
+          style={inputStyle}
+        >
+          <option value="">{intl.formatMessage({ id: 'audit.filter.anyType' })}</option>
+          {OBJECT_TYPES.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+        <input
+          value={resourceId}
+          onChange={(e) => { setResourceId(e.target.value); setCursorStack([]) }}
+          placeholder={intl.formatMessage({ id: 'audit.filter.objectId' })}
+          aria-label={intl.formatMessage({ id: 'audit.filter.objectId' })}
+          style={inputStyle}
         />
         <input
           value={from}
-          onChange={(e) => {
-            setFrom(e.target.value)
-            setCursorStack([])
-          }}
-          placeholder="From (ISO8601)"
-          style={{ padding: '.45rem .6rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)' }}
+          onChange={(e) => { setFrom(e.target.value); setCursorStack([]) }}
+          placeholder={intl.formatMessage({ id: 'audit.filter.from' })}
+          style={inputStyle}
         />
         <input
           value={to}
-          onChange={(e) => {
-            setTo(e.target.value)
-            setCursorStack([])
-          }}
-          placeholder="To (ISO8601)"
-          style={{ padding: '.45rem .6rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)' }}
+          onChange={(e) => { setTo(e.target.value); setCursorStack([]) }}
+          placeholder={intl.formatMessage({ id: 'audit.filter.to' })}
+          style={inputStyle}
         />
         <select
           value={pageSize}
-          onChange={(e) => {
-            setPageSize(Number(e.target.value))
-            setCursorStack([])
-          }}
-          style={{ padding: '.45rem .6rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)' }}
+          onChange={(e) => { setPageSize(Number(e.target.value)); setCursorStack([]) }}
+          style={inputStyle}
         >
-          <option value={25}>25 / page</option>
-          <option value={50}>50 / page</option>
-          <option value={100}>100 / page</option>
+          {[25, 50, 100].map((n) => (
+            <option key={n} value={n}>{intl.formatMessage({ id: 'audit.filter.pageSize' }, { n })}</option>
+          ))}
         </select>
       </div>
 
       {!validFilters && (
         <div style={{ marginBottom: '1rem', padding: '.75rem .9rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-warning-border)', background: 'var(--color-warning-tint)', color: 'var(--color-warning-text)' }}>
-          Please enter valid ISO8601 date filters and ensure from ≤ to.
+          {intl.formatMessage({ id: 'audit.filter.invalid' })}
         </div>
       )}
 
@@ -158,18 +226,19 @@ export default function AuditLogPage() {
         columns={[{ widthPercent: 5 }, { widthPercent: 20 }, { widthPercent: 20 }, { widthPercent: 25 }, { widthPercent: 20 }, { widthPercent: 10 }]}
       >
         {validFilters && !hasResults && (
-          <div style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>No audit entries matched the selected filters.</div>
+          <div style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>{intl.formatMessage({ id: 'audit.empty' })}</div>
         )}
 
+      <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
         <thead>
           <tr style={{ background: 'var(--surface-page)', textAlign: 'left' }}>
             <th style={{ padding: '.6rem .8rem' }}></th>
-            <th style={{ padding: '.6rem .8rem' }}>Time</th>
-            <th style={{ padding: '.6rem .8rem' }}>Actor</th>
-            <th style={{ padding: '.6rem .8rem' }}>Action</th>
-            <th style={{ padding: '.6rem .8rem' }}>Resource</th>
-            <th style={{ padding: '.6rem .8rem' }}>IP</th>
+            <th style={{ padding: '.6rem .8rem' }}>{intl.formatMessage({ id: 'audit.col.time' })}</th>
+            <th style={{ padding: '.6rem .8rem' }}>{intl.formatMessage({ id: 'audit.col.actor' })}</th>
+            <th style={{ padding: '.6rem .8rem' }}>{intl.formatMessage({ id: 'audit.col.action' })}</th>
+            <th style={{ padding: '.6rem .8rem' }}>{intl.formatMessage({ id: 'audit.col.object' })}</th>
+            <th style={{ padding: '.6rem .8rem' }}>{intl.formatMessage({ id: 'audit.col.ip' })}</th>
           </tr>
         </thead>
         <tbody>
@@ -190,10 +259,13 @@ export default function AuditLogPage() {
                 <td style={{ padding: '.5rem .8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', whiteSpace: 'nowrap' }}>
                   {formatDateTime(e.occurred_at)}
                 </td>
-                <td style={{ padding: '.5rem .8rem', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)' }}>{e.actor_display_name ?? e.actor_id}</td>
-                <td style={{ padding: '.5rem .8rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', fontWeight: 600 }}>{e.action}</td>
+                <td style={{ padding: '.5rem .8rem', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)' }}><span title={e.actor_id}>{e.actor_display_name ?? e.actor_id}</span></td>
+                <td style={{ padding: '.5rem .8rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', fontWeight: 600 }}>
+                  {actionLabel(e.action)}
+                  {actionLabel(e.action) !== e.action && <div style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>{e.action}</div>}
+                </td>
                 <td style={{ padding: '.5rem .8rem', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                  {e.resource_type} / {e.resource_id}
+                  {e.resource_type} / {e.resource_name ?? e.resource_id}
                 </td>
                 <td style={{ padding: '.5rem .8rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{e.ip_address ?? '—'}</td>
               </tr>
@@ -208,6 +280,7 @@ export default function AuditLogPage() {
           ))}
         </tbody>
       </table>
+      </div>
 
       <div style={{ marginTop: '1rem' }}>
         <PaginationControls

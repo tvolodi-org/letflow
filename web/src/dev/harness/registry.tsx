@@ -45,6 +45,7 @@ import { stockCountDiffScreens } from './fixtures/stockCountsDiff'
 import { stockCountPostingScreens } from './fixtures/stockCountsPosting'
 import { queryStatesScreens } from './fixtures/queryStates'
 import { metricsScreens } from './fixtures/metrics'
+import { auditLogScreens } from './fixtures/auditLog'
 import { taskInboxScreens } from './fixtures/taskInbox'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
@@ -297,6 +298,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockCountPostingScreens,
     ...queryStatesScreens,
     ...metricsScreens,
+    ...auditLogScreens,
     ...roleLabelsScreens,
     ...taskInboxScreens,
     ...navRoleScreens,
