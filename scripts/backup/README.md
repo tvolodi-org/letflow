@@ -49,6 +49,7 @@ unit's `EnvironmentFile=`. Every name below is new; the reason is in the second 
 | `BACKUP_MAX_AGE_HOURS` | `30` | `restore_test.sh` refuses (exit 3) an older newest set |
 | `RESTORE_TARGET` | `container` | `container` (throwaway `docker run`) or `existing` (a scratch database on the `PG_EXEC` server) |
 | `RESTORE_PG_IMAGE` | `postgres:<major in manifest>` | image of the throwaway container |
+| `RESTORE_DOCKER_ARGS` | `--cpus=1 --memory=1g --memory-swap=1g --pids-limit=512` | `container` target: extra `docker run` args, split on spaces; replaces the default limits when set. Only `--flag` / `--flag=value` tokens (`--cpus=2`, not `--cpus 2`); `--privileged`, `--volume`/`--mount`/`--volumes-from`, `--device`, `--cap-add`, `--security-opt` and host `--network`/`--net`/`--pid`/`--ipc` are refused with exit 2 |
 | `RESTORE_GPG_HOME` | — | `GNUPGHOME` holding the private key, for an encrypted set |
 | `RESTORE_DATABASE_URL_BASE` | — | `existing` target: `ecto://user:pw@host:port` the release uses to reach the scratch database |
 | `RELEASE_BIN` | — | path of `bin/letflow`; runs `eval "Letflow.Release.restore_smoke()"` against the scratch database |

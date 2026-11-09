@@ -109,6 +109,26 @@ STEP="checksum"
 
 # ---- 3. throwaway target
 STEP="target"
+# Extra `docker run` args of the throwaway container (RESTORE_DOCKER_ARGS, split on spaces). Unset
+# gives the safe default limits; a set value REPLACES them (the operator then owns the limits).
+# Only `--flag` or `--flag=value` tokens are accepted (write `--cpus=2`, not `--cpus 2`), and the
+# flags that would reach the host are refused: privileged, volumes/mounts, host namespaces, devices.
+DOCKER_ARGS=()
+if [[ -n "${RESTORE_DOCKER_ARGS:-}" ]]; then
+  read -r -a DOCKER_ARGS <<<"$RESTORE_DOCKER_ARGS"
+  for tok in "${DOCKER_ARGS[@]}"; do
+    [[ "$tok" =~ ^--[a-z][a-z0-9-]*(=[^[:space:]]*)?$ ]] ||
+      die 2 "docker_args_invalid" "RESTORE_DOCKER_ARGS accepts only --flag or --flag=value tokens"
+    case "$tok" in
+      --privileged* | --volume* | --volumes-from* | --mount* | --device* | --cap-add* | --security-opt* | \
+        --network=host | --net=host | --pid=host | --ipc=host | --uts=host | --userns=host)
+        die 2 "docker_args_forbidden" "RESTORE_DOCKER_ARGS contains a forbidden flag: ${tok%%=*}"
+        ;;
+    esac
+  done
+else
+  DOCKER_ARGS=(--cpus=1 --memory=1g --memory-swap=1g --pids-limit=512)
+fi
 SCRATCH="restore_test_${SET_NAME}_$$"
 SMOKE_URL=""
 case "${RESTORE_TARGET:-container}" in
@@ -117,7 +137,7 @@ case "${RESTORE_TARGET:-container}" in
     want_ver="$(sed -n 's/^pg_version=//p' "$SET_DIR/manifest.txt" | head -n1)"
     image="${RESTORE_PG_IMAGE:-postgres:${want_ver:-16}}"
     pw="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-24)"
-    CID="$(docker run -d --rm -e POSTGRES_PASSWORD="$pw" -p 127.0.0.1::5432 "$image" 2>/dev/null)" ||
+    CID="$(docker run -d --rm "${DOCKER_ARGS[@]}" -e POSTGRES_PASSWORD="$pw" -p 127.0.0.1::5432 "$image" 2>/dev/null)" ||
       die 2 "container_start_failed" "cannot start the throwaway container"
     ready=0
     for _ in $(seq 1 90); do

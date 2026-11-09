@@ -50,7 +50,7 @@ Output (default `BACKUP_ROOT=/opt/backups/<BACKUP_ENV>`): `dump/<db>/<stamp>/`, 
 [`scripts/backup/README.md`](../../scripts/backup/README.md); the names are `BACKUP_ENV`, `BACKUP_ROOT`,
 `BACKUP_DATABASES`, `LETFLOW_DATABASE`, `PG_EXEC`, `BACKUP_ENCRYPT`, `BACKUP_GPG_RECIPIENT`, `BACKUP_PRUNE`,
 `RETENTION_FILE`, `WAL_ARCHIVE_DIR`, `WAL_KEEP_DAYS`, `BACKUP_MAX_AGE_HOURS`, `RESTORE_TARGET`,
-`RESTORE_PG_IMAGE`, `RESTORE_GPG_HOME`, `RESTORE_DATABASE_URL_BASE`, `RELEASE_BIN`, `RESTORE_SMOKE_CMD`,
+`RESTORE_PG_IMAGE`, `RESTORE_DOCKER_ARGS`, `RESTORE_GPG_HOME`, `RESTORE_DATABASE_URL_BASE`, `RELEASE_BIN`, `RESTORE_SMOKE_CMD`,
 `RESTORE_SMOKE`, `RESTORE_ALLOW_NO_SMOKE`. Secrets go in the unit's `EnvironmentFile=` (mode 0600), never
 inline.
 
@@ -119,7 +119,7 @@ reach QA or demo (local disk only).
 | Output dir | `/opt/backups/<env>/` (`dump`, `base`, `wal`, `status`) |
 | Exit codes | `backup.sh` 0 ok, 2 input, 3 dump failed / busy, 4 base refused, 5 encryption, 6 prune; `restore_test.sh` 0 pass, 1 content, 2 input, 3 no fresh backup, 4 checksum, 5 restore, 6 smoke; `prune.sh` 0, 2, 6; `wal_archive.sh` 0, 1, 2 |
 | Report | `restore_test.sh` prints one line (`restore_test PASS ...` / `restore_test FAIL step=... exit=... detail=...`) |
-| Throwaway target | `RESTORE_TARGET=container` (default) starts `postgres:<major>` on a random loopback port and removes it on exit; `existing` uses a scratch database `restore_test_<stamp>_<pid>` it creates and drops itself — it never writes to the source |
+| Throwaway target | `RESTORE_TARGET=container` (default) starts `postgres:<major>` on a random loopback port and removes it on exit, with `--cpus=1 --memory=1g --memory-swap=1g --pids-limit=512` unless `RESTORE_DOCKER_ARGS` replaces them (`--flag=value` tokens only; host-reaching flags are refused, exit 2); `existing` uses a scratch database `restore_test_<stamp>_<pid>` it creates and drops itself — it never writes to the source |
 | Smoke | `RELEASE_BIN eval "Letflow.Release.restore_smoke()"` against the scratch database (`DATABASE_URL`); the release needs its usual runtime environment in the unit's `EnvironmentFile=` |
 
 ## 6. Restore the whole database
