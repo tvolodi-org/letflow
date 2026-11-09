@@ -17,6 +17,7 @@ import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { HelpLink } from '@/components/help/HelpLink'
 import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
@@ -316,9 +317,12 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
         title={t('stock.doc.title')}
         lede={t('stock.doc.lede')}
         actions={
+          <>
+          <HelpLink to="/admin/stock/help/documents" label={t('stock.help.link')} />
           <Button variant="ghost" onClick={() => store.resetScreen(DOCUMENTS_LAYOUT_SCREEN)} data-testid="reset-layout">
             {lm.resetLayout}
           </Button>
+          </>
         }
       />
       <DocLayout screen={DOCUMENTS_LAYOUT_SCREEN} detailOpen={mode !== 'list'} layout={layout} docState={docState} docKey={`${mode}:${id ?? ''}`} data-testid="document-workspace">

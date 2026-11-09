@@ -368,7 +368,13 @@ export function LFLinesEditor<L>(props: LFLinesEditorProps<L>) {
   )
 
   const showResult = useCallback(
-    (r: { added: number; refused: { row: number; reason: string }[] }) => {
+    (r: { added: number; refused: { row: number; reason: string }[]; applied?: boolean }) => {
+      if (r.applied === false) {
+        const text = t('importNotApplied', { m: r.refused.length })
+        setNotice({ kind: 'warn', text, details: r.refused })
+        announce(text)
+        return
+      }
       const text = r.refused.length > 0 ? t('imported', { n: r.added, m: r.refused.length }) : t('importedAll', { n: r.added })
       setNotice({ kind: r.refused.length > 0 ? 'warn' : 'ok', text, details: r.refused })
       announce(text)

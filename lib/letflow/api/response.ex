@@ -319,6 +319,11 @@ defmodule Letflow.Api.Response do
   @spec unprocessable(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
   def unprocessable(conn, detail), do: send_problem(conn, Error.unprocessable(detail))
 
+  @doc "HTTP 422 with extension members; see `Error.unprocessable_with/2`."
+  @spec unprocessable_with(Plug.Conn.t(), String.t(), map()) :: Plug.Conn.t()
+  def unprocessable_with(conn, detail, extensions),
+    do: send_problem(conn, Error.unprocessable_with(detail, extensions))
+
   @doc """
   HTTP 422 — Output Refused (REQ-460). Key names only; see `Error.output_refused/2`.
   """

@@ -459,6 +459,74 @@ defmodule Letflow.Modules.CatalogItems.ImportTest do
       assert outcomes(real) == ["created", "record_payload_invalid", "created", "created"]
     end
 
+    test "T-A4/T-V5: atomic with a database-refused row writes nothing; fixed it commits" do
+      ctx = tenant_ctx("t1556-a4")
+      upsert(ctx, "catalog_uom", [uom_row("EXIST", "DUPCODE")])
+      file = [uom_row("A1"), uom_row("A2", "DUPCODE"), uom_row("A3")]
+
+      before = counts(ctx.schema)
+      conn = upsert(ctx, "catalog_uom", file, %{}, "?atomic=true")
+      assert conn.status == 200, conn.resp_body
+      assert body(conn)["applied"] == false
+      assert outcomes(conn) == ["created", "record_payload_invalid", "created"]
+      assert counts(ctx.schema) == before
+
+      # the shape the SPA keys its violation texts on: code + path
+      [_, %{"reason" => %{"violations" => [violation | _]}}, _] = results(conn)
+      assert %{"code" => "unique", "path" => path} = violation
+      assert is_list(path)
+
+      fixed = [uom_row("A1"), uom_row("A2", "OTHERCODE"), uom_row("A3")]
+      ok = upsert(ctx, "catalog_uom", fixed, %{}, "?atomic=true")
+      assert body(ok)["applied"] == true
+      assert outcomes(ok) == ["created", "created", "created"]
+      assert latest_count(ctx.schema) == elem(before, 2) + 3
+    end
+
+    test "T-A6: atomic on a type that is not managed is 422 and writes nothing" do
+      ctx = tenant_ctx("t1556-a6")
+
+      {:ok, _} =
+        Letflow.Entities.Definitions.create_definition(
+          %{
+            definition: %{
+              name: "plain_t",
+              display_name: "plain_t",
+              fields: [%{name: "title", type: :string, required: true}]
+            },
+            created_by: Ecto.UUID.generate()
+          },
+          ctx.schema
+        )
+
+      {:ok, _} =
+        Letflow.Entities.Definitions.activate_definition(
+          "plain_t",
+          Ecto.UUID.generate(),
+          "t1556",
+          ctx.schema
+        )
+
+      row = %{"external_ref" => ref("P1"), "field_values" => %{"title" => "t"}}
+      conn = upsert(ctx, "plain_t", [row], %{}, "?atomic=true")
+      assert conn.status == 422
+      assert conn.resp_body =~ "atomic is offered only"
+      assert latest_count(ctx.schema) == 0
+    end
+
+    test "T-A8: an atomic file past the replay cap is a controlled 422 and writes nothing" do
+      ctx = tenant_ctx("t1556-a8")
+      upsert(ctx, "catalog_uom", [uom_row("EXIST", "DUPCODE")])
+      cap = Letflow.Entities.ManagedImport.max_replays()
+      rows = for n <- 1..(cap + 2), do: uom_row("R#{n}", "DUPCODE")
+
+      before = counts(ctx.schema)
+      conn = upsert(ctx, "catalog_uom", rows, %{}, "?atomic=true")
+      assert conn.status == 422
+      assert conn.resp_body =~ "dry_run unavailable"
+      assert counts(ctx.schema) == before
+    end
+
     test "D3: ?dry_run=true on a CSV body writes nothing" do
       ctx = tenant_ctx("gh3602-d3")
       csv = "code,name,active,external_ref_system,external_ref_id\nU1,Unit 1,true,erp,U1\n"

@@ -6,6 +6,7 @@ import { P, useAccess, AccessPending } from '@/auth/access'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { MetricsSummaryPanel } from './MetricsSummaryPanel'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 
 const MESSAGES = {
@@ -63,7 +64,7 @@ export default function MetricsPage() {
   const access = useAccess()
   const m = MESSAGES[useUiLocale()]
   const isAllowed = access.can(P.MetricsRead)
-  const { data, isLoading, isError, error, isFetching, refetch } = usePrometheusMetrics()
+  const { data, isLoading, isError, error, isFetching, refetch, dataUpdatedAt } = usePrometheusMetrics()
 
   if (!access.isReady) return <AccessPending access={access} />
 
@@ -97,6 +98,8 @@ export default function MetricsPage() {
       {data && data.length === 0 && (
         <div style={{ marginTop: '.5rem', color: 'var(--text-secondary)' }}>{m.none}</div>
       )}
+
+      {data && data.length > 0 && <MetricsSummaryPanel families={data} dataUpdatedAt={dataUpdatedAt} />}
 
       {(data ?? []).map((family) => (
         <section key={family.name} style={{ marginBottom: '1.25rem', background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', minWidth: 0, maxWidth: '100%' }}>

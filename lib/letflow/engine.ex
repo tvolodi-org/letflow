@@ -4229,7 +4229,22 @@ defmodule Letflow.Engine do
       Multi.run(acc, {:ledger_posted_audit, summary.ledger_id}, fn repo, _changes ->
         Audit.insert_entry(repo, Letflow.Audit.LedgerPosted.attrs(summary, actor_id), prefix)
       end)
+      |> append_document_posted_audit(summary, actor_id, prefix)
     end)
+  end
+
+  # T-1557: one more entry keyed by the document id, when the summary carries one.
+  defp append_document_posted_audit(multi, summary, actor_id, prefix) do
+    case Letflow.Audit.LedgerPosted.document_attrs(summary, actor_id) do
+      nil ->
+        multi
+
+      attrs ->
+        Multi.run(multi, {:document_posted_audit, summary.ledger_id, summary.entry_id}, fn repo,
+                                                                                           _changes ->
+          Audit.insert_entry(repo, attrs, prefix)
+        end)
+    end
   end
 
   # GH #2590 R4b: a handler write carries the registering module id, the handler name and its
