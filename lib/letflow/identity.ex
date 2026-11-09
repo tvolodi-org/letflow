@@ -1084,9 +1084,12 @@ defmodule Letflow.Identity do
         lock_tenant_admins!(prefix)
 
         # REQ-497 W6: no grant row outlives its group principal.
+        before_group = Repo.get(Group, id, prefix: prefix)
+
         case Repo.delete_all(query, prefix: prefix) do
           {1, _} = deleted ->
             _count = RoleScopeGrants.delete_group_principal_rows!(id, prefix)
+            audit_group_delete!(before_group, id, prefix)
             deleted
 
           not_deleted ->
@@ -4320,5 +4323,25 @@ defmodule Letflow.Identity do
   defp identity_matches?(%User{} = user, %IdentityContext{} = identity_context) do
     user.external_realm == identity_context.realm and
       user.external_id == identity_context.external_user_id
+  end
+
+  # T-1557: `group.delete` audit row, in the delete transaction. A failure raises and rolls back.
+  defp audit_group_delete!(before_group, id, prefix) do
+    {:ok, _entry} =
+      Audit.insert_entry(
+        Repo,
+        %{
+          actor_id: nil,
+          action: "group.delete",
+          resource_type: "group",
+          resource_id: to_string(id),
+          before_state: before_group && Audit.struct_state(before_group),
+          after_state: nil,
+          trace_id: nil
+        },
+        prefix
+      )
+
+    :ok
   end
 end

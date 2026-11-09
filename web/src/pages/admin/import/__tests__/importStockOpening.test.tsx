@@ -86,7 +86,7 @@ describe('W3 dry run and confirm', () => {
     fireEvent.click(screen.getByTestId('import-check'))
     await screen.findByTestId('import-dry-run')
     fireEvent.click(screen.getByTestId('import-confirm'))
-    await waitFor(() => expect(clientMock.postRaw).toHaveBeenLastCalledWith(`${BASE}/import?upsert_by=external_ref`, file, XLSX))
+    await waitFor(() => expect(clientMock.postRaw).toHaveBeenLastCalledWith(`${BASE}/import?upsert_by=external_ref&atomic=true`, file, XLSX))
   })
 })
 

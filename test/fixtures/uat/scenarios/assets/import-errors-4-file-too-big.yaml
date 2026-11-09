@@ -1,0 +1,54 @@
+# T-1556 (BA batch 2 item 4): file too big. Sources: lib/letflow/routers/entities/record_import.ex (200 rows cap, 413 over 2 MiB).
+---
+id: import-errors-4-file-too-big
+scope: assets
+title: A file that is too big is refused with a plain message and nothing is imported
+version: "1.0"
+tags: [assets, cards, import, xlsx, size, ru, kk, en]
+
+description: >
+  The administrator uploads an asset cards file with 201 data rows (the limit is 200 rows per file), and then a file bigger than 2 MiB. Each is refused with a plain sentence that says what the limit is and that the file should be split; nothing is imported.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the assets module installed. The administrator opens the screen "Import data" and has an xlsx file ready as described in the steps.
+    check: system_seeded
+    detail: If the asset imports are not offered on the screen "Import data", report BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator picks "Asset cards" and uploads a file with 201 data rows. The count of asset cards is noted as C1 before and C2 after.
+    expect_refusal: true
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator uploads a file bigger than 2 MiB. The count is read as C3.
+    expect_refusal: true
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Too many rows are refused with the limit named.
+    verification:
+      method: screen_text
+      detail: The screen says the file has more than 200 rows and should be split. The message is shown in Russian, Kazakh and English (the clerk switches the language) and names the column and the reason in plain words. C2 equals C1.
+      evidence: Screenshots in three languages, C1 and C2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A large file is half loaded or fails with no explanation.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A file over 2 MiB is refused with a plain message.
+    verification:
+      method: http_status
+      detail: The answer is 413 and the screen says the file is too big. C3 equals C1.
+      evidence: Screenshot and C3.
+    on_fail:
+      severity: MINOR
+      business_impact: The clerk sees a blank error.
+      suggested_action: route_to_elixir_dev

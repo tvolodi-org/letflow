@@ -2,6 +2,7 @@
  *  Ids have three parts (`assets.<area>.<name>`). The ru and kk texts are written by the developer and need a
  *  native-speaker check. */
 
+import { helpEn, helpKk, helpRu } from './help/assetsHelpMessages'
 import { getUiLocale } from '@/i18n/uiLocaleStore'
 import { documentsEn, documentsKk, documentsRu } from './documents/documentsMessages'
 import { registerEn, registerKk, registerRu } from './register/registerMessages'
@@ -19,6 +20,8 @@ export function resolveUiLocale(candidates?: readonly string[]): AssetsUiLocale 
 }
 
 const en: Record<string, string> = {
+  'import.type.assets_card': 'Asset cards',
+  'import.type.assets_opening_line': 'Asset opening lines',
   'assets.common.dash': '—',
   'assets.common.save': 'Save',
   'assets.common.cancel': 'Cancel',
@@ -91,6 +94,7 @@ const en: Record<string, string> = {
   'assets.error.notFound': 'The card was not found. The list has been reloaded.',
   'assets.error.generic': 'The change could not be saved. Try again.',
   'assets.error.unknown': 'The change was refused.',
+  'assets.error.required': 'Fill in this field.',
   'assets.error.decimalFormat': 'Enter a plain number such as 1500.50 (digits and one point).',
   'assets.error.decimalSize': 'At most 15 digits before the point and 9 after it.',
   'assets.error.field_invalid': 'A value is not valid.',
@@ -109,6 +113,8 @@ const en: Record<string, string> = {
 }
 
 const ru: Record<string, string> = {
+  'import.type.assets_card': 'Карточки активов',
+  'import.type.assets_opening_line': 'Начальные остатки активов',
   'assets.common.dash': '—',
   'assets.common.save': 'Сохранить',
   'assets.common.cancel': 'Отмена',
@@ -181,6 +187,7 @@ const ru: Record<string, string> = {
   'assets.error.notFound': 'Карточка не найдена. Список обновлён.',
   'assets.error.generic': 'Не удалось сохранить изменение. Повторите.',
   'assets.error.unknown': 'Изменение отклонено.',
+  'assets.error.required': 'Заполните это поле.',
   'assets.error.decimalFormat': 'Введите обычное число, например 1500.50 (цифры и одна точка).',
   'assets.error.decimalSize': 'Не более 15 цифр до точки и 9 после неё.',
   'assets.error.field_invalid': 'Значение недопустимо.',
@@ -199,6 +206,8 @@ const ru: Record<string, string> = {
 }
 
 const kk: Record<string, string> = {
+  'import.type.assets_card': 'Активтер карточкалары',
+  'import.type.assets_opening_line': 'Активтердің бастапқы қалдықтары',
   'assets.common.dash': '—',
   'assets.common.save': 'Сақтау',
   'assets.common.cancel': 'Бас тарту',
@@ -271,6 +280,7 @@ const kk: Record<string, string> = {
   'assets.error.notFound': 'Карточка табылмады. Тізім жаңартылды.',
   'assets.error.generic': 'Өзгерісті сақтау мүмкін болмады. Қайталап көріңіз.',
   'assets.error.unknown': 'Өзгеріс қабылданбады.',
+  'assets.error.required': 'Бұл өрісті толтырыңыз.',
   'assets.error.decimalFormat': 'Қарапайым сан енгізіңіз, мысалы 1500.50 (цифрлар және бір нүкте).',
   'assets.error.decimalSize': 'Нүктеге дейін ең көбі 15, одан кейін 9 цифр.',
   'assets.error.field_invalid': 'Мән жарамсыз.',
@@ -290,7 +300,7 @@ const kk: Record<string, string> = {
 
 /** The catalog of the whole module: the card screen's own ids plus the document and register screens' (C14). */
 export const assetsMessages: Record<AssetsUiLocale, Record<string, string>> = {
-  en: { ...en, ...documentsEn, ...registerEn },
-  ru: { ...ru, ...documentsRu, ...registerRu },
-  kk: { ...kk, ...documentsKk, ...registerKk },
+  en: { ...en, ...documentsEn, ...registerEn, ...helpEn },
+  ru: { ...ru, ...documentsRu, ...registerRu, ...helpRu },
+  kk: { ...kk, ...documentsKk, ...registerKk, ...helpKk },
 }

@@ -18,7 +18,7 @@ vi.mock('@/api/client', async (importOriginal) => {
 
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const DRY_PATH = '/api/v1/entities/records/org_unit/import?upsert_by=external_ref&dry_run=true'
-const REAL_PATH = '/api/v1/entities/records/org_unit/import?upsert_by=external_ref'
+const REAL_PATH = '/api/v1/entities/records/org_unit/import?upsert_by=external_ref&atomic=true'
 
 beforeEach(() => {
   clientMock.postRaw.mockReset()
@@ -39,7 +39,7 @@ describe('D1 dry run', () => {
     expect(clientMock.postRaw).toHaveBeenCalledWith(DRY_PATH, file, XLSX)
     const rows = screen.getAllByTestId('datatable-row')
     expect(rows).toHaveLength(3)
-    expect(rows[0]).toHaveTextContent('Created')
+    expect(rows[0]).toHaveTextContent('Would create')
     expect(rows[0]).toHaveTextContent('E2')
     expect(rows[1]).toHaveTextContent('Unchanged')
     expect(rows[2]).toHaveTextContent('Refused')
@@ -47,7 +47,7 @@ describe('D1 dry run', () => {
     expect(rows[2]).toHaveTextContent('base_uom_id')
     expect(rows[2]).toHaveTextContent('4')
     const counts = screen.getByTestId('import-counts')
-    expect(counts).toHaveTextContent(/1\s*Created/)
+    expect(counts).toHaveTextContent(/1\s*Would be created/)
     expect(counts).toHaveTextContent(/1\s*Unchanged/)
     expect(counts).toHaveTextContent(/1\s*Refused/)
     expect(screen.getByText('Nothing has been written yet.')).toBeInTheDocument()
@@ -66,7 +66,8 @@ describe('D1 dry run', () => {
     chooseFile(xlsxFile())
     fireEvent.click(screen.getByTestId('import-check'))
     const row = await screen.findByTestId('datatable-row')
-    expect(row).toHaveTextContent('code: code violates required')
+    expect(row).toHaveTextContent('code: A value is required.')
+    expect(row).not.toHaveTextContent('violates required')
   })
 })
 

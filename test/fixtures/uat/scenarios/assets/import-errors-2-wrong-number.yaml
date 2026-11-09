@@ -1,0 +1,60 @@
+# T-1556 (BA batch 2 item 4): a wrong number and the partial fix. Sources: docs/assets/asset-xlsx.md section 5a (quantity_invalid), the atomic import (applied false).
+---
+id: import-errors-2-wrong-number
+scope: assets
+title: A wrong number in a cell is reported with its row, column and reason, and nothing of the file is imported
+version: "1.0"
+tags: [assets, opening, import, xlsx, number, atomic, ru, kk, en]
+
+description: >
+  The administrator uploads an asset opening lines file in which row 4 has the text "abc" as quantity and row 6 a negative quantity, while the other rows are fine. Each bad row is listed with its row number, the column and the reason; no line is imported, also not the good ones. The administrator fixes only those two rows, uploads the same file again, and all rows are imported once.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the assets module installed. The administrator opens the screen "Import data" and has an xlsx file ready as described in the steps.
+    check: system_seeded
+    detail: If the asset imports are not offered on the screen "Import data", report BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator picks "Asset opening lines", chooses the file with the two bad rows and starts the import. The lines of the document are noted as L1.
+    expect_refusal: true
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator reads the list: row, column, reason. The administrator downloads the list of refused rows. The lines of the document are read as L2.
+    expect_refusal: true
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator fixes rows 4 and 6 in the file, uploads it again and starts the import. The lines are read as L3. The same file is uploaded once more and the lines are read as L4.
+    expect_refusal: true
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Bad rows are named with row, column and reason, and nothing is imported.
+    verification:
+      method: screen_text
+      detail: The screen says that nothing was imported and lists row 4 (column quantity, not a number) and row 6 (column quantity, must be more than zero). The message is shown in Russian, Kazakh and English (the clerk switches the language) and names the column and the reason in plain words. L2 equals L1.
+      evidence: Screenshots in three languages, L1 and L2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The clerk gets a half-loaded document and cannot tell which rows are in.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: After the fix all rows are in exactly once.
+    verification:
+      method: api_response
+      detail: L3 has all rows of the file; the second upload shows all rows as unchanged and L4 equals L3.
+      evidence: L3 and L4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Re-uploading a fixed file duplicates lines.
+      suggested_action: route_to_elixir_dev

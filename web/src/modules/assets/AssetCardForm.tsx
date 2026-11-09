@@ -14,6 +14,7 @@ import { DateField } from '@/components/ui/DateField'
 import { Field } from '@/components/ui/Field'
 import { FormActions, FormRow, FormSection } from '@/components/ui/FormSection'
 import { Select } from '@/components/ui/Select'
+import { useFocusFirstInvalid } from '@/components/ui/doc/useFocusFirstInvalid'
 import type { EntityRecord } from '@/types/api'
 import type { CardBody } from './assets.api'
 import {
@@ -63,6 +64,8 @@ export function AssetCardForm(props: {
     !isNew && can(ASSETS_READ),
   )
   const locked = !isNew && can(ASSETS_READ) && lockQuery.data?.posted !== false
+  const [attempted, setAttempted] = useState(false)
+  const focusInvalid = useFocusFirstInvalid('form.lf-form')
   const dirty = JSON.stringify(form) !== JSON.stringify(initial)
   const intangible = form.kind === 'intangible'
   const patch = (p: Partial<Form>) => setForm({ ...form, ...p })
@@ -75,12 +78,20 @@ export function AssetCardForm(props: {
   const requiredFilled = form.inventory_number.trim() !== '' && form.name.trim() !== ''
   const body = isNew ? createBody(form) : updateBody(initial, form)
   const canSave = !blocked && requiredFilled && (isNew || Object.keys(body).length > 0)
+  // T-1554: Save is not disabled for an incomplete form (a disabled button is skipped by Tab and says nothing);
+  // a refused attempt shows the required-field errors and moves focus to the first one.
+  const required = (v: string) => (attempted && v.trim() === '' ? t('assets.error.required') : undefined)
 
   const invalid = (name: string) => (fieldMarked(write.error, name) ? t('assets.common.fieldInvalid') : undefined)
   const decimalError_ = (key: (typeof DECIMAL_KEYS)[number]) => decimalProblem(key) ?? invalid(key)
 
   async function save() {
-    if (!canSave || write.isPending) return
+    if (write.isPending) return
+    if (!canSave) {
+      setAttempted(true)
+      focusInvalid()
+      return
+    }
     const result = await write.submit(
       record === null ? { op: 'create', body } : { op: 'update', id: record.record_id, body },
       record?.record_id ?? '',
@@ -105,10 +116,10 @@ export function AssetCardForm(props: {
     >
       <FormSection title={t('assets.section.identity')}>
         <FormRow>
-          <Field label={t('assets.field.number')} width="m" mono error={invalid('inventory_number')}>
+          <Field label={t('assets.field.number')} width="m" mono error={required(form.inventory_number) ?? invalid('inventory_number')}>
             <input name="inventory_number" value={form.inventory_number} disabled={locked} onChange={(e) => patch({ inventory_number: e.target.value })} />
           </Field>
-          <Field label={t('assets.field.name')} width="l" error={invalid('name')}>
+          <Field label={t('assets.field.name')} width="l" error={required(form.name) ?? invalid('name')}>
             <input name="name" value={form.name} onChange={(e) => patch({ name: e.target.value })} />
           </Field>
         </FormRow>
@@ -185,7 +196,7 @@ export function AssetCardForm(props: {
         dirty={dirty}
         saving={write.isPending}
         primary={
-          <Button variant="primary" size="md" type="submit" loading={write.isPending} disabled={write.isPending || !canSave} data-testid="asset-save">
+          <Button variant="primary" size="md" type="submit" loading={write.isPending} disabled={write.isPending || (!isNew && Object.keys(body).length === 0)} data-testid="asset-save">
             {t('assets.common.save')}
           </Button>
         }

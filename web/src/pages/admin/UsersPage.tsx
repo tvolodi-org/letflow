@@ -12,6 +12,9 @@ import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { formatDate } from '@/i18n/format'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { fillFeedback, useFeedbackMessages } from '@/components/ui/feedbackMessages'
+import { saveErrorText } from '@/utils/saveError'
+import { usersMessages } from './usersMessages'
 
 // NOTE: user active/inactive is rendered as a tokenized custom badge, not
 // StatusBadge (REQ-272) -- StatusBadgeDomain has no "user" member (only
@@ -42,6 +45,7 @@ export default function UsersPage() {
   const [form, setForm] = useState({ username: '', email: '', display_name: '', password: '' })
   const [createRoleIds, setCreateRoleIds] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const feedback = useFeedbackMessages()
 
   const usersQueryKey = tenantKeys.admin.users({ search: searchApplied || undefined })
 
@@ -65,7 +69,7 @@ export default function UsersPage() {
       navigate(`/admin/users/${createdUser.id}`)
     },
     onError: (e) => {
-      setError((e as Error).message)
+      setError(saveErrorText(e, feedback))
     },
   })
 
@@ -74,6 +78,7 @@ export default function UsersPage() {
   }
 
   const uiLocale = useUiLocale()
+  const um = usersMessages[uiLocale]
   const columns: DataTableColumn<User>[] = [
     { id: 'username', header: 'Username', accessor: displayUsername },
     { id: 'display_name', header: 'Display name', accessor: (u) => u.display_name },
@@ -99,7 +104,7 @@ export default function UsersPage() {
 
   return (
     <div style={{ padding: '1.5rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '1.25rem' }}>
         <h2 style={{ margin: 0 }}>Users</h2>
         {canManage && (
           <span style={{ marginLeft: 'auto' }} data-testid="admin-users-new">
@@ -116,7 +121,7 @@ export default function UsersPage() {
           value={searchDraft}
           onChange={(e) => setSearchDraft(e.target.value)}
           placeholder="Search users"
-          style={{ width: '20rem', padding: '.45rem .7rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)', boxSizing: 'border-box' }}
+          style={{ width: '100%', maxWidth: '20rem', minWidth: 0, flex: '1 1 12rem', padding: '.45rem .7rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)', boxSizing: 'border-box' }}
         />
         <Button variant="primary" size="sm" onClick={() => setSearchApplied(searchDraft)}>
           Apply
@@ -126,7 +131,7 @@ export default function UsersPage() {
       {creating && (
         <div style={{ background: 'var(--surface-page)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', padding: '1.25rem', marginBottom: '1.25rem' }}>
           <h3 style={{ margin: '0 0 1rem' }}>Create user</h3>
-          {error && <p style={{ color: 'var(--color-error)', marginBottom: '.75rem', fontSize: 'var(--text-sm)' }}>{error}</p>}
+          {error && <p data-testid="admin-users-save-error" role="alert" style={{ color: 'var(--color-error)', marginBottom: '.75rem', fontSize: 'var(--text-sm)' }}>{error}</p>}
           {([
             { key: 'username', label: 'Username', type: 'text' },
             { key: 'display_name', label: 'Display name', type: 'text' },
@@ -185,7 +190,8 @@ export default function UsersPage() {
         <DataTable
           columns={columns}
           data={data?.items ?? []}
-          emptyMessage="No users found."
+          emptyMessage={searchApplied ? fillFeedback(um.emptySearch, { term: searchApplied }) : um.empty}
+          emptyText={!searchApplied && canManage ? um.emptyHint : undefined}
         />
       </div>
       </QueryStateBoundary>

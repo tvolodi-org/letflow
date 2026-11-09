@@ -14,6 +14,7 @@ import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { HelpLink } from '@/components/help/HelpLink'
 import { Select } from '@/components/ui/Select'
 import { RegistryFields, RegistrySection } from '@/components/ui/registry'
 import {
@@ -349,7 +350,7 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
 
   return (
     <>
-      <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.movements.title')} lede={t('stock.movements.lede')} />
+      <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.movements.title')} lede={t('stock.movements.lede')} actions={<HelpLink to="/admin/stock/help/movements" label={t('stock.help.link')} />} />
       <Journal
         variant={variant}
         list={list}

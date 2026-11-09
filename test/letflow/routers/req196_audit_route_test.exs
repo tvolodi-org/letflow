@@ -238,11 +238,13 @@ defmodule Letflow.Routers.Req196AuditRouteTest do
 
       # RawAuditEntry (web/src/api/audit.ts:26-35): audit_id, actor_id, action,
       # resource_type, resource_id, timestamp, before_state, after_state --
-      # exactly these 8 keys, field by field. No `payload`, no
+      # exactly these 8 keys (+ actor_name, resource_name, T-1557), field by field. No `payload`, no
       # `pipeline_run_id`.
       assert Map.keys(item) |> Enum.sort() ==
                Enum.sort([
                  "audit_id",
+                 "actor_name",
+                 "resource_name",
                  "actor_id",
                  "action",
                  "resource_type",

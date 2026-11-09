@@ -1,6 +1,7 @@
 /** Dialog — modal with title, subtitle, body, confirm/cancel footer (NOTES.md section 2).
  *
- *  Focus: on open the confirm button gets focus (Enter confirms, as ConfirmDialog always did);
+ *  Focus: on open the first field of the body gets focus when there is one, else the confirm button
+ *  (Enter confirms, as ConfirmDialog always did); Enter in a single-line text field confirms too;
  *  Tab / Shift+Tab cycle inside the dialog; Escape cancels (not while loading); on close focus
  *  returns to the element that had it before. `error` renders a danger banner inside the body,
  *  `isLoading` disables both buttons and shows the spinner on confirm.
@@ -55,12 +56,18 @@ export function Dialog(props: DialogProps): React.ReactElement | null {
   const confirmRef = useRef<HTMLButtonElement | null>(null)
   const loadingRef = useRef(isLoading)
   loadingRef.current = isLoading
+  const confirmRefs = useRef({ onConfirm, disabled: confirmDisabled })
+  confirmRefs.current = { onConfirm, disabled: confirmDisabled }
 
   // Focus in on open, back to the opener on close.
   useEffect(() => {
     if (!open) return
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    confirmRef.current?.focus()
+    const field = dialogRef.current?.querySelector<HTMLElement>(
+      '.lf-dialog__body input:not([disabled]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), .lf-dialog__body select:not([disabled]), .lf-dialog__body textarea:not([disabled])',
+    )
+    if (field) field.focus()
+    else confirmRef.current?.focus()
     return () => {
       opener?.focus()
     }
@@ -72,6 +79,23 @@ export function Dialog(props: DialogProps): React.ReactElement | null {
       if (e.key === 'Escape') {
         e.stopPropagation()
         if (!loadingRef.current) onCancel()
+        return
+      }
+      if (e.key === 'Enter') {
+        const target = e.target
+        if (
+          target instanceof HTMLInputElement &&
+          dialogRef.current?.contains(target) &&
+          ['text', 'search', 'email', 'tel', 'url', 'number', 'password', ''].includes(target.type) &&
+          target.getAttribute('role') !== 'combobox' &&
+          !e.isComposing &&
+          !e.defaultPrevented &&
+          !loadingRef.current &&
+          !confirmRefs.current.disabled
+        ) {
+          e.preventDefault()
+          confirmRefs.current.onConfirm()
+        }
         return
       }
       if (e.key !== 'Tab' || dialogRef.current == null) return
