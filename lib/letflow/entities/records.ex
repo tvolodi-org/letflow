@@ -965,8 +965,9 @@ defmodule Letflow.Entities.Records do
   @doc """
   Builds, WITHOUT writing, the `Ecto.Multi` of one process-step line (design
   3.3; decision 0054 D2). The caller composes it into its own transaction.
-  Only `kind: :create` is supported (`{:error, {:command_kind_not_supported,
-  kind}}` otherwise, no query).
+  `kind: :create` and, for a module write handler only (`Letflow.Entities.HandlerWrites.update/3`,
+  G2), `kind: :update` with `record_id` and `expected_last_event_global_seq` are supported
+  (`{:error, {:command_kind_not_supported, kind}}` otherwise, no query).
 
   Build order:
 
@@ -1005,22 +1006,8 @@ defmodule Letflow.Entities.Records do
          :ok <- check_write_authority(definition, line.entity_type, authority),
          {:ok, field_values} <-
            validate_field_values(definition, line.field_values, :standard, nil),
-         {:ok, instance_id} <- fetch_step_instance_id(line.entity_type, prefix),
-         # REQ-541: read once, before the transaction; an unbound type builds the same Multi as before.
-         number_binding = NumberSequences.fetch_binding(line.entity_type, prefix) do
-      ctx = %{
-        kind: :create,
-        entity_type: line.entity_type,
-        record_id: StepSource.record_id_for_key(line.idempotency_key),
-        field_values: field_values,
-        definition: definition,
-        existing_record: nil,
-        expected_last_event_global_seq: nil,
-        idempotency_match: :request,
-        prefix: prefix,
-        # GH #2659: engine step writes never carry an external ref (NULL/NULL columns).
-        external_ref: nil
-      }
+         {:ok, instance_id} <- fetch_step_instance_id(line.entity_type, prefix) do
+      ctx = step_ctx(line, definition, field_values, prefix)
 
       event_attrs =
         ctx
@@ -1037,21 +1024,78 @@ defmodule Letflow.Entities.Records do
                prefix: prefix,
                step_namespace: namespace
              ) do
-        {:ok,
-         multi
-         |> run_line_step(namespace, :recheck_definition, fn _repo, _changes ->
-           recheck_definition(definition, line.entity_type, prefix, authority)
-         end)
-         |> maybe_allocate_line_number(line.line_key, number_binding, line.entity_type, ctx)
-         |> maybe_enqueue_trigger(namespace, ctx, event_attrs.actor_id)
-         |> run_line_step(namespace, :upsert_record_latest, fn repo, changes ->
-           LiveProjection.upsert_record_latest(repo, changes, projection_ctx(ctx))
-         end)
-         |> run_line_step(namespace, :dual_write_promoted_columns, fn repo, changes ->
-           LiveProjection.dual_write_promoted_columns(repo, changes, projection_ctx(ctx))
-         end)}
+        {:ok, step_tail(multi, namespace, ctx, line, authority, event_attrs.actor_id)}
       end
     end
+  end
+
+  # REQ-541: the number binding is read once, before the transaction; an unbound type builds the
+  # same Multi as before. An update (G2) never allocates a number: the record keeps its own.
+  defp step_ctx(%{kind: :create} = line, definition, field_values, prefix) do
+    %{
+      kind: :create,
+      entity_type: line.entity_type,
+      record_id: StepSource.record_id_for_key(line.idempotency_key),
+      field_values: field_values,
+      definition: definition,
+      existing_record: nil,
+      expected_last_event_global_seq: nil,
+      idempotency_match: :request,
+      prefix: prefix,
+      # GH #2659: engine step writes never carry an external ref (NULL/NULL columns).
+      external_ref: nil,
+      number_binding: NumberSequences.fetch_binding(line.entity_type, prefix)
+    }
+  end
+
+  defp step_ctx(%{kind: :update} = line, definition, field_values, prefix) do
+    %{
+      kind: :update,
+      entity_type: line.entity_type,
+      record_id: line.record_id,
+      field_values: field_values,
+      definition: definition,
+      existing_record: nil,
+      expected_last_event_global_seq: line.expected_last_event_global_seq,
+      idempotency_match: :request,
+      prefix: prefix
+    }
+  end
+
+  defp step_tail(multi, namespace, %{kind: :create} = ctx, line, authority, actor_id) do
+    multi
+    |> run_line_step(namespace, :recheck_definition, fn _repo, _changes ->
+      recheck_definition(ctx.definition, line.entity_type, ctx.prefix, authority)
+    end)
+    |> maybe_allocate_line_number(line.line_key, ctx.number_binding, line.entity_type, ctx)
+    |> maybe_enqueue_trigger(namespace, ctx, actor_id)
+    |> run_line_step(namespace, :upsert_record_latest, fn repo, changes ->
+      LiveProjection.upsert_record_latest(repo, changes, projection_ctx(ctx))
+    end)
+    |> run_line_step(namespace, :dual_write_promoted_columns, fn repo, changes ->
+      LiveProjection.dual_write_promoted_columns(repo, changes, projection_ctx(ctx))
+    end)
+  end
+
+  # G2 (decision 0054 R-update): the version pin re-reads the row FOR UPDATE under the type's
+  # sequence lock (the append steps above took it), so a change between the handler's read and the
+  # write is `:record_version_conflict` and the whole completion rolls back. A deleted or absent
+  # row is a conflict too (`check_record_version/3`, D6).
+  defp step_tail(multi, namespace, %{kind: :update} = ctx, line, authority, actor_id) do
+    multi
+    |> run_line_step(namespace, :check_record_version, fn repo, changes ->
+      check_record_version(repo, changes, ctx)
+    end)
+    |> run_line_step(namespace, :recheck_definition, fn _repo, _changes ->
+      recheck_definition(ctx.definition, line.entity_type, ctx.prefix, authority)
+    end)
+    |> maybe_enqueue_trigger(namespace, ctx, actor_id)
+    |> run_line_step(namespace, :upsert_record_latest, fn repo, changes ->
+      LiveProjection.upsert_record_latest(repo, changes, projection_ctx(ctx))
+    end)
+    |> run_line_step(namespace, :dual_write_promoted_columns, fn repo, changes ->
+      LiveProjection.dual_write_promoted_columns(repo, changes, projection_ctx(ctx))
+    end)
   end
 
   @doc """
@@ -1161,6 +1205,7 @@ defmodule Letflow.Entities.Records do
   @spec check_step_command(term()) ::
           {:ok,
            %{
+             kind: :create | :update,
              line_key: non_neg_integer(),
              idempotency_key: String.t(),
              entity_type: String.t(),
@@ -1178,12 +1223,40 @@ defmodule Letflow.Entities.Records do
          {:ok, entity_type, field_values} <- check_step_target(command) do
       {:ok,
        %{
+         kind: :create,
          line_key: StepSource.line_key(source),
          idempotency_key: key,
          entity_type: entity_type,
          field_values: field_values,
          metadata: StepSource.to_metadata(source)
        }}
+    end
+  end
+
+  # G2: an update names the record and the version it was read at; nothing else differs.
+  defp check_step_command(%{kind: :update} = command) when not is_struct(command) do
+    with :ok <- reject_caller_keys(command),
+         {:ok, source} <- check_source(command),
+         key = StepSource.idempotency_key(source),
+         :ok <- check_step_key(key),
+         {:ok, entity_type, field_values} <- check_step_target(command),
+         {:ok, record_id} <- Ecto.UUID.cast(Map.get(command, :record_id)),
+         seq when is_integer(seq) and seq >= 0 <-
+           Map.get(command, :expected_last_event_global_seq) do
+      {:ok,
+       %{
+         kind: :update,
+         line_key: StepSource.line_key(source),
+         idempotency_key: key,
+         entity_type: entity_type,
+         field_values: field_values,
+         record_id: record_id,
+         expected_last_event_global_seq: seq,
+         metadata: StepSource.to_metadata(source)
+       }}
+    else
+      {:error, _reason} = error -> error
+      _invalid -> {:error, :invalid_step_source}
     end
   end
 

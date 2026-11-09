@@ -47,6 +47,7 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
   alias Letflow.Entities.Record.Latest
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Ledger
+  alias Letflow.Modules.Assets.Documents.CardMoves
   alias Letflow.Modules.Assets.Documents.KindChangePosting
   alias Letflow.Modules.Assets.Documents.Kinds
   alias Letflow.Repo
@@ -152,7 +153,7 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
     spec = Kinds.get(view.kind)
 
     with :ok <- start_seam(),
-         {:ok, command, extra} <- post_commands(spec, view, issued) do
+         {:ok, command, extra} <- post_commands(prefix, spec, view, issued) do
       vars =
         Map.merge(extra, %{
           "document_id" => view.id,
@@ -168,14 +169,30 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
   end
 
   # A change of kind posts two entries: the asset command is `posting`, the stock one `stock_posting`.
-  defp post_commands(%{kind: "kind_change"}, view, issued) do
+  defp post_commands(_prefix, %{kind: "kind_change"}, view, issued) do
     with {:ok, %{assets: assets, stock: stock}} <- KindChangePosting.commands(view, issued),
          do: {:ok, assets, %{"stock_posting" => stock}}
   end
 
-  defp post_commands(spec, view, issued) do
-    with {:ok, command} <- post_command(spec, view, issued), do: {:ok, command, %{}}
+  defp post_commands(prefix, spec, view, issued) do
+    with {:ok, command} <- post_command(spec, view, issued),
+         {:ok, command} <- with_card_moves(prefix, spec, issued, command),
+         do: {:ok, command, %{}}
   end
+
+  # G2: a hand over carries the moves of its cards (`CardMoves`), read now and pinned by the handler.
+  defp with_card_moves(prefix, %{kind: "handover"}, %{content: content}, command) do
+    with {:ok, moves} <-
+           CardMoves.forward(
+             prefix,
+             Map.get(content, "header", %{}),
+             Map.get(content, "lines", [])
+           ) do
+      {:ok, if(moves == [], do: command, else: Map.put(command, "card_moves", moves))}
+    end
+  end
+
+  defp with_card_moves(_prefix, _spec, _issued, command), do: {:ok, command}
 
   @doc "Starts one `assets_reversal` instance (see the moduledoc)."
   @spec start_reversal(String.t(), map(), map(), map(), String.t()) ::
@@ -183,6 +200,24 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
   def start_reversal(prefix, view, issued, reversal, actor) do
     type_key = Kinds.get(view.kind).type_key
 
+    with {:ok, command} <- reversal_command(prefix, view, issued, reversal, type_key) do
+      vars = %{
+        "document_id" => view.id,
+        "document_type" => type_key,
+        "version_no" => issued.version_no,
+        "org_unit_id" => view.org_unit_id,
+        "mark" => "reversed",
+        "reason_code" => reversal.reason_code,
+        "reason_text" => reversal.reason_text,
+        "posting" => command
+      }
+
+      start(prefix, @reversal_definition, "assets-rev", issued.version_id, view.id, vars, actor)
+    end
+  end
+
+  # G2: the reversal of a hand over carries the moves that restore the cards still at the destination.
+  defp reversal_command(prefix, view, %{content: content}, reversal, type_key) do
     command = %{
       "cause" => "reversal",
       "reverses_entry_id" => reversal.entry_id,
@@ -192,18 +227,18 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
       "client_op_id" => reversal.mark_id
     }
 
-    vars = %{
-      "document_id" => view.id,
-      "document_type" => type_key,
-      "version_no" => issued.version_no,
-      "org_unit_id" => view.org_unit_id,
-      "mark" => "reversed",
-      "reason_code" => reversal.reason_code,
-      "reason_text" => reversal.reason_text,
-      "posting" => command
-    }
-
-    start(prefix, @reversal_definition, "assets-rev", issued.version_id, view.id, vars, actor)
+    if view.kind == "handover" do
+      with {:ok, moves} <-
+             CardMoves.backward(
+               prefix,
+               Map.get(content, "header", %{}),
+               Map.get(content, "lines", [])
+             ) do
+        {:ok, if(moves == [], do: command, else: Map.put(command, "card_moves", moves))}
+      end
+    else
+      {:ok, command}
+    end
   end
 
   # Test seam: forces a start failure after the issue committed. Read here only.

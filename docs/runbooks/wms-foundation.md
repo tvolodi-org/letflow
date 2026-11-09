@@ -14,7 +14,7 @@ was written.
    403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
-   (`lib/letflow/entities/records.ex:1936`, delegating to `ManagedTypes.check_record_write/3`).
+   (`lib/letflow/entities/records.ex:2009`, delegating to `ManagedTypes.check_record_write/3`).
 2. **Writes go through the module's own Owner only, and nothing checks references.** Module
    code writes with the `/3` arity, `Records.create_record/3` with
    `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:421`). The
@@ -30,10 +30,10 @@ was written.
    entry points (`create_record`, `update_record`, `delete_record`) refuse, before any query, an
    `idempotency_key` that starts with the exact bytes `sys:step:` (or `record_trigger:` when no `:trigger_lineage` is passed, REQ-628) and return
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
-   `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
+   `lib/letflow/entities/records.ex:1363`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:363`.
-   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
+   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:439`.
+   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1306`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
 5. **The read API is by record id only.** `Letflow.Modules.Org.lookup/2`, `active?/2` and
@@ -129,7 +129,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    generic entity routes answer 403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
-   (`lib/letflow/entities/records.ex:1936`, delegating to `ManagedTypes.check_record_write/3`).
+   (`lib/letflow/entities/records.ex:2009`, delegating to `ManagedTypes.check_record_write/3`).
    The one exception is the import route (item 2).
 2. **Writes go through the module's own Owner only; the three masters are imported through the
    managed import path (GH #3602, REQ-651).** Module code writes with the `/3` arity,
@@ -161,10 +161,10 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    entry points (`create_record`, `update_record`, `delete_record`) refuse, before any query, an
    `idempotency_key` that starts with the exact bytes `sys:step:` (or `record_trigger:` when no `:trigger_lineage` is passed, REQ-628) and return
    `{:error, :reserved_idempotency_key}` (`reject_reserved_key/2`,
-   `lib/letflow/entities/records.ex:1290`; prefix `@step_key_prefix`, line 366). Only
+   `lib/letflow/entities/records.ex:1363`; prefix `@step_key_prefix`, line 366). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:363`.
-   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1233`) is a separate check:
+   `lib/letflow/entities/step_writes.ex:821` and `lib/letflow/entities/handler_writes.ex:439`.
+   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1306`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
 6. **The read API is by record id only; deleted is the same as absent.**
@@ -627,9 +627,10 @@ the code that holds it; paths are cited without line numbers.
    /documents/:id/reverse`. A change and a hand over post two legs per line (`-q` at the from key, `+q` at the to
    key), a write off one (`-q`, with its `reason_code`). The actual user is optional in every kind, so a change or hand
    over can name an empty user to match a commissioned asset that has none. A low-value asset may be changed, handed
-   over or written off in part; a fixed or intangible one only with quantity 1. A posted hand over does not yet update
-   `assets_card.org_unit_id` (REQ-753 part 2: it needs an update path in `Letflow.Entities.HandlerWrites`, create-only
-   today); the balance row is the truth, so the new kinds skip `org_unit_mismatch` and `asset_already_in_register`.
+   over or written off in part; a fixed or intangible one only with quantity 1. A posted hand over of a fixed or
+   intangible asset moves `assets_card.org_unit_id` in the same transaction (T-1489 / G2, version 0.14.0, through
+   `HandlerWrites.update/3`; a `low_value` card is not moved, D-111); the balance row stays the truth, so the new kinds skip
+   `org_unit_mismatch` and `asset_already_in_register`.
 2. **No master checks in the ledger until slice L7.** The policy and the ledger check no asset, org unit, location
    or employee against a master, and not the kind of the card (one asset per row, no location for an intangible);
    the documents check them (decision 0073 D6, GH #3893).

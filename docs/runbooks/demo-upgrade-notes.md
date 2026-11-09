@@ -122,7 +122,7 @@ no steps, declares `min_upgradable_from` and `from` lies in `[min_upgradable_fro
 | `locations` 0.4.0 | none | 0.4.0 only | 0.1.0 .. 0.3.0: no path | same |
 | `catalog_items` 0.3.0 | none | 0.3.0 only | 0.1.0, 0.2.0: no path | same |
 | `codes` 0.4.0 | `min_upgradable_from: "0.1.0"` (T-1485) | 0.1.0 .. 0.4.0 | none below 0.1.0 | none: a QA tenant on 0.3.0 (gate-b5) now plans and applies |
-| `assets` 0.13.0 | none | 0.13.0 only | 0.1.0 .. 0.12.0: no path (0.13.0, T-1490, adds the card lock route and refusals only, no data change; 0.12.0, T-1488, makes `assets_card.org_unit_id` optional: class B, no in-place upgrade; G6 bumped 0.10.0 > 0.11.0 and G5 part 1 bumped 0.9.0 > 0.10.0, both without a window) | same: re-seed |
+| `assets` 0.14.0 | none | 0.14.0 only | 0.1.0 .. 0.13.0: no path (0.14.0, T-1489, adds `updates` and the `assets_card` target to two handlers, so the manifest hash changes; 0.13.0, T-1490, adds the card lock route and refusals only; 0.12.0, T-1488, makes `assets_card.org_unit_id` optional: class B, no in-place upgrade; G6 bumped 0.10.0 > 0.11.0 and G5 part 1 bumped 0.9.0 > 0.10.0, both without a window) | same: re-seed |
 
 Every version bump below is therefore a build that breaks an in-place promote of a demo that sits on the version before it,
 unless a window or step was declared with it. Builds that bumped (commit, date, step, subject):
@@ -149,6 +149,7 @@ unless a window or step was declared with it. Builds that bumped (commit, date, 
 | assets | G6 (GH #4037, T-1493) | 2026-11-09 | 0.10.0 > 0.11.0 | xlsx import of opening lines (`assets_opening_line` import function), optional `external_ref_system` / `external_ref_id` pair on the opening header and line |
 | assets | T-1488 (GH #3893) | 2026-11-08 | 0.11.0 > 0.12.0 | card holder from the register: `org_unit_id` optional on the card, refused on the card routes |
 | assets | T-1490 (GH #3893) | 2026-11-09 | 0.12.0 > 0.13.0 | card locks: `GET /cards/:id/lock`, `inventory_number` and `kind` read-only after the first posted document |
+| assets | T-1489 (GH #3893) | 2026-11-09 | 0.13.0 > 0.14.0 | the card follows a posted hand over: `post_document` and `reverse_document` update `assets_card.org_unit_id` (new `updates` field of the handler registration) |
 | locations | `c1ce8cc22`, `95b2a7ef8`, `b6d91d665`, `cb002500b` | 2026-10-30 .. 2026-11-03 | 0.1.0 > 0.4.0 | location tree, org unit links, write permission |
 | org | `12ae85d3d`, `eaa1f1e49`, `acf6be347` | 2026-10-19 .. 2026-11-03 | 0.1.0 > 0.3.0 | employees as records, routes and write permissions |
 | catalog_items | `e6650bb86`, `83589a94e`, `e77837a71` | 2026-10-19 .. 2026-11-03 | 0.1.0 > 0.3.0 | routes, item tracking policy (none, lot, serial, expiry) |
