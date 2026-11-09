@@ -20,7 +20,7 @@ running server and needs no restart. A tenant upgrade cannot give a tenant new c
 | Permissions and role grants | Yes | No, and the upgrade cannot gate them | Live for every tenant at deploy (0055 D7). Widening a grant is refused by rule until per-tenant grants exist. |
 | Tenant-schema DB migration | Runs at boot (`TenantProvisioning.MigrationReplayBoot`) | No | The upgrade boot child starts after the replay, so new columns exist when it runs. |
 | Shared (public) schema DB migration | Runs at boot of the node, by `Ecto.Migrator` (`Letflow.Supervisor.Infrastructure`), before the tenant replay and before any route is served | No | The migrator runs only in a compiled release (`RELEASE_NAME` set; `skip_migrations?/0`). A separate "migrate once, then roll the nodes" deploy step is a possible future procedure, not current behaviour; until then the first new node to boot migrates. |
-| Tenant data change (data step) | No | Yes, but not possible yet | The apply refuses any plan with a step (`upgrade_needs_runner`) until the runner exists (REQ-773, slice S4). |
+| Tenant data change (data step) | No | Yes | Declarative steps (`set_default`, `backfill_from_constant`, `copy_field`; section 2a) run inside the apply transaction up to a record cap. A code step, a step outside that vocabulary, or a plan over the cap is refused (`upgrade_needs_runner`) until the runner exists (REQ-773 part 2). |
 | Database-backed setting (tenant setting, feature flag stored in the database) | No | No | Changes at run time. |
 | Environment or boot flag (`LETFLOW_*` variables read in `config/runtime.exs`, for example `LETFLOW_MODULE_UPGRADE_ON_BOOT`) | Yes, a restart of the node | No | Read once at boot. `LETFLOW_MODULE_UPGRADE_ON_BOOT` is consumed by a one-shot boot child (`Letflow.ModuleUpgrade.Boot`); changing the variable of a running node does nothing until that node restarts. |
 | Web bundle (`web/`) | No server restart | No | Users must reload; an open tab runs the old bundle against the new API. |
@@ -45,6 +45,37 @@ with appup/relup). **We do not do this.** Reasons:
 
 Safe to change without a release or restart: data and database-backed settings. Environment
 variables and boot flags need a restart of the node.
+
+## 1a. Data steps in the apply (REQ-773, T-1581)
+
+A manifest step with `kind: :declarative` and an `up` map is run by `Letflow.ModuleUpgrade.StepExec`
+in the same transaction as the upgrade, after the new definitions are active. Vocabulary
+(`Letflow.Modules.StepSpec`): `set_default` and `backfill_from_constant` (write a constant where
+the field is absent or JSON null), `copy_field` (copy `from` to `to` where `to` is unset and `from`
+is set, with a transform `identity | to_decimal | trim | upcase`). `rename_field` and `settings_map`
+validate but are refused at apply. A value that is already set (also `false`, `0`, `""`) is never
+overwritten. Each changed record gets one `ENTITY_RECORD_MIGRATED` event; tenant write hooks, the
+outbox and per-record audit rows do not run. One `module.upgrade` audit entry carries the step ids
+and counts.
+
+- **Cap.** `LETFLOW_MODULE_UPGRADE_ONE_TX_MAX_RECORDS` (config key
+  `:module_upgrade_one_tx_max_records`, default 1000, range 1 to 100000, read at boot). The plan
+  shows `fits_one_transaction`; the plan route stays a read-only 200, the refusal
+  `409 upgrade_needs_runner` comes at apply, where the count is taken again under the upgrade lock.
+- **Locks.** The apply holds the instance sequence lock of each step's type to the end of the
+  transaction (writers of that one type wait; other types and modules do not), then locks the
+  candidate rows in batches of 500. The 10 s `lock_timeout` and 120 s `statement_timeout` of the apply
+  still bound it.
+- **Failure.** Any failed record rolls the whole apply back (`step_error` for a failed transform or
+  write, `step_raised` for a raise); a `failed` journal row records the code; fix the data and
+  repeat with the same plan.
+- **Restricted fields.** A step that reads or writes a field listed in `entity_field_restrictions`
+  (or on a type the caller may not read, `TypeAccess`) shows `records: null` in the plan and no
+  per-step counts in the apply body or audit entry, and the cap uses the type's live record count
+  instead (an over-estimate: such a plan may be refused as `upgrade_needs_runner` when only a few
+  records are unset). This keeps the count from leaking field values.
+- **Not here (parts 2 and 3).** Fencing token, resumable runner, cutover lock timeout, background
+  execution and progress polling.
 
 ## 2. Expand / contract checklist for a database or module-data change
 

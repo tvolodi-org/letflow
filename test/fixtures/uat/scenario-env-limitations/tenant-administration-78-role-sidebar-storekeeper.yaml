@@ -1,0 +1,21 @@
+scenario_id: tenant-administration-78-role-sidebar-storekeeper
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the whole scenario: the side menu of a storekeeper (7 entries) and the refusal of hidden addresses typed by hand"
+reason: >
+  BLOCKED, not PASS. The actor roster (test/fixtures/uat/actors.yaml) and
+  scripts/uat_preflight.sh hold no account with the STOREKEEPER role
+  (grep -i storekeeper on both returns nothing). The scenario is not written with
+  a borrowed actor such as a company administrator, because that would test the
+  wrong role. Meanwhile the storekeeper menu (7 entries) and the refusal of an
+  organisation page opened by hand are covered in CI only, by
+  web/src/components/layout/__tests__/navRoleWalk.test.tsx, which is not UAT.
+  Decision 0081 D2 keeps the storekeeper's asset grant deferred, so the scenario
+  expects no asset entries for that role.
+recorded_by: business-analyst
+recorded_at: "2026-11-10"
+issue_ref: "T-1583"
+review: >
+  Revisit when the owner or infra provisions a STOREKEEPER QA account and adds it
+  to the roster; then queue one task to write the storekeeper scenario and remove
+  this file.

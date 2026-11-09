@@ -1,0 +1,74 @@
+# T-1585 (BA batch 3 item 3, covers merged B2#3, #4095): the asset balances file is usable on paper and on screen; a worker cannot export it.
+# Sources: docs/status/print-check-20261109.md (P6: asset balances .xlsx gets a bold header, a frozen first row and column widths from the content, 8 to 60 characters; DejaVu Sans carries every Kazakh letter in PDFs; known limits: a printed .xlsx does not repeat its header on page 2, the PDF builder has no "page N of M",
+# asset documents have no print route on main), lib/letflow/modules/assets/router.ex (GET balances with format xlsx returns asset-balances.xlsx, sheets "balances" and "report"; needs the asset read right).
+# NOT covered here, and why: the stock act (90 lines, header repeated on page 2, number format "1 234,500" in ru/kk and "1,234.500" in en) and the official forms in PDF and .docx need a 90-line stock act and a printer-grade PDF read, which the roster cannot produce by a UI step (the check is the product's own scripts/print_probe.exs);
+# the label sheet (30 codes = 2 pages) has no traced UI route in this task. Both are the product's own tests, listed here so the gap survives the merge.
+---
+id: assets-print-export-1-balances-xlsx-header-and-letters
+scope: assets
+title: The asset balances file has a bold frozen header, readable widths and intact Cyrillic and Kazakh names; a worker cannot export it
+version: "1.0"
+tags: [assets, export, xlsx, print, ru, kk, refusal]
+
+description: >
+  SwiftRoute has an asset card whose name is written with Russian and Kazakh letters ("Ноутбук әріптік Ңң-1"). The administrator exports the balances as an Excel file and opens it: the first row is bold and stays in place when scrolling, columns are wide enough for their content,
+  every letter of the name is intact, and quantities are numbers. The task worker Marco asks for the same file and is refused; no file is produced.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+
+preconditions:
+  - description: SwiftRoute has the assets module active and a card with the name "Ноутбук әріптік Ңң-1" with a posted commission, so it has a balance (prepared as in scenario assets-documents-1 with that name).
+    check: system_seeded
+    detail: If the card or its balance cannot be prepared, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator asks for the balances in the Excel format (no button for it was found under web/src/modules/assets, so this is a request to the route) and opens the downloaded file asset-balances.xlsx in a spreadsheet program. The administrator also reads the same row on the balances screen.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator scrolls down in the sheet "balances" (or checks the freeze setting of the first row) and looks at the width of the column "asset".
+    via: ui
+  - step: 3
+    actor: worker
+    action: >
+      The task worker asks for the Excel version of the balances directly.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The file is readable and the name is intact.
+    verification:
+      method: file_content
+      detail: The file has the sheets "balances" and "report". The row for the card shows in the column "asset" the same text as the balances screen shows for it, letter for letter, including the Cyrillic and Kazakh letters if the card is identified by them. The quantity cell is a number, not text.
+      evidence: The file asset-balances.xlsx and a screenshot of its first rows.
+    on_fail:
+      severity: MAJOR
+      business_impact: A printed or sent file shows wrong letters or numbers that cannot be summed.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The header is bold and frozen, and the columns fit.
+    verification:
+      method: file_content
+      detail: In step 2 the first row stays visible when scrolling, is bold, and the column "asset" shows the whole text without cutting it off (width between 8 and 60 characters).
+      evidence: Screenshot of the scrolled sheet.
+    on_fail:
+      severity: MINOR
+      business_impact: A long list is hard to read and a cut-off name looks like missing data.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A worker gets no file.
+    verification:
+      method: http_status
+      detail: Step 3 is answered 403 and no file or balance row is returned.
+      evidence: Status and body.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A worker could take the asset register out of the company.
+      suggested_action: route_to_elixir_dev

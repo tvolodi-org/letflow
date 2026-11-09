@@ -56,6 +56,7 @@ defmodule Letflow.Modules.Catalog do
   alias Letflow.Modules.ManifestHash
   alias Letflow.Modules.Module
   alias Letflow.Modules.Step
+  alias Letflow.Modules.StepSpec
   alias Letflow.Modules.WriteHandlerSpec
 
   @modules Application.compile_env(:letflow, :modules, [])
@@ -1211,19 +1212,28 @@ defmodule Letflow.Modules.Catalog do
         :ok
 
       {:ok, steps} ->
-        if is_list(steps) and Enum.all?(steps, &well_formed_step?/1) and unique_step_ids?(steps),
-          do: :ok,
-          else: {:error, {:invalid_migrations, steps}}
+        if is_list(steps) and Enum.all?(steps, &well_formed_step?(&1, manifest)) and
+             unique_step_ids?(steps),
+           do: :ok,
+           else: {:error, {:invalid_migrations, steps}}
     end
   end
 
-  defp well_formed_step?(%Step{} = step) do
+  defp well_formed_step?(%Step{} = step, manifest) do
     step.kind in [:declarative, :code] and is_boolean(step.lossy) and not is_nil(step.up) and
       not is_nil(step.down) and semver_valid?(step.from) and semver_valid?(step.to) and
-      semver_compare(step.to, step.from) == :gt
+      semver_compare(step.to, step.from) == :gt and valid_spec?(step, manifest)
   end
 
-  defp well_formed_step?(_other), do: false
+  defp well_formed_step?(_other, _manifest), do: false
+
+  # REQ-773: a declarative `up` that carries an `:op` is governed by the closed vocabulary
+  # (`Letflow.Modules.StepSpec`); any other `up` stays an opaque value the apply refuses.
+  defp valid_spec?(%Step{kind: :declarative} = step, manifest) do
+    not StepSpec.spec?(step) or StepSpec.validate(step, manifest) == :ok
+  end
+
+  defp valid_spec?(_step, _manifest), do: true
 
   defp unique_step_ids?(steps) do
     ids = Enum.map(steps, & &1.id)
