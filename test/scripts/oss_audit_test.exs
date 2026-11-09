@@ -86,8 +86,8 @@ defmodule Letflow.Scripts.OssAuditTest do
     end)
   end
 
-  defp has_rule?(out, rule, path \\ nil),
-    do: Enum.any?(rows(out), &(&1.rule == rule and (path == nil or &1.path == path)))
+  defp has_rule?(out, rule, path),
+    do: Enum.any?(rows(out), &(&1.rule == rule and &1.path == path))
 
   # ---- O1
 
