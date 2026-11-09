@@ -7,6 +7,8 @@ import { useIntl } from 'react-intl'
 import { useAccess } from '@/auth/access/useAccess'
 import { useAuth } from '@/auth/AuthContext'
 import { useAssetCardLock } from '@/hooks/useAssetCardLock'
+import { assetsApi } from './assets.api'
+import { assetsQueryKeys } from './assetsQueryKeys'
 import { Button } from '@/components/ui/Button'
 import { DateField } from '@/components/ui/DateField'
 import { Field } from '@/components/ui/Field'
@@ -54,7 +56,12 @@ export function AssetCardForm(props: {
   // T-1490 / G3: after the first posted document the inventory number is read-only. The lock is read from the
   // server; while it is unknown or failed the number stays disabled (fail closed). Without AssetsRead the lock
   // cannot be read, so the input stays editable and the server's 422 is the authority.
-  const lockQuery = useAssetCardLock(session?.tenant_id ?? '', record?.record_id ?? '', !isNew && can(ASSETS_READ))
+  const cardId = record?.record_id ?? ''
+  const lockQuery = useAssetCardLock(
+    assetsQueryKeys.cardLock(session?.tenant_id ?? '', cardId),
+    () => assetsApi.cardLock(cardId),
+    !isNew && can(ASSETS_READ),
+  )
   const locked = !isNew && can(ASSETS_READ) && lockQuery.data?.posted !== false
   const dirty = JSON.stringify(form) !== JSON.stringify(initial)
   const intangible = form.kind === 'intangible'
