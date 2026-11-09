@@ -67,22 +67,37 @@ git rev-parse --git-dir >/dev/null 2>&1 || {
 [[ $TIP == "$TIP_GIT" ]] || red "tip unstable (api $TIP, git $TIP_GIT)"
 
 # Rows 3-4
+# GH #1602 (CD starvation): the remote deploy is `git pull` on main (no sha pinning, design §3 F3),
+# so an older GREEN run cannot deploy "its own" commit; it can only deploy the tip. With merges
+# every ~10 min and a CI of 20+ min the tip's push run is never finished when an older run fires
+# CD, and skipping on that left QA stale for hours. Ruling OQ-1 already accepts that the deployed
+# tip passed the merge queue's required checks on its exact tree. So when the tip's run is merely
+# PENDING and the green run that fired CD is an ancestor of the tip, the decision falls through to
+# the health rows (QA at the tip -> skip, otherwise deploy the tip). A red, cancelled, timed-out,
+# missing or unknown tip run still skips; so does a run sha that is not on the tip's history.
+SUFFIX=""
 if [[ $RUN_SHA != "$TIP" ]]; then
   [[ $TIP_RUN == error ]] && red "tip run unreadable (tip $TIP)"
   if [[ $TIP_RUN != success ]]; then
     case "$TIP_RUN" in
-      none | completed | action_required | cancelled | failure | neutral | skipped | stale | \
-        timed_out | startup_failure | in_progress | queued | requested | waiting | pending)
-        word="$TIP_RUN"
+      in_progress | queued | requested | waiting | pending)
+        if git merge-base --is-ancestor "$RUN_SHA" "$TIP" >/dev/null 2>&1; then
+          SUFFIX=" (tip run $TIP_RUN, green ancestor $RUN_SHA)"
+        else
+          skip "not tip (run sha $RUN_SHA, tip $TIP); tip run $TIP_RUN"
+        fi
         ;;
-      *) word=other ;;
+      none | completed | action_required | cancelled | failure | neutral | skipped | stale | \
+        timed_out | startup_failure)
+        skip "not tip (run sha $RUN_SHA, tip $TIP); tip run $TIP_RUN"
+        ;;
+      *) skip "not tip (run sha $RUN_SHA, tip $TIP); tip run other" ;;
     esac
-    skip "not tip (run sha $RUN_SHA, tip $TIP); tip run $word"
   fi
 fi
 
 # Row 5: the health signal. jq -j prints no trailing newline (and no CR on Windows hosts).
-[[ -n $QA_HEALTH ]] || deploy "QA sha unknown (unreachable), deploying tip $TIP"
+[[ -n $QA_HEALTH ]] || deploy "QA sha unknown (unreachable), deploying tip $TIP$SUFFIX"
 
 kind=$(printf '%s' "$QA_HEALTH" | jq -j '
   if type != "object" then "notjson"
@@ -92,25 +107,25 @@ kind=$(printf '%s' "$QA_HEALTH" | jq -j '
 
 case "$kind" in
   string) ;;
-  null) deploy "QA sha unknown (null), deploying tip $TIP" ;;
-  nothex) deploy "QA sha unknown (not-hex), deploying tip $TIP" ;;
-  *) deploy "QA sha unknown (not-json), deploying tip $TIP" ;;
+  null) deploy "QA sha unknown (null), deploying tip $TIP$SUFFIX" ;;
+  nothex) deploy "QA sha unknown (not-hex), deploying tip $TIP$SUFFIX" ;;
+  *) deploy "QA sha unknown (not-json), deploying tip $TIP$SUFFIX" ;;
 esac
 
 q=$(printf '%s' "$QA_HEALTH" | jq -j '.sha' 2>/dev/null) || q=""
-[[ $q =~ $HEXQ ]] || deploy "QA sha unknown (not-hex), deploying tip $TIP"
+[[ $q =~ $HEXQ ]] || deploy "QA sha unknown (not-hex), deploying tip $TIP$SUFFIX"
 
 # Row 6: resolve against the fetched repository only (never a string-prefix comparison). A short
 # sha that is ambiguous or unknown fails `--verify`.
 full=$(git rev-parse --verify --quiet "${q}^{commit}" 2>/dev/null) || full=""
-[[ $full =~ $HEX40 ]] || deploy "QA sha $q unresolvable, deploying tip $TIP"
+[[ $full =~ $HEX40 ]] || deploy "QA sha $q unresolvable, deploying tip $TIP$SUFFIX"
 
 # Row 7
-[[ $full != "$TIP" ]] || skip "QA already at tip $TIP"
+[[ $full != "$TIP" ]] || skip "QA already at tip $TIP$SUFFIX"
 
 # Row 8
 git merge-base --is-ancestor "$full" "$TIP" >/dev/null 2>&1 ||
-  deploy "QA sha $q not an ancestor of tip $TIP, deploying tip"
+  deploy "QA sha $q not an ancestor of tip $TIP, deploying tip$SUFFIX"
 
 # Row 9
-deploy "QA sha $q behind tip $TIP, deploying tip"
+deploy "QA sha $q behind tip $TIP, deploying tip$SUFFIX"

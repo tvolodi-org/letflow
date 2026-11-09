@@ -168,3 +168,16 @@ When changing the image, move all workflows together and run the stock e2e job o
 | Shard timed out, no failed test | job status | re-run once |
 | Group red on `Stock browser e2e`, "does not support chromium" | `runs-on:` image | section 5 |
 | Tag stale after revert | `git push origin :refs/tags/ci-main-red` | report why |
+
+## 7. QA is hours behind main (CD starvation, GH #1602)
+
+With about 6 merges an hour and a push CI of 20+ minutes, the tip's own push run is almost never
+green when an older run fires `CD (QA)`. The old rule skipped every such run, so QA starved. The
+remote deploy is `git pull` on main (no sha pinning, design `gh2622-...` F3 and section 8), so
+"deploy the newest green ancestor" is impossible: the only commit that can be deployed is the tip.
+`scripts/cd_qa_decide.sh` now deploys the tip when the tip's run is pending (in_progress, queued,
+requested, waiting, pending) and the green run that fired CD is an ancestor of the tip and QA is
+behind. QA at the tip still skips. A red, cancelled, timed-out, missing or unreadable tip run, or a
+run sha off the tip's history, still skips or fails. The tip passed the merge queue's required
+checks on its exact tree (ruling OQ-1); if its push run turns red afterwards, QA carries it until
+the next green tip. Reasons are listed in `docs/runbooks/qa-lag.md`.
