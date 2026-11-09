@@ -59,7 +59,7 @@ defmodule Letflow.Modules.Assets.Cards do
 
   @types ["assets_card"]
   @allowed ~w(inventory_number name kind acquisition_date currency acquisition_cost
-              accumulated_depreciation book_value depreciation_as_of valid_until
+              accumulated_depreciation book_value depreciation_as_of depreciation_method depreciation_rate valid_until
               external_ref_system external_ref_id)
   # The import is the one channel that may still carry the unit (D-097; G6 revisits it).
   @import_allowed ["org_unit_id" | @allowed]

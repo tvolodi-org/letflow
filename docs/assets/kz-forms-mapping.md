@@ -50,7 +50,7 @@ written from this file after the owner has answered the questions in section 4.
 | Stock document header (receipt, issue, transfer, hand over, return, write off) | `stock_<kind>` records | `org_unit_id`, `location_id` or `from_/to_location_id`, `responsible_id` or `from_/to_responsible_id`, `to_org_unit_id`, `note`, `reason_code`, `reason_text`; receipt also `counterparty_id`, `supplier_document_ref`, `received_on` |
 | Stock document line | `stock_<kind>_line` | `line_no`, `catalog_item_id`, `catalog_uom_id`, `catalog_lot_id`, `quantity`; receipt line also `unit_price`, `line_value` |
 | Count | `count_order`, `count_commission_member`, `count_sheet_line`, `count_entry`, `count_signature` | order: `number`, `issued_at`, `planned_start`, `planned_end`, `cut_off_at`, `chair_employee_id`; line: `location_id`, `responsible_employee_id`, `catalog_item_id`, `catalog_lot_id`, `unit_ref`, `book_quantity`, `counted_quantity` |
-| Asset card | `assets_card` | `inventory_number`, `name`, `kind`, `org_unit_id`, `acquisition_date`, `currency`, `acquisition_cost`, `accumulated_depreciation`, `book_value`, `depreciation_as_of`, `valid_until`, `active` |
+| Asset card | `assets_card` | `inventory_number`, `name`, `kind`, `org_unit_id`, `acquisition_date`, `currency`, `acquisition_cost`, `accumulated_depreciation`, `book_value`, `depreciation_as_of`, `depreciation_method`, `depreciation_rate`, `valid_until`, `active` |
 | Asset documents | commission, change of responsible or user, hand over, write off (specified in `asset-workflow-documents.md`) | `material_responsible_id`, `actual_user_id`, `from_/to_` pairs, `location_id`, `reason_code`, `reason_text` |
 
 Print code today (E1a/E1b): a PDF in ru, kk and en for the count order, count sheet and differences sheet
