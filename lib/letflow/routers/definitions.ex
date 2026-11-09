@@ -354,17 +354,44 @@ defmodule Letflow.Routers.Definitions do
   # `conn.body_params` is ignored. R-Co's handleValidate takes no body either
   # (validation.zig:75-80).
 
+  # T-1563: an OPTIONAL `{"graph": {...}}` body validates that graph (the process
+  # designer's live check) with the same validators and persists nothing. No body keeps
+  # the stored-graph behaviour above.
   defp handle_validate(conn, raw_id) do
     case cast_id(raw_id) do
       {:ok, id} ->
-        render_validation(
-          conn,
-          Definitions.validate_definition_graph(id, conn.assigns.scoped_opts)
-        )
+        validate_with_optional_graph(conn, id, graph_param(conn))
 
       {:error, :invalid_id_format} ->
         Response.unprocessable(conn, "invalid id format")
     end
+  end
+
+  defp graph_param(%{body_params: %{"graph" => graph}}), do: graph
+  defp graph_param(_conn), do: :absent
+
+  defp validate_with_optional_graph(conn, id, :absent) do
+    render_validation(conn, Definitions.validate_definition_graph(id, conn.assigns.scoped_opts))
+  end
+
+  defp validate_with_optional_graph(conn, id, graph) when is_map(graph) do
+    render_validation(
+      conn,
+      Definitions.validate_graph_preview(id, graph, conn.assigns.scoped_opts)
+    )
+  end
+
+  defp validate_with_optional_graph(conn, _id, _not_a_map) do
+    Response.send_problem(
+      conn,
+      Validation.problem([
+        %Letflow.Api.Validation.FieldError{
+          field: "graph",
+          constraint: "type",
+          message: "must be an object"
+        }
+      ])
+    )
   end
 
   defp render_validation(conn, {:ok, %{valid: true, definition_id: definition_id} = result}) do
@@ -613,7 +640,8 @@ defmodule Letflow.Routers.Definitions do
     %FieldConstraint{name: "description", required: false, type: :string},
     %FieldConstraint{name: "graph", required: true, type: :object},
     %FieldConstraint{name: "stage", required: false, type: :string},
-    %FieldConstraint{name: "variable_schemas", required: false, type: :array}
+    %FieldConstraint{name: "variable_schemas", required: false, type: :array},
+    %FieldConstraint{name: "copy_variable_schemas_from", required: false, type: :string}
   ]
 
   defp handle_create(conn) do
@@ -623,7 +651,8 @@ defmodule Letflow.Routers.Definitions do
     with {:ok, body} <- object_body(conn),
          :ok <- reject_server_owned_fields(body),
          {:ok, attrs} <- validate_schema(@create_schema, body),
-         {:ok, entries} <- normalise_variable_schema_entries(Map.get(attrs, "variable_schemas")) do
+         {:ok, entries} <- normalise_variable_schema_entries(Map.get(attrs, "variable_schemas")),
+         {:ok, entries} <- copied_variable_schemas(attrs, entries, opts) do
       create_attrs = %{
         name: Map.fetch!(attrs, "name"),
         version: Map.fetch!(attrs, "version"),
@@ -647,6 +676,37 @@ defmodule Letflow.Routers.Definitions do
 
       {:error, :invalid_variable_schemas} ->
         Response.unprocessable(conn, "variable_schemas entries are malformed")
+
+      {:error, :copy_and_schemas} ->
+        Response.unprocessable(
+          conn,
+          "send either variable_schemas or copy_variable_schemas_from, not both"
+        )
+
+      {:error, :not_found} ->
+        Response.not_found(conn)
+
+      {:error, _other} ->
+        Response.unprocessable(conn, "copy_variable_schemas_from is not a valid definition id")
+    end
+  end
+
+  # T-1563: `copy_variable_schemas_from` (a definition id) makes a new draft version keep
+  # the source's declared variables. Read prefix-scoped through get_by_id/2 (INV-5), then
+  # inserted by the one existing path, register_variable_schemas/3, in create's transaction.
+  defp copied_variable_schemas(attrs, entries, opts) do
+    case {Map.get(attrs, "copy_variable_schemas_from"), entries} do
+      {nil, _} ->
+        {:ok, entries}
+
+      {_source, entries} when is_list(entries) ->
+        {:error, :copy_and_schemas}
+
+      {source, nil} ->
+        case cast_id(source) do
+          {:ok, id} -> Definitions.variable_schema_entries(id, opts)
+          {:error, _} -> {:error, :invalid_source_id}
+        end
     end
   end
 

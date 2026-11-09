@@ -50,6 +50,7 @@ import { auditLogScreens } from './fixtures/auditLog'
 import { taskInboxScreens } from './fixtures/taskInbox'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
+import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
@@ -270,6 +271,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...emptyErrorStates,
     ...definitionNameScreens,
     ...processDiagramScreens,
+    ...processDesignerEditScreens,
     ...definitionNameAdminScreens,
     ...codesLabelScreens,
     ...docLayoutScreens,

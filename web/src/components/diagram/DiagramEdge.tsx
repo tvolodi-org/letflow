@@ -17,6 +17,8 @@ export interface DiagramEdgeData {
   exitBelowCaption?: boolean
   labelX?: number
   labelY?: number
+  /** T-1563: violations anchored to this edge. */
+  invalid?: { count: number; word: string; messages: string[] }
   [key: string]: unknown
 }
 
@@ -72,19 +74,25 @@ function DiagramEdgeImpl(props: EdgeProps<DiagramFlowEdge>) {
       <BaseEdge
         id={id}
         path={path}
-        className={`lf-pd-edge${state ? ` is-${state}` : ''}`}
+        className={`lf-pd-edge${state ? ` is-${state}` : ''}${data?.invalid ? ' is-invalid' : ''}`}
         markerEnd={`url(#lf-pd-arrow${state ? `-${state}` : ''})`}
       />
-      {data?.label && (
+      {(data?.label || data?.invalid) && (
         <EdgeLabelRenderer>
           <div
             className={`lf-pd-edge__label nodrag nopan${state ? ` is-${state}` : ''}`}
             data-testid="diagram-edge-label"
-            title={data.fullLabel ?? data.label}
+            title={[data.fullLabel ?? data.label, ...(data.invalid?.messages ?? [])].filter(Boolean).join(': ')}
             // React Flow positions edge labels by transform; a computed position, not a colour or spacing value.
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
             {data.label}
+            {data.invalid && (
+              <span className="lf-pd-edge__invalid" data-testid="diagram-edge-invalid">
+                {' '}
+                ⚠ {data.invalid.word}
+              </span>
+            )}
           </div>
         </EdgeLabelRenderer>
       )}
