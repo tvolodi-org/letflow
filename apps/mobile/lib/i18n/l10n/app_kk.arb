@@ -225,5 +225,13 @@
   "stock.voice.choose.dismiss": "Ешқайсысы емес",
   "stock.voice.proposal.title": "Есітілген санақты тексеріңіз",
   "stock.voice.proposal.confirm": "Санау",
-  "stock.voice.proposal.dismiss": "Қабылдамау"
+  "stock.voice.proposal.dismiss": "Қабылдамау",
+  "offline.saved": "Байланыс жоқ. Жоба осы құрылғыда сақталды және қолданба байланыспен ашылғанда жіберіледі.",
+  "offline.full": "Байланыс жоқ, офлайн тізім толы. Бұл жобаны жіберу үшін қосылыңыз.",
+  "offline.waiting": "Жіберуді күтуде: {count}",
+  "offline.sendNow": "Қазір жіберу",
+  "offline.rejected": "Сервер қабылдамады: {reason}",
+  "offline.discard": "Жою",
+  "offline.sent": "Жіберілді: {sent}. Қабылданбады: {rejected}. Күтуде: {remaining}.",
+  "offline.storageWarning": "Сайт орнатылмаған: браузер 7 күн пайдаланылмаса, сақталған деректерді жоюы мүмкін. Оны басты экранға қосыңыз."
 }
