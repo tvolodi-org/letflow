@@ -35,4 +35,59 @@ describe('DefinitionName', () => {
     expect(definitionDisplayText('assets_writeoff', '1.0.0', 'ru')).toBe('Списание актива v1.0.0')
     expect(definitionDisplayText('Order', '3', 'ru')).toBe('Order v3')
   })
+
+  describe('T-1515 edge cases', () => {
+    const LONG = 'assets_' + 'very_long_technical_id_'.repeat(8)
+
+    it.each(['en', 'ru', 'kk'] as const)('E1: unknown id falls back to the technical id in %s, never "undefined"', (locale) => {
+      act(() => useUiLocaleStore.getState().setLocale(locale))
+      const { container } = render(<DefinitionName name="tenant_custom_flow" version="2" />)
+      expect(container).toHaveTextContent('tenant_custom_flow v2')
+      expect(container.textContent).not.toMatch(/undefined|null|NaN/)
+    })
+
+    it.each(['en', 'ru', 'kk'] as const)('E2: missing version keeps label and bare id (no "v", no "undefined") in %s', (locale) => {
+      act(() => useUiLocaleStore.getState().setLocale(locale))
+      const { container } = render(<DefinitionName name="assets_writeoff" />)
+      expect(screen.getByTestId('definition-technical-id').textContent).toBe('assets_writeoff')
+      expect(screen.getByTitle('assets_writeoff')).toBeInTheDocument()
+      expect(container.textContent).not.toMatch(/undefined|null/)
+    })
+
+    it('E3: empty version string is treated as no version', () => {
+      const { container } = render(<DefinitionName name="assets_writeoff" version="" />)
+      expect(screen.getByTestId('definition-technical-id').textContent).toBe('assets_writeoff')
+      expect(container.textContent).not.toMatch(/ v$|undefined/)
+      expect(definitionDisplayText('assets_writeoff', '', 'kk')).toBe('Активті есептен шығару')
+      expect(definitionDisplayText('unknown_x', '', 'kk')).toBe('unknown_x')
+      expect(definitionDisplayText('unknown_x', undefined, 'en')).toBe('unknown_x')
+    })
+
+    it('E4: empty name does not render undefined', () => {
+      const { container } = render(<DefinitionName name="" version="1" />)
+      expect(container.textContent).not.toMatch(/undefined|null/)
+      expect(definitionDisplayText('', undefined, 'ru')).toBe('')
+    })
+
+    it('E5: prototype-like names are plain text, not catalog hits', () => {
+      for (const n of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+        const { container, unmount } = render(<DefinitionName name={n} version="1" />)
+        expect(container.textContent).toBe(`${n} v1`)
+        expect(screen.queryByTestId('definition-technical-id')).toBeNull()
+        unmount()
+      }
+    })
+
+    it('E6: a long unknown id is rendered whole as one text', () => {
+      const { container } = render(<DefinitionName name={LONG} version="10.2.3" />)
+      expect(container.textContent).toBe(`${LONG} v10.2.3`)
+    })
+
+    it('E7: a catalog name with a long version keeps the full id in tooltip and second line', () => {
+      const v = '1.0.0-' + 'rc'.repeat(30)
+      render(<DefinitionName name="assets_writeoff" version={v} />)
+      expect(screen.getByTitle(`assets_writeoff v${v}`)).toBeInTheDocument()
+      expect(screen.getByTestId('definition-technical-id')).toHaveTextContent(`assets_writeoff v${v}`)
+    })
+  })
 })
