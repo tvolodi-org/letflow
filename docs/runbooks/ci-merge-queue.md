@@ -31,7 +31,7 @@ Rules to remember:
 - Editing the script or `ci.yml` runs every gate.
 - Fail-safe: if the diff, the script, or its output fails, the step exits non-zero and CI runs
   every gate. A push to `main`, the nightly and `workflow_dispatch` never say `false`.
-- Docs-only changes: `scripts/ci_docs_only.sh` decides; shard 1 runs the docs tests, shards 2-6 skip.
+- Docs-only changes: `scripts/ci_docs_only.sh` decides; shard 1 runs the docs tests, shards 2-8 skip.
 - The required checks (`Backend gate (mix letflow.check)`, `Frontend gate (npm run check)`) are
   always reported; a gate that is not needed reports success without work.
 
@@ -104,7 +104,8 @@ Two worked examples from 2026-11-08:
 - **Time-of-day (T-1505, #4046):** `test/letflow/ledger/as_of_date_test.exs` failed for every PR
   between **15:00Z and 23:00Z**. The cause was a date taken in Tokyo (+09:00) used against a
   tenant defaulting to Asia/Almaty (+05:00); from 15:00Z to 19:00Z the Tokyo date is ahead, so the
-  product correctly answered `as_of_date_in_future`. Fixed by computing each date in the zone
+  product correctly answered `as_of_date_in_future`. Failures reported after 19:00Z were not
+  traced separately; the reported 15:00Z-23:00Z span is the observed one. Fixed by computing each date in the zone
   under test. The wait for the window to pass is gone. Lesson: a failure that appears at the
   same hour every day is the clock; do not wait it out, and note that a repro attempt outside the
   window passes (the first attempt at 19:04Z did).
