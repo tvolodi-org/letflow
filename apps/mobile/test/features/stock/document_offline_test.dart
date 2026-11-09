@@ -38,12 +38,14 @@ class _MemQueue implements OfflineDraftQueue {
   Future<EnqueueResult> enqueue(
     Map<String, dynamic> body, {
     String label = '',
+    String summary = '',
   }) async {
     items.add(
       QueuedDraft(
         localId: '${items.length}',
         body: body,
         label: label,
+        summary: summary,
         createdAtMs: items.length,
       ),
     );
@@ -58,15 +60,34 @@ class _MemQueue implements OfflineDraftQueue {
   Future<void> remove(String localId) async =>
       items.removeWhere((e) => e.localId == localId);
   @override
-  Future<void> markRejected(String localId, String code) async {
+  Future<void> markRejected(
+    String localId,
+    String code, {
+    Map<String, dynamic>? detail,
+  }) async {
     final i = items.indexWhere((e) => e.localId == localId);
     final e = items[i];
     items[i] = QueuedDraft(
       localId: e.localId,
       body: e.body,
       label: e.label,
+      summary: e.summary,
       createdAtMs: e.createdAtMs,
       rejection: code,
+      rejectionDetail: detail,
+    );
+  }
+
+  @override
+  Future<void> clearRejection(String localId) async {
+    final i = items.indexWhere((e) => e.localId == localId);
+    final e = items[i];
+    items[i] = QueuedDraft(
+      localId: e.localId,
+      body: e.body,
+      label: e.label,
+      summary: e.summary,
+      createdAtMs: e.createdAtMs,
     );
   }
 
@@ -211,6 +232,12 @@ void main() {
       await pump(tester, mem);
       expect(find.text(tr('offline.discard')), findsOne);
       await tester.tap(find.text(tr('offline.discard')));
+      await tester.pumpAndSettle();
+      // W3: Discard asks first; the entry is removed only after the confirm.
+      expect(await mem.count(), 1);
+      await tester.tap(
+        find.byKey(const Key('stock-doc-offline-discard-confirm')),
+      );
       await tester.pumpAndSettle();
       expect(await mem.count(), 0);
     });

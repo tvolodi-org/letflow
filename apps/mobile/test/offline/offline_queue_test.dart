@@ -25,6 +25,29 @@ void main() {
     expect(all.single.label, 'Receipt');
   });
 
+  test('Q1b: detail and summary survive reopen; old record loads', () async {
+    var q = await SembastOfflineDraftQueue.open('q.db', factory: factory);
+    await q.enqueue(_body(1), label: 'R', summary: '1 lines: A x1');
+    final id = (await q.all()).single.localId;
+    await q.markRejected(
+      id,
+      'validation',
+      detail: {'reason': 'field_required'},
+    );
+    await q.closeOnly();
+    q = await SembastOfflineDraftQueue.open('q.db', factory: factory);
+    final e = (await q.all()).single;
+    expect(e.summary, '1 lines: A x1');
+    expect(e.rejectionDetail, {'reason': 'field_required'});
+    final old = QueuedDraft.fromJson({
+      'local_id': 'x',
+      'body': {'a': 1},
+      'rejection': 'conflict',
+    });
+    expect(old.rejectionDetail, isNull);
+    expect(old.summary, '');
+  });
+
   test('Q2: the 21st entry is refused and nothing is stored', () async {
     final q = await SembastOfflineDraftQueue.open('q.db', factory: factory);
     for (var i = 0; i < kMaxQueuedDrafts; i++) {

@@ -13,6 +13,12 @@ extension type _MediaQueryList(JSObject _) implements JSObject {
 @JS('navigator.standalone')
 external JSBoolean? get _iosStandalone;
 
+@JS('navigator.userAgent')
+external String? get _userAgent;
+
+@JS('navigator.maxTouchPoints')
+external JSNumber? get _maxTouchPoints;
+
 @JS('navigator.storage')
 external JSObject? get _storage;
 
@@ -36,5 +42,13 @@ Future<void> requestPersistentStorage() async {
     await (storage.callMethod<JSPromise<JSAny?>>('persist'.toJS)).toDart;
   } on Object {
     // Not supported: nothing to do.
+  }
+}
+
+InstallPlatform currentInstallPlatform() {
+  try {
+    return classifyPlatform(_userAgent ?? '', _maxTouchPoints?.toDartInt ?? 0);
+  } on Object {
+    return InstallPlatform.other;
   }
 }

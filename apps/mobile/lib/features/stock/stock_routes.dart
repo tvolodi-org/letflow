@@ -41,6 +41,11 @@ List<RouteBase> stockRoutes() => [
     ),
   ),
   GoRoute(
+    path: '$kStockDocumentsPath/queued/:localId',
+    builder: (context, state) =>
+        DocumentFormScreen(queuedId: state.pathParameters['localId']),
+  ),
+  GoRoute(
     path: '$kStockDocumentsPath/:id',
     builder: (context, state) =>
         DocumentFormScreen(id: state.pathParameters['id']),

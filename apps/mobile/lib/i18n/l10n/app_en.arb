@@ -132,6 +132,7 @@
   "stock.doc.error.reason_invalid": "The reason is invalid.",
   "stock.doc.error.reason_required": "A reason text is required.",
   "stock.doc.error.reason_too_long": "The reason text is too long.",
+  "stock.doc.error.location_frozen": "This place is frozen for a stock count. Try again after the count ends.",
   "stock.doc.error.sides_equal": "From and To are the same.",
   "stock.doc.error.document_not_draft": "This document is no longer a draft.",
   "stock.doc.error.not_linked": "The {side} location does not belong to the {side} organisation unit.",
@@ -236,5 +237,15 @@
   "offline.rejected": "Refused by the server: {reason}",
   "offline.discard": "Discard",
   "offline.sent": "Sent: {sent}. Refused: {rejected}. Waiting: {remaining}.",
-  "offline.storageWarning": "This site is not installed: the browser may delete saved data after 7 days without use. Add it to the home screen."
+  "offline.storageWarning": "This site is not installed: the browser may delete saved data after 7 days without use. Add it to the home screen.",
+  "offline.summary": "{count} lines: {items}",
+  "offline.conflict.title": "Your saved draft",
+  "offline.conflict.server": "What the server said",
+  "offline.conflict.edit": "Edit and resend",
+  "offline.conflict.retry": "Send again",
+  "offline.conflict.discardConfirm": "Discard this saved draft? Its text will be lost.",
+  "offline.conflict.keepNote": "Nothing was changed on the server. The draft stays here until you choose.",
+  "offline.install.ios": "To install: open this site in Safari, tap the Share button, choose \"Add to Home Screen\", then open the app from the new icon. Saved drafts are kept and the app works offline; a site that is not installed may lose saved data after 7 days.",
+  "offline.install.android": "To install: open the browser menu and choose \"Install app\" or \"Add to Home screen\". Saved drafts are kept and the app works offline; a site that is not installed may lose saved data after 7 days.",
+  "offline.install.dismiss": "Got it"
 }
