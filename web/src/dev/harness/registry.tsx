@@ -12,6 +12,7 @@ import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
 import { topbarLanguage } from './topbarFixtures'
 import { roleLabelsScreens } from './roleLabelsFixtures'
+import { storekeeperGrantScreens } from './storekeeperGrantFixtures'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
 import { notificationBellScreens } from './fixtures/notificationBell'
@@ -308,6 +309,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...metricsScreens,
     ...auditLogScreens,
     ...roleLabelsScreens,
+    ...storekeeperGrantScreens,
     ...taskInboxScreens,
     ...navRoleScreens,
     ...a11yDialogScreens,

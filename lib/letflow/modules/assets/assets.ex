@@ -75,6 +75,13 @@ defmodule Letflow.Modules.Assets do
   spec `docs/assets/government-lists.md` section 3). Installs made before this change do not get it
   (no upgrade runner carries it).
 
+  **Storekeeper grant** (T-1570, version 0.16.0, D-097): the setting `storekeeper_grants` (subset of
+  `AssetsRead`, `AssetsPost`) lets a tenant's STOREKEEPER read and post assets. `role_grants` stays empty
+  (a manifest line would widen every tenant); the grant is a per-tenant overlay read by
+  `Letflow.Api.TenantGrants`. `on_install/3` seeds read and post for a tenant that installs the module now;
+  an existing tenant has no key and stays off until a tenant administrator switches it on
+  (`PUT /tenant/role-grants`). AssetsReverse, AssetsReconcile and AssetsCardWrite are never grantable.
+
   **Currency** (D-097): the tenant currency is the module setting `currency` (three characters),
   `KZT` when absent. See `currency/1`.
 
@@ -176,7 +183,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.15.0",
+    version: "0.16.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
@@ -186,7 +193,12 @@ defmodule Letflow.Modules.Assets do
       "type" => "object",
       "properties" => %{
         "currency" => %{"type" => "string", "minLength" => 3, "maxLength" => 3},
-        "expiry_reminder_lead_days" => %{"type" => "integer", "minimum" => 1, "maximum" => 3650}
+        "expiry_reminder_lead_days" => %{"type" => "integer", "minimum" => 1, "maximum" => 3650},
+        "storekeeper_grants" => %{
+          "type" => "array",
+          "items" => %{"type" => "string", "enum" => ["AssetsRead", "AssetsPost"]},
+          "uniqueItems" => true
+        }
       },
       "additionalProperties" => false
     },
@@ -348,7 +360,8 @@ defmodule Letflow.Modules.Assets do
   @impl true
   def on_install(prefix, _settings, ctx) do
     with :ok <- EntityActivation.activate_and_promote(prefix, ctx, @types),
-         :ok <- register_document_types(prefix, ctx) do
+         :ok <- register_document_types(prefix, ctx),
+         :ok <- Letflow.Api.TenantGrants.seed_default(prefix) do
       Reports.ensure_asset_list(prefix, ctx.actor_id)
     end
   end

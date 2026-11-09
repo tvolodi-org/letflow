@@ -246,6 +246,16 @@ defmodule Letflow.Modules.Assets.KindChangePostingTest do
     before = snapshot(ctx, id)
     task = pending(ctx.schema, id)
 
+    # a new tenant's storekeeper holds AssetsPost (D-097 default); the refusal applies with the
+    # per-tenant grant switched off
+    row = Repo.get_by!(Letflow.Modules.TenantModule, [module_id: "assets"], prefix: ctx.schema)
+
+    row
+    |> Letflow.Modules.TenantModule.settings_changeset(%{
+      settings: Map.delete(row.settings, "storekeeper_grants")
+    })
+    |> Repo.update!(prefix: ctx.schema)
+
     for roles <- [["STOREKEEPER"], ["TASK_WORKER"]] do
       holder = TokenMintFixture.role_holder!(ctx.schema, roles)
       assert {:error, _refusal} = complete_as(ctx, task, holder)

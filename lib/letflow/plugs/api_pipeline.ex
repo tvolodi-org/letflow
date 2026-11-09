@@ -205,6 +205,9 @@ defmodule Letflow.Plugs.ApiPipeline do
   # org-scoped role grant admin plane of the caller's own tenant.
   forward("/tenant/role-scope-grants", to: Letflow.Routers.TenantRoleScopeGrants)
 
+  # T-1570 (D-097) -- the per-tenant storekeeper grant overlay (assets read/post).
+  forward("/tenant/role-grants", to: Letflow.Routers.TenantRoleGrants)
+
   # REQ-415 -- solution install: POST /api/v1/tenant/solutions. Mounted at
   # /tenant/solutions (a sibling prefix to /tenant/modules, not a sub-path
   # of it) so the route collision the modules mount guards against doesn't
