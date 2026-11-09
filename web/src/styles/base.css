@@ -205,3 +205,8 @@ samp {
 }
 /* T-1490: a disabled text input (inventory number of a posted card) reads as read-only, like the disabled select. */
 .lf-form input:disabled { opacity: .55; cursor: not-allowed; }
+/* T-1553: the stacked table's single-cell rows (empty list, load error) are one full-width cell, not a label + value
+   grid; in the 9.5em label column the empty-state box was squeezed and pushed off the 390 px screen. */
+@media (max-width: 720px) {
+  .lf-table--stack td[colspan] { grid-template-columns: minmax(0, 1fr); padding: 0; }
+}

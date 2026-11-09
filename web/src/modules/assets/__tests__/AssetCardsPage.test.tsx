@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 /** P1–P9 — T-1333 / C13: the asset card screen: list, filters, detail panel, create, edit, retire, write errors,
  *  keyboard, languages. A fake server answers /entities/query; the writes are recorded. */
+import { accessibleFormProblems } from '@/test-utils/a11yForm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -152,7 +153,14 @@ describe('P4 create', () => {
     renderAssets(PATH)
     fireEvent.click(await screen.findByTestId('asset-create'))
     await screen.findByRole('form', { name: en['assets.page.createTitle'] })
-    expect(screen.getByTestId('asset-save')).toBeDisabled()
+    // K4: Save is enabled; a click on the empty form explains instead of staying silent
+    expect(screen.getByTestId('asset-save')).toBeEnabled()
+    fireEvent.click(screen.getByTestId('asset-save'))
+    expect(screen.getAllByText(en['assets.error.required'])).toHaveLength(2)
+    expect(field('inventory_number')).toHaveAttribute('aria-invalid', 'true')
+    await waitFor(() => expect(field('inventory_number')).toHaveFocus())
+    expect(accessibleFormProblems(screen.getByRole('form'))).toEqual([]) // K1/K2
+    expect(writeCalls(clientMock)).toHaveLength(0)
     fireEvent.change(field('inventory_number'), { target: { value: 'FA-9' } })
     fireEvent.change(field('name'), { target: { value: 'New van' } })
     expect(document.querySelector('[name="org_unit_id"]')).toBeNull()
@@ -182,7 +190,9 @@ describe('P4 create', () => {
     fireEvent.change(field('book_value'), { target: { value: '1,5' } })
     expect(screen.getByText(en['assets.error.decimalFormat'])).toBeInTheDocument()
     expect(field('book_value')).toHaveAttribute('aria-invalid', 'true')
-    expect(screen.getByTestId('asset-save')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('asset-save'))
+    expect(writeCalls(clientMock)).toHaveLength(0)
+    await waitFor(() => expect(field('book_value')).toHaveFocus())
   })
 })
 

@@ -5,7 +5,9 @@ defmodule Letflow.Modules.TenantModuleUpgrade do
   explicit `prefix:` (INV-1), as `Letflow.Modules.TenantModule` does.
 
   Writers: `Letflow.Modules.UpgradePlan` (`planned` rows, REQ-768) and `Letflow.ModuleUpgrade.Apply`
-  (`done` and `failed` rows, REQ-770; `touches` holds the stored apply response under `"result"`).
+  (`done` and `failed` rows, REQ-770; `touches` holds the stored apply response under `"result"` and what a
+  rollback needs under `"undo"`), and `Letflow.ModuleUpgrade.Rollback` (`kind: :rollback` rows; `touches` holds
+  `"reverses"`, the id of the upgrade row it undid, and `"result"`).
   `kind` is limited to
   `:upgrade | :rollback`; uninstall and reactivate belong to the uninstall record (0055 D11). A later
   status read must not expose `step_cursor`, `runner_id` or the lease fields (INV-2).

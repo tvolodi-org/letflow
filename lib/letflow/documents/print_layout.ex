@@ -54,7 +54,7 @@ defmodule Letflow.Documents.PrintLayout do
   @max_columns 12
   @version 1
   @font "dejavu-sans"
-  @sizes ["A4", "Letter"]
+  @sizes ["A4", "A4-landscape", "Letter"]
   @types ["page", "text", "field", "table", "spacer"]
 
   @layout_keys ["layout_schema_version", "blocks"]

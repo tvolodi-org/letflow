@@ -16,6 +16,10 @@ import { PaginationControls } from '@/components/ui/PaginationControls'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { formatDateTime, formatTime } from '@/i18n/format'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { useFeedbackMessages } from '@/components/ui/feedbackMessages'
+import { saveErrorText } from '@/utils/saveError'
+import { instancesMessages } from './instancesMessages'
 import { deferClickState } from '@/utils/deferClickState'
 import { DefinitionName } from '@/components/ui/DefinitionName'
 
@@ -78,6 +82,8 @@ export default function InstanceBoardPage() {
   const [startCorrelationKey, setStartCorrelationKey] = useState('')
   const [startVariablesJson, setStartVariablesJson] = useState('{\n  \n}')
   const [startError, setStartError] = useState<string | null>(null)
+  const feedback = useFeedbackMessages()
+  const im = instancesMessages[useUiLocale()]
   const [startValidationError, setStartValidationError] = useState<string | null>(null)
 
   const canStartInstance = useAccess().can(P.InstancesStart)
@@ -272,8 +278,7 @@ export default function InstanceBoardPage() {
       setShowStart(false)
       navigate(`/instances/${created.instance_id}`)
     } catch (err: unknown) {
-      const e = err as { message?: string }
-      setStartError(e.message ?? 'Failed to start instance.')
+      setStartError(saveErrorText(err, feedback))
     }
   }
 
@@ -429,7 +434,8 @@ export default function InstanceBoardPage() {
           <DataTable<ProcessInstance>
             columns={columns}
             data={instancesQuery.data.items}
-            emptyMessage="No instances found."
+            emptyMessage={im.empty}
+            emptyText={im.emptyHint}
           />
 
           <div style={{ marginTop: '1rem' }}>
@@ -472,7 +478,7 @@ export default function InstanceBoardPage() {
           >
             <h3 style={{ marginTop: 0, marginBottom: '.75rem' }}>Start Instance</h3>
 
-            {startError && <p style={{ marginTop: 0, color: 'var(--color-error-dark)' }}>{startError}</p>}
+            {startError && <p data-testid="start-instance-error" role="alert" style={{ marginTop: 0, color: 'var(--color-error-dark)' }}>{startError}</p>}
             {startValidationError && <p style={{ marginTop: 0, color: 'var(--color-error-dark)' }}>{startValidationError}</p>}
 
             <label htmlFor="start-definition-name" style={{ display: 'block', fontSize: 'var(--text-sm)', color: 'var(--text-primary)', marginBottom: '.25rem' }}>

@@ -106,14 +106,21 @@ defmodule Letflow.Modules.Stock.DocumentPrintTest do
         title = DocumentPrint.labels()[:"title_#{kind}"][lang]
         assert title in text
         assert Enum.any?(text, &String.ends_with?(&1, "TR-2026-000007"))
-        assert Enum.count(text, &String.ends_with?(&1, "2026-11-04T10:00:00+05:00")) == 2
+        # T-1555: localized time plus the zone offset (was ISO)
+        local = if lang == :en, do: "2026-11-04 10:00", else: "04-11-2026 10:00"
+        assert Enum.count(text, &String.ends_with?(&1, local <> " (UTC+05:00)")) == 2
         assert "UA Alpha" in text and "UB Beta" in text
         assert "LA ShelfA" in text and "LB ShelfB" in text
         assert "Anna Alpha E-1" in text and "Boris Beta E-2" in text
-        assert "0.000000001" in text
+        assert if(lang == :en, do: "0.000000001", else: "0,000000001") in text
         assert "I1 Widget" in text and "pcs" in text
       end
     end
+  end
+
+  test "the stock act stays on a portrait A4 page" do
+    {:ok, pdf} = DocumentPrint.build(issued("transfer"), names(), :ru)
+    assert pdf =~ "/MediaBox [0 0 595 842]"
   end
 
   describe "P2 two signer rows" do

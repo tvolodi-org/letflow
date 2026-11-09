@@ -176,7 +176,38 @@ defmodule Letflow.Plugs.AuthPipeline do
     if Identity.tenant_purged?(id), do: {:error, {:tenant_purged, id}}, else: :ok
   end
 
+  # GH T-1558: a presented-but-wrong credential is marked so `Letflow.Plugs.AuthAttemptLimit`
+  # (before-send hook) spends one token of the caller's failure bucket. A missing header and an
+  # expired API token carry no guess and are not marked. Status and body are unchanged.
+  defp counted_failure?({:error, {:verify, reason}}),
+    do: not expired_jwt?(reason)
+
+  defp counted_failure?({:error, {class, _}})
+       when class in [:realm, :tenant, :ownership, :claims],
+       do: true
+
+  defp counted_failure?({:error, {:api_token, reason}}),
+    do: reason != :expired and reason != :header_missing
+
+  defp counted_failure?(_), do: false
+
+  # An expired but correctly signed JWT carries no guess (the SPA renews on 401 and replays).
+  defp expired_jwt?(:token_expired), do: true
+  defp expired_jwt?({:jwt_validation_failed, :token_expired}), do: true
+  defp expired_jwt?(_), do: false
+
   defp handle_auth_error(conn, error) do
+    if counted_failure?(error) do
+      case Letflow.Plugs.AuthAttemptLimit.record_failure(put_private(conn, :auth_failed, true)) do
+        {:limited, limited} -> limited
+        {:ok, conn} -> respond_auth_error(conn, error)
+      end
+    else
+      respond_auth_error(conn, error)
+    end
+  end
+
+  defp respond_auth_error(conn, error) do
     case error do
       {:error, {:tenant_purged, _id}} ->
         reject(conn, 403, "tenant_inactive", "tenant is deactivated")

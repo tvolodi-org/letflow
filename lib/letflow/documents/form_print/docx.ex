@@ -17,6 +17,8 @@ defmodule Letflow.Documents.FormPrint.Docx do
   @ns ~s(xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main")
   @decl ~s(<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n)
   @fixed_time {{1980, 1, 1}, {0, 0, 0}}
+  # Table header cells print small so a header word is not broken in a narrow column (T-1555).
+  @head_size 14
 
   @spec render([tuple()]) :: {:ok, binary()}
   def render(model) do
@@ -73,7 +75,7 @@ defmodule Letflow.Documents.FormPrint.Docx do
   defp block({:signature, label, values, captions, stamp}) do
     joined = values |> Enum.map(&or_blank/1) |> Enum.join(" / ")
     caption = Enum.join(Enum.reject([stamp | captions], &is_nil/1), " / ")
-    [para([run(label <> " "), run(joined)]), para([run(caption, size: 16)])]
+    [para([run(label <> " "), run(joined)], keep_next: true), para([run(caption, size: 16)])]
   end
 
   defp block({:table, %{columns: columns, rows: rows, total: total}}) do
@@ -94,13 +96,13 @@ defmodule Letflow.Documents.FormPrint.Docx do
             {_group, cs} -> Enum.map(cs, &cell(&1.label, bold: true))
           end)
 
-        [row(top), row(bottom)]
+        [row(top, :head), row(bottom, :head)]
       else
-        [row(Enum.map(columns, &cell(&1.label, bold: true)))]
+        [row(Enum.map(columns, &cell(&1.label, bold: true)), :head)]
       end
 
     numbers =
-      row(Enum.map(columns, fn c -> cell(Integer.to_string(c.no), center: true) end))
+      row(Enum.map(columns, fn c -> cell(Integer.to_string(c.no), center: true) end), :head)
 
     keys = Enum.map(columns, & &1.key)
 
@@ -146,8 +148,8 @@ defmodule Letflow.Documents.FormPrint.Docx do
   end
 
   # By the official column number: 1 is the row number, 2 the name, the others share the rest.
-  defp col_width(1, _columns), do: 700
-  defp col_width(2, _columns), do: 4200
+  defp col_width(1, _columns), do: 900
+  defp col_width(2, _columns), do: 3000
 
   defp col_width(_no, columns) do
     used = columns |> Enum.map(&fixed_width(&1.no)) |> Enum.sum()
@@ -155,8 +157,8 @@ defmodule Letflow.Documents.FormPrint.Docx do
     div(15400 - used, max(others, 1))
   end
 
-  defp fixed_width(1), do: 700
-  defp fixed_width(2), do: 4200
+  defp fixed_width(1), do: 900
+  defp fixed_width(2), do: 3000
   defp fixed_width(_), do: 0
 
   defp or_blank(""), do: Pdf.blank()
@@ -165,7 +167,15 @@ defmodule Letflow.Documents.FormPrint.Docx do
   # -- xml helpers ------------------------------------------------------------------------------
 
   defp para(runs, opts \\ []) do
-    ppr = if opts[:center], do: ~s(<w:pPr><w:jc w:val="center"/></w:pPr>), else: ""
+    inner =
+      [
+        if(opts[:keep_next], do: "<w:keepNext/>"),
+        if(opts[:center], do: ~s(<w:jc w:val="center"/>))
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join()
+
+    ppr = if inner == "", do: "", else: "<w:pPr>#{inner}</w:pPr>"
     ["<w:p>", ppr, runs, "</w:p>"]
   end
 
@@ -183,7 +193,11 @@ defmodule Letflow.Documents.FormPrint.Docx do
     ~s(<w:r>#{rpr}<w:t xml:space="preserve">#{escape(text)}</w:t></w:r>)
   end
 
-  defp row(cells), do: ["<w:tr>", cells, "</w:tr>"]
+  # A row never splits across pages; header rows repeat at the top of each page of the table.
+  defp row(cells, kind \\ :data) do
+    pr = if kind == :head, do: "<w:cantSplit/><w:tblHeader/>", else: "<w:cantSplit/>"
+    ["<w:tr><w:trPr>", pr, "</w:trPr>", cells, "</w:tr>"]
+  end
 
   defp cell(text, opts \\ []) do
     pr =
@@ -199,7 +213,14 @@ defmodule Letflow.Documents.FormPrint.Docx do
       |> Enum.join()
 
     jc = if opts[:center] || opts[:span] || opts[:bold], do: [center: true], else: []
-    ["<w:tc><w:tcPr>", pr, "</w:tcPr>", para([run(text, bold: opts[:bold])], jc), "</w:tc>"]
+
+    [
+      "<w:tc><w:tcPr>",
+      pr,
+      "</w:tcPr>",
+      para([run(text, bold: opts[:bold], size: if(opts[:bold], do: @head_size))], jc),
+      "</w:tc>"
+    ]
   end
 
   # -- static parts -----------------------------------------------------------------------------

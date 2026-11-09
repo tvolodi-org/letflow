@@ -40,4 +40,38 @@ defmodule Letflow.Audit.LedgerPosted do
       trace_id: nil
     }
   end
+
+  @doc """
+  GH #T-1557: the document-level audit attributes of one posted summary, or `nil` when the
+  summary carries no document id. `document.reversed` / `document.written_off` / `document.posted`,
+  keyed by the document id so the administrator can filter "this document". No quantity, no free text.
+  """
+  @spec document_attrs(map(), String.t() | nil) :: map() | nil
+  def document_attrs(summary, actor_id) when is_map(summary) do
+    case Map.get(summary, :document_id) do
+      id when is_binary(id) and id != "" ->
+        %{
+          actor_id: actor_id,
+          action: document_action(Map.get(summary, :cause)),
+          resource_type: "document",
+          resource_id: id,
+          before_state: nil,
+          after_state: %{
+            "document_type" => Map.get(summary, :document_type),
+            "cause" => Map.get(summary, :cause),
+            "ledger_id" => summary.ledger_id,
+            "entry_id" => summary.entry_id,
+            "actor_id" => actor_id
+          },
+          trace_id: nil
+        }
+
+      _none ->
+        nil
+    end
+  end
+
+  defp document_action("reversal"), do: "document.reversed"
+  defp document_action("writeoff"), do: "document.written_off"
+  defp document_action(_cause), do: "document.posted"
 end

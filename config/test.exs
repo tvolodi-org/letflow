@@ -425,3 +425,10 @@ config :logger, :default_handler, level: :warning
 # (`Letflow.Documents.Renderers`). Set to true here and nowhere else; in every other build the
 # override is not compiled, so no runtime setting can choose a renderer module.
 config :letflow, :document_renderers_override_enabled, true
+
+# GH T-1558: the failed-credential limiter keys on the client address, and almost every test
+# calls the router from the same 127.0.0.1. Generous defaults keep the rest of the suite
+# unaffected; test/letflow/plugs/auth_attempt_limit_test.exs overrides them per test.
+config :letflow, Letflow.Plugs.AuthAttemptLimit,
+  failure_capacity: 1_000_000,
+  request_capacity: 1_000_000

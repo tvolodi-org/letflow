@@ -20,15 +20,26 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   @spec blank() :: String.t()
   def blank, do: @blank
 
+  # Official forms with more columns than this print on a landscape A4 page.
+  @wide_columns 7
+
   @spec render([tuple()]) ::
           {:ok, binary()} | {:error, :unsupported_glyph | {:render_failed, [atom()]}}
   def render(model) do
     {blocks, doc, tables} = compile(model)
 
+    wide? =
+      Enum.any?(model, fn
+        {:table, %{columns: tcols}} -> length(tcols) > @wide_columns
+        _ -> false
+      end)
+
+    size = if wide?, do: "A4-landscape", else: "A4"
+
     layout = %{
       "layout_schema_version" => 1,
       "blocks" => [
-        %{"type" => "page", "size" => "A4", "margin_mm" => 12, "font" => "dejavu-sans"} | blocks
+        %{"type" => "page", "size" => size, "margin_mm" => 12, "font" => "dejavu-sans"} | blocks
       ]
     }
 
