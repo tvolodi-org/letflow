@@ -582,6 +582,14 @@ defmodule Letflow.Modules.Installs do
          {:ok, created} <-
            upgrade_entity_versions(document, selection.entities, actor_id, prefix, owner),
          :ok <- activate_upgraded(created, actor_id, rationale, prefix),
+         {:ok, reactivated} <-
+           reactivate_stored_shapes(
+             document,
+             selection.entities -- created,
+             actor_id,
+             rationale,
+             prefix
+           ),
          {:ok, drafts} <-
            SolutionPack.install_process_drafts(
              document,
@@ -593,7 +601,7 @@ defmodule Letflow.Modules.Installs do
          {:ok, ledger_ids} <- upgrade_ledger_storage(entry_module, prefix) do
       {:ok,
        %{
-         entity_versions: length(created),
+         entity_versions: length(created) + reactivated,
          process_drafts: drafts,
          ledger_ids: ledger_ids,
          compiled_manifest_hash: owner.manifest_hash
@@ -636,6 +644,41 @@ defmodule Letflow.Modules.Installs do
         {:error, reason} -> {:halt, {:error, {:activation_refused, name, reason_code(reason)}}}
       end
     end)
+  end
+
+  # After a rollback the newer shape is stored as an INACTIVE row, so `skip_existing_shape` creates
+  # nothing for it; the upgrade must make that row the active one again. A row that is already
+  # active (a description-only change, a reordering) is left alone.
+  defp reactivate_stored_shapes(_document, [], _actor_id, _rationale, _prefix), do: {:ok, 0}
+
+  defp reactivate_stored_shapes(document, names, actor_id, rationale, prefix) do
+    with {:ok, rows} <- SolutionPack.existing_shape_rows(document, names, prefix: prefix) do
+      Enum.reduce_while(rows, {:ok, 0}, fn row, {:ok, count} ->
+        if active_row?(row, prefix) do
+          {:cont, {:ok, count}}
+        else
+          case Letflow.Entities.Definitions.activate_definition_row(
+                 row,
+                 actor_id,
+                 rationale,
+                 prefix
+               ) do
+            {:ok, _activated} ->
+              {:cont, {:ok, count + 1}}
+
+            {:error, reason} ->
+              {:halt, {:error, {:activation_refused, row.name, reason_code(reason)}}}
+          end
+        end
+      end)
+    end
+  end
+
+  defp active_row?(row, prefix) do
+    case Letflow.Entities.Definitions.get_active_definition_by_name(row.name, prefix) do
+      {:ok, %{id: id}} -> id == row.id
+      _other -> false
+    end
   end
 
   # A closed shape for the failure: never a changeset, exception or SQL text (INV-8).

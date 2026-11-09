@@ -313,7 +313,10 @@ defmodule Letflow.Api.Error do
   @doc """
   HTTP 409 — Module Upgrade Refused (REQ-770, decision 0080). `code` is one of the closed set of
   refusal and failure codes of the upgrade apply (`plan_mismatch`, `no_upgrade_path`,
-  `upgrade_forbidden`, `ack_mismatch`, `upgrade_needs_runner`, `upgrade_running`, `upgrade_failed`);
+  `upgrade_forbidden`, `ack_mismatch`, `upgrade_needs_runner`, `upgrade_running`, `upgrade_failed`) and of the
+  rollback (`no_previous_version`, `rollback_not_recorded`, `module_version_ahead`,
+  `rollback_target_mismatch`, `no_upgrade_path_from_target`, `rollback_forbidden`,
+  `rollback_needs_runner`, `rollback_refused`, `rollback_failed`);
   `extensions` carries only code-like extras (reasons, a failure code), never tenant data.
   """
   @spec module_upgrade_refused(String.t(), map()) :: t()

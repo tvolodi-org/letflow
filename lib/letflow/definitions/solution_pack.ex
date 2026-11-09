@@ -593,6 +593,40 @@ defmodule Letflow.Definitions.SolutionPack do
     end
   end
 
+  @doc """
+  The rows the tenant already stores for the named entries of a pack document, matched by name and
+  logical shape (the rows `skip_existing_shape` leaves alone). The module upgrade uses it to
+  re-activate an inactive row after a rollback instead of creating a second one. Read only;
+  schema source `opts[:prefix]` (INV-1).
+  """
+  @spec existing_shape_rows(map(), [String.t()], keyword()) ::
+          {:ok, [EntityDefinition.t()]} | {:error, term()}
+  def existing_shape_rows(document, names, opts) when is_list(names) and is_list(opts) do
+    with {:ok, parsed} <- parse_document(document),
+         {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix(opts)) do
+      rows =
+        for packed <- parsed.entity_definitions,
+            packed.name in names,
+            row <-
+              Repo.all(
+                from(d in EntityDefinition,
+                  where:
+                    d.name == ^packed.name and
+                      d.logical_shape_version ==
+                        ^Letflow.Entities.Definition.Shape.logical_shape_of(
+                          packed.definition_json
+                        ),
+                  order_by: [desc: d.inserted_at, desc: d.id],
+                  limit: 1
+                ),
+                prefix: prefix(opts)
+              ),
+            do: row
+
+      {:ok, rows}
+    end
+  end
+
   # REQ-770: `opts[:skip_existing_shape]` leaves out an entry whose logical shape (fields, indexes,
   # foreign keys, constraints; not display name or description) the tenant already stores for that name
   # in any version: the `(tenant, name, logical shape)` unique index would refuse a second row, and
