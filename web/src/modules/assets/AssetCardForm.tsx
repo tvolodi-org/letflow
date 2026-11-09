@@ -4,16 +4,16 @@
  *  form, never converted to numbers. The server stays the authority. */
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
-import { useQuery } from '@tanstack/react-query'
 import { useAccess } from '@/auth/access/useAccess'
 import { useAuth } from '@/auth/AuthContext'
+import { useAssetCardLock } from '@/hooks/useAssetCardLock'
 import { Button } from '@/components/ui/Button'
 import { DateField } from '@/components/ui/DateField'
 import { Field } from '@/components/ui/Field'
 import { FormActions, FormRow, FormSection } from '@/components/ui/FormSection'
 import { Select } from '@/components/ui/Select'
 import type { EntityRecord } from '@/types/api'
-import { assetsApi, type CardBody } from './assets.api'
+import type { CardBody } from './assets.api'
 import {
   ASSET_KINDS,
   DECIMAL_KEYS,
@@ -26,7 +26,6 @@ import {
   type Form,
 } from './assetsModel'
 import { ASSETS_READ } from './assetsPermissions'
-import { assetsQueryKeys } from './assetsQueryKeys'
 import type { AssetsWriteResult, useAssetsWrite } from './useAssetsWrite'
 
 export type Cmd =
@@ -55,12 +54,7 @@ export function AssetCardForm(props: {
   // T-1490 / G3: after the first posted document the inventory number is read-only. The lock is read from the
   // server; while it is unknown or failed the number stays disabled (fail closed). Without AssetsRead the lock
   // cannot be read, so the input stays editable and the server's 422 is the authority.
-  const lockQuery = useQuery({
-    queryKey: assetsQueryKeys.cardLock(session?.tenant_id ?? '', record?.record_id ?? ''),
-    queryFn: () => assetsApi.cardLock(record?.record_id ?? ''),
-    enabled: !isNew && can(ASSETS_READ),
-    retry: false,
-  })
+  const lockQuery = useAssetCardLock(session?.tenant_id ?? '', record?.record_id ?? '', !isNew && can(ASSETS_READ))
   const locked = !isNew && can(ASSETS_READ) && lockQuery.data?.posted !== false
   const dirty = JSON.stringify(form) !== JSON.stringify(initial)
   const intangible = form.kind === 'intangible'
