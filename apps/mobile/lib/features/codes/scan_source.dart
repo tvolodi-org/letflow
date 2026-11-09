@@ -1,7 +1,7 @@
 /// The one seam between the codes feature and a camera package (REQ-732).
-/// Only `mobile_scanner_source.dart` imports the package; everything else,
-/// tests included, talks to this interface, so a widget test never needs a
-/// camera.
+/// In lib/, only `mobile_scanner_source.dart` imports the package; everything
+/// else talks to this interface, so a widget test never needs a camera (the
+/// adapter's own test drives it through a stub controller).
 library;
 
 import 'dart:async';
@@ -22,13 +22,27 @@ final class ScanDetected extends ScanEvent {
   final String? text;
 }
 
-/// The device camera could not be used (permission refused or no camera).
+/// The user (or the browser) refused the camera permission.
 final class ScanPermissionRefused extends ScanEvent {
   const ScanPermissionRefused();
 }
 
+/// The camera cannot be used for another reason: no camera, an unsupported
+/// browser, an insecure (non-HTTPS) page, or a start that failed (PWA M4).
+final class ScanCameraUnavailable extends ScanEvent {
+  const ScanCameraUnavailable();
+}
+
+/// What the camera area of a scan screen shows instead of the preview.
+enum CameraPhase { awaitingTap, refused, unavailable }
+
 abstract class ScanSource {
   Stream<ScanEvent> get events;
+
+  /// True where the camera may only start after a user tap (web: Safari
+  /// refuses a camera start without one). Native starts at once.
+  bool get needsUserTap;
+
   Future<void> start();
   Future<void> stop();
   Widget buildPreview();
