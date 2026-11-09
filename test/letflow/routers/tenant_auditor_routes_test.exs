@@ -165,6 +165,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.Entities, "POST", "/query"},
     {Letflow.Routers.Entities, "POST", "/query/aggregate"},
     # T-1389: the auditor's own display preferences (rows keyed by its own user id; no tenant data)
+    # T-1561: the caller's own notification read marks (rows keyed by its own user id)
+    {Letflow.Routers.Me, "POST", "/notifications/read"},
     {Letflow.Routers.Me, "PUT", "/preferences"}
   ]
 
@@ -767,13 +769,13 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
         assert methods == ["GET"], inspect(router)
       end
 
-      # T-1389: Me gained exactly one write, the caller's own preferences (in @allowed_non_get)
+      # T-1389/T-1561: Me gained exactly two writes, the caller's own preferences and own notification read marks (in @allowed_non_get)
       me_writes =
         for {method, local, _key} <- Letflow.Routers.Me.__authz_routes__(),
             method != "GET",
             do: {method, local}
 
-      assert me_writes == [{"PUT", "/preferences"}]
+      assert me_writes == [{"POST", "/notifications/read"}, {"PUT", "/preferences"}]
     end
 
     test "the non-GET routes the auditor holds are exactly the literal allowlist of design 2.5 (everything else that persists is denied)" do
