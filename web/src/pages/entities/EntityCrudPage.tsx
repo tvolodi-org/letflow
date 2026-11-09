@@ -45,6 +45,7 @@ import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { useModalFocus } from '@/components/ui/useModalFocus'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { deferClickState } from '@/utils/deferClickState'
@@ -151,6 +152,7 @@ function EntityCrudPageInner({ entityType, writes = DEFAULT_ENTITY_WRITES }: Ent
   // in general. Reset once the delete mutation settles (success or error), or when a
   // fresh delete confirmation is opened for a different record.
   const deleteInFlightRef = useRef(false)
+  const formModalRef = useRef<HTMLDivElement | null>(null)
 
   const cursor = cursorStack.length > 0 ? cursorStack[cursorStack.length - 1] : undefined
 
@@ -255,6 +257,11 @@ function EntityCrudPageInner({ entityType, writes = DEFAULT_ENTITY_WRITES }: Ent
       setFormError(null)
     })
   }
+  useModalFocus(formModalRef, {
+    open: modal != null && definition != null,
+    onClose: closeModal,
+    busy: createMutation.isPending || updateMutation.isPending,
+  })
   const openDeleteConfirm = (record: EntityRecord) => {
     deleteInFlightRef.current = false
     deferClickState(() => {
@@ -378,6 +385,8 @@ function EntityCrudPageInner({ entityType, writes = DEFAULT_ENTITY_WRITES }: Ent
 
         {modal && definition && (
           <div
+            ref={formModalRef}
+            tabIndex={-1}
             data-testid="entity-form-modal"
             role="dialog"
             aria-modal="true"

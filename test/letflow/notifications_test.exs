@@ -30,6 +30,9 @@ defmodule Letflow.NotificationsTest do
     S.put_app_env!(@notifier, adapter: Double, timeout_ms: 100, max_concurrent: 5)
     Double.set_owner(self())
     on_exit(&Double.reset/0)
+
+    # T-1571: the assignment mail is the tenant's opt-in e-mail copy; the REQ-584 tests run with it on.
+    :ok = set_settings!(fx, %{})
     {:ok, fx: fx, opts: [prefix: fx.schema_name]}
   end
 
@@ -54,7 +57,9 @@ defmodule Letflow.NotificationsTest do
     end)
   end
 
-  defp set_settings!(fx, settings) do
+  defp set_settings!(fx, settings, copy \\ true) do
+    settings = if copy, do: Map.put(settings, "notifications.email_copy", true), else: settings
+
     {:ok, _} =
       Repo.query("UPDATE tenants SET settings = $1::jsonb WHERE id = $2", [
         settings,
@@ -319,5 +324,174 @@ defmodule Letflow.NotificationsTest do
       assert [_] = await_rows(fx.schema_name)
       assert rows(other.schema_name) == []
     end
+  end
+
+  describe "e-mail copy of the bell (T-1571)" do
+    defp user_settings!(fx, user, prefs) do
+      {:ok, _} = Letflow.UserPreferences.put(fx.schema_name, user.id, prefs)
+      :ok
+    end
+
+    defp insert_delivery!(prefix, user_id, age_seconds) do
+      at = DateTime.add(DateTime.utc_now(), -age_seconds, :second)
+
+      Repo.insert!(
+        %Delivery{
+          tenant_id: Ecto.UUID.generate(),
+          template_key: "task_assigned",
+          locale: "en",
+          recipient_user_id: user_id,
+          status: "sent",
+          trigger_ref: Ecto.UUID.generate(),
+          inserted_at: at
+        },
+        prefix: prefix
+      )
+    end
+
+    defp assign_new!(fx, user), do: {:ok, _} = assign!(fx, unassigned_task(fx), user)
+
+    test "E1 default OFF: no mail, no row; bell row still written (E17)", %{fx: fx} do
+      :ok = set_settings!(fx, %{}, false)
+      user = RSG.user!(fx.schema_name)
+      assign_new!(fx, user)
+      refute_receive {:deliver_message, _}, 300
+      assert rows(fx.schema_name) == []
+      assert %{items: [_]} = Letflow.UserNotifications.list(fx.schema_name, user.id)
+    end
+
+    test "E2 switch on: one mail, one sent row", %{fx: fx} do
+      user = RSG.user!(fx.schema_name)
+      assign_new!(fx, user)
+      assert_receive {:deliver_message, %{to: to}}, 2000
+      assert to == user.email
+      assert [%{status: "sent"}] = await_rows(fx.schema_name)
+    end
+
+    test "E5/E6 user opt-out and reset; E17 bell stays", %{fx: fx} do
+      user = RSG.user!(fx.schema_name)
+      :ok = user_settings!(fx, user, %{"notifications.email" => "off"})
+      assign_new!(fx, user)
+      refute_receive {:deliver_message, _}, 300
+      assert rows(fx.schema_name) == []
+      assert %{items: [_]} = Letflow.UserNotifications.list(fx.schema_name, user.id)
+
+      :ok = user_settings!(fx, user, %{"notifications.email" => nil})
+      assign_new!(fx, user)
+      assert_receive {:deliver_message, _}, 2000
+    end
+
+    test "E9 no address or subject in the log", %{fx: fx} do
+      user = RSG.user!(fx.schema_name)
+      :ok = user_settings!(fx, user, %{"notifications.email" => "off"})
+      Double.set_behaviour(:raise)
+      other = RSG.user!(fx.schema_name)
+
+      log =
+        capture_log(fn ->
+          assign_new!(fx, user)
+          assign_new!(fx, other)
+          await_rows(fx.schema_name)
+          Process.sleep(100)
+        end)
+
+      refute log =~ user.email
+      refute log =~ other.email
+      refute log =~ "Task assigned"
+    end
+
+    test "E10/E11 rate limit per user, old rows do not count", %{fx: fx} do
+      user = RSG.user!(fx.schema_name)
+      v = RSG.user!(fx.schema_name)
+      for _ <- 1..20, do: insert_delivery!(fx.schema_name, user.id, 60)
+      assign_new!(fx, user)
+      refute_receive {:deliver_message, _}, 300
+      assert length(rows(fx.schema_name)) == 20
+
+      assign_new!(fx, v)
+      assert_receive {:deliver_message, %{to: to}}, 2000
+      assert to == v.email
+
+      w = RSG.user!(fx.schema_name)
+      for _ <- 1..20, do: insert_delivery!(fx.schema_name, w.id, 7200)
+      assign_new!(fx, w)
+      assert_receive {:deliver_message, %{to: to2}}, 2000
+      assert to2 == w.email
+    end
+
+    test "E12 retried: fails twice then sent, one row", %{fx: fx} do
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+      :persistent_term.put({__MODULE__, :counter}, counter)
+      S.put_app_env!(@notifier, adapter: __MODULE__.Flaky, timeout_ms: 500, max_concurrent: 5)
+      on_exit(fn -> :persistent_term.erase({__MODULE__, :counter}) end)
+      Agent.update(counter, fn _ -> 2 end)
+      user = RSG.user!(fx.schema_name)
+      assign_new!(fx, user)
+      assert [%{status: "sent", reason: nil}] = await_rows(fx.schema_name)
+      assert Agent.get(counter, & &1) == -1
+    end
+
+    test "E13 fails three times: one failed row", %{fx: fx} do
+      Double.set_behaviour(:error)
+      user = RSG.user!(fx.schema_name)
+      assign_new!(fx, user)
+      assert [%{status: "failed", reason: "adapter_error"}] = await_rows(fx.schema_name)
+      assert_receive {:deliver_message, _}, 500
+      assert_receive {:deliver_message, _}, 500
+      assert_receive {:deliver_message, _}, 500
+      refute_receive {:deliver_message, _}, 100
+    end
+
+    test "E14 deliver/6 (exam/assets path) does not retry", %{fx: fx} do
+      Double.set_behaviour(:error)
+      user = RSG.user!(fx.schema_name)
+
+      assert :ok =
+               Notifications.deliver(
+                 "task_assigned",
+                 user.id,
+                 Ecto.UUID.generate(),
+                 fn _u, _p, _t -> %{} end,
+                 fx.schema_name,
+                 fx.tenant_id
+               )
+
+      assert_receive {:deliver_message, _}, 500
+      refute_receive {:deliver_message, _}, 100
+    end
+
+    test "E15/E16 tenant isolation of switch and rate rows", %{fx: fx} do
+      other = T.provision!("r584-iso")
+      :ok = set_settings!(other, %{}, false)
+      ouser = RSG.user!(other.schema_name)
+      assign_new!(other, ouser)
+      refute_receive {:deliver_message, _}, 300
+      assert rows(other.schema_name) == []
+
+      user = RSG.user!(fx.schema_name)
+      for _ <- 1..20, do: insert_delivery!(other.schema_name, user.id, 60)
+      assign_new!(fx, user)
+      assert_receive {:deliver_message, %{to: to}}, 2000
+      assert to == user.email
+    end
+  end
+end
+
+defmodule Letflow.NotificationsTest.Flaky do
+  @moduledoc false
+  @behaviour Letflow.LoginDiscovery.Notifier
+
+  @impl true
+  def deliver_tenant_list(_to, _tenants), do: :ok
+
+  @impl true
+  def deliver_message(_message) do
+    counter = :persistent_term.get({Letflow.NotificationsTest, :counter})
+
+    # counter > 0: fail and count down; at 0 succeed once and mark -1.
+    Agent.get_and_update(counter, fn
+      n when n > 0 -> {{:error, :boom}, n - 1}
+      _n -> {:ok, -1}
+    end)
   end
 end
