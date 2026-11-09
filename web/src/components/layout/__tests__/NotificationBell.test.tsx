@@ -16,7 +16,7 @@ vi.mock('@tanstack/react-query', () => ({ useQuery: vi.fn(() => ({ ...state, ref
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true, session: { tenant_id: 'tid' } }),
 }))
-const markRead = vi.fn((_ids?: string[]) => Promise.resolve({ marked: 1, unread_count: 0 }))
+const markRead = vi.fn((...args: string[][]) => Promise.resolve({ marked: args.length, unread_count: 0 }))
 const markAllRead = vi.fn(() => Promise.resolve({ marked: 1, unread_count: 0 }))
 vi.mock('@/api/notifications', () => ({
   notificationsApi: { list: vi.fn(), markRead: (ids: string[]) => (markRead as (i: string[]) => unknown)(ids), markAllRead: () => markAllRead() },
