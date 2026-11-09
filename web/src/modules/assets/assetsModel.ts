@@ -16,6 +16,8 @@ export const ASSET_REASONS = [
   'record_payload_invalid',
   'org_unit_not_active',
   'valid_until_not_allowed',
+  'inventory_number_locked',
+  'kind_locked',
   'currency_mismatch',
   'card_inactive',
   'idempotency_key_reuse',
@@ -173,6 +175,8 @@ export function errorMessageId(err: unknown): string {
 const REASON_FIELD: Record<string, string> = {
   org_unit_not_active: 'org_unit_id',
   valid_until_not_allowed: 'valid_until',
+  inventory_number_locked: 'inventory_number',
+  kind_locked: 'kind',
   currency_mismatch: 'currency',
 }
 

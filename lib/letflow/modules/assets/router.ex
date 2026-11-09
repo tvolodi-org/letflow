@@ -9,6 +9,10 @@ defmodule Letflow.Modules.Assets.Router do
   | `POST /cards` | `AssetsCardWrite` | `create_card/3` | 201 |
   | `PATCH /cards/:id` | `AssetsCardWrite` | `update_card/4` | 200 |
   | `POST /cards/:id/retire` | `AssetsCardWrite` | `retire_card/3` | 200 |
+  | `GET /cards/:id/lock` | `AssetsRead` | `CardLocks.posted?/2` | 200 `{"posted": bool}` |
+
+  Card locks (T-1490): a changed `inventory_number` or `kind` of a card with a posted document is 422
+  `inventory_number_locked` / `kind_locked`; `GET /cards/:id/lock` tells the screen which case it is.
 
   GH #3890 / #3891 (C10): the document routes of the commission. A thin layer over
   `Letflow.Modules.Assets.Documents` and `Documents.Posting`; the guard is `Access.check/2`.
@@ -91,11 +95,13 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Api.Response
   alias Letflow.Ledger
   alias Letflow.Modules.Assets.Access
+  alias Letflow.Modules.Assets.CardLocks
   alias Letflow.Modules.Assets.Cards
   alias Letflow.Modules.Assets.Documents
   alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Assets.Views
   alias Letflow.Modules.Assets.XlsxExport
+  alias Letflow.Modules.ReadApi
 
   @ledger "assets"
   @uint ~r/\A(0|[1-9][0-9]{0,14})\z/
@@ -128,6 +134,22 @@ defmodule Letflow.Modules.Assets.Router do
         [extra | _] -> render(conn, {:error, {:field_not_allowed, extra}}, 200)
       end
     end)
+  end
+
+  authz_get "/cards/:id/lock", :AssetsRead do
+    case Access.check(conn, :read) do
+      {:ok, access} ->
+        case ReadApi.lookup(access.prefix, conn.params["id"], ["assets_card"]) do
+          {:ok, card} ->
+            Response.ok(conn, %{"posted" => CardLocks.posted?(access.prefix, card["record_id"])})
+
+          {:error, _} ->
+            Response.not_found(conn)
+        end
+
+      :error ->
+        Response.not_found(conn)
+    end
   end
 
   authz_get "/balances", :AssetsRead do

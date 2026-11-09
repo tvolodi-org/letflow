@@ -3,8 +3,8 @@
 Status: specification (REQ-729, GH #3792, assets phase C item C4). The import (sections 1 to 5) is built by REQ-762
 (GH #3899, assets module 0.4.0): `Letflow.Modules.Assets.Import.import_card/3`, registered in the manifest key
 `:import_functions`. It adds one reason not listed in section 4: `card_inactive` (the existing card is retired). The
-reason `asset_kind_locked` is mapped from `Cards` `:kind_locked`, which arrives with REQ-752 (GH #3890); until then it
-cannot occur. The export reads are a later requirement.
+reasons `asset_kind_locked` and `asset_inventory_number_locked` are mapped from `Cards` `:kind_locked` and
+`:inventory_number_locked` (T-1490, `CardLocks`). The export reads are a later requirement.
 
 Sources: owner decisions D-061 (depreciation is an information field, imported or typed, not calculated), D-062
 (xlsx in the first version), D-063 (a manual gate ends each phase) and D-085 (phase C specifications are written
@@ -82,8 +82,9 @@ One rule per line. Reason codes introduced by this file are constants and carry 
    (0077 D5 point 4).
 2. A `kind` cell outside `fixed`, `low_value` and `intangible` is refused: `asset_kind_invalid`.
 3. A `valid_until` cell on a row whose kind is not `intangible` is refused: `asset_valid_until_not_allowed`.
-4. A row that changes the kind of a card that already has a posting is refused: `asset_kind_locked`
-   (REQ-689 criterion 4).
+4. A row that changes the kind of a card that already has a posted document is refused: `asset_kind_locked`
+   (REQ-689 criterion 4); one that changes its inventory number (a card matched by external reference) is refused:
+   `asset_inventory_number_locked`.
 5. Each money cell follows the `decimal_strict` grammar of `CsvImport` (`@decimal_strict`); any other text is the
    row error `csv_invalid_decimal` (0077 D3).
 6. A `currency` cell that differs from the tenant currency is refused: `asset_currency_mismatch`

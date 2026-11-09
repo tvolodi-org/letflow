@@ -4,6 +4,11 @@
  *  form, never converted to numbers. The server stays the authority. */
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
+import { useAccess } from '@/auth/access/useAccess'
+import { useAuth } from '@/auth/AuthContext'
+import { useAssetCardLock } from '@/hooks/useAssetCardLock'
+import { assetsApi } from './assets.api'
+import { assetsQueryKeys } from './assetsQueryKeys'
 import { Button } from '@/components/ui/Button'
 import { DateField } from '@/components/ui/DateField'
 import { Field } from '@/components/ui/Field'
@@ -22,6 +27,7 @@ import {
   updateBody,
   type Form,
 } from './assetsModel'
+import { ASSETS_READ } from './assetsPermissions'
 import type { AssetsWriteResult, useAssetsWrite } from './useAssetsWrite'
 
 export type Cmd =
@@ -45,6 +51,18 @@ export function AssetCardForm(props: {
   const [form, setForm] = useState<Form>(() => formOf(record))
   const initial = formOf(record)
   const isNew = record === null
+  const { can } = useAccess()
+  const { session } = useAuth()
+  // T-1490 / G3: after the first posted document the inventory number is read-only. The lock is read from the
+  // server; while it is unknown or failed the number stays disabled (fail closed). Without AssetsRead the lock
+  // cannot be read, so the input stays editable and the server's 422 is the authority.
+  const cardId = record?.record_id ?? ''
+  const lockQuery = useAssetCardLock(
+    assetsQueryKeys.cardLock(session?.tenant_id ?? '', cardId),
+    () => assetsApi.cardLock(cardId),
+    !isNew && can(ASSETS_READ),
+  )
+  const locked = !isNew && can(ASSETS_READ) && lockQuery.data?.posted !== false
   const dirty = JSON.stringify(form) !== JSON.stringify(initial)
   const intangible = form.kind === 'intangible'
   const patch = (p: Partial<Form>) => setForm({ ...form, ...p })
@@ -88,7 +106,7 @@ export function AssetCardForm(props: {
       <FormSection title={t('assets.section.identity')}>
         <FormRow>
           <Field label={t('assets.field.number')} width="m" mono error={invalid('inventory_number')}>
-            <input name="inventory_number" value={form.inventory_number} onChange={(e) => patch({ inventory_number: e.target.value })} />
+            <input name="inventory_number" value={form.inventory_number} disabled={locked} onChange={(e) => patch({ inventory_number: e.target.value })} />
           </Field>
           <Field label={t('assets.field.name')} width="l" error={invalid('name')}>
             <input name="name" value={form.name} onChange={(e) => patch({ name: e.target.value })} />
@@ -107,6 +125,11 @@ export function AssetCardForm(props: {
           />
         </FormRow>
         {isNew && <p className="caption lf-faint">{t('assets.form.holderHint')}</p>}
+        {locked && (
+          <p className="caption lf-faint" data-testid="asset-locked-hint">
+            {t('assets.card.lockedHint')}
+          </p>
+        )}
       </FormSection>
       <FormSection title={t('assets.section.acquisition')}>
         <FormRow>

@@ -51,6 +51,9 @@ defmodule Letflow.Modules.Assets do
   `POST /documents/:id/check` (every line's reasons, writes nothing). Drafts and the checks only: issuing an
   opening answers 409 `posting_not_available` until part 2 adds the process and the ledger cause. No SQL migration.
 
+  **Card locks** (T-1490, version 0.13.0): `GET /cards/:id/lock` (`AssetsRead`) answers whether the card has a posted
+  document; the card write path refuses a changed `inventory_number` or `kind` then (`CardLocks`).
+
   **Card holder** (T-1488 / G1-a, version 0.12.0): the card's `org_unit_id` is optional and no longer typed; the
   routes refuse it, a new card has none, and its holder (org unit, location, responsible, user) is read from the
   register. A card with an empty unit is visible to tenant-wide principals only. Relaxing `required` is a class B
@@ -165,7 +168,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.12.0",
+    version: "0.13.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],
@@ -183,6 +186,7 @@ defmodule Letflow.Modules.Assets do
       {"POST", "/cards", :AssetsCardWrite},
       {"PATCH", "/cards/:id", :AssetsCardWrite},
       {"POST", "/cards/:id/retire", :AssetsCardWrite},
+      {"GET", "/cards/:id/lock", :AssetsRead},
       {"GET", "/balances", :AssetsRead},
       {"GET", "/movements", :AssetsRead},
       {"GET", "/reconcile", :AssetsReconcile},
