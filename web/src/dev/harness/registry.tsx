@@ -12,6 +12,7 @@ import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
 import { topbarLanguage } from './topbarFixtures'
 import { roleLabelsScreens } from './roleLabelsFixtures'
+import { storekeeperGrantScreens } from './storekeeperGrantFixtures'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
 import { notificationBellScreens } from './fixtures/notificationBell'
@@ -52,6 +53,7 @@ import { taskInboxScreens } from './fixtures/taskInbox'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
 import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
+import { processDesignerVersionsScreens } from './fixtures/processDesignerVersions'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
@@ -275,6 +277,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...definitionNameScreens,
     ...processDiagramScreens,
     ...processDesignerEditScreens,
+    ...processDesignerVersionsScreens,
     ...definitionNameAdminScreens,
     ...codesLabelScreens,
     ...docLayoutScreens,
@@ -308,6 +311,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...metricsScreens,
     ...auditLogScreens,
     ...roleLabelsScreens,
+    ...storekeeperGrantScreens,
     ...taskInboxScreens,
     ...navRoleScreens,
     ...a11yDialogScreens,

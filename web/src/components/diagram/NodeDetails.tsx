@@ -7,7 +7,8 @@ import type { LaidOutEdge, LaidOutNode } from '@/utils/canvas/readLayout'
 import type { NodePathState } from '@/utils/canvas/instancePath'
 import { Button } from '@/components/ui/Button'
 import { StatusPill } from '@/components/ui/StatusPill'
-import { STATE_PILL } from './diagramConfig'
+import type { GraphDiff } from '@/utils/canvas/graphDiff'
+import { DIFF_PILL, STATE_PILL } from './diagramConfig'
 import { summariseNode } from './nodeSummary'
 import { useDiagramText } from './useDiagramText'
 
@@ -16,10 +17,12 @@ export interface NodeDetailsProps {
   nodes: LaidOutNode[]
   edges: LaidOutEdge[]
   state?: NodePathState
+  /** T-1588: a version diff. */
+  diff?: GraphDiff | null
   onClose: () => void
 }
 
-export function NodeDetails({ node, nodes, edges, state, onClose }: NodeDetailsProps) {
+export function NodeDetails({ node, nodes, edges, state, diff, onClose }: NodeDetailsProps) {
   const intl = useIntl()
   const t = useDiagramText()
   const m = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.${id}` }, values)
@@ -48,6 +51,25 @@ export function NodeDetails({ node, nodes, edges, state, onClose }: NodeDetailsP
       <StatusPill tone={STATE_PILL[state.state].tone} glyph={STATE_PILL[state.state].glyph}>
         {t.stateName(state.state)}
       </StatusPill>,
+    ])
+  }
+  const nd = diff?.nodes.get(node.id)
+  if (nd && nd.kind !== 'unchanged') {
+    const k = nd.kind
+    const fieldName = (f: string) => (['label', 'node_type'].includes(f) ? m(`diff.field.${f}`) : f)
+    rows.push([
+      m('details.state'),
+      <span data-testid="details-diff">
+        <StatusPill tone={DIFF_PILL[k].tone} glyph={DIFF_PILL[k].glyph}>
+          {t.diffName(k)}
+        </StatusPill>
+        {k === 'changed' && nd.fields.length > 0 && (
+          <>
+            {' '}
+            {m('diff.changedFields', { fields: nd.fields.map(fieldName).join(', ') })}
+          </>
+        )}
+      </span>,
     ])
   }
   if (s.role) rows.push([m('details.role'), s.role])

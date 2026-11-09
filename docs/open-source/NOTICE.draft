@@ -1,0 +1,71 @@
+DRAFT - not in force. Draft for review by a lawyer; not legal advice.
+(Remove this banner when the file moves to the repository root as NOTICE.)
+
+Letflow
+Copyright (c) <year> <copyright holder - owner to name>
+
+This product includes software developed by third parties. Their licence
+terms apply to their parts. The full machine-generated list is in
+THIRD-PARTY-LICENSES.txt (see below; generated per release, not hand-written).
+
+Known so far (from the licence audit in docs/uat/ba-decisions/T-1521.md):
+
+  Elixir/Hex direct dependencies  34 of 34 checked: Apache-2.0, MIT, BSD, ISC.
+                                  No copyleft found. Re-run as a CI step.
+  npm (web/)                      Direct dependencies: Apache-2.0, MIT, BSD, ISC.
+                                  Transitive tree: NOT YET VERIFIED.
+  pub (apps/mobile/)              84 packages: NOT YET VERIFIED (pub.dev has no
+                                  licence field; read each package LICENSE).
+  Fonts (web/src/fonts)           Geologica, IBM Plex Mono, Onest: SIL Open Font
+                                  Licence 1.1; texts in web/src/fonts/LICENSES.md.
+  Deployment (used, not linked)   Keycloak, nginx, PostgreSQL: named for
+                                  attribution only.
+
+The name "Letflow", the logos and the files under web/public/brand are not
+licensed under the licence of this repository (see TRADEMARK).
+
+-----------------------------------------------------------------------------
+How to generate the full third-party list
+-----------------------------------------------------------------------------
+Run from a clean checkout; write the outputs to a build folder, not the tree.
+
+Elixir (Hex):
+  mix deps                      # list; licences are in each deps/<pkg>/hex_metadata.config
+  # or the hex_metadata "licenses" field per package:
+  for f in deps/*/hex_metadata.config; do echo "$f"; grep -A2 licenses "$f"; done
+  # alternative scanner: the `licensir` Mix task (a dev-only dependency, new
+  # dependency needs the owner's OK)
+
+npm (web/), full transitive tree:
+  cd web && npm ci
+  npx license-checker-rseidelsohn --production --summary
+  npx license-checker-rseidelsohn --production --json --out <build>/npm.json
+  # fail list: --failOn "GPL;AGPL;SSPL;BUSL" (match the policy below)
+
+pub (apps/mobile/):
+  cd apps/mobile && flutter pub get
+  flutter pub deps --style=list             # package list
+  # licences: read LICENSE in each package of the pub cache; no field to query.
+  # A scanner such as `flutter_oss_licenses` can emit them (dev tool, needs approval).
+
+Containers / base images:
+  docker image inspect and the upstream licence pages; attribution only.
+
+Also scan the history and the tree for secrets (gitleaks, trufflehog) - a
+different job, listed in T-1521 section 5, item 2.
+
+-----------------------------------------------------------------------------
+CI check proposal (not implemented here)
+-----------------------------------------------------------------------------
+A new job "licence scan" in .github/workflows/ci.yml, path-filtered to
+mix.lock, web/package-lock.json, apps/mobile/pubspec.lock:
+  1. Run the three generators above; write one report per ecosystem as a CI
+     artifact (the per-release licence report of T-1521 section 5, item 4).
+  2. Fail on a licence in the deny list: GPL, AGPL, SSPL, BUSL (proposed rule,
+     to be confirmed by the owner and a lawyer). LGPL, MPL, EPL: allowed only
+     if listed in an allow file with a one-line reason.
+  3. Fail on a package with no licence information, unless allow-listed.
+  4. Compare the generated THIRD-PARTY-LICENSES.txt with the committed one at
+     release time; a difference fails the release job.
+The check needs a lint-sized task of its own and, for the pub part, a tool
+decision; it must not weaken any existing gate.

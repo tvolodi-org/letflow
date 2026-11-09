@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { Banner } from '@/components/ui/Banner'
 
-export type DefinitionView = 'diagram' | 'edit' | 'editor'
+export type DefinitionView = 'diagram' | 'edit' | 'editor' | 'versions'
 
 export interface DefinitionViewSwitchProps {
   view: DefinitionView
@@ -16,9 +16,11 @@ export interface DefinitionViewSwitchProps {
   canEditDiagram?: boolean
   /** T-1563: the diagram draft has unsaved changes; the Editor stays off until it is saved or discarded. */
   editorLocked?: boolean
+  /** T-1588: show "Versions" (every saved definition; not a new unsaved one). */
+  canShowVersions?: boolean
 }
 
-export function DefinitionViewSwitch({ view, onChange, unsaved, canEditDiagram, editorLocked }: DefinitionViewSwitchProps) {
+export function DefinitionViewSwitch({ view, onChange, unsaved, canEditDiagram, editorLocked, canShowVersions }: DefinitionViewSwitchProps) {
   const intl = useIntl()
   const m = (id: string) => intl.formatMessage({ id: `processDiagram.view.${id}` })
   return (
@@ -27,6 +29,11 @@ export function DefinitionViewSwitch({ view, onChange, unsaved, canEditDiagram, 
         <Button variant="secondary" size="sm" pressed={view === 'diagram'} onClick={() => onChange('diagram')} data-testid="definition-view-diagram">
           {m('diagram')}
         </Button>
+        {canShowVersions && (
+          <Button variant="secondary" size="sm" pressed={view === 'versions'} onClick={() => onChange('versions')} data-testid="definition-view-versions">
+            {m('versions')}
+          </Button>
+        )}
         {canEditDiagram && (
           <Button variant="secondary" size="sm" pressed={view === 'edit'} onClick={() => onChange('edit')} data-testid="definition-view-edit">
             {m('edit')}

@@ -130,7 +130,7 @@ defmodule Letflow.Plugs.Authorize do
       {:error, _missing_auth_context_or_invalid_tenant_id} ->
         conn |> Response.internal_error() |> halt()
 
-      {:ok, prefix: _schema} = ok ->
+      {:ok, prefix: schema} = ok ->
         # ISS-0993 (design section 4): `platform_tenant?` is RECOMPUTED from the
         # database-resolved tenant id; the flag stored in auth_context (if any)
         # is never read, so a hand-assigned context stays fail-closed.
@@ -139,10 +139,17 @@ defmodule Letflow.Plugs.Authorize do
 
         # REQ-447 PR 2 (design 3.5): PLATFORM_ADMIN is dropped outside the
         # platform tenant by the one shared resolution function.
+        roles = Authorization.effective_roles(conn.assigns.auth_context.roles, platform_tenant?)
+
+        # T-1570 (D-097): the tenant's add-only grant overlay, an explicit input of the pure
+        # decision; read with the plug's own prefix, `%{}` unless a grantable role is held.
+        overlay = Letflow.Api.TenantGrants.load_for(roles, schema)
+
         ctx = %Authorization.AccessContext{
           user_id: conn.assigns.auth_context.user_id,
-          roles: Authorization.effective_roles(conn.assigns.auth_context.roles, platform_tenant?),
-          platform_tenant?: platform_tenant?
+          roles: roles,
+          platform_tenant?: platform_tenant?,
+          role_overlay: overlay
         }
 
         # No :policy_key private key present (a plain get/post/patch/delete)
@@ -161,6 +168,7 @@ defmodule Letflow.Plugs.Authorize do
 
             conn
             |> assign(:scoped_opts, opts)
+            |> assign(:role_overlay, overlay)
             |> assign(:access_decision, decision)
             |> apply_scope_mode(ctx, policy_key)
         end

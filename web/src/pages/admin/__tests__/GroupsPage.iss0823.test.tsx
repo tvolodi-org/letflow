@@ -69,6 +69,7 @@ vi.mock('@/api/useTenantScopedQueryKeys', () => ({
   useTenantScopedQueryKeys: vi.fn(() => ({
     admin: {
       groups: () => ['groups'],
+      roleGrants: () => ['roleGrants'],
       groupMembers: (id: string) => ['groupMembers', id],
       users: (f: unknown) => ['users', f],
     },

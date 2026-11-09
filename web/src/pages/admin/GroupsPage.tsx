@@ -11,6 +11,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { deferClickState } from '@/utils/deferClickState'
+import StorekeeperAssetsGrantCard from './StorekeeperAssetsGrantCard'
 
 type GroupRow = Group & {
   group_id?: string
@@ -208,6 +209,8 @@ export default function GroupsPage() {
           </span>
         )}
       </div>
+
+      {canManage && <StorekeeperAssetsGrantCard />}
 
       {creating && (
         <div style={{ background: 'var(--surface-page)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', padding: '1.25rem', marginBottom: '1.25rem' }}>
