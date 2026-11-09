@@ -21,6 +21,7 @@ import { entitiesMessages } from '@/i18n/entitiesMessages'
 import { solutionOverridesMessages } from '@/i18n/solutionOverridesMessages'
 import { importMessages } from '@/i18n/importMessages'
 import { processDiagramMessages } from '@/i18n/processDiagramMessages'
+import { auditMessages } from '@/i18n/auditMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
 import { catalogItemsMessages } from '@/modules/catalog_items/catalogItemsMessages'
 import { catalogItemsItemsMessages } from '@/modules/catalog_items/catalogItemsItemsMessages'
@@ -291,6 +292,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     checkFlatCatalog('import', importMessages)
   })
 
+  it('auditMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('audit', auditMessages)
+  })
+
   it('processDiagramMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('processDiagram', processDiagramMessages)
   })
@@ -401,6 +406,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['solutionOverrides', solutionOverridesMessages],
       ['import', importMessages],
       ['processDiagram', processDiagramMessages],
+      ['audit', auditMessages],
       ['assets', assetsMessages],
       ['catalog_items', catalogItemsMessages],
       ['codes', codesMessages],

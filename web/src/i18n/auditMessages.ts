@@ -29,7 +29,7 @@ const UI: Record<string, Triple> = {
   'audit.col.time': ['Time', 'Время', 'Уақыт'],
   'audit.col.actor': ['User', 'Пользователь', 'Пайдаланушы'],
   'audit.col.action': ['Action', 'Действие', 'Әрекет'],
-  'audit.col.object': ['Object', 'Объект', 'Объект'],
+  'audit.col.object': ['Object', 'Объект', 'Нысан'],
   'audit.col.ip': ['IP', 'IP', 'IP'],
   'audit.export': ['Export CSV', 'Экспорт в CSV', 'CSV экспорттау'],
   'audit.exporting': ['Exporting…', 'Экспорт…', 'Экспортталуда…'],
