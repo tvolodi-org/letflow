@@ -365,6 +365,7 @@ defmodule Letflow.Modules.Assets.OpeningImportTest do
       assert other.id
       conn = imp(ctx, [row(ctx.im, "O-1", %{"org_unit_id" => "other-unit"})])
       assert outcomes(conn) == ["org_unit_mismatch"]
+      assert [%{"header" => "org_unit_id"}] = reasons(conn)
 
       ok = imp(ctx, [row(ctx.im, "O-2", %{"org_unit_id" => ctx.im.m.unit_ext})])
       assert outcomes(ok) == ["created"]
@@ -381,6 +382,8 @@ defmodule Letflow.Modules.Assets.OpeningImportTest do
         ])
 
       assert outcomes(conn) == ~w(csv_invalid_decimal quantity_invalid quantity_invalid)
+      assert Enum.map(results(conn), & &1["reason"]["header"]) == List.duplicate("quantity", 3)
+      assert Enum.map(results(conn), & &1["line"]) == [2, 3, 4]
       assert length(doc(ctx)["lines"]) == 1
 
       bad = import_file([row(ctx.im, "Q-4") ++ ["9"]], ctx.tok_a, "", @cols ++ ["price"])
@@ -417,6 +420,52 @@ defmodule Letflow.Modules.Assets.OpeningImportTest do
 
       assert Enum.find(doc(ctx)["lines"], &(&1["external_ref_id"] == "B1"))["quantity"] ==
                "1.000000000"
+    end
+  end
+
+  describe "atomic import (T-1556)" do
+    test "T-A1/T-D1: a refused row writes nothing; fixed and re-uploaded it commits once", ctx do
+      im = ctx.im
+      good = placements(im)
+      bad = row(im, "BAD", %{"asset_id" => "nope"})
+      v = version_no(ctx)
+
+      conn = imp(ctx, good ++ [bad], "&atomic=true")
+      assert Jason.decode!(conn.resp_body)["applied"] == false
+      assert outcomes(conn) == ~w(created created created created reference_not_found)
+      assert [%{"header" => "asset_id"}] = Enum.take(reasons(conn), -1)
+      assert length(doc(ctx)["lines"]) == 1
+      assert version_no(ctx) == v
+
+      fixed = good ++ [row(im, "BAD")]
+      ok = imp(ctx, fixed, "&atomic=true")
+      assert Jason.decode!(ok.resp_body)["applied"] == true
+      assert outcomes(ok) == List.duplicate("created", 5)
+      assert length(doc(ctx)["lines"]) == 6
+
+      again = imp(ctx, fixed, "&atomic=true")
+      assert Jason.decode!(again.resp_body)["applied"] == true
+      assert outcomes(again) == List.duplicate("unchanged", 5)
+      assert length(doc(ctx)["lines"]) == 6
+    end
+
+    test "T-A5: good rows beside a non-numeric quantity: all reported, nothing persists", ctx do
+      im = ctx.im
+      v = version_no(ctx)
+
+      conn =
+        imp(
+          ctx,
+          [row(im, "N-1"), row(im, "N-2", %{"quantity" => "abc"}), row(im, "N-3")],
+          "&atomic=true"
+        )
+
+      assert Jason.decode!(conn.resp_body)["applied"] == false
+      assert outcomes(conn) == ~w(created csv_invalid_decimal created)
+      assert %{"header" => "quantity"} = Enum.at(reasons(conn), 1)
+      assert Enum.at(results(conn), 1)["line"] == 3
+      assert length(doc(ctx)["lines"]) == 1
+      assert version_no(ctx) == v
     end
   end
 

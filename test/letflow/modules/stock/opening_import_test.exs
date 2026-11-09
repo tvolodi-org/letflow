@@ -416,6 +416,13 @@ defmodule Letflow.Modules.Stock.OpeningImportTest do
         ])
 
       assert outcomes(conn) == ["price_invalid", "price_invalid", "created"]
+
+      # T-C1b: each price refusal names its own column and the sheet line
+      assert [
+               %{"reason" => %{"header" => "unit_price"}, "line" => 2},
+               %{"reason" => %{"header" => "line_value"}, "line" => 3},
+               _
+             ] = Jason.decode!(conn.resp_body)["results"]
     end
 
     test "I4-6 nothing is posted, no instance and no mark exist", ctx do

@@ -447,8 +447,8 @@ function MasterDataImportPageInner() {
                     <Banner tone="warning">{intl.formatMessage({ id: 'import.reupload' })}</Banner>
                   </div>
                 ) : null}
-                <Counts results={shown.results} hypothetical={notApplied} />
-                <ResultTable results={shown.results} hypothetical={notApplied} />
+                <Counts results={shown.results} hypothetical={notApplied || phase.name === 'checked'} />
+                <ResultTable results={shown.results} hypothetical={notApplied || phase.name === 'checked'} />
                 {refusedCount > 0 ? (
                   <div className="lf-form__actions">
                     <Button

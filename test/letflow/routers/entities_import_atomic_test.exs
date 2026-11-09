@@ -132,19 +132,11 @@ defmodule Letflow.Routers.EntitiesImportAtomicTest do
       refute Map.has_key?(body(conn), "applied")
     end
 
-    test "T-A6: a bad atomic value and atomic on a non-managed type are 422, nothing written" do
+    test "T-A6: a bad atomic value is 422, nothing written (non-managed type: catalog_items T-A6)" do
       ctx = tenant_ctx("atomic-a6")
       bad = import_xlsx(ctx, good_rows(), "?upsert_by=external_ref&atomic=maybe")
       assert bad.status == 422
       assert bad.resp_body =~ "atomic must be true or false"
-      assert node_count(ctx) == 0
-
-      plain =
-        conn(:post, "/api/v1/entities/records/other_type/import?atomic=true", "{}")
-        |> put_req_header("content-type", "application/json")
-        |> authed(ctx)
-
-      assert plain.status in [404, 422]
       assert node_count(ctx) == 0
     end
 

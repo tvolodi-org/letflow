@@ -483,12 +483,48 @@ defmodule Letflow.Modules.CatalogItems.ImportTest do
       assert latest_count(ctx.schema) == elem(before, 2) + 3
     end
 
-    test "T-A6: atomic on a type that is not managed is 422" do
+    test "T-A6: atomic on a type that is not managed is 422 and writes nothing" do
       ctx = tenant_ctx("t1556-a6")
 
+      {:ok, _} =
+        Letflow.Entities.Definitions.create_definition(
+          %{
+            definition: %{
+              name: "plain_t",
+              display_name: "plain_t",
+              fields: [%{name: "title", type: :string, required: true}]
+            },
+            created_by: Ecto.UUID.generate()
+          },
+          ctx.schema
+        )
+
+      {:ok, _} =
+        Letflow.Entities.Definitions.activate_definition(
+          "plain_t",
+          Ecto.UUID.generate(),
+          "t1556",
+          ctx.schema
+        )
+
       row = %{"external_ref" => ref("P1"), "field_values" => %{"title" => "t"}}
-      conn = upsert(ctx, "plain_none", [row], %{}, "?atomic=true")
-      assert conn.status in [404, 422]
+      conn = upsert(ctx, "plain_t", [row], %{}, "?atomic=true")
+      assert conn.status == 422
+      assert conn.resp_body =~ "atomic is offered only"
+      assert latest_count(ctx.schema) == 0
+    end
+
+    test "T-A8: an atomic file past the replay cap is a controlled 422 and writes nothing" do
+      ctx = tenant_ctx("t1556-a8")
+      upsert(ctx, "catalog_uom", [uom_row("EXIST", "DUPCODE")])
+      cap = Letflow.Entities.ManagedImport.max_replays()
+      rows = for n <- 1..(cap + 2), do: uom_row("R#{n}", "DUPCODE")
+
+      before = counts(ctx.schema)
+      conn = upsert(ctx, "catalog_uom", rows, %{}, "?atomic=true")
+      assert conn.status == 422
+      assert conn.resp_body =~ "dry_run unavailable"
+      assert counts(ctx.schema) == before
     end
 
     test "D3: ?dry_run=true on a CSV body writes nothing" do
