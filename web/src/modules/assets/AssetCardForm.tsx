@@ -174,6 +174,12 @@ export function AssetCardForm(props: {
             onChange={(v) => patch({ depreciation_as_of: v })}
           />
         </FormRow>
+        <FormRow>
+          <Field label={t('assets.field.depMethod')} width="m" optional error={invalid('depreciation_method')}>
+            <input name="depreciation_method" value={form.depreciation_method} onChange={(e) => patch({ depreciation_method: e.target.value })} />
+          </Field>
+          {decimalField('depreciation_rate', t('assets.field.depRate'))}
+        </FormRow>
       </FormSection>
       <FormActions
         dirty={dirty}

@@ -230,6 +230,14 @@ brand teal `#0c6b5f`; the icons are the Letflow app icons from the SPA brand fol
 The definition caches use IndexedDB on web (`sembast_web`, chosen by the conditional import
 in `lib/definitions/sembast_platform.dart`).
 
+### Web build and hosting (M5)
+
+`LETFLOW_API_BASE_URL=... ` is not enough for a hosted build: use `PWA_API_BASE_URL=https://... bash scripts/pwa_web_build.sh`
+(from the repo root). It builds with self-hosted CanvasKit (`--no-web-resources-cdn`), verifies that no third-party host is
+loaded (zxing, CanvasKit and Roboto are bundled; `web/flutter_bootstrap.js` points the glyph fallback at the same origin),
+precompresses and packs the result into `build/pwa/`. CI job `CD (PWA web build)` does the same on main and publishes the
+artifact; see `docs/runbooks/mobile-web-pwa-hosting.md`.
+
 ### Web sign-in (M2)
 
 `flutter_appauth` has no web support, so on web `lib/auth/web_app_auth_adapter.dart`

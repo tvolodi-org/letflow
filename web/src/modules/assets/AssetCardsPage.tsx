@@ -22,6 +22,7 @@ import { useToast } from '@/hooks/useToast'
 import type { EntityRecord } from '@/types/api'
 import { assetsApi } from './assets.api'
 import { AssetCardFacts } from './AssetCardFacts'
+import { AssetCardDepreciation } from './AssetCardDepreciation'
 import { AssetCardHolder } from './AssetCardHolder'
 import { AssetCardForm, unitName, type Cmd } from './AssetCardForm'
 import { AssetsIntlProvider } from './AssetsIntlProvider'
@@ -174,6 +175,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
           ) : (
             <AssetCardFacts record={selected} />
           )}
+          <AssetCardDepreciation record={selected} />
           <AssetCardHolder cardId={selected.record_id} />
         </div>
       </>
