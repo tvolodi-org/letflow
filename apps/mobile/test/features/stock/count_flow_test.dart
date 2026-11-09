@@ -514,4 +514,57 @@ void main() {
       expect(c.failure, isA<RendererBackpressure<Object?>>());
     });
   });
+
+  // PWA M4 S6: the camera states of the count controller.
+  group('camera', () {
+    test('S6a: unavailable sets its own flag, not the refusal', () async {
+      final c = await _ready(_gateway());
+      await c.startScanning();
+      expect(c.scanning, isTrue);
+      await c.onEvent(const ScanCameraUnavailable());
+      expect(c.cameraUnavailable, isTrue);
+      expect(c.cameraRefused, isFalse);
+      expect(c.scanning, isFalse);
+      expect(c.cameraPhase, CameraPhase.unavailable);
+      await c.onEvent(const ScanPermissionRefused());
+      expect(c.cameraPhase, CameraPhase.refused);
+    });
+
+    test(
+      'S6b: prepare waits for a tap on web, starts at once on native',
+      () async {
+        source.needsUserTap = true;
+        final web = await _ready(_gateway());
+        await web.prepare();
+        expect(source.starts, 0);
+        expect(web.awaitingTap, isTrue);
+        expect(web.cameraPhase, CameraPhase.awaitingTap);
+        await web.startScanning();
+        await web.startScanning(); // a double tap starts once
+        expect(source.starts, 1);
+        expect(web.cameraPhase, isNull);
+        expect(web.scanning, isTrue);
+
+        source = FakeScanSource();
+        final native = await _ready(_gateway());
+        await native.prepare();
+        expect(source.starts, 1);
+        expect(native.awaitingTap, isFalse);
+      },
+    );
+
+    test('S6c: scan again clears unavailable, never a refusal', () async {
+      final c = await _ready(_gateway());
+      await c.startScanning();
+      await c.onEvent(const ScanCameraUnavailable());
+      await c.scanAgain();
+      expect(c.cameraUnavailable, isFalse);
+      expect(c.scanning, isTrue);
+      expect(source.starts, 2);
+      await c.onEvent(const ScanPermissionRefused());
+      await c.scanAgain();
+      expect(c.cameraPhase, CameraPhase.refused);
+      expect(source.starts, 2);
+    });
+  });
 }

@@ -1,0 +1,152 @@
+# T-1531 (BA#4, assets): change of holder (responsible and actual user) and hand over (another unit and location) move the balance row; a hand over moves the card's own unit; closed units and inactive employees are refused and nothing is posted.
+# Sources: docs/assets/asset-workflow-documents.md sections 3, 4, 5a-intro (G2: a posted hand over moves the card's org_unit_id of a fixed or intangible line; owner decision D-111), 7 (master checks) and 8.1;
+# lib/letflow/modules/assets/documents/checks.ex (reasons org_unit_not_active, employee_not_active, event_time_in_future), lib/letflow/modules/assets/documents/kinds.ex (kinds change and handover, prefixes ACH and AHO),
+# lib/letflow/modules/assets/documents/posting.ex (moduledoc: issue opens the task "post"; completing it posts).
+#
+# SCREEN GAP (stated, not invented): the document screens exist in the web application, but the fixed refusal reasons are read from the routes; every step is via: api.
+# ROSTER GAP: the roster has no assets-scope actor. The SwiftRoute administrator is the only actor with the asset rights.
+# NOT UAT-observable: the split of a low-value card by a partial hand over (a follow-up, not built; the document says a low-value card is not moved); the cap on card moves per hand over (needs a file of many cards, product tests).
+---
+id: assets-documents-2-change-of-holder-and-hand-over
+scope: assets
+title: A change of holder replaces the responsible and the user of a registered asset; a hand over moves it to another unit and location and the card follows; closed units and inactive employees are refused
+version: "1.0"
+tags: [assets, change, handover, document, balances, refusal]
+
+description: >
+  SwiftRoute has the card INV-200 (fixed asset) commissioned at "Head office" with responsible Employee A and actual user Employee B (a posted commission, prepared as in scenario assets-documents-1).
+  The administrator posts a change of holder: the responsible becomes Employee C and the user stays Employee B. The balance shows the asset with Employee C and no longer with Employee A. The administrator then
+  posts a hand over to the unit "Branch" and its location, with responsible Employee C and user Employee D; the balance shows the asset at "Branch" and the card itself now belongs to "Branch".
+  A change that names an inactive employee, a hand over to a closed unit and a hand over with a date one hour ahead are refused at issue and the documents stay drafts. A posted change cannot be edited.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the assets module active; the card INV-200 is commissioned and posted at "Head office" (quantity 1) with responsible Employee A and actual user Employee B; the unit "Branch" with a linked location; active employees Employee C and Employee D; an inactive employee "Employee Z"; a closed (inactive) unit "Old depot".
+    check: system_seeded
+    detail: Prepared through the company's own administration and a commission as in scenario assets-documents-1. If no inactive employee or closed unit can be prepared, report BLOCKED for steps 8 and 9 only.
+  - description: The asset process definitions for the change and the hand over are active for SwiftRoute.
+    check: system_seeded
+    detail: Per the product they are activated when the first document of the kind is issued; if issue answers 409 "definition_not_active", report BLOCKED for steps 1 to 6.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-200. The answer is noted as B0.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator saves a draft change of holder at "Head office": from responsible Employee A and user Employee B, to responsible Employee C and user Employee B, event time now, one line with card INV-200 and quantity 1;
+      issues it (state issued, a number with the prefix "ACH"); and completes its task "post" in My Tasks. The answers are noted as C1 (after issue) and C2 (the document read after the task).
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-200 and the movements filtered to the cause "change". The answers are noted as B1 and M1.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator saves a draft hand over from "Head office" to "Branch": from responsible Employee C and user Employee B, to the location of "Branch", responsible Employee C and user Employee D, event time now, one line with card INV-200 and quantity 1;
+      issues it (a number with the prefix "AHO"); and completes its task "post". The answers are noted as H1 (after issue) and H2 (the document read after the task).
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-200 and reads the card INV-200. The answers are noted as B2 and K1.
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator replaces the posted change of holder with another note. The answer is noted as E1.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator saves a draft change of holder at "Branch" from responsible Employee C and user Employee D to responsible "Employee Z" (inactive) and user Employee D, event time now, one line with card INV-200. The answer is noted as DZ (state draft).
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The administrator issues the draft DZ. The answer is noted as E2.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The administrator saves a draft hand over from "Branch" to the closed unit "Old depot" (event time now, one line with card INV-200) and then, as a separate request, a draft hand over back to "Head office" with event time one hour ahead.
+      The answers are noted as DC and DF (both state draft).
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator issues the draft DC. The answer is noted as E3.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The administrator issues the draft DF. The answer is noted as E4.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-200 and reads the card INV-200 again. The answers are noted as B3 and K2.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A change of holder moves the balance row to the new responsible and keeps the unit and location.
+    verification:
+      method: api_response
+      detail: C1 shows state issued and a number with the prefix "ACH"; C2 shows state posted. B0 holds one row (quantity 1) with responsible Employee A. B1 holds one row (quantity 1) with responsible Employee C, actual user Employee B, the unit "Head office" and the same location; no row remains with Employee A (zero rows are not listed). M1 holds two legs of the cause "change" with opposite signs and quantity 1.
+      evidence: B0, C1, C2, B1 and M1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The register shows the wrong holder; a missing asset cannot be traced to a person.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A hand over moves the balance row to the new unit, location and holders, and the card follows the unit.
+    verification:
+      method: api_response
+      detail: H1 shows the prefix "AHO" and state issued; H2 shows state posted. B2 holds one row (quantity 1) at "Branch", the location of "Branch", responsible Employee C and actual user Employee D, and no row at "Head office". K1 shows the card's unit "Branch".
+      evidence: H1, H2, B2 and K1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The asset is counted in the wrong unit, so a scoped manager of the unit would not see it, or would see an asset that left.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A posted change of holder cannot be edited.
+    verification:
+      method: api_response
+      detail: Step 6 answers 409 with the reason "document_not_draft".
+      evidence: E1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A posted document could be altered afterwards.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: An inactive employee is refused at issue and the draft stays a draft.
+    verification:
+      method: api_response
+      detail: Step 8 answers 422 with the reason "employee_not_active" (the extension names the field, never a name). DZ read again shows state draft; B3 equals B2.
+      evidence: E2, DZ and B3.
+    on_fail:
+      severity: MAJOR
+      business_impact: An asset could be assigned to a person who has left.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: A closed unit and a date one hour ahead are refused at issue; balance and card are unchanged.
+    verification:
+      method: api_response
+      detail: Step 10 answers 422 with the reason "org_unit_not_active"; step 11 answers 422 with the reason "event_time_in_future". B3 equals B2 and K2 equals K1 (unit "Branch").
+      evidence: E3, E4, B3 and K2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Assets could be moved into a closed unit, or posted into the future.
+      suggested_action: route_to_elixir_dev

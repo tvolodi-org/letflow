@@ -1,0 +1,140 @@
+# T-1531 (BA#4, assets): a write off removes the asset from the register with a reason; a reversal puts it back and keeps both documents; bad reasons, a second reversal and a reversal of a draft are refused.
+# Sources: docs/assets/asset-workflow-documents.md section 5 (write off, reason codes disposed, lost, broken, expired, other; reason_text required for other) and 8.1 (a posted document is corrected only by a reversal that marks it reversed and keeps it);
+# lib/letflow/modules/assets/documents/shape.ex (reasons reason_invalid and reason_required, refused when the draft is saved), lib/letflow/modules/assets/documents/posting.ex (reverse/6: reasons reason_invalid, document_not_posted, document_reversed, reversal_pending; reversal codes wrong_document, wrong_quantity, wrong_master_data, other; the reversal runs as a task "post" too).
+#
+# SCREEN GAP (stated, not invented): the document screens exist in the web application, but the fixed reasons are read from the routes; every step is via: api.
+# ROSTER GAP: the roster has no assets-scope actor. The SwiftRoute administrator is the only actor with the asset rights.
+# NOT UAT-observable: the pending state of a reversal (reversal_pending) is a race between the reversal request and the completion of its task; it is covered by the product's own tests.
+---
+id: assets-documents-3-write-off-and-reversal
+scope: assets
+title: A write off removes an asset from the register with a reason, a reversal brings it back and keeps both documents; missing reasons, a second reversal and a reversal of a draft are refused
+version: "1.0"
+tags: [assets, writeoff, reversal, document, balances, refusal]
+
+description: >
+  SwiftRoute has the card INV-300 (fixed asset) commissioned at "Head office" with responsible Employee A and actual user Employee B (posted, prepared as in scenario assets-documents-1). A write off with the
+  reason "other" and no text, and a write off with a reason that is not on the list, are refused when saved. The administrator saves a write off with the reason "lost" and the text "not found in the stock
+  count", issues it and completes its task; the balance no longer shows the card and the movements show the write off. The administrator reverses the write off with the reason "wrong_document"; after the
+  task of the reversal is completed the balance shows the card again and the write off is marked reversed but stays on the list. A second reversal of the same write off, a reversal with a reason that is not on the
+  list and a reversal of a draft are refused.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the assets module active; the card INV-300 is commissioned and posted at "Head office" (quantity 1, responsible Employee A, actual user Employee B).
+    check: system_seeded
+    detail: Prepared through the company's own administration and a commission as in scenario assets-documents-1.
+  - description: The asset process definitions for the write off and the reversal are active for SwiftRoute.
+    check: system_seeded
+    detail: Per the product they are activated at the first issue or reversal; if either answers 409 "definition_not_active", report BLOCKED for steps 4 to 12.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator saves a draft write off at "Head office" (responsible Employee A, actual user Employee B, event time now, one line with card INV-300 and quantity 1) with the reason "other" and no reason text. The answer is noted as W0.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator saves the same write off with the reason "stolen". The answer is noted as W1.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator reads the document list filtered to the kind write off. The answer is noted as L0.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator saves the write off with the reason "lost" and the text "not found in the stock count", issues it (a number with the prefix "AWO"), and completes its task "post" in My Tasks. The answers are noted as W2 (after issue) and W3 (the document read after the task).
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-300 and the movements filtered to the cause "writeoff". The answers are noted as B1 and M1.
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator reverses the write off with the reason "wrong_document" and completes the task of the reversal in My Tasks. The answers are noted as R1 (after the request) and R2 (the document read after the task).
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-300 and the document list filtered to the kind write off. The answers are noted as B2 and L1.
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The administrator reverses the same write off a second time with the reason "wrong_document". The answer is noted as E1.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The administrator saves a new draft write off for card INV-300 (reason "broken", event time now, same header as before). The answer is noted as W4 (state draft).
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator reverses the draft W4 with the reason "wrong_document". The answer is noted as E2.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: admin
+    action: >
+      The administrator reverses the first write off (already reversed) with the reason "scrap". The answer is noted as E3.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: admin
+    action: >
+      The administrator reads the balances filtered to card INV-300 once more. The answer is noted as B3.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A write off without its reason or with a reason that is not on the list is refused when saved.
+    verification:
+      method: api_response
+      detail: Step 1 answers 422 with the reason "reason_required" (field reason_text); step 2 answers 422 with the reason "reason_invalid" (field reason_code). L0 lists no write off.
+      evidence: W0, W1 and L0.
+    on_fail:
+      severity: MAJOR
+      business_impact: Assets could disappear from the register with no reason on record.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A posted write off removes the asset from the balance and shows in the movements.
+    verification:
+      method: api_response
+      detail: W2 shows the prefix "AWO" and state issued; W3 shows state posted. B1 holds no row for INV-300. M1 holds the entry of the cause "writeoff" with quantity 1 and the opposite sign of the commission.
+      evidence: W2, W3, B1 and M1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A written off asset would still be counted, or a loss would leave no trace.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A reversal puts the asset back and the write off is marked reversed and kept.
+    verification:
+      method: api_response
+      detail: R2 shows state reversed for the write off. B2 holds one row (quantity 1) for INV-300 at "Head office" with responsible Employee A and actual user Employee B. L1 still lists the write off.
+      evidence: R1, R2, B2 and L1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A wrong write off cannot be corrected, or a correction erases the history.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A second reversal, a reversal of a draft and a reversal with a reason that is not on the list are refused and nothing changes.
+    verification:
+      method: api_response
+      detail: Step 8 answers 409 with the reason "document_reversed"; step 10 answers 409 with the reason "document_not_posted"; step 11 answers 422 with the reason "reason_invalid". B3 equals B2.
+      evidence: E1, E2, E3, W4 and B3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The same asset could be restored twice, doubling the register.
+      suggested_action: route_to_elixir_dev
