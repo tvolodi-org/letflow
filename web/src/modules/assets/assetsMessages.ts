@@ -2,6 +2,7 @@
  *  Ids have three parts (`assets.<area>.<name>`). The ru and kk texts are written by the developer and need a
  *  native-speaker check. */
 
+import { helpEn, helpKk, helpRu } from './help/assetsHelpMessages'
 import { getUiLocale } from '@/i18n/uiLocaleStore'
 import { documentsEn, documentsKk, documentsRu } from './documents/documentsMessages'
 import { registerEn, registerKk, registerRu } from './register/registerMessages'
@@ -290,7 +291,7 @@ const kk: Record<string, string> = {
 
 /** The catalog of the whole module: the card screen's own ids plus the document and register screens' (C14). */
 export const assetsMessages: Record<AssetsUiLocale, Record<string, string>> = {
-  en: { ...en, ...documentsEn, ...registerEn },
-  ru: { ...ru, ...documentsRu, ...registerRu },
-  kk: { ...kk, ...documentsKk, ...registerKk },
+  en: { ...en, ...documentsEn, ...registerEn, ...helpEn },
+  ru: { ...ru, ...documentsRu, ...registerRu, ...helpRu },
+  kk: { ...kk, ...documentsKk, ...registerKk, ...helpKk },
 }

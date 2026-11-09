@@ -205,3 +205,14 @@ samp {
 }
 /* T-1490: a disabled text input (inventory number of a posted card) reads as read-only, like the disabled select. */
 .lf-form input:disabled { opacity: .55; cursor: not-allowed; }
+
+/* T-1560: static help page (HelpTopicView): readable blocks, refusal titles apart from their explanation. */
+.lf-help { max-width: 48rem; }
+.lf-help section { margin-block-start: var(--space-6); }
+.lf-help h2 { margin-block-end: var(--space-2); }
+.lf-help ol { margin: 0; list-style: decimal; padding-inline-start: var(--space-6); }
+.lf-help li { margin-block-end: var(--space-2); }
+.lf-help dl { margin: 0; }
+.lf-help dl > div { margin-block-end: var(--space-3); }
+.lf-help dt { font-weight: 600; }
+.lf-help dd { margin: 0; color: var(--ink-muted); }

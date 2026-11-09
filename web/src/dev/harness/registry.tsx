@@ -41,6 +41,7 @@ import { stockTwoSidesScreens } from './fixtures/stockTwoSides'
 import { stockOpeningScreens } from './fixtures/stockOpening'
 import { stockCountScreens } from './fixtures/stockCounts'
 import { stockCountDiffScreens } from './fixtures/stockCountsDiff'
+import { helpScreens } from './fixtures/helpScreens'
 import { stockCountPostingScreens } from './fixtures/stockCountsPosting'
 import { queryStatesScreens } from './fixtures/queryStates'
 import { metricsScreens } from './fixtures/metrics'
@@ -292,6 +293,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockOpeningScreens,
     ...stockCountScreens,
     ...stockCountDiffScreens,
+    ...helpScreens,
     ...stockCountPostingScreens,
     ...queryStatesScreens,
     ...metricsScreens,
