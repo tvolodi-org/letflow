@@ -907,10 +907,31 @@ defmodule Letflow.Tasks do
   # raises and the result is returned unchanged in every case (INV-8).
   defp notify_assigned({:ok, task} = ok, user_id, prefix) do
     Letflow.Notifications.after_assignment(task, user_id, prefix)
+    bell_task_assigned(task, user_id, prefix)
     ok
   end
 
   defp notify_assigned(other, _user_id, _prefix), do: other
+
+  # T-1561: the in-app bell row of the assignee. Independent of the mail path (written when mail is
+  # Noop or the user has no address); `UserNotifications.notify/6` never raises, and an unknown
+  # schema name skips the row (INV-8).
+  defp bell_task_assigned(task, user_id, prefix) do
+    case Letflow.TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      {:ok, tenant_id} ->
+        Letflow.UserNotifications.notify(
+          prefix,
+          tenant_id,
+          user_id,
+          "task_assigned",
+          task.id,
+          task.node_name
+        )
+
+      _other ->
+        :ok
+    end
+  end
 
   # ── list_tasks/2 private helpers ────────────────────────────────────────
 
