@@ -7,7 +7,7 @@
 
 ## Why a separate policy
 
-Neither Apache-2.0 (section 6) nor AGPL-3.0 gives any right to use the project's names, logos or
+The MIT licence (owner decision D-116) gives no right to use the project's names, logos or
 brand. The licence covers the code; this note covers the name.
 
 ## What is covered

@@ -2,7 +2,11 @@ DRAFT - not in force. Draft for review by a lawyer; not legal advice.
 (Remove this banner when the file moves to the repository root as NOTICE.)
 
 Letflow
-Copyright (c) <year> <copyright holder - owner to name>
+Copyright (c) 2026 <copyright holder - owner to name>
+
+Letflow is licensed under the MIT licence (SPDX: MIT); the full text is in LICENSE.
+MIT requires this copyright notice and the licence text to be kept in all copies
+or substantial portions of the software.
 
 This product includes software developed by third parties. Their licence
 terms apply to their parts. The full machine-generated list is in
@@ -12,12 +16,13 @@ Known so far (from the licence audit in docs/uat/ba-decisions/T-1521.md):
 
   Elixir/Hex direct dependencies  34 of 34 checked: Apache-2.0, MIT, BSD, ISC.
                                   No copyleft found. Re-run as a CI step.
+                                  All are compatible with an MIT-licensed project.
   npm (web/)                      Direct dependencies: Apache-2.0, MIT, BSD, ISC.
                                   Transitive tree: NOT YET VERIFIED.
   pub (apps/mobile/)              84 packages: NOT YET VERIFIED (pub.dev has no
                                   licence field; read each package LICENSE).
   Fonts (web/src/fonts)           Geologica, IBM Plex Mono, Onest: SIL Open Font
-                                  Licence 1.1; texts in web/src/fonts/LICENSES.md.
+                                  Licence (OFL) 1.1; texts in web/src/fonts/LICENSES.md.
   Deployment (used, not linked)   Keycloak, nginx, PostgreSQL: named for
                                   attribution only.
 
