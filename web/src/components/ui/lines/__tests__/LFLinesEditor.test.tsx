@@ -7,6 +7,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { LFLinesEditor } from '../LFLinesEditor'
 import type { LeCatalog, LeColumn, LeItem, LeMode, LFLinesEditorProps, LeError } from '../types'
 import { ItemPicker } from '../ItemPicker'
+import { assertFormAccessible } from '@/test-utils/a11yForm'
 
 expect.extend(jestDomMatchers)
 afterEach(() => cleanup())
@@ -26,7 +27,7 @@ const mk = (n: number): Ln[] => Array.from({ length: n }, (_, i) => ({ item: i %
 const columns: LeColumn<Ln>[] = [
   {
     key: 'item', label: 'Item', view: (l) => catalog.byId(l.item)?.title ?? '—',
-    cell: (c) => <ItemPicker id={c.id} value={c.line.item} catalog={catalog} label="Item" invalid={c.invalid} onBlur={c.onBlur} onPick={(it) => c.patch({ item: it?.id ?? '' })} />,
+    cell: (c) => <ItemPicker id={c.id} value={c.line.item} catalog={catalog} label="Item" invalid={c.invalid} describedBy={c.describedBy} onBlur={c.onBlur} onPick={(it) => c.patch({ item: it?.id ?? '' })} />,
     paste: (l, text) => {
       const it = catalog.resolve(text)
       return it ? { line: { ...l, item: it.id } } : { line: l, reason: `unknown ${text}` }
@@ -38,7 +39,7 @@ const columns: LeColumn<Ln>[] = [
   },
   {
     key: 'qty', label: 'Quantity', num: true, view: (l) => l.qty,
-    cell: (c) => <input id={c.id} aria-label="Quantity" value={c.line.qty} aria-invalid={c.invalid || undefined} onChange={(e) => c.patch({ qty: e.target.value })} onBlur={c.onBlur} />,
+    cell: (c) => <input id={c.id} aria-label="Quantity" value={c.line.qty} aria-invalid={c.invalid || undefined} aria-describedby={c.describedBy} onChange={(e) => c.patch({ qty: e.target.value })} onBlur={c.onBlur} />,
     paste: (l, t) => ({ line: { ...l, qty: t.replace(',', '.') } }),
   },
 ]
@@ -223,7 +224,7 @@ describe('U10 errors', () => {
     fireEvent.click(screen.getByRole('button', { name: /Next error/ }))
     await waitFor(() => expect(within(rowOf(1)).getByLabelText('Quantity')).toHaveFocus())
     fireEvent.focusIn(within(rowOf(1)).getByLabelText('Quantity'))
-    expect(await screen.findByText(/Quantity must be above zero/)).toBeInTheDocument()
+    expect(await screen.findAllByText(/Quantity must be above zero/)).not.toHaveLength(0)
   })
   it('showErrors validates every line at once', () => {
     render(<Host initial={[{ item: 'i1', qty: '', ref: '' }, { item: '', qty: '', ref: '' }]} showErrors />)
@@ -344,5 +345,24 @@ describe('LE2 volume and import entry', () => {
     expect(within(first).getByLabelText('Quantity')).toHaveValue('999')
     expect(first.textContent).toContain('999')
     expect(screen.getByText(/1 of 1000 lines shown/)).toBeInTheDocument()
+  })
+})
+
+describe('T-1554 keyboard and screen reader', () => {
+  it('K6 the grid exposes its column headers (columns + index + actions)', () => {
+    render(<Host initial={mk(2)} />)
+    expect(screen.getAllByRole('columnheader')).toHaveLength(columns.length + 2)
+    expect(screen.getAllByRole('row')[0]).toHaveAttribute('aria-rowindex', '1')
+  })
+
+  it('K1/K7 the line form is accessible; Escape closes it', () => {
+    render(<Host start="form" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add line' }))
+    assertFormAccessible()
+    fireEvent.click(screen.getByRole('button', { name: 'Save and close' }))
+    assertFormAccessible()
+    fireEvent.keyDown(screen.getByLabelText('Quantity'), { key: 'Escape' })
+    expect(screen.queryByLabelText('Quantity')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add line' })).toBeInTheDocument()
   })
 })
