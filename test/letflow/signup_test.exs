@@ -281,6 +281,20 @@ defmodule Letflow.SignupTest do
       assert same.(first) == same.(verified)
     end
 
+    test "A4b at the pending cap an unknown and a verified address get the same answer" do
+      assert post_signup(%{"email" => "victim@example.test"}).status == 202
+      verify(token_from(mail!()))
+      enable!(pending_cap: 1)
+      assert post_signup(%{"email" => "filler@example.test"}).status == 202
+      _ = mail!()
+      same = fn conn -> {conn.status, conn.resp_body} end
+      known = post_signup(%{"email" => "victim@example.test"})
+      unknown = post_signup(%{"email" => "nobody@example.test"})
+      assert same.(known) == same.(unknown)
+      assert known.status == 503
+      no_mail()
+    end
+
     test "A5 the pending cap answers 503 and writes nothing; expired rows free capacity" do
       enable!(pending_cap: 1)
       assert post_signup(%{"email" => "one@example.test"}).status == 202

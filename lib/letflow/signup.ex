@@ -199,12 +199,14 @@ defmodule Letflow.Signup do
       ip_count >= cfg.ip_hourly_cap ->
         {:error, :rate_limited}
 
-      open = open_request(fields.email) ->
-        resend(open, cfg, now)
-
+      # The cap is checked before the open-request lookup so a full cap answers every address alike
+      # (an open sign-up must not be distinguishable from an unknown address, INV-5).
       Repo.aggregate(from(r in Request, where: r.state == "pending_verification"), :count) >=
           cfg.pending_cap ->
         {:error, :unavailable}
+
+      open = open_request(fields.email) ->
+        resend(open, cfg, now)
 
       true ->
         insert(fields, ip_key, cfg, now)
