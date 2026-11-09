@@ -1,0 +1,60 @@
+# T-1556 (BA batch 2 item 4): duplicate inventory number. Sources: lib/letflow/modules/assets/card_import.ex (asset_inventory_number_taken), docs/assets/asset-xlsx.md.
+---
+id: import-errors-3-duplicate-inventory-number
+scope: assets
+title: A duplicate inventory number in an asset cards file is reported in plain words and nothing is imported
+version: "1.0"
+tags: [assets, cards, import, xlsx, inventory-number, atomic, ru, kk, en]
+
+description: >
+  The administrator uploads an asset cards file in which row 3 uses an inventory number that another card already has. The row is listed with its row number, the column "inventory number" and the reason "already used by another card"; none of the cards of the file is created. After the administrator changes that number and uploads the file again, all cards are created.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the assets module installed. The administrator opens the screen "Import data" and has an xlsx file ready as described in the steps.
+    check: system_seeded
+    detail: If the asset imports are not offered on the screen "Import data", report BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator picks "Asset cards", chooses the file and starts the import. The count of asset cards is noted as C1 before and C2 after.
+    expect_refusal: true
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator reads the message in Russian, Kazakh and English.
+    expect_refusal: true
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator changes the inventory number in row 3, uploads again and starts the import. The count is read as C3.
+    expect_refusal: true
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The duplicate inventory number is reported and nothing is imported.
+    verification:
+      method: screen_text
+      detail: The screen says nothing was imported and shows row 3, column inventory number, and a sentence that the number is already used by another card, not the code asset_inventory_number_taken. The message is shown in Russian, Kazakh and English (the clerk switches the language) and names the column and the reason in plain words. C2 equals C1.
+      evidence: Screenshots in three languages, C1 and C2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The clerk sees a technical code instead of what to change.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: After the change all cards are created.
+    verification:
+      method: api_response
+      detail: C3 equals C1 plus the number of rows in the file.
+      evidence: C3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The fixed file is still refused.
+      suggested_action: route_to_elixir_dev

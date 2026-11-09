@@ -11,6 +11,7 @@ import { ArrowLeftRight, HandHelping, PackagePlus, Trash2, Undo2 } from 'lucide-
 import { useAuth } from '@/auth/AuthContext'
 import { Field } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { HelpLink } from '@/components/help/HelpLink'
 import { Select } from '@/components/ui/Select'
 import { RegistryFields, RegistrySection } from '@/components/ui/registry'
 import {
@@ -262,7 +263,7 @@ function MovementsInner({ initialOpenId, initialSelectedId, variant, initialDeta
 
   return (
     <>
-      <PageHeader eyebrow={t('assets.reg.eyebrow')} title={t('assets.movements.title')} lede={t('assets.movements.lede')} />
+      <PageHeader eyebrow={t('assets.reg.eyebrow')} title={t('assets.movements.title')} lede={t('assets.movements.lede')} actions={<HelpLink to="/admin/assets/help/movements" label={t('assets.help.link')} />} />
       <Journal
         variant={variant}
         list={list}

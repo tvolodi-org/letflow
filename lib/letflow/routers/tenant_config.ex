@@ -241,6 +241,8 @@ defmodule Letflow.Routers.TenantConfig do
   @default_logo_url nil
   @default_brand_colors %{"primary" => "#228be6"}
 
+  # GH T-1558: public, credential-free lookup -> per-address 429 with retry-after (slug enumeration).
+  plug(Letflow.Plugs.AuthAttemptLimit, mode: :requests)
   plug(:match)
   plug(:dispatch)
 

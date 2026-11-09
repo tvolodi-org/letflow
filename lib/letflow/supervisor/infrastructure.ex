@@ -68,6 +68,7 @@ defmodule Letflow.Supervisor.Infrastructure do
   7. `Letflow.Api.Scope.ShadowEvidence` (REQ-517 2b: shadow-evidence ETS counters + flush)
   8. `Letflow.Plugs.PublicReadRateLimit.Bucket`
   9. `Letflow.Plugs.LoginDiscoveryRateLimit.Bucket` (REQ-436)
+  9a. `Letflow.Plugs.AuthAttemptLimit.Bucket` (GH T-1558; live total 28)
   9b. `Letflow.Plugs.ProvisionerAuth.RateLimiter` (REQ-572; the live child count is one higher than before)
   10. `Letflow.Admission`
   11. `Letflow.InstanceSupervisor`
@@ -273,6 +274,8 @@ defmodule Letflow.Supervisor.Infrastructure do
       # bucket behind Letflow.Plugs.LoginDiscoveryRateLimit. A leaf with no ordering
       # dependency; own table, shares no state with the sibling directly above.
       Letflow.Plugs.LoginDiscoveryRateLimit.Bucket,
+      # GH T-1558: bounded ETS bucket behind Letflow.Plugs.AuthAttemptLimit. A leaf; own table.
+      Letflow.Plugs.AuthAttemptLimit.Bucket,
       # ISS-1030 (design iss1030-onboarding-administrator.md s7 step 11, OQ-16): the
       # once-per-tenant-per-hour throttle for the pending-admin bind's fault WARNING.
       # A leaf with no ordering dependency; nothing looks it up during its own init/1.

@@ -199,6 +199,8 @@ defmodule Letflow.Routers.MobileTenantConfig do
   @default_environment_kind "development"
   @default_client_id "letflow-mobile"
 
+  # GH T-1558: public, credential-free lookup -> per-address 429 with retry-after (slug enumeration).
+  plug(Letflow.Plugs.AuthAttemptLimit, mode: :requests)
   plug(:match)
   plug(:dispatch)
 
