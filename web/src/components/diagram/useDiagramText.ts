@@ -10,6 +10,7 @@ export function useDiagramText() {
       intl.formatMessage({
         id: (NODE_TYPES as readonly string[]).includes(nodeType) ? `processDiagram.type.${nodeType}` : 'processDiagram.type.other',
       }),
+    diffName: (kind: 'added' | 'removed' | 'changed') => intl.formatMessage({ id: `processDiagram.diff.${kind}` }),
     stateName: (state: NodeState) => intl.formatMessage({ id: `processDiagram.state.${state}` }),
   }
 }

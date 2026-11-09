@@ -4,7 +4,8 @@ import { useIntl } from 'react-intl'
 import type { LaidOutEdge, LaidOutNode } from '@/utils/canvas/readLayout'
 import type { InstancePath } from '@/utils/canvas/instancePath'
 import { StatusPill } from '@/components/ui/StatusPill'
-import { STATE_PILL } from './diagramConfig'
+import type { GraphDiff } from '@/utils/canvas/graphDiff'
+import { DIFF_PILL, STATE_PILL } from './diagramConfig'
 import { useDiagramText } from './useDiagramText'
 
 export function readingOrder(nodes: LaidOutNode[], edges: LaidOutEdge[]): LaidOutNode[] {
@@ -36,9 +37,11 @@ export interface StepsListProps {
   path?: InstancePath | null
   selectedId?: string | null
   onSelect?: (id: string) => void
+  /** T-1588: a version diff; shows a word and glyph per changed step and connection. */
+  diff?: GraphDiff | null
 }
 
-export function StepsList({ nodes, edges, path, selectedId, onSelect }: StepsListProps) {
+export function StepsList({ nodes, edges, path, selectedId, onSelect, diff }: StepsListProps) {
   const intl = useIntl()
   const t = useDiagramText()
   const labelOf = new Map(nodes.map((n) => [n.id, n.label ?? t.typeName(n.nodeType)]))
@@ -47,6 +50,8 @@ export function StepsList({ nodes, edges, path, selectedId, onSelect }: StepsLis
       {readingOrder(nodes, edges).map((n, i) => {
         const st = path?.nodes.get(n.id)?.state
         const outs = edges.filter((e) => e.source === n.id)
+        const dk = diff?.nodes.get(n.id)?.kind
+        const nodeKind = dk && dk !== 'unchanged' ? dk : null
         return (
           <li key={n.id} className={`lf-pd-steps__item${st ? ` is-${st}` : ''}`} data-testid="diagram-step" data-node-id={n.id}>
             <span className="lf-pd-steps__num">{i + 1}</span>
@@ -62,8 +67,11 @@ export function StepsList({ nodes, edges, path, selectedId, onSelect }: StepsLis
               <span className="lf-pd-steps__meta">{t.typeName(n.nodeType)}</span>
               {outs.length > 0 && (
                 <ul className="lf-pd-steps__next">
-                  {outs.map((e) => (
-                    <li key={e.id}>
+                  {outs.map((e) => {
+                    const ek = diff?.edges.get(e.id)?.kind
+                    const edgeKind = ek && ek !== 'unchanged' ? ek : null
+                    return (
+                    <li key={e.id} data-diff={edgeKind ?? undefined}>
                       → {labelOf.get(e.target) ?? e.target}
                       {e.condition && (
                         <>
@@ -72,11 +80,25 @@ export function StepsList({ nodes, edges, path, selectedId, onSelect }: StepsLis
                         </>
                       )}
                       {e.isDefault && ` (${intl.formatMessage({ id: 'processDiagram.edge.default' })})`}
+                      {edgeKind && (
+                        <>
+                          {' '}
+                          <StatusPill tone={DIFF_PILL[edgeKind].tone} glyph={DIFF_PILL[edgeKind].glyph} data-testid="steps-edge-diff">
+                            {t.diffName(edgeKind)}
+                          </StatusPill>
+                        </>
+                      )}
                     </li>
-                  ))}
+                    )
+                  })}
                 </ul>
               )}
             </div>
+            {nodeKind && (
+              <StatusPill tone={DIFF_PILL[nodeKind].tone} glyph={DIFF_PILL[nodeKind].glyph} data-testid="steps-node-diff">
+                {t.diffName(nodeKind)}
+              </StatusPill>
+            )}
             {st && (
               <StatusPill tone={STATE_PILL[st].tone} glyph={STATE_PILL[st].glyph}>
                 {t.stateName(st)}
