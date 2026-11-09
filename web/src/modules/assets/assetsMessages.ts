@@ -98,6 +98,9 @@ const en: Record<string, string> = {
   'assets.error.valid_until_not_allowed': '"Valid until" is only for intangible assets.',
   'assets.error.currency_mismatch': 'The currency must be the tenant currency.',
   'assets.error.card_inactive': 'The card is retired and cannot be changed.',
+  'assets.error.inventory_number_locked': 'The inventory number cannot be changed after the first posted document.',
+  'assets.error.kind_locked': 'The kind cannot be changed after the first posted document; use a change of kind document.',
+  'assets.card.lockedHint': 'Inventory number and kind are fixed after the first posting.',
   'assets.error.idempotency_key_reuse': 'This request was already sent with different data. Send it again.',
   'assets.error.request_refused': 'The request was refused.',
 }
@@ -182,6 +185,9 @@ const ru: Record<string, string> = {
   'assets.error.valid_until_not_allowed': '«Действует до» задаётся только для нематериальных активов.',
   'assets.error.currency_mismatch': 'Валюта должна совпадать с валютой арендатора.',
   'assets.error.card_inactive': 'Карточка выведена, изменить её нельзя.',
+  'assets.error.inventory_number_locked': 'Инвентарный номер нельзя изменить после первого проведённого документа.',
+  'assets.error.kind_locked': 'Вид нельзя изменить после первого проведённого документа; используйте документ смены вида.',
+  'assets.card.lockedHint': 'Инвентарный номер и вид закреплены после первого проведения.',
   'assets.error.idempotency_key_reuse': 'Этот запрос уже отправлялся с другими данными. Отправьте его снова.',
   'assets.error.request_refused': 'Запрос отклонён.',
 }
@@ -266,6 +272,9 @@ const kk: Record<string, string> = {
   'assets.error.valid_until_not_allowed': '«Жарамдылық мерзімі» тек материалдық емес активтерге беріледі.',
   'assets.error.currency_mismatch': 'Валюта тенант валютасымен бірдей болуы керек.',
   'assets.error.card_inactive': 'Карточка шығарылған, оны өзгертуге болмайды.',
+  'assets.error.inventory_number_locked': 'Инвентарлық нөмірді алғашқы өткізілген құжаттан кейін өзгертуге болмайды.',
+  'assets.error.kind_locked': 'Түрді алғашқы өткізілген құжаттан кейін өзгертуге болмайды; түрді ауыстыру құжатын пайдаланыңыз.',
+  'assets.card.lockedHint': 'Инвентарлық нөмір мен түр алғашқы өткізуден кейін бекітіледі.',
   'assets.error.idempotency_key_reuse': 'Бұл сұраным басқа деректермен бұрын жіберілген. Қайта жіберіңіз.',
   'assets.error.request_refused': 'Сұраным қабылданбады.',
 }

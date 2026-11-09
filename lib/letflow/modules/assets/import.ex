@@ -160,11 +160,12 @@ defmodule Letflow.Modules.Assets.Import do
 
   @doc false
   # Maps the Cards refusals to the constant reasons of the import (rendered by the core's
-  # `import_reason_json/1`). `:kind_locked` arrives with REQ-752 (GH #3890).
+  # `import_reason_json/1`). `:kind_locked` and `:inventory_number_locked` come from `CardLocks` (T-1490).
   @spec refusal(term()) :: term()
   def refusal(:valid_until_not_allowed), do: :asset_valid_until_not_allowed
   def refusal(:currency_mismatch), do: :asset_currency_mismatch
   def refusal(:kind_locked), do: :asset_kind_locked
+  def refusal(:inventory_number_locked), do: :asset_inventory_number_locked
   def refusal(:org_unit_not_active), do: {:reference_inactive, "org_unit_id"}
   def refusal(:card_inactive), do: :card_inactive
 

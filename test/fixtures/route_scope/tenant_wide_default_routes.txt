@@ -31,6 +31,7 @@ GET /instances/storage-usage AttachmentsRead
 GET /integration-mappings IntegrationMappingsManage
 GET /integration-mappings/:id IntegrationMappingsManage
 GET /modules/assets/balances AssetsRead
+GET /modules/assets/cards/:id/lock AssetsRead
 GET /modules/assets/documents AssetsRead
 GET /modules/assets/documents/:id AssetsRead
 GET /modules/assets/movements AssetsRead

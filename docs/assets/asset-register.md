@@ -62,7 +62,7 @@ localized_text).
 
 | Field | Type | Required | Refers to | Note |
 |---|---|---|---|---|
-| inventory_number | string | required | none | unique per tenant (decided, D-097) |
+| inventory_number | string | required | none | unique per tenant (decided, D-097); read-only after the first posted document (T-1490: 422 `inventory_number_locked`, a reversal does not lift it) |
 | name | string | required | none | |
 | kind | enum | required | none | values `fixed`, `low_value`, `intangible` |
 | org_unit_id | string | optional | org_unit record (module org) | empty until the first commission posts; not typed by the routes (they refuse the key, T-1488); the holder shown on the card is read from the register. Only the xlsx import may still carry it (D-097). Setting it from a posting is item G2 |
