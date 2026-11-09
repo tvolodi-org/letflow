@@ -39,7 +39,8 @@ function summaryEndpoint(raw: string): string {
   }
 }
 
-const ASSIGNEE_TYPES = ['ROLE', 'USER', 'INITIATOR']
+/** Types the runtime can claim and complete (Tasks.apply_claim/apply_completion_authz); INITIATOR is not one. */
+export const ASSIGNEE_TYPES = ['ROLE', 'USER']
 
 export function useEditText() {
   const intl = useIntl()
@@ -128,7 +129,7 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
       {!editable && <p className="lf-hint" data-testid="edit-attrs-locked">{e('attrsLocked')}</p>}
       {editable && node.node_type === 'HUMAN_TASK' && (
         <>
-          <Field label={e('field.role')}>
+          <Field label={e('field.assigneeRef')}>
             <input value={text('role')} onChange={(ev) => setAttr('role', ev.target.value)} data-testid="edit-field-role" />
           </Field>
           <Select
@@ -138,9 +139,6 @@ export function NodeEditPanel({ graph, nodeId, onApply, onClose, onSelectEdge, p
             options={ASSIGNEE_TYPES.map((v) => ({ value: v, label: v }))}
             onChange={(v) => setAttr('assignee_type', v)}
           />
-          <Field label={e('field.assigneeRef')}>
-            <input value={text('assignee_ref')} onChange={(ev) => setAttr('assignee_ref', ev.target.value)} data-testid="edit-field-assignee-ref" />
-          </Field>
         </>
       )}
       {editable && node.node_type === 'SERVICE_TASK' && (

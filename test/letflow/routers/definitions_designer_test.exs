@@ -384,6 +384,25 @@ defmodule Letflow.Routers.DefinitionsDesignerTest do
     end
   end
 
+  describe "P6 the panel's assignment attributes resolve to a usable runtime assignment" do
+    # The panel writes `role` (the reference) and, optionally, `assignee_type` from its offered
+    # choices ROLE and USER (web NodeEditPanel ASSIGNEE_TYPES); INITIATOR is not offered.
+    test "every offered type resolves verbatim with the role value as the reference" do
+      for type <- ["ROLE", "USER"] do
+        node = %Graph.Node{
+          id: "h",
+          node_type: :HUMAN_TASK,
+          attributes: %{"role" => "ref-1", "assignee_type" => type}
+        }
+
+        assert {^type, "ref-1"} = Letflow.Engine.TaskActivation.resolve_assignee(node)
+      end
+
+      node = %Graph.Node{id: "h", node_type: :HUMAN_TASK, attributes: %{"role" => "CLERK"}}
+      assert {"ROLE", "CLERK"} = Letflow.Engine.TaskActivation.resolve_assignee(node)
+    end
+  end
+
   describe "H1 the draft save through the full pipeline (a real bearer token)" do
     defp token_for(tenant, roles) do
       user =

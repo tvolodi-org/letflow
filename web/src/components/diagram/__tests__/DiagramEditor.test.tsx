@@ -4,6 +4,7 @@
  *  E3 node marker (glyph + word), E4 edge marker, E5 list item selects the node, U5 undo/redo keys (not while typing),
  *  K1 Enter opens the panel, K2 Alt+Arrow, K3 Connect from this step, K4 Delete, K5 aria-live, K6 accessible names,
  *  K7 connection row Edit, K8 row Delete connection, K9 narrow step list, P1..P5 properties and the script binding. */
+import { ASSIGNEE_TYPES } from '../NodeEditPanel'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
@@ -294,6 +295,22 @@ describe('T-1563 diagram editor', () => {
     fireEvent.change(screen.getByTestId('edit-field-script-key'), { target: { value: '' } })
     a = readAttrs(latest.graph.nodes.find((x) => x.id === 'call')!)
     expect('script_key' in a || 'script_version' in a).toBe(false)
+  })
+
+  it('P6 human task assignment writes the keys the engine reads (role + assignee_type)', () => {
+    renderEditor({
+      seed: {
+        nodes: [node('start', 'START', null, null, 0, 0), node('h', 'HUMAN_TASK', 'Do', null, 0, 100), node('end', 'END', null, null, 0, 200)],
+        edges: [],
+      },
+    })
+    openNode('h')
+    expect(ASSIGNEE_TYPES).toEqual(['ROLE', 'USER'])
+    expect(screen.queryByTestId('edit-field-assignee-ref')).toBeNull()
+    fireEvent.change(screen.getByTestId('edit-field-role'), { target: { value: 'user-42' } })
+    const a = readAttrs(latest.graph.nodes.find((x) => x.id === 'h')!)
+    expect(a.role).toBe('user-42')
+    expect('assignee_ref' in a).toBe(false)
   })
 
   it('P4 timer duration, assignee and sub-process name are edited per type', () => {
