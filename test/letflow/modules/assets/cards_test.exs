@@ -259,10 +259,28 @@ defmodule Letflow.Modules.Assets.CardsTest do
                  "accumulated_depreciation" => "100.250000000",
                  "book_value" => "1134.250000000",
                  "depreciation_as_of" => "2025-01-01",
+                 "depreciation_method" => "straight line",
+                 "depreciation_rate" => "20.000000000",
                  "acquisition_cost" => "1234.500000000"
                },
                opts()
              )
+
+    assert stored(s, c["record_id"])["depreciation_method"] == "straight line"
+    assert stored(s, c["record_id"])["depreciation_rate"] == "20.000000000"
+
+    assert {:error, {:record_payload_invalid, _}} =
+             Cards.update_card(s, c["record_id"], %{"depreciation_rate" => "abc"}, opts())
+
+    assert {:ok, _} =
+             Cards.update_card(
+               s,
+               c["record_id"],
+               %{"depreciation_method" => nil, "depreciation_rate" => nil},
+               opts()
+             )
+
+    assert stored(s, c["record_id"])["depreciation_rate"] in [nil, ""]
 
     assert stored(s, c["record_id"])["book_value"] == "1134.250000000"
     assert stored(s, c["record_id"])["accumulated_depreciation"] == "100.250000000"

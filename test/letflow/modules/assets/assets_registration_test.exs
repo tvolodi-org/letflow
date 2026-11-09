@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.14.0"
+    assert m.version == "0.15.0"
     assert m.depends_on == ["catalog_items", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 
@@ -127,6 +127,8 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
       Map.put(dec, "name", "accumulated_depreciation"),
       Map.put(dec, "name", "book_value"),
       %{"name" => "depreciation_as_of", "type" => "date"},
+      %{"name" => "depreciation_method", "type" => "string"},
+      Map.put(dec, "name", "depreciation_rate"),
       %{"name" => "valid_until", "type" => "date", "queried" => true},
       %{"name" => "active", "type" => "boolean", "required" => true, "queried" => true},
       %{"name" => "external_ref_system", "type" => "string", "queried" => true},
