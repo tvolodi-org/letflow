@@ -77,8 +77,10 @@ Before merging a change that touches the database or a module's stored data:
       reads `up_to_date`.
 - [ ] **Contract release (later).** Remove the old thing, and only now raise `min_data_version`.
       Only after every tenant with the module installed was upgraded at the previous release,
-      and after the fleet driver exists (0055 D5, D12; slice S6). Neither `min_data_version`
-      nor the fleet driver is built today, so **no contract release is allowed yet**.
+      and after the fleet driver exists (0055 D5, D12; slice S6). `min_data_version` is built
+      (slice S3: optional manifest key, checked at the module mount), but the fleet driver is
+      not, so you cannot yet prove that every tenant was upgraded: **no contract release is
+      allowed yet**.
 
 ## 3. Rolling deploy preconditions
 
@@ -88,10 +90,16 @@ way to avoid downtime. Run it only when all of these hold:
 - [ ] Every database change in the release is expand-only (section 2).
 - [ ] The shared-schema migration has run before the first new node takes traffic.
 - [ ] The new build is compatible with the previous web bundle and mobile app.
-- [ ] No tenant has been upgraded to a version the old build would reject. Today the refusal
-      `module_version_ahead` is **not built** (slice S3), so this is a rule you keep by hand:
-      do not run tenant upgrades until the last old node is gone, or you cannot roll the
-      code back.
+- [ ] No tenant has been upgraded to a version the old build would reject. A build that
+      contains slice S3 refuses a tenant whose stored module version is above its own
+      (503 `module_version_ahead`, before the permission check), so such a node fails closed
+      instead of serving data it does not understand. Builds from before S3 do not have this
+      refusal, and the refusal does not make a code rollback safe by itself. So keep the rule
+      by hand for the mixed-build window: do not run tenant upgrades until the last old node
+      is gone, or you cannot roll the code back.
+- [ ] If the new manifest declares `min_data_version`, a tenant below it gets 503
+      `module_upgrade_required` from the new build. Upgrade those tenants right after the
+      last old node is gone, or leave `min_data_version` out in an expand release.
 - [ ] `LETFLOW_MODULE_UPGRADE_ON_BOOT=false` (the default; exactly `true` or `false`) on **every**
       node for the whole mixed-build window. When it is `true`, a node that boots applies every
       eligible Class A upgrade at once (`Letflow.ModuleUpgrade.Boot`). The advisory lock only
@@ -122,7 +130,7 @@ degrades; it does not go down.
 
 | Layer | Rollback |
 |---|---|
-| Code (the build) | Redeploy the previous build. Safe only while no tenant is at a version the old build rejects, and never after a contract release. |
+| Code (the build) | Redeploy the previous build. Safe only while no tenant is at a version the old build rejects (a build with S3 answers 503 `module_version_ahead` for such a tenant; an older build does not), and never after a contract release. |
 | Failed tenant apply | Automatic: one transaction, the tenant stays on the old version, the journal row is `failed`. |
 | Tenant version after a done upgrade | Not built (slice S5, designed in 0055 D9). Roll forward with a corrective release. |
 | Shared-schema migration | Never drop to undo. Roll forward with a corrective release. |
@@ -149,8 +157,8 @@ until a tenant on the previous version can plan and apply.**
 
 ## 6. Order of work for this subject
 
-S1 (this page) then S2 (rolling deploy on QA), S3 (`min_data_version` gate and
-`module_version_ahead`), S5 (rollback route), S4 (data-step runner), S6 (fleet driver),
+S1 (this page), S3 (`min_data_version` gate and `module_version_ahead`; done, #4088),
+then S2 (rolling deploy on QA), S5 (rollback route), S4 (data-step runner), S6 (fleet driver),
 S7 (application package for on-site installs). Open owner questions (downtime promise,
 upgrade window default, rollback promise) are listed in `docs/uat/ba-decisions/T-1519.md`
 section 9.
