@@ -6,9 +6,11 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
   T-1534: hidden legs and rows in the files a scoped reader can download. A reader granted on org unit U1
   asks the real `Letflow.Router` (real bearer token) for the stock and assets XLSX registers and the stock-card
   print while U2 holds stock and one movement has a visible leg (U1) and a hidden leg (U2). Each file is
-  decoded and every part of it searched for the hidden unit, its quantities and its document ids; a reader
-  granted on the parent node is the control that shows the same values, so the absence is not vacuous.
-  S1 stock balances xlsx, S2 stock movements xlsx, S3 assets balances xlsx, S4 stock-card print.
+  decoded (every worksheet cell) and searched for the hidden unit, item, location, document and line ids and
+  the hidden quantity; a reader granted on the parent node is the control that must show every one of those
+  sentinels, so the absence is not vacuous. S2 also pins the masked leg's cells (blank slots, `masked` true).
+  S1 stock balances xlsx, S2 stock movements xlsx, S3 assets balances xlsx, S4 stock-card print (S4b: an item
+  and place whose movements are all hidden answer like an absent identifier).
   Documents stay tenant-wide-only (assets S1, stock A-TEN-1) and counts keep their scoped contract
   (`asset_stock_isolation_test.exs`, S6). `async: false`, committed tenants, Sandbox `:auto`.
   """
@@ -32,6 +34,7 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
   @r1 "55555555-5555-4555-8555-555555555555"
   @r2 "56565656-5656-4656-8656-565656565656"
   @l1 "33333333-3333-4333-8333-333333333333"
+  @hid_line "66666666-6666-4666-8666-666666666666"
   @hidden_qty "6.250000000"
 
   setup do
@@ -40,6 +43,8 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
     # stock tenant: real catalog item and location, so the stock card can name them
     st = S.tenant!("stk-scx", ctx.names.s)
     m = SD.masters!(st.schema_name)
+    # a second item and place that only U2 ever touches
+    h = SD.masters!(st.schema_name)
 
     # assets tenant: raw ledger ids as the register tests use them
     at = AS.tenant!("ast-scx", ctx.names.t)
@@ -50,19 +55,20 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
       {:ok, _} = ScopeNodePaths.write({:insert, @u2, @p}, schema)
     end
 
-    seed_stock!(st.schema_name, m)
+    seed_stock!(st.schema_name, m, h)
     seed_assets!(at.schema_name)
 
     {s1, sp} = scoped!(ctx, :s, st.schema_name)
     {t1, tp} = scoped!(ctx, :t, at.schema_name)
 
-    {:ok, Map.merge(ctx, %{m: m, s1: s1, sp: sp, t1: t1, tp: tp, st: st})}
+    {:ok, Map.merge(ctx, %{m: m, h: h, s1: s1, sp: sp, t1: t1, tp: tp, st: st})}
   end
 
-  # u1 receives 10 of the item, u2 receives 6.25, u1 sends 3 to u2 (a hidden leg of the transfer).
-  defp seed_stock!(schema, m) do
+  # u1 receives 10 of the item, u2 receives 6.25 of the hidden item at the hidden place, u1 sends 3 to u2's
+  # hidden place (a hidden leg of the transfer).
+  defp seed_stock!(schema, m, h) do
     here = S.side(@u1, m.location)
-    there = S.side(@u2, m.location)
+    there = S.side(@u2, h.location)
 
     S.post!(schema, "receipt", %{
       document_id: "doc-vis",
@@ -71,7 +77,7 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
 
     S.post!(schema, "receipt", %{
       document_id: "doc-hid",
-      lines: [S.line(m.item, "6.25", %{to: there})]
+      lines: [S.line(h.item, "6.25", %{to: there}, %{line_id: @hid_line})]
     })
 
     S.post!(schema, "transfer", %{
@@ -125,10 +131,29 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
   @stock "/api/v1/modules/stock"
   @assets "/api/v1/modules/assets"
 
-  # Every part of an xlsx (sheets, shared strings) as one string.
-  defp xlsx_text(conn) do
-    {:ok, files} = :zip.unzip(conn.resp_body, [:memory])
-    files |> Enum.map_join("\n", fn {_, bin} -> bin end)
+  # Every cell of every worksheet of an xlsx, as a flat list (strings and numbers kept as they are).
+  defp sheets(conn) do
+    {:ok, pkg} = XlsxReader.open(conn.resp_body, source: :binary)
+
+    Map.new(XlsxReader.sheet_names(pkg), fn name ->
+      {:ok, rows} = XlsxReader.sheet(pkg, name)
+      {name, rows}
+    end)
+  end
+
+  defp cells(conn), do: conn |> sheets() |> Map.values() |> List.flatten()
+
+  defp has?(cells, sentinel) when is_binary(sentinel),
+    do: Enum.any?(cells, &(is_binary(&1) and String.contains?(&1, sentinel)))
+
+  defp has?(cells, number) when is_number(number), do: Enum.any?(cells, &(&1 == number))
+
+  # Every sentinel appears in the control file and in none of the scoped file.
+  defp assert_hidden(scoped, control, sentinels) do
+    for x <- sentinels do
+      assert has?(control, x), "control lacks #{inspect(x)}: the absence below would be vacuous"
+      refute has?(scoped, x), "scoped file leaks #{inspect(x)}"
+    end
   end
 
   defp docx_text(conn) do
@@ -144,42 +169,59 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
     conn
   end
 
-  test "S1 stock balances xlsx: a U1 reader's file holds no U2 row", ctx do
-    scoped = req(@stock <> "/balances?format=xlsx", ctx.s1) |> ok!("spreadsheetml")
-    text = xlsx_text(scoped)
-    assert text =~ @u1
-    refute text =~ @u2
-    refute text =~ @hidden_qty
+  defp hidden_sentinels(ctx),
+    do: [@u2, ctx.h.item, ctx.h.location, "doc-hid", @hid_line, 6.25]
 
-    control = req(@stock <> "/balances?format=xlsx", ctx.sp) |> ok!("spreadsheetml")
-    assert xlsx_text(control) =~ @u2
+  test "S1 stock balances xlsx: a U1 reader's file holds no U2 row", ctx do
+    scoped = req(@stock <> "/balances?format=xlsx", ctx.s1) |> ok!("spreadsheetml") |> cells()
+    control = req(@stock <> "/balances?format=xlsx", ctx.sp) |> ok!("spreadsheetml") |> cells()
+    assert has?(scoped, @u1)
+    assert_hidden(scoped, control, [@u2, ctx.h.item, ctx.h.location, 6.25])
   end
 
-  test "S2 stock movements xlsx: hidden leg blanked, hidden documents and units absent", ctx do
-    scoped = req(@stock <> "/movements?format=xlsx", ctx.s1) |> ok!("spreadsheetml")
-    text = xlsx_text(scoped)
-    assert text =~ "doc-vis" and text =~ "doc-trf"
-    refute text =~ @u2
-    refute text =~ "doc-hid"
-    refute text =~ @hidden_qty
+  test "S2 stock movements xlsx: hidden leg masked cell by cell, hidden values absent", ctx do
+    scoped_conn = req(@stock <> "/movements?format=xlsx", ctx.s1) |> ok!("spreadsheetml")
+    control_conn = req(@stock <> "/movements?format=xlsx", ctx.sp) |> ok!("spreadsheetml")
+    scoped = cells(scoped_conn)
+    assert has?(scoped, "doc-vis") and has?(scoped, "doc-trf")
+    assert_hidden(scoped, cells(control_conn), hidden_sentinels(ctx))
 
-    control = req(@stock <> "/movements?format=xlsx", ctx.sp) |> ok!("spreadsheetml")
-    full = xlsx_text(control)
-    assert full =~ "doc-hid" and full =~ @u2
+    # the transfer's U2 leg is the one masked row: marker set, every slot and the line id blank, the
+    # quantity and unit kept (the contract of `Views.stock_movement_leg/1`)
+    [header | rows] = sheets(scoped_conn)["movements"]
+    col = fn name -> Enum.find_index(header, &(&1 == name)) end
+    row_of = fn row, name -> Enum.at(row, col.(name)) end
+    masked = Enum.filter(rows, &(row_of.(&1, "masked") == true))
+    assert [m_row] = masked
+    assert row_of.(m_row, "document_id") == "doc-trf"
+
+    for slot <- ~w(sku location org_unit responsible lot document_line_id) do
+      assert row_of.(m_row, slot) in [nil, ""], "masked row shows #{slot}"
+    end
+
+    assert row_of.(m_row, "quantity") == 3.0
+    assert Enum.all?(rows -- masked, &(row_of.(&1, "masked") in [false, nil, ""]))
+
+    # the control reader sees that same leg unmasked, with the hidden place in it
+    [h2 | crows] = sheets(control_conn)["movements"]
+    ccol = fn name -> Enum.find_index(h2, &(&1 == name)) end
+    refute Enum.any?(crows, &(Enum.at(&1, ccol.("masked")) == true))
+    assert Enum.any?(crows, &(Enum.at(&1, ccol.("location")) == ctx.h.location))
   end
 
   test "S3 assets balances xlsx: a U1 reader's file holds no U2 row, also by subtree", ctx do
-    for q <- ["", "&scope_subtree=#{@p}"] do
-      scoped = req(@assets <> "/balances?format=xlsx" <> q, ctx.t1) |> ok!("spreadsheetml")
-      text = xlsx_text(scoped)
-      assert text =~ @u1, q
-      refute text =~ @u2, q
-      refute text =~ @a2, q
-    end
+    control =
+      req(@assets <> "/balances?format=xlsx&scope_subtree=#{@p}", ctx.tp)
+      |> ok!("spreadsheetml")
+      |> cells()
 
-    control = req(@assets <> "/balances?format=xlsx&scope_subtree=#{@p}", ctx.tp)
-    full = control |> ok!("spreadsheetml") |> xlsx_text()
-    assert full =~ @u2 and full =~ @a2
+    for q <- ["", "&scope_subtree=#{@p}"] do
+      scoped =
+        req(@assets <> "/balances?format=xlsx" <> q, ctx.t1) |> ok!("spreadsheetml") |> cells()
+
+      assert has?(scoped, @u1), q
+      assert_hidden(scoped, control, [@u2, @a2])
+    end
 
     json = req(@assets <> "/balances?scope_subtree=#{@p}", ctx.t1)
     assert json.status == 200 and Jason.decode!(json.resp_body)["coverage"] == "visible_only"
@@ -194,8 +236,27 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
     refute text =~ @hidden_qty
     refute text =~ @u2
     refute text =~ "doc-hid"
+    refute text =~ ctx.h.location
 
     control = req(@stock <> "/stock-card/print?" <> q, ctx.sp) |> ok!("wordprocessingml")
-    assert docx_text(control) =~ @hidden_qty
+    assert docx_text(control) =~ "10.000000000"
+  end
+
+  test "S4b an item and place with only hidden movements answer like an absent identifier", ctx do
+    hidden = "sku=#{ctx.h.item}&location=#{ctx.h.location}&format=docx&lang=ru"
+    absent = "sku=#{Ecto.UUID.generate()}&location=#{Ecto.UUID.generate()}&format=docx&lang=ru"
+    path = @stock <> "/stock-card/print?"
+
+    # the unrestricted reader prints the very same resource, so the 404 below is about scope alone
+    full = req(path <> hidden, ctx.sp) |> ok!("wordprocessingml")
+    assert docx_text(full) =~ @hidden_qty
+
+    gone = req(path <> absent, ctx.s1)
+    refused = req(path <> hidden, ctx.s1)
+    assert gone.status == 404, gone.resp_body
+    assert refused.status == 404, refused.resp_body
+    strip = fn c -> c.resp_body |> Jason.decode!() |> Map.delete("trace_id") end
+    assert strip.(refused) == strip.(gone)
+    refute refused.resp_body =~ ctx.h.item
   end
 end

@@ -1,6 +1,7 @@
 Code.require_file("assets/documents_fixture.exs", __DIR__)
 Code.require_file("stock/documents_fixture.exs", __DIR__)
 Code.require_file("stock/counts_fixture.exs", __DIR__)
+Code.require_file("stock/posting_fixture.exs", __DIR__)
 
 defmodule Letflow.Modules.AssetStockIsolationTest do
   @moduledoc """
@@ -23,6 +24,7 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
   alias Letflow.Identity.User
   alias Letflow.CountsFixture, as: CF
   alias Letflow.StockDocsFixture, as: SD
+  alias Letflow.StockPostingFixture, as: P
   alias Letflow.StockFixture, as: S
   alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
 
@@ -30,7 +32,8 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
   @stock "/api/v1/modules/stock"
 
   # {family, method, path, body key, control}. `control: :none` marks a route whose A-side answer is a
-  # legitimate 404 for the state the fixture is in (no posting yet), so only the B == unknown rule applies.
+  # legitimate 404 for the generic fixture (issued order: no counting, no posting yet), so the generic I2 loop
+  # applies only the B == unknown rule; I2b gives each of them a real A-side success first.
   @id_routes [
     {:card, "PATCH", "/cards/:id", :card_patch, :call},
     {:card, "POST", "/cards/:id/retire", :idem, :call},
@@ -268,6 +271,109 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
                    "control #{label}: A's own id answered 404 #{real.resp_body}"
           end
         end
+      end
+    end
+  end
+
+  describe "I2b the five state-dependent count routes, with a real A-side answer" do
+    @describetag timeout: 600_000
+
+    # A count of tenant A driven to `counting` and another to `posted`, so that every `:none` route has a
+    # real answer for A. Then B must get the uniform 404 and A's state must not move.
+    test "line count, sheet-document, differences, posting-document, signatures", ctx do
+      s = ctx.sa.schema_name
+      w = CF.world!(s)
+      chair_tok = S.token(ctx, :sa, ["TENANT_ADMIN"], sub: "chair-isl")
+      member_tok = S.token(ctx, :sa, ["TENANT_ADMIN"], sub: "member-isl")
+      assert call(@stock, "GET", "/counts", chair_tok).status == 200
+      assert call(@stock, "GET", "/counts", member_tok).status == 200
+      cu = Repo.one!(from(u in User, where: u.username == "chair-isl"), prefix: s)
+      mu = Repo.one!(from(u in User, where: u.username == "member-isl"), prefix: s)
+
+      w = %{
+        w
+        | chair: CF.employee!(s, w.unit, user: cu.id),
+          members: [CF.employee!(s, w.unit, user: mu.id)]
+      }
+
+      holder = Letflow.Support.TokenMintFixture.role_holder!(s, ["TENANT_ADMIN"])
+      x = %{s: s, schema: s, holder: holder}
+
+      ok = fn conn, status ->
+        assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"
+        S.json(conn)
+      end
+
+      now = DateTime.utc_now()
+
+      window = %{
+        "planned_start" => DateTime.to_iso8601(DateTime.add(now, -3600)),
+        "planned_end" => DateTime.to_iso8601(DateTime.add(now, 20 * 3600))
+      }
+
+      # book and open an order; returns its id in state `counting`
+      counting = fn w ->
+        S.post!(s, "receipt", %{lines: [S.line(S.uuid(), "10", %{to: S.side(w.unit, w.a)})]})
+        id = ok.(call(@stock, "POST", "/counts", chair_tok, CF.input(w, window)), 201)["id"]
+        ok.(call(@stock, "POST", "/counts/#{id}/issue", chair_tok, %{}), 200)
+        ok.(call(@stock, "POST", "/counts/#{id}/open", chair_tok, %{}), 200)
+        id
+      end
+
+      # B == unknown id, and A's own read-back is unchanged by B's call
+      probe = fn m, path, id, bkey, readback ->
+        reqbody = body(bkey, ctx)
+        unknown = call(@stock, m, fill(path, Ecto.UUID.generate()), ctx.tok_sb, reqbody)
+        assert unknown.status == 404, "baseline #{m} #{path}: #{unknown.status}"
+        before = strip(call(@stock, "GET", readback, chair_tok))
+        foreign = call(@stock, m, fill(path, id), ctx.tok_sb, reqbody)
+        assert foreign.status == 404, "#{m} #{path}: #{foreign.status} #{foreign.resp_body}"
+        assert strip(foreign) == strip(unknown), "#{m} #{path}"
+        assert strip(call(@stock, "GET", readback, chair_tok)) == before, "#{m} #{path}"
+      end
+
+      id2 = counting.(w)
+
+      # 1. PUT /counts/:id/lines/:line_no/count, while the order is counting
+      lines = "/counts/#{id2}/lines"
+      [line | _] = ok.(call(@stock, "GET", lines, chair_tok), 200)["rows"]
+      assert line["counted_quantity"] == nil
+      path = "/counts/:id/lines/#{line["line_no"]}/count"
+      probe.("PUT", path, id2, :counted, lines)
+      mine = call(@stock, "PUT", fill(path, id2), chair_tok, %{"counted_quantity" => "7"})
+      assert ok.(mine, 200)["counted_quantity"] == "7.000000000"
+
+      # 2. the same order taken to `posted`: sheet-document, differences, signatures, posting-document
+      for l <- ok.(call(@stock, "GET", "/counts/#{id2}/lines", chair_tok), 200)["rows"] do
+        put =
+          call(@stock, "PUT", "/counts/#{id2}/lines/#{l["line_no"]}/count", member_tok, %{
+            "counted_quantity" => "3"
+          })
+
+        ok.(put, 200)
+      end
+
+      ok.(call(@stock, "POST", "/counts/#{id2}/close", chair_tok, %{}), 200)
+      signers = %{"signer_employee_ids" => [w.chair | w.members]}
+      ok.(call(@stock, "POST", "/counts/#{id2}/sheet-signatures", chair_tok, signers), 200)
+      ok.(call(@stock, "POST", "/counts/#{id2}/differences", chair_tok, %{}), 200)
+      ok.(call(@stock, "POST", "/counts/#{id2}/differences-signatures", chair_tok, signers), 200)
+
+      diff_id =
+        ok.(call(@stock, "GET", "/counts/#{id2}", chair_tok), 200)["differences_document_id"]
+
+      ok.(call(@stock, "POST", "/counts/#{id2}/post", chair_tok, %{}), 200)
+      task = P.pending_task(x, diff_id, "post") || flunk("no pending post task")
+      assert {:ok, _} = P.complete(x, task)
+      ok.(call(@stock, "POST", "/counts/#{id2}/posting-record", chair_tok, %{}), 200)
+
+      read = "/counts/#{id2}"
+
+      for path <- ["sheet-document", "differences", "signatures", "posting-document"] do
+        route = "/counts/:id/" <> path
+        # the A-side control: the real answer is a 200 for the owner's own order
+        ok.(call(@stock, "GET", fill(route, id2), chair_tok), 200)
+        probe.("GET", route, id2, nil, read)
       end
     end
   end
