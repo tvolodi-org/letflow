@@ -1,0 +1,112 @@
+# T-1623 (BA): notification bell, scenario 3: the bell speaks English, Russian and Kazakh.
+# Source: web/src/components/layout/notificationMessages.ts (en, ru, kk catalogs; the texts quoted below are copied from it),
+# web/src/components/layout/AppShell.tsx (LanguageSwitcher in the top bar), catalog-completeness test of the web app.
+# The task name on the entry is the name stored on the task and is NOT translated; the time is shown in the screen's language.
+# Not UAT-observable: the language of the e-mail copy (it follows the company's default language, one language per company; the company has one default and
+# the scenario cannot change it without changing the wording of the whole company, so it is not exercised here; see scenario 4 for the copy itself).
+# Sensitive actions: none (read-only screen checks). No refusal step applies: the flow has no approve, pay, sensitive-data or user-change action.
+---
+id: tenant-administration-notification-bell-3-languages-en-ru-kk
+scope: tenant-administration
+title: The bell label, its list texts and the entry text show in English, Russian and Kazakh after the user switches the screen language
+version: "1.0"
+tags: [tenant-admin, notification-bell, i18n, in-app]
+
+description: >
+  The dispatcher Lena has one unread entry for an assigned task. She switches the screen language to Russian, then to Kazakh, then back to English,
+  and each time reads the bell button label, the panel title, the entry text, the "mark all" button and the empty text of the panel. Nothing is cut off or shown as a key.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  assignee: actor-swiftroute-lena
+
+preconditions:
+  - description: SwiftRoute has an open task that nobody has taken yet
+    check: system_seeded
+    detail: If none exists, report BLOCKED.
+  - description: The screen offers English, Russian and Kazakh in the language switcher
+    check: system_seeded
+    detail: Shipped with the web application.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator assigns the open task to the dispatcher (Lena) and notes the task name.
+    via: api
+    input:
+      assignee: the dispatcher (Lena)
+  - step: 2
+    actor: assignee
+    action: >
+      The dispatcher signs in, sets the screen language to English, reads the badge, hovers or focuses the bell button to read its label, and opens the bell. She notes the panel title, the entry text, the "mark all" button.
+    via: gui
+  - step: 3
+    actor: assignee
+    action: >
+      The dispatcher sets the screen language to Russian and reads the same items (bell button label, panel title, entry text, "mark all" button).
+    via: gui
+  - step: 4
+    actor: assignee
+    action: >
+      The dispatcher sets the screen language to Kazakh and reads the same items.
+    via: gui
+  - step: 5
+    actor: assignee
+    action: >
+      The dispatcher presses "mark all as read" in Kazakh, reads the panel and the button label, then sets the language back to English and reads the panel again.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: English texts.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2: the button label is "Notifications, N unread" (N the real number); the panel title is "Notifications"; the entry text is "A task was assigned to you"
+        followed by the task name; the button is "Mark all as read".
+      evidence: Screen of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: English-speaking users get an unreadable or unlabelled bell.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Russian texts.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3: the button label is "Уведомления, непрочитанных: N"; the panel title is "Уведомления"; the entry text is "Вам назначена задача" followed by the task name;
+        the button is "Отметить все прочитанными". No English text and no key name is visible in the panel.
+      evidence: Screen of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Russian-speaking users get an English or broken bell.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Kazakh texts, long words fit.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4: the button label is "Хабарландырулар, оқылмаған: N"; the panel title is "Хабарландырулар"; the entry text is "Сізге тапсырма тағайындалды" followed by the task name;
+        the button is "Барлығын оқылған деп белгілеу". No text is cut off, overlaps the badge or runs outside the panel.
+      evidence: Screen of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Kazakh-speaking users get a bell they cannot read.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: With nothing unread the panel shows the empty or read state in the chosen language, and the language can be changed back.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 5: after "mark all" the badge is gone and the button label is "Хабарландырулар" while the language is Kazakh; the entry is listed without the unread mark.
+        After the switch back to English the label is "Notifications" and the entry text is "A task was assigned to you" followed by the same task name (not translated).
+      evidence: Screens of step 5.
+    on_fail:
+      severity: MINOR
+      business_impact: The bell does not follow the language the user chooses.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The bell entry stays as test evidence.
