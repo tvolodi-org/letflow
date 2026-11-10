@@ -69,4 +69,30 @@ defmodule Letflow.Metrics.ExpositionTest do
     assert body =~
              ~r/letflow_http_requests_total\{method="POST",route_template="\/exposition-test-sort-order",status="201"\}/
   end
+
+  describe "T-1613 admission gauges" do
+    test "render/1 shows label-free in-use and cap gauges from a named Admission" do
+      name = Module.concat(__MODULE__, "Adm#{System.unique_integer([:positive])}")
+
+      start_supervised!(%{
+        id: name,
+        start:
+          {Letflow.Admission, :start_link, [[name: name, pool_size: 5, reserved_headroom: 2]]}
+      })
+
+      {:ok, _ref} = Letflow.Admission.try_acquire(:global, name)
+      body = Exposition.render(name)
+
+      assert body =~ "# TYPE letflow_db_admission_in_use gauge"
+      assert body =~ "# TYPE letflow_db_admission_cap gauge"
+      assert body =~ ~r/^letflow_db_admission_in_use 1$/m
+      assert body =~ ~r/^letflow_db_admission_cap 3$/m
+    end
+
+    test "render/1 omits both gauges, without crashing, when Admission is not running" do
+      body = Exposition.render(Module.concat(__MODULE__, "NoSuchAdmission"))
+      refute body =~ "letflow_db_admission"
+      assert body =~ "# TYPE letflow_active_instances gauge"
+    end
+  end
 end
