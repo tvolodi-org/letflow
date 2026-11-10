@@ -160,7 +160,7 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
   end
 
   defp write(sheets, name) do
-    case Elixlsx.write_to_memory(%Workbook{sheets: style_all(sheets)}, name) do
+    case XlsxStyle.write_to_memory(%Workbook{sheets: style_all(sheets)}, name) do
       {:ok, {_name, binary}} -> {:ok, binary}
       _ -> {:error, :xlsx_write_failed}
     end

@@ -22,9 +22,16 @@ defmodule Letflow.Documents.PrintLayout.Pdf do
   @to_unicode_obj 8
   @first_page_obj 9
 
-  @doc "Serialises `%{pages: [[op]], cps: [code point], size: {w, h}}` into a PDF binary."
-  @spec build(map) :: binary
-  def build(%{pages: pages, cps: cps, size: {pw, ph}}) do
+  @doc """
+  Serialises `%{pages: [[op]], cps: [code point], size: {w, h}}` into a PDF binary. With
+  `footer: %{word: w, of: o}` (and the document's `margin`) every page gets a centred
+  "w k o M" line inside the bottom margin; without it the bytes are as before.
+  """
+  @spec build(map, keyword) :: binary
+  def build(doc, opts \\ [])
+
+  def build(%{pages: pages, cps: cps, size: {pw, ph}} = doc, opts) do
+    {pages, cps} = add_footer(pages, cps, pw, doc, Keyword.get(opts, :footer))
     cids = cps |> Enum.with_index(1) |> Map.new()
     page_count = length(pages)
 
@@ -74,6 +81,32 @@ defmodule Letflow.Documents.PrintLayout.Pdf do
 
     assemble(objects)
   end
+
+  defp add_footer(pages, cps, pw, %{margin: m}, %{word: word, of: of}) do
+    total = length(pages)
+
+    texts =
+      for k <- 1..total//1, do: String.to_charlist("#{word} #{k} #{of} #{total}")
+
+    new_cps = (cps ++ List.flatten(texts)) |> Enum.uniq() |> Enum.sort()
+
+    pages =
+      pages
+      |> Enum.zip(texts)
+      |> Enum.map(fn {ops, line} ->
+        width =
+          line
+          |> Enum.map(&Font.advance(Font.glyph_id(&1)))
+          |> Enum.sum()
+
+        x = max(div(pw - width, 2), m)
+        ops ++ [{:item, [{x, div(m, 2), line}]}]
+      end)
+
+    {pages, new_cps}
+  end
+
+  defp add_footer(pages, cps, _pw, _doc, _footer), do: {pages, cps}
 
   defp assemble(objects) do
     header = "%PDF-1.4\n%" <> <<0xE2, 0xE3, 0xCF, 0xD3>> <> "\n"
