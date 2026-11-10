@@ -25,6 +25,9 @@ import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { SUMMARY_MESSAGES } from '@/pages/admin/MetricsSummaryPanel'
 import { renderWithAccess } from '@/auth/access/testing'
 
+const POOL = (used: number, cap: number) =>
+  `\n# TYPE letflow_db_admission_in_use gauge\nletflow_db_admission_in_use ${used}\n# TYPE letflow_db_admission_cap gauge\nletflow_db_admission_cap ${cap}\n`
+
 const mockText = vi.mocked(metricsApi.prometheusText)
 
 function renderPage(role: Parameters<typeof renderWithAccess>[1] = 'platformAdmin') {
@@ -120,17 +123,42 @@ describe('MetricsPage', () => {
     }
   })
 
-  it('P3: the four unmeasured items say Not measured yet with a sentence', async () => {
+  it('P3: the three unmeasured items say Not measured yet with a missing-source sentence and no number', async () => {
     mockText.mockResolvedValue(counters(1, 0))
     renderPage()
     const cards = await screen.findAllByTestId('figure-unmeasured')
-    expect(cards).toHaveLength(4)
-    const sentences = [SUMMARY_MESSAGES.en.poolDo, SUMMARY_MESSAGES.en.jobsDo, SUMMARY_MESSAGES.en.modulesDo, SUMMARY_MESSAGES.en.upgradeDo]
-    expect(new Set(sentences).size).toBe(4)
+    expect(cards).toHaveLength(3)
+    const sentences = [SUMMARY_MESSAGES.en.jobsDo, SUMMARY_MESSAGES.en.modulesDo, SUMMARY_MESSAGES.en.upgradeDo]
+    expect(new Set(sentences).size).toBe(3)
     cards.forEach((c, i) => {
       expect(c).toHaveTextContent('Not measured yet')
       expect(c).toHaveTextContent(sentences[i])
+      expect(c.textContent ?? '').not.toMatch(/\d/)
     })
+  })
+
+  it('P3a: pool card shows slots in use with status OK', async () => {
+    mockText.mockResolvedValue(counters(1, 0) + POOL(2, 10))
+    renderPage()
+    const card = await screen.findByTestId('figure-pool')
+    expect(card).toHaveTextContent('2 / 10 slots in use')
+    expect(screen.getByTestId('figure-pool-status')).toHaveTextContent('OK')
+  })
+
+  it('P3b: pool at 9 of 10 is a Problem with its sentence', async () => {
+    mockText.mockResolvedValue(counters(1, 0) + POOL(9, 10))
+    renderPage()
+    const card = await screen.findByTestId('figure-pool')
+    expect(screen.getByTestId('figure-pool-status')).toHaveTextContent('Problem')
+    expect(card).toHaveTextContent(SUMMARY_MESSAGES.en.poolDo)
+  })
+
+  it('P3c: pool gauges absent shows No data and no number', async () => {
+    mockText.mockResolvedValue(counters(1, 0))
+    renderPage()
+    const card = await screen.findByTestId('figure-pool')
+    expect(screen.getByTestId('figure-pool-status')).toHaveTextContent('No data')
+    expect(card.textContent ?? '').not.toMatch(/\d/)
   })
 
   it('P4: ru renders the translated panel', async () => {
@@ -139,7 +167,7 @@ describe('MetricsPage', () => {
       mockText.mockResolvedValue(counters(1, 0))
       renderPage()
       expect(await screen.findByText(SUMMARY_MESSAGES.ru.heading)).toBeInTheDocument()
-      expect(screen.getAllByText(SUMMARY_MESSAGES.ru.notMeasured).length).toBe(4)
+      expect(screen.getAllByText(SUMMARY_MESSAGES.ru.notMeasured).length).toBe(3)
     } finally {
       useUiLocaleStore.getState().setLocaleTransient('en')
     }

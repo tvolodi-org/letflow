@@ -4,6 +4,8 @@ import {
   buildSummary,
   counterRate,
   histogramShare,
+  poolStatus,
+  poolUse,
   refreshAgeSeconds,
   refreshStatus,
   topErrorRoutes,
@@ -59,5 +61,17 @@ describe('metricsSummary', () => {
   it('S5: topErrorRoutes orders by count and caps at 3', () => {
     const text = ['a', 'b', 'c', 'd'].map((r, i) => `letflow_http_errors_total{route_template="/${r}"} ${i + 1}`).join('\n')
     expect(topErrorRoutes(parsePrometheusText(text)).map((r) => r.route)).toEqual(['/d', '/c', '/b'])
+  })
+
+  it('S6: poolUse reads both gauges, null when either is missing or cap is 0; poolStatus thresholds', () => {
+    const t = (u: string, c: string) => parsePrometheusText(`letflow_db_admission_in_use ${u}\nletflow_db_admission_cap ${c}\n`)
+    expect(poolUse(t('3', '10'))).toEqual({ inUse: 3, cap: 10 })
+    expect(poolUse(t('3', '0'))).toBeNull()
+    expect(poolUse(parsePrometheusText('letflow_db_admission_cap 10\n'))).toBeNull()
+    expect(poolUse([])).toBeNull()
+    expect(poolStatus(null)).toBe('unknown')
+    expect(poolStatus(0.5)).toBe('ok')
+    expect(poolStatus(0.7)).toBe('warn')
+    expect(poolStatus(0.9)).toBe('red')
   })
 })

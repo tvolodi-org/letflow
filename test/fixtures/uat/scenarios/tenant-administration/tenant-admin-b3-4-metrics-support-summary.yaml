@@ -1,14 +1,14 @@
 # T-1585 (BA batch 3 item 3, covers merged B2#7, #4098): the Metrics screen opens with a support summary a non-developer can read.
 # Sources: web/src/pages/admin/MetricsPage.tsx (MetricsRead gate: a user without it is sent to the instances screen), web/src/pages/admin/MetricsSummaryPanel.tsx (heading "Support summary", figures requests per minute, errors per minute, routes with errors, slow database work, event-store write speed, background refresh;
-# four cards "Not measured yet": database connection use, queue and background jobs, module versions per tenant, last upgrade result; one plain sentence per warn or red card; ru and kk texts), web/src/api/metricsSummary.ts (errors red from 5 percent error share; "thresholds are settings, not rules"),
+# database connection use as a measured card (slots in use, with OK, Check or Problem) and three cards "Not measured yet" (queue and background jobs, module versions per tenant, last upgrade result); one plain sentence per warn or red card; ru and kk texts), web/src/api/metricsSummary.ts (errors red from 5 percent error share; "thresholds are settings, not rules"),
 # priv/permission_matrix/effective.golden (MetricsRead: TENANT_ADMIN, TENANT_AUDITOR, PROCESS_OPERATOR, PLATFORM_ADMIN; TASK_WORKER no).
 # UAT assumption, to be confirmed by the process owner: the 5 percent red threshold is the shipped value (T-1551 item 7); the scenario does not assert a red state because the test environment cannot be made to fail on purpose (no failure injection through the roster).
-# NOT UAT-observable: the Health page (platform operator only, in scope platform): its sentence is covered by the product's own test; the four not-measured figures are not built yet, so the scenario asserts that they say "Not measured yet" and not a number.
+# NOT UAT-observable: the Health page (platform operator only, in scope platform): its sentence is covered by the product's own test; the three not-measured figures have no source yet, so the scenario asserts that they say "Not measured yet", state what is missing, and show no number.
 ---
 id: tenant-administration-b3-4-metrics-support-summary
 scope: tenant-administration
 title: The administrator reads the support summary on the Metrics screen in three languages; a task worker cannot open it
-version: "1.0"
+version: "1.1"
 tags: [tenant-admin, metrics, support, ru, kk, en, refusal]
 
 description: >
@@ -33,7 +33,7 @@ steps:
   - step: 2
     actor: admin
     action: >
-      The administrator reads the four cards "Database connection use", "Queue and background jobs", "Module versions per tenant" and "Last upgrade result".
+      The administrator reads the card "Database connection use" and the three cards "Queue and background jobs", "Module versions per tenant" and "Last upgrade result".
     via: ui
   - step: 3
     actor: admin
@@ -67,7 +67,7 @@ expected_outcomes:
     description: Unmeasured figures say so.
     verification:
       method: gui_screen
-      detail: Step 2 shows "Not measured yet" on all four cards with a sentence saying to ask the platform operator; none shows a number or an OK status.
+      detail: Step 2 shows "Database connection use" as a number of slots in use with a status; the other three cards say "Not measured yet" with a sentence on what is missing; none of those three shows a number or an OK status.
       evidence: Screenshot.
     on_fail:
       severity: MAJOR
