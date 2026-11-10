@@ -1095,7 +1095,7 @@ defmodule Letflow.IdentityTest do
     test "returns {:error, :expired} for a token whose expires_at has already passed" do
       %{schema_name: schema_name} = req076_tenant!("req076-token-expired")
       user = insert_identity_user!(schema_name)
-      future = DateTime.add(DateTime.utc_now(), 1, :second) |> DateTime.truncate(:second)
+      future = DateTime.add(DateTime.utc_now(), 3600, :second) |> DateTime.truncate(:second)
 
       {:ok, %{token: token, plaintext: plaintext}} =
         Identity.create_token(user.id, %{roles: ["TASK_WORKER"], expires_at: future},
