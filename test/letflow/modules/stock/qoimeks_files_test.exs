@@ -8,8 +8,8 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
   committed tenant with the `stock` module installed. This is the answer to "does stock accept the same files":
   locations, uoms and items are core masters, the lines file is the stock opening import.
 
-  ST-1 whole procedure incl. the header bootstrap (also 100 and 101 lines); ST-2 repeatable; ST-3 the masters
-  are not stock-specific (shared core importers, see the moduledoc of the converter); ST-4 another tenant's token
+  ST-1 whole procedure incl. the header bootstrap (also 100 and 101 lines); ST-2 repeatable (headers reused);
+  ST-3 masters import into a tenant without stock; ST-5 colon-bearing keys stay distinct; ST-4 another tenant's token
   writes nothing. `async: false` (Sandbox `:auto`).
   """
 
@@ -19,9 +19,12 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
   import Plug.Conn
 
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Modules.Installs
   alias Letflow.Modules.Org
   alias Letflow.OrgFixture
   alias Letflow.Repo
+  alias Letflow.StockDocsFixture, as: D
+  alias Letflow.StockFixture, as: S
   alias Letflow.StockOpeningFixture, as: O
   alias Letflow.StockPostingFixture, as: P
 
@@ -252,35 +255,85 @@ defmodule Letflow.Modules.Stock.QoimeksFilesTest do
     assert_counts(ctx, out)
   end
 
-  test "ST-2 the same files again are unchanged (repeatable)", ctx do
+  test "ST-2 repeat: masters and lines unchanged, headers reused (a second header POST is 409)",
+       ctx do
     out = convert!(ctx, @fixture, "o2")
     rehearse!(ctx, out)
     resp = Path.join(ctx.dir, "again")
     File.mkdir_p!(resp)
     m = manifest(out)
 
+    # the documented repeat: steps 3 and 5 only, step 4 (header creation) is skipped
     for %{"file" => f, "entity_type" => t} <- m["files"] do
       outcomes = upload_ok!(ctx, t, Path.join(out, f), resp) |> Enum.map(& &1["outcome"])
       assert Enum.all?(outcomes, &(&1 == "unchanged")), "#{f}: #{inspect(outcomes)}"
     end
 
     assert_counts(ctx, out)
+
+    # and why step 4 must be skipped: the header pair is taken
+    %{"id" => hid} = hd(m["headers"])
+    body = out |> Path.join("headers/#{hid}.json") |> File.read!() |> Jason.decode!()
+    conn = D.request(:post, "/documents", ctx.tok_a, body)
+    assert conn.status == 409, conn.resp_body
+    assert_counts(ctx, out)
   end
 
-  test "ST-3 locations, uoms and items are core masters read by the shared importers", ctx do
+  test "ST-3 masters import into a tenant with the core modules and without stock", ctx do
     out = convert!(ctx, @fixture, "o3")
     resp = Path.join(ctx.dir, "r3")
     File.mkdir_p!(resp)
 
-    for %{"file" => f, "entity_type" => t} <- manifest(out)["files"], t != "stock_opening_line" do
-      assert upload_ok!(ctx, t, Path.join(out, f), resp) != []
+    tenant = S.tenant!("stk-pn", ctx.names.b, install: false)
+    schema = tenant.schema_name
+    {:ok, _} = Letflow.Entities.EventTypes.seed!(schema)
+    on_exit(fn -> S.drop_pack_rows!(tenant.tenant_id) end)
+
+    for id <- ["org", "catalog_items", "locations", "codes"] do
+      {:ok, _} =
+        Installs.install(id, Ecto.UUID.generate(), prefix: schema, rationale: "test: T-1616")
     end
 
-    # the three entity types belong to core modules, not to stock
-    for t <- ~w(location_node catalog_uom catalog_item) do
-      refute t in ["stock_opening", "stock_opening_line"]
-      assert count(ctx.schema, t) > 0
+    installed = Installs.list_installed(prefix: schema) |> Enum.map(& &1.module_id)
+    assert "locations" in installed and "catalog_items" in installed
+    refute "stock" in installed
+
+    tok = S.token(ctx, :b, ["TENANT_ADMIN"])
+
+    for %{"file" => f, "entity_type" => t} <- manifest(out)["files"], t != "stock_opening_line" do
+      conn = upload(ctx, t, Path.join(out, f), "?atomic=true", tok)
+      assert conn.status == 200, conn.resp_body
+      results = Jason.decode!(conn.resp_body)["results"]
+      assert results != []
+      assert Enum.all?(results, &(&1["outcome"] == "created")), inspect(results)
     end
+
+    assert count(schema, "location_node") > 0
+    assert count(schema, "catalog_item") > 0
+    assert count(schema, "catalog_uom") > 0
+  end
+
+  test "ST-5 balance keys that differ only in where a colon sits both survive", ctx do
+    dir = Path.join(ctx.dir, "in_colon")
+    File.mkdir_p!(dir)
+
+    File.write!(
+      Path.join(dir, "locations.csv"),
+      "loc_code,loc_name,loc_parent\nB:C,Sample BC,\nC,Sample C,\nL1,Sample L1,\n"
+    )
+
+    File.write!(
+      Path.join(dir, "items.csv"),
+      "sku,sku_name,unit\nA,Sample A,pcs\nA:B,Sample AB,pcs\nZ,Sample Z,pcs\n"
+    )
+
+    File.write!(Path.join(dir, "balances.csv"), "sku,loc,qty\nZ,L1,1\nA,B:C,5\nA:B,C,7\n")
+
+    out = convert!(ctx, dir, "ocolon")
+    assert [[_first | rest]] = rehearse!(ctx, out)
+    assert Enum.all?(rest, &(&1 == "created")), inspect(rest)
+    assert_counts(ctx, out)
+    assert expected(out)["records.stock_opening_line"] == 3
   end
 
   test "ST-4 another tenant's token writes nothing from the lines file", ctx do

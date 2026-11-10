@@ -145,6 +145,11 @@ def read_csv(path, mapping, kind):
     return rows
 
 
+def bal_ref(sku, loc):
+    """Unambiguous balance reference: the sku length prefixes the pair, so (A, B:C) and (A:B, C) differ."""
+    return "BAL:%d:%s:%s" % (len(sku), sku, loc)
+
+
 def chunks(seq, n):
     return [seq[i:i + n] for i in range(0, len(seq), n)]
 
@@ -277,14 +282,14 @@ def cmd_convert(a):
     for i, part in enumerate(chunks(lines, MAX_LINES), 1):
         hid = "QOI-HDR-%02d" % i
         name = "04-opening-lines-%02d.xlsx" % i
-        rows = [[hid, a.org_unit_ext, loc, a.responsible_ext, sku, unit_of[sku], qty, asof, sysn, "BAL:%s:%s" % (sku, loc)]
+        rows = [[hid, a.org_unit_ext, loc, a.responsible_ext, sku, unit_of[sku], qty, asof, sysn, bal_ref(sku, loc)]
                 for sku, loc, qty, asof in part]
         emit(name, "stock_opening_line", LINE_COLS, rows)
         sku, loc, qty, asof = part[0]
         headers.append({
             "id": hid, "file": name, "rows": len(rows),
             "bootstrap": {
-                "external_ref_system": sysn, "external_ref_id": "BAL:%s:%s" % (sku, loc),
+                "external_ref_system": sysn, "external_ref_id": bal_ref(sku, loc),
                 "quantity": qty, "received_on": asof,
                 "location": dict(zip(("file", "row"), loc_pos[loc])),
                 "item": dict(zip(("file", "row"), item_pos[sku])),

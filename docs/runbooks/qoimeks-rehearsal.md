@@ -46,7 +46,9 @@ together with its first real balance (below).
    `scripts/pilot/qoimeks_compare.sh OUT/expected_counts.txt after.txt TENANT_SLUG`. Exit 0 means equal, 1 prints
    `DIFF key expected actual`, 2 is bad input (wrong slug, empty file). The QA copy tenant must be empty before the rehearsal.
 
-Re-running steps 3-5 with the same files is safe: every row is `unchanged`.
+Repeating: re-upload the master files (step 3) and the lines files (step 5) with the same files; every row is `unchanged`.
+Do NOT repeat step 4: an opening header pair that exists is refused (`external_ref_taken`, HTTP 409). Reuse the existing
+headers and skip their creation. Balance references are `BAL:<len(sku)>:<sku>:<loc>`, so keys containing `:` stay distinct.
 
 ## Deliberately not here
 
