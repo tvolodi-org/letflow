@@ -24,6 +24,11 @@ counts. The raw scanner output (masked hints are still partial secrets) is kept 
   and scanned table by table: `state/team.db` (current and every historic version) has 8 tables and **0 rows**
   (schema only), so it holds no data. 130 other tracked binaries got a strings-style pass. 46 very long lines were
   scanned in windows, none truncated.
+- Binary files in the tree get the same strings-style pass as in history (ASCII and UTF-16 runs), so a path or
+  token inside a build artefact is reported. One tracked build artefact exists on main:
+  `scripts/__pycache__/ci_select_tests.cpython-312.pyc`. Its embedded source name is relative (no home path), so it
+  leaks nothing, but it is not source (D-115). The root `.gitignore` now ignores `__pycache__/` and `*.pyc`, and the
+  scanner runs with `python3 -I -B`, so it writes no bytecode of its own.
 - Coverage line of the run: `COMPLETE` (no deadline, no oversize file, no blob cap, no rule error); elapsed 98 s.
 - Not covered: commit metadata (author names and e-mail addresses: 3 distinct author addresses exist in history,
   one is the owner's personal address), GitHub-side data (issues, PR text, Actions logs, releases), the scanner's own
@@ -127,6 +132,7 @@ in the sampled hits.
 | F2 demo/QA/test host names | **keep** (demo hosts are public); **move-private** the queue hosts with `handoffs/` | |
 | F4, F6, F7 | **keep** | public ranges, dummy addresses, false positives |
 | F10, F11 customer and company wording | **keep** BilimBaga/Qoimeks in code, seeds and tests unless the customer objects (owner decision, section 9); **keep** the demo verticals and R-Co/ai-dala; **move-private** the copies inside `handoffs/` with F8 | |
+| Tracked `.pyc` build artefact | **remove from tree** (`git rm --cached`; already ignored) | not source (D-115); a `.pyc` compiled elsewhere would embed an absolute home path |
 | Scanner | **keep** `scripts/oss_audit/` and re-run it before any release or visibility decision | read-only, safe |
 
 Removing files from the tree changes HEAD only. History still holds everything above; see section 8.

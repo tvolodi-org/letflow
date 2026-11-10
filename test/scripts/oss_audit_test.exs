@@ -105,7 +105,7 @@ defmodule Letflow.Scripts.OssAuditTest do
     print(','.join(bad))
     """
 
-    {out, 0} = System.cmd("python3", ["-I", "-c", code, @scanner, @rules])
+    {out, 0} = System.cmd("python3", ["-I", "-B", "-c", code, @scanner, @rules])
     assert String.trim(out) == ""
   end
 
@@ -244,7 +244,7 @@ defmodule Letflow.Scripts.OssAuditTest do
     print(dict(S.STATE['rule_errors']))
     """
 
-    {out, 0} = System.cmd("python3", ["-I", "-c", code, Path.dirname(@scanner)])
+    {out, 0} = System.cmd("python3", ["-I", "-B", "-c", code, Path.dirname(@scanner)])
     assert out =~ "S01"
     refute out =~ "XYZZY"
   end
@@ -398,7 +398,7 @@ defmodule Letflow.Scripts.OssAuditTest do
 
     assert text =~ "AUTHENTIC CREDENTIAL EXPOSED IN PUBLIC REPO:"
     assert text =~ "LIVENESS: not tested"
-    {out, code} = System.cmd("python3", ["-I", @scanner, "--check-file", @report])
+    {out, code} = System.cmd("python3", ["-I", "-B", @scanner, "--check-file", @report])
     assert code == 0, "report holds a secret-shaped value: #{out}"
   end
 
@@ -437,6 +437,24 @@ defmodule Letflow.Scripts.OssAuditTest do
     assert File.read!(@scanner) =~ "\"--no-textconv\""
   end
 
+  # ---- O19 no bytecode: a .pyc embeds the absolute path it was compiled at
+
+  test "O19 no .pyc is tracked or written, and a home path in a binary is flagged", %{
+    tmp_dir: dir
+  } do
+    {tracked, 0} = System.cmd("git", ["ls-files", "scripts/oss_audit"], cd: @root)
+    refute tracked =~ ~r/\.pyc$|__pycache__/m
+    assert File.read!(@script) =~ "python3 -I -B "
+
+    repo = new_repo(dir)
+    home = "/ho" <> "me/" <> "someone/dev/x.py"
+    commit_file(repo, "a.pyc", <<0, 1, 2>> <> home <> <<0, 3>>)
+    {out, 0} = run(repo, ["--tree"])
+    assert has_rule?(out, "N02", "a.pyc")
+    refute out =~ "someone"
+    refute File.exists?(Path.join(@root, "scripts/oss_audit/__pycache__"))
+  end
+
   # ---- O12 sqlite
 
   test "O12 a secret in a SQLite column is found in history under file#table.column", %{
@@ -455,11 +473,11 @@ defmodule Letflow.Scripts.OssAuditTest do
 
     db = Path.join(repo, "state/team.db")
     File.mkdir_p!(Path.dirname(db))
-    {_, 0} = System.cmd("python3", ["-I", "-c", build, db, aws_key()])
+    {_, 0} = System.cmd("python3", ["-I", "-B", "-c", build, db, aws_key()])
     git(repo, ["add", "-A"])
     git(repo, ["commit", "-q", "-m", "db with key"])
     File.rm!(db)
-    {_, 0} = System.cmd("python3", ["-I", "-c", build, db, ""])
+    {_, 0} = System.cmd("python3", ["-I", "-B", "-c", build, db, ""])
     git(repo, ["add", "-A"])
     git(repo, ["commit", "-q", "-m", "db clean"])
 

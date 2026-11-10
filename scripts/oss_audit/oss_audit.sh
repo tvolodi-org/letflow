@@ -6,4 +6,4 @@
 # See scripts/oss_audit/README.md. OSS_AUDIT_GIT overrides the git binary (tests only).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec python3 -I "$here/scanner.py" "$@"
+exec python3 -I -B "$here/scanner.py" "$@"
