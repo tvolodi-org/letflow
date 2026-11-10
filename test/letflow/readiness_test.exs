@@ -90,6 +90,21 @@ defmodule Letflow.ReadinessTest do
     assert {200, _body, _raw} = get_ready()
   end
 
+  test "R4b the default migrations read takes no table lock and no DDL" do
+    assert Readiness.migrations_opts()[:migration_lock] == false
+    assert Readiness.migrations_opts()[:skip_table_creation] == true
+  end
+
+  test "R3b the whole result is cached between calls" do
+    Process.register(self(), :readiness_test_pid)
+    Application.put_env(:letflow, :oidc_realm_probe, ProbeCounting)
+    first = Readiness.run()
+    Readiness.run()
+    assert first == Readiness.run()
+    assert_received :probed
+    refute_received :probed
+  end
+
   test "R3 the identity result is cached: two calls probe once" do
     Process.register(self(), :readiness_test_pid)
     Application.put_env(:letflow, :oidc_realm_probe, ProbeCounting)
