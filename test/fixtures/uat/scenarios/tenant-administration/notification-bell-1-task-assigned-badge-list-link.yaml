@@ -1,0 +1,153 @@
+# T-1623 (BA): notification bell, scenario 1: a task assigned to a colleague shows on the colleague's bell (badge, list, link) and nowhere else.
+# Source: PM order 2026-11-10 priority 2 (task T-1623); the bell as built in T-1561 (merged, origin/main commit 9ebf9055a):
+# lib/letflow/user_notifications.ex (closed list of kinds: only task_assigned), lib/letflow/tasks.ex (bell_task_assigned, the only producer:
+# UserNotifications.notify is called there and nowhere else, grep in lib/), lib/letflow/routers/me.ex (GET /me/notifications, POST /me/notifications/read),
+# web/src/components/layout/NotificationBell.tsx and notificationMessages.ts (badge capped at "99+", row = kind text + task name + time + unread dot,
+# click marks read and opens the task; link is "/tasks?task=<task id>").
+# Kinds "document returned", "count assigned", "failed import" have NO producer on origin/main: they are scenario 6 (BLOCKED, gap sidecar).
+# Not UAT-observable: the per-user cap of 200 stored rows (needs 201 assignments), a failed write of the bell row (needs a database fault).
+# Sensitive actions: this flow changes who a task belongs to (assignment) and shows one person's work to that person only. Step 6 is the refusal
+# of an assignment by a worker without the assign permission. Approve, pay or release and see-sensitive-data are not in this flow.
+---
+id: tenant-administration-notification-bell-1-task-assigned-badge-list-link
+scope: tenant-administration
+title: A task assigned to a colleague appears on the colleague's bell with a count, a readable entry and a link to that task, and not on anyone else's bell
+version: "1.0"
+tags: [tenant-admin, notification-bell, task-assignment, in-app]
+
+description: >
+  The administrator of SwiftRoute assigns an open task to a dispatcher. The dispatcher, signed in at that moment or later, sees the bell in the
+  top bar with a badge showing the number of unread entries. Opening the bell lists the entry "A task was assigned to you" with the task name,
+  the time and an unread mark. Clicking the entry opens that very task in the task list and the entry becomes read. A second dispatcher sees
+  nothing about the assignment. A worker without the assign permission cannot create such an entry by assigning a task.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  assignee: actor-swiftroute-lena
+  other_worker: actor-swiftroute-marco
+  worker_no_assign: actor-swiftroute-tobias
+
+preconditions:
+  - description: SwiftRoute has two open tasks that nobody has taken yet, with different names, and the dispatcher (assignee) has an empty bell or a known number of unread entries
+    check: system_seeded
+    detail: The assignee's bell is read first (step 1) and its unread number is the baseline N. If no two open tasks exist, report BLOCKED.
+  - description: Marco and Lena are ordinary task workers of SwiftRoute with no assign permission, and Alice is the administrator of SwiftRoute
+    check: system_seeded
+    detail: Per the role matrix TENANT_ADMIN holds the assign permission; TASK_WORKER does not.
+
+steps:
+  - step: 1
+    actor: assignee
+    action: >
+      The dispatcher signs in and looks at the bell in the top bar. She notes the badge number (none counts as 0) as N and opens the bell to note
+      how many entries it lists.
+    via: gui
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator assigns the first open task to the dispatcher and notes the task name.
+    via: api
+    input:
+      assignee: the dispatcher (Lena)
+  - step: 3
+    actor: assignee
+    action: >
+      The dispatcher reloads the page and looks at the bell. She notes the badge number, then opens the bell and reads the newest entry: the text,
+      the task name, the time and whether it carries the unread mark.
+    via: gui
+  - step: 4
+    actor: assignee
+    action: >
+      The dispatcher clicks the newest entry. She notes which screen opens and which task it shows, then looks at the bell again.
+    via: gui
+  - step: 5
+    actor: other_worker
+    action: >
+      The second dispatcher (Marco) signs in, looks at the bell badge and opens the bell. He notes whether any entry mentions the first task.
+    via: gui
+  - step: 6
+    actor: worker_no_assign
+    action: >
+      The dispatcher Tobias tries to assign the second open task to Lena. The request is refused.
+    via: api
+    expect_refusal: true
+    input:
+      assignee: the dispatcher (Lena)
+  - step: 7
+    actor: assignee
+    action: >
+      The dispatcher reloads the page and reads the badge and the bell list again.
+    via: gui
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator assigns the second open task to the dispatcher. The dispatcher (Lena) reloads and reads the badge and the list.
+    via: api
+    input:
+      assignee: the dispatcher (Lena)
+
+expected_outcomes:
+  - id: EO-001
+    description: Before the assignment the bell shows only what was already there.
+    verification:
+      method: gui_screen
+      detail: In step 1 the bell icon is in the top bar; the badge shows N (no badge when N is 0); the list holds the entries that make up N unread and any read ones.
+      evidence: Screen of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The baseline of the scenario cannot be trusted, or workers have no bell.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: After the assignment the badge goes up by one and the newest entry reads "A task was assigned to you" with the task name and an unread mark.
+    verification:
+      method: gui_screen
+      detail: In step 3 the badge shows N+1 (or "99+" when N+1 is above 99); the newest entry has the text "A task was assigned to you", the name of the first task, a time that is within a few minutes of step 2 and the unread mark.
+      evidence: Screen of step 3, bell open.
+    on_fail:
+      severity: MAJOR
+      business_impact: A person given work is not told in the application and may not notice it.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Clicking the entry opens the right task and the entry becomes read.
+    verification:
+      method: gui_screen
+      detail: In step 4 the task list opens with the first task selected (the address ends with ?task= and the identifier of the first task); the bell badge is N and the entry no longer carries the unread mark.
+      evidence: Screen after the click and the bell open again.
+    on_fail:
+      severity: MAJOR
+      business_impact: The link leads to the wrong item or the entry stays unread after it was used.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Another worker of the same company sees nothing about the assignment.
+    verification:
+      method: gui_screen
+      detail: In step 5 no entry of Marco's bell names the first task, and his badge counts none of Lena's entries (any entry of his own is for a task assigned to him).
+      evidence: Screen of step 5, bell open.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person sees which work was given to a colleague, or notifications leak between users.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A worker without the assign permission cannot assign, and no entry is created.
+    verification:
+      method: api_response
+      detail: The answer of step 6 is 403 (a task worker holds no task-assignment permission per the role matrix). In step 7 the badge still shows N and the second task has no entry on the bell.
+      evidence: The answer of step 6 and the screen of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any worker could give work to others and make the application announce it as an official assignment.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: A second assignment gives a second entry.
+    verification:
+      method: gui_screen
+      detail: In step 8 the badge shows N+1 (the first entry was read in step 4, the second is unread); the newest entry has the name of the second task and the unread mark; the first entry is still listed, read, below it.
+      evidence: Screen of step 8, bell open.
+    on_fail:
+      severity: MAJOR
+      business_impact: Only the first assignment is announced, or a read entry disappears.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The bell entries stay as test evidence. The tasks may be returned to their previous state through the assignment route if the owner wants it.

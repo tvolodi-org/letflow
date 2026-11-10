@@ -1,0 +1,160 @@
+# T-1623 (BA): notification bell, scenario 5: neither the bell entry nor the e-mail copy of one company reaches another company.
+# Source: lib/letflow/notifications.ex and lib/letflow/user_notifications.ex (every query carries the tenant's own schema prefix, INV-1; the user id comes from the
+# caller's token only), lib/letflow/routers/me.ex (no tenant or user identifier in the path or body of the bell routes, INV-10), lib/letflow/routers/notification_deliveries.ex
+# (the log: permission NotificationTemplatesManage, tenant-wide, caller's own company only), lib/letflow/routers/tenant_settings.ex (PATCH changes the caller's own
+# company only), test/fixtures/uat/actors.yaml (actor-bilimbaga-admin: TENANT_ADMIN of realm bilimbaga, the only other-company administrator on the roster for this flow).
+# Routes that take the company from the token give the caller its own company's data: the steps for the other company's administrator are no-data-leak checks, not refusals.
+# Not UAT-observable: a bell entry or a mail row written for a user of another company by a code fault (no producer can be steered across companies from outside);
+# the guarantee is shown by the other company's own view staying free of the first company's rows.
+# Sensitive actions: see sensitive data and change settings. Step 8 is the refusal of a SwiftRoute worker reading the delivery log; the setting change of another company's administrator in step 6 is shown to change only that administrator's company.
+---
+id: tenant-administration-notification-bell-5-no-copy-to-another-company
+scope: tenant-administration
+title: With the e-mail copy on in SwiftRoute, an assignment there leaves no bell entry, no mail row and no setting change in another company, and a worker cannot read the delivery log
+version: "1.0"
+tags: [tenant-admin, notification-bell, email-copy, tenant-isolation, inv-1]
+
+description: >
+  The administrator of SwiftRoute switches the e-mail copy on and assigns a task to Lena. Lena's bell has the entry and the log of SwiftRoute has one row.
+  The administrator of BilimBaga reads the log of BilimBaga, the settings of BilimBaga and her own bell: nothing of SwiftRoute is there. When the BilimBaga
+  administrator switches the copy on for her own company, SwiftRoute's setting does not change. A SwiftRoute worker cannot read the delivery log.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  assignee: actor-swiftroute-lena
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has an open task that nobody has taken yet and Lena has an email address
+    check: system_seeded
+    detail: If none exists, report BLOCKED.
+  - description: BilimBaga is a separate company with its own administrator on the roster
+    check: system_seeded
+    detail: actor-bilimbaga-admin is TENANT_ADMIN of realm bilimbaga per the roster. The e-mail copy of BilimBaga is not set before the scenario; step 5 notes its value as B0.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute notes the e-mail copy setting (value S0) and switches it on, then assigns the open task to Lena and waits up to 10 seconds.
+    via: api
+    input:
+      notifications.email_copy: the value true, assignee Lena
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the delivery log of SwiftRoute and notes the new row for the task (id, recipient, trigger_ref, status).
+    via: api
+  - step: 3
+    actor: assignee
+    action: >
+      Lena reads her bell through the list route and notes the entry for the task and her unread number.
+    via: api
+  - step: 4
+    actor: tenant_admin_b
+    action: >
+      The administrator of BilimBaga reads the delivery log of BilimBaga and searches the whole answer for the identifier of the SwiftRoute task, Lena's identifier and the identifier of the row noted in step 2.
+    via: api
+  - step: 5
+    actor: tenant_admin_b
+    action: >
+      The administrator of BilimBaga reads the company settings of BilimBaga and notes the e-mail copy value B0 (absent, false or true), then opens her own bell and reads its list.
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The administrator of BilimBaga switches the e-mail copy on for her own company.
+    via: api
+    input:
+      notifications.email_copy: "true"
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute reads the company settings of SwiftRoute and the delivery log again.
+    via: api
+  - step: 8
+    actor: assignee
+    action: >
+      Lena tries to read the delivery log of her company. The request is refused.
+    via: api
+    expect_refusal: true
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The administrator of BilimBaga puts her company's setting back to B0 (false when it was absent).
+    via: api
+    input:
+      notifications.email_copy: B0
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute puts SwiftRoute's setting back to S0 (false when it was absent) and reads the settings.
+    via: api
+    input:
+      notifications.email_copy: S0
+
+expected_outcomes:
+  - id: EO-001
+    description: In SwiftRoute the copy works as set, with one log row for the task and the bell entry for Lena.
+    verification:
+      method: api_response
+      detail: Step 2 shows exactly one new row with template_key "task_assigned", recipient Lena, trigger_ref the task, status "sent" or "skipped" with reason "adapter_noop"; step 3 shows an unread entry of kind "task_assigned" with ref_id the same task.
+      evidence: Answers of steps 2 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The comparison with the other company is meaningless if SwiftRoute itself does not work.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The other company's delivery log holds nothing of SwiftRoute.
+    verification:
+      method: api_response
+      detail: The answer of step 4 is 200 and contains neither the task identifier, nor Lena's identifier, nor the row identifier of step 2 (an empty list is a pass).
+      evidence: The full text of the answer of step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company sees which people of another company were notified.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: The other company's own bell and settings show nothing of SwiftRoute.
+    verification:
+      method: api_response
+      detail: In step 5 the settings of BilimBaga do not show SwiftRoute's switch (B0 is what BilimBaga had, not what SwiftRoute set in step 1), and the bell list of the BilimBaga administrator holds no entry for the SwiftRoute task.
+      evidence: Answers of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company switch or a notification crosses into another company.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Another company's administrator changes only her own company's setting.
+    verification:
+      method: api_response
+      detail: Step 6 answers 200 and shows true for BilimBaga; in step 7 SwiftRoute's setting is exactly what it was after step 1 (true) and SwiftRoute's log holds only the row from step 2, none for BilimBaga.
+      evidence: Answers of steps 6 and 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company's administrator could switch mail on or off for another company.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A worker of SwiftRoute cannot read the delivery log.
+    verification:
+      method: api_response
+      detail: The answer of step 8 is 403 (a task worker holds no wording-management permission per the role matrix) and carries no row.
+      evidence: The answer of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any worker could see who is mailed and when.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: Both settings are put back.
+    verification:
+      method: api_response
+      detail: In step 9 BilimBaga's setting reads B0 (or false) and in step 10 SwiftRoute's reads S0 (or false).
+      evidence: Answers of steps 9 and 10.
+    on_fail:
+      severity: MINOR
+      business_impact: Later scenarios start from a changed company setting.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Settings are restored in steps 9 and 10. The log row and the bell entry cannot be removed through the product and stay as test evidence.
