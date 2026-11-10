@@ -3,7 +3,7 @@
 import type { UiLocale } from '@/i18n/uiLocaleStore'
 import type { User } from '@/types/api'
 
-export interface PasswordResetMessages {
+export type PasswordResetMessages = {
   button: string
   confirmTitle: string
   /** {email} is the stored e-mail address of the user. */
