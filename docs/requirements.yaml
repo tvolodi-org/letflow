@@ -53955,7 +53955,7 @@ requirements:
       - "5. (Template.) A test through the real producer and the real read route shows the row for the target user and not for another user or another tenant (INV-1, INV-5)."
       - "6. (Template.) Scenario notification-bell-6 is the acceptance check, and its GAP sidecar under test/fixtures/uat/scenario-env-limitations/ is rewritten to the surviving kinds in that build task."
       - "7. (Template.) The optional e-mail copy stays off by default and keeps the owner rules of T-1551."
-      - "8. The entry states that item 11 of docs/uat/ba-decisions/T-1631.md waits on this outcome, and `git diff origin/main...HEAD --stat` of this task lists docs/requirements.yaml and test/mix/tasks/letflow_check_deferral_staleness_test.exs (the live-corpus deferral pin: count 0 to 1, list [] to ["REQ-795"], plus its comment), and nothing else."
+      - "8. The entry states that item 11 of docs/uat/ba-decisions/T-1631.md waits on this outcome, and `git diff origin/main...HEAD --stat` of this task lists docs/requirements.yaml and test/mix/tasks/letflow_check_deferral_staleness_test.exs (the live-corpus deferral pin: count 0 to 1, list [] to [REQ-795], plus its comment), and nothing else."
     depends_on: []
   - id: REQ-798
     title: "Assets reporting, task 1: inventory of the government lists (card list, write-off list, inventory sheet, movement of cards; stock and assets) with the saved report, xlsx export or printed form each has on main today, one line each, and the gap of each; docs only, no ranking, no build"
