@@ -1,0 +1,171 @@
+# T-1663 (BA, batch 6 item 7): the platform operator's screen "Module rollouts" (fleet driver part 3, web; built by T-1660, commit 529a64933). Replaces the GAP record platform-runtime-updates-5-rollout-operator-screen (deleted in this change).
+# Sources: docs/requirements.yaml REQ-787 (start keyed by module and version, resume) and REQ-795 (outside_window is open work and never halts a rollout); web/src/pages/admin/module-rollouts/moduleRolloutsMessages.ts (the texts quoted below are copied from it),
+# moduleRolloutsModel.ts (canResume: Resume shows for a halted rollout or one with a failed, pending or outside-window company); web/src/router.tsx (route admin/module-rollouts under the ModuleRolloutsManage platform guard); docs/roles.md line for ModuleRolloutsManage (platform operator only).
+# SAFETY: same as platform-runtime-demo-2: a rollout is started for the module "runtime_demo" ONLY. NEVER type another module id into the start field (the "unknown module" check in step 5 uses a name that is not a module).
+# HOW IT FITS WITH platform-runtime-demo-2-fleet-window-defers-then-resume: run THIS scenario after step 10 of that scenario (Bilimbaga's window removed, rollout not yet resumed) and press Resume here INSTEAD of its step 11 (the API resume); then do its step 12.
+# Recorded outcomes do not change when the window is removed, so Bilimbaga still shows "Outside window" until the resume.
+# NOT UAT-OBSERVABLE (kept here so it survives the merge): the halted banner and the "Failures in a row" line (a halt needs several companies to fail on purpose; also recorded in scenario-env-limitations/platform-runtime-updates-3-fleet-start-halt-resume.yaml); the "superseded version" message of Resume
+# (needs a newer build than the rollout's version); the halted state of a real module (never run on shared QA). Covered by the vitest tests under web/src/pages/admin/module-rollouts/__tests__.
+---
+id: platform-runtime-updates-6-rollout-operator-screen
+scope: platform
+title: "The platform operator reads the module rollouts on a screen, sees a company that was left outside its window in words, starts the demo module again without a second rollout, and resumes with a button; no company-side role reaches the screen"
+version: "1.0"
+tags: [runtime-updates, fleet, platform, operator-screen, upgrade-window, i18n, refusal, access_control]
+
+description: >
+  After the demo module's rollout has left Bilimbaga outside its upgrade window, the platform operator opens "Module rollouts" in the platform menu. The list shows the rollout of runtime_demo with its status and the number of companies per outcome. The detail of the rollout names each
+  company with its outcome: SwiftRoute "Succeeded", Bilimbaga "Outside window" with a note that it will be retried by the next Start or Resume, and a Resume button. Starting the same module again leaves one rollout; a module name that does not exist is answered "Unknown module."
+  and changes nothing. The screen shows in Russian and Kazakh. The operator presses Resume: Bilimbaga becomes "Succeeded" and Resume disappears. A company administrator, a task worker and the auditor have no menu entry and are turned away from the address.
+
+actors:
+  platform_operator: actor-platform-admin
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  auditor: actor-swiftroute-auditor
+
+preconditions:
+  - description: Scenario platform-runtime-demo-2-fleet-window-defers-then-resume has run through its step 10 in this run, and its step 11 has NOT run (Bilimbaga's outcome is still "outside window")
+    check: custom
+    detail: If the rollout of runtime_demo to 0.2.0 does not exist, or Bilimbaga's outcome is already "Succeeded", report BLOCKED and name what the screen shows. Do not start or resume a rollout to prepare it, and do not change Bilimbaga's window.
+  - description: The platform operator account signs in on the platform tenant and the screen offers English, Russian and Kazakh
+    check: custom
+    detail: If the operator is refused the screen, report BLOCKED for steps 1 to 4 and 7 to 9 and name what was shown.
+
+steps:
+  - step: 1
+    actor: platform_operator
+    action: >
+      The platform operator opens "Module rollouts" in the platform menu, in English, and reads the list: the row of module runtime_demo (version 0.2.0) with its status, its counts per outcome and its start time.
+    via: ui
+  - step: 2
+    actor: platform_operator
+    action: >
+      The operator selects that row and reads the detail: the heading, each company with its outcome, the note about "Outside window", whether a Resume button is shown, and whether a halted banner is shown.
+    via: ui
+  - step: 3
+    actor: platform_operator
+    action: >
+      The operator types "runtime_demo" in the module field, presses "Start rollout", and reads the list again.
+    via: ui
+  - step: 4
+    actor: platform_operator
+    action: >
+      The operator types "uat_not_a_module" in the module field and presses "Start rollout", and reads the message and the list again.
+    expect_refusal: true
+    via: ui
+  - step: 5
+    actor: platform_operator
+    action: >
+      The operator switches the screen language to Russian, then to Kazakh, and in each language reads the screen title, the status, the outcome of Bilimbaga, the note and the Resume button.
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      SwiftRoute's company administrator looks for "Module rollouts" in the menu and opens the address /admin/module-rollouts.
+    expect_refusal: true
+    via: ui
+  - step: 7
+    actor: worker
+    action: >
+      SwiftRoute's task worker opens the address /admin/module-rollouts.
+    expect_refusal: true
+    via: ui
+  - step: 8
+    actor: auditor
+    action: >
+      SwiftRoute's read-only auditor opens the address /admin/module-rollouts.
+    expect_refusal: true
+    via: ui
+  - step: 9
+    actor: platform_operator
+    action: >
+      With the screen in English, the operator presses "Resume" in the detail of the rollout and reads the detail and the list again.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The list shows the rollout with a status and counts.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1: the heading is "Module rollouts"; the list heading is "Rollouts (latest 50)"; one row shows module runtime_demo, version 0.2.0, status "Running", and counts that include one company "Outside window" and at least one "Succeeded"
+        (companies without the module are "Skipped"); the row has a start time. The screen shows company names, not only identifiers.
+      evidence: Screen of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot see which rollouts exist or how they went, and has to call the routes by hand.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The detail names each company, says "Outside window" in words, and offers Resume.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2: the heading is "Companies in this rollout"; SwiftRoute shows "Succeeded"; Bilimbaga shows "Outside window" with no error code, and the note reads "Outside the company's upgrade window; retried by the next Start or Resume."; the button "Resume" is shown; no halted banner is shown.
+        The screen shows names, outcomes and codes only: no schema name, no window value, no company data.
+      evidence: Screen of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot tell a company that was deferred from one that failed, and cannot resume from the screen.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Starting the same module again does not create a second rollout.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3: after the press the list still holds one row for runtime_demo version 0.2.0 (the same row as in step 1, same start time) and Bilimbaga is still "Outside window".
+      evidence: Screens of steps 1 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A repeated click upgrades twice or lists duplicates.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A module that does not exist is refused in plain words and changes nothing.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4: the screen shows "Unknown module." and the list is unchanged (one row for runtime_demo, no row for uat_not_a_module).
+      evidence: Screen of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A typing mistake starts a rollout of the wrong module or fails without a word.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The screen is shown in Russian and Kazakh.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 5, Russian: title "Развёртывание модулей"; status "Выполняется"; outcome "Вне окна"; the note starts "Вне окна обновления компании"; the button "Продолжить". Kazakh: title "Модульдерді тарату"; status "Орындалуда"; outcome "Терезеден тыс";
+        the button "Жалғастыру". No text is shown as a key or cut off. The Kazakh texts are machine drafts until the owner's native check; a wording remark is MINOR.
+      evidence: Screens of step 5.
+    on_fail:
+      severity: MINOR
+      business_impact: A Russian or Kazakh speaking operator sees English or broken text.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: No company-side role reaches the screen.
+    verification:
+      method: gui_screen
+      detail: >
+        Steps 6, 7 and 8: the menu of the company administrator has no "Module rollouts" entry, and the address is turned away for the administrator, the task worker and the auditor (no list, no start field, no rollout data).
+      evidence: Screens of steps 6 to 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company user could start an upgrade of every company's modules, or read the platform's rollouts.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: Resume retries the deferred company and then disappears.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 9: after the press Bilimbaga's outcome reads "Succeeded", the note about "Outside window" is gone, and the button "Resume" is no longer shown (no company is failed, pending or outside the window). SwiftRoute stays "Succeeded".
+        The Modules screen of Bilimbaga then shows the demo module at 0.2.0 (checked in step 12 of platform-runtime-demo-2).
+      evidence: Screen of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator presses Resume and the deferred company is not upgraded, or the button stays and invites a pointless repeat.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The rollout stays as test evidence. Reset of the demo module is done by the demo scenarios' own cleanup.

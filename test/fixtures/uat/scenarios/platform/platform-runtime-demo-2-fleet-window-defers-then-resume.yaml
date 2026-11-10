@@ -8,7 +8,7 @@
 # (answer: rollout {id, module_id, to_version, status, ...} and outcomes [{tenant_id, status, error_code, plan_hash, ...}]; start answers 200); docs/roles.md (ModuleRolloutsManage: platform operator only).
 # Company identifiers come from the answer of the company settings route (Bilimbaga, tenant_id) and from the caller's own membership list (SwiftRoute, GET /me/memberships: the current company is always one entry, lib/letflow/routers/me.ex), so the run can find its two outcomes among all outcomes.
 # UAT assumption, to be confirmed by the process owner: the window is read in the company's own time zone; the tester builds a window of one hour that starts about six hours from now in that zone, so that "now" is outside it.
-# GAP: the platform operator has NO screen for rollouts: grep -rn "platform-module-rollouts" web/src finds none (checked 2026-11-10); T-1640 delivered the backend only. See scenario-env-limitations/platform-runtime-updates-5-rollout-operator-screen.yaml.
+# Screen: the operator screen for rollouts is built (T-1660); it is checked in platform-runtime-updates-6-rollout-operator-screen, which runs after step 10 of this scenario and replaces step 11 by the Resume button.
 # NOT UAT-OBSERVABLE: the halt after N failed companies (needs failing companies); the 25-company batch.
 ---
 id: platform-runtime-demo-2-fleet-window-defers-then-resume

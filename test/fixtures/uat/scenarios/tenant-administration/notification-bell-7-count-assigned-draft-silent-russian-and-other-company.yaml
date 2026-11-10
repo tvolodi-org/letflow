@@ -1,0 +1,101 @@
+# T-1663 (BA, batch 6 item 7): the "count assigned" bell producer (REQ-800 as amended, built by T-1659, commit d23e02c3a). Scenario 6 checks the happy path and Marco's bell; this one checks the edges.
+# Sources: lib/letflow/modules/stock/counts.ex (issue/3 calls bell_count_assigned/2 after the commit: the chair and each member whose employee record has a linked user, once per user; a draft does not call it; best effort);
+# web/src/components/layout/notificationMessages.ts (en "A stock count was assigned to you", ru "Вам назначена инвентаризация", kk "Сізге түгендеу тағайындалды"; the entry opens /admin/stock/counts/<id>); docs/requirements.yaml REQ-800.
+# Preconditions are those of scenario 6: the stock module is installed, Lena's employee record carries Lena's user.
+# NOT UAT-OBSERVABLE (kept here so it survives the merge): a member whose employee has no linked user (needs a second employee without a user, which the seed does not guarantee; covered by test/letflow/modules/stock/counts_test.exs); the optional e-mail copy (scenario 4).
+# Sensitive actions: none changes access or money. The no-leak checks are steps 4 and 5; they are read-only checks on bells the actor owns, so they are not expect_refusal.
+---
+id: tenant-administration-notification-bell-7-count-assigned-draft-silent-russian-and-other-company
+scope: tenant-administration
+title: A draft stock count gives nobody a bell entry; the issued count gives Lena one entry in Russian, and another company's administrator sees none
+version: "1.0"
+tags: [tenant-admin, notification-bell, count-assigned, i18n, cross-tenant]
+
+description: >
+  The administrator saves a stock count order as a draft with Lena (in SwiftRoute) as a member: Lena's bell gains nothing. The administrator issues it: Lena's bell gains exactly one unread entry, which she reads in Russian as "Вам назначена инвентаризация" and which opens the count.
+  The administrator of Bilimbaga, another company, sees no entry about that count on his bell.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  assignee: actor-swiftroute-lena
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: The stock module is installed in SwiftRoute and Lena's employee record carries Lena's user (the employee's user_id)
+    check: system_seeded
+    detail: If not, report BLOCKED. Do not set the link to prepare it.
+  - description: Lena's bell is readable and Bilimbaga's administrator can sign in
+    check: system_seeded
+    detail: If not, report BLOCKED for the steps of that actor.
+
+steps:
+  - step: 1
+    actor: assignee
+    action: >
+      Lena opens her bell and notes the number of unread entries and the text of the newest entry (U and T).
+    via: gui
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator creates a count order with Lena's employee as a member and saves it as a draft without issuing it. The administrator notes the document number.
+    via: gui
+  - step: 3
+    actor: assignee
+    action: >
+      Lena reloads the page, opens her bell and reads the number of unread entries and the newest entry.
+    via: gui
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator presses the Issue action on that count order.
+    via: gui
+  - step: 5
+    actor: assignee
+    action: >
+      Lena switches the screen language to Russian, reloads, opens her bell, reads the number of unread entries and the text of the newest entry, and clicks it.
+    via: gui
+  - step: 6
+    actor: other_admin
+    action: >
+      The administrator of Bilimbaga opens his bell and reads every entry in the list, looking for the document number of step 2.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: A draft count does not notify.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3: Lena's unread number is U and her newest entry is still T.
+      evidence: Screens of steps 1 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A person is told about a count that has not been given to her yet.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Issuing gives Lena exactly one entry, in her language, that opens the count.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 5: the unread number is U+1; the newest entry reads "Вам назначена инвентаризация", carries the document number of step 2 and the unread mark; clicking it opens /admin/stock/counts/<id> of that count.
+        No second entry for the same count is present.
+      evidence: Screens of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A person does not learn that a count is waiting for her, or learns twice.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Another company sees nothing of this event.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 6: no entry on the Bilimbaga administrator's bell mentions the document number of step 2 or a stock count assigned to him by this event.
+      evidence: Screen of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Notifications leak between companies.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Cancel the count order created in step 2.
