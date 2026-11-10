@@ -322,6 +322,22 @@ defmodule Letflow.Scripts.OssAuditTest do
     assert length(rows(out)) == 2
   end
 
+  test "O8c dotted and @-prefixed literal passwords are still findings", %{tmp_dir: dir} do
+    repo = new_repo(dir)
+
+    commit_file(
+      repo,
+      "pw2.env",
+      "DB_PASSWORD=" <> "kqjwhzpx." <> "mvbtrnsd\nAPP_PASSWORD=" <> "@Zq7Rk" <> "mTnXwPb3Lc9Yd\n"
+    )
+
+    commit_file(repo, "ref.ex", "password = params.password\nsecret = @secret_key\n")
+
+    {out, 0} = run(repo, ["--tree"])
+    assert Enum.count(rows(out), &(&1.path == "pw2.env")) == 2
+    assert Enum.count(rows(out), &(&1.path == "ref.ex")) == 0
+  end
+
   test "O16 a failing git history read ends INCOMPLETE with exit 4", %{tmp_dir: dir} do
     repo = new_repo(dir)
     commit_file(repo, "a.txt", "one\n")

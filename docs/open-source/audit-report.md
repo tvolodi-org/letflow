@@ -14,12 +14,12 @@ counts. The raw scanner output (masked hints are still partial secrets) is kept 
   `scripts/oss_audit/README.md`). `command -v gitleaks trufflehog git-filter-repo` prints nothing on the host
   (exit 1): none of the three is installed, so no dedicated secret-scanning tool was used. Installing one needs the
   owner's approval; a second pass with gitleaks or trufflehog is recommended before the repository is promoted.
-- Working tree: the files **tracked** at HEAD `ff248252367f` (11,058 files, of which 3,864 under `handoffs/`, 1 under
+- Working tree: the files **tracked** at HEAD `0981a7c8b2c7` (11,058 files, of which 3,864 under `handoffs/`, 1 under
   `state/`; `replay-work/` does not exist on main). **Limitation:** ignored or untracked local files (for example a local
   `.env`, which `.gitignore` excludes) are not read, because they are not public; passwords in such a file are not
   covered here. A tracked env file or example is covered.
 - History: `git log --all -p -U0 -m --no-renames` (all refs, merge-resolution lines and renamed-and-edited files
-  included), 5,708 distinct commits = `git rev-list --all --count` (5,708), 400 refs, not a shallow clone. Binary
+  included), 5,710 distinct commits = `git rev-list --all --count` (5,710), 401 refs, not a shallow clone. Binary
   files seen in history were read with `git cat-file` (51 distinct blobs), and SQLite files are opened in memory
   and scanned table by table: `state/team.db` (current and every historic version) has 8 tables and **0 rows**
   (schema only), so it holds no data. 130 other tracked binaries got a strings-style pass. 46 very long lines were
@@ -46,13 +46,16 @@ counts. The raw scanner output (masked hints are still partial secrets) is kept 
 
 ## 3. Findings by severity
 
-Totals of the run: C = 6, H = 559, M = 223, L = 8,799 (tree and history rows together; most history rows repeat a
-tree row). The audit was re-run after the review changed the credential filter: a password is no longer ignored for
-having no digit or containing the word `test`. That raised H from 116 to 559 (rule S13, 263 tree rows in 168 files,
-124 of them under `test/`: fixture passwords of tests); C stayed at 6, all of them the F1 token. The non-test,
-non-handoff S13 rows (config/runtime.exs, three `docs/issues` files, `docs/requirements.yaml`, the two realm templates,
-`scripts/e2e/stack_up.sh`, `scripts/uat_preflight.sh`) were opened and are field names, environment-variable reads, prose
-or the local e2e stack's own throw-away accounts (F7); none is a live credential.
+Totals of the run: C = 6, H = 601, M = 223, L = 8,800 (tree and history rows together; most history rows repeat a
+tree row). The audit was re-run after the review changed the credential filter twice: a password is no longer ignored
+for having no digit, containing the word `test`, containing a period, or starting with `@`. Only explicit code
+references are skipped (`$VAR`, `${VAR}`, `:atom`, `@module_attr`, `params.password`-style accessors, CamelCase module
+paths). That raised H from 116 to 559 and then to 601 (rule S13: 284 tree rows in 178 files, 222 of the rows under
+`test/`, 51 under `handoffs/`: fixture passwords of tests and transcripts); C stayed at 6, all of them the F1 token.
+The non-test, non-handoff S13 rows (config/runtime.exs, three `docs/issues` files, `docs/requirements.yaml`, the two
+realm templates, `scripts/e2e/stack_up.sh`, `scripts/uat_preflight.sh`) are the same set as before the second change;
+they were opened and are field names, environment-variable reads, prose or the local e2e stack's own throw-away
+accounts (F7); none is a live credential.
 
 | Id | Class | Rule | Path class | Count (tree) | First commit | In HEAD | Action |
 |---|---|---|---|---|---|---|---|
@@ -62,7 +65,7 @@ or the local e2e stack's own throw-away accounts (F7); none is a live credential
 | F4 | infra: public Cloudflare ranges in the nginx config and one handoff; example addresses and version strings in tests and specs | I01 | `deploy/`, `handoffs/`, `test/`, `docs/` | 38 | n/a | yes | keep (public data / not addresses) |
 | F5 | personal data: the owner's personal address in git-identity transcripts | P01 | `handoffs/` (4), `docs/issues/ISS-0350.yaml`, one design file, one test | 7 | 2026-08/09 | yes | move-private (handoffs); keep none in docs |
 | F6 | personal data: dummy addresses (`x.com`, `b.com`, `x.kz`, `host.tld` ...) | P01 | tests, specs | 28 | n/a | yes | keep |
-| F7 | secret-shaped but not secret: password policy text, field names, `${VAR}` references, fake JWT constants in tests and a design note, `Bearer` placeholders | S11, S13 | tests, docs, `priv/keycloak/provisioner`, `scripts/e2e/stack_up.sh` | 8 + 263 | n/a | yes | keep (false positives) |
+| F7 | secret-shaped but not secret: password policy text, field names, `${VAR}` references, fake JWT constants in tests and a design note, `Bearer` placeholders | S11, S13 | tests, docs, `priv/keycloak/provisioner`, `scripts/e2e/stack_up.sh` | 8 + 284 | n/a | yes | keep (false positives) |
 | F8 | internal-only text: operator transcripts and agent hand-offs | none (path class) | `handoffs/` (3,864 files, incl. `orchestrator.log`, `registry.json`) | 3,864 | 2026-08 | yes | move-private (see section 7) |
 | F9 | internal-only text: local Windows user paths and the predecessor system path | N02 | `handoffs/` (414), `lib/letflow/design` and docs (about 120), tests, `docker-compose.yml`, `CLAUDE.md` | 596 | 2026-08 | yes | remove from tree (docs, compose comment); handoffs with F8 |
 | F10 | customer and partner wording: BilimBaga, Qoimeks | N01 | tests, docs, `web/`, `lib/`, `priv/` seeds, `docs/uat`, handoffs | about 400 | 2026-08 | yes | see section 6 |

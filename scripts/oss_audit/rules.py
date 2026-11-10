@@ -31,6 +31,17 @@ _PLACEHOLDER_EXACT = {
 # A bare identifier / field reference (`params.password`, `Foo::Bar`, `some_field`) has a separator;
 # a separator-free run of letters can be a real password, so it is NOT treated as a placeholder.
 _IDENT = re.compile(r"^(?=[A-Za-z_.:/]*[_.:/])[A-Za-z_][A-Za-z_.:/]*$")
+_ATOM_OR_ATTR = re.compile(r"^[:@][a-z_][a-z0-9_]*[?!]?$")
+_ACCESSORS = (
+    "params|conn|socket|opts|options|config|cfg|attrs|attributes|user|state|data|args|form|"
+    "changeset|assigns|this|self|request|req|process|env|secrets|settings|credentials|input|"
+    "context|ctx|payload|body|row|record|item|tenant|session|auth|login|account|var|vars|"
+    "values|value|fields|field|test|ctx"
+)
+_CODE_REF = re.compile(
+    r"^(?:(?:" + _ACCESSORS + r")[.:/][A-Za-z_][A-Za-z0-9_.:/]*"
+    r"|[A-Z][A-Za-z0-9]*(?:[.:/][A-Z][A-Za-z0-9_]*)*(?:[.:/][a-z_][A-Za-z0-9_]*)?)$"
+)
 
 
 def is_placeholder(value: str) -> bool:
@@ -39,7 +50,9 @@ def is_placeholder(value: str) -> bool:
     if v.lower() in _PLACEHOLDER_EXACT:
         return True
     low = v.lower()
-    if v.startswith(("$", "@", "[", "(", "&", "*", ":")):
+    if v.startswith(("$", "[", "(", "&", "*")):
+        return True
+    if _ATOM_OR_ATTR.match(v):  # :atom / @module_attr: explicit code references only
         return True
     if any(p.lower() in low for p in _PLACEHOLDER_PARTS):
         return True
@@ -47,7 +60,11 @@ def is_placeholder(value: str) -> bool:
         return True
     if _IDENT.match(v):  # a bare identifier / field name, not a credential
         # snake_case with random capitals (Ab_cdEf) is more likely a password than a name
-        if re.search(r"[.:/]", v) or not (re.search(r"[a-z]", v) and re.search(r"[A-Z]", v)):
+        if re.search(r"[.:/]", v):
+            # a dotted value is a reference only when it looks like code: a known accessor
+            # (`params.password`) or a CamelCase module path; `kqjwhzpx.mvbtrnsd` stays a finding
+            return bool(_CODE_REF.match(v))
+        if not (re.search(r"[a-z]", v) and re.search(r"[A-Z]", v)):
             return True
     return False
 
