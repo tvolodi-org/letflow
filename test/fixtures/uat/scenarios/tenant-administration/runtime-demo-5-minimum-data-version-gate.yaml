@@ -1,0 +1,120 @@
+# T-1648 (BA, batch 5 item 10): PHASE 5 of 5 of the demo-module sequence (see the header of tenant-administration-runtime-demo-1-install-at-first-release). QA runs demo release 0.3.0, which raises the minimum data version to 0.3.0;
+# the companies' data is at 0.2.0 (the operator moved the build forward from 0.1.0).
+# Sources: docs/runbooks/runtime-demo-module.md step 4 ("Set 0.3.0, recreate: /ping for the tenant still at 0.2.0 answers 503 module_upgrade_required (the min_data_version gate). Plan and apply the upgrade; .../rollback with target 0.2.0 answers
+# rollback_below_min_data_version; /ping is 200."); lib/letflow/api/error.ex (module_upgrade_required: HTTP 503, extension code "module_upgrade_required", the mount gate; it is not the 409 module_upgrade_required of the hash-based check);
+# lib/letflow/modules/installs.ex (the minimum data version gate on install and upgrade); lib/letflow/module_upgrade/rollback.ex (rollback_below_min_data_version).
+# CLEANUP / END STATE: after this scenario SwiftRoute is at 0.3.0 and Bilimbaga at 0.2.0. The operator then sets the release back to 0.1.0 only if the sequence is to be repeated; the companies uninstall the demo module with the Modules screen
+# (scenarios tenant-admin-66 to 69 describe uninstall); if the product refuses the uninstall, the run records it as a finding and leaves the module installed, since it holds no data.
+---
+id: tenant-administration-runtime-demo-5-minimum-data-version-gate
+scope: tenant-administration
+title: "When the new build needs newer data than a company has, the module is refused with 'upgrade required' until the company upgrades; after the upgrade a rollback below the minimum is refused, and the other company is not moved"
+version: "1.0"
+tags: [runtime-updates, version-gate, min-data-version, rollback, demo-module, refusal, cross-tenant, tenant-admin]
+
+description: >
+  The QA build runs demo release 0.3.0, which cannot work on data older than 0.3.0. SwiftRoute's demo module is at 0.2.0, so its ping is refused with 503 "module_upgrade_required". The administrator asks for the upgrade plan and applies it; the module is at 0.3.0 and the ping answers 200.
+  A rollback to 0.2.0 is then refused with the reason "rollback_below_min_data_version" and the module stays at 0.3.0. Bilimbaga's administrator has not upgraded, and Bilimbaga's ping is still refused "module_upgrade_required" while SwiftRoute works. A task worker cannot apply the upgrade.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Phase 4 has run, SwiftRoute and Bilimbaga hold the demo module at 0.2.0, and the QA build now runs demo release 0.3.0 (operator step from the runbook, boot upgrade switched off)
+    check: custom
+    detail: If the release is not 0.3.0 or a version is not 0.2.0, report BLOCKED and name what was seen.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The SwiftRoute administrator calls the demo module's ping.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: worker
+    action: >
+      SwiftRoute's task worker tries to apply an upgrade of the demo module with the reason "UAT worker".
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator asks for the upgrade plan of the demo module, reads it, applies it with its plan fingerprint and the reason "UAT min version", reloads the Modules screen, and calls the ping.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator asks for the real rollback of the demo module to "0.2.0" with the reason "UAT below minimum".
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator opens the Modules screen and reads the demo module's version.
+    via: ui
+  - step: 6
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator calls the demo module's ping.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The SwiftRoute administrator reloads the Modules screen and calls the ping again.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Data older than the build's minimum makes the module refuse with "upgrade required".
+    verification:
+      method: http_status
+      detail: Step 1 is answered 503 with the code "module_upgrade_required".
+      evidence: Status and code of step 1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A new build could run on data it cannot read.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A task worker cannot plan or apply the upgrade.
+    verification:
+      method: http_status
+      detail: Step 2 is answered 403; the version stays 0.2.0 (checked in step 3 before the upgrade).
+      evidence: Statuses of step 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person without module rights upgrades a company's data.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: The administrator's upgrade clears the gate.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows a plan from 0.2.0 to 0.3.0, then the demo module at 0.3.0, and the ping answers 200.
+      evidence: Screenshot of step 3 and status of the ping.
+    on_fail:
+      severity: MAJOR
+      business_impact: The company stays blocked after it did the upgrade.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A rollback below the build's minimum is refused with its own reason.
+    verification:
+      method: http_status
+      detail: Step 4 is refused (409) with the reason "rollback_below_min_data_version"; the module stays at 0.3.0 and the ping in step 7 answers 200.
+      evidence: Status and reason of step 4; ping of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A rollback could put data below what the running build can read.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The other company is neither upgraded nor unblocked by SwiftRoute's upgrade.
+    verification:
+      method: gui_screen
+      detail: Step 5 shows Bilimbaga's demo module still at 0.2.0; step 6 is refused 503 with "module_upgrade_required" while step 7 shows SwiftRoute working.
+      evidence: Screenshot of step 5 and statuses of steps 6 and 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company's upgrade changes another company's data version.
+      suggested_action: route_to_security_review

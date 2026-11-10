@@ -1,0 +1,16 @@
+scenario_id: platform-runtime-updates-5-rollout-operator-screen
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "a platform-operator screen that lists module rollouts, their per-company outcomes (including 'outside window') and halted state, with start and resume buttons (part 3 of the fleet driver, batch 5 item 5)"
+reason: >
+  Not built yet. T-1640 (commit 8d2887ab6, PR #4173) delivered part 2 only (the optional company window, backend); its PR body says
+  "Refs #4155 (remainder: platform-operator web screen for rollout management, a separate web task after this change)". Checked 2026-11-10 with
+  `git show 8d2887ab6 --stat` (no file under web/) and `grep -rln "rollouts" web/src` (only web/src/api/platformMigrations.ts, which is a different
+  feature). Until the screen exists the operator can only use the rollout routes by hand; platform-runtime-demo-2-fleet-window-defers-then-resume
+  drives those routes for the demo module.
+recorded_by: business-analyst
+recorded_at: "2026-11-10"
+issue_ref: "T-1648"
+review: >
+  Revisit when the operator screen has merged: queue one uat_design task for it (list, one rollout with outcomes and 'outside window' in words,
+  start and resume buttons, access for the platform operator only, ru and kk).

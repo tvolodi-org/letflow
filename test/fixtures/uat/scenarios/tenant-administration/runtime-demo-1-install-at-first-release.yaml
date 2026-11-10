@@ -1,0 +1,129 @@
+# T-1648 (BA, batch 5 item 10): the QA-only demo module "runtime_demo" (T-1641, commit c9d1f6200, PR #4172, runbook docs/runbooks/runtime-demo-module.md). PHASE 1 of 5.
+# The five runtime-demo scenarios are ONE sequence on the QA instance and must be run in this order; between phases the QA operator changes the demo release
+# (setting LETFLOW_RUNTIME_DEMO_RELEASE and recreating the container, runbook "Changing the release on QA"). A UAT runner cannot do that, so each phase has a precondition naming the release that must be running:
+#   phase 1  tenant-administration-runtime-demo-1-install-at-first-release         release 0.1.0   (this file)
+#   phase 2  platform-runtime-demo-2-fleet-window-defers-then-resume                release 0.2.0
+#   phase 3  tenant-administration-runtime-demo-3-rollback-succeeds-and-upgrade-again   release 0.2.0
+#   phase 4  tenant-administration-runtime-demo-4-data-newer-than-the-build         release 0.1.0
+#   phase 5  tenant-administration-runtime-demo-5-minimum-data-version-gate         release 0.3.0
+# Every one of the five answers BLOCKED (not PASS, not FAIL) when the QA build does not carry the demo module (it is only in a build made by deploy/redeploy-qa.sh with LETFLOW_INCLUDE_RUNTIME_DEMO=true) or runs another release.
+# Sources: docs/runbooks/runtime-demo-module.md (module runtime_demo: no data, one route GET /api/v1/modules/runtime_demo/ping, permission RuntimeDemoRead held by TENANT_ADMIN; releases 0.1.0, 0.2.0, 0.3.0; 0.3.0 raises the minimum data version to 0.3.0;
+# the sequence per tenant); lib/letflow/modules/runtime_demo/runtime_demo.ex and router.ex; decision 0055 D5 (version gate) and D9 (rollback); docs/uat/ba-decisions/T-1631.md item 10.
+# Install is by the company administrator (ModulesManage: TENANT_ADMIN yes, task worker no, auditor no; docs/roles.md and priv/permission_matrix/effective.golden).
+# This replaces the "not reachable" record scenario-env-limitations/tenant-administration-runtime-updates-4-rollback-done-and-version-gates.yaml, which this change removes.
+# NOT UAT-OBSERVABLE: the boot-time upgrade (LETFLOW_MODULE_UPGRADE_ON_BOOT must stay false during the sequence, an operator setting); the exact refusal text of a not-installed module's route (the run records what it saw).
+---
+id: tenant-administration-runtime-demo-1-install-at-first-release
+scope: tenant-administration
+title: "At release 0.1.0 of the demo module two companies install it, the module answers for its administrators only, and a company that has not installed it gets no answer"
+version: "1.0"
+tags: [runtime-updates, demo-module, install, access_control, refusal, cross-tenant, tenant-admin]
+
+description: >
+  The QA instance runs the demo module at its first release, 0.1.0. Before installing, Bilimbaga's administrator calls the module's "ping" and is refused (the module is not installed for the company). SwiftRoute's administrator installs the
+  demo module with a reason and then calls the ping and gets a plain "pong"-style 200. SwiftRoute's task worker and read-only auditor can neither install it nor call the ping. Bilimbaga's administrator installs it too, so both companies stand at
+  version 0.1.0 for the next phases. The Modules screen of each company shows the demo module at 0.1.0.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  auditor: actor-swiftroute-auditor
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: The QA build carries the demo module and runs the demo release 0.1.0 (runbook docs/runbooks/runtime-demo-module.md)
+    check: custom
+    detail: If the catalogue does not offer "runtime_demo", or the release is another, report BLOCKED for the whole scenario and name what was seen. Do not install any other module.
+  - description: Neither SwiftRoute nor Bilimbaga has installed runtime_demo yet (a fresh start of the sequence)
+    check: custom
+    detail: If one has, the sequence was started before; report BLOCKED and ask the operator to uninstall it or continue at the right phase.
+
+steps:
+  - step: 1
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator, who has not installed the demo module, calls its ping.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: worker
+    action: >
+      SwiftRoute's task worker tries to install the demo module with the reason "UAT demo".
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor
+    action: >
+      SwiftRoute's read-only auditor tries to install the demo module with the reason "UAT demo".
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The SwiftRoute administrator installs the demo module with the reason "UAT demo", opens the Modules screen and reads the demo module's version and state.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The SwiftRoute administrator calls the demo module's ping.
+    via: api
+  - step: 6
+    actor: worker
+    action: >
+      SwiftRoute's task worker calls the demo module's ping.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: auditor
+    action: >
+      SwiftRoute's read-only auditor calls the demo module's ping.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator installs the demo module with the reason "UAT demo", opens the Modules screen, reads the demo module's version, and calls the ping.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: A company that has not installed the module gets no answer from it.
+    verification:
+      method: http_status
+      detail: >
+        Step 1 is refused (not 200): the module's route answers as for a module that is not installed for the company. The run records the status and text it saw.
+      evidence: Status and body of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company reaches a module it never installed.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Only an administrator can install the module or call its route.
+    verification:
+      method: http_status
+      detail: Steps 2, 3, 6 and 7 are answered 403 (or the single "not found" answer of a route the caller may not know of). No install happens; the Modules screen of SwiftRoute in step 4 shows the module not installed before the install.
+      evidence: Statuses of steps 2, 3, 6, 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person without module rights changes which modules a company runs.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: After the install the module is at 0.1.0 and answers.
+    verification:
+      method: gui_screen
+      detail: Step 4 shows the demo module installed, active, version 0.1.0. Step 5 is answered 200.
+      evidence: Screenshot of step 4 and status of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The demo cannot start, so none of the version gates can be checked.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The second company installs it independently.
+    verification:
+      method: gui_screen
+      detail: Step 8 shows version 0.1.0 and a 200 ping for Bilimbaga. SwiftRoute's version is unchanged (0.1.0).
+      evidence: Screenshot of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: Phases 2 to 5 cannot show that one company's update does not move the other.
+      suggested_action: route_to_wf03

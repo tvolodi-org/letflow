@@ -1,0 +1,179 @@
+# T-1648 (BA, batch 5 item 2): the Users import screen (T-1633, REQ-791 screen part, commit fe7e5416b, PR #4165).
+# Sources: web/src/pages/admin/UsersPage.tsx (button "Import from Excel", test id admin-users-import, shown only with the users-management permission);
+# web/src/router.tsx (address /admin/users/import guarded by the users-management permission); web/src/pages/admin/usersImport/usersImportMessages.ts (every text
+# below is quoted from its catalogue in en, ru, kk: "Import users", "Download template", "Check file", "Check result", "Nothing was written.", "Ready to import",
+# "Needs fixing", "Import users", "Download refused rows (CSV)", "The users were created.", the row/column/reason table headings and the plain-words reasons);
+# web/src/pages/admin/usersImport/UsersImportPage.tsx (file chooser accepts .xlsx). The server rules are those of scenarios users-import-1 and users-import-2 (REQ-791).
+# This scenario covers the SCREEN; scenario users-import-1 covers the same server rules through the routes. Both create users, so this one uses its own tag "uat-imps-<run>".
+# An imported user has NO password and the reset route refuses such users (see password-reset-2); this scenario does not sign imported users in.
+# NOT UAT-OBSERVABLE: the busy and retry texts ("The server is busy"), the file-changes-during-import race (a unit test of T-1633), the 200-row and 2 MB limits through the
+# screen (scenario users-import-4 covers the 200-row text; the size cap needs a 2 MB file, the product's own tests cover it). The kk texts are machine drafts until the owner's native check.
+# Upload files (exact cells; sheet 1, row 1 is the header, data from row 2, all cells text, no formulas):
+#   File S1 (header username | display_name | email):
+#     row 2  uat-imps-<run>-1 | UAT Screen One   | uat-imps-<run>-1@example.test
+#     row 3  uat-imps-<run>-2 | UAT Screen Two   | uat-imps-<run>-2@example.test
+#     row 4  uat-imps-<run>-3 | (display_name cell empty) | uat-imps-<run>-3@example.test
+#     row 5  uat-imps-<run>-4 | UAT Screen Four  | not-an-address
+#   File S2 = S1 with row 4's display_name filled in as "UAT Screen Three" and row 5's e-mail changed to uat-imps-<run>-4@example.test.
+---
+id: tenant-administration-users-import-3-screen-check-fix-and-import
+scope: tenant-administration
+title: "On the Users import screen the administrator downloads the template, sees which rows and columns to fix before anything is written, imports the corrected file once, and sees the screen in three languages"
+version: "1.0"
+tags: [users, import, xlsx, screen, tenant-admin, dry-run, partial-fix, re-upload, ru, kk, en]
+
+description: >
+  SwiftRoute's administrator opens the Users screen and chooses "Import from Excel". On the import screen they download the
+  template, choose file S1 (two good rows, one with an empty name, one with a bad e-mail address) and press "Check file". The
+  screen says nothing was written, lists each refused row with its row number, the column at fault and a reason in plain words,
+  keeps "Import users" switched off, and offers the refused rows as a CSV file. The Users list still holds none of the four
+  users. After the file is corrected (S2) the check says the file is ready, "Import users" creates all four users, and the Users
+  list shows them. Choosing S2 again and checking it shows every row as unchanged and creates nobody. The administrator then
+  reads the import screen in Russian and in Kazakh.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: The Users import screen is deployed on the QA instance (commit fe7e5416b, PR #4165) and the users import routes are deployed (commit 8400a8fe2)
+    check: custom
+    detail: If the Users screen has no "Import from Excel" button for the administrator, report BLOCKED, not PASS.
+  - description: The run has a fresh run tag; none of the user names uat-imps-<run>-1 to -4 or their addresses exist in SwiftRoute
+    check: custom
+    detail: A name from an earlier run would turn "created" into "unchanged" or a refusal.
+  - description: The tester can place files S1 and S2 (exact cells above) in the browser's file chooser
+    check: custom
+    detail: If the environment cannot choose a file in the browser, report BLOCKED for steps 3 to 8 and say so; do not use the routes instead (scenario users-import-1 does that).
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens the Users screen, looks at the buttons above the list, searches the list for names that start with
+      "uat-imps-<run>", and chooses "Import from Excel".
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      On the import screen the administrator reads the help text under "About the file" and presses "Download template", then opens
+      the downloaded file in a spreadsheet program.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator chooses file S1 and presses "Check file".
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator presses "Download refused rows (CSV)" and opens the CSV file; then goes back to the Users screen and
+      searches the list for names that start with "uat-imps-<run>".
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator opens the import screen again, chooses the corrected file S2 and presses "Check file".
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator presses "Import users", reads the result, goes back to the Users screen, searches for names that start with
+      "uat-imps-<run>" and opens the user uat-imps-<run>-3.
+    via: ui
+  - step: 7
+    actor: admin
+    action: >
+      The administrator opens the import screen once more, chooses file S2 again and presses "Check file".
+    via: ui
+  - step: 8
+    actor: admin
+    action: >
+      The administrator sets the interface language to Russian and then to Kazakh and reads the title, the button names, the help
+      text and the heading of the check result on the import screen in each language, then sets the language back to English.
+    via: ui
+  - step: 9
+    actor: admin
+    action: >
+      On the Users screen the administrator switches the four users uat-imps-<run>-1 to -4 off.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator finds the import and the template with the three columns.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 shows the button "Import from Excel" and a list with no "uat-imps-<run>" user. Step 2 shows the title "Import users", the help
+        lines "Columns: username, display_name, email", that an existing user is never changed, that imported users cannot sign in until they
+        are invited or set a password, and "At most 200 data rows and 2 MB per file". The downloaded file users-template.xlsx has the first
+        row username, display_name, email (in this order) and no data row.
+      evidence: Screenshots of steps 1 and 2 and the first row of the downloaded file.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot find the import or fills a template the import then refuses.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The check names every refused row, the column at fault and a reason in plain words, and writes nothing.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 shows "Check result" with "Nothing was written.", the pill "Needs fixing", and the sentence "Fix the refused rows in your file and
+        check it again." The table lists exactly two refused rows: the row number of the empty name (row 4) with the column display_name and the
+        reason "A required value is empty. Fill it in.", and the row number of the bad address (row 5) with the column email and the reason
+        "A value is not valid. Check it against the template." The two good rows show "Would create". "Import users" is switched off and the text
+        "Import stays off while any row is refused." is shown. No reason shows a code such as user_field_invalid. The typed text of the bad address is not repeated.
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A clerk cannot tell which cell to fix, or can import a half-correct file.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The refused rows can be taken away as a file, and nothing is created by a refused check.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4: the CSV file has the headings Row, Column, Reason and exactly the two refused rows of step 3 (rows 4 and 5, columns display_name and
+        email). The Users list shows no "uat-imps-<run>" user.
+      evidence: The CSV content and a screenshot of the Users list.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused check left users behind.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The corrected file is ready and one press creates all four users.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 5 shows the pill "Ready to import", the sentence "Every row is correct. Press Import users to create them." and four rows "Would create". Step 6
+        shows "Import result", "The users were created." and four rows "Created"; the Users list shows the four users, and the user uat-imps-<run>-3 has the
+        display name "UAT Screen Three", the e-mail address uat-imps-<run>-3@example.test and the status active.
+      evidence: Screenshots of steps 5 and 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: The corrected file cannot be imported, or it creates the wrong users.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Choosing the same file again changes nothing and says so.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 7 shows four rows "Unchanged" (the counts line shows four unchanged, none to create) and no row "Would create"; after the check the Users list still
+        holds exactly four "uat-imps-<run>" users (no duplicates).
+      evidence: Screenshot of step 7 and of the list.
+    on_fail:
+      severity: MAJOR
+      business_impact: A second upload duplicates users or refuses an identical row.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: The import screen is in Russian and in Kazakh as well as English.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 8 shows, in Russian, the title "Импорт пользователей", the button "Скачать шаблон", the button "Проверить файл" and the heading "Результат проверки"; in Kazakh,
+        the title "Пайдаланушыларды импорттау", the button "Үлгіні жүктеу", the button "Файлды тексеру" and the heading "Тексеру нәтижесі". None of the texts in
+        those languages is the English text and none shows a message key (such as usersImport.title). The Kazakh texts are machine drafts: a wording remark is a MINOR note, not a failure.
+      evidence: Screenshots in the two languages.
+    on_fail:
+      severity: MINOR
+      business_impact: A Russian- or Kazakh-speaking administrator sees English or raw keys.
+      suggested_action: route_to_frontend_dev
