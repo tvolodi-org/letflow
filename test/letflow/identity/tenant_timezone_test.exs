@@ -15,6 +15,16 @@ defmodule Letflow.Identity.TenantTimezoneTest do
     assert TenantTimezone.of(%Tenant{settings: %{"timezone" => "Asia/Tokyo"}}) == "Asia/Tokyo"
   end
 
+  test "T-1640 W3: local_time/2 gives the zone's wall time; unknown zone is an error" do
+    at = ~U[2026-11-10 20:30:00.000000Z]
+    assert {:ok, ~T[20:30:00.000000]} = TenantTimezone.local_time(at, "UTC")
+    assert {:ok, ~T[01:30:00.000000]} = TenantTimezone.local_time(at, "Asia/Almaty")
+    assert {:ok, ~T[21:30:00.000000]} = TenantTimezone.local_time(at, "Europe/Berlin")
+    assert {:error, :invalid_timezone} = TenantTimezone.local_time(at, "Mars/Olympus")
+    assert {:error, :invalid_timezone} = TenantTimezone.local_time(at, "a\0b")
+    assert {:error, :invalid_timezone} = TenantTimezone.local_time("x", "UTC")
+  end
+
   test "TZ-3d: the default literal appears once in lib/" do
     files = Path.wildcard("lib/**/*.ex") |> Enum.filter(&(File.read!(&1) =~ "\"Asia/Almaty\""))
     assert files == ["lib/letflow/identity/tenant_timezone.ex"]
