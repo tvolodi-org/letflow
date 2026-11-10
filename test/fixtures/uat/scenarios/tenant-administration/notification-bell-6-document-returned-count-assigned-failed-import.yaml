@@ -1,0 +1,99 @@
+# T-1623 (BA): notification bell, scenario 6: entries for "document returned", "count assigned" and "failed import". BLOCKED until a producer exists.
+# The PM order lists these three kinds. On origin/main none can occur: lib/letflow/user_notifications.ex has the closed list @kinds ~w(task_assigned), and
+# UserNotifications.notify is called from one place only, lib/letflow/tasks.ex (bell_task_assigned). Grep run: grep -rn "UserNotifications" lib/ web/src (paths searched:
+# lib/ and web/src); web/src/components/layout/notificationMessages.ts has text and link only for task_assigned, an unknown kind is a generic row with no link.
+# So there is no producer yet: needs a task per kind first (a producer in the code that returns a document / assigns a count / fails an import, plus the kind in the closed
+# list and in the web map). The wording of the entries and their links below are a UAT assumption, to be confirmed by the process owner when the producers are designed.
+# Gap sidecar: scenario-env-limitations/tenant-administration-notification-bell-6-document-returned-count-assigned-failed-import.yaml.
+# Sensitive actions: the entries tell a person about a document sent back, a count given to them and an import that failed; each step names its recipient. Step 4 is a no-leak check on another
+# worker's bell; the refusal and no-effect checks on the read route are in scenario 2 and are not repeated here.
+---
+id: tenant-administration-notification-bell-6-document-returned-count-assigned-failed-import
+scope: tenant-administration
+title: A returned document, an assigned count and a failed import each give the right person one bell entry that opens the right item (blocked, no producer yet)
+version: "1.0"
+tags: [tenant-admin, notification-bell, document-returned, count-assigned, failed-import, blocked]
+
+description: >
+  UAT assumption, to be confirmed by the process owner. When a document is returned to its author, a stock count is assigned to a person, or an import of records fails,
+  the person concerned (the author, the counter, the person who started the import) sees one new unread entry on the bell, with a text that tells which of the three it is,
+  and a click on the entry opens the document, the count or the import result. Nobody else in the company and nobody in another company gets an entry.
+  This scenario is BLOCKED until the product can produce these three kinds.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  assignee: actor-swiftroute-lena
+  other_worker: actor-swiftroute-marco
+
+preconditions:
+  - description: The product produces bell entries of the kinds "document returned", "count assigned" and "failed import"
+    check: system_seeded
+    detail: Not true on main today (see header). The run reports BLOCKED, not PASS.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator returns a document of Lena's to her with a reason, then reads nothing more. Lena opens the bell and reads the newest entry and its link.
+    via: gui
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator assigns a stock count to Lena. Lena opens the bell and reads the newest entry and clicks it.
+    via: gui
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator starts an import from a file that is rejected as a whole (for example a file in the wrong format). The administrator opens the bell and reads the newest entry and clicks it.
+    via: gui
+  - step: 4
+    actor: other_worker
+    action: >
+      Marco opens his bell and reads the list. He notes whether any entry concerns Lena's document, Lena's count or the administrator's import.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: Lena gets one entry for the returned document and it opens that document.
+    verification:
+      method: gui_screen
+      detail: The newest entry on Lena's bell says a document was returned to her (UAT assumption on the wording), carries the unread mark, and opens the returned document.
+      evidence: Screens of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A person does not learn that a document was sent back to her.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Lena gets one entry for the assigned count and it opens that count.
+    verification:
+      method: gui_screen
+      detail: The newest entry on Lena's bell says a count was assigned to her (UAT assumption on the wording), is unread, and opens that count.
+      evidence: Screens of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A person does not learn that a count is waiting for her.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The person who started a failed import gets one entry that opens the import result.
+    verification:
+      method: gui_screen
+      detail: The newest entry on the administrator's bell says an import failed (UAT assumption on the wording), is unread, and opens the result of that import with the reason.
+      evidence: Screens of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A failed import is noticed late or not at all.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Other people see nothing of these events.
+    verification:
+      method: gui_screen
+      detail: Marco's bell holds no entry about Lena's document, Lena's count or the administrator's import.
+      evidence: Screen of step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: People see events that concern others, or notifications leak between users.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing was run (blocked).

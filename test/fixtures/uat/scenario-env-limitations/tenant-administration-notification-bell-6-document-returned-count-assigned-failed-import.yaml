@@ -1,0 +1,13 @@
+scenario_id: tenant-administration-notification-bell-6-document-returned-count-assigned-failed-import
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the whole scenario"
+reason: >
+  No producer exists on main for the bell kinds "document returned", "count assigned" and "failed import": the closed list of kinds in
+  lib/letflow/user_notifications.ex holds only task_assigned, and UserNotifications.notify is called only from lib/letflow/tasks.ex. Nothing a UAT actor can do
+  makes such an entry appear, so the run is BLOCKED, not PASS.
+recorded_by: BA
+recorded_at: "2026-11-10"
+issue_ref: "GH #4107"
+review: >
+  Revisit when a task adds a producer for each of the three kinds (and the kind in the closed list and in the web map); then rewrite the wording of the entries from the real texts.
