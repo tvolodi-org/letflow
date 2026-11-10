@@ -22,6 +22,8 @@ defmodule Letflow.Signup.Request do
     field(:send_count, :integer, default: 0)
     field(:last_sent_at, :utc_datetime_usec)
     field(:ip_key, :binary)
+    # T-1620: SHA-256 of the e-mail domain (the plain domain is not stored); NULL on older rows.
+    field(:domain_key, :binary)
     field(:terms_version, :string)
     field(:terms_accepted_at, :utc_datetime_usec)
     field(:verified_at, :utc_datetime_usec)

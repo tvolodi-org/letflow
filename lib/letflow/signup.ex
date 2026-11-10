@@ -22,7 +22,11 @@ defmodule Letflow.Signup do
   are race-free (sign-up is low volume): stale rows are closed first, then the per-IP hourly cap, the
   per-address resend interval and mail cap, then the pending cap. The mail goes out after commit.
 
-  `submit/3` is the one place a captcha / invitation check would be added (owner questions Q1, Q3).
+  T-1620 (TA-SL3), all in `submit/3` and before any row or mail: the e-mail policy
+  (`Letflow.Signup.EmailPolicy`, disposable domains), the captcha hook (`Letflow.Signup.Captcha`, off until a
+  vendor is chosen, owner question Q3), and under the lock a per-e-mail-domain hourly cap next to the per-IP
+  one (`domain_key` is a hash; big free providers are exempt and bounded by the IP and pending caps). The
+  invitation code (Q1) is not built.
 
   ## Privacy
 
@@ -35,7 +39,7 @@ defmodule Letflow.Signup do
 
   alias Letflow.Identity.TenantMembership
   alias Letflow.Repo
-  alias Letflow.Signup.{Mailer, Messages, Provisioning, Request}
+  alias Letflow.Signup.{Captcha, EmailPolicy, Mailer, Messages, Provisioning, Request}
 
   @terms_version "placeholder-0"
   @max_company 200
@@ -52,6 +56,13 @@ defmodule Letflow.Signup do
     resend_interval_seconds: 60,
     token_ttl_hours: 24,
     abandon_days: 7,
+    # T-1620 (TA-SL3): per-domain cap, disposable list, captcha hook (nil = off).
+    domain_hourly_cap: 20,
+    domain_cap_exempt:
+      ~w(gmail.com mail.ru yandex.ru outlook.com icloud.com bk.ru inbox.ru list.ru yahoo.com),
+    disposable_domains: [],
+    allow_domains: [],
+    captcha_adapter: nil,
     # T-1593 (decision 0085): the realm step. Unset URL/domain = the step does not run.
     provisioner_url: nil,
     hostname_domain: nil,
@@ -65,6 +76,9 @@ defmodule Letflow.Signup do
           :accepted
           | {:error, {:invalid, [String.t()]}}
           | {:error, :rate_limited}
+          | {:error, :rate_limited_domain}
+          | {:error, :email_not_accepted}
+          | {:error, :captcha_failed}
           | {:error, :unavailable}
 
   @doc "Terms version recorded with every request (a placeholder until the owner supplies the text)."
@@ -88,8 +102,11 @@ defmodule Letflow.Signup do
   """
   @spec submit(map(), :inet.ip_address(), DateTime.t()) :: submit_result()
   def submit(params, client_ip, now \\ DateTime.utc_now()) when is_map(params) do
-    with {:ok, fields} <- validate(params) do
-      cfg = config()
+    cfg = config()
+
+    with {:ok, fields} <- validate(params),
+         :ok <- EmailPolicy.check(fields.email, cfg),
+         :ok <- Captcha.check(cfg, params, client_ip) do
       ip_key = ip_key(client_ip)
 
       case transact(fn -> locked_submit(fields, ip_key, cfg, now) end) do
@@ -218,9 +235,14 @@ defmodule Letflow.Signup do
         :count
       )
 
+    domain_key = domain_key(fields.email)
+
     cond do
       ip_count >= cfg.ip_hourly_cap ->
         {:error, :rate_limited}
+
+      domain_limited?(domain_key, fields.email, cfg, hour_ago) ->
+        {:error, :rate_limited_domain}
 
       # The cap is checked before the open-request lookup so a full cap answers every address alike
       # (an open sign-up must not be distinguishable from an unknown address, INV-5).
@@ -234,6 +256,16 @@ defmodule Letflow.Signup do
       true ->
         insert(fields, ip_key, cfg, now)
     end
+  end
+
+  defp domain_limited?(domain_key, email, cfg, hour_ago) do
+    domain = EmailPolicy.domain(email)
+
+    domain not in cfg.domain_cap_exempt and
+      Repo.aggregate(
+        from(r in Request, where: r.domain_key == ^domain_key and r.inserted_at > ^hour_ago),
+        :count
+      ) >= cfg.domain_hourly_cap
   end
 
   defp open_request(email) do
@@ -288,6 +320,7 @@ defmodule Letflow.Signup do
         send_count: 1,
         last_sent_at: now,
         ip_key: ip_key,
+        domain_key: domain_key(fields.email),
         terms_version: @terms_version,
         terms_accepted_at: now
       })
@@ -307,6 +340,11 @@ defmodule Letflow.Signup do
   @doc false
   @spec ip_key(:inet.ip_address()) :: binary()
   def ip_key(ip), do: :crypto.hash(:sha256, "letflow:signup:ip:v1:" <> ip_bucket(ip))
+
+  @doc false
+  @spec domain_key(String.t()) :: binary()
+  def domain_key(email),
+    do: :crypto.hash(:sha256, "letflow:signup:domain:v1:" <> to_string(EmailPolicy.domain(email)))
 
   defp ip_bucket({0, 0, 0, 0, 0, 0xFFFF, a, b}),
     do: ip_bucket({div(a, 256), rem(a, 256), div(b, 256), rem(b, 256)})

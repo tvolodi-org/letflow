@@ -25,6 +25,29 @@ captcha (Q3) are not decided.
 | `LETFLOW_SIGNUP_RESEND_INTERVAL_SECONDS` | 60 | minimum gap between mails to one address |
 | `LETFLOW_SIGNUP_TOKEN_TTL_HOURS` | 24 | link lifetime |
 | `LETFLOW_SIGNUP_ABANDON_DAYS` | 7 | an unverified request is closed after this |
+| `LETFLOW_SIGNUP_DOMAIN_HOURLY_CAP` | 20 | new requests per e-mail domain per hour (429 beyond; T-1620) |
+| `LETFLOW_SIGNUP_DOMAIN_CAP_EXEMPT` | gmail.com, mail.ru, yandex.ru, outlook.com, icloud.com, bk.ru, inbox.ru, list.ru, yahoo.com | comma list; domains the domain cap skips (shared free providers: bounded by the IP and pending caps). A set value replaces the default |
+| `LETFLOW_SIGNUP_DISPOSABLE_DOMAINS` | empty | comma list added to the built-in disposable list |
+| `LETFLOW_SIGNUP_ALLOW_DOMAINS` | empty | comma list removed from the blocked set (allow wins) |
+| `LETFLOW_SIGNUP_CAPTCHA` | unset (off) | only `off` is accepted: no captcha vendor is implemented (owner question Q3) |
+
+## Anti-abuse (T-1620, TA-SL3)
+
+All of it is server-side, behind the same flag, and runs before any row or mail is written:
+
+- **Disposable e-mail domains** are refused with `422 email_not_accepted` (a domain and its subdomains). The built-in
+  list is `priv/signup/disposable_domains.txt` (a starting point, compiled in); extend it per deployment with
+  `LETFLOW_SIGNUP_DISPOSABLE_DOMAINS`, exempt a wrongly blocked domain with `LETFLOW_SIGNUP_ALLOW_DOMAINS`.
+  The answer depends only on the request, never on whether the address is known.
+- **Per-domain hourly cap** (`429`, same `retry-after` as the IP cap). The domain is stored only as a SHA-256
+  (`signup_requests.domain_key`); older rows have NULL and are not counted.
+- **Captcha hook** `Letflow.Signup.Captcha`: a behaviour, no adapter ships and none can be switched on by an env
+  value yet. When one exists the request carries `captcha_token`; a wrong token is `422 captcha_failed`, an adapter
+  that is down, raises or exits is `503 signup_unavailable` (fails closed). `GET /api/signup/config` says
+  `captcha_required` (a boolean, never a vendor or key).
+- Every refusal body (422/429/503) has `error` and a `message` in the request's `language` (ru/kk/en, default en).
+- Not built here (portfolio front door): edge rate limiting, the captcha widget and vendor/key choice, the sign-up
+  screens, the invitation code (Q1), and who keeps the disposable list up to date.
 
 ## Realm step (T-1593, decision 0085; QA/demo only, never production)
 

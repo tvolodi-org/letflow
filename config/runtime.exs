@@ -358,6 +358,40 @@ signup_int = fn name, default ->
   end
 end
 
+# T-1620 (TA-SL3): a comma list of lower-case DNS names (empty/unset = the default). Entries that are not
+# DNS names raise without echoing the value (INV-4).
+signup_domains = fn name, default ->
+  case System.get_env(name) do
+    value when value in [nil, ""] ->
+      default
+
+    value ->
+      entries = value |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+
+      if entries != [] and
+           Enum.all?(
+             entries,
+             &Regex.match?(
+               ~r/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/,
+               &1
+             )
+           ) do
+        entries
+      else
+        raise "environment variable #{name} must be a comma list of lower-case DNS names. The value is not echoed."
+      end
+  end
+end
+
+# The captcha hook has no vendor yet (owner question Q3): only unset or "off" is accepted.
+case System.get_env("LETFLOW_SIGNUP_CAPTCHA") do
+  value when value in [nil, "", "off"] ->
+    :ok
+
+  _other ->
+    raise "environment variable LETFLOW_SIGNUP_CAPTCHA accepts only off: no captcha vendor is implemented. The value is not echoed."
+end
+
 signup_enabled = signup_bool.("LETFLOW_SIGNUP_ENABLED")
 # Origin of the link in the verification mail (a different link from the login-discovery mail).
 signup_base_url = System.get_env("LETFLOW_SIGNUP_BASE_URL")
@@ -413,7 +447,16 @@ config :letflow, Letflow.Signup,
   ip_hourly_cap: signup_int.("LETFLOW_SIGNUP_IP_HOURLY_CAP", 5),
   resend_interval_seconds: signup_int.("LETFLOW_SIGNUP_RESEND_INTERVAL_SECONDS", 60),
   token_ttl_hours: signup_int.("LETFLOW_SIGNUP_TOKEN_TTL_HOURS", 24),
-  abandon_days: signup_int.("LETFLOW_SIGNUP_ABANDON_DAYS", 7)
+  abandon_days: signup_int.("LETFLOW_SIGNUP_ABANDON_DAYS", 7),
+  domain_hourly_cap: signup_int.("LETFLOW_SIGNUP_DOMAIN_HOURLY_CAP", 20),
+  domain_cap_exempt:
+    signup_domains.(
+      "LETFLOW_SIGNUP_DOMAIN_CAP_EXEMPT",
+      ~w(gmail.com mail.ru yandex.ru outlook.com icloud.com bk.ru inbox.ru list.ru yahoo.com)
+    ),
+  disposable_domains: signup_domains.("LETFLOW_SIGNUP_DISPOSABLE_DOMAINS", []),
+  allow_domains: signup_domains.("LETFLOW_SIGNUP_ALLOW_DOMAINS", []),
+  captcha_adapter: nil
 
 # REQ-437 (design req434 s7, D21/D22): OPTIONAL LETFLOW_LOGIN_DISCOVERY_MODE. Unset,
 # empty or all-whitespace writes nothing, so the config/config.exs default
