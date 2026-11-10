@@ -1,0 +1,162 @@
+# T-1648 (BA, batch 5 item 5 + item 10): the fleet rollout with a company window, on the demo module only (T-1640 REQ-795 + REQ-787; T-1641 runtime_demo). PHASE 2 of 5; see the header of
+# tenant-administration-runtime-demo-1-install-at-first-release for the order and the release switch.
+# SAFETY: this rollout is for module "runtime_demo" ONLY. It touches only companies that installed the demo module (SwiftRoute and Bilimbaga after phase 1); every other company is answered "skipped" because it does not have the module.
+# That is why the general rule of the record platform-runtime-updates-3 (never start a rollout on shared QA) does not apply here. NEVER start a rollout for any other module.
+# Sources: docs/requirements.yaml REQ-787 criteria 2 (start answers one rollout keyed by module and version; a repeat returns the same rollout), 3 (a current company, a company without the module, and a company whose newest finished
+# entry is a rollback are skipped; each company upgraded with its own data), 5 (resume reopens a halted rollout and retries failed and pending outcomes), 6 (answers hold ids, statuses and codes only; unknown id 404) and REQ-795 criteria 3
+# (a company outside its window gets the outcome outside_window, its data untouched, the rollout stays running), 5 (outside_window is open work and never halts a rollout); lib/letflow/routers/platform_module_rollouts.ex
+# (answer: rollout {id, module_id, to_version, status, ...} and outcomes [{tenant_id, status, error_code, plan_hash, ...}]; start answers 200); docs/roles.md (ModuleRolloutsManage: platform operator only).
+# Company identifiers come from the answer of the company settings route (Bilimbaga, tenant_id) and from the caller's own membership list (SwiftRoute, GET /me/memberships: the current company is always one entry, lib/letflow/routers/me.ex), so the run can find its two outcomes among all outcomes.
+# UAT assumption, to be confirmed by the process owner: the window is read in the company's own time zone; the tester builds a window of one hour that starts about six hours from now in that zone, so that "now" is outside it.
+# GAP: the platform operator has NO screen for rollouts: grep -rn "platform-module-rollouts" web/src finds none (checked 2026-11-10); T-1640 delivered the backend only. See scenario-env-limitations/platform-runtime-updates-5-rollout-operator-screen.yaml.
+# NOT UAT-OBSERVABLE: the halt after N failed companies (needs failing companies); the 25-company batch.
+---
+id: platform-runtime-demo-2-fleet-window-defers-then-resume
+scope: platform
+title: "The platform operator rolls the demo module out; a company outside its update window is left alone and told 'outside window', and is upgraded when the rollout is resumed after the window is removed"
+version: "1.0"
+tags: [runtime-updates, fleet, upgrade-window, platform, demo-module, cross-tenant, refusal]
+
+description: >
+  Both SwiftRoute and Bilimbaga hold the demo module at version 0.1.0 and the QA build now runs release 0.2.0. Bilimbaga's administrator sets an upgrade window that does not include the present time. The platform operator starts a rollout of the demo
+  module. SwiftRoute (no window) is upgraded to 0.2.0; Bilimbaga's outcome is "outside window", its module stays at 0.1.0, and the rollout does not halt. Starting the rollout again returns the same rollout. A company administrator, a task worker
+  and the auditor cannot start or resume a rollout. Bilimbaga removes its window and the operator resumes the rollout: Bilimbaga is upgraded to 0.2.0 and SwiftRoute is not touched again.
+
+actors:
+  platform_operator: actor-platform-admin
+  other_admin: actor-bilimbaga-admin
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  auditor: actor-swiftroute-auditor
+
+preconditions:
+  - description: Phase 1 has run (both companies installed the demo module at 0.1.0) and the QA build now runs demo release 0.2.0
+    check: custom
+    detail: If the Modules screens show another version or the release is not 0.2.0, report BLOCKED and name what was seen. Do not install or upgrade to prepare it.
+  - description: Neither company has an upgrade window set, and no earlier rollout of runtime_demo to 0.2.0 exists
+    check: custom
+    detail: If one exists, the sequence was run before; report BLOCKED and let the operator reset the QA environment.
+  - description: The platform operator account signs in on the platform tenant
+    check: custom
+    detail: If it is refused the list of rollouts, report BLOCKED and name the answer.
+
+steps:
+  - step: 1
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator saves an upgrade window of one hour that begins six hours after the present time in Bilimbaga's time zone (for example, at 09:40 the window is 15:40 to 16:40) and notes the company identifier in the answer.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The SwiftRoute administrator reads their own list of company memberships, notes the identifier of SwiftRoute (their current company), and notes the demo module's version on the Modules screen.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The SwiftRoute administrator tries to start a rollout of the demo module.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: worker
+    action: >
+      SwiftRoute's task worker tries to start a rollout of the demo module and tries to read the list of rollouts.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: auditor
+    action: >
+      SwiftRoute's read-only auditor tries to resume a rollout (any identifier) and tries to read the list of rollouts.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: platform_operator
+    action: >
+      The platform operator starts a rollout of the module "runtime_demo", reads the answer, and reads the two outcomes that carry SwiftRoute's and Bilimbaga's company identifiers.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The SwiftRoute administrator opens the Modules screen and reads the demo module's version, and calls the demo module's ping.
+    via: ui
+  - step: 8
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator opens the Modules screen and reads the demo module's version, and calls the demo module's ping.
+    via: ui
+  - step: 9
+    actor: platform_operator
+    action: >
+      The platform operator starts the rollout of "runtime_demo" a second time and compares the answer with step 6.
+    via: api
+  - step: 10
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator removes the upgrade window (saves it as empty).
+    via: api
+  - step: 11
+    actor: platform_operator
+    action: >
+      The platform operator resumes the rollout of step 6 and reads the answer.
+    via: api
+  - step: 12
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator opens the Modules screen and reads the demo module's version; then SwiftRoute's administrator does the same.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Only the platform operator can start, resume or list rollouts.
+    verification:
+      method: http_status
+      detail: Steps 3, 4 and 5 are each answered with the fixed platform 403 for every request in the step (start, list, resume); no rollout is created.
+      evidence: Statuses of steps 3 to 5; the list of step 6 shows one rollout of runtime_demo to 0.2.0, created by step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company user could upgrade modules of every company, or see the platform's rollouts.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The company without a window is upgraded; the company outside its window is left alone and told so.
+    verification:
+      method: api_response
+      detail: >
+        Step 6 answers 200 with one rollout (module runtime_demo, to_version 0.2.0, status running). SwiftRoute's outcome has status "succeeded"; Bilimbaga's has status "outside_window" with no error code. Companies without the module show
+        "skipped". The answer holds ids, statuses and codes only: no company name, no schema name, no window value.
+      evidence: The rollout and the two outcomes of step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company is upgraded at an hour it excluded, or a company is skipped without a reason.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The versions on screen agree with the outcomes.
+    verification:
+      method: gui_screen
+      detail: Step 7 shows the demo module at 0.2.0 for SwiftRoute and a 200 ping. Step 8 shows it at 0.1.0 for Bilimbaga and a 200 ping (the build is newer than the data; the module still works).
+      evidence: Screenshots of steps 7 and 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A deferred company is changed anyway, or an upgraded company shows the old version.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Starting again returns the same rollout and does not repeat the work.
+    verification:
+      method: api_response
+      detail: Step 9 answers 200 with the same rollout identifier as step 6; SwiftRoute's outcome is still "succeeded" with the same completion time; Bilimbaga's is still "outside_window".
+      evidence: Rollout identifiers and outcome times of steps 6 and 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: A repeated start upgrades twice or creates a second rollout.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: After the window is removed a resume upgrades the deferred company only.
+    verification:
+      method: api_response
+      detail: >
+        Step 11 answers 200; Bilimbaga's outcome is now "succeeded" and SwiftRoute's outcome is unchanged. Step 12 shows the demo module at 0.2.0 for both companies. The rollout is no longer running (completed) once no outcome is pending
+        or outside_window.
+      evidence: Answer of step 11 and screenshots of step 12.
+    on_fail:
+      severity: MAJOR
+      business_impact: A deferred company is never upgraded, or an already upgraded one is touched again.
+      suggested_action: route_to_wf03

@@ -1,0 +1,180 @@
+# T-1648 (BA, batch 5 item 4): the instance replay screen (T-1635, REQ-799, commit 292d42edb, PR #4175) over the node-entered events (T-1627 part 1 REQ-792, REQ-793 part 2, commit 84897643e).
+# Sources: docs/requirements.yaml REQ-799 RQ1 to RQ9 (steps from recorded events only; Done only after a recorded departure, otherwise Active; time of each step and time since the previous;
+# finished and running instance; banner when nothing is recorded; Live stays the default; keyboard and screen reader; en, ru, kk) and REQ-793 criteria 1 and 3 (a START to task to END
+# instance records NODE_ENTERED for the start, the task and the end, in that order); web/src/components/instances/InstanceReplay.tsx (buttons First, Previous, Next, Last step; a range input; the
+# line "Step k of n"; the list "Recorded steps"; aria-current on the chosen step; the status line is a polite live region) and web/src/i18n/processDiagramMessages.ts (every text below is quoted from its en, ru, kk catalogue);
+# web/src/pages/instances/InstanceDetailPage.tsx (tabs Graph, History, Timeline; Live default).
+# Instances (setup-prepared, as in definitions-10): designer_live of SwiftRoute has a start, human task "Prepare", human task "Approve", end.
+#   I-new: started AFTER REQ-793 and the REQ-792 release backfill reached QA, "Prepare" completed, "Approve" open  -> three recorded steps (Start, Prepare, Approve).
+#   I-done: started after the same moment and finished (both tasks completed)                                     -> four recorded steps (Start, Prepare, Approve, End).
+#   I-old: an instance of any SwiftRoute definition that completed a move BEFORE REQ-793 reached QA (2026-11-10 13:16 UTC is the merge time)  -> no recorded step, or the first recorded step is not Start.
+# If a task completion on I-new or I-done was refused because the operator has not run the REQ-792 release backfill on QA (docs/runbooks/release-backfills.md), report BLOCKED for the scenario and name the refusal:
+# REQ-793 says an unregistered event type makes the whole transition fail.
+# NOT UAT-OBSERVABLE here: the diagram colours and edge styling (the state is also written as a word, which the scenario checks); the 25-page, 200-per-page read limits (needs hundreds of steps);
+# auto-play and variables at a step (not built, RQ10); a parallel join with two arrivals (needs a second definition; the product's tests cover it: web/src/utils/canvas/__tests__/instanceReplay.test.ts).
+# The kk texts are machine drafts until the owner's native check. A PLATFORM_ADMIN is not used for a refusal here.
+---
+id: definitions-12-instance-replay-steps-states-and-languages
+scope: definitions
+title: "On the Graph tab of an instance the administrator switches from Live to Replay, steps through the recorded path with times, sees Done and Active, reads it in three languages, and gets an honest notice for an old instance"
+version: "1.0"
+tags: [definitions, process-designer, instance, replay, node-entered, diagram, accessibility, ru, kk, en]
+
+description: >
+  SwiftRoute's administrator opens the Graph tab of a running instance. It opens in the "Live" view as before. She switches to
+  "Replay": the same read-only diagram, a list of the recorded steps (Start, Prepare, Approve) each with its time and the time since
+  the step before it, and buttons First step, Previous step, Next step, Last step with a slider. At the last step "Prepare" is Done
+  and "Approve" is Active; at the first step only Start is Active and nothing later is drawn as reached. She moves with the buttons,
+  the slider and the keyboard. On the finished instance the last step is the end, and every step is Done. The Replay texts are read in
+  Russian and Kazakh. An instance that ran before the steps were recorded shows a notice saying so and falls back to the Live view.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the setup-prepared instances I-new (running, waiting at "Approve") and I-done (finished) of designer_live, started after REQ-793 and the REQ-792 backfill reached QA
+    check: system_seeded
+    detail: Setup-prepared by the operator (a process operator starts them; this scenario uses none). If either is missing, the steps that need it are BLOCKED; say which.
+  - description: SwiftRoute has an instance I-old whose moves were all made before REQ-793 was deployed
+    check: system_seeded
+    detail: Any older SwiftRoute instance serves. If none exists, step 7 is BLOCKED, not PASS.
+  - description: The Replay view is deployed on QA (commit 292d42edb, PR #4175)
+    check: custom
+    detail: If the Graph tab has no "Live / Replay" switch, report BLOCKED, not PASS.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens the instance I-new, chooses the Graph tab and looks at what is shown before touching anything.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator presses "Replay" and reads the step list and the line above the diagram.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator presses "First step", then reads the line and the diagram; then presses "Next step" once and reads them again; then presses "Last step".
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      Using only the keyboard, the administrator moves to the slider, presses the Left arrow twice and then the Right arrow once, and reads the line "Step k of n" each time.
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator opens the instance I-done, chooses the Graph tab, presses "Replay" and presses "Last step".
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator sets the interface language to Russian and then to Kazakh on the Replay view of I-new and reads the switch, the buttons and the step line in each language, then sets the language back to English.
+    via: ui
+  - step: 7
+    actor: admin
+    action: >
+      The administrator opens the instance I-old, chooses the Graph tab and presses "Replay".
+    via: ui
+  - step: 8
+    actor: admin
+    action: >
+      The administrator presses "Live" on the instance I-new and reads the diagram.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The Graph tab still opens in the Live view, and Replay is a switch beside it.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 shows the group "Graph view" with the two buttons "Live" and "Replay", "Live" pressed, and the live diagram as before; no Replay step list is shown.
+      evidence: Screenshot of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The familiar view changed without the administrator choosing it.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The Replay list shows the recorded steps in order, with a time and the time since the previous step.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 shows the list "Recorded steps" with exactly three steps in the order Start, Prepare, Approve; the type of each (for example start, human task); the time of each; for the second and the third the text
+        "+<duration> since previous step" (or "less than 1 s" for a gap under a second); and the line "Step 3 of 3: Approve, <time>" (a running instance follows its last step). The list holds no step for a task the token has not reached
+        and no step the definition does not show as a path (no inferred step).
+      evidence: Screenshot of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot see when the instance moved, or sees steps that never happened.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The diagram at a step shows what was reached by then; arrival is Active, not Done.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3: after "First step" the line reads "Step 1 of 3: Start, <time>", "First step" and "Previous step" are switched off, Start is Active and Prepare, Approve and the end are neutral (not reached). After "Next step" the line reads
+        "Step 2 of 3: Prepare, <time>", Start is Done and Prepare is Active. After "Last step" Prepare is Done, Approve is Active, the end is neutral, and "Next step" and "Last step" are switched off. The state is shown as a word as well as a sign.
+      evidence: Screenshots of the three states.
+    on_fail:
+      severity: MAJOR
+      business_impact: The replay shows a task as finished when it only started, which misleads an audit.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The replay can be used with the keyboard and the current step is announced.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4: the slider can be reached with the Tab key; Left twice moves from step 3 to step 1 ("Step 1 of 3") and Right once to step 2 ("Step 2 of 3"); the chosen step in the list is marked as the current one (aria-current="step") and the
+        step line is a polite live region (aria-live="polite"), as seen in the page's accessibility tree.
+      evidence: Accessibility tree or inspector excerpt and the three step lines.
+    on_fail:
+      severity: MINOR
+      business_impact: A keyboard or screen-reader user cannot use the replay.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: A finished instance ends at the end step, with every step Done.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 5 shows four steps (Start, Prepare, Approve, End), the line "Step 4 of 4: End, <time>", and Start, Prepare, Approve and End all Done.
+      evidence: Screenshot of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A finished instance looks unfinished, or the end step is missing from the record.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: The Replay view is in Russian and in Kazakh.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 6 shows, in Russian, "Повтор" and "Сейчас", the buttons "Первый шаг", "Предыдущий шаг", "Следующий шаг", "Последний шаг" and the line "Шаг 3 из 3: ..."; in Kazakh, "Қайталап көру" and "Қазір",
+        the buttons "Бірінші қадам", "Алдыңғы қадам", "Келесі қадам", "Соңғы қадам" and the line "3 қадамның 3-сі: ...". No text is English and no message key is shown. A wording remark on the Kazakh text is a MINOR note.
+      evidence: Screenshots in the two languages.
+    on_fail:
+      severity: MINOR
+      business_impact: A Russian- or Kazakh-speaking administrator sees English or raw keys.
+      suggested_action: route_to_frontend_dev
+  - id: EO-007
+    description: An instance with no recorded steps says so and still shows the Live path.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 7 shows the notice "No path was recorded for this instance (it ran before step recording started). The Live view shows the path inferred from task events." and, under it, the Live diagram; there is no step list and no slider.
+        If the first recorded step of I-old is not Start, the notice "Steps before <time> were not recorded." is shown above a normal replay instead; the run notes which of the two it saw.
+      evidence: Screenshot of step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: An old instance looks like it did nothing, or the administrator thinks the missing path is a fault.
+      suggested_action: route_to_frontend_dev
+  - id: EO-008
+    description: Switching back to Live shows the live diagram again and changes nothing in the instance.
+    verification:
+      method: gui_screen
+      detail: Step 8 shows the Live diagram of I-new with "Live" pressed; the instance still waits at "Approve" and has the same three recorded steps when Replay is opened again.
+      evidence: Screenshot of step 8.
+    on_fail:
+      severity: MINOR
+      business_impact: The view switch is a one-way door or alters the instance.
+      suggested_action: route_to_frontend_dev

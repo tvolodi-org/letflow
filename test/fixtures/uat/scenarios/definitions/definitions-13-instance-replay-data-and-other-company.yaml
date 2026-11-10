@@ -1,0 +1,104 @@
+# T-1648 (BA, batch 5 item 4): the data behind the instance replay, and the other company (T-1635 REQ-799 RQ6; REQ-793 criterion 10).
+# Sources: docs/requirements.yaml REQ-793 criterion 10 (an instance read through the history route shows each NODE_ENTERED item with exactly the keys node_id, node_type and via_edge_id; the same read of an instance of another
+# tenant answers the same 404 as an absent id, INV-5) and REQ-799 RQ6 (the screen reads the existing history route filtered by event_type=NODE_ENTERED; no new route);
+# web/src/hooks/useInstances.ts and web/src/api/instances.ts (the read is GET /api/v1/instances/:id/history?event_type=NODE_ENTERED); docs/roles.md (InstancesRead: yes for administrator, task worker, process operator,
+# designer, auditor; no for candidate and storekeeper); web/src/pages/instances/InstanceDetailPage.tsx (route instances/:id).
+# Instance I-new is the one of definitions-12 (setup-prepared, started after REQ-793 reached QA): the history of an instance may be read by the administrator, who copies its identifier from the address bar.
+# A PLATFORM_ADMIN on this own-company route would get its own tenant's data, not a refusal, so it is not used here. Bilimbaga is the other company.
+# NOT UAT-OBSERVABLE: that the client cache key carries the company (a unit test of the web code: web/src/hooks/__tests__/useInstanceNodeEntries.test.tsx).
+---
+id: definitions-13-instance-replay-data-and-other-company
+scope: definitions
+title: "The administrator reads the recorded steps of an instance as plain facts, and another company's administrator gets the same 'not found' for it as for an instance that does not exist"
+version: "1.0"
+tags: [definitions, instance, replay, node-entered, history, refusal, cross-tenant, inv-5]
+
+description: >
+  SwiftRoute's administrator reads the history of a running instance filtered to the steps its token entered. Every item shows the
+  step's identifier, its type and the connection it came along (empty only for the start), and nothing else. The Bilimbaga
+  administrator asks for the same history with the SwiftRoute instance's identifier and gets exactly the answer given for an
+  identifier that does not exist, and opening the SwiftRoute instance's address in Bilimbaga shows the application's "not found"
+  page, not the diagram. Nothing the Bilimbaga administrator does changes the SwiftRoute instance.
+
+actors:
+  admin: actor-swiftroute-alice
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: The instance I-new of scenario definitions-12 exists (running, three recorded steps)
+    check: system_seeded
+    detail: If it does not, report BLOCKED for the scenario. Do not start an instance to prepare it.
+  - description: The Bilimbaga administrator can sign in
+    check: system_seeded
+    detail: If not, report BLOCKED for steps 2 to 4.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens the instance I-new, notes its identifier from the address, and reads the history of that instance filtered to the type of step
+      "NODE_ENTERED" (the same read the Replay view makes).
+    via: api
+  - step: 2
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator reads the history of the identifier from step 1, filtered the same way, and then reads the history of the identifier
+      00000000-0000-0000-0000-000000000000, filtered the same way.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator types the address of the SwiftRoute instance (the identifier from step 1) into the browser and chooses the Graph tab if one is shown.
+    expect_refusal: true
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The SwiftRoute administrator reads the history of I-new again, filtered the same way.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Each recorded step is exactly three facts.
+    verification:
+      method: api_response
+      detail: >
+        Step 1 answers 200 with three items in order (Start, Prepare, Approve). Each item's payload has exactly the keys node_id, node_type and via_edge_id; via_edge_id is empty (null) only for the start and is the
+        identifier of a connection of the definition for the others. The payload holds no variable, no person's name and no other field.
+      evidence: The three items of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The replay draws from facts that are incomplete, or the record carries data it should not.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Another company cannot tell a SwiftRoute instance from an instance that does not exist.
+    verification:
+      method: http_status
+      detail: >
+        Both reads of step 2 are answered 404, with the same body (compare after dropping trace_id). Neither is a 403 and neither returns an item.
+      evidence: Statuses and bodies of step 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could confirm that an instance exists in another, or read its path.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: The other company's screen shows "not found", not the diagram.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows the application's "not found" page or a not-found message and no diagram, no step list, no task name of SwiftRoute.
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company sees another's process path on screen.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: SwiftRoute's record is the same after the refused reads.
+    verification:
+      method: api_response
+      detail: Step 4 returns the same three items, with the same identifiers, times and payloads, as step 1.
+      evidence: Items of steps 1 and 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A read from another company changed or added to the instance's record.
+      suggested_action: route_to_security_review

@@ -16,3 +16,5 @@ issue_ref: "T-1625"
 review: >
   Revisit when a separate QA instance exists whose companies are disposable (the production plan of
   docs/status or T-1569 names one), or when the owner agrees to run a rollout on QA at a quiet time.
+  Update 2026-11-10 (T-1648): the optional company window and the start/resume of a rollout are now exercised on the demo module only, which touches no company that
+  did not install it: see platform-runtime-demo-2-fleet-window-defers-then-resume. A rollout of any real module and the halt after N failures stay unrun on shared QA.
