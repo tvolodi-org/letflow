@@ -53621,7 +53621,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-584 -- builds on its delivery path (Letflow.Notifications.start_delivery/5, already on main; status not flipped)
+    gh: 4135
     # Source: task T-1608; BA batch 4 docs/uat/ba-decisions/T-1595.md item 3 (and its assumption "a password reset sends a link and never shows or sets a password"). Files read on origin/main: web/src/api/identity.ts (usersApi.resetPassword and its ISS-0813 note), lib/letflow/routers/identity.ex (authz routes, handle_status_update/3, with_platform_admin_member_guard/4, audit_opts, user_map/1), lib/letflow/api/authorization.ex (endpoint_policy_key/2 for the /users routes, required_permission/1 mapping :UsersManage to :UsersGroupsRolesManage), docs/roles.md (permission matrix row UsersGroupsRolesManage), lib/letflow/identity/user.ex (status, auth_source, email), lib/letflow/identity.ex (the user.update_status audit entry), lib/letflow/audit.ex (insert_entry/3), lib/letflow/notifications.ex (start_delivery/5, deliver/7, outcome rows sent / skipped no_email / skipped adapter_noop / failed adapter_error), lib/letflow/notification_templates.ex and lib/letflow/notification_templates/registry.ex (template keys, placeholders, defaults), test/letflow/notification_templates/registry_test.exs (key-set pin and N1 deny list), lib/letflow/api/response.ex (send_json/3, not_found/1, conflict/2, unprocessable/2); decision 0072 D1 ("Letflow holds no Keycloak admin credential and gets no admin client") and section 10; decision 0085 D6 (the "Forgot password" hint mail, needs resetPasswordAllowed true); priv/keycloak/provisioner/v2/tenant-realm.json (resetPasswordAllowed true) and docs/runbooks/demo-realm/*.json (false); docs/testing/uat-mail-trap.md. Written by the business analyst (T-1608) 2026-11-10. Not yet validated.
     description: >
       Today a tenant administrator cannot help a user who forgot the password: the web client has
@@ -53668,7 +53668,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-788 -- needs the backend route first
+    gh: 4134
     # Source: task T-1608; docs/uat/ba-decisions/T-1595.md item 3 ("Then the route and a button on the user page; remove the dead client function"). Files read on origin/main: web/src/api/identity.ts (usersApi.resetPassword with a password argument), web/src/api/__tests__/identity.iss0812.test.ts (header comment naming resetPassword), web/src/pages/admin/UserDetailPage.tsx (access.can(P.UsersGroupsRolesManage), status select, submit message with role status), web/src/hooks/useAdminUsers.ts (useAdminUser, useUpdateAdminUser, useDeactivateAdminUser), web/src/pages/admin/usersMessages.ts (local en/ru/kk texts, the page has no IntlProvider), lib/letflow/routers/identity.ex user_map/1 (status, email, auth_source are serialized). Written by the business analyst (T-1608) 2026-11-10. Not yet validated.
     description: >
       REQ-788 adds the route POST /identity/users/:id/reset-password, which sends the person an instruction mail
