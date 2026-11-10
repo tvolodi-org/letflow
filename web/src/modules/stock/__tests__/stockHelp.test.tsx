@@ -8,7 +8,6 @@ import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { helpIds } from '@/components/help/helpTopicText'
 import { STOCK_UI_LOCALES, stockMessages } from '../stockMessages'
 import { STOCK_HELP_TOPICS, stockHelpPath } from '../help/stockHelpTopics'
-import { countsEn } from '../counts/countsMessages'
 import { renderStock, withAtom, withoutAtom } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
@@ -101,8 +100,11 @@ describe('H5 H6 route', () => {
 
 describe('H7 counts accuracy', () => {
   it('says stock is not blocked during a count, and names the buttons as the screen does', () => {
-    expect(stockMessages.en['stock.help.counts.ref1.body']).toContain(countsEn['counts.posting.noFreeze'].match(/Stock movements during counting are not blocked/)![0])
+    expect(stockMessages.en['stock.help.counts.ref1.body']).toContain('By default, stock movements during counting are not blocked')
+    const freezeOption = { en: '"freeze locations"', ru: '«заморозить места»', kk: '«орындарды мұздату»' } as const
     for (const l of STOCK_UI_LOCALES) {
+      expect(stockMessages[l]['stock.help.counts.ref1.body'], l).toContain(freezeOption[l])
+      expect(stockMessages[l]['counts.posting.noFreeze'], l).toContain(freezeOption[l])
       const tasks = [1, 2, 3].map((n) => stockMessages[l][`stock.help.counts.task${n}`]).join(' ')
       expect(tasks, l).toContain(stockMessages[l]['counts.new'])
       expect(tasks, l).toContain(stockMessages[l]['counts.action.open'])
