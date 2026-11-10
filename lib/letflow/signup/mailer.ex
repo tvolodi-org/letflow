@@ -46,6 +46,19 @@ defmodule Letflow.Signup.Mailer do
   end
 
   defp run(tenant_id, message) do
+    case deliver_now(message) do
+      :ok -> :ok
+      {:error, :failed} -> record_failure(tenant_id)
+    end
+  end
+
+  @doc """
+  T-1593: delivers one rendered message synchronously through the adapter under the adapter timeout
+  (an inner supervised task), for the caller that must know the outcome (the credential mail). Never
+  raises; the message is not logged (INV-4).
+  """
+  @spec deliver_now(map()) :: :ok | {:error, :failed}
+  def deliver_now(message) do
     config = Application.get_env(:letflow, @notifier, [])
     adapter = Keyword.get(config, :adapter, @default_adapter)
     timeout = Keyword.get(config, :timeout_ms, @default_timeout_ms)
@@ -63,12 +76,12 @@ defmodule Letflow.Signup.Mailer do
 
     case Task.yield(inner, timeout) || Task.shutdown(inner, :brutal_kill) do
       {:ok, :ok} -> :ok
-      _failure -> record_failure(tenant_id)
+      _failure -> {:error, :failed}
     end
   rescue
-    _exception -> record_failure(tenant_id)
+    _exception -> {:error, :failed}
   catch
-    _kind, _reason -> record_failure(tenant_id)
+    _kind, _reason -> {:error, :failed}
   end
 
   defp record_failure(tenant_id) do

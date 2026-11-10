@@ -18,6 +18,7 @@ import type React from 'react'
 import { useEffect, useRef } from 'react'
 import type { ResolvedHelpContent } from '@/types/help'
 import { isHelpMediaImage } from '@/types/help'
+import { useModalFocus } from '@/components/ui/useModalFocus'
 import { HelpMarkdown } from './HelpMarkdown'
 import { StalenessBadge } from './StalenessBadge'
 
@@ -44,21 +45,13 @@ function isSafeImageSrc(url: string): boolean {
 export function HelpPanel(props: HelpPanelProps): React.ReactElement {
   const { content, onClose } = props
   const closeRef = useRef<HTMLButtonElement | null>(null)
+  const boxRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     closeRef.current?.focus()
   }, [])
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  useModalFocus(boxRef, { onClose })
 
   // §5.1 -- renders nothing (no placeholder, no error) for an unrecognised
   // shape; the common case (media: []) renders nothing at all.
@@ -66,6 +59,8 @@ export function HelpPanel(props: HelpPanelProps): React.ReactElement {
 
   return (
     <div
+      ref={boxRef}
+      tabIndex={-1}
       data-testid="help-panel-overlay"
       role="dialog"
       aria-modal="true"

@@ -7,9 +7,12 @@ send nothing anywhere.
 ## 1. Status and scope
 
 * **Wired by infra:** demo and QA. **Production is not approved** (portfolio decision D-019, QA only).
-* Storage is **local disk only** (project rule: no off-site copy, no S3), one disk per host. A backup
+* Storage today is **local disk only**, one disk per host (demo and QA keep that rule). A backup
   therefore protects against a **logical error or a bad deploy**. It does **not** protect against loss
-  of the host or its disk. The owner must accept that in writing before production (section 11).
+  of the host or its disk. **For production the owner lifted the local-disk-only rule in principle on
+  2026-11-10 (portfolio D-115): an off-site copy is wanted** (section 11; plan in
+  `docs/uat/ba-decisions/T-1600.md`). The off-site step is **not built yet**; until it exists and a
+  restore from it has passed, production must not go live.
 * No failure alerting exists on any host yet: infra polls `status/*.json` (section 4).
 * Backups hold every tenant's data including personal data (e-mail addresses). They are kept 0600 in a
   0700 tree, may be encrypted to a public key (`BACKUP_ENCRYPT=gpg`), and print no record content.
@@ -38,7 +41,7 @@ PostgreSQL; if so they need their own entry.
 | demo | 24 h (1 h with an hourly timer) | 1 h | daily `dump`; 7 sets + one before each promote |
 | QA | none (disposable) | — | a dump is taken only for the weekly drill |
 | production (not approved) | 15 min | 1–2 h, same host | WAL archive + daily dump + weekly restore drill |
-| **host or disk loss** | **not covered** | — | needs an off-host copy (section 11) |
+| **host or disk loss** | demo/QA: **not covered**; production: age of the last off-site copy (proposal: up to 24 h) | demo/QA: —; production: half a day on a new server (proposal, the drill measures it) | production needs the off-site copy (section 11) |
 
 These are proposals. The weekly restore test measures the real restore time (`seconds=` in its line):
 compare it with the RTO.
@@ -185,8 +188,31 @@ Quarterly (manual):
 
 ## 11. Open owner questions
 
-1. Accept the RPO/RTO numbers of section 3 (production: 15 min / 1–2 h).
-2. Accept in writing that local-disk-only storage does not cover host or disk loss, or approve an off-host copy.
-3. Retention vs. purge: 14 days is the longest a purged tenant's data survives in backups — acceptable?
-4. Who is alerted when a status file turns red (infra has no alerting yet), and who owns the quarterly drill.
+**Off-site copy. Decided by the owner, 2026-11-10 (D-115):** production gets an off-site backup copy, on another server
+or the owner's PC; details with infra (ai-dala-infra-18). Production runs on a new small Hetzner server
+(ceiling about EUR 40 per month until the first paying customer), data in Germany, and the on-call is an
+AI agent (no human pager). Not yet built: the push/pull step and its status file.
+
+Rules for the off-site copy (proposal in `docs/uat/ba-decisions/T-1600.md`, section 3; owner and infra confirm):
+
+* **Encrypted before it leaves the server** (`BACKUP_ENCRYPT=gpg`). The private key is not on the production
+  server nor on the off-site target. `LETFLOW_SECRETS_MASTER_KEY` is never in the off-site copy of the database.
+* **A broken-into production server must not be able to delete the off-site copy:** the target pulls, or the key
+  on the server can only append.
+* **Recommended target:** a second small server or storage box in another location (about EUR 4–6 per month,
+  an estimate). The owner's PC over a tunnel is allowed only as an extra copy: it is off part of the time, has
+  a limited home link for a restore, and needs a human at restore time.
+* **Retention** at the target is not shorter than `DUMP_KEEP_DAYS` and is the longest a purged tenant's data
+  survives there too (see section 1); the privacy notice names it.
+* **Infra polls** one more status file for the off-site job like the four in section 4: alert on `"ok":false`
+  and on a `ts` older than 26 hours. Each alert has its own runbook; the AI on-call reads an alert log.
+* **Drill:** the quarterly drill in section 10 is done **from the off-site copy** onto a different host, by the
+  agent, and timed against the RTO. The first one must pass before the first paying customer.
+
+Open owner questions:
+
+1. Accept the RPO/RTO numbers of section 3 (production: 15 min / 1–2 h on the same host; host loss: up to 24 h / half a day).
+2. Which off-site target (second server or storage box, or the owner's PC as an extra), and where it lives (the owner accepted data in Germany; a target outside it needs a new answer).
+3. Retention vs. purge: 14 days is the longest a purged tenant's data survives in backups — acceptable? Off-site copies follow the same number.
+4. Who holds the gpg private key and the second copy of `LETFLOW_SECRETS_MASTER_KEY`, and how the agent on call gets them when needed.
 5. The Keycloak realm JSON export: infra owns it; confirm the weekly schedule.

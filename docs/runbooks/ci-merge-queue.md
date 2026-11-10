@@ -168,3 +168,28 @@ When changing the image, move all workflows together and run the stock e2e job o
 | Shard timed out, no failed test | job status | re-run once |
 | Group red on `Stock browser e2e`, "does not support chromium" | `runs-on:` image | section 5 |
 | Tag stale after revert | `git push origin :refs/tags/ci-main-red` | report why |
+
+## 7. QA is hours behind main (CD starvation, GH #1602)
+
+With about 6 merges an hour and a push CI of 20+ minutes, the tip's own push run is almost never
+green when an older run fires `CD (QA)`. `scripts/cd_qa_decide.sh` (the "tip rule", GH #2622)
+deploys only the current tip and only when the tip's own push run is green, so it skips nearly
+every run and QA goes stale ("deploy=false, tip run in_progress" is the normal outcome, not a
+fault).
+
+**Why "deploy the newest green ancestor" is not built.** The remote deploy is `git pull` on main:
+the forced SSH command takes no sha (design `gh2622-ci-push-concurrency-and-cd-tip.md`, F3 and
+section 8 reject pinning through `SSH_ORIGINAL_COMMAND`). Whatever the decision script picks, QA
+ends up at the tip. A green ancestor therefore cannot be deployed alone, and using it to authorize
+deploying a pending tip would deploy a commit whose push run is not green. Ruling OQ-1 allows
+that only for the race where main moves after the decision (section 3(v), "for this git-pull race
+only"), not as a policy. The tip rule is kept unchanged.
+
+**Options that keep the green requirement (need an owner decision, not part of this change):**
+1. *Merge pause window*: the queue stops merging for one push-CI duration (about 25 minutes) at
+   set times; the tip turns green, CD deploys it. Cheapest; lowers throughput during the window.
+2. *`qa-stable` pointer*: a job moves a ref to the newest commit whose push run is green; the
+   remote deploy checks out that ref instead of pulling main. Needs a change to the forced
+   command on the QA host (infra) and a design record superseding F3/section 8.
+
+Until one is chosen, to put QA on a current build, wait for a quiet period or ask for a pause.

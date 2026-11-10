@@ -12,6 +12,7 @@ import '@/styles/process-diagram.css'
 import type { DefinitionGraph } from '@/types/api'
 import { initialViewport, isChain, layoutDefinition, visibleShare, type LayoutDirection, type ReadLayout } from '@/utils/canvas/readLayout'
 import type { InstancePath, NodeState } from '@/utils/canvas/instancePath'
+import type { GraphDiff } from '@/utils/canvas/graphDiff'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -40,6 +41,10 @@ const MINIMAP_COLOUR: Record<NodeState | 'none', string> = {
   none: 'var(--line-strong)',
 }
 
+/** Characters reserved next to an edge label for the diff chip (glyph, space, the longest word). */
+const DIFF_LABEL_ROOM = '··········'
+const MINIMAP_DIFF = { added: 'var(--success)', removed: 'var(--danger)', changed: 'var(--warning)' } as const
+
 /** The container width, from a ResizeObserver; wide when the browser has none (jsdom). */
 export function useContainerWidth(): [React.RefObject<HTMLDivElement>, number] {
   const ref = useRef<HTMLDivElement>(null)
@@ -61,6 +66,8 @@ export interface ProcessDiagramProps {
   graph: DefinitionGraph | null | undefined
   /** An instance's path; without it the diagram shows the definition only. */
   path?: InstancePath | null
+  /** T-1588: a version diff; `graph` must then be `diff.graph` (both versions on one picture). Never set with `path`. */
+  diff?: GraphDiff | null
   /** Instance error reason for the "not tied to a step" banner. */
   errorReason?: string | null
   /** Retry for an incomplete history (a failed timeline page). */
@@ -85,7 +92,7 @@ export default function ProcessDiagram(props: ProcessDiagramProps) {
 }
 
 function ProcessDiagramInner(props: ProcessDiagramProps) {
-  const { graph, path, errorReason, onRetry, live, toolbarExtra, onNodeSelect } = props
+  const { graph, path, diff, errorReason, onRetry, live, toolbarExtra, onNodeSelect } = props
   const intl = useIntl()
   const t = useDiagramText()
   const m = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `processDiagram.${id}` }, values)
@@ -101,9 +108,11 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
   const edgeLabel = useCallback(
     (e: { condition?: string; isDefault: boolean }) => {
       const full = e.condition ?? (e.isDefault ? defaultLabel : null)
+      // A diff chip (glyph + word) shares the label: dagre reserves room for it too.
+      if (diff) return `${full ? `${cutLabel(full)} ` : ''}${DIFF_LABEL_ROOM}`
       return full ? cutLabel(full) : null
     },
-    [defaultLabel],
+    [defaultLabel, diff],
   )
   const layoutTB = useMemo(() => layoutDefinition(graph, 'TB', edgeLabel), [graph, edgeLabel])
   const autoLR = userDirection === null && wide && layoutTB.nodes.length <= diagramConfig.hugeGraphNodes
@@ -147,6 +156,8 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
         const label = n.label ?? t.typeName(n.nodeType)
         const typeName = t.typeName(n.nodeType)
         const stateName = st ? t.stateName(st) : undefined
+        const dk = diff?.nodes.get(n.id)?.kind
+        const nodeDiff = dk && dk !== 'unchanged' ? { kind: dk, word: t.diffName(dk) } : undefined
         return {
           id: n.id,
           type: 'diagram',
@@ -156,7 +167,7 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
           draggable: false,
           connectable: false,
           selected: selected === n.id,
-          ariaLabel: [label, typeName, stateName].filter(Boolean).join(', '),
+          ariaLabel: [label, typeName, stateName, nodeDiff?.word].filter(Boolean).join(', '),
           data: {
             nodeType: n.nodeType,
             label,
@@ -166,15 +177,17 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
             stateName,
             direction,
             shape: n.shape,
+            diff: nodeDiff,
           },
         }
       }),
-    [layout.nodes, path, t, selected, direction, labelOf],
+    [layout.nodes, path, diff, t, selected, direction, labelOf],
   )
   const flowEdges: DiagramFlowEdge[] = useMemo(
     () =>
       layout.edges.map((e) => {
         const full = e.condition ?? (e.isDefault ? m('edge.default') : null)
+        const ek = diff?.edges.get(e.id)?.kind
         return {
           id: e.id,
           source: e.source,
@@ -189,11 +202,12 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
             exitBelowCaption: e.exitBelowCaption,
             labelX: e.labelX,
             labelY: e.labelY,
+            diff: ek && ek !== 'unchanged' ? { kind: ek, word: t.diffName(ek) } : undefined,
           },
         }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [layout.edges, path, intl.locale],
+    [layout.edges, path, diff, intl.locale],
   )
 
   const ariaLabelConfig = useMemo<Partial<AriaLabelConfig>>(
@@ -285,7 +299,7 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
       <div className={`lf-pd__body${wide ? '' : ' is-stacked'}`}>
         {/* Rule 2a: under the wide width the details panel takes the whole area; closing it returns to the view. */}
         {!wide && selectedNode ? null : showSteps ? (
-          <StepsList nodes={layout.nodes} edges={layout.edges} path={path} selectedId={selected} onSelect={(id) => select(id)} />
+          <StepsList nodes={layout.nodes} edges={layout.edges} path={path} diff={diff} selectedId={selected} onSelect={(id) => select(id)} />
         ) : (
           <div
             className={`lf-pd__canvas${live ? ' is-live' : ''}`}
@@ -339,7 +353,10 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
             >
               <Background gap={24} />
               <Controls position="top-left" showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
-              {!big && <MiniMap position="bottom-right" pannable zoomable nodeColor={(n) => MINIMAP_COLOUR[(n.data as { state?: NodeState }).state ?? 'none']} />}
+              {!big && <MiniMap position="bottom-right" pannable zoomable nodeColor={(n) => {
+                const d = n.data as { state?: NodeState; diff?: { kind: keyof typeof MINIMAP_DIFF } }
+                return d.diff ? MINIMAP_DIFF[d.diff.kind] : MINIMAP_COLOUR[d.state ?? 'none']
+              }} />}
             </ReactFlow>
           </div>
         )}
@@ -349,6 +366,7 @@ function ProcessDiagramInner(props: ProcessDiagramProps) {
             nodes={layout.nodes}
             edges={layout.edges}
             state={path?.nodes.get(selectedNode.id)}
+            diff={diff}
             onClose={() => select(null)}
           />
         )}

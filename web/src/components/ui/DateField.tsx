@@ -126,7 +126,6 @@ function Calendar(props: { anchor: HTMLElement; name: string; value: string; lan
       ref={ref}
       className="lf-cal"
       role="dialog"
-      aria-modal="true"
       aria-label={`${t.choose}: ${name}`}
       style={{ top: pos.top, left: pos.left }}
       onKeyDown={onKey}

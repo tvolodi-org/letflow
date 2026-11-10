@@ -9,12 +9,18 @@ export interface NavCatalog {
   groups: Record<NavGroupId, string>
   items: Record<string, string>
   signOut: string
+  /** Accessible name of the main `nav` landmark. */
+  mainNav: string
+  /** Accessible name of the `aside` that holds the menu. */
+  sidebar: string
 }
 
 export const navMessages: Record<UiLocale, NavCatalog> = {
   en: {
     groups: { work: 'Work', tenantAdmin: 'Tenant administration', platform: 'Platform' },
     signOut: 'Sign out',
+    mainNav: 'Main',
+    sidebar: 'Sidebar',
     items: {
       '/instances': 'Instances',
       '/tasks': 'My Tasks',
@@ -63,6 +69,8 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
   ru: {
     groups: { work: 'Работа', tenantAdmin: 'Администрирование', platform: 'Платформа' },
     signOut: 'Выйти',
+    mainNav: 'Основная навигация',
+    sidebar: 'Боковая панель',
     items: {
       '/instances': 'Экземпляры',
       '/tasks': 'Мои задачи',
@@ -111,6 +119,8 @@ export const navMessages: Record<UiLocale, NavCatalog> = {
   kk: {
     groups: { work: 'Жұмыс', tenantAdmin: 'Әкімшілік', platform: 'Платформа' },
     signOut: 'Шығу',
+    mainNav: 'Негізгі навигация',
+    sidebar: 'Бүйір панелі',
     items: {
       '/instances': 'Орындалып жатқан процестер',
       '/tasks': 'Менің тапсырмаларым',

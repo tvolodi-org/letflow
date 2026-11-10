@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.15.0"
+    assert m.version == "0.16.0"
     assert m.depends_on == ["catalog_items", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 
@@ -70,6 +70,11 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
                  "type" => "integer",
                  "minimum" => 1,
                  "maximum" => 3650
+               },
+               "storekeeper_grants" => %{
+                 "type" => "array",
+                 "items" => %{"type" => "string", "enum" => ["AssetsRead", "AssetsPost"]},
+                 "uniqueItems" => true
                }
              },
              "additionalProperties" => false

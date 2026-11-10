@@ -6,7 +6,8 @@ import { memo } from 'react'
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type Edge, type EdgeProps } from '@xyflow/react'
 import type { EdgeState } from '@/utils/canvas/instancePath'
 import type { Point } from '@/utils/canvas/readLayout'
-import { diagramConfig } from './diagramConfig'
+import { glyphClass } from '@/components/ui/StatusPill'
+import { DIFF_PILL, diagramConfig } from './diagramConfig'
 
 export interface DiagramEdgeData {
   label: string | null
@@ -19,6 +20,8 @@ export interface DiagramEdgeData {
   labelY?: number
   /** T-1563: violations anchored to this edge. */
   invalid?: { count: number; word: string; messages: string[] }
+  /** T-1588: set only in a version diff. */
+  diff?: { kind: 'added' | 'removed' | 'changed'; word: string }
   [key: string]: unknown
 }
 
@@ -74,19 +77,24 @@ function DiagramEdgeImpl(props: EdgeProps<DiagramFlowEdge>) {
       <BaseEdge
         id={id}
         path={path}
-        className={`lf-pd-edge${state ? ` is-${state}` : ''}${data?.invalid ? ' is-invalid' : ''}`}
+        className={`lf-pd-edge${state ? ` is-${state}` : ''}${data?.invalid ? ' is-invalid' : ''}${data?.diff ? ` is-diff-${data.diff.kind}` : ''}`}
         markerEnd={`url(#lf-pd-arrow${state ? `-${state}` : ''})`}
       />
-      {(data?.label || data?.invalid) && (
+      {(data?.label || data?.invalid || data?.diff) && (
         <EdgeLabelRenderer>
           <div
-            className={`lf-pd-edge__label nodrag nopan${state ? ` is-${state}` : ''}`}
+            className={`lf-pd-edge__label nodrag nopan${state ? ` is-${state}` : ''}${data.diff ? ` is-diff-${data.diff.kind}` : ''}`}
             data-testid="diagram-edge-label"
             title={[data.fullLabel ?? data.label, ...(data.invalid?.messages ?? [])].filter(Boolean).join(': ')}
             // React Flow positions edge labels by transform; a computed position, not a colour or spacing value.
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
             {data.label}
+            {data.diff && (
+              <span className="lf-pd-edge__diff" data-testid="diagram-edge-diff" data-diff={data.diff.kind}>
+                                <span className={glyphClass(DIFF_PILL[data.diff.kind].glyph)} aria-hidden="true" data-testid="diagram-diff-glyph" /> {data.diff.word}
+              </span>
+            )}
             {data.invalid && (
               <span className="lf-pd-edge__invalid" data-testid="diagram-edge-invalid">
                 {' '}

@@ -82,6 +82,8 @@ export interface ProcessDefinition {
   status: DefinitionStatus
   graph: DefinitionGraph
   created_by: string
+  /** Set for definitions shipped by a module. */
+  owner_module?: string | null
   created_at: string
   updated_at: string
 }

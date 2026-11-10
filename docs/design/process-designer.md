@@ -1,6 +1,6 @@
 # Process designer — slice 1: the read view
 
-Status: delivered with T-1520 (D-114 item 2). Slice 2 (editing in the same picture) is delivered with T-1563, see the last section.
+Status: delivered with T-1520 (D-114 item 2). Slice 2 (editing in the same picture) is delivered with T-1563, see the section "Slice 2: editing in the diagram". Slice 3A (versions list and read-only diff) is delivered with T-1588, see the last section.
 
 The definition format stays the **single source of truth**. Agents and the editor write the definition; the picture
 is always drawn from it and never saved. This slice adds a read-only diagram on the Definitions screen
@@ -141,3 +141,26 @@ There is no second canvas model. Keys the diagram does not edit (`form_schema`, 
   module-owned, version exists) each have their own banner.
 - **Not here.** Structured attributes (still the Editor), new unsaved definitions, autosave, a server-side revision check.
   The Editor and the diagram draft never hold two divergent unsaved states: each is locked while the other is dirty.
+
+## Slice 3A: versions list and read-only diff (T-1588)
+
+Web only; no backend, route or permission change. The definition page gets a fourth view, **Versions** (every saved
+definition, not a new unsaved one): a table of the versions of the definition (version, status, creator, created) and a
+comparison of two of them on ONE diagram. There is no restore here (the rollback page is separate).
+
+- **Diff** (`utils/canvas/graphDiff.ts`, pure). Steps are matched by id; changed = `node_type`, `label` or an attribute
+  differs (`position` is not a change, the layout is computed). Only field NAMES are reported, never values (endpoints,
+  forms and script arguments may be sensitive). Connections are matched by their (source, target) endpoints, never by id
+  alone: the editor reuses the lowest free `e_N`, so an id can come back with other endpoints. A moved connection is one
+  removed plus one added; same endpoints are changed/unchanged by `condition` and `is_default`. The merged graph holds
+  both versions; every connection in it gets a fresh diagram id (`d_<kind>_<n>`), the input ids stay in `origin`.
+- **Marking.** Added = word + dot glyph + solid border; Removed = word + dash glyph + dashed border, label struck through;
+  Changed = word + half glyph + double border. Steps carry a pill, connections a label chip, the step list and the details
+  panel the same words; the accessible name of a step ends with the word. `ProcessDiagram` takes an optional `diff`
+  (never together with `path`).
+- **Versions query.** `GET /definitions?name=` is a substring match, so `definitionsApi.getVersions` follows the cursor
+  (200 per page, at most 5 pages) and keeps exact name matches only; with the cap hit the pane shows a banner. The
+  definition list and rollback pages read the same call and no longer see definitions with overlapping names.
+- **Creator.** The API returns only the creator's id, so the table shows its first 8 characters (full id in the title)
+  and the owner module when set. A creator name needs a backend field (for example `created_by_name`).
+- **Not here.** Restore, three-way diff, value-level diff, a URL for the selection, position changes.

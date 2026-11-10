@@ -21,6 +21,7 @@ defmodule Letflow.Ledger.Authority do
 
   alias Letflow.Api.Authorization
   alias Letflow.Api.Scope
+  alias Letflow.Api.TenantGrants
   alias Letflow.Identity
   alias Letflow.Ledger.Capability
   alias Letflow.PlatformTenant
@@ -49,9 +50,12 @@ defmodule Letflow.Ledger.Authority do
     with {:ok, tenant_id} <- tenant_id(prefix),
          platform? = PlatformTenant.platform_tenant?(tenant_id),
          roles = Authorization.effective_roles(names, platform?),
+         # T-1570 (D-097): reloaded on every call, so a switch-off between request and post is honoured.
+         overlay = TenantGrants.load_for(roles, prefix),
          {:ok, atom} <- permission_atom(cap),
-         true <- Enum.any?(roles, &Authorization.role_allows?(&1, atom)) do
-      with :ok <- check_scope(cap, roles, platform?, atom), do: {:ok, read?(cap, roles)}
+         true <- Enum.any?(roles, &Authorization.role_allows?(&1, atom, overlay)) do
+      with :ok <- check_scope(cap, roles, platform?, atom, overlay),
+           do: {:ok, read?(cap, roles, overlay)}
     else
       _denied -> {:error, :role_denied}
     end
@@ -60,10 +64,10 @@ defmodule Letflow.Ledger.Authority do
   def check_with_read(cap) when is_struct(cap, Capability),
     do: {:error, :credential_unsupported}
 
-  defp read?(%{registration: %{permissions: permissions}}, roles) do
+  defp read?(%{registration: %{permissions: permissions}}, roles, overlay) do
     case Map.get(permissions, :read) do
       atom when is_atom(atom) and not is_nil(atom) ->
-        Enum.any?(roles, &Authorization.role_allows?(&1, atom))
+        Enum.any?(roles, &Authorization.role_allows?(&1, atom, overlay))
 
       _none ->
         false
@@ -91,14 +95,15 @@ defmodule Letflow.Ledger.Authority do
   defp reversal?(%{cause: "reversal"}), do: true
   defp reversal?(_posting), do: false
 
-  defp check_scope(cap, roles, platform?, atom) do
+  defp check_scope(cap, roles, platform?, atom, overlay) do
     principal = %Scope.Principal{
       kind: :user,
       user_id: cap.subject_id,
       prefix: cap.prefix,
       platform_tenant?: platform?,
       roles: roles,
-      grants: Scope.load_grants(cap.subject_id, cap.prefix)
+      grants: Scope.load_grants(cap.subject_id, cap.prefix),
+      role_overlay: overlay
     }
 
     case Scope.allowed_set(principal, atom) do

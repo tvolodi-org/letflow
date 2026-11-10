@@ -18,7 +18,7 @@ defmodule Letflow.Api.RouteScopeTest do
   @admin_keys ~w(GroupsManage UsersManage TokensManage RolesManage RolesRebind
                  ScopeNodePathsConsistencyRead ScopeEnforcementRead ScopeEnforcementManage
                  ScopeGrantsIntegrityRead ScopeEnforcementTokensRead RoleScopeGrantsRead
-                 RoleScopeGrantsManage ServicePrincipalManage)a
+                 RoleScopeGrantsManage ServicePrincipalManage RoleGrantsRead RoleGrantsManage)a
 
   # A default-sourced `:tenant_wide` row; `fields` override.
   defp row(fields) do
@@ -97,10 +97,10 @@ defmodule Letflow.Api.RouteScopeTest do
       end
     end
 
-    test "the key table is exactly the D11 set (13 keys), including the three 2a keys" do
+    test "the key table is exactly the D11 set plus the two T-1570 role-grant keys (15 keys), including the three 2a keys" do
       assert Enum.sort(RouteScope.admin_plane_keys()) == Enum.sort(@admin_keys)
-      assert length(RouteScope.admin_plane_keys()) == 13
-      assert length(Enum.uniq(RouteScope.admin_plane_keys())) == 13
+      assert length(RouteScope.admin_plane_keys()) == 15
+      assert length(Enum.uniq(RouteScope.admin_plane_keys())) == 15
 
       for key <- [:RoleScopeGrantsRead, :RoleScopeGrantsManage, :ServicePrincipalManage] do
         assert key in RouteScope.admin_plane_keys()
