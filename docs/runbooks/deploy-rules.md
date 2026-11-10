@@ -62,6 +62,11 @@ and counts.
   `:module_upgrade_one_tx_max_records`, default 1000, range 1 to 100000, read at boot). The plan
   shows `fits_one_transaction`; the plan route stays a read-only 200, the refusal
   `409 upgrade_needs_runner` comes at apply, where the count is taken again under the upgrade lock.
+- **Fleet halt.** `LETFLOW_MODULE_ROLLOUT_HALT_AFTER` (config key `:module_rollout_halt_after`,
+  default 3, range 1 to 1000, read at boot): the platform fleet driver
+  (`/platform-module-rollouts`, permission `ModuleRolloutsManage`) halts a rollout after this many
+  consecutive failed tenants; `POST /platform-module-rollouts/:id/resume` continues it.
+
 - **Locks.** The apply holds the instance sequence lock of each step's type to the end of the
   transaction (writers of that one type wait; other types and modules do not), then locks the
   candidate rows in batches of 500. The 10 s `lock_timeout` and 120 s `statement_timeout` of the apply

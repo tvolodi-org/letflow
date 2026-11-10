@@ -56,10 +56,12 @@ defmodule Letflow.TenantPurge do
 
   # Global tables holding a tenant's rows, as {table, column}. Fixed at compile time (no names from
   # input). Order: the rollout outcomes reference entity_column_promotions, so they go first.
+  # The fleet driver's per-tenant outcomes (RU-S6) reference the tenant by an FK without cascade, so they go too.
   # Kept on purpose: tenant_lifecycles, onboarding_registry (reserve slug and hostname),
   # event_history_retirement_outcomes (counts only, no personal data), tenants (by id).
   @removed_tables [
     {"platform_migration_rollout_outcomes", :tenant_id},
+    {"platform_module_rollout_outcomes", :tenant_id},
     {"entity_column_promotions", :tenant_id},
     {"secrets", :tenant_id},
     {"tenant_memberships", :tenant_id},

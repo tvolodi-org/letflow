@@ -53616,6 +53616,30 @@ requirements:
       - "10. test/letflow/pilot_rollout_runbook_test.exs (ExUnit, async true, no database) reads docs/runbooks/pilot-rollout.md and asserts criteria 1, 4 (role names only), 5, 6 and the form list of criterion 8, deriving the module order, the record type set and the File import values from Letflow.Modules.Catalog.entry_modules/0 and import_function/2 at run time and pinning no count; it shows the table checks bite by running them on in-memory copies of the runbook with one Data load row removed, with one File import value flipped, and with the org install moved below the locations install, each of which fails."
       - "11. git diff origin/main...HEAD --stat lists only docs/runbooks/pilot-rollout.md and test/letflow/pilot_rollout_runbook_test.exs; mix test test/letflow/pilot_rollout_runbook_test.exs passes and mix letflow.check.static passes."
     depends_on: [REQ-785, REQ-469, REQ-727, REQ-762, REQ-784]
+  - id: REQ-787
+    title: "Runtime updates, slice 6 part 1: the fleet driver (platform-scope permission ModuleRolloutsManage, global rollout record with one outcome row per tenant, halt after N consecutive failures, resume, read-only status routes)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-773 -- GitHub issue not yet filed by the operator; delivered by task T-1594 (part 1 of 3: the per-tenant upgrade window and the admin screen are parts 2 and 3)
+    # Source: docs/uat/ba-decisions/T-1519.md slice S6; docs/migration/decisions/0055-module-upgrade-migration-uninstall.md fact 10 and the expand/contract bullet (own platform-classified permission, sibling of platform_migration_rollouts, halt on N failures); decision 0080 (apply path). Written with task T-1594.
+    description: >
+      A platform operator rolls the compiled version of one module out to every active tenant that has it
+      installed, one tenant at a time, through the same plan/apply path a tenant admin uses
+      (Letflow.Modules.UpgradePlan.plan/3 and Letflow.ModuleUpgrade.Apply.apply_upgrade/4, both with prefix:).
+      Letflow.ModuleUpgrade.Fleet is a plain transactional context (no process per rollout, REQ-045); each call
+      works through a bounded batch of 25 tenants. State lives in the global tables platform_module_rollouts and
+      platform_module_rollout_outcomes. The driver never sends ack_destructive.
+    acceptance_criteria:
+      - "1. A new core permission ModuleRolloutsManage has PLATFORM scope: only a PLATFORM_ADMIN of the platform tenant holds it; every route below needs it; any other caller gets the fixed platform 403, also on an unmatched sub-path."
+      - "2. POST /platform-module-rollouts {module_id} starts (or continues) the rollout of the compiled version: one global rollout row keyed by (module_id, to_version), one outcome row per active tenant (pending, running, succeeded, failed, skipped, with error_code and plan_hash); a repeat returns the same rollout and writes no new journal row."
+      - "3. Each tenant is upgraded through plan/apply with that tenant's schema as prefix; a current tenant, a tenant without the module and a tenant whose newest finished journal row is a rollback are skipped; a plan that needs an acknowledgement is a failed outcome and the tenant is untouched; one tenant's failure never stops the next (INV-8)."
+      - "4. The rollout halts after N consecutive failed tenants (setting LETFLOW_MODULE_ROLLOUT_HALT_AFTER, key module_rollout_halt_after, default 3, range 1 to 1000); a success or a skip resets the count; the remaining outcomes stay pending."
+      - "5. POST /platform-module-rollouts/:id/resume reopens a halted rollout, retries failed and pending outcomes (and a running claim older than 15 minutes), never rewrites a succeeded or skipped outcome, and answers 409 when the running build no longer carries the rollout's version."
+      - "6. GET /platform-module-rollouts and GET /platform-module-rollouts/:id are read-only and return ids, statuses and codes only (no tenant name, schema name or record data); a malformed or unknown id is 404."
+      - "7. Purging a tenant removes its outcome rows (TenantPurge), so the tenant FK never blocks a purge."
+      - "8. Not in this requirement: the per-tenant upgrade window and the admin screen (parts 2 and 3)."
+    depends_on: [REQ-773]
   - id: REQ-788
     title: "Tenant administrator asks a user to reset the password: POST /identity/users/:id/reset-password sends a 'Forgot password' instruction mail through the notification templates; Letflow never reads, sets or sends a password and calls no Keycloak admin API"
     owner: ELIXIR-DEV

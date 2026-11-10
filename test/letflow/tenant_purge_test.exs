@@ -77,6 +77,7 @@ defmodule Letflow.TenantPurgeTest do
       end
 
       Repo.query!("DELETE FROM platform_migration_rollouts WHERE id = $1", [rollout])
+      Repo.query!("DELETE FROM platform_module_rollouts WHERE id = $1", [rollout])
       Repo.query!("DELETE FROM onboarding_registry WHERE tenant_id = $1", [bin])
       Repo.delete_all(from(l in Lifecycle, where: l.tenant_id == ^id))
     end)
@@ -131,6 +132,10 @@ defmodule Letflow.TenantPurgeTest do
     rows = [
       {"INSERT INTO platform_migration_rollouts (id, entity_type, attribute, column_spec, started_at) VALUES ($1, 'e-#{tag}', 'a', '{}', now())",
        [rollout]},
+      {"INSERT INTO platform_module_rollouts (id, module_id, to_version, halt_after, started_by, started_at) VALUES ($1, 'm-#{tag}', '1.0.0', 3, $2, now())",
+       [rollout, uid.()]},
+      {"INSERT INTO platform_module_rollout_outcomes (id, rollout_id, tenant_id) VALUES ($1, $2, $3)",
+       [uid.(), rollout, bin]},
       {"INSERT INTO entity_column_promotions (id, tenant_id, entity_type, attribute, column_name, pg_type, status, query_eligible, inserted_at, updated_at) VALUES ($1, $2, 'e-#{tag}', 'a', 'c', 'text', 'active', false, now(), now())",
        [promotion, bin]},
       {"INSERT INTO platform_migration_rollout_outcomes (id, rollout_id, tenant_id, column_promotion_id) VALUES ($1, $2, $3, $4)",

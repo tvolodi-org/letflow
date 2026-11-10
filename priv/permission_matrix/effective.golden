@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: assets@0.16.0,catalog_items@0.3.0,codes@0.4.0,exam@0.1.0,locations@0.4.0,org@0.3.0,procurement@0.1.0,stock@0.17.0
 # roles: 9
-# permissions: 86
-# rows: 774
+# permissions: 87
+# rows: 783
 # columns: role permission allowed owner via
 AGENT_RUNNER AssetsCardWrite false module:assets -
 AGENT_RUNNER AssetsPost false module:assets -
@@ -57,6 +57,7 @@ AGENT_RUNNER LabelsManage false core -
 AGENT_RUNNER LocationsWrite false module:locations -
 AGENT_RUNNER MembershipsRead true core core
 AGENT_RUNNER MetricsRead false core -
+AGENT_RUNNER ModuleRolloutsManage false core -
 AGENT_RUNNER ModulesManage false core -
 AGENT_RUNNER MyAccessRead true core core
 AGENT_RUNNER MyModulesRead true core core
@@ -143,6 +144,7 @@ CANDIDATE LabelsManage false core -
 CANDIDATE LocationsWrite false module:locations -
 CANDIDATE MembershipsRead false core -
 CANDIDATE MetricsRead false core -
+CANDIDATE ModuleRolloutsManage false core -
 CANDIDATE ModulesManage false core -
 CANDIDATE MyAccessRead true core core
 CANDIDATE MyModulesRead true core core
@@ -229,6 +231,7 @@ PLATFORM_ADMIN LabelsManage true core core
 PLATFORM_ADMIN LocationsWrite true module:locations core
 PLATFORM_ADMIN MembershipsRead true core core
 PLATFORM_ADMIN MetricsRead true core core
+PLATFORM_ADMIN ModuleRolloutsManage true core core
 PLATFORM_ADMIN ModulesManage true core core
 PLATFORM_ADMIN MyAccessRead true core core
 PLATFORM_ADMIN MyModulesRead true core core
@@ -315,6 +318,7 @@ PROCESS_DESIGNER LabelsManage false core -
 PROCESS_DESIGNER LocationsWrite false module:locations -
 PROCESS_DESIGNER MembershipsRead true core core
 PROCESS_DESIGNER MetricsRead false core -
+PROCESS_DESIGNER ModuleRolloutsManage false core -
 PROCESS_DESIGNER ModulesManage false core -
 PROCESS_DESIGNER MyAccessRead true core core
 PROCESS_DESIGNER MyModulesRead true core core
@@ -401,6 +405,7 @@ PROCESS_OPERATOR LabelsManage false core -
 PROCESS_OPERATOR LocationsWrite false module:locations -
 PROCESS_OPERATOR MembershipsRead true core core
 PROCESS_OPERATOR MetricsRead true core core
+PROCESS_OPERATOR ModuleRolloutsManage false core -
 PROCESS_OPERATOR ModulesManage false core -
 PROCESS_OPERATOR MyAccessRead true core core
 PROCESS_OPERATOR MyModulesRead true core core
@@ -487,6 +492,7 @@ STOREKEEPER LabelsManage false core -
 STOREKEEPER LocationsWrite false module:locations -
 STOREKEEPER MembershipsRead true core core
 STOREKEEPER MetricsRead false core -
+STOREKEEPER ModuleRolloutsManage false core -
 STOREKEEPER ModulesManage false core -
 STOREKEEPER MyAccessRead true core core
 STOREKEEPER MyModulesRead true core core
@@ -573,6 +579,7 @@ TASK_WORKER LabelsManage false core -
 TASK_WORKER LocationsWrite false module:locations -
 TASK_WORKER MembershipsRead true core core
 TASK_WORKER MetricsRead false core -
+TASK_WORKER ModuleRolloutsManage false core -
 TASK_WORKER ModulesManage false core -
 TASK_WORKER MyAccessRead true core core
 TASK_WORKER MyModulesRead true core core
@@ -659,6 +666,7 @@ TENANT_ADMIN LabelsManage true core core
 TENANT_ADMIN LocationsWrite true module:locations core
 TENANT_ADMIN MembershipsRead true core core
 TENANT_ADMIN MetricsRead true core core
+TENANT_ADMIN ModuleRolloutsManage false core -
 TENANT_ADMIN ModulesManage true core core
 TENANT_ADMIN MyAccessRead true core core
 TENANT_ADMIN MyModulesRead true core core
@@ -745,6 +753,7 @@ TENANT_AUDITOR LabelsManage false core -
 TENANT_AUDITOR LocationsWrite false module:locations -
 TENANT_AUDITOR MembershipsRead true core core
 TENANT_AUDITOR MetricsRead true core core
+TENANT_AUDITOR ModuleRolloutsManage false core -
 TENANT_AUDITOR ModulesManage false core -
 TENANT_AUDITOR MyAccessRead true core core
 TENANT_AUDITOR MyModulesRead true core core
