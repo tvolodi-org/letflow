@@ -1,0 +1,214 @@
+# T-1623 (BA): notification bell, scenario 4: the e-mail copy of the bell entry is OFF by default, ON by the company setting, and the person can opt out.
+# Source: T-1571 (merged, origin/main commit 66454f923): lib/letflow/notifications.ex (deliver_assignment_copy: no row at all when the company setting is not true;
+# no row when the user's preference is "off"; at most 20 assignment mails per recipient per rolling hour; with the setting on and the QA mail system pretending,
+# one row with status "skipped" and reason "adapter_noop"; with real mail, status "sent"), lib/letflow/identity/tenant.ex (validate_email_copy: only true, false or null;
+# else the fixed text "notifications.email_copy must be true or false"), lib/letflow/identity/tenant_settings.ex (key "notifications.email_copy"),
+# lib/letflow/user_preferences.ex (key "notifications.email", values "on" or "off"; 422 text "invalid value for preference key: notifications.email"),
+# lib/letflow/routers/tenant_settings.ex (PATCH /tenant/settings, TENANT_ADMIN only, merges keys), lib/letflow/routers/notification_deliveries.ex (the log).
+# The bell entry is written in every case (tasks.ex bell_task_assigned is independent of the mail path).
+# Not UAT-observable: the limit of 20 mails per hour (20 assignments to one person; the backend tests of T-1571 cover it), the retry after a mail-system error
+# (needs a failing mail system), the mailbox itself (QA has no mailbox the scenario can read; the pass/fail is the delivery log).
+# Sensitive actions: changing the company settings (step 6 refuses a worker; step 7 refuses an invalid value; step 9 refuses an invalid personal value) and the assignment (as in tenant-admin-53).
+# Precondition shared with tenant-admin-53: that scenario needs the setting ON. This scenario restores the value it found at the end (step 12).
+---
+id: tenant-administration-notification-bell-4-email-copy-off-by-default-on-by-setting
+scope: tenant-administration
+title: The e-mail copy of a bell entry is not sent unless the company switches it on, is sent as one logged message when it is on, and a person can opt out; the bell entry appears in every case
+version: "1.0"
+tags: [tenant-admin, notification-bell, email-copy, notification-delivery, default-off]
+
+description: >
+  The administrator of SwiftRoute reads the company settings and notes whether the e-mail copy is set. With it off (or never set) she assigns a task to Lena:
+  the bell entry appears and the delivery log gets no row for it. She switches the copy on in the company settings, assigns a second task: the delivery log gets one
+  row for that task and Lena's bell has the entry. Lena switches the copy off for herself in her own preferences, the administrator assigns a third task: the bell
+  entry appears, the log gets no new row. A worker cannot change the company setting and a value other than true or false is refused. The administrator puts the
+  setting back to what she found.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  assignee: actor-swiftroute-lena
+  worker_no_assign: actor-swiftroute-tobias
+
+preconditions:
+  - description: SwiftRoute has three open tasks that nobody has taken yet, and Lena has an email address
+    check: system_seeded
+    detail: If fewer than three tasks exist, or Lena has no address, report BLOCKED.
+  - description: Lena has not switched the e-mail copy off for herself before the scenario
+    check: system_seeded
+    detail: Step 3 reads her preference; if it is already "off", she sets it to "on" in step 3 (only she may) and notes that she did.
+  - description: The administrator and Tobias hold the roles the roster names (TENANT_ADMIN; TASK_WORKER only)
+    check: system_seeded
+    detail: Per the role matrix TENANT_ADMIN holds the company-settings and assign permissions; TASK_WORKER holds neither.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the company settings and notes the value of the e-mail copy setting (absent, false or true) as S0. She reads the delivery log and notes the number of rows with the message kind "task_assigned" for Lena as the baseline L0. If S0 is true she sets it to false and notes that she did so.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      With the setting off, the administrator assigns the first open task to Lena and waits 10 seconds.
+    via: api
+    input:
+      assignee: Lena
+  - step: 3
+    actor: assignee
+    action: >
+      Lena reads her bell (list route) and notes whether an entry for the first task exists, then reads her own preferences and notes her e-mail preference (she puts it to "on" if it was "off"). The delivery log is read by the administrator in step 4.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the delivery log again and compares the rows for Lena with L0, then switches the e-mail copy on in the company settings and reads the settings answer.
+    via: api
+    input:
+      notifications.email_copy: "true"
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator assigns the second open task to Lena, waits up to 10 seconds, and reads the delivery log (and again after 10 more seconds if the row is not there). The new row is read field by field.
+    via: api
+    input:
+      assignee: Lena
+  - step: 6
+    actor: worker_no_assign
+    action: >
+      Tobias tries to switch the e-mail copy off in the company settings. The request is refused.
+    via: api
+    expect_refusal: true
+    input:
+      notifications.email_copy: "false"
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to set the e-mail copy to the text "yes". The request is refused.
+    via: api
+    expect_refusal: true
+    input:
+      notifications.email_copy: the text "yes"
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the company settings: the value of the e-mail copy is noted.
+    via: api
+  - step: 9
+    actor: assignee
+    action: >
+      Lena tries to set her own e-mail preference to the text "maybe". The request is refused.
+    via: api
+    expect_refusal: true
+    input:
+      notifications.email: the text "maybe"
+  - step: 10
+    actor: assignee
+    action: >
+      Lena switches the e-mail copy off for herself in her own preferences (value "off") and reads her preferences back.
+    via: api
+    input:
+      notifications.email: "off"
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      With the company setting still on, the administrator assigns the third open task to Lena, waits 10 seconds and reads the delivery log. Lena reads her bell.
+    via: api
+    input:
+      assignee: Lena
+  - step: 12
+    actor: assignee
+    action: >
+      Lena puts her own preference back to "on". The administrator puts the company setting back to the value S0 (false when it was absent) and reads the settings.
+    via: api
+    input:
+      notifications.email: the text on, and the company setting S0
+
+expected_outcomes:
+  - id: EO-001
+    description: With the e-mail copy off (default) the bell entry is made and no mail row is logged.
+    verification:
+      method: api_response
+      detail: Lena's list in step 3 has an unread entry of kind "task_assigned" whose ref_id is the first task; the delivery log read in step 4 holds exactly L0 rows for Lena with template_key "task_assigned" (no row for the first task as trigger_ref).
+      evidence: Baseline of step 1, answers of steps 3 and 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Either people are mailed without the company having asked for it, or the bell entry is missing.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The company setting is stored as true.
+    verification:
+      method: api_response
+      detail: The answer of step 4 is 200 and its settings show "notifications.email_copy" true; the other settings of the company are unchanged from step 1.
+      evidence: Answer of step 4 compared with step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The company cannot switch the copy on.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: With the e-mail copy on, exactly one row is logged for the second task and the bell entry is still made.
+    verification:
+      method: api_response
+      detail: >
+        In step 5 exactly one row is added to the log: template_key "task_assigned", recipient_user_id Lena, trigger_ref the second task, status "sent" with a null reason,
+        or "skipped" with reason "adapter_noop" when the QA environment does not send mail (the one that applies is noted). Lena's list also holds the entry for the second task.
+        The row has no subject, no text of the message and no email address.
+      evidence: The log of step 5 against the rows of step 3, and Lena's list.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company that asked for mail copies does not get them, or the log hides the attempt.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A worker cannot change the company setting.
+    verification:
+      method: api_response
+      detail: The answer of step 6 is 403 (a task worker holds no company-settings permission per the role matrix); the settings read in step 8 still show true.
+      evidence: Answer of step 6 and the settings of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any worker could switch mail on or off for the whole company.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A value other than true or false is refused with a plain text and changes nothing.
+    verification:
+      method: api_response
+      detail: The answer of step 7 is 422 and its text contains "notifications.email_copy must be true or false"; the settings read in step 8 show true.
+      evidence: Answers of steps 7 and 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A wrong value could leave the switch in an undefined state.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: An invalid personal preference is refused.
+    verification:
+      method: api_response
+      detail: >
+        The answer of step 9 is 422 with the text "invalid value for preference key: notifications.email"; Lena's preference read in step 10 is the value she had in step 3.
+      evidence: Answer of step 9 and the preferences of step 10.
+    on_fail:
+      severity: MINOR
+      business_impact: A wrong personal value could be stored.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: A person who opted out gets the bell entry but no mail row, even with the company setting on.
+    verification:
+      method: api_response
+      detail: In step 10 Lena's preferences show "notifications.email" "off". In step 11 Lena's list holds an unread entry for the third task; the delivery log holds no row with the third task as trigger_ref and no more rows for Lena than after step 5.
+      evidence: Preferences of step 10, log and list of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A person is mailed against their own choice.
+      suggested_action: route_to_wf03
+  - id: EO-008
+    description: Both settings are put back.
+    verification:
+      method: api_response
+      detail: In step 12 the company setting reads S0 (absent is put back as false, which behaves as off) and Lena's preference reads "on".
+      evidence: Answers of step 12.
+    on_fail:
+      severity: MINOR
+      business_impact: Later scenarios start from a changed company setting.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Settings are restored in step 11. The delivery-log rows and bell entries cannot be removed through the product and stay as test evidence.
