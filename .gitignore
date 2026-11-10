@@ -66,3 +66,7 @@ web/tests/e2e/.pipeline-state/
 # above would otherwise swallow it).
 !web/.env.example
 .e2e/
+
+# Python bytecode: build artefacts, never source; a .pyc embeds the absolute path it was compiled at (T-1597).
+__pycache__/
+*.pyc
