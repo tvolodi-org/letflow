@@ -262,28 +262,16 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
         run: |
           set -uo pipefail
 
-          # ISS-0840: on push to main, always run both gates regardless of which
-          # files changed. The path filter exists to skip expensive CI on a PR that
-          # only touched docs -- but on main itself, no run should ever be skipped:
-          # a "docs-only" push to main could follow a backend change pushed seconds
-          # earlier, and the path filter for that follow-up push would incorrectly
-          # report backend=false for the commit range it sees (the docs delta only),
-          # silently skipping the backend gate whose job is to prove the whole branch
-          # is green. This was the root cause of REQ-401..REQ-416's CI false-green
-          # (see ISS-0840 and the anti-patterns entry this fix adds). The path
-          # filter is kept for pull_request events only, where each PR's own commit
-          # range genuinely represents everything that changed relative to main.
-          if [ "$EVENT_NAME" = "push" ]; then
-            echo "Push to main -- always running all gates (ISS-0840: path filter on push-to-main caused false-green)."
-            echo "backend=true" >> "$GITHUB_OUTPUT"
-            echo "frontend=true" >> "$GITHUB_OUTPUT"
-            echo "mobile=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
+          # ISS-0840: the BACKEND gate always runs on a push to main (a path filter there caused
+          # the REQ-401..REQ-416 false-green: a docs-only follow-up push reported backend=false for
+          # the range it saw). T-1614: frontend and mobile use the same path rules as the merge
+          # queue, over the push range (before..sha); the nightly run and workflow_dispatch have
+          # no base, so they run every gate and are the backstop. Backend is forced true below.
           # T-1303: a pull request diffs against the merge base (three dots): its base.sha is the
           # moving tip of the base branch, and a two-dot diff would list what main gained since the
           # branch was last updated as the PR's own changes. A merge-group head contains its base.
@@ -296,11 +284,14 @@ jobs:
             # Merge queue (A3): the same path regex as for a PR decides which gates run,
             # over this queue entry's own range. With stacked entries base_sha is the
             # previous entry's commit, so a docs-only entry behind a code entry does not
-            # re-run the code ahead of it; the push-to-main run above (ISS-0840) always
-            # runs every gate after each queue merge and is the final backstop. Every
+            # re-run the code ahead of it; the push-to-main run runs the backend gate
+            # (and frontend/mobile by the push range, T-1614) after each queue merge. Every
             # fail-safe below (empty/zero SHA, unreachable base => all gates) still applies.
             BASE_SHA="$MG_BASE_SHA"
             HEAD_SHA="$MG_HEAD_SHA"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            BASE_SHA="$PUSH_BEFORE"
+            HEAD_SHA="$PUSH_AFTER"
           else
             BASE_SHA=""
             HEAD_SHA=""
@@ -362,6 +353,9 @@ jobs:
             exit 1
           fi
           echo "Path rules (scripts/ci_changed_paths.sh):"
+          if [ "$EVENT_NAME" = "push" ]; then
+            RESULT=$(sed 's/^backend=.*/backend=true/' <<<"$RESULT")
+          fi
           printf '%s\n' "$RESULT"
           printf '%s\n' "$RESULT" >> "$GITHUB_OUTPUT"
 

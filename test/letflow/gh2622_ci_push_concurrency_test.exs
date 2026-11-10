@@ -208,7 +208,9 @@ defmodule Letflow.Gh2622CiPushConcurrencyTest do
                "PR_BASE_SHA" => "${{ github.event.pull_request.base.sha }}",
                "PR_HEAD_SHA" => "${{ github.event.pull_request.head.sha }}",
                "MG_BASE_SHA" => "${{ github.event.merge_group.base_sha }}",
-               "MG_HEAD_SHA" => "${{ github.event.merge_group.head_sha }}"
+               "MG_HEAD_SHA" => "${{ github.event.merge_group.head_sha }}",
+               "PUSH_BEFORE" => "${{ github.event.before }}",
+               "PUSH_AFTER" => "${{ github.sha }}"
              }
 
       run = step["run"]
@@ -237,6 +239,30 @@ defmodule Letflow.Gh2622CiPushConcurrencyTest do
         ci() |> get_in(["jobs", "changes", "steps"]) |> Enum.find(&(&1["id"] == "fallback"))
 
       assert fallback["if"] == "steps.filter.outcome != 'success'"
+    end
+
+    test "T-1614: push uses the path rules for frontend/mobile, backend is forced true" do
+      run = filter_step()["run"]
+      refute run =~ "Push to main -- always running all gates"
+      assert run =~ ~s|BASE_SHA="$PUSH_BEFORE"|
+      assert run =~ ~s|HEAD_SHA="$PUSH_AFTER"|
+
+      override = ~s|RESULT=$(sed 's/^backend=.*/backend=true/' <<<"$RESULT")|
+      assert run =~ override
+
+      [{guard, _}] =
+        Regex.run(~r/if \[ "\$EVENT_NAME" = "push" \]; then\s+RESULT=/, run, return: :index)
+
+      {validate, _} = :binary.match(run, ~s|if [ "$valid" -ne 3 ]|)
+      {o, _} = :binary.match(run, override)
+      {write, _} = :binary.match(run, ~s|printf '%s\\n' "$RESULT" >> "$GITHUB_OUTPUT"|)
+      assert validate < guard and guard < o and o < write
+    end
+
+    test "T-1614: runbook states the push rule" do
+      rb = read(Path.join(@root, "docs/runbooks/ci-merge-queue.md"))
+      assert rb =~ "A push to `main` never says `false` for backend"
+      refute rb =~ "A push to `main`, the nightly and `workflow_dispatch` never say `false`"
     end
 
     # The caller contract, executed: the validation block of the step, cut out of ci.yml and

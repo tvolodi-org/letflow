@@ -28,7 +28,7 @@ defmodule Letflow.CiBackendPathFilterTest do
   Known gap no filter can close: `test/letflow/no_smtp_secret_guard_test.exs` (lines 48-56) runs
   `git ls-files` and `git grep` over the WHOLE tracked tree, so any path, including README.md, can
   fail the backend gate. A change confined to a path the filter omits can therefore still break that
-  test and merge ungated; the always-run-all-gates rule for push to main (ISS-0840) is the backstop.
+  test and merge ungated; the always-on backend gate on push to main (ISS-0840) is the backstop.
   """
 
   use ExUnit.Case, async: true

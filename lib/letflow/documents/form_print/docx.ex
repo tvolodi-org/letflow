@@ -109,7 +109,7 @@ defmodule Letflow.Documents.FormPrint.Docx do
     data_rows =
       Enum.map(rows ++ List.wrap(total), fn r -> row(Enum.map(keys, &cell(r[&1] || ""))) end)
 
-    grid = Enum.map(columns, fn c -> ~s(<w:gridCol w:w="#{col_width(c.no, columns)}"/>) end)
+    grid = Enum.map(col_widths(columns), fn w -> ~s(<w:gridCol w:w="#{w}"/>) end)
 
     [
       para([]),
@@ -147,19 +147,51 @@ defmodule Letflow.Documents.FormPrint.Docx do
     )
   end
 
-  # By the official column number: 1 is the row number, 2 the name, the others share the rest.
-  defp col_width(1, _columns), do: 900
-  defp col_width(2, _columns), do: 3000
+  # Column widths (twips) of one table: 1 is the row number (900), 2 the name (3000 while the other
+  # columns fit), every other column at least the width of its longest header word, and the
+  # leftover shared equally, so a long header word is never broken inside a cell.
+  @page_w 15_400
+  @name_floor 1800
+  # a narrow column still has to hold a number
+  @min_col 800
 
-  defp col_width(_no, columns) do
-    used = columns |> Enum.map(&fixed_width(&1.no)) |> Enum.sum()
-    others = Enum.count(columns, &(fixed_width(&1.no) == 0))
-    div(15400 - used, max(others, 1))
+  defp col_widths(columns) do
+    need =
+      Map.new(columns, fn c -> {c.no, word_need(c.label)} end)
+
+    fixed = fn no -> if no == 1, do: 900, else: 3000 end
+    others = Enum.reject(columns, &(&1.no in [1, 2]))
+    min_sum = others |> Enum.map(&Map.fetch!(need, &1.no)) |> Enum.sum()
+
+    named = Enum.filter(columns, &(&1.no in [1, 2]))
+    name_w = if Enum.any?(named, &(&1.no == 2)), do: 3000, else: 0
+    row_w = if Enum.any?(named, &(&1.no == 1)), do: 900, else: 0
+
+    name_w =
+      if name_w > 0 and row_w + name_w + min_sum > @page_w,
+        do: max(@page_w - row_w - min_sum, @name_floor),
+        else: name_w
+
+    free = @page_w - row_w - name_w
+    extra = if others == [], do: 0, else: max(div(free - min_sum, length(others)), 0)
+    scale = if min_sum > free, do: free / min_sum, else: 1
+
+    Enum.map(columns, fn c ->
+      case c.no do
+        1 -> fixed.(1)
+        2 -> name_w
+        no -> trunc((Map.fetch!(need, no) + extra) * scale)
+      end
+    end)
   end
 
-  defp fixed_width(1), do: 900
-  defp fixed_width(2), do: 3000
-  defp fixed_width(_), do: 0
+  # 7 pt bold header: about 80 twips a character plus the cell margins.
+  defp word_need(label) do
+    longest =
+      label |> to_string() |> String.split(~r/\s+/, trim: true) |> Enum.map(&String.length/1)
+
+    max(Enum.max([1 | longest]) * 80 + 220, @min_col)
+  end
 
   defp or_blank(""), do: Pdf.blank()
   defp or_blank(v), do: v

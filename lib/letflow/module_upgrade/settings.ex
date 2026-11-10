@@ -35,4 +35,35 @@ defmodule Letflow.ModuleUpgrade.Settings do
                 "from 1 to #{@max}. The value is not echoed."
     end
   end
+
+  @halt_default 3
+  @halt_max 1000
+
+  @doc """
+  RU-S6: the fleet driver halts a rollout after this many consecutive failed tenants. Key
+  `:module_rollout_halt_after`, environment variable `LETFLOW_MODULE_ROLLOUT_HALT_AFTER`, starting
+  value 3 (a setting, not a rule).
+  """
+  @spec rollout_halt_after() :: pos_integer()
+  def rollout_halt_after do
+    case Application.get_env(:letflow, :module_rollout_halt_after, @halt_default) do
+      value when is_integer(value) and value >= 1 and value <= @halt_max -> value
+      _other -> @halt_default
+    end
+  end
+
+  @doc "Parses the environment value: `nil` gives 3; otherwise an integer 1..1000. Else raises without echoing."
+  @spec parse_rollout_halt_after(String.t() | nil) :: pos_integer()
+  def parse_rollout_halt_after(nil), do: @halt_default
+
+  def parse_rollout_halt_after(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} when int >= 1 and int <= @halt_max ->
+        int
+
+      _other ->
+        raise "environment variable LETFLOW_MODULE_ROLLOUT_HALT_AFTER must be an integer " <>
+                "from 1 to #{@halt_max}. The value is not echoed."
+    end
+  end
 end
