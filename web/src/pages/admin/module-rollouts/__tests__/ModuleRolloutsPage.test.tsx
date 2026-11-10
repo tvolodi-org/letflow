@@ -104,6 +104,29 @@ describe('T2 outcomes', () => {
     expect(screen.getByTestId('module-outcome-outside-window-note')).toHaveTextContent('retried by the next Start or Resume')
     expect(table).toHaveTextContent('migration_failed')
   })
+  it('renders the detail inside MasterDetail; Back and Escape close it', async () => {
+    setup({ list: { rollouts: [{ rollout: rollout(), counts: {} }] }, detail: { rollout: rollout(), outcomes: [outcome('ten-1', 'succeeded')] } })
+    renderPage('/admin/module-rollouts?rollout=r1')
+    const md = await screen.findByTestId('master-detail')
+    expect(md).toHaveAttribute('data-detail', 'open')
+    expect(await screen.findByTestId('module-rollouts-detail')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('master-detail-back'))
+    await waitFor(() => expect(screen.getByTestId('master-detail')).not.toHaveAttribute('data-detail'))
+    expect(screen.getByTestId('module-rollouts-detail-empty')).toBeInTheDocument()
+  })
+
+  it('Escape closes the open detail', async () => {
+    setup({ list: { rollouts: [{ rollout: rollout(), counts: {} }] }, detail: { rollout: rollout(), outcomes: [] } })
+    renderPage('/admin/module-rollouts?rollout=r1')
+    await screen.findByTestId('module-rollouts-detail')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.getByTestId('master-detail')).not.toHaveAttribute('data-detail'))
+  })
+
+  it('the start failure text does not promise that nothing changed', () => {
+    expect(moduleRolloutsMessages.en['moduleRollouts.start.failed']).not.toMatch(/Nothing was changed/)
+  })
+
   it('zero outcomes: no companies and no Resume', async () => {
     setup({ detail: { rollout: rollout({ status: 'completed' }), outcomes: [] } })
     renderPage('/admin/module-rollouts?rollout=r1')

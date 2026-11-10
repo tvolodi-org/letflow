@@ -3,7 +3,7 @@
  *  resume one. It calls only the four existing routes of `/platform-module-rollouts`; every rule (permission,
  *  platform tenant, window, halting) stays on the server. No tenant identifier is sent. Shared components only.
  */
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useIntl, type IntlShape } from 'react-intl'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
@@ -12,7 +12,9 @@ import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
+import { DetailHeader } from '@/components/ui/DetailHeader'
 import { Field } from '@/components/ui/Field'
+import { MasterDetail } from '@/components/ui/MasterDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
 import { useModuleRolloutsList, useTenantNames, useModuleRolloutStatus, useResumeModuleRollout, useStartModuleRollout } from '@/hooks/useModuleRollouts'
@@ -158,17 +160,18 @@ function Detail({
   const { rollout, outcomes } = query.data
   const showResume = canResume(rollout, outcomes, new Date())
   return (
-    <section className="lf-card" data-testid="module-rollouts-detail" aria-label={rollout.module_id}>
-      <div className="lf-card__head">
-        <h2 className="lf-card__title">
-          <span className="mono">{rollout.module_id}</span> <span className="mono">{rollout.to_version}</span> <RolloutPill status={rollout.status} />
-        </h2>
-        {showResume && (
-          <Button variant="primary" size="md" data-testid="module-rollouts-resume" disabled={resumeBusy} loading={resumeBusy} onClick={onResume}>
-            {t(intl, 'resume.button')}
-          </Button>
-        )}
-      </div>
+    <div data-testid="module-rollouts-detail" aria-label={rollout.module_id}>
+      <DetailHeader
+        title={`${rollout.module_id} ${rollout.to_version}`}
+        status={<RolloutPill status={rollout.status} />}
+        actions={
+          showResume ? (
+            <Button variant="primary" size="md" data-testid="module-rollouts-resume" disabled={resumeBusy} loading={resumeBusy} onClick={onResume}>
+              {t(intl, 'resume.button')}
+            </Button>
+          ) : undefined
+        }
+      />
       <div className="lf-card__body lf-form">
         <p className="lf-faint" data-testid="module-rollouts-failures">
           {t(intl, 'detail.failures', { count: rollout.consecutive_failures, limit: rollout.halt_after })}
@@ -191,7 +194,7 @@ function Detail({
         <h3>{t(intl, 'detail.heading')}</h3>
         <OutcomeTable outcomes={outcomes} names={names} />
       </div>
-    </section>
+    </div>
   )
 }
 
@@ -207,6 +210,15 @@ function ModuleRolloutsBody() {
   const resume = useResumeModuleRollout()
   const [startError, setStartError] = useState<string | null>(null)
   const [resumeError, setResumeError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!selected) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') select(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  })
 
   const select = (id: string | null) => {
     const next = new URLSearchParams(params)
@@ -242,13 +254,15 @@ function ModuleRolloutsBody() {
     { id: 'status', header: t(intl, 'col.status'), hideStackLabel: true, render: (r) => <RolloutPill status={r.rollout.status} /> },
     { id: 'counts', header: t(intl, 'col.counts'), render: (r) => countsText(intl, r.counts) || '—' },
     { id: 'started', header: t(intl, 'col.started'), mono: true, render: (r) => when(r.rollout.started_at) },
-    { id: 'halted', header: t(intl, 'col.halted'), mono: true, render: (r) => when(r.rollout.halted_at) },
   ]
 
   return (
     <div className="lf-form">
       <PageHeader eyebrow={t(intl, 'eyebrow')} title={t(intl, 'title')} lede={t(intl, 'lede')} />
       <StartBar busy={start.isPending} error={startError} onStart={onStart} />
+      <MasterDetail
+        masterWidth="wide"
+        master={
       <section aria-label={t(intl, 'list.heading')}>
         <h2>{t(intl, 'list.heading')}</h2>
         <div data-testid="module-rollouts-list">
@@ -268,7 +282,19 @@ function ModuleRolloutsBody() {
           />
         </div>
       </section>
-      {selected && <Detail rolloutId={selected} names={names} resumeError={resumeError} resumeBusy={resume.isPending} onResume={onResume} />}
+        }
+        detailOpen={selected !== null}
+        onBack={() => select(null)}
+        detail={
+          selected ? (
+            <Detail rolloutId={selected} names={names} resumeError={resumeError} resumeBusy={resume.isPending} onResume={onResume} />
+          ) : (
+            <p className="lf-faint lf-card__body" data-testid="module-rollouts-detail-empty">
+              {t(intl, 'detail.pick')}
+            </p>
+          )
+        }
+      />
     </div>
   )
 }

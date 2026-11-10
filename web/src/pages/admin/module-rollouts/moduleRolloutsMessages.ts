@@ -17,11 +17,12 @@ const UI: Record<string, Triple> = {
   'moduleRollouts.start.button': ['Start rollout', 'Начать развёртывание', 'Таратуды бастау'],
   'moduleRollouts.start.unknown': ['Unknown module.', 'Неизвестный модуль.', 'Белгісіз модуль.'],
   'moduleRollouts.start.failed': [
-    'The rollout could not be started. Nothing was changed; try again.',
-    'Не удалось начать развёртывание. Ничего не изменено; повторите попытку.',
-    'Тарату басталмады. Ештеңе өзгертілмеді; қайталап көріңіз.',
+    'The rollout start did not complete. Check the list, and try again if it is not there.',
+    'Запуск развёртывания не завершился. Проверьте список и повторите попытку, если его там нет.',
+    'Таратуды бастау аяқталмады. Тізімді тексеріңіз, егер ол жоқ болса, қайталап көріңіз.',
   ],
   'moduleRollouts.list.heading': ['Rollouts (latest 50)', 'Развёртывания (последние 50)', 'Таратулар (соңғы 50)'],
+  'moduleRollouts.detail.pick': ['Pick a rollout to see its companies.', 'Выберите развёртывание, чтобы увидеть компании.', 'Компанияларды көру үшін таратуды таңдаңыз.'],
   'moduleRollouts.list.empty': ['No rollouts yet', 'Развёртываний пока нет', 'Әзірге тарату жоқ'],
   'moduleRollouts.list.emptyText': [
     'Type a module id above and start the first one.',
