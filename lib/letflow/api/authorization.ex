@@ -867,6 +867,8 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/tasks/:id/reassign"), do: :TasksReassign
 
   def endpoint_policy_key("POST", "/users"), do: :UsersManage
+  def endpoint_policy_key("POST", "/users/import"), do: :UsersManage
+  def endpoint_policy_key("GET", "/users/import-template"), do: :UsersManage
   def endpoint_policy_key("GET", path) when path in ["/users", "/users/:id"], do: :UsersManage
   def endpoint_policy_key("PATCH", "/users/:id"), do: :UsersManage
   def endpoint_policy_key("POST", "/users/:id/status"), do: :UsersManage
