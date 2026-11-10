@@ -1,0 +1,18 @@
+scenario_id: platform-runtime-updates-3-fleet-start-halt-resume
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "starting a module rollout, resuming a halted or failed one, the halt after N failed companies, the optional per-company window, and the rule that a company whose newest finished entry is a rollback is skipped"
+reason: >
+  Not run on the shared QA instance by design. Starting a rollout upgrades the modules of every active company on QA at once
+  (lib/letflow/module_upgrade/fleet.ex moduledoc: "rolls the compiled version of one module out to every active tenant that has
+  it installed"), including the pilot companies' test data, and a halt needs several companies to fail on purpose. A rollout
+  cannot be undone by the product except company by company with the rollback of each company's administrator. What UAT does
+  cover is who may use the tool and what its reads and refused starts show
+  (platform-runtime-updates-1-fleet-driver-access-and-reads). Covered in CI by
+  test/letflow/module_upgrade/ fleet tests and test/letflow/routers/platform_module_rollouts_test.exs, which are not UAT.
+recorded_by: business-analyst
+recorded_at: "2026-11-10"
+issue_ref: "T-1625"
+review: >
+  Revisit when a separate QA instance exists whose companies are disposable (the production plan of
+  docs/status or T-1569 names one), or when the owner agrees to run a rollout on QA at a quiet time.

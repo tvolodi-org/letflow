@@ -1,0 +1,156 @@
+# T-1625 (BA): add users from an xlsx list, second scenario: who may use it, files refused whole, and the other company (T-1609, REQ-791, PR #4138).
+# STATE AT WRITING (2026-11-10): PR #4138 was in the merge queue and not yet on origin/main (see the header of
+# users-import-1-template-dry-run-and-atomic-upload). If the template address answers "not found", report BLOCKED, not PASS.
+# Sources: lib/letflow/routers/identity.ex on the queued commit (both routes gated by UsersManage, no tenant parameter),
+# lib/letflow/routers/identity/users_import.ex (`refuse/2`: dry_run other than true/false is 422 "dry_run must be true or false";
+# a missing required column is 422 code xlsx_missing_header with the header names; more than 200 data rows is 413 "import batch exceeds
+# the 200-row cap"; anything else goes to `RecordImport.refuse_xlsx/2`: unknown or duplicate header 422, a file that is not an xlsx 422),
+# REQ-791 criteria 3 (whole-file refusals, a password or roles column is an unknown header), 8 (tenant isolation: a username that
+# exists only in another company is created in the caller's company), priv/permission_matrix/effective.golden
+# (UsersGroupsRolesManage false for TASK_WORKER and TENANT_AUDITOR, true for TENANT_ADMIN).
+# Run after users-import-1 (the user uat-imp-<run>-1 exists in SwiftRoute). Files (exact cells, sheet 1, text cells):
+#   G1: header username | display_name | email | password ; row 2 uat-imp-<run>-7 | UAT Import Seven | uat-imp-<run>-7@example.test | secret1
+#   G2: header username | display_name ; row 2 uat-imp-<run>-7 | UAT Import Seven
+#   G3: header username | display_name | email | username ; row 2 uat-imp-<run>-7 | UAT Import Seven | uat-imp-<run>-7@example.test | uat-imp-<run>-7
+#   G4: a plain text file with the line "username,display_name,email" saved under the name users.xlsx
+#   G5: valid header, 201 data rows uat-imp-<run>-100 to -300 with matching display names and addresses at example.test
+#   G6: valid header, row 2 uat-imp-<run>-1 | UAT Import One | uat-imp-<run>-1@example.test (the same user that exists in SwiftRoute)
+# NOT UAT-OBSERVABLE (backend tests only, test/letflow/routers/identity_users_import_test.exs): the user.create audit entry per created
+# user with the administrator as actor (the Audit log screen shows it but the creation is in scenario 1; the audit check belongs to a
+# follow-up once the screen exists), the 2 MiB size cap (needs a 2 MiB file), a rollback caused by a database failure inside the write.
+---
+id: tenant-administration-users-import-2-refusals-and-other-company
+scope: tenant-administration
+title: "A worker and the auditor cannot import users, files with a password column or a missing column or too many rows are refused whole, and another company's import never touches SwiftRoute's users"
+version: "1.0"
+tags: [users, import, xlsx, refusal, access_control, tenancy, tenant-admin]
+
+description: >
+  Adding users in bulk is an administrator's power. SwiftRoute's task worker and read-only auditor are refused both the template
+  and the upload. SwiftRoute's administrator is refused, with the reason named, a file that has a password column (a privilege
+  or secret cannot ride in a file), a file with a missing column, a file with a repeated column, a file that is not a spreadsheet,
+  a file with more than 200 rows and a check flag that is neither yes nor no; none of these creates a user. The Bilimbaga
+  administrator checks a file naming the same user name as an existing SwiftRoute user and is told it would be created in
+  Bilimbaga, so one company's users are neither seen nor changed from another.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  auditor: actor-swiftroute-auditor
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Scenario tenant-administration-users-import-1 has run in this run; the user uat-imp-<run>-1 exists in SwiftRoute and not in Bilimbaga
+    check: system_seeded
+    detail: If the user is missing, report BLOCKED for steps 6 and 7 only. Do not create it by another route to prepare the scenario.
+  - description: The Bilimbaga administrator can sign in
+    check: system_seeded
+    detail: If not, report BLOCKED for steps 6 and 7 only.
+
+steps:
+  - step: 1
+    actor: worker
+    action: >
+      SwiftRoute's task worker asks for the users template, and then uploads file G6 as a check only (dry run).
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: auditor
+    action: >
+      SwiftRoute's read-only auditor asks for the users template, and then uploads file G6 as a check only (dry run).
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator uploads file G1 (with a password column) for real, then uploads file G2 (the e-mail column missing)
+      for real, then uploads file G3 (the user name column twice) for real.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator uploads file G4 (a text file with the name users.xlsx) for real, and uploads file G5 (201 data rows) for real.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator uploads the corrected file F2 of scenario 1 with the check flag set to "maybe".
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator uploads file G6 as a check only (dry run).
+    via: api
+  - step: 7
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator opens the Users screen and looks through the list for names that start with "uat-imp-<run>".
+    via: ui
+  - step: 8
+    actor: admin
+    action: >
+      The administrator reloads the Users screen and looks through the list for names that start with "uat-imp-<run>".
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: A worker and the auditor get neither the template nor the upload.
+    verification:
+      method: http_status
+      detail: All four requests of steps 1 and 2 are answered 403 with no file and no per-row report.
+      evidence: Statuses of steps 1 and 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A non-administrator could create users, or download the structure used to do it.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A password column, a missing column, a repeated column and a non-spreadsheet are refused whole, each with its reason.
+    verification:
+      method: http_status
+      detail: >
+        Step 3 gets 422 three times: for G1 the answer names the unknown column "password"; for G2 the answer has the code
+        "xlsx_missing_header" and names the column "email"; for G3 the answer says the header has a duplicate column. Step 4 gets
+        422 for G4 (the file is not readable as a spreadsheet). No answer carries a cell text.
+      evidence: Statuses and bodies of steps 3 and 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A password or role could be set through a file, or a broken file gives the administrator no reason.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A file over 200 rows and a check flag that is not yes or no are refused.
+    verification:
+      method: http_status
+      detail: In step 4 G5 gets 413 "import batch exceeds the 200-row cap" and nothing is created. Step 5 gets 422 "dry_run must be true or false".
+      evidence: Statuses and texts of step 4 (G5) and step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A huge file ties up the server, or a typo in the flag does a real import when a check was meant.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Another company's check is answered from its own users and sees nothing of SwiftRoute.
+    verification:
+      method: api_response
+      detail: >
+        Step 6 answers 200 with dry_run true and one result "ok" with outcome "created" (not "unchanged" and not
+        "user_exists_different"), because the user name exists only in SwiftRoute. Step 7 finds no name that starts with
+        "uat-imp-<run>" in Bilimbaga's list.
+      evidence: Body of step 6 and the list in step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company can tell which user names another company holds, or the check created users.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: SwiftRoute's users are exactly as scenario 1 left them.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 8 lists exactly the three users uat-imp-<run>-1 to -3 (switched off at the end of scenario 1), no uat-imp-<run>-7 and none of
+        the -100 to -300 users.
+      evidence: Screenshot of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused file left users behind.
+      suggested_action: route_to_wf03

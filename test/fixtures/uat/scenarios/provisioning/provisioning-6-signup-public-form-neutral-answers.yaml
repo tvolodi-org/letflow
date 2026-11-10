@@ -1,0 +1,172 @@
+# T-1625 (BA): public sign-up form, part 1 (merged T-1579, TA-SL2a, decision 0084; realm step T-1593, decision 0085).
+# TEST ENVIRONMENT ONLY, flag ON: sign-up is switched on by the deployment setting LETFLOW_SIGNUP_ENABLED=true (default
+# off, production not approved, owner decision D-019). It is a platform-wide switch of the deployment, not a switch of one
+# tenant, so this scenario runs only on a test deployment where it is on. With the switch off every address answers
+# "not found" and the scenario is BLOCKED, not PASS.
+# Sources: lib/letflow/routers/signup.ex (moduledoc table: config 200; submit 202 neutral, 422 with the list of wrong
+# fields, 429 per-address cap, 503 pending cap; verify 200 or ONE generic 400; every other path 404), lib/letflow/signup.ex
+# (`validate/1`: company name 1 to 200 characters without control characters, e-mail, language in the shown list, terms
+# accepted exactly true; caps ip_hourly_cap 5, resend_interval_seconds 60, token_ttl_hours 24), lib/letflow/signup/messages.ex
+# (`languages/0`), docs/uat/ba-decisions/T-1567.md section 2 steps 1 to 3.
+# NOT COVERED HERE, with reasons (also recorded in scenario-env-limitations/provisioning-8-signup-verify-to-tenant-created.yaml):
+# (a) following a real mailed link and the tenant that results: needs a test mailbox the UAT cannot read;
+# (b) the per-address hourly cap (5) and the pending cap (50): hitting them would block every other tester on the same
+#     network address for an hour and fill the shared pending list; covered by test/letflow/signup_test.exs;
+# (c) the 24-hour link lifetime and the 7-day abandon age: need clock control; covered by the same tests.
+# This scenario sends at most 2 accepted requests, so it stays under the cap of 5 per hour per network address.
+---
+id: provisioning-6-signup-public-form-neutral-answers
+scope: platform
+title: "The public sign-up form shows its languages, names every wrong field, answers every well-formed request the same way and tells nothing about a wrong link"
+version: "1.0"
+tags: [provisioning, signup, public, refusal, privacy, test-environment-only]
+
+description: >
+  A visitor with no account opens the sign-up form. The form offers Russian, Kazakh and English and shows the
+  version of the terms. A request with a missing company name, an invalid e-mail address, a language that is not offered
+  or terms not accepted is turned down and the answer lists exactly the wrong fields. A well-formed request is accepted
+  and the visitor is told to check the mail; a second well-formed request for the same address a few seconds later gets
+  the same answer, so the form does not reveal whether an address was seen before and does not send a second mail at once.
+  A link that was never issued, an empty link and a link of the wrong shape are all refused with the same one plain
+  text, so nobody can tell which mistake was made. No tenant exists after any of this: nothing is created until the
+  mailed link is followed.
+
+actors:
+  visitor: actor-any
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: Sign-up is switched on in this test deployment (the setting LETFLOW_SIGNUP_ENABLED is true)
+    check: custom
+    detail: If the form's address answers "not found" for the language list, report BLOCKED, not PASS. Do not switch the setting from the scenario.
+  - description: Each run uses one fresh company name and two fresh e-mail addresses on a test domain that has no mailboxes (for example uat-signup-<run>-1@example.test)
+    check: custom
+    detail: A reused address would hit the per-address resend interval of 60 seconds and change the answer of step 5.
+  - description: The run starts at least one hour after the last run from the same network address (cap of 5 accepted requests per hour per address)
+    check: custom
+    detail: A 429 in step 4 or 5 means the cap was already used; report BLOCKED for those steps, do not retry in a loop.
+
+steps:
+  - step: 1
+    actor: visitor
+    action: >
+      The visitor opens the sign-up form's configuration (the public page loads it before showing the form) and reads
+      the list of languages and the version of the terms.
+    via: api
+  - step: 2
+    actor: visitor
+    action: >
+      The visitor sends the form with an empty company name, the e-mail text "not-an-address", the language "de" and
+      the terms box not ticked.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: visitor
+    action: >
+      The visitor sends the form with a valid company name "UAT Signup Co", a valid e-mail address and language English,
+      but with the terms box not ticked.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: visitor
+    action: >
+      The visitor sends the form with the company name "UAT Signup Co", the first fresh e-mail address (written with
+      capital letters and a space after it), language Russian and the terms box ticked.
+    via: api
+  - step: 5
+    actor: visitor
+    action: >
+      Five seconds later the visitor sends exactly the same form again.
+    via: api
+  - step: 6
+    actor: visitor
+    action: >
+      The visitor sends the verification step with a link text that was never issued (for example 43 random letters
+      and digits).
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: visitor
+    action: >
+      The visitor sends the verification step with no link text at all, and then with the link text "x".
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: visitor
+    action: >
+      The visitor asks for an address under the sign-up area that the form does not use (for example the word "tenants").
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: platform_operator
+    action: >
+      The platform operator reads the customer list and searches for the company name "UAT Signup Co".
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The form shows its languages and the terms version before anything is typed.
+    verification:
+      method: api_response
+      detail: >
+        Step 1 answers 200 with the switch "enabled" true, the languages Russian, Kazakh and English (ru, kk, en) and a terms version text.
+        No e-mail address, counter or setting value appears in the answer.
+      evidence: Status and body of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A visitor cannot choose a language or sees the wrong terms.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Wrong fields are named exactly and nothing is stored.
+    verification:
+      method: api_response
+      detail: >
+        Step 2 is refused as an invalid request (422) and the list of wrong fields holds exactly company_name, email,
+        language and terms_accepted. Step 3 is refused (422) and the list holds exactly terms_accepted. Neither answer
+        repeats the typed text.
+      evidence: Status and the list of fields for steps 2 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The visitor cannot fix the form, or typed text is echoed back.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A well-formed request is accepted with a neutral answer, and a repeat gives the same answer.
+    verification:
+      method: api_response
+      detail: >
+        Steps 4 and 5 are both answered 202 with the status "check_your_mail" and the same body. The two answers cannot be
+        told apart by status, body or the presence of an error, whether or not the address was seen before.
+      evidence: Status and body of steps 4 and 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The form would show a stranger whether an address already signed up (account probing).
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Every unusable link gets the same single refusal.
+    verification:
+      method: api_response
+      detail: >
+        Step 6, and both requests of step 7, are answered 400 with the one fixed text for an invalid or expired link.
+        The three answers are equal in status and body. They do not say whether the link was unknown, empty or too short.
+      evidence: Status and body of step 6 and the two requests of step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: An attacker could learn which link texts exist.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Unused addresses under the sign-up area answer "not found" and no customer exists after the run.
+    verification:
+      method: api_response
+      detail: >
+        Step 8 is answered 404 with the platform's standard not-found body. Step 9 finds no customer named "UAT Signup Co",
+        because nothing is created before a link is followed.
+      evidence: Status of step 8 and the empty search result of step 9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A form request without a verified address would create a customer.
+      suggested_action: route_to_wf03
+
+notes: >
+  Not UAT-observable and covered by backend tests only, with reasons: the stored fingerprint of the network address (the
+  raw address is never stored) and the mail text per language are not visible through any screen or route available
+  to the roster.
