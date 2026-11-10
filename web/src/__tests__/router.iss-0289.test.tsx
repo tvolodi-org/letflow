@@ -90,7 +90,7 @@ describe('ISS-0289 regression — admin/users detail route wiring', () => {
     // The parameterized detail route: any child path under 'admin/users/' other
     // than the bare list path itself.
     const detailRoute = children.find(
-      (c) => typeof c.path === 'string' && c.path.startsWith('admin/users/') && c.path !== 'admin/users',
+      (c) => c.path === 'admin/users/:userId',
     )
     expect(detailRoute).toBeDefined()
     expect(guarded(detailRoute!.element).type).toBe(UserDetailPage)

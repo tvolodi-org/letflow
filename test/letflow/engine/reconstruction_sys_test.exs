@@ -327,7 +327,8 @@ defmodule Letflow.Engine.ReconstructionSysTest do
     assert {:ok, %{instance_state: after_applied, event_count: count}} =
              Reconstruction.reconstruct_instance(instance_id, prefix: schema)
 
-    assert count == 3
+    # 3 domain events + 4 NODE_ENTERED entries (REQ-793)
+    assert count == 7
     assert after_applied.variables == before.variables
     assert nodes(after_applied) == nodes(before)
     assert after_applied.status == before.status

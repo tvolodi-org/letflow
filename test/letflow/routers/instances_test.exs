@@ -1525,7 +1525,7 @@ defmodule Letflow.Routers.InstancesTest do
       })
 
       items = fetch_timeline_items(tenant, instance_id, "?page_size=50")
-      item = Enum.find(items, &(&1["event_type"] == "NODE_ENTERED"))
+      item = Enum.find(items, &(&1["event_type"] == "NODE_ENTERED" and &1["node_id"] == "g1"))
       assert item["node_id"] == "g1"
       assert item["description"] == "Entered EXCLUSIVE_GATEWAY g1"
     end
@@ -1683,7 +1683,10 @@ defmodule Letflow.Routers.InstancesTest do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req200-ac6")
       {instance_id, _def} = start_instance!(tenant.schema_name)
 
-      [item] = fetch_timeline_items(tenant, instance_id)
+      item =
+        tenant
+        |> fetch_timeline_items(instance_id)
+        |> Enum.find(&(&1["event_type"] == "INSTANCE_STARTED"))
 
       expected_keys =
         ~w(event_type timestamp actor_display_name description instance_id event_id sequence_num task_id node_id metadata)
@@ -1728,8 +1731,9 @@ defmodule Letflow.Routers.InstancesTest do
           :telemetry.detach(handler_id)
         end
 
-      # INSTANCE_STARTED + five TASK_COMPLETED, all sharing one actor.
-      assert length(items) == 6
+      # INSTANCE_STARTED + five TASK_COMPLETED, all sharing one actor, + the two NODE_ENTERED
+      # of the start (REQ-793).
+      assert length(items) == 8
 
       user_query_count =
         Stream.repeatedly(fn ->

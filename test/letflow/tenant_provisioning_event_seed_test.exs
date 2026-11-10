@@ -498,7 +498,7 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       assert {"NODE_ENTERED", 1} in TenantProvisioning.platform_event_type_seed_versions()
     end
 
-    test "T-792-8 only the five files named by REQ-792 mention NODE_ENTERED (REQ-793 must update this)" do
+    test "T-792-8 only the named files mention NODE_ENTERED (REQ-793 added engine.ex and node_entries.ex)" do
       files =
         "lib/**/*.ex"
         |> Path.wildcard()
@@ -506,6 +506,8 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
         |> Enum.sort()
 
       assert files == [
+               "lib/letflow/engine.ex",
+               "lib/letflow/engine/node_entries.ex",
                "lib/letflow/engine/reconstruction.ex",
                "lib/letflow/instances.ex",
                "lib/letflow/release.ex",

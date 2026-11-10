@@ -49,6 +49,13 @@ defmodule Letflow.Engine do
   returning tagged tuples, matching the boundary every other S2-S3 context
   module already established.
 
+  ## NODE_ENTERED entries (REQ-793)
+
+  Every write that moves a token also appends one `NODE_ENTERED` event per node entered, in
+  the same transaction, right after the write's triggering event and before the projection
+  reconcile. The entries are derived from the token diff of each hop by
+  `Letflow.Engine.NodeEntries` and ride in the hop chain's pending events; see that module.
+
   ## Activation loops to a stable resting state (AC7, updated post-REQ-050/051)
 
   `create/2` drives `Letflow.Engine.Transition.transition/3` from a worklist
@@ -519,6 +526,7 @@ defmodule Letflow.Engine do
   alias Letflow.Engine.FormExpressionReevaluation
   alias Letflow.Engine.IdempotentReplay
   alias Letflow.Engine.InstanceState
+  alias Letflow.Engine.NodeEntries
   alias Letflow.Engine.PinResolver
   alias Letflow.Engine.Reconstruction
   alias Letflow.Engine.RequiredOutputs
@@ -969,6 +977,7 @@ defmodule Letflow.Engine do
         prepared_children,
         prepared_timers,
         prepared_service_task_dispatches,
+        pending_events,
         tenant_id,
         pins,
         conflicts,
@@ -2073,7 +2082,7 @@ defmodule Letflow.Engine do
 
       case advance_until_stable(graph, instance_state, [token_id], hop_limit) do
         {:ok, new_instance_state, pending_events} ->
-          {:ok, new_instance_state, pending_events}
+          {:ok, new_instance_state, NodeEntries.start_entry(graph) ++ pending_events}
 
         {:error, reason} ->
           {:error, reason}
@@ -2132,7 +2141,12 @@ defmodule Letflow.Engine do
     previous_tokens = instance_state.tokens
 
     case Transition.transition(graph, instance_state, {:advance_token, token_id}) do
-      {:ok, new_instance_state, pending_events} ->
+      {:ok, new_instance_state, transition_pending_events} ->
+        # REQ-793: the entries of this hop ride in front of the kernel's pending events.
+        pending_events =
+          NodeEntries.entries(graph, previous_tokens, new_instance_state.tokens, token_id) ++
+            transition_pending_events
+
         newly_pending =
           tokens_needing_dispatch(previous_tokens, new_instance_state.tokens, token_id)
 
@@ -2229,6 +2243,7 @@ defmodule Letflow.Engine do
          prepared_children,
          prepared_timers,
          prepared_service_task_dispatches,
+         pending_events,
          tenant_id,
          pins,
          conflicts,
@@ -2306,6 +2321,14 @@ defmodule Letflow.Engine do
           prefix
         )
       end)
+      # REQ-793: the NODE_ENTERED entries follow INSTANCE_STARTED, ahead of any projection flip.
+      |> NodeEntries.append_multi(
+        instance_id,
+        pending_events,
+        Map.get(attrs, :actor_id),
+        Map.get(attrs, :idempotency_key),
+        prefix
+      )
       |> Multi.run(:token_record, fn repo, _changes ->
         insert_token_records(repo, instance_id, new_instance_state.tokens, prefix)
       end)
@@ -3589,7 +3612,7 @@ defmodule Letflow.Engine do
     # ancestor lock, see GH #2709).
     |> Multi.run(:lock_ancestors, fn repo, %{task: task, transition: transition} ->
       case transition do
-        {:advanced, state, _children, _timers, _dispatches} ->
+        {:advanced, state, _children, _timers, _dispatches, _node_entries} ->
           lock_parent_group(repo, task.instance_id, lock_intent(state), prefix)
 
         _execution_error ->
@@ -4116,13 +4139,15 @@ defmodule Letflow.Engine do
          {:ok,
           %{
             entity_writes: %{sys_values: values},
-            transition: {:advanced, %InstanceState{} = state, children, timers, dispatches}
+            transition:
+              {:advanced, %InstanceState{} = state, children, timers, dispatches, node_entries}
           } = changes}
        )
        when map_size(values) > 0 do
     case fold_sys_values(state, values) do
       {:ok, folded} ->
-        {:ok, %{changes | transition: {:advanced, folded, children, timers, dispatches}}}
+        {:ok,
+         %{changes | transition: {:advanced, folded, children, timers, dispatches, node_entries}}}
 
       {:error, _reason} ->
         {:ok, changes}
@@ -4405,7 +4430,7 @@ defmodule Letflow.Engine do
             event: %{sequence_number: sequence_number},
             transition:
               {:advanced, %InstanceState{} = final_instance_state, _prepared_children,
-               _prepared_timers, _prepared_service_task_dispatches}
+               _prepared_timers, _prepared_service_task_dispatches, _node_entries}
           }} = result,
          prefix
        ) do
@@ -4727,12 +4752,18 @@ defmodule Letflow.Engine do
 
     case Transition.transition(graph, seed_state, {:timer_fired, own_token_id}) do
       {:ok, new_instance_state, _pending_events} ->
+        first_hop_entries =
+          NodeEntries.entries(graph, seed_state.tokens, new_instance_state.tokens, own_token_id)
+
         newly_pending =
           tokens_needing_dispatch(seed_state.tokens, new_instance_state.tokens, own_token_id)
 
         case advance_until_stable(graph, new_instance_state, newly_pending, hop_limit - 1) do
-          {:ok, advanced_state, pending_events} -> {:ok, advanced_state, pending_events}
-          {:error, reason} -> {:error, {:transition_failed, reason}}
+          {:ok, advanced_state, pending_events} ->
+            {:ok, advanced_state, first_hop_entries ++ pending_events}
+
+          {:error, reason} ->
+            {:error, {:transition_failed, reason}}
         end
 
       {:error, reason} ->
@@ -4806,6 +4837,13 @@ defmodule Letflow.Engine do
           {:advanced, final_instance_state, prepared_children} ->
             multi =
               Multi.new()
+              |> NodeEntries.append_multi(
+                timer.instance_id,
+                pending_events,
+                actor_id,
+                idempotency_key,
+                prefix
+              )
               |> Multi.merge(fn _changes ->
                 # ISS-0408 fix (design doc §3.5) -- identical restructuring to
                 # build_task_activation_and_reconciliation_multi/4: the insert
@@ -5232,12 +5270,18 @@ defmodule Letflow.Engine do
 
     case Transition.transition(graph, seed_state, {:escalation_timer_fired, own_token_id}) do
       {:ok, new_instance_state, _pending_events} ->
+        first_hop_entries =
+          NodeEntries.entries(graph, seed_state.tokens, new_instance_state.tokens, own_token_id)
+
         newly_pending =
           tokens_needing_dispatch(seed_state.tokens, new_instance_state.tokens, own_token_id)
 
         case advance_until_stable(graph, new_instance_state, newly_pending, hop_limit - 1) do
-          {:ok, advanced_state, pending_events} -> {:ok, advanced_state, pending_events}
-          {:error, reason} -> {:error, {:transition_failed, reason}}
+          {:ok, advanced_state, pending_events} ->
+            {:ok, advanced_state, first_hop_entries ++ pending_events}
+
+          {:error, reason} ->
+            {:error, {:transition_failed, reason}}
         end
 
       {:error, reason} ->
@@ -5299,6 +5343,13 @@ defmodule Letflow.Engine do
           {:advanced, final_instance_state, prepared_children} ->
             multi =
               Multi.new()
+              |> NodeEntries.append_multi(
+                timer.instance_id,
+                pending_events,
+                actor_id,
+                idempotency_key,
+                prefix
+              )
               # ISS-0906: fetch+lock the original HUMAN_TASK row first (mirrors
               # cancel_task_rows/4's fetch_and_lock_open_tasks/3 precedent), so
               # the following :cancel_original_task step can use
@@ -5908,7 +5959,12 @@ defmodule Letflow.Engine do
               seed_state,
               original_active_tokens,
               advanced_state,
-              pending_events ++ pending_events2,
+              NodeEntries.entries(
+                graph,
+                state_ready_to_advance.tokens,
+                new_instance_state.tokens,
+                own_token.token_id
+              ) ++ pending_events ++ pending_events2,
               completion,
               prefix
             )
@@ -6213,6 +6269,14 @@ defmodule Letflow.Engine do
               |> Multi.run(:service_task_completed_event, fn _repo, _changes ->
                 append_service_task_completed_event(dispatch, completion, prefix)
               end)
+              # REQ-793: the NODE_ENTERED entries follow the completed event, ahead of :projection.
+              |> NodeEntries.append_multi(
+                dispatch.instance_id,
+                pending_events,
+                EventStore.platform_actor_id(),
+                idempotency_key,
+                prefix
+              )
               # GH 2534 PR 7c-1: the script route's run record and terminal row status, before
               # :projection (the event appends need the instance still non-terminal). Identity
               # for HTTP.
@@ -8292,6 +8356,14 @@ defmodule Letflow.Engine do
 
     case Transition.transition(graph, state_with_merged_variables, {:complete_task, own_token_id}) do
       {:ok, new_instance_state, _pending_events} ->
+        first_hop_entries =
+          NodeEntries.entries(
+            graph,
+            state_with_merged_variables.tokens,
+            new_instance_state.tokens,
+            own_token_id
+          )
+
         newly_pending =
           tokens_needing_dispatch(
             state_with_merged_variables.tokens,
@@ -8335,7 +8407,8 @@ defmodule Letflow.Engine do
                 {:ok, {:advanced, advanced_state2, prepared_children}} ->
                   {:ok,
                    {:advanced, advanced_state2, prepared_children, prepared_timers,
-                    prepared_service_task_dispatches}}
+                    prepared_service_task_dispatches,
+                    first_hop_entries ++ NodeEntries.only(pending_events)}}
 
                 {:ok, {:execution_error, error_args}} ->
                   {:ok, {:execution_error, error_args}}
@@ -8646,7 +8719,7 @@ defmodule Letflow.Engine do
            merge: {:merged, merge_outcome},
            transition:
              {:advanced, unfolded_instance_state, prepared_children, prepared_timers,
-              prepared_service_task_dispatches}
+              prepared_service_task_dispatches, node_entries}
          } = changes,
          actor_id,
          output_variables,
@@ -8834,6 +8907,13 @@ defmodule Letflow.Engine do
         prefix
       )
     end)
+    |> NodeEntries.append_multi(
+      parent_instance_id,
+      node_entries,
+      actor_id,
+      idempotency_key,
+      prefix
+    )
     |> Multi.run(:projection, fn repo, _changes ->
       reconcile_projection(
         repo,
@@ -9699,7 +9779,7 @@ defmodule Letflow.Engine do
             task: %Task{} = task,
             transition:
               {:advanced, %InstanceState{} = final_instance_state, _prepared_children,
-               _prepared_timers, _prepared_service_task_dispatches},
+               _prepared_timers, _prepared_service_task_dispatches, _node_entries},
             task_complete: %Task{} = completed_task
           }},
          _actor_id,
