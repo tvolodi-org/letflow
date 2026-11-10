@@ -240,6 +240,7 @@ PromotionsManage                yes            no               no              
 DefinitionsRollback             yes            no               no               no          no           no        yes          no             no            tenant
 TenantSettingsManage            yes            no               no               no          no           no        yes          no             no            tenant
 PlatformServicesManage          yes            no               no               no          no           no        no           no             no            platform
+ModuleRolloutsManage            yes            no               no               no          no           no        no           no             no            platform
 AttachmentLinksIssue            yes            yes              yes              yes         no           no        yes          no             no            tenant
 ScriptsWrite                    yes            yes              no               no          no           no        yes          no             no            tenant
 ScriptsPublish                  yes            no               no               no          no           no        yes          no             no            tenant

@@ -181,6 +181,7 @@ defmodule Letflow.Api.PlatformAdminOutsidePlatformTest do
       {Letflow.Routers.Onboarding, :get, "/", nil},
       {Letflow.Routers.PlatformMigrations, :get, "/rollouts/" <> @unused_uuid, nil},
       {Letflow.Routers.PlatformStatus, :get, "/backup", nil},
+      {Letflow.Routers.PlatformModuleRollouts, :get, "/" <> @unused_uuid, nil},
       {Letflow.Routers.EventRetention, :get, "/summary", nil},
       {Letflow.Routers.AdminServices, :get, "/", nil}
     ]

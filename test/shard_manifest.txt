@@ -1230,3 +1230,4 @@
 27 test/letflow/modules/stock/issue_writeoff_shape_test.exs 7346.89
 30 test/letflow/modules/stock/issue_writeoff_test.exs 7346.89
 29 test/letflow/modules/stock/documents/kinds_test.exs 7346.89
+1 test/scripts/oss_audit_test.exs 5000.00

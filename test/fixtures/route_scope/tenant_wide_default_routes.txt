@@ -70,6 +70,8 @@ GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage
 GET /platform-migrations/rollouts/:id TenantsManage
+GET /platform-module-rollouts ModuleRolloutsManage
+GET /platform-module-rollouts/:id ModuleRolloutsManage
 GET /platform-status/backup TenantsManage
 GET /promotions PromotionsRead
 GET /promotions/:id PromotionsRead
@@ -201,6 +203,8 @@ POST /onboarding TenantsManage
 POST /onboarding/:id/bind-realm TenantsManage
 POST /platform-migrations/rollouts TenantsManage
 POST /platform-migrations/rollouts/:id/resume TenantsManage
+POST /platform-module-rollouts ModuleRolloutsManage
+POST /platform-module-rollouts/:id/resume ModuleRolloutsManage
 POST /promotions PromotionsManage
 POST /promotions/:id/apply PromotionsManage
 POST /promotions/:id/approve PromotionsManage

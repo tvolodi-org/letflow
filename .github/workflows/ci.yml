@@ -262,28 +262,16 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
         run: |
           set -uo pipefail
 
-          # ISS-0840: on push to main, always run both gates regardless of which
-          # files changed. The path filter exists to skip expensive CI on a PR that
-          # only touched docs -- but on main itself, no run should ever be skipped:
-          # a "docs-only" push to main could follow a backend change pushed seconds
-          # earlier, and the path filter for that follow-up push would incorrectly
-          # report backend=false for the commit range it sees (the docs delta only),
-          # silently skipping the backend gate whose job is to prove the whole branch
-          # is green. This was the root cause of REQ-401..REQ-416's CI false-green
-          # (see ISS-0840 and the anti-patterns entry this fix adds). The path
-          # filter is kept for pull_request events only, where each PR's own commit
-          # range genuinely represents everything that changed relative to main.
-          if [ "$EVENT_NAME" = "push" ]; then
-            echo "Push to main -- always running all gates (ISS-0840: path filter on push-to-main caused false-green)."
-            echo "backend=true" >> "$GITHUB_OUTPUT"
-            echo "frontend=true" >> "$GITHUB_OUTPUT"
-            echo "mobile=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
+          # ISS-0840: the BACKEND gate always runs on a push to main (a path filter there caused
+          # the REQ-401..REQ-416 false-green: a docs-only follow-up push reported backend=false for
+          # the range it saw). T-1614: frontend and mobile use the same path rules as the merge
+          # queue, over the push range (before..sha); the nightly run and workflow_dispatch have
+          # no base, so they run every gate and are the backstop. Backend is forced true below.
           # T-1303: a pull request diffs against the merge base (three dots): its base.sha is the
           # moving tip of the base branch, and a two-dot diff would list what main gained since the
           # branch was last updated as the PR's own changes. A merge-group head contains its base.
@@ -296,11 +284,14 @@ jobs:
             # Merge queue (A3): the same path regex as for a PR decides which gates run,
             # over this queue entry's own range. With stacked entries base_sha is the
             # previous entry's commit, so a docs-only entry behind a code entry does not
-            # re-run the code ahead of it; the push-to-main run above (ISS-0840) always
-            # runs every gate after each queue merge and is the final backstop. Every
+            # re-run the code ahead of it; the push-to-main run runs the backend gate
+            # (and frontend/mobile by the push range, T-1614) after each queue merge. Every
             # fail-safe below (empty/zero SHA, unreachable base => all gates) still applies.
             BASE_SHA="$MG_BASE_SHA"
             HEAD_SHA="$MG_HEAD_SHA"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            BASE_SHA="$PUSH_BEFORE"
+            HEAD_SHA="$PUSH_AFTER"
           else
             BASE_SHA=""
             HEAD_SHA=""
@@ -362,6 +353,9 @@ jobs:
             exit 1
           fi
           echo "Path rules (scripts/ci_changed_paths.sh):"
+          if [ "$EVENT_NAME" = "push" ]; then
+            RESULT=$(sed 's/^backend=.*/backend=true/' <<<"$RESULT")
+          fi
           printf '%s\n' "$RESULT"
           printf '%s\n' "$RESULT" >> "$GITHUB_OUTPUT"
 
@@ -997,26 +991,34 @@ jobs:
       # `backend_static`, which is not skipped by docs_only.
       - name: Run docs tests (docs-only change)
         if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only == 'true' && matrix.shard == 1
-        timeout-minutes: 38
+        timeout-minutes: 42
         run: |
           set -euo pipefail
-          mapfile -t files < <(bash scripts/ci_docs_only.sh files)
+          # T-1617: run only the docs tests that read the changed paths plus a fixed smoke set
+          # (scripts/ci_docs_only.sh select), not all ~65 files (three merge groups hit exit 124).
+          # BASE/HEAD are the same range the `changes` job used.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            RANGE="${{ github.event.merge_group.base_sha }}..${{ github.event.merge_group.head_sha }}"
+          else
+            RANGE=""
+          fi
+          files=()
+          if [ -n "$RANGE" ] && git diff --name-only "$RANGE" > /tmp/docs_changed.txt; then
+            mapfile -t files < <(bash scripts/ci_docs_only.sh select < /tmp/docs_changed.txt)
+          fi
+          if [ "${#files[@]}" -eq 0 ]; then
+            mapfile -t files < <(bash scripts/ci_docs_only.sh files)
+          fi
           echo "docs-only change: running ${#files[@]} docs-related test files"
-          # T-1374: this step hung 24-36 min three times and held the merge queue to the job
-          # timeout. Each attempt is capped at 1000 s (`timeout 1000`; T-1575: the ~64 files needed 567-597 s against the old 600 s cap and were killed with 124, growth with the suite; two attempts of 1000 s plus setup stay under the job's 45 min); only a timeout (exit 124)
-          # starts the second and last attempt, a real test failure fails at once. The step-level
-          # timeout-minutes is the backstop for both attempts plus setup, not the per-attempt cap.
-          for attempt in 1 2; do
-            echo "docs tests: attempt ${attempt} of 2 (timeout 1000s)"
-            rc=0
-            timeout 1000 mix test "${files[@]}" || rc=$?
-            if [ "$rc" -eq 0 ]; then exit 0; fi
-            if [ "$rc" -ne 124 ] || [ "$attempt" -eq 2 ]; then
-              echo "docs tests: attempt ${attempt} failed with exit ${rc}"
-              exit "$rc"
-            fi
-            echo "docs tests: attempt ${attempt} timed out, retrying once"
-          done
+          printf '  %s\n' "${files[@]}"
+          # One attempt capped at 2400 s (T-1617 stop-gap; the selected set is normally a few
+          # minutes). The step-level timeout-minutes (42) stays under the job's 45 min.
+          rc=0
+          timeout 2400 mix test "${files[@]}" || rc=$?
+          if [ "$rc" -ne 0 ]; then echo "docs tests: failed with exit ${rc}"; fi
+          exit "$rc"
         env:
           MIX_ENV: test
           WASMEX_BUILD: true

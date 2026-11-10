@@ -79,6 +79,7 @@ defmodule Letflow.Api.AuthorizationTest do
       :MyPreferencesSet,
       :EntitiesRestrictionsManage,
       :PlatformServicesManage,
+      :ModuleRolloutsManage,
       :TenantSettingsManage,
       :PromotionsRead,
       :PromotionsManage,
@@ -498,7 +499,8 @@ defmodule Letflow.Api.AuthorizationTest do
           53 => "fifty-three",
           54 => "fifty-four",
           55 => "fifty-five",
-          56 => "fifty-six"
+          56 => "fifty-six",
+          57 => "fifty-seven"
         }
         |> Map.get(actual_count)
 
@@ -1113,7 +1115,8 @@ defmodule Letflow.Api.AuthorizationTest do
           53 => "fifty-three",
           54 => "fifty-four",
           55 => "fifty-five",
-          56 => "fifty-six"
+          56 => "fifty-six",
+          57 => "fifty-seven"
         }
         |> Map.get(actual_count)
 
@@ -1619,7 +1622,8 @@ defmodule Letflow.Api.AuthorizationTest do
           53 => "fifty-three",
           54 => "fifty-four",
           55 => "fifty-five",
-          56 => "fifty-six"
+          56 => "fifty-six",
+          57 => "fifty-seven"
         }
         |> Map.get(actual_count)
 
@@ -2269,6 +2273,10 @@ defmodule Letflow.Api.AuthorizationTest do
         {"GET", "/platform-migrations/rollouts/:id", :TenantsManage},
         {"POST", "/platform-migrations/rollouts/:id/resume", :TenantsManage},
         {"GET", "/platform-status/backup", :TenantsManage},
+        {"POST", "/platform-module-rollouts", :ModuleRolloutsManage},
+        {"GET", "/platform-module-rollouts", :ModuleRolloutsManage},
+        {"GET", "/platform-module-rollouts/:id", :ModuleRolloutsManage},
+        {"POST", "/platform-module-rollouts/:id/resume", :ModuleRolloutsManage},
         {"GET", "/event-retention/summary", :TenantsManage},
         {"POST", "/event-retention/retirements", :TenantsManage},
         {"GET", "/event-retention/retirements/:id", :TenantsManage},
@@ -2472,6 +2480,7 @@ defmodule Letflow.Api.AuthorizationTest do
                    :EntitiesRestrictionsManage,
                    # ISS-0993: appended core permissions
                    :PlatformServicesManage,
+                   :ModuleRolloutsManage,
                    :TenantSettingsManage,
                    :PromotionsRead,
                    :PromotionsManage,

@@ -292,6 +292,10 @@ defmodule Letflow.Plugs.ApiPipeline do
   # /platform-migrations: platform scope, gated by :TenantsManage. See
   # Letflow.Routers.PlatformStatus' own moduledoc.
   forward("/platform-status", to: Letflow.Routers.PlatformStatus)
+  # RU-S6 -- the platform fleet driver (module version rolled out tenant by tenant). Same mount
+  # reason as /platform-migrations; gated by the PLATFORM-scope :ModuleRolloutsManage. See
+  # Letflow.Routers.PlatformModuleRollouts.
+  forward("/platform-module-rollouts", to: Letflow.Routers.PlatformModuleRollouts)
 
   # REQ-377 -- the operator-facing platform-wide event-history retirement
   # screen's backend HTTP surface. Mounted here for the same structural

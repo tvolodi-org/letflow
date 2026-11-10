@@ -85,6 +85,14 @@ defmodule Letflow.Api.PlatformPrefixUniform403Test do
          {:unmatched_subpath, :get, "/x/y/z/w", nil},
          {:unmatched_bare, :delete, "/", nil}
        ]},
+      {Letflow.Routers.PlatformModuleRollouts,
+       [
+         {:matched_existing, :get, "/" <> @unused_uuid, nil},
+         {:matched_existing_mutating, :post, "/", %{}},
+         {:matched_nonexistent, :post, "/" <> @unused_uuid <> "/resume", nil},
+         {:unmatched_subpath, :get, "/x/y/z/w", nil},
+         {:unmatched_bare, :delete, "/", nil}
+       ]},
       {Letflow.Routers.EventRetention,
        [
          {:matched_existing, :get, "/summary", nil},

@@ -28,7 +28,7 @@ defmodule Letflow.CiBackendPathFilterTest do
   Known gap no filter can close: `test/letflow/no_smtp_secret_guard_test.exs` (lines 48-56) runs
   `git ls-files` and `git grep` over the WHOLE tracked tree, so any path, including README.md, can
   fail the backend gate. A change confined to a path the filter omits can therefore still break that
-  test and merge ungated; the always-run-all-gates rule for push to main (ISS-0840) is the backstop.
+  test and merge ungated; the always-on backend gate on push to main (ISS-0840) is the backstop.
   """
 
   use ExUnit.Case, async: true
@@ -109,6 +109,9 @@ defmodule Letflow.CiBackendPathFilterTest do
     {".github/workflows/cd.yml", true, true},
     {"scripts/ci_changed_paths.sh", true, true},
     {"scripts/cd_qa_decide.sh", true, false},
+    {"scripts/oss_audit/scanner.py", true, true},
+    {"scripts/oss_audit/rules.py", true, true},
+    {"docs/open-source/audit-report.md", true, true},
     {".claude/agents/uat-runner.md", true, true},
     {"web/.env.example", true, true},
     {"web/vite.config.ts", true, true},
@@ -136,7 +139,8 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"apps/mobile/lib/main.dart", false, false},
     {"scripts/README.md", false, true},
     {".claude/agents/reviewer.md", false, true},
-    {"docker-compose.yml", false, true}
+    {"docker-compose.yml", false, true},
+    {"docs/open-source/other.md", false, false}
   ]
 
   # --- layer 1: extract + compile --------------------------------------------------------

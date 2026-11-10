@@ -532,6 +532,10 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
     {"GET", "/platform-migrations/rollouts/:id"},
     {"POST", "/platform-migrations/rollouts/:id/resume"},
     {"GET", "/platform-status/backup"},
+    {"POST", "/platform-module-rollouts"},
+    {"GET", "/platform-module-rollouts"},
+    {"GET", "/platform-module-rollouts/:id"},
+    {"POST", "/platform-module-rollouts/:id/resume"},
     {"GET", "/event-retention/summary"},
     {"POST", "/event-retention/retirements"},
     {"GET", "/event-retention/retirements/:id"},
@@ -544,13 +548,13 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   ]
 
   describe "G3: platform pinning" do
-    test "the routes whose permission is platform scope are exactly the 29 snapshot rows" do
+    test "the routes whose permission is platform scope are exactly the 33 snapshot rows" do
       actual =
         for {_router, method, path, key} <- all_routes(),
             Authorization.permission_scope(Authorization.required_permission(key)) == :platform,
             do: {method, path}
 
-      assert length(@platform_routes) == 29
+      assert length(@platform_routes) == 33
       assert Enum.sort(actual) == Enum.sort(@platform_routes)
     end
 
@@ -572,7 +576,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
 
     test "platform_permissions/0 is exactly :TenantsManage and :PlatformServicesManage" do
       assert Enum.sort(Authorization.platform_permissions()) ==
-               Enum.sort([:TenantsManage, :PlatformServicesManage])
+               Enum.sort([:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage])
 
       for permission <- Authorization.platform_permissions() do
         assert Authorization.permission_scope(permission) == :platform
@@ -597,6 +601,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       assert Enum.sort(platform_keys) == [
                :AdminServicesManage,
                :AdminServicesRead,
+               :ModuleRolloutsManage,
                :TenantsManage
              ]
 
