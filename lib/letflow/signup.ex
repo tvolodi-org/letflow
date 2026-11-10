@@ -3,9 +3,10 @@ defmodule Letflow.Signup do
   T-1579 (TA-SL2a; docs/uat/ba-decisions/T-1567.md s5, decision 0084): the public sign-up saga, part 1.
 
   A visitor submits company name, e-mail and language; the platform mails a single-use link; following
-  the link marks the request `verified` and reserves a `tenant_id`. **Nothing is created in Keycloak, in
-  `tenants` or in `tenant_lifecycles` here** -- the provisioner call is slice SL2b, which starts from a
-  row in step `ready_for_provisioning`. Everything sits behind `LETFLOW_SIGNUP_ENABLED` (default off,
+  the link marks the request `verified` and reserves a `tenant_id`. Nothing is created in `tenants` or
+  `tenant_lifecycles` here. From `ready_for_provisioning`, T-1593 (SL2b part a) asks infra's provisioner
+  for the realm and first admin and mails the one-time credential (`Letflow.Signup.Provisioning`); the
+  Letflow tenant create is part b. Everything sits behind `LETFLOW_SIGNUP_ENABLED` (default off,
   see `Letflow.Routers.Signup`).
 
   ## Saga
@@ -34,7 +35,7 @@ defmodule Letflow.Signup do
 
   alias Letflow.Identity.TenantMembership
   alias Letflow.Repo
-  alias Letflow.Signup.{Mailer, Messages, Request}
+  alias Letflow.Signup.{Mailer, Messages, Provisioning, Request}
 
   @terms_version "placeholder-0"
   @max_company 200
@@ -50,7 +51,14 @@ defmodule Letflow.Signup do
     ip_hourly_cap: 5,
     resend_interval_seconds: 60,
     token_ttl_hours: 24,
-    abandon_days: 7
+    abandon_days: 7,
+    # T-1593 (decision 0085): the realm step. Unset URL/domain = the step does not run.
+    provisioner_url: nil,
+    hostname_domain: nil,
+    retry_delays_ms: [1000, 5000],
+    max_attempts: 5,
+    http_timeout_ms: 10_000,
+    connect_timeout_ms: 3_000
   ]
 
   @type submit_result ::
@@ -116,7 +124,9 @@ defmodule Letflow.Signup do
         request =
           Repo.one(
             from(r in Request,
-              where: r.token_hash == ^hash and r.state in ["pending_verification", "verified"],
+              where:
+                r.token_hash == ^hash and
+                  r.state in ["pending_verification", "verified", "provisioning"],
               lock: "FOR UPDATE"
             )
           )
@@ -128,25 +138,38 @@ defmodule Letflow.Signup do
         end
       end)
 
-    result
+    # T-1593: after the commit, off the request path; never changes the answer (INV-8).
+    case result do
+      {:ok, tenant_id} ->
+        Provisioning.start_async(tenant_id)
+        :ok
+
+      other ->
+        other
+    end
   end
 
   def verify(_token, _now), do: {:error, :invalid}
 
+  defp verify_row(%Request{state: "verified", step: "ready_for_provisioning"} = request, _now),
+    do: {:ok, request.tenant_id}
+
   defp verify_row(%Request{state: "verified"}, _now), do: :ok
+  defp verify_row(%Request{state: "provisioning"}, _now), do: :ok
 
   defp verify_row(%Request{state: "pending_verification"} = request, now) do
     request
     |> Ecto.Changeset.change(state: "verified", step: "verified", verified_at: now)
     |> Repo.update!()
     |> advance()
-
-    :ok
+    |> then(&{:ok, &1.tenant_id})
   end
 
   @doc """
-  Saga: runs the next step of a request and is a no-op when its postcondition holds. This slice has two
-  transitions; SL2b continues from `ready_for_provisioning`.
+  Saga: runs the next step of a request and is a no-op when its postcondition holds. This function only
+  covers the in-transaction steps up to `ready_for_provisioning`; the steps after it call a network
+  service and run outside any transaction in `Letflow.Signup.Provisioning` (T-1593, decision 0085),
+  which is idempotent in the same way (claim + postcondition per step).
   """
   @spec advance(Request.t()) :: Request.t()
   def advance(%Request{state: "verified", step: "verified"} = request) do

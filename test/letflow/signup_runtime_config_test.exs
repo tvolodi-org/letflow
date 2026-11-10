@@ -89,4 +89,55 @@ defmodule Letflow.SignupRuntimeConfigTest do
     assert {:raised, message, _} = signup(proxied, :prod)
     assert message =~ "LETFLOW_SIGNUP_BASE_URL"
   end
+
+  describe "T-1593 provisioner settings" do
+    @url {"LETFLOW_SIGNUP_PROVISIONER_URL", "http://127.0.0.1:3218"}
+    @tok {"LETFLOW_SIGNUP_PROVISIONER_TOKEN", "tok-SECRET"}
+    @dom {"LETFLOW_SIGNUP_HOSTNAME_DOMAIN", "qa.example.test"}
+    @on {"LETFLOW_SIGNUP_ENABLED", "true"}
+
+    test "R0 default: unset, and the token never reaches the application config" do
+      cfg = config!([])
+      assert {cfg.provisioner_url, cfg.hostname_domain} == {nil, nil}
+
+      {:ok, all} = signup([@on, @url, @tok, @dom])
+      cfg = all |> Keyword.fetch!(:letflow) |> Keyword.fetch!(Letflow.Signup) |> Map.new()
+
+      assert {cfg.provisioner_url, cfg.hostname_domain} ==
+               {"http://127.0.0.1:3218", "qa.example.test"}
+
+      refute inspect(all) =~ "tok-SECRET"
+    end
+
+    test "R1 the three settings are all-or-nothing and need the flag" do
+      for partial <- [[@on, @url], [@on, @tok], [@on, @dom], [@on, @url, @tok], [@on, @tok, @dom]] do
+        assert {:raised, message, _} = signup(partial)
+        assert message =~ "must be set together"
+        refute message =~ "tok-SECRET"
+      end
+
+      assert {:raised, message, _} = signup([@url, @tok, @dom])
+      assert message =~ "LETFLOW_SIGNUP_ENABLED"
+    end
+
+    test "R2 a URL that is not loopback/private http, and a bad domain, raise without echo" do
+      for bad <- [
+            "https://127.0.0.1:3218",
+            "http://example.com:3218",
+            "http://u:p@127.0.0.1:3218",
+            "http://127.0.0.1:3218/x"
+          ] do
+        assert {:raised, message, formatted} =
+                 signup([@on, {"LETFLOW_SIGNUP_PROVISIONER_URL", bad}, @tok, @dom])
+
+        assert message =~ "LETFLOW_SIGNUP_PROVISIONER_URL"
+        refute formatted =~ bad
+      end
+
+      assert {:raised, message, _} =
+               signup([@on, @url, @tok, {"LETFLOW_SIGNUP_HOSTNAME_DOMAIN", "Bad Domain!"}])
+
+      assert message =~ "LETFLOW_SIGNUP_HOSTNAME_DOMAIN"
+    end
+  end
 end
