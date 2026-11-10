@@ -229,4 +229,24 @@ defmodule Letflow.TenantProvisioner.RequestTest do
                Config.parse(%{"LETFLOW_PUBLIC_BASE_URL" => "http://insecure.example"}, :prod)
     end
   end
+
+  describe "source_key (T-1621)" do
+    test "SK1 absent is nil; present is a 32-byte digest; the domain digest is always set" do
+      assert {:ok, %{source_ip_key: nil, email_domain_key: d}} = Request.parse(body(), now: @now)
+      assert byte_size(d) == 32
+
+      assert {:ok, %{source_ip_key: k}} =
+               Request.parse(body(%{"source_key" => " abc "}), now: @now)
+
+      assert byte_size(k) == 32
+    end
+
+    test "SK2 invalid values name only the field" do
+      for bad <- ["", String.duplicate("a", 129), "a b", "a\nb", 5, nil_like()] do
+        assert {:error, "source_key"} = Request.parse(body(%{"source_key" => bad}), now: @now)
+      end
+    end
+
+    defp nil_like, do: %{"x" => 1}
+  end
 end

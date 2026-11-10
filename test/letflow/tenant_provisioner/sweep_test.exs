@@ -235,6 +235,23 @@ defmodule Letflow.TenantProvisioner.SweepTest do
   # --- SW8 settings ----------------------------------------------------------
 
   describe "settings" do
+    test "SB1 budget settings default off, parse and reject (T-1621)" do
+      Application.delete_env(:letflow, Letflow.TenantProvisioner)
+      assert {Config.source_daily_budget(), Config.email_domain_daily_budget()} == {0, 0}
+
+      vars = %{
+        "LETFLOW_PROVISIONER_SOURCE_DAILY_BUDGET" => "3",
+        "LETFLOW_PROVISIONER_EMAIL_DOMAIN_DAILY_BUDGET" => "9"
+      }
+
+      assert {:ok, %{provisioner: parsed}} = Config.parse(vars, :test)
+      assert parsed[:source_daily_budget] == 3 and parsed[:email_domain_daily_budget] == 9
+
+      for var <- Map.keys(vars), bad <- ["x", "-1", "100001"] do
+        assert {:error, ^var} = Config.parse(%{var => bad}, :test)
+      end
+    end
+
     test "SW8 defaults, parse and rejection of the three variables" do
       Application.delete_env(:letflow, Letflow.TenantProvisioner)
 

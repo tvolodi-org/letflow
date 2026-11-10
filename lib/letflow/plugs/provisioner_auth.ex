@@ -52,10 +52,10 @@ defmodule Letflow.Plugs.ProvisionerAuth do
   end
 
   @doc "Sends the `{error, message}` body of the provisioner API and halts."
-  @spec send_error(Plug.Conn.t(), pos_integer(), String.t(), String.t()) :: Plug.Conn.t()
-  def send_error(conn, status, code, message) do
+  @spec send_error(Plug.Conn.t(), pos_integer(), String.t(), String.t(), map()) :: Plug.Conn.t()
+  def send_error(conn, status, code, message, extra \\ %{}) do
     conn
-    |> Response.send_json(status, %{error: code, message: message})
+    |> Response.send_json(status, Map.merge(extra, %{error: code, message: message}))
     |> halt()
   end
 

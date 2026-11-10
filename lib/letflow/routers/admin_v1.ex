@@ -7,7 +7,7 @@ defmodule Letflow.Routers.AdminV1 do
 
   | Route | Class | Answer |
   |---|---|---|
-  | `POST /tenants` | write | 201 first time, 200 replay: `{tenant_id, status, server_url, handover}` |
+  | `POST /tenants` | write | 201 first time, 200 replay: `{tenant_id, status, server_url, handover}`; 409 `{error: conflict, limit?, message}` (`limit` only for the cap and the T-1621 source/e-mail-domain budgets) |
   | `GET /tenants/:id` | write or read | 200 `{tenant_id, status, tier, created_at, expires_at, purged_at}` |
   | `POST /tenants/:id/suspend`, `/resume`, `/expire` | write | 200 `{tenant_id, status}` |
   | `DELETE /tenants/:id` | write | 202 `{tenant_id, status}` (deactivated, waiting for retention), 200 `{tenant_id, status: "deleted"}` (purged), 409 `conflict` (production) |
@@ -38,6 +38,7 @@ defmodule Letflow.Routers.AdminV1 do
   alias Letflow.Api.Response
   alias Letflow.Plugs.ProvisionerAuth
   alias Letflow.TenantProvisioner
+  alias Letflow.TenantProvisioner.LimitMessages
   alias Letflow.TenantProvisioner.Request
 
   @max_body_bytes 16_384
@@ -168,6 +169,15 @@ defmodule Letflow.Routers.AdminV1 do
         "conflict",
         "the request conflicts with the current state"
       )
+
+  # T-1621: `error` stays `conflict`; `limit` names which limit was hit, `message` is in the request language.
+  defp send_failure(conn, {:limit, which, language}) do
+    code = LimitMessages.code(which)
+
+    ProvisionerAuth.send_error(conn, 409, "conflict", LimitMessages.text(code, language), %{
+      limit: code
+    })
+  end
 
   defp send_failure(conn, :not_found),
     do: ProvisionerAuth.send_error(conn, 404, "not_found", "no such tenant or route")

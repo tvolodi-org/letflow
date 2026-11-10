@@ -20,8 +20,11 @@ defmodule Letflow.TenantProvisioner do
   ## Demo cap and alarm (REQ-572 criterion 19)
 
   A create of a NEW tenant counts the `tenant_lifecycles` rows with tier `demo` and lifecycle not
-  `deleted`, under a transaction advisory lock; at `Config.demo_cap/0` it answers `{:error, :conflict}`
-  (409). A create that leaves the count at or above `Config.demo_alarm_threshold/0` logs one warning with
+  `deleted`, under a transaction advisory lock; at `Config.demo_cap/0` it answers
+  `{:error, {:limit, :demo_cap, language}}` (409 with `limit: demo_cap_reached`). T-1621 adds two rolling-24 h
+  budgets checked first under the same lock: per `source_key` digest and per owner e-mail domain digest
+  (`Config.source_daily_budget/0`, `Config.email_domain_daily_budget/0`; 0 = off), answering
+  `{:error, {:limit, :source_budget | :email_domain_budget, language}}`. A create that leaves the count at or above `Config.demo_alarm_threshold/0` logs one warning with
   the two integers. A replay of an existing tenant is never refused. The scheduled expire-and-purge is
   `Letflow.TenantProvisioner.Sweep`.
 
@@ -63,7 +66,8 @@ defmodule Letflow.TenantProvisioner do
 
   @type create_result ::
           {:ok, :created | :existing, map()}
-          | {:error, {:invalid, String.t()} | :conflict | :internal}
+          | {:error,
+             {:invalid, String.t()} | :conflict | :internal | {:limit, atom(), String.t()}}
 
   @doc """
   Creates the tenant of an already-validated request (`Request.parse/1`), or completes/replays it.
@@ -270,8 +274,11 @@ defmodule Letflow.TenantProvisioner do
           alarm_if_reached(demo_count)
           complete(request, tenant, lifecycle, platform_prefix, server_url, :created)
 
-        {:error, reason} when reason in [:exists, :cap] ->
+        {:error, :exists} ->
           {:error, :conflict}
+
+        {:error, {:limit, which}} ->
+          {:error, {:limit, which, request.language}}
       end
     end
   end
@@ -286,8 +293,22 @@ defmodule Letflow.TenantProvisioner do
         "SELECT pg_advisory_xact_lock(hashtextextended('letflow.provisioner.demo_cap', 0))"
       )
 
+      check_budget(
+        :source_ip_key,
+        request.source_ip_key,
+        Config.source_daily_budget(),
+        :source_budget
+      )
+
+      check_budget(
+        :email_domain_key,
+        request.email_domain_key,
+        Config.email_domain_daily_budget(),
+        :email_domain_budget
+      )
+
       demo_count = demo_count()
-      if demo_count >= Config.demo_cap(), do: Repo.rollback(:cap)
+      if demo_count >= Config.demo_cap(), do: Repo.rollback({:limit, :demo_cap})
 
       with {:ok, tenant} <- Identity.create_provisioned_tenant(attrs),
            {:ok, lifecycle} <-
@@ -298,6 +319,8 @@ defmodule Letflow.TenantProvisioner do
                  tier: request.tier,
                  language: request.language,
                  expires_at: request.expires_at,
+                 source_ip_key: request.source_ip_key,
+                 email_domain_key: request.email_domain_key,
                  default_modules_state:
                    if(Config.default_modules() == [], do: "done", else: "pending")
                })
@@ -312,6 +335,23 @@ defmodule Letflow.TenantProvisioner do
       {:ok, {tenant, lifecycle, count}} -> {:ok, tenant, lifecycle, count}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  # T-1621: creations by one key in the last 24 h, deleted tenants included (an abuse budget, not a live
+  # count). Parameterised on a bytea column (INV-7); a nil key or a budget of 0 skips the check.
+  defp check_budget(_field, nil, _budget, _which), do: :ok
+  defp check_budget(_field, _key, 0, _which), do: :ok
+
+  defp check_budget(field, key, budget, which) do
+    cutoff = DateTime.add(DateTime.utc_now(), -86_400, :second)
+
+    used =
+      Repo.aggregate(
+        from(l in Lifecycle, where: field(l, ^field) == ^key and l.inserted_at > ^cutoff),
+        :count
+      )
+
+    if used >= budget, do: Repo.rollback({:limit, which}), else: :ok
   end
 
   defp demo_count do
