@@ -53,6 +53,33 @@ defmodule Letflow.CiDocsOnlyTest do
     end
   end
 
+  test "T-1617: select returns only tests naming the changed path, plus the smoke set" do
+    run = fn list ->
+      {out, 0} =
+        System.cmd("bash", ["-c", "printf '%s' \"$1\" | bash \"$2\" select", "_", list, @script],
+          cd: @root
+        )
+
+      String.split(out, "\n", trim: true)
+    end
+
+    {all_out, 0} = System.cmd("bash", [@script, "files"], cd: @root)
+    all = String.split(all_out, "\n", trim: true)
+
+    picked = run.("docs/requirements.yaml\n")
+    assert "test/mix/tasks/letflow_check_requirements_registration_test.exs" in picked
+
+    assert Enum.all?(
+             picked,
+             &(&1 in all or &1 =~ "roles_scoped_approvers" or &1 =~ "form_schema_expressions")
+           )
+
+    unrelated = run.("docs/zz_" <> "nowhere/qzx_unique_name.md\n")
+    assert length(unrelated) <= 6
+    assert length(unrelated) < length(all)
+    refute "test/mix/tasks/letflow_check_requirements_registration_test.exs" in unrelated
+  end
+
   test "D3: the docs test list holds the tests that read docs/requirements.yaml" do
     {out, 0} = System.cmd("bash", [@script, "files"], cd: @root)
     files = String.split(out, "\n", trim: true)
@@ -135,7 +162,7 @@ defmodule Letflow.CiDocsOnlyTest do
     steps = Map.new(shard["steps"], &{&1["name"], &1})
     assert steps["Run test shard"]["if"] =~ "docs_only != 'true'"
     assert steps["Run docs tests (docs-only change)"]["if"] =~ "docs_only == 'true'"
-    assert steps["Run docs tests (docs-only change)"]["run"] =~ "ci_docs_only.sh files"
+    assert steps["Run docs tests (docs-only change)"]["run"] =~ "ci_docs_only.sh select"
     # static job is not gated on docs_only: the register consistency checks still run
     refute inspect(get_in(ci, ["jobs", "backend_static"])) =~ "docs_only"
   end
