@@ -107,10 +107,17 @@ export default function UsersPage() {
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '1.25rem' }}>
         <h2 style={{ margin: 0 }}>Users</h2>
         {canManage && (
-          <span style={{ marginLeft: 'auto' }} data-testid="admin-users-new">
-            <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
-              + New User
-            </Button>
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '.5rem' }}>
+            <span data-testid="admin-users-import">
+              <Button variant="secondary" size="sm" onClick={() => navigate('/admin/users/import')}>
+                {um.importButton}
+              </Button>
+            </span>
+            <span data-testid="admin-users-new">
+              <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+                + New User
+              </Button>
+            </span>
           </span>
         )}
       </div>

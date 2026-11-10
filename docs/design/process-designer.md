@@ -57,7 +57,9 @@ and the full timeline. The timeline is read page by page (page size 200) until `
 pages; while the instance is ACTIVE all pages are re-read every 2 s (5 s beyond 3 pages), and once more when it
 ends. Completion evidence is only `TASK_COMPLETED`, `SERVICE_TASK_COMPLETED`, `SCRIPT_TASK_COMPLETED` and
 `TIMER_FIRED` (the events with a top-level `node_id`); `EXECUTION_ERROR` and `SUB_PROCESS_COMPLETED` carry none.
-There is no node-entered event, so gateways, sub-processes and END are inferred.
+From REQ-793 the engine records a `NODE_ENTERED` event (`node_id`, `node_type`, `via_edge_id`) for every node a
+token enters, for moves committed after that deploy; instances that moved earlier have none, so gateways,
+sub-processes and END are still inferred for them (the screen requirement owns reading the new event).
 
 The rule (`web/src/utils/canvas/instancePath.ts`, "segment attribution") asserts only what holds in every run that
 agrees with the evidence; anything else is shown **Not certain** (dashed), never as a taken path:

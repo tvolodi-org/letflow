@@ -590,7 +590,8 @@ defmodule Letflow.EngineTest do
 
       assert projection_count(schema_name) == 1
       assert token_count(schema_name) == 1
-      assert event_count(schema_name) == 1
+      # INSTANCE_STARTED + NODE_ENTERED for START and the SERVICE_TASK (REQ-793)
+      assert event_count(schema_name) == 3
       assert snapshot_count(schema_name) == 1
 
       dispatch_rows =
