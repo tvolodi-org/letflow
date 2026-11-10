@@ -48,6 +48,7 @@ const platformAdmin: AccessInfo = {
     'InstancesStart',
     'MembershipsRead',
     'MetricsRead',
+    'ModuleRolloutsManage',
     'ModulesManage',
     'MyAccessRead',
     'MyModulesRead',

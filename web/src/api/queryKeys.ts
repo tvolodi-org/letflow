@@ -252,6 +252,13 @@ export const queryKeys = {
     status: (tenantId: string, rolloutId: string) => [...queryKeys.platformMigrations.all(tenantId), 'status', rolloutId] as const,
   },
 
+  /** T-1660 — platform module rollout operator screen. */
+  moduleRollouts: {
+    all: (tenantId: string) => ['tenant', tenantId, 'module-rollouts'] as const,
+    list: (tenantId: string) => [...queryKeys.moduleRollouts.all(tenantId), 'list'] as const,
+    status: (tenantId: string, rolloutId: string) => [...queryKeys.moduleRollouts.all(tenantId), 'status', rolloutId] as const,
+  },
+
   /** REQ-381 design §3.2 — solution-pack update review/apply screen. */
   solutionPackUpdate: {
     all: (tenantId: string) => ['tenant', tenantId, 'solutionPackUpdate'] as const,

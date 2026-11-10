@@ -130,6 +130,11 @@ export function useTenantScopedQueryKeys() {
       all: () => queryKeys.platformMigrations.all(tenantId),
       status: queryKeys.platformMigrations.status.bind(null, tenantId),
     },
+    moduleRollouts: {
+      all: () => queryKeys.moduleRollouts.all(tenantId),
+      list: () => queryKeys.moduleRollouts.list(tenantId),
+      status: queryKeys.moduleRollouts.status.bind(null, tenantId),
+    },
     solutionPackUpdate: {
       all: () => queryKeys.solutionPackUpdate.all(tenantId),
       review: queryKeys.solutionPackUpdate.review.bind(null, tenantId),

@@ -57,6 +57,7 @@ const GUARDED_ROUTES: GuardedRoute[] = [
   { path: 'admin/platform-migrations', url: '/admin/platform-migrations', permission: P.TenantsManage },
   { path: 'admin/event-retention', url: '/admin/event-retention', permission: P.TenantsManage },
   { path: 'admin/health', url: '/admin/health', permission: P.TenantsManage },
+  { path: 'admin/module-rollouts', url: '/admin/module-rollouts', permission: P.ModuleRolloutsManage },
   { path: 'admin/services', url: '/admin/services', permission: P.PlatformServicesManage },
 ]
 
