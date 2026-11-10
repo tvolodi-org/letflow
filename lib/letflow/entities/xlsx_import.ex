@@ -73,6 +73,7 @@ defmodule Letflow.Entities.XlsxImport do
   def convert_detailed(binary, fields, opts \\ []) when is_binary(binary) and is_list(fields) do
     upsert? = Keyword.get(opts, :upsert, false)
     max_rows = Keyword.get(opts, :max_rows, :infinity)
+    required = Keyword.get(opts, :required_headers, [])
 
     try do
       with :ok <- check_declared_size(binary),
@@ -81,6 +82,7 @@ defmodule Letflow.Entities.XlsxImport do
            {:ok, header, data} <- split_header(rows),
            field_types = CsvImport.field_types(fields),
            :ok <- check_header(header, field_types, upsert?),
+           :ok <- check_required(header, required),
            :ok <- check_cap(data, max_rows) do
         {:ok,
          Enum.map(data, fn {line, cells} ->
@@ -290,6 +292,17 @@ defmodule Letflow.Entities.XlsxImport do
       {:error, reason} ->
         {:error, Map.fetch!(@header_refusals, reason),
          %{headers: CsvImport.offending_headers(header, field_types, upsert?)}}
+    end
+  end
+
+  # T-1609: opt-in (`required_headers:`), so the record import is unchanged. A header that must be
+  # present is named, never a cell.
+  defp check_required(_header, []), do: :ok
+
+  defp check_required(header, required) do
+    case required -- header do
+      [] -> :ok
+      missing -> {:error, :xlsx_missing_header, %{headers: missing}}
     end
   end
 
