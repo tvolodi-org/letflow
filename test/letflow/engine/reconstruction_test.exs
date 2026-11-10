@@ -295,7 +295,8 @@ defmodule Letflow.Engine.ReconstructionTest do
       assert {:ok, result} = Reconstruction.reconstruct_instance(instance_id, prefix: schema_name)
 
       assert result.instance_id == instance_id
-      assert result.event_count == 3
+      # 3 durable events + 4 NODE_ENTERED (REQ-793)
+      assert result.event_count == 7
       assert result.write_back == :skipped
 
       projection = Repo.get!(InstanceProjection, instance_id, prefix: schema_name)
@@ -349,7 +350,7 @@ defmodule Letflow.Engine.ReconstructionTest do
       # with a small positive retention_days so all 3 are eligible.
       backdate_events!(schema_name, instance_id, 2)
 
-      assert {:ok, %{moved_count: 3}} =
+      assert {:ok, %{moved_count: 7}} =
                EventStore.archive(prefix: schema_name, retention_days: 1)
 
       assert {:ok, after_archive_result} =
@@ -379,7 +380,7 @@ defmodule Letflow.Engine.ReconstructionTest do
       assert {:ok, final_result} =
                Reconstruction.reconstruct_instance(instance_id, prefix: schema_name)
 
-      assert final_result.event_count == 4
+      assert final_result.event_count == 9
       assert final_result.instance_state.status == :completed
       assert final_result.instance_state.tokens == []
       assert final_result.instance_state.variables == %{"a" => 1, "b" => 2, "c" => 3, "d" => 4}
@@ -730,7 +731,8 @@ defmodule Letflow.Engine.ReconstructionTest do
       # 2 durable events on the parent's own stream: INSTANCE_STARTED, then
       # SUB_PROCESS_COMPLETED (the child's own completion never appends anything to
       # the PARENT's stream except this one event -- design doc §3.4 point 4).
-      assert result.event_count == 2
+      # (+ 3 NODE_ENTERED entries of the parent stream, REQ-793)
+      assert result.event_count == 5
       assert_state_matches_projection(result.instance_state, live_projection)
       assert result.instance_state.variables == %{"a" => 1, "result" => true}
       assert Enum.map(result.instance_state.tokens, & &1.node_id) == ["after"]
