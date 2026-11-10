@@ -152,6 +152,8 @@ export const queryKeys = {
     // See this file's moduledoc for why these stay exempt.
     all: ['admin'] as const,
     health: () => [...queryKeys.admin.all, 'health'] as const,
+    readiness: () => [...queryKeys.admin.all, 'readiness'] as const,
+    backupStatus: () => [...queryKeys.admin.all, 'backup-status'] as const,
     metrics: () => [...queryKeys.admin.all, 'metrics'] as const,
     tenants: (filters?: { search?: string; cursor?: string; page_size?: number }) =>
       [...queryKeys.admin.all, 'tenants', filters ?? {}] as const,

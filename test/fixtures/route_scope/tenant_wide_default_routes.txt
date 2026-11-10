@@ -70,6 +70,7 @@ GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage
 GET /platform-migrations/rollouts/:id TenantsManage
+GET /platform-status/backup TenantsManage
 GET /promotions PromotionsRead
 GET /promotions/:id PromotionsRead
 GET /promotions/:id/context PromotionsRead

@@ -93,6 +93,12 @@ defmodule Letflow.Api.PlatformPrefixUniform403Test do
          {:unmatched_subpath, :get, "/x/y/z/w", nil},
          {:unmatched_bare, :delete, "/", nil}
        ]},
+      {Letflow.Routers.PlatformStatus,
+       [
+         {:matched_existing, :get, "/backup", nil},
+         {:unmatched_subpath, :get, "/x/y/z/w", nil},
+         {:unmatched_bare, :delete, "/", nil}
+       ]},
       {Letflow.Routers.AdminServices,
        [
          {:matched_existing, :get, "/", nil},

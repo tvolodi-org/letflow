@@ -698,3 +698,14 @@ if config_env() == :prod do
         "https://placeholder-keycloak.invalid",
     client_id: System.get_env("OIDC_CLIENT_ID") || "letflow-placeholder-client"
 end
+
+# T-1607: optional directory holding the backup jobs' status files (`$BACKUP_ROOT/status`, see
+# scripts/backup/README.md). New because the web process may not see BACKUP_ROOT itself; the
+# operator mounts the status directory read-only or leaves this unset ("not configured here").
+# Read only by Letflow.BackupStatus; never a path taken from a request.
+config :letflow,
+       :backup_status_dir,
+       (case System.get_env("LETFLOW_BACKUP_STATUS_DIR") do
+          value when value in [nil, ""] -> nil
+          value -> value
+        end)

@@ -230,6 +230,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
     # The GLOBAL-PUBLIC routes of design 7.4 (never under ApiPipeline), plus the tenant logo read (REQ-591).
     @public_allowlist [
       {"lib/letflow/router.ex", "GET", "/health"},
+      {"lib/letflow/router.ex", "GET", "/ready"},
       {"lib/letflow/routers/login_discovery.ex", "POST", "/"},
       {"lib/letflow/routers/metrics_exposition.ex", "GET", "/"},
       {"lib/letflow/routers/mobile_tenant_config.ex", "GET", "/"},
@@ -339,7 +340,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
         assert entry in seen, "stale public allowlist entry #{inspect(entry)}"
       end
 
-      assert length(@public_allowlist) == 10
+      assert length(@public_allowlist) == 11
       assert length(@credential_allowlist) == 6
     end
 
@@ -530,6 +531,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
     {"POST", "/platform-migrations/rollouts"},
     {"GET", "/platform-migrations/rollouts/:id"},
     {"POST", "/platform-migrations/rollouts/:id/resume"},
+    {"GET", "/platform-status/backup"},
     {"GET", "/event-retention/summary"},
     {"POST", "/event-retention/retirements"},
     {"GET", "/event-retention/retirements/:id"},
@@ -542,13 +544,13 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   ]
 
   describe "G3: platform pinning" do
-    test "the routes whose permission is platform scope are exactly the 28 snapshot rows" do
+    test "the routes whose permission is platform scope are exactly the 29 snapshot rows" do
       actual =
         for {_router, method, path, key} <- all_routes(),
             Authorization.permission_scope(Authorization.required_permission(key)) == :platform,
             do: {method, path}
 
-      assert length(@platform_routes) == 28
+      assert length(@platform_routes) == 29
       assert Enum.sort(actual) == Enum.sort(@platform_routes)
     end
 

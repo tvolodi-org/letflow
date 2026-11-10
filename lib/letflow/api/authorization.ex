@@ -985,6 +985,10 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/platform-migrations/rollouts/:id/resume"),
     do: :TenantsManage
 
+  # T-1607 -- backup-status line for the platform operator (Letflow.Routers.PlatformStatus).
+  # Reuses :TenantsManage (platform scope), same risk class as the routers above. No new atom.
+  def endpoint_policy_key("GET", "/platform-status/backup"), do: :TenantsManage
+
   # REQ-377 -- platform-wide event-history retirement screen
   # (Letflow.Routers.EventRetention), a top-level sibling router mounted at
   # /event-retention (not under Letflow.Routers.Identity's own /identity

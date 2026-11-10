@@ -114,6 +114,13 @@ restore test: then the drill did not run). The weekly result is "posted" as that
 line; the scripts make no outbound call. The restore test runs on the host because GitHub runners cannot
 reach QA or demo (local disk only).
 
+The application also reads these files (T-1607) for the platform operator's Health page, as a hint only:
+set `LETFLOW_BACKUP_STATUS_DIR` to `$BACKUP_ROOT/status` (mounted read-only into the web process); unset means
+"not configured here". The line shows ok / failed / too old / no report per job (`GET /api/v1/platform-status/backup`,
+platform operator only). Its age limits are fixed: dump 30 h, base and restore test 8 days, prune none. Infra's own
+alerting stays the authority. `GET /ready` (public) names the failing part of the node: database, migrations,
+secrets key, identity provider.
+
 ## 5. Interface for infra
 
 | Item | Value |

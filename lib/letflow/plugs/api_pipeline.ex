@@ -288,6 +288,11 @@ defmodule Letflow.Plugs.ApiPipeline do
   # Letflow.Routers.PlatformMigrations' own moduledoc for the route table.
   forward("/platform-migrations", to: Letflow.Routers.PlatformMigrations)
 
+  # T-1607 -- the platform operator's backup-status line. Same structural reason as
+  # /platform-migrations: platform scope, gated by :TenantsManage. See
+  # Letflow.Routers.PlatformStatus' own moduledoc.
+  forward("/platform-status", to: Letflow.Routers.PlatformStatus)
+
   # REQ-377 -- the operator-facing platform-wide event-history retirement
   # screen's backend HTTP surface. Mounted here for the same structural
   # reason /platform-migrations is: a platform-wide, cross-tenant fanout

@@ -2268,6 +2268,7 @@ defmodule Letflow.Api.AuthorizationTest do
         {"POST", "/platform-migrations/rollouts", :TenantsManage},
         {"GET", "/platform-migrations/rollouts/:id", :TenantsManage},
         {"POST", "/platform-migrations/rollouts/:id/resume", :TenantsManage},
+        {"GET", "/platform-status/backup", :TenantsManage},
         {"GET", "/event-retention/summary", :TenantsManage},
         {"POST", "/event-retention/retirements", :TenantsManage},
         {"GET", "/event-retention/retirements/:id", :TenantsManage},

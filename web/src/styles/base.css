@@ -232,6 +232,13 @@ samp {
 .lf-msum__do { margin: 0; font: var(--type-body-s); color: var(--ink); }
 .lf-msum__routes { margin: 0; padding-inline-start: var(--space-4); font-family: var(--font-mono); overflow-wrap: anywhere; }
 .lf-health__do { margin: 0 0 var(--space-4); font: var(--type-body-s); }
+.lf-health__block { margin-top: var(--space-6); }
+.lf-health__title { margin: 0 0 var(--space-3); font: var(--type-body-s); font-weight: 700; }
+.lf-health__list { margin: 0; padding: 0; list-style: none; }
+.lf-health__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3); padding: var(--space-2) 0; }
+.lf-health__row .lf-health__do { margin: 0; flex-basis: 100%; }
+.lf-health__name { font: var(--type-body-s); }
+.lf-health__when { font: var(--type-mono-s); white-space: nowrap; }
 
 /* T-1553: the stacked table's single-cell rows (empty list, load error) are one full-width cell, not a label + value
    grid; in the 9.5em label column the empty-state box was squeezed and pushed off the 390 px screen. */
