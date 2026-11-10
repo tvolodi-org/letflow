@@ -441,4 +441,178 @@ defmodule Letflow.ModuleUpgrade.FleetTest do
       assert Fleet.status(started.rollout.id) == {:ok, started}
     end
   end
+
+  # ── T-1640 W4..W11: the optional per-tenant upgrade window ───────────────────────────
+
+  describe "window" do
+    alias Letflow.Identity.Tenant
+
+    @noon ~U[2026-11-10 12:00:00.000000Z]
+
+    # Window stored as the settings key would hold it; zone UTC so the instants below are local.
+    defp window!(t, window, zone \\ "UTC") do
+      settings = %{"timezone" => zone, "module_upgrade.window" => window}
+
+      {1, _} =
+        Repo.update_all(from(x in Tenant, where: x.id == ^t.tenant_id), set: [settings: settings])
+    end
+
+    defp aged!(n) do
+      tenants = tenants!(n)
+      Enum.each(tenants, &age!(&1.schema_name))
+      tenants
+    end
+
+    defp win(s, e), do: %{"start" => s, "end" => e}
+
+    test "W4 no window: upgraded at any time", ctx do
+      [t1] = tenants = aged!(1)
+
+      assert {:ok, r} =
+               Fleet.start("stock", ctx.actor, only(tenants) ++ [now: ~U[2026-11-10 03:00:00Z]])
+
+      assert outcome_of(r, t1).status == "succeeded"
+    end
+
+    test "W5 W8 W11 inside is upgraded, outside is outside_window and untouched; a later call finishes",
+         ctx do
+      [t1, t2, t3] = tenants = aged!(3)
+      window!(t1, win("09:00", "17:00"))
+      window!(t2, win("13:00", "17:00"))
+      # t3 has no window
+
+      opts = only(tenants)
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, opts ++ [now: @noon])
+      assert statuses(r, [t1, t2, t3]) == ["succeeded", "outside_window", "succeeded"]
+      assert r.rollout.status == "running"
+
+      deferred = outcome_of(r, t2)
+      assert deferred.error_code == nil
+      assert deferred.plan_hash == nil
+      assert deferred.completed_at == nil
+      assert row(t2.schema_name).version == @old_version
+      assert journal_done(t2.schema_name) == []
+      assert row(t1.schema_name).version == ctx.compiled_version
+      # the response rows carry ids and codes only: no window value
+      refute inspect(r.outcomes) =~ "13:00"
+
+      # still outside: stays deferred, rollout stays running
+      assert {:ok, r2} = Fleet.start("stock", ctx.actor, opts ++ [now: @noon])
+      assert outcome_of(r2, t2).status == "outside_window"
+      assert r2.rollout.status == "running"
+
+      assert {:ok, r3} = Fleet.start("stock", ctx.actor, opts ++ [now: ~U[2026-11-10 14:00:00Z]])
+      assert outcome_of(r3, t2).status == "succeeded"
+      assert r3.rollout.status == "completed"
+      assert row(t2.schema_name).version == ctx.compiled_version
+    end
+
+    test "W6 a window across midnight; end is exclusive", ctx do
+      [t1, t2, t3] = tenants = aged!(3)
+      Enum.each(tenants, &window!(&1, win("22:00", "04:00")))
+
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, only(tenants) ++ [now: @noon])
+      assert Enum.all?(r.outcomes, &(&1.status == "outside_window"))
+
+      assert {:ok, r} =
+               Fleet.start("stock", ctx.actor, only([t1]) ++ [now: ~U[2026-11-10 04:00:00Z]])
+
+      assert outcome_of(r, t1).status == "outside_window"
+
+      assert {:ok, r} =
+               Fleet.start("stock", ctx.actor, only([t1]) ++ [now: ~U[2026-11-10 23:30:00Z]])
+
+      assert outcome_of(r, t1).status == "succeeded"
+
+      assert {:ok, r} =
+               Fleet.start("stock", ctx.actor, only([t2]) ++ [now: ~U[2026-11-11 03:00:00Z]])
+
+      assert outcome_of(r, t2).status == "succeeded"
+      assert outcome_of(r, t3).status == "outside_window"
+    end
+
+    test "W6b the window is judged in the tenant's own zone", ctx do
+      [t1] = tenants = aged!(1)
+      # 12:00 UTC is 17:00 in Asia/Almaty (UTC+5): inside 16:00-18:00 there, outside in UTC
+      window!(t1, win("16:00", "18:00"), "Asia/Almaty")
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, only(tenants) ++ [now: @noon])
+      assert outcome_of(r, t1).status == "succeeded"
+    end
+
+    test "W7 outside_window is neutral for the halt count", ctx do
+      Application.put_env(:letflow, :module_rollout_halt_after, 2)
+      [a, b, c] = tenants = tenants!(3)
+      Enum.each([a, c], fn t -> age!(t.schema_name) && class_c!(t.schema_name) end)
+      age!(b.schema_name)
+      window!(b, win("13:00", "14:00"))
+
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, only(tenants) ++ [now: @noon])
+      assert statuses(r, [a, b, c]) == ["failed", "outside_window", "failed"]
+      assert r.rollout.status == "halted"
+      assert r.rollout.consecutive_failures == 2
+    end
+
+    test "W7b deferred tenants alone never halt, even with halt_after 1", ctx do
+      Application.put_env(:letflow, :module_rollout_halt_after, 1)
+      tenants = aged!(3)
+      Enum.each(tenants, &window!(&1, win("13:00", "14:00")))
+
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, only(tenants) ++ [now: @noon])
+      assert Enum.all?(r.outcomes, &(&1.status == "outside_window"))
+      assert r.rollout.status == "running"
+      assert r.rollout.consecutive_failures == 0
+    end
+
+    test "W7c resume also re-checks windows and picks deferred tenants up", ctx do
+      [t1] = tenants = aged!(1)
+      window!(t1, win("13:00", "14:00"))
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, only(tenants) ++ [now: @noon])
+      assert outcome_of(r, t1).status == "outside_window"
+
+      assert {:ok, r2} =
+               Fleet.resume(
+                 r.rollout.id,
+                 ctx.actor,
+                 only(tenants) ++ [now: ~U[2026-11-10 13:30:00Z]]
+               )
+
+      assert outcome_of(r2, t1).status == "succeeded"
+      assert r2.rollout.status == "completed"
+    end
+
+    test "W9 deferred rows do not starve pending ones inside a batch", ctx do
+      Application.put_env(:letflow, :module_rollout_batch, 2)
+      [t1, t2, t3, t4] = tenants = aged!(4)
+      Enum.each([t1, t2, t3], &window!(&1, win("13:00", "14:00")))
+
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, only([t1, t2, t3]) ++ [now: @noon])
+      assert Enum.count(r.outcomes, &(&1.status == "outside_window")) == 2
+      assert Enum.count(r.outcomes, &(&1.status == "pending")) == 1
+
+      # the next call has two deferred rows and two pending: the pending ones go first
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, only(tenants) ++ [now: @noon])
+      assert outcome_of(r, t4).status == "succeeded"
+      assert Enum.count(r.outcomes, &(&1.status == "outside_window")) == 3
+    end
+
+    test "W10 an invalid stored window or an unknown zone is treated as no window", ctx do
+      [t1, t2] = tenants = aged!(2)
+      window!(t1, win("zz", "yy"))
+      window!(t2, win("13:00", "14:00"), "Mars/Olympus")
+
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, only(tenants) ++ [now: @noon])
+      assert statuses(r, [t1, t2]) == ["succeeded", "succeeded"]
+    end
+
+    test "W11 one tenant's window never defers another tenant", ctx do
+      [a, b] = tenants = aged!(2)
+      window!(a, win("13:00", "14:00"))
+
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, only(tenants) ++ [now: @noon])
+      assert outcome_of(r, a).status == "outside_window"
+      assert outcome_of(r, b).status == "succeeded"
+      assert row(b.schema_name).version == ctx.compiled_version
+      assert row(a.schema_name).version == @old_version
+    end
+  end
 end

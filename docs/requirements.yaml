@@ -53640,6 +53640,29 @@ requirements:
       - "7. Purging a tenant removes its outcome rows (TenantPurge), so the tenant FK never blocks a purge."
       - "8. Not in this requirement: the per-tenant upgrade window and the admin screen (parts 2 and 3)."
     depends_on: [REQ-773]
+  - id: REQ-795
+    title: "Runtime updates, slice 6 part 2: optional per-tenant upgrade window for the fleet driver (tenant setting module_upgrade.window, outside_window outcome)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-787 -- delivered by task T-1640 itself; no separate issue
+    # Source: task T-1640 (B5#5, part 2); docs/uat/ba-decisions/T-1631.md item 5; REQ-787 criterion 8. The platform-operator screen (part 3) is a later web task.
+    description: >
+      A tenant may say when a fleet rollout (REQ-787) may touch it. The tenant setting module_upgrade.window holds
+      {start, end} as HH:MM in the tenant's own time zone (may cross midnight, end exclusive); no window means any time
+      (UAT assumption, the owner confirms). The fleet driver leaves a tenant outside its window untouched with the
+      outcome status outside_window, which is open work, neutral for the halt count and tried again by the next start
+      or resume call. No new route, permission, migration or env var.
+    acceptance_criteria:
+      - "1. module_upgrade.window is in the closed tenant settings vocabulary; null or absent is allowed; a map with exactly the keys start and end, both HH:MM (00:00 to 23:59) and different, is accepted; anything else is refused by PATCH /tenant/settings with an error that does not echo the value."
+      - "2. Letflow.Identity.TenantTimezone.local_time/2 returns the wall-clock time of a UTC instant in a zone, and {:error, :invalid_timezone} for an unknown zone."
+      - "3. Fleet.start/2 and resume/2 upgrade a tenant with no window at any time and a tenant inside its window; a tenant outside its window gets the outcome outside_window, its schema and journal are untouched, and the rollout stays running."
+      - "4. A window crossing midnight is judged on the tenant's wall clock; the end is exclusive."
+      - "5. outside_window neither raises nor resets the consecutive failure count; deferred tenants alone never halt a rollout."
+      - "6. Pending outcomes are processed before deferred ones in a batch, so deferred tenants cannot starve the rest."
+      - "7. A stored invalid window or an unknown time zone is treated as no window."
+      - "8. One tenant's window never defers another tenant; rollout responses carry no window value; the setting is written only by the tenant's own admin through PATCH /tenant/settings (a token of tenant B cannot change tenant A)."
+    depends_on: [REQ-787]
   - id: REQ-791
     title: "Tenant administrator: add users from an xlsx list (template, row/column error report, partial fix, re-upload) - server part"
     owner: ELIXIR-DEV

@@ -66,6 +66,10 @@ and counts.
   default 3, range 1 to 1000, read at boot): the platform fleet driver
   (`/platform-module-rollouts`, permission `ModuleRolloutsManage`) halts a rollout after this many
   consecutive failed tenants; `POST /platform-module-rollouts/:id/resume` continues it.
+- **Fleet window.** A tenant admin may set `module_upgrade.window` (`{"start": "HH:MM", "end": "HH:MM"}` in the
+  tenant time zone, may cross midnight) with `PATCH /tenant/settings`; none means any time. A rollout leaves a
+  tenant outside its window as `outside_window` (open work, not a failure, not counted by the halt); the operator
+  repeats `POST /platform-module-rollouts` or `.../:id/resume` and each call re-checks the window. No timer runs it.
 
 - **Locks.** The apply holds the instance sequence lock of each step's type to the end of the
   transaction (writers of that one type wait; other types and modules do not), then locks the

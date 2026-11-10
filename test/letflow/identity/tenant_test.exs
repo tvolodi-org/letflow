@@ -408,11 +408,48 @@ defmodule Letflow.Identity.TenantTest do
       assert %{settings: [_]} = errors_on(changeset)
     end
 
-    test "REQ-595 A1 / REQ-703 TZ-1: the closed vocabulary is exactly the ten keys" do
+    test "REQ-595 A1 / REQ-703 TZ-1 / T-1640 W1: the closed vocabulary is exactly the eleven keys" do
       assert Enum.sort(Letflow.Identity.TenantSettings.allowed_keys()) ==
                Enum.sort(
-                 ~w(app_name logo_url brand_colors locales default_locale signatory_name signatory_title timezone ui.document_layout_default notifications.email_copy)
+                 ~w(app_name logo_url brand_colors locales default_locale signatory_name signatory_title timezone ui.document_layout_default notifications.email_copy module_upgrade.window)
                )
+    end
+
+    test "T-1640 W1b: module_upgrade.window takes nil or a valid {start, end}" do
+      tenant = insert_tenant!()
+
+      for ok <- [
+            nil,
+            %{"start" => "22:00", "end" => "04:00"},
+            %{"start" => "00:00", "end" => "23:59"}
+          ] do
+        assert Tenant.settings_changeset(tenant, %{"settings" => %{"module_upgrade.window" => ok}}).valid?
+      end
+    end
+
+    @tag timeout: 60_000
+    test "T-1640 W2: malformed windows are refused without echoing the value" do
+      tenant = insert_tenant!()
+
+      bad = [
+        %{"start" => "09:00"},
+        %{"start" => "09:00", "end" => "10:00", "extra" => "x"},
+        %{"start" => "24:00", "end" => "10:00"},
+        %{"start" => "9:00", "end" => "10:00"},
+        %{"start" => "09:60", "end" => "10:00"},
+        %{"start" => "09:00", "end" => "09:00"},
+        %{"start" => 900, "end" => "10:00"},
+        "22:00-04:00",
+        42
+      ]
+
+      for b <- bad do
+        cs = Tenant.settings_changeset(tenant, %{"settings" => %{"module_upgrade.window" => b}})
+        refute cs.valid?
+        assert %{settings: [msg]} = errors_on(cs)
+        assert msg =~ "module_upgrade.window must be"
+        refute msg =~ "22:00"
+      end
     end
 
     test "T-1571 E3/E4: notifications.email_copy takes true, false or nil only" do
