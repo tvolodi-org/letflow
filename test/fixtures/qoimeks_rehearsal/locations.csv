@@ -1,0 +1,6 @@
+loc_code,loc_name,loc_parent
+SHELF-A1,Sample shelf A1,ZONE-A
+ZONE-A,Sample zone A,WH-1
+WH-1,Sample warehouse,
+SHELF-B1,Sample shelf B1,ZONE-B
+ZONE-B,Sample zone B,WH-1

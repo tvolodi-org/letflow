@@ -509,4 +509,11 @@ defmodule Letflow.CiBackendPathFilterTest do
                run_filter(["lib/letflow/modules/stock/documents/shape.ex"])
     end
   end
+
+  # T-1616 (CP-5): backend tests execute the Qoimeks converter, so a converter-only change must run the backend gate.
+  describe "pilot converter script" do
+    test "scripts/pilot/qoimeks_convert.py alone sets backend=true" do
+      assert %{"backend" => "true"} = run_filter(["scripts/pilot/qoimeks_convert.py"])
+    end
+  end
 end
