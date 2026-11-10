@@ -58,14 +58,11 @@ def is_placeholder(value: str) -> bool:
         return True
     if len(v) < 8:
         return True
-    if _IDENT.match(v):  # a bare identifier / field name, not a credential
-        # snake_case with random capitals (Ab_cdEf) is more likely a password than a name
-        if re.search(r"[.:/]", v):
-            # a dotted value is a reference only when it looks like code: a known accessor
-            # (`params.password`) or a CamelCase module path; `kqjwhzpx.mvbtrnsd` stays a finding
-            return bool(_CODE_REF.match(v))
-        if not (re.search(r"[a-z]", v) and re.search(r"[A-Z]", v)):
-            return True
+    if re.search(r"[.:/]", v) and _IDENT.match(v):
+        # a dotted value is a reference only when it looks like code: a known accessor
+        # (`params.password`) or a CamelCase module path; `kqjwhzpx.mvbtrnsd` stays a finding.
+        # Underscore-only values (`kqjwhzpx_mvbtrnsd`) are literals too: never suppressed.
+        return bool(_CODE_REF.match(v))
     return False
 
 

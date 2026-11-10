@@ -46,14 +46,14 @@ counts. The raw scanner output (masked hints are still partial secrets) is kept 
 
 ## 3. Findings by severity
 
-Totals of the run: C = 6, H = 601, M = 223, L = 8,800 (tree and history rows together; most history rows repeat a
-tree row). The audit was re-run after the review changed the credential filter twice: a password is no longer ignored
-for having no digit, containing the word `test`, containing a period, or starting with `@`. Only explicit code
-references are skipped (`$VAR`, `${VAR}`, `:atom`, `@module_attr`, `params.password`-style accessors, CamelCase module
-paths). That raised H from 116 to 559 and then to 601 (rule S13: 284 tree rows in 178 files, 222 of the rows under
-`test/`, 51 under `handoffs/`: fixture passwords of tests and transcripts); C stayed at 6, all of them the F1 token.
-The non-test, non-handoff S13 rows (config/runtime.exs, three `docs/issues` files, `docs/requirements.yaml`, the two
-realm templates, `scripts/e2e/stack_up.sh`, `scripts/uat_preflight.sh`) are the same set as before the second change;
+Totals of the run: C = 6, H = 889, M = 223, L = 8,800 (tree and history rows together; most history rows repeat a
+tree row). The audit was re-run after the review changed the credential filter three times: a password is no longer ignored
+for having no digit, containing the word `test`, containing a period, containing an underscore, or starting with `@`. Only explicit code
+references are skipped (an underscore-only value such as `kqjwhzpx_mvbtrnsd` is a literal and is reported) (`$VAR`, `${VAR}`, `:atom`, `@module_attr`, `params.password`-style accessors, CamelCase module
+paths). That raised H from 116 to 559, 601 and then 889 (rule S13: 427 tree rows in 294 files, 358 of the rows under
+`test/`, 56 under `handoffs/`: fixture passwords of tests and transcripts); C stayed at 6, all of them the F1 token.
+The non-test, non-handoff S13 rows (config/runtime.exs, three `docs/issues` files (ISS-0002, 0018, 0046, 0886), `docs/requirements.yaml`, the two
+realm templates, `scripts/e2e/stack_up.sh`, `scripts/uat_preflight.sh`) are the same set as before plus ISS-0886 (prose, masked hint `**`);
 they were opened and are field names, environment-variable reads, prose or the local e2e stack's own throw-away
 accounts (F7); none is a live credential.
 
@@ -65,7 +65,7 @@ accounts (F7); none is a live credential.
 | F4 | infra: public Cloudflare ranges in the nginx config and one handoff; example addresses and version strings in tests and specs | I01 | `deploy/`, `handoffs/`, `test/`, `docs/` | 38 | n/a | yes | keep (public data / not addresses) |
 | F5 | personal data: the owner's personal address in git-identity transcripts | P01 | `handoffs/` (4), `docs/issues/ISS-0350.yaml`, one design file, one test | 7 | 2026-08/09 | yes | move-private (handoffs); keep none in docs |
 | F6 | personal data: dummy addresses (`x.com`, `b.com`, `x.kz`, `host.tld` ...) | P01 | tests, specs | 28 | n/a | yes | keep |
-| F7 | secret-shaped but not secret: password policy text, field names, `${VAR}` references, fake JWT constants in tests and a design note, `Bearer` placeholders | S11, S13 | tests, docs, `priv/keycloak/provisioner`, `scripts/e2e/stack_up.sh` | 8 + 284 | n/a | yes | keep (false positives) |
+| F7 | secret-shaped but not secret: password policy text, field names, `${VAR}` references, fake JWT constants in tests and a design note, `Bearer` placeholders | S11, S13 | tests, docs, `priv/keycloak/provisioner`, `scripts/e2e/stack_up.sh` | 8 + 427 | n/a | yes | keep (false positives) |
 | F8 | internal-only text: operator transcripts and agent hand-offs | none (path class) | `handoffs/` (3,864 files, incl. `orchestrator.log`, `registry.json`) | 3,864 | 2026-08 | yes | move-private (see section 7) |
 | F9 | internal-only text: local Windows user paths and the predecessor system path | N02 | `handoffs/` (414), `lib/letflow/design` and docs (about 120), tests, `docker-compose.yml`, `CLAUDE.md` | 596 | 2026-08 | yes | remove from tree (docs, compose comment); handoffs with F8 |
 | F10 | customer and partner wording: BilimBaga, Qoimeks | N01 | tests, docs, `web/`, `lib/`, `priv/` seeds, `docs/uat`, handoffs | about 400 | 2026-08 | yes | see section 6 |

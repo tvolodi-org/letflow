@@ -328,13 +328,13 @@ defmodule Letflow.Scripts.OssAuditTest do
     commit_file(
       repo,
       "pw2.env",
-      "DB_PASSWORD=" <> "kqjwhzpx." <> "mvbtrnsd\nAPP_PASSWORD=" <> "@Zq7Rk" <> "mTnXwPb3Lc9Yd\n"
+      "DB_PASSWORD=" <> "kqjwhzpx." <> "mvbtrnsd\nUS_PASSWORD=" <> "kqjwhzpx_" <> "mvbtrnsd\nAPP_PASSWORD=" <> "@Zq7Rk" <> "mTnXwPb3Lc9Yd\n"
     )
 
     commit_file(repo, "ref.ex", "password = params.password\nsecret = @secret_key\n")
 
     {out, 0} = run(repo, ["--tree"])
-    assert Enum.count(rows(out), &(&1.path == "pw2.env")) == 2
+    assert Enum.count(rows(out), &(&1.path == "pw2.env")) == 3
     assert Enum.count(rows(out), &(&1.path == "ref.ex")) == 0
   end
 
