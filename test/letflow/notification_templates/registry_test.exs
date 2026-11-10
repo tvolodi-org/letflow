@@ -11,7 +11,7 @@ defmodule Letflow.NotificationTemplates.RegistryTest do
 
   test "R1 the four keys have the exact allow-lists" do
     assert Registry.keys() ==
-             ~w(asset_expiry_reminder exam_assigned exam_reminder exam_result task_assigned)
+             ~w(asset_expiry_reminder exam_assigned exam_reminder exam_result password_reset_hint task_assigned)
 
     for key <- ~w(exam_assigned exam_reminder),
         do:
@@ -25,6 +25,8 @@ defmodule Letflow.NotificationTemplates.RegistryTest do
 
     assert Registry.placeholders("asset_expiry_reminder") ==
              ~w(asset_name asset_code expiry_date responsible_name tenant_name)
+
+    assert Registry.placeholders("password_reset_hint") == ~w(user_name tenant_name)
 
     assert Registry.fetch("other") == :error
     assert Registry.placeholders("other") == []
