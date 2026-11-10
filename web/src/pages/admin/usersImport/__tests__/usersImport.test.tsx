@@ -182,6 +182,24 @@ describe('U15 stale answer, U16 duplicate email', () => {
     expect(screen.getByTestId('users-import-confirm')).toBeDisabled()
     expect(clientMock.postRaw).toHaveBeenCalledTimes(1)
   })
+  it('U15b a real import finished after a file swap keeps its report and invalidates the list', async () => {
+    const qc = new QueryClient()
+    const key = ['tenant', 't1', 'admin', 'users', { search: 'ann' }]
+    qc.setQueryData(key, { items: [] })
+    let resolveImport: (v: unknown) => void = () => {}
+    clientMock.postRaw
+      .mockResolvedValueOnce({ dry_run: true, results: [ok(2, 'created')] })
+      .mockReturnValueOnce(new Promise((r) => (resolveImport = r)))
+    renderPage(qc)
+    chooseFile(xlsxFile('a.xlsx'))
+    fireEvent.click(screen.getByTestId('users-import-check'))
+    await waitFor(() => expect(screen.getByTestId('users-import-confirm')).toBeEnabled())
+    fireEvent.click(screen.getByTestId('users-import-confirm'))
+    chooseFile(xlsxFile('b.xlsx'))
+    resolveImport({ results: [ok(2, 'created')], applied: true })
+    await screen.findByTestId('users-import-summary')
+    await waitFor(() => expect(qc.getQueryState(key)?.isInvalidated).toBe(true))
+  })
   it('U16 duplicate email gets its own text in en, ru, kk and in the CSV', () => {
     const row = refused(3, 'user_duplicate_in_file', 'email')
     const want = { en: /email/i, ru: /почты/, kk: /пошта/ }

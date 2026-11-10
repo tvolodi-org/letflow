@@ -207,8 +207,11 @@ function UsersImportPageInner() {
     setPhase({ name: 'working', what: dryRun ? 'check' : 'import' })
     try {
       const answer = await runUsersImport(file, dryRun)
-      if (mine !== runSeq.current) return
       if (!Array.isArray(answer?.results)) throw new Error('unexpected import answer')
+      // A stale dry-run answer is dropped (it must not authorize another file). A real import that
+      // wrote users is never dropped: its report and the list invalidation must survive a file swap.
+      const stale = mine !== runSeq.current
+      if (stale && (dryRun || answer.applied === false)) return
       if (dryRun) setPhase({ name: 'checked', answer })
       else if (answer.applied === false) {
         // Rolled back: nothing was written. The file picker is cleared for the corrected file.
