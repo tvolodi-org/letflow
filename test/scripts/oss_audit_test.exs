@@ -421,6 +421,22 @@ defmodule Letflow.Scripts.OssAuditTest do
     end
   end
 
+  # ---- O18 --rev-range cannot smuggle a file-writing or helper-running git option
+
+  test "O18 --rev-range refuses --output and diff-helper options", %{tmp_dir: dir} do
+    repo = new_repo(dir)
+    commit_file(repo, "a.txt", "hello\n")
+    target = Path.join(dir, "written.txt")
+
+    for opt <- ["--output=#{target}", "--ext-diff", "--textconv"] do
+      {_out, code} = run(repo, ["--history", "--rev-range", "HEAD " <> opt])
+      assert code == 2, "#{opt} was not refused"
+    end
+
+    refute File.exists?(target)
+    assert File.read!(@scanner) =~ "\"--no-textconv\""
+  end
+
   # ---- O12 sqlite
 
   test "O12 a secret in a SQLite column is found in history under file#table.column", %{

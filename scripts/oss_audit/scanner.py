@@ -32,6 +32,7 @@ WINDOW = 20000
 OVERLAP = 256
 MAX_FILE = 50 * 1024 * 1024
 BLOB_CAP = 2000
+UNSAFE_LOG_OPTS = ("--output", "--ext-diff", "--textconv", "--exec", "--upload-pack")
 OWN_PREFIXES = ("scripts/oss_audit/", "test/scripts/oss_audit_test.exs", "docs/open-source/audit-report.md")
 
 PATH_CLASSES = [
@@ -409,7 +410,8 @@ def clean_path(raw):
 
 def scan_history(root, store, cov, noise, rev_args):
     cmd = ["-C", root, "log"] + (rev_args or ["--all"]) + [
-        "--no-color", "-p", "-U0", "-m", "--no-renames", "--no-ext-diff", "--format=C %H %ct %P"]
+        "--no-color", "-p", "-U0", "-m", "--no-renames", "--no-ext-diff", "--no-textconv",
+        "--format=C %H %ct %P"]
     proc = spawn(cmd)
     commit, ts, path, in_header = "", 0, None, False
     seen = set()
@@ -510,6 +512,12 @@ def main(argv=None):
     if a.check_file:
         return check_file(a.check_file)
 
+    rev_tokens = a.rev_range.split() if a.rev_range else []
+    # --rev-range is passed to `git log`: refuse options that write files or run diff helpers (read-only audit).
+    if any(t.startswith(UNSAFE_LOG_OPTS) for t in rev_tokens):
+        sys.stderr.write("--rev-range: refused option (only revisions and read-only log filters)\n")
+        return 2
+
     top = subprocess.run([GIT, "-C", a.repo, "rev-parse", "--show-toplevel"], capture_output=True)
     if top.returncode != 0:
         sys.stderr.write("not a git repository\n")
@@ -532,7 +540,7 @@ def main(argv=None):
     if do_tree:
         scan_tree(root, store, cov, a.include_noise)
     if do_hist and not STATE["deadline"]:
-        rev = a.rev_range.split() if a.rev_range else None
+        rev = rev_tokens or None
         scan_history(root, store, cov, a.include_noise, rev)
     refs = len(git_out(["-C", root, "for-each-ref"]).splitlines()) if not STATE["deadline"] else -1
     STATE["done"].set()

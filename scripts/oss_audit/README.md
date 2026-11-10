@@ -10,7 +10,7 @@ rules. It never changes the repository: it runs `git log`, `ls-files`, `rev-pars
 | Option | Meaning |
 |---|---|
 | `--tree`, `--history` | scan only one of them (default: both) |
-| `--rev-range R` | restrict the history scan (default `--all`); the coverage line then says INCOMPLETE |
+| `--rev-range R` | restrict the history scan (default `--all`); the coverage line then says INCOMPLETE. Options that write files or run diff helpers (`--output`, `--ext-diff`, `--textconv`) are refused with exit 2 |
 | `--budget-seconds N` | wall-clock deadline for the whole run (default 900). At the deadline the git process group is killed, the run prints `PARTIAL` and exits 3. A failed git read, an unreadable tracked file or a history commit count that differs from `rev-list --all --count` prints `INCOMPLETE (...)` and exits 4 |
 | `--format tsv\|json`, `--out FILE` | output format and target (default tsv on stdout) |
 | `--include-noise` | also run the noise rules S14 (entropy) and I02 (private IPs) |
