@@ -7,6 +7,8 @@ export const SLOW_SHARE_RED = 0.05
 export const SLOW_BOUNDARY_SECONDS = 1
 export const REFRESH_STALE_WARN_SECONDS = 10 * 60
 export const REFRESH_STALE_RED_SECONDS = 30 * 60
+export const POOL_SHARE_WARN = 0.7
+export const POOL_SHARE_RED = 0.9
 
 export type FigureStatus = 'ok' | 'warn' | 'red' | 'unknown'
 
@@ -16,12 +18,20 @@ export type FigureId =
   | 'slowDb'
   | 'slowAppend'
   | 'refresh'
+  | 'pool'
 
 export interface Figure {
   id: FigureId
   status: FigureStatus
   /** Per-minute rate, share (0..1) or age in seconds, depending on the figure; null when not measurable yet. */
   value: number | null
+  /** Pool figure only: slots held and the cap, for the card text. */
+  pool?: PoolUse
+}
+
+export interface PoolUse {
+  inUse: number
+  cap: number
 }
 
 export interface ErrorRoute {
@@ -33,6 +43,8 @@ const REQUESTS = 'letflow_http_requests_total'
 const ERRORS = 'letflow_http_errors_total'
 const DB_HIST = 'letflow_db_query_duration_seconds'
 const APPEND_HIST = 'letflow_event_append_duration_seconds'
+const POOL_IN_USE = 'letflow_db_admission_in_use'
+const POOL_CAP = 'letflow_db_admission_cap'
 const REFRESH = 'letflow_active_instances_last_refresh_timestamp_seconds'
 
 function family(families: PrometheusMetricFamily[], name: string): PrometheusMetricFamily | undefined {
@@ -118,6 +130,21 @@ export function refreshStatus(age: number | null): FigureStatus {
   return 'ok'
 }
 
+/** Admission slots held and the cap; null when either gauge is absent or the cap is not positive. */
+export function poolUse(families: PrometheusMetricFamily[]): PoolUse | null {
+  const inUse = family(families, POOL_IN_USE)?.samples[0]?.value
+  const cap = family(families, POOL_CAP)?.samples[0]?.value
+  if (inUse === undefined || cap === undefined || !(cap > 0) || inUse < 0) return null
+  return { inUse, cap }
+}
+
+export function poolStatus(share: number | null): FigureStatus {
+  if (share === null) return 'unknown'
+  if (share >= POOL_SHARE_RED) return 'red'
+  if (share >= POOL_SHARE_WARN) return 'warn'
+  return 'ok'
+}
+
 export interface Reading {
   families: PrometheusMetricFamily[]
   /** Seconds since epoch of the moment the data was fetched. */
@@ -141,11 +168,14 @@ export function buildSummary(prev: Reading | null, curr: Reading, nowSeconds: nu
   const dbShare = histogramShare(curr.families, DB_HIST, SLOW_BOUNDARY_SECONDS)
   const appendShare = histogramShare(curr.families, APPEND_HIST, SLOW_BOUNDARY_SECONDS)
   const age = refreshAgeSeconds(curr.families, nowSeconds)
+  const pool = poolUse(curr.families)
+  const poolShare = pool ? Math.min(1, pool.inUse / pool.cap) : null
   return [
     { id: 'requests', status: sumFamily(curr.families, REQUESTS) === null ? 'unknown' : 'ok', value: reqRate },
     { id: 'errors', status: errorStatus(errRate, reqRate, errTotal), value: errRate },
     { id: 'slowDb', status: shareStatus(dbShare), value: dbShare },
     { id: 'slowAppend', status: shareStatus(appendShare), value: appendShare },
     { id: 'refresh', status: refreshStatus(age), value: age },
+    { id: 'pool', status: poolStatus(poolShare), value: poolShare, ...(pool ? { pool } : {}) },
   ]
 }

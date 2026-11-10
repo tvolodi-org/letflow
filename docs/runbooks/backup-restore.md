@@ -216,6 +216,21 @@ Rules for the off-site copy (proposal in `docs/uat/ba-decisions/T-1600.md`, sect
 * **Drill:** the quarterly drill in section 10 is done **from the off-site copy** onto a different host, by the
   agent, and timed against the RTO. The first one must pass before the first paying customer.
 
+Update 2026-11-10 (plan v2.1, `docs/uat/ba-decisions/T-1605.md`; infra facts, prices are third-party estimates):
+
+* **Off-site is allowed for Letflow production only, and only pull-based** (the Hetzner hosts cannot dial the
+  agent host behind the PC NAT). Two copies recommended: the agent host pulls twice a day, and the QA host
+  (113 GB free) or a later second VPS. The owner's PC and hetzner-prod are poor targets. Bandwidth is about
+  76/27 Mbit/s (one sample). Alert on a newest copy older than about 30 hours.
+* **Encryption:** production gets only the public gpg key; the private key lives on the agent host plus one
+  offline owner copy; restore tests run on the agent host. **Gap:** `scripts/backup/wal_archive.sh` has no
+  encryption step; fix it before WAL mode is switched on (no WAL now, D-116).
+* **No on-call or night service for non-paying clients (D-116):** the `alerts.log` idea is preparation only.
+* **Dry run** on the QA host (22:00-23:00 UTC, 2 CPU / 3 GB, loopback, abort rules) waits for the stage-1 stack
+  definition and the user's go.
+* **VPS prices** (third-party blogs, EU, excluding VAT, estimates): CX23 about EUR 5.49, CX33 about 8.49,
+  CAX11 (ARM) about 5.99, IPv4 about +0.50; arm64 image support is unknown.
+
 Open owner questions:
 
 1. Accept the RPO/RTO numbers of section 3 (production: 15 min / 1–2 h on the same host; host loss: up to 24 h / half a day).

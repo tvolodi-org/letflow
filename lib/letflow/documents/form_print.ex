@@ -387,12 +387,22 @@ defmodule Letflow.Documents.FormPrint do
       model = resolve(layout, data, lang, catalog)
 
       case format do
-        :pdf -> Pdf.render(model)
+        :pdf -> Pdf.render(model, footer(catalog, lang))
         :docx -> Docx.render(model)
       end
     else
       {:lang, false} -> {:error, :lang_not_supported}
       :error -> {:error, :unknown_form}
+    end
+  end
+
+  # "Page N of M" words from the catalog; a catalog without them prints no footer.
+  defp footer(catalog, lang) do
+    with %{^lang => word} <- catalog["page.word"],
+         %{^lang => of} <- catalog["page.of"] do
+      %{word: word, of: of}
+    else
+      _ -> nil
     end
   end
 
