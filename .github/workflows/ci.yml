@@ -997,26 +997,34 @@ jobs:
       # `backend_static`, which is not skipped by docs_only.
       - name: Run docs tests (docs-only change)
         if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only == 'true' && matrix.shard == 1
-        timeout-minutes: 38
+        timeout-minutes: 42
         run: |
           set -euo pipefail
-          mapfile -t files < <(bash scripts/ci_docs_only.sh files)
+          # T-1617: run only the docs tests that read the changed paths plus a fixed smoke set
+          # (scripts/ci_docs_only.sh select), not all ~65 files (three merge groups hit exit 124).
+          # BASE/HEAD are the same range the `changes` job used.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            RANGE="${{ github.event.merge_group.base_sha }}..${{ github.event.merge_group.head_sha }}"
+          else
+            RANGE=""
+          fi
+          files=()
+          if [ -n "$RANGE" ] && git diff --name-only "$RANGE" > /tmp/docs_changed.txt; then
+            mapfile -t files < <(bash scripts/ci_docs_only.sh select < /tmp/docs_changed.txt)
+          fi
+          if [ "${#files[@]}" -eq 0 ]; then
+            mapfile -t files < <(bash scripts/ci_docs_only.sh files)
+          fi
           echo "docs-only change: running ${#files[@]} docs-related test files"
-          # T-1374: this step hung 24-36 min three times and held the merge queue to the job
-          # timeout. Each attempt is capped at 1000 s (`timeout 1000`; T-1575: the ~64 files needed 567-597 s against the old 600 s cap and were killed with 124, growth with the suite; two attempts of 1000 s plus setup stay under the job's 45 min); only a timeout (exit 124)
-          # starts the second and last attempt, a real test failure fails at once. The step-level
-          # timeout-minutes is the backstop for both attempts plus setup, not the per-attempt cap.
-          for attempt in 1 2; do
-            echo "docs tests: attempt ${attempt} of 2 (timeout 1000s)"
-            rc=0
-            timeout 1000 mix test "${files[@]}" || rc=$?
-            if [ "$rc" -eq 0 ]; then exit 0; fi
-            if [ "$rc" -ne 124 ] || [ "$attempt" -eq 2 ]; then
-              echo "docs tests: attempt ${attempt} failed with exit ${rc}"
-              exit "$rc"
-            fi
-            echo "docs tests: attempt ${attempt} timed out, retrying once"
-          done
+          printf '  %s\n' "${files[@]}"
+          # One attempt capped at 2400 s (T-1617 stop-gap; the selected set is normally a few
+          # minutes). The step-level timeout-minutes (42) stays under the job's 45 min.
+          rc=0
+          timeout 2400 mix test "${files[@]}" || rc=$?
+          if [ "$rc" -ne 0 ]; then echo "docs tests: failed with exit ${rc}"; fi
+          exit "$rc"
         env:
           MIX_ENV: test
           WASMEX_BUILD: true
