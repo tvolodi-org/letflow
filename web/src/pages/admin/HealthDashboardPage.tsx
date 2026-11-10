@@ -5,6 +5,7 @@ import { queryKeys } from '@/api/queryKeys'
 import { useAccess, AccessPending } from '@/auth/access'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill, type StatusTone, type StatusGlyph } from '@/components/ui/StatusPill'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
@@ -156,7 +157,7 @@ function ReadinessBlock({ hm, query }: { hm: Msgs; query: UseQueryResult<Readine
   return (
     <section data-testid="readiness-block" aria-labelledby="readiness-title" className="lf-health__block">
       <h3 id="readiness-title" className="lf-health__title">{hm.readyTitle}</h3>
-      {query.isLoading && <p data-testid="readiness-loading" className="lf-health__do">…</p>}
+      {query.isLoading && <div data-testid="readiness-loading" aria-busy="true"><Skeleton width="60%" /></div>}
       {query.isError && <p data-testid="readiness-error" role="alert" className="lf-health__do">{hm.readyError}</p>}
       {result && (
         <>
@@ -186,7 +187,7 @@ function BackupBlock({ hm, query }: { hm: Msgs; query: UseQueryResult<BackupStat
   return (
     <section data-testid="backup-block" aria-labelledby="backup-title" className="lf-health__block">
       <h3 id="backup-title" className="lf-health__title">{hm.backupTitle}</h3>
-      {query.isLoading && <p data-testid="backup-loading" className="lf-health__do">…</p>}
+      {query.isLoading && <div data-testid="backup-loading" aria-busy="true"><Skeleton width="60%" /></div>}
       {query.isError && <p data-testid="backup-error" role="alert" className="lf-health__do">{hm.backupError}</p>}
       {data && !data.configured && (
         <p data-testid="backup-not-configured" role="status" className="lf-health__do">{hm.backupNotConfigured}</p>
