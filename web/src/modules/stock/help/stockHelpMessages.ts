@@ -1,7 +1,7 @@
 /** stockHelpMessages — T-1560. Static help texts of the stock screens, en/ru/kk, flattened into catalogue ids
  *  `stock.help.<topic>.<part>`. Plain description only: no accounting or legal advice (the accountant confirms the
- *  money terms before pilot use). Stock is NOT frozen during a count (`counts.posting.noFreeze`); the counts help says
- *  so. The ru and kk texts are written by the developer and need a native-speaker check. */
+ *  money terms before pilot use). Stock is not frozen by default during a count (only a count ordered with the option
+ *  "freeze locations" blocks postings, D-094); `counts.posting.noFreeze` and the counts help say so. The ru and kk texts are written by the developer and need a native-speaker check. */
 import { flattenHelp, type HelpCommonText, type HelpTopicText } from '@/components/help/helpTopicText'
 import type { StockHelpTopic } from './stockHelpTopics'
 
@@ -63,7 +63,7 @@ const en: Topics = {
       'Mark the sheet and the differences sheet as signed, then post the count.',
     ],
     refusals: [
-      { title: 'Stock is not blocked during a count', body: 'Stock movements during counting are not blocked. Each difference is posted as a change: counted minus book quantity at the cut-off.' },
+      { title: 'Stock movements during a count: blocked only on request', body: 'By default, stock movements during counting are not blocked. A count ordered with the option "freeze locations" refuses postings into its places until the count is posted or cancelled, or its time limit ends. Each difference is posted as a change: counted minus book quantity at the cut-off.' },
       { title: 'A reversed count cannot be posted again', body: 'Order a new count instead.' },
       { title: 'A closed sheet cannot be edited', body: 'After "Close sheet" the quantities are fixed. A signed count cannot be cancelled: post it and reverse it, or order a new count.' },
     ],
@@ -122,7 +122,7 @@ const ru: Topics = {
       'Отметьте ведомость и ведомость расхождений подписанными, затем проведите инвентаризацию.',
     ],
     refusals: [
-      { title: 'Остатки во время подсчёта не блокируются', body: 'Движения товара во время подсчёта не блокируются. Каждое расхождение проводится как изменение: факт минус учёт на момент отсечки.' },
+      { title: 'Движения во время подсчёта: блокируются только по заказу', body: 'По умолчанию движения товара во время подсчёта не блокируются. Подсчёт, заказанный с опцией «заморозить места», отклоняет проводки в его места, пока подсчёт не проведён, не отменён и не истёк срок. Каждое расхождение проводится как изменение: факт минус учёт на момент отсечки.' },
       { title: 'Сторнированную инвентаризацию нельзя провести повторно', body: 'Назначьте новую инвентаризацию.' },
       { title: 'Закрытую ведомость нельзя изменить', body: 'После «Закрыть ведомость» количества зафиксированы. Подписанную инвентаризацию нельзя отменить: проведите и сторнируйте её или назначьте новую.' },
     ],
@@ -181,7 +181,7 @@ const kk: Topics = {
       'Тізімдемені және айырмашылықтар тізімдемесін қол қойылған деп белгілеп, түгендеуді өткізіңіз.',
     ],
     refusals: [
-      { title: 'Санау кезінде қалдық бұғатталмайды', body: 'Санау кезіндегі тауар қозғалыстары бұғатталмайды. Әр айырмашылық өзгеріс ретінде өткізіледі: үзу сәтіндегі нақты мөлшер минус есеп.' },
+      { title: 'Санау кезіндегі қозғалыс: тек сұраныс бойынша бұғатталады', body: 'Әдепкіде санау кезіндегі тауар қозғалыстары бұғатталмайды. «орындарды мұздату» опциясымен тапсырылған санау өз орындарына проводкаларды қабылдамайды, санау өткізілгенше, бас тартылғанша немесе мерзім біткенше. Әр айырмашылық өзгеріс ретінде өткізіледі: үзу сәтіндегі нақты мөлшер минус есеп.' },
       { title: 'Сторнолған түгендеуді қайта өткізуге болмайды', body: 'Жаңа түгендеу тағайындаңыз.' },
       { title: 'Жабылған тізімдемені өзгертуге болмайды', body: '«Тізімдемені жабу» басылғаннан кейін мөлшерлер бекітіледі. Қол қойылған түгендеуден бас тартуға болмайды: оны өткізіп, сторнолаңыз немесе жаңасын тағайындаңыз.' },
     ],
