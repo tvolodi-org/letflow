@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** T-1657 / REQ-789: the reset button, the hints for refused users, the confirmation and the outcome texts. */
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, fireEvent, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithAccess } from '@/auth/access/testing'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
@@ -86,7 +86,7 @@ describe('T-1657 UserDetailPage reset button', () => {
   it('P8 202 shows the sent message with the e-mail', () => {
     confirmWith((o) => o.onSuccess())
     const msg = screen.getByTestId('admin-user-reset-message')
-    expect(msg).toHaveAttribute('role', 'status')
+    expect(within(msg).getByRole('status')).toBeInTheDocument()
     expect(msg).toHaveTextContent('ann@x.io')
   })
 
@@ -104,6 +104,7 @@ describe('T-1657 UserDetailPage reset button', () => {
     const msg = screen.getByTestId('admin-user-reset-message')
     expect(msg).not.toHaveTextContent('secret server text')
     expect(msg.textContent?.length).toBeGreaterThan(0)
+    expect(within(msg).getByRole('alert')).toBeInTheDocument()
   })
 
   it('M3 the page uses the ru text when the language is ru', () => {

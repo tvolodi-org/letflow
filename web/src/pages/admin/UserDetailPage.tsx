@@ -6,6 +6,7 @@ import { PasswordResetDialog } from '@/components/admin/users/PasswordResetDialo
 import { useAdminGroups, useAdminRoles, useAdminUser, useDeactivateAdminUser, useSendPasswordResetInstructions, useUpdateAdminUser } from '@/hooks/useAdminUsers'
 import type { User } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
+import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { useFeedbackMessages } from '@/components/ui/feedbackMessages'
@@ -46,7 +47,7 @@ export default function UserDetailPage() {
   const [showDeactivate, setShowDeactivate] = useState(false)
   const [submitMessage, setSubmitMessage] = useState<string | null>(null)
   const [showReset, setShowReset] = useState(false)
-  const [resetMessage, setResetMessage] = useState<string | null>(null)
+  const [resetMessage, setResetMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
@@ -191,7 +192,7 @@ export default function UserDetailPage() {
             </div>
           </div>
 
-          <div style={{ marginTop: 16 }}>
+          <div style={{ marginTop: 'var(--space-4)', display: 'grid', gap: 'var(--space-2)' }}>
             {resetBlock === null ? (
               <span data-testid="admin-user-send-reset">
                 <Button
@@ -205,9 +206,13 @@ export default function UserDetailPage() {
                 </Button>
               </span>
             ) : (
-              <p data-testid="admin-user-reset-hint">{hintText(resetBlock, pm)}</p>
+              <div data-testid="admin-user-reset-hint"><Banner tone="info">{hintText(resetBlock, pm)}</Banner></div>
             )}
-            {resetMessage && <p role="status" data-testid="admin-user-reset-message">{resetMessage}</p>}
+            {resetMessage && (
+              <div data-testid="admin-user-reset-message">
+                <Banner tone={resetMessage.tone}>{resetMessage.text}</Banner>
+              </div>
+            )}
           </div>
 
           {submitMessage && <p role="status" data-testid="admin-user-submit-message">{submitMessage}</p>}
@@ -245,13 +250,13 @@ export default function UserDetailPage() {
           sendReset.mutate(undefined, {
             onSuccess: () => {
               setShowReset(false)
-              setResetMessage(fillEmail(pm.sent, storedEmail))
+              setResetMessage({ tone: 'success', text: fillEmail(pm.sent, storedEmail) })
             },
             onError: (error) => {
               setShowReset(false)
               const status = (error as { status?: unknown })?.status
               const detail = (error as { details?: { detail?: unknown } })?.details?.detail
-              setResetMessage(status === 409 ? conflictText(detail, pm) ?? saveErrorText(error, feedback) : saveErrorText(error, feedback))
+              setResetMessage({ tone: 'danger', text: status === 409 ? conflictText(detail, pm) ?? saveErrorText(error, feedback) : saveErrorText(error, feedback) })
             },
           })
         }}
