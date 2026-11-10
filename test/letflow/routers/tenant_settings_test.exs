@@ -521,6 +521,62 @@ defmodule Letflow.Routers.TenantSettingsTest do
     end
   end
 
+  describe "T-1640: module_upgrade.window over PATCH" do
+    @window %{"start" => "22:00", "end" => "04:00"}
+
+    test "W13: a tenant admin sets and clears the window; other keys are kept" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t1640-a")
+      assert patch_settings(tenant, body: %{"app_name" => "Acme"}).status == 200
+
+      resp = patch_settings(tenant, body: %{"module_upgrade.window" => @window})
+      assert resp.status == 200
+      settings = Jason.decode!(resp.resp_body)["settings"]
+      assert settings["module_upgrade.window"] == @window
+      assert settings["app_name"] == "Acme"
+
+      assert patch_settings(tenant, body: %{"module_upgrade.window" => nil}).status == 200
+      assert Repo.get!(Tenant, tenant.tenant_id).settings["module_upgrade.window"] == nil
+    end
+
+    test "W13: an invalid window is refused 422, nothing changes; a non-admin gets 403" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t1640-b")
+      assert patch_settings(tenant, body: %{"module_upgrade.window" => @window}).status == 200
+      before = Repo.get!(Tenant, tenant.tenant_id)
+
+      bad = %{"start" => "09:00", "end" => "09:00"}
+      assert patch_settings(tenant, body: %{"module_upgrade.window" => bad}).status == 422
+      assert Repo.get!(Tenant, tenant.tenant_id).settings == before.settings
+
+      resp =
+        patch_settings(tenant, roles: ["TASK_WORKER"], body: %{"module_upgrade.window" => bad})
+
+      assert resp.status == 403
+      assert Repo.get!(Tenant, tenant.tenant_id).settings == before.settings
+    end
+
+    test "W11b: tenant B's token changes only B; A's window is untouched; public config hides it" do
+      a = TenantFixture.provisioned_tenant!(slug_prefix: "t1640-ca")
+      b = TenantFixture.provisioned_tenant!(slug_prefix: "t1640-cb")
+      assert patch_settings(a, body: %{"module_upgrade.window" => @window}).status == 200
+      before_a = Repo.get!(Tenant, a.tenant_id)
+
+      other = %{"start" => "01:00", "end" => "02:00"}
+      assert patch_settings(b, body: %{"module_upgrade.window" => other}).status == 200
+      assert Repo.get!(Tenant, a.tenant_id).settings == before_a.settings
+      assert Repo.get!(Tenant, b.tenant_id).settings["module_upgrade.window"] == other
+
+      {1, nil} =
+        Repo.update_all(
+          from(t in Tenant, where: t.id == ^a.tenant_id),
+          set: [idp_realm_id: "t1640-ca-realm-#{a.tenant_id}"]
+        )
+
+      {conn, body} = get_tenant_config(a.tenant.slug)
+      assert conn.status == 200
+      refute Jason.encode!(body) =~ "22:00"
+    end
+  end
+
   # ═══════════════════════════════════════════════════════════════════════
   # AC5 — settings_changeset/2's cast list stays [:settings] only;
   # TenantSettings' closed vocabulary unchanged; this endpoint cannot touch

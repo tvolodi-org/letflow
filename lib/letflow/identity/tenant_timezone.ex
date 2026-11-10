@@ -87,4 +87,21 @@ defmodule Letflow.Identity.TenantTimezone do
   end
 
   def today(_zone), do: {:error, :invalid_timezone}
+
+  @doc """
+  The wall-clock time of the UTC instant `at` in `zone` (T-1640, the fleet upgrade window). Bound
+  parameters (INV-7); an unknown zone returns `{:error, :invalid_timezone}` before the statement.
+  """
+  @spec local_time(DateTime.t(), String.t()) :: {:ok, Time.t()} | {:error, :invalid_timezone}
+  def local_time(%DateTime{} = at, zone) when is_binary(zone) do
+    with true <- known_zone?(zone),
+         {:ok, %{rows: [[%Time{} = time]]}} <-
+           SQL.query(Repo, "SELECT (($1::timestamptz) AT TIME ZONE $2)::time", [at, zone]) do
+      {:ok, time}
+    else
+      _ -> {:error, :invalid_timezone}
+    end
+  end
+
+  def local_time(_at, _zone), do: {:error, :invalid_timezone}
 end

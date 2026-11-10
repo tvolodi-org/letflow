@@ -342,6 +342,7 @@ defmodule Letflow.Identity.Tenant do
     |> validate_timezone(settings)
     |> validate_document_layout_default(settings)
     |> validate_email_copy(settings)
+    |> validate_module_upgrade_window(settings)
   end
 
   defp validate_settings_value(:settings, _nil_or_other), do: []
@@ -381,6 +382,30 @@ defmodule Letflow.Identity.Tenant do
     do: [{:settings, "notifications.email_copy must be true or false"} | errors]
 
   defp validate_email_copy(errors, _settings), do: errors
+
+  # T-1640: the optional fleet-rollout window; nil or absent = any time. No value is echoed.
+  defp validate_module_upgrade_window(errors, %{"module_upgrade.window" => nil}), do: errors
+
+  defp validate_module_upgrade_window(errors, %{"module_upgrade.window" => v}) do
+    case v do
+      %{"start" => s, "end" => e} = map
+      when map_size(map) == 2 and is_binary(s) and is_binary(e) and s != e ->
+        if hhmm?(s) and hhmm?(e),
+          do: errors,
+          else: [window_error() | errors]
+
+      _other ->
+        [window_error() | errors]
+    end
+  end
+
+  defp validate_module_upgrade_window(errors, _settings), do: errors
+
+  defp hhmm?(v), do: Regex.match?(~r/\A([01]\d|2[0-3]):[0-5]\d\z/, v)
+
+  defp window_error,
+    do:
+      {:settings, "module_upgrade.window must be {start, end} as HH:MM, start different from end"}
 
   @signatory_max_length 100
 
