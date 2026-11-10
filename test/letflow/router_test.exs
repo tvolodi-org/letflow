@@ -201,7 +201,7 @@ defmodule Letflow.RouterTest do
   # still unmounted. The expected list below stays an explicit literal (never derived
   # from router.ex itself, which would make it a tautology that always passes), and the
   # retirement assertion below it is what keeps the count honest in the other direction.
-  describe "REQ-070 AC5: router.ex names all 5 deferred routes and states readiness not-ported" do
+  describe "REQ-070 AC5: router.ex names all 5 deferred routes and documents readiness (GET /ready)" do
     # The five module names router.ex's deferred table carries, spelled out literally.
     @deferred [
       "Letflow.Routers.SimulationTest",
@@ -276,9 +276,11 @@ defmodule Letflow.RouterTest do
              )
     end
 
-    test "readiness endpoint is documented as not ported" do
+    # REQ-070 AC5 once pinned "not ported"; T-1607 ported readiness as GET /ready.
+    test "readiness endpoint is documented as GET /ready" do
       source = File.read!("lib/letflow/router.ex")
-      assert String.contains?(source, "not ported")
+      assert String.contains?(source, "`GET /ready` (T-1607)")
+      assert String.contains?(source, ~s|get "/ready" do|)
     end
   end
 

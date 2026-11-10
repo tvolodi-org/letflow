@@ -710,6 +710,24 @@ export interface HealthStatus {
   components: Record<string, ComponentStatus>
 }
 
+/** `GET /ready` (T-1607): one entry per readiness part, in the server's reporting order. */
+export interface ReadinessResult {
+  ready: boolean
+  parts: { part: 'database' | 'migrations' | 'secrets_key' | 'identity'; ok: boolean }[]
+}
+
+/** `GET /api/v1/platform-status/backup` (T-1607). `state` is a fixed vocabulary; no free text. */
+export interface BackupJobLine {
+  job: 'dump' | 'base' | 'prune' | 'restore_test'
+  state: 'ok' | 'failed' | 'stale' | 'missing' | 'unreadable'
+  ts: string | null
+  age_seconds: number | null
+}
+export interface BackupStatus {
+  configured: boolean
+  jobs: BackupJobLine[]
+}
+
 // ── Saved entity list views (REQ-555 / REQ-556) ───────────────────────────────
 
 /** A saved list view (`/api/v1/entity-views`). Holds layout only, never a record value. */

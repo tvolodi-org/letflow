@@ -413,6 +413,7 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
             {"POST", "/platform-migrations/rollouts"},
             {"GET", "/platform-migrations/rollouts/:id"},
             {"POST", "/platform-migrations/rollouts/:id/resume"},
+            {"GET", "/platform-status/backup"},
             {"GET", "/event-retention/summary"},
             {"POST", "/event-retention/retirements"},
             {"GET", "/event-retention/retirements/:id"}

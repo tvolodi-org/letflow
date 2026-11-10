@@ -208,6 +208,7 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
             {:get, "/api/v1/onboarding", nil},
             {:post, "/api/v1/platform-migrations/rollouts", %{}},
             {:get, "/api/v1/event-retention/summary", nil},
+            {:get, "/api/v1/platform-status/backup", nil},
             {:get, "/api/v1/admin/services", nil},
             {:get, "/api/v1/identity/no-such-route-req447", nil}
           ] do
@@ -270,9 +271,9 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
   end
 
   describe "AC2: every platform-scope route answers 403 to a TENANT_ADMIN" do
-    test "the inventory is the 32 platform routes (REQ-580 added purge) and spans exactly the six platform prefixes" do
+    test "the inventory is the 33 platform routes (REQ-580 added purge, T-1607 the backup line) and spans exactly the six platform prefixes" do
       routes = platform_routes()
-      assert length(routes) == 32
+      assert length(routes) == 33
 
       prefixes =
         routes
@@ -289,15 +290,16 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
                  "platform-migrations",
                  "platform-module-rollouts",
                  "event-retention",
+                 "platform-status",
                  "admin"
                ])
     end
 
-    test "all 32 routes answer 403 (ordinary and platform tenant TENANT_ADMIN), no row changes",
+    test "all 33 routes answer 403 (ordinary and platform tenant TENANT_ADMIN), no row changes",
          ctx do
       before = state_snapshot()
       routes = platform_routes()
-      assert length(routes) == 32
+      assert length(routes) == 33
 
       for {fixture, label} <- [{ctx.a, "ordinary tenant"}, {ctx.p, "platform tenant"}],
           {router, method, local, full} <- routes do
