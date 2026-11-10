@@ -53640,7 +53640,7 @@ requirements:
       - "7. Purging a tenant removes its outcome rows (TenantPurge), so the tenant FK never blocks a purge."
       - "8. Not in this requirement: the per-tenant upgrade window and the admin screen (parts 2 and 3)."
     depends_on: [REQ-773]
-  - id: REQ-790
+  - id: REQ-791
     title: "Tenant administrator: add users from an xlsx list (template, row/column error report, partial fix, re-upload) - server part"
     owner: ELIXIR-DEV
     status: pending

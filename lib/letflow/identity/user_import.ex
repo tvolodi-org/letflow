@@ -1,6 +1,6 @@
 defmodule Letflow.Identity.UserImport do
   @moduledoc """
-  T-1609 (REQ-790): the per-row rules of the tenant administrator's xlsx user import.
+  T-1609 (REQ-791): the per-row rules of the tenant administrator's xlsx user import.
 
   The file carries three columns, `username`, `display_name` and `email`, and nothing else:
   no password, role or group column, so the file cannot be used to grant privilege. Users

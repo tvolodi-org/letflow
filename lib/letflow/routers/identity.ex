@@ -195,7 +195,7 @@ defmodule Letflow.Routers.Identity do
     handle_create(conn, user_write_opts(conn))
   end
 
-  # T-1609 (REQ-790): xlsx user import. Declared before `/users/:id` so `:id` does not capture
+  # T-1609 (REQ-791): xlsx user import. Declared before `/users/:id` so `:id` does not capture
   # `import-template`; no tenant parameter, the tenant is the caller's (INV-1/10).
   authz_get "/users/import-template", :UsersManage do
     Letflow.Routers.Identity.UsersImport.handle_template(conn)
