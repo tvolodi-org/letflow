@@ -42,7 +42,7 @@ Opening balances are loaded and checked against the company's own lists.
 | storekeeper | Loads stock opening lines, dry_run first | `stock` | Admin > Import data | `docs/roles.md` (STOREKEEPER: registered import function, opening lines) |
 | company administrator | Loads asset cards, dry_run first (only if assets are installed) | `assets` | Admin > Import data | `docs/assets/asset-xlsx.md`, section 1 |
 | company administrator | Loads asset opening lines, dry_run first, after the cards | `assets` | Admin > Import data | `docs/assets/asset-xlsx.md`, section 5a |
-| accountant | Checks the loaded stock totals against the company's own lists | `stock` | admin/stock/balances | `docs/guides/tenant-admin/en.md`, section 3 (balance visibility); `web/src/modules/stock/help/stockHelpTopics.ts` (topic `balances`) |
+| accountant | Checks the loaded stock totals against the company's own lists | `stock` | admin/stock/balances | `docs/guides/tenant-admin/en.md`, section 3 (balance visibility); `web/src/modules/stock/help/stockHelpMessages.ts` (topic `balances`) |
 | accountant | Checks asset balances against the company's own list (only if assets are installed) | `assets` | Assets balances | `docs/assets/asset-xlsx.md`, section 7 |
 
 ## Week 3
@@ -51,9 +51,9 @@ The storekeeper starts the daily work and the first count.
 
 | Who | Does | Module | Where | Source |
 |---|---|---|---|---|
-| storekeeper | Enters the daily stock documents | `stock` | admin/stock/documents | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `documents`) |
-| storekeeper | Runs the first stock count | `stock` | admin/stock/counts | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `counts`) |
-| storekeeper | Prints the forms of documents and counts | `stock` | admin/stock/documents, admin/stock/counts | `web/src/modules/stock/help/stockHelpTopics.ts` (topics `documents`, `counts`) |
+| storekeeper | Enters the daily stock documents | `stock` | admin/stock/documents | `web/src/modules/stock/help/stockHelpMessages.ts` (topic `documents`) |
+| storekeeper | Runs the first stock count | `stock` | admin/stock/counts | `web/src/modules/stock/help/stockHelpMessages.ts` (topic `counts`) |
+| storekeeper | Prints the forms of documents and counts | `stock` | admin/stock/documents, admin/stock/counts | `web/src/modules/stock/help/stockHelpMessages.ts` (topics `documents`, `counts`) |
 | company administrator | Reads the audit log | none | Admin > Audit | `docs/guides/tenant-admin/en.md`, section 6 |
 
 ## Week 4
@@ -62,10 +62,10 @@ The storekeeper repeats the count; the three people review the month.
 
 | Who | Does | Module | Where | Source |
 |---|---|---|---|---|
-| storekeeper | Runs the second stock count | `stock` | admin/stock/counts | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `counts`) |
-| accountant | Takes the measures of What to measure | none | see What to measure | the What to measure table below |
-| company administrator | Takes the measures of What to measure | none | see What to measure | the What to measure table below |
-| storekeeper, accountant, company administrator | Exit review together | none | the Exit criteria list below | the Exit criteria list below |
+| storekeeper | Runs the second stock count | `stock` | admin/stock/counts | `web/src/modules/stock/help/stockHelpMessages.ts` (topic `counts`) |
+| accountant | Re-checks the stock balances for the month review (M2, M3) | none | admin/stock/balances, admin/stock/counts | `docs/guides/tenant-admin/en.md`, section 3 |
+| company administrator | Reads the Metrics page and the import reports for the month review (M1, M5, M6) | none | Metrics page, Admin > Import data | `docs/guides/tenant-admin/en.md`, section 7 |
+| storekeeper, accountant, company administrator | Exit review together | none | Admin > Audit, admin/stock/counts | `docs/uat/ba-decisions/T-1605.md`, section 3 (D-116, owner decides) |
 
 ## Training
 
@@ -80,11 +80,11 @@ Texts are not copied here; each person reads the existing page in the language t
 | Question | Read first |
 |---|---|
 | An import row is refused | `docs/guides/tenant-admin/en.md`, section 5 |
-| A document cannot be posted | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `documents`) |
-| A count is frozen | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `counts`) |
-| A balance is hidden | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `balances`); `docs/guides/tenant-admin/en.md`, section 3 |
+| A document cannot be posted | `web/src/modules/stock/help/stockHelpMessages.ts` (topic `documents`) |
+| A count is frozen | `web/src/modules/stock/help/stockHelpMessages.ts` (topic `counts`) |
+| A balance is hidden | `web/src/modules/stock/help/stockHelpMessages.ts` (topic `balances`); `docs/guides/tenant-admin/en.md`, section 3 |
 | Sign-in fails (about 5 wrong attempts lock the account for a few minutes, up to 15) | `docs/guides/tenant-admin/en.md`, section 8 |
-| A printed form looks wrong | `web/src/modules/stock/help/stockHelpTopics.ts` (topics `documents`, `counts`) |
+| A printed form looks wrong | `web/src/modules/stock/help/stockHelpMessages.ts` (topics `documents`, `counts`) |
 | A user does not see a menu item | `docs/guides/tenant-admin/en.md`, section 8 |
 
 A question that these pages do not answer goes to the owner. Per D-116 (`docs/uat/ba-decisions/T-1605.md`, section 3) nobody is on call and there is no night service for a non-paying pilot.
