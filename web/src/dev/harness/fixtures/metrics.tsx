@@ -12,7 +12,7 @@ import { parsePrometheusText } from '@/api/metrics'
 import type { UserSession } from '@/types/api'
 import type { HarnessScreen, HarnessState } from '../types'
 
-const promText = (errors: number, requests = 1204): string => [
+const promText = (errors: number, requests = 1204, poolUsed = 3): string => [
   '# HELP letflow_http_requests_total Requests served',
   '# TYPE letflow_http_requests_total counter',
   `letflow_http_requests_total{method="GET",route_template="/api/instances",status="200"} ${requests}`,
@@ -30,6 +30,10 @@ const promText = (errors: number, requests = 1204): string => [
   'letflow_event_append_duration_seconds_bucket{le="+Inf"} 500',
   '# TYPE letflow_active_instances_last_refresh_timestamp_seconds gauge',
   `letflow_active_instances_last_refresh_timestamp_seconds ${Math.floor(Date.now() / 1000) - 30}`,
+  '# TYPE letflow_db_admission_in_use gauge',
+  `letflow_db_admission_in_use ${poolUsed}`,
+  '# TYPE letflow_db_admission_cap gauge',
+  'letflow_db_admission_cap 10',
   '# HELP letflow_engine_active_instances Running instances',
   '# TYPE letflow_engine_active_instances gauge',
   'letflow_engine_active_instances 14',
@@ -115,7 +119,7 @@ function RisingPanel() {
   useEffect(() => {
     setReading({ errors: 387, requests: 4204, at: Date.now() })
   }, [])
-  return <MetricsSummaryPanel families={parsePrometheusText(promText(reading.errors, reading.requests))} dataUpdatedAt={reading.at} />
+  return <MetricsSummaryPanel families={parsePrometheusText(promText(reading.errors, reading.requests, 9))} dataUpdatedAt={reading.at} />
 }
 
 export const metricsScreens: HarnessScreen[] = [

@@ -16,3 +16,6 @@ export const ROLES = [
 ] as const
 
 export type Role = (typeof ROLES)[number]
+
+/** The group-bound role that makes its members tenant administrators (UI hint for the groups page). */
+export const TENANT_ADMIN_ROLE: Role = 'TENANT_ADMIN'
