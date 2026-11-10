@@ -506,7 +506,9 @@ defmodule Letflow.Api.PermissionMatrixTest do
              Letflow.Modules.Locations,
              Letflow.Modules.Codes,
              Letflow.Modules.Stock,
-             Letflow.Modules.Assets
+             Letflow.Modules.Assets,
+             # T-1641: QA-only, not in the production catalogue or the golden.
+             Letflow.Modules.RuntimeDemo
            ])
         |> Enum.flat_map(& &1.manifest().permissions)
         |> MapSet.new(&Atom.to_string/1)

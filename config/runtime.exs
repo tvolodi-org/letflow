@@ -289,6 +289,12 @@ module_upgrade_on_boot =
 
 config :letflow, :module_upgrade_on_boot, module_upgrade_on_boot
 
+# T-1641: release of the QA-only demo module (0.1.0, 0.2.0 or 0.3.0). No effect unless the build included the
+# module (LETFLOW_INCLUDE_RUNTIME_DEMO). Recreate the container after changing it.
+config :letflow,
+       :runtime_demo_release,
+       Letflow.Modules.RuntimeDemo.parse_release(System.get_env("LETFLOW_RUNTIME_DEMO_RELEASE"))
+
 # REQ-773 (decision 0080 Q5): record-count cap of the one-transaction data-step apply. Default 1000.
 config :letflow,
        :module_upgrade_one_tx_max_records,

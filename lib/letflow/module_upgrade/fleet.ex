@@ -11,9 +11,15 @@ defmodule Letflow.ModuleUpgrade.Fleet do
 
   State (global tables, `Letflow.Platform.ModuleRollout.{Rollout,Outcome}`): one rollout per
   `(module_id, to_version)`, one outcome per tenant (`pending`, `running`, `succeeded`, `failed`,
-  `skipped`). A tenant outcome is claimed with one atomic `update_all`, so two concurrent callers
+  `skipped`, `outside_window`). A tenant outcome is claimed with one atomic `update_all`, so two concurrent callers
   never process the same tenant; a `running` claim older than 15 minutes (a crashed caller) is
   claimable again.
+
+  Window (T-1640): a tenant may set `module_upgrade.window` (`{start, end}` as HH:MM in its own time
+  zone, may cross midnight, end exclusive). A tenant outside its window is not touched: its outcome
+  becomes `outside_window`, which is open work (the rollout stays `running`), neutral for the halt
+  count, and is tried again by the next `start/2` or `resume/2`. No window, an invalid stored window
+  or an unknown zone means any time. There is no timer: the operator repeats the call.
 
   Halt: after `Letflow.ModuleUpgrade.Settings.rollout_halt_after/0` consecutive failed tenants
   (a success or a skip resets the count) the rollout is `halted` and the remaining outcomes stay
@@ -37,6 +43,7 @@ defmodule Letflow.ModuleUpgrade.Fleet do
   require Logger
 
   alias Letflow.Identity.Tenant
+  alias Letflow.Identity.TenantTimezone
   alias Letflow.ModuleUpgrade.Apply
   alias Letflow.ModuleUpgrade.Settings
   alias Letflow.Modules.Catalog
@@ -64,6 +71,7 @@ defmodule Letflow.ModuleUpgrade.Fleet do
 
   `opts[:only_tenants]` (a list of tenant ids) narrows the tenants a call registers and works on;
   no route passes it, it exists for tests that share a database cluster with other tenants.
+  `opts[:now]` (a UTC `DateTime`) replaces the clock of the window check; tests only.
   """
   @spec start(String.t(), Ecto.UUID.t(), keyword()) :: {:ok, result()} | {:error, :unknown_module}
   def start(module_id, actor_id, opts \\ []) when is_binary(module_id) do
@@ -72,7 +80,7 @@ defmodule Letflow.ModuleUpgrade.Fleet do
         rollout = get_or_create(module_id, entry.manifest().version, actor_id)
         register_outcomes(rollout, opts)
         reopen_if_new_work(rollout.id)
-        run_batch(rollout.id, actor_id, [:pending], opts)
+        run_batch(rollout.id, actor_id, [:pending, :outside_window], opts)
         {:ok, state(rollout.id)}
 
       _other ->
@@ -93,7 +101,7 @@ defmodule Letflow.ModuleUpgrade.Fleet do
          :ok <- current_version?(rollout) do
       register_outcomes(rollout, opts)
       reopen_for_resume(rollout)
-      run_batch(rollout.id, actor_id, [:pending, :failed], opts)
+      run_batch(rollout.id, actor_id, [:pending, :failed, :outside_window], opts)
       {:ok, state(rollout.id)}
     else
       {:error, :version_superseded} -> {:error, :version_superseded}
@@ -232,7 +240,9 @@ defmodule Letflow.ModuleUpgrade.Fleet do
     claimable? =
       Repo.exists?(
         from(o in Outcome,
-          where: o.rollout_id == ^rollout_id and o.status in ["pending", "failed", "running"]
+          where:
+            o.rollout_id == ^rollout_id and
+              o.status in ["pending", "failed", "running", "outside_window"]
         )
       )
 
@@ -264,7 +274,7 @@ defmodule Letflow.ModuleUpgrade.Fleet do
 
       Enum.reduce_while(ids, :ok, fn id, :ok ->
         if running?(rollout_id) do
-          process_outcome(rollout_id, id, actor_id)
+          process_outcome(rollout_id, id, actor_id, opts)
           {:cont, :ok}
         else
           {:halt, :ok}
@@ -293,7 +303,11 @@ defmodule Letflow.ModuleUpgrade.Fleet do
         where:
           o.rollout_id == ^rollout_id and
             (o.status in ^statuses or (o.status == "running" and o.attempted_at < ^stale)),
-        order_by: [asc: o.tenant_id],
+        order_by: [
+          asc: fragment("CASE WHEN ? = 'outside_window' THEN 1 ELSE 0 END", o.status),
+          asc: fragment("CASE WHEN ? = 'outside_window' THEN ? END", o.status, o.attempted_at),
+          asc: o.tenant_id
+        ],
         limit: ^batch_size(),
         select: o.id
       )
@@ -315,7 +329,7 @@ defmodule Letflow.ModuleUpgrade.Fleet do
       from(o in Outcome,
         where:
           o.id == ^id and
-            (o.status in ["pending", "failed"] or
+            (o.status in ["pending", "failed", "outside_window"] or
                (o.status == "running" and o.attempted_at < ^stale)),
         select: o
       )
@@ -326,12 +340,13 @@ defmodule Letflow.ModuleUpgrade.Fleet do
     end
   end
 
-  defp process_outcome(rollout_id, id, actor_id) do
+  defp process_outcome(rollout_id, id, actor_id, opts) do
     with {:ok, outcome} <- claim(id) do
-      {status, code, plan_hash} = tenant_step(rollout_id, outcome, actor_id)
+      {status, code, plan_hash} = tenant_step(rollout_id, outcome, actor_id, opts)
+      completed_at = if status == "outside_window", do: nil, else: now()
 
       Repo.update_all(from(o in Outcome, where: o.id == ^outcome.id),
-        set: [status: status, error_code: code, plan_hash: plan_hash, completed_at: now()]
+        set: [status: status, error_code: code, plan_hash: plan_hash, completed_at: completed_at]
       )
 
       count_failures(rollout_id, status)
@@ -354,6 +369,9 @@ defmodule Letflow.ModuleUpgrade.Fleet do
     )
   end
 
+  # A deferred tenant is neither a failure nor a success: the count is left as it is.
+  defp count_failures(_rollout_id, "outside_window"), do: :ok
+
   defp count_failures(rollout_id, _ok_or_skipped) do
     Repo.update_all(from(r in Rollout, where: r.id == ^rollout_id),
       set: [consecutive_failures: 0]
@@ -364,7 +382,8 @@ defmodule Letflow.ModuleUpgrade.Fleet do
     open? =
       Repo.exists?(
         from(o in Outcome,
-          where: o.rollout_id == ^rollout_id and o.status in ["pending", "running"]
+          where:
+            o.rollout_id == ^rollout_id and o.status in ["pending", "running", "outside_window"]
         )
       )
 
@@ -380,18 +399,55 @@ defmodule Letflow.ModuleUpgrade.Fleet do
 
   # ── one tenant (the shape of Letflow.ModuleUpgrade.Boot.upgrade_one/4) ────────────────────
 
-  defp tenant_step(rollout_id, %Outcome{tenant_id: tenant_id}, actor_id) do
+  defp tenant_step(rollout_id, %Outcome{tenant_id: tenant_id}, actor_id, opts) do
     rollout = Repo.get!(Rollout, rollout_id)
 
     case tenant_schema(tenant_id) do
-      nil -> {"skipped", "tenant_inactive", nil}
-      schema -> upgrade(rollout, tenant_id, schema, actor_id)
+      nil ->
+        {"skipped", "tenant_inactive", nil}
+
+      schema ->
+        if in_window?(tenant_id, Keyword.get(opts, :now) || DateTime.utc_now()),
+          do: upgrade(rollout, tenant_id, schema, actor_id),
+          else: {"outside_window", nil, nil}
     end
   rescue
     _exception -> failed(tenant_id, "internal_error")
   catch
     _kind, _reason -> failed(tenant_id, "internal_error")
   end
+
+  # T-1640: no window, an invalid stored window or an unknown zone all mean "any time" (a corrupt
+  # setting must not block the fleet). Neither the window nor the zone is logged.
+  defp in_window?(tenant_id, at) do
+    with %Tenant{settings: %{"module_upgrade.window" => %{"start" => s, "end" => e} = win}} =
+           tenant <-
+           Repo.get(Tenant, tenant_id),
+         true <- map_size(win) == 2,
+         {:ok, start_t} <- parse_hhmm(s),
+         {:ok, end_t} <- parse_hhmm(e),
+         {:ok, now_t} <- TenantTimezone.local_time(at, TenantTimezone.of(tenant)),
+         true <- start_t != end_t do
+      inside?(now_t, start_t, end_t)
+    else
+      _no_window_or_unusable ->
+        true
+    end
+  end
+
+  defp inside?(t, s, e) do
+    if Time.compare(s, e) == :lt,
+      do: Time.compare(t, s) != :lt and Time.compare(t, e) == :lt,
+      else: Time.compare(t, s) != :lt or Time.compare(t, e) == :lt
+  end
+
+  defp parse_hhmm(v) when is_binary(v) do
+    if Regex.match?(~r/\A([01]\d|2[0-3]):[0-5]\d\z/, v),
+      do: Time.from_iso8601(v <> ":00"),
+      else: :error
+  end
+
+  defp parse_hhmm(_v), do: :error
 
   defp tenant_schema(tenant_id) do
     Repo.one(

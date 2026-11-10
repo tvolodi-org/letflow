@@ -53640,6 +53640,29 @@ requirements:
       - "7. Purging a tenant removes its outcome rows (TenantPurge), so the tenant FK never blocks a purge."
       - "8. Not in this requirement: the per-tenant upgrade window and the admin screen (parts 2 and 3)."
     depends_on: [REQ-773]
+  - id: REQ-795
+    title: "Runtime updates, slice 6 part 2: optional per-tenant upgrade window for the fleet driver (tenant setting module_upgrade.window, outside_window outcome)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-787 -- delivered by task T-1640 itself; no separate issue
+    # Source: task T-1640 (B5#5, part 2); docs/uat/ba-decisions/T-1631.md item 5; REQ-787 criterion 8. The platform-operator screen (part 3) is a later web task.
+    description: >
+      A tenant may say when a fleet rollout (REQ-787) may touch it. The tenant setting module_upgrade.window holds
+      {start, end} as HH:MM in the tenant's own time zone (may cross midnight, end exclusive); no window means any time
+      (UAT assumption, the owner confirms). The fleet driver leaves a tenant outside its window untouched with the
+      outcome status outside_window, which is open work, neutral for the halt count and tried again by the next start
+      or resume call. No new route, permission, migration or env var.
+    acceptance_criteria:
+      - "1. module_upgrade.window is in the closed tenant settings vocabulary; null or absent is allowed; a map with exactly the keys start and end, both HH:MM (00:00 to 23:59) and different, is accepted; anything else is refused by PATCH /tenant/settings with an error that does not echo the value."
+      - "2. Letflow.Identity.TenantTimezone.local_time/2 returns the wall-clock time of a UTC instant in a zone, and {:error, :invalid_timezone} for an unknown zone."
+      - "3. Fleet.start/2 and resume/2 upgrade a tenant with no window at any time and a tenant inside its window; a tenant outside its window gets the outcome outside_window, its schema and journal are untouched, and the rollout stays running."
+      - "4. A window crossing midnight is judged on the tenant's wall clock; the end is exclusive."
+      - "5. outside_window neither raises nor resets the consecutive failure count; deferred tenants alone never halt a rollout."
+      - "6. Pending outcomes are processed before deferred ones in a batch, so deferred tenants cannot starve the rest."
+      - "7. A stored invalid window or an unknown time zone is treated as no window."
+      - "8. One tenant's window never defers another tenant; rollout responses carry no window value; the setting is written only by the tenant's own admin through PATCH /tenant/settings (a token of tenant B cannot change tenant A)."
+    depends_on: [REQ-787]
   - id: REQ-791
     title: "Tenant administrator: add users from an xlsx list (template, row/column error report, partial fix, re-upload) - server part"
     owner: ELIXIR-DEV
@@ -53900,15 +53923,15 @@ requirements:
       - "4. Each of the sections Week 1 to Week 4 has one table with the columns Who, Does, Module, Where, Source. Who is one of: company administrator, storekeeper, accountant; Module is one of the module ids org, catalog_items, codes, locations, stock, assets in backticks, or \"none\"; Where names the screen or the document the person uses (for example the Users screen, Admin > Import data, the stock documents screen); Source names a file that exists on origin/main. The sections assign the work in this order: week 1 the administrator's first sign-in, users, groups and roles, and the xlsx import of locations, units of measure and catalog items in that order (docs/runbooks/qoimeks-rehearsal.md step 3); week 2 the opening balances (stock opening lines, then asset cards, then asset opening lines, cards first as docs/assets/asset-xlsx.md says) and the accountant's check of the loaded totals against the company's own lists; week 3 daily stock documents by the storekeeper, the first stock count, and the printed forms; week 4 a second stock count, the measures of the What to measure section and the exit review."
       - "5. Each xlsx load in the week tables has Who set to a person whose role may do that import in docs/roles.md: locations, units of measure, catalog items, asset cards and asset opening lines by the company administrator (TENANT_ADMIN); stock opening lines by the storekeeper (STOREKEEPER, \"the xlsx import of module-managed types that have a registered import function (opening lines)\"). No row gives the storekeeper an asset task, a write of locations or catalog, or user administration (the STOREKEEPER \"Must not\" line of docs/roles.md). Each load row says to run the import with dry_run first, as docs/runbooks/qoimeks-rehearsal.md step 3 does."
       - "6. Roles: a section that names a role writes it in backticks, every such name is a member of Letflow.Api.Authorization.roles/0 (lib/letflow/api/authorization.ex), and the plan states that no user of the pilot company is given PLATFORM_ADMIN (docs/roles.md). The plan states that docs/roles.md has no built-in role for an accountant and gives the accountant no role of its own choosing: the accountant's role is listed under Open owner questions, with TENANT_AUDITOR (read-only, may not export) named as one candidate and marked \"UAT assumption, to be confirmed by the process owner\"."
-      - "7. Users: the Week 1 table has the administrator add users one by one on the Users screen (docs/guides/tenant-admin/en.md section 2); the plan states that an xlsx import of users is pending (REQ-791, task T-1609) and is not relied on in this plan."
+      - "7. Users: the Week 1 table has the administrator add users one by one on the Users screen (docs/guides/tenant-admin/en.md section 2); the plan states that the xlsx users import is available (REQ-791: template download, dry run, up to 200 rows; server part merged in #4138) and may be used for the user load, and that sign-in for imported users depends on the password-reset chain REQ-788/789 (task T-1632, in review), so that part is pending until it merges."
       - "8. The Training section names, for each of the three people, what is read before their first task, in ru, kk and en: for the administrator docs/guides/tenant-admin/ru.md, kk.md and en.md (linked); for the storekeeper and the accountant the in-product stock help pages opened from the screen's Help link (web/src/components/help/HelpLink.tsx, web/src/modules/stock/help/StockHelpPage.tsx); it states that the training texts are not copied into the plan and that who gives a training session, and when, is an open owner question."
       - "9. The Support questions section lists at least six questions a pilot user is expected to ask in the first month (for example an import row refused, a document that cannot be posted, a count that is frozen, a hidden balance, a sign-in that fails, a printed form that looks wrong), each with the file a support person reads first (a section of docs/guides/tenant-admin/en.md or a stock help page); it states that a question none of these files answers goes to the owner, and, citing docs/uat/ba-decisions/T-1605.md section 3 (D-116), that nobody is on call and nobody works nights for a non-paying pilot."
       - "10. The What to measure section has one table with the columns Measure, Where it is read, Who reads it, When; every Where it is read names an existing screen or file of the product (for example the audit log, the stock balances screen, the stock count result, the import report of Admin > Import data, the Metrics page); no measure needs a new report, screen or tool, and none carries a target number."
       - "11. The Exit criteria section lists the checks that together mean \"the pilot works\", each answerable yes or no by a reader from a measure of criterion 10 (for example: the opening balances loaded and the accountant confirmed the totals against the company's own lists; a stock count was completed and its differences posted or explained; the storekeeper worked a week of stock documents without the team's help). Any number in this section is marked \"proposal, to be confirmed by the owner\"; the section states that the owner decides, with the portfolio manager, whether the pilot passes (D-063)."
-      - "12. The Open owner questions section is a short numbered list of at most ten items and has at least: which company is the pilot and when it starts (whether it is Qoimeks Client 1, T-1600 row d); the accountant's role (criterion 6); who gives the training and in which language; the thresholds of the exit criteria; how long the pilot lasts after the first month; what the pilot company must give the team before week 1 (its lists of locations, items and balances as xlsx, the names and e-mail addresses of its users); and whether the users xlsx import (REQ-791) is waited for. No answer is given to any of them."
+      - "12. The Open owner questions section is a short numbered list of at most ten items and has at least: which company is the pilot and when it starts (whether it is Qoimeks Client 1, T-1600 row d); the accountant's role (criterion 6); who gives the training and in which language; the thresholds of the exit criteria; how long the pilot lasts after the first month; what the pilot company must give the team before week 1 (its lists of locations, items and balances as xlsx, the names and e-mail addresses of its users); and whether the pilot waits for the password-reset chain REQ-788/789 (task T-1632, in review) that sign-in of users imported by the available xlsx users import (REQ-791) depends on. No answer is given to any of them."
       - "13. git diff origin/main...HEAD --stat of the implementation change lists only docs/runbooks/pilot-first-month.md; every file path the plan cites exists on origin/main at implement time (`git cat-file -e origin/main:<path>` succeeds for each)."
     depends_on: [REQ-784]
-  - id: REQ-795
+  - id: REQ-800
     title: "Notification bell: which of the three planned kinds (document returned, count assigned, failed import) has a producer today; verdict per kind and the build template; requirement only, no code"
     owner: REQ-ANALYST
     status: pending
@@ -53945,7 +53968,7 @@ requirements:
       this entry queues no feature task; when a kind survives, the operator queues one `feature` task per kind with
       `after` set to the task of this entry, and it meets criteria 3 to 7. Item 11 of T-1631.md (digest and
       preferences) waits on this outcome.
-      Two files change: docs/requirements.yaml (this entry) and test/mix/tasks/letflow_check_deferral_staleness_test.exs, where the live-corpus pin moves from `deferral_count == 0` to `== 1` and from `deferrals == []` to `Enum.map(result.deferrals, & &1.id) == ["REQ-795"]`, with a comment (the entry is a registered deferral until the engine adds gh; then the pin goes back to 0 and `[]`). No code under lib/ or web/, no other test, migration, config, and no edit
+      Two files change: docs/requirements.yaml (this entry) and test/mix/tasks/letflow_check_deferral_staleness_test.exs, where the live-corpus pin moves from `deferral_count == 2` to `== 3` and to the list ["REQ-795", "REQ-800", "REQ-799"], with a comment (the entry is a registered deferral until the engine adds gh; then the pin drops REQ-800 again). No code under lib/ or web/, no other test, migration, config, and no edit
       of the notification-bell-6 GAP sidecar (the scenario stays blocked until a kind has a producer).
     acceptance_criteria:
       - "1. The description records, for each of the three kinds, the file and the grep that shows whether a producer exists, and a verdict (not built, dropped, or dropped by default); `git grep -n \"UserNotifications.notify\" -- lib` outside lib/letflow/user_notifications.ex lists only lib/letflow/tasks.ex at the time of writing."
@@ -53955,7 +53978,7 @@ requirements:
       - "5. (Template.) A test through the real producer and the real read route shows the row for the target user and not for another user or another tenant (INV-1, INV-5)."
       - "6. (Template.) Scenario notification-bell-6 is the acceptance check, and its GAP sidecar under test/fixtures/uat/scenario-env-limitations/ is rewritten to the surviving kinds in that build task."
       - "7. (Template.) The optional e-mail copy stays off by default and keeps the owner rules of T-1551."
-      - "8. The entry states that item 11 of docs/uat/ba-decisions/T-1631.md waits on this outcome, and `git diff origin/main...HEAD --stat` of this task lists docs/requirements.yaml and test/mix/tasks/letflow_check_deferral_staleness_test.exs (the live-corpus deferral pin: count 0 to 1, list [] to [REQ-795], plus its comment), and nothing else."
+      - "8. The entry states that item 11 of docs/uat/ba-decisions/T-1631.md waits on this outcome, and `git diff origin/main...HEAD --stat` of this task lists docs/requirements.yaml and test/mix/tasks/letflow_check_deferral_staleness_test.exs (the live-corpus deferral pin: count 2 to 3, list gains REQ-800, plus its comment), and nothing else."
     depends_on: []
   - id: REQ-798
     title: "Assets reporting, task 1: inventory of the government lists (card list, write-off list, inventory sheet, movement of cards; stock and assets) with the saved report, xlsx export or printed form each has on main today, one line each, and the gap of each; docs only, no ranking, no build"
@@ -54064,3 +54087,31 @@ requirements:
       - "9. The Owner decisions section names the cut with rank 1 that costs no money as the candidate for task 2 of docs/uat/ba-decisions/T-1631.md item 7 (one later change), with its measured saving, and lists every cut that costs money as an open owner question with its measured saving. It applies nothing and answers none of the questions."
       - "10. git diff origin/main...HEAD --stat of the implementation change lists only docs/status/ci-minutes-after-batch4.md; every file path the note cites exists on origin/main at implement time (`git cat-file -e origin/main:<path>` succeeds for each), and every run id it cites is returned by `gh api repos/tvolodi-org/letflow/actions/runs/<id>`."
     depends_on: []
+  - id: REQ-799
+    title: "Process designer slice 3B part 2: the instance replay screen (step through the recorded path of one instance on the diagram, from NODE_ENTERED events)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-793 -- written by task T-1635 together with its build; the engine files the GitHub issue, REQ-793 (the writer) is merged but its status is not flipped by this team
+    # Source: task T-1635 (operator, D-086, PM order 2026-11-10); docs/uat/ba-decisions/T-1631.md item 4 (a requirement for the screen once REQ-793 is merged: step through the path of one finished or running instance on the diagram, in order, with the time at each step, using the node-entered events instead of inferring gateways); REQ-792 (the NODE_ENTERED type), REQ-793 (the engine writer, #4164); docs/design/process-designer.md "Instance path".
+    description: >
+      The Graph tab of the instance page shows the current path inferred from completion events (Live). Since REQ-793
+      the engine records one NODE_ENTERED event for every node a token enters, with payload node_id, node_type and
+      via_edge_id (null only for START). This requirement adds a Replay view next to Live: the same read-only diagram,
+      drawn for "after step k" from the recorded entries only, with First/Previous/Next/Last buttons, a range input
+      and an ordered step list (time of each step, time since the previous step, and the branch a join arrival came
+      from). Data comes from the existing history route GET /api/v1/instances/:id/history?event_type=NODE_ENTERED
+      (page size 200, cursor paging, at most 25 pages, polled while ACTIVE). Web only: no route, permission,
+      migration or backend change.
+    acceptance_criteria:
+      - "RQ1. Steps are listed in recorded order from NODE_ENTERED events, including gateways, joins and END (not inferred)."
+      - "RQ2. The diagram shows the path after the chosen step; arrival is not shown as completion: a node is Done only after a recorded departure from it (or an END), otherwise Active. A parallel join is Active from its first recorded branch arrival while it waits and Done only at the step that leaves it (its successor's entry); each branch arrival at a join is its own step. Unreached nodes and edges are neutral."
+      - "RQ3. Each step shows its time and the time since the previous step."
+      - "RQ4. Works for a finished and for a running instance (running follows the last step unless the user moved)."
+      - "RQ5. An instance with no recorded steps shows an explanatory banner and the Live view; one whose first entry is not START shows a \"steps before ... not recorded\" banner."
+      - "RQ6. The data is read through the existing history route filtered by NODE_ENTERED (no new route); the client cache key carries the tenant id."
+      - "RQ7. Keyboard and screen-reader operable (buttons, range input, aria-current, live region)."
+      - "RQ8. Text in en, ru and kk."
+      - "RQ9. Live remains the default on the Graph tab; Replay is a switch."
+      - "RQ10. Out of scope: auto-play, variables at a step, backfill, backend change."
+    depends_on: [REQ-793]

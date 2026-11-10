@@ -218,3 +218,39 @@
 .lf-pd-edge__label .lf-pd-edge__diff { margin-inline-start: var(--space-1); }
 .lf-pd-edge__label .lf-pd-edge__diff:first-child { margin-inline-start: 0; }
 .lf-pd-versions__lede { margin: 0; font: var(--type-body-s); color: var(--ink-muted); }
+
+/* ── T-1635 (REQ-799): the instance replay on the Graph tab. Step bar, diagram, recorded step list. ── */
+.lf-replay { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.lf-replay__mode { display: inline-flex; gap: var(--space-1); }
+.lf-replay__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.lf-replay__range { flex: 1 1 var(--field-w-s); min-width: 0; accent-color: var(--current); }
+.lf-replay__range:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.lf-replay__pos { font: var(--type-mono-s); color: var(--ink-muted); white-space: nowrap; }
+.lf-replay__status { margin: 0; font: var(--type-body-s); color: var(--ink); overflow-wrap: anywhere; }
+.lf-replay__body { display: grid; grid-template-columns: minmax(0, 1fr) var(--field-w-l); gap: var(--space-4); align-items: start; }
+.lf-replay__list {
+  margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1);
+  max-height: var(--lf-pd-canvas-h, 640px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+}
+.lf-replay__step {
+  all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: grid;
+  grid-template-columns: var(--space-8) minmax(0, 1fr); gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-3); background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-md);
+}
+.lf-replay__step:hover { background: var(--row-hover); }
+.lf-replay__step:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.lf-replay__item[aria-current='step'] .lf-replay__step { border-color: var(--current); background: var(--current-tint); }
+.lf-replay__num { font: var(--type-mono-s); color: var(--ink-muted); }
+.lf-replay__main { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.lf-replay__label { font: var(--type-label); color: var(--ink); overflow-wrap: anywhere; }
+.lf-replay__meta { font: var(--type-caption); color: var(--ink-muted); overflow-wrap: anywhere; }
+.lf-replay__when { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); }
+.lf-replay__time { font: var(--type-mono-s); color: var(--ink-muted); white-space: nowrap; }
+@media (max-width: 899px) {
+  .lf-replay__body { grid-template-columns: minmax(0, 1fr); }
+}
+/* Phones: the slider and its position take the first row, the four buttons wrap below it. */
+@media (max-width: 639px) {
+  .lf-replay__range { order: -2; flex-basis: 60%; }
+  .lf-replay__pos { order: -1; }
+}
