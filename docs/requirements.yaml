@@ -53645,7 +53645,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-787 -- delivered by task T-1640 itself; no separate issue
+    gh: 4188
     # Source: task T-1640 (B5#5, part 2); docs/uat/ba-decisions/T-1631.md item 5; REQ-787 criterion 8. The platform-operator screen (part 3) is a later web task.
     description: >
       A tenant may say when a fleet rollout (REQ-787) may touch it. The tenant setting module_upgrade.window holds
@@ -53936,7 +53936,7 @@ requirements:
     owner: REQ-ANALYST
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-584 -- registration placeholder, not a build dependency: this entry builds nothing, and check_requirements_registration rule R1 fails an entry with neither a marker nor gh:, while the engine files the issue only after merge; REQ-584 (pending e-mail delivery log) is named because a later build of a surviving kind would send its optional e-mail copy through it; replace the marker with gh: N once the engine files the issue
+    gh: 4187
     # Source: task T-1634 (PM order 2026-11-10, priority 3); docs/uat/ba-decisions/T-1631.md item 3 ("Task 1 (S): a requirement that lists, per kind, the exact place in the code where it is raised ... Then one build per kind") and item 11 (digest and preferences); the team answer to T-1634 (a requirement only, no invented behaviour). Greps run on origin/main at implement time; every path below exists there. Written 2026-11-10. Not yet validated.
     description: >
       Today the bell (Letflow.UserNotifications) has one kind: `@kinds ~w(task_assigned)` in
@@ -54092,7 +54092,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-793 -- written by task T-1635 together with its build; the engine files the GitHub issue, REQ-793 (the writer) is merged but its status is not flipped by this team
+    gh: 4186
     # Source: task T-1635 (operator, D-086, PM order 2026-11-10); docs/uat/ba-decisions/T-1631.md item 4 (a requirement for the screen once REQ-793 is merged: step through the path of one finished or running instance on the diagram, in order, with the time at each step, using the node-entered events instead of inferring gateways); REQ-792 (the NODE_ENTERED type), REQ-793 (the engine writer, #4164); docs/design/process-designer.md "Instance path".
     description: >
       The Graph tab of the instance page shows the current path inferred from completion events (Live). Since REQ-793
@@ -54120,7 +54120,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-788 -- registration placeholder, not a build dependency: REQ-788 (the reset-password route, merged as 36a360027, status not flipped by this team) adds the no_identity_provider_login refusal this note explains; replace the marker with gh: N once the engine files the issue
+    gh: 4185
     # Source: task T-1656 (operator, D-086, PM order 2026-11-11, batch 6 item 1); docs/uat/ba-decisions/T-1651.md "What I found first" point 2 and candidate 1 ("a design note listing the options found in decisions 0072 and 0085 ... and what each needs from infra. The note decides nothing about production"; owner decision "Yes, the choice; infra for anything that touches the realm (D-016, D-018)"). Files read on origin/main 3926469bd, every one present there: lib/letflow/identity/user.ex (create_changeset/2 puts auth_source internal and the password_hash sentinel "__NO_PASSWORD_SET__"; jit_changeset/2); lib/letflow/identity.ex (create_user/2 with its login-directory step; provision_oidc_user/4, keyed on the (external_realm, external_id) pair, and the private insert_or_fetch_in_tx/4 that inserts a new oidc row with username = preferred_username and rolls back on a username held by a different identity); lib/letflow/identity/user_import.ex (creates users through Identity.create_user/2); lib/letflow/routers/identity.ex (do_reset_password, 409 no_identity_provider_login when auth_source is not oidc); lib/letflow/identity/pending_admin_grants.ex; lib/letflow/login_directory.ex; lib/letflow/routers/login_discovery.ex; lib/letflow/signup/realm_provisioner.ex; priv/keycloak/provisioner/v1/ and v2/ (tenant-realm.json); docs/runbooks/onboarding-new-tenant-realm.md (R2, "Nothing in Letflow creates a realm or a realm user today"); docs/runbooks/pilot-first-month.md; test/fixtures/uat/scenario-env-limitations/tenant-administration-password-reset-3-user-page-button.yaml; decisions 0072 (D1 "Letflow holds no Keycloak admin credential", the scoped creator gets 403 for users on a realm it made; D2 registrationAllowed false, the inline first administrator; section 10 manage-users and the welcome mail are the owner's), 0085 (D1 client, D6 credential mail and "Forgot password" hint), 0048 (section 1, the e-mail first-login binding rules), 0044 (O1 realm per tenant; invitations in its other options), 0042 (email-first login directory, Decision 7 no brokering), 0035 (login delegated to Keycloak). Written by the business analyst (T-1656) 2026-11-11. Not yet validated.
     description: >
       What this entry is: the specification of one later docs change. The file it names (named by this entry's id, as docs/testing/REQ-122-e2e-inventory.md is),
