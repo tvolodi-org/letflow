@@ -23,9 +23,9 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   # Official forms with more columns than this print on a landscape A4 page.
   @wide_columns 7
 
-  @spec render([tuple()]) ::
+  @spec render([tuple()], %{word: String.t(), of: String.t()} | nil) ::
           {:ok, binary()} | {:error, :unsupported_glyph | {:render_failed, [atom()]}}
-  def render(model) do
+  def render(model, footer \\ nil) do
     {blocks, doc, tables} = compile(model)
 
     wide? =
@@ -48,7 +48,7 @@ defmodule Letflow.Documents.FormPrint.Pdf do
     declared =
       Map.new(tables, fn {et, {_rows, keys}} -> {et, keys} end) |> Map.put("doc", Map.keys(doc))
 
-    case PrintLayout.render(layout, projection, declared) do
+    case PrintLayout.render(layout, projection, declared, footer: footer) do
       {:ok, pdf} ->
         {:ok, pdf}
 

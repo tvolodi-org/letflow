@@ -60,7 +60,7 @@ defmodule Letflow.Documents.PrintLayout.Flow do
     case st.vs do
       [] ->
         pages = Enum.reverse([Enum.reverse(st.ops) | st.pages])
-        {:ok, %{pages: pages, cps: Enum.sort(st.cps), size: {pw, ph}}}
+        {:ok, %{pages: pages, cps: Enum.sort(st.cps), size: {pw, ph}, margin: m}}
 
       vs ->
         {:error, vs |> Enum.uniq() |> Enum.sort_by(& &1.path)}

@@ -107,7 +107,7 @@ defmodule Letflow.Documents.PrintLayout do
     with :ok <- validate(layout, declared_fields, opts),
          :ok <- check_projection(layout, projection),
          {:ok, doc} <- Flow.run(layout, projection) do
-      {:ok, Pdf.build(doc)}
+      {:ok, Pdf.build(doc, footer: opt_footer(opts))}
     end
   end
 
@@ -332,6 +332,13 @@ defmodule Letflow.Documents.PrintLayout do
   defp in_range?(_, _, _, _), do: false
 
   defp v(rule, path), do: %{rule: rule, path: path}
+
+  defp opt_footer(opts) do
+    case opt(opts, :footer) do
+      %{word: w, of: o} when is_binary(w) and is_binary(o) -> %{word: w, of: o}
+      _ -> nil
+    end
+  end
 
   defp opt(opts, key) when is_list(opts) do
     if Keyword.keyword?(opts), do: Keyword.get(opts, key, []), else: []

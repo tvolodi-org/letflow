@@ -72,6 +72,7 @@ vi.mock('@/api/useTenantScopedQueryKeys', () => ({
       roleGrants: () => ['roleGrants'],
       groupMembers: (id: string) => ['groupMembers', id],
       users: (f: unknown) => ['users', f],
+      roles: () => ['roles'],
     },
   })),
 }))
@@ -149,8 +150,8 @@ afterEach(() => {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('ISS-0823 — GroupsPage Add-member user list truncation warning', () => {
-  it('TC-ISS0823-01: shows truncation warning when usersApi.list returns next_cursor (>200 users)', async () => {
+describe('ISS-0823 — GroupsPage Add-member user list (superseded by T-1610: search result, not first 200)', () => {
+  it('TC-ISS0823-01: T-1610 replaced the 200-user warning by a "more users match" note when next_cursor is set', async () => {
     installQueryMock('cursor-page-2')
     renderWithAccess(React.createElement(GroupsPage))
 
@@ -159,13 +160,12 @@ describe('ISS-0823 — GroupsPage Add-member user list truncation warning', () =
     await user.click(screen.getByText('Manage members'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('user-list-truncated-warning')).toBeInTheDocument()
+      expect(screen.getByTestId('more-users-match-note')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('user-list-truncated-warning')).toHaveTextContent('more than 200 users')
-    expect(screen.getByTestId('user-list-truncated-warning')).toHaveTextContent('first 200')
+    expect(screen.queryByTestId('user-list-truncated-warning')).not.toBeInTheDocument()
   })
 
-  it('TC-ISS0823-02: no truncation warning when usersApi.list returns next_cursor: null (≤200 users)', async () => {
+  it('TC-ISS0823-02: no note when usersApi.list returns next_cursor: null', async () => {
     installQueryMock(null)
     renderWithAccess(React.createElement(GroupsPage))
 
@@ -174,11 +174,11 @@ describe('ISS-0823 — GroupsPage Add-member user list truncation warning', () =
     await user.click(screen.getByText('Manage members'))
 
     await waitFor(() => {
-      expect(screen.queryByTestId('user-list-truncated-warning')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('more-users-match-note')).not.toBeInTheDocument()
     })
   })
 
-  it('TC-ISS0823-03: availableUsers subtraction is safe when user list is truncated (no crash or false exclusion)', async () => {
+  it('TC-ISS0823-03: the picker lists the fixture users as checkboxes (no crash when the list is truncated)', async () => {
     installQueryMock('cursor-page-2')
     renderWithAccess(React.createElement(GroupsPage))
 
@@ -186,12 +186,9 @@ describe('ISS-0823 — GroupsPage Add-member user list truncation warning', () =
     await waitFor(() => screen.getByText('Manage members'))
     await user.click(screen.getByText('Manage members'))
 
-    // The dropdown renders options for available users (3 fixture users, no members to subtract)
     await waitFor(() => {
-      const select = screen.getByRole('combobox')
-      expect(select).toBeInTheDocument()
-      // At least the placeholder option exists; the 3 fixture users are options too
-      expect(select.querySelectorAll('option').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getByLabelText(/User 0/)).toBeInTheDocument()
+      expect(screen.getByLabelText(/User 2/)).toBeInTheDocument()
     })
   })
 })
