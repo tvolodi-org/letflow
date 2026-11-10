@@ -53645,7 +53645,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-787 -- delivered by task T-1640 itself; no separate issue
+    gh: 4188
     # Source: task T-1640 (B5#5, part 2); docs/uat/ba-decisions/T-1631.md item 5; REQ-787 criterion 8. The platform-operator screen (part 3) is a later web task.
     description: >
       A tenant may say when a fleet rollout (REQ-787) may touch it. The tenant setting module_upgrade.window holds
@@ -53936,7 +53936,7 @@ requirements:
     owner: REQ-ANALYST
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-584 -- registration placeholder, not a build dependency: this entry builds nothing, and check_requirements_registration rule R1 fails an entry with neither a marker nor gh:, while the engine files the issue only after merge; REQ-584 (pending e-mail delivery log) is named because a later build of a surviving kind would send its optional e-mail copy through it; replace the marker with gh: N once the engine files the issue
+    gh: 4187
     # Source: task T-1634 (PM order 2026-11-10, priority 3); docs/uat/ba-decisions/T-1631.md item 3 ("Task 1 (S): a requirement that lists, per kind, the exact place in the code where it is raised ... Then one build per kind") and item 11 (digest and preferences); the team answer to T-1634 (a requirement only, no invented behaviour). Greps run on origin/main at implement time; every path below exists there. Written 2026-11-10. Not yet validated.
     description: >
       Today the bell (Letflow.UserNotifications) has one kind: `@kinds ~w(task_assigned)` in
@@ -53949,10 +53949,16 @@ requirements:
       `git grep -nE "status in \[" lib/letflow/modules/assets/documents.ex`, two hits). Search for a return or
       send-back transition: `git grep -inE "send_back|sent_back|returned_to|return_to_draft" -- lib/letflow/modules lib/letflow/tasks.ex`;
       0 hits (observed on the branch with `| wc -l`). The broader word `reject` is not used: it matches `Enum.reject` and `Map.reject` calls (for example in assets/card_locks.ex, cards.ex, documents/checks.ex), which are list filters and not transitions. No producer. The kind is not built and stays off `@kinds`.
-      (2) Count assigned: `git grep -inE "assignee|counter_id|counted_by|assigned_to" lib/letflow/modules/stock` prints
-      nothing (0 hits, observed), so a stock count has no assignee. If a count is worked as a task, its assignee is already notified by
-      `task_assigned` (lib/letflow/tasks.ex), so this kind is dropped as a separate kind. Where a count has no task there
-      is no assignment event.
+      (2) Count assigned (AMENDED 2026-11-11, task T-1658, docs/uat/ba-decisions/T-1651.md item 3: the first wording of this finding was wrong).
+      The grep `git grep -inE "assignee|counter_id|counted_by|assigned_to" lib/letflow/modules/stock` prints nothing, but it looked for
+      the wrong names. A count order already has people: `@input_keys` in lib/letflow/modules/stock/counts.ex holds `chair_employee_id`
+      and `member_employee_ids` (used by count_print.ex, count_paperwork.ex, count_differences.ex); they are employees (`org_employee`,
+      with an optional `user_id` link, lib/letflow/modules/org/org.ex). So open question (b) is answered: a count has an owner, its chair
+      and members. The event is the private function `mark_ordered/4` in lib/letflow/modules/stock/counts.ex, called when the order is
+      issued. Verdict: SURVIVES as the kind `count_assigned`. Recipient: the chair and each member whose employee has a linked user;
+      a member without a linked user gets no entry (UAT assumption, to be confirmed by the process owner). The earlier statement that
+      a count worked as a task is covered by `task_assigned` is withdrawn as a reason to drop the kind. This amendment builds nothing;
+      the build is one `feature` task that meets criteria 3 to 7 (kind `count_assigned`, raised from `mark_ordered/4`).
       (3) Failed import: the imports (assets, locations, org, catalog_items) run synchronously; `ctx.dry_run` is accepted
       and the caller gets the row report in the response (lib/letflow/modules/assets/import.ex moduledoc, found with
       `git grep -n "dry_run" lib/letflow/modules/assets/import.ex`). Background work:
@@ -53963,22 +53969,22 @@ requirements:
       would repeat what the caller already saw. Dropped by default (UAT assumption, to be confirmed by the process
       owner). It returns only if an import becomes asynchronous, and then with its own requirement.
       Open questions for the owner, not settled here: (a) is "return a document to draft" wanted as a product behaviour;
-      (b) do stock counts get an owner or counter at all; (c) are imports to become asynchronous. No ru/kk/en text is
-      written for a dropped or undecided kind; it is written when the owner answers. The surviving set is empty today, so
-      this entry queues no feature task; when a kind survives, the operator queues one `feature` task per kind with
+      (b) [answered by the amended finding (2): a count has a chair and members]; (c) are imports to become asynchronous. No ru/kk/en text is
+      written for a dropped or undecided kind; it is written when the owner answers. The surviving set is `count_assigned` only, so
+      this entry queues no feature task itself; the operator queues one `feature` task per surviving kind with
       `after` set to the task of this entry, and it meets criteria 3 to 7. Item 11 of T-1631.md (digest and
       preferences) waits on this outcome.
       Two files change: docs/requirements.yaml (this entry) and test/mix/tasks/letflow_check_deferral_staleness_test.exs, where the live-corpus pin moves from `deferral_count == 2` to `== 3` and to the list ["REQ-795", "REQ-800", "REQ-799"], with a comment (the entry is a registered deferral until the engine adds gh; then the pin drops REQ-800 again). No code under lib/ or web/, no other test, migration, config, and no edit
-      of the notification-bell-6 GAP sidecar (the scenario stays blocked until a kind has a producer).
+      of the notification-bell-6 GAP sidecar (the scenario stays blocked until a kind has a producer; the build task of `count_assigned` rewrites it, criterion 6).
     acceptance_criteria:
-      - "1. The description records, for each of the three kinds, the file and the grep that shows whether a producer exists, and a verdict (not built, dropped, or dropped by default); `git grep -n \"UserNotifications.notify\" -- lib` outside lib/letflow/user_notifications.ex lists only lib/letflow/tasks.ex at the time of writing."
-      - "2. The entry gives no new status, field, route or asynchronous path, and lists the three open owner questions (document return, count ownership, asynchronous import) as questions, answering none."
+      - "1. The description records, for each of the three kinds, the file and the grep that shows whether a producer exists, and a verdict (survives, not built, dropped, or dropped by default); `git grep -n \"UserNotifications.notify\" -- lib` outside lib/letflow/user_notifications.ex lists only lib/letflow/tasks.ex at the time of writing."
+      - "2. The entry gives no new status, field, route or asynchronous path, and keeps two owner questions open (document return, asynchronous import) as questions; count ownership is answered by finding (2)."
       - "3. (Template for a later build of a surviving kind.) The kind is added to `@kinds` in lib/letflow/user_notifications.ex and raised by one named function through `UserNotifications.notify/6`, which never raises (INV-8); the tenant id comes from `tenant_id_for_schema_name/1` as in lib/letflow/tasks.ex."
       - "4. (Template.) web/src/components/layout/notificationMessages.ts has ru, kk and en text for the kind, and a route in `notificationLink` if the kind links; the kind comment in web/src/api/notifications.ts is updated."
       - "5. (Template.) A test through the real producer and the real read route shows the row for the target user and not for another user or another tenant (INV-1, INV-5)."
       - "6. (Template.) Scenario notification-bell-6 is the acceptance check, and its GAP sidecar under test/fixtures/uat/scenario-env-limitations/ is rewritten to the surviving kinds in that build task."
       - "7. (Template.) The optional e-mail copy stays off by default and keeps the owner rules of T-1551."
-      - "8. The entry states that item 11 of docs/uat/ba-decisions/T-1631.md waits on this outcome, and `git diff origin/main...HEAD --stat` of this task lists docs/requirements.yaml and test/mix/tasks/letflow_check_deferral_staleness_test.exs (the live-corpus deferral pin: count 2 to 3, list gains REQ-800, plus its comment), and nothing else."
+      - "8. The entry states that item 11 of docs/uat/ba-decisions/T-1631.md waits on this outcome, and `git diff origin/main...HEAD --stat` of this task lists docs/requirements.yaml and test/mix/tasks/letflow_check_deferral_staleness_test.exs (the live-corpus deferral pin: count 2 to 3, list gains REQ-800, plus its comment), and nothing else. (The later T-1658 amendment touches only docs/requirements.yaml and the notification-bell-6 sidecar, so this criterion is not read against it.)"
     depends_on: []
   - id: REQ-798
     title: "Assets reporting, task 1: inventory of the government lists (card list, write-off list, inventory sheet, movement of cards; stock and assets) with the saved report, xlsx export or printed form each has on main today, one line each, and the gap of each; docs only, no ranking, no build"
@@ -54092,7 +54098,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-793 -- written by task T-1635 together with its build; the engine files the GitHub issue, REQ-793 (the writer) is merged but its status is not flipped by this team
+    gh: 4186
     # Source: task T-1635 (operator, D-086, PM order 2026-11-10); docs/uat/ba-decisions/T-1631.md item 4 (a requirement for the screen once REQ-793 is merged: step through the path of one finished or running instance on the diagram, in order, with the time at each step, using the node-entered events instead of inferring gateways); REQ-792 (the NODE_ENTERED type), REQ-793 (the engine writer, #4164); docs/design/process-designer.md "Instance path".
     description: >
       The Graph tab of the instance page shows the current path inferred from completion events (Live). Since REQ-793
@@ -54115,3 +54121,88 @@ requirements:
       - "RQ9. Live remains the default on the Graph tab; Replay is a switch."
       - "RQ10. Out of scope: auto-play, variables at a step, backfill, backend change."
     depends_on: [REQ-793]
+  - id: REQ-802
+    title: "Process designer slice 3C proposal: one note listing what the recorded node entries (NODE_ENTERED) allow beyond the replay of one instance, ranked against the pilot's first-month needs; docs only, picks nothing"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 4191
+    # Source: task T-1661 (operator, D-086, PM order 2026-11-11, batch 6); docs/uat/ba-decisions/T-1651.md item 8 ("Process designer \"slice 3C\": decide what it is ... one requirement note proposing what the node-entered events now allow beyond replay (a proposal, not a rule, for example time spent per step across many instances, or a marker on the diagram of where running instances stand) and ranking it against the pilot's needs; the owner or portfolio manager picks"; owner decision "Yes, picking the scope"; dependency "REQ-793 and the replay screen (merged)"; "no pilot need seen, so low rank"). Files read on origin/main 6a3b0e0bd: docs/design/process-designer.md (headings: slice 1, Instance path, Slice 2, Slice 3A; no "3C" and no replay section); lib/letflow/engine/node_entries.ex (moduledoc: payload node_id, node_type, via_edge_id; same transaction as the move; no outbox, webhook, backfill or replay effect; known limitation of two edges with the same source and target); lib/letflow/routers/instances.ex (authz_get "/:id/history" and "/:id/timeline" under :InstancesRead are per instance; list_item_map/1 of GET /instances renders instance_id, definition_id, correlation_key, scope_node_id, status, started_at only); requirement REQ-799 (the replay screen, RQ10 out of scope); web/src/utils/canvas/instanceReplay.ts and web/src/hooks/useInstances.ts (replay built from NODE_ENTERED pages); docs/runbooks/pilot-first-month.md (weeks 1-4 name no process, instance or designer screen); lib/letflow/modules/stock/documents/posting.ex moduledoc (a stock document posts through one instance of stock_receipt, an opening document through stock_opening with an approve task by a second person); lib/letflow/modules/assets/documents/posting.ex moduledoc (asset documents also post through Letflow.Engine.create/2); lib/letflow/api/authorization.ex core_role_allows?(:STOREKEEPER, ...) and lib/letflow/modules/stock/stock.ex role_grants (no :InstancesRead for STOREKEEPER); docs/roles.md (STOREKEEPER section). Written by the business analyst (T-1661) 2026-11-11.
+    description: >
+      What this entry is: the specification of one later docs change. The file it names,
+      docs/design/process-designer-slice-3c.md, does not exist yet and is not written by the task that adds this
+      entry; it is written by the implementation task of the GitHub issue the engine files for REQ-802.
+      Item 8 of docs/uat/ba-decisions/T-1651.md finds that docs/design/process-designer.md has slices 1, 2 and 3A
+      and that the replay of one instance (REQ-799, called 3B) is built, but that no "3C" exists, so the designer
+      line stays open. It asks for a proposal of what the recorded node entries now allow beyond the replay, ranked
+      against the pilot's needs, so that the owner or the portfolio manager can pick a scope or close the line.
+      Facts the analyst found on origin/main, to be re-derived by the implementer: since REQ-793 the engine writes
+      one NODE_ENTERED event (node_id, node_type, via_edge_id) for every node a token enters, only for moves
+      committed after that deploy (lib/letflow/engine/node_entries.ex; docs/design/process-designer.md, "Instance
+      path"); the event is read today only per instance, through the history route filtered by event type under
+      the instances read permission, and GET /instances renders no current node and no event
+      (lib/letflow/routers/instances.ex, list_item_map/1). So every candidate that looks across many instances
+      needs a new read; only a candidate on one instance's page can use what the web already reads.
+      Candidates the analyst sees (the note may add others): (a) time spent per step across the instances of one
+      definition version; (b) a marker on the diagram of how many running instances stand at each node, and since
+      when; (c) how often each connection was taken across instances (via_edge_id); (d) "waiting since" on the page
+      of one running instance, from the time of the recorded entry of each node that is still active.
+      Pilot link the analyst found: docs/runbooks/pilot-first-month.md names no process, instance or designer
+      screen in any week. Stock and asset documents do post through process instances
+      (lib/letflow/modules/stock/documents/posting.ex, lib/letflow/modules/assets/documents/posting.ex), and an
+      opening document waits for an approve task by a second person, so "where is this document waiting and since
+      when" is the nearest pilot use; the storekeeper cannot read instances at all (no :InstancesRead in
+      lib/letflow/api/authorization.ex core_role_allows?(:STOREKEEPER, ...) or in the stock manifest role_grants
+      of lib/letflow/modules/stock/stock.ex), so only the company administrator could see any candidate.
+      ONE change, docs only: the new file docs/design/process-designer-slice-3c.md. No code under lib/, web/ or
+      apps/, no test, no config, no edit of docs/design/process-designer.md or of any other file. The note builds,
+      grants and decides nothing; the pick is the owner's or the portfolio manager's (T-1651 item 8). The ranking is
+      not measured with users; it is a UAT assumption, to be confirmed by the process owner.
+    acceptance_criteria:
+      - "1. docs/design/process-designer-slice-3c.md exists and has exactly these level-2 headings, in this order: \"Status\", \"What the recorded entries hold\", \"Candidates\", \"Ranking against the pilot\", \"Not proposed\", \"Sources\"."
+      - "2. The Status section states that the file is a proposal only, builds, grants and decides nothing, that the owner or the portfolio manager picks the scope or closes the designer line (citing docs/uat/ba-decisions/T-1651.md item 8), that no candidate is started before it has its own requirement, and that the ranking is a UAT assumption to be confirmed by the process owner."
+      - "3. The What the recorded entries hold section states, citing lib/letflow/engine/node_entries.ex and docs/design/process-designer.md section \"Instance path\": the three payload fields node_id, node_type and via_edge_id; that one entry is written for every node a token enters, in the same transaction as the move; that instances which moved before the REQ-793 deploy have no entries and none are backfilled; that the event has no outbox or webhook effect; the known limitation for two edges with the same source and target; and, citing lib/letflow/routers/instances.ex, that the entries are read today only per instance through the history route under :InstancesRead and that the list route renders exactly the keys of list_item_map/1, quoted as found on origin/main at implement time."
+      - "4. The Candidates section has one table with exactly the columns Candidate, What the user sees, Data it needs, New read needed, Size, Who could see it. It has one row for each of: time spent per step across the instances of one definition version; a marker on the diagram of how many running instances stand at each node and since when; how often each connection was taken across instances; waiting since on the page of one running instance. Further rows are allowed, each with all columns filled."
+      - "5. In each Candidates row: New read needed is \"none\" or names the missing route or response field, judged against the routes of lib/letflow/routers/instances.ex on origin/main; Size is exactly one of S (web only, on routes that exist), M (one new read route or one new response field, plus a web change), L (anything more: several routes, a stored summary, a migration or a new permission); Who could see it names only roles of docs/roles.md that hold :InstancesRead, and states that STOREKEEPER does not, citing core_role_allows?(:STOREKEEPER, ...) in lib/letflow/api/authorization.ex and the stock role_grants in lib/letflow/modules/stock/stock.ex."
+      - "6. The Ranking against the pilot section is a numbered list with one item for every Candidates row and no other items. Each item names the step of docs/runbooks/pilot-first-month.md (week and row) that would use the candidate, or says \"no step of the pilot plan\". Items with a named step come first, then by Size S, M, L, then in table order. Each item has one sentence on the nearest pilot use, and the section states, citing lib/letflow/modules/stock/documents/posting.ex, that stock documents post through process instances and an opening document waits for an approve task by a second person."
+      - "7. The Not proposed section lists at least: a backfill of entries for older instances; delivering NODE_ENTERED to webhooks or the outbox (citing lib/letflow/engine/node_entries.ex moduledoc, \"no outbox, webhook, backfill or replay effect\"); auto-play and variables at a step (REQ-799 criterion RQ10); giving :InstancesRead or any other permission to STOREKEEPER; any change to Letflow.Engine.Transition."
+      - "8. The note names no date, no person and no effort in days; the Size letters of criterion 5 are its only size statement."
+      - "9. git diff origin/main...HEAD --stat of the implementation change lists only docs/design/process-designer-slice-3c.md; every file path the note cites exists on origin/main at implement time (git cat-file -e origin/main:<path> succeeds for each), and the Sources section lists each of them once."
+    depends_on: [REQ-793, REQ-799]
+  - id: REQ-801
+    title: "Sign-in for users made by the Users screen or the xlsx import: a decision note listing the options from decisions 0072 and 0085 (and the identity records they build on), what each needs from Letflow and from infra; docs only, decides nothing"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 4185
+    # Source: task T-1656 (operator, D-086, PM order 2026-11-11, batch 6 item 1); docs/uat/ba-decisions/T-1651.md "What I found first" point 2 and candidate 1 ("a design note listing the options found in decisions 0072 and 0085 ... and what each needs from infra. The note decides nothing about production"; owner decision "Yes, the choice; infra for anything that touches the realm (D-016, D-018)"). Files read on origin/main 3926469bd, every one present there: lib/letflow/identity/user.ex (create_changeset/2 puts auth_source internal and the password_hash sentinel "__NO_PASSWORD_SET__"; jit_changeset/2); lib/letflow/identity.ex (create_user/2 with its login-directory step; provision_oidc_user/4, keyed on the (external_realm, external_id) pair, and the private insert_or_fetch_in_tx/4 that inserts a new oidc row with username = preferred_username and rolls back on a username held by a different identity); lib/letflow/identity/user_import.ex (creates users through Identity.create_user/2); lib/letflow/routers/identity.ex (do_reset_password, 409 no_identity_provider_login when auth_source is not oidc); lib/letflow/identity/pending_admin_grants.ex; lib/letflow/login_directory.ex; lib/letflow/routers/login_discovery.ex; lib/letflow/signup/realm_provisioner.ex; priv/keycloak/provisioner/v1/ and v2/ (tenant-realm.json); docs/runbooks/onboarding-new-tenant-realm.md (R2, "Nothing in Letflow creates a realm or a realm user today"); docs/runbooks/pilot-first-month.md; test/fixtures/uat/scenario-env-limitations/tenant-administration-password-reset-3-user-page-button.yaml; decisions 0072 (D1 "Letflow holds no Keycloak admin credential", the scoped creator gets 403 for users on a realm it made; D2 registrationAllowed false, the inline first administrator; section 10 manage-users and the welcome mail are the owner's), 0085 (D1 client, D6 credential mail and "Forgot password" hint), 0048 (section 1, the e-mail first-login binding rules), 0044 (O1 realm per tenant; invitations in its other options), 0042 (email-first login directory, Decision 7 no brokering), 0035 (login delegated to Keycloak). Written by the business analyst (T-1656) 2026-11-11. Not yet validated.
+    description: >
+      What this entry is: the specification of one later docs change. The file it names (named by this entry's id, as docs/testing/REQ-122-e2e-inventory.md is),
+      docs/design/REQ-801-sign-in-for-created-users.md, does not exist yet and is not written by the task that adds this entry; it
+      is written by the implementation task of the GitHub issue the engine files for REQ-801.
+      The problem, as found on origin/main: a user made by the tenant administrator on the Users screen or by the xlsx
+      users import is created through Letflow.Identity.create_user/2 (lib/letflow/identity.ex; the import calls it,
+      lib/letflow/identity/user_import.ex), whose changeset Letflow.Identity.User.create_changeset/2
+      (lib/letflow/identity/user.ex) sets auth_source internal and the password sentinel "__NO_PASSWORD_SET__". Letflow has
+      no password login of its own (decision 0035: login is delegated to Keycloak) and no Keycloak admin client (decision
+      0072 D1), the tenant realm template has registrationAllowed false (0072 D2), and the reset-password route answers
+      409 no_identity_provider_login for any user whose auth_source is not oidc (do_reset_password in
+      lib/letflow/routers/identity.ex). The runbook docs/runbooks/onboarding-new-tenant-realm.md says "Nothing in Letflow
+      creates a realm or a realm user today". So the source documents read for this entry show no path by which such a
+      person gets a login; the note confirms or corrects this from the code.
+      ONE change, docs only: the new file docs/design/REQ-801-sign-in-for-created-users.md. It lists the options, traces what each
+      needs, and recommends nothing as decided: the choice is the owner's, and anything that touches a realm or the
+      provisioner's credential is also infra's (portfolio D-016, D-018; 0072 D1). It is not a decision record and does not
+      go to docs/migration/decisions/. No edit of lib/, priv/, web/, config/, test/, docs/runbooks/ (the stale line of
+      docs/runbooks/pilot-first-month.md is a separate batch-6 task, T-1651 candidate 4), docs/migration/decisions/ or any
+      other file. Production is out of scope (0072 status line: QA only).
+    acceptance_criteria:
+      - "1. docs/design/REQ-801-sign-in-for-created-users.md exists and has exactly these level-2 headings, in this order: \"Today\", \"Options\", \"What happens at first sign-in to an existing row\", \"What each option needs\", \"Owner and infra questions\", \"Sources\". Its first paragraph is exactly: \"This note decides nothing. The choice is the owner's; anything that touches a realm is also infra's. Production is not covered.\""
+      - "2. The Today section states, each with the file and function it was read from on origin/main at implement time: the auth_source and password_hash that Letflow.Identity.User.create_changeset/2 sets; that the xlsx users import creates users through Letflow.Identity.create_user/2; the reset route's refusal and its reason text no_identity_provider_login (do_reset_password in lib/letflow/routers/identity.ex); whether create_user/2 writes a login-directory entry for the new user (read create_user/2 and lib/letflow/login_directory.ex); and whether any code path on origin/main creates a Keycloak account for such a user, giving the exact grep command run (it must cover at least lib/, priv/keycloak/ and config/) and its output. Where the code differs from this entry's description, the note follows the code and says so."
+      - "3. The Options section has one table with the columns Option, How the person signs in, Source, Already allowed by a decision record, Needs a new decision record. It has at least these five rows, each with its source opened by the writer: (a) a Keycloak operator creates the account by hand in the tenant realm, as runbook step R2 does for the first administrator (docs/runbooks/onboarding-new-tenant-realm.md); (b) infra's provisioner gains a call that creates a realm user (0072 D1 says its scoped creator gets 403 for users on a realm it made, so this changes infra's credential; 0085 D1 is Letflow's existing client of the provisioner); (c) an invitation mail with a link that lets the person register in the tenant realm (0044's invitation options; 0072 D2 has registrationAllowed false); (d) a first-login binding by verified e-mail that attaches the person's Keycloak login to the row Letflow already holds, modelled on the binding rules of 0048 section 1 (this option still needs one of (a) to (c) to make the Keycloak account); (e) a password login inside Letflow, listed as excluded by decision 0035, with the quoted line. Column Already allowed by a decision record says yes, no or partly, with the record and section."
+      - "4. The What happens at first sign-in to an existing row section traces, through Letflow.Identity.provision_oidc_user/4 and the private insert_or_fetch_in_tx/4 in lib/letflow/identity.ex (and the login-directory write it calls), what happens on origin/main when a person whose Keycloak account was made by option (a), (b) or (c) signs in for the first time while the tenant already holds an internal row for the same person: (i) when the Keycloak preferred_username equals the internal row's username, (ii) when only the e-mail is equal. For each it states the outcome (a second row, a refused sign-in with the error it returns, or a link to the existing row) and names the function line it read; an outcome the writer could not trace is written as \"not traced\" with the reason, not guessed."
+      - "5. The What each option needs section has one table with the columns Option, Letflow change (none, or the files it would touch), Infra change (none, or what infra must build or re-scope), Owner decision, Security review needed (yes or no and why: realm, credential, tenant isolation INV-1, INV-10), Rough size (S, M or L, marked as the analyst's estimate). Every option of criterion 3 has a row; option (e) has \"excluded by 0035\" in every column after Option."
+      - "6. The Owner and infra questions section lists, each as a question with the options it chooses between and none answered: which option or combination is wanted for QA; who sends the person's first-sign-in mail (0072 section 10 leaves the welcome mail to the owner and says never Keycloak); whether the internal rows already made by the import are kept, linked or replaced; and, for options (b) and (c), the infra change named in criterion 5. It says that the reset-password button (REQ-789) and the pilot runbook line wait on the answer, without changing either."
+      - "7. The Sources section lists every file and decision record the note cites, and every one exists on origin/main at implement time (`git cat-file -e origin/main:<path>` succeeds for each); every function the note names is found by `git grep -nE 'defp? <name>'` on origin/main in the file the note gives for it."
+      - "8. git diff origin/main...HEAD --stat of the implementation change lists only docs/design/REQ-801-sign-in-for-created-users.md."
+    depends_on: [REQ-788]

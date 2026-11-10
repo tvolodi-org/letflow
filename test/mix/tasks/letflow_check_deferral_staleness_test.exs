@@ -1271,7 +1271,13 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
       # legitimate. Each leaves the set when the engine registers its issue (count drops by one each).
       # UPDATE (T-1634, 2026-11-10): REQ-800 (notification bell kinds) has no GitHub issue yet and carries
       # `# impl_order: UNREGISTERED -- blocked-by: REQ-584` (pending), so the deferral is legitimate.
-      assert result.deferral_count == 3
+      #
+      # UPDATE (T-1661, 2026-11-11): the count dropped from 3 to 0. The engine's register step for
+      # REQ-802 (GH#4191) also registered REQ-795 (GH#4188), REQ-800 (GH#4187) and REQ-799 (GH#4186),
+      # replacing their markers with gh: lines, so no deferral is left. The detector is unchanged.
+      # UPDATE (T-1656, 2026-11-11): REQ-801 (GH#4185) was registered by the same kind of step; the
+      # count stays 0.
+      assert result.deferral_count == 0
       assert result.stale_count == 0
 
       # The substance, not just the count: every deferral present is
@@ -1280,7 +1286,7 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
       # counted.
       assert Enum.all?(result.deferrals, &(&1.verdict == :legitimate))
 
-      assert Enum.map(result.deferrals, & &1.id) == ["REQ-795", "REQ-800", "REQ-799"]
+      assert Enum.map(result.deferrals, & &1.id) == []
     end
 
     test "T-REG-STILL-GREEN -- the bounded `status` addition kept ISS-0231 green" do

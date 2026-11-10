@@ -82,3 +82,10 @@ export function useDeactivateAdminUser(userId: string) {
     },
   })
 }
+
+/** REQ-789: asks the identity provider to e-mail the user a reset link. Changes nothing in the user record, so no invalidation. */
+export function useSendPasswordResetInstructions(userId: string) {
+  return useMutation({
+    mutationFn: () => usersApi.sendPasswordResetInstructions(userId),
+  })
+}

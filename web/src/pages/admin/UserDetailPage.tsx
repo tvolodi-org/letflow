@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { P, useAccess, AccessPending, roleLabel, roleDescription } from '@/auth/access'
 import { DeactivateUserDialog } from '@/components/admin/users/DeactivateUserDialog'
-import { useAdminGroups, useAdminRoles, useAdminUser, useDeactivateAdminUser, useUpdateAdminUser } from '@/hooks/useAdminUsers'
+import { PasswordResetDialog } from '@/components/admin/users/PasswordResetDialog'
+import { useAdminGroups, useAdminRoles, useAdminUser, useDeactivateAdminUser, useSendPasswordResetInstructions, useUpdateAdminUser } from '@/hooks/useAdminUsers'
 import type { User } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
+import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { useFeedbackMessages } from '@/components/ui/feedbackMessages'
 import { saveErrorText } from '@/utils/saveError'
+import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { conflictText, fillEmail, hintText, passwordResetBlock, passwordResetMessages } from './passwordResetMessages'
 
 function userId(user: User): string {
   return user.user_id ?? user.id
@@ -25,6 +29,7 @@ export default function UserDetailPage() {
   const navigate = useNavigate()
   const access = useAccess()
   const feedback = useFeedbackMessages()
+  const pm = passwordResetMessages[useUiLocale()]
   const isAllowed = access.can(P.UsersGroupsRolesManage)
 
   const userQuery = useAdminUser(routeUserId)
@@ -32,6 +37,7 @@ export default function UserDetailPage() {
   const groupsQuery = useAdminGroups()
   const updateUser = useUpdateAdminUser(routeUserId)
   const deactivateUser = useDeactivateAdminUser(routeUserId)
+  const sendReset = useSendPasswordResetInstructions(routeUserId)
 
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
@@ -40,6 +46,8 @@ export default function UserDetailPage() {
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([])
   const [showDeactivate, setShowDeactivate] = useState(false)
   const [submitMessage, setSubmitMessage] = useState<string | null>(null)
+  const [showReset, setShowReset] = useState(false)
+  const [resetMessage, setResetMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
@@ -56,6 +64,10 @@ export default function UserDetailPage() {
     if (!userQuery.data) return routeUserId
     return userId(userQuery.data) || routeUserId
   }, [routeUserId, userQuery.data])
+
+  // Decided on the loaded record, not on unsaved form edits, so the button never offers what the route would refuse.
+  const resetBlock = userQuery.data ? passwordResetBlock(userQuery.data) : null
+  const storedEmail = userQuery.data?.email ?? ''
 
   if (!access.isReady) return <AccessPending access={access} />
 
@@ -180,6 +192,29 @@ export default function UserDetailPage() {
             </div>
           </div>
 
+          <div style={{ marginTop: 'var(--space-4)', display: 'grid', gap: 'var(--space-2)' }}>
+            {resetBlock === null ? (
+              <span data-testid="admin-user-send-reset">
+                <Button
+                  variant="secondary"
+                  size="md"
+                  type="button"
+                  disabled={sendReset.isPending}
+                  onClick={() => { setResetMessage(null); setShowReset(true) }}
+                >
+                  {pm.button}
+                </Button>
+              </span>
+            ) : (
+              <div data-testid="admin-user-reset-hint"><Banner tone="info">{hintText(resetBlock, pm)}</Banner></div>
+            )}
+            {resetMessage && (
+              <div data-testid="admin-user-reset-message">
+                <Banner tone={resetMessage.tone}>{resetMessage.text}</Banner>
+              </div>
+            )}
+          </div>
+
           {submitMessage && <p role="status" data-testid="admin-user-submit-message">{submitMessage}</p>}
 
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
@@ -204,6 +239,28 @@ export default function UserDetailPage() {
         </form>
       )}
       </QueryStateBoundary>
+
+      <PasswordResetDialog
+        open={showReset}
+        email={storedEmail}
+        isSubmitting={sendReset.isPending}
+        messages={pm}
+        onCancel={() => setShowReset(false)}
+        onConfirm={() => {
+          sendReset.mutate(undefined, {
+            onSuccess: () => {
+              setShowReset(false)
+              setResetMessage({ tone: 'success', text: fillEmail(pm.sent, storedEmail) })
+            },
+            onError: (error) => {
+              setShowReset(false)
+              const status = (error as { status?: unknown })?.status
+              const detail = (error as { details?: { detail?: unknown } })?.details?.detail
+              setResetMessage({ tone: 'danger', text: status === 409 ? conflictText(detail, pm) ?? saveErrorText(error, feedback) : saveErrorText(error, feedback) })
+            },
+          })
+        }}
+      />
 
       <DeactivateUserDialog
         open={showDeactivate}
