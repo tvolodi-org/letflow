@@ -6,6 +6,7 @@ import type {
   InstanceStatus,
   EventRecord,
   TimelinePage,
+  NodeEntriesPage,
   InstancePinsResponse,
   RebindPinsRequestBody,
   RebindPinsResult,
@@ -47,6 +48,13 @@ export const instancesApi = {
 
   timeline: (id: string, params?: { cursor?: string; page_size?: number }) =>
     client.get<TimelinePage>(`/api/v1/instances/${id}/timeline`, params as Record<string, unknown>),
+
+  /** T-1635: one page of the instance's NODE_ENTERED events (REQ-793) from the history route, for the replay. */
+  nodeEntries: (id: string, params?: { cursor?: string; page_size?: number }) =>
+    client.get<NodeEntriesPage>(`/api/v1/instances/${id}/history`, {
+      event_type: 'NODE_ENTERED',
+      ...params,
+    } as Record<string, unknown>),
 
   reconstruct: (id: string) =>
     client.get<ProcessInstance>(`/api/v1/instances/${id}/reconstruct`),
