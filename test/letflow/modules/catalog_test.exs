@@ -62,6 +62,8 @@ defmodule Letflow.Modules.CatalogTest do
                Letflow.Modules.Codes,
                Letflow.Modules.Stock,
                Letflow.Modules.Assets,
+               # T-1641: QA-only demo module, test list only.
+               Letflow.Modules.RuntimeDemo,
                Letflow.Modules.Fixture,
                Letflow.Modules.FixtureDependent,
                Letflow.Modules.FixtureFailingInstall,
