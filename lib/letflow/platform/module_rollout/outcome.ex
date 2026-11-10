@@ -3,7 +3,7 @@ defmodule Letflow.Platform.ModuleRollout.Outcome do
   `Ecto.Schema` for `platform_module_rollout_outcomes` (RU-S6): one row per tenant per rollout.
   Holds ids and codes only; no tenant data. `(rollout_id, tenant_id)` is unique.
 
-  Statuses: `pending`, `running` (claimed), `succeeded`, `failed`, `skipped`.
+  Statuses: `pending`, `running` (claimed), `succeeded`, `failed`, `skipped`, `outside_window` (T-1640: deferred by the tenant's upgrade window, open work).
   """
 
   use Ecto.Schema
