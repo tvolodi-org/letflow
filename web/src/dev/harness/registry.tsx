@@ -16,6 +16,7 @@ import { storekeeperGrantScreens } from './storekeeperGrantFixtures'
 import { groupsT1610Screens } from './fixtures/groupsT1610'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
+import { usersImportScreens } from './fixtures/usersImport'
 import { notificationBellScreens } from './fixtures/notificationBell'
 import { emptyErrorStates } from './fixtures/emptyErrorStates'
 import { definitionNameScreens } from './fixtures/definitionNames'
@@ -273,6 +274,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     codesScreen('codes-receive', { receive: true }),
     ...catalogItemsScreens,
     ...locationsScreens,
+    ...usersImportScreens,
     ...notificationBellScreens,
     ...emptyErrorStates,
     ...definitionNameScreens,

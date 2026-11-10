@@ -7,6 +7,8 @@ export interface UsersMessages {
   emptyHint: string
   /** {term} is the applied search term. */
   emptySearch: string
+  /** The button that opens the Excel import screen (T-1633). */
+  importButton: string
 }
 
 export const usersMessages: Record<UiLocale, UsersMessages> = {
@@ -14,15 +16,18 @@ export const usersMessages: Record<UiLocale, UsersMessages> = {
     empty: 'No users yet.',
     emptyHint: 'Create the first one with the "New User" button above.',
     emptySearch: 'No users match "{term}".',
+    importButton: 'Import from Excel',
   },
   ru: {
     empty: 'Пользователей пока нет.',
     emptyHint: 'Создайте первого кнопкой «Новый пользователь» выше.',
     emptySearch: 'По запросу «{term}» пользователей не найдено.',
+    importButton: 'Импорт из Excel',
   },
   kk: {
     empty: 'Пайдаланушылар әзірге жоқ.',
     emptyHint: 'Біріншісін жоғарыдағы «Жаңа пайдаланушы» түймесімен жасаңыз.',
     emptySearch: '«{term}» сұрауы бойынша пайдаланушы табылмады.',
+    importButton: 'Excel-ден импорттау',
   },
 }

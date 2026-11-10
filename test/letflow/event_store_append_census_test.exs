@@ -61,6 +61,7 @@ defmodule Letflow.EventStoreAppendCensusTest do
     "lib/letflow/engine.ex" => 8,
     "lib/letflow/engine/execution_error.ex" => 1,
     "lib/letflow/engine/lua/platform.ex" => 1,
+    "lib/letflow/engine/node_entries.ex" => 1,
     "lib/letflow/engine/pin_rebind.ex" => 1,
     "lib/letflow/engine/sub_process.ex" => 2,
     "lib/letflow/repository/attachments.ex" => 2,
