@@ -57,6 +57,64 @@ defmodule Letflow.ReleaseTest do
     end
   end
 
+  describe "backfill_event_types/1 (REQ-792)" do
+    setup do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req792-bf")
+      %{tenant: tenant, registrations: [%{tenant_id: tenant.tenant_id}]}
+    end
+
+    defp node_entered_rows(tenant) do
+      Repo.all(from(t in Letflow.EventStore.Registry.EventType, where: t.name == "NODE_ENTERED"),
+        prefix: tenant.schema_name
+      )
+    end
+
+    test "T-792-6a a missing row is created once; a re-run registers nothing",
+         %{tenant: tenant, registrations: regs} do
+      Repo.delete_all(
+        from(t in Letflow.EventStore.Registry.EventType, where: t.name == "NODE_ENTERED"),
+        prefix: tenant.schema_name
+      )
+
+      assert node_entered_rows(tenant) == []
+      opts = [registrations: regs] ++ @opts
+
+      {result, out} = run(fn -> Letflow.Release.backfill_event_types(opts) end)
+      assert result == {:ok, %{processed: 1, created: 1, already_present: 0, failed: 0}}
+      assert out =~ "1 tenant(s) processed, 1 created, 0 already present, 0 failed"
+      assert [_one] = node_entered_rows(tenant)
+
+      {result, _out} = run(fn -> Letflow.Release.backfill_event_types(opts) end)
+      assert result == {:ok, %{processed: 1, created: 0, already_present: 1, failed: 0}}
+      assert [_one] = node_entered_rows(tenant)
+    end
+
+    test "T-792-6b the output names no tenant id", %{tenant: tenant, registrations: regs} do
+      {_result, out} =
+        run(fn -> Letflow.Release.backfill_event_types([registrations: regs] ++ @opts) end)
+
+      refute out =~ tenant.tenant_id
+    end
+
+    test "T-792-6c a bogus registration is a counted failure, not a crash", %{registrations: regs} do
+      bogus = %{tenant_id: "not-a-uuid"}
+      opts = [registrations: regs ++ [bogus]] ++ @opts
+
+      {result, out} = run(fn -> Letflow.Release.backfill_event_types(opts) end)
+      assert {:error, %{processed: 2, failed: 1}} = result
+      assert out =~ "1 failed"
+    end
+
+    test "T-792-7 the runbook and the Mix task carry the NODE_ENTERED step" do
+      runbook = File.read!("docs/runbooks/release-backfills.md")
+      assert runbook =~ ~s|bin/letflow eval "Letflow.Release.backfill_event_types()"|
+      assert runbook =~ "before REQ-793"
+
+      task = File.read!("lib/mix/tasks/letflow.backfill_event_type_versions.ex")
+      assert task =~ ~s("NODE_ENTERED")
+    end
+  end
+
   describe "backfill_login_directory/1" do
     defp insert_user!(tenant, email) do
       %User{}

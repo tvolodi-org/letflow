@@ -1512,6 +1512,24 @@ defmodule Letflow.Routers.InstancesTest do
       end
     end
 
+    test "T-792-5: a NODE_ENTERED event is described as Entered <type> <id> with node_id" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req792-tl")
+      {instance_id, _def} = start_instance!(tenant.schema_name)
+
+      insert_raw_event!(tenant.schema_name, %{
+        instance_id: instance_id,
+        event_type: "NODE_ENTERED",
+        payload: %{"node_id" => "g1", "node_type" => "EXCLUSIVE_GATEWAY", "via_edge_id" => "e1"},
+        actor_id: Letflow.EventStore.platform_actor_id(),
+        sequence_number: 120
+      })
+
+      items = fetch_timeline_items(tenant, instance_id, "?page_size=50")
+      item = Enum.find(items, &(&1["event_type"] == "NODE_ENTERED"))
+      assert item["node_id"] == "g1"
+      assert item["description"] == "Entered EXCLUSIVE_GATEWAY g1"
+    end
+
     # AC2 requires the four fallback levels to be "exercised ... by four
     # explicit tests" (docs/requirements.yaml REQ-200 AC2 wording) -- not one
     # combined test proving the chain end-to-end. Each test below isolates

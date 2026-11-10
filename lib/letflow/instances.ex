@@ -333,6 +333,10 @@ defmodule Letflow.Instances do
     "Timer #{timer_id} fired"
   end
 
+  defp render_description(%Event{event_type: "NODE_ENTERED"}, _actor, payload) do
+    "Entered #{Map.get(payload, "node_type")} #{Map.get(payload, "node_id")}"
+  end
+
   defp render_description(%Event{event_type: event_type}, actor, _payload) do
     "Event #{event_type} by #{actor}"
   end

@@ -87,7 +87,9 @@ defmodule Mix.Tasks.Letflow.BackfillEventTypeVersions do
     "INSTANCE_STARTED",
     "SUB_PROCESS_COMPLETED",
     "EXECUTION_ERROR",
-    "SCRIPT_TASK_COMPLETED"
+    "SCRIPT_TASK_COMPLETED",
+    # REQ-792: new type (version 1), registered for tenants that predate it.
+    "NODE_ENTERED"
   ]
 
   @attachment_attached_v1_attrs %{

@@ -24,6 +24,9 @@ defmodule Letflow.Release do
   T-1568 adds `restore_smoke/1`, the app-side check of the backup restore test
   (`Letflow.Release.RestoreSmoke`, `docs/runbooks/backup-restore.md`).
 
+  REQ-792 adds `backfill_event_types/1`, which registers the NODE_ENTERED event type for
+  tenants that predate it.
+
   See `docs/runbooks/release-backfills.md`. `Letflow.Release.IdempotencySquats` and the other
   `Letflow.Release.*` modules are separate operator entry points.
 
@@ -40,6 +43,7 @@ defmodule Letflow.Release do
   `plaintext_file` it is given and never to stdout. See `docs/runbooks/platform-admin-token-reissue.md`.
   """
 
+  alias Letflow.EventStore.Registry, as: EventTypeRegistry
   alias Letflow.Identity.PlatformAdminTokens
   alias Letflow.Identity.RoleBackfill
   alias Letflow.LoginDirectory.Backfill, as: LoginDirectoryBackfill
@@ -48,6 +52,7 @@ defmodule Letflow.Release do
 
   @app :letflow
   @repo_apps [:crypto, :ssl, :telemetry, :ecto_sql, :postgrex]
+  @backfilled_event_types ["NODE_ENTERED"]
 
   @type summary :: %{
           required(:processed) => non_neg_integer(),
@@ -79,6 +84,49 @@ defmodule Letflow.Release do
     }
 
     finish("script HMAC backfill", summary, opts)
+  end
+
+  @doc """
+  REQ-792 -- registers the event types in `@backfilled_event_types` (NODE_ENTERED) for every
+  registered tenant that lacks them, from the same seed attrs a new tenant gets. A tenant
+  that already has the row, or whose schema is gone or not provisioned, counts as already
+  present (as `TenantProvisioning.Backfill.run/1` skips them); any other error, or a raise,
+  counts as failed. Options: `:registrations`, `:halt`, `:start`.
+  """
+  @spec backfill_event_types(keyword()) :: {:ok | :error, summary()}
+  def backfill_event_types(opts \\ []) do
+    maybe_start(opts)
+
+    registrations =
+      Keyword.get_lazy(opts, :registrations, &TenantProvisioning.list_registrations/0)
+
+    outcomes =
+      for registration <- registrations, name <- @backfilled_event_types do
+        register_event_type(name, registration)
+      end
+
+    summary = %{
+      processed: length(registrations),
+      created: Enum.count(outcomes, &(&1 == :created)),
+      already_present: Enum.count(outcomes, &(&1 == :present)),
+      failed: Enum.count(outcomes, &(&1 == :failed))
+    }
+
+    finish("event type backfill", summary, opts)
+  end
+
+  defp register_event_type(name, registration) do
+    attrs = TenantProvisioning.platform_event_type_seed_attrs(name)
+
+    case EventTypeRegistry.register_type(attrs, registration.tenant_id) do
+      {:ok, _} -> :created
+      {:error, :duplicate_event_type_version} -> :present
+      {:error, :tenant_not_provisioned} -> :present
+      {:error, :tenant_schema_missing} -> :present
+      {:error, _} -> :failed
+    end
+  rescue
+    _ -> :failed
   end
 
   @doc """

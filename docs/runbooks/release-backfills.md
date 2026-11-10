@@ -56,6 +56,18 @@ the next login re-syncs roles. A tenant that already has every group is untouche
 `mix letflow.backfill_platform_roles`. (On QA on 2026-10-30 infra ran `RoleBackfill.run()` after
 `TENANT_AUDITOR` was missing in 6 tenant schemas.)
 
+## Event types (REQ-792)
+
+REQ-792 registers the `NODE_ENTERED` event type. A new tenant gets it from the seed; a tenant that
+existed before the release needs the row added. Run on QA after this change is deployed and
+**before REQ-793 (the engine writer) is merged**, or the engine's first append would be refused:
+
+    bin/letflow eval "Letflow.Release.backfill_event_types()"
+
+Expected: `event type backfill: 6 tenant(s) processed, 6 created, 0 already present, 0 failed`; a
+re-run registers nothing (`0 created`, same total under `already present`). A tenant whose schema
+is gone counts as already present. Dev form: `mix letflow.backfill_event_type_versions`.
+
 ## Failure
 
 `N failed` with N > 0 means those tenants were skipped and the others completed; the command
