@@ -10,7 +10,7 @@ defmodule Letflow.Routers.Signup do
   | Handler | Method/path                   | Auth                  | Response |
   |---------|-------------------------------|-----------------------|----------|
   | config  | `GET /api/signup/config`      | **none**              | `200` |
-  | submit  | `POST /api/signup`            | **none**              | `202` neutral for every well-formed request, `422` field errors, `429` per-IP cap, `503` pending cap |
+  | submit  | `POST /api/signup`            | **none**              | `202` neutral for every well-formed request, `422` field errors / refused e-mail domain / failed captcha (T-1620), `429` per-IP or per-domain cap, `503` pending cap or captcha adapter down; every refusal body has `error` + localised `message` |
   | verify  | `POST /api/signup/verify`     | none (token is the credential) | `200`, or one generic `400` |
   | catch-all | `match _`                   | none                  | standard `404` |
 
@@ -58,7 +58,8 @@ defmodule Letflow.Routers.Signup do
     respond(conn, 200, %{
       enabled: true,
       languages: Signup.Messages.languages(),
-      terms_version: Signup.terms_version()
+      terms_version: Signup.terms_version(),
+      captcha_required: Signup.Captcha.required?(Signup.config())
     })
   end
 
@@ -72,18 +73,27 @@ defmodule Letflow.Routers.Signup do
 
       {:error, {:invalid, fields}} ->
         emit(:invalid)
-        respond(conn, 422, %{error: "invalid_request", fields: fields})
+        refuse(conn, 422, "invalid_request", params, fields: fields)
+
+      {:error, :email_not_accepted} ->
+        emit(:email_not_accepted)
+        refuse(conn, 422, "email_not_accepted", params)
+
+      {:error, :captcha_failed} ->
+        emit(:captcha_failed)
+        refuse(conn, 422, "captcha_failed", params)
 
       {:error, :rate_limited} ->
         emit(:rate_limited_ip)
+        rate_limited(conn, params)
 
-        conn
-        |> put_resp_header("retry-after", Integer.to_string(@retry_after))
-        |> respond(429, %{error: "rate_limited"})
+      {:error, :rate_limited_domain} ->
+        emit(:rate_limited_domain)
+        rate_limited(conn, params)
 
       {:error, :unavailable} ->
         emit(:unavailable)
-        respond(conn, 503, %{error: "signup_unavailable"})
+        refuse(conn, 503, "signup_unavailable", params)
     end
   end
 
@@ -104,6 +114,19 @@ defmodule Letflow.Routers.Signup do
   match _ do
     emit(:not_found)
     Response.not_found(conn)
+  end
+
+  defp rate_limited(conn, params) do
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(@retry_after))
+    |> refuse(429, "rate_limited", params)
+  end
+
+  # T-1620: every refusal carries `error` (the code) and `message` (ru/kk/en from the body `language`, else en).
+  defp refuse(conn, status, code, params, extra \\ []) do
+    language = Map.get(params, "language")
+    message = Signup.Messages.refusal(code, language)
+    respond(conn, status, Map.merge(%{error: code, message: message}, Map.new(extra)))
   end
 
   # Bounded read; any failure is an empty map (the field validation then answers 422).

@@ -1,0 +1,142 @@
+# T-1625 (BA): runtime updates, fleet driver (merged T-1594, RU-S6, decision 0055 fact 10 and D-section on the fleet).
+# Sources: lib/letflow/routers/platform_module_rollouts.ex (moduledoc: list, read one, start, resume; every route needs
+# ModuleRolloutsManage, a platform permission honoured only for a platform administrator of the platform tenant; unknown
+# module on start is 404; a missing module id is 422), priv/permission_matrix/effective.golden (ModuleRolloutsManage true for
+# PLATFORM_ADMIN, false for TENANT_ADMIN, TASK_WORKER and TENANT_AUDITOR), lib/letflow/module_upgrade/fleet.ex (moduledoc: batch
+# of 25, halt after N consecutive failed companies, a company whose newest finished journal row is a rollback is skipped).
+# SAFETY: starting a real rollout upgrades the modules of EVERY active company on the shared QA instance, so this scenario
+# never starts one. Start, resume, halt after N failures, the optional per-company window and the "rolled back company is
+# skipped" rule are recorded as a GAP in scenario-env-limitations/platform-runtime-updates-3-fleet-start-halt-resume.yaml.
+# NOT UAT-OBSERVABLE (header kept here so it survives the merge): the outcome rows hold ids and codes only, so no company name
+# or record data can appear in any answer; covered by test/letflow/routers/platform_module_rollouts_test.exs.
+---
+id: platform-runtime-updates-1-fleet-driver-access-and-reads
+scope: platform
+title: "Only the platform operator can use the module rollout tool; every company-side role is refused, and the operator's reads and refused starts change nothing"
+version: "1.0"
+tags: [runtime-updates, fleet, platform, refusal, access_control, read-only]
+
+description: >
+  The platform operator rolls a module's new version out to all companies with the module rollout tool. This scenario
+  checks who may use it and what its reads and refused starts show. The administrator of a company, a task worker and the
+  read-only auditor are all refused for the list, for reading one rollout, for starting a rollout and for resuming one. The
+  platform operator reads the list of rollouts, reads a rollout that does not exist and is told "not found", is refused when
+  starting a rollout for a module that does not exist or with no module named, and finds the list unchanged afterwards. No
+  rollout is started in this scenario.
+
+actors:
+  platform_operator: actor-platform-admin
+  company_admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  auditor: actor-swiftroute-auditor
+
+preconditions:
+  - description: The platform operator account signs in on the platform tenant (not on a customer company)
+    check: custom
+    detail: If the operator is refused the list in step 1, report BLOCKED and name the answer; do not retry as another actor.
+
+steps:
+  - step: 1
+    actor: platform_operator
+    action: >
+      The platform operator opens the list of module rollouts and notes how many rollouts it holds and the newest one's
+      state, if any.
+    via: api
+  - step: 2
+    actor: company_admin
+    action: >
+      SwiftRoute's company administrator asks for the list of module rollouts, and asks for the rollout the operator noted
+      (or, when the list was empty, for a rollout with the identifier 00000000-0000-0000-0000-000000000000).
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: company_admin
+    action: >
+      SwiftRoute's company administrator asks the tool to resume the rollout identified in step 2, and then to start a rollout
+      for the Stock module.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: worker
+    action: >
+      SwiftRoute's task worker asks for the list of module rollouts and asks to resume a rollout with the identifier
+      00000000-0000-0000-0000-000000000000.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: auditor
+    action: >
+      SwiftRoute's read-only auditor asks for the list of module rollouts.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: platform_operator
+    action: >
+      The platform operator reads the rollout with the identifier 00000000-0000-0000-0000-000000000000.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: platform_operator
+    action: >
+      The platform operator asks to start a rollout for a module named "no-such-module".
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: platform_operator
+    action: >
+      The platform operator asks to start a rollout and names no module.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: platform_operator
+    action: >
+      The platform operator opens the list of module rollouts again.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The operator reads the list and it carries ids, states and counts only.
+    verification:
+      method: api_response
+      detail: >
+        Step 1 answers 200. Each listed rollout shows its module, the target version, its state (running, completed or
+        halted) and counts of companies per outcome; no company name, schema name or record content appears.
+      evidence: Status and body of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot see the rollout state, or the list leaks company details.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: No company-side role can read, start or resume a rollout.
+    verification:
+      method: http_status
+      detail: >
+        Every request of steps 2, 3, 4 and 5 is answered 403 with the platform's fixed forbidden text, and no body holds a
+        rollout. The refusal is the same for a rollout that exists and for the zero identifier.
+      evidence: Statuses and bodies of steps 2 to 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company user could start or read a rollout across all companies.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: The operator is told "not found" for an unknown rollout and unknown module, and 422 for a missing module.
+    verification:
+      method: api_response
+      detail: >
+        Step 6 is answered 404. Step 7 is answered 404 and no rollout row is created. Step 8 is answered 422 with the
+        field module_id named.
+      evidence: Statuses of steps 6, 7 and 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A typing mistake could start a rollout or the operator gets no clear reason.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The refused requests changed nothing.
+    verification:
+      method: api_response
+      detail: Step 9 lists exactly the rollouts that step 1 listed, with the same states and counts.
+      evidence: Bodies of step 1 and step 9, compared.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused request still started or changed a rollout.
+      suggested_action: route_to_wf03
