@@ -29,11 +29,10 @@ export const usersApi = {
   update: (id: string, body: Partial<{ display_name: string; email: string; status: 'active' | 'inactive'; is_active: boolean; role_ids: string[]; group_ids: string[] }>) =>
     client.patch<User>(`/api/v1/identity/users/${id}`, body),
 
-  resetPassword: (id: string, newPassword: string) =>
-    // NOTE (ISS-0813): `POST /identity/users/:id/reset-password` does not exist in
-    // Letflow.Routers.Identity.__authz_routes__/0. This function is dead until the
-    // backend route is added. Prefix corrected from /api/v1/users/ (ISS-0782 gap).
-    client.post<void>(`/api/v1/identity/users/${id}/reset-password`, { password: newPassword }),
+  // REQ-788/REQ-789: asks the identity provider to e-mail the user a reset link. The route accepts only an
+  // empty body (a password in it is refused with 422), so the page never handles a password.
+  sendPasswordResetInstructions: (id: string) =>
+    client.post<{ status: 'requested' }>(`/api/v1/identity/users/${id}/reset-password`, {}),
 
   // `usersApi.delete` removed in ISS-0813.
   // `DELETE /identity/users/:id` does not exist in Letflow.Routers.Identity.__authz_routes__/0

@@ -17,6 +17,7 @@ import { groupsT1610Screens } from './fixtures/groupsT1610'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { locationsScreens } from './fixtures/locations'
 import { usersImportScreens } from './fixtures/usersImport'
+import { userResetScreens } from './fixtures/userReset'
 import { notificationBellScreens } from './fixtures/notificationBell'
 import { emptyErrorStates } from './fixtures/emptyErrorStates'
 import { definitionNameScreens } from './fixtures/definitionNames'
@@ -276,6 +277,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...catalogItemsScreens,
     ...locationsScreens,
     ...usersImportScreens,
+    ...userResetScreens,
     ...notificationBellScreens,
     ...emptyErrorStates,
     ...definitionNameScreens,
