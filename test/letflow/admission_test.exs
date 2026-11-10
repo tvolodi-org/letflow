@@ -443,4 +443,16 @@ defmodule Letflow.AdmissionTest do
       assert state_after.tenants["x"].in_use == 0
     end
   end
+
+  describe "T-1613: usage/1" do
+    test "reports in_use and cap, following acquire and release" do
+      {_pid, name} = start_admission(pool_size: 5, reserved_headroom: 2)
+      cap = Admission.global_cap(name)
+      assert %{in_use: 0, cap: ^cap} = Admission.usage(name)
+      {:ok, ref} = Admission.try_acquire(:global, name)
+      assert %{in_use: 1, cap: ^cap} = Admission.usage(name)
+      :ok = Admission.release(ref, name)
+      assert %{in_use: 0, cap: ^cap} = Admission.usage(name)
+    end
+  end
 end

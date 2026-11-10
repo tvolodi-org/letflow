@@ -164,6 +164,17 @@ defmodule Letflow.Routers.MetricsExpositionTest do
       assert resp.resp_body =~ "# TYPE letflow_http_requests_total counter"
       assert resp.resp_body =~ "# TYPE letflow_http_errors_total counter"
     end
+
+    # T-1613: unauthenticated on purpose (no Authorization header); label-free pool gauges.
+    test "exposes the two label-free admission gauges without any credential" do
+      resp = conn(:get, "/metrics") |> call_router()
+
+      assert resp.status == 200
+      assert resp.resp_body =~ "# TYPE letflow_db_admission_in_use gauge"
+      assert resp.resp_body =~ "# TYPE letflow_db_admission_cap gauge"
+      assert resp.resp_body =~ ~r/^letflow_db_admission_in_use \d+$/m
+      assert resp.resp_body =~ ~r/^letflow_db_admission_cap \d+$/m
+    end
   end
 
   # ═══════════════════════════════════════════════════════════════════════════

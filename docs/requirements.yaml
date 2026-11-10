@@ -53616,3 +53616,74 @@ requirements:
       - "10. test/letflow/pilot_rollout_runbook_test.exs (ExUnit, async true, no database) reads docs/runbooks/pilot-rollout.md and asserts criteria 1, 4 (role names only), 5, 6 and the form list of criterion 8, deriving the module order, the record type set and the File import values from Letflow.Modules.Catalog.entry_modules/0 and import_function/2 at run time and pinning no count; it shows the table checks bite by running them on in-memory copies of the runbook with one Data load row removed, with one File import value flipped, and with the org install moved below the locations install, each of which fails."
       - "11. git diff origin/main...HEAD --stat lists only docs/runbooks/pilot-rollout.md and test/letflow/pilot_rollout_runbook_test.exs; mix test test/letflow/pilot_rollout_runbook_test.exs passes and mix letflow.check.static passes."
     depends_on: [REQ-785, REQ-469, REQ-727, REQ-762, REQ-784]
+  - id: REQ-788
+    title: "Tenant administrator asks a user to reset the password: POST /identity/users/:id/reset-password sends a 'Forgot password' instruction mail through the notification templates; Letflow never reads, sets or sends a password and calls no Keycloak admin API"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4135
+    # Source: task T-1608; BA batch 4 docs/uat/ba-decisions/T-1595.md item 3 (and its assumption "a password reset sends a link and never shows or sets a password"). Files read on origin/main: web/src/api/identity.ts (usersApi.resetPassword and its ISS-0813 note), lib/letflow/routers/identity.ex (authz routes, handle_status_update/3, with_platform_admin_member_guard/4, audit_opts, user_map/1), lib/letflow/api/authorization.ex (endpoint_policy_key/2 for the /users routes, required_permission/1 mapping :UsersManage to :UsersGroupsRolesManage), docs/roles.md (permission matrix row UsersGroupsRolesManage), lib/letflow/identity/user.ex (status, auth_source, email), lib/letflow/identity.ex (the user.update_status audit entry), lib/letflow/audit.ex (insert_entry/3), lib/letflow/notifications.ex (start_delivery/5, deliver/7, outcome rows sent / skipped no_email / skipped adapter_noop / failed adapter_error), lib/letflow/notification_templates.ex and lib/letflow/notification_templates/registry.ex (template keys, placeholders, defaults), test/letflow/notification_templates/registry_test.exs (key-set pin and N1 deny list), lib/letflow/api/response.ex (send_json/3, not_found/1, conflict/2, unprocessable/2); decision 0072 D1 ("Letflow holds no Keycloak admin credential and gets no admin client") and section 10; decision 0085 D6 (the "Forgot password" hint mail, needs resetPasswordAllowed true); priv/keycloak/provisioner/v2/tenant-realm.json (resetPasswordAllowed true) and docs/runbooks/demo-realm/*.json (false); docs/testing/uat-mail-trap.md. Written by the business analyst (T-1608) 2026-11-10. Not yet validated.
+    description: >
+      Today a tenant administrator cannot help a user who forgot the password: the web client has
+      usersApi.resetPassword (web/src/api/identity.ts), but its own ISS-0813 note says the route
+      POST /identity/users/:id/reset-password is not in Letflow.Routers.Identity.__authz_routes__/0, and
+      lib/letflow/routers/identity.ex has no such route. The batch-4 note (T-1595 item 3) proposed a narrow
+      identity-provider service credential for this. That contradicts decision 0072 D1: Letflow holds no Keycloak
+      admin credential and gets no admin client, and the provisioner's credential is create-realm-only (403 on
+      users). This requirement therefore follows 0072 D1 and decision 0085 D6 instead and needs no new credential:
+      the password itself is reset by the person through Keycloak's own "Forgot password" page of the tenant
+      realm (the realm sends the reset link; resetPasswordAllowed is true in priv/keycloak/provisioner/v2/tenant-realm.json),
+      and Letflow only sends the person an instruction mail that tells them to use it. Letflow never reads, sets,
+      generates or sends a password, and calls no Keycloak API at all.
+      ONE change in the backend: the route POST /identity/users/:id/reset-password in
+      lib/letflow/routers/identity.ex under the existing policy key :UsersManage (required permission
+      :UsersGroupsRolesManage, held by TENANT_ADMIN and PLATFORM_ADMIN only per docs/roles.md; no new permission
+      atom), its endpoint_policy_key/2 clause in lib/letflow/api/authorization.ex, one audit entry
+      "user.password_reset_requested", a new notification template key "password_reset_hint" in
+      Letflow.NotificationTemplates.Registry (so a tenant administrator can store the company's own wording per
+      locale through the existing notification-template routes), and the delivery through
+      Letflow.Notifications.start_delivery/5, which writes one notification_deliveries row per attempt as it does
+      for the other keys. No migration (the deliveries log already takes any registered key), no new setting and
+      no feature flag: with the default Noop mail adapter nothing is sent and the delivery row says skipped /
+      adapter_noop. The web button is REQ-789. Out of scope: a per-user rate limit (no source gives a number; an
+      open question for the process owner), and realms whose resetPasswordAllowed is false (the hand-made demo
+      realms under docs/runbooks/demo-realm/ set false): there the mail is still sent, the sign-in page has no
+      "Forgot password" link, and turning it on is an infra realm setting, not a Letflow change.
+    acceptance_criteria:
+      - "1. lib/letflow/routers/identity.ex declares authz_post \"/users/:id/reset-password\" with the policy key :UsersManage, and Letflow.Api.Authorization.endpoint_policy_key(\"POST\", \"/users/:id/reset-password\") returns :UsersManage; Letflow.Routers.Identity.__authz_routes__/0 lists the route. Every route-count and route-inventory pin in test/ moves by +1 from its value on origin/main at implement time, and mix letflow.permission_matrix --check passes."
+      - "2. A tenant administrator (TENANT_ADMIN through a group) of company A who posts to /api/v1/identity/users/<id>/reset-password for an active user of A whose auth_source is oidc and whose email is not empty, with an empty body or the body {}, gets 202 with exactly the JSON body {\"status\": \"requested\"}; afterwards A's schema holds exactly one new audit entry with action \"user.password_reset_requested\", resource_type \"user\", resource_id the user's id, actor_id the caller's user id, before_state nil and after_state nil, and exactly one new notification_deliveries row with template_key \"password_reset_hint\", recipient_user_id the user's id and trigger_ref the id of that audit entry."
+      - "3. The route is not granted to any role except TENANT_ADMIN and PLATFORM_ADMIN: a caller of company A who holds any one of PROCESS_DESIGNER, PROCESS_OPERATOR, TASK_WORKER, AGENT_RUNNER, CANDIDATE, TENANT_AUDITOR or STOREKEEPER and no TENANT_ADMIN gets 403 for an active oidc user of A, and no audit entry and no notification_deliveries row is written in A."
+      - "4. Cross-tenant (INV-1, INV-5, INV-10): a tenant administrator of company A who posts with the id of an existing user of company B gets the same plain 404 answer as for a random unused UUID (status and body equal), and neither A's nor B's schema gains an audit entry or a notification_deliveries row; an id that is not a UUID also gets that plain 404."
+      - "5. A tenant administrator of a customer company (not the platform tenant) who posts for a user who is a member of the group bound to PLATFORM_ADMIN gets 403 with the detail \"insufficient permissions\", the same guard (with_platform_admin_member_guard/4) that POST /users/:id/status applies; nothing is written."
+      - "6. A request body with any key (for example {\"password\": \"x\"}) is refused with 422 and the detail \"body_not_accepted\" before any state check, and nothing is written or sent; the route never accepts, stores, logs or returns a password."
+      - "7. For a user of the caller's own company the route refuses with 409 and a fixed detail, writing no audit entry and no notification_deliveries row: status inactive gives \"user_inactive\"; auth_source internal gives \"no_identity_provider_login\"; a nil or empty email gives \"no_email\". When several apply the order is user_inactive, then no_identity_provider_login, then no_email."
+      - "8. Letflow.NotificationTemplates.Registry gains the key \"password_reset_hint\" with the placeholders exactly ~w(user_name tenant_name) (user_name from the user's display_name, falling back to username; tenant_name from the tenant's display_name, both through Letflow.Notifications.text/1); its default subject is \"Set a new password\" and its default body is \"Hello {user_name}, an administrator of {tenant_name} asks you to set a new password. On the sign-in page of your workspace choose \\\"Forgot password\\\" and follow the e-mail you then receive. If you did not expect this message, contact your administrator.\". The key-set pin and the placeholder pins of test/letflow/notification_templates/registry_test.exs are updated, and its N1 deny-list test and the defaults-validation test pass for the new key; a tenant-stored template for (\"password_reset_hint\", the tenant's default_locale) is used instead of the default, as for the other keys."
+      - "9. A test with the test mail adapter shows the delivered message goes to the user's stored email and that its subject and body contain no password, no token and no link (the body has no \"http\" substring with the default text); a test with the Noop adapter shows the route still answers 202 and the delivery row is status \"skipped\", reason \"adapter_noop\"; a test with an adapter that returns an error shows the route still answers 202 and the row is \"failed\" / \"adapter_error\" (the answer never depends on the delivery, INV-8)."
+      - "10. If writing the audit entry fails, the route answers 500 through the router's internal-error response and no delivery is started (the audit entry is written before start_delivery/5 is called)."
+      - "11. git grep -n \"Keycloak\\|/admin/realms\\|execute-actions-email\" over the lines this change adds to lib/ finds no admin API call (moduledoc text citing decision 0072 D1 is allowed); no new dependency, setting, environment variable or migration is added (git diff origin/main...HEAD --stat lists no file under priv/repo/migrations/ and no change to config/)."
+      - "12. The moduledoc route list of Letflow.Routers.Identity gains the line for the new route, naming decision 0072 D1 and 0085 D6; tests live in test/letflow/routers/identity_reset_password_test.exs and pass with mix test, and mix letflow.check.static passes."
+    depends_on: [REQ-073, REQ-563, REQ-584]
+  - id: REQ-789
+    title: "User page: a 'Send password reset instructions' button for the tenant administrator (REQ-788 route), with the dead usersApi.resetPassword(id, newPassword) client function removed"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4134
+    # Source: task T-1608; docs/uat/ba-decisions/T-1595.md item 3 ("Then the route and a button on the user page; remove the dead client function"). Files read on origin/main: web/src/api/identity.ts (usersApi.resetPassword with a password argument), web/src/api/__tests__/identity.iss0812.test.ts (header comment naming resetPassword), web/src/pages/admin/UserDetailPage.tsx (access.can(P.UsersGroupsRolesManage), status select, submit message with role status), web/src/hooks/useAdminUsers.ts (useAdminUser, useUpdateAdminUser, useDeactivateAdminUser), web/src/pages/admin/usersMessages.ts (local en/ru/kk texts, the page has no IntlProvider), lib/letflow/routers/identity.ex user_map/1 (status, email, auth_source are serialized). Written by the business analyst (T-1608) 2026-11-10. Not yet validated.
+    description: >
+      REQ-788 adds the route POST /identity/users/:id/reset-password, which sends the person an instruction mail
+      to use "Forgot password" on the sign-in page and never takes a password. The web client still has the dead
+      usersApi.resetPassword(id, newPassword) in web/src/api/identity.ts, which posts a password the route refuses
+      (422 body_not_accepted). ONE change in web/: replace that function with usersApi.sendPasswordResetInstructions(id),
+      add a mutation hook useSendPasswordResetInstructions(userId) in web/src/hooks/useAdminUsers.ts, and add a
+      button with a confirmation step on web/src/pages/admin/UserDetailPage.tsx. Texts live in a new local file
+      web/src/pages/admin/passwordResetMessages.ts in en, ru and kk, following web/src/pages/admin/usersMessages.ts
+      (the page has no IntlProvider; kk texts are machine drafts until the owner's native check). No backend change.
+    acceptance_criteria:
+      - "1. web/src/api/identity.ts has no resetPassword function and no function that sends a password; usersApi.sendPasswordResetInstructions(id) posts the body {} to /api/v1/identity/users/<id>/reset-password; a vitest test asserts that path, the method POST and the body {}, and that the request body has no password key. The header comment of web/src/api/__tests__/identity.iss0812.test.ts no longer names usersApi.resetPassword as a live function."
+      - "2. On web/src/pages/admin/UserDetailPage.tsx the button \"Send password reset instructions\" (en) is rendered only when access.can(P.UsersGroupsRolesManage) is true and the loaded user has status \"active\", auth_source \"oidc\" and a non-empty email; a vitest test renders the page for each of the four cases where exactly one condition fails and finds no button, and for the case where all hold finds it."
+      - "3. Pressing the button opens a confirmation that names the user's email; confirming calls useSendPasswordResetInstructions once, and cancelling calls nothing (both shown by a vitest test with the API mocked)."
+      - "4. On a 202 answer the page shows a role=\"status\" message saying the instructions were sent to the user's email; on a 409 answer the page shows one plain-language message per detail user_inactive, no_identity_provider_login and no_email, and any other error goes through the page's existing error rendering (classifyError); a vitest test covers the 202 case and each of the three 409 details."
+      - "5. web/src/pages/admin/passwordResetMessages.ts holds every text of criteria 2 to 4 for en, ru and kk with the same keys (a vitest test asserts the three key sets are equal and no value is empty), and the page picks the text by the current UI locale as UsersPage does with usersMessages.ts."
+      - "6. git diff origin/main...HEAD --stat lists files under web/ only; the engine's web checks (cd web && npm ci && npm run check) pass."
+    depends_on: [REQ-788]

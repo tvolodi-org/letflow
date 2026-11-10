@@ -563,6 +563,9 @@ export interface Role {
   description?: string
   is_system: boolean
   permissions: RolePermission[]
+  /** role_map/1: 'platform_role' roles are bound to a group via group_id (T-1610). */
+  kind?: 'platform_role' | 'process_routing_role'
+  group_id?: string | null
 }
 
 export interface RolePermission {

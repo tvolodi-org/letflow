@@ -22,6 +22,7 @@ export const SUMMARY_MESSAGES = {
     statusUnknown: 'No data',
     notMeasured: 'Not measured yet',
     perMinute: 'per minute',
+    poolOf: 'slots in use',
     sinceStart: 'of calls slower than 1 s since the service started',
     minutesOld: 'min since last run',
     requests: 'Requests per minute',
@@ -39,10 +40,10 @@ export const SUMMARY_MESSAGES = {
     jobs: 'Queue and background jobs',
     modules: 'Module versions per tenant',
     upgrade: 'Last upgrade result',
-    poolDo: 'Not shown yet. If the app is slow for everyone, ask the platform operator to check the database connections.',
-    jobsDo: 'Not shown yet. If a scheduled job did not run, ask the platform operator.',
-    modulesDo: 'Not shown yet. To see which module versions a tenant has, ask the platform operator.',
-    upgradeDo: 'Not shown yet. To learn whether the last upgrade worked, ask the platform operator.',
+    poolDo: 'Many database connections are busy. Ask users to avoid large imports and exports for a while; if it stays red, report it to the platform operator.',
+    jobsDo: 'There is no job queue to read yet, and scheduled sweeps do not record when they last ran. Until they do, if a scheduled job did not run, ask the platform operator.',
+    modulesDo: 'Module versions are stored per tenant and are not part of the platform metrics. A separate page that reads the tenant\'s own modules is needed. Until then ask the platform operator.',
+    upgradeDo: 'The result of the last module upgrade is kept in the tenant\'s module journal, which this page cannot read yet. Until then ask the platform operator.',
   },
   ru: {
     heading: 'Сводка для поддержки',
@@ -54,6 +55,7 @@ export const SUMMARY_MESSAGES = {
     statusUnknown: 'Нет данных',
     notMeasured: 'Пока не измеряется',
     perMinute: 'в минуту',
+    poolOf: 'занято слотов',
     sinceStart: 'вызовов медленнее 1 с с момента запуска сервиса',
     minutesOld: 'мин с последнего запуска',
     requests: 'Запросов в минуту',
@@ -71,10 +73,10 @@ export const SUMMARY_MESSAGES = {
     jobs: 'Очередь и фоновые задачи',
     modules: 'Версии модулей по арендаторам',
     upgrade: 'Результат последнего обновления',
-    poolDo: 'Пока не показывается. Если приложение медленно работает у всех, попросите оператора платформы проверить подключения к базе.',
-    jobsDo: 'Пока не показывается. Если плановая задача не сработала, обратитесь к оператору платформы.',
-    modulesDo: 'Пока не показывается. Чтобы узнать версии модулей арендатора, обратитесь к оператору платформы.',
-    upgradeDo: 'Пока не показывается. Чтобы узнать, прошло ли последнее обновление, обратитесь к оператору платформы.',
+    poolDo: 'Занято много подключений к базе. Попросите пользователей на время не запускать большие импорты и экспорты; если показатель остаётся красным, сообщите оператору платформы.',
+    jobsDo: 'Очереди задач для чтения пока нет, а плановые проверки не записывают время последнего запуска. Пока так, если плановая задача не сработала, обратитесь к оператору платформы.',
+    modulesDo: 'Версии модулей хранятся отдельно для каждого арендатора и не входят в общие показатели платформы. Нужна отдельная страница, читающая модули самого арендатора. Пока её нет, обратитесь к оператору платформы.',
+    upgradeDo: 'Результат последнего обновления модуля хранится в журнале модулей арендатора, который эта страница пока не умеет читать. Пока так, обратитесь к оператору платформы.',
   },
   kk: {
     heading: 'Қолдау қызметіне арналған қорытынды',
@@ -86,6 +88,7 @@ export const SUMMARY_MESSAGES = {
     statusUnknown: 'Дерек жоқ',
     notMeasured: 'Әзірге өлшенбейді',
     perMinute: 'минутына',
+    poolOf: 'слот пайдаланылуда',
     sinceStart: 'қызмет іске қосылғалы 1 с-тан баяу шақырулар үлесі',
     minutesOld: 'мин соңғы іске қосудан бері',
     requests: 'Минутына сұраулар',
@@ -103,17 +106,16 @@ export const SUMMARY_MESSAGES = {
     jobs: 'Кезек және фондық тапсырмалар',
     modules: 'Арендаторлар бойынша модуль нұсқалары',
     upgrade: 'Соңғы жаңартудың нәтижесі',
-    poolDo: 'Әзірге көрсетілмейді. Қолданба бәріне баяу жұмыс істесе, платформа операторынан дерекқор қосылымдарын тексеруді сұраңыз.',
-    jobsDo: 'Әзірге көрсетілмейді. Жоспарлы тапсырма орындалмаса, платформа операторына хабарласыңыз.',
-    modulesDo: 'Әзірге көрсетілмейді. Арендатордың модуль нұсқаларын білу үшін платформа операторына хабарласыңыз.',
-    upgradeDo: 'Әзірге көрсетілмейді. Соңғы жаңарту сәтті өткенін білу үшін платформа операторына хабарласыңыз.',
+    poolDo: 'Деректер базасына көп қосылым бос емес. Пайдаланушылардан біраз уақыт үлкен импорт пен экспортты тоқтатуды сұраңыз; көрсеткіш қызыл болып қалса, платформа операторына хабарлаңыз.',
+    jobsDo: 'Тапсырмалар кезегін оқуға әзірге болмайды, ал жоспарлы тексерулер соңғы іске қосылу уақытын жазбайды. Содан кейін жоспарлы тапсырма орындалмаса, платформа операторына хабарласыңыз.',
+    modulesDo: 'Модуль нұсқалары әр арендатор бойынша бөлек сақталады және платформаның жалпы көрсеткіштеріне кірмейді. Арендатордың өз модульдерін оқитын бөлек бет қажет. Ол болғанша платформа операторына хабарласыңыз.',
+    upgradeDo: 'Модульдің соңғы жаңартуының нәтижесі арендатордың модуль журналында сақталады, бұл бет оны әзірге оқи алмайды. Ол болғанша платформа операторына хабарласыңыз.',
   },
 }
 
 type Messages = Record<keyof (typeof SUMMARY_MESSAGES)['en'], string>
 
 const UNMEASURED: { key: keyof Messages; doKey: keyof Messages }[] = [
-  { key: 'pool', doKey: 'poolDo' },
   { key: 'jobs', doKey: 'jobsDo' },
   { key: 'modules', doKey: 'modulesDo' },
   { key: 'upgrade', doKey: 'upgradeDo' },
@@ -125,12 +127,14 @@ const TITLE_KEY: Record<FigureId, keyof Messages> = {
   slowDb: 'slowDb',
   slowAppend: 'slowAppend',
   refresh: 'refresh',
+  pool: 'pool',
 }
 const ACTION_KEY: Partial<Record<FigureId, keyof Messages>> = {
   errors: 'errorsDo',
   slowDb: 'slowDbDo',
   slowAppend: 'slowAppendDo',
   refresh: 'refreshDo',
+  pool: 'poolDo',
 }
 const STATUS_PILL: Record<FigureStatus, { tone: StatusTone; glyph: StatusGlyph }> = {
   ok: { tone: 'success', glyph: 'dot' },
@@ -146,6 +150,7 @@ function statusWord(m: Messages, s: FigureStatus): string {
 function valueText(m: Messages, f: Figure): string {
   if (f.value === null) return f.id === 'requests' || f.id === 'errors' ? m.measuring : '—'
   if (f.id === 'requests' || f.id === 'errors') return `${Math.round(f.value * 10) / 10} ${m.perMinute}`
+  if (f.id === 'pool') return f.pool ? `${f.pool.inUse} / ${f.pool.cap} ${m.poolOf}` : '—'
   if (f.id === 'refresh') return `${Math.floor(f.value / 60)} ${m.minutesOld}`
   return `${Math.round(f.value * 1000) / 10}% ${m.sinceStart}`
 }

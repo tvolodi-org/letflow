@@ -80,6 +80,7 @@ import { TASK_MESSAGES } from '@/pages/tasks/taskMessages'
 import { dashboardMessages } from '@/pages/dashboard/dashboardMessages'
 import { feedbackMessages } from '@/components/ui/feedbackMessages'
 import { usersMessages } from '@/pages/admin/usersMessages'
+import { groupsMessages } from '@/pages/admin/groupsMessages'
 import { storekeeperGrantMessages } from '@/pages/admin/storekeeperGrantMessages'
 import { instancesMessages } from '@/pages/instances/instancesMessages'
 import { definitionsMessages } from '@/pages/definitions/definitionsMessages'
@@ -408,6 +409,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
   it.each([
     ['feedback', feedbackMessages],
     ['users', usersMessages],
+    ['groups', groupsMessages],
     ['storekeeperGrant', storekeeperGrantMessages],
     ['instances', instancesMessages],
     ['definitions', definitionsMessages],
@@ -465,6 +467,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['reference', REFERENCE_MESSAGES],
       ['feedback', feedbackMessages],
       ['users', usersMessages],
+      ['groups', groupsMessages],
       ['storekeeperGrant', storekeeperGrantMessages],
       ['instances', instancesMessages],
       ['definitions', definitionsMessages],

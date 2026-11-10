@@ -287,6 +287,16 @@ defmodule Letflow.Admission do
     GenServer.call(server, :global_cap)
   end
 
+  @doc """
+  Platform-wide admission usage: `in_use` units currently held and the `cap`
+  (`pool_size - reserved_headroom`). Read-only, O(1), no tenant data; feeds the
+  two label-free gauges in `Letflow.Metrics.Exposition` (T-1613).
+  """
+  @spec usage(server :: GenServer.server()) :: %{in_use: non_neg_integer(), cap: pos_integer()}
+  def usage(server \\ __MODULE__) do
+    GenServer.call(server, :usage)
+  end
+
   # GenServer callbacks
 
   # State shape (design doc §2.2; reserved_headroom added per
@@ -376,6 +386,10 @@ defmodule Letflow.Admission do
 
   def handle_call(:global_cap, _from, state) do
     {:reply, state.global_cap, state}
+  end
+
+  def handle_call(:usage, _from, state) do
+    {:reply, %{in_use: state.global_in_use, cap: state.global_cap}, state}
   end
 
   def handle_call({:release, %Ref{id: id}}, _from, state) do
