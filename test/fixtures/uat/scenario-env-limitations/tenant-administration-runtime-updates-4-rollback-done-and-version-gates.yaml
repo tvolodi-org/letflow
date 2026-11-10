@@ -1,0 +1,20 @@
+scenario_id: tenant-administration-runtime-updates-4-rollback-done-and-version-gates
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "a rollback that succeeds, the refusal module_version_ahead (stored module data newer than the running build, answered 503 on the module's routes) and rollback_below_min_data_version / the min_data_version gate of install and upgrade"
+reason: >
+  Not reachable through the product's own routes on QA. (a) A successful rollback needs a module with a finished upgrade
+  journal row; QA modules are installed at their current compiled version and no older build is available to upgrade from.
+  (b) module_version_ahead needs the stored version above the running build, i.e. a build older than the data; QA only deploys
+  forward. (c) The minimum data version is declared by a module's manifest (lib/letflow/modules/module.ex, optional key);
+  grep "min_data_version:" under lib/ finds no module that declares it, so the gate (lib/letflow/modules/installs.ex) can
+  never refuse anything today. Setting any of these up would mean editing the QA database by hand, which UAT must not do.
+  The refusal text, the dry run on a never-upgraded module and the access rules are covered by
+  tenant-administration-runtime-updates-2-rollback-refusals-and-dry-run. Covered in CI by test/letflow/module_upgrade/
+  rollback and gate tests, which are not UAT.
+recorded_by: business-analyst
+recorded_at: "2026-11-10"
+issue_ref: "T-1625"
+review: >
+  Revisit when the first module declares a minimum data version or a module gets a second released version; then queue one
+  task to write the scenario and remove this file.
