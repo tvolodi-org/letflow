@@ -173,6 +173,19 @@ defmodule Letflow.Scripts.QoimeksRehearsalTest do
       assert {_, 0} = convert(indir, Path.join(dir, "o4b"), ["--allow-drops"])
     end
 
+    test "CV-4b surplus fields are rejected, not truncated", %{dir: dir} do
+      indir =
+        write_csvs(
+          Path.join(dir, "in4s"),
+          "loc_code,loc_name,loc_parent\nL1,Sample L1,\n",
+          "sku,sku_name,unit\nS1,Sample S1,pcs\n",
+          "sku,loc,qty\nS1,L1,1,5\n"
+        )
+
+      assert {text, 3} = convert(indir, Path.join(dir, "o4s"))
+      assert text =~ "dropped balances row 1: too_many_fields"
+    end
+
     test "CV-5 splitting: 200 rows per file, 100 lines per header", %{dir: dir} do
       locs = "loc_code,loc_name,loc_parent\nL1,Sample L1,\n"
       skus = Enum.map_join(1..250, "", &"S#{&1},Sample #{&1},pcs\n")

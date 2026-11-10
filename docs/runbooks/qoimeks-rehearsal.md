@@ -20,7 +20,7 @@ modules and has one import of its own (all through
 
 The converted files are pushed through these real routes by `test/letflow/modules/stock/qoimeks_files_test.exs`.
 Facts that shape the procedure: every reference cell is an **external id** under the row's own system; `parent_id`
-must name a location earlier in the file; quantity must be above 0; an opening document holds at most 100 lines, so
+must name a location earlier in the file; quantity must be above 0; the converter writes at most 100 lines per opening document (its own conservative chunk size, below the platform limit), so
 each lines file has its own header (`QOI-HDR-NN`); an opening header cannot be created empty, so it is created
 together with its first real balance (below).
 

@@ -139,7 +139,9 @@ def read_csv(path, mapping, kind):
     for rec in rd:
         row = {}
         for h, v in rec.items():
-            if h is not None:
+            if h is None:
+                row["_surplus"] = True
+            else:
                 row[mapping.get(h, h)] = (v or "").strip()
         rows.append(row)
     return rows
@@ -160,7 +162,9 @@ def order_locations(rows, drops):
     """Rows with code, name, unique code; parents before children (depth order). Rejects are counted by row number."""
     ok, seen = [], set()
     for n, r in enumerate(rows, 1):
-        if not r["loc_code"]:
+        if r.get("_surplus"):
+            drops.append(("locations", n, "too_many_fields"))
+        elif not r["loc_code"]:
             drops.append(("locations", n, "missing_code"))
         elif not r["loc_name"]:
             drops.append(("locations", n, "missing_name"))
@@ -209,7 +213,9 @@ def cmd_convert(a):
 
     good_items, seen = [], set()
     for n, r in enumerate(items, 1):
-        if not r["sku"]:
+        if r.get("_surplus"):
+            drops.append(("items", n, "too_many_fields"))
+        elif not r["sku"]:
             drops.append(("items", n, "missing_sku"))
         elif not r["sku_name"]:
             drops.append(("items", n, "missing_name"))
@@ -228,6 +234,9 @@ def cmd_convert(a):
     lines, keys = [], set()
     for n, r in enumerate(bals, 1):
         q = r["qty"]
+        if r.get("_surplus"):
+            drops.append(("balances", n, "too_many_fields"))
+            continue
         if "," in q:
             drops.append(("balances", n, "quantity_comma_decimal"))
             continue
