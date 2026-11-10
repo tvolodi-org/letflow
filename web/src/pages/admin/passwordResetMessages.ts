@@ -25,7 +25,7 @@ export const passwordResetMessages: Record<UiLocale, PasswordResetMessages> = {
   en: {
     button: 'Send password reset instructions',
     confirmTitle: 'Send password reset instructions',
-    confirmBody: 'An e-mail with a link to set a new password will be sent to {email}.',
+    confirmBody: 'An e-mail will be sent to {email} telling the user to choose "Forgot password" on the sign-in page. No password is sent or changed.',
     confirm: 'Send',
     cancel: 'Cancel',
     sending: 'Sending...',
@@ -40,7 +40,7 @@ export const passwordResetMessages: Record<UiLocale, PasswordResetMessages> = {
   ru: {
     button: 'Отправить инструкцию по сбросу пароля',
     confirmTitle: 'Отправить инструкцию по сбросу пароля',
-    confirmBody: 'Письмо со ссылкой для установки нового пароля будет отправлено на {email}.',
+    confirmBody: 'На {email} будет отправлено письмо с указанием выбрать «Забыли пароль» на странице входа. Пароль не отправляется и не меняется.',
     confirm: 'Отправить',
     cancel: 'Отмена',
     sending: 'Отправка...',
@@ -55,7 +55,7 @@ export const passwordResetMessages: Record<UiLocale, PasswordResetMessages> = {
   kk: {
     button: 'Құпиясөзді қалпына келтіру нұсқауын жіберу',
     confirmTitle: 'Құпиясөзді қалпына келтіру нұсқауын жіберу',
-    confirmBody: 'Жаңа құпиясөзді орнату сілтемесі бар хат {email} мекенжайына жіберіледі.',
+    confirmBody: '{email} мекенжайына кіру бетінде «Құпиясөзді ұмыттым» таңдау керектігі туралы хат жіберіледі. Құпиясөз жіберілмейді және өзгертілмейді.',
     confirm: 'Жіберу',
     cancel: 'Бас тарту',
     sending: 'Жіберілуде...',
