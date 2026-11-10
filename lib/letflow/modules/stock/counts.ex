@@ -52,6 +52,8 @@ defmodule Letflow.Modules.Stock.Counts do
   alias Letflow.Modules.Stock.CountSheet
   alias Letflow.Modules.Stock.FreezeState
   alias Letflow.Repo
+  alias Letflow.TenantProvisioning
+  alias Letflow.UserNotifications
 
   @input_keys ~w(org_unit_id kind planned_start planned_end chair_employee_id member_employee_ids location_ids note freeze_locations)
   @kinds ~w(full selective)
@@ -133,20 +135,52 @@ defmodule Letflow.Modules.Stock.Counts do
          :ok <- check_inside(prefix, doc),
          :ok <- check_complete(prefix, doc),
          :ok <- check_duration(doc) do
-      Repo.transaction(fn ->
-        lock!(prefix, doc.org_unit_id)
+      result =
+        Repo.transaction(fn ->
+          lock!(prefix, doc.org_unit_id)
 
-        with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
-             :ok <- draft?(fresh),
-             :ok <- check_overlap(prefix, fresh["record_id"], doc),
-             {:ok, issued} <- issue_document(prefix, fresh, doc, actor),
-             {:ok, _} <- mark_ordered(prefix, fresh, issued, actor),
-             :ok <- audit(prefix, actor, "issued", fresh["record_id"], "draft", "ordered") do
-          view!(prefix, fresh["record_id"])
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+          with {:ok, fresh} <- fetch(prefix, header["record_id"], scope),
+               :ok <- draft?(fresh),
+               :ok <- check_overlap(prefix, fresh["record_id"], doc),
+               {:ok, issued} <- issue_document(prefix, fresh, doc, actor),
+               {:ok, _} <- mark_ordered(prefix, fresh, issued, actor),
+               :ok <- audit(prefix, actor, "issued", fresh["record_id"], "draft", "ordered") do
+            view!(prefix, fresh["record_id"])
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end)
+
+      bell_count_assigned(prefix, result)
+    end
+  end
+
+  # REQ-800 (T-1659): after the commit, one bell entry for the chair and each member whose employee
+  # has a linked user. Best effort: never raises and returns the issue result unchanged (INV-8).
+  defp bell_count_assigned(
+         prefix,
+         {:ok, %{"id" => id, "number" => number, "chair_employee_id" => chair} = view} = ok
+       ) do
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      [chair | List.wrap(Map.get(view, "member_employee_ids"))]
+      |> Enum.uniq()
+      |> Enum.map(&employee_user_id(prefix, &1))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.each(&UserNotifications.notify(prefix, tenant_id, &1, "count_assigned", id, number))
+    end
+
+    ok
+  rescue
+    _ -> ok
+  end
+
+  defp bell_count_assigned(_prefix, other), do: other
+
+  defp employee_user_id(prefix, employee_id) do
+    case Org.lookup(prefix, employee_id) do
+      {:ok, %{"user_id" => u}} when is_binary(u) and u != "" -> u
+      _ -> nil
     end
   end
 

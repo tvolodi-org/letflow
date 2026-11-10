@@ -8,8 +8,12 @@ defmodule Letflow.Routers.MeNotificationsTest do
 
   use Letflow.DataCase, async: false
 
+  Code.require_file("../modules/stock/counts_fixture.exs", __DIR__)
+
   import Ecto.Query
 
+  alias Letflow.CountsFixture, as: CF
+  alias Letflow.Modules.Stock.Counts
   alias Letflow.Repo
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
   alias Letflow.Support.TaskScopeFixture, as: T
@@ -74,6 +78,47 @@ defmodule Letflow.Routers.MeNotificationsTest do
     assert n["title"] == "Review"
     assert n["read"] == false
     assert Map.keys(n) |> Enum.sort() == ~w(id inserted_at kind read ref_id title)
+  end
+
+  test "R1 a real Counts.issue gives the linked chair a count_assigned item, nobody else", %{
+    a: a,
+    b: b
+  } do
+    {token, user_id} = caller!(a)
+    {other, _} = caller!(a)
+    {token_b, _} = caller!(b)
+
+    on_exit(fn ->
+      for mod <- [
+            Letflow.Definitions.SolutionPackInstall,
+            Letflow.Definitions.SolutionPackArtefactBase,
+            Letflow.TenantProvisioning.ColumnPromotion
+          ] do
+        Repo.delete_all(from(r in mod, where: r.tenant_id == ^a.tenant_id))
+      end
+    end)
+
+    {:ok, _} = Letflow.Entities.EventTypes.seed!(a.schema_name)
+    CF.install_all!(a.tenant_id)
+    w = CF.world!(a.schema_name)
+    chair = CF.employee!(a.schema_name, w.unit, user: user_id)
+    w = %{w | chair: chair}
+    {:ok, c} = Counts.create(a.schema_name, CF.input(w), CF.opts())
+    {:ok, i} = Counts.issue(a.schema_name, c["id"], CF.opts())
+
+    conn = list(a, token)
+    assert conn.status == 200, conn.resp_body
+    assert %{"notifications" => [n], "unread_count" => 1} = json(conn)
+    assert n["kind"] == "count_assigned"
+    assert n["ref_id"] == c["id"]
+    assert n["title"] == i["number"]
+    assert n["read"] == false
+
+    assert json(list(a, other)) == %{"notifications" => [], "unread_count" => 0}
+    assert json(list(b, token_b)) == %{"notifications" => [], "unread_count" => 0}
+
+    assert Repo.aggregate(Letflow.UserNotifications.Notification, :count, prefix: b.schema_name) ==
+             0
   end
 
   test "N3 mark one, mark all, re-mark marks nothing", %{a: a} do

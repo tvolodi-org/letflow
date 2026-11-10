@@ -10,8 +10,10 @@ defmodule Letflow.UserNotifications do
 
   ## Kinds
 
-  The closed list is `@kinds` in code only (the `kind` column has no CHECK). Today only
-  `task_assigned` has a producer (`Letflow.Tasks`, after a committed (re)assignment). A later
+  The closed list is `@kinds` in code only (the `kind` column has no CHECK). Producers:
+  `task_assigned` (`Letflow.Tasks`, after a committed (re)assignment) and `count_assigned`
+  (`Letflow.Modules.Stock.Counts.issue/3`, after commit, to the chair and members with a linked
+  user; REQ-800). A later
   producer task appends its atom here and to the web map; no migration is needed.
 
   ## Rules
@@ -29,7 +31,7 @@ defmodule Letflow.UserNotifications do
   alias Letflow.Repo
   alias Letflow.UserNotifications.Notification
 
-  @kinds ~w(task_assigned)
+  @kinds ~w(task_assigned count_assigned)
   @cap_per_user 200
   @max_limit 100
   @default_limit 50
