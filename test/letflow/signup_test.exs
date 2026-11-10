@@ -217,7 +217,7 @@ defmodule Letflow.SignupTest do
       limited = post_signup(%{"email" => "a3@example.test"})
       assert limited.status == 429
       assert get_resp_header(limited, "retry-after") != []
-      assert json(limited) == %{"error" => "rate_limited"}
+      assert %{"error" => "rate_limited", "message" => "Too many" <> _} = json(limited)
       assert post_signup(%{"email" => "b@example.test"}, ip: {198, 51, 100, 1}).status == 202
 
       v6 = fn last -> {0x2001, 0xDB8, 0, 1, 0, 0, 0, last} end
@@ -301,7 +301,8 @@ defmodule Letflow.SignupTest do
       _ = mail!()
       full = post_signup(%{"email" => "two@example.test"})
       assert full.status == 503
-      assert json(full) == %{"error" => "signup_unavailable"}
+      assert %{"error" => "signup_unavailable", "message" => message} = json(full)
+      assert message =~ "unavailable"
       assert Repo.aggregate(Request, :count) == 1
       no_mail()
 
@@ -327,4 +328,205 @@ defmodule Letflow.SignupTest do
 
   defp verify(token), do: request(:post, "/api/signup/verify", %{"token" => token})
   defp get_resp_header(conn, key), do: Plug.Conn.get_resp_header(conn, key)
+
+  describe "T-1620 anti-abuse" do
+    defp domain_body(n, domain), do: %{"email" => "u#{n}@#{domain}"}
+
+    test "S2 the per-domain cap refuses the next request; another domain and a later hour pass" do
+      enable!(domain_hourly_cap: 2)
+      now = DateTime.utc_now()
+      body = fn n, d -> signup_body(domain_body(n, d)) end
+
+      for n <- 1..2,
+          do: assert(Signup.submit(body.(n, "corp.test"), {10, 0, 0, n}, now) == :accepted)
+
+      assert Signup.submit(body.(3, "corp.test"), {10, 0, 0, 3}, now) ==
+               {:error, :rate_limited_domain}
+
+      assert Signup.submit(body.(3, "other.test"), {10, 0, 0, 3}, now) == :accepted
+
+      later = DateTime.add(now, 3601, :second)
+      assert Signup.submit(body.(4, "corp.test"), {10, 0, 0, 4}, later) == :accepted
+    end
+
+    test "S3 an exempt provider is not capped by the domain cap" do
+      enable!(domain_hourly_cap: 1)
+      body = fn n -> signup_body(domain_body(n, "gmail.com")) end
+      assert Signup.submit(body.(1), {10, 0, 1, 1}) == :accepted
+      assert Signup.submit(body.(2), {10, 0, 1, 2}) == :accepted
+    end
+
+    test "S4 domain_key is a hash and the plain domain is not in the row" do
+      assert Signup.submit(signup_body(domain_body(1, "corp.test")), {10, 0, 2, 1}) == :accepted
+      row = the_row()
+      assert row.domain_key == Signup.domain_key("u1@corp.test")
+      assert byte_size(row.domain_key) == 32
+      refute String.contains?(row.domain_key, "corp")
+    end
+
+    test "S5 the domain cap is checked before the pending cap" do
+      enable!(domain_hourly_cap: 1, pending_cap: 1)
+      assert Signup.submit(signup_body(domain_body(1, "corp.test")), {10, 0, 3, 1}) == :accepted
+
+      assert Signup.submit(signup_body(domain_body(2, "corp.test")), {10, 0, 3, 2}) ==
+               {:error, :rate_limited_domain}
+
+      assert Signup.submit(signup_body(domain_body(2, "elsewhere.test")), {10, 0, 3, 2}) ==
+               {:error, :unavailable}
+    end
+
+    test "S7 a disposable domain is refused: no row, no mail" do
+      assert Signup.submit(signup_body(domain_body(1, "mailinator.com")), {10, 0, 4, 1}) ==
+               {:error, :email_not_accepted}
+
+      enable!(disposable_domains: ["custom-bad.test"])
+
+      assert Signup.submit(signup_body(domain_body(1, "custom-bad.test")), {10, 0, 4, 1}) ==
+               {:error, :email_not_accepted}
+
+      assert Repo.aggregate(Request, :count) == 0
+      no_mail()
+    end
+
+    test "S8 captcha off by default: accepted without a token; config says not required" do
+      assert post_signup().status == 202
+      conn = request(:get, "/api/signup/config")
+      assert json(conn)["captcha_required"] == false
+    end
+
+    defp with_captcha(answer) do
+      Application.put_env(:letflow, :signup_captcha_fake_owner, self())
+      Application.put_env(:letflow, :signup_captcha_fake_answer, answer)
+
+      on_exit(fn ->
+        Application.delete_env(:letflow, :signup_captcha_fake_owner)
+        Application.delete_env(:letflow, :signup_captcha_fake_answer)
+      end)
+
+      enable!(captcha_adapter: Letflow.Test.SignupCaptchaFake)
+    end
+
+    test "S9 captcha adapter ok: accepted and the token is passed through" do
+      with_captcha(:ok)
+      body = signup_body(%{"captcha_token" => "tok-123"})
+      assert Signup.submit(body, {10, 0, 5, 1}) == :accepted
+      assert_receive {:captcha_token, "tok-123"}
+      assert request(:get, "/api/signup/config") |> json() |> Map.get("captcha_required") == true
+    end
+
+    test "S9 a missing or oversize token reaches the adapter as nil" do
+      with_captcha({:error, :failed})
+      assert Signup.submit(signup_body(), {10, 0, 5, 2}) == {:error, :captcha_failed}
+      assert_receive {:captcha_token, nil}
+
+      assert Signup.submit(
+               signup_body(%{"captcha_token" => String.duplicate("x", 5_000)}),
+               {10, 0, 5, 2}
+             ) ==
+               {:error, :captcha_failed}
+
+      assert_receive {:captcha_token, nil}
+    end
+
+    test "S9 failed, unavailable, raise and exit all refuse (fail closed) with no row and no mail" do
+      for {answer, expected} <- [
+            {{:error, :failed}, {:error, :captcha_failed}},
+            {{:error, :unavailable}, {:error, :unavailable}},
+            {:garbage, {:error, :unavailable}},
+            {:raise, {:error, :unavailable}},
+            {:exit, {:error, :unavailable}}
+          ] do
+        with_captcha(answer)
+        assert Signup.submit(signup_body(), {10, 0, 6, 1}) == expected
+      end
+
+      assert Repo.aggregate(Request, :count) == 0
+      no_mail()
+    end
+
+    test "S16 a row without domain_key (an older row) is valid and not counted" do
+      assert Signup.submit(signup_body(domain_body(1, "corp.test")), {10, 0, 7, 1}) == :accepted
+      Repo.update_all(Request, set: [domain_key: nil])
+      enable!(domain_hourly_cap: 1)
+      assert Signup.submit(signup_body(domain_body(2, "corp.test")), {10, 0, 7, 2}) == :accepted
+    end
+
+    test "S13 refusal bodies carry error and a message in the request language, default en" do
+      blocked = post_signup(%{"email" => "x@mailinator.com", "language" => "ru"})
+      assert blocked.status == 422
+      assert %{"error" => "email_not_accepted", "message" => ru} = json(blocked)
+      assert ru =~ "адрес"
+
+      assert %{"message" => en} = json(post_signup(%{"email" => "x@mailinator.com"}))
+      assert en =~ "e-mail address"
+
+      assert %{"error" => "invalid_request", "message" => kk, "fields" => ["terms_accepted"]} =
+               json(post_signup(%{"language" => "kk", "terms_accepted" => false}))
+
+      assert kk != en
+
+      enable!(domain_hourly_cap: 1)
+      assert post_signup(%{"email" => "a@corp.test"}).status == 202
+
+      limited =
+        post_signup(%{"email" => "b@corp.test", "language" => "kk"}, ip: {198, 51, 100, 7})
+
+      assert limited.status == 429
+      assert get_resp_header(limited, "retry-after") != []
+      assert %{"error" => "rate_limited", "message" => _} = json(limited)
+
+      with_captcha({:error, :failed})
+      failed = post_signup(%{"language" => "ru"})
+      assert failed.status == 422
+      assert %{"error" => "captcha_failed", "message" => _} = json(failed)
+
+      with_captcha(:raise)
+      down = post_signup()
+      assert down.status == 503
+      assert %{"error" => "signup_unavailable", "message" => _} = json(down)
+    end
+
+    test "S14 the refused-domain answer is the same whether or not the address is known" do
+      same = fn conn -> {conn.status, conn.resp_body} end
+      known = post_signup(%{"email" => "known@mailinator.com"})
+      unknown = post_signup(%{"email" => "other@mailinator.com"})
+      assert same.(known) == same.(unknown)
+      assert known.status == 422
+      assert post_signup(%{"email" => "fine@example.test"}).status == 202
+    end
+
+    test "S15 telemetry carries only the outcome and the log holds no e-mail or captcha token" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        "t1620-#{inspect(ref)}",
+        [:letflow, :signup, :outcome],
+        fn _e, _m, meta, _c -> send(parent, {:outcome, meta}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("t1620-#{inspect(ref)}") end)
+      with_captcha({:error, :failed})
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          post_signup(%{
+            "email" => "secret-person@mailinator.com",
+            "captcha_token" => "SECRET-CAPTCHA"
+          })
+
+          post_signup(%{
+            "email" => "secret-person@example.test",
+            "captcha_token" => "SECRET-CAPTCHA"
+          })
+        end)
+
+      assert_receive {:outcome, %{outcome: :email_not_accepted} = meta1}
+      assert_receive {:outcome, %{outcome: :captcha_failed} = meta2}
+      assert Map.keys(meta1) == [:outcome] and Map.keys(meta2) == [:outcome]
+      refute log =~ "secret-person"
+      refute log =~ "SECRET-CAPTCHA"
+    end
+  end
 end
