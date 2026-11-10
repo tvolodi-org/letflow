@@ -53621,7 +53621,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    gh: 4153
+    # impl_order: UNREGISTERED -- blocked-by: REQ-773 -- GitHub issue not yet filed by the operator; delivered by task T-1594 (part 1 of 3: the per-tenant upgrade window and the admin screen are parts 2 and 3)
     # Source: docs/uat/ba-decisions/T-1519.md slice S6; docs/migration/decisions/0055-module-upgrade-migration-uninstall.md fact 10 and the expand/contract bullet (own platform-classified permission, sibling of platform_migration_rollouts, halt on N failures); decision 0080 (apply path). Written with task T-1594.
     description: >
       A platform operator rolls the compiled version of one module out to every active tenant that has it
