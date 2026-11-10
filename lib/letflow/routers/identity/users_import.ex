@@ -1,6 +1,6 @@
 defmodule Letflow.Routers.Identity.UsersImport do
   @moduledoc """
-  T-1609 (REQ-787): the two handlers of the xlsx user import, kept out of
+  T-1609 (REQ-790): the two handlers of the xlsx user import, kept out of
   `Letflow.Routers.Identity` so that router does not grow.
 
   | Route | Handler |

@@ -2,7 +2,7 @@ defmodule Letflow.Plugs.XlsxBodyParser do
   @moduledoc """
   `Plug.Parsers` parser for the `.xlsx` media type on two import routes: `POST
   /entities/records/:entity_type/import` (GH #3603, REQ-650) and `POST /identity/users/import`
-  (T-1609, REQ-787).
+  (T-1609, REQ-790).
 
   Same shape as `Letflow.Plugs.CsvBodyParser`: it claims
   `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` only for a POST whose

@@ -63,6 +63,10 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
     {Letflow.Routers.PlatformMigrations, :post, "/rollouts", %{}},
     {Letflow.Routers.PlatformMigrations, :get, "/rollouts/" <> @unused_uuid, nil},
     {Letflow.Routers.PlatformMigrations, :post, "/rollouts/" <> @unused_uuid <> "/resume", nil},
+    {Letflow.Routers.PlatformModuleRollouts, :post, "/", %{}},
+    {Letflow.Routers.PlatformModuleRollouts, :get, "/", nil},
+    {Letflow.Routers.PlatformModuleRollouts, :get, "/" <> @unused_uuid, nil},
+    {Letflow.Routers.PlatformModuleRollouts, :post, "/" <> @unused_uuid <> "/resume", nil},
     {Letflow.Routers.EventRetention, :get, "/summary", nil},
     {Letflow.Routers.EventRetention, :post, "/retirements", %{}},
     {Letflow.Routers.EventRetention, :get, "/retirements/" <> @unused_uuid, nil},
@@ -87,7 +91,7 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
   end
 
   defp assert_all_forbidden(fixture, roles) do
-    assert length(@routes) == 25
+    assert length(@routes) == 29
 
     for {label, status} <- platform_route_statuses(fixture, roles) do
       assert status == 403, "#{label}: expected 403, got #{status}"

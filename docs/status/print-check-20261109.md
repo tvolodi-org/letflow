@@ -29,12 +29,9 @@ Fonts: DejaVu Sans is embedded (`pdffonts`: emb yes, uni yes) and draws every Ka
 
 ## Known limits (not fixed here)
 
-- The 14-column Inv-18 .docx, rendered by LibreOffice, still breaks one header word (`Номенклатурный`)
-  in its narrowest column (before: eight columns broke words); the PDF does not break it. Page count
-  4 -> 3 with the 7 pt header and narrower name column.
-- Elixlsx has no page setup (print titles, landscape, fit to width): a printed .xlsx does not repeat
-  its header on page 2; the header is frozen on screen.
-- The PDF builder has no page footer: no "page N of M".
+- Fixed in T-1612: the Inv-18 .docx header word `Номенклатурный` no longer breaks (column widths follow the
+  longest header word); a printed .xlsx repeats its header row on every page (print titles, landscape,
+  fit to width, `XlsxStyle.write_to_memory/2`); official form PDFs carry "Страница N из M" / "Бет N / M".
 - Asset documents have no print route on main (`lib/letflow/modules/assets/router.ex`): a printable
   asset-document form is a separate feature. The asset side of this check is the balances .xlsx and
   the label sheet.

@@ -129,7 +129,7 @@ defmodule Letflow.Plugs.ApiPipeline do
   # for `text/csv` anywhere else is unchanged. It keeps the root 2 MB `length:`.
   #
   # GH #3603 (REQ-650) added `Letflow.Plugs.XlsxBodyParser`, the same for the `.xlsx` media type on that
-  # one route (no `length:` override: the same 2 MB root limit). T-1609 (REQ-787) added a second
+  # one route (no `length:` override: the same 2 MB root limit). T-1609 (REQ-790) added a second
   # path for it, `POST /identity/users/import`.
   #
   # GH #3338 (REQ-590) added `Letflow.Plugs.LogoBodyParser`: it claims PUT /tenant/logo for any content
@@ -288,6 +288,11 @@ defmodule Letflow.Plugs.ApiPipeline do
   # gated purely by role via `:TenantsManage`. See
   # Letflow.Routers.PlatformMigrations' own moduledoc for the route table.
   forward("/platform-migrations", to: Letflow.Routers.PlatformMigrations)
+
+  # RU-S6 -- the platform fleet driver (module version rolled out tenant by tenant). Same mount
+  # reason as /platform-migrations; gated by the PLATFORM-scope :ModuleRolloutsManage. See
+  # Letflow.Routers.PlatformModuleRollouts.
+  forward("/platform-module-rollouts", to: Letflow.Routers.PlatformModuleRollouts)
 
   # REQ-377 -- the operator-facing platform-wide event-history retirement
   # screen's backend HTTP surface. Mounted here for the same structural

@@ -1,6 +1,6 @@
 defmodule Letflow.Routers.IdentityUsersImportTest do
   @moduledoc """
-  T-1609 / REQ-787: the xlsx user import (`GET /users/import-template`, `POST /users/import`).
+  T-1609 / REQ-790: the xlsx user import (`GET /users/import-template`, `POST /users/import`).
   Dispatch as in `identity_test.exs` (direct `Letflow.Routers.Identity.call/2` with an
   `auth_context`); the xlsx bytes sit in `body_params["_xlsx"]` as the body parser leaves them.
   Test ids T-1..T-14 are those of the design; T-15 is in `audit_dispositions_test.exs`, T-13
