@@ -405,6 +405,28 @@ defmodule Letflow.AuditDispositionsTest do
   # ---------------------------------------------------------------------------------
 
   describe "actor_id: nil disposition -- Letflow.Identity" do
+    test "T-1609 T-15: create_user/2 with an audit_context writes that actor and trace" do
+      %{schema_name: schema_name} = provisioned_tenant()
+      actor = Ecto.UUID.generate()
+
+      assert {:ok, user} =
+               Identity.create_user(
+                 %{
+                   "username" => unique_name("t1609-user"),
+                   "display_name" => "Context Test User",
+                   "email" => "#{unique_name("t1609-user")}@example.test"
+                 },
+                 prefix: schema_name,
+                 login_directory: :skip,
+                 audit_context: %{actor_id: actor, trace_id: "t1609-trace", source: "api"}
+               )
+
+      assert [entry] = audit_rows_for(schema_name, "user.create")
+      assert entry.actor_id == actor
+      assert entry.trace_id == "t1609-trace"
+      assert entry.resource_id == user.id
+    end
+
     test "create_user/2 writes a user.create audit row with nil actor_id, nil before_state, real after_state (password_hash excluded)" do
       %{schema_name: schema_name} = provisioned_tenant()
 
