@@ -6,8 +6,10 @@ reason: >
   No producer exists on main for the bell kinds "document returned", "count assigned" and "failed import": the closed list of kinds in
   lib/letflow/user_notifications.ex holds only task_assigned, and UserNotifications.notify is called only from lib/letflow/tasks.ex. Nothing a UAT actor can do
   makes such an entry appear, so the run is BLOCKED, not PASS.
+  Amended 2026-11-11 (T-1658, T-1651.md item 3): of the three kinds only "count assigned" will get a producer (REQ-800 finding (2): the count's chair
+  and members, raised where mark_ordered runs in lib/letflow/modules/stock/counts.ex); "document returned" and "failed import" have no real event and are dropped.
 recorded_by: BA
 recorded_at: "2026-11-10"
 issue_ref: "GH #4107"
 review: >
-  Revisit when a task adds a producer for each of the three kinds (and the kind in the closed list and in the web map); then rewrite the wording of the entries from the real texts.
+  Revisit when the build task of the kind count_assigned adds its producer (and the kind in the closed list and in the web map); then rewrite this scenario to the surviving kind from the real texts.
