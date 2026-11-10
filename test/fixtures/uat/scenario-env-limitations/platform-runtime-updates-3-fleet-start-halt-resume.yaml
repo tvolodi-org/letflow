@@ -18,3 +18,5 @@ review: >
   docs/status or T-1569 names one), or when the owner agrees to run a rollout on QA at a quiet time.
   Update 2026-11-10 (T-1648): the optional company window and the start/resume of a rollout are now exercised on the demo module only, which touches no company that
   did not install it: see platform-runtime-demo-2-fleet-window-defers-then-resume. A rollout of any real module and the halt after N failures stay unrun on shared QA.
+  Update 2026-11-11 (T-1663): checked again for a disposable QA instance (docs/status and the infra plan named in the line above): none exists, so the start, halt and resume of a real module stay a GAP.
+  The operator screen is built (scenario platform-runtime-updates-6-rollout-operator-screen) and presses Start and Resume for the demo module only; the halted banner and the "failures in a row" line cannot be seen without failing companies and stay unrun.
