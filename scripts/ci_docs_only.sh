@@ -7,6 +7,10 @@
 #                           every test/**/*_test.exs that names docs/requirements.yaml, a docs
 #                           file path (docs/<x>.md|yaml), decision records or the "docs" dir.
 #                           Consumer: ci.yml, job `backend_shard`, step "Run docs tests".
+#   ci_docs_only.sh select  (T-1617) reads the changed-file list on stdin and prints the subset of
+#                           `files` that names a changed path, its basename or one of its parent
+#                           directories under docs/ (docs/ itself excluded), plus DOCS_SMOKE below.
+#                           Consumer: ci.yml, step "Run docs tests". `files` stays the superset.
 #   ci_docs_only.sh         reads the changed-file list on stdin (read in full, Q-1110) and
 #                           prints exactly one line, `docs_only=true|false`. true only when the
 #                           list is non-empty and EVERY path is under docs/. Consumer: ci.yml,
@@ -43,8 +47,39 @@ docs_tests() {
     grep -v 'docs/guides/test_developer_guide\.md' | cut -d: -f1 | sort -u
 }
 
+# T-1617: three merge groups failed with exit 124 because the whole docs set (~65 files) was run for
+# every docs-only change. Run only the files that read what changed, plus this fixed cheap smoke set.
+DOCS_SMOKE="test/letflow/docs/roles_scoped_approvers_test.exs test/letflow/definitions/form_schema_expressions_test.exs"
+
+docs_select() {
+  local all changed needles path dir hits
+  all=$(docs_tests)
+  changed=$(cat)
+  needles=""
+  while IFS= read -r path; do
+    [ -z "$path" ] && continue
+    needles+="$path"$'\n'"$(basename "$path")"$'\n'
+    dir=$(dirname "$path")
+    while [ "$dir" != "docs" ] && [ "$dir" != "." ] && [ "$dir" != "/" ]; do
+      needles+="$dir"$'\n'
+      dir=$(dirname "$dir")
+    done
+  done <<<"$changed"
+  hits=""
+  if [ -n "$all" ] && [ -n "$needles" ]; then
+    # shellcheck disable=SC2046
+    hits=$(echo "$all" | xargs grep -lFf <(printf '%s' "$needles" | sed '/^$/d') 2>/dev/null)
+  fi
+  { echo "$hits"; for f in $DOCS_SMOKE; do [ -f "$f" ] && echo "$f"; done; } | sed '/^$/d' | sort -u
+}
+
 if [ "${1:-}" = "files" ]; then
   docs_tests
+  exit 0
+fi
+
+if [ "${1:-}" = "select" ]; then
+  docs_select
   exit 0
 fi
 
