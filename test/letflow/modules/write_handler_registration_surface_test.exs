@@ -80,7 +80,11 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
     # REQ-772 (deliberate edit): the boot-time upgrade child reads the compiled hash through
     # `Catalog.manifest_hash/1` to stamp its journal rows. A read only; it never resolves or
     # calls a handler.
-    "lib/letflow/module_upgrade/boot.ex"
+    "lib/letflow/module_upgrade/boot.ex",
+    # RU-S6 (deliberate edit): the fleet driver reads the compiled hash through
+    # `Catalog.manifest_hash/1` to skip tenants already current. A read only; it never resolves
+    # or calls a handler.
+    "lib/letflow/module_upgrade/fleet.ex"
   ]
 
   @api_names [:write_handler, :write_handler_in, :call_write_handler, :manifest_hash]
