@@ -420,8 +420,10 @@ defmodule Letflow.ModuleUpgrade.Fleet do
   # T-1640: no window, an invalid stored window or an unknown zone all mean "any time" (a corrupt
   # setting must not block the fleet). Neither the window nor the zone is logged.
   defp in_window?(tenant_id, at) do
-    with %Tenant{settings: %{"module_upgrade.window" => %{"start" => s, "end" => e}}} = tenant <-
+    with %Tenant{settings: %{"module_upgrade.window" => %{"start" => s, "end" => e} = win}} =
+           tenant <-
            Repo.get(Tenant, tenant_id),
+         true <- map_size(win) == 2,
          {:ok, start_t} <- parse_hhmm(s),
          {:ok, end_t} <- parse_hhmm(e),
          {:ok, now_t} <- TenantTimezone.local_time(at, TenantTimezone.of(tenant)),

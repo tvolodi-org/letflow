@@ -595,6 +595,52 @@ defmodule Letflow.ModuleUpgrade.FleetTest do
       assert Enum.count(r.outcomes, &(&1.status == "outside_window")) == 3
     end
 
+    test "W9b deferred rows rotate by attempted_at across batches", ctx do
+      Application.put_env(:letflow, :module_rollout_batch, 2)
+      tenants = aged!(5)
+      Enum.each(tenants, &window!(&1, win("13:00", "14:00")))
+      run = fn -> Fleet.start("stock", ctx.actor, only(tenants) ++ [now: @noon]) end
+      assert {:ok, r1} = run.()
+
+      # every row deferred, with distinct past attempt times: t0 is the oldest
+      base = ~N[2026-01-01 00:00:00]
+      ids = Enum.map(tenants, & &1.tenant_id)
+
+      ids
+      |> Enum.with_index()
+      |> Enum.each(fn {id, n} ->
+        {1, _} =
+          Repo.update_all(
+            from(o in Outcome, where: o.rollout_id == ^r1.rollout.id and o.tenant_id == ^id),
+            set: [status: "outside_window", attempted_at: NaiveDateTime.add(base, n * 60)]
+          )
+      end)
+
+      touched = fn r ->
+        Enum.filter(
+          tenants,
+          &(outcome_of(r, &1).attempted_at != nil and
+              NaiveDateTime.compare(outcome_of(r, &1).attempted_at, ~N[2026-02-01 00:00:00]) ==
+                :gt)
+        )
+      end
+
+      assert {:ok, r2} = run.()
+      assert Enum.map(touched.(r2), & &1.tenant_id) |> Enum.sort() == Enum.sort(Enum.take(ids, 2))
+
+      # next batch: the two oldest by attempted_at are now t2 and t3 (t0, t1 were just touched)
+      assert {:ok, r3} = run.()
+      assert Enum.map(touched.(r3), & &1.tenant_id) |> Enum.sort() == Enum.sort(Enum.take(ids, 4))
+      assert outcome_of(r3, List.last(tenants)).attempted_at == NaiveDateTime.add(base, 4 * 60)
+    end
+
+    test "W2b a stored window with an extra key is treated as no window", ctx do
+      [t1] = tenants = aged!(1)
+      window!(t1, Map.put(win("13:00", "14:00"), "extra", "x"))
+      assert {:ok, r} = Fleet.start("stock", ctx.actor, only(tenants) ++ [now: @noon])
+      assert outcome_of(r, t1).status == "succeeded"
+    end
+
     test "W10 an invalid stored window or an unknown zone is treated as no window", ctx do
       [t1, t2] = tenants = aged!(2)
       window!(t1, win("zz", "yy"))
