@@ -12,4 +12,16 @@ defmodule Letflow.Signup.MessagesTest do
     assert Messages.verification("xx", "https://x.test/l") ==
              Messages.verification("en", "https://x.test/l")
   end
+
+  test "S12 every refusal code has a distinct text in ru, kk and en; unknown language is English" do
+    codes = ~w(rate_limited signup_unavailable email_not_accepted captcha_failed invalid_request)
+
+    for code <- codes do
+      texts = for lang <- ~w(ru kk en), do: Messages.refusal(code, lang)
+      assert Enum.all?(texts, &(is_binary(&1) and &1 != ""))
+      assert texts |> Enum.uniq() |> length() == 3
+      assert Messages.refusal(code, "de") == Messages.refusal(code, "en")
+      assert Messages.refusal(code, nil) == Messages.refusal(code, "en")
+    end
+  end
 end

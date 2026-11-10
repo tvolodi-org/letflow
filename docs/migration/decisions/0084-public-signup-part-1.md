@@ -33,6 +33,11 @@ This slice follows the task. It does not change 0072: the Letflow endpoint is pu
   Residual risks: many IPs can fill the pending cap (503 for real users); an attacker can keep a victim's address
   "open" for up to 7 days.
 
+**Addendum T-1620 (TA-SL3, no decision contradicted).** D5 gains a per-e-mail-domain hourly cap (hashed `domain_key`,
+big free providers exempt), a configurable disposable-domain list (seed in `priv/signup/disposable_domains.txt`),
+a captcha verification hook with no vendor (`LETFLOW_SIGNUP_CAPTCHA` accepts only `off`, fails closed) and
+ru/kk/en refusal messages. D6 still leaves the vendor (Q3), the invitation code (Q1) and the list maintainer open.
+
 ## Not decided here
 
 Welcome mail, default modules, first credential, plan hook, host-to-tenant mapping (SL2b and later); the sign-up SPA

@@ -1,0 +1,183 @@
+# T-1625 (BA): runtime updates, module rollback (merged RU-S5 "Rollback route", commit 80cd66654, decision 0055 D9) and the
+# version gate (merged RU-S3, commit 9a6cc8bd2, decision 0055 D5). Rollback goes back to the PREVIOUS applied version of one module in one company.
+# Sources: lib/letflow/module_upgrade/rollback.ex (moduledoc: body is exactly rationale, target_version, dry_run; request checks in
+# the order rationale, target version, dry run, then the module is looked up and must be installed and active; the gate answers
+# no_previous_version first when no finished upgrade exists; a refusal is 409, and inside the 200 body of a dry run as
+# rollback_possible false with the code in "refusal"), lib/letflow/routers/tenant_modules.ex (`handle_rollback`: 422 texts
+# "rationale is required", "target_version is required", "dry_run must be a boolean"; 404 for a module that is not installed),
+# lib/letflow/module_upgrade/rollback.ex `fetch_entry/1` and `installed?/2` (unknown and not-installed both end in not found),
+# priv/permission_matrix/effective.golden (ModulesManage true for TENANT_ADMIN, false for TASK_WORKER and TENANT_AUDITOR).
+# NOT UAT-OBSERVABLE, recorded in scenario-env-limitations/tenant-administration-runtime-updates-4-rollback-done-and-version-gates.yaml:
+# a rollback that succeeds, "module_version_ahead" (stored data newer than the running build) and
+# "rollback_below_min_data_version" (the build's minimum data version): QA holds no module with a finished upgrade, no module
+# manifest declares a minimum data version (grep "min_data_version:" under lib/ finds none) and a build older than the data
+# cannot be put on QA. They are covered by test/letflow/module_upgrade/ tests.
+---
+id: tenant-administration-runtime-updates-2-rollback-refusals-and-dry-run
+scope: tenant-administration
+title: "Rolling a module back is refused when nothing was upgraded, a bad request names its missing field, and only a company administrator may ask"
+version: "1.0"
+tags: [runtime-updates, rollback, modules, refusal, access_control, tenancy, dry-run]
+
+description: >
+  SwiftRoute's administrator wants to return a module to its previous version. The module was never upgraded in this
+  company, so there is no previous version to return to. A trial run (dry run) says so in its answer and writes nothing;
+  the real request is refused with the same reason and the module stays as it was. A request without a reason, without a
+  target version or with a dry-run flag that is not yes or no is turned down with the missing item named. A module that
+  does not exist is not found. A task worker and the read-only auditor are refused. The Bilimbaga administrator, asking
+  about the same module name, is answered from Bilimbaga's own installation only.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  auditor: actor-swiftroute-auditor
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: >
+      SwiftRoute has at least one installed, active module that has never been upgraded in this company (called module M below;
+      the tester names it in the run record) and the Modules screen shows its version
+    check: custom
+    detail: If every installed module of SwiftRoute has a finished upgrade, or none is installed, report BLOCKED. Do not upgrade a module to prepare this.
+  - description: The catalogue holds a module that SwiftRoute has not installed (called module N below)
+    check: custom
+    detail: If every catalogue module is installed, report BLOCKED for step 6 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens the Modules screen and writes down the version of module M.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator asks for a trial run (dry run) of the rollback of module M, giving the reason "UAT trial" and the
+      target version "0.0.1".
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator asks for the real rollback of module M with the reason "UAT real" and the target version "0.0.1".
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator asks for the rollback of module M with no reason (an empty text), and asks again with a reason but
+      no target version, and a third time with a reason, a target version and the dry-run flag "maybe".
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator asks for the rollback of a module named "no-such-module" with a reason and a target version.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator asks for the rollback of module N, which SwiftRoute has not installed, with a reason and a target version.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: worker
+    action: >
+      SwiftRoute's task worker asks for the real rollback of module M with a reason and a target version.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: auditor
+    action: >
+      SwiftRoute's read-only auditor asks for the real rollback of module M with a reason and a target version.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator asks for a trial run (dry run) of the rollback of the module with the same name as
+      module M, with a reason and a target version.
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator reloads the Modules screen and reads the version and state of module M.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: A trial run on a never-upgraded module says that no rollback is possible and writes nothing.
+    verification:
+      method: api_response
+      detail: >
+        Step 2 answers 200 with rollback_possible false, the refusal "no_previous_version", the dry-run flag true and no
+        rollback identifier. The body holds codes and version texts only, no record content.
+      evidence: Status and body of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot learn before acting that a rollback is impossible.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The real request is refused with the same reason.
+    verification:
+      method: http_status
+      detail: Step 3 is answered 409 "module upgrade refused" with the code "no_previous_version".
+      evidence: Status and body of step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A module could be changed with no previous version to return to.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A bad request names what is wrong.
+    verification:
+      method: http_status
+      detail: >
+        All three requests of step 4 are answered 422. The first says the reason is required, the second says the target
+        version is required, the third says the dry-run flag must be true or false. Step 5 is answered 404.
+      evidence: Statuses and texts of steps 4 and 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator gets no clear reason, or a bad request is partly applied.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A module that is not installed here looks the same as one that does not exist.
+    verification:
+      method: http_status
+      detail: Step 6 is answered 404 with the same body as step 5 (apart from the trace identifier).
+      evidence: Bodies of steps 5 and 6, compared without the trace identifier.
+    on_fail:
+      severity: MINOR
+      business_impact: The answer tells a company which modules exist in the catalogue but are not installed.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A worker and the auditor cannot roll a module back.
+    verification:
+      method: http_status
+      detail: Steps 7 and 8 are answered 403; the module's version in step 10 is unchanged.
+      evidence: Statuses of steps 7 and 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A non-administrator could change the version of a company's module.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: Another company is answered from its own installation only.
+    verification:
+      method: api_response
+      detail: >
+        Step 9 is answered from Bilimbaga's own state (200 with its own dry-run report, or 404 when Bilimbaga has not installed
+        that module). The body never shows a version or step of SwiftRoute's installation.
+      evidence: Status and body of step 9, compared with the version noted in step 1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company sees another company's module history.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: Nothing changed in SwiftRoute's installation.
+    verification:
+      method: gui_screen
+      detail: Step 10 shows module M active at the version noted in step 1.
+      evidence: Screenshot of step 10 compared with step 1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused or trial request changed the installed version.
+      suggested_action: route_to_wf03
