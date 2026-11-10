@@ -6,8 +6,8 @@
  * ISS-0813 found and corrected the remaining dead call sites:
  *   - rolesApi.create: /api/v1/admin/roles → /api/v1/identity/roles
  *   - tokensApi.*: /api/v1/auth/tokens → /api/v1/identity/tokens
- *   - usersApi.resetPassword: /api/v1/users/ → /api/v1/identity/users/
- *     (route still unimplemented on backend, but prefix corrected)
+ *   - usersApi.resetPassword: prefix corrected, then removed in T-1657 (it posted a password the
+ *     route refuses); replaced by usersApi.sendPasswordResetInstructions
  *   - usersApi.delete / rolesApi.get/update/delete/grant/revoke: removed,
  *     no backend route exists at any prefix (noted in identity.ts)
  *
