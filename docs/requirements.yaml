@@ -53621,7 +53621,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    gh: 4153
+    # impl_order: UNREGISTERED -- blocked-by: REQ-773 -- GitHub issue not yet filed by the operator; delivered by task T-1594 (part 1 of 3: the per-tenant upgrade window and the admin screen are parts 2 and 3)
     # Source: docs/uat/ba-decisions/T-1519.md slice S6; docs/migration/decisions/0055-module-upgrade-migration-uninstall.md fact 10 and the expand/contract bullet (own platform-classified permission, sibling of platform_migration_rollouts, halt on N failures); decision 0080 (apply path). Written with task T-1594.
     description: >
       A platform operator rolls the compiled version of one module out to every active tenant that has it
@@ -53784,7 +53784,7 @@ requirements:
     owner: DOC-UPDATER
     status: pending
     stage: S7
-    gh: 4156
+    # impl_order: UNREGISTERED -- blocked-by: REQ-784 -- no GitHub issue yet: the engine registers the issue of task T-1624 (parked item 11 of docs/uat/ba-decisions/T-1518.md) and adds `gh:`; week 2 loads asset opening lines through the import REQ-784 adds, which is not on origin/main yet.
     # Source: task T-1624 (PM order 2026-11-10, priority 3); docs/uat/ba-decisions/T-1518.md item 11 ("Specification of what comes after F (T-1039): the pilot company's first month. Support runbook, data load plan from the owner's real lists, training notes in ru and kk, a list of what the pilot company must give us"; "Mark everything partner-facing as waiting for the owner"); docs/uat/ba-decisions/T-1569.md section 5 (migration steps of the Qoimeks pilot, a proposal) and T-1600.md section 1 row d ("Qoimeks Client 1 ... waits until the Letflow applications are ready ... the pilot is not touched"); docs/uat/ba-decisions/T-1605.md section 3 (D-116: no on-call or night service for non-paying clients). Product files read on origin/main beb74e3a0, every one present there: docs/runbooks/onboarding-new-tenant-realm.md (section "Ordered steps"); docs/runbooks/qoimeks-rehearsal.md ("prepared, not started"; step 3 "Upload masters in the manifest order (locations, uoms, items) with dry_run=true first, then atomic=true"); docs/guides/tenant-admin/en.md, ru.md, kk.md (sections 1 to 9; section 4 "Modules", section 5 "Import of lists"); docs/assets/asset-xlsx.md ("cards are imported first (section 1)"); web/src/components/help/HelpLink.tsx and web/src/modules/stock/help/StockHelpPage.tsx (in-product help pages); web/src/modules/stock/stockRoutes.tsx (stock screens); docs/roles.md (sections TENANT_ADMIN, TENANT_AUDITOR, STOREKEEPER; no built-in role for an accountant); lib/letflow/api/authorization.ex (Letflow.Api.Authorization.roles/0). Pending requirements cited, not relied on for any path: REQ-784 (gh 4058, asset opening lines import), REQ-785 (gh 4057, production readiness), REQ-786 (gh 4073, pilot rollout runbook; its file is not on origin/main). The users xlsx import is pending as REQ-791 of task T-1609 (only on its team branch). Written by the business analyst (T-1624) 2026-11-10, reworked after gate attempt 1. Not yet validated.
     description: >
       What this entry is: the specification of one later docs change. The file it names,
