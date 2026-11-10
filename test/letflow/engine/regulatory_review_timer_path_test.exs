@@ -180,7 +180,8 @@ defmodule Letflow.Engine.RegulatoryReviewTimerPathTest do
     assert [%TokenRecord{status: :completed, node_id: "regulatory-auto-escalation"}] = tokens
 
     assert {:ok, events} = Reconstruction.read_full_log(instance_id, schema, 1)
-    types = Enum.map(events, & &1.event_type)
+    # REQ-793: NODE_ENTERED entries follow each move; the domain events keep their order.
+    types = events |> Enum.map(& &1.event_type) |> Enum.reject(&(&1 == "NODE_ENTERED"))
 
     assert types == [
              "INSTANCE_STARTED",

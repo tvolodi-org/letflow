@@ -223,7 +223,9 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       assert pending.status == :pending and pending.busy_retries == 1
       assert pending.lease_expires_at == nil
       assert DateTime.diff(pending.next_attempt_at, pending.updated_at, :millisecond) == 500
-      assert F.event_types(t.schema_name, b.instance_id) == ["INSTANCE_STARTED"]
+
+      assert F.event_types(t.schema_name, b.instance_id) ==
+               ["INSTANCE_STARTED", "NODE_ENTERED", "NODE_ENTERED"]
 
       Enum.each(holders, &Process.exit(&1, :kill))
       assert F.eventually(fn -> F.slots_in_use(t.schema_name) == 0 end, 100)
@@ -289,7 +291,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
         assert F.dlq_count(t.schema_name) == dlq_before + 1
 
         assert ["EXECUTION_ERROR"] =
-                 F.event_types(t.schema_name, b.instance_id) --
+                 (F.event_types(t.schema_name, b.instance_id) -- ["NODE_ENTERED", "NODE_ENTERED"]) --
                    ["INSTANCE_STARTED", "SCRIPT_RUN_RECORDED"]
 
         assert ScriptTaskDispatcher.claim_next(t.schema_name) == :none
