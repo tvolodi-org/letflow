@@ -53913,7 +53913,7 @@ requirements:
     owner: REQ-ANALYST
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-794 -- placeholder: the engine has not filed a GitHub issue for this entry yet; REQ-794 (also pending, same batch) is named only so the deferral lint has a live blocker, no real dependency; replace with gh: N once the engine files the issue
+    # impl_order: UNREGISTERED -- blocked-by: REQ-584 -- the engine has not filed a GitHub issue for this entry yet; the real dependency is the e-mail copy of a new bell kind (criterion 7), which goes through the REQ-584 delivery log; replace with gh: N once the engine files the issue
     # Source: task T-1634 (PM order 2026-11-10, priority 3); docs/uat/ba-decisions/T-1631.md item 3 ("Task 1 (S): a requirement that lists, per kind, the exact place in the code where it is raised ... Then one build per kind") and item 11 (digest and preferences); the team answer to T-1634 (a requirement only, no invented behaviour). Greps run on origin/main at implement time; every path below exists there. Written 2026-11-10. Not yet validated.
     description: >
       Today the bell (Letflow.UserNotifications) has one kind: `@kinds ~w(task_assigned)` in
@@ -53922,14 +53922,22 @@ requirements:
       import. This entry records, per kind, whether an existing event can raise it. It invents no state, field or
       asynchronous path. Findings on origin/main:
       (1) Document returned: assets documents have the statuses draft, issued and cancelled only
-      (lib/letflow/modules/assets/documents.ex, `v.status in [:draft, :issued, :cancelled]`); no return or send-back
-      transition exists. No producer. The kind is not built and stays off `@kinds`.
+      (lib/letflow/modules/assets/documents.ex, `v.status in [:draft, :issued, :cancelled]`, found with
+      `git grep -nE "status in \[" lib/letflow/modules/assets/documents.ex`, two hits). Search for a return or
+      send-back transition: `git grep -inE "send_back|sent_back|returned_to|return_to_draft|reject" -- lib/letflow/modules/assets
+      lib/letflow/modules/stock lib/letflow/tasks.ex`; the only hits are `Map.reject` and an unrelated "Rejected when
+      assigned to a specific different user" comment in tasks.ex, none is a transition. No producer. The kind is not built and stays off `@kinds`.
       (2) Count assigned: `git grep -inE "assignee|counter_id|counted_by|assigned_to" lib/letflow/modules/stock` prints
-      nothing, so a stock count has no assignee. If a count is worked as a task, its assignee is already notified by
+      nothing (0 hits, observed), so a stock count has no assignee. If a count is worked as a task, its assignee is already notified by
       `task_assigned` (lib/letflow/tasks.ex), so this kind is dropped as a separate kind. Where a count has no task there
       is no assignment event.
       (3) Failed import: the imports (assets, locations, org, catalog_items) run synchronously; `ctx.dry_run` is accepted
-      and the caller gets the row report in the response (lib/letflow/modules/assets/import.ex moduledoc). A bell entry
+      and the caller gets the row report in the response (lib/letflow/modules/assets/import.ex moduledoc, found with
+      `git grep -n "dry_run" lib/letflow/modules/assets/import.ex`). Background work:
+      `git grep -nE "Oban|Task\.start|Task\.Supervisor|async" -- lib/letflow/modules/assets/import.ex lib/letflow/modules/locations
+      lib/letflow/modules/org lib/letflow/modules/catalog_items` prints nothing, so no import runs in the background.
+      Other producers: `git grep -n "UserNotifications.notify" -- lib` outside lib/letflow/user_notifications.ex prints
+      only lib/letflow/tasks.ex. A bell entry
       would repeat what the caller already saw. Dropped by default (UAT assumption, to be confirmed by the process
       owner). It returns only if an import becomes asynchronous, and then with its own requirement.
       Open questions for the owner, not settled here: (a) is "return a document to draft" wanted as a product behaviour;
@@ -53938,7 +53946,7 @@ requirements:
       this entry queues no feature task; when a kind survives, the operator queues one `feature` task per kind with
       `after` set to the task of this entry, and it meets criteria 3 to 7. Item 11 of T-1631.md (digest and
       preferences) waits on this outcome.
-      ONE change, docs/requirements.yaml: this entry. No code under lib/ or web/, no test, migration, config, and no edit
+      ONE change, docs/requirements.yaml: this entry, plus the comment of the deferral count pin in test/mix/tasks/letflow_check_deferral_staleness_test.exs (the entry is a registered deferral until the engine adds gh). No code under lib/ or web/, no other test, migration, config, and no edit
       of the notification-bell-6 GAP sidecar (the scenario stays blocked until a kind has a producer).
     acceptance_criteria:
       - "1. The description records, for each of the three kinds, the file and the grep that shows whether a producer exists, and a verdict (not built, dropped, or dropped by default); `git grep -n \"UserNotifications.notify\" -- lib` outside lib/letflow/user_notifications.ex lists only lib/letflow/tasks.ex at the time of writing."
@@ -53948,7 +53956,7 @@ requirements:
       - "5. (Template.) A test through the real producer and the real read route shows the row for the target user and not for another user or another tenant (INV-1, INV-5)."
       - "6. (Template.) Scenario notification-bell-6 is the acceptance check, and its GAP sidecar under test/fixtures/uat/scenario-env-limitations/ is rewritten to the surviving kinds in that build task."
       - "7. (Template.) The optional e-mail copy stays off by default and keeps the owner rules of T-1551."
-      - "8. The entry states that item 11 of docs/uat/ba-decisions/T-1631.md waits on this outcome, and `git diff origin/main...HEAD --stat` of this task lists only docs/requirements.yaml."
+      - "8. The entry states that item 11 of docs/uat/ba-decisions/T-1631.md waits on this outcome, and `git diff origin/main...HEAD --stat` of this task lists docs/requirements.yaml and, for the deferral pin comment only, test/mix/tasks/letflow_check_deferral_staleness_test.exs."
     depends_on: []
   - id: REQ-797
     title: "Mobile app and PWA parity: one-page table of what the Android build and the web build (PWA) of apps/mobile each offer, gaps ranked by the storekeeper's daily use; docs only"

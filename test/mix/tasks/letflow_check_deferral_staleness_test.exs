@@ -1264,7 +1264,7 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
       # markers with gh: lines, so no deferral is left. The detector is unchanged.
       #
       # UPDATE (T-1634, 2026-11-10): REQ-795 (notification bell kinds) has no GitHub issue yet and
-      # carries `# impl_order: UNREGISTERED -- blocked-by: REQ-794`; REQ-794 is `pending`, so the
+      # carries `# impl_order: UNREGISTERED -- blocked-by: REQ-584` (the e-mail delivery log, pending), so the
       # deferral is legitimate. It leaves the set when the engine registers the issue (then this is 0 again).
       assert result.deferral_count == 1
       assert result.stale_count == 0
