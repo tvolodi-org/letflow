@@ -55,6 +55,7 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
      :TenantsManage},
     {Letflow.Routers.PlatformMigrations, :post, "/rollouts/:id/resume",
      "/rollouts/" <> @unused_uuid <> "/resume", nil, :TenantsManage},
+    {Letflow.Routers.PlatformStatus, :get, "/backup", "/backup", nil, :TenantsManage},
     {Letflow.Routers.PlatformModuleRollouts, :post, "/", "/", %{}, :ModuleRolloutsManage},
     {Letflow.Routers.PlatformModuleRollouts, :get, "/", "/", nil, :ModuleRolloutsManage},
     {Letflow.Routers.PlatformModuleRollouts, :get, "/:id", "/" <> @unused_uuid, nil,
@@ -124,8 +125,8 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
   end
 
   describe "declared routes" do
-    test "the 29 snapshot rows declare the expected policy keys" do
-      assert length(@routes) == 29
+    test "the 30 snapshot rows declare the expected policy keys" do
+      assert length(@routes) == 30
 
       for {router, method, pattern, _path, _body, key} <- @routes do
         verb = method |> Atom.to_string() |> String.upcase()
@@ -260,6 +261,7 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
             "/api/v1/admin/services",
             "/api/v1/onboarding",
             "/api/v1/platform-migrations/rollouts/#{@unused_uuid}",
+            "/api/v1/platform-status/backup",
             "/api/v1/event-retention/summary"
           ] do
         resp =

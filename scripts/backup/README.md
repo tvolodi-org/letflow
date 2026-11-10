@@ -70,7 +70,7 @@ unit's `EnvironmentFile=`. Every name below is new; the reason is in the second 
 `$BACKUP_ROOT/status/<job>.json`, one line, written atomically (temp file + `mv`) from an `EXIT`
 trap, so a crash also leaves it: `{"job":"dump","env":"qa","ts":"2026-11-09T01:45:03Z","exit":0,"ok":true,"detail":"sets=2 bytes=5802 stamp=..."}`.
 `ts` older than the schedule (8 days for the weekly restore test) means the job did not run.
-`detail` holds fixed tokens and counts only. `restore_test.sh` also prints its one-line report:
+`detail` holds fixed tokens and counts only. The application's Health page reads these files when `LETFLOW_BACKUP_STATUS_DIR` points at the directory (T-1607; it returns job, state, ts and age only, never `detail`). `restore_test.sh` also prints its one-line report:
 
 ```
 restore_test PASS env=qa db=letflow_qa set=20261109T014500Z tenants=3 ledger_pairs=12 replay_diff=0 modules=ok smoke=ok seconds=41

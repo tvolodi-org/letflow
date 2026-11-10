@@ -1,17 +1,10 @@
 import { client } from './client'
-import type { HealthStatus } from '@/types/api'
+import type { BackupStatus, HealthStatus, ReadinessResult } from '@/types/api'
 
-// NOTE (ISS-0532): a readiness endpoint (`GET /health/ready`) used to be
-// probed from here for both the site-wide connectivity banner and the admin
-// Health dashboard. It does not exist on the backend — `lib/letflow/router.ex`
-// deliberately does not port R-Co's readiness route; it requires S6
-// observability subsystem probes that do not exist yet (see that router's
-// moduledoc, and `docs/frontend/contract-gaps.md` row 15). Every call to it
-// 404'd, which `healthReady()` silently swallowed into a permanent false
-// "platform unavailable" banner. Fixed by pointing both callers at the real
-// `GET /health` liveness endpoint instead. See
-// `docs/frontend/contract-gaps.md` row 15 for the current status of true
-// per-subsystem readiness (still gated on S6).
+// NOTE (ISS-0532, updated by T-1607): `GET /health/ready` never existed. The liveness probe below
+// uses the real `GET /health`. Per-part readiness is now `GET /ready` (T-1607, `readiness()` below;
+// `docs/frontend/contract-gaps.md` row 15), and the operator's backup line is
+// `GET /api/v1/platform-status/backup` (`backupStatus()` below).
 
 // `GET /api/v1/health` (`healthApi.get`) has no callers anywhere in
 // `web/src` as of ISS-0532's diagnosis. Left in place — removing it is a
@@ -34,4 +27,26 @@ export async function healthReady(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+const READINESS_PARTS = ['database', 'migrations', 'secrets_key', 'identity'] as const
+
+/**
+ * Per-part readiness (`GET /ready`, public). The route answers 503 with a JSON body that names the
+ * failing parts, so this reads the body on a non-2xx too (`client.getPublic` never throws on a
+ * status). Rejects when the server cannot be reached or the body is not the readiness shape.
+ */
+export async function readiness(): Promise<ReadinessResult> {
+  const { status, body } = await client.getPublic('/ready')
+  const checks = (body as { checks?: Record<string, unknown> } | null)?.checks
+  if ((status !== 200 && status !== 503) || !checks || typeof checks !== 'object') {
+    throw new Error(`readiness: unexpected answer ${status}`)
+  }
+  const parts = READINESS_PARTS.map((part) => ({ part, ok: checks[part] === 'ok' }))
+  return { ready: status === 200 && parts.every((p) => p.ok), parts }
+}
+
+/** The platform operator's backup freshness line (`GET /api/v1/platform-status/backup`). */
+export function backupStatus(): Promise<BackupStatus> {
+  return client.get<BackupStatus>('/api/v1/platform-status/backup')
 }

@@ -289,6 +289,10 @@ defmodule Letflow.Plugs.ApiPipeline do
   # Letflow.Routers.PlatformMigrations' own moduledoc for the route table.
   forward("/platform-migrations", to: Letflow.Routers.PlatformMigrations)
 
+  # T-1607 -- the platform operator's backup-status line. Same structural reason as
+  # /platform-migrations: platform scope, gated by :TenantsManage. See
+  # Letflow.Routers.PlatformStatus' own moduledoc.
+  forward("/platform-status", to: Letflow.Routers.PlatformStatus)
   # RU-S6 -- the platform fleet driver (module version rolled out tenant by tenant). Same mount
   # reason as /platform-migrations; gated by the PLATFORM-scope :ModuleRolloutsManage. See
   # Letflow.Routers.PlatformModuleRollouts.

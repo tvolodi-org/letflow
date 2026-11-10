@@ -75,22 +75,65 @@ const HEALTH_ACCESS = {
   info: { roles: [], platform_tenant: true, user_id: 'u1', permissions: ['TenantsManage'] },
 }
 
-/** `health`: default = the server answers (200); error = it does not (500), which shows the "does not answer" sentence. */
-function HealthSeam({ state }: { state: HarnessState }) {
+const READY_OK = { status: 'ready', checks: { database: 'ok', migrations: 'ok', secrets_key: 'ok', identity: 'ok' } }
+const READY_IDENTITY_FAIL = {
+  status: 'not_ready',
+  failing: ['identity'],
+  checks: { database: 'ok', migrations: 'ok', secrets_key: 'ok', identity: 'fail' },
+}
+const hoursAgo = (h: number): string => new Date(Date.now() - h * 3_600_000).toISOString()
+const BACKUP_OK = {
+  configured: true,
+  jobs: [
+    { job: 'dump', state: 'ok', ts: hoursAgo(6), age_seconds: 6 * 3600 },
+    { job: 'base', state: 'ok', ts: hoursAgo(48), age_seconds: 48 * 3600 },
+    { job: 'prune', state: 'ok', ts: hoursAgo(6), age_seconds: 6 * 3600 },
+    { job: 'restore_test', state: 'ok', ts: hoursAgo(72), age_seconds: 72 * 3600 },
+  ],
+}
+const BACKUP_BAD = {
+  configured: true,
+  jobs: [
+    { job: 'dump', state: 'stale', ts: hoursAgo(50), age_seconds: 50 * 3600 },
+    { job: 'base', state: 'missing', ts: null, age_seconds: null },
+    { job: 'prune', state: 'ok', ts: hoursAgo(6), age_seconds: 6 * 3600 },
+    { job: 'restore_test', state: 'failed', ts: hoursAgo(72), age_seconds: 72 * 3600 },
+  ],
+}
+
+/**
+ * `health`: default = the server answers, every part ready, backups fresh; empty = backup status not
+ * configured here; error = the server does not answer (/health 500, /ready 503 with every part failing,
+ * backup 500). `degraded`: identity failing, one backup stale and one failed.
+ */
+function HealthSeam({ state, degraded = false }: { state: HarnessState; degraded?: boolean }) {
   const [ready, setReady] = useState(false)
   useEffect(() => {
     const original = window.fetch
+    const json = (status: number, body: unknown) =>
+      Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
     window.fetch = (input, init) => {
       const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-      if (!new URL(raw, 'http://harness.invalid').pathname.endsWith('/health')) return original(input, init)
-      if (state === 'error') return Promise.resolve(new Response('boom', { status: 500 }))
-      return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      const path = new URL(raw, 'http://harness.invalid').pathname
+      const isHealth = path.endsWith('/health')
+      const isReady = path === '/ready'
+      const isBackup = path.endsWith('/platform-status/backup')
+      if (!isHealth && !isReady && !isBackup) return original(input, init)
+      if (state === 'loading' && !isHealth) return new Promise<Response>(() => {})
+      if (state === 'error') {
+        if (isReady) return json(503, { status: 'not_ready', failing: ['database', 'migrations', 'secrets_key', 'identity'], checks: { database: 'fail', migrations: 'fail', secrets_key: 'fail', identity: 'fail' } })
+        return Promise.resolve(new Response('boom', { status: 500 }))
+      }
+      if (isHealth) return json(200, {})
+      if (isReady) return degraded ? json(503, READY_IDENTITY_FAIL) : json(200, READY_OK)
+      if (state === 'empty') return json(200, { configured: false, jobs: [] })
+      return json(200, degraded ? BACKUP_BAD : BACKUP_OK)
     }
     setReady(true)
     return () => {
       window.fetch = original
     }
-  }, [state])
+  }, [state, degraded])
   return ready ? <HealthDashboardPage /> : <></>
 }
 
@@ -134,6 +177,21 @@ export const metricsScreens: HarnessScreen[] = [
           <div className="lf-main">
             <main className="lf-content">
               <HealthSeam state={state} />
+            </main>
+          </div>
+        </AccessStateProvider>
+      </AuthContext.Provider>
+    ),
+  },
+  {
+    name: 'health-degraded',
+    routes: [],
+    render: ({ state }): ReactElement => (
+      <AuthContext.Provider value={AUTH}>
+        <AccessStateProvider state={HEALTH_ACCESS}>
+          <div className="lf-main">
+            <main className="lf-content">
+              <HealthSeam state={state} degraded />
             </main>
           </div>
         </AccessStateProvider>

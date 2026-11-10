@@ -990,6 +990,9 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/platform-migrations/rollouts/:id/resume"),
     do: :TenantsManage
 
+  # T-1607 -- backup-status line for the platform operator (Letflow.Routers.PlatformStatus).
+  # Reuses :TenantsManage (platform scope), same risk class as the routers above. No new atom.
+  def endpoint_policy_key("GET", "/platform-status/backup"), do: :TenantsManage
   # RU-S6 -- the platform fleet driver (Letflow.Routers.PlatformModuleRollouts), PLATFORM scope.
   def endpoint_policy_key("POST", "/platform-module-rollouts"), do: :ModuleRolloutsManage
   def endpoint_policy_key("GET", "/platform-module-rollouts"), do: :ModuleRolloutsManage

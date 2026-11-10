@@ -8,6 +8,7 @@ defmodule Letflow.Router do
   | Method | Path                | Handler                            | Auth      | DB        |
   |--------|---------------------|------------------------------------|-----------|-----------|
   | GET    | /health             | inline 200 `{"status":"ok","sha":…}` | none    | none      |
+  | GET    | /ready              | inline 200/503 per-part `Letflow.Readiness` | none | global schema (SELECT 1, migrations) |
   | GET    | /api/tenant-config  | `Letflow.Routers.TenantConfig`     | **none**  | global `tenants` |
   | GET    | /api/tenant-config/logo | `Letflow.Routers.TenantConfig` | **none** | uploaded logo (REQ-591), flag-gated |
   | GET    | /api/mobile/tenant-config | `Letflow.Routers.MobileTenantConfig` | **none** | global `tenants` |
@@ -53,11 +54,9 @@ defmodule Letflow.Router do
   full design (allowed-origin config, credentials decision, preflight
   handling).
 
-  PROVENANCE (historical, not current decision authority):
-  Readiness endpoint (R-Co routes/health.zig handleReady, backed by
-  src/api/health/readiness.zig + subsystems.zig) is deliberately not ported — it
-  requires S6 observability subsystem probes that do not yet exist. Only the liveness
-  endpoint (GET /health) is preserved here.
+  `GET /ready` (T-1607) is the readiness endpoint: it names the failing part (database,
+  migrations, secrets key, identity provider) and answers 503 when one fails. `GET /health`
+  stays the liveness endpoint. See `Letflow.Readiness`.
 
   `GET /metrics` (REQ-194) is the real Prometheus metrics subsystem superseding
   REQ-078's retired `Letflow.Routers.Metrics` placeholder — see
@@ -116,6 +115,22 @@ defmodule Letflow.Router do
   # exactly "ok" for deploy/redeploy-*.sh. See Letflow.BuildInfo.
   get "/health" do
     Letflow.Api.Response.send_json(conn, 200, %{status: "ok", sha: Letflow.BuildInfo.sha()})
+  end
+
+  # T-1607: readiness per part. Public, no tenant data; 200 when every part is ok, 503 with the
+  # failing part names otherwise. Fixed vocabulary only. See Letflow.Readiness.
+  get "/ready" do
+    result = Letflow.Readiness.run()
+
+    if result.ready do
+      Letflow.Api.Response.send_json(conn, 200, %{status: "ready", checks: result.checks})
+    else
+      Letflow.Api.Response.send_json(conn, 503, %{
+        status: "not_ready",
+        failing: result.failing,
+        checks: result.checks
+      })
+    end
   end
 
   # Public by design (REQ-078) -- declared BEFORE the /api/v1 forward so it
