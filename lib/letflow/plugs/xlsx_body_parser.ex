@@ -1,7 +1,8 @@
 defmodule Letflow.Plugs.XlsxBodyParser do
   @moduledoc """
-  `Plug.Parsers` parser for the `.xlsx` media type on the one import route (GH #3603,
-  REQ-650): `POST /entities/records/:entity_type/import`.
+  `Plug.Parsers` parser for the `.xlsx` media type on two import routes: `POST
+  /entities/records/:entity_type/import` (GH #3603, REQ-650) and `POST /identity/users/import`
+  (T-1609, REQ-787).
 
   Same shape as `Letflow.Plugs.CsvBodyParser`: it claims
   `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` only for a POST whose
@@ -27,7 +28,21 @@ defmodule Letflow.Plugs.XlsxBodyParser do
         "vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         _headers,
         opts
-      ) do
+      ),
+      do: read_xlsx(conn, opts)
+
+  def parse(
+        %Plug.Conn{method: "POST", path_info: ["identity", "users", "import"]} = conn,
+        "application",
+        "vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _headers,
+        opts
+      ),
+      do: read_xlsx(conn, opts)
+
+  def parse(conn, _type, _subtype, _headers, _opts), do: {:next, conn}
+
+  defp read_xlsx(conn, opts) do
     case Plug.Conn.read_body(conn, opts) do
       {:ok, body, conn} -> {:ok, %{"_xlsx" => body}, conn}
       {:more, _partial, conn} -> {:error, :too_large, conn}
@@ -35,6 +50,4 @@ defmodule Letflow.Plugs.XlsxBodyParser do
       {:error, _reason} -> raise Plug.BadRequestError
     end
   end
-
-  def parse(conn, _type, _subtype, _headers, _opts), do: {:next, conn}
 end

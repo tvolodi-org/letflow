@@ -129,7 +129,8 @@ defmodule Letflow.Plugs.ApiPipeline do
   # for `text/csv` anywhere else is unchanged. It keeps the root 2 MB `length:`.
   #
   # GH #3603 (REQ-650) added `Letflow.Plugs.XlsxBodyParser`, the same for the `.xlsx` media type on that
-  # one route (no `length:` override: the same 2 MB root limit).
+  # one route (no `length:` override: the same 2 MB root limit). T-1609 (REQ-787) added a second
+  # path for it, `POST /identity/users/import`.
   #
   # GH #3338 (REQ-590) added `Letflow.Plugs.LogoBodyParser`: it claims PUT /tenant/logo for any content
   # type, so the router (not a bare 415) names the allowed image types. Its own `length:` is the logo

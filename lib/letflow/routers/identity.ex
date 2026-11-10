@@ -18,6 +18,8 @@ defmodule Letflow.Routers.Identity do
   actual persistence delegated to `Letflow.Identity`:
 
   * POST   /users                        -> Identity.create_user/2
+  * GET    /users/import-template        -> Routers.Identity.UsersImport (xlsx template, T-1609)
+  * POST   /users/import[?dry_run=true]  -> Routers.Identity.UsersImport (xlsx import, atomic, T-1609)
   * GET    /users                        -> Identity.list_users/2
   * GET    /users/:id                    -> Identity.get_user/2
   * PATCH  /users/:id                    -> Identity.get_user/2, then Identity.update_user_profile/3 (409 `last_tenant_wide_admin`, GH 2564; 409 `last_interactive_tenant_wide_admin`, GH #2869)
@@ -191,6 +193,19 @@ defmodule Letflow.Routers.Identity do
 
   authz_post "/users", :UsersManage do
     handle_create(conn, user_write_opts(conn))
+  end
+
+  # T-1609 (REQ-787): xlsx user import. Declared before `/users/:id` so `:id` does not capture
+  # `import-template`; no tenant parameter, the tenant is the caller's (INV-1/10).
+  authz_get "/users/import-template", :UsersManage do
+    Letflow.Routers.Identity.UsersImport.handle_template(conn)
+  end
+
+  authz_post "/users/import", :UsersManage do
+    Letflow.Routers.Identity.UsersImport.handle_import(
+      conn,
+      audit_opts(conn, user_write_opts(conn))
+    )
   end
 
   authz_get "/users", :UsersManage do

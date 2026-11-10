@@ -53616,3 +53616,30 @@ requirements:
       - "10. test/letflow/pilot_rollout_runbook_test.exs (ExUnit, async true, no database) reads docs/runbooks/pilot-rollout.md and asserts criteria 1, 4 (role names only), 5, 6 and the form list of criterion 8, deriving the module order, the record type set and the File import values from Letflow.Modules.Catalog.entry_modules/0 and import_function/2 at run time and pinning no count; it shows the table checks bite by running them on in-memory copies of the runbook with one Data load row removed, with one File import value flipped, and with the org install moved below the locations install, each of which fails."
       - "11. git diff origin/main...HEAD --stat lists only docs/runbooks/pilot-rollout.md and test/letflow/pilot_rollout_runbook_test.exs; mix test test/letflow/pilot_rollout_runbook_test.exs passes and mix letflow.check.static passes."
     depends_on: [REQ-785, REQ-469, REQ-727, REQ-762, REQ-784]
+  - id: REQ-787
+    title: "Tenant administrator: add users from an xlsx list (template, row/column error report, partial fix, re-upload) - server part"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-786 -- no GitHub issue yet: the engine registers the issue of task T-1609 (batch 4 item 4, docs/uat/ba-decisions/T-1595.md) and adds `gh:`; REQ-786 is only the nearest live entry the staleness lint accepts; the screen on UsersPage is a follow-up task.
+    description: >
+      A tenant administrator can create users only one by one. This adds the server part of the xlsx user import that
+      locations and items already have: a template download, a dry run, and an atomic real import with a row-by-row
+      report (line, column, reason). The file has the columns username, display_name and email and nothing else (no
+      password, role or group), so it cannot grant privilege. Users are created through Identity.create_user/2, so an
+      imported user is what the single-create form makes; an imported user cannot sign in until the invitation or
+      password-reset mechanism of batch item 3 exists. An import never changes an existing user: an identical row is
+      "unchanged", a different one is refused, so the corrected file can be uploaded again. Two routes on the identity
+      router, gated by the existing UsersManage permission: GET /identity/users/import-template and
+      POST /identity/users/import[?dry_run=true]. Up to 200 data rows, 2 MiB. The screen is a separate task.
+    acceptance_criteria:
+      - "1. GET /identity/users/import-template needs UsersManage and returns an xlsx whose first row is exactly username, display_name, email."
+      - "2. A dry run (dry_run=true) writes nothing and answers results with line, status, and for a refused row reason.type and reason.header for: blank field, invalid field, duplicate username or e-mail in the file, and a username that exists with different data. No cell text appears in the answer."
+      - "3. Whole-file refusals: an unknown or duplicate header is 422 naming the header, a missing required column is 422 naming it, more than 200 rows is 413, a file that is not an xlsx is 422. A password or roles column is an unknown header."
+      - "4. The real import is atomic: with any refused row nothing is written and the answer carries applied false; with none, every row is created active through Identity.create_user/2 (login directory entry included) and the answer carries applied true."
+      - "5. Each created user has a user.create audit entry whose actor is the importing administrator; Identity.create_user/2 keeps a nil actor for a caller that passes no audit_context."
+      - "6. Partial fix and re-upload: a file with one bad row is refused whole; after the row is fixed the same upload creates every row; uploading the corrected file again answers unchanged for every row and creates nothing."
+      - "7. An existing user is never modified by an import: the same username with another e-mail or display name is refused as user_exists_different and the stored values stay."
+      - "8. Tenant isolation: the route takes no tenant parameter; a username that exists only in another tenant is created in the caller's tenant and the other tenant's row is untouched."
+      - "9. The xlsx media type is claimed for POST /identity/users/import only; the same type on another identity path is still 415."
+    depends_on: [REQ-073, REQ-435, REQ-650]

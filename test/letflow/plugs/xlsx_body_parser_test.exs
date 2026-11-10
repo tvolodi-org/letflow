@@ -54,6 +54,19 @@ defmodule Letflow.Plugs.XlsxBodyParserTest do
     end
   end
 
+  test "P5: T-1609 the user import path claims the xlsx type; another identity path is a 415" do
+    body = <<0, 1>> <> "PK"
+    assert parse(:post, ["identity", "users", "import"], body).body_params == %{"_xlsx" => body}
+
+    for path <- [
+          ["identity", "users"],
+          ["identity", "groups", "import"],
+          ["identity", "users", "x"]
+        ] do
+      assert_raise Plug.Parsers.UnsupportedMediaTypeError, fn -> parse(:post, path, "x") end
+    end
+  end
+
   test "P4: a non-POST on the import path is still a 415" do
     assert_raise Plug.Parsers.UnsupportedMediaTypeError, fn -> parse(:put, @import_path, "x") end
   end
