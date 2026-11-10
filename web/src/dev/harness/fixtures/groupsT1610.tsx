@@ -150,7 +150,7 @@ export const groupsT1610Screens: HarnessScreen[] = [
         steps={[
           openDialog(0),
           () => {
-            const b = buttonByText(document.querySelector('[role=dialog]') ?? document, /^(Remove|Удалить|Алып тастау)$/i)
+            const b = buttonByText(document.querySelector<HTMLElement>('[role=dialog]') ?? document, /^(Remove|Удалить|Алып тастау)$/i)
             b?.click()
             return Boolean(b)
           },
