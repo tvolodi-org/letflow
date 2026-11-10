@@ -296,6 +296,21 @@ defmodule Letflow.Routers.Entities.RecordImport do
     end
   end
 
+  @doc false
+  # T-1609: the whole-file xlsx refusals of the user import answer exactly as the record import
+  # does (same constant details, header names cut and printable, no cell text).
+  def refuse_xlsx(conn, {:error, reason}) when reason in @xlsx_refusals,
+    do: Response.unprocessable(conn, Map.fetch!(@xlsx_refusal_details, reason))
+
+  def refuse_xlsx(conn, {:error, reason, %{headers: headers}}) when reason in @xlsx_refusals do
+    Response.unprocessable_with(conn, Map.fetch!(@xlsx_refusal_details, reason), %{
+      "code" => Atom.to_string(reason),
+      "headers" => Enum.map(Enum.take(headers, 5), &printable_header/1)
+    })
+  end
+
+  def refuse_xlsx(conn, _other), do: Response.unprocessable(conn, "xlsx file is not readable")
+
   @header_name_max 40
   defp printable_header(name) do
     name

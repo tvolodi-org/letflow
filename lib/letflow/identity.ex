@@ -268,14 +268,13 @@ defmodule Letflow.Identity do
       prefix = Keyword.fetch!(opts, :prefix)
       changeset = User.create_changeset(%User{}, attrs)
 
-      # REQ-195 -- actor_id: nil, per
-      # lib/letflow/design/req195-audit-entry-storage.md §3.1b: create_user/2
-      # takes only opts :: opts() (prefix-only), and its only caller
-      # (lib/letflow/routers/identity.ex) doesn't read any actor-identifying
-      # assign today -- widening either would require editing that router,
-      # which this requirement's own AC11 forbids. Wrapped in Ecto.Multi here
-      # specifically to get the same-transaction guarantee (AC3) -- this
-      # function had no transaction of its own before this requirement.
+      # REQ-195 -- the audit entry is written in the same transaction (AC3), and this
+      # function had no transaction of its own before that requirement. T-1609: the actor
+      # and trace come from the optional `:audit_context` (`AuditContext.from_opts/1`), as
+      # for the neighbouring writers; a caller that passes none (single create, the seed
+      # task) keeps `actor_id: nil`, the REQ-195 fallback.
+      ctx = AuditContext.from_opts(opts)
+
       Multi.new()
       |> Multi.insert(:user, changeset, prefix: prefix)
       |> directory_step(directory, prefix, fn %{user: user} -> {nil, user} end)
@@ -284,13 +283,13 @@ defmodule Letflow.Identity do
           Multi.new(),
           :audit,
           %{
-            actor_id: nil,
+            actor_id: ctx.actor_id,
             action: "user.create",
             resource_type: "user",
             resource_id: user.id,
             before_state: nil,
             after_state: Audit.struct_state(user, [:password_hash]),
-            trace_id: nil
+            trace_id: ctx.trace_id
           },
           prefix
         )
