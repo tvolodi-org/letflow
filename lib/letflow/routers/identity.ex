@@ -23,6 +23,7 @@ defmodule Letflow.Routers.Identity do
   * GET    /users                        -> Identity.list_users/2
   * GET    /users/:id                    -> Identity.get_user/2
   * PATCH  /users/:id                    -> Identity.get_user/2, then Identity.update_user_profile/3 (409 `last_tenant_wide_admin`, GH 2564; 409 `last_interactive_tenant_wide_admin`, GH #2869)
+  * POST   /users/:id/reset-password   -> sends a "Forgot password" instruction mail only (REQ-788): Letflow handles no password and calls no identity-provider API (decisions 0072 D1, 0085 D6); 202, audit `user.password_reset_requested`, then `Notifications.start_delivery/5` (`password_reset_hint`)
   * POST   /users/:id/status             -> Identity.get_user/2, then Identity.update_user_status/3 (409 `last_tenant_wide_admin`, GH 2564; 409 `last_interactive_tenant_wide_admin`, GH #2869)
   * POST   /groups                       -> Identity.create_group/2
   * GET    /groups                       -> Identity.list_groups/1
@@ -179,11 +180,13 @@ defmodule Letflow.Routers.Identity do
   alias Letflow.Api.TokenView
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
+  alias Letflow.Audit
   alias Letflow.Identity
   alias Letflow.Identity.PendingAdminGrants
   alias Letflow.Identity.RoleRegistry
   alias Letflow.Identity.ScopedGrants
   alias Letflow.Identity.ServicePrincipal
+  alias Letflow.Notifications
   alias Letflow.PlatformTenant
 
   @users_cursor_prefix "U:"
@@ -218,6 +221,10 @@ defmodule Letflow.Routers.Identity do
 
   authz_patch "/users/:id", :UsersManage do
     handle_patch(conn, conn.params["id"], user_write_opts(conn))
+  end
+
+  authz_post "/users/:id/reset-password", :UsersManage do
+    handle_reset_password(conn, conn.params["id"], user_write_opts(conn))
   end
 
   authz_post "/users/:id/status", :UsersManage do
@@ -504,6 +511,97 @@ defmodule Letflow.Routers.Identity do
           {:error, {:token_revocation_failed, _reason}} -> Response.internal_error(conn)
         end
     end
+  end
+
+  # ── POST /users/:id/reset-password (REQ-788) ────────────────────────────
+  #
+  # Sends the person a mail telling them to use the identity provider's own "Forgot password"
+  # page. No password is read, set or sent, and no provider API is called (decisions 0072 D1,
+  # 0085 D6). The existence check and the platform-admin guard run before the body check, so
+  # the body cannot reveal whether a user exists. The audit entry is written before the
+  # delivery starts; the answer never depends on the delivery (INV-8).
+
+  defp handle_reset_password(conn, raw_id, opts) do
+    with_cast_id(conn, raw_id, fn id ->
+      case Identity.get_user(id, opts) do
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:ok, user} ->
+          with_platform_admin_member_guard(conn, id, opts, fn ->
+            do_reset_password(conn, user, opts)
+          end)
+      end
+    end)
+  end
+
+  defp do_reset_password(conn, user, opts) do
+    cond do
+      conn.body_params != %{} ->
+        Response.unprocessable(conn, "body_not_accepted")
+
+      user.status != :active ->
+        Response.conflict(conn, "user_inactive")
+
+      user.auth_source != :oidc ->
+        Response.conflict(conn, "no_identity_provider_login")
+
+      not (is_binary(user.email) and String.trim(user.email) != "") ->
+        Response.conflict(conn, "no_email")
+
+      true ->
+        request_password_reset(conn, user, Keyword.fetch!(opts, :prefix))
+    end
+  end
+
+  defp request_password_reset(conn, user, prefix) do
+    attrs = %{
+      actor_id: conn.assigns.auth_context.user_id,
+      action: "user.password_reset_requested",
+      resource_type: "user",
+      resource_id: user.id,
+      before_state: nil,
+      after_state: nil,
+      trace_id: conn.assigns[:trace_id]
+    }
+
+    case safe_insert_audit(attrs, prefix) do
+      {:ok, entry} ->
+        start_reset_delivery(user, entry.id, prefix)
+        Response.send_json(conn, 202, %{"status" => "requested"})
+
+      _failed ->
+        Response.internal_error(conn)
+    end
+  end
+
+  defp safe_insert_audit(attrs, prefix) do
+    Audit.insert_entry(Letflow.Repo, attrs, prefix)
+  rescue
+    _exception -> {:error, :audit_failed}
+  end
+
+  defp start_reset_delivery(user, trigger_ref, prefix) do
+    Notifications.start_delivery(
+      "password_reset_hint",
+      user.id,
+      trigger_ref,
+      fn recipient, _prefix, tenant ->
+        name =
+          case recipient.display_name do
+            value when is_binary(value) and value != "" -> value
+            _none -> recipient.username
+          end
+
+        %{
+          "user_name" => Notifications.text(name),
+          "tenant_name" => Notifications.text(tenant && tenant.display_name)
+        }
+      end,
+      prefix
+    )
+  rescue
+    _exception -> :ok
   end
 
   # ── POST /users/:id/status (design §2.5) ────────────────────────────────

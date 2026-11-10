@@ -452,8 +452,8 @@ defmodule Letflow.Engine.SnapshotWriterTest do
       # Proves the snapshot path was genuinely taken for instance A (only the one event
       # after the snapshot's sequence_number is folded), not merely that both instances
       # happened to land on the same final state via the same (full-replay) path.
-      assert snapshot_sourced_result.event_count == 1
-      assert full_replay_result.event_count == 4
+      assert snapshot_sourced_result.event_count == 2
+      assert full_replay_result.event_count == 9
 
       assert_instance_states_agree(
         snapshot_sourced_result.instance_state,

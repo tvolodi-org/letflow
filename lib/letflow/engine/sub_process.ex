@@ -79,6 +79,7 @@ defmodule Letflow.Engine.SubProcess do
   alias Letflow.Engine.ExecutionError
   alias Letflow.Engine.IdempotentReplay
   alias Letflow.Engine.InstanceState
+  alias Letflow.Engine.NodeEntries
   alias Letflow.Engine.PinResolver
   alias Letflow.Engine.Task
   alias Letflow.Engine.TaskActivation
@@ -386,9 +387,11 @@ defmodule Letflow.Engine.SubProcess do
         hop_limit = length(graph.nodes) * 4 + 10
 
         case Letflow.Engine.advance_until_stable(graph, child_seed_state, [token_id], hop_limit) do
-          {:ok, child_final_state, _pending_events} ->
+          {:ok, child_final_state, pending_events} ->
             {:ok,
              %{
+               # REQ-793: the child's own START -> ... entries, appended after its INSTANCE_STARTED.
+               node_entered: NodeEntries.start_entry(graph) ++ NodeEntries.only(pending_events),
                child_instance_id: child_instance_id,
                definition: definition,
                graph: graph,
@@ -556,6 +559,17 @@ defmodule Letflow.Engine.SubProcess do
         prefix
       )
     end)
+    |> NodeEntries.append_multi(
+      child_instance_id,
+      Map.get(prepared, :node_entered, []),
+      Map.get(attrs, :actor_id),
+      derive_idempotency_key(
+        Map.get(attrs, :idempotency_key),
+        @sub_process_start_suffix,
+        [child_instance_id]
+      ),
+      prefix
+    )
     |> Multi.run(parent_token_key, fn repo, _changes ->
       update_parent_token_waiting(
         repo,
@@ -1112,8 +1126,19 @@ defmodule Letflow.Engine.SubProcess do
               # service-task-dispatch requests) instead of discarding them, so a node
               # reached right after the sub-process gets its timers / dispatch rows.
               # Deduplicated by identity: duplicate Multi step names would raise.
+              # REQ-793: the node-entered entries are split out before `uniq` so a repeat is
+              # never dropped, and appended after the other events.
+              first_hop_entries =
+                NodeEntries.entries(
+                  graph,
+                  state_with_merged.tokens,
+                  new_instance_state.tokens,
+                  parent_token_id_string
+                )
+
               completion_pending_events =
-                Enum.uniq(transition_pending_events ++ hop_pending_events)
+                Enum.uniq(NodeEntries.reject(transition_pending_events ++ hop_pending_events)) ++
+                  first_hop_entries ++ NodeEntries.only(hop_pending_events)
 
               case build_completion_write_steps(
                      multi,
@@ -1315,7 +1340,8 @@ defmodule Letflow.Engine.SubProcess do
          actor_id,
          idempotency_key,
          completed_at,
-         prefix
+         prefix,
+         completion_pending_events
        )}
     end
   end
@@ -1334,7 +1360,8 @@ defmodule Letflow.Engine.SubProcess do
          actor_id,
          idempotency_key,
          completed_at,
-         prefix
+         prefix,
+         completion_pending_events
        ) do
     multi
     |> Multi.run(event_key, fn _repo, _changes ->
@@ -1350,6 +1377,15 @@ defmodule Letflow.Engine.SubProcess do
         prefix
       )
     end)
+    # REQ-793: after the completed event, before the parent projection reconcile.
+    |> NodeEntries.append_multi(
+      parent_instance_id,
+      completion_pending_events,
+      actor_id,
+      idempotency_key,
+      prefix,
+      event_key
+    )
     |> Multi.run(projection_key, fn repo, _changes ->
       reconcile_parent_projection(
         repo,
