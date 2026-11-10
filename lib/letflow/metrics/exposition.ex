@@ -14,7 +14,7 @@ defmodule Letflow.Metrics.Exposition do
 
   alias Letflow.Metrics.Registry
 
-  # {family, kind, prometheus_name, help_text} -- the seven families (six OBS-02, design §3; one REQ-497 PR 1b),
+  # {family, kind, prometheus_name, help_text} -- the registry families (two more gauges are read at render time, see admission_gauges/1) (six OBS-02, design §3; one REQ-497 PR 1b),
   # in a fixed rendering order.
   @families [
     {:active_instances, :gauge, "letflow_active_instances",
@@ -37,15 +37,40 @@ defmodule Letflow.Metrics.Exposition do
      "Total number of shadow-mode org-scope would-deny decisions, labelled by reason."}
   ]
 
-  @spec render() :: String.t()
-  def render do
+  @spec render(GenServer.server()) :: String.t()
+  def render(admission \\ Letflow.Admission) do
     snapshot = Registry.snapshot()
 
-    @families
-    |> Enum.map(fn {family, kind, name, help} ->
-      render_family(family, kind, name, help, snapshot)
-    end)
-    |> Enum.join("")
+    registry_text =
+      @families
+      |> Enum.map(fn {family, kind, name, help} ->
+        render_family(family, kind, name, help, snapshot)
+      end)
+      |> Enum.join("")
+
+    registry_text <> admission_gauges(admission)
+  end
+
+  # T-1613: two render-time, label-free, platform-wide gauges (admission budget held vs. available).
+  # No Repo access and no tenant data; if Admission is down or slow the two families are simply omitted
+  # so a scrape never fails (INV-8).
+  defp admission_gauges(admission) do
+    case Letflow.Admission.usage(admission) do
+      %{in_use: in_use, cap: cap} ->
+        header(
+          "letflow_db_admission_in_use",
+          "gauge",
+          "Database admission units currently held, platform-wide."
+        ) <>
+          sample_line("letflow_db_admission_in_use", %{}, in_use) <>
+          header(
+            "letflow_db_admission_cap",
+            "gauge",
+            "Database admission units available (pool size minus reserved headroom)."
+          ) <> sample_line("letflow_db_admission_cap", %{}, cap)
+    end
+  catch
+    :exit, _ -> ""
   end
 
   defp render_family(family, :gauge, name, help, snapshot) do
