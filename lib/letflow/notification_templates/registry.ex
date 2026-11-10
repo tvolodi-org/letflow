@@ -38,6 +38,14 @@ defmodule Letflow.NotificationTemplates.Registry do
         "Hello {candidate_name}, a reminder that the exam {exam_title} is due. " <>
           "Deadline: {deadline}. {tenant_name}"
     },
+    "password_reset_hint" => %{
+      placeholders: ~w(user_name tenant_name),
+      subject: "Set a new password",
+      body:
+        "Hello {user_name}, an administrator of {tenant_name} asks you to set a new password. " <>
+          "On the sign-in page of your workspace choose \"Forgot password\" and follow the " <>
+          "e-mail you then receive. If you did not expect this message, contact your administrator."
+    },
     "exam_result" => %{
       placeholders: ~w(exam_title candidate_name result_status score_percent tenant_name),
       subject: "Exam result: {exam_title}",
