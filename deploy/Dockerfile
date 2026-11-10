@@ -17,6 +17,10 @@ COPY config config
 RUN mix deps.get --only prod
 RUN mix deps.compile
 
+# T-1641: QA-only demo module in the catalogue; default false, only deploy/redeploy-qa.sh passes true.
+ARG LETFLOW_INCLUDE_RUNTIME_DEMO=false
+ENV LETFLOW_INCLUDE_RUNTIME_DEMO=${LETFLOW_INCLUDE_RUNTIME_DEMO}
+
 COPY lib lib
 COPY priv priv
 RUN mix compile

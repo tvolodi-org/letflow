@@ -73,6 +73,16 @@ config :letflow, :modules, [
   Letflow.Modules.Assets
 ]
 
+# T-1641 (UAT decision B5#10): the QA-only demo module `runtime_demo`. A SEPARATE key from :modules, filled only
+# when the build runs with LETFLOW_INCLUDE_RUNTIME_DEMO=true (a Docker build argument that only
+# deploy/redeploy-qa.sh passes). Unset, as in CI, dev and production, it is [] and the catalogue is :modules alone.
+config :letflow,
+       :demo_modules,
+       if(System.get_env("LETFLOW_INCLUDE_RUNTIME_DEMO") == "true",
+         do: [Letflow.Modules.RuntimeDemo],
+         else: []
+       )
+
 # GH #2682 / REQ-511 (design lib/letflow/design/req511-exam-content-snapshot.md section 10 and
 # 18.3): gate for the exam managed-type stamp. While this is not `true`, a real
 # `Letflow.Entities.ManagedTypes.Stamp` run is refused (dry runs are not). Set ONLY here and in

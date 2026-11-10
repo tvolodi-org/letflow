@@ -17,4 +17,6 @@ recorded_at: "2026-11-10"
 issue_ref: "T-1625"
 review: >
   Revisit when the first module declares a minimum data version or a module gets a second released version; then queue one
-  task to write the scenario and remove this file.
+  task to write the scenario and remove this file. T-1641 added the QA-only module runtime_demo (three releases chosen by
+  LETFLOW_RUNTIME_DEMO_RELEASE, min_data_version in 0.3.0); once the QA build carries it, the paths are reachable: sequence in
+  docs/runbooks/runtime-demo-module.md. The scenario itself is still to be written.
