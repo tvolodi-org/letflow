@@ -53645,7 +53645,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-787 -- delivered by task T-1640 itself; no separate issue
+    gh: 4188
     # Source: task T-1640 (B5#5, part 2); docs/uat/ba-decisions/T-1631.md item 5; REQ-787 criterion 8. The platform-operator screen (part 3) is a later web task.
     description: >
       A tenant may say when a fleet rollout (REQ-787) may touch it. The tenant setting module_upgrade.window holds
@@ -53936,7 +53936,7 @@ requirements:
     owner: REQ-ANALYST
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-584 -- registration placeholder, not a build dependency: this entry builds nothing, and check_requirements_registration rule R1 fails an entry with neither a marker nor gh:, while the engine files the issue only after merge; REQ-584 (pending e-mail delivery log) is named because a later build of a surviving kind would send its optional e-mail copy through it; replace the marker with gh: N once the engine files the issue
+    gh: 4187
     # Source: task T-1634 (PM order 2026-11-10, priority 3); docs/uat/ba-decisions/T-1631.md item 3 ("Task 1 (S): a requirement that lists, per kind, the exact place in the code where it is raised ... Then one build per kind") and item 11 (digest and preferences); the team answer to T-1634 (a requirement only, no invented behaviour). Greps run on origin/main at implement time; every path below exists there. Written 2026-11-10. Not yet validated.
     description: >
       Today the bell (Letflow.UserNotifications) has one kind: `@kinds ~w(task_assigned)` in
@@ -54092,7 +54092,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-793 -- written by task T-1635 together with its build; the engine files the GitHub issue, REQ-793 (the writer) is merged but its status is not flipped by this team
+    gh: 4186
     # Source: task T-1635 (operator, D-086, PM order 2026-11-10); docs/uat/ba-decisions/T-1631.md item 4 (a requirement for the screen once REQ-793 is merged: step through the path of one finished or running instance on the diagram, in order, with the time at each step, using the node-entered events instead of inferring gateways); REQ-792 (the NODE_ENTERED type), REQ-793 (the engine writer, #4164); docs/design/process-designer.md "Instance path".
     description: >
       The Graph tab of the instance page shows the current path inferred from completion events (Live). Since REQ-793
@@ -54120,7 +54120,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-799 -- the note proposes what comes after the replay screen REQ-799 specifies (built by task T-1635, status not flipped by this team); the engine files the GitHub issue and replaces this line with gh: N
+    gh: 4191
     # Source: task T-1661 (operator, D-086, PM order 2026-11-11, batch 6); docs/uat/ba-decisions/T-1651.md item 8 ("Process designer \"slice 3C\": decide what it is ... one requirement note proposing what the node-entered events now allow beyond replay (a proposal, not a rule, for example time spent per step across many instances, or a marker on the diagram of where running instances stand) and ranking it against the pilot's needs; the owner or portfolio manager picks"; owner decision "Yes, picking the scope"; dependency "REQ-793 and the replay screen (merged)"; "no pilot need seen, so low rank"). Files read on origin/main 6a3b0e0bd: docs/design/process-designer.md (headings: slice 1, Instance path, Slice 2, Slice 3A; no "3C" and no replay section); lib/letflow/engine/node_entries.ex (moduledoc: payload node_id, node_type, via_edge_id; same transaction as the move; no outbox, webhook, backfill or replay effect; known limitation of two edges with the same source and target); lib/letflow/routers/instances.ex (authz_get "/:id/history" and "/:id/timeline" under :InstancesRead are per instance; list_item_map/1 of GET /instances renders instance_id, definition_id, correlation_key, scope_node_id, status, started_at only); requirement REQ-799 (the replay screen, RQ10 out of scope); web/src/utils/canvas/instanceReplay.ts and web/src/hooks/useInstances.ts (replay built from NODE_ENTERED pages); docs/runbooks/pilot-first-month.md (weeks 1-4 name no process, instance or designer screen); lib/letflow/modules/stock/documents/posting.ex moduledoc (a stock document posts through one instance of stock_receipt, an opening document through stock_opening with an approve task by a second person); lib/letflow/modules/assets/documents/posting.ex moduledoc (asset documents also post through Letflow.Engine.create/2); lib/letflow/api/authorization.ex core_role_allows?(:STOREKEEPER, ...) and lib/letflow/modules/stock/stock.ex role_grants (no :InstancesRead for STOREKEEPER); docs/roles.md (STOREKEEPER section). Written by the business analyst (T-1661) 2026-11-11.
     description: >
       What this entry is: the specification of one later docs change. The file it names,
