@@ -5,7 +5,7 @@ stdlib only. Output per finding is exactly: scope, path, commit, rule id, severi
 seen_in, in_head. The matched text, the line and any context are never printed, logged or put in
 an exception message. Value hashes live in memory only (dedupe and the in_head join).
 Exit: 0 complete (findings do not change it: this is an audit, not a gate), 3 partial (deadline),
-2 usage / not a git repo, 1 only for --check-file when a secret-class rule fires.
+4 incomplete coverage (a git read failed, unreadable files, commit count mismatch), 2 usage / not a git repo, 1 only for --check-file when a secret-class rule fires.
 """
 
 import argparse
@@ -47,7 +47,7 @@ DOC_EXT = {".md", ".txt", ".rst", ".adoc"}
 LOCK_NAMES = {"mix.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "pubspec.lock"}
 
 STATE = {
-    "deadline": False, "rule_errors": Counter(), "last_commit": "", "procs": set(), "done": threading.Event(),
+    "git_failures": 0, "deadline": False, "rule_errors": Counter(), "last_commit": "", "procs": set(), "done": threading.Event(),
 }
 
 
@@ -118,6 +118,9 @@ def git_out(args):
     proc = spawn(args)
     try:
         data = proc.stdout.read()
+        proc.wait()
+        if proc.returncode != 0 and not STATE["deadline"]:
+            STATE["git_failures"] += 1
     finally:
         release(proc)
     return data
@@ -194,8 +197,6 @@ def scan_text(line, kinds, noise):
                 sev = rule["sev"]
                 if rule.get("check_value") and (v is None or R.is_placeholder(v)):
                     continue
-                if rule.get("check_value") and not rule.get("conn") and not re.search(r"\d", v):
-                    continue  # a credential-shaped value has a digit; words and field names do not
                 if rule.get("conn"):
                     if R.is_placeholder(g["u"]) and R.is_placeholder(v):
                         continue
@@ -370,6 +371,7 @@ def scan_tree(root, store, cov, noise):
         try:
             size = os.path.getsize(full)
         except OSError:
+            cov["unreadable"] += 1
             continue
         if size > MAX_FILE:
             cov["unscanned_oversize"] += 1
@@ -447,6 +449,9 @@ def scan_history(root, store, cov, noise, rev_args):
                 kinds = file_kind(path)
                 for hit in scan_line_windowed(raw[1:].decode("utf-8", "replace"), kinds, noise, cov):
                     store.add("history", path, commit, hit, ts)
+        proc.wait()
+        if proc.returncode != 0 and not STATE["deadline"]:
+            STATE["git_failures"] += 1  # the history stream ended early: coverage cannot be claimed
     finally:
         release(proc)
     cov["commits_scanned"] = len(seen)
@@ -533,6 +538,7 @@ def main(argv=None):
     STATE["done"].set()
 
     reasons = []
+    failed = False
     if STATE["deadline"]:
         status = "PARTIAL (deadline)"
     else:
@@ -542,6 +548,16 @@ def main(argv=None):
             reasons.append("blob cap %d hit" % BLOB_CAP)
         if STATE["rule_errors"]:
             reasons.append("rule_error=%d" % sum(STATE["rule_errors"].values()))
+        if STATE["git_failures"]:
+            reasons.append("git_failures=%d" % STATE["git_failures"])
+            failed = True
+        if cov["unreadable"]:
+            reasons.append("unreadable_files=%d" % cov["unreadable"])
+            failed = True
+        if do_hist and not a.rev_range:
+            if not total.isdigit() or cov["commits_scanned"] != int(total):
+                reasons.append("commits_scanned=%d of rev_list_all_count=%s" % (cov["commits_scanned"], total or "?"))
+                failed = True
         if shallow:
             reasons.append("SHALLOW clone")
         if a.rev_range:
@@ -582,7 +598,9 @@ def main(argv=None):
     finally:
         if a.out:
             out.close()
-    return 3 if STATE["deadline"] else 0
+    if STATE["deadline"]:
+        return 3
+    return 4 if failed else 0
 
 
 if __name__ == "__main__":

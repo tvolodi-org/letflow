@@ -21,14 +21,16 @@ _PLACEHOLDER_PARTS = (
     "changeme", "change-me", "change_me", "example", "placeholder", "your-", "your_", "yourpass",
     "xxx", "dummy", "fake", "todo", "redacted", "not-a-real", "notreal", "sample", "<", ">", "${",
     "$(", "{{", "%{", "#{", "System.", "Application.", "process.env", "os.environ", "get_env",
-    "env(", "secret-key", "test", "...", "***",
+    "env(", "secret-key", "...", "***",
 )
 _PLACEHOLDER_EXACT = {
     "", "dev", "development", "password", "passwd", "secret", "admin", "postgres", "letflow",
     "keycloak", "token", "null", "nil", "none", "true", "false", "undefined", "empty", "string",
     "bearer", "root", "user", "username", "key", "value", "foo", "bar", "123456", "12345678",
 }
-_IDENT = re.compile(r"^[A-Za-z_][A-Za-z_.:/\-]*$")
+# A bare identifier / field reference (`params.password`, `Foo::Bar`, `some_field`) has a separator;
+# a separator-free run of letters can be a real password, so it is NOT treated as a placeholder.
+_IDENT = re.compile(r"^(?=[A-Za-z_.:/]*[_.:/])[A-Za-z_][A-Za-z_.:/]*$")
 
 
 def is_placeholder(value: str) -> bool:
@@ -37,14 +39,16 @@ def is_placeholder(value: str) -> bool:
     if v.lower() in _PLACEHOLDER_EXACT:
         return True
     low = v.lower()
-    if v.startswith(("$", "@", "[", "(", "&", "*")):
+    if v.startswith(("$", "@", "[", "(", "&", "*", ":")):
         return True
     if any(p.lower() in low for p in _PLACEHOLDER_PARTS):
         return True
     if len(v) < 8:
         return True
     if _IDENT.match(v):  # a bare identifier / field name, not a credential
-        return True
+        # snake_case with random capitals (Ab_cdEf) is more likely a password than a name
+        if re.search(r"[.:/]", v) or not (re.search(r"[a-z]", v) and re.search(r"[A-Z]", v)):
+            return True
     return False
 
 

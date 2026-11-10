@@ -308,6 +308,54 @@ defmodule Letflow.Scripts.OssAuditTest do
     assert [%{rule: "I02"}] = rows(out2)
   end
 
+  test "O8b passwords without a digit or with the word test are still findings", %{tmp_dir: dir} do
+    repo = new_repo(dir)
+
+    commit_file(
+      repo,
+      "pw.env",
+      "DB_PASSWORD=" <> "kqjwhzpx" <> "mvbtrnsd\nAPP_PASSWORD=" <> "Zq-te" <> "st-Rk_mTnXw\n"
+    )
+
+    {out, 0} = run(repo, ["--tree"])
+    assert Enum.count(rows(out), &(&1.path == "pw.env")) >= 1
+    assert length(rows(out)) == 2
+  end
+
+  test "O16 a failing git history read ends INCOMPLETE with exit 4", %{tmp_dir: dir} do
+    repo = new_repo(dir)
+    commit_file(repo, "a.txt", "one\n")
+    shim = Path.join(dir, "git_fail.sh")
+
+    File.write!(shim, """
+    #!/usr/bin/env bash
+    case " $* " in
+      *" log "*) exit 1 ;;
+      *) exec git "$@" ;;
+    esac
+    """)
+
+    File.chmod!(shim, 0o755)
+    {out, code} = run(repo, ["--history"], [{"OSS_AUDIT_GIT", shim}])
+    assert code == 4
+    assert out =~ "INCOMPLETE"
+    assert out =~ "git_failures="
+    refute out =~ "# coverage\tCOMPLETE"
+  end
+
+  test "O17 an unreadable tracked file ends INCOMPLETE with exit 4", %{tmp_dir: dir} do
+    repo = new_repo(dir)
+    commit_file(repo, "a.txt", "one\n")
+    File.chmod!(Path.join(repo, "a.txt"), 0o000)
+
+    if match?({:error, _}, File.read(Path.join(repo, "a.txt"))) do
+      {out, code} = run(repo, ["--tree"])
+      assert code == 4
+      assert out =~ "unreadable_files=1"
+      refute out =~ "# coverage\tCOMPLETE"
+    end
+  end
+
   # ---- O9 read-only and repeatable
 
   test "O9 two runs give identical output and leave the repository untouched", %{tmp_dir: dir} do
