@@ -48,8 +48,8 @@ defmodule Letflow.Documents.XlsxStyleTest do
   end
 
   test "X3 an unmatched anchor returns the unpatched bytes" do
-    # a sheet with no rows has no frozen header: nothing to patch, same bytes as Elixlsx
-    wb = %Workbook{sheets: [XlsxStyle.style(%Sheet{name: "e", rows: []})]}
+    # a document sheet has no frozen header: nothing to patch, same bytes as Elixlsx
+    wb = %Workbook{sheets: [XlsxStyle.style(%Sheet{name: "e", rows: [["k", "v"]]}, false)]}
     {:ok, {_, plain}} = Elixlsx.write_to_memory(wb, "t.xlsx")
     {:ok, {_, ours}} = XlsxStyle.write_to_memory(wb, "t.xlsx")
     assert plain == ours
