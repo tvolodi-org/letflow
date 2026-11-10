@@ -42,8 +42,15 @@ the mix, not by a cut, so the section "What the batch-4 cuts moved" reads the tw
 
 ### Raw rows
 
-One line per job per run (seconds; `skipped=1` means the job was skipped). Every median below can be re-derived from
-this block; the first block is population (a), the second population (b).
+Three blocks. Block 1: one line per job per run (seconds; `skipped=1` means the job was skipped); first population (a),
+then population (b). Block 2: one line per run with its created_at, updated_at, wall time (updated_at minus created_at),
+the label (before/after the cut) and the kind (`full` = Backend shard 3/8 ran test steps, else `selective`). Block 3: one
+line per step for the steps the note reads on their own: the three test steps of the job "Backend static checks +
+isolated tails" and the step "Run docs tests (docs-only change)" of job Backend shard 1/8 (`skipped` = the step did not
+run). With the three blocks the job-minute, wall-time, strata, docs-test and isolated-tails figures below can be
+re-derived; the shard and gate figures come from block 1. Block 1 columns `setup_s` and `tests_s` follow the split in
+the paragraph above. Per-step durations other than those in block 3 (checkout, cache restore) are not kept in the file;
+they are summarised as medians in "Remaining cuts, ranked".
 
 ```
 run_id,label,job,skipped,wait_s,setup_s,tests_s
@@ -870,6 +877,305 @@ run_id,label,job,skipped,wait_s,setup_s,tests_s
 42763939165,after,Selective CI markers,1,0,0,0
 ```
 
+Block 2, runs:
+
+```
+run_id,event,label,kind,created_at,updated_at,wall_s,conclusion
+42883695529,push,after,selective,2026-11-10T19:17:03Z,2026-11-10T19:28:36Z,693,success
+42874666357,push,after,full,2026-11-10T18:23:15Z,2026-11-10T18:50:07Z,1612,success
+42868446271,push,after,selective,2026-11-10T17:46:58Z,2026-11-10T17:57:32Z,634,success
+42859491536,push,after,selective,2026-11-10T16:55:12Z,2026-11-10T17:06:47Z,695,success
+42856472996,push,after,selective,2026-11-10T16:37:58Z,2026-11-10T16:45:39Z,461,success
+42850504012,push,after,full,2026-11-10T16:02:03Z,2026-11-10T16:30:17Z,1694,success
+42844384750,push,after,full,2026-11-10T15:26:46Z,2026-11-10T16:12:38Z,2752,success
+42838250197,push,after,selective,2026-11-10T14:50:51Z,2026-11-10T14:59:27Z,516,success
+42835148239,push,after,selective,2026-11-10T14:32:41Z,2026-11-10T14:40:28Z,467,success
+42826594484,push,after,full,2026-11-10T13:39:58Z,2026-11-10T13:57:33Z,1055,success
+42822724921,push,after,full,2026-11-10T13:14:35Z,2026-11-10T13:38:52Z,1457,success
+42809600702,push,after,selective,2026-11-10T11:42:05Z,2026-11-10T11:49:47Z,462,success
+42802534350,push,after,full,2026-11-10T10:50:35Z,2026-11-10T11:11:24Z,1249,success
+42798022678,push,after,full,2026-11-10T10:18:30Z,2026-11-10T10:40:39Z,1329,success
+42793596320,push,after,selective,2026-11-10T09:47:03Z,2026-11-10T09:54:53Z,470,success
+42789866293,push,after,selective,2026-11-10T09:20:21Z,2026-11-10T09:28:06Z,465,success
+42785463213,push,after,full,2026-11-10T08:48:03Z,2026-11-10T09:09:11Z,1268,success
+42780173200,push,after,full,2026-11-10T08:07:24Z,2026-11-10T08:33:55Z,1591,success
+42777187372,push,after,full,2026-11-10T07:42:41Z,2026-11-10T08:09:35Z,1614,success
+42770460283,push,after,full,2026-11-10T06:43:46Z,2026-11-10T07:09:29Z,1543,success
+42762004671,push,after,selective,2026-11-10T05:25:07Z,2026-11-10T05:32:59Z,472,success
+42761852459,push,after,full,2026-11-10T05:23:39Z,2026-11-10T05:40:32Z,1013,success
+42756566368,push,after,full,2026-11-10T04:33:03Z,2026-11-10T04:53:39Z,1236,success
+42754217073,push,before,full,2026-11-10T04:11:09Z,2026-11-10T04:31:09Z,1200,success
+42753585428,push,before,selective,2026-11-10T04:05:25Z,2026-11-10T04:14:56Z,571,success
+42752444280,push,before,full,2026-11-10T03:54:35Z,2026-11-10T04:15:38Z,1263,success
+42751371647,push,before,selective,2026-11-10T03:44:24Z,2026-11-10T03:52:15Z,471,success
+42743253998,push,before,full,2026-11-10T02:30:40Z,2026-11-10T02:56:20Z,1540,success
+42735265595,push,before,selective,2026-11-10T01:21:56Z,2026-11-10T02:20:08Z,3492,success
+42728307897,push,before,selective,2026-11-10T00:26:23Z,2026-11-10T00:35:52Z,569,success
+42885626622,merge_group,after,selective,2026-11-10T19:28:34Z,2026-11-10T19:28:59Z,25,success
+42881709370,merge_group,after,selective,2026-11-10T19:05:13Z,2026-11-10T19:16:37Z,684,success
+42870480879,merge_group,after,full,2026-11-10T17:59:07Z,2026-11-10T18:22:48Z,1421,success
+42866299112,merge_group,after,selective,2026-11-10T17:34:13Z,2026-11-10T17:46:29Z,736,success
+42857415939,merge_group,after,selective,2026-11-10T16:43:23Z,2026-11-10T16:54:44Z,681,success
+42855297639,merge_group,after,selective,2026-11-10T16:30:59Z,2026-11-10T16:37:23Z,384,success
+42846766961,merge_group,after,selective,2026-11-10T15:40:15Z,2026-11-10T15:45:41Z,326,success
+42846361795,merge_group,after,full,2026-11-10T15:37:55Z,2026-11-10T16:01:34Z,1419,success
+42840310450,merge_group,after,full,2026-11-10T15:02:56Z,2026-11-10T15:26:17Z,1401,success
+42836859756,merge_group,after,selective,2026-11-10T14:42:46Z,2026-11-10T14:50:23Z,457,success
+42833998992,merge_group,after,selective,2026-11-10T14:25:51Z,2026-11-10T14:32:14Z,383,success
+42824718659,merge_group,after,selective,2026-11-10T13:27:43Z,2026-11-10T13:33:48Z,365,success
+42824337495,merge_group,after,selective,2026-11-10T13:25:11Z,2026-11-10T13:32:01Z,410,success
+42823060393,merge_group,after,full,2026-11-10T13:16:44Z,2026-11-10T13:39:29Z,1365,success
+42819323884,merge_group,after,full,2026-11-10T12:51:31Z,2026-11-10T13:14:07Z,1356,success
+42809525504,merge_group,after,selective,2026-11-10T11:41:31Z,2026-11-10T11:41:54Z,23,success
+42799223801,merge_group,after,full,2026-11-10T10:26:54Z,2026-11-10T10:50:09Z,1395,success
+42794845487,merge_group,after,full,2026-11-10T09:56:05Z,2026-11-10T10:18:03Z,1318,success
+42792469552,merge_group,after,selective,2026-11-10T09:38:55Z,2026-11-10T09:46:38Z,463,success
+42788756499,merge_group,after,selective,2026-11-10T09:12:30Z,2026-11-10T09:19:53Z,443,success
+42787001489,merge_group,after,full,2026-11-10T08:59:54Z,2026-11-10T09:02:05Z,131,failure
+42785996198,merge_group,after,full,2026-11-10T08:52:07Z,2026-11-10T08:54:55Z,168,failure
+42783310231,merge_group,after,full,2026-11-10T08:31:28Z,2026-11-10T08:33:37Z,129,failure
+42782657658,merge_group,after,full,2026-11-10T08:26:32Z,2026-11-10T08:46:10Z,1178,success
+42782655508,merge_group,after,full,2026-11-10T08:26:31Z,2026-11-10T08:47:36Z,1265,success
+42777964575,merge_group,after,full,2026-11-10T07:49:15Z,2026-11-10T08:06:56Z,1061,success
+42774664913,merge_group,after,full,2026-11-10T07:21:00Z,2026-11-10T07:42:12Z,1272,success
+42768093320,merge_group,after,full,2026-11-10T06:22:39Z,2026-11-10T06:42:21Z,1182,success
+42767995086,merge_group,after,full,2026-11-10T06:21:47Z,2026-11-10T06:43:19Z,1292,success
+42763939165,merge_group,after,full,2026-11-10T05:43:53Z,2026-11-10T06:05:12Z,1279,failure
+```
+
+Block 3, steps:
+
+```
+run_id,job,step,seconds
+42883695529,Backend static checks + isolated tails,Run static checks,63
+42883695529,Backend static checks + isolated tails,Effective permission matrix,26
+42883695529,Backend static checks + isolated tails,Run isolated tails,292
+42883695529,Backend shard 1/8,Run docs tests,skipped
+42874666357,Backend static checks + isolated tails,Run static checks,41
+42874666357,Backend static checks + isolated tails,Effective permission matrix,17
+42874666357,Backend static checks + isolated tails,Run isolated tails,204
+42874666357,Backend shard 1/8,Run docs tests,skipped
+42868446271,Backend static checks + isolated tails,Run static checks,50
+42868446271,Backend static checks + isolated tails,Effective permission matrix,20
+42868446271,Backend static checks + isolated tails,Run isolated tails,232
+42868446271,Backend shard 1/8,Run docs tests,skipped
+42859491536,Backend static checks + isolated tails,Run static checks,63
+42859491536,Backend static checks + isolated tails,Effective permission matrix,25
+42859491536,Backend static checks + isolated tails,Run isolated tails,290
+42859491536,Backend shard 1/8,Run docs tests,skipped
+42856472996,Backend shard 1/8,Run docs tests,skipped
+42856472996,Backend static checks + isolated tails,Run static checks,62
+42856472996,Backend static checks + isolated tails,Effective permission matrix,25
+42856472996,Backend static checks + isolated tails,Run isolated tails,286
+42850504012,Backend static checks + isolated tails,Run static checks,48
+42850504012,Backend static checks + isolated tails,Effective permission matrix,20
+42850504012,Backend static checks + isolated tails,Run isolated tails,231
+42850504012,Backend shard 1/8,Run docs tests,skipped
+42844384750,Backend static checks + isolated tails,Run static checks,49
+42844384750,Backend static checks + isolated tails,Effective permission matrix,20
+42844384750,Backend static checks + isolated tails,Run isolated tails,228
+42844384750,Backend shard 1/8,Run docs tests,skipped
+42838250197,Backend static checks + isolated tails,Run static checks,59
+42838250197,Backend static checks + isolated tails,Effective permission matrix,25
+42838250197,Backend static checks + isolated tails,Run isolated tails,276
+42838250197,Backend shard 1/8,Run docs tests,skipped
+42835148239,Backend static checks + isolated tails,Run static checks,63
+42835148239,Backend static checks + isolated tails,Effective permission matrix,26
+42835148239,Backend static checks + isolated tails,Run isolated tails,292
+42835148239,Backend shard 1/8,Run docs tests,skipped
+42826594484,Backend static checks + isolated tails,Run static checks,49
+42826594484,Backend static checks + isolated tails,Effective permission matrix,21
+42826594484,Backend static checks + isolated tails,Run isolated tails,230
+42826594484,Backend shard 1/8,Run docs tests,skipped
+42822724921,Backend static checks + isolated tails,Run static checks,51
+42822724921,Backend static checks + isolated tails,Effective permission matrix,21
+42822724921,Backend static checks + isolated tails,Run isolated tails,238
+42822724921,Backend shard 1/8,Run docs tests,skipped
+42809600702,Backend static checks + isolated tails,Run static checks,62
+42809600702,Backend static checks + isolated tails,Effective permission matrix,26
+42809600702,Backend static checks + isolated tails,Run isolated tails,289
+42809600702,Backend shard 1/8,Run docs tests,skipped
+42802534350,Backend static checks + isolated tails,Run static checks,63
+42802534350,Backend static checks + isolated tails,Effective permission matrix,26
+42802534350,Backend static checks + isolated tails,Run isolated tails,289
+42802534350,Backend shard 1/8,Run docs tests,skipped
+42798022678,Backend static checks + isolated tails,Run static checks,63
+42798022678,Backend static checks + isolated tails,Effective permission matrix,26
+42798022678,Backend static checks + isolated tails,Run isolated tails,297
+42798022678,Backend shard 1/8,Run docs tests,skipped
+42793596320,Backend static checks + isolated tails,Run static checks,64
+42793596320,Backend static checks + isolated tails,Effective permission matrix,25
+42793596320,Backend static checks + isolated tails,Run isolated tails,294
+42793596320,Backend shard 1/8,Run docs tests,skipped
+42789866293,Backend static checks + isolated tails,Run static checks,44
+42789866293,Backend static checks + isolated tails,Effective permission matrix,19
+42789866293,Backend static checks + isolated tails,Run isolated tails,225
+42789866293,Backend shard 1/8,Run docs tests,skipped
+42785463213,Backend static checks + isolated tails,Run static checks,61
+42785463213,Backend static checks + isolated tails,Effective permission matrix,26
+42785463213,Backend static checks + isolated tails,Run isolated tails,295
+42785463213,Backend shard 1/8,Run docs tests,skipped
+42780173200,Backend static checks + isolated tails,Run static checks,49
+42780173200,Backend static checks + isolated tails,Effective permission matrix,20
+42780173200,Backend static checks + isolated tails,Run isolated tails,226
+42780173200,Backend shard 1/8,Run docs tests,skipped
+42777187372,Backend static checks + isolated tails,Run static checks,50
+42777187372,Backend static checks + isolated tails,Effective permission matrix,20
+42777187372,Backend static checks + isolated tails,Run isolated tails,233
+42777187372,Backend shard 1/8,Run docs tests,skipped
+42770460283,Backend static checks + isolated tails,Run static checks,40
+42770460283,Backend static checks + isolated tails,Effective permission matrix,17
+42770460283,Backend static checks + isolated tails,Run isolated tails,199
+42770460283,Backend shard 1/8,Run docs tests,skipped
+42762004671,Backend static checks + isolated tails,Run static checks,62
+42762004671,Backend static checks + isolated tails,Effective permission matrix,26
+42762004671,Backend static checks + isolated tails,Run isolated tails,291
+42762004671,Backend shard 1/8,Run docs tests,skipped
+42761852459,Backend static checks + isolated tails,Run static checks,49
+42761852459,Backend static checks + isolated tails,Effective permission matrix,19
+42761852459,Backend static checks + isolated tails,Run isolated tails,226
+42761852459,Backend shard 1/8,Run docs tests,skipped
+42756566368,Backend static checks + isolated tails,Run static checks,41
+42756566368,Backend static checks + isolated tails,Effective permission matrix,17
+42756566368,Backend static checks + isolated tails,Run isolated tails,200
+42756566368,Backend shard 1/8,Run docs tests,skipped
+42754217073,Backend static checks + isolated tails,Run static checks,50
+42754217073,Backend static checks + isolated tails,Effective permission matrix,19
+42754217073,Backend static checks + isolated tails,Run isolated tails,237
+42754217073,Backend shard 1/8,Run docs tests,skipped
+42753585428,Backend static checks + isolated tails,Run static checks,66
+42753585428,Backend static checks + isolated tails,Effective permission matrix,28
+42753585428,Backend static checks + isolated tails,Run isolated tails,312
+42753585428,Backend shard 1/8,Run docs tests,skipped
+42752444280,Backend static checks + isolated tails,Run static checks,63
+42752444280,Backend static checks + isolated tails,Effective permission matrix,26
+42752444280,Backend static checks + isolated tails,Run isolated tails,294
+42752444280,Backend shard 1/8,Run docs tests,skipped
+42751371647,Backend static checks + isolated tails,Run static checks,62
+42751371647,Backend static checks + isolated tails,Effective permission matrix,25
+42751371647,Backend static checks + isolated tails,Run isolated tails,290
+42751371647,Backend shard 1/8,Run docs tests,skipped
+42743253998,Backend static checks + isolated tails,Run static checks,61
+42743253998,Backend static checks + isolated tails,Effective permission matrix,25
+42743253998,Backend static checks + isolated tails,Run isolated tails,287
+42743253998,Backend shard 1/8,Run docs tests,skipped
+42735265595,Backend shard 1/8,Run docs tests,skipped
+42735265595,Backend static checks + isolated tails,Run static checks,48
+42735265595,Backend static checks + isolated tails,Effective permission matrix,19
+42735265595,Backend static checks + isolated tails,Run isolated tails,226
+42728307897,Backend static checks + isolated tails,Run static checks,63
+42728307897,Backend static checks + isolated tails,Effective permission matrix,26
+42728307897,Backend static checks + isolated tails,Run isolated tails,292
+42728307897,Backend shard 1/8,Run docs tests,skipped
+42881709370,Backend static checks + isolated tails,Run static checks,50
+42881709370,Backend static checks + isolated tails,Effective permission matrix,20
+42881709370,Backend static checks + isolated tails,Run isolated tails,233
+42881709370,Backend shard 1/8,Run docs tests,skipped
+42870480879,Backend static checks + isolated tails,Run static checks,50
+42870480879,Backend static checks + isolated tails,Effective permission matrix,20
+42870480879,Backend static checks + isolated tails,Run isolated tails,234
+42870480879,Backend shard 1/8,Run docs tests,skipped
+42866299112,Backend static checks + isolated tails,Run static checks,58
+42866299112,Backend static checks + isolated tails,Effective permission matrix,24
+42866299112,Backend static checks + isolated tails,Run isolated tails,271
+42866299112,Backend shard 1/8,Run docs tests,659
+42857415939,Backend static checks + isolated tails,Run static checks,41
+42857415939,Backend static checks + isolated tails,Effective permission matrix,17
+42857415939,Backend static checks + isolated tails,Run isolated tails,205
+42857415939,Backend shard 1/8,Run docs tests,skipped
+42855297639,Backend static checks + isolated tails,Run static checks,50
+42855297639,Backend static checks + isolated tails,Effective permission matrix,20
+42855297639,Backend static checks + isolated tails,Run isolated tails,232
+42855297639,Backend shard 1/8,Run docs tests,skipped
+42846766961,Backend static checks + isolated tails,Run static checks,41
+42846766961,Backend static checks + isolated tails,Effective permission matrix,17
+42846766961,Backend static checks + isolated tails,Run isolated tails,198
+42846766961,Backend shard 1/8,Run docs tests,53
+42846361795,Backend shard 1/8,Run docs tests,skipped
+42846361795,Backend static checks + isolated tails,Run static checks,42
+42846361795,Backend static checks + isolated tails,Effective permission matrix,17
+42846361795,Backend static checks + isolated tails,Run isolated tails,199
+42840310450,Backend static checks + isolated tails,Run static checks,50
+42840310450,Backend static checks + isolated tails,Effective permission matrix,20
+42840310450,Backend static checks + isolated tails,Run isolated tails,232
+42840310450,Backend shard 1/8,Run docs tests,skipped
+42836859756,Backend static checks + isolated tails,Run static checks,63
+42836859756,Backend static checks + isolated tails,Effective permission matrix,26
+42836859756,Backend static checks + isolated tails,Run isolated tails,292
+42836859756,Backend shard 1/8,Run docs tests,68
+42833998992,Backend static checks + isolated tails,Run static checks,51
+42833998992,Backend static checks + isolated tails,Effective permission matrix,20
+42833998992,Backend static checks + isolated tails,Run isolated tails,230
+42833998992,Backend shard 1/8,Run docs tests,68
+42824718659,Backend static checks + isolated tails,Run static checks,48
+42824718659,Backend static checks + isolated tails,Effective permission matrix,20
+42824718659,Backend static checks + isolated tails,Run isolated tails,226
+42824718659,Backend shard 1/8,Run docs tests,41
+42823060393,Backend shard 1/8,Run docs tests,skipped
+42823060393,Backend static checks + isolated tails,Run static checks,62
+42823060393,Backend static checks + isolated tails,Effective permission matrix,25
+42823060393,Backend static checks + isolated tails,Run isolated tails,291
+42819323884,Backend static checks + isolated tails,Run static checks,50
+42819323884,Backend static checks + isolated tails,Effective permission matrix,20
+42819323884,Backend static checks + isolated tails,Run isolated tails,231
+42819323884,Backend shard 1/8,Run docs tests,skipped
+42799223801,Backend static checks + isolated tails,Run static checks,63
+42799223801,Backend static checks + isolated tails,Effective permission matrix,26
+42799223801,Backend static checks + isolated tails,Run isolated tails,296
+42799223801,Backend shard 1/8,Run docs tests,skipped
+42794845487,Backend static checks + isolated tails,Run static checks,40
+42794845487,Backend static checks + isolated tails,Effective permission matrix,16
+42794845487,Backend static checks + isolated tails,Run isolated tails,197
+42794845487,Backend shard 1/8,Run docs tests,skipped
+42792469552,Backend static checks + isolated tails,Run static checks,62
+42792469552,Backend static checks + isolated tails,Effective permission matrix,26
+42792469552,Backend static checks + isolated tails,Run isolated tails,289
+42792469552,Backend shard 1/8,Run docs tests,42
+42788756499,Backend static checks + isolated tails,Run static checks,49
+42788756499,Backend static checks + isolated tails,Effective permission matrix,20
+42788756499,Backend static checks + isolated tails,Run isolated tails,233
+42788756499,Backend shard 1/8,Run docs tests,skipped
+42787001489,Backend static checks + isolated tails,Run static checks,42
+42787001489,Backend static checks + isolated tails,Effective permission matrix,18
+42787001489,Backend static checks + isolated tails,Run isolated tails,1
+42787001489,Backend shard 1/8,Run docs tests,skipped
+42785996198,Backend static checks + isolated tails,Run static checks,62
+42785996198,Backend static checks + isolated tails,Effective permission matrix,25
+42785996198,Backend static checks + isolated tails,Run isolated tails,3
+42785996198,Backend shard 1/8,Run docs tests,skipped
+42783310231,Backend static checks + isolated tails,Run static checks,37
+42783310231,Backend static checks + isolated tails,Effective permission matrix,15
+42783310231,Backend static checks + isolated tails,Run isolated tails,1
+42783310231,Backend shard 1/8,Run docs tests,skipped
+42782657658,Backend static checks + isolated tails,Run static checks,44
+42782657658,Backend static checks + isolated tails,Effective permission matrix,18
+42782657658,Backend static checks + isolated tails,Run isolated tails,200
+42782657658,Backend shard 1/8,Run docs tests,skipped
+42782655508,Backend shard 1/8,Run docs tests,skipped
+42782655508,Backend static checks + isolated tails,Run static checks,63
+42782655508,Backend static checks + isolated tails,Effective permission matrix,25
+42782655508,Backend static checks + isolated tails,Run isolated tails,294
+42777964575,Backend static checks + isolated tails,Run static checks,50
+42777964575,Backend static checks + isolated tails,Effective permission matrix,19
+42777964575,Backend static checks + isolated tails,Run isolated tails,226
+42777964575,Backend shard 1/8,Run docs tests,skipped
+42774664913,Backend static checks + isolated tails,Run static checks,62
+42774664913,Backend static checks + isolated tails,Effective permission matrix,25
+42774664913,Backend static checks + isolated tails,Run isolated tails,291
+42774664913,Backend shard 1/8,Run docs tests,skipped
+42768093320,Backend static checks + isolated tails,Run static checks,50
+42768093320,Backend static checks + isolated tails,Effective permission matrix,20
+42768093320,Backend static checks + isolated tails,Run isolated tails,231
+42768093320,Backend shard 1/8,Run docs tests,skipped
+42767995086,Backend shard 1/8,Run docs tests,skipped
+42767995086,Backend static checks + isolated tails,Run static checks,49
+42767995086,Backend static checks + isolated tails,Effective permission matrix,20
+42767995086,Backend static checks + isolated tails,Run isolated tails,227
+42763939165,Backend static checks + isolated tails,Run static checks,25
+42763939165,Backend static checks + isolated tails,Effective permission matrix,skipped
+42763939165,Backend static checks + isolated tails,Run isolated tails,skipped
+42763939165,Backend shard 1/8,Run docs tests,skipped
+
 ## Push runs on main
 
 Medians in seconds over the jobs that ran (a skipped job is not in a median). "before"/"after" = before/after T-1614.
@@ -932,7 +1238,8 @@ Strata (job-min, wall seconds; medians): full runs 17, 127.8 job-min, 1279 s; se
 Docs-only runs (step "Run docs tests (docs-only change)" of job Backend shard 1/8 has a conclusion other than
 skipped): before T-1617: 0 runs; after T-1617: 6 runs. Step seconds for those: median 60, max
 659 (run 42866299112; the other five took 41 to 68 s). No before-T-1617 figure exists in this
-population; the baseline note recorded merge groups that timed out (`timeout 2400`), and none of the 30 runs here did.
+population. The baseline note (`docs/status/ci-minutes-20261110.md`) gives no docs-test figure to compare with; the
+merge-group job limit in `.github/workflows/ci.yml` is `timeout 2400`, and none of the 30 runs here hit a timeout.
 
 Runs with conclusion failure (4 of 30; none ended with a timeout, exit 124):
 
@@ -946,7 +1253,8 @@ Runs with conclusion failure (4 of 30; none ended with a timeout, exit 124):
 - 42763939165: Backend static checks + isolated tails step "Run static checks (mix letflow.check.static)"; shards 1/8,
   2/8, 4/8 step "Run test shard"; Backend gate. Log 129655990445 (shard 1/8) ends `Result: 717/718 passed` at
   `test/mix/tasks/letflow_check_deferral_staleness_test.exs:1273`, exit code 1. Not 124. The log of the static-checks
-  step (129655990356) shows exit code 1; its cause was not examined.
+  step (job 129655990356) was read: `mix letflow.check_requirements_registration` failed with `[R4] REQ-790 ...
+  duplicate requirement id`, then `Process completed with exit code 1`. Not 124.
 
 ## What the batch-4 cuts moved
 
@@ -971,7 +1279,8 @@ settled.
 median / max of the job duration): shard 1/8 1000 / 1343; 2/8 890 / 1196; 3/8 1214 / 1645; 4/8 830 / 1071; 5/8 972 /
 1357; 6/8 1014 / 1260; 7/8 796 / 1072; 8/8 795 / 1055. Shard 3 is still the slowest (baseline median 1144 s); the
 spread between slowest and fastest median is 419 s. Static + tails: set-up 49 s plus tests 302 s (baseline 401 s
-job duration; 351 s here). These populations are not the same as the baseline's, so a difference of tens of seconds is
+job duration; 351 s here; the three test steps are split per run in block 3: on selective runs the medians
+are static checks 60 s, permission matrix 25 s, isolated tails 281 s; on full runs 50 s, 20 s and 231 s). These populations are not the same as the baseline's, so a difference of tens of seconds is
 not a finding.
 
 ## Remaining cuts, ranked
@@ -983,7 +1292,7 @@ within the kind.
 
 | Rank | Cut | Measured saving | Affects a required check | Costs money | Source |
 |---|---|---|---|---|---|
-| 1 | Skip the backend_static isolated tails on selective (docs-only) runs (baseline proposal 4) | Up to 5.9 job-min per selective run (49 s set-up + 302 s tests = 351 s of one job); wall: not measured (critical path not checked) | No (the Backend gate still reports); but the register checks run in this job and the baseline said they must run; not shown safe | No | baseline "Proposals not applied" 4; this note, Push runs on main |
+| 1 | Skip the backend_static isolated tails on selective (docs-only) runs (baseline proposal 4) | Up to 4.7 job-min per selective run if only the step "Run isolated tails" is skipped (median 281 s over 24 selective runs, max 312 s; block 3); the job's set-up (49 s median), the static checks (60 s) and the permission matrix (25 s) stay. Skipping the whole job would save a median of 420 s = 7.0 job-min but drops the static checks too, which this note does not propose; wall: not measured (critical path not checked) | No (the Backend gate still reports); but the register checks run in this job and the baseline said they must run; not shown safe | No | baseline "Proposals not applied" 4; this note, Push runs on main |
 | 2 | Share Elixir/Rust/cache set-up between the heavy jobs (baseline proposal 3) | Up to 3.5 job-min per full run (about 23 s x 9 heavy jobs = 207 s; a ceiling, the cache restore cannot go to 0); wall: about 0 s | No | No | baseline 3; step medians above |
 | 3 | Shallow checkout (baseline proposal 2) | Up to 2.1 job-min per run (9 s x 14 jobs = 126 s; a ceiling, a shallow clone would save only part); wall: 0 to 9 s; unverified against history-reading tests | No | No | baseline 2; step medians above |
 | 4 | Re-balance `test/shard_manifest.txt` for 8 shards (baseline proposal 1) | 0 job-min (the same tests run); wall: about 275 s per full run (slowest shard median 1214 s against 939 s, the mean of the eight shard medians; a ceiling) | No | No | baseline 1; Full-run shard figures above |
@@ -997,7 +1306,7 @@ markers) cost 14 s of set-up or less each.
 ## Owner decisions
 
 Candidate for task 2 of `docs/uat/ba-decisions/T-1631.md` item 7 (one later change): rank 1 among the cuts that cost
-no money, "skip the isolated tails on selective runs", measured at up to 5.9 job-min per selective run. It is a
+no money, "skip the isolated tails on selective runs", measured at up to 4.7 job-min per selective run (the tails step alone). It is a
 candidate only: the baseline said the register checks that run in this job must still run, so the change needs first a
 proof of which checks the tails hold and that a selective run still runs them elsewhere; if that proof fails, the next
 candidate is rank 4 (re-balance the shards, about 275 s of wall per full run, no minutes saved). This note applies
