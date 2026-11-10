@@ -13,6 +13,7 @@ export interface NotificationCatalog {
   close: string
   unread: string
   kindTaskAssigned: string
+  kindCountAssigned: string
   kindUnknown: string
 }
 
@@ -29,6 +30,7 @@ export const notificationMessages: Record<UiLocale, NotificationCatalog> = {
     close: 'Close',
     unread: 'Unread',
     kindTaskAssigned: 'A task was assigned to you',
+    kindCountAssigned: 'A stock count was assigned to you',
     kindUnknown: 'New notification',
   },
   ru: {
@@ -43,6 +45,7 @@ export const notificationMessages: Record<UiLocale, NotificationCatalog> = {
     close: 'Закрыть',
     unread: 'Не прочитано',
     kindTaskAssigned: 'Вам назначена задача',
+    kindCountAssigned: 'Вам назначена инвентаризация',
     kindUnknown: 'Новое уведомление',
   },
   kk: {
@@ -57,16 +60,22 @@ export const notificationMessages: Record<UiLocale, NotificationCatalog> = {
     close: 'Жабу',
     unread: 'Оқылмаған',
     kindTaskAssigned: 'Сізге тапсырма тағайындалды',
+    kindCountAssigned: 'Сізге түгендеу тағайындалды',
     kindUnknown: 'Жаңа хабарландыру',
   },
 }
 
 /** Link of a row, built from `kind` + `ref_id`; `null` for an unknown kind (a generic row has no link). */
 export function notificationLink(kind: string, refId: string | null): string | null {
-  if (kind === 'task_assigned' && refId) return `/tasks?task=${encodeURIComponent(refId)}`
+  if (!refId) return null
+  const id = encodeURIComponent(refId)
+  if (kind === 'task_assigned') return `/tasks?task=${id}`
+  if (kind === 'count_assigned') return `/admin/stock/counts/${id}`
   return null
 }
 
 export function notificationText(m: NotificationCatalog, kind: string): string {
-  return kind === 'task_assigned' ? m.kindTaskAssigned : m.kindUnknown
+  if (kind === 'task_assigned') return m.kindTaskAssigned
+  if (kind === 'count_assigned') return m.kindCountAssigned
+  return m.kindUnknown
 }

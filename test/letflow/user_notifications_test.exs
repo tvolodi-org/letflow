@@ -27,7 +27,7 @@ defmodule Letflow.UserNotificationsTest do
 
   test "N2 stores task_assigned; unknown kind and bad uuid write nothing", %{prefix: p, tid: tid} do
     u = Ecto.UUID.generate()
-    assert UserNotifications.kinds() == ["task_assigned"]
+    assert UserNotifications.kinds() == ["task_assigned", "count_assigned"]
     assert :ok = UserNotifications.notify(p, tid, u, "task_assigned", Ecto.UUID.generate(), "T")
 
     capture_log(fn ->

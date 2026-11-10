@@ -4,7 +4,7 @@ import { client } from './client'
 
 export interface NotificationItem {
   id: string
-  /** Closed list on the server; today only `task_assigned`. An unknown kind renders as a generic row. */
+  /** Closed list on the server; today `task_assigned` and `count_assigned`. An unknown kind renders as a generic row. */
   kind: string
   ref_id: string | null
   title: string

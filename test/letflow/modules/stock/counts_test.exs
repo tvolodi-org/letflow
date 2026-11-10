@@ -16,6 +16,7 @@ defmodule Letflow.Modules.Stock.CountsTest do
   alias Letflow.Entities.Record.Latest
   alias Letflow.LocationsFixture, as: L
   alias Letflow.Modules.Stock.Counts
+  alias Letflow.UserNotifications
 
   setup do
     t = F.tenant!()
@@ -171,6 +172,69 @@ defmodule Letflow.Modules.Stock.CountsTest do
                Counts.create(s, F.input(w), F.opts(nil, {:nodes, [Ecto.UUID.generate()]}))
 
       assert {:error, :not_found} = Counts.create(s, F.input(w), F.opts(nil, :none))
+    end
+  end
+
+  describe "issue bell (REQ-800 count_assigned)" do
+    defp bell_rows(s),
+      do: Repo.query!(~s|SELECT user_id, kind, ref_id, title FROM "#{s}".user_notifications|).rows
+
+    test "B1 chair and a member with a linked user get one entry, a member without none", %{
+      schema: s,
+      w: w
+    } do
+      member_user = Ecto.UUID.generate()
+      with_user = F.employee!(s, w.unit, user: member_user)
+      v = create!(s, w, %{"member_employee_ids" => [with_user | w.members]})
+      {:ok, i} = Counts.issue(s, v["id"], F.opts())
+
+      for u <- [w.chair_user, member_user] do
+        assert %{items: [n]} = UserNotifications.list(s, u)
+        assert n["kind"] == "count_assigned" and n["title"] == i["number"]
+        assert n["ref_id"] == v["id"]
+      end
+
+      assert length(bell_rows(s)) == 2
+      assert Repo.query!(~s|SELECT count(*) FROM "#{s}".notification_deliveries|).rows == [[0]]
+    end
+
+    test "B2 a chair alone gives exactly one entry", %{schema: s, w: w} do
+      v = create!(s, w)
+      {:ok, _} = Counts.issue(s, v["id"], F.opts())
+      assert [[u, "count_assigned", _, _]] = bell_rows(s)
+      assert Ecto.UUID.cast!(u) == w.chair_user
+    end
+
+    test "B2b a chair also listed as a member is refused and writes no entry", %{schema: s, w: w} do
+      assert {:error, {:field_invalid, "member_employee_ids"}} =
+               Counts.create(s, F.input(w, %{"member_employee_ids" => [w.chair]}), F.opts())
+
+      assert bell_rows(s) == []
+    end
+
+    test "B3 a refused issue and a draft write nothing; a second issue adds nothing", %{
+      schema: s,
+      w: w
+    } do
+      id = create!(s, w, %{"kind" => "full", "location_ids" => [w.a]})["id"]
+      assert {:error, :count_scope_incomplete} = Counts.issue(s, id, F.opts())
+      assert bell_rows(s) == []
+
+      v = create!(s, w)
+      {:ok, _} = Counts.issue(s, v["id"], F.opts())
+      assert {:error, _} = Counts.issue(s, v["id"], F.opts())
+      assert length(bell_rows(s)) == 1
+    end
+
+    test "B4 a failing bell does not fail the issue", %{schema: s, w: w} do
+      Repo.query!(~s|DROP TABLE "#{s}".user_notifications|)
+      v = create!(s, w)
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, %{"status" => "ordered"}} = Counts.issue(s, v["id"], F.opts())
+      end)
+
+      assert {:ok, %{"status" => "ordered"}} = Counts.get(s, v["id"], F.opts())
     end
   end
 

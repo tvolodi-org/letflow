@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { useUiLocaleStore, UI_LOCALES } from '@/i18n/uiLocaleStore'
 import { badgeText, NotificationBell } from '../NotificationBell'
-import { notificationLink, notificationMessages } from '../notificationMessages'
+import { notificationLink, notificationMessages, notificationText } from '../notificationMessages'
 
 expect.extend(jestDomMatchers)
 
@@ -112,6 +112,19 @@ describe('NotificationBell', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/')
     expect(notificationLink('from_the_future', 'x')).toBeNull()
     expect(notificationLink('task_assigned', null)).toBeNull()
+  })
+
+  it('W6 count_assigned has its text in every locale and links to the count', () => {
+    expect(notificationLink('count_assigned', 'c 1')).toBe('/admin/stock/counts/c%201')
+    expect(notificationLink('count_assigned', null)).toBeNull()
+    for (const l of UI_LOCALES) {
+      expect(notificationText(notificationMessages[l], 'count_assigned')).toBe(notificationMessages[l].kindCountAssigned)
+      expect(notificationMessages[l].kindCountAssigned).not.toBe(notificationMessages[l].kindUnknown)
+    }
+    state.data = { notifications: [row({ kind: 'count_assigned', ref_id: 'c1', title: 'CO-1' })], unread_count: 1 }
+    renderBell()
+    fireEvent.click(screen.getByTestId('notification-bell-trigger'))
+    expect(screen.getByText(notificationMessages.en.kindCountAssigned)).toBeInTheDocument()
   })
 
   it('W4 every locale has every string', () => {
