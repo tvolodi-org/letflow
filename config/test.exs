@@ -415,6 +415,9 @@ config :letflow, :record_triggers_enabled, false
 config :letflow, :exam_notifications_enabled, false
 config :letflow, :asset_notifications_enabled, false
 
+# T-1571: no real wait between assignment-mail retries in tests.
+config :letflow, Letflow.Notifications, retry_backoff_ms: [0, 0]
+
 # REQ-620 / GH #3463: same as config/dev.exs -- lets CreateLedgerTables.down run. Not set in
 # config/prod.exs or config/runtime.exs.
 config :letflow, :allow_ledger_migration_down, true

@@ -48,6 +48,13 @@ export const STATE_PILL: Record<NodeState, { tone: StatusTone; glyph: StatusGlyp
   unclear: { tone: 'warning', glyph: 'half' },
 }
 
+/** T-1588: version diff kinds: a word, a glyph and a tone each (shape differs per kind, so it reads in greyscale). */
+export const DIFF_PILL: Record<'added' | 'removed' | 'changed', { tone: StatusTone; glyph: StatusGlyph }> = {
+  added: { tone: 'success', glyph: 'dot' },
+  removed: { tone: 'danger', glyph: 'dash' },
+  changed: { tone: 'warning', glyph: 'half' },
+}
+
 export const NODE_TYPES = [
   'START',
   'END',

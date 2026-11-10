@@ -239,6 +239,10 @@ samp {
   .lf-table--stack td[colspan] { grid-template-columns: minmax(0, 1fr); padding: 0; }
 }
 
+/* T-1570: the storekeeper asset-grant card on Users and groups (token spacing, no inline style). */
+.lf-grant-card { padding: var(--space-4); display: grid; gap: var(--space-3); }
+.lf-grant-card__body { display: grid; gap: var(--space-3); justify-items: start; }
+
 /* T-1560: static help page (HelpTopicView): readable blocks, refusal titles apart from their explanation. */
 .lf-help { max-width: 48rem; }
 .lf-help section { margin-block-start: var(--space-6); }

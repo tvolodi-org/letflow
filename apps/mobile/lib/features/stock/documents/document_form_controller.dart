@@ -26,7 +26,13 @@ class DocFormController extends ChangeNotifier {
     required this.pickers,
     required this.draft,
     this.queue,
+    this.replacesQueuedId,
   });
+
+  /// Edit and resend: the refused queue entry this draft replaces. It is
+  /// removed only after the server accepted the draft or the new local copy
+  /// was stored.
+  final String? replacesQueuedId;
 
   /// Web only (PWA M3): a new draft saved without a network goes here. Null on
   /// Android / iOS (today's behaviour).
@@ -303,6 +309,7 @@ class DocFormController extends ChangeNotifier {
     if (id == null) {
       try {
         draft = await api.save(draft);
+        await _dropReplaced(queue);
       } on NetworkUnavailableError {
         final q = queue;
         if (q == null) rethrow;
@@ -318,8 +325,13 @@ class DocFormController extends ChangeNotifier {
   /// Stores the new draft locally. Returns false: nothing was sent, so Issue
   /// stops here.
   Future<bool> _enqueue(OfflineDraftQueue q) async {
-    final result = await q.enqueue(draft.toBody(), label: _label());
+    final result = await q.enqueue(
+      draft.toBody(),
+      label: _label(),
+      summary: _summary(),
+    );
     if (result == EnqueueResult.stored) {
+      await _dropReplaced(q);
       queuedLocally = true;
       _dirty = false;
       message = tr('offline.saved');
@@ -328,6 +340,28 @@ class DocFormController extends ChangeNotifier {
       message = tr('offline.full');
     }
     return false;
+  }
+
+  Future<void> _dropReplaced(OfflineDraftQueue? q) async {
+    final old = replacesQueuedId;
+    if (old == null || q == null) return;
+    try {
+      await q.remove(old);
+    } on Object {
+      // The old copy stays; the person can discard it from the list.
+    }
+  }
+
+  /// "2 lines: Cement x2, Sand x1" (at most three names, then "+N").
+  String _summary() {
+    final lines = draft.lines;
+    final shown = [
+      for (final l in lines.take(3)) '${labelOf(l.item)} x${l.quantity}'.trim(),
+    ].join(', ');
+    final more = lines.length > 3 ? ' +${lines.length - 3}' : '';
+    return tr('offline.summary')
+        .replaceAll('{count}', '${lines.length}')
+        .replaceAll('{items}', '$shown$more');
   }
 
   String _label() => tr('stock.doc.kind.${draft.kind.wire}');

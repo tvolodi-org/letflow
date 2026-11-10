@@ -39,6 +39,7 @@ void main() {
       kStockHomePath,
       kStockDocumentsPath,
       '$kStockDocumentsPath/new/:kind',
+      '$kStockDocumentsPath/queued/:localId',
       '$kStockDocumentsPath/:id',
     ]);
     expect(kStockHomeRoutePath, kStockHomePath);

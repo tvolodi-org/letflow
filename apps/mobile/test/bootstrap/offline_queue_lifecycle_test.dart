@@ -35,6 +35,7 @@ class _SpyQueue implements OfflineDraftQueue {
   Future<EnqueueResult> enqueue(
     Map<String, dynamic> body, {
     String label = '',
+    String summary = '',
   }) async => EnqueueResult.stored;
   @override
   Future<List<QueuedDraft>> all() async => const [];
@@ -43,7 +44,13 @@ class _SpyQueue implements OfflineDraftQueue {
   @override
   Future<void> remove(String localId) async {}
   @override
-  Future<void> markRejected(String localId, String code) async {}
+  Future<void> markRejected(
+    String localId,
+    String code, {
+    Map<String, dynamic>? detail,
+  }) async {}
+  @override
+  Future<void> clearRejection(String localId) async {}
 }
 
 class _StateController extends BootstrapController {

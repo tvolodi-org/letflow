@@ -1,4 +1,5 @@
 # T-0919 (BA): TENANT ADMIN group, scenario 53: assigning a task sends the "task assigned" message and one log row records the attempt.
+# Precondition (T-1571): the tenant setting notifications.email_copy is true; with it off no message and no row are made.
 # Covers REQ-584 criteria 2 (message in the company's default language, values inserted), 3 (assignment succeeds whatever the mail
 # system does; exactly one row), 4 (log rows: sent, skipped/adapter_noop; each row carries template, language, recipient and task) and 6
 # (no message content, address or secret in the log row).

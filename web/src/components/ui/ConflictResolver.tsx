@@ -11,10 +11,11 @@
  *  rendered surface until the user clicks one of the three actions.
  */
 
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { JsonDiffView } from './JsonDiffView'
 import { ConfirmDialog } from './ConfirmDialog'
+import { useModalFocus } from './useModalFocus'
 
 export interface ConflictResolverProps {
   /** Server payload after the 409. */
@@ -68,6 +69,11 @@ export function ConflictResolver(props: ConflictResolverProps): React.ReactEleme
   const [showMerge, setShowMerge] = useState<boolean>(false)
   const [showDiscard, setShowDiscard] = useState<boolean>(false)
   const [choices, setChoices] = useState<Record<string, MergeSource>>({})
+  const resolverRef = useRef<HTMLDivElement | null>(null)
+  const mergeRef = useRef<HTMLDivElement | null>(null)
+  // The resolver has no dismiss (the user must pick a way out): focus trap only, no Escape handler.
+  useModalFocus(resolverRef, {})
+  useModalFocus(mergeRef, { open: showMerge, onClose: () => setShowMerge(false) })
 
   // §12.2 mode 5 — server version older than local: keep Merge enabled but show banner.
   const serverIsStale = false // Computed in StaleVersionError when applicable.
@@ -98,6 +104,8 @@ export function ConflictResolver(props: ConflictResolverProps): React.ReactEleme
 
   const dialog = (
     <div
+      ref={resolverRef}
+      tabIndex={-1}
       data-testid="conflict-resolver"
       role="dialog"
       aria-modal="true"
@@ -232,6 +240,8 @@ export function ConflictResolver(props: ConflictResolverProps): React.ReactEleme
       {showMerge &&
         createPortal(
           <div
+            ref={mergeRef}
+            tabIndex={-1}
             data-testid="conflict-merge-panel"
             role="dialog"
             aria-modal="true"

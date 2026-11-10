@@ -27,6 +27,8 @@ class QueuedDraft {
     required this.label,
     required this.createdAtMs,
     this.rejection,
+    this.rejectionDetail,
+    this.summary = '',
   });
 
   final String localId;
@@ -39,12 +41,20 @@ class QueuedDraft {
   /// Set when the server refused the entry; it is then kept for the user.
   final String? rejection;
 
+  /// The server's refusal (reason, field, line_no, side), each optional.
+  final Map<String, dynamic>? rejectionDetail;
+
+  /// Short text of the draft's lines, set at enqueue.
+  final String summary;
+
   Map<String, dynamic> toJson() => {
     'local_id': localId,
     'body': body,
     'label': label,
     'created_at_ms': createdAtMs,
     'rejection': ?rejection,
+    'rejection_detail': ?rejectionDetail,
+    if (summary.isNotEmpty) 'summary': summary,
   };
 
   static QueuedDraft fromJson(Map<String, dynamic> json) => QueuedDraft(
@@ -53,17 +63,32 @@ class QueuedDraft {
     label: json['label'] as String? ?? '',
     createdAtMs: json['created_at_ms'] as int? ?? 0,
     rejection: json['rejection'] as String?,
+    rejectionDetail: json['rejection_detail'] is Map
+        ? Map<String, dynamic>.from(json['rejection_detail'] as Map)
+        : null,
+    summary: json['summary'] as String? ?? '',
   );
 }
 
 abstract class OfflineDraftQueue {
-  Future<EnqueueResult> enqueue(Map<String, dynamic> body, {String label = ''});
+  Future<EnqueueResult> enqueue(
+    Map<String, dynamic> body, {
+    String label = '',
+    String summary = '',
+  });
 
   /// Oldest first.
   Future<List<QueuedDraft>> all();
   Future<int> count();
   Future<void> remove(String localId);
-  Future<void> markRejected(String localId, String code);
+  Future<void> markRejected(
+    String localId,
+    String code, {
+    Map<String, dynamic>? detail,
+  });
+
+  /// Makes a refused entry sendable again (the person chose "Send again").
+  Future<void> clearRejection(String localId);
 
   /// Deletes every entry and releases the handle (logout, tenant switch).
   Future<void> closeAndClear();
@@ -94,6 +119,7 @@ class SembastOfflineDraftQueue implements OfflineDraftQueue {
   Future<EnqueueResult> enqueue(
     Map<String, dynamic> body, {
     String label = '',
+    String summary = '',
   }) async {
     final size = _size(body);
     if (size > kMaxQueuedEntryBytes) return EnqueueResult.tooLarge;
@@ -112,6 +138,7 @@ class SembastOfflineDraftQueue implements OfflineDraftQueue {
               localId: id,
               body: body,
               label: label,
+              summary: summary,
               createdAtMs: now,
             ).toJson(),
           );
@@ -142,8 +169,23 @@ class SembastOfflineDraftQueue implements OfflineDraftQueue {
   }
 
   @override
-  Future<void> markRejected(String localId, String code) async {
-    await _store.record(localId).update(_db, {'rejection': code});
+  Future<void> markRejected(
+    String localId,
+    String code, {
+    Map<String, dynamic>? detail,
+  }) async {
+    await _store.record(localId).update(_db, {
+      'rejection': code,
+      'rejection_detail': ?detail,
+    });
+  }
+
+  @override
+  Future<void> clearRejection(String localId) async {
+    await _store.record(localId).update(_db, {
+      'rejection': null,
+      'rejection_detail': null,
+    });
   }
 
   /// Closes the handle and keeps the data (a reload, in tests).
@@ -192,9 +234,12 @@ class ActiveOfflineQueue implements OfflineDraftQueue {
   Future<EnqueueResult> enqueue(
     Map<String, dynamic> body, {
     String label = '',
+    String summary = '',
   }) async {
     final q = await _queue();
-    return q == null ? EnqueueResult.full : q.enqueue(body, label: label);
+    return q == null
+        ? EnqueueResult.full
+        : q.enqueue(body, label: label, summary: summary);
   }
 
   @override
@@ -208,8 +253,15 @@ class ActiveOfflineQueue implements OfflineDraftQueue {
       (await _queue())?.remove(localId);
 
   @override
-  Future<void> markRejected(String localId, String code) async =>
-      (await _queue())?.markRejected(localId, code);
+  Future<void> markRejected(
+    String localId,
+    String code, {
+    Map<String, dynamic>? detail,
+  }) async => (await _queue())?.markRejected(localId, code, detail: detail);
+
+  @override
+  Future<void> clearRejection(String localId) async =>
+      (await _queue())?.clearRejection(localId);
 
   @override
   Future<void> closeAndClear() async {

@@ -25,6 +25,13 @@ defmodule Letflow.TenantProvisioner do
   the two integers. A replay of an existing tenant is never refused. The scheduled expire-and-purge is
   `Letflow.TenantProvisioner.Sweep`.
 
+  ## Default modules (T-1580, decision 0072 D8)
+
+  The last step of `complete/6` installs the configured default modules (`Config.default_modules/0`) with
+  `DefaultModules.ensure/3`. A failed install never fails the create: `tenant_lifecycles.default_modules_state`
+  becomes `failed` with `"<module_id>:<code>"`, and a replay of the create call retries it. Rows made
+  before the column existed are `not_applicable` and install nothing.
+
   ## What is never done
 
   No `auth_context` is built, no tenant data is read, no role or credential is created (P4, P5, P7).
@@ -48,6 +55,7 @@ defmodule Letflow.TenantProvisioner do
   alias Letflow.TenantLifecycle
   alias Letflow.TenantOnboarding
   alias Letflow.TenantProvisioner.Config
+  alias Letflow.TenantProvisioner.DefaultModules
   alias Letflow.TenantProvisioner.Lifecycle
   alias Letflow.TenantProvisioner.Request
   alias Letflow.TenantProvisioning
@@ -289,7 +297,9 @@ defmodule Letflow.TenantProvisioner do
                  lifecycle: "active",
                  tier: request.tier,
                  language: request.language,
-                 expires_at: request.expires_at
+                 expires_at: request.expires_at,
+                 default_modules_state:
+                   if(Config.default_modules() == [], do: "done", else: "pending")
                })
              ) do
         {tenant, lifecycle, demo_count + 1}
@@ -325,6 +335,8 @@ defmodule Letflow.TenantProvisioner do
          {:ok, record} <- ensure_onboarding(tenant, request),
          :ok <- ensure_grant(tenant, lifecycle, request, platform_prefix),
          :ok <- ensure_realm(tenant, request, platform_prefix) do
+      ensure_default_modules(tenant, lifecycle)
+
       {:ok, outcome,
        %{
          tenant_id: tenant.id,
@@ -334,6 +346,36 @@ defmodule Letflow.TenantProvisioner do
        }}
     end
   end
+
+  # T-1580: the last step. A failure here never fails the create: the state `failed` (plus
+  # "<module_id>:<code>") is recorded and the next replay of the create call retries. Rows made before
+  # the column existed are `not_applicable` and are never touched.
+  defp ensure_default_modules(tenant, %Lifecycle{default_modules_state: state} = lifecycle)
+       when state in ["pending", "failed"] do
+    opts =
+      case Application.get_env(:letflow, Letflow.TenantProvisioner, [])[:default_modules_install] do
+        nil -> []
+        fun -> [install: fun]
+      end
+
+    changes =
+      case DefaultModules.ensure(tenant.id, Config.default_modules(), opts) do
+        {:ok, :done} -> [default_modules_state: "done", default_modules_failure: nil]
+        {:error, text} -> [default_modules_state: "failed", default_modules_failure: text]
+      end
+
+    lifecycle |> Ecto.Changeset.change(changes) |> Repo.update()
+    :ok
+  rescue
+    _error ->
+      Logger.error(
+        "provisioner: default module state not recorded (tenant_id=#{inspect(tenant.id)})"
+      )
+
+      :ok
+  end
+
+  defp ensure_default_modules(_tenant, _lifecycle), do: :ok
 
   defp ensure_provisioned(%Tenant{status: :active} = tenant), do: {:ok, tenant}
 

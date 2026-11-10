@@ -60,3 +60,7 @@ FilterBar, DynamicForm mapping, toast timing, process canvas, breakpoints) are i
 
 The check of the six phase A screens before the owner's Gate A look, with its open items:
 [gate-a-style-check.md](gate-a-style-check.md).
+
+## Accessibility beyond forms
+
+Contrast, dialog focus, reduced motion, headings and landmarks: [accessibility.md](accessibility.md).

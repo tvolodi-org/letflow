@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import { P, useAccess, roleLabel } from '@/auth/access'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { tokensApi, usersApi } from '@/api/identity'
@@ -6,6 +6,7 @@ import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import type { ApiToken, ApiTokenStatus, IssuedToken, User } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
+import { useModalFocus } from '@/components/ui/useModalFocus'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { useToast } from '@/hooks/useToast'
 import { classifyError, type RendererState } from '@/utils/classifyError'
@@ -94,6 +95,11 @@ export default function TokensPage() {
   const [issuedToken, setIssuedToken] = useState<IssuedToken | null>(null)
   const [createError, setCreateError] = useState('')
   const [pendingRevoke, setPendingRevoke] = useState<TokenRow | null>(null)
+  const issuedRef = useRef<HTMLDivElement | null>(null)
+  const revokeRef = useRef<HTMLDivElement | null>(null)
+  // Escape on the one-time token box is the same dismiss as its button.
+  useModalFocus(issuedRef, { open: issuedToken != null, onClose: () => setIssuedToken(null) })
+  useModalFocus(revokeRef, { open: pendingRevoke != null, onClose: () => setPendingRevoke(null) })
 
   const { data: tokenList, isLoading, isError, error, refetch } = useQuery({
     queryKey: tenantKeys.admin.tokens(),
@@ -210,7 +216,7 @@ export default function TokensPage() {
       </div>
 
       {issuedToken && (
-        <div role="dialog" aria-modal="true" aria-label="Issued token" style={{ background: 'var(--color-success-tint)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-sm)', padding: '1rem', marginBottom: '1.25rem' }}>
+        <div ref={issuedRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Issued token" style={{ background: 'var(--color-success-tint)', border: '1px solid var(--color-success-border)', borderRadius: 'var(--radius-sm)', padding: '1rem', marginBottom: '1.25rem' }}>
           <p style={{ fontWeight: 600, marginBottom: '.5rem', color: 'var(--color-success-dark)' }}>This value will not be shown again.</p>
           <code data-testid="issued-token-value" style={{ fontSize: '.85rem', wordBreak: 'break-all', display: 'block', marginBottom: '.75rem' }}>{issuedToken.token_value}</code>
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -282,7 +288,7 @@ export default function TokensPage() {
       </QueryStateBoundary>
 
       {pendingRevoke && (
-        <div role="dialog" aria-modal="true" aria-label="Revoke token" style={{ position: 'fixed', inset: 0, background: 'var(--surface-overlay-slate)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 40 }}>
+        <div ref={revokeRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Revoke token" style={{ position: 'fixed', inset: 0, background: 'var(--surface-overlay-slate)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 40 }}>
           <div style={{ background: 'var(--surface-card)', width: 'min(520px, 100%)', borderRadius: '12px', padding: '1.25rem' }}>
             <h3 style={{ marginTop: 0 }}>Revoke token?</h3>
             <p style={{ color: 'var(--text-secondary)' }}>Revoking this API token immediately removes access for the associated user and roles.</p>

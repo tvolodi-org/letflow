@@ -20,6 +20,8 @@ defmodule Letflow.TenantProvisioner.Lifecycle do
     field(:deletion_requested_at, :utc_datetime_usec)
     field(:purged_at, :utc_datetime_usec)
     field(:owner_grant_stored, :boolean, default: false)
+    field(:default_modules_state, :string, default: "not_applicable")
+    field(:default_modules_failure, :string)
 
     timestamps()
   end

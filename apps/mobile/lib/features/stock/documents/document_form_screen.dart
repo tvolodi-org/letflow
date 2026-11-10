@@ -20,6 +20,7 @@ import 'document_kinds.dart';
 import 'document_pickers.dart';
 import 'documents_api.dart';
 import 'documents_providers.dart';
+import '../../../offline/offline_queue.dart' show QueuedDraft;
 import 'offline_providers.dart';
 import '../voice/voice_panel.dart';
 import 'picker_sheet.dart';
@@ -30,10 +31,13 @@ const String kStockDocumentsPath = '/stock/documents';
 String kindTitleKey(DocKind kind) => 'stock.doc.kind.${kind.wire}';
 
 class DocumentFormScreen extends ConsumerStatefulWidget {
-  const DocumentFormScreen({super.key, this.kind, this.id});
+  const DocumentFormScreen({super.key, this.kind, this.id, this.queuedId});
 
   final DocKind? kind;
   final String? id;
+
+  /// Edit and resend: local id of a refused queue entry.
+  final String? queuedId;
 
   @override
   ConsumerState<DocumentFormScreen> createState() => _DocumentFormScreenState();
@@ -55,11 +59,35 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
     final kind = widget.kind;
     if (kind != null) {
       _attach(DocDraft(kind: kind, eventTime: isoWithOffset(DateTime.now())));
+    } else if (widget.queuedId != null) {
+      unawaited(_openQueued());
     } else if (widget.id != null) {
       unawaited(_fetch());
     } else {
       _notFound = true;
     }
+  }
+
+  Future<void> _openQueued() async {
+    final queue = ref.read(offlineQueueProvider);
+    DocDraft? draft;
+    try {
+      final all = await queue?.all() ?? const <QueuedDraft>[];
+      for (final e in all) {
+        if (e.localId == widget.queuedId) draft = DocDraft.fromBody(e.body);
+      }
+    } on Object {
+      // Unreadable queue: not-found state below.
+    }
+    if (!mounted) return;
+    if (draft == null) {
+      _fail(notFound: true);
+      return;
+    }
+    setState(() {
+      _attach(draft!);
+      _load = RendererContent(data: draft);
+    });
   }
 
   void _attach(DocDraft draft) {
@@ -68,6 +96,7 @@ class _DocumentFormScreenState extends ConsumerState<DocumentFormScreen> {
       pickers: _pickers,
       draft: draft,
       queue: ref.read(offlineQueueProvider),
+      replacesQueuedId: widget.queuedId,
     )..addListener(_onChange);
   }
 

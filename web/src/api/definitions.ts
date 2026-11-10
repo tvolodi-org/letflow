@@ -40,6 +40,10 @@ export interface GraphValidationResponse {
   validated_at?: string
 }
 
+/** getVersions reads at most this many pages of VERSION_PAGE_SIZE rows. */
+export const MAX_VERSION_PAGES = 5
+export const VERSION_PAGE_SIZE = 200
+
 export const definitionsApi = {
   list: (params?: { status?: DefinitionStatus; name?: string; cursor?: string; page_size?: number }) =>
     client.get<CursorPage<ProcessDefinition>>('/api/v1/definitions', params as Record<string, unknown>),
@@ -88,8 +92,23 @@ export const definitionsApi = {
   search: (params: { q: string; cursor?: string; page_size?: number }) =>
     client.get<CursorPage<ProcessDefinition>>('/api/v1/definitions/search', params as Record<string, unknown>),
 
-  getVersions: (name: string) =>
-    client.get<CursorPage<ProcessDefinition>>('/api/v1/definitions', { name } as Record<string, unknown>),
+  /** Every version of the definition called `name` (newest first). The server's `name` filter is a substring match
+   *  (`%name%`), so the raw pages also hold other definitions (`purchase-approval` for `approval`): follow the
+   *  cursor and keep exact name matches only. At most MAX_VERSION_PAGES pages are read; when the cap is hit the
+   *  returned `next_cursor` is set (the caller shows a banner). */
+  getVersions: async (name: string): Promise<CursorPage<ProcessDefinition>> => {
+    const items: ProcessDefinition[] = []
+    let cursor: string | null = null
+    for (let page = 0; page < MAX_VERSION_PAGES; page++) {
+      const params: Record<string, unknown> = { name, page_size: VERSION_PAGE_SIZE }
+      if (cursor) params.cursor = cursor
+      const res: CursorPage<ProcessDefinition> = await client.get<CursorPage<ProcessDefinition>>('/api/v1/definitions', params)
+      for (const d of res.items ?? []) if (d.name === name) items.push(d)
+      cursor = res.next_cursor ?? null
+      if (!cursor) break
+    }
+    return { items, next_cursor: cursor }
+  },
 
   promote: (testTenantId: string, definitionName: string) =>
     client.post<PromoteResult>(`/api/v1/tenants/${testTenantId}/promote/${encodeURIComponent(definitionName)}`, {}),

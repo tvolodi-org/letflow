@@ -6,6 +6,7 @@ import 'package:letflow/offline/offline_sync.dart';
 import 'package:sembast/sembast_memory.dart';
 
 void main() {
+  group('conflicts', conflictTests);
   late SembastOfflineDraftQueue queue;
   late List<int> sent;
   setUp(() async {
@@ -79,5 +80,73 @@ void main() {
     final b = s.drain();
     await Future.wait([a, b]);
     expect(sent, [1, 2, 3]);
+  });
+}
+
+void conflictTests() {
+  late SembastOfflineDraftQueue queue;
+  setUp(() async {
+    queue = await SembastOfflineDraftQueue.open(
+      'q.db',
+      factory: newDatabaseFactoryMemory(),
+    );
+    await queue.enqueue({'n': 1, 'lines': []}, label: 'R', summary: 'sum');
+  });
+
+  Future<QueuedDraft> drainWith(ApiError e) async {
+    await OfflineSyncService(queue, (_) async => throw e).drain();
+    return (await queue.all()).single;
+  }
+
+  test('S6: the refusal detail is stored with the entry', () async {
+    final e = await drainWith(
+      const ValidationError(
+        fieldErrors: [],
+        reason: 'location_frozen',
+        field: 'location_id',
+        lineNo: 2,
+        side: 'to',
+      ),
+    );
+    expect(e.rejection, 'validation');
+    expect(e.rejectionDetail, {
+      'reason': 'location_frozen',
+      'field': 'location_id',
+      'line_no': 2,
+      'side': 'to',
+    });
+  });
+
+  test('S7: a refused entry is not touched by a later pass', () async {
+    await drainWith(const ConflictError(reason: 'document_not_draft'));
+    var calls = 0;
+    await OfflineSyncService(queue, (_) async => calls++).drain();
+    expect(calls, 0);
+    expect(await queue.count(), 1);
+  });
+
+  test('S8: every refusal keeps the body byte-identical', () async {
+    final before = (await queue.all()).single.body.toString();
+    for (final err in <ApiError>[
+      const ValidationError(fieldErrors: [], reason: 'document_not_draft'),
+      const ConflictError(),
+      const NotFoundError(),
+      const ForbiddenError(),
+      const ModuleNotAvailableError(moduleId: 'stock'),
+      const ValidationError(fieldErrors: [], reason: 'location_frozen'),
+    ]) {
+      await queue.clearRejection((await queue.all()).single.localId);
+      final e = await drainWith(err);
+      expect(e.rejection, isNotNull);
+      expect(e.body.toString(), before);
+    }
+  });
+
+  test('clearRejection makes the entry sendable again', () async {
+    await drainWith(const ConflictError());
+    await queue.clearRejection((await queue.all()).single.localId);
+    var calls = 0;
+    await OfflineSyncService(queue, (_) async => calls++).drain();
+    expect(calls, 1);
   });
 }

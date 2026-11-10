@@ -211,6 +211,13 @@ defmodule Letflow.Routers.NotificationDeliveriesTest do
       on_exit(&Double.reset/0)
       S.put_os_env!(S.user_var(), S.user())
       S.put_os_env!(S.pass_var(), S.pass())
+      # T-1571: the assignment mail is the tenant's opt-in e-mail copy.
+      {:ok, _} =
+        Letflow.Repo.query("UPDATE tenants SET settings = $1::jsonb WHERE id = $2", [
+          %{"notifications.email_copy" => true},
+          Ecto.UUID.dump!(fx.tenant_id)
+        ])
+
       user = RSG.user!(fx.schema_name)
 
       {:ok, _, _} =

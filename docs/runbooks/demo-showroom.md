@@ -13,6 +13,7 @@ build, and it is safe to run again after every upgrade.
 | Locations | Kazakhstan > Almaty > Central warehouse > Rack 01, Rack 02; Almaty > Showroom; Kazakhstan > Astana > Branch warehouse |
 | Catalog | 12 items named in English, Russian and Kazakh (for example `Laptop 14"`, `Цемент М400`, `Сүт 2,5% 1 л`, `Қара шай 100 г`), 4 units of measure, 2 lots of milk with expiry dates, 3 barcodes and a QR code on Rack 01 |
 | Stock | Documents of every kind, all posted: 2 receipts, a transfer, an issue, a hand over, a return, a write off, and an opening balance of the Sales team (approved by a second person); balances and the movements journal follow from them |
+| Assets access | The storekeeper reads and posts assets only where the tenant administrator switched it on (Users and groups > Roles > "Storekeeper: assets", D-097, T-1570). A demo tenant created now has it on; one created before stays off until switched on. Reverse, reconcile and card write remain administrator-only |
 | Stock count | One full count of the Warehouse team taken through counting (one shortage, one surplus line), closed, sheet signed, differences sheet issued and signed. It is left **unposted**, so a partner can press Post live. The Inv-10 and Inv-18 forms (also Tug-10 / Tug-18) print from it |
 | Assets | 6 cards (fixed, low value, intangible) and, when the build has the module, a commission, a hand over and a write off document |
 

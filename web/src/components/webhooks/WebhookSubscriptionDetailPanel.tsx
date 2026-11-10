@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { webhooksApi } from '@/api/dlq'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { WebhookDeliveryAttemptsTable } from '@/components/webhooks/WebhookDeliveryAttemptsTable'
+import { useModalFocus } from '@/components/ui/useModalFocus'
 import type { WebhookSubscription } from '@/types/api'
 import { formatDateTime } from '@/i18n/format'
 
@@ -38,6 +39,7 @@ export function WebhookSubscriptionDetailPanel({
   onClose,
 }: WebhookSubscriptionDetailPanelProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const boxRef = useRef<HTMLDivElement | null>(null)
   const subscriptionId = resolveSubscriptionId(subscription)
   const tenantKeys = useTenantScopedQueryKeys()
 
@@ -47,23 +49,10 @@ export function WebhookSubscriptionDetailPanel({
     enabled: isOpen,
   })
 
+  useModalFocus(boxRef, { open: isOpen, onClose })
   useEffect(() => {
-    if (!isOpen) return undefined
-
-    closeButtonRef.current?.focus()
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, onClose])
+    if (isOpen) closeButtonRef.current?.focus()
+  }, [isOpen])
 
   const eventTypes = useMemo(() => {
     if (!subscription.event_types || subscription.event_types.length === 0) return '—'
@@ -74,6 +63,8 @@ export function WebhookSubscriptionDetailPanel({
 
   return (
     <div
+      ref={boxRef}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-labelledby="webhook-detail-title"

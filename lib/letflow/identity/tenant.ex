@@ -341,6 +341,7 @@ defmodule Letflow.Identity.Tenant do
     |> validate_signatory_title(settings)
     |> validate_timezone(settings)
     |> validate_document_layout_default(settings)
+    |> validate_email_copy(settings)
   end
 
   defp validate_settings_value(:settings, _nil_or_other), do: []
@@ -370,6 +371,16 @@ defmodule Letflow.Identity.Tenant do
   end
 
   defp validate_document_layout_default(errors, _settings), do: errors
+
+  # T-1571: the per-tenant switch of the e-mail copy of the bell; absent or nil = off.
+  defp validate_email_copy(errors, %{"notifications.email_copy" => v})
+       when v in [true, false, nil],
+       do: errors
+
+  defp validate_email_copy(errors, %{"notifications.email_copy" => _v}),
+    do: [{:settings, "notifications.email_copy must be true or false"} | errors]
+
+  defp validate_email_copy(errors, _settings), do: errors
 
   @signatory_max_length 100
 

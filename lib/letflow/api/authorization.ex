@@ -433,6 +433,8 @@ defmodule Letflow.Api.Authorization do
           | :ScopeEnforcementTokensRead
           | :RoleScopeGrantsRead
           | :RoleScopeGrantsManage
+          | :RoleGrantsRead
+          | :RoleGrantsManage
           | :ServicePrincipalManage
           | :TenantSettingsManage
           | :PromotionsRead
@@ -669,12 +671,13 @@ defmodule Letflow.Api.Authorization do
     database-resolved tenant is the configured platform tenant.
     """
     @enforce_keys [:user_id, :roles]
-    defstruct [:user_id, :roles, platform_tenant?: false]
+    defstruct [:user_id, :roles, platform_tenant?: false, role_overlay: %{}]
 
     @type t :: %__MODULE__{
             user_id: String.t(),
             roles: [Letflow.Api.Authorization.role()],
-            platform_tenant?: boolean()
+            platform_tenant?: boolean(),
+            role_overlay: Letflow.Api.Authorization.role_overlay()
           }
   end
 
@@ -1428,6 +1431,11 @@ defmodule Letflow.Api.Authorization do
 
   def endpoint_policy_key("PUT", "/users/:id/service-principal"), do: :ServicePrincipalManage
 
+  # T-1570 (D-097) -- Letflow.Routers.TenantRoleGrants, mounted at /tenant/role-grants: the
+  # per-tenant storekeeper grant overlay. Policy keys over the EXISTING :UsersGroupsRolesManage.
+  def endpoint_policy_key("GET", "/tenant/role-grants"), do: :RoleGrantsRead
+  def endpoint_policy_key("PUT", "/tenant/role-grants"), do: :RoleGrantsManage
+
   # REQ-403 — Letflow.Routers.Me's new route, mounted at /me (full path
   # /api/v1/me/modules). See this module's moduledoc "MyModulesRead" section
   # and lib/letflow/design/req403-module-install-route.md §5.3.
@@ -1532,7 +1540,7 @@ defmodule Letflow.Api.Authorization do
         # ISS-0993 rule 3: a platform-scope permission is denied unless the
         # caller is a PLATFORM_ADMIN of the platform tenant; evaluated before
         # the role matrix so the PLATFORM_ADMIN catch-all cannot bypass it.
-        if not has_permission_in_scope?(roles, required, ctx.platform_tenant?) do
+        if not has_permission_in_scope?(roles, required, ctx.platform_tenant?, ctx.role_overlay) do
           %AccessDecision{kind: :Deny403, task_scope: nil}
         else
           if endpoint == :TasksList and is_task_worker_only?(roles) do
@@ -1713,7 +1721,13 @@ defmodule Letflow.Api.Authorization do
   # REQ-517 PR 2a (design 3.14): REQUIRED clause, same trap as the keys above. Tenant scope,
   # exactly :UsersGroupsRolesManage; the handlers then require it tenant-wide.
   def required_permission(key)
-      when key in [:RoleScopeGrantsRead, :RoleScopeGrantsManage, :ServicePrincipalManage],
+      when key in [
+             :RoleScopeGrantsRead,
+             :RoleScopeGrantsManage,
+             :RoleGrantsRead,
+             :RoleGrantsManage,
+             :ServicePrincipalManage
+           ],
       do: :UsersGroupsRolesManage
 
   def required_permission(:Unknown), do: :MetricsRead
@@ -1750,7 +1764,17 @@ defmodule Letflow.Api.Authorization do
   `role_allows?/2` is unchanged. Fail closed on a non-`true` `platform_tenant?`.
   """
   @spec has_permission_in_scope?([role()], permission() | atom(), boolean()) :: boolean()
-  def has_permission_in_scope?(roles, permission, platform_tenant?) do
+  def has_permission_in_scope?(roles, permission, platform_tenant?),
+    do: has_permission_in_scope?(roles, permission, platform_tenant?, %{})
+
+  @doc """
+  `has_permission_in_scope?/3` with a per-tenant grant overlay (T-1570, D-097) as an explicit input
+  value, like `platform_tenant?`. `%{}` is the baseline matrix. The overlay is sanitised against
+  `grantable/0` and is only consulted for tenant-scope permissions.
+  """
+  @spec has_permission_in_scope?([role()], permission() | atom(), boolean(), role_overlay()) ::
+          boolean()
+  def has_permission_in_scope?(roles, permission, platform_tenant?, overlay) do
     case permission_scope(permission) do
       :platform ->
         platform_tenant? == true and has_role?(roles, :PLATFORM_ADMIN) and
@@ -1762,7 +1786,7 @@ defmodule Letflow.Api.Authorization do
             do: roles,
             else: List.delete(roles, :PLATFORM_ADMIN)
 
-        has_permission?(scoped_roles, permission)
+        Enum.any?(scoped_roles, &role_allows?(&1, permission, overlay))
     end
   end
 
@@ -1822,6 +1846,41 @@ defmodule Letflow.Api.Authorization do
 
   def role_allows_without_module_grants?(role, permission),
     do: core_role_allows?(role, permission)
+
+  @typedoc "Per-tenant add-only grants: role => granted permission atoms (closed by `grantable/0`)."
+  @type role_overlay :: %{optional(role()) => [atom()]}
+
+  @doc """
+  The closed set of grants a tenant may switch on (T-1570, D-097): STOREKEEPER may read and post
+  assets. AssetsReverse, AssetsReconcile and AssetsCardWrite stay administrator-only. This constant,
+  not stored data, decides what can ever be granted.
+  """
+  @spec grantable() :: %{role() => [atom()]}
+  def grantable, do: %{STOREKEEPER: [:AssetsRead, :AssetsPost]}
+
+  @doc "Intersects any map with `grantable/0`; unknown roles, atoms and shapes are dropped (fail closed)."
+  @spec sanitize_overlay(term()) :: role_overlay()
+  def sanitize_overlay(overlay) when is_map(overlay) do
+    Enum.reduce(grantable(), %{}, fn {role, allowed}, acc ->
+      case Map.get(overlay, role) do
+        list when is_list(list) ->
+          kept = Enum.filter(allowed, &(&1 in list))
+          if kept == [], do: acc, else: Map.put(acc, role, kept)
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  def sanitize_overlay(_), do: %{}
+
+  @doc "`role_allows?/2` plus the tenant's overlay (pure; `%{}` equals `role_allows?/2`)."
+  @spec role_allows?(role(), permission() | atom(), term()) :: boolean()
+  def role_allows?(role, permission, overlay) do
+    role_allows?(role, permission) or
+      permission in Map.get(sanitize_overlay(overlay), role, [])
+  end
 
   @spec core_role_allows?(role(), permission()) :: boolean()
   defp core_role_allows?(role, permission)
