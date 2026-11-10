@@ -101,6 +101,8 @@ export const queryKeys = {
       [...queryKeys.instances.all(tenantId), 'timeline', id, cursor, pageSize] as const,
     /** T-1520: every timeline page of an instance (infinite query), for the diagram's path evidence. */
     timelineAll: (tenantId: string, id: string) => [...queryKeys.instances.all(tenantId), 'timeline-all', id] as const,
+    /** T-1635: every NODE_ENTERED page of an instance (infinite query), for the replay screen. */
+    nodeEntries: (tenantId: string, id: string) => [...queryKeys.instances.all(tenantId), 'node-entries', id] as const,
     attachments: (tenantId: string, instanceId: string) =>
       [...queryKeys.instances.all(tenantId), 'attachments', instanceId] as const,
     pins: (tenantId: string, instanceId: string) =>

@@ -205,6 +205,23 @@ export interface TimelinePage {
   count: number
 }
 
+/** T-1635: one NODE_ENTERED event as the history route returns it (REQ-793; payload shaped by
+ *  `Response.public_event_payload`). `via_edge_id` is null only for START. */
+export interface NodeEnteredItem {
+  event_id: string
+  event_type?: string
+  sequence_number: number
+  created_at: string
+  actor_display_name?: string | null
+  payload: { node_id: string; node_type: string; via_edge_id: string | null }
+}
+
+export interface NodeEntriesPage {
+  items: NodeEnteredItem[]
+  next_cursor: string | null
+  count: number
+}
+
 export interface AppendEventRequest {
   instance_id: string
   event_type: string

@@ -54015,3 +54015,31 @@ requirements:
       - "9. The Owner decisions section names the cut with rank 1 that costs no money as the candidate for task 2 of docs/uat/ba-decisions/T-1631.md item 7 (one later change), with its measured saving, and lists every cut that costs money as an open owner question with its measured saving. It applies nothing and answers none of the questions."
       - "10. git diff origin/main...HEAD --stat of the implementation change lists only docs/status/ci-minutes-after-batch4.md; every file path the note cites exists on origin/main at implement time (`git cat-file -e origin/main:<path>` succeeds for each), and every run id it cites is returned by `gh api repos/tvolodi-org/letflow/actions/runs/<id>`."
     depends_on: []
+  - id: REQ-799
+    title: "Process designer slice 3B part 2: the instance replay screen (step through the recorded path of one instance on the diagram, from NODE_ENTERED events)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-793 -- written by task T-1635 together with its build; the engine files the GitHub issue, REQ-793 (the writer) is merged but its status is not flipped by this team
+    # Source: task T-1635 (operator, D-086, PM order 2026-11-10); docs/uat/ba-decisions/T-1631.md item 4 (a requirement for the screen once REQ-793 is merged: step through the path of one finished or running instance on the diagram, in order, with the time at each step, using the node-entered events instead of inferring gateways); REQ-792 (the NODE_ENTERED type), REQ-793 (the engine writer, #4164); docs/design/process-designer.md "Instance path".
+    description: >
+      The Graph tab of the instance page shows the current path inferred from completion events (Live). Since REQ-793
+      the engine records one NODE_ENTERED event for every node a token enters, with payload node_id, node_type and
+      via_edge_id (null only for START). This requirement adds a Replay view next to Live: the same read-only diagram,
+      drawn for "after step k" from the recorded entries only, with First/Previous/Next/Last buttons, a range input
+      and an ordered step list (time of each step, time since the previous step, and the branch a join arrival came
+      from). Data comes from the existing history route GET /api/v1/instances/:id/history?event_type=NODE_ENTERED
+      (page size 200, cursor paging, at most 25 pages, polled while ACTIVE). Web only: no route, permission,
+      migration or backend change.
+    acceptance_criteria:
+      - "RQ1. Steps are listed in recorded order from NODE_ENTERED events, including gateways, joins and END (not inferred)."
+      - "RQ2. The diagram shows the path after the chosen step; arrival is not shown as completion: a node is Done only after a recorded departure from it (or an END), otherwise Active. A parallel join is Active from its first recorded branch arrival while it waits and Done only at the step that leaves it (its successor's entry); each branch arrival at a join is its own step. Unreached nodes and edges are neutral."
+      - "RQ3. Each step shows its time and the time since the previous step."
+      - "RQ4. Works for a finished and for a running instance (running follows the last step unless the user moved)."
+      - "RQ5. An instance with no recorded steps shows an explanatory banner and the Live view; one whose first entry is not START shows a \"steps before ... not recorded\" banner."
+      - "RQ6. The data is read through the existing history route filtered by NODE_ENTERED (no new route); the client cache key carries the tenant id."
+      - "RQ7. Keyboard and screen-reader operable (buttons, range input, aria-current, live region)."
+      - "RQ8. Text in en, ru and kk."
+      - "RQ9. Live remains the default on the Graph tab; Replay is a switch."
+      - "RQ10. Out of scope: auto-play, variables at a step, backfill, backend change."
+    depends_on: [REQ-793]

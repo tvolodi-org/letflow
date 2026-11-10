@@ -2,7 +2,14 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { instancesApi } from '@/api/instances'
-import type { InstanceStatus, StartInstanceRequest, TimelineEntry, TimelinePage } from '@/types/api'
+import type {
+  InstanceStatus,
+  NodeEnteredItem,
+  NodeEntriesPage,
+  StartInstanceRequest,
+  TimelineEntry,
+  TimelinePage,
+} from '@/types/api'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 
 export interface EventFilters {
@@ -129,6 +136,77 @@ export function useInstanceTimelineAll(id: string, opts: { status?: InstanceStat
     entries,
     complete: !!pages && !isError && lastCursor === null,
     truncated,
+    isError,
+    retry: () => {
+      if (hasNextPage) void fetchNextPage()
+      else void refetch()
+    },
+  }
+}
+
+export interface InstanceNodeEntries {
+  /** De-duplicated by `event_id`, ascending `sequence_number`. */
+  entries: NodeEnteredItem[]
+  /** False while pages are missing: a failed page, the page cap, or still loading. */
+  complete: boolean
+  truncated: boolean
+  isLoading: boolean
+  isError: boolean
+  retry: () => void
+}
+
+/** T-1635: every NODE_ENTERED page of an instance (REQ-793), for the replay screen. Same paging, cap and polling as
+ *  `useInstanceTimelineAll`: pages are followed until `next_cursor` is null (capped at MAX_TIMELINE_PAGES); while the
+ *  instance is ACTIVE the stored pages are re-read every 2 s (5 s beyond 3 pages); one final refetch when it leaves ACTIVE. */
+export function useInstanceNodeEntries(id: string, opts: { status?: InstanceStatus | string; pageSize?: number } = {}): InstanceNodeEntries {
+  const instanceKeys = useTenantScopedQueryKeys().instances
+  const pageSize = opts.pageSize ?? TIMELINE_ALL_PAGE_SIZE
+  const live = opts.status === 'ACTIVE'
+  const q = useInfiniteQuery({
+    queryKey: instanceKeys.nodeEntries(id),
+    queryFn: ({ pageParam }) =>
+      instancesApi.nodeEntries(id, { page_size: pageSize, ...(pageParam ? { cursor: pageParam } : {}) }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last: NodeEntriesPage, all: NodeEntriesPage[]) =>
+      all.length >= MAX_TIMELINE_PAGES ? undefined : last?.next_cursor ?? undefined,
+    enabled: !!id,
+    retry: false,
+    refetchInterval: (query) => (live ? ((query.state.data?.pages.length ?? 0) > 3 ? 5000 : 2000) : false),
+  })
+  const { hasNextPage, isFetchingNextPage, fetchNextPage, isError, refetch } = q
+  // The page count is a dependency too: a page that answers at once can batch isFetchingNextPage true→false into
+  // one render, and without it the effect would not run again after the second page.
+  const pageCount = q.data?.pages.length ?? 0
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, isError, fetchNextPage, pageCount])
+
+  const prevStatus = useRef(opts.status)
+  useEffect(() => {
+    if (prevStatus.current === 'ACTIVE' && opts.status !== undefined && opts.status !== 'ACTIVE') void refetch()
+    prevStatus.current = opts.status
+  }, [opts.status, refetch])
+
+  const pages = q.data?.pages
+  const lastCursor = pages && pages.length > 0 ? pages[pages.length - 1]?.next_cursor ?? null : null
+  const truncated = !!pages && pages.length >= MAX_TIMELINE_PAGES && lastCursor !== null
+  const entries = useMemo(() => {
+    const seen = new Set<string>()
+    const out: NodeEnteredItem[] = []
+    for (const p of pages ?? []) {
+      for (const e of p?.items ?? []) {
+        if (seen.has(e.event_id)) continue
+        seen.add(e.event_id)
+        out.push(e)
+      }
+    }
+    return out.sort((a, b) => a.sequence_number - b.sequence_number)
+  }, [pages])
+  return {
+    entries,
+    complete: !!pages && !isError && lastCursor === null,
+    truncated,
+    isLoading: q.isLoading,
     isError,
     retry: () => {
       if (hasNextPage) void fetchNextPage()
