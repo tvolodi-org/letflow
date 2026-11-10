@@ -91,6 +91,8 @@ describe('useTenantScopedQueryKeys — REQ-384 §7.2 core mechanism', () => {
       result.current.help.resolved('screen', null),
       result.current.exam.list(),
       result.current.platformMigrations.status('roll-1'),
+      result.current.moduleRollouts.list(),
+      result.current.moduleRollouts.status('roll-1'),
       result.current.solutionPackUpdate.review('pack-1', '2.0.0'),
       result.current.eventRetention.summary(),
     ]

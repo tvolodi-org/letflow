@@ -21,6 +21,7 @@ import { entitiesMessages } from '@/i18n/entitiesMessages'
 import { solutionOverridesMessages } from '@/i18n/solutionOverridesMessages'
 import { importMessages } from '@/i18n/importMessages'
 import { usersImportMessages } from '@/pages/admin/usersImport/usersImportMessages'
+import { moduleRolloutsMessages } from '@/pages/admin/module-rollouts/moduleRolloutsMessages'
 import { processDiagramMessages } from '@/i18n/processDiagramMessages'
 import { auditMessages } from '@/i18n/auditMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
@@ -315,6 +316,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('passwordResetMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('passwordReset', passwordResetMessages)
+  })
+
+  it('moduleRolloutsMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('moduleRollouts', moduleRolloutsMessages)
   })
 
   it('usersImportMessages: all en keys in ru/kk, no empty values', () => {
