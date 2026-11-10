@@ -42,7 +42,7 @@ Opening balances are loaded and checked against the company's own lists.
 | storekeeper | Loads stock opening lines, dry_run first | `stock` | Admin > Import data | `docs/roles.md` (STOREKEEPER: registered import function, opening lines) |
 | company administrator | Loads asset cards, dry_run first (only if assets are installed) | `assets` | Admin > Import data | `docs/assets/asset-xlsx.md`, section 1 |
 | company administrator | Loads asset opening lines, dry_run first, after the cards | `assets` | Admin > Import data | `docs/assets/asset-xlsx.md`, section 5a |
-| accountant | Checks the loaded stock totals against the company's own lists | `stock` | admin/stock/balances | this file, What to measure (M2) |
+| accountant | Checks the loaded stock totals against the company's own lists | `stock` | admin/stock/balances | `docs/guides/tenant-admin/en.md`, section 3 (balance visibility); `web/src/modules/stock/help/stockHelpTopics.ts` (topic `balances`) |
 | accountant | Checks asset balances against the company's own list (only if assets are installed) | `assets` | Assets balances | `docs/assets/asset-xlsx.md`, section 7 |
 
 ## Week 3
@@ -51,9 +51,9 @@ The storekeeper starts the daily work and the first count.
 
 | Who | Does | Module | Where | Source |
 |---|---|---|---|---|
-| storekeeper | Enters the daily stock documents | `stock` | admin/stock/documents | stock help topic `documents` |
-| storekeeper | Runs the first stock count | `stock` | admin/stock/counts | stock help topic `counts` |
-| storekeeper | Prints the forms of documents and counts | `stock` | admin/stock/documents, admin/stock/counts | stock help topics `documents`, `counts` |
+| storekeeper | Enters the daily stock documents | `stock` | admin/stock/documents | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `documents`) |
+| storekeeper | Runs the first stock count | `stock` | admin/stock/counts | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `counts`) |
+| storekeeper | Prints the forms of documents and counts | `stock` | admin/stock/documents, admin/stock/counts | `web/src/modules/stock/help/stockHelpTopics.ts` (topics `documents`, `counts`) |
 | company administrator | Reads the audit log | none | Admin > Audit | `docs/guides/tenant-admin/en.md`, section 6 |
 
 ## Week 4
@@ -62,10 +62,10 @@ The storekeeper repeats the count; the three people review the month.
 
 | Who | Does | Module | Where | Source |
 |---|---|---|---|---|
-| storekeeper | Runs the second stock count | `stock` | admin/stock/counts | stock help topic `counts` |
-| accountant | Takes the measures of What to measure | none | see What to measure | this file, What to measure |
-| company administrator | Takes the measures of What to measure | none | see What to measure | this file, What to measure |
-| storekeeper, accountant, company administrator | Exit review together | none | this file, Exit criteria | this file, Exit criteria |
+| storekeeper | Runs the second stock count | `stock` | admin/stock/counts | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `counts`) |
+| accountant | Takes the measures of What to measure | none | see What to measure | the What to measure table below |
+| company administrator | Takes the measures of What to measure | none | see What to measure | the What to measure table below |
+| storekeeper, accountant, company administrator | Exit review together | none | the Exit criteria list below | the Exit criteria list below |
 
 ## Training
 
@@ -80,11 +80,11 @@ Texts are not copied here; each person reads the existing page in the language t
 | Question | Read first |
 |---|---|
 | An import row is refused | `docs/guides/tenant-admin/en.md`, section 5 |
-| A document cannot be posted | stock help topic `documents` |
-| A count is frozen | stock help topic `counts` |
-| A balance is hidden | stock help topic `balances`; `docs/guides/tenant-admin/en.md`, section 3 |
+| A document cannot be posted | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `documents`) |
+| A count is frozen | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `counts`) |
+| A balance is hidden | `web/src/modules/stock/help/stockHelpTopics.ts` (topic `balances`); `docs/guides/tenant-admin/en.md`, section 3 |
 | Sign-in fails (about 5 wrong attempts lock the account for a few minutes, up to 15) | `docs/guides/tenant-admin/en.md`, section 8 |
-| A printed form looks wrong | stock help topics `documents`, `counts` |
+| A printed form looks wrong | `web/src/modules/stock/help/stockHelpTopics.ts` (topics `documents`, `counts`) |
 | A user does not see a menu item | `docs/guides/tenant-admin/en.md`, section 8 |
 
 A question that these pages do not answer goes to the owner. Per D-116 (`docs/uat/ba-decisions/T-1605.md`, section 3) nobody is on call and there is no night service for a non-paying pilot.
@@ -98,8 +98,8 @@ No targets are set here; each measure is read where it already exists.
 | M1 Rows imported and refused per import | Import report of Admin > Import data | company administrator | weeks 1 and 2 |
 | M2 Opening balances loaded versus the company's lists | admin/stock/balances | accountant | week 2 |
 | M3 Count result: differences found, posted or explained | admin/stock/counts | storekeeper, accountant | weeks 3 and 4 |
-| M4 Documents entered without team help | admin/stock/documents | storekeeper | weeks 3 and 4 |
-| M5 Users who signed in | Audit log (Admin > Audit) | company administrator | weeks 1 to 4 |
+| M4 Documents entered in the week, and whether the storekeeper says they needed team help (the storekeeper answers yes or no) | admin/stock/documents for the count; the storekeeper's own answer for the help | storekeeper | weeks 3 and 4 |
+| M5 Users who signed in: each pilot user signs in once on the sign-in page while the administrator watches, and the administrator ticks the name | Observed sign-in on the sign-in page (the audit log records user creation, not sign-in) | company administrator | weeks 1 to 4 |
 | M6 System health | Metrics page (`docs/guides/tenant-admin/en.md`, section 7) | company administrator | weeks 1 to 4 |
 
 ## Exit criteria
@@ -108,8 +108,8 @@ Yes/no list. Any number added later is a proposal, to be confirmed by the owner.
 
 - [ ] Opening balances are loaded and the accountant confirmed the totals (M1, M2).
 - [ ] A stock count was completed and the differences were posted or explained (M3).
-- [ ] The storekeeper worked a week of documents without team help (M4).
-- [ ] All pilot users can sign in (M5).
+- [ ] The storekeeper worked a week of documents and said no help from the team was needed (M4).
+- [ ] Every pilot user was observed signing in (M5).
 - [ ] No unresolved health problem on the Metrics page (M6).
 
 ## Open owner questions
