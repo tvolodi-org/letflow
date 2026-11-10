@@ -78,7 +78,7 @@ defmodule Letflow.Modules.Assets.XlsxExport do
       ]
     }
 
-    case Elixlsx.write_to_memory(workbook, @file_name) do
+    case XlsxStyle.write_to_memory(workbook, @file_name) do
       {:ok, {_name, binary}} -> {:ok, binary}
       _ -> {:error, :xlsx_write_failed}
     end
