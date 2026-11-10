@@ -20,6 +20,7 @@ import { InstancePinsPanel } from '@/components/instances/InstancePinsPanel'
 import { TimelineFeed } from '@/components/instances/TimelineFeed'
 import { HistoryScrubber } from '@/components/instances/HistoryScrubber'
 import { ProcessGraphWithTokens } from '@/components/instances/ProcessGraphWithTokens'
+import { GraphModeSwitch, InstanceReplay } from '@/components/instances/InstanceReplay'
 import { CancelInstanceDialog } from '@/components/instances/CancelInstanceDialog'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
@@ -107,6 +108,8 @@ export default function InstanceDetailPage() {
   const polling = usePolling({ queryKeyPrefix: detailQueryKey, enabled: !!id })
 
   const [activeTab, setActiveTab] = useState<'graph' | 'history' | 'timeline'>('history')
+  // T-1635: Live (default) or Replay on the Graph tab.
+  const [graphMode, setGraphMode] = useState<'live' | 'replay'>('live')
   const [timelineCursor, setTimelineCursor] = useState<string | undefined>(undefined)
   const [timelineItems, setTimelineItems] = useState<TimelineEntry[]>([])
   const [timelineRequested, setTimelineRequested] = useState(false)
@@ -335,7 +338,8 @@ export default function InstanceDetailPage() {
       {activeTab === 'graph' && (
         <>
           <h3 style={{ marginBottom: '.75rem' }}>Process Graph with Tokens</h3>
-          <ProcessGraphWithTokens instanceId={id!} />
+          <GraphModeSwitch mode={graphMode} onChange={setGraphMode} />
+          {graphMode === 'live' ? <ProcessGraphWithTokens instanceId={id!} /> : <InstanceReplay instanceId={id!} />}
         </>
       )}
 
