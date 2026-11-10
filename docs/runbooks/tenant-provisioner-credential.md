@@ -15,7 +15,9 @@ server; it opens exactly five routes under `/admin/v1` and nothing else.
 | `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | empty: every hostname refused | comma-separated suffixes; a tenant hostname is one label plus one of them |
 | `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | 14 | default `expires_at` of a created tenant |
 | `LETFLOW_PROVISIONER_RETENTION_DAYS` | 30 | days a deactivated tenant's data is kept before it is purged (0..3650; REQ-580) |
-| `LETFLOW_PROVISIONER_DEMO_CAP` | 30 | most demo tenants (tier demo, lifecycle not deleted) at once; a create beyond it answers 409 `conflict` (0..100000; GH 3292) |
+| `LETFLOW_PROVISIONER_SOURCE_DAILY_BUDGET` | 0 (off) | most NEW demo tenants one create-body `source_key` may make in a rolling 24 h; deleted tenants still count (0..100000; T-1621) |
+| `LETFLOW_PROVISIONER_EMAIL_DOMAIN_DAILY_BUDGET` | 0 (off) | the same per owner e-mail domain (0..100000; T-1621) |
+| `LETFLOW_PROVISIONER_DEMO_CAP` | 30 | most demo tenants (tier demo, lifecycle not deleted) at once; a create beyond it answers 409 `conflict` with `limit: demo_cap_reached` (0..100000; GH 3292) |
 | `LETFLOW_PROVISIONER_DEMO_ALARM` | 25 | when a create leaves the demo count at or above it, one warning log line names the count and the cap (0..100000) |
 | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | 60 | minutes between scheduled sweeps (1..10080) |
 | `LETFLOW_PROVISIONER_DEFAULT_MODULES` | org, locations, catalog_items, stock | comma-separated module ids installed (with their dependencies) when a tenant is created; `none` installs nothing (at most 20 ids). If a tenant's install failed, repeat the create call with the same `tenant_id`; find such tenants with `SELECT tenant_id, default_modules_state, default_modules_failure FROM tenant_lifecycles WHERE default_modules_state = 'failed'` |
@@ -74,8 +76,11 @@ Find a stuck tenant by that line.
 The sweep is on by default outside the test env, and it purges data: any deployment that has provisioner-created demo tenants sweeps them without further
 action. There is no environment variable to turn it off; set `config :letflow, start_provisioner_sweep: false` in the deployment's config to stop it.
 
-The cap answers a create beyond `LETFLOW_PROVISIONER_DEMO_CAP` with the same 409 `conflict` body as the exists-conflict (REQ-572 criterion 19; it reveals no
-tenant data). The alarm variable is named `LETFLOW_PROVISIONER_DEMO_ALARM`, as in decision 0072.
+The cap answers a create beyond `LETFLOW_PROVISIONER_DEMO_CAP` with 409 `{error: "conflict", limit, message}` (REQ-572 criterion 19, amended by T-1621). `limit` is `demo_cap_reached`, `source_budget_reached` or
+`email_domain_budget_reached` (checked in that order: source, domain, cap) and `message` is a sentence in the request `language` (en, ru, kk); the
+exists-conflict has no `limit`. The body reveals no tenant data or count. The optional create-body field `source_key` (1..128 printable ASCII) is an
+opaque visitor-source id the front door chooses (for example its own hash of the IP, /64 for IPv6); Letflow keeps only its SHA-256, and without it no
+per-source check runs. The alarm variable is named `LETFLOW_PROVISIONER_DEMO_ALARM`, as in decision 0072.
 
 The demo cap: a create of a new tenant is refused with 409 `conflict` while the demo count (tier `demo`, lifecycle not `deleted`) is at
 `LETFLOW_PROVISIONER_DEMO_CAP`. The alarm is the warning `provisioner: demo tenant count reached the alarm threshold (count=N, cap=M)`; raise the cap or

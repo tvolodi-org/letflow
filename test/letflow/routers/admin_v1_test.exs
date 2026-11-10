@@ -289,6 +289,7 @@ defmodule Letflow.Routers.AdminV1Test do
       before = counts()
       conn = call(:post, "/admin/v1/tenants", @write_token, second)
       assert conn.status == 409 and json(conn)["error"] == "conflict"
+      assert json(conn)["limit"] == "demo_cap_reached"
       assert counts() == before
       assert Repo.get(Tenant, second["tenant_id"]) == nil
 
@@ -358,6 +359,163 @@ defmodule Letflow.Routers.AdminV1Test do
         |> Enum.map(&Task.await(&1, 60_000))
 
       assert Enum.sort(statuses) == [201, 409]
+    end
+  end
+
+  # T-1621 / TA-SL5: rolling 24 h creation budgets per request source_key and per owner e-mail domain.
+  describe "SB source and e-mail-domain budgets" do
+    setup do
+      previous = Application.get_env(:letflow, Letflow.TenantProvisioner, [])
+      on_exit(fn -> Application.put_env(:letflow, Letflow.TenantProvisioner, previous) end)
+      put_budget(source_daily_budget: 0, email_domain_daily_budget: 0, demo_cap: 100_000)
+      :ok
+    end
+
+    defp put_budget(extra) do
+      current = Application.get_env(:letflow, Letflow.TenantProvisioner, [])
+      Application.put_env(:letflow, Letflow.TenantProvisioner, Keyword.merge(current, extra))
+    end
+
+    defp skey, do: "src-#{System.unique_integer([:positive])}"
+
+    defp domain_mail,
+      do: "u#{System.unique_integer([:positive])}@d#{System.unique_integer([:positive])}.example"
+
+    test "S1 a second create from one source_key is 409 source_budget_reached; another key is 201" do
+      put_budget(source_daily_budget: 1)
+      key = skey()
+      create!(%{"source_key" => key})
+
+      second = create_body(%{"source_key" => key})
+      track(second["tenant_id"])
+      before = counts()
+      conn = call(:post, "/admin/v1/tenants", @write_token, second)
+      assert conn.status == 409
+      assert json(conn)["error"] == "conflict"
+      assert json(conn)["limit"] == "source_budget_reached"
+      assert counts() == before
+      assert Repo.get(Tenant, second["tenant_id"]) == nil
+
+      create!(%{"source_key" => skey()})
+    end
+
+    test "S2 a second create for one e-mail domain is 409 email_domain_budget_reached" do
+      put_budget(email_domain_daily_budget: 1)
+      domain = "d#{System.unique_integer([:positive])}.example"
+      create!(%{"owner_email" => "a#{System.unique_integer([:positive])}@#{domain}"})
+
+      second = create_body(%{"owner_email" => "b#{System.unique_integer([:positive])}@#{domain}"})
+      track(second["tenant_id"])
+      conn = call(:post, "/admin/v1/tenants", @write_token, second)
+      assert conn.status == 409
+      assert json(conn)["limit"] == "email_domain_budget_reached"
+
+      create!(%{"owner_email" => domain_mail()})
+    end
+
+    test "S3 the source budget is reported before the cap" do
+      key = skey()
+      put_budget(source_daily_budget: 1)
+      create!(%{"source_key" => key})
+      put_budget(demo_cap: 0)
+
+      second = create_body(%{"source_key" => key})
+      track(second["tenant_id"])
+      conn = call(:post, "/admin/v1/tenants", @write_token, second)
+      assert json(conn)["limit"] == "source_budget_reached"
+    end
+
+    test "S4 creates older than 24 h do not count; a replay is neither refused nor counted" do
+      put_budget(source_daily_budget: 1)
+      key = skey()
+      {first, _} = create!(%{"source_key" => key})
+      assert call(:post, "/admin/v1/tenants", @write_token, first).status == 200
+
+      Repo.update_all(
+        from(l in Lifecycle, where: l.tenant_id == ^first["tenant_id"]),
+        set: [inserted_at: DateTime.add(DateTime.utc_now(), -90_000, :second)]
+      )
+
+      create!(%{"source_key" => key})
+    end
+
+    test "S5 two creates racing for the last place of a source budget: [201, 409]" do
+      put_budget(source_daily_budget: 1)
+      key = skey()
+      bodies = for _ <- 1..2, do: create_body(%{"source_key" => key})
+      Enum.each(bodies, &track(&1["tenant_id"]))
+
+      statuses =
+        bodies
+        |> Enum.map(
+          &Task.async(fn -> call(:post, "/admin/v1/tenants", @write_token, &1).status end)
+        )
+        |> Enum.map(&Task.await(&1, 60_000))
+
+      assert Enum.sort(statuses) == [201, 409]
+    end
+
+    test "S6 the message follows the request language" do
+      put_budget(source_daily_budget: 1)
+      key = skey()
+      create!(%{"source_key" => key})
+
+      for lang <- ~w(en ru kk) do
+        body = create_body(%{"source_key" => key, "language" => lang})
+        track(body["tenant_id"])
+        conn = call(:post, "/admin/v1/tenants", @write_token, body)
+
+        assert json(conn)["message"] ==
+                 Letflow.TenantProvisioner.LimitMessages.text("source_budget_reached", lang)
+      end
+    end
+
+    test "S7 the source_key is never stored or logged; only 32-byte digests" do
+      put_budget(source_daily_budget: 1)
+      key = skey()
+      domain = "d#{System.unique_integer([:positive])}.example"
+      email = "z@#{domain}"
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          create!(%{"source_key" => key, "owner_email" => email})
+          second = create_body(%{"source_key" => key})
+          track(second["tenant_id"])
+          call(:post, "/admin/v1/tenants", @write_token, second)
+        end)
+
+      refute log =~ key
+
+      # The e-mail itself is in pre-existing grant queries (debug SQL log); only the new digests are ours.
+
+      [row] =
+        Repo.all(
+          from(l in Lifecycle,
+            where:
+              l.source_ip_key == ^:crypto.hash(:sha256, "letflow:provisioner:source:v1:" <> key)
+          )
+        )
+
+      assert byte_size(row.source_ip_key) == 32 and byte_size(row.email_domain_key) == 32
+    end
+
+    test "S8 a bad source_key is 400 naming only the field" do
+      for bad <- ["", String.duplicate("a", 129), "a b", "a\nb", 5] do
+        conn = call(:post, "/admin/v1/tenants", @write_token, create_body(%{"source_key" => bad}))
+        assert conn.status == 400
+        assert json(conn)["message"] == "invalid field: source_key"
+      end
+    end
+
+    test "S9 rows without keys (older rows) are not counted" do
+      put_budget(source_daily_budget: 1)
+      {old, _} = create!()
+
+      Repo.update_all(from(l in Lifecycle, where: l.tenant_id == ^old["tenant_id"]),
+        set: [source_ip_key: nil, email_domain_key: nil]
+      )
+
+      create!(%{"source_key" => skey()})
     end
   end
 
@@ -592,6 +750,7 @@ defmodule Letflow.Routers.AdminV1Test do
       conn = call(:post, "/admin/v1/tenants", @write_token, conflict)
       assert conn.status == 409
       assert json(conn)["error"] == "conflict"
+      refute Map.has_key?(json(conn), "limit")
       assert counts() == before
     end
   end

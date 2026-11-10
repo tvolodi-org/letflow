@@ -227,6 +227,8 @@ All are configuration read in `config/runtime.exs` from the environment, with th
 | Setting (env var) | Starting value | Meaning |
 |---|---|---|
 | `LETFLOW_PROVISIONER_DEMO_CAP` | 30 | `tenant_lifecycles` rows with tier demo and lifecycle not deleted; a create beyond it answers 409 `conflict` (`demo_cap_reached`) |
+| `LETFLOW_PROVISIONER_SOURCE_DAILY_BUDGET` | 0 (off) | T-1621 amendment (2026-11-10): new demo tenants per create-body `source_key` digest in a rolling 24 h; the 409 gains `limit: source_budget_reached` |
+| `LETFLOW_PROVISIONER_EMAIL_DOMAIN_DAILY_BUDGET` | 0 (off) | T-1621 amendment: the same per owner e-mail domain digest; `limit: email_domain_budget_reached`. The cap 409 now also carries `limit: demo_cap_reached`; `error` stays `conflict` |
 | `LETFLOW_PROVISIONER_DEMO_ALARM` | 25 | a warning-level log line with the count and the cap, no tenant data |
 | `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | 14 | after creation; sets `expires_at` when the request gives none; the sweep expires the demo |
 | `LETFLOW_PROVISIONER_RETENTION_DAYS` | 30 | counted from expiry or from the deletion request, then purge (and the reaper deletes the realm) |

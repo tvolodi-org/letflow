@@ -14,12 +14,13 @@ defmodule Letflow.TenantProvisioner.Request do
   | `hostname` | one label + `.` + a configured suffix (D5b) |
   | `idp_realm_id` | `t-` + the first 20 hex digits of the tenant id (P13) |
   | `expires_at` | optional ISO 8601 UTC in the future; default now + the demo lifetime |
+  | `source_key` | optional opaque visitor-source id chosen by the front door, 1..128 printable ASCII; kept only as a SHA-256 (T-1621) |
   """
 
   alias Letflow.Identity.PendingAdminGrants
   alias Letflow.Identity.Tenant
 
-  @keys ~w(tenant_id name language tier owner_email hostname idp_realm_id expires_at)
+  @keys ~w(tenant_id name language tier owner_email hostname idp_realm_id expires_at source_key)
   @required ~w(tenant_id name language tier owner_email hostname idp_realm_id)
   @languages ~w(ru kk en)
   @label_regex ~r/\A[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\z/
@@ -34,7 +35,9 @@ defmodule Letflow.TenantProvisioner.Request do
           email_key: String.t(),
           hostname: String.t(),
           idp_realm_id: String.t(),
-          expires_at: DateTime.t()
+          expires_at: DateTime.t(),
+          source_ip_key: binary() | nil,
+          email_domain_key: binary()
         }
 
   @doc """
@@ -56,7 +59,8 @@ defmodule Letflow.TenantProvisioner.Request do
          {:ok, email_key} <- email(body["owner_email"]),
          {:ok, hostname} <- hostname(body["hostname"], suffixes()),
          {:ok, realm} <- realm(body["idp_realm_id"], tenant_id),
-         {:ok, expires_at} <- expires_at(Map.get(body, "expires_at"), now) do
+         {:ok, expires_at} <- expires_at(Map.get(body, "expires_at"), now),
+         {:ok, source_ip_key} <- source_key(Map.get(body, "source_key")) do
       {:ok,
        %{
          tenant_id: tenant_id,
@@ -66,7 +70,9 @@ defmodule Letflow.TenantProvisioner.Request do
          email_key: email_key,
          hostname: hostname,
          idp_realm_id: realm,
-         expires_at: expires_at
+         expires_at: expires_at,
+         source_ip_key: source_ip_key,
+         email_domain_key: domain_key(email_key)
        }}
     end
   end
@@ -148,6 +154,24 @@ defmodule Letflow.TenantProvisioner.Request do
       {:ok, key} -> {:ok, key}
       :error -> {:error, "owner_email"}
     end
+  end
+
+  # T-1621: the raw source value and the e-mail domain are never kept; only these digests reach the table.
+  defp source_key(nil), do: {:ok, nil}
+
+  defp source_key(raw) when is_binary(raw) do
+    trimmed = String.trim(raw)
+
+    if byte_size(trimmed) in 1..128 and Regex.match?(~r/\A[\x21-\x7E]+\z/, trimmed),
+      do: {:ok, :crypto.hash(:sha256, "letflow:provisioner:source:v1:" <> trimmed)},
+      else: {:error, "source_key"}
+  end
+
+  defp source_key(_raw), do: {:error, "source_key"}
+
+  defp domain_key(email_key) do
+    domain = email_key |> String.split("@") |> List.last()
+    :crypto.hash(:sha256, "letflow:provisioner:domain:v1:" <> domain)
   end
 
   defp realm(raw, tenant_id) when is_binary(raw) do

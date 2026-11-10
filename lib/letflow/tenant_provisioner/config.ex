@@ -12,6 +12,8 @@ defmodule Letflow.TenantProvisioner.Config do
   | `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | default `expires_at` offset (1..3650) | 14 |
   | `LETFLOW_PROVISIONER_RETENTION_DAYS` | days a deactivated tenant's data is kept before purge (0..3650) | 30 |
   | `LETFLOW_PROVISIONER_DEMO_CAP` | most demo tenants (lifecycle not deleted) before a create answers 409 (0..100000) | 30 |
+  | `LETFLOW_PROVISIONER_SOURCE_DAILY_BUDGET` | most NEW demo tenants one request `source_key` may create in a rolling 24 h (0..100000; 0 = no limit) | 0 |
+  | `LETFLOW_PROVISIONER_EMAIL_DOMAIN_DAILY_BUDGET` | the same per owner e-mail domain (0..100000; 0 = no limit) | 0 |
   | `LETFLOW_PROVISIONER_DEMO_ALARM` | demo count at which a create logs one warning (0..100000); name as in decision 0072 | 25 |
   | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | minutes between scheduled sweeps (1..10080) | 60 |
   | `LETFLOW_PROVISIONER_DEFAULT_MODULES` | comma-separated module ids installed (with their dependencies) on create; `none` = no install (≤ 20 ids) | org, locations, catalog_items, stock |
@@ -32,6 +34,8 @@ defmodule Letflow.TenantProvisioner.Config do
   @default_retention_days 30
   @demo_cap_var "LETFLOW_PROVISIONER_DEMO_CAP"
   @alarm_var "LETFLOW_PROVISIONER_DEMO_ALARM"
+  @source_budget_var "LETFLOW_PROVISIONER_SOURCE_DAILY_BUDGET"
+  @domain_budget_var "LETFLOW_PROVISIONER_EMAIL_DOMAIN_DAILY_BUDGET"
   @interval_var "LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES"
   @default_demo_cap 30
   @default_alarm_threshold 25
@@ -55,6 +59,8 @@ defmodule Letflow.TenantProvisioner.Config do
          {:ok, retention} <- parse_retention(env),
          {:ok, demo_cap} <- parse_int(env, @demo_cap_var, 0..100_000),
          {:ok, alarm} <- parse_int(env, @alarm_var, 0..100_000),
+         {:ok, source_budget} <- parse_int(env, @source_budget_var, 0..100_000),
+         {:ok, domain_budget} <- parse_int(env, @domain_budget_var, 0..100_000),
          {:ok, interval} <- parse_int(env, @interval_var, 1..10_080),
          {:ok, modules} <- parse_modules(env),
          {:ok, url} <- parse_url(env, config_env) do
@@ -66,6 +72,8 @@ defmodule Letflow.TenantProvisioner.Config do
             retention_days: retention,
             demo_cap: demo_cap,
             demo_alarm_threshold: alarm,
+            source_daily_budget: source_budget,
+            email_domain_daily_budget: domain_budget,
             sweep_interval_minutes: interval,
             default_modules: modules
           ],
@@ -181,6 +189,14 @@ defmodule Letflow.TenantProvisioner.Config do
   @doc "REQ-572 criterion 19: most demo tenants (lifecycle not `deleted`) before a create answers 409 (default 30)."
   @spec demo_cap() :: non_neg_integer()
   def demo_cap, do: setting(:demo_cap, @default_demo_cap)
+
+  @doc "T-1621: most new demo tenants per request `source_key` in a rolling 24 h (0 = no limit, default)."
+  @spec source_daily_budget() :: non_neg_integer()
+  def source_daily_budget, do: setting(:source_daily_budget, 0)
+
+  @doc "T-1621: most new demo tenants per owner e-mail domain in a rolling 24 h (0 = no limit, default)."
+  @spec email_domain_daily_budget() :: non_neg_integer()
+  def email_domain_daily_budget, do: setting(:email_domain_daily_budget, 0)
 
   @doc "REQ-572 criterion 19: demo count at which a create logs one warning (default 25)."
   @spec demo_alarm_threshold() :: non_neg_integer()

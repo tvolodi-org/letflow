@@ -23,6 +23,10 @@ defmodule Letflow.TenantProvisioner.Lifecycle do
     field(:default_modules_state, :string, default: "not_applicable")
     field(:default_modules_failure, :string)
 
+    # T-1621: SHA-256 digests (never raw values) for the daily creation budgets; null on older rows.
+    field(:source_ip_key, :binary)
+    field(:email_domain_key, :binary)
+
     timestamps()
   end
 
