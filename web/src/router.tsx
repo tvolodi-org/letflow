@@ -21,6 +21,7 @@ import AttachmentViewerPage from '@/pages/instances/AttachmentViewerPage'
 import TaskInboxPage from '@/pages/tasks/TaskInboxPage'
 import UsersPage from '@/pages/admin/UsersPage'
 import UserDetailPage from '@/pages/admin/UserDetailPage'
+import UsersImportPage from '@/pages/admin/usersImport/UsersImportPage'
 import GroupsPage from '@/pages/admin/GroupsPage'
 import TokensPage from '@/pages/admin/TokensPage'
 import AuditLogPage from '@/pages/admin/AuditLogPage'
@@ -131,6 +132,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'instances/:id/attachments/:attachmentId', element: <AttachmentViewerPage /> },
       { path: 'tasks', element: <TaskInboxPage /> },
       { path: 'admin/users', element: <RequirePermission permission={P.UsersGroupsRolesManage}><UsersPage /></RequirePermission> },
+      { path: 'admin/users/import', element: <RequirePermission permission={P.UsersGroupsRolesManage}><UsersImportPage /></RequirePermission> },
       { path: 'admin/users/:userId', element: <RequirePermission permission={P.UsersGroupsRolesManage}><UserDetailPage /></RequirePermission> },
       { path: 'admin/groups', element: <RequirePermission permission={P.UsersGroupsRolesManage}><GroupsPage /></RequirePermission> },
       { path: 'admin/tokens', element: <RequirePermission permission={P.TokensManage}><TokensPage /></RequirePermission> },
