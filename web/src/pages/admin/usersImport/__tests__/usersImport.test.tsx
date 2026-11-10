@@ -168,6 +168,31 @@ describe('U9/U10/U14 fix and re-upload, import', () => {
   })
 })
 
+describe('U15 stale answer, U16 duplicate email', () => {
+  it('U15 an answer for file A cannot authorize file B', async () => {
+    let resolveA: (v: unknown) => void = () => {}
+    clientMock.postRaw.mockReturnValueOnce(new Promise((r) => (resolveA = r)))
+    renderPage()
+    chooseFile(xlsxFile('a.xlsx'))
+    fireEvent.click(screen.getByTestId('users-import-check'))
+    chooseFile(xlsxFile('b.xlsx'))
+    resolveA({ dry_run: true, results: [ok(2, 'created')] })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByTestId('users-import-dry-run')).toBeNull()
+    expect(screen.getByTestId('users-import-confirm')).toBeDisabled()
+    expect(clientMock.postRaw).toHaveBeenCalledTimes(1)
+  })
+  it('U16 duplicate email gets its own text in en, ru, kk and in the CSV', () => {
+    const row = refused(3, 'user_duplicate_in_file', 'email')
+    const want = { en: /email/i, ru: /почты/, kk: /пошта/ }
+    for (const locale of ['en', 'ru', 'kk'] as const) {
+      const csv = usersRefusedRowsCsv(locale, [row])
+      expect(csv).toMatch(want[locale])
+      expect(csv).not.toBe(usersRefusedRowsCsv(locale, [refused(3, 'user_duplicate_in_file', 'username')]))
+    }
+  })
+})
+
 describe('U11 whole-file refusals', () => {
   const cases: [string, unknown, RegExp][] = [
     ['413', apiError(413), /at most 2 MB and 200 data rows/],

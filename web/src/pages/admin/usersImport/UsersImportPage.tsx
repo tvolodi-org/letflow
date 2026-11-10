@@ -3,7 +3,7 @@
  *  type picker). Every rule stays on the server; the screen sends the file and shows the answer. No tenant
  *  identifier is sent (the tenant comes from the token). Shared components only; no colour or spacing is set here.
  */
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -169,6 +169,8 @@ function UsersImportPageInner() {
   const [file, setFile] = useState<File | null>(null)
   const [phase, setPhase] = useState<Phase>({ name: 'idle' })
   const [templateFailed, setTemplateFailed] = useState(false)
+  // Bumped on every file change and every run: an answer that arrives for an older file or run is dropped.
+  const runSeq = useRef(0)
 
   const locale = localeOf(intl)
   const working = phase.name === 'working'
@@ -201,9 +203,11 @@ function UsersImportPageInner() {
       setPhase({ name: 'error', error: { kind: 'limits' } })
       return
     }
+    const mine = ++runSeq.current
     setPhase({ name: 'working', what: dryRun ? 'check' : 'import' })
     try {
       const answer = await runUsersImport(file, dryRun)
+      if (mine !== runSeq.current) return
       if (!Array.isArray(answer?.results)) throw new Error('unexpected import answer')
       if (dryRun) setPhase({ name: 'checked', answer })
       else if (answer.applied === false) {
@@ -212,6 +216,7 @@ function UsersImportPageInner() {
         setPhase({ name: 'notApplied', answer })
       } else setPhase({ name: 'done', answer })
     } catch (err) {
+      if (mine !== runSeq.current) return
       setPhase({ name: 'error', error: classifyUsersImportError(err) })
     }
   }
@@ -272,6 +277,7 @@ function UsersImportPageInner() {
                 invalidText={intl.formatMessage({ id: 'usersImport.drop.invalid' })}
                 chosen={file ? { file } : null}
                 onFile={(f) => {
+                  runSeq.current += 1
                   setFile(f)
                   setTemplateFailed(false)
                   setPhase({ name: 'idle' })

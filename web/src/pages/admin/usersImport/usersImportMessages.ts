@@ -152,10 +152,15 @@ export const USERS_IMPORT_REASON_TYPES = [
   'csv_invalid_value',
 ] as const
 
-const REASONS: Record<(typeof USERS_IMPORT_REASON_TYPES)[number], Triple> = {
+const REASONS: Record<(typeof USERS_IMPORT_REASON_TYPES)[number] | 'user_duplicate_in_file_email', Triple> = {
   user_field_required: ['A required value is empty. Fill it in.', 'Не заполнено обязательное значение. Заполните его.', 'Міндетті мән бос. Толтырыңыз.'],
   user_field_invalid: ['A value is not valid. Check it against the template.', 'Значение недопустимо. Сверьте его с шаблоном.', 'Мән жарамсыз. Оны үлгімен салыстырыңыз.'],
   user_duplicate_in_file: ['This username appears earlier in the file. Keep one row.', 'Это имя пользователя уже есть выше в файле. Оставьте одну строку.', 'Бұл пайдаланушы аты файлда жоғарыда бар. Бір жолды қалдырыңыз.'],
+  user_duplicate_in_file_email: [
+    'This email appears earlier in the file under another username. Keep one row.',
+    'Этот адрес почты уже есть выше в файле у другого пользователя. Оставьте одну строку.',
+    'Бұл пошта мекенжайы файлда жоғарыда басқа пайдаланушы атымен бар. Бір жолды қалдырыңыз.',
+  ],
   user_exists_different: [
     'A user with this username already exists with other data. Existing users are not changed; use another username or leave the row out.',
     'Пользователь с таким именем уже есть, но с другими данными. Существующие пользователи не меняются; укажите другое имя или уберите строку.',

@@ -30,6 +30,7 @@ export function isKnownUsersReason(type: string): boolean {
 /** The localized sentence of a refused row. The backend carries no cell text, so none is shown. */
 export function usersReasonSentence(locale: UiLocale, reason: ImportReason): string {
   const cat = usersImportMessages[locale]
+  if (reason.type === 'user_duplicate_in_file' && reason.header === 'email') return cat['usersImport.reason.user_duplicate_in_file_email'] ?? reason.type
   if (isKnownUsersReason(reason.type)) return cat[`usersImport.reason.${reason.type}`] ?? reason.type
   return fill(cat['usersImport.reason.unknown'] ?? reason.type, { type: reason.type })
 }
