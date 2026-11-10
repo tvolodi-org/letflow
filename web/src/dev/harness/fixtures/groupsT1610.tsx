@@ -3,6 +3,7 @@
  *  `groups-lastadmin` = Remove on the only administrator. `empty` = no groups, `error` = 500. */
 import { useEffect, useRef, type ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
+import { TENANT_ADMIN_ROLE } from '@/auth/access'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import GroupsPage from '@/pages/admin/GroupsPage'
 import type { UserSession } from '@/types/api'
@@ -23,7 +24,7 @@ const GROUPS = [
   { id: 'g-ops', name: 'dispatchers', display_name: 'Dispatchers', description: 'Daily work' },
 ]
 const ROLES = [
-  { id: 'r1', name: 'TENANT_ADMIN', kind: 'platform_role', group_id: 'g-admin', is_system: true, permissions: [] },
+  { id: 'r1', name: TENANT_ADMIN_ROLE, kind: 'platform_role', group_id: 'g-admin', is_system: true, permissions: [] },
   { id: 'r2', name: 'dispatcher', kind: 'process_routing_role', group_id: null, is_system: false, permissions: [] },
 ]
 const user = (n: number, name: string, status = 'active') => ({

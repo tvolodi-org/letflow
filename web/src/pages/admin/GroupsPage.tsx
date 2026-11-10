@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useModalFocus } from '@/components/ui/useModalFocus'
-import { P, useAccess } from '@/auth/access'
+import { P, TENANT_ADMIN_ROLE, useAccess } from '@/auth/access'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { groupsApi, rolesApi, usersApi } from '@/api/identity'
 import { roleLabel } from '@/auth/access'
@@ -31,9 +31,6 @@ function groupId(group: GroupRow): string {
 function groupTitle(group: GroupRow): string {
   return group.display_name?.trim() || group.name || groupId(group) || 'Unnamed group'
 }
-
-/** The group-bound platform role that makes its members tenant administrators. */
-const TENANT_ADMIN_ROLE = 'TENANT_ADMIN'
 
 function rolesOfGroup(roles: Role[], id: string): Role[] {
   return roles.filter((r) => r.kind === 'platform_role' && r.group_id != null && r.group_id === id)
@@ -150,7 +147,7 @@ export default function GroupsPage() {
     onError: (err: unknown) => setActionError(isLastAdminRefusal(err) ? gm.deleteRefused : saveErrorText(err, feedback)),
   })
 
-  // The TENANT_ADMIN group: the group bound to the TENANT_ADMIN platform role. A UI hint only; the server 409
+  // The administrators group: the group bound to the tenant-administrator platform role. A UI hint only; the server 409
   // (last_tenant_wide_admin) stays the authority, token-owner administrators being invisible here.
   const adminGroupId = useMemo(
     () => roles.find((r) => r.name === TENANT_ADMIN_ROLE && r.kind === 'platform_role')?.group_id ?? null,

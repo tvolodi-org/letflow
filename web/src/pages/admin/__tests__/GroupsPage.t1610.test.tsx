@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { screen, cleanup, waitFor, act, within } from '@testing-library/react'
+import { TENANT_ADMIN_ROLE } from '@/auth/access'
 import { renderWithAccess } from '@/auth/access/testing'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
@@ -78,7 +79,7 @@ import GroupsPage from '../GroupsPage'
 const ADMIN_GROUP = { id: 'g-admin', name: 'admins', display_name: 'Admins', description: null }
 const OTHER_GROUP = { id: 'g-ops', name: 'ops', display_name: 'Operators', description: null }
 const ROLES = [
-  { id: 'r1', name: 'TENANT_ADMIN', kind: 'platform_role', group_id: 'g-admin', is_system: true, permissions: [] },
+  { id: 'r1', name: TENANT_ADMIN_ROLE, kind: 'platform_role', group_id: 'g-admin', is_system: true, permissions: [] },
   { id: 'r2', name: 'dispatcher', kind: 'process_routing_role', group_id: null, is_system: false, permissions: [] },
 ]
 
@@ -199,7 +200,7 @@ describe('T-1610 roles of a group', () => {
 })
 
 describe('T-1610 last-administrator warning', () => {
-  it('G6: removing the only active member of the TENANT_ADMIN group asks first', async () => {
+  it('G6: removing the only active member of the administrators group asks first', async () => {
     install({ members: [mkUser(1)] })
     renderWithAccess(React.createElement(GroupsPage))
     const user = await openManage(0)
