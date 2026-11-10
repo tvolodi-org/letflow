@@ -643,6 +643,42 @@ defmodule Letflow.Engine.ReconstructionTest do
     end
   end
 
+  describe "REQ-792 -- NODE_ENTERED is folded as a no-op" do
+    test "T-792-3 an appended NODE_ENTERED leaves the replayed state unchanged" do
+      %{schema_name: schema_name} = provisioned_tenant()
+      {instance_id, schema_name} = partially_completed_instance!(schema_name)
+
+      assert {:ok, before} = Reconstruction.reconstruct_instance(instance_id, prefix: schema_name)
+
+      assert {:ok, _} =
+               EventStore.append(
+                 %{
+                   instance_id: instance_id,
+                   event_type: "NODE_ENTERED",
+                   payload:
+                     Jason.encode!(%{
+                       "node_id" => "t3",
+                       "node_type" => "HUMAN_TASK",
+                       "via_edge_id" => nil
+                     }),
+                   actor_id: Ecto.UUID.generate(),
+                   idempotency_key: unique_idempotency_key("node_entered")
+                 },
+                 prefix: schema_name
+               )
+
+      assert {:ok, after_} = Reconstruction.reconstruct_instance(instance_id, prefix: schema_name)
+      assert after_.event_count == before.event_count + 1
+      assert after_.instance_state.variables == before.instance_state.variables
+      assert after_.instance_state.status == before.instance_state.status
+
+      assert instance_pending_node_ids(after_.instance_state) ==
+               instance_pending_node_ids(before.instance_state)
+
+      assert "NODE_ENTERED" in Reconstruction.folded_event_types()
+    end
+  end
+
   # ---------------------------------------------------------------------------------
   # req062 (SPC-01) -- SUB_PROCESS_COMPLETED replay clause (apply_event/3's newest
   # clause, added this same branch as a rework-1 fix -- see this module's own

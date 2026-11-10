@@ -37,7 +37,7 @@ defmodule Letflow.Engine.Reconstruction do
     through `Letflow.Engine.VariableMerge.put_sys_replayed/3`; a malformed payload is
     `{:invalid_sys_variables_event, event_id}`, never a raise) and
     `TASK_ENTITY_WRITES_APPLIED` (changes no state: replay never re-executes an
-    entity write). `folded_event_types/0` lists every type with its own clause;
+    entity write) and `NODE_ENTERED` (REQ-792, changes no state). `folded_event_types/0` lists every type with its own clause;
     Lua `platform.emit_event` refuses each of them.
   * `SUB_PROCESS_COMPLETED`'s own persisted payload
     (`Letflow.Engine.SubProcess.append_sub_process_completed_event/8`) writes
@@ -598,6 +598,7 @@ defmodule Letflow.Engine.Reconstruction do
     "INSTANCE_CANCELLED",
     "INSTANCE_STARTED",
     "INSTANCE_SYS_VARIABLES_SET",
+    "NODE_ENTERED",
     "SCRIPT_RUN_RECORDED",
     "SCRIPT_TASK_COMPLETED",
     "SERVICE_TASK_COMPLETED",
@@ -867,6 +868,17 @@ defmodule Letflow.Engine.Reconstruction do
          _graph,
          %InstanceState{} = state,
          %{event_type: "TASK_ENTITY_WRITES_APPLIED"},
+         _prefix
+       ) do
+    {:ok, state}
+  end
+
+  # REQ-792: a token entering a node is a record for the designer's replay; the state it
+  # implies is already carried by the completion events.
+  defp apply_event(
+         _graph,
+         %InstanceState{} = state,
+         %{event_type: "NODE_ENTERED"},
          _prefix
        ) do
     {:ok, state}

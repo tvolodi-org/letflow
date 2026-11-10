@@ -281,7 +281,8 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       # raising it to 20. GH #2587 (REQ-499 PR A1) adds
       # INSTANCE_SYS_VARIABLES_SET/TASK_ENTITY_WRITES_APPLIED, raising it to 22.
       # REQ-683 adds ENTITY_RECORD_MIGRATED, raising it to 23.
-      assert count == 23
+      # REQ-792 adds NODE_ENTERED, raising it to 24.
+      assert count == 24
 
       # And the seeded types are still all usable after the re-seed no-op.
       attrs = append_attrs("TASK_COMPLETED", minimal_payload_for("TASK_COMPLETED"))
@@ -345,7 +346,8 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       # SCRIPT_* types, so 17 (20 - 3); GH #2587 (REQ-499 PR A1) adds
       # INSTANCE_SYS_VARIABLES_SET/TASK_ENTITY_WRITES_APPLIED, so 19 (22 - 3).
       # REQ-683 adds ENTITY_RECORD_MIGRATED (not among the deleted rows): 20 (23 - 3).
-      assert count_before == 20
+      # REQ-792 adds NODE_ENTERED (not among the deleted rows): 21 (24 - 3).
+      assert count_before == 21
 
       # First replay_migrations/2 call after the simulated pre-existing state --
       # backfills the 3 missing rows.
@@ -392,7 +394,8 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
                  "SCRIPT_RUN_RECORDED",
                  # GH #2587 (REQ-499 PR A1): the two decision 0054 instance event types.
                  "INSTANCE_SYS_VARIABLES_SET",
-                 "TASK_ENTITY_WRITES_APPLIED"
+                 "TASK_ENTITY_WRITES_APPLIED",
+                 "NODE_ENTERED"
                ])
 
       # The 3 backfilled types are usable via append_platform_event/2 --
@@ -420,7 +423,7 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       assert event.event_type == "DEFINITION_PROMOTED"
 
       # Second replay_migrations/2 call: a no-op, still returns success, and
-      # does NOT duplicate any of the 23 rows (13 platform + 4 ISS-0721/REQ-683
+      # does NOT duplicate any of the 24 rows (14 platform + 4 ISS-0721/REQ-683
       # ENTITY_RECORD_* entity types + 2 REQ-391 ATTACHMENT_* types + 2 GH 2534 7c-1
       # SCRIPT_* types + 2 GH #2587 decision 0054 types).
       assert {:ok, _applied_versions} = TenantProvisioning.replay_migrations(tenant_id)
@@ -428,7 +431,7 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       count_after_second_call =
         Repo.aggregate(EventType, :count, prefix: schema_name)
 
-      assert count_after_second_call == 23
+      assert count_after_second_call == 24
     end
   end
 
@@ -454,6 +457,61 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       assert %{error: []} = TenantProvisioning.replay_all_pending()
       assert Repo.aggregate(EventType, :count, prefix: schema_name) == count
       assert [_one] = Repo.all(migrated, prefix: schema_name)
+    end
+  end
+
+  describe "REQ-792: NODE_ENTERED registered per tenant, no writer yet" do
+    defp node_entered(overrides \\ %{}) do
+      Map.merge(
+        %{"node_id" => "g1", "node_type" => "EXCLUSIVE_GATEWAY", "via_edge_id" => "e1"},
+        overrides
+      )
+    end
+
+    defp append_node_entered(payload) do
+      %{schema_name: schema_name} = provisioned_tenant()
+      attrs = append_attrs("NODE_ENTERED", payload)
+      seed_projection!(schema_name, attrs.instance_id)
+      EventStore.append(attrs, prefix: schema_name)
+    end
+
+    test "T-792-1a a valid payload appends" do
+      assert {:ok, %{event: %{event_type: "NODE_ENTERED"}}} = append_node_entered(node_entered())
+    end
+
+    test "T-792-1b an extra key (a variable value) is refused" do
+      assert {:error, {:payload_validation_failed, _}} =
+               append_node_entered(node_entered(%{"variables" => %{"a" => 1}}))
+    end
+
+    test "T-792-1c bad node_type and missing via_edge_id are refused, nil via_edge_id accepted" do
+      assert {:error, {:payload_validation_failed, _}} =
+               append_node_entered(node_entered(%{"node_type" => "NOPE"}))
+
+      assert {:error, {:payload_validation_failed, _}} =
+               append_node_entered(Map.delete(node_entered(), "via_edge_id"))
+
+      assert {:ok, _} = append_node_entered(node_entered(%{"via_edge_id" => nil}))
+    end
+
+    test "T-792-2 the seed versions list carries NODE_ENTERED v1" do
+      assert {"NODE_ENTERED", 1} in TenantProvisioning.platform_event_type_seed_versions()
+    end
+
+    test "T-792-8 only the five files named by REQ-792 mention NODE_ENTERED (REQ-793 must update this)" do
+      files =
+        "lib/**/*.ex"
+        |> Path.wildcard()
+        |> Enum.filter(&(File.read!(&1) =~ "NODE_ENTERED"))
+        |> Enum.sort()
+
+      assert files == [
+               "lib/letflow/engine/reconstruction.ex",
+               "lib/letflow/instances.ex",
+               "lib/letflow/release.ex",
+               "lib/letflow/tenant_provisioning.ex",
+               "lib/mix/tasks/letflow.backfill_event_type_versions.ex"
+             ]
     end
   end
 end

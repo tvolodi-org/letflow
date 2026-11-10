@@ -1784,6 +1784,37 @@ defmodule Letflow.TenantProvisioning do
         "required" => ["node_id", "task_id", "dispatch_id", "lines_hash", "lines"],
         "additionalProperties" => false
       }
+    },
+    %{
+      name: "NODE_ENTERED",
+      # REQ-792: registered here, appended by the engine from REQ-793 (no writer yet).
+      schema_version: 1,
+      description:
+        "Emitted by Letflow.Engine (REQ-793) when a token enters a node: ids only, no " <>
+          "variable value. Replay changes no state for it; the process designer reads it " <>
+          "to show the path an instance took.",
+      json_schema: %{
+        "type" => "object",
+        "properties" => %{
+          "node_id" => %{"type" => "string"},
+          "node_type" => %{
+            "type" => "string",
+            "enum" => [
+              "START",
+              "END",
+              "HUMAN_TASK",
+              "SERVICE_TASK",
+              "EXCLUSIVE_GATEWAY",
+              "PARALLEL_GATEWAY",
+              "TIMER",
+              "SUB_PROCESS"
+            ]
+          },
+          "via_edge_id" => %{"type" => ["string", "null"]}
+        },
+        "required" => ["node_id", "node_type", "via_edge_id"],
+        "additionalProperties" => false
+      }
     }
   ]
 
