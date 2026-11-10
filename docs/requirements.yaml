@@ -53949,10 +53949,16 @@ requirements:
       `git grep -nE "status in \[" lib/letflow/modules/assets/documents.ex`, two hits). Search for a return or
       send-back transition: `git grep -inE "send_back|sent_back|returned_to|return_to_draft" -- lib/letflow/modules lib/letflow/tasks.ex`;
       0 hits (observed on the branch with `| wc -l`). The broader word `reject` is not used: it matches `Enum.reject` and `Map.reject` calls (for example in assets/card_locks.ex, cards.ex, documents/checks.ex), which are list filters and not transitions. No producer. The kind is not built and stays off `@kinds`.
-      (2) Count assigned: `git grep -inE "assignee|counter_id|counted_by|assigned_to" lib/letflow/modules/stock` prints
-      nothing (0 hits, observed), so a stock count has no assignee. If a count is worked as a task, its assignee is already notified by
-      `task_assigned` (lib/letflow/tasks.ex), so this kind is dropped as a separate kind. Where a count has no task there
-      is no assignment event.
+      (2) Count assigned (AMENDED 2026-11-11, task T-1658, docs/uat/ba-decisions/T-1651.md item 3: the first wording of this finding was wrong).
+      The grep `git grep -inE "assignee|counter_id|counted_by|assigned_to" lib/letflow/modules/stock` prints nothing, but it looked for
+      the wrong names. A count order already has people: `@input_keys` in lib/letflow/modules/stock/counts.ex holds `chair_employee_id`
+      and `member_employee_ids` (used by count_print.ex, count_paperwork.ex, count_differences.ex); they are employees (`org_employee`,
+      with an optional `user_id` link, lib/letflow/modules/org/org.ex). So open question (b) is answered: a count has an owner, its chair
+      and members. The event is the private function `mark_ordered/4` in lib/letflow/modules/stock/counts.ex, called when the order is
+      issued. Verdict: SURVIVES as the kind `count_assigned`. Recipient: the chair and each member whose employee has a linked user;
+      a member without a linked user gets no entry (UAT assumption, to be confirmed by the process owner). The earlier statement that
+      a count worked as a task is covered by `task_assigned` is withdrawn as a reason to drop the kind. This amendment builds nothing;
+      the build is one `feature` task that meets criteria 3 to 7 (kind `count_assigned`, raised from `mark_ordered/4`).
       (3) Failed import: the imports (assets, locations, org, catalog_items) run synchronously; `ctx.dry_run` is accepted
       and the caller gets the row report in the response (lib/letflow/modules/assets/import.ex moduledoc, found with
       `git grep -n "dry_run" lib/letflow/modules/assets/import.ex`). Background work:
@@ -53963,22 +53969,22 @@ requirements:
       would repeat what the caller already saw. Dropped by default (UAT assumption, to be confirmed by the process
       owner). It returns only if an import becomes asynchronous, and then with its own requirement.
       Open questions for the owner, not settled here: (a) is "return a document to draft" wanted as a product behaviour;
-      (b) do stock counts get an owner or counter at all; (c) are imports to become asynchronous. No ru/kk/en text is
-      written for a dropped or undecided kind; it is written when the owner answers. The surviving set is empty today, so
-      this entry queues no feature task; when a kind survives, the operator queues one `feature` task per kind with
+      (b) [answered by the amended finding (2): a count has a chair and members]; (c) are imports to become asynchronous. No ru/kk/en text is
+      written for a dropped or undecided kind; it is written when the owner answers. The surviving set is `count_assigned` only, so
+      this entry queues no feature task itself; the operator queues one `feature` task per surviving kind with
       `after` set to the task of this entry, and it meets criteria 3 to 7. Item 11 of T-1631.md (digest and
       preferences) waits on this outcome.
       Two files change: docs/requirements.yaml (this entry) and test/mix/tasks/letflow_check_deferral_staleness_test.exs, where the live-corpus pin moves from `deferral_count == 2` to `== 3` and to the list ["REQ-795", "REQ-800", "REQ-799"], with a comment (the entry is a registered deferral until the engine adds gh; then the pin drops REQ-800 again). No code under lib/ or web/, no other test, migration, config, and no edit
-      of the notification-bell-6 GAP sidecar (the scenario stays blocked until a kind has a producer).
+      of the notification-bell-6 GAP sidecar (the scenario stays blocked until a kind has a producer; the build task of `count_assigned` rewrites it, criterion 6).
     acceptance_criteria:
-      - "1. The description records, for each of the three kinds, the file and the grep that shows whether a producer exists, and a verdict (not built, dropped, or dropped by default); `git grep -n \"UserNotifications.notify\" -- lib` outside lib/letflow/user_notifications.ex lists only lib/letflow/tasks.ex at the time of writing."
-      - "2. The entry gives no new status, field, route or asynchronous path, and lists the three open owner questions (document return, count ownership, asynchronous import) as questions, answering none."
+      - "1. The description records, for each of the three kinds, the file and the grep that shows whether a producer exists, and a verdict (survives, not built, dropped, or dropped by default); `git grep -n \"UserNotifications.notify\" -- lib` outside lib/letflow/user_notifications.ex lists only lib/letflow/tasks.ex at the time of writing."
+      - "2. The entry gives no new status, field, route or asynchronous path, and keeps two owner questions open (document return, asynchronous import) as questions; count ownership is answered by finding (2)."
       - "3. (Template for a later build of a surviving kind.) The kind is added to `@kinds` in lib/letflow/user_notifications.ex and raised by one named function through `UserNotifications.notify/6`, which never raises (INV-8); the tenant id comes from `tenant_id_for_schema_name/1` as in lib/letflow/tasks.ex."
       - "4. (Template.) web/src/components/layout/notificationMessages.ts has ru, kk and en text for the kind, and a route in `notificationLink` if the kind links; the kind comment in web/src/api/notifications.ts is updated."
       - "5. (Template.) A test through the real producer and the real read route shows the row for the target user and not for another user or another tenant (INV-1, INV-5)."
       - "6. (Template.) Scenario notification-bell-6 is the acceptance check, and its GAP sidecar under test/fixtures/uat/scenario-env-limitations/ is rewritten to the surviving kinds in that build task."
       - "7. (Template.) The optional e-mail copy stays off by default and keeps the owner rules of T-1551."
-      - "8. The entry states that item 11 of docs/uat/ba-decisions/T-1631.md waits on this outcome, and `git diff origin/main...HEAD --stat` of this task lists docs/requirements.yaml and test/mix/tasks/letflow_check_deferral_staleness_test.exs (the live-corpus deferral pin: count 2 to 3, list gains REQ-800, plus its comment), and nothing else."
+      - "8. The entry states that item 11 of docs/uat/ba-decisions/T-1631.md waits on this outcome, and `git diff origin/main...HEAD --stat` of this task lists docs/requirements.yaml and test/mix/tasks/letflow_check_deferral_staleness_test.exs (the live-corpus deferral pin: count 2 to 3, list gains REQ-800, plus its comment), and nothing else. (The later T-1658 amendment touches only docs/requirements.yaml and the notification-bell-6 sidecar, so this criterion is not read against it.)"
     depends_on: []
   - id: REQ-798
     title: "Assets reporting, task 1: inventory of the government lists (card list, write-off list, inventory sheet, movement of cards; stock and assets) with the saved report, xlsx export or printed form each has on main today, one line each, and the gap of each; docs only, no ranking, no build"
