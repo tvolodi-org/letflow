@@ -3,13 +3,11 @@
  *  resume one. It calls only the four existing routes of `/platform-module-rollouts`; every rule (permission,
  *  platform tenant, window, halting) stays on the server. No tenant identifier is sent. Shared components only.
  */
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import { useIntl, type IntlShape } from 'react-intl'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import type { ModuleOutcomeStatus, ModuleRollout, ModuleRolloutOutcome, ModuleRolloutResult } from '@/api/platformModuleRollouts'
-import { tenantsApi } from '@/api/tenants'
-import { queryKeys } from '@/api/queryKeys'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
@@ -17,13 +15,12 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { Field } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
-import { useModuleRolloutsList, useModuleRolloutStatus, useResumeModuleRollout, useStartModuleRollout } from '@/hooks/useModuleRollouts'
+import { useModuleRolloutsList, useTenantNames, useModuleRolloutStatus, useResumeModuleRollout, useStartModuleRollout } from '@/hooks/useModuleRollouts'
 import { formatDateTime } from '@/i18n/format'
 import type { ApiError } from '@/types/api'
 import { ModuleRolloutsIntlProvider } from './ModuleRolloutsIntlProvider'
 import { canResume } from './moduleRolloutsModel'
 
-const TENANT_LOOKUP_PAGE_SIZE = 200
 const MAX_MODULE_ID = 255
 const COUNT_ORDER: ModuleOutcomeStatus[] = ['pending', 'running', 'succeeded', 'failed', 'skipped', 'outside_window']
 
@@ -65,20 +62,6 @@ function OutcomePill({ status }: { status: ModuleOutcomeStatus }) {
       {OUTCOME_LOOK[status] ? t(intl, `outcome.${status}`) : status}
     </StatusPill>
   )
-}
-
-/** tenant_id -> display name; the platform's tenant list may be refused, then the raw id is shown. */
-function useTenantNames(): Map<string, string> {
-  const query = useQuery({
-    queryKey: queryKeys.admin.tenants({ page_size: TENANT_LOOKUP_PAGE_SIZE }),
-    queryFn: () => tenantsApi.list({ page_size: TENANT_LOOKUP_PAGE_SIZE }),
-    retry: false,
-  })
-  return useMemo(() => {
-    const map = new Map<string, string>()
-    for (const tenant of query.data?.items ?? []) if (tenant.tenant_id) map.set(tenant.tenant_id, tenant.display_name)
-    return map
-  }, [query.data])
 }
 
 function countsText(intl: IntlShape, counts: Partial<Record<ModuleOutcomeStatus, number>>): string {
