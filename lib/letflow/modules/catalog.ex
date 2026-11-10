@@ -59,7 +59,9 @@ defmodule Letflow.Modules.Catalog do
   alias Letflow.Modules.StepSpec
   alias Letflow.Modules.WriteHandlerSpec
 
-  @modules Application.compile_env(:letflow, :modules, [])
+  # T-1641: `:demo_modules` is non-empty only in a QA build (`LETFLOW_INCLUDE_RUNTIME_DEMO=true`, config/config.exs).
+  @modules Application.compile_env(:letflow, :modules, []) ++
+             Application.compile_env(:letflow, :demo_modules, [])
   # Compile-time only (config/test.exs): lets a test process name a resolver double. Never a runtime switch.
   @resolver_test_seam Application.compile_env(:letflow, :document_resolver_test_seam, false)
 
