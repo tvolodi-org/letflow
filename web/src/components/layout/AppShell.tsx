@@ -75,6 +75,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/admin/onboarding/new', group: 'platform', label: 'Register Tenant', permission: P.TenantsManage, platformOnly: true },
   { to: '/admin/tenants', group: 'platform', label: 'Tenants', permission: P.TenantsManage, platformOnly: true },
   { to: '/admin/services', group: 'platform', label: 'Services', permission: P.PlatformServicesManage, platformOnly: true },
+  { to: '/admin/module-rollouts', group: 'platform', label: 'Module rollouts', permission: P.ModuleRolloutsManage, platformOnly: true },
   // REQ-375: operator-facing rollout-status screen for REQ-374's
   // platform-wide tenant-migration fanout runner. Same :TenantsManage
   // (platform-admin role-only) risk class as admin/tenants, admin/onboarding.
