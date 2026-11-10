@@ -1,0 +1,123 @@
+# T-1625 (BA): default modules of a newly created demo customer (merged T-1580, TA-SL4, amends decision 0072 D8).
+# QA ONLY (portfolio decision D-019). Runs on customer A made by provisioning-1-create-and-replay and signed in by
+# provisioning-2-first-administrator-and-demo-address. The sign-up page (provisioning-6) reaches the same creation call after
+# a mailed link; this scenario uses the front door's call because the UAT cannot read a mailbox.
+# Sources: docs/runbooks/tenant-provisioner-credential.md (setting LETFLOW_PROVISIONER_DEFAULT_MODULES, default org,
+# locations, catalog_items, stock; the dependency closure adds modules; assets is opt-in; "none" installs nothing; a failed
+# install never fails the create and is retried when the create is repeated), lib/letflow/tenant_provisioner/default_modules.ex
+# (moduledoc and `ensure/3`: one install per module, in dependency order, by a fixed system actor with no grant power),
+# docs/uat/ba-decisions/T-1567.md slice SL4.
+# UAT assumption, to be confirmed by the process owner: QA runs with the setting at its default (org, locations,
+# catalog_items, stock). If the operator changed it, the precondition below fails and the scenario is BLOCKED.
+# NOT UAT-OBSERVABLE, covered by backend tests test/letflow/tenant_provisioner/default_modules_test.exs (D5, D5b, D5c, D6 to D9):
+# a module whose install fails while the create still succeeds (needs a broken module), the fixed system actor having no
+# grant power and no sign-in (no screen shows the actor), the failure text kept in the lifecycle record (a table the roster cannot read).
+---
+id: provisioning-7-default-modules-on-new-demo-customer
+scope: platform
+title: "A new demo customer's administrator finds the default modules already installed, and an unlisted module and another customer's modules are not theirs to change"
+version: "1.0"
+tags: [provisioning, demo, modules, default-set, refusal, qa-only]
+
+description: >
+  When the front door creates demo customer A, the platform installs the default set of modules (organisation,
+  locations, catalog items, stock) as the last step of the same call, so the first administrator finds a usable
+  workplace without installing anything. Assets is not in the default set. Repeating the creation call changes nothing
+  and installs nothing twice. The administrator of customer A sees only customer A's modules; customer B's administrator
+  sees B's own, and a worker of another company cannot change modules at all.
+
+actors:
+  owner_a: actor-any
+  owner_b: actor-any
+  other_worker: actor-swiftroute-marco
+
+preconditions:
+  - description: Scenarios provisioning-1 and provisioning-2 passed in this run; customers A and B are active and the owners of A and B have signed in once
+    check: custom
+    detail: If either did not pass, report BLOCKED, not PASS.
+  - description: The QA setting for the default modules is at its default (organisation, locations, catalog items, stock)
+    check: custom
+    detail: If the operator set another list or "none", report BLOCKED and name the list found; do not change the setting.
+
+steps:
+  - step: 1
+    actor: owner_a
+    action: >
+      The administrator of customer A opens the Modules screen of the administration area right after the first sign-in and
+      reads which modules are installed and active.
+    via: ui
+  - step: 2
+    actor: owner_a
+    action: >
+      The administrator opens the stock area and the locations area from the side menu and checks that each opens its
+      empty list without an error.
+    via: ui
+  - step: 3
+    actor: owner_a
+    action: >
+      The administrator looks for the Assets module in the list of installed modules.
+    via: ui
+  - step: 4
+    actor: owner_b
+    action: >
+      The administrator of customer B opens the Modules screen and reads the installed modules.
+    via: ui
+  - step: 5
+    actor: other_worker
+    action: >
+      SwiftRoute's task worker Marco tries to install the Stock module in his own company, and tries to uninstall the Stock
+      module of his own company.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: owner_a
+    action: >
+      The administrator reloads the Modules screen of customer A after the front door has sent the creation request for
+      customer A a second time (the repeat of provisioning-1 step 3) and reads the list again.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The default set is installed and active at the first look.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 lists exactly organisation, locations, catalog items and stock as installed and active, each once. Nothing was
+        installed by the administrator. The stock area and the locations area of step 2 open an empty list, with no
+        "module not installed" message.
+      evidence: Screenshot of step 1 and of the two areas in step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The new customer starts with an empty workplace and must install modules by hand, which the owner wanted to remove.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Assets is opt-in and is not installed by default.
+    verification:
+      method: gui_screen
+      detail: Step 3 finds the Assets module offered as available to install, not as installed.
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: MINOR
+      business_impact: A customer gets a module nobody chose.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Customer B has its own default set and customer A's list is not changed by the repeated creation call.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 shows the same four modules for customer B. Step 6 shows the same four modules for customer A, each once, as in step 1.
+      evidence: Screenshots of steps 4 and 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A repeated creation call could install modules twice or into the wrong customer.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A task worker of another company cannot install or uninstall modules.
+    verification:
+      method: http_status
+      detail: Both requests of step 5 are answered 403 and SwiftRoute's module list is the same as before.
+      evidence: Statuses of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A worker could change which modules the company uses.
+      suggested_action: route_to_security_review

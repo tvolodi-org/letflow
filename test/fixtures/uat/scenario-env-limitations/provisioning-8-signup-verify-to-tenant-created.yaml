@@ -1,0 +1,19 @@
+scenario_id: provisioning-8-signup-verify-to-tenant-created
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the whole end-to-end path of the public sign-up: the mailed link, following it, the realm and first administrator being made, the Letflow customer being created, the welcome mail, and the first sign-in"
+reason: >
+  BLOCKED, not PASS. The verification link and the one-time first credential exist only in the mail
+  (lib/letflow/signup.ex moduledoc: "The token exists only in the mail; token_hash is its SHA-256"), and the UAT
+  roster has no mailbox it can read: the sign-up scenario uses addresses on a domain without mailboxes
+  (provisioning-6-signup-public-form-neutral-answers). Without the link no step after "verified" can be started
+  from the outside. What UAT does cover: the form, its neutral answers and the single refusal for a wrong link
+  (provisioning-6), and the Letflow side of the same creation call through the front door
+  (provisioning-1, -2, -7). Covered in CI only by test/letflow/signup_test.exs, signup_provisioning_test.exs,
+  routers/signup_http_test.exs and the saga tests of TA-SL2b (#4126), which are not UAT.
+recorded_by: business-analyst
+recorded_at: "2026-11-10"
+issue_ref: "T-1625"
+review: >
+  Revisit when the owner or infra provides a test mailbox the UAT runner can read (owner questions Q7 and Q3 of
+  docs/uat/ba-decisions/T-1567.md); then queue one task to write the end-to-end scenario and remove this file.

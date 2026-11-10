@@ -1,0 +1,181 @@
+# T-1625 (BA): add users from an xlsx list (T-1609, REQ-791, PR #4138, batch 4 item 4 of docs/uat/ba-decisions/T-1595.md).
+# STATE AT WRITING (2026-11-10): PR #4138 sat in the merge queue (ref gh-readonly-queue/main/pr-4138-beb74e3a0...) and was NOT yet
+# on origin/main. Facts below are read from that queued commit (lib/letflow/routers/identity/users_import.ex, lib/letflow/identity/user_import.ex,
+# the REQ-791 entry). If the template address answers "not found" on QA, the change is not deployed: report BLOCKED, not PASS.
+# API ONLY: the screen on the Users page is a later task; this scenario drives the two import routes (template and upload).
+# Sources: REQ-791 criteria 1 (template first row exactly username, display_name, email), 2 (dry run writes nothing; per row line,
+# status, reason type and column; no cell text), 4 (atomic: any refused row means nothing written and "applied" false),
+# 6 (partial fix, re-upload, uploading the corrected file again answers "unchanged" for every row and creates nothing),
+# 7 (an existing user is never modified; other data is refused as user_exists_different). Row cap 200, 2 MiB.
+# An imported user has NO password and cannot sign in until the invitation or password-reset mechanism exists (REQ-791 description):
+# so this scenario does not sign the imported users in. Created users cannot be deleted through the product: the run uses fresh
+# user names "uat-imp-<run>-1" to "-3" and the cleanup step switches them off (status change on the Users screen).
+# Upload files (exact cells; sheet 1, row 1 is the header, data from row 2, all cells text, no formulas):
+#   File F1 (header username | display_name | email):
+#     row 2  uat-imp-<run>-1 | UAT Import One   | uat-imp-<run>-1@example.test
+#     row 3  uat-imp-<run>-2 | UAT Import Two   | uat-imp-<run>-2@example.test
+#     row 4  (username cell present but empty) | UAT Import Three | uat-imp-<run>-3@example.test
+#     row 5  uat-imp-<run>-1 | UAT Import Dup   | uat-imp-<run>-4@example.test
+#     row 6  uat-imp-<run>-5 | UAT Import Five  | uat-imp-<run>-1@example.test
+#     row 7  uat-imp-<run>-6 | UAT Import Six   | not-an-address
+#   File F2 = F1 with row 4's username filled in as uat-imp-<run>-3 and rows 5, 6 and 7 removed.
+---
+id: tenant-administration-users-import-1-template-dry-run-and-atomic-upload
+scope: tenant-administration
+title: "An administrator downloads the users template, sees every bad row named by line and column in a dry run, is refused whole for a bad file, and the corrected file creates all users once"
+version: "1.0"
+tags: [users, import, xlsx, tenant-admin, atomic, partial-fix, re-upload]
+
+description: >
+  SwiftRoute's administrator needs to add three colleagues. They download the template; its first row holds exactly the
+  three column names username, display_name and email. They fill in file F1 with three good rows and three bad rows (an empty
+  user name, a user name and an e-mail address that repeat an earlier row, an address that is not an address) and try a dry
+  run: nothing is created and the report names each bad row by its line and the column at fault, never repeating the typed
+  text. The real upload of F1 is refused whole: no user is created and the answer says nothing was applied. After the file is
+  corrected (F2) the upload creates all three users as active users with no password. Uploading F2 a second time creates nobody
+  and says every row is unchanged. An upload that tries to change an existing user is refused for that row and the stored
+  values stay.
+
+actors:
+  admin: actor-swiftroute-alice
+
+preconditions:
+  - description: The users import is deployed on the QA instance (PR #4138 merged and deployed by the automatic QA deploy)
+    check: custom
+    detail: If the template address answers "not found", report BLOCKED, not PASS.
+  - description: The run has a fresh run tag; none of the user names uat-imp-<run>-1 to -6 or their addresses exist in SwiftRoute
+    check: custom
+    detail: A name from an earlier run would turn "created" into "unchanged" or a refusal.
+  - description: SwiftRoute's administrator can read the Users screen and does not need a sign-in of the imported users
+    check: custom
+    detail: The imported users have no password; do not try to sign them in.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator downloads the users template and opens it in a spreadsheet program.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator uploads file F1 as a dry run (check only).
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator opens the Users screen and looks through the list for names that start with "uat-imp-<run>".
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator uploads file F1 for real (no dry run).
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator reloads the Users screen and looks through the list again for names that start with "uat-imp-<run>".
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator uploads the corrected file F2 for real.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator reloads the Users screen, looks for names that start with "uat-imp-<run>" and opens the user uat-imp-<run>-1.
+    via: ui
+  - step: 8
+    actor: admin
+    action: >
+      The administrator uploads file F2 for real a second time.
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The administrator prepares file F3 with one data row, user name uat-imp-<run>-1, display name "UAT Import Changed" and the
+      same e-mail address as before, and uploads it for real.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: admin
+    action: >
+      The administrator reopens the user uat-imp-<run>-1 and reads the display name; then switches the three imported users off.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The template has exactly the three columns.
+    verification:
+      method: api_response
+      detail: >
+        Step 1 answers 200 with a spreadsheet file whose first row holds exactly username, display_name and email, in this order,
+        and no data rows. There is no password, role or group column.
+      evidence: Status, file name and the first row of the file.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator fills a template that the import then refuses, or the file could carry a privilege.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The dry run names every bad row by line and column and creates nothing.
+    verification:
+      method: api_response
+      detail: >
+        Step 2 answers 200 with "dry_run" true and one result per data row. Rows on lines 2 and 3 are "ok" ("created"). Line 4 is an
+        error of type user_field_required for the column username. Line 5 is an error of type user_duplicate_in_file for the column
+        username. Line 6 is an error of type user_duplicate_in_file for the column email. Line 7 is an error of type user_field_invalid
+        for the column email. No result repeats a typed cell text. Step 3 finds no user whose name starts with "uat-imp-<run>".
+      evidence: Body of step 2 and the search result of step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The administrator cannot fix the file from the report, or a check-only run created users.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A file with any bad row is refused whole.
+    verification:
+      method: api_response
+      detail: >
+        Step 4 answers 200 with "applied" false and the same per-row results as step 2. Step 5 finds no user whose name starts with
+        "uat-imp-<run>", so the two good rows of F1 were not created either.
+      evidence: Body of step 4 and the search result of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A bad file half-applies and leaves the user list in an unknown state.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The corrected file creates all three users once, as active users.
+    verification:
+      method: api_response
+      detail: >
+        Step 6 answers 200 with "applied" true and three results, all "ok" with outcome "created". Step 7 lists the three users
+        uat-imp-<run>-1 to -3, each active, with the display name and e-mail address from F2.
+      evidence: Body of step 6 and the screenshot of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The administrator cannot add users in bulk.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Uploading the same corrected file again creates nobody and changes nobody.
+    verification:
+      method: api_response
+      detail: >
+        Step 8 answers 200 with "applied" true and three results, all "ok" with outcome "unchanged". The Users screen in step 10
+        still shows exactly three users with the tag uat-imp-<run>.
+      evidence: Body of step 8 and the list in step 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: A repeated upload duplicates users, or a fixed file cannot be uploaded again safely.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: An import never changes an existing user.
+    verification:
+      method: api_response
+      detail: >
+        Step 9 answers 200 with "applied" false and one error of type user_exists_different for the column username (line 2).
+        Step 10 shows the display name of uat-imp-<run>-1 as "UAT Import One".
+      evidence: Body of step 9 and the user detail in step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A spreadsheet could silently overwrite the name or e-mail of an existing user.
+      suggested_action: route_to_wf03

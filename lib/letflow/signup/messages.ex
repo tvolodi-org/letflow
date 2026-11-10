@@ -46,6 +46,61 @@ defmodule Letflow.Signup.Messages do
     %{subject: subject, body: body}
   end
 
+  @doc """
+  T-1620: the refusal text of a sign-up answer (422/429/503) in the visitor's language; unknown language or
+  code falls back to English / the generic text. Neutral: never says whether an address is known (INV-5).
+  """
+  @spec refusal(String.t(), term()) :: String.t()
+  def refusal(code, language), do: refusal_text(code, lang(language))
+
+  defp refusal_text("rate_limited", "en"),
+    do: "Too many sign-up attempts. Please try again later."
+
+  defp refusal_text("rate_limited", "ru"),
+    do: "Слишком много попыток регистрации. Повторите попытку позже."
+
+  defp refusal_text("rate_limited", "kk"),
+    do: "Тіркелу әрекеттері тым көп. Кейінірек қайталап көріңіз."
+
+  defp refusal_text("signup_unavailable", "en"),
+    do: "Sign-up is temporarily unavailable. Please try again later."
+
+  defp refusal_text("signup_unavailable", "ru"),
+    do: "Регистрация временно недоступна. Повторите попытку позже."
+
+  defp refusal_text("signup_unavailable", "kk"),
+    do: "Тіркелу уақытша қолжетімсіз. Кейінірек қайталап көріңіз."
+
+  defp refusal_text("email_not_accepted", "en"),
+    do: "This e-mail address cannot be used to sign up. Please use another address."
+
+  defp refusal_text("email_not_accepted", "ru"),
+    do: "Этот адрес электронной почты нельзя использовать для регистрации. Укажите другой адрес."
+
+  defp refusal_text("email_not_accepted", "kk"),
+    do:
+      "Бұл электрондық пошта мекенжайын тіркелу үшін пайдалану мүмкін емес. Басқа мекенжайды көрсетіңіз."
+
+  defp refusal_text("captcha_failed", "en"),
+    do: "The human check failed. Please try again."
+
+  defp refusal_text("captcha_failed", "ru"),
+    do: "Проверка не пройдена. Повторите попытку."
+
+  defp refusal_text("captcha_failed", "kk"),
+    do: "Тексеру өтпеді. Қайталап көріңіз."
+
+  defp refusal_text("invalid_request", "en"),
+    do: "Some fields are missing or invalid. Please check the form."
+
+  defp refusal_text("invalid_request", "ru"),
+    do: "Некоторые поля не заполнены или заполнены неверно. Проверьте форму."
+
+  defp refusal_text("invalid_request", "kk"),
+    do: "Кейбір өрістер толтырылмаған немесе қате. Форманы тексеріңіз."
+
+  defp refusal_text(_other, language), do: refusal_text("signup_unavailable", language)
+
   defp lang(language) when language in @languages, do: language
   defp lang(_other), do: "en"
 
