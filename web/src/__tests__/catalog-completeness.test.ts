@@ -20,6 +20,7 @@ import { loginMessages } from '@/i18n/loginMessages'
 import { entitiesMessages } from '@/i18n/entitiesMessages'
 import { solutionOverridesMessages } from '@/i18n/solutionOverridesMessages'
 import { importMessages } from '@/i18n/importMessages'
+import { usersImportMessages } from '@/pages/admin/usersImport/usersImportMessages'
 import { processDiagramMessages } from '@/i18n/processDiagramMessages'
 import { auditMessages } from '@/i18n/auditMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
@@ -238,6 +239,8 @@ const KK_SAME_AS_RU_OK: Record<string, string> = {
   'exam:exam.grading.answer.scoreLabel': 'loanword, same spelling in Kazakh',
   'import:import.steps.file': 'loanword, same spelling in Kazakh',
   'import:import.steps.import': 'loanword, same spelling in Kazakh',
+  'usersImport:usersImport.steps.file': 'loanword, same spelling in Kazakh',
+  'usersImport:usersImport.steps.import': 'loanword, same spelling in Kazakh',
   'lines:f.lot': 'lot: Kazakh screens already write Партия/Партиялар',
   'locations:locations.common.code': 'loanword, same spelling in Kazakh',
   'locations:locations.common.segment': 'loanword, same spelling in Kazakh',
@@ -307,6 +310,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('importMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('import', importMessages)
+  })
+
+  it('usersImportMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('usersImport', usersImportMessages)
   })
 
   it('auditMessages: all en keys in ru/kk, no empty values', () => {
@@ -445,6 +452,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['entities', entitiesMessages],
       ['solutionOverrides', solutionOverridesMessages],
       ['import', importMessages],
+      ['usersImport', usersImportMessages],
       ['processDiagram', processDiagramMessages],
       ['audit', auditMessages],
       ['assets', assetsMessages],
