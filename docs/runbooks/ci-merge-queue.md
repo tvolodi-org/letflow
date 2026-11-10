@@ -30,7 +30,8 @@ Rules to remember:
   checks this; a new fixture or doc the suite reads counts too.
 - Editing the script or `ci.yml` runs every gate.
 - Fail-safe: if the diff, the script, or its output fails, the step exits non-zero and CI runs
-  every gate. A push to `main`, the nightly and `workflow_dispatch` never say `false`.
+  every gate. A push to `main` never says `false` for backend; for frontend and mobile it uses
+  the push range (`before..sha`, T-1614); the nightly and `workflow_dispatch` never say `false`.
 - Docs-only changes: `scripts/ci_docs_only.sh` decides; shard 1 runs the docs tests, shards 2-8 skip.
 - The required checks (`Backend gate (mix letflow.check)`, `Frontend gate (npm run check)`) are
   always reported; a gate that is not needed reports success without work.
@@ -193,3 +194,10 @@ only"), not as a policy. The tip rule is kept unchanged.
    command on the QA host (infra) and a design record superseding F3/section 8.
 
 Until one is chosen, to put QA on a current build, wait for a quiet period or ask for a pause.
+
+## 2026-11-10 (T-1614, B4#9): frontend and mobile gates follow the path rules on push
+
+Measured over the last 30 `main` runs: by the repo's own rules the mobile gate would have been skipped
+in 28 and the frontend gate in 24. Saving about 10.6 job-minutes per main push (6.3 mobile + 4.3
+frontend, about 8 % of a full run); wall time barely changes. Backend stays always-on on push (ISS-0840).
+Details: `docs/status/ci-minutes-20261110.md`.
