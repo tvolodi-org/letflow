@@ -1,0 +1,149 @@
+# T-1648 (BA, batch 5 item 5): the optional upgrade window of a company (T-1640, REQ-795, commit 8d2887ab6, PR #4173): the settings part that a company administrator can reach.
+# Sources: docs/requirements.yaml REQ-795 criteria 1 (the setting module_upgrade.window holds {start, end} as HH:MM, 00:00 to 23:59, different from each other; null or absent is allowed; anything else is refused
+# by PATCH /tenant/settings with an error that does not echo the value), 7 (a stored invalid window is treated as no window) and 8 (one company's window never defers another company; rollout answers carry no window value;
+# the setting is written only by the company's own administrator through PATCH /tenant/settings); lib/letflow/identity/tenant.ex (validate_module_upgrade_window, window_error: the message
+# "module_upgrade.window must be {start, end} as HH:MM, start different from end"); lib/letflow/routers/tenant_settings.ex (PATCH answers 200 with tenant_id and the whole settings map; 422 carries the changeset message;
+# the tenant is the caller's own, from the token); docs/roles.md (TenantSettingsManage: TENANT_ADMIN yes, PLATFORM_ADMIN yes, others no); lib/letflow/routers/platform_module_rollouts.ex (answers hold ids, statuses and codes only).
+# There is NO screen for the window: grep -rn "module_upgrade" web/src finds nothing (checked 2026-11-10), so the administrator sets it through the settings route. The platform-operator screen of the rollout list is a GAP
+# (scenario-env-limitations/platform-runtime-updates-5-rollout-operator-screen.yaml). The window's effect on a rollout is scenario platform-runtime-demo-2.
+# UAT assumption, to be confirmed by the process owner: the times are read in the company's own time zone (setting "timezone"); with none set the product's default applies (not decided by this scenario).
+# NOT UAT-OBSERVABLE: the fail-open case of a stored invalid window (a UAT user cannot store one; product tests cover it).
+# Sensitive action: change of company settings. No platform operator step here (a platform actor outside scope platform fails SCHEMA-10); that rollout answers carry no window value is checked in platform-runtime-demo-2. A PLATFORM_ADMIN is not used for a refusal: on this own-company route it would change its own platform tenant's settings, not be refused.
+---
+id: tenant-administration-module-upgrade-window-1-set-refuse-clear-and-other-company
+scope: tenant-administration
+title: "A company administrator sets the time window in which module updates may touch the company, wrong windows are refused without echoing them, only the administrator can set it, and another company's window is separate"
+version: "1.0"
+tags: [runtime-updates, upgrade-window, tenant-settings, refusal, access_control, cross-tenant, tenant-admin]
+
+description: >
+  SwiftRoute's administrator sets an upgrade window from 22:00 to 06:00 (it crosses midnight) with the company settings route and sees the window in the answer. Seven wrong windows are
+  refused with 422 and a plain message that does not repeat what was typed: equal start and end, an hour 24, a time without a leading zero, an extra field, a missing end, a window written as one text and a number
+  instead of times. Re-saving the same window afterwards shows it unchanged. The task worker and the read-only auditor of SwiftRoute are refused. The Bilimbaga administrator sets a different window for Bilimbaga and SwiftRoute's window is
+  untouched. At the end both administrators remove their window, after which the settings show none. That rollout answers carry no window value is checked in platform-runtime-demo-2.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  auditor: actor-swiftroute-auditor
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: The window setting is deployed on the QA instance (commit 8d2887ab6, PR #4173)
+    check: custom
+    detail: If the first save is refused with "unrecognized key" or the answer drops the window, report BLOCKED, not PASS.
+  - description: Neither SwiftRoute nor Bilimbaga has a window set when the run starts
+    check: custom
+    detail: If one has, the run notes it and restores that value in step 9 instead of removing it.
+  - description: Both company administrators can sign in
+    check: system_seeded
+    detail: If Bilimbaga's cannot, report BLOCKED for steps 7 and 8 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator saves the company setting "module_upgrade.window" with start "22:00" and end "06:00" (leaving every other setting as it is) and reads the answer.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator tries to save the window with start "10:00" and end "10:00".
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator tries to save these windows, one request each: start "24:00" with end "06:00"; start "9:5" with end "17:00"; start "08:00" and end "17:00" with an extra field "days" set to "Mon";
+      start "08:00" with no end; the single text "22:00-06:00"; the number 2200.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator saves the same window as in step 1 again (start "22:00", end "06:00") and reads the answer.
+    via: api
+  - step: 5
+    actor: worker
+    action: >
+      SwiftRoute's task worker tries to save the window start "01:00", end "02:00".
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: auditor
+    action: >
+      SwiftRoute's read-only auditor tries to save the window start "01:00", end "02:00".
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator saves the window start "01:00", end "03:00" for Bilimbaga and reads the answer.
+    via: api
+  - step: 8
+    actor: admin
+    action: >
+      The SwiftRoute administrator saves the same window as in step 1 once more and reads the answer.
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The SwiftRoute administrator removes the window (saves the setting as empty), and the Bilimbaga administrator removes Bilimbaga's window the same way; each reads the answer.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A window that crosses midnight is accepted and shown.
+    verification:
+      method: api_response
+      detail: >
+        Step 1 answers 200; the answer's settings hold "module_upgrade.window" with start "22:00" and end "06:00", and every other setting that the company had is unchanged.
+      evidence: The answer of step 1 against the settings before it.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company cannot choose a quiet time for module updates, or saving it erases other settings.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Wrong windows are refused whole, in plain words, without repeating what was typed.
+    verification:
+      method: http_status
+      detail: >
+        Step 2 and each of the six requests of step 3 are answered 422 with a message that says the window must be a start and an end as hours and minutes (HH:MM) and that start must differ from end. No message repeats "10:00",
+        "9:5", "22:00-06:00" or "2200". Nothing is saved: step 4 shows the window of step 1 unchanged.
+      evidence: Statuses and messages of steps 2 and 3, and the answer of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A bad window is stored and silently ignored, so the update touches the company at the wrong time.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Only an administrator can change the window.
+    verification:
+      method: http_status
+      detail: Steps 5 and 6 are answered 403 and the window is still start "22:00", end "06:00" in step 8's answer.
+      evidence: Statuses of steps 5 and 6 and the answer of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person who is not an administrator could keep module updates away from the company, or force them at a bad hour.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Another company's window is its own, and neither company can set the other's.
+    verification:
+      method: api_response
+      detail: >
+        Step 7 answers 200 with Bilimbaga's window 01:00 to 03:00 and no SwiftRoute value; step 8 shows SwiftRoute's window still 22:00 to 06:00 (not 01:00 to 03:00). The request carries no company field; each answer's tenant_id is the
+        caller's own.
+      evidence: Answers of steps 7 and 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company's choice moves another company's update time.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Removing the window restores "any time".
+    verification:
+      method: api_response
+      detail: Step 9, both answers show "module_upgrade.window" empty (null) or absent.
+      evidence: Answers of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company cannot go back to "any time",.
+      suggested_action: route_to_wf03

@@ -1,0 +1,82 @@
+# T-1648 (BA, batch 5 item 10): PHASE 4 of 5 of the demo-module sequence (see the header of tenant-administration-runtime-demo-1-install-at-first-release). QA runs demo release 0.1.0 (the operator has gone BACK from 0.2.0, as an
+# emergency redeploy of an older build would), while the companies' stored module data is at 0.2.0.
+# Sources: docs/runbooks/runtime-demo-module.md step 3 ("Set 0.1.0, recreate (stored data is 0.2.0): .../rollback answers module_version_ahead, and /ping answers 503 module_version_ahead"); lib/letflow/api/error.ex (module_version_ahead: HTTP 503, extension code
+# "module_version_ahead", the mount gate of decision 0055 D5); lib/letflow/module_upgrade/rollback.ex (the refusal module_version_ahead among the rollback gate's codes); priv/permission_matrix/effective.golden (RuntimeDemoRead and ModulesManage: TENANT_ADMIN).
+# The two companies are both ahead (SwiftRoute from phase 3, Bilimbaga from phase 2). The gate must hold for each, and the platform-wide modules screen must still load.
+# NOT UAT-OBSERVABLE: the wording shown to a person for a 503 on a module route (the product has no screen for the demo module; the answer body is read through the route).
+---
+id: tenant-administration-runtime-demo-4-data-newer-than-the-build
+scope: tenant-administration
+title: "When the running build is older than a company's stored module data, the module refuses to work and a rollback is refused with the reason; other modules and the Modules screen keep working"
+version: "1.0"
+tags: [runtime-updates, version-gate, module-version-ahead, demo-module, refusal, cross-tenant, tenant-admin]
+
+description: >
+  The QA build has been put back to demo release 0.1.0 while SwiftRoute's and Bilimbaga's stored data for the demo module is at 0.2.0. The ping of the demo module is refused with 503 and the code "module_version_ahead" for each company. A rollback is also
+  refused with the reason "module_version_ahead". The Modules screen still loads and still shows the demo module at 0.2.0, and the other modules of the company are not affected. Nothing is changed by the refusals.
+
+actors:
+  admin: actor-swiftroute-alice
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Phase 3 has run to the end (SwiftRoute and Bilimbaga hold the demo module at 0.2.0) and the QA build now runs demo release 0.1.0 (operator step from the runbook, with the boot upgrade switched off)
+    check: custom
+    detail: If the release is not 0.1.0 or a company's version is not 0.2.0, report BLOCKED and name what was seen.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The SwiftRoute administrator calls the demo module's ping.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The SwiftRoute administrator asks for the real rollback of the demo module to "0.1.0" with the reason "UAT ahead".
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator calls the demo module's ping.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The SwiftRoute administrator opens the Modules screen, reads the version of the demo module, and opens the Users screen (another part of the product).
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: A module whose stored data is newer than the build refuses to answer, with a named code.
+    verification:
+      method: http_status
+      detail: Steps 1 and 3 are answered 503 with the code "module_version_ahead" (not 200, not a generic 500).
+      evidence: Statuses and codes of steps 1 and 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An older build could run on newer data and corrupt it.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A rollback is refused with the same reason and does not change the data.
+    verification:
+      method: http_status
+      detail: Step 2 is refused (409) with the reason "module_version_ahead"; the Modules screen of step 4 shows the demo module still at 0.2.0.
+      evidence: Status and reason of step 2; version of step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A rollback on an older build could damage newer data.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The rest of the product keeps working.
+    verification:
+      method: gui_screen
+      detail: Step 4 loads the Modules screen and the Users screen normally, with no error banner.
+      evidence: Screenshots of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: One module's version mismatch takes the whole company down.
+      suggested_action: route_to_wf03

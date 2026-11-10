@@ -1,0 +1,161 @@
+# T-1648 (BA, batch 5 item 2): the Users import screen, bad files, who may open it, and the other company (T-1633, REQ-791, PR #4165).
+# Sources: web/src/pages/admin/usersImport/usersImportMessages.ts (texts: "Choose an .xlsx file.", "These columns are not in the template: {headers}. Download the template for the exact column names.",
+# "The file is missing these columns: {headers}. ...", "These columns appear twice: {headers}. Keep one of each.", "The file is over the limits: at most 2 MB and 200 data rows.", "The file is not a readable xlsx file.");
+# web/src/auth/access/RequirePermission.tsx (a person without the users-management permission sees the "permission denied" view instead of the page);
+# web/src/pages/admin/UsersPage.tsx (the import button shows only for people who manage users); web/src/router.tsx (address /admin/users/import);
+# REQ-791 criteria 3 (unknown or duplicate header 422 naming it, missing column 422 naming it, over 200 rows 413, not an xlsx 422, a password or roles column is an unknown header) and 8
+# (the route takes no company; a user name that exists only in another company is created in the caller's company).
+# Upload files (exact cells, sheet 1, header row 1, all cells text):
+#   H1 header username | display_name | email | password; row 2 uat-imps-<run>-9 | UAT Bad Nine | uat-imps-<run>-9@example.test | Secret123
+#   H2 header username | display_name; row 2 uat-imps-<run>-9 | UAT Bad Nine
+#   H3 header username | username | display_name | email; row 2 uat-imps-<run>-9 | uat-imps-<run>-9 | UAT Bad Nine | uat-imps-<run>-9@example.test
+#   H4 a plain text file named users.txt containing the single line: hello
+#   H5 header username | display_name | email, then 201 data rows uat-imps-<run>-h<n> | UAT Many <n> | uat-imps-<run>-h<n>@example.test for n = 1 to 201
+#   H6 header username | display_name | email; row 2 uat-imps-<run>-1 | UAT Screen One | uat-imps-<run>-1@example.test (the user scenario users-import-3 created in SwiftRoute)
+# Every one of these is refused by the screen or the server; a refused file creates nobody. The accepted check (H6 in Bilimbaga) is its own step and is a check only.
+# A PLATFORM_ADMIN is not used as a refused actor: on this own-company route a platform administrator would see its own tenant, not a refusal.
+# NOT UAT-OBSERVABLE: the size cap of 2 MB (needs a 2 MB file; product tests cover it).
+---
+id: tenant-administration-users-import-4-screen-file-errors-and-access
+scope: tenant-administration
+title: "The Users import screen names what is wrong with a bad file, stays closed to people who may not manage users, and does not show or touch another company's users"
+version: "1.0"
+tags: [users, import, xlsx, screen, refusal, access_control, cross-tenant, ru, kk, en]
+
+description: >
+  SwiftRoute's administrator chooses five bad files on the import screen: one with a password column, one with a missing column, one
+  with a repeated column, one that is not a spreadsheet and one with 201 rows. Each is refused with a message in plain words that
+  names the column where one is at fault; nobody is created. The task worker and the read-only auditor of SwiftRoute have no import
+  button on the Users screen and, if they type the import address, see the "permission denied" view and no template. The Bilimbaga
+  administrator checks a file that names a user that exists only in SwiftRoute and is told the user would be created in Bilimbaga;
+  SwiftRoute's user is not shown to Bilimbaga and not changed. The refusals are also read in Russian.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  auditor: actor-swiftroute-auditor
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Scenario tenant-administration-users-import-3 has run in this run; the user uat-imps-<run>-1 exists in SwiftRoute and not in Bilimbaga
+    check: system_seeded
+    detail: If the user is missing, report BLOCKED for steps 6 and 7 only. Do not create it by another route.
+  - description: The Bilimbaga administrator can sign in
+    check: system_seeded
+    detail: If not, report BLOCKED for steps 6 and 7.
+  - description: The tester can place files H1 to H6 in the browser's file chooser
+    check: custom
+    detail: If not, report BLOCKED for steps 1, 2 and 6 and say so; do not use the routes instead.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      On the import screen the administrator chooses file H4 (the text file users.txt) and reads the message. Then the administrator
+      chooses file H1 (a password column) and presses "Check file", then file H2 (the e-mail column missing) and presses "Check file",
+      then file H3 (the user name column twice) and presses "Check file", then file H5 (201 rows) and presses "Check file".
+    expect_refusal: true
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator sets the interface language to Russian, chooses file H2 again, presses "Check file", reads the message, and sets
+      the language back to English.
+    expect_refusal: true
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator goes to the Users screen and searches the list for names that start with "uat-imps-<run>-9" and "uat-imps-<run>-h".
+    via: ui
+  - step: 4
+    actor: worker
+    action: >
+      SwiftRoute's task worker opens the Users screen if their menu offers it, looks for an import button, and types the address of
+      the users import screen into the browser.
+    expect_refusal: true
+    via: ui
+  - step: 5
+    actor: auditor
+    action: >
+      SwiftRoute's read-only auditor opens the Users screen if their menu offers it, looks for an import button, and types the address
+      of the users import screen into the browser.
+    expect_refusal: true
+    via: ui
+  - step: 6
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator opens the import screen, chooses file H6 (the user name uat-imps-<run>-1) and presses "Check file"
+      (check only; the administrator does not press "Import users").
+    via: ui
+  - step: 7
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator searches the Bilimbaga Users list for names that start with "uat-imps-<run>".
+    via: ui
+  - step: 8
+    actor: admin
+    action: >
+      The SwiftRoute administrator reloads the Users list and opens the user uat-imps-<run>-1.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: Each bad file is refused whole with a message that says what to do, and names the column where one is at fault.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1: H4 gives "Choose an .xlsx file." (or "The file is not a readable xlsx file." if the chooser lets it through). H1 gives "These columns are not in
+        the template: password. Download the template for the exact column names." H2 gives "The file is missing these columns: email. Download the template
+        for the exact column names." H3 gives "These columns appear twice: username. Keep one of each." H5 gives "The file is over the limits: at most 2 MB and 200 data
+        rows." No message shows a code, a status number or the typed password "Secret123". "Import users" stays off for each.
+      evidence: A screenshot of each message in step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator gets no usable reason, or a password column is accepted.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The refusal text is available in Russian.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 shows "В файле нет колонок: email. Скачайте шаблон, чтобы увидеть точные названия колонок." and not the English sentence and not a message key.
+      evidence: Screenshot of step 2.
+    on_fail:
+      severity: MINOR
+      business_impact: A Russian-speaking administrator cannot read the reason.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: No bad file created a user.
+    verification:
+      method: gui_screen
+      detail: Step 3 lists no user whose name starts with "uat-imps-<run>-9" or "uat-imps-<run>-h".
+      evidence: Screenshot of step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused file left users behind.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A worker and the auditor have no way into the import.
+    verification:
+      method: gui_screen
+      detail: >
+        Steps 4 and 5: the Users screen (if offered at all) has no "Import from Excel" button, and the typed import address shows the "permission denied" view with
+        no "Download template" and no file chooser.
+      evidence: Screenshots of steps 4 and 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person who may not manage users can reach the page that creates them.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: One company's check neither shows nor changes another company's users.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 6 shows the row for uat-imps-<run>-1 as "Would create" (it does not exist in Bilimbaga) and no "Unchanged" or "Refused" for it. Step 7 lists no
+        "uat-imps-<run>" user. Step 8 shows uat-imps-<run>-1 in SwiftRoute with the display name "UAT Screen One" and the status switched off, as scenario 3 left it.
+      evidence: Screenshots of steps 6 to 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company can learn which user names another company holds, or a check changed them.
+      suggested_action: route_to_security_review
