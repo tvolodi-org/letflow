@@ -830,7 +830,13 @@ defmodule Letflow.Documents do
   defp ok_or_rollback({:ok, _} = ok), do: ok
   defp ok_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
-  defp number_label(type, number, period) do
+  @doc """
+  The printed label of a document number: `PREFIX-000123` for numbering scope `:none`,
+  `PREFIX-<period>-000123` otherwise; the number is left-padded to the type's `number_pad` and a
+  wider number is not cut. Pure; the single home of the label (CORE-1 row 1, slice S1).
+  """
+  @spec number_label(map(), non_neg_integer(), String.t() | nil) :: String.t()
+  def number_label(type, number, period) do
     padded = number |> Integer.to_string() |> String.pad_leading(type.number_pad, "0")
 
     case type.numbering_scope do

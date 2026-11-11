@@ -700,18 +700,13 @@ defmodule Letflow.Modules.Stock.Documents do
   defp iso(nil), do: nil
   defp iso(%DateTime{} = at), do: at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-  # Same label as the private `number_label/3` of `Letflow.Documents` (prefix, period for a yearly
+  # Same label as `Letflow.Documents.number_label/3` (prefix, period for a yearly
   # scope, padded number); the type row is the source of prefix and pad.
   defp number_label(_prefix, _spec, %Document{number: nil}), do: nil
 
   defp number_label(prefix, spec, %Document{number: number, period: period}) do
     type = Repo.get!(DocumentType, spec.type_key, prefix: prefix)
-    padded = number |> Integer.to_string() |> String.pad_leading(type.number_pad, "0")
-
-    case type.numbering_scope do
-      :none -> type.number_prefix <> "-" <> padded
-      _year -> type.number_prefix <> "-" <> period <> "-" <> padded
-    end
+    Letflow.Documents.number_label(type, number, period)
   end
 
   @doc """

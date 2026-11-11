@@ -65,11 +65,6 @@ defmodule Letflow.Modules.Stock.DocumentNumbers do
   end
 
   defp label(type, %Document{number: number, period: period}) do
-    padded = number |> Integer.to_string() |> String.pad_leading(type.number_pad, "0")
-
-    case type.numbering_scope do
-      :none -> type.number_prefix <> "-" <> padded
-      _year -> type.number_prefix <> "-" <> period <> "-" <> padded
-    end
+    Letflow.Documents.number_label(type, number, period)
   end
 end
