@@ -11,6 +11,9 @@
 /// `docs/mobile/architecture.md` §1. Built starting REQ-421 (MOB-2).
 library;
 
+import 'dart:convert' show base64Url;
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_appauth/flutter_appauth.dart'
@@ -23,6 +26,7 @@ import '../api/api_error.dart' show ForbiddenError;
 import '../api/transport_policy.dart';
 import '../auth/app_auth_platform.dart';
 import '../auth/auth.dart';
+import '../auth/device_unlock.dart';
 import '../auth/keep_signed_in.dart';
 import '../auth/kv_store.dart' show OidcHttpError;
 import '../auth/session_crypto.dart' show kMaxWrongPins;
@@ -633,6 +637,10 @@ enum UnlockNotice {
 /// Result of finishing the PIN setup.
 enum EnrollOutcome { enrolled, invalidPin, mismatch, failed }
 
+/// Result of "unlock with this device" enrolment (REQ-811): the PIN stays the
+/// way in whatever the outcome.
+enum DeviceEnrolOutcome { enrolled, pinStays, cannotThisWay }
+
 /// The plain line for a notice, or `null` for none.
 String? unlockNoticeText(BootstrapUiState s) {
   return switch (s.unlockNotice) {
@@ -688,10 +696,13 @@ class BootstrapController extends ChangeNotifier {
     this.webMode = kIsWeb,
     WebPendingSignIn? Function()? webPending,
     this.keepSignedIn,
+    this.deviceUnlock,
+    String Function()? rpId,
     OidcRevoker? revoker,
     SessionRecordStore? staleRecordStore,
     DateTime Function()? now,
-  }) : appAuthAdapter = appAuthAdapter ?? defaultAppAuthAdapter(),
+  }) : _rpId = rpId ?? (() => Uri.base.host),
+       appAuthAdapter = appAuthAdapter ?? defaultAppAuthAdapter(),
        webPending = webPending ?? peekWebPendingSignIn,
        tenantLocale = tenantLocale ?? ActiveTenantLocaleHolder(),
        revoker = revoker ?? (keepSignedIn != null ? webOidcRevoker() : null),
@@ -703,6 +714,18 @@ class BootstrapController extends ChangeNotifier {
   /// below that uses it is skipped, so the flow is the one of main.
   final KeepSignedIn? keepSignedIn;
   final OidcRevoker? revoker;
+
+  /// REQ-811: the device passkey seam; `null` unless [keepSignedIn] is built.
+  final DeviceUnlockAuthenticator? deviceUnlock;
+  final String Function() _rpId;
+
+  /// True while the "unlock with this device?" offer is due (after the PIN).
+  final ValueNotifier<bool> offerDeviceUnlock = ValueNotifier<bool>(false);
+
+  /// True on the lock screen when the record has a device wrapping.
+  final ValueNotifier<bool> deviceUnlockAvailable = ValueNotifier<bool>(false);
+  bool _deviceEnrolTried = false;
+  bool _deviceUnlockBusy = false;
 
   /// Used only when [keepSignedIn] is null: a record left by an earlier build
   /// with the flag on is deleted unread.
@@ -847,9 +870,131 @@ class BootstrapController extends ChangeNotifier {
         signedInAt: signedInAt,
       );
       offerKeepSignedIn.value = false;
+      _deviceEnrolTried = false;
+      await _maybeOfferDeviceUnlock();
       return EnrollOutcome.enrolled;
     } catch (_) {
       return EnrollOutcome.failed;
+    }
+  }
+
+  Future<void> _maybeOfferDeviceUnlock() async {
+    final d = deviceUnlock;
+    var available = false;
+    if (d != null) {
+      try {
+        available = await d.isAvailable();
+      } catch (_) {
+        available = false;
+      }
+    }
+    offerDeviceUnlock.value = available;
+  }
+
+  /// The user said "not now" to the device offer: no WebAuthn call, the
+  /// record is untouched.
+  void declineDeviceUnlock() {
+    offerDeviceUnlock.value = false;
+  }
+
+  /// Enrols the device passkey for the record just made. At most one attempt
+  /// per offer; every outcome leaves the PIN working.
+  Future<DeviceEnrolOutcome> enrollDeviceUnlock() async {
+    final d = deviceUnlock;
+    final k = keepSignedIn;
+    offerDeviceUnlock.value = false;
+    if (d == null || k == null || _deviceEnrolTried) {
+      return DeviceEnrolOutcome.pinStays;
+    }
+    _deviceEnrolTried = true;
+    final Uint8List evalInput;
+    final DeviceCreateResult created;
+    final String rpId = _rpId();
+    try {
+      evalInput = await k.newEvalInput();
+      created = await d.create(
+        rpId: rpId,
+        evalInput: evalInput,
+        userVerification: kDeviceUserVerification,
+        authenticatorAttachment: kDeviceAttachment,
+      );
+    } catch (_) {
+      return DeviceEnrolOutcome.pinStays;
+    }
+    if (!created.prfEnabled) return DeviceEnrolOutcome.cannotThisWay;
+    try {
+      var prf = created.prfOutput;
+      prf ??= await d.get(
+        rpId: rpId,
+        credentialId: created.credentialId,
+        evalInput: evalInput,
+        userVerification: kDeviceUserVerification,
+      );
+      if (prf == null) return DeviceEnrolOutcome.cannotThisWay;
+      final ok = await k.enrollDeviceUnlock(
+        credentialId: created.credentialId,
+        evalInput: evalInput,
+        prfOutput: prf,
+      );
+      return ok
+          ? DeviceEnrolOutcome.enrolled
+          : DeviceEnrolOutcome.cannotThisWay;
+    } catch (_) {
+      return DeviceEnrolOutcome.cannotThisWay;
+    }
+  }
+
+  /// Tries the device passkey on the lock screen. A cancel, a failure or no
+  /// output changes nothing (no state change, no store write): the PIN field
+  /// stays. Success follows the PIN path from here.
+  Future<void> tryDeviceUnlock() async {
+    final d = deviceUnlock;
+    final k = keepSignedIn;
+    if (d == null ||
+        k == null ||
+        _state.phase != BootstrapPhase.locked ||
+        k.isUnlocked ||
+        _deviceUnlockBusy) {
+      return;
+    }
+    _deviceUnlockBusy = true;
+    try {
+      final rec = await k.peek();
+      final credB64 = rec?.deviceCredentialId;
+      final evalB64 = rec?.deviceEvalInput;
+      if (rec == null || credB64 == null || evalB64 == null) return;
+      final Uint8List? prf;
+      try {
+        prf = await d.get(
+          rpId: _rpId(),
+          credentialId: Uint8List.fromList(base64Url.decode(credB64)),
+          evalInput: Uint8List.fromList(base64Url.decode(evalB64)),
+          userVerification: kDeviceUserVerification,
+        );
+      } catch (_) {
+        return;
+      }
+      if (prf == null) return;
+      final UnlockResult result;
+      try {
+        result = await k.unlockWithDevice(prf);
+      } catch (_) {
+        await _dropRecord();
+        _toUnauthenticated(UnlockNotice.revoked);
+        return;
+      }
+      switch (result) {
+        case Unlocked(:final record):
+          await _refreshAfterUnlock(record);
+        case Expired():
+          _toUnauthenticated(UnlockNotice.expired);
+        case Corrupt():
+          _toUnauthenticated(UnlockNotice.none);
+        case DeviceNotAccepted() || WrongPin() || TooManyAttempts():
+          break;
+      }
+    } finally {
+      _deviceUnlockBusy = false;
     }
   }
 
@@ -899,6 +1044,8 @@ class BootstrapController extends ChangeNotifier {
         _toUnauthenticated(UnlockNotice.tooManyAttempts);
       case Corrupt():
         _toUnauthenticated(UnlockNotice.none);
+      case DeviceNotAccepted():
+        break;
     }
   }
 
@@ -1113,6 +1260,8 @@ class BootstrapController extends ChangeNotifier {
       onRevocationFailed: () => revocationFailed.value = true,
     );
     offerKeepSignedIn.value = false;
+    offerDeviceUnlock.value = false;
+    deviceUnlockAvailable.value = false;
     _state = BootstrapUiState.unauthenticated;
     notifyListeners();
   }
@@ -1147,8 +1296,11 @@ class BootstrapController extends ChangeNotifier {
           return;
         }
         final k = keepSignedIn;
-        if (k != null && await k.peek() != null) {
+        final stored = k == null ? null : await k.peek();
+        if (k != null && stored != null) {
           // A 30-day record exists: nothing opens before the PIN.
+          deviceUnlockAvailable.value =
+              deviceUnlock != null && stored.hasDeviceUnlock;
           _state = const BootstrapUiState(phase: BootstrapPhase.locked);
           notifyListeners();
           return;
@@ -1288,6 +1440,9 @@ final ChangeNotifierProvider<BootstrapController> bootstrapControllerProvider =
         offlineQueue: ref.watch(offlineQueueProvider),
         tenantLocale: ref.watch(activeTenantLocaleHolderProvider),
         keepSignedIn: ref.watch(keepSignedInProvider),
+        deviceUnlock: ref.watch(keepSignedInProvider) == null
+            ? null
+            : webDeviceUnlock(),
       );
     });
 
