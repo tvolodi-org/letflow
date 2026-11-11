@@ -1,0 +1,21 @@
+scenario_id: pilot-m5-created-users-sign-in
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "pilot milestone M5 (docs/runbooks/pilot-first-month.md, 'What to measure'): every pilot user created by the Users screen or the import signs in once"
+reason: >
+  NOT OBSERVABLE, not PASS. M5 asks that each created user signs in once on the sign-in page. Nothing in
+  Letflow records a sign-in: the audit log records user creation, not sign-in, and no tenant table keeps a
+  "has signed in" time (retaining one per person is an open owner question, docs/uat/ba-decisions/T-1677.md
+  item 7). A UAT run therefore cannot tell from the outside whether a created user ever signed in, and the
+  runbook states M5 as an observation by the company administrator. The sign-in of created users also depends
+  on the provisioner call that infra has not delivered (REQ-801 option (b), flag OFF, a clear 'not available'
+  refusal today), and the interim path (docs/design/REQ-801-sign-in-for-created-users.md, option (a)) can
+  produce a duplicate row or an internal error at first sign-in. No scenario is written for M5 and the
+  acceptance scope must not count it as passed.
+recorded_by: business-analyst
+recorded_at: "2026-11-11"
+issue_ref: "T-1719"
+review: >
+  Revisit when Letflow records a sign-in per user (owner decision on retaining a time per person) or the
+  provisioner call exists and a roster actor can sign in as a created user; then write the scenario and remove
+  this file.
