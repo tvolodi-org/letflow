@@ -1277,6 +1277,8 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
       # replacing their markers with gh: lines, so no deferral is left. The detector is unchanged.
       # UPDATE (T-1656, 2026-11-11): REQ-801 (GH#4185) was registered by the same kind of step; the
       # count stays 0.
+      # UPDATE (T-1680, 2026-11-11): REQ-803 (sign-up sweep addendum) is added with a marker; the
+      # engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
       assert result.deferral_count == 0
       assert result.stale_count == 0
 
