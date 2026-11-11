@@ -102,10 +102,10 @@ describe('C3-a/b/c create per kind', () => {
     expect(created()).toHaveLength(0)
     expect(screen.getByText('Give the reason text.')).toBeInTheDocument()
     pick(/^Reason text/, 'burnt')
+    expect(form().queryByLabelText(/^Counterparty/)).not.toBeInTheDocument()
     save()
     await waitFor(() => expect(created()).toHaveLength(1))
     expect(created()[0][1]).toMatchObject({ kind: 'write_off', reason_code: 'other', reason_text: 'burnt' })
-    expect(form().queryByLabelText(/^Counterparty/)).not.toBeInTheDocument()
   })
 })
 
