@@ -1283,6 +1283,8 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
       # engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
       # UPDATE (T-1696, 2026-11-11): REQ-806..REQ-809 (sign-in for created users, option b) are added
       # with markers; register replaces each with a gh: line before CI runs, so the count stays 0.
+      # UPDATE (T-1699, 2026-11-11): REQ-812 (process designer slice 3C, waiting since) is added with a
+      # marker; the engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
       assert result.deferral_count == 0
       assert result.stale_count == 0
 
