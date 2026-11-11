@@ -48,14 +48,49 @@ Part b (in-process `TenantProvisioner.create/1`, default modules, welcome mail) 
   provisioner credential and no `auth_context`; INV-10 holds because the only callers are the server-side saga on a row the server
   created with a server-generated `tenant_id`, and the admin routes. Demo cap, budgets and default-modules install apply unchanged
   (0072 D3: one call to Letflow's own create path). The step is `tenant_created`; the state stays `provisioning` until the welcome
-  mail (1b). Failure codes: `tenant_internal` (retryable), `tenant_conflict`, `invalid_tenant`, `demo_cap_reached`, `source_budget`,
+  mail (D10). Failure codes: `tenant_internal` (retryable), `tenant_conflict`, `invalid_tenant`, `demo_cap_reached`, `source_budget`,
   `email_domain_budget`. Resume restarts at `credential_sent` when `credential_sent_at` is set, so the mail is never repeated.
+- **D10 Welcome mail (T-1685, part 1b).** After the tenant create (or from a row stopped at `tenant_created`) the saga sends one
+  welcome mail through `Mailer.deliver_now/1`, in the person's language (ru/kk/en, unknown -> en), with the link
+  `https://<label>.<hostname_domain>/?realm=<t-32hex slug>` (same host helper as the create; a UAT assumption, T-1567 Q4 option a, to be
+  confirmed by the process owner). On success the row becomes `completed`/`completed`; a completed row is never claimed, so no second
+  welcome. A mail failure is the retryable code `welcome_mail_failed`: the tenant stays, and `mix letflow.signup.resume` restarts at
+  `credential_sent`, replays the create (a no-op) and sends the welcome; the credential mail is not repeated. No demo-end date or contact
+  address (no source yet); the completed row keeps the e-mail (retention is the sweep's job). Still behind the flag (default off).
+
+**Addendum T-1701 (sign-up sweep, for REQ-803; build in T-1686).** This addendum replaces only the sentence "No scheduler (0084)."
+of D7 and Residual 5 "Resume is operator-driven". Those lines stay as written; D1 to D6, D8 and D9 are unchanged, and
+`mix letflow.signup.resume` stays the operator path. It also adds a timed expiry next to the expiry on submit of 0084 D5.
+- **Host.** The tick of `Letflow.TenantProvisioner.Sweep` (`lib/letflow/tenant_provisioner/sweep.ex`), on the interval of
+  `Letflow.TenantProvisioner.Config.sweep_interval_minutes/0` (default 60), started by `Letflow.Supervisor.Pollers`. There is no new
+  process, no new supervisor child, no new env var or setting. It is not a step of `Letflow.Scheduler.Poller`, because that tick
+  iterates tenant schemas while `signup_requests` is global.
+- **Gate.** The sign-up steps do nothing unless `Letflow.Signup.enabled?/0` is true (0084 D1, default false); the resume step also needs
+  `Letflow.Signup.Provisioning.configured?/0`. With the flag off the tick behaves as before.
+- **Expiry step.** Calls `Letflow.Signup.expire_stale/1` with the tick's clock; the rule and its values are unchanged and the call on the
+  submit path stays. It does not take the advisory lock of the submit path: `expire_stale/1` is one atomic UPDATE statement, a
+  concurrent submit sees the row either before or after it, and a row closed earlier only lowers the pending count. Not taking the
+  lock keeps the tick from queueing behind the form.
+- **Resume step.** Selects requests in state `verified` or `provisioning` whose step is one of the saga's steps
+  (`ready_for_provisioning`, `realm_created`, `credential_sent`) and whose claim is empty or older than the 2 minutes of D5, and starts each
+  with `Letflow.Signup.Provisioning.start_async/1`, so retries and timeouts run in the supervised task, not in the tick. It never
+  touches state `failed`: that stays with the operator (`mix letflow.signup.resume`, with or without `--force`). It never resets
+  `step_attempts`, so the 5 attempts in total of D5 bound each request. Runs that overlap (the sweep and the mix task, two nodes) are
+  separated by the compare-and-set `claim/1`. The select needs a new public function in `Letflow.Signup.Provisioning` (the second half
+  of `resume/1`'s query without the `run/1`); that is part of T-1686.
+- **Never.** The sweep deletes no row and no realm (an orphan realm is infra's reaper, D7). It calls no tenant create itself; a request
+  resumed at `credential_sent` runs the D9 create inside the saga, unchanged. It writes nothing to `tenants`, `tenant_lifecycles` or
+  tenant schemas by itself (0084 D2). It logs counts and fixed result codes only, never an e-mail, token or password (D4). A failure in
+  a sign-up step is rescued so that the existing Expire and Purge steps still run (INV-8); the sign-up steps run after Purge so that a
+  bug there cannot delay lifecycle work.
+- **Not decided here.** Retention of a `failed` request's e-mail (`fail/2` keeps it; no retention source exists, owner question); the
+  welcome mail (slice 1b); the build of the sweep (T-1686).
 
 ## Residuals
 
 1. The temporary password is lost if the process dies between the 201 and the mail, and infra has no re-issue endpoint:
    the fallback is the hint mail. **Verify `resetPasswordAllowed: true` in infra's template before enabling on QA.**
-2. The credential mail precedes the Letflow tenant. Part b (create) is done in T-1679 (D9); the welcome mail is slice 1b.
+2. The credential mail precedes the Letflow tenant. Part b (create) is done in T-1679 (D9); the welcome mail is done in T-1685 (D10).
    Between the two mails a failed create leaves a realm login that leads nowhere until `mix letflow.signup.resume`. Accepted for QA.
 3. The mail is clear text through the QA relay; the forced password change is the mitigation.
 4. A response shape for `GET /v1/realms/{tenant_id}` is assumed equal to the create response (infra README read only).

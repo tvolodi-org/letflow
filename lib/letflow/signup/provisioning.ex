@@ -4,8 +4,11 @@ defmodule Letflow.Signup.Provisioning do
   `ready_for_provisioning`: ask the provisioner for the tenant's realm and first admin
   (`Letflow.Signup.RealmProvisioner`), record realm/issuer/template version, mail the one-time first
   credential, then (T-1679, part 1a) create the Letflow tenant in-process through
-  `Letflow.TenantProvisioner.create/1` with the row's `tenant_id` and stop at step `tenant_created`.
-  The state stays `provisioning` until the welcome mail (part 1b) completes the row.
+  `Letflow.TenantProvisioner.create/1` with the row's `tenant_id` (step `tenant_created`), then (T-1685, part 1b)
+  send the one welcome mail with the workspace link `https://<label>.<hostname_domain>/?realm=<slug>` in the
+  person's language and complete the row (state/step `completed`). A mail failure is the retryable code
+  `welcome_mail_failed`; the tenant stays and the credential mail is never repeated. Delivery is at-least-once only
+  if the process dies between a successful send and the row update (same trade-off as the credential mail).
 
   * **The tenant create is idempotent and carries no credential.** A replay is the provisioner's own
     `:existing` answer (nothing is written); no `auth_context` or provisioner bearer token is involved
@@ -35,8 +38,8 @@ defmodule Letflow.Signup.Provisioning do
 
   @supervisor Letflow.LoginDiscovery.TaskSupervisor
   @stale_claim_seconds 120
-  @steps ["ready_for_provisioning", "realm_created", "credential_sent"]
-  @retryable ~w(unavailable rate_limited credential_mail_failed internal attempts_exhausted tenant_internal)
+  @steps ["ready_for_provisioning", "realm_created", "credential_sent", "tenant_created"]
+  @retryable ~w(unavailable rate_limited credential_mail_failed internal attempts_exhausted tenant_internal welcome_mail_failed)
 
   @doc "True when the flag is on and the provisioner URL, token and hostname domain are all set."
   @spec configured?() :: boolean()
@@ -63,7 +66,7 @@ defmodule Letflow.Signup.Provisioning do
 
   @doc """
   Runs the step for one request until it is done, failed, or someone else holds it.
-  Returns `:ok` (tenant created), `:noop`, or `{:failed, code}`.
+  Returns `:ok` (tenant created, welcome mail sent, row completed), `:noop`, or `{:failed, code}`.
   """
   @spec run(String.t()) :: :ok | :noop | {:failed, String.t()}
   def run(tenant_id) do
@@ -167,6 +170,9 @@ defmodule Letflow.Signup.Provisioning do
   # The credential mail went out (a failed or interrupted tenant create): never mail again.
   defp process(%Request{step: "credential_sent"} = row, cfg), do: create_tenant(row, cfg)
 
+  # The tenant exists (a crash or a mail failure after the create): only the welcome mail is left.
+  defp process(%Request{step: "tenant_created"} = row, cfg), do: send_welcome(row, cfg)
+
   defp process(%Request{step: "ready_for_provisioning"} = row, cfg) do
     case RealmProvisioner.create_realm(row, cfg) do
       {:ok, _kind, realm} ->
@@ -227,8 +233,7 @@ defmodule Letflow.Signup.Provisioning do
       "language" => row.language,
       "tier" => "demo",
       "owner_email" => row.email,
-      "hostname" =>
-        RealmProvisioner.label(row.tenant_id) <> "." <> to_string(cfg.hostname_domain),
+      "hostname" => hostname(row, cfg),
       "idp_realm_id" => row.idp_realm_id,
       "source_key" => source_key(row.ip_key)
     }
@@ -238,8 +243,7 @@ defmodule Letflow.Signup.Provisioning do
       row
       |> Ecto.Changeset.change(step: "tenant_created", last_error: nil)
       |> Repo.update!()
-
-      :done
+      |> send_welcome(cfg)
     else
       {:error, :internal} -> {:retry, :tenant_internal, nil}
       {:error, :conflict} -> {:permanent, :tenant_conflict}
@@ -247,6 +251,28 @@ defmodule Letflow.Signup.Provisioning do
       {:error, {:limit, :source_budget, _language}} -> {:permanent, :source_budget}
       {:error, {:limit, :email_domain_budget, _language}} -> {:permanent, :email_domain_budget}
       {:error, _invalid_field} -> {:permanent, :invalid_tenant}
+    end
+  end
+
+  defp hostname(row, cfg),
+    do: RealmProvisioner.label(row.tenant_id) <> "." <> to_string(cfg.hostname_domain)
+
+  # T-1685: the one welcome mail. Host from operator config and the server-made tenant id (INV-9).
+  defp send_welcome(row, cfg) do
+    link =
+      "https://" <>
+        hostname(row, cfg) <> "/?realm=" <> TenantProvisioner.Request.slug(row.tenant_id)
+
+    case Mailer.deliver_now(Map.put(Messages.welcome(row.language, link), :to, row.email)) do
+      :ok ->
+        row
+        |> Ecto.Changeset.change(state: "completed", step: "completed", last_error: nil)
+        |> Repo.update!()
+
+        :done
+
+      {:error, :failed} ->
+        {:retry, :welcome_mail_failed, nil}
     end
   end
 

@@ -20,7 +20,7 @@ defmodule Letflow.Signup.Messages do
 
   @doc """
   T-1593: the one-time first-credential mail (temporary password, forced change at first sign-in).
-  The workspace link follows in a later mail (part b). The password exists only in the rendered body.
+  The workspace link follows in the welcome mail (T-1685). The password exists only in the rendered body.
   """
   @spec first_credential(String.t(), String.t(), String.t()) :: %{
           subject: String.t(),
@@ -38,6 +38,30 @@ defmodule Letflow.Signup.Messages do
         )
     }
   end
+
+  @doc "T-1685: the one welcome mail with the workspace link, sent after the tenant create."
+  @spec welcome(String.t(), String.t()) :: %{subject: String.t(), body: String.t()}
+  def welcome(language, link) do
+    {subject, intro, outro} = welcome_texts(lang(language))
+    %{subject: subject, body: Enum.join([intro, "", link, "", outro], "\n")}
+  end
+
+  defp welcome_texts("ru"),
+    do:
+      {"Ваше рабочее пространство Letflow готово",
+       "Ваше рабочее пространство создано. Войдите по ссылке:",
+       "Используйте имя пользователя и пароль из предыдущего письма."}
+
+  defp welcome_texts("kk"),
+    do:
+      {"Letflow жұмыс кеңістігіңіз дайын",
+       "Жұмыс кеңістігіңіз құрылды. Мына сілтеме арқылы кіріңіз:",
+       "Алдыңғы хаттағы пайдаланушы атын және құпия сөзді қолданыңыз."}
+
+  defp welcome_texts("en"),
+    do:
+      {"Your Letflow workspace is ready", "Your workspace has been created. Sign in here:",
+       "Use the user name and the password from the previous message."}
 
   @doc "T-1593: sent instead of the credential when the temporary password is no longer available."
   @spec reset_hint(String.t()) :: %{subject: String.t(), body: String.t()}

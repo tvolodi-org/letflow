@@ -2,6 +2,7 @@
 /** T-1657 / REQ-789: the reset button, the hints for refused users, the confirmation and the outcome texts. */
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithAccess } from '@/auth/access/testing'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
@@ -40,7 +41,7 @@ afterEach(cleanup)
 
 describe('T-1657 UserDetailPage reset button', () => {
   it('P1 active oidc user with e-mail: button, no hint', () => {
-    renderWithAccess(<UserDetailPage />, 'tenantAdmin')
+    renderWithAccess(<MemoryRouter><UserDetailPage /></MemoryRouter>, 'tenantAdmin')
     expect(screen.getByRole('button', { name: en.button })).toBeInTheDocument()
     expect(screen.queryByTestId('admin-user-reset-hint')).toBeNull()
   })
@@ -51,25 +52,25 @@ describe('T-1657 UserDetailPage reset button', () => {
     ['P4 empty e-mail', { email: '' }, 'hintNoEmail'],
   ] as const)('%s: hint, no button', (_n, patch, key) => {
     user = { ...base, ...patch }
-    renderWithAccess(<UserDetailPage />, 'tenantAdmin')
+    renderWithAccess(<MemoryRouter><UserDetailPage /></MemoryRouter>, 'tenantAdmin')
     expect(screen.queryByRole('button', { name: en.button })).toBeNull()
     expect(screen.getByTestId('admin-user-reset-hint')).toHaveTextContent(en[key])
   })
 
   it('P5 without the manage permission: no button', () => {
-    renderWithAccess(<UserDetailPage />, 'taskWorker')
+    renderWithAccess(<MemoryRouter><UserDetailPage /></MemoryRouter>, 'taskWorker')
     expect(screen.queryByRole('button', { name: en.button })).toBeNull()
   })
 
   it('P6 cancel sends nothing', () => {
-    renderWithAccess(<UserDetailPage />, 'tenantAdmin')
+    renderWithAccess(<MemoryRouter><UserDetailPage /></MemoryRouter>, 'tenantAdmin')
     fireEvent.click(screen.getByRole('button', { name: en.button }))
     fireEvent.click(screen.getByRole('button', { name: en.cancel }))
     expect(sendMutate).not.toHaveBeenCalled()
   })
 
   it('P7 confirm names the stored e-mail and sends once', () => {
-    renderWithAccess(<UserDetailPage />, 'tenantAdmin')
+    renderWithAccess(<MemoryRouter><UserDetailPage /></MemoryRouter>, 'tenantAdmin')
     fireEvent.click(screen.getByRole('button', { name: en.button }))
     expect(screen.getByTestId('password-reset-dialog-body')).toHaveTextContent('ann@x.io')
     fireEvent.click(screen.getByRole('button', { name: en.confirm }))
@@ -78,7 +79,7 @@ describe('T-1657 UserDetailPage reset button', () => {
 
   function confirmWith(run: (opts: { onSuccess: () => void; onError: (e: unknown) => void }) => void) {
     sendMutate.mockImplementation((_v, opts) => run(opts))
-    renderWithAccess(<UserDetailPage />, 'tenantAdmin')
+    renderWithAccess(<MemoryRouter><UserDetailPage /></MemoryRouter>, 'tenantAdmin')
     fireEvent.click(screen.getByRole('button', { name: en.button }))
     fireEvent.click(screen.getByRole('button', { name: en.confirm }))
   }
@@ -109,7 +110,7 @@ describe('T-1657 UserDetailPage reset button', () => {
 
   it('M3 the page uses the ru text when the language is ru', () => {
     useUiLocaleStore.getState().setLocaleTransient('ru')
-    renderWithAccess(<UserDetailPage />, 'tenantAdmin')
+    renderWithAccess(<MemoryRouter><UserDetailPage /></MemoryRouter>, 'tenantAdmin')
     expect(screen.getByRole('button', { name: passwordResetMessages.ru.button })).toBeInTheDocument()
   })
 })

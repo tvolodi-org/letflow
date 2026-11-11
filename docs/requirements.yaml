@@ -54334,6 +54334,195 @@ requirements:
       - "11. The Sources section lists every file the note cites, and each one that is not marked \"(planned, not yet on main)\" exists on origin/main at implement time (`git cat-file -e origin/main:<path>` succeeds for each); every function or mix task the note names is found by `git grep -nE 'defp? <name>|defmodule <module>'` on origin/main in the file the note gives for it."
       - "12. git diff origin/main...HEAD --stat of the implementation change lists only docs/status/companion-test-split.md."
     depends_on: []
+  - id: REQ-806
+    title: "Sign-in for created users, option (b), decision-record addendum: infra's provisioner creates the realm login with a temporary password and UPDATE_PASSWORD, the administrator hands the password out (addendum to 0072 D1, pointer in 0085); docs only, the build is later tasks"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 4228
+    # Source: task T-1696 (operator, D-086 and D-118; owner 2026-11-11 "Accept all recommendations", portfolio DECISIONS.md D-118 item (1): "created users get an e-mail set-password link, the admin hands out a temporary password until the mail relay exists"). docs/design/REQ-801-sign-in-for-created-users.md, Options row (b) and "What each option needs" row (b) (needs a new decision record: it widens infra's credential and adds a Letflow client call). Portfolio D-016 (realm per tenant, provisioner operated by infra), D-018 (scoped create-realm-only creator). Files read on origin/main 0715caa7b: docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md (D1: "on a realm it made it gets 403 for users"; "Letflow holds no Keycloak admin credential and gets no admin client"; D2 verifyEmail; section 8a D8; section 10: manage-users and the welcome mail are the owner's, "never Keycloak"); docs/migration/decisions/0085-signup-realm-provisioner-client.md (D1 client, D2 settings, D3 INV-9 URL rule, D4 INV-4, D9); lib/letflow/signup/realm_provisioner.ex (label/1, valid_base_url?/1, token read with System.get_env/1 at call time); lib/letflow/identity/user.ex (create_changeset/2 internal, jit_changeset/2 oidc, the auth_source-vs-external-fields rule); lib/letflow/identity.ex (create_user/2, provision_oidc_user/4 keyed on external_realm and external_id); lib/letflow/plugs/auth_pipeline.ex (map_claims/2 takes the token's sub); lib/letflow/routers/identity.ex (POST /users, do_reset_password/3, token_created_map/2 returns an API token plaintext once); docs/agents/instructions/security-invariants.md INV-1, INV-4, INV-9, INV-10; docs/runbooks/onboarding-new-tenant-realm.md step R2. Written by the business analyst (T-1696) 2026-11-11. Not yet validated.
+    description: >
+      What this entry is: the specification of one later docs change to two decision records. The addendum text does
+      not exist yet and is not written by the task that adds this entry; it is written by the implementation task of the
+      GitHub issue the engine files for REQ-806. The build is three later requirements (REQ-807 backend route, REQ-808
+      import step, REQ-809 web screens, all pending, added by T-1696).
+      The problem, as found on origin/main: a user made on the Users screen or by the xlsx import is an internal row
+      (Letflow.Identity.User.create_changeset/2 in lib/letflow/identity/user.ex: auth_source internal, no external_realm
+      or external_id) and no code path creates a Keycloak account for it (docs/design/REQ-801-sign-in-for-created-users.md,
+      section "Today"). The owner chose option (b) of that note for QA (D-118 item 1). Decision 0072 D1 says the
+      provisioner's create-realm-only creator gets 403 for users on a realm it made, so option (b) needs a recorded change
+      of what the provisioner may do. Letflow's own position in 0072 D1 does not change: Letflow still holds no Keycloak
+      credential and gets no admin client; it calls infra's provisioner, as 0085 D1 already does.
+      The addendum decides the following (the implementer writes it down with the reasons; it does not change it):
+      (1) Flow. A tenant administrator with the existing UsersManage permission asks Letflow to create the sign-in of one
+      existing internal user of the own company. Letflow calls one new provisioner call; on success it binds the row to
+      the new realm account in one transaction (auth_source oidc, external_realm = the tenant's idp_realm_id, external_id
+      = the Keycloak user id the provisioner returns, which is the token's sub claim at sign-in), so
+      Letflow.Identity.provision_oidc_user/4 finds the row by (external_realm, external_id) at the first sign-in and makes
+      no second row. The temporary password is returned once, in that one answer, to that administrator, who hands it to
+      the person (D-118 item 1); at the first sign-in Keycloak forces a new password (required action UPDATE_PASSWORD).
+      (2) INV-4. The temporary password is a credential: it appears in no log line, audit entry, error, stored row,
+      notification or second answer; the one answer carries the header cache-control no-store. The precedent for one
+      plaintext in one answer is the API token answer of POST /identity/tokens (token_created_map/2 in
+      lib/letflow/routers/identity.ex); the addendum says why the same exception is acceptable here and that the
+      security review of REQ-807 checks it.
+      (3) Settings, new, all unset by default (then the step does not run): LETFLOW_REALM_USERS_ENABLED (exactly "true",
+      default off), LETFLOW_REALM_USERS_PROVISIONER_URL and LETFLOW_REALM_USERS_PROVISIONER_TOKEN; set together or boot
+      refuses; the URL follows the rule of 0085 D3 (RealmProvisioner.valid_base_url?/1); the token is read with
+      System.get_env/1 at call time and never put in Application env (0085 D4). Reason for a token separate from
+      LETFLOW_SIGNUP_PROVISIONER_TOKEN: infra can give user creation a caller token of its own, and the users step does
+      not depend on the sign-up flag (0085 D2 refuses the sign-up settings without LETFLOW_SIGNUP_ENABLED).
+      (4) Which realms. Only a tenant whose idp_realm_id equals Letflow.Signup.RealmProvisioner.label/1 of its tenant id
+      (a realm the provisioner made, 0072 D3 name rule); any other tenant is refused with a fixed reason and the row is
+      unchanged. The tenant and its realm come from the authenticated context, never from the request (INV-1, INV-10).
+      (5) No binding by name. When the realm already has an account with that username or e-mail, Letflow binds nothing
+      and refuses with a fixed reason; it never attaches a row to an existing realm account (takeover risk, as 0048 keeps
+      for e-mail binding). Residual, written as such: an account the provisioner created whose answer Letflow lost (a
+      crash after the provisioner's 201) blocks a retry until a Keycloak operator removes it by hand (runbook R2 pattern).
+      (6) What infra must provide (a section of its own, headed "What infra must provide", for the portfolio manager to
+      hand to infra; Letflow does not build any of it): (i) one provisioner call that creates an enabled user in a realm
+      the provisioner made, given tenant_id, username, email and display name, with email marked verified (0072 D2 has
+      verifyEmail true and there is no mail relay yet), a temporary password and the required action UPDATE_PASSWORD;
+      (ii) its answer on success carries realm, the Keycloak user id and the temporary password once; on a username or
+      e-mail already present a conflict with no password; on an unknown tenant or a realm the provisioner did not make a
+      not-found; caller-token, rate-limit and unavailable answers as for POST /v1/realms (0085 D1); (iii) the
+      provisioner's Keycloak credential re-scoped so it may create users only in realms it made, and still cannot read,
+      change or delete anything else (a change of D-018, infra's and the portfolio manager's to record); (iv) a caller
+      token for Letflow's users step; (v) the provisioner's own audit log and rate limit cover the new call (D-019);
+      (vi) QA only, no production Keycloak. The exact path and field names of the call are infra's; Letflow's client
+      (REQ-807) follows what infra publishes.
+      (7) Not decided here: the later e-mail set-password link of D-118 item 1 (needs a mail relay; Keycloak's own action
+      mail conflicts with 0072 section 10 "never Keycloak"); production; what happens to internal rows that never get a
+      sign-in; the e-mail-only second-row case of the REQ-801 note (case ii).
+      ONE change, docs only: an "Addendum T-<implementing task>" section in
+      docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md and one pointer line in
+      docs/migration/decisions/0085-signup-realm-provisioner-client.md. No edit of lib/, priv/, config/, test/, web/,
+      docs/runbooks/ or any other file. Flags stay off; nothing on production.
+    acceptance_criteria:
+      - "1. docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md has a new section whose heading starts with \"Addendum T-\" followed by the implementing task id, placed after section 8a (D8) and before section 9. It says in words that it changes only the D1 sentence part \"on a realm it made it gets 403 for users\", for QA, and that the D1 sentence \"Letflow holds no Keycloak admin credential and gets no admin client\" stays as it is."
+      - "2. The addendum states point (1) of this entry's description in words: the actor (a tenant administrator with UsersManage, own company only), the one existing internal user it applies to, the binding written in one transaction (auth_source oidc, external_realm = the tenant's idp_realm_id, external_id = the Keycloak user id returned), that the first sign-in then finds the row through Letflow.Identity.provision_oidc_user/4 by (external_realm, external_id), and that Keycloak forces a new password with UPDATE_PASSWORD."
+      - "3. The addendum states point (2) in words: the temporary password appears only in the one answer to the administrator, with cache-control no-store, and in no log line, audit entry, error, stored row or notification; it names token_created_map/2 in lib/letflow/routers/identity.ex as the precedent and says the REQ-807 security review checks INV-4."
+      - "4. The addendum names exactly the three settings LETFLOW_REALM_USERS_ENABLED, LETFLOW_REALM_USERS_PROVISIONER_URL and LETFLOW_REALM_USERS_PROVISIONER_TOKEN, states that all are unset by default and the step then does not run, that they are set together or boot refuses, that the URL follows 0085 D3 (Letflow.Signup.RealmProvisioner.valid_base_url?/1) and that the token is read at call time as 0085 D4 says, and gives the reason for a token separate from LETFLOW_SIGNUP_PROVISIONER_TOKEN."
+      - "5. The addendum states points (4) and (5) in words: only a tenant whose idp_realm_id equals Letflow.Signup.RealmProvisioner.label/1 of its tenant id qualifies; tenant and realm come from the authenticated context (INV-1, INV-10); an account already present in the realm is never bound, and the lost-answer case is written as a residual with the hand fix of runbook step R2."
+      - "6. The addendum has a part headed \"What infra must provide\" that lists items (i) to (vi) of point (6) of this entry's description, each as one numbered line, and says that the exact path and field names are infra's."
+      - "7. The addendum has a \"Not decided here\" line listing at least the four items of point (7) of this entry's description."
+      - "8. docs/migration/decisions/0085-signup-realm-provisioner-client.md gains exactly one new line, directly after its D9 paragraph, that names the 0072 addendum by its task id and says that the users step uses its own settings and its own caller token; no other line of 0085 changes."
+      - "9. Every file, module and function the addendum names exists on origin/main at implement time: `git cat-file -e origin/main:<path>` succeeds for each file, and `git grep -nE 'defp? <name>'` on origin/main finds each named function in the file the addendum gives for it. Planned names of REQ-807 to REQ-809 are written as planned, not as existing."
+      - "10. git diff origin/main...HEAD --stat of the implementation change lists only docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md and docs/migration/decisions/0085-signup-realm-provisioner-client.md."
+    depends_on: [REQ-801]
+  - id: REQ-807
+    title: "Sign-in for created users, option (b), backend: a client call to infra's provisioner that creates the realm login, and a route that creates it for one internal user of the own company, binds the row and returns the temporary password once (behind LETFLOW_REALM_USERS_ENABLED, off)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4227
+    # Source: task T-1696 (operator, D-086, D-118 item 1). REQ-806 (pending, added by T-1696) decides the flow, settings, realm rule and the infra contract. Files read on origin/main 0715caa7b: lib/letflow/signup/realm_provisioner.ex (label/1, valid_base_url?/1, the :httpc transport with a 64 KiB body cap, the closed error set); lib/letflow/routers/identity.ex (authz_post "/users/:id/reset-password", :UsersManage; handle_reset_password/3 with with_cast_id/3 and with_platform_admin_member_guard/4; do_reset_password/3 refusal order; safe_insert_audit/2; user_map/1; token_created_map/2); lib/letflow/identity/user.ex (create_changeset/2, jit_changeset/2, users_external_identity_partial_index); lib/letflow/identity.ex (get_user/2, provision_oidc_user/4, platform_admin_member?/2); lib/letflow/api/response.ex (created/2, conflict/2, unprocessable/2, not_found/1, forbidden/2); lib/letflow/plugs/api_pipeline.ex (forward "/identity"); test/support/provisioner_stub.ex; config/runtime.exs (the LETFLOW_SIGNUP_PROVISIONER_* boot checks). Written by the business analyst (T-1696) 2026-11-11.
+    description: >
+      ONE change, backend only, behind a new setting that is off by default (REQ-806 point 3). Nothing on production.
+      Part 1, the client: a new module Letflow.Signup.RealmUsers in lib/letflow/signup/realm_users.ex (planned, not yet on
+      main), next to Letflow.Signup.RealmProvisioner and built the same way: :httpc, no new dependency; the base URL from
+      LETFLOW_REALM_USERS_PROVISIONER_URL checked with RealmProvisioner.valid_base_url?/1 on every call; the bearer token
+      read with System.get_env("LETFLOW_REALM_USERS_PROVISIONER_TOKEN") at call time; body capped at 64 KiB; every failure
+      reduced to an atom of the closed set :not_configured, :bad_url, :unavailable, :rate_limited, :unauthorized,
+      :login_exists, :realm_not_provisioned, :invalid_request, :bad_response; nothing of request, header, body or
+      exception is logged or returned. The path and field names are those infra publishes for item (i) of REQ-806
+      point 6; the response is validated, not trusted: realm equals RealmProvisioner.label/1 of the tenant id, the user
+      id is a canonical UUID string, the temporary password is a string of 1 to 256 bytes; anything else is :bad_response.
+      Part 2, the boot checks in config/runtime.exs: LETFLOW_REALM_USERS_ENABLED is exactly "true" or unset (any other
+      non-empty value raises without echoing it); with it true, URL and token must both be set and the URL valid, or boot
+      raises; URL or token without the flag also raises.
+      Part 3, the binding: a new changeset Letflow.Identity.User.bind_realm_login_changeset/3 (planned) that sets
+      auth_source oidc, external_realm and external_id on an internal row and nothing else, and a function
+      Letflow.Identity.create_sign_in/2 (planned; arguments user id and the router's opts) that runs the checks, calls
+      the client outside any database transaction, then in one transaction re-reads the row with a row lock, checks it is
+      still internal, applies the changeset and writes one audit entry with action "user.sign_in_created" (actor = the
+      administrator, target = the user id, no password), and returns {:ok, user, temporary_password} or
+      {:error, reason}.
+      Part 4, the route: authz_post "/users/:id/sign-in", :UsersManage in lib/letflow/routers/identity.ex (so
+      POST /identity/users/:id/sign-in), using with_cast_id/3 and with_platform_admin_member_guard/4 as the reset route
+      does. Checks in this order: a non-empty body is 422 body_not_accepted; setting off or not configured is 409
+      sign_in_creation_off; unknown id (or a row of another company, which the tenant prefix never reaches) is 404; a
+      PLATFORM_ADMIN group member asked for by a non-platform caller is 403; status not active is 409 user_inactive;
+      auth_source oidc is 409 sign_in_exists; no e-mail is 409 no_email; the tenant's idp_realm_id not equal to
+      RealmProvisioner.label/1 of its tenant id is 409 realm_not_provisioned; the client's :login_exists is 409
+      login_exists_in_realm; :unavailable and :rate_limited are 409 provisioner_unavailable; every other client error is
+      409 provisioner_refused. Success is 201 with exactly the keys "user" (user_map/1 of the bound row, auth_source
+      "oidc") and "temporary_password", and the header cache-control no-store. On any refusal the row is unchanged and no
+      audit entry is written.
+      Tests use the existing test-only fake Letflow.Test.ProvisionerStub (test/support/provisioner_stub.ex, a Bandit plug
+      on a loopback port that records every call), as test/letflow/signup_provisioning_test.exs does; no test calls a
+      real provisioner or Keycloak. Route-count and scope pins move as the
+      skill describes; the new route is a tenant-data path and gets the security review (INV-1, INV-4, INV-5, INV-9,
+      INV-10). REQ-804 (built on main by PR #4217) answers the first-sign-in username collision with 403
+      username_in_use; a bound row is found by its external identity before any username insert, so this change does
+      not reach that branch and does not depend on it.
+    acceptance_criteria:
+      - "1. With LETFLOW_REALM_USERS_ENABLED unset, POST /identity/users/:id/sign-in by a tenant administrator for an active internal user with an e-mail answers 409 with reason sign_in_creation_off, the fake provisioner receives no request, and the row's auth_source is still internal (a router test with a real token through the real router)."
+      - "2. With the setting on and the fake provisioner answering success, the same request answers 201 with exactly the keys user and temporary_password and the header cache-control no-store; user.auth_source is \"oidc\"; the row now has external_realm equal to the tenant's idp_realm_id and external_id equal to the user id the fake returned; one audit entry with action user.sign_in_created exists and none of its fields contains the temporary password."
+      - "3. After criterion 2, Letflow.Identity.provision_oidc_user/4 called with that realm and the returned user id as subject returns the same row id and the users table of that tenant still has one row for the person (a test)."
+      - "4. Each refusal of the description's Part 4 has a test that asserts its status and reason and that the row is unchanged: body_not_accepted, sign_in_creation_off, 404 for an unknown id, user_inactive, sign_in_exists, no_email, realm_not_provisioned, login_exists_in_realm, provisioner_unavailable, provisioner_refused."
+      - "5. A cross-tenant negative test (INV-10, INV-5): a tenant administrator of company A asking for the id of a user of company B gets 404, the same answer as a random id, and the fake provisioner receives no request."
+      - "6. A caller without UsersManage (for example a tenant user with only a non-admin role) gets 403 and the fake provisioner receives no request."
+      - "7. A log-capture test over criterion 2 and over the provisioner_refused case asserts that neither the temporary password nor the bearer token appears in the captured log, and that no answer of a refusal contains either."
+      - "8. Letflow.Signup.RealmUsers has unit tests against the fake for: an invalid base URL (:bad_url, no request sent), a missing token (:not_configured), a realm in the answer not equal to label/1 (:bad_response), a body over 64 KiB (:bad_response), a 409 (:login_exists), a 429 (:rate_limited)."
+      - "9. config/runtime.exs boot checks have tests: a value other than exactly \"true\" raises without the value in the message; the flag true with URL or token missing raises; URL or token set without the flag raises."
+      - "10. mix letflow.check.static passes and the mapped tests of the change pass locally; the PR names the route-count and scope pins it moved."
+    depends_on: [REQ-806]
+  - id: REQ-808
+    title: "Sign-in for created users, option (b), xlsx import step: after a real import commits, create the sign-in of each new user through the REQ-807 function and return each temporary password once in the import answer (behind LETFLOW_REALM_USERS_ENABLED, off)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4226
+    # Source: task T-1696 (operator, D-086, D-118 item 1: "a step in the Users screen and the xlsx import"). Files read on origin/main 0715caa7b: lib/letflow/routers/identity/users_import.ex (moduledoc: the real import is atomic, every row created in one transaction, "applied" false on any refused row; @row_cap 200; handle_import/2 with dry_run); lib/letflow/identity/user_import.ex (rows created through Letflow.Identity.create_user/2); REQ-806 and REQ-807 (pending, added by T-1696). Written by the business analyst (T-1696) 2026-11-11.
+    description: >
+      ONE change, backend only, in lib/letflow/routers/identity/users_import.ex (and its tests). When
+      LETFLOW_REALM_USERS_ENABLED is on and a real import (not dry_run) has committed with "applied" true, the handler
+      calls Letflow.Identity.create_sign_in/2 (added by REQ-807, planned, not yet on main) once for each created row, in
+      file order, after the import transaction has committed and outside it, so a failed sign-in never undoes a created
+      user. The answer gains, per created row, a "sign_in" object: either {"created": true, "temporary_password": "..."}
+      or {"created": false, "reason": "<the REQ-807 reason>"}. After the first provisioner_unavailable the remaining rows
+      are not attempted and carry {"created": false, "reason": "not_attempted"}, so one outage does not cost up to 200
+      timeouts (the row cap of the import). With the setting off, with dry_run, or when the import is not applied, the
+      answer has no "sign_in" key and the provisioner is not called: the answer is byte-identical to origin/main's for
+      the same file. The answer with any password carries cache-control no-store. INV-4 as in REQ-807: no password in a
+      log line, audit entry or stored row. No new route, permission or setting.
+    acceptance_criteria:
+      - "1. With the setting on and the fake provisioner answering success, a real import of a file with two valid rows answers with \"applied\" true and, for each created row, sign_in.created true and a temporary_password string; both rows are bound (auth_source oidc, external_id from the fake); the header cache-control no-store is set."
+      - "2. With the fake answering success for the first row and 409 for the second, both users exist after the import, the first is bound, the second is internal with sign_in.created false and reason login_exists_in_realm."
+      - "3. With the fake unavailable, the first row has reason provisioner_unavailable, every later row has reason not_attempted, the fake received exactly one request, and every user of the file exists as an internal row."
+      - "4. With the setting off, with dry_run=true, and with a file that has one refused row (applied false), the answer has no sign_in key and the fake receives no request; for the setting-off case the answer body equals the answer for the same file with this change reverted (a test comparing against a stored expected body)."
+      - "5. A log-capture test over criterion 1 asserts that no temporary password appears in the captured log or in any audit entry."
+    depends_on: [REQ-807]
+  - id: REQ-809
+    title: "Sign-in for created users, option (b), web: a Create sign-in action on the user page and in the new-user dialog, and a one-time temporary password panel there and in the import result, in en, ru and kk"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4225
+    # Source: task T-1696 (operator, D-086, D-118 item 1: the administrator hands out the temporary password). Files read on origin/main 0715caa7b: web/src/pages/admin/UsersPage.tsx (the Users screen and its new-user dialog), web/src/pages/admin/UserDetailPage.tsx (the user page with the reset-password action), web/src/pages/admin/usersImport/ (the import screen), web/src/pages/admin/usersMessages.ts (the screen texts); REQ-807 and REQ-808 (pending, added by T-1696). Written by the business analyst (T-1696) 2026-11-11.
+    description: >
+      ONE change, web only (web/src/pages/admin/ and its tests and harness fixtures). (1) The user page
+      (UserDetailPage.tsx) shows a "Create sign-in" action for a user whose auth_source is internal; it calls
+      POST /identity/users/:id/sign-in (REQ-807). (2) The new-user dialog of UsersPage.tsx gets a checkbox "Create
+      sign-in now", unchecked by default; when checked, after the user is created the dialog calls the same route.
+      (3) On a 201 the screen shows a panel with the username and the temporary password, a copy button, and the text
+      that the password is shown only once and the person must change it at first sign-in; closing the panel removes
+      the password from the page state, and it is never put in the query cache, local storage or the URL. (4) On a 409
+      the screen shows the reason in plain words, one text per REQ-807 reason (sign_in_creation_off, user_inactive,
+      sign_in_exists, no_email, realm_not_provisioned, login_exists_in_realm, provisioner_unavailable,
+      provisioner_refused); the user stays created. (5) The import result screen (usersImport/) shows, when the answer
+      has sign_in objects (REQ-808), a column with the temporary password or the reason text per row, with the same
+      shown-once text. All new texts in en, ru and kk in usersMessages.ts. The screenshot matrix of the design-system
+      skill is part of the change.
+    acceptance_criteria:
+      - "1. A unit test renders the user page for an internal user and finds the Create sign-in action; for an oidc user the action is absent."
+      - "2. A unit test with a mocked 201 answer shows the panel with the username and the password; after the panel is closed the password text is no longer in the document, and the test asserts the password is not written to localStorage or to the query cache."
+      - "3. A unit test per REQ-807 reason renders the plain-words text for that reason in en; a test asserts every new message key exists in en, ru and kk."
+      - "4. A unit test of the new-user dialog: with the checkbox unchecked the sign-in route is not called; with it checked it is called once after the create answer, and a 409 answer shows the reason while the new user is listed."
+      - "5. A unit test of the import result with a mocked answer carrying one created and one refused sign_in shows the password for the first row and the reason text for the second; an answer without sign_in shows no new column."
+      - "6. The shots folder holds the design-system matrix (1440 and 390, light and dark, en and ru, kk for long labels) for the user page action, the password panel, a refusal text and the import result column, with a state table."
+    depends_on: [REQ-807, REQ-808]
   - id: REQ-810
     title: "PWA stays signed in for 30 days behind a six-digit PIN: encrypted refresh token in browser storage, 30-day limit, unlock, wrong-PIN limit, sign-out and lost-device rules, behind a build flag that is off by default"
     owner: MOBILE-DEV
