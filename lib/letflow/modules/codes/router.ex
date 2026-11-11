@@ -34,8 +34,8 @@ defmodule Letflow.Modules.Codes.Router do
   `{:entry_invalid, index, reason}` is 422 `entry_invalid` with the entry `index` and `entry_reason`
   (never a value); `batch_size` and the other refusal atoms are 422 with a fixed `reason`; a reused
   idempotency key with another body is 409 `idempotency_key_reuse`; `audit_failed` is 500.
-  The renderer is a copy of the one in `Letflow.Modules.Org.Router`; extracting a shared module is
-  left to a later slice.
+  The request plumbing (prefix, actor, idempotency key, body-key check) is
+  `Letflow.Modules.RouterKit`; the reason table and `render/3` stay here.
   """
 
   use Letflow.Api.AuthorizedRouter
@@ -47,6 +47,7 @@ defmodule Letflow.Modules.Codes.Router do
   alias Letflow.Entities.ScopeDeclaration
   alias Letflow.Modules.Codes
   alias Letflow.Modules.Codes.Labels
+  alias Letflow.Modules.RouterKit
 
   @not_found [:code_not_found, :target_not_found]
 
@@ -98,7 +99,7 @@ defmodule Letflow.Modules.Codes.Router do
         _ -> %{}
       end
 
-    with :ok <- check_keys(body, ["value"]),
+    with :ok <- RouterKit.check_keys(body, ["value"]),
          value when is_binary(value) <- body["value"] do
       render_resolve(conn, Codes.resolve(prefix, value), prefix, value)
     else
@@ -119,7 +120,7 @@ defmodule Letflow.Modules.Codes.Router do
         _ -> %{}
       end
 
-    with :ok <- check_keys(body, ["code_ids"]),
+    with :ok <- RouterKit.check_keys(body, ["code_ids"]),
          {:ok, ids} <- label_ids(body["code_ids"]),
          :ok <- no_duplicates(ids),
          {:ok, codes} <- load_tags(prefix, ids) do
@@ -229,58 +230,13 @@ defmodule Letflow.Modules.Codes.Router do
   end
 
   defp action(conn, required, status, fun) do
-    with_request(conn, fn prefix, body, opts, conn ->
-      case check_keys(body, required) do
+    RouterKit.with_request(conn, &render/3, fn prefix, body, opts, conn ->
+      case RouterKit.check_keys(body, required) do
         :ok -> render(conn, fun.(prefix, conn.params["id"], body, opts), status)
         {:error, _} = error -> render(conn, error, status)
       end
     end)
   end
-
-  defp check_keys(body, required) do
-    case Enum.find(Map.keys(body), &(&1 not in required)) do
-      nil ->
-        case Enum.find(required, &(not Map.has_key?(body, &1))) do
-          nil -> :ok
-          missing -> {:error, {:field_invalid, missing}}
-        end
-
-      extra ->
-        {:error, {:field_not_allowed, extra}}
-    end
-  end
-
-  # Written as a sigil so the AC5 scan of caller-key literals (idempotency_test) is not tripped:
-  # the key is a plain body member here, namespaced by the writers (same as procurement).
-  @key_field ~s(idempotency_key)
-
-  defp with_request(conn, fun) do
-    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
-
-    with {:ok, actor} <- Ecto.UUID.cast(conn.assigns.auth_context.user_id),
-         {:ok, key, attrs} <- pop_key(conn.body_params) do
-      fun.(prefix, attrs, %{actor_id: actor, idempotency_key: key}, conn)
-    else
-      :error -> Response.send_problem(conn, Error.forbidden("not permitted"))
-      {:error, _} = error -> render(conn, error, 200)
-    end
-  end
-
-  defp pop_key(%{"_json" => _}), do: pop_key(%{})
-
-  defp pop_key(body) when is_map(body) do
-    case Map.pop(body, @key_field) do
-      {key, rest} when is_binary(key) ->
-        if String.trim(key) == "", do: invalid_key(), else: {:ok, key, rest}
-
-      _ ->
-        invalid_key()
-    end
-  end
-
-  defp pop_key(_other), do: invalid_key()
-
-  defp invalid_key, do: {:error, {:field_invalid, @key_field}}
 
   # -- rendering ----------------------------------------------------------------------------------
 
@@ -332,12 +288,9 @@ defmodule Letflow.Modules.Codes.Router do
     do: unprocessable(conn, Atom.to_string(reason), %{})
 
   defp render(conn, {:error, term}, _status) do
-    Logger.warning("codes request refused: #{inspect(elem_tag(term))}")
+    Logger.warning("codes request refused: #{inspect(RouterKit.elem_tag(term))}")
     unprocessable(conn, "request_refused", %{})
   end
-
-  defp elem_tag(term) when is_tuple(term) and tuple_size(term) > 0, do: elem(term, 0)
-  defp elem_tag(_term), do: :other
 
   defp unprocessable(conn, reason, extra) do
     problem = Error.unprocessable("request refused")
