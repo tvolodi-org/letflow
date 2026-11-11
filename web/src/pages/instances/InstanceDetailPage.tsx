@@ -21,6 +21,7 @@ import { TimelineFeed } from '@/components/instances/TimelineFeed'
 import { HistoryScrubber } from '@/components/instances/HistoryScrubber'
 import { ProcessGraphWithTokens } from '@/components/instances/ProcessGraphWithTokens'
 import { GraphModeSwitch, InstanceReplay } from '@/components/instances/InstanceReplay'
+import { CoreHelpLink } from '@/pages/help/CoreHelpLink'
 import { CancelInstanceDialog } from '@/components/instances/CancelInstanceDialog'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
@@ -339,6 +340,7 @@ export default function InstanceDetailPage() {
         <>
           <h3 style={{ marginBottom: '.75rem' }}>Process Graph with Tokens</h3>
           <GraphModeSwitch mode={graphMode} onChange={setGraphMode} />
+          <CoreHelpLink topic="instanceReplay" />
           {graphMode === 'live' ? <ProcessGraphWithTokens instanceId={id!} /> : <InstanceReplay instanceId={id!} />}
         </>
       )}
