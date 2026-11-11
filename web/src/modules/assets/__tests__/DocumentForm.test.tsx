@@ -35,10 +35,12 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 const form = () => within(screen.getByTestId('document-form'))
+// Waits for the form to render before the first sync access (slow shards).
+const formReady = async () => within(await screen.findByTestId('document-form'))
 const pick = (label: string | RegExp, value: string) => fireEvent.change(form().getByLabelText(label), { target: { value } })
 async function fillCommon() {
-  await form().findAllByRole('option', { name: 'WH - Warehouse' })
-  await form().findAllByRole('option', { name: 'Aigul B.' })
+  await (await formReady()).findAllByRole('option', { name: 'WH - Warehouse' })
+  await (await formReady()).findAllByRole('option', { name: 'Aigul B.' })
   fireEvent.change(form().getByLabelText('Time, date'), { target: { value: '2026-11-04' } })
   fireEvent.change(form().getByLabelText('Time, time'), { target: { value: '10:00' } })
 }
@@ -152,7 +154,7 @@ describe('F6 edit', () => {
     serve(FULL)
     renderAssets(`${LIST}/d1`, withAll)
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
-    await form().findByRole('option', { name: 'WH - Warehouse' })
+    await (await formReady()).findByRole('option', { name: 'WH - Warehouse' })
     await waitFor(() => expect(form().getByLabelText(/^Org unit/)).toHaveValue('u1'))
     expect(form().getByLabelText(/^Org unit/)).toBeDisabled()
     expect(form().getByLabelText(/^Note/)).toHaveValue('n')
@@ -209,14 +211,14 @@ describe('F7 refusals on save', () => {
     serve(assetDoc())
     renderAssets(`${LIST}/d1`, withAll)
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
-    await form().findByRole('option', { name: 'WH - Warehouse' })
+    await (await formReady()).findByRole('option', { name: 'WH - Warehouse' })
     clientMock.put.mockRejectedValue(refusal(409, 'document_not_draft'))
     save()
     expect(await screen.findByText('Only a draft can be issued or discarded.')).toBeInTheDocument()
   })
   it('a form error moves to the first tab with a problem count', async () => {
     renderAssets(NEW, withPost)
-    await form().findByRole('option', { name: 'WH - Warehouse' })
+    await (await formReady()).findByRole('option', { name: 'WH - Warehouse' })
     save()
     expect(created()).toHaveLength(0)
     expect(screen.getAllByText('A required value is missing.').length).toBeGreaterThan(0)

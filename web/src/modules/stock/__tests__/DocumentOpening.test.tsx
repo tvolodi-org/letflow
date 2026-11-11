@@ -39,13 +39,15 @@ afterEach(() => {
 })
 
 const form = () => within(screen.getByTestId('document-form'))
+// Waits for the form to render before the first sync access (slow shards).
+const formReady = async () => within(await screen.findByTestId('document-form'))
 const pick = (label: string | RegExp, value: string, scope?: HTMLElement) =>
   fireEvent.change((scope ? within(scope) : form()).getByLabelText(label), { target: { value } })
 
 describe('T1410 line card title', () => {
   it('the index cell label is the bare word, so the card reads Line 1 once', async () => {
     renderStock(`${LIST}/new?kind=opening`, withPost)
-    await form().findByRole('option', { name: 'Main store' })
+    await (await formReady()).findByRole('option', { name: 'Main store' })
     // T-1448: the grid has one header word for the index column; rows carry only the number.
     await addFirstLine()
     const heads = Array.from(document.querySelectorAll('th.is-idx')).map((h) => h.textContent)
@@ -60,7 +62,7 @@ describe('O1 create', () => {
     clientMock.post.mockImplementation(async (p: string, b: Record<string, unknown>) =>
       p === DOCS ? stockDoc({ id: 'dn', kind: 'opening' }) : masters(p, b))
     renderStock(`${LIST}/new?kind=opening`, withPost)
-    await form().findByRole('option', { name: 'Main store' })
+    await (await formReady()).findByRole('option', { name: 'Main store' })
     expect(form().queryByLabelText('Event time')).not.toBeInTheDocument()
     expect(form().getByLabelText('Org unit')).toBeInTheDocument()
     expect(screen.queryAllByLabelText('Location')).toHaveLength(0)
@@ -88,7 +90,7 @@ describe('O1 create', () => {
       return masters(p, b)
     })
     renderStock(`${LIST}/new?kind=opening`, withPost)
-    await form().findByRole('option', { name: 'Main store' })
+    await (await formReady()).findByRole('option', { name: 'Main store' })
     expect(form().getByLabelText(/External system/)).toBeInTheDocument()
     pick('Org unit', 'u1')
     pick(/External system/, 'erp')
@@ -111,12 +113,12 @@ describe('O1 create', () => {
   })
   it('W6b a receipt form has no external id fields', async () => {
     renderStock(`${LIST}/new?kind=receipt`, withPost)
-    await form().findByRole('option', { name: 'Main store' })
+    await (await formReady()).findByRole('option', { name: 'Main store' })
     expect(form().queryByLabelText(/External system/)).not.toBeInTheDocument()
   })
   it('sends nothing when the receipt date is missing', async () => {
     renderStock(`${LIST}/new?kind=opening`, withPost)
-    await form().findByRole('option', { name: 'Main store' })
+    await (await formReady()).findByRole('option', { name: 'Main store' })
     pick('Org unit', 'u1')
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
     // The lines editor lists the failing lines in its badge; the row's messages show in the status line when it is focused.
