@@ -1093,12 +1093,11 @@ defmodule Letflow.IdentityTest do
     test "returns {:error, :expired} for a token whose expires_at has already passed" do
       %{schema_name: schema_name} = req076_tenant!("req076-token-expired")
       user = insert_identity_user!(schema_name)
-      future = DateTime.add(DateTime.utc_now(), 3600, :second) |> DateTime.truncate(:second)
 
+      # T-1735: mint without an expiry (create_token/3 refuses an expires_at that is not in the
+      # future at check time, which failed once in CI), then force the row into the past below.
       {:ok, %{token: token, plaintext: plaintext}} =
-        Identity.create_token(user.id, %{roles: ["TASK_WORKER"], expires_at: future},
-          prefix: schema_name
-        )
+        Identity.create_token(user.id, %{roles: ["TASK_WORKER"]}, prefix: schema_name)
 
       # Force the already-persisted row's expires_at into the past directly --
       # avoids a real sleep/wall-clock dependency (test_developer_guide.md's

@@ -192,7 +192,10 @@ defmodule Letflow.Routers.EntitiesImportXlsxTest do
       assert bad["status"] == "error" and bad["line"] == 3
       assert bad["reason"] == %{"type" => "csv_invalid_integer", "header" => "qty"}
       assert ok2["status"] == "ok" and ok2["line"] == 4
-      refute conn.resp_body =~ "abc"
+      # T-1735: the body carries random record ids that can contain "abc"; check the reason
+      # object instead of grepping the whole body for the rejected cell value.
+      refute Map.has_key?(bad["reason"], "value")
+      refute inspect(bad) =~ "\"abc\""
 
       assert rows(ctx, "item") |> Enum.map(& &1.field_values["title"]) |> Enum.sort() == [
                "Also",
