@@ -38,6 +38,8 @@ big free providers exempt), a configurable disposable-domain list (seed in `priv
 a captcha verification hook with no vendor (`LETFLOW_SIGNUP_CAPTCHA` accepts only `off`, fails closed) and
 ru/kk/en refusal messages. D6 still leaves the vendor (Q3), the invitation code (Q1) and the list maintainer open.
 
+**Addendum T-1701 (of 0085, no 0084 decision contradicted).** Adds a timed expiry of stale rows on the existing provisioner sweep tick next to the expiry on submit, with no new process; see 0085.
+
 ## Not decided here
 
 Welcome mail, default modules, first credential, plan hook, host-to-tenant mapping (SL2b and later); the sign-up SPA

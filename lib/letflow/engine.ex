@@ -10991,71 +10991,15 @@ defmodule Letflow.Engine do
        do: error
 
   # =========================================================================
-  # land_service_task_exhaustion/2 (REQ-177) -- see
-  # lib/letflow/design/req177-dlq-hooks.md §2 for the full design this
-  # section implements. Hook A of REQ-177's two DLQ landing hooks.
+  # land_service_task_exhaustion/2 (REQ-177) -- implemented in
+  # `Letflow.Engine.ServiceTaskExhaustion` (B4#10 slice 3); delegated here so
+  # the public API is unchanged. Design: lib/letflow/design/req177-dlq-hooks.md §2.
   # =========================================================================
 
-  @typedoc """
-  Extends `ServiceTask.service_task_give_up_context()` with the two
-  additional fields a DLQ row needs that context does not itself carry
-  (design doc §2.2).
-  """
-  @type service_task_dlq_landing_context :: %{
-          required(:instance_id) => Ecto.UUID.t(),
-          required(:node_id) => String.t(),
-          required(:actor_id) => Ecto.UUID.t() | nil,
-          required(:idempotency_key) => String.t(),
-          required(:variables) => map(),
-          required(:last_failure_kind) => ServiceTask.failure_kind(),
-          required(:attempt_index) => ServiceTask.attempt_index(),
-          required(:retry_limit) => non_neg_integer(),
-          required(:attempted_request) => %{
-            required(:method) => String.t(),
-            required(:url) => String.t(),
-            optional(:body) => String.t() | nil,
-            optional(:headers) => %{optional(String.t()) => String.t()}
-          }
-        }
+  @type service_task_dlq_landing_context ::
+          Letflow.Engine.ServiceTaskExhaustion.service_task_dlq_landing_context()
 
-  @doc """
-  Hook A of REQ-177 (design doc §2). Called by a future SERVICE_TASK
-  dispatch orchestrator (none exists in this codebase yet, per
-  `Letflow.Engine.ServiceTask`'s own moduledoc) whenever
-  `ServiceTask.decide_failure/3` returns `:give_up` for a SERVICE_TASK node,
-  in place of calling `set_instance_error/2` directly.
-
-  Re-derives the exhaustion/non-exhaustion split
-  `ServiceTask.decide_failure/3`'s own return value does not carry (design
-  doc §3): exactly `ServiceTask.is_retriable_failure(context.last_failure_kind)
-  == true and context.attempt_index >= context.retry_limit`. When that is
-  **not** the case (an immediately non-retriable failure kind), returns
-  `{:error, :not_exhaustion}` and calls neither `Letflow.Dlq.enqueue/2` nor
-  `set_instance_error/2` -- the caller is expected to call
-  `set_instance_error/2` directly for that case instead, so Hook B
-  (`Letflow.Engine.ExecutionError.append_multi/3`'s own
-  `:execution_error_dlq_landing` step) lands it generically.
-
-  On genuine exhaustion: lands exactly one `dlq_entries` row via
-  `Letflow.Dlq.enqueue/2` (`entry_type: "event"`, `instance_id`,
-  `full_reason` naming the classified failure kind, `source_payload` the
-  attempted request, `first_failed_at`/`last_failed_at` both the current UTC
-  time read at landing, design doc §5.1) **before** delegating to
-  `set_instance_error/2` with `dlq_landed_externally: true` so Hook B does
-  not also land a row for this same transition (design doc §4).
-
-  **Deferred follow-up (REQ-176's `retry/2`), per the requirement's own
-  acceptance criterion:** landing a DLQ entry here does not itself, and
-  `Letflow.Dlq.retry/2` called against the entry this function creates does
-  not either, re-invoke the original SERVICE_TASK dispatch. Two pieces are
-  still missing before it could: (a) a wired SERVICE_TASK transport (the
-  injectable `ServiceTask.transport_fun()` -- "no concrete implementation
-  ... exists in this codebase yet" per that module's own moduledoc) that a
-  future `retry/2`-driven re-dispatch path would need to call, and (b) the
-  dispatch orchestrator itself (this function's own caller, which does not
-  exist yet) that would need to exist before anything calls `retry/2` in
-  response to an operator action at all.
-  """
+  @doc "See `Letflow.Engine.ServiceTaskExhaustion.land_service_task_exhaustion/2`."
   @spec land_service_task_exhaustion(
           context :: service_task_dlq_landing_context(),
           opts :: set_error_opts()
@@ -11064,148 +11008,23 @@ defmodule Letflow.Engine do
           | {:error, :not_exhaustion}
           | set_error_error()
           | {:error, {:dlq_enqueue_failed, Ecto.Changeset.t()}}
-  def land_service_task_exhaustion(context, opts) when is_map(context) and is_list(opts) do
-    last_failure_kind = Map.fetch!(context, :last_failure_kind)
-    attempt_index = Map.fetch!(context, :attempt_index)
-    retry_limit = Map.fetch!(context, :retry_limit)
-
-    if ServiceTask.is_retriable_failure(last_failure_kind) and attempt_index >= retry_limit do
-      land_service_task_exhaustion_dlq_entry(context, opts, last_failure_kind, retry_limit)
-    else
-      {:error, :not_exhaustion}
-    end
-  end
-
-  defp land_service_task_exhaustion_dlq_entry(context, opts, last_failure_kind, retry_limit) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    dlq_attrs = %{
-      entry_type: "event",
-      instance_id: Map.fetch!(context, :instance_id),
-      full_reason:
-        "service task failed (#{last_failure_kind}): retries exhausted after #{retry_limit} attempts",
-      source_payload: Map.fetch!(context, :attempted_request),
-      retry_limit: retry_limit,
-      first_failed_at: now,
-      last_failed_at: now
-    }
-
-    case Dlq.enqueue(dlq_attrs, opts) do
-      {:ok, _entry} ->
-        set_instance_error(
-          build_service_task_dlq_landing_error_attrs(context),
-          Keyword.put(opts, :dlq_landed_externally, true)
-        )
-
-      {:error, changeset} ->
-        {:error, {:dlq_enqueue_failed, changeset}}
-    end
-  end
-
-  # Same standalone_error_attrs() shape
-  # ServiceTask.build_service_task_give_up_error_attrs/1 already builds from
-  # an equivalent (strict-subset) context -- built inline here rather than
-  # via that function since this context carries extra fields it doesn't
-  # accept (design doc §2.4 step 3).
-  defp build_service_task_dlq_landing_error_attrs(context) do
-    last_failure_kind = Map.fetch!(context, :last_failure_kind)
-    attempt_index = Map.fetch!(context, :attempt_index)
-    retry_limit = Map.fetch!(context, :retry_limit)
-
-    %{
-      instance_id: Map.fetch!(context, :instance_id),
-      error_type: :service_task_retries_exhausted,
-      affected: {:node, Map.fetch!(context, :node_id)},
-      reason:
-        "service task failed (#{last_failure_kind}): retries exhausted after #{retry_limit} attempts",
-      variables: Map.fetch!(context, :variables),
-      details: %{
-        last_failure_kind: last_failure_kind,
-        attempt_index: attempt_index,
-        retry_limit: retry_limit
-      },
-      actor_id: Map.fetch!(context, :actor_id),
-      idempotency_key: Map.fetch!(context, :idempotency_key)
-    }
-  end
+  defdelegate land_service_task_exhaustion(context, opts),
+    to: Letflow.Engine.ServiceTaskExhaustion
 
   # ===================================================================================
-  # REQ-078 -- metrics counters (lib/letflow/design/req078-supporting-routes.md §11.4)
-  #
-  # These back GET /api/v1/metrics. They are `COUNT(*)` aggregates over tables
-  # that already exist in the caller's tenant schema -- NOT a metrics
-  # subsystem. See Letflow.Routers.Metrics's moduledoc: S6 observability owns
-  # Letflow's metrics subsystem, and this endpoint is expected to be
-  # superseded when it lands.
+  # REQ-078 -- metrics counters: implemented in `Letflow.Engine.MetricsCounts`
+  # (B4#10 split); delegated here so the public API is unchanged.
   # ===================================================================================
 
-  @typedoc """
-  status atom -> row count, within one tenant schema. Every status in the
-  owning schema's closed enum is present, zero-valued if unseen.
-  """
-  @type status_counts :: %{atom() => non_neg_integer()}
+  @type status_counts :: Letflow.Engine.MetricsCounts.status_counts()
 
-  # Declared before their readers -- module attributes are read at expansion
-  # time. Both mirror the closed `Ecto.Enum` value sets of the schemas below.
-  @instance_status_zero_fill %{active: 0, completed: 0, cancelled: 0, error: 0}
-  @task_status_zero_fill %{pending: 0, completed: 0, cancelled: 0}
-
-  @doc """
-  Counts `instance_projections` rows by `status`, scoped to `opts[:prefix]`.
-  One query.
-
-  **Grouped over the schema field, never the raw column.**
-  `instance_projections.status` is a *keyword-mapped* `Ecto.Enum`
-  (`[active: "ACTIVE", completed: "COMPLETED", ...]`), so the values stored in
-  Postgres are the uppercase strings, not the atom names. A `group_by` written
-  against the raw column would yield keys like `"ACTIVE"`, which would never
-  match the `:active` atoms the zero-fill uses — silently producing an
-  all-zero map plus unexpected extra keys. Composing over the schema field
-  makes Ecto's enum loader map each value back to its atom first.
-
-  `opts[:prefix]` is validated via
-  `Letflow.TenantProvisioning.tenant_id_for_schema_name/1` **before** the
-  query is constructed. Composed with `Ecto.Query` and bound parameters only
-  (INV-7).
-  """
+  @doc "See `Letflow.Engine.MetricsCounts.count_instances_by_status/1`."
   @spec count_instances_by_status(opts :: [prefix: String.t()]) ::
           {:ok, status_counts()} | {:error, :invalid_schema_name}
-  def count_instances_by_status(opts) when is_list(opts) do
-    prefix = Keyword.get(opts, :prefix)
+  defdelegate count_instances_by_status(opts), to: Letflow.Engine.MetricsCounts
 
-    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
-      counts =
-        InstanceProjection
-        |> group_by([p], p.status)
-        |> select([p], {p.status, count(p.instance_id)})
-        |> Repo.all(prefix: prefix)
-        |> Map.new()
-
-      {:ok, Map.merge(@instance_status_zero_fill, counts)}
-    end
-  end
-
-  @doc """
-  Counts `tasks` rows by `status`, scoped to `opts[:prefix]`. One query.
-
-  Same keyword-mapped-enum caveat as `count_instances_by_status/1` — see its
-  `@doc`. `tasks.status` stores `"PENDING"`/`"COMPLETED"`/`"CANCELLED"`, so
-  the `group_by` is composed over the schema field, not the raw column.
-  """
+  @doc "See `Letflow.Engine.MetricsCounts.count_tasks_by_status/1`."
   @spec count_tasks_by_status(opts :: [prefix: String.t()]) ::
           {:ok, status_counts()} | {:error, :invalid_schema_name}
-  def count_tasks_by_status(opts) when is_list(opts) do
-    prefix = Keyword.get(opts, :prefix)
-
-    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
-      counts =
-        Task
-        |> group_by([t], t.status)
-        |> select([t], {t.status, count(t.id)})
-        |> Repo.all(prefix: prefix)
-        |> Map.new()
-
-      {:ok, Map.merge(@task_status_zero_fill, counts)}
-    end
-  end
+  defdelegate count_tasks_by_status(opts), to: Letflow.Engine.MetricsCounts
 end
