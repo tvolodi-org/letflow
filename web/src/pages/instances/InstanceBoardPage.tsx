@@ -17,7 +17,7 @@ import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { formatDateTime, formatTime } from '@/i18n/format'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
-import { useFeedbackMessages } from '@/components/ui/feedbackMessages'
+import { fillFeedback, useFeedbackMessages } from '@/components/ui/feedbackMessages'
 import { saveErrorText } from '@/utils/saveError'
 import { instancesMessages } from './instancesMessages'
 import { deferClickState } from '@/utils/deferClickState'
@@ -30,8 +30,8 @@ function toISODate(value: string | undefined): string {
   return formatDateTime(value)
 }
 
-function toRefreshLabel(value: string | null): string {
-  if (!value) return 'Not yet refreshed'
+function toRefreshLabel(value: string | null, notYet: string): string {
+  if (!value) return notYet
   return formatTime(value)
 }
 
@@ -84,6 +84,12 @@ export default function InstanceBoardPage() {
   const [startError, setStartError] = useState<string | null>(null)
   const feedback = useFeedbackMessages()
   const im = instancesMessages[useUiLocale()]
+  const statusLabels: Record<InstanceStatus, string> = {
+    ACTIVE: im.statusActive,
+    COMPLETED: im.statusCompleted,
+    CANCELLED: im.statusCancelled,
+    ERROR: im.statusError,
+  }
   const [startValidationError, setStartValidationError] = useState<string | null>(null)
 
   const canStartInstance = useAccess().can(P.InstancesStart)
@@ -251,7 +257,7 @@ export default function InstanceBoardPage() {
     })
 
     if (!startDefinitionId) {
-      deferClickState(() => setStartValidationError('Select a valid active definition name.'))
+      deferClickState(() => setStartValidationError(im.invalidDefinition))
       return
     }
 
@@ -259,12 +265,12 @@ export default function InstanceBoardPage() {
     try {
       const parsed = JSON.parse(startVariablesJson) as unknown
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        deferClickState(() => setStartValidationError('Initial variables must be a JSON object.'))
+        deferClickState(() => setStartValidationError(im.variablesNotObject))
         return
       }
       parsedVariables = parsed as Record<string, unknown>
     } catch {
-      deferClickState(() => setStartValidationError('Initial variables must be valid JSON.'))
+      deferClickState(() => setStartValidationError(im.variablesBadJson))
       return
     }
 
@@ -285,7 +291,7 @@ export default function InstanceBoardPage() {
   const columns: DataTableColumn<ProcessInstance>[] = [
     {
       id: 'instance_id',
-      header: 'Instance ID',
+      header: im.colInstanceId,
       accessor: (inst) => (
         <Link
           data-testid={`instance-link-${inst.instance_id}`}
@@ -298,7 +304,7 @@ export default function InstanceBoardPage() {
     },
     {
       id: 'definition',
-      header: 'Definition',
+      header: im.definition,
       accessor: (inst) => {
         const def = defsById.get(inst.definition_id)
         if (def) return <DefinitionName name={def.name} version={def.version} />
@@ -311,22 +317,22 @@ export default function InstanceBoardPage() {
     },
     {
       id: 'status',
-      header: 'Status',
+      header: im.colStatus,
       accessor: (inst) => <StatusBadge status={inst.status} domain="instance" size="sm" />,
     },
     {
       id: 'correlation_key',
-      header: 'Correlation Key',
+      header: im.colCorrelation,
       accessor: (inst) => inst.correlation_key ?? '—',
     },
     {
       id: 'started_at',
-      header: 'Started',
+      header: im.colStarted,
       accessor: (inst) => toISODate(inst.started_at),
     },
     {
       id: 'updated_at',
-      header: 'Last Updated',
+      header: im.colUpdated,
       accessor: (inst) => toISODate(inst.updated_at ?? inst.started_at),
     },
   ]
@@ -334,7 +340,7 @@ export default function InstanceBoardPage() {
   return (
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-        <h2 style={{ margin: 0 }}>Instances</h2>
+        <h2 style={{ margin: 0 }}>{im.title}</h2>
         {canStartInstance && (
           <Button
             data-testid="start-instance-button"
@@ -342,14 +348,14 @@ export default function InstanceBoardPage() {
             size="md"
             onClick={openStartDialog}
           >
-            Start Instance
+            {im.startInstance}
           </Button>
         )}
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '.6rem', marginBottom: '.8rem' }}>
         <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-          Last refreshed: {toRefreshLabel(polling.lastRefreshedAt ?? (instancesQuery.dataUpdatedAt ? new Date(instancesQuery.dataUpdatedAt).toISOString() : null))}
+          {fillFeedback(im.lastRefreshed, { time: toRefreshLabel(polling.lastRefreshedAt ?? (instancesQuery.dataUpdatedAt ? new Date(instancesQuery.dataUpdatedAt).toISOString() : null), im.notRefreshed) })}
         </span>
         <Button
           variant="secondary"
@@ -358,7 +364,7 @@ export default function InstanceBoardPage() {
           disabled={instancesQuery.isRefetching}
           onClick={() => void polling.refreshNow()}
         >
-          {instancesQuery.isRefetching ? 'Refreshing...' : 'Refresh'}
+          {instancesQuery.isRefetching ? im.refreshing : im.refresh}
         </Button>
       </div>
 
@@ -381,14 +387,14 @@ export default function InstanceBoardPage() {
                 checked={statusFilters.includes(status)}
                 onChange={() => onStatusToggle(status)}
               />
-              {status}
+              {statusLabels[status]}
             </label>
           ))}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
           <label htmlFor="instance-definition-filter" style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-            Definition
+            {im.definition}
           </label>
           <input
             id="instance-definition-filter"
@@ -397,7 +403,7 @@ export default function InstanceBoardPage() {
             value={definitionName}
             onChange={(e) => onDefinitionInputChange(e.target.value)}
             onBlur={onResolveDefinition}
-            placeholder="Type definition name"
+            placeholder={im.definitionPlaceholder}
             style={{
               minWidth: '260px',
               padding: '.35rem .6rem',
@@ -413,7 +419,7 @@ export default function InstanceBoardPage() {
           </datalist>
           {definitionId && (
             <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-              using active version {activeDefinitionByName?.version ?? '...'}
+              {fillFeedback(im.usingActive, { version: activeDefinitionByName?.version ?? '...' })}
             </span>
           )}
         </div>
@@ -476,13 +482,13 @@ export default function InstanceBoardPage() {
               padding: '1rem 1.2rem',
             }}
           >
-            <h3 style={{ marginTop: 0, marginBottom: '.75rem' }}>Start Instance</h3>
+            <h3 style={{ marginTop: 0, marginBottom: '.75rem' }}>{im.startInstance}</h3>
 
             {startError && <p data-testid="start-instance-error" role="alert" style={{ marginTop: 0, color: 'var(--color-error-dark)' }}>{startError}</p>}
             {startValidationError && <p style={{ marginTop: 0, color: 'var(--color-error-dark)' }}>{startValidationError}</p>}
 
             <label htmlFor="start-definition-name" style={{ display: 'block', fontSize: 'var(--text-sm)', color: 'var(--text-primary)', marginBottom: '.25rem' }}>
-              Definition name
+              {im.definitionName}
             </label>
             <input
               id="start-definition-name"
@@ -500,7 +506,7 @@ export default function InstanceBoardPage() {
             />
 
             <label htmlFor="start-definition-version" style={{ display: 'block', fontSize: 'var(--text-sm)', color: 'var(--text-primary)', marginBottom: '.25rem' }}>
-              Active version (auto-selected)
+              {im.activeVersion}
             </label>
             <input
               id="start-definition-version"
@@ -509,7 +515,7 @@ export default function InstanceBoardPage() {
               readOnly
               placeholder={
                 isLoadingActiveDefinition || isResolvingStartDefinitionVersion
-                  ? 'Loading active version…'
+                  ? im.loadingVersion
                   : ''
               }
               style={{
@@ -523,7 +529,7 @@ export default function InstanceBoardPage() {
             />
 
             <label htmlFor="start-correlation-key" style={{ display: 'block', fontSize: 'var(--text-sm)', color: 'var(--text-primary)', marginBottom: '.25rem' }}>
-              Correlation key (optional)
+              {im.correlationKey}
             </label>
             <input
               id="start-correlation-key"
@@ -540,7 +546,7 @@ export default function InstanceBoardPage() {
             />
 
             <label htmlFor="start-variables-json" style={{ display: 'block', fontSize: 'var(--text-sm)', color: 'var(--text-primary)', marginBottom: '.25rem' }}>
-              Initial variables (JSON object)
+              {im.initialVariables}
             </label>
             <textarea
               id="start-variables-json"
@@ -560,7 +566,7 @@ export default function InstanceBoardPage() {
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.5rem' }}>
               <Button variant="secondary" size="md" onClick={closeStartDialog}>
-                Cancel
+                {im.cancel}
               </Button>
               <Button
                 data-testid="submit-start-instance"
@@ -570,7 +576,7 @@ export default function InstanceBoardPage() {
                 disabled={startInstance.isPending}
                 onClick={() => void submitStartInstance()}
               >
-                {startInstance.isPending ? 'Starting…' : 'Start'}
+                {startInstance.isPending ? im.starting : im.start}
               </Button>
             </div>
           </div>

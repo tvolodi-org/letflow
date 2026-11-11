@@ -94,8 +94,8 @@ export default function DefinitionListPage() {
 
   const validateCreate = (): boolean => {
     const errors: { name?: string; version?: string } = {}
-    if (!createName.trim()) errors.name = 'Name is required'
-    if (!createVersion.trim()) errors.version = 'Version is required'
+    if (!createName.trim()) errors.name = dm.nameRequired
+    if (!createVersion.trim()) errors.version = dm.versionRequired
     setCreateValidationErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -149,13 +149,13 @@ export default function DefinitionListPage() {
     } catch (err: unknown) {
       const apiErr = err as { status?: number; message?: string }
       if (apiErr.status === 422) {
-        setImportError(apiErr.message ?? 'Invalid file — expected a BPM export JSON file')
+        setImportError(apiErr.message ?? dm.importInvalid)
       } else if (apiErr.status === 409) {
-        setImportError('A definition with this name and version already exists.')
+        setImportError(dm.importExists)
       } else if (err instanceof SyntaxError) {
-        setImportError('Invalid file — expected a BPM export JSON file')
+        setImportError(dm.importInvalid)
       } else {
-        setImportError(apiErr.message ?? 'Could not read file')
+        setImportError(apiErr.message ?? dm.importUnreadable)
       }
     } finally {
       // Reset file input so the same file can be selected again
@@ -166,7 +166,7 @@ export default function DefinitionListPage() {
   const columns: DataTableColumn<ProcessDefinition>[] = [
     {
       id: 'name',
-      header: 'Name',
+      header: dm.colName,
       sortable: true,
       sortValue: (def) => def.name,
       accessor: (def) => {
@@ -211,38 +211,38 @@ export default function DefinitionListPage() {
     },
     {
       id: 'version',
-      header: 'Version',
+      header: dm.colVersion,
       sortable: true,
       sortValue: (def) => def.version,
       accessor: (def) => def.version,
     },
     {
       id: 'status',
-      header: 'Status',
+      header: dm.status,
       sortable: true,
       sortValue: (def) => def.status,
       accessor: (def) => <StatusBadge status={def.status} domain="definition" />,
     },
     {
       id: 'updated_at',
-      header: 'Updated',
+      header: dm.colUpdated,
       sortable: true,
       sortValue: (def) => def.updated_at,
       accessor: (def) => formatDate(def.updated_at),
     },
     {
       id: 'actions',
-      header: 'Actions',
+      header: dm.colActions,
       accessor: (def) => (
-        <div style={{ display: 'flex', gap: '.5rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
           {hasDesignerRole && def.status === 'DRAFT' && (
             <Button variant="primary" size="sm" onClick={() => activate.mutate(def.id)} loading={activate.isPending}>
-              Activate
+              {dm.activate}
             </Button>
           )}
           {hasDesignerRole && (def.status === 'ACTIVE' || def.status === 'DEPRECATED') && (
             <Button variant="secondary" size="sm" onClick={() => archive.mutate(def.id)} loading={archive.isPending}>
-              Archive
+              {dm.archive}
             </Button>
           )}
           {def.status === 'ACTIVE' && canRollback && (
@@ -252,7 +252,7 @@ export default function DefinitionListPage() {
               data-testid={`btn-rollback-${def.id}`}
               onClick={() => navigate(`/definitions/${def.id}/rollback`)}
             >
-              Rollback…
+              {dm.rollback}
             </Button>
           )}
         </div>
@@ -262,13 +262,13 @@ export default function DefinitionListPage() {
 
   return (
     <PageLayout
-      title="Process Definitions"
+      title={dm.title}
       actions={
         <div className="lf-page-layout__actions-row">
           {hasDesignerRole && (
             <>
               <Button variant="secondary" size="sm" data-testid="btn-import-definition" onClick={handleImport}>
-                Import
+                {dm.importButton}
               </Button>
               <input
                 ref={fileInputRef}
@@ -282,7 +282,7 @@ export default function DefinitionListPage() {
           )}
           {hasDesignerRole && (
             <Button variant="primary" size="sm" data-testid="btn-new-definition" onClick={() => setShowCreate(true)}>
-              + New Definition
+              {dm.newDefinition}
             </Button>
           )}
         </div>
@@ -292,7 +292,7 @@ export default function DefinitionListPage() {
         <input
           data-testid="definition-search"
           type="text"
-          placeholder="Search definitions..."
+          placeholder={dm.searchPlaceholder}
           defaultValue=""
           onChange={(e) => {
             // ISS-0729 §3 Step 1 (H1, confirmed empirically — see this
@@ -340,21 +340,21 @@ export default function DefinitionListPage() {
           style={{ padding: '.35rem .6rem', borderRadius: '4px', border: '1px solid var(--border-default)', fontSize: '.85rem', flex: 1, maxWidth: '280px' }}
         />
         {isSearching && searchQuery.isFetching && (
-          <span style={{ fontSize: '.75rem', color: 'var(--text-secondary)' }}>Searching…</span>
+          <span style={{ fontSize: '.75rem', color: 'var(--text-secondary)' }}>{dm.searching}</span>
         )}
         <div data-testid="status-filter" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
-          <span style={{ fontSize: '.85rem', color: 'var(--text-secondary)' }}>Status</span>
+          <span style={{ fontSize: '.85rem', color: 'var(--text-secondary)' }}>{dm.status}</span>
           <select
             data-testid="status-filter-select"
             value={status ?? ''}
             onChange={(e) => setStatus((e.target.value as DefinitionStatus) || undefined)}
             style={{ padding: '.35rem .6rem', borderRadius: '4px', border: '1px solid var(--border-default)', fontSize: '.85rem' }}
           >
-            <option value="">All</option>
-            <option value="DRAFT">Draft</option>
-            <option value="ACTIVE">Active</option>
-            <option value="DEPRECATED">Deprecated</option>
-            <option value="ARCHIVED">Archived</option>
+            <option value="">{dm.all}</option>
+            <option value="DRAFT">{dm.draft}</option>
+            <option value="ACTIVE">{dm.active}</option>
+            <option value="DEPRECATED">{dm.deprecated}</option>
+            <option value="ARCHIVED">{dm.archived}</option>
           </select>
         </div>
       </FilterBar>
@@ -404,10 +404,10 @@ export default function DefinitionListPage() {
         expandedDefId === def.id ? (
           <div key={`${def.id}-versions`} data-testid="version-history-row" style={{ background: 'var(--surface-page)', padding: '1rem 1.5rem', borderBottom: '1px solid var(--border-default)' }}>
             <strong style={{ fontSize: '.85rem', color: 'var(--text-primary)' }}>
-              Version history: {def.name}
+              {fillFeedback(dm.versionHistory, { name: def.name })}
             </strong>
             {versionsQuery.isLoading && (
-              <p style={{ fontSize: '.8rem', color: 'var(--text-secondary)', margin: '.5rem 0 0' }}>Loading versions...</p>
+              <p style={{ fontSize: '.8rem', color: 'var(--text-secondary)', margin: '.5rem 0 0' }}>{dm.loadingVersions}</p>
             )}
             {versionsQuery.data && (
               <div style={{ marginTop: '.5rem' }}>
@@ -443,7 +443,7 @@ export default function DefinitionListPage() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ margin: '0 0 1rem' }}>Create New Definition</h3>
+            <h3 style={{ margin: '0 0 1rem' }}>{dm.createTitle}</h3>
 
             {createError && (
               <p data-testid="def-create-error" role="alert" style={{ color: 'var(--color-error-dark)', fontSize: '.85rem', marginBottom: '.75rem' }}>{createError}</p>
@@ -451,7 +451,7 @@ export default function DefinitionListPage() {
 
             <div style={{ marginBottom: '.75rem' }}>
               <label style={{ display: 'block', fontSize: '.85rem', fontWeight: 600, marginBottom: '.25rem', color: 'var(--text-primary)' }}>
-                Name <span style={{ color: 'var(--color-error-dark)' }}>*</span>
+                {dm.fieldName} <span style={{ color: 'var(--color-error-dark)' }}>*</span>
               </label>
               <input
                 data-testid="create-name-input"
@@ -468,7 +468,7 @@ export default function DefinitionListPage() {
 
             <div style={{ marginBottom: '.75rem' }}>
               <label style={{ display: 'block', fontSize: '.85rem', fontWeight: 600, marginBottom: '.25rem', color: 'var(--text-primary)' }}>
-                Version <span style={{ color: 'var(--color-error-dark)' }}>*</span>
+                {dm.fieldVersion} <span style={{ color: 'var(--color-error-dark)' }}>*</span>
               </label>
               <input
                 data-testid="create-version-input"
@@ -485,23 +485,23 @@ export default function DefinitionListPage() {
 
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', fontSize: '.85rem', fontWeight: 600, marginBottom: '.25rem', color: 'var(--text-primary)' }}>
-                Description
+                {dm.fieldDescription}
               </label>
               <textarea
                 data-testid="create-description-input"
                 value={createDesc}
                 onChange={(e) => setCreateDesc(e.target.value)}
                 style={{ width: '100%', padding: '.4rem .6rem', borderRadius: '4px', border: '1px solid var(--border-default)', fontSize: '.85rem', boxSizing: 'border-box', minHeight: '60px' }}
-                placeholder="Optional description"
+                placeholder={dm.descPlaceholder}
               />
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.5rem' }}>
               <Button variant="secondary" size="sm" data-testid="create-cancel" onClick={() => { setShowCreate(false); setCreateError(null); setCreateValidationErrors({}) }}>
-                Cancel
+                {dm.cancel}
               </Button>
               <Button variant="primary" size="sm" data-testid="create-submit" onClick={handleCreate} loading={createDef.isPending} disabled={createDef.isPending}>
-                {createDef.isPending ? 'Creating...' : 'Create'}
+                {createDef.isPending ? dm.creating : dm.create}
               </Button>
             </div>
           </div>
