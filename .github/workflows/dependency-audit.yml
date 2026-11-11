@@ -1,0 +1,111 @@
+# T-1742: weekly dependency audit. Report only: no check here is required, every step is continue-on-error,
+# no secrets are used, the token is read-only. The result is the job summary plus an artifact
+# (dependency-audit). Each tool talks to its public advisory database (hex.pm / OSV, the npm registry,
+# pub.dev) the same way `mix deps.get` / `npm ci` already do in ci.yml. Findings of the first run by hand:
+# docs/status/dependency-audit-2026-11.md. Own workflow file: ci.yml's tests pin its job names and forbid artifacts.
+name: Dependency audit
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Dependency audit (report only)
+    if: github.repository == 'tvolodi-org/letflow'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Elixir
+        id: beam
+        continue-on-error: true
+        uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Set up Node
+        continue-on-error: true
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Flutter
+        continue-on-error: true
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: apps/mobile/pubspec.yaml
+          cache: true
+
+      - name: Hex audit and outdated
+        continue-on-error: true
+        run: |
+          mkdir -p audit
+          mix local.hex --force >/dev/null 2>&1 || true
+          mix deps.get >audit/hex-deps-get.txt 2>&1 || true
+          mix hex.audit >audit/hex-audit.txt 2>&1 || true
+          mix hex.outdated >audit/hex-outdated.txt 2>&1 || true
+
+      - name: npm audit and outdated (web)
+        continue-on-error: true
+        working-directory: web
+        run: |
+          mkdir -p ../audit
+          npm ci --no-audit --no-fund --ignore-scripts >../audit/npm-ci.txt 2>&1 || true
+          npm audit --omit=dev >../audit/npm-audit-prod.txt 2>&1 || true
+          npm audit >../audit/npm-audit-all.txt 2>&1 || true
+          npm outdated >../audit/npm-outdated.txt 2>&1 || true
+
+      - name: pub outdated (mobile)
+        continue-on-error: true
+        working-directory: apps/mobile
+        run: |
+          mkdir -p ../../audit
+          flutter pub get >../../audit/pub-get.txt 2>&1 || true
+          flutter pub outdated >../../audit/pub-outdated.txt 2>&1 || true
+
+      - name: Base images
+        continue-on-error: true
+        run: |
+          mkdir -p audit
+          grep -HnE '^\s*(FROM|image:)' deploy/Dockerfile deploy/docker-compose*.yml docker-compose.yml >audit/base-images.txt 2>&1 || true
+          grep -HnE '(runs-on|uses|image):' .github/workflows/*.yml >audit/ci-images.txt 2>&1 || true
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo "## Dependency audit $(date -u +%F)"
+            echo "Report only. Severity triage and the decision on each finding: docs/status/dependency-audit-*.md."
+            for f in audit/*.txt; do
+              echo "<details><summary>$(basename "$f")</summary>"
+              echo
+              echo '```'
+              head -c 20000 "$f"
+              echo '```'
+              echo "</details>"
+            done
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit
+          path: audit/
+          retention-days: 30
+          if-no-files-found: warn
