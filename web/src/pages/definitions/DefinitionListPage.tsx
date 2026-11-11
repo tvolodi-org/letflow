@@ -264,7 +264,7 @@ export default function DefinitionListPage() {
     <PageLayout
       title={dm.title}
       actions={
-        <div style={{ display: 'flex', gap: '.5rem' }}>
+        <div className="lf-page-layout__actions-row">
           {hasDesignerRole && (
             <>
               <Button variant="secondary" size="sm" data-testid="btn-import-definition" onClick={handleImport}>

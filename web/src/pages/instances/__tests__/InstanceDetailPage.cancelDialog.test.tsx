@@ -40,6 +40,7 @@ vi.mock('@/api/instances', () => ({
     })),
     timeline: vi.fn(async () => ({ items: [], count: 0, next_cursor: null })),
     events: vi.fn(async () => ({ items: [] })),
+    nodeEntries: vi.fn(async () => ({ items: [], count: 0, next_cursor: null })),
   },
 }))
 

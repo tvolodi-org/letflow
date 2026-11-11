@@ -20,19 +20,12 @@ export function PageLayout(props: PageLayoutProps): React.ReactElement {
     <div data-testid="page-layout" style={{ background: 'var(--surface-page)' }}>
       <div
         data-testid="page-layout-header"
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 'var(--space-3)',
-          marginBottom: 'var(--space-6)',
-        }}
+        className="lf-page-layout__header"
       >
-        <h1 data-testid="page-layout-title" style={{ color: 'var(--text-primary)' }}>
+        <h1 data-testid="page-layout-title" className="lf-page-layout__title" style={{ color: 'var(--text-primary)' }}>
           {title}
         </h1>
-        {actions && <div data-testid="page-layout-actions">{actions}</div>}
+        {actions && <div data-testid="page-layout-actions" className="lf-page-layout__actions">{actions}</div>}
       </div>
       <div
         data-testid="page-layout-content"
