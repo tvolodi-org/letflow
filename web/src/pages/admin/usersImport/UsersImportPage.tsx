@@ -1,6 +1,5 @@
 /** UsersImportPage -- T-1633 / REQ-791 (BA decision T-1631 item 2). Template download, dry run, a row / column /
- *  reason report in ru, kk and en, fix and re-upload. A sibling of MasterDataImportPage (one fixed import { saveBlob } from '@/lib/saveBlob'
-import type, no
+ *  reason report in ru, kk and en, fix and re-upload. A sibling of MasterDataImportPage (one fixed import type, no
  *  type picker). Every rule stays on the server; the screen sends the file and shows the answer. No tenant
  *  identifier is sent (the tenant comes from the token). Shared components only; no colour or spacing is set here.
  */
@@ -29,6 +28,7 @@ import {
   type ImportResultRow,
 } from '../import/importModel'
 import { signInMessages, signInReasonText } from '../signInMessages'
+import { saveBlob } from '@/lib/saveBlob'
 import { UsersImportIntlProvider } from './UsersImportIntlProvider'
 import { downloadUsersTemplate, runUsersImport } from './usersImportApi'
 import { classifyUsersImportError, usersReasonSentence, usersRefusedRowsCsv } from './usersImportModel'

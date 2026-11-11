@@ -1,8 +1,7 @@
 /** MasterDataImportPage -- GH 3650 / REQ-675 (assets phase A screen S6), restyled in style task S6.
  *
  *  Type picker (from the installed modules' importTypes), template download, drop zone, dry run, confirm, summary.
- *  Core page: it never names a module (0039 D3). Every rule stays in the import { saveBlob } from '@/lib/saveBlob'
-import route; the screen sends the file
+ *  Core page: it never names a module (0039 D3). Every rule stays in the import route; the screen sends the file
  *  and shows the answer. No tenant identifier is sent (the tenant comes from the token).
  *
  *  Look: the design system's import wizard (platform/examples/import.html): PageHeader, Steps, cards, TypePicker,
@@ -29,6 +28,7 @@ import { useInstalledModules } from '@/hooks/useInstalledModules'
 import { getImportTypesFor } from '@/modules/registry'
 import { ImportIntlProvider } from '@/i18n/ImportIntlProvider'
 import type { UiLocale } from '@/i18n/uiLocaleStore'
+import { saveBlob } from '@/lib/saveBlob'
 import { downloadTemplate, runImport } from './importApi'
 import {
   MAX_FILE_BYTES,
