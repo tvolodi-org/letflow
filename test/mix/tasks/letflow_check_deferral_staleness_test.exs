@@ -1279,6 +1279,8 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
       # count stays 0.
       # UPDATE (T-1680, 2026-11-11): REQ-803 (sign-up sweep addendum) is added with a marker; the
       # engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
+      # UPDATE (T-1684, 2026-11-11): REQ-805 (companion test split note) is added with a marker; the
+      # engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
       assert result.deferral_count == 0
       assert result.stale_count == 0
 
