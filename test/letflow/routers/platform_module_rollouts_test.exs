@@ -11,6 +11,8 @@ defmodule Letflow.Routers.PlatformModuleRolloutsTest do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Api.Pagination
+  alias Letflow.EventStore.PlatformEvents
   alias Letflow.Platform.ModuleRollout.Outcome
   alias Letflow.Platform.ModuleRollout.Rollout
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
@@ -76,6 +78,39 @@ defmodule Letflow.Routers.PlatformModuleRolloutsTest do
     })
 
     rollout
+  end
+
+  # Outcome-less rollout at a given start; deleted by id in its own on_exit.
+  defp insert_rollout_at!(started_at) do
+    rollout =
+      Repo.insert!(%Rollout{
+        module_id: "req813-" <> Ecto.UUID.generate(),
+        to_version: "9.9.9",
+        status: "completed",
+        halt_after: 3,
+        started_by: Ecto.UUID.generate(),
+        started_at: started_at
+      })
+
+    on_exit(fn ->
+      Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+      Repo.delete_all(from(r in Rollout, where: r.id == ^rollout.id))
+    end)
+
+    rollout
+  end
+
+  defp get_json(ctx, query) do
+    resp = op(ctx, :get, @base <> query)
+    {resp.status, Jason.decode!(resp.resp_body)}
+  end
+
+  defp seed_at!(n, base \\ ~N[2031-02-01 00:00:00]) do
+    for i <- 1..n, do: insert_rollout_at!(NaiveDateTime.add(base, div(i, 2) * 60))
+  end
+
+  defp raw_cursor(prefix, mint_us, tail) do
+    Pagination.encode_cursor("#{prefix}#{mint_us}:#{tail}")
   end
 
   describe "A2 / N1: who may call it (INV-10)" do
@@ -212,6 +247,131 @@ defmodule Letflow.Routers.PlatformModuleRolloutsTest do
       # a repeat returns the same rollout
       again = op(ctx, :post, @base, %{"module_id" => "stock"}).resp_body |> Jason.decode!()
       assert again["rollout"]["id"] == body["rollout"]["id"]
+    end
+  end
+
+  describe "REQ-813: cursor paging of the list" do
+    test "P1 pages of 2,2,1 cover every seeded rollout once, in list order", ctx do
+      seeded = seed_at!(5)
+      ids = MapSet.new(Enum.map(seeded, & &1.id))
+
+      {200, p1} = get_json(ctx, "?page_size=2")
+      {200, p2} = get_json(ctx, "?page_size=2&cursor=" <> p1["next_cursor"])
+      {200, p3} = get_json(ctx, "?page_size=2&cursor=" <> p2["next_cursor"])
+      assert length(p1["rollouts"]) == 2 and length(p2["rollouts"]) == 2
+      all = Enum.flat_map([p1, p2, p3], & &1["rollouts"]) |> Enum.map(& &1["rollout"]["id"])
+      assert all == Enum.uniq(all)
+      assert MapSet.subset?(ids, MapSet.new(all))
+
+      {200, full} = get_json(ctx, "?page_size=200")
+      full_ids = Enum.map(full["rollouts"], & &1["rollout"]["id"])
+      assert Enum.take(full_ids, length(all)) == all or p3["next_cursor"] != nil
+    end
+
+    test "P2 exactly page_size rows: last page has a nil next_cursor", ctx do
+      assert counts() == {0, 0}
+      seed_at!(4)
+      {200, p1} = get_json(ctx, "?page_size=2")
+      assert length(p1["rollouts"]) == 2
+      assert is_binary(p1["next_cursor"])
+      {200, p2} = get_json(ctx, "?page_size=2&cursor=" <> p1["next_cursor"])
+      assert length(p2["rollouts"]) == 2
+      assert p2["next_cursor"] == nil
+    end
+
+    test "P3 default page is 50 with the old item shape", ctx do
+      seed_at!(51)
+      {200, body} = get_json(ctx, "")
+      assert Enum.sort(Map.keys(body)) == ["next_cursor", "rollouts"]
+      assert length(body["rollouts"]) == 50
+      assert is_binary(body["next_cursor"])
+      assert Enum.all?(body["rollouts"], &(Enum.sort(Map.keys(&1)) == ["counts", "rollout"]))
+      started = Enum.map(body["rollouts"], & &1["rollout"]["started_at"])
+      assert started == Enum.sort(started, :desc)
+    end
+
+    test "P4 bad page_size and bad cursors are 400 with the precedent messages", ctx do
+      assert {400, %{"detail" => "invalid page_size"}} = get_json(ctx, "?page_size=abc")
+      assert {400, %{"detail" => "page_size out of range"}} = get_json(ctx, "?page_size=0")
+      assert {400, %{"detail" => "page_size out of range"}} = get_json(ctx, "?page_size=201")
+      assert {400, %{"detail" => "invalid cursor"}} = get_json(ctx, "?cursor=not-a-cursor")
+
+      now = System.os_time(:microsecond)
+      uuid = Ecto.UUID.generate()
+      old = now - Pagination.cursor_expiry_us() - 1_000_000
+
+      for c <- [
+            raw_cursor("RO:", old, "1:#{uuid}"),
+            raw_cursor("RO:", now, "abc"),
+            raw_cursor("RO:", now, "1:not-a-uuid"),
+            raw_cursor("RO:", now, "9223372036854775807:#{uuid}")
+          ] do
+        assert {400, %{"detail" => "invalid cursor"}} = get_json(ctx, "?cursor=" <> c)
+      end
+    end
+
+    test "P4 a real platform-events cursor is refused", ctx do
+      for _ <- 1..2 do
+        {:ok, _} =
+          PlatformEvents.append_definition_promoted(
+            %{
+              event_type: "DEFINITION_PROMOTED",
+              actor_id: Ecto.UUID.generate(),
+              review_id: Ecto.UUID.generate(),
+              source_tenant_id: ctx.a.tenant_id,
+              target_tenant_id: ctx.b.tenant_id,
+              source_definition_id: Ecto.UUID.generate(),
+              target_definition_id: Ecto.UUID.generate(),
+              process_key: "req813-" <> Ecto.UUID.generate()
+            },
+            ctx.p.schema_name
+          )
+      end
+
+      resp =
+        Letflow.Routers.Promotions.call(
+          Fixture.router_conn(
+            :get,
+            "/platform-events?page_size=1",
+            ctx.p,
+            ["PLATFORM_ADMIN"],
+            nil
+          ),
+          Letflow.Routers.Promotions.init([])
+        )
+
+      assert resp.status == 200
+      pe = Jason.decode!(resp.resp_body)["next_cursor"]
+      assert is_binary(pe)
+      assert {400, %{"detail" => "invalid cursor"}} = get_json(ctx, "?cursor=" <> pe)
+    end
+
+    test "P6 a tenant admin with a valid cursor still gets the bare 403", ctx do
+      seed_at!(3)
+      {200, p1} = get_json(ctx, "?page_size=1")
+      bare = call(:get, @base, ctx.a_admin, ctx.a.tenant.slug)
+
+      resp =
+        call(
+          :get,
+          @base <> "?page_size=2&cursor=" <> p1["next_cursor"],
+          ctx.a_admin,
+          ctx.a.tenant.slug
+        )
+
+      assert resp.status == 403
+
+      assert Map.delete(Jason.decode!(resp.resp_body), "trace_id") ==
+               Map.delete(Jason.decode!(bare.resp_body), "trace_id")
+    end
+
+    test "R4b a paged read writes nothing", ctx do
+      seed_at!(2)
+      before = {counts(), Repo.all(Rollout), Repo.all(Outcome)}
+      {200, p1} = get_json(ctx, "?page_size=1")
+      assert is_binary(p1["next_cursor"])
+      {200, _} = get_json(ctx, "?page_size=1&cursor=" <> p1["next_cursor"])
+      assert {counts(), Repo.all(Rollout), Repo.all(Outcome)} == before
     end
   end
 end
