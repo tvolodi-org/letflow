@@ -566,12 +566,11 @@ defmodule Letflow.IdentityLoginDirectoryTest do
 
       ctx = identity_context(%{preferred_username: username, email: "newcomer@example.test"})
 
-      assert {:error, %Ecto.Changeset{errors: errors}} =
+      assert {:error, :username_in_use} =
                Identity.provision_oidc_user(ctx, tenant.tenant_id, jit_config(),
                  prefix: tenant.schema_name
                )
 
-      assert Keyword.has_key?(errors, :username)
       assert Fx.user_count(tenant.schema_name) == 1
       assert keys(tenant) == [Fx.key!("holder@example.test")]
     end
