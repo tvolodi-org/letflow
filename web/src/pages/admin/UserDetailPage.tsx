@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { P, useAccess, AccessPending, roleLabel, roleDescription } from '@/auth/access'
 import { DeactivateUserDialog } from '@/components/admin/users/DeactivateUserDialog'
 import { PasswordResetDialog } from '@/components/admin/users/PasswordResetDialog'
+import { CoreHelpLink } from '@/pages/help/CoreHelpLink'
 import { useAdminGroups, useAdminRoles, useAdminUser, useDeactivateAdminUser, useSendPasswordResetInstructions, useUpdateAdminUser } from '@/hooks/useAdminUsers'
 import type { User } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
@@ -208,6 +209,7 @@ export default function UserDetailPage() {
             ) : (
               <div data-testid="admin-user-reset-hint"><Banner tone="info">{hintText(resetBlock, pm)}</Banner></div>
             )}
+            <span data-testid="admin-user-reset-help"><CoreHelpLink topic="passwordReset" /></span>
             {resetMessage && (
               <div data-testid="admin-user-reset-message">
                 <Banner tone={resetMessage.tone}>{resetMessage.text}</Banner>

@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { DropZone } from '@/components/ui/DropZone'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { CoreHelpLink } from '@/pages/help/CoreHelpLink'
 import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
 import { Steps } from '@/components/ui/Steps'
 import { Tally } from '@/components/ui/Tally'
@@ -240,16 +241,19 @@ function UsersImportPageInner() {
         title={intl.formatMessage({ id: 'usersImport.title' })}
         lede={intl.formatMessage({ id: 'usersImport.lede' })}
         actions={
-          <Button
-            variant="secondary"
-            size="md"
-            icon={<Download className="lf-icon" aria-hidden="true" />}
-            data-testid="users-import-template"
-            disabled={working}
-            onClick={() => void onTemplate()}
-          >
-            {intl.formatMessage({ id: 'usersImport.template.button' })}
-          </Button>
+          <>
+            <CoreHelpLink topic="usersImport" />
+            <Button
+              variant="secondary"
+              size="md"
+              icon={<Download className="lf-icon" aria-hidden="true" />}
+              data-testid="users-import-template"
+              disabled={working}
+              onClick={() => void onTemplate()}
+            >
+              {intl.formatMessage({ id: 'usersImport.template.button' })}
+            </Button>
+          </>
         }
       />
 

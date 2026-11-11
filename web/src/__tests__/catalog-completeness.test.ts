@@ -47,6 +47,7 @@ import {
   helpRu as stockHelpRu,
   helpKk as stockHelpKk,
 } from '@/modules/stock/help/stockHelpMessages'
+import { helpEn as coreHelpEn, helpRu as coreHelpRu, helpKk as coreHelpKk } from '@/pages/help/coreHelpMessages'
 import {
   countsEn,
   countsRu,
@@ -379,6 +380,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('stock help (sub-catalog): all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('stock.help', fromSplit(stockHelpEn, stockHelpRu, stockHelpKk))
+  })
+
+  it('core help (sub-catalog): all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('core.help', fromSplit(coreHelpEn, coreHelpRu, coreHelpKk))
   })
 
   it('countsMessages (sub-catalog): all en keys in ru/kk, no empty values', () => {

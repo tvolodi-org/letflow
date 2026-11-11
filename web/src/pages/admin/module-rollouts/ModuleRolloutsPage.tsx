@@ -16,6 +16,7 @@ import { DetailHeader } from '@/components/ui/DetailHeader'
 import { Field } from '@/components/ui/Field'
 import { MasterDetail } from '@/components/ui/MasterDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { CoreHelpLink } from '@/pages/help/CoreHelpLink'
 import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
 import { useModuleRolloutsList, useTenantNames, useModuleRolloutStatus, useResumeModuleRollout, useStartModuleRollout } from '@/hooks/useModuleRollouts'
 import { formatDateTime } from '@/i18n/format'
@@ -258,7 +259,7 @@ function ModuleRolloutsBody() {
 
   return (
     <div className="lf-form">
-      <PageHeader eyebrow={t(intl, 'eyebrow')} title={t(intl, 'title')} lede={t(intl, 'lede')} />
+      <PageHeader eyebrow={t(intl, 'eyebrow')} title={t(intl, 'title')} lede={t(intl, 'lede')} actions={<CoreHelpLink topic="moduleRollouts" />} />
       <StartBar busy={start.isPending} error={startError} onStart={onStart} />
       <MasterDetail
         masterWidth="wide"
