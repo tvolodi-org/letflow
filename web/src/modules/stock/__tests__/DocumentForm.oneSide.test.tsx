@@ -31,6 +31,7 @@ const pick = (label: string | RegExp, value: string, scope?: HTMLElement) =>
   fireEvent.change((scope ? within(scope) : form()).getByLabelText(label), { target: { value } })
 
 async function fillHeader() {
+  await screen.findByTestId('document-form')
   await form().findByRole('option', { name: 'Main store' })
   await form().findByRole('option', { name: 'Shelf A' })
   await form().findByRole('option', { name: 'Aigul B.' })
