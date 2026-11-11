@@ -31,6 +31,7 @@ defmodule Letflow.Modules.Org.Router do
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Modules.Org
+  alias Letflow.Modules.RouterKit
 
   @not_found [
     :legal_entity_not_found,
@@ -121,13 +122,13 @@ defmodule Letflow.Modules.Org.Router do
   # -- shapes -------------------------------------------------------------------------------------
 
   defp create(conn, fun) do
-    with_request(conn, fn prefix, attrs, opts, conn ->
+    RouterKit.with_request(conn, &render/3, fn prefix, attrs, opts, conn ->
       render(conn, fun.(prefix, attrs, opts), 201)
     end)
   end
 
   defp update(conn, fun) do
-    with_request(conn, fn prefix, attrs, opts, conn ->
+    RouterKit.with_request(conn, &render/3, fn prefix, attrs, opts, conn ->
       render(conn, fun.(prefix, conn.params["id"], attrs, opts), 200)
     end)
   end
@@ -137,58 +138,13 @@ defmodule Letflow.Modules.Org.Router do
 
   # Positional-argument functions: the router checks the fixed body keys itself.
   defp action(conn, required, fun) do
-    with_request(conn, fn prefix, body, opts, conn ->
-      case check_keys(body, required) do
+    RouterKit.with_request(conn, &render/3, fn prefix, body, opts, conn ->
+      case RouterKit.check_keys(body, required) do
         :ok -> render(conn, fun.(prefix, conn.params["id"], body, opts), 200)
         {:error, _} = error -> render(conn, error, 200)
       end
     end)
   end
-
-  defp check_keys(body, required) do
-    case Enum.find(Map.keys(body), &(&1 not in required)) do
-      nil ->
-        case Enum.find(required, &(not Map.has_key?(body, &1))) do
-          nil -> :ok
-          missing -> {:error, {:field_invalid, missing}}
-        end
-
-      extra ->
-        {:error, {:field_not_allowed, extra}}
-    end
-  end
-
-  # Written as a sigil so the AC5 scan of caller-key literals (idempotency_test) is not tripped:
-  # the key is a plain body member here, namespaced by the writers (same as procurement).
-  @key_field ~s(idempotency_key)
-
-  defp with_request(conn, fun) do
-    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
-
-    with {:ok, actor} <- Ecto.UUID.cast(conn.assigns.auth_context.user_id),
-         {:ok, key, attrs} <- pop_key(conn.body_params) do
-      fun.(prefix, attrs, %{actor_id: actor, idempotency_key: key}, conn)
-    else
-      :error -> Response.send_problem(conn, Error.forbidden("not permitted"))
-      {:error, _} = error -> render(conn, error, 200)
-    end
-  end
-
-  defp pop_key(%{"_json" => _}), do: pop_key(%{})
-
-  defp pop_key(body) when is_map(body) do
-    case Map.pop(body, @key_field) do
-      {key, rest} when is_binary(key) ->
-        if String.trim(key) == "", do: invalid_key(), else: {:ok, key, rest}
-
-      _ ->
-        invalid_key()
-    end
-  end
-
-  defp pop_key(_other), do: invalid_key()
-
-  defp invalid_key, do: {:error, {:field_invalid, @key_field}}
 
   # -- rendering ----------------------------------------------------------------------------------
 
@@ -232,12 +188,9 @@ defmodule Letflow.Modules.Org.Router do
     do: unprocessable(conn, Atom.to_string(reason), %{})
 
   defp render(conn, {:error, term}, _status) do
-    Logger.warning("org request refused: #{inspect(elem_tag(term))}")
+    Logger.warning("org request refused: #{inspect(RouterKit.elem_tag(term))}")
     unprocessable(conn, "request_refused", %{})
   end
-
-  defp elem_tag(term) when is_tuple(term) and tuple_size(term) > 0, do: elem(term, 0)
-  defp elem_tag(_term), do: :other
 
   defp unprocessable(conn, reason, extra) do
     problem = Error.unprocessable("request refused")
