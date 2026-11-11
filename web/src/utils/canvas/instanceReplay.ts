@@ -128,3 +128,55 @@ export function durationParts(ms: number): { h: number; m: number; s: number } |
   const total = Math.floor(ms / 1000)
   return { h: Math.floor(total / 3600), m: Math.floor((total % 3600) / 60), s: total % 60 }
 }
+
+/** One recorded step that still waits (T-1705, REQ-812): the node, its name data and when the wait began. */
+export interface WaitingRow {
+  nodeId: string
+  nodeType: string
+  label: string | null
+  known: boolean
+  at: Date
+  seq: number
+}
+
+/** The nodes `replayPath` marks active after the last step, each with the time its wait began: a gateway (a join
+ *  collecting branches) from its first entry after its last departure, any other node from its last entry. Oldest first,
+ *  ties by sequence number; a row whose time cannot be parsed sorts last. */
+export function waitingSince(steps: readonly ReplayStep[], graph: DefinitionGraph | null | undefined): WaitingRow[] {
+  if (steps.length === 0) return []
+  const path = replayPath(steps, steps.length - 1, graph)
+  const rows: WaitingRow[] = []
+  for (const [nodeId, st] of path.nodes) {
+    if (st.state !== 'active') continue
+    let lastDeparture = -1
+    let firstAfter: ReplayStep | undefined
+    let last: ReplayStep | undefined
+    for (const s of steps) {
+      if (s.fromNodeId === nodeId) lastDeparture = s.index
+      if (s.nodeId === nodeId) last = s
+    }
+    for (const s of steps) {
+      if (s.nodeId === nodeId && s.index > lastDeparture) {
+        firstAfter = s
+        break
+      }
+    }
+    const pick = GATEWAYS.has(last?.nodeType ?? '') ? firstAfter : last
+    if (!pick) continue
+    rows.push({ nodeId, nodeType: pick.nodeType, label: pick.label, known: pick.known, at: pick.at, seq: pick.seq })
+  }
+  const time = (r: WaitingRow) => (Number.isNaN(r.at.getTime()) ? Number.POSITIVE_INFINITY : r.at.getTime())
+  return rows.sort((a, b) => {
+    const ta = time(a)
+    const tb = time(b)
+    if (ta !== tb) return ta < tb ? -1 : 1
+    return a.seq - b.seq
+  })
+}
+
+/** Whole hours and minutes of a wait; negative or non-finite input is clamped to zero. Hours never fold into days. */
+export function elapsedParts(ms: number): { h: number; m: number } {
+  if (!Number.isFinite(ms) || ms < 60_000) return { h: 0, m: 0 }
+  const total = Math.floor(ms / 60_000)
+  return { h: Math.floor(total / 60), m: total % 60 }
+}
