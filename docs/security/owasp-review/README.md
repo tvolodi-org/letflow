@@ -14,6 +14,7 @@ The item is sized L and says "split in three", so the six families are reviewed 
 | 1 | identity and tokens; admin and platform routes | `part-1-identity-admin.md` | done in T-1590 |
 | 2 | documents and registers; assets and stock | `part-2-*.md` (not yet written) | not started; cite BA#8 (#4082) for asset and stock tenant isolation instead of redoing it |
 | 3 | definitions and scripts; files and import | `part-3-*.md` (not yet written) | not started; INV-3 sandbox, INV-9 outbound URLs, zip and xlsx size caps |
+| 4 | follow-up: routes added since B3#10 (reset-password, users import, rollout window and operator screen, sign-up, replay timeline) | `part-4-followup-new-routes.md` | done in T-1693; F4-1 fixed, rest listed |
 
 ## Method
 

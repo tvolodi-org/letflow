@@ -170,4 +170,20 @@ defmodule Letflow.Routers.InstancesParticipantReadTest do
       assert get(ctx, :operator, "/api/v1/instances/#{ctx.instance_id}#{suffix}").status == 200
     end
   end
+
+  test "G6: the timeline follows the same participation rule as the history (T-1693, OWASP A01)" do
+    ctx = setup_tenant!()
+    path = "/api/v1/instances/#{ctx.instance_id}/timeline"
+
+    outsider = get(ctx, :outsider, path)
+    fake = get(ctx, :outsider, "/api/v1/instances/#{Ecto.UUID.generate()}/timeline")
+    assert outsider.status == 404
+    assert outsider.status == fake.status
+    strip = fn conn -> Regex.replace(~r/"trace_id":"[^"]*"/, conn.resp_body, "") end
+    assert strip.(outsider) == strip.(fake)
+
+    for who <- [:starter, :holder, :operator] do
+      assert get(ctx, who, path).status == 200
+    end
+  end
 end
