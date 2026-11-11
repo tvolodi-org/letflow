@@ -2,7 +2,7 @@ defmodule Mix.Tasks.Letflow.Signup.Resume do
   @shortdoc "Resumes public sign-up requests stuck in or failed at the realm or tenant step (T-1593, T-1679)"
 
   @moduledoc """
-  The operator cleanup path of the sign-up realm and tenant-create steps (decision 0085; there is no scheduler by design).
+  The operator cleanup path of the sign-up realm and tenant-create steps (decision 0085; a timer sweep also resumes stale requests when the sign-up flag is on, see `Letflow.Signup.Sweep`).
   Thin wrapper over `Letflow.Signup.Provisioning.resume/1`: puts retryable `failed` rows back to
   `provisioning`, then runs every unfinished request in the foreground.
 
