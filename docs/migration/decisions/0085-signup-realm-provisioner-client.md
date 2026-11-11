@@ -57,6 +57,7 @@ Part b (in-process `TenantProvisioner.create/1`, default modules, welcome mail) 
   welcome. A mail failure is the retryable code `welcome_mail_failed`: the tenant stays, and `mix letflow.signup.resume` restarts at
   `credential_sent`, replays the create (a no-op) and sends the welcome; the credential mail is not repeated. No demo-end date or contact
   address (no source yet); the completed row keeps the e-mail (retention is the sweep's job). Still behind the flag (default off).
+- **D11 Users step (T-1703).** Created users' realm sign-in is decided in "Addendum T-1703" of decision 0072 (section 8b); that step uses its own settings (`LETFLOW_REALM_USERS_*`) and its own provisioner caller token, not the sign-up ones.
 
 **Addendum T-1701 (sign-up sweep, for REQ-803; build in T-1686).** This addendum replaces only the sentence "No scheduler (0084)."
 of D7 and Residual 5 "Resume is operator-driven". Those lines stay as written; D1 to D6, D8 and D9 are unchanged, and
