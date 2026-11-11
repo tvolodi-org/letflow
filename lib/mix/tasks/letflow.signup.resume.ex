@@ -43,7 +43,7 @@ defmodule Mix.Tasks.Letflow.Signup.Resume do
     :ok
   end
 
-  defp format(:ok), do: "tenant_created"
+  defp format(:ok), do: "completed"
   defp format(:noop), do: "skipped (held by another run or not resumable)"
   defp format({:failed, code}), do: "failed (#{code})"
 end

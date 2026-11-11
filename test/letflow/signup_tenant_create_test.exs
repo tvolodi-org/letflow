@@ -123,7 +123,7 @@ defmodule Letflow.SignupTenantCreateTest do
       assert Provisioning.run(r.tenant_id) == :ok
 
       row = row(r.tenant_id)
-      assert {row.state, row.step} == {"provisioning", "tenant_created"}
+      assert {row.state, row.step} == {"completed", "completed"}
       assert %Tenant{} = tenant = Repo.get!(Tenant, r.tenant_id)
       assert tenant.slug =~ ~r/\At-/
       lifecycle = Repo.get!(Lifecycle, r.tenant_id)
@@ -132,9 +132,11 @@ defmodule Letflow.SignupTenantCreateTest do
       onboarding = Repo.get_by!(OnboardingRecord, tenant_id: r.tenant_id)
       assert onboarding.hostname == RealmProvisioner.label(r.tenant_id) <> ".qa.example.test"
 
-      # one mail only: the credential (the welcome mail is slice 1b)
-      assert [credential] = mails()
+      # the credential, then the welcome mail (W3)
+      assert [credential, welcome] = mails()
       assert credential.body =~ @password
+      refute welcome.body =~ @password
+      assert welcome.to == row.email
 
       # no provisioner (admin API) credential configured, yet the create worked
       assert Application.get_env(:letflow, Letflow.Plugs.ProvisionerAuth) in [nil, []]
@@ -154,6 +156,7 @@ defmodule Letflow.SignupTenantCreateTest do
       configure!(Stub.start!([]))
       assert Provisioning.run(r.tenant_id) == :ok
       before = counts()
+      assert [_welcome] = mails()
 
       Repo.update_all(from(x in Request, where: x.tenant_id == ^r.tenant_id),
         set: [state: "provisioning", step: "credential_sent", step_attempts: 0]
@@ -161,8 +164,8 @@ defmodule Letflow.SignupTenantCreateTest do
 
       assert Provisioning.run(r.tenant_id) == :ok
       assert counts() == before
-      assert row(r.tenant_id).step == "tenant_created"
-      assert mails() == []
+      assert row(r.tenant_id).step == "completed"
+      assert [%{subject: _}] = mails()
     end
 
     test "C3 a tenant created earlier with the same id is left as it is" do
@@ -212,9 +215,12 @@ defmodule Letflow.SignupTenantCreateTest do
 
       Application.put_env(:letflow, :provisioner_public_base_url, base)
       assert Provisioning.resume(tenant_id: r.tenant_id) == [{r.tenant_id, :ok}]
-      assert row(r.tenant_id).step == "tenant_created"
+      assert row(r.tenant_id).step == "completed"
       assert Repo.get!(Tenant, r.tenant_id)
-      assert mails() == []
+      # only the welcome mail, never the credential again
+      assert [%{body: body}] = mails()
+      assert body =~ "?realm="
+      refute body =~ @password
     end
 
     test "C5 resume picks the restart step by what is recorded" do
@@ -258,7 +264,7 @@ defmodule Letflow.SignupTenantCreateTest do
       assert [{id, :ok}] = Provisioning.resume(tenant_id: r.tenant_id)
       assert id == r.tenant_id
       assert Repo.get!(Tenant, r.tenant_id)
-      assert row(r.tenant_id).step == "tenant_created"
+      assert row(r.tenant_id).step == "completed"
     end
   end
 
@@ -396,7 +402,7 @@ defmodule Letflow.SignupTenantCreateTest do
       assert callers == ["routers/admin_v1.ex", "signup/provisioning.ex"]
     end
 
-    test "C15 the mix task reports tenant_created" do
+    test "C15 W9 the mix task reports completed" do
       r = sent_row!(state: "verified")
       configure!(Stub.start!([]))
       Mix.shell(Mix.Shell.Process)
@@ -404,7 +410,93 @@ defmodule Letflow.SignupTenantCreateTest do
 
       Mix.Tasks.Letflow.Signup.Resume.run(["--tenant-id", r.tenant_id])
       assert_received {:mix_shell, :info, [line]}
-      assert line == "#{r.tenant_id}: tenant_created"
+      assert line == "#{r.tenant_id}: completed"
+    end
+  end
+
+  describe "welcome mail (T-1685)" do
+    test "W1 W4 one welcome with the realm link; a completed row is never claimed again" do
+      r = sent_row!()
+      configure!(Stub.start!([]))
+      assert Provisioning.run(r.tenant_id) == :ok
+
+      row = row(r.tenant_id)
+      assert {row.state, row.step, row.last_error} == {"completed", "completed", nil}
+      onboarding = Repo.get_by!(OnboardingRecord, tenant_id: r.tenant_id)
+      slug = Repo.get!(Tenant, r.tenant_id).slug
+
+      assert [welcome] = mails()
+      assert welcome.to == r.email
+      assert welcome.body =~ "https://#{onboarding.hostname}/?realm=#{slug}"
+
+      before = counts()
+      assert Provisioning.run(r.tenant_id) == :noop
+      assert Provisioning.resume(tenant_id: r.tenant_id) == []
+      assert counts() == before
+      assert mails() == []
+    end
+
+    test "W2 each language renders its own text; unknown falls back to English" do
+      link = "https://x.example/?realm=t-1"
+      texts = for l <- ["ru", "kk", "en", "xx"], do: Letflow.Signup.Messages.welcome(l, link)
+      assert Enum.all?(texts, &(&1.body =~ link))
+      assert length(Enum.uniq_by(texts, & &1.subject)) == 3
+      assert Enum.at(texts, 3) == Enum.at(texts, 2)
+    end
+
+    test "W5 W6 W10 a failed welcome mail keeps the tenant; resume sends only the welcome" do
+      r = sent_row!()
+      configure!(Stub.start!([]))
+      Letflow.LoginDiscoveryNotifierDouble.set_behaviour(:error)
+
+      log =
+        capture_log(fn ->
+          assert Provisioning.run(r.tenant_id) == {:failed, "welcome_mail_failed"}
+        end)
+
+      warnings = log |> String.split("\n") |> Enum.filter(&(&1 =~ "[warning]"))
+      assert Enum.any?(warnings, &(&1 =~ "welcome_mail_failed"))
+      refute Enum.any?(warnings, &(&1 =~ r.email))
+      failed = row(r.tenant_id)
+
+      assert {failed.state, failed.step, failed.last_error} ==
+               {"failed", "provisioning_failed", "welcome_mail_failed"}
+
+      assert Repo.get!(Tenant, r.tenant_id)
+      before = counts()
+
+      Letflow.LoginDiscoveryNotifierDouble.set_behaviour(:ok)
+      mails()
+      assert Provisioning.resume(tenant_id: r.tenant_id) == [{r.tenant_id, :ok}]
+      assert counts() == before
+      assert row(r.tenant_id).step == "completed"
+      assert [%{body: body}] = mails()
+      assert body =~ "?realm="
+      refute body =~ @password
+    end
+
+    test "W7 a row stopped at tenant_created is claimed and only gets the welcome" do
+      r = sent_row!()
+      configure!(Stub.start!([]))
+      assert Provisioning.run(r.tenant_id) == :ok
+      mails()
+
+      Repo.update_all(from(x in Request, where: x.tenant_id == ^r.tenant_id),
+        set: [state: "provisioning", step: "tenant_created", step_attempts: 0]
+      )
+
+      assert Provisioning.run(r.tenant_id) == :ok
+      assert row(r.tenant_id).step == "completed"
+      assert [%{body: body}] = mails()
+      assert body =~ "?realm="
+    end
+
+    test "W8 a failed tenant create sends no welcome mail" do
+      r = sent_row!()
+      configure!(Stub.start!([]))
+      put_prov(demo_cap: Repo.aggregate(from(l in Lifecycle, where: l.tier == "demo"), :count))
+      assert {:failed, "demo_cap_reached"} = Provisioning.run(r.tenant_id)
+      assert mails() == []
     end
   end
 end

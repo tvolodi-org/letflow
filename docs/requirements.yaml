@@ -54523,3 +54523,44 @@ requirements:
       - "5. A unit test of the import result with a mocked answer carrying one created and one refused sign_in shows the password for the first row and the reason text for the second; an answer without sign_in shows no new column."
       - "6. The shots folder holds the design-system matrix (1440 and 390, light and dark, en and ru, kk for long labels) for the user page action, the password panel, a refusal text and the import result column, with a state table."
     depends_on: [REQ-807, REQ-808]
+  - id: REQ-812
+    title: "Process designer slice 3C: \"waiting since\" on the page of one running instance (which recorded steps still wait, since when and for how long, from NODE_ENTERED events; web only)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4230
+    # Source: task T-1699 (operator, D-086 and D-118); ai-dala-portfolio DECISIONS.md D-118 item (5) ("process designer 3C follows the recommended scope of the T-1661 note", owner, 2026-11-11); requirement REQ-802 (written by T-1661, gh 4191): its description lists four candidates (a) to (d), says only a candidate on one instance's page can use what the web already reads, and names "where is this document waiting and since when" as the nearest pilot use; its criterion 6 ranks candidates with a named pilot step first, then by Size S, M, L. The note file REQ-802 specifies (docs/design/process-designer-slice-3c.md) is not on origin/main 53be5a690 (git cat-file -e failed) and no task writes it, so "the recommended scope" is taken as the first item of REQ-802's own ranking rule, candidate (d): docs/runbooks/pilot-first-month.md names no instance screen in any week (so no candidate has a named step), and (d) is the only candidate needing no new read (Size S). UAT assumption, to be confirmed by the process owner. Files read on origin/main 53be5a690: web/src/pages/instances/InstanceDetailPage.tsx (Definition Snapshot section with the "Active tokens" line from instance.current_nodes; Graph tab with GraphModeSwitch Live/Replay); lib/letflow/routers/instances.ex instance_map/2 (GET /instances/:id renders instance_id, definition_id, correlation_key, scope_node_id, status, variables, started_at, completed_at, cancelled_at, error_detail; no current_nodes); web/src/hooks/useInstanceNodeEntries in web/src/hooks/useInstances.ts (history route filtered by NODE_ENTERED, 200 per page, at most 25 pages, polled while ACTIVE, query key instanceKeys.nodeEntries); web/src/api/instances.ts nodeEntries; web/src/utils/canvas/instanceReplay.ts (replaySteps, replayPath state rule, replayCoverage, durationParts); web/src/components/instances/InstanceReplay.tsx (step names, formatDateTime use, ProcessDiagramIntlProvider); web/src/i18n/processDiagramMessages.ts (en, ru, kk); web/src/types/api.ts NodeEnteredItem (created_at). Written by the business analyst (T-1699) 2026-11-11.
+    description: >
+      Slice 3C of the process designer line (docs/design/process-designer.md has slices 1, 2, 3A; the replay of one
+      instance, REQ-799, is 3B). The owner accepted the recommended scope (D-118 item 5): "waiting since" on the page
+      of one running instance. A company administrator who opens a running instance (for example the instance a stock
+      opening document posts through, which waits for an approve task by a second person,
+      lib/letflow/modules/stock/documents/posting.ex) sees, without opening the Replay, which recorded steps are still
+      waiting, since when, and for how long.
+      What exists on origin/main: since REQ-793 the engine writes one NODE_ENTERED event per node a token enters
+      (lib/letflow/engine/node_entries.ex); the web reads them for the Replay through the existing history route with
+      useInstanceNodeEntries (web/src/hooks/useInstances.ts) and derives the state of every node after a step with
+      replayPath (web/src/utils/canvas/instanceReplay.ts). The instance page's "Active tokens" line reads
+      instance.current_nodes, which GET /instances/:id does not render (instance_map/2 in
+      lib/letflow/routers/instances.ex), so the waiting steps must come from the recorded entries, not from that field.
+      This change adds a "Waiting since" block to the Definition Snapshot section of
+      web/src/pages/instances/InstanceDetailPage.tsx, directly below the "Active tokens" line. It is built from the
+      same useInstanceNodeEntries query the Replay uses and from the replayPath state rule at the last recorded step;
+      the pure derivation goes into web/src/utils/canvas/instanceReplay.ts as a new exported function waitingSince
+      (planned, not yet on main), the block into the new file web/src/components/instances/InstanceWaitingSince.tsx
+      (planned, not yet on main), its text into web/src/i18n/processDiagramMessages.ts under ids starting
+      "processDiagram.waiting.", rendered inside ProcessDiagramIntlProvider as the Replay is.
+      Web only: no route, response field, permission, migration or backend change; who may open the instance page
+      does not change. The "Active tokens" line is left as it is (a separate defect, see the task findings).
+    acceptance_criteria:
+      - "W1. The Waiting since block is rendered only when the instance status is ACTIVE; for COMPLETED, CANCELLED and ERROR it is absent (a component test per status)."
+      - "W2. Rows are computed by waitingSince(steps, graph) in web/src/utils/canvas/instanceReplay.ts from replaySteps output: one row for every node whose state is active in replayPath(steps, steps.length - 1, graph), and no other rows. Unit tests cover: one task waiting; two parallel branches waiting (two rows); a parallel join that has one branch arrival and waits (one row for the join); a task entered twice in a loop (one row)."
+      - "W3. The waiting-since time of a row is the created_at of a NODE_ENTERED event: for a gateway, the first entry of that node after its last recorded departure; for any other node, its last entry. Rows are ordered by that time, oldest first, ties in recorded order (sequence_number). Unit tests assert the time chosen for the join case and the loop case of W2."
+      - "W4. Each row shows: the step name as the Replay step list shows it (the node label, else its type name, else the Replay's unknown-step text with the node id); the waiting-since time formatted with formatDateTime of web/src/i18n/format.ts in the UI locale, as InstanceReplay.tsx formats a step time; and the time elapsed since then in whole hours and minutes (for example \"2 h 5 min\"; \"under 1 min\" below one minute; hours are not folded into days)."
+      - "W5. The elapsed time is recomputed from the clock at least every 60 seconds while the block is shown: a component test with fake timers advances the clock by 60 s and sees the elapsed text change, with no new request."
+      - "W6. States, each with its own text and a component test: loading (pages not yet complete); read error, with a Retry button that calls the hook's retry; page cap reached (truncated), with a text that the list cannot be shown and no rows; no recorded entries at all (coverage none), with a text that this instance's steps were not recorded and no rows; first recorded entry not START (coverage partial), rows shown plus a text that steps before the first recorded time are not recorded, so a step waiting since before then is not listed; recorded entries but no active node, with a text that no recorded step is waiting."
+      - "W7. The block reads only through useInstanceNodeEntries with the instance status passed, so it uses the Replay's query key instanceKeys.nodeEntries(id), its paging, cap and polling; a component test asserts that every request the block makes goes to the history route of that instance with event_type NODE_ENTERED, and no request goes to any other path. No file under lib/, priv/ or apps/ changes."
+      - "W8. All new texts exist in en, ru and kk in web/src/i18n/processDiagramMessages.ts under ids starting \"processDiagram.waiting.\"; a test renders the block in ru and kk and finds no English fallback text."
+      - "W9. The block is a section with a heading, the rows are a list, each time is a time element with a machine-readable datetime attribute, and the elapsed text is readable by a screen reader (it is not hidden from assistive technology and is not an aria-live region)."
+      - "W10. Out of scope: any view across several instances (REQ-802 candidates a, b, c), alerts or notifications on a waiting time, time limits or thresholds, a backfill of entries, any permission change (STOREKEEPER keeps no :InstancesRead), and the \"Active tokens\" line."
+    depends_on: [REQ-793, REQ-799]

@@ -94,7 +94,7 @@ defmodule Letflow.SignupProvisioningTest do
 
       row = row(tenant_id)
       label = RealmProvisioner.label(tenant_id)
-      assert {row.state, row.step} == {"provisioning", "tenant_created"}
+      assert {row.state, row.step} == {"completed", "completed"}
       assert {row.idp_realm_id, row.template_version} == {label, "v2"}
       assert row.idp_issuer =~ label
       assert row.credential_sent_at
@@ -143,10 +143,10 @@ defmodule Letflow.SignupProvisioningTest do
       configure!(stub)
 
       assert Provisioning.run(r.tenant_id) == :ok
-      assert [%{body: body}] = mails()
+      assert [%{body: body}, %{subject: _welcome}] = mails()
       assert body =~ "Forgot password"
       refute body =~ @password
-      assert row(r.tenant_id).step == "tenant_created"
+      assert row(r.tenant_id).step == "completed"
     end
 
     test "P4 a row left at realm_created resumes at the mail without a second POST" do
@@ -165,8 +165,8 @@ defmodule Letflow.SignupProvisioningTest do
 
       assert Provisioning.run(r.tenant_id) == :ok
       assert Stub.posts(stub) == []
-      assert row(r.tenant_id).step == "tenant_created"
-      assert [_hint] = mails()
+      assert row(r.tenant_id).step == "completed"
+      assert [_hint, _welcome] = mails()
     end
 
     test "P5 the claim is a compare-and-set: a held row is skipped, a finished one is not re-run" do
@@ -207,7 +207,7 @@ defmodule Letflow.SignupProvisioningTest do
       assert length(Stub.posts(stub)) == 1
       assert [%{method: "GET", path: path}] = Enum.filter(Stub.calls(stub), &(&1.method == "GET"))
       assert path == "/v1/realms/" <> r.tenant_id
-      assert [%{body: body}] = mails()
+      assert [%{body: body}, %{subject: _welcome}] = mails()
       refute body =~ @password
     end
 
@@ -291,7 +291,7 @@ defmodule Letflow.SignupProvisioningTest do
       Stub.set_script(stub, :post, [{201, Stub.created(r.tenant_id)}])
       assert [{tenant_id, :ok}] = Provisioning.resume()
       assert tenant_id == r.tenant_id
-      assert {row(tenant_id).state, row(tenant_id).step} == {"provisioning", "tenant_created"}
+      assert {row(tenant_id).state, row(tenant_id).step} == {"completed", "completed"}
     end
 
     test "P10b resume leaves a permanent failure alone unless forced" do
@@ -325,9 +325,9 @@ defmodule Letflow.SignupProvisioningTest do
       mails()
       assert [{_, :ok}] = Provisioning.resume()
       assert length(Stub.posts(stub)) == 1
-      assert [%{body: body}] = mails()
+      assert [%{body: body}, %{subject: _welcome}] = mails()
       assert body =~ "Forgot password"
-      assert row(r.tenant_id).step == "tenant_created"
+      assert row(r.tenant_id).step == "completed"
     end
   end
 
