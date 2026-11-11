@@ -111,6 +111,7 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"scripts/cd_qa_decide.sh", true, false},
     {"scripts/oss_audit/scanner.py", true, true},
     {"scripts/oss_audit/rules.py", true, true},
+    {"scripts/companion/move_list.tsv", true, true},
     {"docs/open-source/audit-report.md", true, true},
     {".claude/agents/uat-runner.md", true, true},
     {"web/.env.example", true, true},

@@ -1,0 +1,46 @@
+# Companion move list: PROPOSAL ONLY. Nothing reads this to move or delete a file (T-1674, source: T-1599 sections 2, 4).
+# Columns (TAB separated): path <TAB> class <TAB> reason
+#   path   a tracked path. A trailing "/" is a directory prefix, a trailing "*" a name prefix, anything else one exact file.
+#          The LONGEST matching path wins, so a file entry overrides its directory.
+#   class  source    stays in the public repo (T-1599 4.1)
+#          companion goes to the private companion repo at the same path (T-1599 4.2, 4.3)
+#          stays     stays in the tree for now and is not source: waits for an owner decision (T-1599 section 12)
+#          drop      goes nowhere: neither public source nor copied to the companion
+# Every tracked path must match a row; scripts/companion/dry_run.sh fails on one that does not.
+#
+# --- source (T-1599 4.1)
+lib/	source	Elixir backend (T-1599 4.1); lib/letflow/design/ is overridden below
+web/	source	React SPA, its tests and README
+apps/	source	Flutter mobile app
+priv/	source	migrations, seeds, permission matrix golden; seeds with customer wording are a per-hit OSS-1 decision (4.3)
+config/	source	build and run configuration
+deploy/	source	build and run; OSS-1 checks it for hosts and names
+test/	source	tests are source; the exceptions are overridden below
+scripts/	source	build, CI, release, PWA, test, demo and backup scripts; the grey ones are overridden below
+.github/	source	workflows, labels, templates; docs paths in their text are edited in stage 5
+mix.exs	source	build
+mix.lock	source	build
+docker-compose.yml	source	build and run
+.tool-versions	source	build
+.formatter.exs	source	build
+.env.example	source	build and run
+.gitattributes	source	repository setting
+.gitignore	source	repository setting; state/ is added in stage 5
+README.md	source	project description; internal story sentences are rewritten in stage 5
+# --- companion (T-1599 4.2)
+CLAUDE.md	companion	agent instructions of the product (4.2)
+.claude/	companion	agent roles and settings (4.2)
+docs/	companion	all project documentation (4.2); the grey exceptions in 4.3 are decided per file in stage 2, not here
+handoffs/	companion	old pipeline hand-off trail, 41 MB (4.2)
+lib/letflow/design/	companion	design artefacts of the old pipeline, under lib/ but not code (4.2)
+test/fixtures/uat/	companion	UAT scenarios in business language; a synthetic uat_sample/ stays in stage 2 (4.3)
+scripts/gh_work.sh	companion	pipeline script, not a build script (4.3)
+scripts/seed_*	companion	UAT and demo-vertical seed scripts (4.3)
+scripts/uat_preflight.sh	companion	UAT preflight, a pipeline script (4.3)
+test/reports/	companion	test run reports of the old pipeline; NOT named in T-1599 section 4, classified by analogy with handoffs/: owner to confirm
+test/uat-reports/	companion	BA sign-offs of UAT runs; NOT named in T-1599 section 4, classified by analogy with docs/uat/: owner to confirm
+test/specs/	companion	test specs of the old pipeline per issue; NOT named in T-1599 section 4, classified by analogy with docs/: owner to confirm
+# --- stays (waits for an owner decision)
+docs/open-source/	stays	OSS-1 audit report; oss_audit_test and BACKEND_PATHS_RE read it, so it stays until the history decision (T-1599 section 9)
+# --- drop
+state/	drop	state/team.db is lab state tracked by mistake: not copied, deleted, state/ added to .gitignore (4.2)
