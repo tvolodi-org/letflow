@@ -61,7 +61,7 @@ transaction's own statements: `begin`, `SELECT set_config('lock_timeout', $1, tr
 statements. The first-statement and bound-parameter assertions passed. The failing line was
 `refute Enum.any?(stmts, &(&1 =~ "5000" or &1 =~ ~r/5s/))`: the committed tenant's schema name is random
 hex, and this run's was `tenant_e4a9e5000d854599a66ebf090236700b`, which contains `5000`. Probability per run
-is small (a 4-digit/2-char hex substring in a 32-char name, in about 20 statements) but not zero, which is why
+is small (the 4-character substring `5000` appearing in a 32-char hex name; `5s` cannot occur in hex, it is a separate timeout-literal check) but not zero, which is why
 it appears once and then "passes on re-run".
 
 `PlatformTenantFixture.capture_repo_queries/1` already keeps only the calling process's events
@@ -75,8 +75,10 @@ and the file is `async: false`, so there is nothing to filter further.
 Red proof: the old assertion fails on exactly the statement list above (CI log lines for run 43001782266);
 the unit test of `value_in_sql?/1` uses that schema name. Product code: no race found.
 
-**Other files named in the task** (identity_test expires_at, XlsxStyleTest X3, EntitiesImportXlsxTest R4c,
-SignupProvisioningTest) were fixed or diagnosed in the first section above; not touched again here.
+**Other files named in the task:** identity_test expires_at, EntitiesImportXlsxTest R4c and
+SignupProvisioningTest were fixed or diagnosed in the first section above; not touched again here.
+XlsxStyleTest X3 was NOT investigated in this task (no failing log pulled, no cause verified, no change made);
+it remains open for a follow-up.
 
 **Telemetry/shared-name audit, not changed:** `Letflow.LockOrderHelpers.attach_error_handler/1` forwards
 55P03/40P01 from any process in the VM to the attaching test; every user of it is `async: false`, so no

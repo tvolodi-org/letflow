@@ -417,8 +417,8 @@ defmodule Letflow.Engine.CancelLockTimeoutTest do
       assert first.params == ["5000ms"]
 
       # no timeout value is spliced into any SQL text of the transaction
-      # the tenant schema name is random hex and can contain "5000" or "5s" by chance (run
-      # 43001782266): inspect the SQL with quoted identifiers removed
+      # the tenant schema name is random hex and can contain "5000" by chance (run
+      # 43001782266); the word-bounded 5s check is a separate timeout-literal check: inspect the SQL with quoted identifiers removed
       refute Enum.any?(stmts, &value_in_sql?/1)
       assert Enum.count(stmts, &(&1 =~ "set_config")) == 1
     end
