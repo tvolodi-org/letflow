@@ -270,5 +270,12 @@
   "session.revoked": "This sign-in is no longer valid. Please sign in again.",
   "session.noConnection": "No connection. Check the network and try again.",
   "session.tooManyAttempts": "Too many wrong PINs. Please sign in again.",
-  "session.revocationFailed": "You are signed out on this device. We could not reach the sign-in service to end the session there."
+  "session.revocationFailed": "You are signed out on this device. We could not reach the sign-in service to end the session there.",
+  "session.device.offer.title": "Unlock with this device?",
+  "session.device.offer.body": "Next time you can open the app with this device's own check, for example a fingerprint or your face, instead of the PIN. The device decides how it checks you and may ask twice now. The PIN keeps working if it does not work.",
+  "session.device.offer.accept": "Use this device",
+  "session.device.offer.decline": "Not now",
+  "session.device.pinStays": "This device check was not set up. You unlock with your PIN.",
+  "session.device.cannotThisWay": "This device cannot do it this way. You unlock with your PIN.",
+  "session.device.unlockButton": "Unlock with this device"
 }

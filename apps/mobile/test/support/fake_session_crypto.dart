@@ -59,6 +59,20 @@ class FakeSessionCrypto implements SessionCrypto {
     return Uint8List.fromList([...iv, ...ct, ...tag]);
   }
 
+  /// Real HKDF-SHA-256 (RFC 5869) over package:crypto, so the VM tests and
+  /// the browser test share one answer.
+  @override
+  Future<Uint8List> hkdfSha256(
+    Uint8List ikm, {
+    required Uint8List salt,
+    required Uint8List info,
+  }) async {
+    final prk = Hmac(sha256, salt).convert(ikm).bytes;
+    return Uint8List.fromList(
+      Hmac(sha256, prk).convert([...info, 1]).bytes.sublist(0, 32),
+    );
+  }
+
   @override
   Future<Uint8List?> open(Uint8List key, Uint8List sealed) async {
     if (sealed.length < 28) return null;

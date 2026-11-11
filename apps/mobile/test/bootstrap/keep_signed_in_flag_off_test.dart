@@ -19,6 +19,10 @@ void main() {
     expect(h.adapter.lastRequest!.scopes, kOidcScopes);
     expect(await c.enrollWithPin(kPin, kPin), EnrollOutcome.failed);
     expect(h.records.raw, isNull);
+    // REQ-811: no device-unlock object, no offer, no WebAuthn call.
+    expect(c.deviceUnlock, isNull);
+    expect(c.offerDeviceUnlock.value, isFalse);
+    expect(await c.enrollDeviceUnlock(), DeviceEnrolOutcome.pinStays);
   });
 
   test('F2 only a pointer: the sign-in restarts as on main', () async {

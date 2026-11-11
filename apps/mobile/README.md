@@ -295,7 +295,24 @@ device for 30 days"; nothing is stored unless the user accepts and sets a PIN of
 - **Proof:** the lifecycle runs under `flutter test` against fakes. The real WebCrypto calls are
   proven only in a browser: `test/auth/web_session_crypto_browser_test.dart` (`@TestOn('browser')`,
   skipped by the plain run), run in Chrome by the mobile job of `ci.yml`
-  ("Browser crypto test (Chrome)"). Biometric unlock is a separate requirement (REQ-811), not built.
+  ("Browser crypto test (Chrome)", it also covers the HKDF used by REQ-811). The WebAuthn calls of
+  "Unlock with this device" can only be checked on a real device (the device pass of
+  `docs/runbooks/mobile-web-pwa-ready-check.md`); CI has no authenticator.
+- **Unlock with this device (REQ-811):** behind the same flag (off). After the PIN is saved the app
+  offers to unlock with the device's own check instead of the PIN; the offer shows only when
+  `isUserVerifyingPlatformAuthenticatorAvailable` is true and says that the device decides how it
+  verifies (fingerprint or face are examples, the device's own PIN is also possible) and may ask
+  twice. Accepting creates a platform passkey with the WebAuthn PRF extension (`userVerification:
+  required`, the page host as `rpId`); the PRF output goes through HKDF-SHA-256 (fixed 32-byte zero
+  salt, info `letflow-pwa-device-unlock-v1`) to a key that wraps a second copy of the same data key.
+  The record gains three optional, all-or-none keys: `device_credential_id`, `device_eval_input`,
+  `device_wrapped_key`; a PIN-only record is byte for byte what REQ-810 writes. The PRF output and the
+  derived key are never stored. If the passkey has no PRF output, enrolment ends with one plain line
+  and the PIN stays. On the lock screen the device check runs once on arrival (and by a button); a
+  cancel or failure changes nothing, and the PIN field stays. Deleting the record (30 days,
+  `invalid_grant`, sign-out, tenant switch, fifth wrong PIN) removes both wrappings and the
+  credential id. A page cannot delete the passkey itself; a stale one is harmless. Residual risk:
+  device unlock has no app-side attempt limit (the device limits its own verification attempts).
 
 Not in M2: web voice recording (added in M4, below), push. iOS limits: camera only on HTTPS
 after a tap, no hardware scanners, storage may be cleared after 7 days unused unless the

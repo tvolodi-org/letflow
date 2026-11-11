@@ -4,6 +4,7 @@ library;
 
 import 'package:letflow/api/api_client.dart';
 import 'package:letflow/auth/auth.dart';
+import 'package:letflow/auth/device_unlock.dart';
 import 'package:letflow/auth/keep_signed_in.dart';
 import 'package:letflow/auth/kv_store.dart';
 import 'package:letflow/auth/web_app_auth_adapter.dart';
@@ -18,6 +19,7 @@ import 'fake_session_crypto.dart';
 
 const kRealm = 'https://idp.example/realms/acme';
 const kPin = '123456';
+const kRpId = 'app.example';
 
 class MapStorage implements StringStorage {
   final m = <String, String>{};
@@ -86,6 +88,7 @@ class KeepHarness {
     TenantTokenStore? tokenStore,
     bool withRevoker = true,
     FakeSessionRecordStore? stale,
+    DeviceUnlockAuthenticator? deviceUnlock,
   }) {
     return BootstrapController(
       client: gateway,
@@ -99,6 +102,8 @@ class KeepHarness {
       webMode: true,
       webPending: () => null,
       keepSignedIn: keep,
+      deviceUnlock: deviceUnlock,
+      rpId: () => kRpId,
       revoker: withRevoker
           ? OidcRevoker(discovery: discovery, post: revocation)
           : null,

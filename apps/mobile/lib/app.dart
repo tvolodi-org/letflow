@@ -88,10 +88,31 @@ class _LetflowAppState extends ConsumerState<LetflowApp> {
           MaterialPageRoute<bool>(builder: (_) => const PinSetupScreen()),
         );
         _controller.declineKeepSignedIn();
+        if (!ctx.mounted) {
+          _controller.declineDeviceUnlock();
+        } else if (_controller.offerDeviceUnlock.value) {
+          await _offerDevice(ctx);
+        }
       } finally {
         _offering = false;
       }
     });
+  }
+
+  /// REQ-811: after the PIN is saved, offer "unlock with this device".
+  Future<void> _offerDevice(BuildContext ctx) async {
+    final accepted = await showDeviceUnlockOffer(ctx);
+    if (!accepted) {
+      _controller.declineDeviceUnlock();
+      return;
+    }
+    final outcome = await _controller.enrollDeviceUnlock();
+    final line = deviceEnrolOutcomeText(outcome);
+    if (line != null && ctx.mounted) {
+      ScaffoldMessenger.maybeOf(
+        ctx,
+      )?.showSnackBar(SnackBar(content: Text(line)));
+    }
   }
 
   late final BootstrapController _controller;
