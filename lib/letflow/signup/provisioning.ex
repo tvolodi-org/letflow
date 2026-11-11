@@ -3,7 +3,14 @@ defmodule Letflow.Signup.Provisioning do
   T-1593 (TA-SL2b part a, decision 0085): the realm step of the sign-up saga. From a verified row in step
   `ready_for_provisioning`: ask the provisioner for the tenant's realm and first admin
   (`Letflow.Signup.RealmProvisioner`), record realm/issuer/template version, mail the one-time first
-  credential, and stop at step `credential_sent` (the Letflow tenant create is part b).
+  credential, then (T-1679, part 1a) create the Letflow tenant in-process through
+  `Letflow.TenantProvisioner.create/1` with the row's `tenant_id` and stop at step `tenant_created`.
+  The state stays `provisioning` until the welcome mail (part 1b) completes the row.
+
+  * **The tenant create is idempotent and carries no credential.** A replay is the provisioner's own
+    `:existing` answer (nothing is written); no `auth_context` or provisioner bearer token is involved
+    (decision 0085 D9). A failed create is retryable (`tenant_internal`) and resumes at `credential_sent`,
+    so the credential mail is never sent twice.
 
   * **No double POST.** `claim/1` is a compare-and-set on `claimed_at` (stale after 2 minutes): the
     temporary password is shown once, so two runs must not both create.
@@ -22,13 +29,14 @@ defmodule Letflow.Signup.Provisioning do
   alias Letflow.Repo
   alias Letflow.Signup
   alias Letflow.Signup.{Mailer, Messages, RealmProvisioner, Request}
+  alias Letflow.TenantProvisioner
 
   require Logger
 
   @supervisor Letflow.LoginDiscovery.TaskSupervisor
   @stale_claim_seconds 120
-  @steps ["ready_for_provisioning", "realm_created"]
-  @retryable ~w(unavailable rate_limited credential_mail_failed internal attempts_exhausted)
+  @steps ["ready_for_provisioning", "realm_created", "credential_sent"]
+  @retryable ~w(unavailable rate_limited credential_mail_failed internal attempts_exhausted tenant_internal)
 
   @doc "True when the flag is on and the provisioner URL, token and hostname domain are all set."
   @spec configured?() :: boolean()
@@ -55,7 +63,7 @@ defmodule Letflow.Signup.Provisioning do
 
   @doc """
   Runs the step for one request until it is done, failed, or someone else holds it.
-  Returns `:ok` (credential sent), `:noop`, or `{:failed, code}`.
+  Returns `:ok` (tenant created), `:noop`, or `{:failed, code}`.
   """
   @spec run(String.t()) :: :ok | :noop | {:failed, String.t()}
   def run(tenant_id) do
@@ -153,7 +161,11 @@ defmodule Letflow.Signup.Provisioning do
   defp process(%Request{email: nil}, _cfg), do: {:permanent, :no_recipient}
 
   # The realm exists (a crash or a mail failure after the 201): the password is gone.
-  defp process(%Request{step: "realm_created"} = row, _cfg), do: send_credential(row, nil, nil)
+  defp process(%Request{step: "realm_created"} = row, cfg),
+    do: send_credential(row, nil, nil, cfg)
+
+  # The credential mail went out (a failed or interrupted tenant create): never mail again.
+  defp process(%Request{step: "credential_sent"} = row, cfg), do: create_tenant(row, cfg)
 
   defp process(%Request{step: "ready_for_provisioning"} = row, cfg) do
     case RealmProvisioner.create_realm(row, cfg) do
@@ -168,7 +180,7 @@ defmodule Letflow.Signup.Provisioning do
           )
           |> Repo.update!()
 
-        send_credential(row, realm.username, realm.password)
+        send_credential(row, realm.username, realm.password, cfg)
 
       {:error, {:rate_limited, hint}} ->
         {:retry, :rate_limited, hint}
@@ -181,7 +193,7 @@ defmodule Letflow.Signup.Provisioning do
     end
   end
 
-  defp send_credential(row, username, password) do
+  defp send_credential(row, username, password, cfg) do
     message =
       if is_binary(password) do
         Messages.first_credential(row.language, username || row.email, password)
@@ -191,20 +203,55 @@ defmodule Letflow.Signup.Provisioning do
 
     case Mailer.deliver_now(Map.put(message, :to, row.email)) do
       :ok ->
-        row
-        |> Ecto.Changeset.change(
-          step: "credential_sent",
-          credential_sent_at: DateTime.utc_now(),
-          last_error: nil
-        )
-        |> Repo.update!()
+        row =
+          row
+          |> Ecto.Changeset.change(
+            step: "credential_sent",
+            credential_sent_at: DateTime.utc_now(),
+            last_error: nil
+          )
+          |> Repo.update!()
 
-        :done
+        create_tenant(row, cfg)
 
       {:error, :failed} ->
         {:retry, :credential_mail_failed, nil}
     end
   end
+
+  # T-1679: the in-process tenant create. Parse first, so a bad field fails before any write.
+  defp create_tenant(row, cfg) do
+    body = %{
+      "tenant_id" => row.tenant_id,
+      "name" => row.company_name,
+      "language" => row.language,
+      "tier" => "demo",
+      "owner_email" => row.email,
+      "hostname" =>
+        RealmProvisioner.label(row.tenant_id) <> "." <> to_string(cfg.hostname_domain),
+      "idp_realm_id" => row.idp_realm_id,
+      "source_key" => source_key(row.ip_key)
+    }
+
+    with {:ok, request} <- TenantProvisioner.Request.parse(body),
+         {:ok, _kind, _body} <- TenantProvisioner.create(request) do
+      row
+      |> Ecto.Changeset.change(step: "tenant_created", last_error: nil)
+      |> Repo.update!()
+
+      :done
+    else
+      {:error, :internal} -> {:retry, :tenant_internal, nil}
+      {:error, :conflict} -> {:permanent, :tenant_conflict}
+      {:error, {:limit, :demo_cap, _language}} -> {:permanent, :demo_cap_reached}
+      {:error, {:limit, :source_budget, _language}} -> {:permanent, :source_budget}
+      {:error, {:limit, :email_domain_budget, _language}} -> {:permanent, :email_domain_budget}
+      {:error, _invalid_field} -> {:permanent, :invalid_tenant}
+    end
+  end
+
+  defp source_key(key) when is_binary(key), do: Base.encode16(key, case: :lower)
+  defp source_key(_none), do: nil
 
   defp fail(tenant_id, code) do
     code = Atom.to_string(code)
@@ -242,7 +289,12 @@ defmodule Letflow.Signup.Provisioning do
       |> Enum.filter(&(force or &1.last_error in @retryable))
 
     for row <- failed do
-      step = if row.idp_realm_id, do: "realm_created", else: "ready_for_provisioning"
+      step =
+        cond do
+          row.credential_sent_at -> "credential_sent"
+          row.idp_realm_id -> "realm_created"
+          true -> "ready_for_provisioning"
+        end
 
       Repo.update_all(from(r in Request, where: r.tenant_id == ^row.tenant_id),
         set: [state: "provisioning", step: step, step_attempts: 0, claimed_at: nil]

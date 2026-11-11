@@ -43,13 +43,20 @@ Part b (in-process `TenantProvisioner.create/1`, default modules, welcome mail) 
   removed by infra's reaper. No scheduler (0084).
 - **D8 Data.** Migration `20261110200001`: five nullable columns on the global `signup_requests` (realm, issuer,
   template version, claim time, credential-sent time). No tenant table, route or permission is added.
+- **D9 Tenant create (T-1679, part 1a).** After the credential mail the saga calls `Letflow.TenantProvisioner.create/1` in-process
+  (tier `demo`, the row's `tenant_id`, hostname `<label>.<hostname_domain>`, `source_key` = hex of the row's `ip_key`). It carries no
+  provisioner credential and no `auth_context`; INV-10 holds because the only callers are the server-side saga on a row the server
+  created with a server-generated `tenant_id`, and the admin routes. Demo cap, budgets and default-modules install apply unchanged
+  (0072 D3: one call to Letflow's own create path). The step is `tenant_created`; the state stays `provisioning` until the welcome
+  mail (1b). Failure codes: `tenant_internal` (retryable), `tenant_conflict`, `invalid_tenant`, `demo_cap_reached`, `source_budget`,
+  `email_domain_budget`. Resume restarts at `credential_sent` when `credential_sent_at` is set, so the mail is never repeated.
 
 ## Residuals
 
 1. The temporary password is lost if the process dies between the 201 and the mail, and infra has no re-issue endpoint:
    the fallback is the hint mail. **Verify `resetPasswordAllowed: true` in infra's template before enabling on QA.**
-2. The credential mail precedes the Letflow tenant (part b): until part b runs, the person has a realm login that
-   leads nowhere. Accepted for QA.
+2. The credential mail precedes the Letflow tenant. Part b (create) is done in T-1679 (D9); the welcome mail is slice 1b.
+   Between the two mails a failed create leaves a realm login that leads nowhere until `mix letflow.signup.resume`. Accepted for QA.
 3. The mail is clear text through the QA relay; the forced password change is the mitigation.
 4. A response shape for `GET /v1/realms/{tenant_id}` is assumed equal to the create response (infra README read only).
 5. Resume is operator-driven.

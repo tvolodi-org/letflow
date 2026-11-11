@@ -24,6 +24,7 @@ defmodule Letflow.SignupProvisioningTest do
     System.put_env(RealmProvisioner.token_env(), @token)
     on_exit(fn -> System.delete_env(RealmProvisioner.token_env()) end)
     {:ok, _} = Application.ensure_all_started(:inets)
+    tenant_create_env!()
     :ok
   end
 
@@ -42,7 +43,8 @@ defmodule Letflow.SignupProvisioningTest do
   end
 
   defp ready_row(attrs \\ []) do
-    tenant_id = Ecto.UUID.generate()
+    tenant_id = Keyword.get(attrs, :tenant_id) || Ecto.UUID.generate()
+    track_tenant(tenant_id)
 
     Repo.insert!(
       struct!(
@@ -83,6 +85,7 @@ defmodule Letflow.SignupProvisioningTest do
       assert_receive {:deliver_message, verification}, 2_000
       token = token_from(verification)
       tenant_id = Repo.one!(Request).tenant_id
+      track_tenant(tenant_id)
       stub = stub_created(tenant_id)
       configure!(stub)
 
@@ -91,7 +94,7 @@ defmodule Letflow.SignupProvisioningTest do
 
       row = row(tenant_id)
       label = RealmProvisioner.label(tenant_id)
-      assert {row.state, row.step} == {"provisioning", "credential_sent"}
+      assert {row.state, row.step} == {"provisioning", "tenant_created"}
       assert {row.idp_realm_id, row.template_version} == {label, "v2"}
       assert row.idp_issuer =~ label
       assert row.credential_sent_at
@@ -143,17 +146,26 @@ defmodule Letflow.SignupProvisioningTest do
       assert [%{body: body}] = mails()
       assert body =~ "Forgot password"
       refute body =~ @password
-      assert row(r.tenant_id).step == "credential_sent"
+      assert row(r.tenant_id).step == "tenant_created"
     end
 
     test "P4 a row left at realm_created resumes at the mail without a second POST" do
-      r = ready_row(step: "realm_created", state: "provisioning", idp_realm_id: "t-x")
+      id = Ecto.UUID.generate()
+
+      r =
+        ready_row(
+          tenant_id: id,
+          step: "realm_created",
+          state: "provisioning",
+          idp_realm_id: RealmProvisioner.label(id)
+        )
+
       stub = stub_created(r.tenant_id)
       configure!(stub)
 
       assert Provisioning.run(r.tenant_id) == :ok
       assert Stub.posts(stub) == []
-      assert row(r.tenant_id).step == "credential_sent"
+      assert row(r.tenant_id).step == "tenant_created"
       assert [_hint] = mails()
     end
 
@@ -279,7 +291,7 @@ defmodule Letflow.SignupProvisioningTest do
       Stub.set_script(stub, :post, [{201, Stub.created(r.tenant_id)}])
       assert [{tenant_id, :ok}] = Provisioning.resume()
       assert tenant_id == r.tenant_id
-      assert {row(tenant_id).state, row(tenant_id).step} == {"provisioning", "credential_sent"}
+      assert {row(tenant_id).state, row(tenant_id).step} == {"provisioning", "tenant_created"}
     end
 
     test "P10b resume leaves a permanent failure alone unless forced" do
@@ -315,7 +327,7 @@ defmodule Letflow.SignupProvisioningTest do
       assert length(Stub.posts(stub)) == 1
       assert [%{body: body}] = mails()
       assert body =~ "Forgot password"
-      assert row(r.tenant_id).step == "credential_sent"
+      assert row(r.tenant_id).step == "tenant_created"
     end
   end
 
