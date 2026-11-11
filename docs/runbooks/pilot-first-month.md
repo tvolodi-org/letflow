@@ -45,7 +45,7 @@ Roles: no pilot user gets `PLATFORM_ADMIN`; platform authority belongs to the pl
 
 ## Interim sign-in path for created users
 
-Decided: the portfolio decision D-118 (1), taken under D-086 on the owner's answer "Accept all recommendations" and recorded in the portfolio `DECISIONS.md` (not in this repository), picks option (a) of `docs/design/REQ-801-sign-in-for-created-users.md` as the interim path. It stays until option (b) is built; nothing in Letflow changes for it. It covers QA and the pilot only; production is not approved (D-086). Anything inside the realm is done by a Keycloak operator (infra), never by Letflow (`docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md` D1).
+Decided: the portfolio decision D-118 (1), taken under D-086 on the owner's answer "Accept all recommendations" and recorded in the portfolio `DECISIONS.md` (not in this repository), picks option (a) of `docs/design/REQ-801-sign-in-for-created-users.md` as the interim path. It stays until option (b) is built; nothing in Letflow changes for it. Option (b), Letflow side, is decided (`docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md`, section 8b, settings `LETFLOW_REALM_USERS_*`) but no code for it is on main yet, and it needs a provisioner call from infra. It covers QA and the pilot only; production is not approved (D-086). Anything inside the realm is done by a Keycloak operator (infra), never by Letflow (`docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md` D1).
 
 Why it is needed: a user made by the Users screen or the xlsx import has no identity-provider login, and no code path creates one (the design note, section "Today").
 
