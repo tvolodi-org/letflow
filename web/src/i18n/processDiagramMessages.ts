@@ -251,6 +251,17 @@ const UI: Record<string, Triple> = {
   'processDiagram.replay.partial': ["Steps before {time} were not recorded.", "Шаги до {time} не записаны.", "{time} дейінгі қадамдар жазылмаған."],
   'processDiagram.replay.incomplete': ["Not all recorded steps could be loaded; the replay shows the steps read so far.", "Не все записанные шаги удалось загрузить; повтор показывает уже прочитанные шаги.", "Жазылған қадамдардың бәрі жүктелмеді; қайталау оқылған қадамдарды көрсетеді."],
   'processDiagram.replay.loadError': ["The recorded steps could not be loaded.", "Не удалось загрузить записанные шаги.", "Жазылған қадамдарды жүктеу мүмкін болмады."],
+  'processDiagram.waiting.title': ["Waiting since", "Ожидает с", "Күтуде"],
+  'processDiagram.waiting.loadError': ["The recorded steps could not be loaded, so the waiting steps cannot be shown.", "Не удалось загрузить записанные шаги, поэтому ожидающие шаги не показаны.", "Жазылған қадамдарды жүктеу мүмкін болмады, сондықтан күтіп тұрған қадамдар көрсетілмейді."],
+  'processDiagram.waiting.truncated': ["There are too many recorded steps to read, so the waiting steps cannot be shown.", "Записанных шагов слишком много, поэтому ожидающие шаги не показаны.", "Жазылған қадамдар тым көп, сондықтан күтіп тұрған қадамдар көрсетілмейді."],
+  'processDiagram.waiting.none': ["No steps were recorded for this instance, so waiting steps cannot be shown.", "Для этого экземпляра шаги не записаны, поэтому ожидающие шаги не показаны.", "Бұл дана үшін қадамдар жазылмаған, сондықтан күтіп тұрған қадамдар көрсетілмейді."],
+  'processDiagram.waiting.partial': ["Steps before {time} were not recorded; the list may be incomplete.", "Шаги до {time} не записаны; список может быть неполным.", "{time} дейінгі қадамдар жазылмаған; тізім толық болмауы мүмкін."],
+  'processDiagram.waiting.empty': ["No recorded step is waiting.", "Нет записанных ожидающих шагов.", "Күтіп тұрған жазылған қадамдар жоқ."],
+  'processDiagram.waiting.since': ["Since {time}", "С {time}", "{time} бастап"],
+  'processDiagram.waiting.elapsedHM': ["{h} h {m} min", "{h} ч {m} мин", "{h} сағ {m} мин"],
+  'processDiagram.waiting.elapsedM': ["{m} min", "{m} мин", "{m} минут"],
+  'processDiagram.waiting.elapsedUnderMin': ["under 1 min", "меньше 1 мин", "1 минуттан аз"],
+  'processDiagram.waiting.waitingFor': ["waiting {elapsed}", "ожидает {elapsed}", "күтуде: {elapsed}"],
 }
 
 function pick(i: 0 | 1 | 2): Record<string, string> {

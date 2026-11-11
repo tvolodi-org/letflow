@@ -61,4 +61,15 @@ describe('REQ-272 — PageLayout', () => {
     expect(content).toHaveStyle({ maxWidth: 'var(--content-max-width)' })
     expect(screen.getByTestId('child-content')).toBeVisible()
   })
+
+  it('T-1717: header and actions use wrapping classes (base.css), not a fixed inline row', () => {
+    render(
+      <PageLayout title="Process Definitions" actions={<button>New</button>}>
+        <div>content</div>
+      </PageLayout>,
+    )
+    expect(screen.getByTestId('page-layout-header')).toHaveClass('lf-page-layout__header')
+    expect(screen.getByTestId('page-layout-header').getAttribute('style')).toBeNull()
+    expect(screen.getByTestId('page-layout-actions')).toHaveClass('lf-page-layout__actions')
+  })
 })
