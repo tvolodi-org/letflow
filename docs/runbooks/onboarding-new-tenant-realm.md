@@ -10,8 +10,9 @@ The onboarding response says so (`login.status` is `not_yet_loginable`, with `lo
 and it says what became of the administrator typed into the wizard (`administrator.state`:
 `pending` when an `admin_email` was stored as a pending `TENANT_ADMIN`, `none` when no administrator
 was named, `not_stored` when the e-mail could not be stored; `administrator.not_provisioned` lists
-the other fields, which are never used). Nothing in Letflow creates a realm or a realm user today;
-this runbook is the manual procedure.
+the other fields, which are never used). The onboarding route creates no realm and no realm user; this runbook is the manual procedure. The only
+other path is the public sign-up realm step (QA/demo only, behind `LETFLOW_SIGNUP_ENABLED`, off by default),
+where infra's provisioner makes the realm and the first administrator: `docs/runbooks/tenant-signup.md`.
 
 Fill the Owner, Evidence and Date columns when an item is done. Evidence is a reference (ticket,
 PR, document, inventory entry), never a secret value. Names only: no passwords, tokens or secret
