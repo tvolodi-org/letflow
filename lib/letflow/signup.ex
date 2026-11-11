@@ -6,7 +6,7 @@ defmodule Letflow.Signup do
   the link marks the request `verified` and reserves a `tenant_id`. Nothing is created in `tenants` or
   `tenant_lifecycles` here. From `ready_for_provisioning`, T-1593 (SL2b part a) asks infra's provisioner
   for the realm and first admin and mails the one-time credential (`Letflow.Signup.Provisioning`); the
-  Letflow tenant create is part b. Everything sits behind `LETFLOW_SIGNUP_ENABLED` (default off,
+  Letflow tenant is then created in-process (T-1679, part 1a, step `tenant_created`; the welcome mail is 1b). Everything sits behind `LETFLOW_SIGNUP_ENABLED` (default off,
   see `Letflow.Routers.Signup`).
 
   ## Saga
