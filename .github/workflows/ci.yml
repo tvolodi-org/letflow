@@ -805,8 +805,11 @@ jobs:
             exit 1
           fi
 
+      # T-1689 (docs/status/ci-isolated-tails-proof.md): the tails hold only Lua/WASM runtime tests, no register
+      # check, and no tail test reads a docs/ path in a string literal; a docs-only change cannot affect them.
+      # Push to main, schedule and dispatch give docs_only=false, so the tails still run there.
       - name: Run isolated tails (mix letflow.check.test --tails-only)
-        if: needs.changes.outputs.backend != 'false'
+        if: needs.changes.outputs.backend != 'false' && needs.changes.outputs.docs_only != 'true'
         run: mix letflow.check.test --tails-only
         env:
           MIX_ENV: test

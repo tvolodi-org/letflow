@@ -472,10 +472,8 @@ defmodule Letflow.IdentityTest do
       assert {:ok, %{user: %User{}, created: true}} =
                Identity.provision_oidc_user(ctx_a, tenant.id, config, prefix: schema_name)
 
-      assert {:error, %Ecto.Changeset{} = changeset} =
+      assert {:error, :username_in_use} =
                Identity.provision_oidc_user(ctx_b, tenant.id, config, prefix: schema_name)
-
-      assert %{username: ["has already been taken"]} = errors_on(changeset)
     end
 
     test "same username in TWO DIFFERENT tenant schemas both succeed (per-tenant-unique — Decision 0006 §3.1)" do
