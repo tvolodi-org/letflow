@@ -35,4 +35,22 @@ defmodule Letflow.Routers.SignupFlagTest do
       assert Letflow.Repo.aggregate(Request, :count) == 0
     end
   end
+
+  test "SU-A05-1: the disabled answer carries the three security headers" do
+    Application.put_env(:letflow, Letflow.Signup, enabled: false)
+    assert_headers(request(:get, "/api/signup/config"))
+  end
+
+  test "SU-A05-1: the catch-all answer carries the three security headers" do
+    Application.put_env(:letflow, Letflow.Signup, enabled: true)
+    conn = request(:get, "/api/signup/anything")
+    assert conn.status == 404
+    assert_headers(conn)
+  end
+
+  defp assert_headers(conn) do
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, no-store"]
+    assert Plug.Conn.get_resp_header(conn, "referrer-policy") == ["no-referrer"]
+    assert Plug.Conn.get_resp_header(conn, "x-robots-tag") == ["noindex, nofollow"]
+  end
 end

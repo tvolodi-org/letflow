@@ -1,0 +1,104 @@
+# T-1710 (BA, UAT sweep): the two visible results of the screen fixes merged after the batch-5 screens: the Definitions page header at 390 px (commit 381fac8c4) and the keyboard path and reason text of the Users import screen (accessibility pass T-1690, commit 53be5a690).
+# Sources: web/src/styles/base.css (.lf-page-layout__header wraps; under 480 px the header becomes a column and the buttons wrap, never clipped), web/src/components/ui/PageLayout.tsx, web/src/pages/definitions/DefinitionListPage.tsx (title "Process Definitions" and the buttons beside it),
+# docs/design-system/accessibility.md section 5 (the Import button's reason has an id and the button points to it; one polite status announces the row counts; the reason sentence "Import stays off while any row is refused." is visible text, web/src/pages/admin/usersImport/usersImportMessages.ts 'usersImport.dryRun.why'),
+# web/src/pages/admin/usersImport/UsersImportPage.tsx (the button "Import users" is switched off until a check found every row correct; the file chooser accepts .xlsx), docs/roles.md (UsersGroupsRolesManage is not held by TASK_WORKER).
+# Upload file K1 (exact cells; sheet 1, row 1 is the header, data from row 2, all cells text, no formulas): header username | display_name | email; row 2 uat-acc-<run>-1 | UAT Access One | uat-acc-<run>-1@example.test; row 3 uat-acc-<run>-2 | (display_name cell empty) | uat-acc-<run>-2@example.test.
+# The check writes nothing: the file is never imported in this scenario.
+# NOT UAT-OBSERVABLE (permanent, GAP sidecar test/fixtures/uat/scenario-env-limitations/accessibility-1-narrow-header-and-keyboard-import.yaml): what a screen reader says (the polite status with the row counts, the button's pointer to its reason, the hidden decoration), colour contrast ratios in light and dark, and the keyboard behaviour of the replay range slider; accessibility.md lists the real-browser axe run as an operator check.
+# The kk texts are machine drafts until the owner's native check.
+---
+id: tenant-administration-accessibility-1-narrow-header-and-keyboard-import
+scope: tenant-administration
+title: "On a phone-width window the Definitions page shows its title and both buttons; the Users import screen can be driven from the keyboard and says in words why Import is off; a worker has no way in"
+version: "1.0"
+tags: [accessibility, mobile-width, definitions, users, import, keyboard, refusal, access_control, ru, kk, en]
+
+description: >
+  SwiftRoute's administrator narrows the browser window to 390 px and opens the Definitions page: the title "Process Definitions" and the buttons for importing and creating a definition are all in view, none cut off or overlapping the title, and the page does not scroll sideways.
+  She then opens the Users import screen and, using only the keyboard, reaches the file chooser, picks file K1 (one correct row, one row with an empty name) and presses "Check file". The screen says nothing was written, marks the second row as refused,
+  keeps "Import users" switched off, and shows the sentence "Import stays off while any row is refused." in the three languages. The ops manager, an ordinary worker, types the import address and sees the "permission denied" view.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+
+preconditions:
+  - description: The header fix (commit 381fac8c4) and the accessibility pass (commit 53be5a690) are deployed on QA
+    check: custom
+    detail: If the Definitions page at 390 px still shows the title squeezed against the buttons in the way the fix removed, report that as a failure of EO-001, not BLOCKED; if the import screen does not exist, report BLOCKED.
+  - description: The tester can place file K1 in the browser's file chooser and can set the window width to 390 px
+    check: custom
+    detail: If not, report BLOCKED for steps 1 to 3 and say so; do not use the routes instead.
+  - description: SwiftRoute has at least one process definition
+    check: system_seeded
+    detail: Not needed for the header itself; if none exists the list shows its empty text and the buttons must still show.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator sets the browser window to 390 px wide, opens the Definitions page and looks at the top of the page: the title, the import button and the button to create a definition. She tries to scroll the page sideways, and then sets the window back to full width and looks at the same header.
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      With the window at full width the administrator opens the Users import screen. Without using the mouse she presses Tab until the focus is on "Download template", then on the file chooser, opens it with Enter, picks file K1, and presses Tab until the focus is on "Check file" and presses Enter.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator reads the check result and tries to reach "Import users" with Tab, then reads the sentence under or beside it. She switches the language to Russian and then to Kazakh and reads the sentence again.
+    via: ui
+  - step: 4
+    actor: worker
+    action: >
+      The ops manager types the address of the Users import screen (the address ends in /admin/users/import) by hand.
+    expect_refusal: true
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: At 390 px the Definitions page header shows the title and both buttons in full, and nothing scrolls sideways.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 at 390 px: the title "Process Definitions" is fully readable on its own line or wrapped, the import button and the "New Definition" button are fully visible below or beside it (each with its whole label, not cut off), no button overlaps the title or the other button,
+        and the page has no horizontal scrollbar. At full width the title and the buttons sit on one row, the buttons at the right.
+      evidence: Screenshots at 390 px and at full width.
+    on_fail:
+      severity: MAJOR
+      business_impact: On a phone a designer cannot reach the button to create or import a definition.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The import screen can be driven without a mouse, and the check writes nothing.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2: each Tab press moves a visible focus mark to the next control in reading order (the template button, the file chooser, "Check file"), Enter opens the chooser and runs the check, and the result states that nothing was written ("Nothing was written."), lists row 3 as refused with the column "display_name" and a reason in plain words, and shows row 2 as correct.
+        The Users list afterwards holds neither uat-acc-<run>-1 nor uat-acc-<run>-2.
+      evidence: Screenshots of the focus mark on each control and of the result; screenshot of the Users list.
+    on_fail:
+      severity: MAJOR
+      business_impact: A keyboard-only administrator cannot import users, or a check unexpectedly creates users.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The screen says in words why "Import users" is off, in three languages.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3: "Import users" is switched off and Tab skips it; the sentence "Import stays off while any row is refused." is visible next to it. In Russian it reads "Импорт недоступен, пока есть отклонённые строки." and in Kazakh "Қабылданбаған жол бар кезде импорт өшірулі тұрады."
+      evidence: Screenshots in the three languages.
+    on_fail:
+      severity: MINOR
+      business_impact: The administrator sees a grey button with no explanation and asks the team why.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: A worker gets no import screen.
+    verification:
+      method: gui_screen
+      detail: Step 4 shows the "permission denied" view; no template button, no file chooser and no check button are on the page.
+      evidence: Screenshot of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A worker could create users for the company.
+      suggested_action: route_to_frontend_dev
