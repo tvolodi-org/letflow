@@ -1,7 +1,7 @@
 scenario_id: provisioning-8-signup-verify-to-tenant-created
 applies_to_environments: [qa]
 classification: GAP
-applies_to: "the whole end-to-end path of the public sign-up: the mailed link, following it, the realm and first administrator being made, the Letflow customer being created, the welcome mail, and the first sign-in"
+applies_to: "the whole end-to-end path of the public sign-up: the mailed link, following it, the realm and first administrator being made, the Letflow customer being created (slice 1a), the welcome mail (slice 1b), the timed sweep of stale and stuck requests, and the first sign-in"
 reason: >
   BLOCKED, not PASS. The verification link and the one-time first credential exist only in the mail
   (lib/letflow/signup.ex moduledoc: "The token exists only in the mail; token_hash is its SHA-256"), and the UAT
@@ -11,6 +11,20 @@ reason: >
   (provisioning-6), and the Letflow side of the same creation call through the front door
   (provisioning-1, -2, -7). Covered in CI only by test/letflow/signup_test.exs, signup_provisioning_test.exs,
   routers/signup_http_test.exs and the saga tests of TA-SL2b (#4126), which are not UAT.
+  Update T-1688 (2026-11-11), after the three builds that finish the flow were merged (flag OFF): the same mailbox gap
+  also hides these three slices, so they are part of this GAP and no scenario can be written for them.
+  (1a) Letflow customer created after the credential mail, from the request's own identifier, a replay changing
+  nothing, a failed create staying retryable (merge 1557b8dbc; CI proof test/letflow/signup_tenant_create_test.exs,
+  tests C1 to C13). The request reaches that step only after the verification link was followed and the credential mail
+  was sent, both of which need the mailbox. The platform operator's customer list would show the new customer, but only
+  a run that can follow the link can make one. (1b) One welcome mail in the person's language with the link to the
+  customer's address, then the request is complete (merge 217ac6bf6; tests W1 to W10 in the same file): the mail
+  exists only in the mailbox. (Sweep) Stale requests closed and stuck requests resumed on a timer (merge 89ecfc8ed;
+  lib/letflow/signup/sweep.ex; tests SS1 to SS9 in test/letflow/signup/sweep_test.exs): no route or screen shows a
+  sign-up request or its state, the timer is a platform-wide process, and the test deployment's clock cannot be moved
+  from a scenario; with sign-up off the sweep does nothing. What UAT already covers and still holds after these builds:
+  provisioning-6 step 9 (no customer exists after an unverified request) and provisioning-1, -2, -7 (the customer
+  create call itself).
 recorded_by: business-analyst
 recorded_at: "2026-11-10"
 issue_ref: "T-1625"

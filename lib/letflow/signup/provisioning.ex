@@ -39,6 +39,9 @@ defmodule Letflow.Signup.Provisioning do
   @supervisor Letflow.LoginDiscovery.TaskSupervisor
   @stale_claim_seconds 120
   @steps ["ready_for_provisioning", "realm_created", "credential_sent", "tenant_created"]
+  # The steps the timer sweep resumes (decision 0085 addendum): `tenant_created` is left to the operator path.
+  @resume_steps ["ready_for_provisioning", "realm_created", "credential_sent"]
+  @sweep_limit 50
   @retryable ~w(unavailable rate_limited credential_mail_failed internal attempts_exhausted tenant_internal welcome_mail_failed)
 
   @doc "True when the flag is on and the provisioner URL, token and hostname domain are all set."
@@ -48,6 +51,25 @@ defmodule Letflow.Signup.Provisioning do
 
     Signup.enabled?() and is_binary(cfg.provisioner_url) and is_binary(cfg.hostname_domain) and
       System.get_env(RealmProvisioner.token_env()) not in [nil, ""]
+  end
+
+  @doc false
+  # Tenant ids of unfinished requests the timer sweep may start: `verified`/`provisioning`, at one of the
+  # three resumable steps, claim empty or older than the stale-claim age; never `failed`. Bounded per tick.
+  @spec stale_unfinished_ids(DateTime.t()) :: [String.t()]
+  def stale_unfinished_ids(now \\ DateTime.utc_now()) do
+    stale = DateTime.add(now, -@stale_claim_seconds, :second)
+
+    Repo.all(
+      from(r in Request,
+        where:
+          r.state in ["verified", "provisioning"] and r.step in @resume_steps and
+            (is_nil(r.claimed_at) or r.claimed_at < ^stale),
+        select: r.tenant_id,
+        order_by: r.inserted_at,
+        limit: @sweep_limit
+      )
+    )
   end
 
   @doc "Starts `run/1` as a supervised task after the verify commit; always `:ok`, never raises (INV-8)."
