@@ -111,4 +111,50 @@ defmodule Letflow.Modules.RouterKitTest do
       refute src =~ "defp elem_tag"
     end
   end
+
+  describe "S7e: paging helpers" do
+    test "limit, cursor and uint accept and refuse as the assets router did" do
+      assert {:ok, nil} = RouterKit.limit(%{})
+      assert {:ok, 25} = RouterKit.limit(%{"limit" => "25"})
+      assert {:error, :invalid_filter} = RouterKit.limit(%{"limit" => "0"})
+      assert {:error, :invalid_filter} = RouterKit.limit(%{"limit" => "1234567"})
+      assert {:ok, "abc"} = RouterKit.cursor(%{"cursor" => "abc"}, :text)
+      assert {:error, :invalid_filter} = RouterKit.cursor(%{"cursor" => ""}, :text)
+
+      assert {:error, :invalid_filter} =
+               RouterKit.cursor(%{"cursor" => String.duplicate("a", 4097)}, :text)
+
+      assert {:ok, 7} = RouterKit.cursor(%{"cursor" => "7"}, :integer)
+      assert {:error, :invalid_filter} = RouterKit.cursor(%{"cursor" => "07"}, :integer)
+      assert {:ok, 0} = RouterKit.uint("0")
+      assert {:error, :invalid_filter} = RouterKit.uint("-1")
+      assert {:ok, nil} = RouterKit.optional_uint(%{}, "from_seq")
+      assert {:ok, 3} = RouterKit.optional_uint(%{"from_seq" => "3"}, "from_seq")
+    end
+
+    test "page builds the map and drops absent values" do
+      assert {:ok, %{}} = RouterKit.page(%{}, :text)
+
+      assert {:ok, %{limit: 5, cursor: "c"}} =
+               RouterKit.page(%{"limit" => "5", "cursor" => "c"}, :text)
+
+      assert {:ok, %{cursor: 9}} = RouterKit.page(%{"cursor" => "9"}, :integer)
+      assert {:error, :invalid_filter} = RouterKit.page(%{"limit" => "x"}, :text)
+    end
+  end
+
+  describe "S7e: assets router uses the kit" do
+    test "no private copy of the plumbing or paging is left in the router" do
+      src = File.read!("lib/letflow/modules/assets/router.ex")
+      assert src =~ "RouterKit.pop_key("
+      assert src =~ "RouterKit.page("
+      assert src =~ "RouterKit.optional_uint("
+      refute src =~ "defp pop_key"
+      refute src =~ "defp page("
+      refute src =~ "defp cursor("
+      refute src =~ "defp optional_limit"
+      refute src =~ "defp uint("
+      refute src =~ "defp elem_tag"
+    end
+  end
 end
