@@ -48,29 +48,34 @@ export async function setPrefs(page: Page, prefs: { lang?: 'en' | 'ru' | 'kk'; t
   await expect(page.locator('#main-content')).toBeVisible({ timeout: 30_000 })
 }
 
-/** Open a route of the SPA inside the signed-in session (full load; the OIDC session is restored from storage). */
+/**
+ * Open a route (a path, or a full URL of the app) of the SPA inside the signed-in session.
+ * A full load of a deep link loses its path when no realm slug is resolvable (the CI stack sets none; buildRedirectArgs
+ * then drops the OIDC state and the callback lands on "/", T-1736). So: when the shell is already up, move inside the
+ * SPA (pushState plus a popstate, which the router listens to) without any reload; for the first open, load once, and if
+ * the path was lost, move inside the SPA the same way. Every deep link of the specs goes through here.
+ */
 export async function openRoute(page: Page, path: string): Promise<void> {
-  const wanted = new URL(path, page.url() === 'about:blank' ? ENV_BASE : page.url()).pathname
-  // A full load may go through the OIDC callback, which lands on the dashboard before the route is open (seen on the
-  // Vite dev server in CI, T-1448): ask again, the session is stored by then.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await page.goto(path, { waitUntil: 'domcontentloaded' })
+  const base = page.url() === 'about:blank' ? ENV_BASE : page.url()
+  const target = new URL(path, base)
+  const rel = `${target.pathname}${target.search}${target.hash}`
+  const shellUp = page.url() !== 'about:blank' && new URL(page.url()).origin === target.origin
+    && (await page.locator('#main-content').isVisible().catch(() => false))
+  if (!shellUp) {
+    await page.goto(rel, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('#main-content')).toBeVisible({ timeout: 30_000 })
     try {
-      await page.waitForURL((url) => url.pathname === wanted, { timeout: 8_000 })
+      await page.waitForURL((url) => url.pathname === target.pathname, { timeout: 8_000 })
       return
     } catch {
-      // not there yet: load it again
+      // landed on the dashboard: continue inside the SPA
     }
   }
-  // Still on the dashboard: a full load of a deep link loses its path when no realm slug is resolvable (the CI stack sets
-  // none; buildRedirectArgs then drops the OIDC state and the callback lands on "/", T-1736). The shell is up and signed
-  // in, so move inside the SPA instead: push the path and let the router see a popstate.
   await page.evaluate((to) => {
     window.history.pushState({}, '', to)
     window.dispatchEvent(new PopStateEvent('popstate', { state: {} }))
-  }, path)
-  await expect(page).toHaveURL(new RegExp(`${wanted.replace(/[/]/g, '\\/')}$`))
+  }, rel)
+  await expect(page).toHaveURL((url) => url.pathname === target.pathname)
 }
 
 /** Pick an option of a native select by (part of) its text; no text = the first real option. */
