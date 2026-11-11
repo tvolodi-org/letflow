@@ -35,9 +35,11 @@ Users import: the xlsx users import is available, server and screen (REQ-791: te
 
 | Do not rely on | State today | What to do instead |
 |---|---|---|
-| The "Send password reset instructions" button on the user page (REQ-789) | The reset route is merged (REQ-788); the button is not built. The route refuses a user who has no identity-provider login, which includes every user made by the Users screen or by the xlsx import | Ask the owner; do not promise users a self-service reset |
-| Imported or hand-added users being able to sign in | Not settled: such users are created without a password and without an identity-provider login | Observe each pilot user signing in once (M5) and report any who cannot to the owner before week 1 ends |
-| The platform operator's screen for module rollouts | Not built; the rollout routes exist but the operator has no screen | Ask the owner to arrange any module update; the pilot administrator has no action here |
+| The "Send password reset instructions" button on the user page (REQ-789) | The reset route (REQ-788) and the button (REQ-789) are built; the button is hidden for users the route refuses, with a hint in plain words. The route refuses a user who has no identity-provider login, which includes every user made by the Users screen or by the xlsx import | Do not expect the button to work for these users; ask the owner, and do not promise them a self-service reset |
+| Imported or hand-added users being able to sign in | Not settled: such users are created without a password and without an identity-provider login | Observe each pilot user signing in once (M5) and report any who cannot to the owner before week 1 ends. The options are written down in `docs/design/REQ-801-sign-in-for-created-users.md`; the owner has not chosen one |
+| The platform operator's screen for module rollouts | The screen is built (`/admin/module-rollouts`) and is for the platform operator only; the pilot administrator does not see it | Ask the owner to arrange any module update; the pilot administrator has no action here |
+
+Second caveat on M5: a user who has been seen signing in may still be a duplicate. If a person's identity-provider account has the same e-mail as a user made by the Users screen or the import but a different username, the first sign-in creates a second user row and the first row keeps the roles. If the usernames are equal, the sign-in is refused with an internal error. Either way, after the sign-in, check on the Users screen that the person appears once and has the expected roles, and report any other result to the owner (`docs/design/REQ-801-sign-in-for-created-users.md`, section "What happens at first sign-in to an existing row").
 
 Roles: no pilot user gets `PLATFORM_ADMIN`; platform authority belongs to the platform tenant only (`docs/roles.md`). `docs/roles.md` has no accountant role, so the accountant's role is an open owner question.
 
@@ -128,4 +130,4 @@ Yes/no list. Any number added later is a proposal, to be confirmed by the owner.
 4. What are the exit thresholds (numbers for the Exit criteria)?
 5. How long does the pilot run after month one?
 6. What does the company give before week 1 (xlsx files of locations, items and balances; names and e-mail addresses of users)?
-7. How does a user made by the Users screen or the xlsx import get a way to sign in? The reset route (REQ-788) is merged but its button (REQ-789) is not, and the route refuses users without an identity-provider login. Does the pilot wait for the answer (`docs/uat/ba-decisions/T-1651.md`, item 1)?
+7. How does a user made by the Users screen or the xlsx import get a way to sign in? The reset route (REQ-788) and its button (REQ-789) are built, but the route refuses users without an identity-provider login. Does the pilot wait for the answer (`docs/uat/ba-decisions/T-1651.md`, item 1)?
