@@ -7,7 +7,7 @@ defmodule Letflow.TenantProvisioner.Sweep do
   `Letflow.TenantProvisioner.Config.sweep_interval_minutes/0`
   (`LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES`, default 60).
 
-  `run/1` does two steps, each tenant in its own `try`:
+  `run/1` does two tenant steps, each tenant in its own `try`, then a third, sign-up step:
 
   1. **Expire**: a `demo` tenant whose lifecycle is `active` or `suspended` and whose `expires_at` has
      passed goes through `Letflow.TenantProvisioner.transition/2` with `:expire`, the function the expire
@@ -16,6 +16,10 @@ defmodule Letflow.TenantProvisioner.Sweep do
      `tenant_type`), and whose reference time (`expires_at` when expired, `deletion_requested_at` when
      suspended) plus the retention has passed goes through `Letflow.TenantPurge.purge/3` with trigger
      `:sweep`. `purge/3` re-checks eligibility under the row lock.
+
+  3. **Sign-up** (only when the sign-up flag is on, decision 0085 addendum): `Letflow.Signup.Sweep.run/1`
+     closes stale sign-up requests and restarts stuck ones. It runs last and in its own `try`, so a fault
+     there cannot skip steps 1 and 2; its counts are logged, not returned.
 
   Never selected: an active tenant (unless its `expires_at` has passed, then only step 1), a suspended
   tenant with neither `deletion_requested_at` nor `expires_at`, a production tenant, a purged one.
@@ -37,6 +41,7 @@ defmodule Letflow.TenantProvisioner.Sweep do
 
   alias Letflow.Identity.Tenant
   alias Letflow.Repo
+  alias Letflow.Signup.Sweep, as: SignupSweep
   alias Letflow.TenantProvisioner
   alias Letflow.TenantProvisioner.Config
   alias Letflow.TenantProvisioner.Lifecycle
@@ -106,16 +111,35 @@ defmodule Letflow.TenantProvisioner.Sweep do
         end)
       end)
 
-    now
-    |> purgeable_ids()
-    |> Enum.reduce(counters, fn id, acc ->
-      guarded(id, :purge, acc, fn -> purge.(id, :sweep, now: now) end, fn
-        {:ok, :purged} -> :purged
-        {:ok, :already_purged} -> :skipped
-        {:error, reason} when reason in [:not_found, :not_eligible] -> :skipped
-        _other -> :failed
+    counters =
+      now
+      |> purgeable_ids()
+      |> Enum.reduce(counters, fn id, acc ->
+        guarded(id, :purge, acc, fn -> purge.(id, :sweep, now: now) end, fn
+          {:ok, :purged} -> :purged
+          {:ok, :already_purged} -> :skipped
+          {:error, reason} when reason in [:not_found, :not_eligible] -> :skipped
+          _other -> :failed
+        end)
       end)
-    end)
+
+    signup_step(now, Keyword.get(opts, :signup, &SignupSweep.run/1))
+    counters
+  end
+
+  # Last and isolated (INV-8): a sign-up fault never skips Expire/Purge; class only in the log.
+  defp signup_step(now, signup) do
+    %{expired: expired, resumed: resumed} = signup.(now: now)
+
+    if expired > 0 or resumed > 0 do
+      Logger.info("signup sweep: expired=#{expired} resumed=#{resumed}")
+    end
+  rescue
+    exception ->
+      Logger.error("signup sweep failed (reason=#{inspect(exception.__struct__)})")
+  catch
+    kind, _reason ->
+      Logger.error("signup sweep failed (reason=#{inspect(kind)})")
   end
 
   defp guarded(id, step, counters, call, classify) do

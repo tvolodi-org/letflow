@@ -67,6 +67,7 @@ hostname domain, `provisioner_public_base_url`, the platform tenant pinned). A f
 `last_error` is one of `unavailable`, `rate_limited`, `demo_cap_reached`, `unauthorized`, `invalid_request`,
 `bad_response`, `bad_url`, `credential_mail_failed`, `no_recipient`, `attempts_exhausted`, `internal`, and for the tenant create
 `tenant_internal` (retryable), `tenant_conflict`, `invalid_tenant`, `source_budget`, `email_domain_budget` (permanent; `--force`).
+Timer (T-1686, only with the sign-up flag on): the provisioner sweep tick (`LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES`, default 60) closes stale `pending_verification` requests and restarts `verified`/`provisioning` requests at `ready_for_provisioning`, `realm_created` or `credential_sent` whose claim is older than 2 minutes (at most 50 per tick); it never reopens `failed` rows, never resets attempts, deletes nothing, and logs counts only.
 Resume (also for rows stuck in `provisioning` after a restart): `mix letflow.signup.resume [--tenant-id ID]`
 (`--force` retries a permanent failure too). A failed row keeps the e-mail (personal data). An orphan realm is removed by
 infra's reaper; nothing here deletes.
