@@ -1281,6 +1281,9 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
       # engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
       # UPDATE (T-1684, 2026-11-11): REQ-805 (companion test split note) is added with a marker; the
       # engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
+      # UPDATE (T-1698, 2026-11-11): REQ-810 (PWA 30-day PIN session) and REQ-811 (PWA biometric
+      # unlock) are added with markers; the engine's register step replaces both with gh: lines
+      # before CI runs, so the count stays 0.
       assert result.deferral_count == 0
       assert result.stale_count == 0
 
