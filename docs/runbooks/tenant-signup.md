@@ -7,7 +7,7 @@ Decision record: `docs/migration/decisions/0084-public-signup-part-1.md`. Code: 
 
 `POST /api/signup` (company name, e-mail, language, terms) records a request and mails a single-use link.
 `POST /api/signup/verify` (token) marks it `verified` and moves its step to `ready_for_provisioning`.
-`GET /api/signup/config` reports the languages and the terms version. **No Letflow tenant is created** (slice SL2b part b).
+`GET /api/signup/config` reports the languages and the terms version. After the credential mail the Letflow demo tenant is created in-process (T-1679, slice 1a); the welcome mail and the `completed` state are slice 1b, not built yet.
 With the provisioner settings below, a verified row continues: infra's tenant-provisioner creates the realm and the
 first admin, and the one-time credential is mailed (decision 0085). Without them a verified row only waits. The SPA sign-up screens are not built yet.
 
@@ -59,9 +59,14 @@ not run. Tier is always `demo`. Before the first enable check that infra's realm
 
 After verification the row goes `provisioning`: step `realm_created` (realm, issuer, template version stored), then
 `credential_sent` (mail with the temporary password, or the "Forgot password" hint when the password is no longer
-available). On a permanent error or after the retry budget the row is `failed`, step `provisioning_failed`, and
+available), then `tenant_created` (the Letflow tenant exists; the row stays `provisioning` until the welcome mail, slice 1b). The
+tenant create calls `Letflow.TenantProvisioner.create/1` in-process with the row's `tenant_id`, so a replay changes nothing and
+no provisioner bearer token is used; it needs the `Letflow.TenantProvisioner` settings (`allowed_hostname_suffixes` containing the
+hostname domain, `provisioner_public_base_url`, the platform tenant pinned). A failed create keeps the row retryable and resumes at
+`credential_sent`: the credential mail is not sent again. On a permanent error or after the retry budget the row is `failed`, step `provisioning_failed`, and
 `last_error` is one of `unavailable`, `rate_limited`, `demo_cap_reached`, `unauthorized`, `invalid_request`,
-`bad_response`, `bad_url`, `credential_mail_failed`, `no_recipient`, `attempts_exhausted`, `internal`.
+`bad_response`, `bad_url`, `credential_mail_failed`, `no_recipient`, `attempts_exhausted`, `internal`, and for the tenant create
+`tenant_internal` (retryable), `tenant_conflict`, `invalid_tenant`, `source_budget`, `email_domain_budget` (permanent; `--force`).
 Resume (also for rows stuck in `provisioning` after a restart): `mix letflow.signup.resume [--tenant-id ID]`
 (`--force` retries a permanent failure too). A failed row keeps the e-mail (personal data). An orphan realm is removed by
 infra's reaper; nothing here deletes.

@@ -100,4 +100,73 @@ defmodule Letflow.Test.SignupHelpers do
     [_, token] = Regex.run(~r{/signup/verify\?token=([A-Za-z0-9_-]+)}, body)
     token
   end
+
+  @doc """
+  T-1679: the settings the in-process tenant create needs (platform tenant pinned, hostname suffix,
+  public base URL). Restored in on_exit. Returns the platform tenant.
+  """
+  def tenant_create_env!(suffix \\ "qa.example.test") do
+    platform = Letflow.TenantFixture.provisioned_tenant!(slug_prefix: "t1679-plat")
+    Letflow.Support.PlatformTenantFixture.pin!(platform.tenant_id)
+
+    prov = Application.get_env(:letflow, Letflow.TenantProvisioner)
+    url = Application.get_env(:letflow, :provisioner_public_base_url)
+
+    Application.put_env(:letflow, Letflow.TenantProvisioner,
+      allowed_hostname_suffixes: [suffix],
+      demo_lifetime_days: 14,
+      default_modules: []
+    )
+
+    Application.put_env(:letflow, :provisioner_public_base_url, "https://letflow.qa.example")
+
+    ExUnit.Callbacks.on_exit(fn ->
+      restore(Letflow.TenantProvisioner, prov)
+      restore(:provisioner_public_base_url, url)
+    end)
+
+    platform
+  end
+
+  @doc "Removes a tenant the saga created (lifecycle row before the tenant row); idempotent."
+  def drop_tenant!(tenant_id) do
+    import Ecto.Query, only: [from: 2]
+    alias Letflow.Repo
+
+    Letflow.Test.SandboxAutoMode.enter_auto_mode!(Repo)
+
+    case Letflow.TenantProvisioning.schema_name_for_tenant(tenant_id) do
+      {:ok, schema} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
+      _invalid -> :ok
+    end
+
+    # Module installs add global rows that reference the tenant: delete from every public table with
+    # a tenant foreign key before the lifecycle and tenant rows.
+    %{rows: tables} =
+      Repo.query!("""
+      SELECT DISTINCT c.conrelid::regclass::text, a.attname FROM pg_constraint c
+      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+      WHERE c.contype = 'f' AND c.confrelid = 'public.tenants'::regclass
+        AND c.conrelid::regclass::text NOT IN ('tenant_lifecycles', 'onboarding_registry', 'tenant_schemas')
+      """)
+
+    for [table, column] <- tables do
+      Repo.query!("DELETE FROM #{table} WHERE #{column} = $1", [Ecto.UUID.dump!(tenant_id)])
+    end
+
+    for mod <- [
+          Letflow.TenantProvisioner.Lifecycle,
+          Letflow.Identity.OnboardingRecord,
+          Letflow.TenantProvisioning.Registration
+        ] do
+      Repo.delete_all(from(x in mod, where: x.tenant_id == ^tenant_id))
+    end
+
+    Repo.delete_all(from(t in Letflow.Identity.Tenant, where: t.id == ^tenant_id))
+    Repo.delete_all(from(r in Letflow.Signup.Request, where: r.tenant_id == ^tenant_id))
+    :ok
+  end
+
+  @doc "Registers the on_exit cleanup of a tenant the test may create."
+  def track_tenant(tenant_id), do: ExUnit.Callbacks.on_exit(fn -> drop_tenant!(tenant_id) end)
 end
