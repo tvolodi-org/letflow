@@ -54564,3 +54564,50 @@ requirements:
       - "W9. The block is a section with a heading, the rows are a list, each time is a time element with a machine-readable datetime attribute, and the elapsed text is readable by a screen reader (it is not hidden from assistive technology and is not an aria-live region)."
       - "W10. Out of scope: any view across several instances (REQ-802 candidates a, b, c), alerts or notifications on a waiting time, time limits or thresholds, a backfill of entries, any permission change (STOREKEEPER keeps no :InstancesRead), and the \"Active tokens\" line."
     depends_on: [REQ-793, REQ-799]
+  - id: REQ-814
+    title: "Reset-password mail throttle (finding F4-4): at most one instruction mail per user within a window of N minutes (a setting, default 5); a throttled request still answers 202 with the same body and writes nothing"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- issue to be filed by the engine's register step
+    # Source: task T-1714 (operator, D-086, D-118, D-119); docs/uat/ba-decisions/T-1695.md item 3 ("one pending delivery per user within a few minutes, answered 202 as before; the number of minutes is a setting with a stated default, not a rule"); finding F4-4 in docs/security/owasp-review/part-4-followup-new-routes.md (row RP-A04 and the Findings table: "Fix: one pending delivery per user per few minutes, answered 202"); REQ-788 (gh 4135), whose description lists "a per-user rate limit" as out of scope and an open question. Files read on origin/main: lib/letflow/routers/identity.ex (handle_reset_password/3, do_reset_password/3, request_password_reset/3, safe_insert_audit/2, start_reset_delivery/3, moduledoc route line for POST /users/:id/reset-password); lib/letflow/audit.ex (insert_entry/3 sets timestamp to DateTime.utc_now inside its own transaction; latest_matching/4); lib/letflow/audit/entry.ex (timestamp field); priv/repo/migrations/20260830020001_create_audit_entries_tenant_scoped.exs (BEFORE UPDATE and BEFORE DELETE triggers, so a test cannot age an entry); test/support/on_gate_fixture.ex (raw_entry!/2) and test/letflow/audit/latest_matching_test.exs (raw rows with chosen timestamps); lib/letflow/notifications.ex (start_delivery/5 writes its notification_deliveries row only after the send attempt, so the log cannot serve as the "pending" marker; rate_limited?/2 is the email-copy precedent of counting from the tenant's own rows); lib/letflow/signup.ex (submit/3 runs its caps under pg_advisory_xact_lock(hashtext(...)) in one transaction; config/0 merges Application.get_env defaults); test/letflow/routers/identity_reset_password_test.exs (R2 posts twice for one user and asserts two audit entries); test/fixtures/uat/scenarios/tenant-administration/password-reset-1-request-sends-instruction-mail.yaml and password-reset-3-user-page-button.yaml (both expect a second request to be recorded again). Written by the business analyst (T-1714) 2026-11-11. Not yet validated.
+    description: >
+      Today a tenant administrator, or a script holding an administrator token, can post
+      POST /identity/users/:id/reset-password (REQ-788, lib/letflow/routers/identity.ex) in a loop for one user, and every
+      request writes one audit entry "user.password_reset_requested" and starts one "password_reset_hint" mail through
+      Letflow.Notifications.start_delivery/5, so the user's inbox fills with the platform's mail (security finding F4-4,
+      docs/security/owasp-review/part-4-followup-new-routes.md). This change adds a per-user throttle to that route only.
+      Rule: when the user's latest audit entry with action "user.password_reset_requested" in the caller's tenant schema
+      (read with Letflow.Audit.latest_matching/4 on resource_type "user" and the user's id) has a timestamp later than
+      the current time minus N minutes, the request is throttled. A throttled request answers exactly as an accepted one
+      (202 with the JSON body {"status": "requested"}), writes no audit entry and starts no delivery. The answer stays
+      202 so that a caller cannot tell a throttled request from a sent one; the audit entry of the accepted request is
+      the record that a mail was asked for, and the throttled repeats change nothing. The audit entry, not the
+      notification_deliveries row, is the marker of a pending delivery, because start_delivery/5 writes its row only
+      after the send attempt, in a separate task.
+      N is the setting reset_password_window_minutes, read per request from config :letflow, Letflow.Routers.Identity;
+      its default is 5 (UAT assumption, to be confirmed by the process owner; the source says "a few minutes"). A value
+      that is not a positive integer counts as the default. No environment variable, tenant setting, feature flag,
+      permission, migration or web change: the setting is application configuration only, and the process owner sets
+      production in configuration.
+      The throttle check and the audit insert run in one Letflow.Repo transaction under
+      pg_advisory_xact_lock(hashtext(key)), where key is the tenant schema name and the user id joined, the same lock form
+      Letflow.Signup.submit/3 uses, so two requests at the same moment for one user cannot both pass; the delivery starts
+      after that transaction commits, as it does now after the audit insert. The existing refusals (404 unknown or
+      cross-tenant id, 403 role and platform-admin member guard, 422 body_not_accepted, 409 user_inactive,
+      no_identity_provider_login, no_email) and their order stay as they are and run before the throttle.
+      Stale by this change and updated in the same change: test R2 of test/letflow/routers/identity_reset_password_test.exs
+      (two posts for one user now give one audit entry and one delivery row), the route line in the moduledoc of
+      lib/letflow/routers/identity.ex, and the Status cell of F4-4 in the security review file. The two UAT scenarios
+      password-reset-1 and password-reset-3 (their second-request steps expect a second entry) are not changed here: a
+      separate uat_design task updates them after this change merges.
+    acceptance_criteria:
+      - "1. Within the window: a tenant administrator of company A posts twice in a row, with an empty body, for one active oidc user of A with a non-empty email (default setting). Both answers are 202 with exactly the JSON body {\"status\": \"requested\"}; afterwards A's schema holds exactly one audit entry with action \"user.password_reset_requested\" for that user and, after the delivery task has run, exactly one notification_deliveries row with template_key \"password_reset_hint\" and recipient_user_id that user's id. Test R2 of test/letflow/routers/identity_reset_password_test.exs is changed to assert this."
+      - "2. Default window is 5 minutes (setting absent): for a user whose latest \"user.password_reset_requested\" entry is 4 minutes old, a request answers 202 with the same body and writes no audit entry and no delivery row; for a user whose latest such entry is 6 minutes old, a request answers 202, writes one new audit entry and starts one delivery (one new notification_deliveries row). The older entries are inserted raw with a chosen timestamp, as test/letflow/audit/latest_matching_test.exs does with raw_entry!/2 of test/support/on_gate_fixture.ex, since audit_entries refuses UPDATE."
+      - "3. The setting: with config :letflow, Letflow.Routers.Identity, reset_password_window_minutes set to 10, an entry 6 minutes old throttles the request (no audit entry, no delivery row, 202 same body). With the value 0, -1, \"10\" (a string) or nil, the default 5 applies (an entry 6 minutes old does not throttle, an entry 4 minutes old does). Each test restores the application environment it changed."
+      - "4. The throttle is per user: an entry 1 minute old for user X of company A does not throttle a request for user Y of A (one new audit entry and one delivery row for Y). Only entries with action \"user.password_reset_requested\" count: an entry of another action (for example \"user.update_status\") 1 minute old for the same user does not throttle."
+      - "5. Refusals stay first and unchanged: for a user of A whose latest \"user.password_reset_requested\" entry is 1 minute old, a body with any key still answers 422 \"body_not_accepted\", and a user made inactive since then still answers 409 \"user_inactive\"; tests R3 to R10 of test/letflow/routers/identity_reset_password_test.exs pass unchanged, including R10 (a failing audit write answers 500 and starts no delivery)."
+      - "6. A reader finds in lib/letflow/routers/identity.ex that the latest_matching/4 read and the Letflow.Audit.insert_entry/3 call of the reset-password path run inside one Letflow.Repo.transaction that first takes pg_advisory_xact_lock(hashtext(key)) with key built from the tenant schema name and the user id, and that start_delivery/5 is called only after that transaction returned {:ok, _}."
+      - "7. No change to the answer shape: a throttled answer and an accepted answer have equal status, equal body and equal header names (a test compares them); no response field tells that a request was throttled."
+      - "8. Kept in step: the route line of the moduledoc of lib/letflow/routers/identity.ex names the throttle and the setting; the Status cell of F4-4 in docs/security/owasp-review/part-4-followup-new-routes.md says it is fixed by this change. No file under web/, apps/ or priv/repo/migrations/ changes, and no environment variable is read for the setting."
+    depends_on: [REQ-788]
