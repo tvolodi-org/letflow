@@ -163,7 +163,17 @@ defmodule Letflow.CiDocsOnlyTest do
     assert steps["Run test shard"]["if"] =~ "docs_only != 'true'"
     assert steps["Run docs tests (docs-only change)"]["if"] =~ "docs_only == 'true'"
     assert steps["Run docs tests (docs-only change)"]["run"] =~ "ci_docs_only.sh select"
-    # static job is not gated on docs_only: the register consistency checks still run
-    refute inspect(get_in(ci, ["jobs", "backend_static"])) =~ "docs_only"
+    # T-1689: only the isolated-tails step is skipped on docs-only; the job and every other step
+    # (static checks, permission matrix: the register checks) are not gated on docs_only
+    static_steps = get_in(ci, ["jobs", "backend_static", "steps"])
+    refute get_in(ci, ["jobs", "backend_static", "if"]) =~ "docs_only"
+
+    {tails, others} =
+      Enum.split_with(static_steps, &(&1["name"] =~ "Run isolated tails"))
+
+    assert [%{"if" => tails_if}] = tails
+    assert tails_if =~ "backend != 'false'"
+    assert tails_if =~ "docs_only != 'true'"
+    refute inspect(others) =~ "docs_only"
   end
 end
