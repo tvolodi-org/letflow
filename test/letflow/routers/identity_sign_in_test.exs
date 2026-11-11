@@ -127,7 +127,8 @@ defmodule Letflow.Routers.IdentitySignInTest do
     a: a,
     admin_token: token
   } do
-    stub = stub_for(a, 201)
+    known = Ecto.UUID.generate()
+    stub = stub_for(a, 201, %{"user_id" => known})
     user = user!(a)
     conn = post_sign_in(a, token, user.id)
     assert conn.status == 201
@@ -140,7 +141,7 @@ defmodule Letflow.Routers.IdentitySignInTest do
     row = reload(a, user)
     assert row.auth_source == :oidc
     assert row.external_realm == RealmProvisioner.label(a.tenant_id)
-    assert is_binary(row.external_id)
+    assert row.external_id == known
     assert row.username == user.username and row.email == user.email
 
     assert [entry] = audits(a)
@@ -150,13 +151,15 @@ defmodule Letflow.Routers.IdentitySignInTest do
   end
 
   test "S3 the next OIDC sign-in finds the same row", %{a: a, admin_token: token} do
-    stub_for(a, 201)
+    known = Ecto.UUID.generate()
+    stub_for(a, 201, %{"user_id" => known})
     user = user!(a)
     assert post_sign_in(a, token, user.id).status == 201
     row = reload(a, user)
+    assert row.external_id == known
 
     ctx = %Letflow.Oidc.IdentityContext{
-      external_user_id: row.external_id,
+      external_user_id: known,
       tenant_id: nil,
       realm: row.external_realm,
       roles: [],
@@ -342,32 +345,77 @@ defmodule Letflow.Routers.IdentitySignInTest do
     a: a,
     admin_token: token
   } do
-    stub_for(a, 201)
+    stub = stub_for(a, 201)
     ok_user = user!(a)
     inactive = user!(a, %{status: :inactive})
+    refused_user = user!(a)
 
     log =
       capture_log([level: :debug], fn ->
         send(self(), {:ok_conn, post_sign_in(a, token, ok_user.id)})
         send(self(), {:refused, post_sign_in(a, token, inactive.id)})
+        Stub.set_script(stub, :post, [{401, %{"error" => @password <> @token}}])
+        send(self(), {:provisioner_refused, post_sign_in(a, token, refused_user.id)})
       end)
 
     assert_received {:ok_conn, %{status: 201}}
     assert_received {:refused, refused}
+    assert_received {:provisioner_refused, pref}
+    assert pref.status == 409 and pref.resp_body =~ "provisioner_refused"
+    assert length(Stub.posts(stub)) == 2
     refute log =~ @password
     refute log =~ @token
-    refute refused.resp_body =~ @password
-    refute refused.resp_body =~ @token
+
+    for conn <- [refused, pref] do
+      refute conn.resp_body =~ @password
+      refute conn.resp_body =~ @token
+    end
   end
 
-  test "S8 a row already bound between the check and the lock is refused", %{a: a} do
-    stub = stub_for(a, 201)
-    user = user!(a, %{auth_source: :oidc, external_id: "e", external_realm: "r"})
+  test "S8 a row bound while the provisioner call runs is refused under the lock", %{
+    a: a,
+    admin_token: token
+  } do
+    user = user!(a)
+    schema = a.schema_name
+    uid = user.id
 
-    opts = [prefix: a.schema_name, tenant_id: a.tenant_id]
-    assert {:error, :sign_in_exists} = Identity.create_sign_in(user.id, opts)
+    hook = fn ->
+      {1, _} =
+        Repo.update_all(
+          from(u in User, where: u.id == ^uid),
+          [set: [auth_source: :oidc, external_id: "other", external_realm: "r-other"]],
+          prefix: schema
+        )
+    end
+
+    reply = %{
+      "user_id" => Ecto.UUID.generate(),
+      "temporary_password" => @password,
+      "realm" => RealmProvisioner.label(a.tenant_id)
+    }
+
+    stub = Stub.start!([{201, {:run, hook, reply}}])
+    enable!(stub)
+    conn = post_sign_in(a, token, user.id)
+    assert conn.status == 409 and conn.resp_body =~ "sign_in_exists"
+    refute conn.resp_body =~ @password
+    assert length(Stub.posts(stub)) == 1
+    row = reload(a, user)
+    assert row.external_id == "other" and row.external_realm == "r-other"
+    assert audits(a) == []
+  end
+
+  test "S8b a service principal is refused before the provisioner is called", %{
+    a: a,
+    admin_token: token
+  } do
+    stub = stub_for(a, 201)
+    user = user!(a, %{admin_flagged_service_principal: true})
+    conn = post_sign_in(a, token, user.id)
+    assert conn.status == 409 and conn.resp_body =~ "service_principal"
     assert Stub.calls(stub) == []
-    assert {:error, :not_found} = Identity.create_sign_in(Ecto.UUID.generate(), opts)
+    assert_unchanged(a, user)
   end
 
   test "S9 an audit failure after the provisioner answered: fixed 500, nothing bound", %{

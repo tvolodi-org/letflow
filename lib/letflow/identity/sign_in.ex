@@ -47,6 +47,9 @@ defmodule Letflow.Identity.SignIn do
   defp check_row(%User{status: status}) when status != :active, do: {:error, :user_inactive}
   defp check_row(%User{auth_source: :oidc}), do: {:error, :sign_in_exists}
 
+  # An account flagged as a service principal never gets an interactive realm login (decided in T-1730 review).
+  defp check_row(%User{admin_flagged_service_principal: true}), do: {:error, :service_principal}
+
   defp check_row(%User{email: email}) do
     if is_binary(email) and String.trim(email) != "", do: :ok, else: {:error, :no_email}
   end

@@ -654,7 +654,7 @@ defmodule Letflow.Routers.Identity do
 
   @sign_in_conflicts ~w(sign_in_creation_off user_inactive sign_in_exists no_email
                         realm_not_provisioned login_exists_in_realm provisioner_unavailable
-                        provisioner_refused)a
+                        provisioner_refused service_principal)a
 
   defp sign_in_refusal(conn, reason) when reason in @sign_in_conflicts,
     do: Response.conflict(conn, Atom.to_string(reason))
