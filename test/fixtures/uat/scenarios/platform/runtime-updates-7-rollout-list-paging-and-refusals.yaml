@@ -9,7 +9,7 @@
 # the screen following the paging (REQ-813 changes no screen; the operator screen shows the first page, checked in platform-runtime-updates-6).
 # Recorded as a GAP: test/fixtures/uat/scenario-env-limitations/platform-runtime-updates-7-rollout-list-paging-large-list.yaml.
 # UAT assumption, to be confirmed by the process owner: the answer keeps the key "rollouts" (not "items") so the operator screen keeps working (REQ-813 header).
-# Sensitive action in this flow: seeing platform-wide data. Refusal for the company side: step 10; input refusals of the operator: steps 5 to 9.
+# Sensitive action in this flow: seeing platform-wide data. Refusal for the company side: step 14; input refusals of the operator: steps 5 to 9 and 11 to 13.
 ---
 id: platform-runtime-updates-7-rollout-list-paging-and-refusals
 scope: platform
@@ -96,12 +96,42 @@ steps:
     expect_refusal: true
     via: api
   - step: 10
-    actor: company_admin
+    actor: platform_operator
     action: >
-      SwiftRoute's company administrator opens the list of module rollouts asking for pages of size 2.
-    expect_refusal: true
+      The platform operator opens the platform's promotion events list (the platform-events read) asking for pages of size 1
+      and notes the next page marker of that list, if it shows one. This read is allowed and changes nothing.
     via: api
   - step: 11
+    actor: platform_operator
+    action: >
+      The platform operator opens the list of module rollouts giving, as the page marker, the marker noted in step 10
+      (a marker issued by a different list).
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: platform_operator
+    action: >
+      The platform operator takes the page marker noted in step 2, decodes it (URL-safe base64, no padding; the text reads
+      "RO:" then a mint time, a start time and a rollout identifier, joined by colons), replaces only the last part, the
+      rollout identifier, with the text "not-a-uuid", encodes the result again the same way and opens the list giving that
+      marker. The mint time is still fresh, so only the identifier is wrong.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: platform_operator
+    action: >
+      The platform operator takes the same decoded marker of step 2, replaces only the start time (the third part) with
+      the text "abc", encodes it again the same way and opens the list giving that marker.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: company_admin
+    action: >
+      SwiftRoute's company administrator opens the list of module rollouts asking for pages of size 2 and giving the page
+      marker the platform operator received in step 2.
+    expect_refusal: true
+    via: api
+  - step: 15
     actor: platform_operator
     action: >
       The platform operator opens the list again with no page size and compares it with step 1.
@@ -151,19 +181,22 @@ expected_outcomes:
     description: A page marker that the list did not issue is refused, never a server error.
     verification:
       method: http_status
-      detail: Step 9 is answered 400 with the text "invalid cursor", and the answer holds no rollout.
-      evidence: Status and text of step 9.
+      detail: >
+        Steps 9, 11, 12 and 13 are each answered 400 with the text "invalid cursor", and no answer holds a rollout. Step 11 needs a marker
+        from step 10; when the platform-events list shows no next marker (too few events), step 11 is NOT OBSERVABLE, not PASS (the other
+        three steps still run). Steps 12 and 13 need the marker of step 2; with fewer than 2 rollouts they are NOT OBSERVABLE.
+      evidence: Statuses and texts of steps 9 and 11 to 13.
     on_fail:
       severity: MAJOR
       business_impact: A forged marker could break the list or read from an unintended position.
       suggested_action: route_to_wf03
   - id: EO-005
-    description: A company administrator cannot read the rollouts, with or without a page size.
+    description: A company administrator cannot read the rollouts, with a page size and a real page marker.
     verification:
       method: http_status
       detail: >
-        Step 10 is answered 403 with the platform's fixed forbidden text (as in platform-runtime-updates-1), and the body holds no rollout and no marker.
-      evidence: Status and body of step 10.
+        Step 14 is answered 403 with the platform's fixed forbidden text (as in platform-runtime-updates-1), and the body holds no rollout and no marker, although the marker given is a real one issued to the operator.
+      evidence: Status and body of step 14.
     on_fail:
       severity: BLOCKER
       business_impact: A company user could read the platform's rollouts across all companies.
@@ -172,8 +205,8 @@ expected_outcomes:
     description: Reading and refused reads changed nothing.
     verification:
       method: api_response
-      detail: Step 11 lists exactly the rollouts of step 1, with the same states and counts and the same marker field.
-      evidence: Bodies of step 1 and step 11, compared (the trace identifier of each answer is left out).
+      detail: Step 15 lists exactly the rollouts of step 1, with the same states and counts and the same marker field.
+      evidence: Bodies of step 1 and step 15, compared (the trace identifier of each answer is left out).
     on_fail:
       severity: BLOCKER
       business_impact: A read or a refused read changed a rollout.
