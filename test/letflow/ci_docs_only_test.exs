@@ -130,7 +130,8 @@ defmodule Letflow.CiDocsOnlyTest do
     assert t < 10_000, "selector took #{t} ms"
     # 173 files (about 3000 s serial) before T-1363; the budget leaves room for new docs guards
     # T-1675: +1 for letflow_case_test.exs (companion canary reads docs/requirements.yaml)
-    assert length(files) < 71, "docs test list grew to #{length(files)} files"
+    # T-1683: +1 for scripts/companion_bootstrap_test.exs (reads the companion move list)
+    assert length(files) < 72, "docs test list grew to #{length(files)} files"
     refute "test/letflow/engine_test.exs" in files
     # T-1404: 79 files still ran 575 s on main; these DB suites (80 s each) only cite a docs
     # path in a moduledoc or a comment and must stay out
@@ -164,7 +165,17 @@ defmodule Letflow.CiDocsOnlyTest do
     assert steps["Run test shard"]["if"] =~ "docs_only != 'true'"
     assert steps["Run docs tests (docs-only change)"]["if"] =~ "docs_only == 'true'"
     assert steps["Run docs tests (docs-only change)"]["run"] =~ "ci_docs_only.sh select"
-    # static job is not gated on docs_only: the register consistency checks still run
-    refute inspect(get_in(ci, ["jobs", "backend_static"])) =~ "docs_only"
+    # T-1689: only the isolated-tails step is skipped on docs-only; the job and every other step
+    # (static checks, permission matrix: the register checks) are not gated on docs_only
+    static_steps = get_in(ci, ["jobs", "backend_static", "steps"])
+    refute get_in(ci, ["jobs", "backend_static", "if"]) =~ "docs_only"
+
+    {tails, others} =
+      Enum.split_with(static_steps, &(&1["name"] =~ "Run isolated tails"))
+
+    assert [%{"if" => tails_if}] = tails
+    assert tails_if =~ "backend != 'false'"
+    assert tails_if =~ "docs_only != 'true'"
+    refute inspect(others) =~ "docs_only"
   end
 end
