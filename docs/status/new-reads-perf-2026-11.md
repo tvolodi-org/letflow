@@ -41,15 +41,16 @@ A first run (before an assertion was added) gave the same picture: R1 3.4, T1 35
 
 ## Reading
 
-- Every figure is two orders of magnitude under its limit; the slowest is the real import (about 2.5 ms per created
+- Every measured value is below its assumed limit. The margin differs: the real import is about 30x below (500 vs 15000 ms),
+  the timeline walk about 50x (median 39.8 vs 2000 ms), the single-request reads 100x or more. The slowest is the real import (about 2.5 ms per created
   user, which includes the user insert, the login-directory entry and the audit entry of `Identity.create_user/2`).
 - The replay reads are linear in the number of pages (about 6.5 ms per page of 200). The web hooks cap the walk at
-  `MAX_TIMELINE_PAGES` (25) pages; 1001 events (the start event plus 1000) are 6 requests (5 full pages and one with 1 event).
+  `MAX_TIMELINE_PAGES` (25) pages; the fixture holds 1003 events (`Engine.create/2` writes INSTANCE_STARTED and NODE_ENTERED for START and HUMAN_TASK, then the test adds 1000), which is 6 requests (5 full pages of 200 and a last page of 3).
 - The notification list is bounded by design (cap 200 per user, limit at most 100) and its unread count is one aggregate.
 
 ## Not covered (what this does not say)
 
-- Browser time of the replay screen (rendering 1000 entries, polling every 2 s while the instance is ACTIVE) is not measured
+- Browser time of the replay screen (rendering 1000 entries, polling while the instance is ACTIVE: every 2 s, or every 5 s once more than three pages are loaded, as in `web/src/hooks/useInstances.ts`, which applies to this six-page set) is not measured
   here; this is the server side over HTTP-shaped calls through the router, without a socket.
 - Rollout list with a large fleet: the outcome count per rollout is one row per tenant, and creating hundreds of
   provisioned tenants is too heavy for this test. The query is one grouped count over `rollout_id IN (50 ids)` with a
