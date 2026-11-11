@@ -17,6 +17,16 @@ defmodule Letflow.Routers.Identity.UsersImport do
   are checked a second time inside it. `opts` is `user_write_opts/1` of the router plus the
   `:audit_context` (the administrator is the audit actor): the tenant `:prefix` and
   `:tenant_id` come from the authenticated context, never from the request (INV-1).
+
+  T-1731 (REQ-808): with the realm-users flag on (`Letflow.Signup.RealmUsers.configured?/0`), a
+  real, applied import also creates the realm login of each created user, after the commit, in
+  file order, through `Letflow.Identity.create_sign_in/2` (REQ-807). Every `"created"` result
+  entry gets a `"sign_in"` object: `%{"created" => true, "temporary_password" => pw}` or
+  `%{"created" => false, "reason" => r}`, `r` one of the fixed atoms of
+  `Letflow.Identity.SignIn` as a string, or `"not_attempted"` for the rows after the first
+  `provisioner_unavailable`. A failed sign-in never undoes a created user. The answer carries
+  `cache-control: no-store` when any password is present. Flag off, dry run and a refused file:
+  no `sign_in` key and no provisioner call. Passwords are never logged (INV-4).
   """
 
   alias Letflow.Api.Response
@@ -96,17 +106,16 @@ defmodule Letflow.Routers.Identity.UsersImport do
         if UserImport.all_ok?(results) do
           rows
           |> UserImport.to_create(results)
-          |> Enum.each(fn attrs -> create!(rows, results, attrs, opts) end)
-
-          {:applied, results}
+          |> Enum.map(fn attrs -> create!(rows, results, attrs, opts) end)
+          |> then(&{:applied, results, &1})
         else
           Repo.rollback({:refused, results})
         end
       end)
 
     case outcome do
-      {:ok, {:applied, results}} ->
-        Response.ok(conn, %{"results" => results, "applied" => true})
+      {:ok, {:applied, results, users}} ->
+        answer_applied(conn, results, users, opts)
 
       {:error, {:refused, results}} ->
         Response.ok(conn, %{"results" => results, "applied" => false})
@@ -121,9 +130,70 @@ defmodule Letflow.Routers.Identity.UsersImport do
 
   defp create!(_rows, _results, attrs, opts) do
     case Identity.create_user(attrs, opts) do
-      {:ok, _user} -> :ok
+      {:ok, user} -> user
       {:error, _reason} -> Repo.rollback({:row_failed, attrs["username"]})
     end
+  end
+
+  # REQ-808: after the commit, with the realm-users flag on, create the realm login of every
+  # created user (file order, sequentially). A failed sign-in never undoes a created user. After
+  # the first `provisioner_unavailable` the remaining rows are `not_attempted`. Flag off: the
+  # answer is exactly the one without a `sign_in` key and the provisioner is never called.
+  defp answer_applied(conn, results, users, opts) do
+    if Letflow.Signup.RealmUsers.configured?() do
+      {sign_ins, _outage?} =
+        Enum.map_reduce(users, false, fn user, outage? -> sign_in_entry(user, outage?, opts) end)
+
+      conn =
+        if Enum.any?(sign_ins, &(&1["created"] == true)),
+          do: Plug.Conn.put_resp_header(conn, "cache-control", "no-store"),
+          else: conn
+
+      Response.ok(conn, %{
+        "results" => merge_sign_ins(results, sign_ins),
+        "applied" => true
+      })
+    else
+      Response.ok(conn, %{"results" => results, "applied" => true})
+    end
+  end
+
+  defp sign_in_entry(_user, true, _opts),
+    do: {%{"created" => false, "reason" => "not_attempted"}, true}
+
+  defp sign_in_entry(user, false, opts) do
+    case safe_create_sign_in(user.id, opts) do
+      {:ok, _bound, password} ->
+        {%{"created" => true, "temporary_password" => password}, false}
+
+      {:error, reason} ->
+        {%{"created" => false, "reason" => Atom.to_string(reason)},
+         reason == :provisioner_unavailable}
+    end
+  end
+
+  # Only a fixed reason atom leaves this function, never an exception (INV-4).
+  defp safe_create_sign_in(user_id, opts) do
+    case Identity.create_sign_in(user_id, opts) do
+      {:ok, _bound, _password} = ok -> ok
+      {:error, reason} when is_atom(reason) -> {:error, reason}
+      _other -> {:error, :bind_failed}
+    end
+  rescue
+    _ -> {:error, :bind_failed}
+  end
+
+  defp merge_sign_ins(results, sign_ins) do
+    {merged, _rest} =
+      Enum.map_reduce(results, sign_ins, fn
+        %{"outcome" => "created"} = entry, [sign_in | rest] ->
+          {Map.put(entry, "sign_in", sign_in), rest}
+
+        entry, rest ->
+          {entry, rest}
+      end)
+
+    merged
   end
 
   # After the rollback: the report as the checks see it now, with the row that failed marked
