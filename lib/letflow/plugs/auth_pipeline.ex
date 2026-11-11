@@ -236,6 +236,16 @@ defmodule Letflow.Plugs.AuthPipeline do
       {:error, {:provision, :jit_disabled}} ->
         reject(conn, 403, "forbidden", "JIT provisioning disabled for this realm")
 
+      {:error, {:provision, :username_in_use}} ->
+        Logger.warning("JIT user provisioning refused reason=username_in_use")
+
+        reject(
+          conn,
+          403,
+          "username_in_use",
+          "This username already belongs to another account in this company. Ask your administrator."
+        )
+
       {:error, {:provision, reason}} ->
         Logger.error("JIT user provisioning failed reason=#{inspect(reason)}")
         reject(conn, 500, "internal_error", "user provisioning failed")
