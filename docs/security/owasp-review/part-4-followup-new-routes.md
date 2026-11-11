@@ -27,7 +27,7 @@ Route sources read: `routers/identity.ex` (`handle_reset_password`), `routers/id
 | UI-A03 | A03 | Rows go through `Identity.create_user/2` (Ecto); `UserImport` has columns username, display_name, email only, no password, role or group column (T-12), so the file cannot grant privilege. | ok |
 | UI-A04 | A04 | Row cap 200, atomic write in one transaction with the rules re-checked inside it (T-7, T-14); an existing user is never modified (T-10). | ok |
 | UI-A05 | A05 | Body is read bounded by the pipeline's 2 MiB limit (`XlsxBodyParser`, 413 in T-5); only the one POST path claims the xlsx media type. | ok |
-| UI-A08 | A08 | One parse: `XlsxImport.convert_detailed` applies the zip guards (`@max_inflated` 26 MiB total, `:zip.list_dir` as the single directory source) and hands rows to the consumer. No second parser. | ok |
+| UI-A08 | A08 | One parse: `XlsxImport.convert_detailed` applies the zip guards (`@max_inflated` 25 MiB total, `:zip.list_dir` as the single directory source) and hands rows to the consumer. No second parser. | ok |
 | UI-A09 | A09 | The answer holds no cell text of a refused row (T-4); each created user is audited with the administrator as actor (T-8). | ok |
 | UI-other | A02, A06, A07, A10 | no secret, outbound call or new authentication path. | n/a |
 
@@ -38,7 +38,7 @@ Route sources read: `routers/identity.ex` (`handle_reset_password`), `routers/id
 | RO-A01 | A01 | Every route `:ModuleRolloutsManage`, a platform-scope permission; a tenant admin, a PLATFORM_ADMIN of another tenant and a bare token get 403 on all four routes and on an unmatched sub-path; the platform token with another tenant's slug is refused (`platform_module_rollouts_test.exs`, "A2 / N1"). No route takes a tenant identifier (INV-10 negative test is the A2/N1 block). | ok |
 | RO-A03 | A03 | `Fleet.status/resume` cast the id with `Ecto.UUID.cast` before `Repo.get` (R3: malformed and unknown id are 404); `module_id` is a bounded string validated by `@start_schema`. | ok |
 | RO-A04 | A04 | A tenant administrator may set `module_upgrade.window` (any HH:MM pair, start different from end, validated in `Tenant`) through the tenant settings route. A one-minute window means that tenant is `outside_window` on nearly every rollout, so a tenant can hold back a platform security update of its own modules indefinitely. The effect is limited to that tenant, but the platform operator has no override. | finding F4-2 |
-| RO-A04b | A04 | `GET /platform-module-rollouts` returns every rollout without a page size; platform operators only, low volume. | finding F4-5 |
+| RO-A04b | A04 | `GET /platform-module-rollouts` returns all rollouts with a fixed limit of 50; platform operators only. The endpoint applies no pagination (no cursor or page parameter), so when rollout count exceeds 50 the oldest ones are not retrievable. | finding F4-5 |
 | RO-A09 | A09 | `start` and `resume` pass `auth_context.user_id` as the actor; the response holds ids, statuses and codes only, no tenant name or schema (R1). | ok |
 | RO-other | A02, A05, A06, A07, A08, A10 | no secrets or outbound URLs; authentication is the shared pipeline. | n/a |
 
@@ -50,7 +50,7 @@ Route sources read: `routers/identity.ex` (`handle_reset_password`), `routers/id
 | SU-A02 | A02 | Token is 32 random bytes, only its SHA-256 is stored, `email` and `token_hash` are nulled when a row expires; the lookup is an equality on the hash of a 256-bit value. | ok |
 | SU-A03 | A03 | Ecto queries with pinned values; email, company and language are validated (length, control characters, language from a fixed list) before use; refusal text is chosen from a fixed table by language, never echoed. | ok |
 | SU-A04 | A04 | `/verify` is a POST so a link prefetch cannot consume the token; per-IP (hashed, IPv6 /64), per-domain and pending caps counted in the database under an advisory lock; every well-formed request answers 202 whatever the address state. The 429 for the per-domain cap still tells a caller that other requests from that domain exist (low). | finding F4-3 |
-| SU-A05 | A05 | `Cache-Control: private, no-store`, `Referrer-Policy`, `X-Robots-Tag` on every answer; client address from `ClientIp` (trusted proxy and one `X-Real-IP` only, never `X-Forwarded-For`). | ok |
+| SU-A05 | A05 | `Cache-Control: private, no-store`, `Referrer-Policy`, `X-Robots-Tag` on every response from `respond/3` (the six successful paths: `/config`, `/` with 202/422/429/503, `/verify` with 200/400). The `enabled_gate` disabled response and the unmatched-path response call `Response.not_found` directly without these headers. Client address from `ClientIp` (trusted proxy and one `X-Real-IP` only, never `X-Forwarded-For`). | finding SU-A05-1 (below) |
 | SU-A07 | A07 | `/verify` answers one generic 400 for unknown, expired, closed and malformed tokens (INV-5); there is no throttle on `/verify` itself, which is acceptable for a 256-bit token. | ok |
 | SU-A09 | A09 | One telemetry event per request with `outcome` only; the one `Logger.warning` in `signup/provisioning.ex` prints a fixed failure code. No e-mail, address, token or company name is logged. | ok |
 | SU-A10 | A10 | The provisioner calls a configured adapter URL, not a caller URL; the captcha adapter takes the caller's token and address only. | n/a no caller-controlled URL |
@@ -74,16 +74,17 @@ for it; this review did not look at a timer because none exists.
 | Finding | Severity | File and symbol | INV | Scenario | Status |
 |---|---|---|---|---|---|
 | F4-1 | medium | `lib/letflow/routers/instances.ex` `handle_timeline` | INV-2, INV-5 | A user with only TASK_WORKER (holds `InstancesRead`) calls `GET /instances/:id/timeline` for an instance it did not start and holds no task of: 200 with the instance's events (GH #2932 closed this for `/history` and `GET /:id` only). | **Fixed in T-1693**: `handle_timeline` runs inside `with_participation`; test `instances_participant_read_test.exs` G6 (red before: left 200, right 404). The probe in `instances_synthetic_hidden_test.exs` T5 now uses the auditor for the timeline, since the worker it used is not a participant. |
+| SU-A05-1 | low | `lib/letflow/routers/signup.ex` `respond/3`, `enabled_gate`, catch-all | INV-5 (nearest) | Security headers (`Cache-Control`, `Referrer-Policy`, `X-Robots-Tag`) are added only by the `respond/3` helper (used by six successful paths). The `enabled_gate` disabled response and the unmatched-path (catch-all) response call `Response.not_found` directly and lack these headers. This is inconsistent but has low impact (disabled and misrouted requests are rare). | Listed. Fix: wrap disabled and catch-all responses with security headers for consistency. |
 | F4-2 | medium | `lib/letflow/identity/tenant.ex` `validate_module_upgrade_window`, `module_upgrade/fleet.ex` `in_window?` | INV-10 (nearest) | A tenant administrator sets a window of one minute; the platform operator's rollouts leave that tenant `outside_window` until someone times a start inside it. | Queued: needs a product decision (minimum window length, or an operator "force" for security updates). Not fixed. |
 | F4-3 | low | `lib/letflow/signup.ex` per-domain cap | INV-5 | The 429 `rate_limited` for the domain cap tells a caller that several requests from that e-mail domain were made recently. Free-mail providers are exempt, so the signal is only for company domains. | Listed. Fix: answer 202 neutral and send no mail when the domain cap is hit (product decision on honest feedback for a real user). |
 | F4-4 | low | `routers/identity.ex` `handle_reset_password` | INV-8 (nearest) | A tenant administrator (or a script holding an admin token) posts reset-password in a loop for one user and fills that user's inbox with the platform's mail. | Listed. Fix: one pending delivery per user per few minutes, answered 202. |
-| F4-5 | low | `routers/platform_module_rollouts.ex` `GET /` | INV-8 (nearest) | Unpaginated list of all rollouts and their counts; platform operators only. | Listed. Fix: page size like other lists when the rollout count grows. |
+| F4-5 | low | `routers/platform_module_rollouts.ex` `GET /` | INV-8 (nearest) | `Fleet.list/0` applies a 50-row limit but there is no pagination mechanism (no cursor or page parameter); platform operators only. When rollout count exceeds 50, the oldest ones are not retrievable. | Listed. Fix: add a pagination mechanism like other lists when operator-facing rollout volume grows. |
 | F4-6 | low | `routers/instances.ex` `GET /:id/pins` | INV-2 | Same participation gap as F4-1 but the body holds only the pinned definition versions. | Listed. Fix: wrap in `with_participation` for consistency; not done here to keep the change small for one security review. |
 
 ## Not reviewed
 
 - Dynamic behaviour: nothing was run against a live instance. No forged-archive attempt was made against the users import beyond
-  reading the shared guards (`XlsxImport`, 26 MiB inflated cap, 200 rows).
+  reading the shared guards (`XlsxImport`, 25 MiB inflated cap, 200 rows).
 - The sign-up mailer and the realm provisioner adapters (outbound calls with operator-configured URLs), and the captcha adapter's
   network behaviour.
 - The rollout window as enforced by `Fleet` for time-zone and daylight-saving edges (a correctness matter, not security).
