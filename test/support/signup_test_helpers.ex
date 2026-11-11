@@ -81,8 +81,12 @@ defmodule Letflow.Test.SignupHelpers do
 
   def json(conn), do: Jason.decode!(conn.resp_body)
 
-  @doc "Waits (bounded) until the mail task supervisor has no running child."
-  def await_mail(deadline_ms \\ 3_000) do
+  @doc """
+  Waits (bounded) until the mail task supervisor has no running child. It returns as soon as the
+  supervisor is idle; the bound only caps a hang. T-1735: the verify step now creates the Letflow
+  tenant in-process (about 3 s in a passing CI run), so the old 3 s cap timed out under load.
+  """
+  def await_mail(deadline_ms \\ 30_000) do
     deadline = System.monotonic_time(:millisecond) + deadline_ms
     do_await(deadline)
   end
