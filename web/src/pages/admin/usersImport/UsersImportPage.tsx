@@ -122,7 +122,7 @@ function ResultTable({ results, hypothetical }: { results: ImportResultRow[]; hy
         r.status === 'error' ? (
           <span>{r.reason ? usersReasonSentence(locale, r.reason) : intl.formatMessage({ id: 'usersImport.error.other' })}</span>
         ) : (
-          <span className="lf-faint">—</span>
+          <span className="lf-muted" aria-hidden="true">—</span>
         ),
     },
   ]
@@ -137,6 +137,16 @@ function ResultTable({ results, hypothetical }: { results: ImportResultRow[]; hy
       />
     </div>
   )
+}
+
+function countsLine(intl: ReturnType<typeof useIntl>, results: ImportResultRow[], hypothetical: boolean): string {
+  const c = countResults(results)
+  const created = intl.formatMessage({ id: hypothetical ? 'usersImport.counts.wouldCreated' : 'usersImport.outcome.created' })
+  return [
+    `${created} ${c.created}`,
+    `${intl.formatMessage({ id: 'usersImport.outcome.unchanged' })} ${c.unchanged}`,
+    `${intl.formatMessage({ id: 'usersImport.outcome.refused' })} ${c.refused}`,
+  ].join(', ')
 }
 
 function Counts({ results, hypothetical }: { results: ImportResultRow[]; hypothetical: boolean }) {
@@ -253,6 +263,11 @@ function UsersImportPageInner() {
         }
       />
 
+      {/* One polite announcement when a check or import answer arrives (the result card itself is not a live region). */}
+      <p className="sr-only" role="status" data-testid="users-import-announce">
+        {shown ? intl.formatMessage({ id: 'usersImport.counts.label' }) + ': ' + countsLine(intl, shown.results, notApplied || phase.name === 'checked') : ''}
+      </p>
+
       <Steps
         aria-label={intl.formatMessage({ id: 'usersImport.steps.label' })}
         current={stepCurrent}
@@ -302,11 +317,11 @@ function UsersImportPageInner() {
                 >
                   {intl.formatMessage({ id: phase.name === 'working' && phase.what !== 'template' ? 'usersImport.busy' : 'usersImport.check' })}
                 </Button>
-                <Button variant="primary" size="md" data-testid="users-import-confirm" disabled={!checkedClean || working} onClick={() => void onRun(false)}>
+                <Button variant="primary" size="md" data-testid="users-import-confirm" disabled={!checkedClean || working} aria-describedby={checkedDirty ? 'users-import-why' : undefined} onClick={() => void onRun(false)}>
                   {intl.formatMessage({ id: 'usersImport.confirm' })}
                 </Button>
                 {checkedDirty ? (
-                  <span className="lf-hint" data-testid="users-import-why">
+                  <span className="lf-hint" id="users-import-why" data-testid="users-import-why">
                     {intl.formatMessage({ id: 'usersImport.dryRun.why' })}
                   </span>
                 ) : null}

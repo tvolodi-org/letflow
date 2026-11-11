@@ -33,6 +33,8 @@ export interface ButtonProps {
   type?: 'button' | 'submit' | 'reset'
   /** Extra class of a layout hook (for example `lf-doc__back`); never a colour or spacing class. */
   className?: string
+  /** Id of the element that explains the button (for example why it is disabled). */
+  'aria-describedby'?: string
 }
 
 /** Intentionally empty. Without any mouse handler on the button, user-event's click in
@@ -78,6 +80,7 @@ export function Button(props: ButtonProps): React.ReactElement {
       aria-pressed={pressed}
       aria-busy={loading || undefined}
       aria-label={iconOnly ? label : undefined}
+      aria-describedby={props['aria-describedby']}
       onMouseEnter={noop}
     >
       {loading && <span data-testid="ds-button-spinner" aria-hidden="true" />}

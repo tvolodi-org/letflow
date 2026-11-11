@@ -139,7 +139,7 @@ function Detail({
 }) {
   const intl = useIntl()
   const query = useModuleRolloutStatus(rolloutId)
-  if (query.isLoading) return <p className="lf-faint" data-testid="module-rollouts-detail-loading">{t(intl, 'loading')}</p>
+  if (query.isLoading) return <p className="lf-muted" data-testid="module-rollouts-detail-loading">{t(intl, 'loading')}</p>
   if (query.isError || !query.data) {
     const notFound = (query.error as ApiError | null)?.status === 404
     return (
@@ -160,7 +160,7 @@ function Detail({
   const { rollout, outcomes } = query.data
   const showResume = canResume(rollout, outcomes, new Date())
   return (
-    <div data-testid="module-rollouts-detail" aria-label={rollout.module_id}>
+    <div data-testid="module-rollouts-detail" role="region" aria-label={rollout.module_id}>
       <DetailHeader
         title={`${rollout.module_id} ${rollout.to_version}`}
         status={<RolloutPill status={rollout.status} />}
@@ -173,7 +173,7 @@ function Detail({
         }
       />
       <div className="lf-card__body lf-form">
-        <p className="lf-faint" data-testid="module-rollouts-failures">
+        <p className="lf-muted" data-testid="module-rollouts-failures">
           {t(intl, 'detail.failures', { count: rollout.consecutive_failures, limit: rollout.halt_after })}
         </p>
         {rollout.status === 'halted' && (
@@ -289,7 +289,7 @@ function ModuleRolloutsBody() {
           selected ? (
             <Detail rolloutId={selected} names={names} resumeError={resumeError} resumeBusy={resume.isPending} onResume={onResume} />
           ) : (
-            <p className="lf-faint lf-card__body" data-testid="module-rollouts-detail-empty">
+            <p className="lf-muted lf-card__body" data-testid="module-rollouts-detail-empty">
               {t(intl, 'detail.pick')}
             </p>
           )
