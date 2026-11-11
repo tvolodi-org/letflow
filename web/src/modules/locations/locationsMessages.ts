@@ -1,28 +1,14 @@
 /** locationsMessages — GH 3607 / REQ-671. Message catalog of the locations screens, en/ru/kk (D-062), same id set
- *  in each. Own copy of the locale resolver: module code may not import another module (0039 D3).
+ *  in each. The locale resolver is the shared `@/i18n/resolveLocale`.
  *  The ru and kk texts are written by the developer and need a native-speaker check. */
 
-import { getUiLocale } from '@/i18n/uiLocaleStore'
+import { resolveLocale } from '@/i18n/resolveLocale'
 
 export const LOCATIONS_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type LocationsUiLocale = (typeof LOCATIONS_UI_LOCALES)[number]
 
 export function resolveUiLocale(candidates?: readonly string[]): LocationsUiLocale {
-  if (candidates === undefined) return getUiLocale()
-  const sources =
-    candidates ??
-    (typeof navigator !== 'undefined'
-      ? navigator.languages && navigator.languages.length > 0
-        ? navigator.languages
-        : navigator.language
-          ? [navigator.language]
-          : []
-      : [])
-  for (const raw of sources) {
-    const base = raw.split('-')[0].toLowerCase()
-    if ((LOCATIONS_UI_LOCALES as readonly string[]).includes(base)) return base as LocationsUiLocale
-  }
-  return 'en'
+  return resolveLocale(LOCATIONS_UI_LOCALES, candidates)
 }
 
 const en: Record<string, string> = {

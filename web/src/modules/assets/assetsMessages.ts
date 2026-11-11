@@ -3,7 +3,7 @@
  *  native-speaker check. */
 
 import { helpEn, helpKk, helpRu } from './help/assetsHelpMessages'
-import { getUiLocale } from '@/i18n/uiLocaleStore'
+import { resolveLocale } from '@/i18n/resolveLocale'
 import { documentsEn, documentsKk, documentsRu } from './documents/documentsMessages'
 import { registerEn, registerKk, registerRu } from './register/registerMessages'
 
@@ -11,12 +11,7 @@ export const ASSETS_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type AssetsUiLocale = (typeof ASSETS_UI_LOCALES)[number]
 
 export function resolveUiLocale(candidates?: readonly string[]): AssetsUiLocale {
-  if (candidates === undefined) return getUiLocale()
-  for (const raw of candidates) {
-    const base = raw.split('-')[0].toLowerCase()
-    if ((ASSETS_UI_LOCALES as readonly string[]).includes(base)) return base as AssetsUiLocale
-  }
-  return 'en'
+  return resolveLocale(ASSETS_UI_LOCALES, candidates)
 }
 
 const en: Record<string, string> = {

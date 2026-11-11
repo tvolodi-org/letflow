@@ -1,29 +1,15 @@
 /** catalogItemsMessages — GH 3605 / REQ-673. Message catalog of the catalog_items screen, en/ru/kk (D-062),
- *  same id set in each. Own copy of the locale resolver: module code may not import another module (0039 D3).
+ *  same id set in each. The locale resolver is the shared `@/i18n/resolveLocale`.
  *  The ru and kk texts are written by the developer and need a native-speaker check. */
 
-import { getUiLocale } from '@/i18n/uiLocaleStore'
+import { resolveLocale } from '@/i18n/resolveLocale'
 import { catalogItemsItemsMessages } from './catalogItemsItemsMessages'
 
 export const CATALOG_ITEMS_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type CatalogItemsUiLocale = (typeof CATALOG_ITEMS_UI_LOCALES)[number]
 
 export function resolveUiLocale(candidates?: readonly string[]): CatalogItemsUiLocale {
-  if (candidates === undefined) return getUiLocale()
-  const sources =
-    candidates ??
-    (typeof navigator !== 'undefined'
-      ? navigator.languages && navigator.languages.length > 0
-        ? navigator.languages
-        : navigator.language
-          ? [navigator.language]
-          : []
-      : [])
-  for (const raw of sources) {
-    const base = raw.split('-')[0].toLowerCase()
-    if ((CATALOG_ITEMS_UI_LOCALES as readonly string[]).includes(base)) return base as CatalogItemsUiLocale
-  }
-  return 'en'
+  return resolveLocale(CATALOG_ITEMS_UI_LOCALES, candidates)
 }
 
 const en: Record<string, string> = {
