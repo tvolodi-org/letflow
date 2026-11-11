@@ -105,6 +105,13 @@ defmodule Letflow.Routers.PlatformModuleRolloutsTest do
     {resp.status, Jason.decode!(resp.resp_body)}
   end
 
+  # Leaked rows of other suites would break exact page counts: start from an empty table.
+  defp isolate_rollouts! do
+    Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+    Repo.delete_all(Outcome)
+    Repo.delete_all(Rollout)
+  end
+
   defp seed_at!(n, base \\ ~N[2031-02-01 00:00:00]) do
     for i <- 1..n, do: insert_rollout_at!(NaiveDateTime.add(base, div(i, 2) * 60))
   end
@@ -252,36 +259,39 @@ defmodule Letflow.Routers.PlatformModuleRolloutsTest do
 
   describe "REQ-813: cursor paging of the list" do
     test "P1 pages of 2,2,1 cover every seeded rollout once, in list order", ctx do
-      seeded = seed_at!(5)
-      ids = MapSet.new(Enum.map(seeded, & &1.id))
+      isolate_rollouts!()
+      ids = Enum.map(seed_at!(5), & &1.id)
 
       {200, p1} = get_json(ctx, "?page_size=2")
       {200, p2} = get_json(ctx, "?page_size=2&cursor=" <> p1["next_cursor"])
       {200, p3} = get_json(ctx, "?page_size=2&cursor=" <> p2["next_cursor"])
-      assert length(p1["rollouts"]) == 2 and length(p2["rollouts"]) == 2
+      assert Enum.map([p1, p2, p3], &length(&1["rollouts"])) == [2, 2, 1]
+      assert is_binary(p1["next_cursor"]) and is_binary(p2["next_cursor"])
+      assert p3["next_cursor"] == nil
+
       all = Enum.flat_map([p1, p2, p3], & &1["rollouts"]) |> Enum.map(& &1["rollout"]["id"])
-      assert all == Enum.uniq(all)
-      assert MapSet.subset?(ids, MapSet.new(all))
+      assert Enum.sort(all) == Enum.sort(ids)
 
       {200, full} = get_json(ctx, "?page_size=200")
-      full_ids = Enum.map(full["rollouts"], & &1["rollout"]["id"])
-      assert Enum.take(full_ids, length(all)) == all or p3["next_cursor"] != nil
+      assert Enum.map(full["rollouts"], & &1["rollout"]["id"]) == all
+      assert full["next_cursor"] == nil
     end
 
     test "P2 exactly page_size rows: last page has a nil next_cursor", ctx do
+      isolate_rollouts!()
       seed_at!(4)
-      {total, _} = counts()
-      assert total >= 4 and total < 200
-      {200, whole} = get_json(ctx, "?page_size=#{total}")
-      assert length(whole["rollouts"]) == total
-      assert whole["next_cursor"] == nil
+      {4, _} = counts()
 
-      {200, p1} = get_json(ctx, "?page_size=#{total - 1}")
-      assert length(p1["rollouts"]) == total - 1
+      {200, p1} = get_json(ctx, "?page_size=2")
+      assert length(p1["rollouts"]) == 2
       assert is_binary(p1["next_cursor"])
-      {200, p2} = get_json(ctx, "?page_size=#{total - 1}&cursor=" <> p1["next_cursor"])
-      assert length(p2["rollouts"]) == 1
+      {200, p2} = get_json(ctx, "?page_size=2&cursor=" <> p1["next_cursor"])
+      assert length(p2["rollouts"]) == 2
       assert p2["next_cursor"] == nil
+
+      {200, whole} = get_json(ctx, "?page_size=4")
+      assert length(whole["rollouts"]) == 4
+      assert whole["next_cursor"] == nil
     end
 
     test "P3 default page is 50 with the old item shape", ctx do
