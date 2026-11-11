@@ -32,15 +32,22 @@ file's tests; a file appears in exactly one shard, so no averaging. One run only
 | 19 | test/letflow/modules/stock/opening_import_test.exs | 151.5 |
 | 20 | test/letflow/modules/exam/session_test.exs | 151.3 |
 
-Web: the frontend gate runs the whole vitest suite inside one `npm run check` job (median 338 s, see
-`ci-minutes-20261110.md`); CI logs per-file vitest times only for failures, so no per-file web ranking is possible from
-the logs. No web cut is made.
+Web: not measured per file, and this note does not claim a web ranking. The frontend gate runs the whole vitest suite
+inside one `npm run check` job (median 338 s, see `ci-minutes-20261110.md`); the CI log prints per-file vitest times
+only for failing files, and the machine rule forbids running the whole web suite by hand during a task. To get the
+missing half, a follow-up task should add `--reporter=json --outputFile=<path>` (or the `verbose` reporter) to the
+frontend gate's vitest call and upload the file as a CI artifact; the 20 slowest web files can then be ranked from
+the next green run. No web cut is made here.
 
 ## What the files have in common
 
-All 20 are `async: false`, each has one `setup` block that provisions an OIDC fixture plus one or two committed tenants
-for every test (for example `stock/router_test.exs`: `S.setup_oidc!` + two `S.tenant!` per test, 31 tests). Their cost
-is tenant provisioning, not waiting: only `session_test.exs` has `Process.sleep` with real durations among the 20.
+All 20 are `async: false` (checked with `grep -c "async: false"`; `DataCase` then puts the sandbox in shared mode).
+Of the other 19 files, 10 call `setup_oidc!` (an OIDC fixture) and 18 call `setup_auto_mode!` or `:auto` (which
+switches the sandbox from shared to `:auto` mode so committed tenants are visible to other connections); the others have their own tenant setup
+(`voice_regression_test.exs` has no explicit auto switch). All provision committed tenants per test or
+per describe (for example `stock/router_test.exs`: `S.setup_oidc!` + two `S.tenant!` per test, 31 tests). Their cost is
+tenant provisioning, not waiting. `session_test.exs` is different: it has no OIDC setup (two `setup` blocks using
+`ExamFixtures` only) and is the only one of the 20 with `Process.sleep` of real duration.
 
 ## Cuts applied (safe, one file)
 
@@ -58,12 +65,14 @@ never lowers the stored value). No test deleted or weakened.
 | the 3 tests, local run (`mix test ...:997` and the Q-1075 describe) | not run on the old code | 2.5 s + 3.7 s (includes tenant setup) |
 | whole file, local, `MIX_TEST_PARTITION=1708` | CI 151.3 s (other machine) | 98.9 s, 83 passed |
 
-The saving in CI is about 15 s of one shard (shard time is the max over files, so about 15 s of a 760-1150 s shard).
+The file itself saves at least 15.2 s of its own run time. The effect on a shard was not measured: a shard runs several
+partitions and files, and only a before/after of the partition holding this file would show it, so no shard figure is
+claimed.
 
 ## Not applied, and why
 
-- `async: true` for the 19 other files: they create committed tenants (`TenantFixture`) and the sandbox runs in shared
-  mode there; `letflow.check_async_sandbox_reachability` and the cluster-wide `pg_stat_activity` guards
+- `async: true` for the 19 other files: they start in shared sandbox mode (`async: false`), then their fixtures switch to `:auto`
+  mode (`setup_auto_mode!`) and create committed tenants (`TenantFixture`); `letflow.check_async_sandbox_reachability` and the cluster-wide `pg_stat_activity` guards
   (TenantSchemaReaper) make this unsafe to flip blind. Proposal: flip one file per task and run it 3 times.
 - Shared setup (`setup_all` for the OIDC fixture and tenants): tests in these files write into the tenant (documents,
   stock keys) and assert on totals, so sharing one tenant needs per-test cleanup design. Proposal: start with
