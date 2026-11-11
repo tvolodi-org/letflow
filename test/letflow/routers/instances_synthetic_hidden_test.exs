@@ -666,8 +666,9 @@ defmodule Letflow.Routers.InstancesSyntheticHiddenTest do
       assert "INSTANCE_STARTED" in event_types
 
       # T-1693: the timeline follows the participation rule of history, so the probe is the auditor
-      # (a task worker who is not a participant gets the 404 of instances_participant_read_test G6).
-      for {template, role} <- [{"/:id/timeline", :auditor}, {"/:id/pins", :worker}] do
+      # (a task worker who is not a participant gets the 404 of instances_participant_read_test G6);
+      # T-1713: pins follow the same rule (G7).
+      for {template, role} <- [{"/:id/timeline", :auditor}, {"/:id/pins", :auditor}] do
         conn = request(ctx, role, "GET", api(template, id))
         assert {template, conn.status} == {template, 200}
       end

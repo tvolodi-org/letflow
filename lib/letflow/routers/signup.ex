@@ -47,7 +47,7 @@ defmodule Letflow.Routers.Signup do
       emit(:disabled)
 
       conn
-      |> Response.not_found()
+      |> not_found()
       |> halt()
     end
   end
@@ -113,7 +113,16 @@ defmodule Letflow.Routers.Signup do
 
   match _ do
     emit(:not_found)
-    Response.not_found(conn)
+    not_found(conn)
+  end
+
+  # SU-A05-1: the disabled and catch-all 404s carry the same three headers as every other answer here.
+  defp not_found(conn) do
+    conn
+    |> put_resp_header("cache-control", "private, no-store")
+    |> put_resp_header("referrer-policy", "no-referrer")
+    |> put_resp_header("x-robots-tag", "noindex, nofollow")
+    |> Response.not_found()
   end
 
   defp rate_limited(conn, params) do
