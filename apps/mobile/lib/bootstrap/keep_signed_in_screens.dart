@@ -36,6 +36,41 @@ Future<bool> showKeepSignedInOffer(BuildContext context) async {
   return accepted ?? false;
 }
 
+/// "Unlock with this device?" (REQ-811). Says before the call that the device
+/// decides how it verifies and may ask twice. Returns true on accept.
+Future<bool> showDeviceUnlockOffer(BuildContext context) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      key: const Key('device-unlock-offer'),
+      title: Text(tr('session.device.offer.title')),
+      content: Text(tr('session.device.offer.body')),
+      actions: [
+        TextButton(
+          key: const Key('device-unlock-decline'),
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: Text(tr('session.device.offer.decline')),
+        ),
+        ElevatedButton(
+          key: const Key('device-unlock-accept'),
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: Text(tr('session.device.offer.accept')),
+        ),
+      ],
+    ),
+  );
+  return accepted ?? false;
+}
+
+/// The one plain line after a device enrolment that did not end in
+/// "enrolled", or `null`.
+String? deviceEnrolOutcomeText(DeviceEnrolOutcome o) => switch (o) {
+  DeviceEnrolOutcome.enrolled => null,
+  DeviceEnrolOutcome.pinStays => tr('session.device.pinStays'),
+  DeviceEnrolOutcome.cannotThisWay => tr('session.device.cannotThisWay'),
+};
+
 class _PinField extends StatelessWidget {
   const _PinField({
     required this.fieldKey,
@@ -189,6 +224,17 @@ class _PinUnlockScreenState extends ConsumerState<PinUnlockScreen> {
   bool _busy = false;
 
   @override
+  void initState() {
+    super.initState();
+    // REQ-811: offer the device unlock once on arrival; the PIN field stays.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final c = ref.read(bootstrapControllerProvider);
+      if (c.deviceUnlockAvailable.value) c.tryDeviceUnlock();
+    });
+  }
+
+  @override
   void dispose() {
     _pin.dispose();
     super.dispose();
@@ -255,6 +301,12 @@ class _PinUnlockScreenState extends ConsumerState<PinUnlockScreen> {
                         : tr('session.unlock.submit'),
                   ),
                 ),
+                if (c.deviceUnlockAvailable.value && !retry)
+                  TextButton(
+                    key: const Key('pin-unlock-device'),
+                    onPressed: _busy ? null : c.tryDeviceUnlock,
+                    child: Text(tr('session.device.unlockButton')),
+                  ),
                 TextButton(
                   key: const Key('pin-unlock-sign-in-again'),
                   onPressed: _busy ? null : c.signInAgain,

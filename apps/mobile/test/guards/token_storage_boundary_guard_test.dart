@@ -44,6 +44,8 @@ const Set<String> webImportFiles = {
   // neither touches localStorage.
   'lib/auth/web_session_crypto.dart',
   'lib/auth/web_session_idb.dart',
+  // REQ-811: WebAuthn platform passkey; touches no storage.
+  'lib/auth/web_device_unlock.dart',
   // PWA M4: the browser recorder reads its blob with fetch; no token, no
   // localStorage.
   'lib/features/stock/voice/web_recorder_port_web.dart',
@@ -270,26 +272,36 @@ void main() {
     );
   });
 
-  test('self-test: REQ-810 browser files may import package:web, no others', () {
-    const src = "import 'package:web/web.dart' as web;\n";
-    for (final f in [
-      'lib/auth/web_session_crypto.dart',
-      'lib/auth/web_session_idb.dart',
-    ]) {
-      expect(checkTokenStorageBoundary(libFiles: {f: src}), isEmpty, reason: f);
-    }
-    expect(
-      checkTokenStorageBoundary(
-        libFiles: {'lib/auth/web_session_other.dart': src},
-      ),
-      hasLength(1),
-    );
-    // IndexedDB is not localStorage: the localStorage rule stays in force.
-    expect(
-      checkTokenStorageBoundary(
-        libFiles: {'lib/auth/web_session_idb.dart': 'final x = localStorage;'},
-      ),
-      hasLength(1),
-    );
-  });
+  test(
+    'self-test: REQ-810 browser files may import package:web, no others',
+    () {
+      const src = "import 'package:web/web.dart' as web;\n";
+      for (final f in [
+        'lib/auth/web_session_crypto.dart',
+        'lib/auth/web_session_idb.dart',
+        'lib/auth/web_device_unlock.dart',
+      ]) {
+        expect(
+          checkTokenStorageBoundary(libFiles: {f: src}),
+          isEmpty,
+          reason: f,
+        );
+      }
+      expect(
+        checkTokenStorageBoundary(
+          libFiles: {'lib/auth/web_session_other.dart': src},
+        ),
+        hasLength(1),
+      );
+      // IndexedDB is not localStorage: the localStorage rule stays in force.
+      expect(
+        checkTokenStorageBoundary(
+          libFiles: {
+            'lib/auth/web_session_idb.dart': 'final x = localStorage;',
+          },
+        ),
+        hasLength(1),
+      );
+    },
+  );
 }
