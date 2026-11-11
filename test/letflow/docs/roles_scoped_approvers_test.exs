@@ -23,6 +23,9 @@ defmodule Letflow.Docs.RolesScopedApproversTest do
 
   use ExUnit.Case, async: true
   @moduletag :unit
+  @moduletag :companion
+
+  alias Letflow.LetflowCase
 
   @heading "## Known limitation: scoped approvers (stage 2)"
 
@@ -104,7 +107,7 @@ defmodule Letflow.Docs.RolesScopedApproversTest do
   end
 
   setup_all do
-    {:ok, doc: read("docs/roles.md")}
+    {:ok, doc: read(LetflowCase.companion_path("docs/roles.md"))}
   end
 
   test "the real docs/roles.md breaks no rule", %{doc: doc} do
