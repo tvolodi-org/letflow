@@ -77,7 +77,7 @@ const en: Topics = {
       'Tell the user that the system asks them to change the password at the first sign-in.',
     ],
     refusals: [
-      { title: 'The password is gone', body: 'It is shown once only. If it was lost, create the sign-in again to get a new one.' },
+      { title: 'The password is gone', body: 'It is shown once only and cannot be shown again. The sign-in cannot be created a second time; use the password reset instructions for this user.' },
       { title: 'The action is not available', body: 'Creating a sign-in is not switched on for your company yet. Nothing was changed; ask the platform operator or use the password reset instructions.' },
       { title: 'The user is refused', body: 'The user is inactive or has no e-mail address. Fix this on the user page and try again.' },
     ],
@@ -150,7 +150,7 @@ const ru: Topics = {
       'Скажите пользователю, что при первом входе система попросит сменить пароль.',
     ],
     refusals: [
-      { title: 'Пароль утерян', body: 'Он показывается только один раз. Если он потерян, создайте вход заново и получите новый пароль.' },
+      { title: 'Пароль утерян', body: 'Он показывается только один раз и повторно не показывается. Вход нельзя создать второй раз; воспользуйтесь инструкцией по сбросу пароля для этого пользователя.' },
       { title: 'Действие недоступно', body: 'Создание входа для вашей компании пока не включено. Ничего не изменено; обратитесь к оператору платформы или отправьте инструкцию по сбросу пароля.' },
       { title: 'Пользователю отказано', body: 'Пользователь неактивен или у него нет адреса почты. Исправьте это на странице пользователя и повторите.' },
     ],
@@ -223,7 +223,7 @@ const kk: Topics = {
       'Пайдаланушыға алғашқы кіру кезінде жүйе құпиясөзді ауыстыруды сұрайтынын айтыңыз.',
     ],
     refusals: [
-      { title: 'Құпиясөз жоғалды', body: 'Ол тек бір рет көрсетіледі. Жоғалса, кіруді қайта жасап, жаңа құпиясөз алыңыз.' },
+      { title: 'Құпиясөз жоғалды', body: 'Ол тек бір рет көрсетіледі, қайта көрсетілмейді. Кіруді екінші рет жасау мүмкін емес; осы пайдаланушы үшін құпиясөзді қалпына келтіру нұсқауын пайдаланыңыз.' },
       { title: 'Әрекет қолжетімсіз', body: 'Кіруді жасау сіздің компанияңыз үшін әлі қосылмаған. Ештеңе өзгерген жоқ; платформа операторына хабарласыңыз немесе құпиясөзді қалпына келтіру нұсқауын жіберіңіз.' },
       { title: 'Пайдаланушыға бас тартылды', body: 'Пайдаланушы белсенді емес немесе оның пошта мекенжайы жоқ. Мұны пайдаланушы бетінде түзетіп, қайталаңыз.' },
     ],

@@ -180,6 +180,15 @@ describe('C6 accuracy', () => {
       for (const re of want[l]) expect(text, `${l} ${re}`).toMatch(re)
     }
   })
+  it('create sign-in lost-password advice does not promise re-creation', () => {
+    const lost = { en: /cannot be created a second time/, ru: /нельзя создать второй раз/, kk: /екінші рет жасау мүмкін емес/ } as const
+    const bad = { en: /create the sign-in again/i, ru: /создайте вход заново/i, kk: /кіруді қайта жасап/i } as const
+    for (const l of LOCALES) {
+      const text = Object.entries(coreHelpMessages[l]).filter(([k]) => k.startsWith('core.help.createSignIn.')).map(([, v]) => v).join(' ')
+      expect(text, l).toMatch(lost[l])
+      expect(text, l).not.toMatch(bad[l])
+    }
+  })
   it('names the buttons as the screens do', () => {
     const rollouts = {
       en: ['Start rollout', 'Resume'],
