@@ -52,7 +52,14 @@ defmodule Letflow.Documents.XlsxStyleTest do
     wb = %Workbook{sheets: [XlsxStyle.style(%Sheet{name: "e", rows: [["k", "v"]]}, false)]}
     {:ok, {_, plain}} = Elixlsx.write_to_memory(wb, "t.xlsx")
     {:ok, {_, ours}} = XlsxStyle.write_to_memory(wb, "t.xlsx")
-    assert plain == ours
+    # Zip entries carry the write time (DOS time, 2 s resolution), so two writes straddling a
+    # tick differ in raw bytes (CI run 42983525653). Unpatched means: same entries, same content.
+    assert unzip(plain) == unzip(ours)
+  end
+
+  defp unzip(bin) do
+    {:ok, entries} = :zip.unzip(bin, [:memory])
+    entries |> Enum.map(fn {n, c} -> {to_string(n), c} end) |> Enum.sort()
   end
 
   describe "CORE S2 cell helpers (canary, values taken from the old module copies)" do
