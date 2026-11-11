@@ -90,7 +90,7 @@ entry in the same transaction as the change; a refused write writes none (as 006
 | T3 | A write with a stored key outside the D3 list answers `422 saved_report_key_not_allowed` and writes no audit entry | D3, D7 |
 | T4 | The stored row holds no balance value (only name, filter keys, actor, timestamps) | D2 |
 | T5 | A reader without `StockReconcile` is refused create, rename and delete; a `StockRead` holder lists | D6 |
-| T6 | Web: the list, the replay and the xlsx download show names as `code - title`; all states and languages (en, ru, kk) per the design-system matrix | D4, D5 |
+| T6 | Web: the list and the replay show names as `code - title` (the xlsx download keeps ids, per D5); all states and languages (en, ru, kk) per the design-system matrix | D4, D5 |
 
 ## Later work
 
