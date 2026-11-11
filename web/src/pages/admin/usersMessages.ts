@@ -27,6 +27,15 @@ export interface UsersMessages {
   /** Success messages of the user detail page (T-1716). */
   saved: string
   deactivated: string
+  /** Labels of the user detail page (T-1716). */
+  detailTitle: string
+  back: string
+  noPermission: string
+  roleAssignments: string
+  groupMemberships: string
+  save: string
+  saving: string
+  deactivate: string
 }
 
 export const usersMessages: Record<UiLocale, UsersMessages> = {
@@ -52,6 +61,14 @@ export const usersMessages: Record<UiLocale, UsersMessages> = {
     inactive: 'INACTIVE',
     saved: 'Saved',
     deactivated: 'User deactivated',
+    detailTitle: 'User details',
+    back: 'Back',
+    noPermission: 'You do not have permission to manage users.',
+    roleAssignments: 'Role assignments',
+    groupMemberships: 'Group memberships',
+    save: 'Save changes',
+    saving: 'Saving...',
+    deactivate: 'Deactivate',
   },
   ru: {
     empty: 'Пользователей пока нет.',
@@ -75,6 +92,14 @@ export const usersMessages: Record<UiLocale, UsersMessages> = {
     inactive: 'НЕАКТИВЕН',
     saved: 'Сохранено',
     deactivated: 'Пользователь деактивирован',
+    detailTitle: 'Данные пользователя',
+    back: 'Назад',
+    noPermission: 'У вас нет прав на управление пользователями.',
+    roleAssignments: 'Назначенные роли',
+    groupMemberships: 'Членство в группах',
+    save: 'Сохранить изменения',
+    saving: 'Сохранение...',
+    deactivate: 'Деактивировать',
   },
   kk: {
     empty: 'Пайдаланушылар әзірге жоқ.',
@@ -98,5 +123,13 @@ export const usersMessages: Record<UiLocale, UsersMessages> = {
     inactive: 'БЕЛСЕНДІ ЕМЕС',
     saved: 'Сақталды',
     deactivated: 'Пайдаланушы өшірілді',
+    detailTitle: 'Пайдаланушы деректері',
+    back: 'Артқа',
+    noPermission: 'Пайдаланушыларды басқаруға рұқсатыңыз жоқ.',
+    roleAssignments: 'Тағайындалған рөлдер',
+    groupMemberships: 'Топтарға мүшелік',
+    save: 'Өзгерістерді сақтау',
+    saving: 'Сақталуда...',
+    deactivate: 'Өшіру',
   },
 }
