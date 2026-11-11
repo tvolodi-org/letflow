@@ -1,0 +1,20 @@
+scenario_id: mobile-pwa-keep-signed-in-30-day-pin-session
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "PWA 30-day sign-in (REQ-810, flag LETFLOW_PWA_KEEP_SIGNED_IN): opt-in offer, six-digit PIN, 30-day limit, wrong-PIN limit of 5, sign-out and lost-device rule"
+reason: >
+  NOT OBSERVABLE, not PASS. The whole session lives in the browser storage (IndexedDB) of one device: the
+  encrypted refresh token, the PIN-wrapped data key, the sign-in time and the wrong-PIN count are never sent to
+  Letflow, so no API call, database row or audit entry shows them. The feature sits behind a compile-time build
+  flag that is off on every deployed build, and the UAT roster has no actor that holds a device with a browser
+  profile, can close and reopen the page, and type a PIN. The 30-day limit cannot be backdated from outside, and
+  the lost-device rule is an operator step in the identity provider's admin console (Letflow holds no Keycloak
+  admin credential, decision 0072 D1). The lifecycle is proved by the mobile unit tests (fake store and clock),
+  the WebCrypto test in Chrome, and the device pass in docs/runbooks/mobile-web-pwa-ready-check.md, which the
+  team does not run. No scenario is written for it and the acceptance scope must not count it as passed.
+recorded_by: business-analyst
+recorded_at: "2026-11-11"
+issue_ref: "T-1746"
+review: >
+  Revisit when the flag is turned on for QA and the roster gains an actor that holds a device (a scripted
+  browser with its own profile); then write the scenario and remove this file.

@@ -1,0 +1,139 @@
+# T-1724 (BA): creating a sign-in for a user the administrator added (REQ-807, PR #4260, T-1730): while the creation setting is OFF it is refused
+# with one fixed answer, and that answer gives nothing away about other companies' users.
+# Sources: lib/letflow/routers/identity.ex (`handle_create_sign_in/3`: the id is cast first and a value that is not a UUID is 404 before any other
+# check; then a non-empty body is 422 body_not_accepted; then the setting off is 409 sign_in_creation_off; only then the lookup of the user, 404 for an
+# unknown id or a row of another company); lib/letflow/signup/realm_users.ex (`configured?/0`: off unless LETFLOW_REALM_USERS_ENABLED is true with
+# URL and token); lib/letflow/api/authorization.ex (route gated like the users import, UsersManage); priv/permission_matrix/effective.golden
+# (UsersGroupsRolesManage true for TENANT_ADMIN, false for TASK_WORKER); docs/uat/ba-decisions/T-1707.md item 4 and the team answers of T-1724.
+# Premise correction of the queued title: with the setting OFF another company's user does NOT look like "not found": the setting check comes first,
+# so it gets the same 409 as an own-company user. That is the point of step 2: the refusal tells nothing about who exists. The 404 for another
+# company's user needs the setting ON and is in the sidecar test/fixtures/uat/scenario-env-limitations/tenant-administration-users-sign-in-1-creation-off-refusal-and-other-company.yaml.
+# A value that is not a UUID is 404 even with the setting off (cast before the setting check), so it is step 3, a different answer by design, not part of
+# the identical-answers comparison.
+# PRECONDITION: the setting is OFF on QA. Nothing in the API shows it; the run reports BLOCKED, not PASS, if the operator cannot confirm it. Never switch it on.
+# NOT UAT-OBSERVABLE (setting must stay off): the sign-in itself, the temporary password shown once, the audit entry user.sign_in_created, the mailbox,
+# the password change at first sign-in, the refusals user_inactive, sign_in_exists, no_email, realm_not_provisioned and the provisioner errors.
+# Comparison of bodies: drop trace_id first.
+---
+id: tenant-administration-users-sign-in-1-creation-off-refusal-and-other-company
+scope: tenant-administration
+title: "While creating a sign-in is switched off, the administrator is told it is not available, the answer is the same for any user id, and a worker cannot ask"
+version: "1.0"
+tags: [users, sign-in, refusal, access_control, tenancy, tenant-admin, feature-flag]
+
+description: >
+  An administrator can ask the platform to create a sign-in (a login with a one-time password) for a user added earlier. This is switched off in the
+  test environment. SwiftRoute's administrator asks for one of SwiftRoute's own users and is told, with one fixed reason, that creating a sign-in
+  is not available; the user stays as before. The same request for a user of another company (the Bilimbaga administrator's own user) and for a
+  well-formed id that nobody has gets exactly the same answer, so the refusal reveals nothing about other companies. An id that is not an id at all
+  is answered "not found". A task worker is refused outright. Nothing is written in any step.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Creating a sign-in is switched OFF on the test environment (the platform's default)
+    check: system_seeded
+    detail: >
+      The operator confirms the setting is off before the run. If it cannot be confirmed, report BLOCKED for the whole scenario, not PASS. Do not
+      switch it on and do not try a request to find out.
+  - description: Marco (SwiftRoute) and the Bilimbaga administrator each exist as a user with a known id, visible on the Users screen of their own company
+    check: system_seeded
+    detail: If an id cannot be read from the screen, report BLOCKED for steps 1 to 3.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      SwiftRoute's administrator opens the Users screen, notes Marco's user id and how Marco's user record shows his sign-in
+      method (reading the user record through the API), and asks the platform to create a sign-in for Marco (no data sent with the request).
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator asks for a sign-in for the Bilimbaga administrator's user id (given to the run by the Bilimbaga administrator,
+      who reads it from Bilimbaga's own Users screen), and asks for a sign-in for the well-formed id 00000000-0000-4000-8000-000000000000 that no user has.
+      Both requests carry no data.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator asks for a sign-in using the text "not-an-id" in place of the user id.
+    via: api
+  - step: 4
+    actor: worker
+    action: >
+      SwiftRoute's task worker asks for a sign-in for himself.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator reads Marco's user record again through the API and compares his sign-in method with the one noted in step 1.
+    via: api
+  - step: 6
+    actor: other_admin
+    action: >
+      The Bilimbaga administrator reads the own user record through the API and compares its sign-in method with the one noted before step 2.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator's request for an own-company user is refused with the fixed reason and changes nothing.
+    verification:
+      method: http_status
+      detail: >
+        Step 1 is answered 409 with the reason sign_in_creation_off. No one-time password is in the answer. Step 5 shows Marco's record with
+        the same sign-in method (auth_source) as noted in step 1.
+      evidence: Status and body of step 1; Marco's record in steps 1 and 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The pilot would see an unclear or wrong answer for an action that is not available, or a sign-in would be created while the setting is off.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Another company's user and a missing id get exactly the same answer as an own-company user.
+    verification:
+      method: api_response
+      detail: >
+        Both requests of step 2 are answered 409 with the reason sign_in_creation_off. After removing trace_id, the two bodies and the body of
+        step 1 are byte-identical, and the statuses and headers that name the problem are equal. No answer says whether the id exists or belongs to
+        another company.
+      evidence: The three bodies of steps 1 and 2 with trace_id removed.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refusal that differs by id would let an administrator find out which users another company holds.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A value that is not an id is answered "not found" and creates nothing.
+    verification:
+      method: http_status
+      detail: Step 3 is answered 404.
+      evidence: Status of step 3.
+    on_fail:
+      severity: MINOR
+      business_impact: A malformed request gets a misleading answer.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A task worker cannot ask for a sign-in.
+    verification:
+      method: http_status
+      detail: Step 4 is answered 403 and the answer does not contain the reason sign_in_creation_off.
+      evidence: Status and body of step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A non-administrator could change who can sign in.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Other company's user is untouched.
+    verification:
+      method: api_response
+      detail: The Bilimbaga administrator's user record in step 6 shows the same sign-in method (auth_source) as before step 2; nothing was created.
+      evidence: Body of step 6 and the value noted before step 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request from one company changed another company's user.
+      suggested_action: route_to_security_review
