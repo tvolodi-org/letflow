@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithAccess } from '@/auth/access/testing'
 import { roleLabel } from '@/auth/access'
+import { ACCESS_FIXTURES } from '@/auth/access/fixtures'
 import { UI_LOCALES, useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { usersMessages } from '../usersMessages'
 expect.extend(jestDomMatchers)
@@ -19,7 +20,7 @@ const user = { id: 'u1', username: 'ann', display_name: 'Ann', email: 'ann@x.io'
 const idle = { mutate: vi.fn(), isPending: false }
 vi.mock('@/hooks/useAdminUsers', () => ({
   useAdminUser: () => ({ data: user, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
-  useAdminRoles: () => ({ data: { items: [{ id: 'r1', name: 'TENANT_ADMIN' }] } }),
+  useAdminRoles: () => ({ data: { items: [{ id: 'r1', name: ACCESS_FIXTURES.tenantAdmin.roles[0] }] } }),
   useAdminGroups: () => ({ data: { items: [] } }),
   useUpdateAdminUser: () => idle,
   useDeactivateAdminUser: () => idle,
@@ -39,7 +40,7 @@ describe.each(UI_LOCALES)('T-1716 user detail page, locale %s', (locale) => {
     for (const t of [m.back, m.username, m.status, m.displayName, m.email, m.roleAssignments, m.groupMemberships, m.save, m.deactivate]) {
       expect(screen.getAllByText(t).length, t).toBeGreaterThan(0)
     }
-    expect(screen.getByText(roleLabel('TENANT_ADMIN', locale))).toBeInTheDocument()
+    expect(screen.getByText(roleLabel(ACCESS_FIXTURES.tenantAdmin.roles[0], locale))).toBeInTheDocument()
     if (locale !== 'en') {
       expect(m.detailTitle).not.toBe(usersMessages.en.detailTitle)
       expect(screen.queryByText('Role assignments')).toBeNull()
