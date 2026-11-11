@@ -25,6 +25,7 @@ defmodule Letflow.Modules.CatalogItems.LotImport do
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.Entities.ExternalRef
+  alias Letflow.Entities.ImportRow
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.CatalogItems
   alias Letflow.Modules.CatalogItems.Import
@@ -63,24 +64,9 @@ defmodule Letflow.Modules.CatalogItems.LotImport do
   end
 
   defp check_cells(cells) do
-    keys = Map.keys(cells)
-
-    cond do
-      "active" in keys ->
-        {:error, {:field_not_allowed, "active"}}
-
-      Enum.any?(keys, &(&1 not in @importable and &1 not in @ignored)) ->
-        {:error, :field_not_allowed}
-
-      true ->
-        case Enum.find(~w(item_id code), &(not text?(Map.get(cells, &1)))) do
-          nil -> :ok
-          field -> {:error, {:field_invalid, field}}
-        end
-    end
+    with :ok <- ImportRow.check_cells(cells, @importable, @ignored),
+         do: ImportRow.check_required(cells, ~w(item_id code), &{:field_invalid, &1})
   end
-
-  defp text?(v), do: is_binary(v) and String.trim(v) != ""
 
   # {:ok, nil | {:live, id} | {:deleted, id}}; one Ecto query, tenant by `prefix`.
   defp find(prefix, system, id) do
@@ -142,12 +128,5 @@ defmodule Letflow.Modules.CatalogItems.LotImport do
     end
   end
 
-  defp transact(fun) do
-    Repo.transaction(fn ->
-      case fun.() do
-        {:ok, result} -> result
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-  end
+  defp transact(fun), do: ImportRow.transact(fun)
 end

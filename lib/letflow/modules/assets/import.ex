@@ -29,6 +29,7 @@ defmodule Letflow.Modules.Assets.Import do
   """
 
   alias Letflow.Entities.ExternalRef
+  alias Letflow.Entities.ImportRow
   alias Letflow.Modules.Assets.Cards
   alias Letflow.Modules.Org
   alias Letflow.Modules.ReadApi
@@ -72,29 +73,10 @@ defmodule Letflow.Modules.Assets.Import do
 
   # --- cells ----------------------------------------------------------------------------------
 
-  defp check_cells(cells) do
-    keys = Map.keys(cells)
+  defp check_cells(cells), do: ImportRow.check_cells(cells, @columns, @ignored)
 
-    cond do
-      "active" in keys ->
-        {:error, {:field_not_allowed, "active"}}
-
-      Enum.any?(keys, &(&1 not in @columns and &1 not in @ignored)) ->
-        {:error, :field_not_allowed}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp check_required(cells) do
-    case Enum.find(@required, &(not text?(Map.get(cells, &1)))) do
-      nil -> :ok
-      header -> {:error, {:asset_field_required, header}}
-    end
-  end
-
-  defp text?(v), do: is_binary(v) and String.trim(v) != ""
+  defp check_required(cells),
+    do: ImportRow.check_required(cells, @required, &{:asset_field_required, &1})
 
   defp check_kind(%{"kind" => kind}) when kind in @kinds, do: :ok
   defp check_kind(_cells), do: {:error, :asset_kind_invalid}
