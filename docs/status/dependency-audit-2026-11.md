@@ -25,7 +25,7 @@ Severity from the advisory text (EEF-CVE ids, source: hex.pm / OSV).
 
 | Package | Locked | Advisory | Severity | Decision |
 |---|---|---|---|---|
-| bandit | 1.12.5 | 14 advisories (HTTP/2 flow control, request smuggling via chunk extensions, 1-byte DATA frame amplification, HPACK cookie crumbs, WebSocket fragments, ...), 9 high, 5 medium | **high** | **Resolved by T-1740** (lock has 1.14.1), not by this change. Listed here for the record. |
+| bandit | 1.12.5 | 14 advisories (HTTP/2 flow control, request smuggling via chunk extensions, 1-byte DATA frame amplification, HPACK cookie crumbs, WebSocket fragments, ...), 11 high, 3 medium (counted from `mix hex.audit` output) | **high** | **Resolved by T-1740** (lock has 1.14.1), not by this change. Listed here for the record. |
 | ecto | 3.14.1 | EEF-CVE-2026-118391 unbounded query cache growth from interpolated JSON paths and splice lists | high | **Not bumped**: 3.14.3 makes every `:all` query emit `WHERE (TRUE)`, which fails `Letflow.Entities.QueryScopeTest` (T-C1 and T-C5, pre-change SQL equality). Needs its own task: adapt the query-scope pins or the compile, then bump. |
 | jose | 1.11.12 | EEF-CVE-2026-65625..65632 (8, one high: 65629) | high | Bumped to 1.11.13 (patch). |
 | decimal | 3.1.1 | EEF-CVE-2026-97853 unbounded allocation in `Decimal.round/3` (places argument) | medium | Bumped to 3.2.0 (minor). |
