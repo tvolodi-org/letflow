@@ -269,13 +269,18 @@ defmodule Letflow.Routers.PlatformModuleRolloutsTest do
     end
 
     test "P2 exactly page_size rows: last page has a nil next_cursor", ctx do
-      assert counts() == {0, 0}
       seed_at!(4)
-      {200, p1} = get_json(ctx, "?page_size=2")
-      assert length(p1["rollouts"]) == 2
+      {total, _} = counts()
+      assert total >= 4 and total < 200
+      {200, whole} = get_json(ctx, "?page_size=#{total}")
+      assert length(whole["rollouts"]) == total
+      assert whole["next_cursor"] == nil
+
+      {200, p1} = get_json(ctx, "?page_size=#{total - 1}")
+      assert length(p1["rollouts"]) == total - 1
       assert is_binary(p1["next_cursor"])
-      {200, p2} = get_json(ctx, "?page_size=2&cursor=" <> p1["next_cursor"])
-      assert length(p2["rollouts"]) == 2
+      {200, p2} = get_json(ctx, "?page_size=#{total - 1}&cursor=" <> p1["next_cursor"])
+      assert length(p2["rollouts"]) == 1
       assert p2["next_cursor"] == nil
     end
 
