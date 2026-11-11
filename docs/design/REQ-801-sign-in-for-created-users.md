@@ -9,7 +9,7 @@ Read on the T-1667 worktree (cut from origin/main, head 723f95a90) on 2026-11-11
 | Fact | Where it was read | What the code says |
 |---|---|---|
 | `create_changeset/2` sets `auth_source` to `:internal` and `password_hash` to the sentinel `"__NO_PASSWORD_SET__"`; neither is accepted from the caller. | `lib/letflow/identity/user.ex`, `Letflow.Identity.User.create_changeset/2` | Casts only username, display_name, email, status. The row has no `external_realm` / `external_id`. |
-| The xlsx users import creates its users through `Letflow.Identity.create_user/2`. | `lib/letflow/identity/user_import.ex` (`grep -n "create_user"` finds the call); `lib/letflow/identity.ex`, `create_user/2` | Same path as the Users screen. |
+| The xlsx users import creates its users through `Letflow.Identity.create_user/2`. | `lib/letflow/routers/identity/users_import.ex` (`create!` calls `Identity.create_user(attrs, opts)`, line 123; `grep -n "create_user"` finds it); `lib/letflow/identity/user_import.ex` (moduledoc states the same); `lib/letflow/identity.ex`, `create_user/2` | Same path as the Users screen. |
 | The reset-password route refuses a user whose `auth_source` is not `:oidc`, with reason text `no_identity_provider_login` (HTTP 409). | `lib/letflow/routers/identity.ex`, `do_reset_password/3` | Order of checks: `user_inactive`, then `no_identity_provider_login`, then `no_email`. |
 | `create_user/2` does write a login-directory entry for the new user. | `lib/letflow/identity.ex`, `create_user/2` and `directory_step/4`; `lib/letflow/login_directory.ex`, `plan_user_change/2` and `upsert_entry/2` | An active user with a valid e-mail gets `{:upsert, email}`; the write is in the same transaction. With `login_directory: :skip` in opts nothing is written. So the e-mail-first screen can already find the tenant for such a person. |
 | No code path on origin/main creates a Keycloak account for such a user. | grep below | See below. |
@@ -75,6 +75,8 @@ The reset-password button (REQ-789) and the pilot runbook line "imported users b
 - `lib/letflow/identity.ex`
 - `lib/letflow/identity/user_import.ex`
 - `lib/letflow/routers/identity.ex`
+- `lib/letflow/routers/identity/users_import.ex`
+- `lib/letflow/tenant_provisioning.ex`
 - `lib/letflow/login_directory.ex`
 - `lib/letflow/plugs/auth_pipeline.ex`
 - `lib/letflow/signup/realm_provisioner.ex`
