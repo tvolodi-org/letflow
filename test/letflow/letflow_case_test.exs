@@ -12,9 +12,8 @@ defmodule Letflow.LetflowCaseTest do
   alias Letflow.LetflowCase
 
   @root Path.expand("../..", __DIR__)
-  @docs_dir hd(~w(docs))
-  @marker Path.join(@docs_dir, hd(~w(requirements.yaml)))
-  @roles Path.join(@docs_dir, hd(~w(roles.md)))
+  @marker "docs/requirements.yaml"
+  @roles "docs/roles.md"
 
   describe "default root" do
     test "R1 unset, empty and blank resolve to the in-tree repo root" do
@@ -52,14 +51,14 @@ defmodule Letflow.LetflowCaseTest do
 
     @tag :tmp_dir
     test "C3 a directory without the marker fails", %{tmp_dir: dir} do
-      File.mkdir_p!(Path.join(dir, @docs_dir))
+      File.mkdir_p!(Path.join(dir, "docs"))
       assert {:error, msg} = LetflowCase.check(dir)
       assert msg =~ @marker
     end
 
     @tag :tmp_dir
     test "C4 a directory with a non-empty marker passes", %{tmp_dir: dir} do
-      File.mkdir_p!(Path.join(dir, @docs_dir))
+      File.mkdir_p!(Path.join(dir, "docs"))
       File.write!(Path.join(dir, @marker), "x: 1\n")
       assert LetflowCase.check(dir) == :ok
     end
@@ -88,7 +87,7 @@ defmodule Letflow.LetflowCaseTest do
 
     @tag :tmp_dir
     test "C7 an empty marker fails", %{tmp_dir: dir} do
-      File.mkdir_p!(Path.join(dir, @docs_dir))
+      File.mkdir_p!(Path.join(dir, "docs"))
       File.write!(Path.join(dir, @marker), "")
       assert {:error, msg} = LetflowCase.check(dir)
       assert msg =~ "empty"
