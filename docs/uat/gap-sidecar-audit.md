@@ -4,8 +4,8 @@ Source: `docs/uat/ba-decisions/T-1665.md` item 9. Read-only audit of the files i
 `test/fixtures/uat/scenario-env-limitations/` on main at `723f95a90`. Nothing is deleted or edited here;
 closable sidecars are removed in a follow-up task (each needs its scenario written or re-run first).
 
-`ls test/fixtures/uat/scenario-env-limitations | wc -l` printed 35 (the note counted 32 after B6#7 removed three
-and a later pass added `provisioning-8` and `tenant-administration-78`). All 35 are listed. The one that B6#7 and
+`ls test/fixtures/uat/scenario-env-limitations | wc -l` printed 35 (T-1665 cited 32, which does not match the 35
+files present; B6#7 deleted two and modified one). All 35 are listed. The one that B6#7 and
 T-1648 already updated (`platform-runtime-updates-3`) is marked "already reviewed".
 
 Method: for each file I read `classification`, `reason`, `review` and checked the stated blocker against main
@@ -18,7 +18,7 @@ Verdicts: **blocked** (the stated blocker still holds), **closable** (the blocke
 ## Checks run
 
 * Roster: `grep -in "storekeeper\|PROCESS_DESIGNER" test/fixtures/uat/actors.yaml` finds only a comment (line 186);
-  `grep -c TENANT_ADMIN` gives 5 (one per company, no second administrator); one `CANDIDATE` actor (line 138).
+  `builtin_roles` entries show two TENANT_ADMIN actors (swiftroute-alice, bilimbaga-admin), no second SwiftRoute administrator; one `CANDIDATE` actor (line 138).
 * Exam notification switch: `grep -rn exam_notifications_enabled config lib` gives `false` in `config/config.exs:188`.
 * Exam assignment route: `grep -n assign lib/letflow/modules/exam/router.ex` finds only `conn.assigns` and the
   `not_assigned` refusal; no route writes an assignment (REQ-582 open question 3 still open).
@@ -37,7 +37,7 @@ Verdicts: **blocked** (the stated blocker still holds), **closable** (the blocke
 | 3 | bilimbaga-exam-analytics-6-scoped-caller-empty-result | GAP | #3350 | blocked | No roster actor with a limited access scope. |
 | 4 | bilimbaga-exam-assignment-2-targeted-assignments | ENV_NOT_SUPPORTED | #3307 | blocked | No assignment write route (checked), one candidate. |
 | 5 | bilimbaga-exam-assignment-3-refusal-text-and-other-company | ENV_NOT_SUPPORTED | #3307 | blocked | Same route gap; no second exam tenant. |
-| 6 | bilimbaga-exam-grading-2-mark-and-session-finalisation | GAP | #3324 | permanent | Two overlapping requests cannot be made by a UAT actor; the row lock stays a backend test. The audit-trail half is blocked on a readable audit screen. |
+| 6 | bilimbaga-exam-grading-2-mark-and-session-finalisation | GAP | #3324 | blocked | The audit-trail half is blocked on a readable audit screen (the sidecar's `review` names it). Permanent part: two overlapping requests cannot be made by a UAT actor, so the row lock stays a backend test. |
 | 7 | bilimbaga-exam-grading-4-access-candidate-refused | GAP | #3324 | blocked | No per-role Bilimbaga actors, no unauthenticated actor. |
 | 8 | bilimbaga-exam-grading-6-examiner-screen | GAP | #3323 | blocked | Needs a setup that prepares 26 or more waiting answers next to the 3-answer queue. |
 | 9 | bilimbaga-exam-notifications-2-result-message-on-submit | ENV_NOT_SUPPORTED | #3363 | blocked | Switch still `false` in shipped config (checked); no per-tenant switch. |
@@ -57,9 +57,9 @@ Verdicts: **blocked** (the stated blocker still holds), **closable** (the blocke
 | 23 | platform-tenant-switch-cache-isolation | ENV_NOT_SUPPORTED | ISS-0901 | blocked | Needs an HTTP write path for `tenant_memberships`; none found. |
 | 24 | provisioning-8-signup-verify-to-tenant-created | GAP | T-1625 | blocked | Needs a mailbox the UAT runner can read (owner or infra). |
 | 25 | swiftroute-first-login-administrator-binding | ENV_NOT_SUPPORTED | (none) | permanent | The condition (open grant, unverified address) can never become true in the seeded company. |
-| 26 | swiftroute-tenant-onboarding-happy | ENV_NOT_SUPPORTED | ISS-0895 | permanent | The slug stays registered on QA (tenants are deactivate-only); unless a disposable QA lane exists. |
+| 26 | swiftroute-tenant-onboarding-happy | ENV_NOT_SUPPORTED | ISS-0895 | permanent | The slug stays reserved on QA because `TenantPurge` keeps the `tenants` and `tenant_lifecycles` rows (`lib/letflow/tenant_purge.ex`) even though `POST /:slug/purge` and `TenantProvisioner.delete` exist; the sidecar's own text (deactivate-only) is outdated. Unless a disposable QA lane exists. |
 | 27 | tenant-administration-16-integration-mapping-mapped-outbound-delivery | UNBUILT_FEATURE | #3201 | blocked | `Webhooks.deliver/3` still has no production caller (checked). |
-| 28 | tenant-administration-31-print-override-second-administrator-activation-and-audit | ENV_NOT_SUPPORTED | #3289 | blocked | Needs an owner-approved second SwiftRoute administrator (roster has 5 TENANT_ADMIN, one per company). |
+| 28 | tenant-administration-31-print-override-second-administrator-activation-and-audit | ENV_NOT_SUPPORTED | #3289 | blocked | Needs an owner-approved second SwiftRoute administrator (roster has two TENANT_ADMIN actors: swiftroute-alice, bilimbaga-admin). |
 | 29 | tenant-administration-53-notification-delivery-assign-sends-and-logs | GAP | #3310 | permanent | Needs a failing mail adapter or direct DB writes; backend tests cover the rest. |
 | 30 | tenant-administration-59-print-templates-screen-second-administrator-activates-and-retires | ENV_NOT_SUPPORTED | #3436 | blocked | Same second-administrator need as row 28. |
 | 31 | tenant-administration-65-solution-pack-override-closed-list-and-reason-refusals | GAP | #3353 | **closable** | `review` says "revisit when a shipped module declares a settings schema": `assets` (`assets.ex:192`, pack `modules/assets/pack.json`, built in #3929) and `stock` now do. Follow-up: write the accepted and undeclared-key steps against assets, run, then remove. Confirm first that the QA company has assets installed. |
@@ -71,13 +71,13 @@ Verdicts: **blocked** (the stated blocker still holds), **closable** (the blocke
 ## Totals
 
 * closable now: 1 (row 31).
-* permanent: 8 (rows 6, 16, 17, 18, 25, 26, 29, 32).
-* still blocked: 26 (the rest; most wait on a roster addition, a second exam tenant, an assignment route, the
+* permanent: 7 (rows 16, 17, 18, 25, 26, 29, 32).
+* still blocked: 27 (the rest, including row 6; most wait on a roster addition, a second exam tenant, an assignment route, the
   exam notification switch, or a mailbox, all owner or infra decisions).
 
 ## Reading notes
 
-* Rows 6 and 26 are "permanent" with a condition in the line; if the condition changes the verdict moves to blocked.
+* Row 26 is "permanent" with a condition in the line; if the condition changes the verdict moves to blocked. Row 6 is blocked (audit screen) with a permanent row-lock limitation inside the line.
 * Row 31 is the only removal the audit proves. Removing it needs a scenario run, so it is a follow-up task, not this one.
 * Several groups share one unblocker, worth one owner decision each: a second bilimbaga candidate and an
   exam-tenant auditor/worker (rows 1, 2, 7, 14); an exam assignment route (rows 4, 5, 10, 13); the exam
