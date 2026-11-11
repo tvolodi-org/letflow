@@ -436,9 +436,81 @@ defmodule Letflow.ModuleUpgrade.FleetTest do
       assert Fleet.status(Ecto.UUID.generate()) == {:error, :not_found}
 
       assert %{counts: %{"succeeded" => 1}} =
-               Enum.find(Fleet.list(), &(&1.rollout.id == started.rollout.id))
+               Enum.find(
+                 Fleet.list(%{page_size: 50, after: nil}).items,
+                 &(&1.rollout.id == started.rollout.id)
+               )
 
       assert Fleet.status(started.rollout.id) == {:ok, started}
+    end
+  end
+
+  describe "list paging (REQ-813 L1..L3)" do
+    defp page_rollout!(started_at) do
+      Repo.insert!(%Rollout{
+        module_id: "req813-" <> Ecto.UUID.generate(),
+        to_version: "9.9.9",
+        status: "completed",
+        halt_after: 3,
+        started_by: Ecto.UUID.generate(),
+        started_at: started_at
+      })
+    end
+
+    setup do
+      Letflow.Test.SandboxAutoMode.enter_auto_mode!(Repo)
+
+      made =
+        Enum.map(
+          [~N[2031-01-01 10:00:00], ~N[2031-01-01 10:00:00], ~N[2031-01-01 09:00:00]],
+          &page_rollout!/1
+        )
+
+      ids = Enum.map(made, & &1.id)
+
+      on_exit(fn ->
+        Letflow.Test.SandboxAutoMode.enter_auto_mode!(Repo)
+        Repo.delete_all(from(r in Rollout, where: r.id in ^ids))
+      end)
+
+      {:ok, made: made}
+    end
+
+    test "L1 newest page, next is the last item's key only when more rows exist", %{made: made} do
+      %{items: [first | _] = items, next: next} = Fleet.list(%{page_size: 1, after: nil})
+      assert length(items) == 1
+      assert first.rollout.id in Enum.map(made, & &1.id)
+      assert next == {first.rollout.started_at, first.rollout.id}
+
+      %{items: all, next: nil} = Fleet.list(%{page_size: 200, after: nil})
+      assert length(all) >= 3
+    end
+
+    test "L2 after returns only strictly-later rows, including same started_at with smaller id",
+         %{made: made} do
+      same =
+        made
+        |> Enum.filter(&(&1.started_at == ~N[2031-01-01 10:00:00]))
+        |> Enum.sort_by(& &1.id, :desc)
+
+      [hi, lo] = same
+      %{items: items} = Fleet.list(%{page_size: 200, after: {hi.started_at, hi.id}})
+      ids = Enum.map(items, & &1.rollout.id)
+      refute hi.id in ids
+      assert lo.id in ids
+      assert Enum.at(ids, 0) == lo.id
+    end
+
+    test "L3 counts equal the per-status outcome counts", %{made: [r | _]} do
+      t = tenants!(2)
+
+      for {tenant, status} <- Enum.zip(t, ["failed", "succeeded"]) do
+        Repo.insert!(%Outcome{rollout_id: r.id, tenant_id: tenant.tenant_id, status: status})
+      end
+
+      %{items: items} = Fleet.list(%{page_size: 200, after: nil})
+      entry = Enum.find(items, &(&1.rollout.id == r.id))
+      assert entry.counts == %{"failed" => 1, "succeeded" => 1}
     end
   end
 
