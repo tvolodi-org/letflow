@@ -6,7 +6,7 @@ defmodule Letflow.Signup do
   the link marks the request `verified` and reserves a `tenant_id`. Nothing is created in `tenants` or
   `tenant_lifecycles` here. From `ready_for_provisioning`, T-1593 (SL2b part a) asks infra's provisioner
   for the realm and first admin and mails the one-time credential (`Letflow.Signup.Provisioning`); the
-  Letflow tenant is then created in-process (T-1679, part 1a, step `tenant_created`; the welcome mail is 1b). Everything sits behind `LETFLOW_SIGNUP_ENABLED` (default off,
+  Letflow tenant is then created in-process (T-1679, part 1a, step `tenant_created`; then the welcome mail, T-1685, and the row is `completed`). Everything sits behind `LETFLOW_SIGNUP_ENABLED` (default off,
   see `Letflow.Routers.Signup`).
 
   ## Saga
@@ -143,7 +143,7 @@ defmodule Letflow.Signup do
             from(r in Request,
               where:
                 r.token_hash == ^hash and
-                  r.state in ["pending_verification", "verified", "provisioning"],
+                  r.state in ["pending_verification", "verified", "provisioning", "completed"],
               lock: "FOR UPDATE"
             )
           )
@@ -173,6 +173,8 @@ defmodule Letflow.Signup do
 
   defp verify_row(%Request{state: "verified"}, _now), do: :ok
   defp verify_row(%Request{state: "provisioning"}, _now), do: :ok
+  # T-1685: a repeat of the link after the row completed is the same 200 and starts nothing.
+  defp verify_row(%Request{state: "completed"}, _now), do: :ok
 
   defp verify_row(%Request{state: "pending_verification"} = request, now) do
     request

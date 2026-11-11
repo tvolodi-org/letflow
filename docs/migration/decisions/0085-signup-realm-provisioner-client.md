@@ -48,14 +48,21 @@ Part b (in-process `TenantProvisioner.create/1`, default modules, welcome mail) 
   provisioner credential and no `auth_context`; INV-10 holds because the only callers are the server-side saga on a row the server
   created with a server-generated `tenant_id`, and the admin routes. Demo cap, budgets and default-modules install apply unchanged
   (0072 D3: one call to Letflow's own create path). The step is `tenant_created`; the state stays `provisioning` until the welcome
-  mail (1b). Failure codes: `tenant_internal` (retryable), `tenant_conflict`, `invalid_tenant`, `demo_cap_reached`, `source_budget`,
+  mail (D10). Failure codes: `tenant_internal` (retryable), `tenant_conflict`, `invalid_tenant`, `demo_cap_reached`, `source_budget`,
   `email_domain_budget`. Resume restarts at `credential_sent` when `credential_sent_at` is set, so the mail is never repeated.
+- **D10 Welcome mail (T-1685, part 1b).** After the tenant create (or from a row stopped at `tenant_created`) the saga sends one
+  welcome mail through `Mailer.deliver_now/1`, in the person's language (ru/kk/en, unknown -> en), with the link
+  `https://<label>.<hostname_domain>/?realm=<t-32hex slug>` (same host helper as the create; a UAT assumption, T-1567 Q4 option a, to be
+  confirmed by the process owner). On success the row becomes `completed`/`completed`; a completed row is never claimed, so no second
+  welcome. A mail failure is the retryable code `welcome_mail_failed`: the tenant stays, and `mix letflow.signup.resume` restarts at
+  `credential_sent`, replays the create (a no-op) and sends the welcome; the credential mail is not repeated. No demo-end date or contact
+  address (no source yet); the completed row keeps the e-mail (retention is the sweep's job). Still behind the flag (default off).
 
 ## Residuals
 
 1. The temporary password is lost if the process dies between the 201 and the mail, and infra has no re-issue endpoint:
    the fallback is the hint mail. **Verify `resetPasswordAllowed: true` in infra's template before enabling on QA.**
-2. The credential mail precedes the Letflow tenant. Part b (create) is done in T-1679 (D9); the welcome mail is slice 1b.
+2. The credential mail precedes the Letflow tenant. Part b (create) is done in T-1679 (D9); the welcome mail is done in T-1685 (D10).
    Between the two mails a failed create leaves a realm login that leads nowhere until `mix letflow.signup.resume`. Accepted for QA.
 3. The mail is clear text through the QA relay; the forced password change is the mitigation.
 4. A response shape for `GET /v1/realms/{tenant_id}` is assumed equal to the create response (infra README read only).
