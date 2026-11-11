@@ -89,3 +89,18 @@ export function useSendPasswordResetInstructions(userId: string) {
     mutationFn: () => usersApi.sendPasswordResetInstructions(userId),
   })
 }
+
+/** REQ-809: creates the sign-in of an internal user. The temporary password in the answer is never cached:
+ *  callers copy it into component state in their own `onSuccess` and call `reset()` at once; `gcTime: 0` is a second belt. */
+export function useCreateUserSignIn() {
+  const queryClient = useQueryClient()
+  const adminKeys = useTenantScopedQueryKeys().admin
+  return useMutation({
+    mutationFn: (id: string) => usersApi.createSignIn(id),
+    gcTime: 0,
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: adminKeys.userDetail(id) })
+      queryClient.invalidateQueries({ queryKey: adminKeys.users() })
+    },
+  })
+}
