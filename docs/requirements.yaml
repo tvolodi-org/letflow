@@ -54523,6 +54523,156 @@ requirements:
       - "5. A unit test of the import result with a mocked answer carrying one created and one refused sign_in shows the password for the first row and the reason text for the second; an answer without sign_in shows no new column."
       - "6. The shots folder holds the design-system matrix (1440 and 390, light and dark, en and ru, kk for long labels) for the user page action, the password panel, a refusal text and the import result column, with a state table."
     depends_on: [REQ-807, REQ-808]
+  - id: REQ-810
+    title: "PWA stays signed in for 30 days behind a six-digit PIN: encrypted refresh token in browser storage, 30-day limit, unlock, wrong-PIN limit, sign-out and lost-device rules, behind a build flag that is off by default"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S9
+    gh: 4234
+    # Source: task T-1698 (operator, D-086 and D-118); owner decision D-118 point (2) in the portfolio DECISIONS.md, 2026-11-11 ("the PWA keeps users signed in 30 days with a PIN or biometric unlock"); docs/uat/ba-decisions/T-1665.md item 7 ("should the PWA keep the sign-in across a closed page? ... a security posture choice; security review"); docs/mobile/pwa-parity.md gap 1 ("on the PWA the storekeeper is sent through the identity provider again after the page is closed", daily). Files read on origin/main 0715caa7b, every one present there: apps/mobile/lib/auth/auth.dart (TenantTokenStore.production picks MemoryKv tokens on web; productionSecureStorage; kOidcScopes is openid, profile, email); apps/mobile/lib/auth/web_app_auth_adapter.dart (WebAppAuthAdapter, authorizeAndExchangeCode, refresh with grant_type refresh_token); apps/mobile/lib/auth/web_pointer_kv.dart; apps/mobile/lib/bootstrap/navigation_bootstrap.dart (webMode, attemptSessionResume restarts sign-in on web when no tokens are found, logout, switchTenant); apps/mobile/README.md section "Web sign-in (M2)" ("Token storage decision (web): tokens are kept in memory only", with its reason that every browser store is readable by any script on the origin); docs/runbooks/mobile-web-pwa-signin.md (the letflow-mobile client of a tenant realm that serves the PWA is set up by hand by infra; "Behaviour to know": logout does not end the Keycloak SSO session); docs/runbooks/mobile-web-pwa-ready-check.md (device pass; "saved data may be cleared after 7 days unused if not installed" on iOS); priv/keycloak/provisioner/v2/tenant-realm.json and priv/keycloak/realms/bpm-default.json (no token or session lifetime key is set in either; the tenant template has no letflow-mobile client); docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md D1 ("Letflow holds no Keycloak admin credential and gets no admin client") and its first-administrator row ("No Keycloak admin rights"); docs/mobile/requirements.md MOB-5 (tokens never in plain preferences, never in logs); docker-compose.yml (Keycloak image 26.2). Written by the business analyst (T-1698) 2026-11-11. Not yet validated.
+    description: >
+      Why: the owner decided (D-118 point 2) that the PWA keeps users signed in for 30 days with a PIN or biometric
+      unlock. Today the web build of apps/mobile keeps every token in memory only (TenantTokenStore.production in
+      apps/mobile/lib/auth/auth.dart; apps/mobile/README.md, "Web sign-in (M2)"), so after the page is closed the
+      storekeeper goes through the identity provider again (docs/mobile/pwa-parity.md gap 1, daily use). This entry is
+      the PIN half and the whole session lifecycle; the biometric unlock is REQ-811, which builds on this one.
+      The rules, each decided here for the later build:
+      Flag. A compile-time flag LETFLOW_PWA_KEEP_SIGNED_IN (planned, not yet on main), read with
+      bool.fromEnvironment and false by default. With the flag false the web build behaves exactly as on origin/main
+      (memory-only tokens), and a stored session record found at start is deleted unread. The native build ignores
+      the flag and does not change.
+      Opt-in. After a full sign-in on the web build with the flag true, the app offers "stay signed in on this device
+      for 30 days". Accepting asks for a PIN of exactly six digits, entered twice; declining keeps today's behaviour for
+      this sign-in. The offer is made again after the next full sign-in while no record is stored. Nothing is stored
+      without the user's acceptance (a shared device stays memory-only unless someone chooses otherwise).
+      Storage. One session record at most per browser origin, in IndexedDB, holding only: the realm URL and tenant slug
+      of the signed-in tenant, the refresh token encrypted with AES-GCM under a random 256-bit data key, that data key
+      wrapped (AES-GCM) under a key derived from the PIN with PBKDF2-SHA-256, the PBKDF2 salt (16 random bytes) and
+      iteration count, the time of the full sign-in (UTC), and the count of consecutive wrong PIN entries. The access
+      token and the ID token stay in memory only, as today. No token, PIN, derived key or data key is written in clear
+      to any browser store, and none reaches a log, a print or an error text (MOB-5). Encryption uses the browser's
+      WebCrypto (crypto.subtle) behind a small Dart interface, so the lifecycle logic is tested with a fake under
+      flutter test; no new package. The real WebCrypto implementation gets its own known-answer test file, marked
+      @TestOn('browser') so the plain flutter test run skips it, and run in Chrome by a new step of the mobile job of
+      .github/workflows/ci.yml (criterion 4); the device pass is an end-to-end check only and proves no crypto
+      parameter. The data key is wrapped, not derived, so that REQ-811 can add a second wrapping
+      under a biometric key without re-encrypting the token.
+      Lifetime. The web build asks for the offline_access scope in addition to kOidcScopes, so the identity provider
+      issues an offline refresh token. 30 days count from the full sign-in, not from the last use: a refresh does not
+      move the stored sign-in time, and at an unlock 30 days or more after it the record is deleted and a full sign-in
+      follows. The identity provider enforces the same limit on its side: docs/runbooks/mobile-web-pwa-signin.md gains
+      the infra step that sets the offline session maximum of the realm's letflow-mobile client to 30 days.
+      Unlock. When the PWA page opens with a record stored, it shows a PIN screen before any tenant data. A correct PIN
+      (the data key unwraps) is followed by one refresh call; its new refresh token replaces the stored one under the
+      same data key, and the wrong-PIN count goes back to 0. A wrong PIN adds 1 to the stored count (it survives a
+      reload); at the 5th wrong PIN in a row the record is deleted and the user goes to a full sign-in. The PIN screen
+      has a "sign in again" action that deletes the record and starts a full sign-in. A refresh answered with
+      invalid_grant (revoked, expired, user disabled) deletes the record and starts a full sign-in with a plain message.
+      A refresh that cannot reach the network keeps the record and says that there is no connection, with a retry;
+      the app does not open tenant data without a fresh access token (opening offline from the cache, parity gap 3, is
+      not decided here).
+      Sign-out and tenant switch. Sign-out (logout in navigation_bootstrap.dart) deletes the record and asks the realm's
+      revocation endpoint (from its OIDC discovery document) to revoke the refresh token, as the public client
+      letflow-mobile; the local delete happens even when the revocation fails, and a failed revocation is shown in one
+      plain line. A tenant switch does the same for the previous tenant before the new sign-in. Ending the Keycloak SSO
+      session at sign-out stays the open follow-up the runbook already names; this entry does not change it.
+      Lost or stolen device. Letflow cannot revoke a session in the identity provider (decision 0072 D1: no Keycloak
+      admin client) and a tenant's first administrator has no Keycloak admin rights (0072, first-administrator row). So
+      the runbook gains a "Lost or stolen device" section: the user tells the operator, and the operator, who holds
+      realm admin, revokes that user's offline sessions in the tenant realm in the Keycloak admin console; the next
+      unlock on the lost device then gets invalid_grant and deletes the record. The remaining limits on a lost device
+      are the PIN, the 5-attempt limit and the 30-day maximum.
+      Residual risks, written into the README for the security review: the wrong-PIN count is kept in the browser, so
+      someone who copies the browser's storage can try PINs offline without the limit; a six-digit PIN under PBKDF2
+      slows such a search but does not stop it; while the app is unlocked the refresh token is in memory and a script
+      running on the PWA origin can read it, as today; iOS Safari may delete the stored record after 7 days without
+      use when the PWA is not installed to the home screen (docs/runbooks/mobile-web-pwa-ready-check.md), so the 30 days
+      hold only for an installed PWA there.
+      ONE change: apps/mobile (lib/ and test/), apps/mobile/README.md section "Web sign-in (M2)" and the matching
+      storage bullet, docs/runbooks/mobile-web-pwa-signin.md, docs/runbooks/mobile-web-pwa-ready-check.md, and one new
+      step in the mobile job of .github/workflows/ci.yml. No backend, web/, realm template or other file changes.
+      The flag stays off on every deployed build; turning it on for QA is a separate operator step after merge.
+      UAT assumptions, to be confirmed by the process owner (only the 30 days and "PIN or biometric" are the owner's):
+      six digits, 5 wrong PINs, 30 days counted from the full sign-in rather than from the last use, opt-in per sign-in,
+      and the PBKDF2 iteration count of criterion 4.
+    acceptance_criteria:
+      - "1. Flag off: with LETFLOW_PWA_KEEP_SIGNED_IN unset (the default), a flutter test of the web-mode bootstrap shows that no session record is written after a full sign-in, that attemptSessionResume restarts sign-in exactly as on origin/main when the page opens with only the tenant pointer stored, and that a session record present at start is deleted without being read. The existing tests test/auth/tenant_token_store_test.dart and test/auth/web_app_auth_adapter_test.dart pass unchanged."
+      - "2. Opt-in: with the flag true, a widget test shows that after a full sign-in the offer to stay signed in is shown; declining stores no record; accepting asks for six digits twice; a PIN with fewer or more than six characters, a character other than 0-9, or a second entry that differs is refused with a message and stores nothing; two matching entries store exactly one record."
+      - "3. Record content: a flutter test reads the raw stored record of criterion 2 through the fake store and shows that it holds the realm URL, the tenant slug, the encrypted refresh token, the wrapped data key, the salt, the iteration count, the sign-in time and the wrong-PIN count, and nothing else; that neither the refresh token, the access token, the ID token, the PIN nor any key appears in clear in it; and that the access token and ID token are not in any browser store."
+      - "4. Crypto parameters, proven on the real WebCrypto in a browser: a test file under apps/mobile/test/ marked @TestOn('browser') (skipped by the plain flutter test run) exercises the real crypto.subtle implementation, not the fake, and a new step of the mobile job of .github/workflows/ci.yml, after the existing Test step, runs it with flutter test --platform chrome <that file> (the ubuntu-24.04 runner image ships Google Chrome; if the step cannot find Chrome it fails, it is never skipped). The file shows (a) PBKDF2-SHA-256: the implementation's derive function, given the PIN 123456, the salt of the 16 bytes 0x00 to 0x0f and 600000 iterations, returns the 32-byte value written in the test as a hex constant, with the comment giving the command that produced it from an independent implementation (python3 hashlib.pbkdf2_hmac('sha256', ...)); (b) a record created by the implementation stores the iteration count 600000 (the PBKDF2-HMAC-SHA256 value of the OWASP Password Storage Cheat Sheet; UAT assumption) and a 16-byte salt, two records made with the same PIN have different salts, the same PIN unwraps the data key, and the same record with its stored iteration count changed to 599999 does not unwrap; (c) AES-GCM-256 with a 128-bit tag: the implementation's decrypt, given the 256-bit key, 96-bit IV, ciphertext and tag of test case 15 of The Galois/Counter Mode of Operation (McGrew and Viega), returns that test case's plaintext; (d) fresh IVs: encrypting the same plaintext twice under the same key gives two different 12-byte IVs and two different ciphertexts, each stored as IV, then ciphertext with tag; (e) random data key: the data keys unwrapped from two separately created records are each 32 bytes and differ. The lifecycle tests of criteria 2 to 9 run against the fake, and a VM test asserts that the lifecycle code passes the parameters of (b) to the interface."
+      - "5. Lifetime: the web build's authorization request carries the scope offline_access in addition to openid, profile and email (a test on the request WebAppAuthAdapter builds), and the native build's scopes stay kOidcScopes unchanged. With a fake clock, an unlock 29 days and 23 hours after the full sign-in refreshes, while an unlock 30 days or more after it deletes the record and starts a full sign-in without any refresh call; a successful refresh replaces the stored refresh token and leaves the stored sign-in time unchanged."
+      - "6. Unlock: with a record stored, opening the page shows the PIN screen and no tenant data. A correct PIN leads to one refresh call and the signed-in state, and sets the wrong-PIN count to 0. Each wrong PIN raises the stored count by 1, and the count survives a restart of the bootstrap over the same store. The 5th wrong PIN in a row deletes the record and shows the sign-in entry; the 4th does not. The \"sign in again\" action deletes the record and starts a full sign-in."
+      - "7. Refresh failures: a refresh answered with invalid_grant deletes the record and shows the sign-in entry with a plain message; a refresh that fails with a network error keeps the record, keeps the wrong-PIN count at 0 after a correct PIN, shows a no-connection message with a retry, and shows no tenant data. Each case has a flutter test."
+      - "8. Sign-out and tenant switch: a flutter test shows that logout deletes the record and sends one revocation request for the stored refresh token to the revocation_endpoint of the realm's discovery document with client_id letflow-mobile and token_type_hint refresh_token; that when that request fails the record is still deleted and the failure is shown; and that switchTenant does the same for the previous tenant before the new tenant's sign-in starts. After either, no record and no token of the previous tenant is left in any store."
+      - "9. No secret in logs: a test drives sign-in, opt-in, unlock, a wrong PIN, refresh and logout with debugPrint replaced by a capturing function (the log sink of apps/mobile/lib/api/api_client.dart defaults to debugPrint) and finds neither the refresh token, the access token, the PIN nor the data key in the captured output or in any error message shown on screen."
+      - "10. Docs: apps/mobile/README.md section \"Web sign-in (M2)\" states the storage rule with the flag off (memory only, unchanged) and with the flag on (the record of criterion 3, the 30 days, the PIN and 5-attempt rules), and lists the four residual risks of the description in words. docs/runbooks/mobile-web-pwa-signin.md gains (a) the infra step that limits the offline session of the letflow-mobile client of the realm to 30 days and makes offline_access available to that client, named by the setting names of the Keycloak admin console of Keycloak 26.2 (the image in docker-compose.yml), and (b) a section \"Lost or stolen device\" with the operator's step to revoke a user's offline sessions in the tenant realm, the statement that Letflow and the tenant's administrator cannot do it (decision 0072 D1 and its first-administrator row), and what the lost device does at its next unlock. Its \"Behaviour to know\" lines are updated to match the flag."
+      - "11. Device check: docs/runbooks/mobile-web-pwa-ready-check.md gains one item in its device pass and one line in \"Operator check steps (not run by the team)\": on a build with the flag on, sign in, accept, set a PIN, close the page, reopen it and unlock with the PIN without the identity provider's page; enter a wrong PIN five times and see the sign-in entry. It is an end-to-end check of a real device and is not cited as proof of any crypto parameter (criterion 4 is). The team does not run it."
+      - "12. Scope: `git diff origin/main...HEAD --stat` of the implementation change lists only files under apps/mobile/, the two runbooks docs/runbooks/mobile-web-pwa-signin.md and docs/runbooks/mobile-web-pwa-ready-check.md, and .github/workflows/ci.yml, whose diff adds only the browser test step of criterion 4 to the mobile job; `cd apps/mobile && flutter analyze` is clean, `flutter test` passes, and the browser test step of criterion 4 passes in CI."
+    depends_on: [REQ-797]
+  - id: REQ-811
+    title: "PWA device unlock through the browser's passkey prompt (fingerprint, face or the device's own screen lock, as the device decides) as a second way to open the 30-day session of REQ-810, with the PIN kept as the fallback; behind the same flag"
+    owner: MOBILE-DEV
+    status: pending
+    stage: S9
+    gh: 4233
+    # Source: task T-1698 (operator, D-086 and D-118); owner decision D-118 point (2) in the portfolio DECISIONS.md, 2026-11-11 ("with a PIN or biometric unlock"); REQ-810 (added by the same task, pending): its session record, wrapped data key and flag LETFLOW_PWA_KEEP_SIGNED_IN, none of them on origin/main yet. Files read on origin/main 0715caa7b: apps/mobile/lib/auth/auth.dart, apps/mobile/lib/auth/web_app_auth_adapter.dart, apps/mobile/pubspec.yaml (the web package is already a dependency), docs/runbooks/mobile-web-pwa-ready-check.md. Written by the business analyst (T-1698) 2026-11-11. Not yet validated.
+    description: >
+      Why: D-118 point 2 allows a PIN or a biometric unlock. REQ-810 builds the session record and the PIN; this entry
+      adds the biometric way, so that the storekeeper can open the PWA with a fingerprint or face instead of typing six
+      digits. A browser gives a web page biometrics only through WebAuthn (a passkey on the device's platform
+      authenticator) with user verification, so that is the one mechanism.
+      Capability limit, stated in the README: WebAuthn user verification is chosen by the device, not by the page. It
+      may be a fingerprint or face, but also the device's own PIN, pattern or password; a web page cannot require a
+      biometric. The screens therefore say "unlock with this device" and name fingerprint or face only as examples.
+      Offer, enrolment and the PRF check, in this order (the PRF result belongs to a created credential, so it can only
+      be checked after creation):
+      (1) With the flag of REQ-810 on, right after the PIN is set, the offer "unlock with this device" is shown only when
+      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable() answers true; otherwise nothing is offered and
+      the PIN alone stays.
+      (2) Accepting calls navigator.credentials.create once: platform authenticator, userVerification required, the
+      relying party id equal to the page's host, and the prf extension with an eval input of 32 random bytes.
+      (3) A cancelled or failed creation ends the enrolment: the record stays exactly as REQ-810 wrote it, with one
+      plain line that the PIN stays the way to unlock.
+      (4) If the creation's prf extension result does not report enabled true, the enrolment ends the same way, with the
+      plain line that this device cannot unlock this way. The created credential is left on the device (a web page
+      cannot delete it) and is never used.
+      (5) If enabled is true and the creation already returned the PRF output for the eval input, that output is used.
+      If enabled is true but no output came back (allowed by the WebAuthn PRF extension at creation), the app makes one
+      navigator.credentials.get call for that credential id, userVerification required, with the same eval input; the
+      device asks for verification a second time, and the screen says so before the call. If that call is cancelled,
+      fails, or returns no PRF output, the enrolment ends as in (4).
+      (6) Only with a 32-byte PRF output in hand, the output is turned into a 256-bit key with HKDF-SHA-256, and that key
+      wraps the same data key of REQ-810 a second time; the record gains the credential id, the PRF eval input and this
+      second wrapping, nothing else new. The PIN wrapping stays, so the PIN is always the fallback.
+      An enrolment that ended in (3) or (4) is not offered again for this record; the next full sign-in with a new record
+      offers it again.
+      Unlock: when the page opens with both wrappings stored, the app first asks the device to verify (get with the
+      stored credential id and eval input); a success unwraps the data key and continues exactly as a correct PIN does
+      in REQ-810 (refresh, wrong-PIN count to 0). A cancelled or failed verification shows the PIN screen; it does not
+      change the wrong-PIN count (the device limits its own verification attempts). Every rule of REQ-810 on the 30
+      days, invalid_grant, sign-out, tenant switch, lost device and the 5 wrong PINs applies unchanged and removes both
+      wrappings with the record. A WebAuthn credential cannot be deleted from the device by a web page; a stale one is
+      harmless because its wrapping is gone, and a new opt-in creates a new one.
+      Proof: the lifecycle runs against a fake WebAuthn interface under flutter test. The HKDF step runs on the real
+      WebCrypto in the browser test file of REQ-810 criterion 4 with a known answer. The WebAuthn calls themselves are
+      not tested automatically (the browser test has no authenticator); the device pass checks them end to end and is
+      the only check of them, said so in the README.
+      ONE change: apps/mobile (lib/ and test/), apps/mobile/README.md section "Web sign-in (M2)", and
+      docs/runbooks/mobile-web-pwa-ready-check.md. No backend or identity-provider change: WebAuthn here is local to the
+      device and is not a Keycloak sign-in method.
+      UAT assumption, to be confirmed by the process owner: the device unlock is offered once per record, after the PIN
+      is set, and the PIN cannot be skipped; a device verification that is the device's own PIN or pattern rather than a
+      fingerprint or face is accepted for UAT.
+    acceptance_criteria:
+      - "1. Offer: with the flag on, a widget test with a fake WebAuthn interface shows that after the PIN of REQ-810 is set the offer appears when the fake's isUserVerifyingPlatformAuthenticatorAvailable answers true and does not appear when it answers false; declining leaves the record byte for byte as REQ-810 writes it and makes no create call."
+      - "2. Enrolment sequence: a flutter test with the fake WebAuthn interface covers each branch of the description's steps (2) to (6): (a) accepting makes exactly one create call with userVerification required, a platform authenticator, the relying party id equal to the page's host and a prf eval input of 32 bytes; (b) a cancelled or failed create leaves the record byte for byte unchanged and shows the PIN-stays line; (c) a create whose prf result is not enabled true leaves the record unchanged, makes no get call and shows the cannot-unlock-this-way line; (d) a create with enabled true and a PRF output makes no get call and enrols; (e) a create with enabled true and no output makes exactly one get call for the new credential id with the same eval input and userVerification required, and enrols when it returns an output; (f) that get cancelled, failed or without output leaves the record unchanged and shows the cannot-unlock-this-way line; (g) after (b), (c) or (f) the offer is not shown again for the same record. In every enrolling case the record gains only the credential id, the eval input and the second wrapping of the same data key, and the PIN wrapping and the encrypted refresh token are byte for byte unchanged."
+      - "2a. HKDF on the real WebCrypto: the browser test file of REQ-810 criterion 4 gains a case showing that the implementation's HKDF-SHA-256 step, given the inputs of test case 1 of RFC 5869 (the SHA-256 case), returns that test case's OKM truncated to 32 bytes, and that a data key wrapped under a key derived from a fixed 32-byte input unwraps with the key derived again from the same input and not from a different one."
+      - "3. Unlock: with both wrappings stored, opening the page asks for the biometric first; a successful assertion leads to one refresh call and the signed-in state, as a correct PIN does; a cancelled or failed assertion shows the PIN screen and leaves the wrong-PIN count unchanged; a correct PIN after that still unlocks."
+      - "4. Lifecycle: a flutter test shows that the 30-day limit, an invalid_grant refresh, logout, switchTenant and the 5th wrong PIN each delete the record with both wrappings and the credential id, as REQ-810's criteria 5 to 8 require."
+      - "5. No secret in logs: the capturing-log test of REQ-810 criterion 9 is extended with a biometric enrolment and unlock and finds neither the PRF output nor the derived key in the output or on screen."
+      - "6. Docs: apps/mobile/README.md section \"Web sign-in (M2)\" states the device-unlock rule, that it is not offered where the browser reports no user-verifying platform authenticator and fails at enrolment where the credential has no PRF support, that the device and not the page chooses the verification (fingerprint, face or the device's own PIN or pattern), that the WebAuthn calls are checked only by the device pass, and that the PIN stays the fallback; docs/runbooks/mobile-web-pwa-ready-check.md gains one device-pass item (enrol, close, reopen, unlock with the biometric; cancel it and unlock with the PIN). The team does not run the device pass."
+      - "7. Scope: `git diff origin/main...HEAD --stat` of the implementation change lists only files under apps/mobile/ and docs/runbooks/mobile-web-pwa-ready-check.md; `cd apps/mobile && flutter analyze` is clean, `flutter test` passes, and the browser test step that REQ-810 criterion 4 adds to CI passes with the case of criterion 2a."
+    depends_on: [REQ-810]
   - id: REQ-812
     title: "Process designer slice 3C: \"waiting since\" on the page of one running instance (which recorded steps still wait, since when and for how long, from NODE_ENTERED events; web only)"
     owner: FRONTEND-DEV
@@ -54612,3 +54762,50 @@ requirements:
       - "7. The list stays read-only: the existing test \"R4 GET writes nothing\" passes, extended to a paged read with a cursor."
       - "8. Files changed are limited to lib/letflow/module_upgrade/fleet.ex, lib/letflow/routers/platform_module_rollouts.ex, their two test files and, if its rollout read needs the new answer, test/letflow/performance/new_reads_test.exs; no file under web/, priv/ or apps/ changes."
     depends_on: [REQ-787]
+  - id: REQ-814
+    title: "Reset-password mail throttle (finding F4-4): at most one instruction mail per user within a window of N minutes (a setting, default 5); a throttled request still answers 202 with the same body and writes nothing"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4246
+    # Source: task T-1714 (operator, D-086, D-118, D-119); docs/uat/ba-decisions/T-1695.md item 3 ("one pending delivery per user within a few minutes, answered 202 as before; the number of minutes is a setting with a stated default, not a rule"); finding F4-4 in docs/security/owasp-review/part-4-followup-new-routes.md (row RP-A04 and the Findings table: "Fix: one pending delivery per user per few minutes, answered 202"); REQ-788 (gh 4135), whose description lists "a per-user rate limit" as out of scope and an open question. Files read on origin/main: lib/letflow/routers/identity.ex (handle_reset_password/3, do_reset_password/3, request_password_reset/3, safe_insert_audit/2, start_reset_delivery/3, moduledoc route line for POST /users/:id/reset-password); lib/letflow/audit.ex (insert_entry/3 sets timestamp to DateTime.utc_now inside its own transaction; latest_matching/4); lib/letflow/audit/entry.ex (timestamp field); priv/repo/migrations/20260830020001_create_audit_entries_tenant_scoped.exs (BEFORE UPDATE and BEFORE DELETE triggers, so a test cannot age an entry); test/support/on_gate_fixture.ex (raw_entry!/2) and test/letflow/audit/latest_matching_test.exs (raw rows with chosen timestamps); lib/letflow/notifications.ex (start_delivery/5 writes its notification_deliveries row only after the send attempt, so the log cannot serve as the "pending" marker; rate_limited?/2 is the email-copy precedent of counting from the tenant's own rows); lib/letflow/signup.ex (submit/3 runs its caps under pg_advisory_xact_lock(hashtext(...)) in one transaction; config/0 merges Application.get_env defaults); test/letflow/routers/identity_reset_password_test.exs (R2 posts twice for one user and asserts two audit entries); test/fixtures/uat/scenarios/tenant-administration/password-reset-1-request-sends-instruction-mail.yaml and password-reset-3-user-page-button.yaml (both expect a second request to be recorded again). Written by the business analyst (T-1714) 2026-11-11. Not yet validated.
+    description: >
+      Today a tenant administrator, or a script holding an administrator token, can post
+      POST /identity/users/:id/reset-password (REQ-788, lib/letflow/routers/identity.ex) in a loop for one user, and every
+      request writes one audit entry "user.password_reset_requested" and starts one "password_reset_hint" mail through
+      Letflow.Notifications.start_delivery/5, so the user's inbox fills with the platform's mail (security finding F4-4,
+      docs/security/owasp-review/part-4-followup-new-routes.md). This change adds a per-user throttle to that route only.
+      Rule: when the user's latest audit entry with action "user.password_reset_requested" in the caller's tenant schema
+      (read with Letflow.Audit.latest_matching/4 on resource_type "user" and the user's id) has a timestamp later than
+      the current time minus N minutes, the request is throttled. A throttled request answers exactly as an accepted one
+      (202 with the JSON body {"status": "requested"}), writes no audit entry and starts no delivery. The answer stays
+      202 so that a caller cannot tell a throttled request from a sent one; the audit entry of the accepted request is
+      the record that a mail was asked for, and the throttled repeats change nothing. The audit entry, not the
+      notification_deliveries row, is the marker of a pending delivery, because start_delivery/5 writes its row only
+      after the send attempt, in a separate task.
+      N is the setting reset_password_window_minutes, read per request from config :letflow, Letflow.Routers.Identity;
+      its default is 5 (UAT assumption, to be confirmed by the process owner; the source says "a few minutes"). A value
+      that is not a positive integer counts as the default. No environment variable, tenant setting, feature flag,
+      permission, migration or web change: the setting is application configuration only, and the process owner sets
+      production in configuration.
+      The throttle check and the audit insert run in one Letflow.Repo transaction under
+      pg_advisory_xact_lock(hashtext(key)), where key is the tenant schema name and the user id joined, the same lock form
+      Letflow.Signup.submit/3 uses, so two requests at the same moment for one user cannot both pass; the delivery starts
+      after that transaction commits, as it does now after the audit insert. The existing refusals (404 unknown or
+      cross-tenant id, 403 role and platform-admin member guard, 422 body_not_accepted, 409 user_inactive,
+      no_identity_provider_login, no_email) and their order stay as they are and run before the throttle.
+      Stale by this change and updated in the same change: test R2 of test/letflow/routers/identity_reset_password_test.exs
+      (two posts for one user now give one audit entry and one delivery row), the route line in the moduledoc of
+      lib/letflow/routers/identity.ex, and the Status cell of F4-4 in the security review file. The two UAT scenarios
+      password-reset-1 and password-reset-3 (their second-request steps expect a second entry) are not changed here: a
+      separate uat_design task updates them after this change merges.
+    acceptance_criteria:
+      - "1. Within the window: a tenant administrator of company A posts twice in a row, with an empty body, for one active oidc user of A with a non-empty email (default setting). Both answers are 202 with exactly the JSON body {\"status\": \"requested\"}; afterwards A's schema holds exactly one audit entry with action \"user.password_reset_requested\" for that user and, after the delivery task has run, exactly one notification_deliveries row with template_key \"password_reset_hint\" and recipient_user_id that user's id. Test R2 of test/letflow/routers/identity_reset_password_test.exs is changed to assert this."
+      - "2. Default window is 5 minutes (setting absent): for a user whose latest \"user.password_reset_requested\" entry is 4 minutes old, a request answers 202 with the same body and writes no audit entry and no delivery row; for a user whose latest such entry is 6 minutes old, a request answers 202, writes one new audit entry and starts one delivery (one new notification_deliveries row). The older entries are inserted raw with a chosen timestamp, as test/letflow/audit/latest_matching_test.exs does with raw_entry!/2 of test/support/on_gate_fixture.ex, since audit_entries refuses UPDATE."
+      - "3. The setting: with config :letflow, Letflow.Routers.Identity, reset_password_window_minutes set to 10, an entry 6 minutes old throttles the request (no audit entry, no delivery row, 202 same body). With the value 0, -1, \"10\" (a string) or nil, the default 5 applies (an entry 6 minutes old does not throttle, an entry 4 minutes old does). Each test restores the application environment it changed."
+      - "4. The throttle is per user: an entry 1 minute old for user X of company A does not throttle a request for user Y of A (one new audit entry and one delivery row for Y). Only entries with action \"user.password_reset_requested\" count: an entry of another action (for example \"user.update_status\") 1 minute old for the same user does not throttle."
+      - "5. Refusals stay first and unchanged: for a user of A whose latest \"user.password_reset_requested\" entry is 1 minute old, a body with any key still answers 422 \"body_not_accepted\", and a user made inactive since then still answers 409 \"user_inactive\"; tests R3 to R10 of test/letflow/routers/identity_reset_password_test.exs pass unchanged, including R10 (a failing audit write answers 500 and starts no delivery)."
+      - "6. A reader finds in lib/letflow/routers/identity.ex that the latest_matching/4 read and the Letflow.Audit.insert_entry/3 call of the reset-password path run inside one Letflow.Repo.transaction that first takes pg_advisory_xact_lock(hashtext(key)) with key built from the tenant schema name and the user id, and that start_delivery/5 is called only after that transaction returned {:ok, _}."
+      - "7. No change to the answer shape: a throttled answer and an accepted answer have equal status, equal body and equal header names (a test compares them); no response field tells that a request was throttled."
+      - "8. Kept in step: the route line of the moduledoc of lib/letflow/routers/identity.ex names the throttle and the setting; the Status cell of F4-4 in docs/security/owasp-review/part-4-followup-new-routes.md says it is fixed by this change. No file under web/, apps/ or priv/repo/migrations/ changes, and no environment variable is read for the setting."
+    depends_on: [REQ-788]
