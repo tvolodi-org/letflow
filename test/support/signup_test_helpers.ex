@@ -108,18 +108,19 @@ defmodule Letflow.Test.SignupHelpers do
     end
   end
 
+  # Selective receive on our own refs only (`^ref`): unrelated :DOWN messages stay in the mailbox.
   defp wait_down([], _remaining), do: :ok
 
-  defp wait_down(refs, remaining) do
+  defp wait_down([ref | rest], remaining) do
     started = System.monotonic_time(:millisecond)
 
     receive do
-      {:DOWN, ref, :process, _pid, _reason} ->
+      {:DOWN, ^ref, :process, _pid, _reason} ->
         left = max(remaining - (System.monotonic_time(:millisecond) - started), 0)
-        wait_down(List.delete(refs, ref), left)
+        wait_down(rest, left)
     after
       remaining ->
-        Enum.each(refs, &Process.demonitor(&1, [:flush]))
+        Enum.each([ref | rest], &Process.demonitor(&1, [:flush]))
         :timeout
     end
   end

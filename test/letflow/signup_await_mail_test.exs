@@ -37,4 +37,14 @@ defmodule Letflow.SignupAwaitMailTest do
     assert SignupHelpers.await_mail() == :ok
     assert_received :released
   end
+
+  test "A4 leaves unrelated monitor messages in the mailbox" do
+    {:ok, other} = Agent.start(fn -> :ok end)
+    other_ref = Process.monitor(other)
+    pid = start_held()
+    Process.send_after(pid, :release, 100)
+    Agent.stop(other)
+    assert SignupHelpers.await_mail() == :ok
+    assert_received {:DOWN, ^other_ref, :process, ^other, _}
+  end
 end
