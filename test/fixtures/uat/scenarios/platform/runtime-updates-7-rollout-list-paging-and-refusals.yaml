@@ -1,0 +1,180 @@
+# T-1773 (BA): rollout list paging (REQ-813, build commit 0c2c465bd, PR #4283).
+# Sources: docs/requirements.yaml REQ-813 criteria 1 to 4 and 6 (page_size 1 to 200, default 50; the answer keeps the list under "rollouts" and adds "next_cursor", null on the last page;
+# fixed 400 texts "invalid page_size", "page_size out of range", "invalid cursor"; access unchanged); lib/letflow/routers/platform_module_rollouts.ex (handle_list: the three 400 texts above;
+# a page_size of 0 and one over 200 both answer "page_size out of range"; a negative or non-numeric one answers "invalid page_size" through Pagination.parse_page_size_param/1);
+# lib/letflow/api/pagination.ex (validate_page_size/1); lib/letflow/module_upgrade/fleet.ex (newest first). Access rules as in platform-runtime-updates-1 (ModuleRolloutsManage: platform operator only).
+# SAFETY: this scenario starts no rollout (a real start upgrades every active company on the shared QA instance; see platform-runtime-updates-1). It reads the list the QA instance already holds.
+# NOT UAT-OBSERVABLE (header kept so it survives the merge): the 50-row default with more than 50 rollouts, the exact boundary of a full last page and two rollouts with the same start time
+# (UAT cannot create rollouts; covered by test/letflow/routers/platform_module_rollouts_test.exs P1 to P3 and test/letflow/module_upgrade/fleet_test.exs); an old cursor (the expiry is a day-scale limit; no way to age one);
+# the screen following the paging (REQ-813 changes no screen; the operator screen shows the first page, checked in platform-runtime-updates-6).
+# Recorded as a GAP: test/fixtures/uat/scenario-env-limitations/platform-runtime-updates-7-rollout-list-paging-large-list.yaml.
+# UAT assumption, to be confirmed by the process owner: the answer keeps the key "rollouts" (not "items") so the operator screen keeps working (REQ-813 header).
+# Sensitive action in this flow: seeing platform-wide data. Refusal for the company side: step 10; input refusals of the operator: steps 5 to 9.
+---
+id: platform-runtime-updates-7-rollout-list-paging-and-refusals
+scope: platform
+title: "The platform operator reads the module rollout list one page at a time and is told clearly about a wrong page size or a wrong page marker; a company administrator is refused even with a page size"
+version: "1.0"
+tags: [runtime-updates, fleet, platform, paging, refusal, access_control, read-only]
+
+description: >
+  The platform operator opens the list of module rollouts, newest first. The list now comes in pages: the operator may ask
+  for a page of a chosen size (1 to 200; 50 when nothing is asked) and each answer carries a marker for the next page, or
+  no marker on the last page. The operator asks for pages of size 1 and follows the markers as far as the list goes;
+  every rollout appears once, in the same order as one read of the whole list. A page size that is not a number, is
+  zero, is negative or is over 200 is refused with a plain reason, and so is a page marker that was not issued by the list.
+  The administrator of a company is refused the list even when a page size is named. No rollout is started, and the
+  list is the same before and after.
+
+actors:
+  platform_operator: actor-platform-admin
+  company_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: The platform operator account signs in on the platform tenant
+    check: custom
+    detail: If the operator is refused the list in step 1, report BLOCKED and name the answer; do not retry as another actor.
+  - description: Rollout paging is deployed on QA (commit 0c2c465bd, PR #4283)
+    check: custom
+    detail: If the answer to step 1 has no field for the next page marker, report BLOCKED, not PASS.
+  - description: The QA instance holds at least 3 rollouts (earlier rollouts of the runtime-update demo module)
+    check: system_seeded
+    detail: >
+      If the list holds fewer than 3, step 3 is reported NOT OBSERVABLE (not PASS) and the rest of the scenario still runs; UAT must not start a rollout to fill the list.
+
+steps:
+  - step: 1
+    actor: platform_operator
+    action: >
+      The platform operator opens the list of module rollouts with no page size, notes how many rollouts it shows,
+      whether it shows a next page marker, and the order of the rollouts (the identifiers, newest first).
+    via: api
+  - step: 2
+    actor: platform_operator
+    action: >
+      The platform operator opens the list asking for pages of size 1.
+    via: api
+  - step: 3
+    actor: platform_operator
+    action: >
+      Using the marker from the previous answer each time, the operator asks for the next page of size 1, again and again,
+      until an answer carries no marker or until 5 more pages have been read, and notes each rollout identifier.
+    via: api
+  - step: 4
+    actor: platform_operator
+    action: >
+      The platform operator opens the list asking for pages of size 200.
+    via: api
+  - step: 5
+    actor: platform_operator
+    action: >
+      The platform operator opens the list asking for pages of size "abc".
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: platform_operator
+    action: >
+      The platform operator opens the list asking for pages of size 0.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: platform_operator
+    action: >
+      The platform operator opens the list asking for pages of size 201.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: platform_operator
+    action: >
+      The platform operator opens the list asking for pages of size -1.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: platform_operator
+    action: >
+      The platform operator opens the list giving the page marker "not-a-cursor", a text the list never issued.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: company_admin
+    action: >
+      SwiftRoute's company administrator opens the list of module rollouts asking for pages of size 2.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: platform_operator
+    action: >
+      The platform operator opens the list again with no page size and compares it with step 1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The list answers with the rollouts and a marker field, in the usual shape, newest first.
+    verification:
+      method: api_response
+      detail: >
+        Step 1 answers 200 with exactly two fields: the list of rollouts and the next page marker (empty when every rollout
+        fits in the page). Each rollout shows the same details as before (the rollout and its counts per outcome); no company
+        name, schema name or record content appears. The rollouts are in order of start, newest first.
+      evidence: Status and body of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator screen or the operator's own reading of the list breaks, or the list leaks company details.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Following the markers visits every rollout once, in the same order as one read of the whole list.
+    verification:
+      method: api_response
+      detail: >
+        Step 2 answers 200 with at most 1 rollout; with 3 or more rollouts it has exactly 1 and a marker. The identifiers read in steps 2 and 3,
+        in order, equal the first identifiers of step 4 (the whole list in one page), with none repeated and none skipped.
+        When step 3 stopped because the last answer had no marker, the identifiers read equal the full list of step 4.
+        With fewer than 3 rollouts this outcome is NOT OBSERVABLE (see the preconditions).
+      evidence: Identifiers of steps 2 to 4, compared.
+    on_fail:
+      severity: MAJOR
+      business_impact: A rollout is skipped or shown twice, so the operator cannot trust the list.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A wrong page size is refused with a plain reason.
+    verification:
+      method: http_status
+      detail: >
+        Step 5 is answered 400 with the text "invalid page_size". Steps 6 and 7 are answered 400 with the text "page_size out of range".
+        Step 8 is answered 400 with the text "invalid page_size". No answer holds a rollout.
+      evidence: Statuses and texts of steps 5 to 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A typing mistake gives a server error or an unexpected huge answer.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A page marker that the list did not issue is refused, never a server error.
+    verification:
+      method: http_status
+      detail: Step 9 is answered 400 with the text "invalid cursor", and the answer holds no rollout.
+      evidence: Status and text of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: A forged marker could break the list or read from an unintended position.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A company administrator cannot read the rollouts, with or without a page size.
+    verification:
+      method: http_status
+      detail: >
+        Step 10 is answered 403 with the platform's fixed forbidden text (as in platform-runtime-updates-1), and the body holds no rollout and no marker.
+      evidence: Status and body of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company user could read the platform's rollouts across all companies.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: Reading and refused reads changed nothing.
+    verification:
+      method: api_response
+      detail: Step 11 lists exactly the rollouts of step 1, with the same states and counts and the same marker field.
+      evidence: Bodies of step 1 and step 11, compared (the trace identifier of each answer is left out).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A read or a refused read changed a rollout.
+      suggested_action: route_to_wf03

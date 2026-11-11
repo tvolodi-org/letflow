@@ -1,0 +1,18 @@
+scenario_id: ci-weekly-dependency-audit-report
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "Weekly dependency audit workflow (.github/workflows/dependency-audit.yml, report only, Mondays 05:23 UTC) and the first audit report docs/status/dependency-audit-2026-11.md"
+reason: >
+  NOT A PRODUCT FEATURE A TENANT USER OR PLATFORM OPERATOR CAN SEE, so there is no business scenario and no actor. The
+  workflow runs in the code host's build service, on a timer, with a read-only token; its result is a job summary and a
+  downloadable artifact in that service, and the first audit is a document in the repository. It changes no running
+  instance, no screen, no route, no data and no access rule, so a UAT run against QA cannot observe it. It is not a required
+  check and every step may fail without blocking a change. Whether the next scheduled run produced a summary is read on the
+  code host's Actions page by the operator; the team's own test pins the workflow file's shape (test/letflow/dependency_audit_workflow_test.exs; it reads
+  .github/workflows/dependency-audit.yml). Excluded from the acceptance scope, not counted as passed.
+recorded_by: business-analyst
+recorded_at: "2026-11-11"
+issue_ref: "GH #4268"
+review: >
+  Revisit if a rule is added that makes the audit a required check or posts its findings to the platform (then a scenario
+  for who sees them is needed).

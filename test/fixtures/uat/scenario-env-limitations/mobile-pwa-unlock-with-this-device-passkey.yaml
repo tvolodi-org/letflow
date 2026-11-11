@@ -1,0 +1,23 @@
+scenario_id: mobile-pwa-unlock-with-this-device-passkey
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "PWA 'unlock with this device' (REQ-811, same build flag LETFLOW_PWA_KEEP_SIGNED_IN, off): the offer after the PIN is set, enrolment with a passkey, unlock by the device check, cancel and fall back to the PIN"
+reason: >
+  NOT OBSERVABLE, not PASS. The device unlock is local to one browser on one device: the passkey, the second wrapping of the
+  data key and the three record keys (credential id, eval input, wrapped key) live in the browser storage of that device and
+  are never sent to Letflow, so no API call, database row or audit entry shows them. The offer depends on the device
+  reporting a user-verifying platform authenticator, and the check itself (fingerprint, face or the device's own screen lock)
+  is chosen and shown by the device, not by the page. The feature sits behind a compile-time build flag that is off on every
+  deployed build, and the UAT roster has no actor that holds a physical device, can answer a fingerprint or screen-lock
+  prompt, and can close and reopen the page. A scripted browser has no authenticator. CI has none either, so the WebAuthn
+  calls are tested only by the device pass in docs/runbooks/mobile-web-pwa-ready-check.md (enrol, close, reopen, unlock;
+  cancel and unlock with the PIN), which the team does not run. The lifecycle (offer, each enrolment branch, unlock, delete
+  with the record) is proved by the mobile unit tests with a fake WebAuthn interface and the key step by the browser crypto
+  test in Chrome. No scenario is written and the acceptance scope must not count this as passed. It extends, and does not
+  replace, mobile-pwa-keep-signed-in-30-day-pin-session.
+recorded_by: business-analyst
+recorded_at: "2026-11-11"
+issue_ref: "GH #4233"
+review: >
+  Revisit when the flag is turned on for QA and the roster gains an actor that holds a device with a platform authenticator
+  (or a scripted browser with a virtual authenticator); then write the scenario and remove this file.
