@@ -183,9 +183,9 @@ defmodule Letflow.Routers.Identity do
   alias Letflow.Api.TokenView
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
-  alias Letflow.Audit
   alias Letflow.Identity
   alias Letflow.Identity.PendingAdminGrants
+  alias Letflow.Identity.PasswordResetThrottle
   alias Letflow.Identity.RoleRegistry
   alias Letflow.Identity.ScopedGrants
   alias Letflow.Identity.ServicePrincipal
@@ -572,7 +572,7 @@ defmodule Letflow.Routers.Identity do
       trace_id: conn.assigns[:trace_id]
     }
 
-    case run_reset_txn(user, attrs, prefix, reset_window_minutes()) do
+    case PasswordResetThrottle.request(user, attrs, prefix, reset_window_minutes()) do
       {:ok, {:sent, entry}} ->
         start_reset_delivery(user, entry.id, prefix)
         Response.send_json(conn, 202, %{"status" => "requested"})
@@ -583,36 +583,6 @@ defmodule Letflow.Routers.Identity do
 
       _failed ->
         Response.internal_error(conn)
-    end
-  end
-
-  # REQ-814 (F4-4): per-user throttle. The advisory lock serialises concurrent requests for one
-  # user; the latest `user.password_reset_requested` entry is read and the new one inserted in
-  # the same transaction (`Audit.insert_entry/3` joins it). Delivery starts after the commit.
-  defp run_reset_txn(user, attrs, prefix, window) do
-    Letflow.Repo.transaction(fn ->
-      Letflow.Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [prefix <> ":" <> user.id])
-
-      cutoff = DateTime.add(DateTime.utc_now(), -window * 60, :second)
-
-      case Audit.latest_matching(prefix, "user", user.id, [attrs.action]) do
-        %{timestamp: ts} when not is_nil(ts) ->
-          if DateTime.compare(ts, cutoff) == :gt,
-            do: :throttled,
-            else: insert_reset_entry(attrs, prefix)
-
-        _none ->
-          insert_reset_entry(attrs, prefix)
-      end
-    end)
-  rescue
-    _exception -> {:error, :audit_failed}
-  end
-
-  defp insert_reset_entry(attrs, prefix) do
-    case Audit.insert_entry(Letflow.Repo, attrs, prefix) do
-      {:ok, entry} -> {:sent, entry}
-      {:error, reason} -> Letflow.Repo.rollback(reason)
     end
   end
 

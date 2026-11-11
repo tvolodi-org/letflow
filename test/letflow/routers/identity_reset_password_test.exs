@@ -245,12 +245,15 @@ defmodule Letflow.Routers.IdentityResetPasswordTest do
   end
 
   test "R17 lock, check and insert share one transaction; delivery follows it" do
-    src = File.read!("lib/letflow/routers/identity.ex")
+    route = File.read!("lib/letflow/routers/identity.ex")
+    src = File.read!("lib/letflow/identity/password_reset_throttle.ex")
+    {txn, _} = :binary.match(src, "Letflow.Repo.transaction(fn")
     {lock, _} = :binary.match(src, "pg_advisory_xact_lock(hashtext")
     {check, _} = :binary.match(src, "Audit.latest_matching(prefix")
     {insert, _} = :binary.match(src, "Audit.insert_entry(Letflow.Repo")
-    {call_at, _} = :binary.match(src, "run_reset_txn(user, attrs")
-    {deliver, _} = :binary.match(src, "start_reset_delivery(user, entry.id")
+    assert txn < lock
+    {call_at, _} = :binary.match(route, "PasswordResetThrottle.request(user, attrs")
+    {deliver, _} = :binary.match(route, "start_reset_delivery(user, entry.id")
     assert call_at < deliver
     assert lock < check and check < insert
   end
