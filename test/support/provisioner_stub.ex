@@ -77,6 +77,14 @@ defmodule Letflow.Test.ProvisionerStub do
         Process.sleep(ms)
         send_resp(conn, 200, "{}")
 
+      {:run, fun, map} ->
+        fun.()
+
+        conn
+        |> put_resp_header("cache-control", "no-store")
+        |> put_resp_content_type("application/json")
+        |> send_resp(status, Jason.encode!(map))
+
       {:raw, binary} ->
         conn |> put_resp_content_type("application/json") |> send_resp(status, binary)
 
