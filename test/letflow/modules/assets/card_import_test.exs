@@ -8,7 +8,7 @@ defmodule Letflow.Modules.Assets.CardImportTest do
 
   R1 registration; I1..I5 created/unchanged/updated/dry run/no posting; E1..E9, E11, E12 refusals;
   W1..W5 route guards and tenancy; C1 the 200-row cap; U1 direct calls; M1 reason rendering.
-  E10 (`asset_kind_locked` end to end) waits for REQ-752 (GH #3890): only the mapping is tested.
+  E10 (`asset_kind_locked` end to end through the route) is test L10 of `card_locks_test.exs`; here only the mapping is tested.
   `async: false`, Sandbox `:auto`.
   """
 

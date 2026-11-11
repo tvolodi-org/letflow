@@ -16,6 +16,7 @@ defmodule Letflow.Modules.Assets.CardLocksTest do
   alias Letflow.AssetsDocsFixture, as: D
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.Assets.CardLocks
+  alias Letflow.Modules.Org
   alias Letflow.Repo
 
   setup do
@@ -128,6 +129,60 @@ defmodule Letflow.Modules.Assets.CardLocksTest do
     # valid_until is for intangible cards
     posted_intangible = ctx.ma.intangible
     assert patch(ctx, posted_intangible, %{"valid_until" => "2030-01-01"}).status == 200
+  end
+
+  test "L10 the xlsx import refuses a changed kind of a posted card with asset_kind_locked",
+       ctx do
+    # GH #3899 / REQ-762, E10 end to end: the import row goes through the real route, the card
+    # has a posted commission, so the changed kind is refused per row and nothing is written.
+    id = ctx.ma.fixed
+
+    {:ok, _} =
+      Org.update_unit(
+        ctx.schema,
+        ctx.ma.unit,
+        %{"external_ref_system" => "erp", "external_ref_id" => "UNIT-L10"},
+        %{actor_id: Ecto.UUID.generate(), idempotency_key: Ecto.UUID.generate()}
+      )
+
+    assert patch(ctx, id, %{"external_ref_system" => "erp", "external_ref_id" => "A-L10"}).status ==
+             200
+
+    posted!(ctx)
+    stored = fv(ctx.schema, id)
+    n = length(audits(ctx.schema, id))
+    header = ~w(inventory_number name kind org_unit_id external_ref_system external_ref_id)
+
+    import_row = fn kind ->
+      cells = [stored["inventory_number"], stored["name"], kind, "UNIT-L10", "erp", "A-L10"]
+
+      Plug.Test.conn(
+        :post,
+        "/api/v1/entities/records/assets_card/import?upsert_by=external_ref",
+        Letflow.XlsxFixture.build([[header, cells]])
+      )
+      |> Plug.Conn.put_req_header(
+        "content-type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      )
+      |> Plug.Conn.put_req_header("authorization", "Bearer " <> ctx.tok_a)
+      |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
+    end
+
+    other = if stored["kind"] == "low_value", do: "fixed", else: "low_value"
+    conn = import_row.(other)
+    assert conn.status == 200, conn.resp_body
+
+    assert [%{"reason" => %{"type" => "asset_kind_locked", "header" => "kind"}}] =
+             Jason.decode!(conn.resp_body)["results"]
+
+    assert fv(ctx.schema, id) == stored
+    assert length(audits(ctx.schema, id)) == n
+
+    # the other branch: the same kind is not a change, the row is not refused as locked
+    conn = import_row.(stored["kind"])
+    assert conn.status == 200, conn.resp_body
+    refute conn.resp_body =~ "asset_kind_locked"
   end
 
   test "L7 holder fields are refused with field_not_allowed", ctx do
