@@ -388,7 +388,19 @@ defmodule Letflow.Engine.CancelLockTimeoutTest do
     end
   end
 
+  # True when a timeout value is spliced into the SQL text outside quoted identifiers.
+  defp value_in_sql?(sql) do
+    bare = Regex.replace(~r/"[^"]*"/, sql, "\"\"")
+    bare =~ "5000" or bare =~ ~r/\b5s\b/
+  end
+
   describe "T6: statement order and the bound parameter" do
+    test "the value check ignores a schema name that contains the digits" do
+      sql = ~s(SELECT 1 FROM "tenant_e4a9e5000d854599a66ebf090236700b"."tasks" AS t0)
+      refute value_in_sql?(sql)
+      assert value_in_sql?("SELECT set_config('lock_timeout', '5000ms', true)")
+    end
+
     test "set_config is the first statement after BEGIN, one bound parameter, no value in SQL",
          %{base: base} do
       {x, _task_a} = started!(base, ["a", "b"])
@@ -405,7 +417,9 @@ defmodule Letflow.Engine.CancelLockTimeoutTest do
       assert first.params == ["5000ms"]
 
       # no timeout value is spliced into any SQL text of the transaction
-      refute Enum.any?(stmts, &(&1 =~ "5000" or &1 =~ ~r/5s/))
+      # the tenant schema name is random hex and can contain "5000" or "5s" by chance (run
+      # 43001782266): inspect the SQL with quoted identifiers removed
+      refute Enum.any?(stmts, &value_in_sql?/1)
       assert Enum.count(stmts, &(&1 =~ "set_config")) == 1
     end
 
