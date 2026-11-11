@@ -304,11 +304,36 @@ defmodule Letflow.SignupTenantCreateTest do
     end
 
     test "C8 the default modules install runs on this path" do
-      put_prov(default_modules: TenantProvisioner.Config.default_modules())
+      test_pid = self()
+
+      put_prov(
+        default_modules: ["org"],
+        default_modules_install: fn id, _actor, _opts ->
+          send(test_pid, {:installed, id})
+          {:ok, :stub}
+        end
+      )
+
       r = sent_row!()
       configure!(Stub.start!([]))
       assert Provisioning.run(r.tenant_id) == :ok
+      assert_received {:installed, "org"}
       assert Repo.get!(Lifecycle, r.tenant_id).default_modules_state == "done"
+    end
+
+    test "C8b a failing install still creates the tenant and records failed" do
+      put_prov(
+        default_modules: ["org"],
+        default_modules_install: fn _, _, _ -> {:error, :boom} end
+      )
+
+      r = sent_row!()
+      configure!(Stub.start!([]))
+
+      capture_log(fn -> assert Provisioning.run(r.tenant_id) == :ok end)
+
+      assert Repo.get(Tenant, r.tenant_id)
+      assert Repo.get!(Lifecycle, r.tenant_id).default_modules_state == "failed"
     end
 
     test "C9 C11 a hostname domain outside the allowed suffixes is invalid_tenant, nothing leaks" do
