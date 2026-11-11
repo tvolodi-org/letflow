@@ -63,6 +63,13 @@ export async function openRoute(page: Page, path: string): Promise<void> {
       // not there yet: load it again
     }
   }
+  // Still on the dashboard: a full load of a deep link loses its path when no realm slug is resolvable (the CI stack sets
+  // none; buildRedirectArgs then drops the OIDC state and the callback lands on "/", T-1736). The shell is up and signed
+  // in, so move inside the SPA instead: push the path and let the router see a popstate.
+  await page.evaluate((to) => {
+    window.history.pushState({}, '', to)
+    window.dispatchEvent(new PopStateEvent('popstate', { state: {} }))
+  }, path)
   await expect(page).toHaveURL(new RegExp(`${wanted.replace(/[/]/g, '\\/')}$`))
 }
 
