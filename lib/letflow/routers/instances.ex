@@ -1150,7 +1150,11 @@ defmodule Letflow.Routers.Instances do
          {:ok, raw_page_size} <- Pagination.parse_page_size_param(Map.get(query, "page_size")),
          {:ok, page_size} <- Pagination.validate_page_size(raw_page_size) do
       params = %{cursor: Map.get(query, "cursor"), page_size: page_size}
-      Instances.timeline(id, params, opts) |> render_page_result(conn, &timeline_item_map/1)
+
+      # T-1693: same participation rule as history and get (GH #2932, INV-2/INV-5).
+      with_participation(conn, id, opts, fn ->
+        Instances.timeline(id, params, opts) |> render_page_result(conn, &timeline_item_map/1)
+      end)
     else
       {:error, :invalid_instance_id} ->
         Response.unprocessable(conn, "instance_id is not a valid UUID")
