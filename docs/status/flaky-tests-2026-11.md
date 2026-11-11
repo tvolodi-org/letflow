@@ -48,3 +48,38 @@ The top 3 by count are tied after the first row (all 1), so this change fixes th
 
 Run 42935335935's backend part was green; only the frontend job failed (the DocumentForm row above).
 The retries of 42920238113 and 42912905618 were also the DocumentForm test.
+
+## Round 2 (T-1743): tests that "fail only on the shards"
+
+Trigger: run 43001782266, Backend shard 2/8, `test/letflow/engine/cancel_lock_timeout_test.exs:392`
+(T6, "set_config is the first statement after BEGIN"). Merge-group cycle lost on [main-fix] PR #4262.
+
+**Finding: not cross-test interference.** The task text suspected an interleaved statement from another
+async test or a background process. The failing job log (`gh api --allow-escape-sequences
+repos/tvolodi-org/letflow/actions/jobs/130459527676/logs`) shows the captured list is exactly this
+transaction's own statements: `begin`, `SELECT set_config('lock_timeout', $1, true)`, then the cancel
+statements. The first-statement and bound-parameter assertions passed. The failing line was
+`refute Enum.any?(stmts, &(&1 =~ "5000" or &1 =~ ~r/5s/))`: the committed tenant's schema name is random
+hex, and this run's was `tenant_e4a9e5000d854599a66ebf090236700b`, which contains `5000`. Probability per run
+is small (the 4-character substring `5000` appearing in a 32-char hex name; `5s` cannot occur in hex, it is a separate timeout-literal check) but not zero, which is why
+it appears once and then "passes on re-run".
+
+`PlatformTenantFixture.capture_repo_queries/1` already keeps only the calling process's events
+(`handle_query_event/4` checks `self() == test_pid`, since telemetry runs the handler in the issuing process),
+and the file is `async: false`, so there is nothing to filter further.
+
+| file | change |
+|---|---|
+| `test/letflow/engine/cancel_lock_timeout_test.exs` | T6 now inspects the SQL with quoted identifiers removed (`value_in_sql?/1`, word-bounded `5s`); new test pins that a schema name containing `5000` is ignored while a spliced `'5000ms'` is still caught. |
+
+Red proof: the old assertion fails on exactly the statement list above (CI log lines for run 43001782266);
+the unit test of `value_in_sql?/1` uses that schema name. Product code: no race found.
+
+**Other files named in the task:** identity_test expires_at, EntitiesImportXlsxTest R4c and
+SignupProvisioningTest were fixed or diagnosed in the first section above; not touched again here.
+XlsxStyleTest X3 was NOT investigated in this task (no failing log pulled, no cause verified, no change made);
+it remains open for a follow-up.
+
+**Telemetry/shared-name audit, not changed:** `Letflow.LockOrderHelpers.attach_error_handler/1` forwards
+55P03/40P01 from any process in the VM to the attaching test; every user of it is `async: false`, so no
+foreign test can run beside it. Left as is.
