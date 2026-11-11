@@ -1,0 +1,16 @@
+scenario_id: tenant-administration-users-sign-in-1-creation-off-refusal-and-other-company
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: >
+  REQ-807 creates a sign-in only when the setting LETFLOW_REALM_USERS_ENABLED is on and the provisioner of the infrastructure team is configured.
+  The team's rule is that the setting stays off, so on QA only the refusal (409 sign_in_creation_off) can be observed. Not observable:
+  the sign-in itself with its one-time password, the entry user.sign_in_created in the audit log, the mailbox, the password change at first sign-in,
+  the refusals that come after the setting check (user_inactive, sign_in_exists, no_email, realm_not_provisioned, login_exists_in_realm,
+  provisioner_unavailable, provisioner_refused), and the answer 404 for a user of another company, which is only reached with the setting on
+  (the setting check comes first, so with it off the answer is 409 for every well-formed id).
+recorded_by: BA
+recorded_at: "2026-11-11"
+issue_ref: "4227"
+review: >
+  Revisit when the owner approves switching the setting on in a test environment and the provisioner's user call exists there. Then add the flag-on
+  scenario: sign-in created once, password shown once, 404 for another company's user, first sign-in finds the same row.
