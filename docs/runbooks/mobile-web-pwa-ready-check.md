@@ -39,6 +39,11 @@ output directory.
    3. desktop Chrome started with `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`, with DevTools
       Network set to Offline.
 
+   For a build with the 30-day sign-in on (`LETFLOW_PWA_KEEP_SIGNED_IN=true`), also do the stay-signed-in pass
+   (end to end on a real device; it proves no crypto parameter, the browser test of `ci.yml` does): sign in, accept the
+   offer, set a PIN, close the page, reopen it and unlock with the PIN without the identity provider's page; enter a
+   wrong PIN five times and see the sign-in entry.
+
    Then pass all five keys `login,scan,voice,offline,sync` plus `--device` and `--operator`.
 
 Verdict (last output line): `GREEN` (exit 0) only when every probe passed, the emulation ran and passed, and the full
@@ -53,4 +58,6 @@ sent when the app is opened), no push.
 ## Operator check steps (not run by the team)
 
 - [ ] Run the check against the deployed QA host (needs the URL and a device).
+- [ ] On a build with the flag on: sign in, accept "stay signed in", set a PIN, close the page, reopen it, unlock with
+      the PIN without the identity provider's page; then enter a wrong PIN five times and see the sign-in entry.
 - [ ] Send the link only after GREEN; keep the printed device, operator and time with the result templates.

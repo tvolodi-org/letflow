@@ -14,7 +14,7 @@ library;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_appauth/flutter_appauth.dart'
-    show AuthorizationTokenResponse;
+    show AuthorizationTokenResponse, TokenRequest;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -23,6 +23,11 @@ import '../api/api_error.dart' show ForbiddenError;
 import '../api/transport_policy.dart';
 import '../auth/app_auth_platform.dart';
 import '../auth/auth.dart';
+import '../auth/keep_signed_in.dart';
+import '../auth/kv_store.dart' show OidcHttpError;
+import '../auth/session_crypto.dart' show kMaxWrongPins;
+import '../auth/session_record.dart' show SessionRecord, SessionRecordStore;
+import '../auth/web_app_auth_adapter.dart' show OidcRevoker;
 import '../definitions/definitions.dart'
     show ActiveDefinitionCacheHolder, DefinitionCacheOpener;
 import '../definitions/pinned_form_cache.dart'
@@ -126,6 +131,26 @@ class _TenantSlugEntryScreenState extends ConsumerState<TenantSlugEntryScreen> {
                 ),
                 onSubmitted: (_) => _submit(),
               ),
+              if (unlockNoticeText(controller.state) != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    unlockNoticeText(controller.state)!,
+                    key: const Key('session-notice'),
+                  ),
+                ),
+              ValueListenableBuilder<bool>(
+                valueListenable: controller.revocationFailed,
+                builder: (context, failed, _) => failed
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          tr('session.revocationFailed'),
+                          key: const Key('session-revocation-failed'),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
               const SizedBox(height: 16),
               ElevatedButton(
                 key: const Key('tenant-slug-submit'),
@@ -171,6 +196,7 @@ Future<BootstrapResult?> runTenantBootstrap(
   ActivePinnedFormCacheHolder? pinnedFormCache,
   PinnedFormCacheOpener? pinnedFormCacheOpener,
   ActiveTenantLocaleHolder? tenantLocale,
+  List<String>? scopes,
 }) async {
   final TenantConfig config;
   try {
@@ -195,6 +221,7 @@ Future<BootstrapResult?> runTenantBootstrap(
     tokenResponse = await authenticateWithTenant(
       config,
       appAuthAdapter: appAuthAdapter ?? defaultAppAuthAdapter(),
+      scopes: scopes ?? kOidcScopes,
     );
   } catch (_) {
     return const BootstrapFailure(BootstrapFailureReason.oidcFailure);
@@ -258,6 +285,24 @@ Future<BootstrapResult?> runTenantBootstrap(
     );
   }
 
+  return _verifyMembershipsAndModules(
+    enteredSlug,
+    realmUrl: config.realmUrl,
+    client: client,
+    tokenStore: tokenStore,
+    activeRealm: activeRealm,
+  );
+}
+
+/// Steps 4 and 5 of the bootstrap (memberships check, installed modules),
+/// shared by the interactive sign-in and the PIN unlock (REQ-810).
+Future<BootstrapResult> _verifyMembershipsAndModules(
+  String enteredSlug, {
+  required String realmUrl,
+  required HttpGateway client,
+  required TenantTokenStore tokenStore,
+  required ActiveRealmHolder activeRealm,
+}) async {
   try {
     final response = await client.get('/api/v1/me/memberships');
     final status = response.statusCode ?? 0;
@@ -269,7 +314,7 @@ Future<BootstrapResult?> runTenantBootstrap(
       // First-entry-only check (design §5.2 step 4) — never searches the
       // rest of the list even when a later entry does match.
       if (memberships.isEmpty || memberships.first.tenantSlug != enteredSlug) {
-        await tokenStore.delete(config.realmUrl);
+        await tokenStore.delete(realmUrl);
         activeRealm.currentRealmUrl = null;
         activeRealm.clientId = null;
         return const BootstrapFailure(BootstrapFailureReason.tenantNotFound);
@@ -324,6 +369,35 @@ Future<BootstrapResult?> runTenantBootstrap(
 // tenant's tokens explicitly, so no residual token for a tenant the user is
 // no longer authenticated to survives in secure storage.
 
+/// With the 30-day sign-in on (REQ-810), revokes the refresh token at the IdP
+/// (best effort, [onRevocationFailed] is called when it did not work) and
+/// ALWAYS deletes the encrypted record. A no-op when [keepSignedIn] is null,
+/// so flag-off sign-out is unchanged.
+Future<void> _signOutKeptSession({
+  required KeepSignedIn? keepSignedIn,
+  required OidcRevoker? revoker,
+  required TenantTokenStore tokenStore,
+  required String realmUrl,
+  required String? clientId,
+  void Function()? onRevocationFailed,
+}) async {
+  if (keepSignedIn == null) return;
+  try {
+    final refreshToken = (await tokenStore.read(realmUrl))?.refreshToken;
+    if (refreshToken != null) {
+      if (revoker == null || clientId == null) {
+        throw StateError('revocation not possible');
+      }
+      await revoker.revoke(realmUrl, clientId, refreshToken);
+    }
+  } catch (_) {
+    onRevocationFailed?.call();
+  }
+  try {
+    await keepSignedIn.delete();
+  } catch (_) {}
+}
+
 /// Deletes the active tenant's tokens and clears [activeRealm]. No-op if
 /// nothing is currently active.
 Future<void> logout({
@@ -332,9 +406,20 @@ Future<void> logout({
   ActiveDefinitionCacheHolder? definitionCache,
   ActivePinnedFormCacheHolder? pinnedFormCache,
   OfflineDraftQueue? offlineQueue,
+  KeepSignedIn? keepSignedIn,
+  OidcRevoker? revoker,
+  void Function()? onRevocationFailed,
 }) async {
   final currentRealmUrl = activeRealm.currentRealmUrl;
   if (currentRealmUrl == null) return;
+  await _signOutKeptSession(
+    keepSignedIn: keepSignedIn,
+    revoker: revoker,
+    tokenStore: tokenStore,
+    realmUrl: currentRealmUrl,
+    clientId: activeRealm.clientId,
+    onRevocationFailed: onRevocationFailed,
+  );
   // PWA M3: unsent drafts belong to the signed-out person; another person on a
   // shared device must not be able to send them. Cleared while the realm is
   // still set (the queue is keyed by it).
@@ -382,6 +467,9 @@ Future<BootstrapResult?> switchTenant(
   PinnedFormCacheOpener? pinnedFormCacheOpener,
   ActiveTenantLocaleHolder? tenantLocale,
   OfflineDraftQueue? offlineQueue,
+  KeepSignedIn? keepSignedIn,
+  OidcRevoker? revoker,
+  void Function()? onRevocationFailed,
 }) async {
   final previousRealmUrl = activeRealm.currentRealmUrl;
   if (previousRealmUrl != null) {
@@ -397,6 +485,14 @@ Future<BootstrapResult?> switchTenant(
     if (newRealmUrl != previousRealmUrl) {
       // PWA M3: the previous tenant's unsent drafts go with its tokens.
       await offlineQueue?.closeAndClear();
+      await _signOutKeptSession(
+        keepSignedIn: keepSignedIn,
+        revoker: revoker,
+        tokenStore: tokenStore,
+        realmUrl: previousRealmUrl,
+        clientId: activeRealm.clientId,
+        onRevocationFailed: onRevocationFailed,
+      );
       await tokenStore.delete(previousRealmUrl);
       activeRealm.currentRealmUrl = null;
       activeRealm.clientId = null;
@@ -422,6 +518,7 @@ Future<BootstrapResult?> switchTenant(
     pinnedFormCache: pinnedFormCache,
     pinnedFormCacheOpener: pinnedFormCacheOpener,
     tenantLocale: tenantLocale,
+    scopes: keepSignedIn != null ? kOidcScopesWeb : null,
   );
 }
 
@@ -438,6 +535,9 @@ final Future<void> Function({
   ActiveDefinitionCacheHolder? definitionCache,
   ActivePinnedFormCacheHolder? pinnedFormCache,
   OfflineDraftQueue? offlineQueue,
+  KeepSignedIn? keepSignedIn,
+  OidcRevoker? revoker,
+  void Function()? onRevocationFailed,
 })
 _logoutTopLevel = logout;
 
@@ -454,6 +554,9 @@ final Future<BootstrapResult?> Function(
   PinnedFormCacheOpener? pinnedFormCacheOpener,
   ActiveTenantLocaleHolder? tenantLocale,
   OfflineDraftQueue? offlineQueue,
+  KeepSignedIn? keepSignedIn,
+  OidcRevoker? revoker,
+  void Function()? onRevocationFailed,
 })
 _switchTenantTopLevel = switchTenant;
 
@@ -511,6 +614,37 @@ enum BootstrapPhase {
   success,
   resumedOffline,
   failure,
+
+  /// REQ-810: an encrypted 30-day record exists and the PIN is needed. Like
+  /// `unauthenticated`, no tenant route is reachable.
+  locked,
+}
+
+/// One plain line shown on the PIN or sign-in screen (REQ-810).
+enum UnlockNotice {
+  none,
+  wrongPin,
+  expired,
+  revoked,
+  noConnection,
+  tooManyAttempts,
+}
+
+/// Result of finishing the PIN setup.
+enum EnrollOutcome { enrolled, invalidPin, mismatch, failed }
+
+/// The plain line for a notice, or `null` for none.
+String? unlockNoticeText(BootstrapUiState s) {
+  return switch (s.unlockNotice) {
+    UnlockNotice.none => null,
+    UnlockNotice.wrongPin => tr(
+      'session.wrongPin',
+    ).replaceAll('{remaining}', '${s.pinsRemaining}'),
+    UnlockNotice.expired => tr('session.expired'),
+    UnlockNotice.revoked => tr('session.revoked'),
+    UnlockNotice.noConnection => tr('session.noConnection'),
+    UnlockNotice.tooManyAttempts => tr('session.tooManyAttempts'),
+  };
 }
 
 @immutable
@@ -519,11 +653,17 @@ class BootstrapUiState {
     required this.phase,
     this.installedModules = const [],
     this.failureReason,
+    this.unlockNotice = UnlockNotice.none,
+    this.pinsRemaining = 0,
   });
 
   final BootstrapPhase phase;
   final List<InstalledModule> installedModules;
   final BootstrapFailureReason? failureReason;
+  final UnlockNotice unlockNotice;
+
+  /// Wrong PINs left before the record is deleted (with `wrongPin`).
+  final int pinsRemaining;
 
   static const unauthenticated = BootstrapUiState(
     phase: BootstrapPhase.unauthenticated,
@@ -547,9 +687,36 @@ class BootstrapController extends ChangeNotifier {
     ActiveTenantLocaleHolder? tenantLocale,
     this.webMode = kIsWeb,
     WebPendingSignIn? Function()? webPending,
+    this.keepSignedIn,
+    OidcRevoker? revoker,
+    SessionRecordStore? staleRecordStore,
+    DateTime Function()? now,
   }) : appAuthAdapter = appAuthAdapter ?? defaultAppAuthAdapter(),
        webPending = webPending ?? peekWebPendingSignIn,
-       tenantLocale = tenantLocale ?? ActiveTenantLocaleHolder();
+       tenantLocale = tenantLocale ?? ActiveTenantLocaleHolder(),
+       revoker = revoker ?? (keepSignedIn != null ? webOidcRevoker() : null),
+       _staleRecordStore =
+           staleRecordStore ?? (webMode ? webSessionRecordStore() : null),
+       _now = now ?? DateTime.now;
+
+  /// REQ-810: the 30-day sign-in. `null` = off (the default): every branch
+  /// below that uses it is skipped, so the flow is the one of main.
+  final KeepSignedIn? keepSignedIn;
+  final OidcRevoker? revoker;
+
+  /// Used only when [keepSignedIn] is null: a record left by an earlier build
+  /// with the flag on is deleted unread.
+  final SessionRecordStore? _staleRecordStore;
+  final DateTime Function() _now;
+
+  /// True while the "stay signed in for 30 days?" offer is due.
+  final ValueNotifier<bool> offerKeepSignedIn = ValueNotifier<bool>(false);
+
+  /// True after a sign-out whose IdP revocation did not work.
+  final ValueNotifier<bool> revocationFailed = ValueNotifier<bool>(false);
+
+  /// Time of the last full (interactive) sign-in; the 30 days count from it.
+  DateTime? _fullSignInAt;
 
   /// Web (PWA M2): sign-in is a full-page redirect, so a session is resumed
   /// by finishing a pending redirect or silently restarting it. Injectable
@@ -590,6 +757,7 @@ class BootstrapController extends ChangeNotifier {
   BootstrapUiState get state => _state;
 
   Future<void> beginBootstrap(String slug) async {
+    revocationFailed.value = false;
     rememberWebSignInSlug(slug);
     _state = const BootstrapUiState(phase: BootstrapPhase.loading);
     notifyListeners();
@@ -605,6 +773,7 @@ class BootstrapController extends ChangeNotifier {
       pinnedFormCache: pinnedFormCache,
       pinnedFormCacheOpener: pinnedFormCacheOpener,
       tenantLocale: tenantLocale,
+      scopes: keepSignedIn != null ? kOidcScopesWeb : null,
     );
 
     if (result == null) {
@@ -621,7 +790,247 @@ class BootstrapController extends ChangeNotifier {
           failureReason: reason,
         ),
       };
+      if (_state.phase == BootstrapPhase.success) {
+        await _afterFullSignIn(slug);
+      }
     }
+    notifyListeners();
+  }
+
+  // ── REQ-810: the 30-day sign-in ─────────────────────────────────────────
+
+  /// After an interactive sign-in reached `success`: remember when it
+  /// happened, drop a record that this sign-in supersedes, and offer to keep
+  /// the sign-in when the IdP issued a refresh token.
+  Future<void> _afterFullSignIn(String slug) async {
+    final k = keepSignedIn;
+    if (k == null) return;
+    try {
+      _fullSignInAt = _now().toUtc();
+      final realm = activeRealm.currentRealmUrl;
+      if (realm == null) return;
+      final refreshToken = (await tokenStore.read(realm))?.refreshToken;
+      await k.delete();
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        offerKeepSignedIn.value = true;
+      }
+    } catch (_) {
+      // The offer is optional; the verified session is unaffected.
+    }
+  }
+
+  /// The user declined (or dismissed) the offer: nothing is stored.
+  void declineKeepSignedIn() {
+    offerKeepSignedIn.value = false;
+  }
+
+  /// Finishes the PIN setup. Invalid PIN or a mismatch store nothing.
+  Future<EnrollOutcome> enrollWithPin(String pin, String confirm) async {
+    final k = keepSignedIn;
+    if (k == null) return EnrollOutcome.failed;
+    if (!KeepSignedIn.isValidPin(pin)) return EnrollOutcome.invalidPin;
+    if (pin != confirm) return EnrollOutcome.mismatch;
+    try {
+      final realm = activeRealm.currentRealmUrl;
+      final signedInAt = _fullSignInAt;
+      if (realm == null || signedInAt == null) return EnrollOutcome.failed;
+      final refreshToken = (await tokenStore.read(realm))?.refreshToken;
+      final pointer = await readLastActiveTenant(tokenStore);
+      if (refreshToken == null || pointer == null) {
+        return EnrollOutcome.failed;
+      }
+      await k.enroll(
+        realmUrl: realm,
+        slug: pointer.slug,
+        refreshToken: refreshToken,
+        pin: pin,
+        signedInAt: signedInAt,
+      );
+      offerKeepSignedIn.value = false;
+      return EnrollOutcome.enrolled;
+    } catch (_) {
+      return EnrollOutcome.failed;
+    }
+  }
+
+  void _toUnauthenticated(UnlockNotice notice) {
+    _state = BootstrapUiState(
+      phase: BootstrapPhase.unauthenticated,
+      unlockNotice: notice,
+    );
+    notifyListeners();
+  }
+
+  /// Checks the PIN on the lock screen; on the right PIN refreshes the
+  /// session once and continues like a sign-in.
+  Future<void> submitPin(String pin) async {
+    final k = keepSignedIn;
+    if (k == null || _state.phase != BootstrapPhase.locked) return;
+    if (!KeepSignedIn.isValidPin(pin)) {
+      _state = const BootstrapUiState(
+        phase: BootstrapPhase.locked,
+        unlockNotice: UnlockNotice.wrongPin,
+        pinsRemaining: kMaxWrongPins,
+      );
+      notifyListeners();
+      return;
+    }
+    final UnlockResult result;
+    try {
+      result = await k.unlock(pin);
+    } catch (_) {
+      await _dropRecord();
+      _toUnauthenticated(UnlockNotice.revoked);
+      return;
+    }
+    switch (result) {
+      case Unlocked(:final record):
+        await _refreshAfterUnlock(record);
+      case WrongPin(:final remaining):
+        _state = BootstrapUiState(
+          phase: BootstrapPhase.locked,
+          unlockNotice: UnlockNotice.wrongPin,
+          pinsRemaining: remaining,
+        );
+        notifyListeners();
+      case Expired():
+        _toUnauthenticated(UnlockNotice.expired);
+      case TooManyAttempts():
+        _toUnauthenticated(UnlockNotice.tooManyAttempts);
+      case Corrupt():
+        _toUnauthenticated(UnlockNotice.none);
+    }
+  }
+
+  Future<void> _dropRecord() async {
+    try {
+      await keepSignedIn?.delete();
+    } catch (_) {}
+  }
+
+  /// Retry button after `noConnection`: the data key is still in memory, so
+  /// the PIN is not asked again.
+  Future<void> retryUnlockRefresh() async {
+    final k = keepSignedIn;
+    if (k == null || _state.phase != BootstrapPhase.locked) return;
+    final record = await k.peek();
+    if (record == null || !k.isUnlocked) {
+      _toUnauthenticated(UnlockNotice.none);
+      return;
+    }
+    await _refreshAfterUnlock(record);
+  }
+
+  /// "Sign in again" on the lock screen: the record goes, the normal sign-in
+  /// entry shows.
+  Future<void> signInAgain() async {
+    await _dropRecord();
+    _toUnauthenticated(UnlockNotice.none);
+  }
+
+  Future<void> _refreshAfterUnlock(SessionRecord record) async {
+    final k = keepSignedIn!;
+    void stayLocked(UnlockNotice n) {
+      _state = BootstrapUiState(phase: BootstrapPhase.locked, unlockNotice: n);
+      notifyListeners();
+    }
+
+    final TenantConfig config;
+    try {
+      config = await fetchTenantConfig(record.slug, client: client);
+    } catch (_) {
+      stayLocked(UnlockNotice.noConnection);
+      return;
+    }
+    // The record only ever refreshes against the realm it was made for, and
+    // that realm must pass the same transport policy as a sign-in.
+    if (config.realmUrl != record.realmUrl ||
+        !transportPolicyFor().isUrlAllowed(Uri.parse(config.realmUrl))) {
+      await _dropRecord();
+      _toUnauthenticated(UnlockNotice.revoked);
+      return;
+    }
+    final refreshToken = await k.unlockedRefreshToken();
+    if (refreshToken == null) {
+      await _dropRecord();
+      _toUnauthenticated(UnlockNotice.none);
+      return;
+    }
+    final TokenSet tokens;
+    try {
+      final response = await appAuthAdapter.refresh(
+        TokenRequest(
+          config.clientId,
+          kOidcRedirectUrl,
+          issuer: record.realmUrl,
+          refreshToken: refreshToken,
+        ),
+      );
+      final accessToken = response.accessToken;
+      if (accessToken == null) {
+        stayLocked(UnlockNotice.noConnection);
+        return;
+      }
+      tokens = TokenSet(
+        accessToken: accessToken,
+        refreshToken: response.refreshToken ?? refreshToken,
+        idToken: response.idToken,
+        accessTokenExpiration: response.accessTokenExpirationDateTime,
+      );
+    } catch (e) {
+      if (e is OidcHttpError && e.isInvalidGrant) {
+        await _dropRecord();
+        _toUnauthenticated(UnlockNotice.revoked);
+      } else {
+        stayLocked(UnlockNotice.noConnection);
+      }
+      return;
+    }
+
+    _state = const BootstrapUiState(phase: BootstrapPhase.loading);
+    notifyListeners();
+    try {
+      await tokenStore.store(record.realmUrl, tokens);
+    } catch (_) {
+      _state = const BootstrapUiState(
+        phase: BootstrapPhase.failure,
+        failureReason: BootstrapFailureReason.secureStorageUnavailable,
+      );
+      notifyListeners();
+      return;
+    }
+    activeRealm.currentRealmUrl = record.realmUrl;
+    activeRealm.clientId = config.clientId;
+    tenantLocale.defaultLocale = config.defaultLocale;
+    await writeLastActiveTenant(
+      tokenStore,
+      LastActiveTenantPointer(realmUrl: record.realmUrl, slug: record.slug),
+    );
+    await definitionCache.openFor(
+      record.realmUrl,
+      opener: cacheOpener ?? openProductionDefinitionCache,
+    );
+    await pinnedFormCache.openFor(
+      record.realmUrl,
+      opener: pinnedFormCacheOpener ?? openProductionPinnedFormCache,
+    );
+    final result = await _verifyMembershipsAndModules(
+      record.slug,
+      realmUrl: record.realmUrl,
+      client: client,
+      tokenStore: tokenStore,
+      activeRealm: activeRealm,
+    );
+    _state = switch (result) {
+      BootstrapSuccess(:final installedModules) => BootstrapUiState(
+        phase: BootstrapPhase.success,
+        installedModules: installedModules,
+      ),
+      BootstrapFailure(:final reason) => BootstrapUiState(
+        phase: BootstrapPhase.failure,
+        failureReason: reason,
+      ),
+    };
     notifyListeners();
   }
 
@@ -664,6 +1073,9 @@ class BootstrapController extends ChangeNotifier {
       pinnedFormCacheOpener: pinnedFormCacheOpener,
       tenantLocale: tenantLocale,
       offlineQueue: offlineQueue,
+      keepSignedIn: keepSignedIn,
+      revoker: revoker,
+      onRevocationFailed: () => revocationFailed.value = true,
     );
 
     if (result == null) {
@@ -679,6 +1091,9 @@ class BootstrapController extends ChangeNotifier {
           failureReason: reason,
         ),
       };
+      if (_state.phase == BootstrapPhase.success) {
+        await _afterFullSignIn(slug);
+      }
     }
     notifyListeners();
   }
@@ -693,7 +1108,11 @@ class BootstrapController extends ChangeNotifier {
       definitionCache: definitionCache,
       pinnedFormCache: pinnedFormCache,
       offlineQueue: offlineQueue,
+      keepSignedIn: keepSignedIn,
+      revoker: revoker,
+      onRevocationFailed: () => revocationFailed.value = true,
     );
+    offerKeepSignedIn.value = false;
     _state = BootstrapUiState.unauthenticated;
     notifyListeners();
   }
@@ -715,11 +1134,23 @@ class BootstrapController extends ChangeNotifier {
   Future<void> attemptSessionResume() async {
     if (webMode) {
       try {
+        if (keepSignedIn == null) {
+          // Flag off: a record left by an earlier build with the flag on is
+          // deleted without ever being read.
+          await _staleRecordStore?.delete();
+        }
         final pending = webPending();
         if (pending != null) {
           // Back from the IdP: finishes the code exchange.
           await beginBootstrap(pending.slug);
           await _clearPointerOnFailure();
+          return;
+        }
+        final k = keepSignedIn;
+        if (k != null && await k.peek() != null) {
+          // A 30-day record exists: nothing opens before the PIN.
+          _state = const BootstrapUiState(phase: BootstrapPhase.locked);
+          notifyListeners();
           return;
         }
         final p = await readLastActiveTenant(tokenStore);
@@ -782,7 +1213,19 @@ class BootstrapController extends ChangeNotifier {
 // it depends on) via `ProviderScope(overrides: [...])` at the test root —
 // the standard Riverpod testing idiom, not a second wiring path.
 
+/// REQ-810: the 30-day sign-in, or `null` (the default) when the compile-time
+/// flag is off or the browser seams are missing.
+final keepSignedInProvider = Provider<KeepSignedIn?>((ref) {
+  if (!kKeepSignedInFlag || !kIsWeb) return null;
+  final crypto = webSessionCrypto();
+  final store = webSessionRecordStore();
+  if (crypto == null || store == null) return null;
+  return KeepSignedIn(crypto: crypto, store: store);
+});
+
 final tenantTokenStoreProvider = Provider<TenantTokenStore>((ref) {
+  final k = ref.watch(keepSignedInProvider);
+  if (k != null) return TenantTokenStore.productionKeepSignedIn(k);
   return TenantTokenStore.production();
 });
 
@@ -815,6 +1258,7 @@ final Provider<ApiClient> apiClientProvider = Provider<ApiClient>((ref) {
     tokenStore: ref.watch(tenantTokenStoreProvider),
     activeRealm: ref.watch(activeRealmHolderProvider),
     appAuthAdapter: defaultAppAuthAdapter(),
+    onRefreshRejected: ref.watch(keepSignedInProvider)?.delete,
     // `ref.read` here is deferred until a 401-refresh failure actually
     // calls this closure — it is never evaluated while `apiClientProvider`
     // itself is being built, so this does not create a build-time circular
@@ -843,6 +1287,7 @@ final ChangeNotifierProvider<BootstrapController> bootstrapControllerProvider =
         pinnedFormCache: ref.watch(pinnedFormCacheHolderProvider),
         offlineQueue: ref.watch(offlineQueueProvider),
         tenantLocale: ref.watch(activeTenantLocaleHolderProvider),
+        keepSignedIn: ref.watch(keepSignedInProvider),
       );
     });
 
