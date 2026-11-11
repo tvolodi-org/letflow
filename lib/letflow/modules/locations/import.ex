@@ -32,6 +32,7 @@ defmodule Letflow.Modules.Locations.Import do
   alias Letflow.Entities.ExternalRef
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.Locations
+  alias Letflow.Entities.ImportRow
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -67,28 +68,9 @@ defmodule Letflow.Modules.Locations.Import do
   end
 
   defp check_cells(cells) do
-    keys = Map.keys(cells)
-
-    cond do
-      "active" in keys ->
-        {:error, {:field_not_allowed, "active"}}
-
-      Enum.any?(keys, &(&1 not in @importable and &1 not in @ignored)) ->
-        {:error, :field_not_allowed}
-
-      true ->
-        check_required(cells)
-    end
+    with :ok <- ImportRow.check_cells(cells, @importable, @ignored),
+         do: ImportRow.check_required(cells, @required, &{:field_invalid, &1})
   end
-
-  defp check_required(cells) do
-    case Enum.find(@required, &(not text?(Map.get(cells, &1)))) do
-      nil -> :ok
-      field -> {:error, {:field_invalid, field}}
-    end
-  end
-
-  defp text?(v), do: is_binary(v) and String.trim(v) != ""
 
   defp resolve_parent(prefix, cells, system) do
     case Map.fetch(cells, "parent_id") do
@@ -182,12 +164,5 @@ defmodule Letflow.Modules.Locations.Import do
     with {:ok, _} <- Locations.move_node(prefix, id, parent, opts.("#move")), do: :ok
   end
 
-  defp transact(fun) do
-    Repo.transaction(fn ->
-      case fun.() do
-        {:ok, result} -> result
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-  end
+  defp transact(fun), do: ImportRow.transact(fun)
 end
