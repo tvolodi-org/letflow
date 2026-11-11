@@ -13,6 +13,7 @@ import { classifyError, type RendererState } from '@/utils/classifyError'
 import { useFeedbackMessages } from '@/components/ui/feedbackMessages'
 import { saveErrorText } from '@/utils/saveError'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { usersMessages } from './usersMessages'
 import { conflictText, fillEmail, hintText, passwordResetBlock, passwordResetMessages } from './passwordResetMessages'
 
 function userId(user: User): string {
@@ -30,7 +31,9 @@ export default function UserDetailPage() {
   const navigate = useNavigate()
   const access = useAccess()
   const feedback = useFeedbackMessages()
-  const pm = passwordResetMessages[useUiLocale()]
+  const uiLocale = useUiLocale()
+  const pm = passwordResetMessages[uiLocale]
+  const um = usersMessages[uiLocale]
   const isAllowed = access.can(P.UsersGroupsRolesManage)
 
   const userQuery = useAdminUser(routeUserId)
@@ -111,7 +114,7 @@ export default function UserDetailPage() {
                 group_ids: selectedGroupIds,
               },
               {
-                onSuccess: () => setSubmitMessage('Saved'),
+                onSuccess: () => setSubmitMessage(um.saved),
                 onError: (error) => setSubmitMessage(saveErrorText(error, feedback)),
               },
             )
@@ -277,7 +280,7 @@ export default function UserDetailPage() {
             onSuccess: () => {
               setShowDeactivate(false)
               setStatus('INACTIVE')
-              setSubmitMessage('User deactivated')
+              setSubmitMessage(um.deactivated)
             },
             onError: (error) => {
               setSubmitMessage(saveErrorText(error, feedback))
