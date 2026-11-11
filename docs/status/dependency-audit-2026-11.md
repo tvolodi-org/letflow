@@ -26,7 +26,7 @@ Severity from the advisory text (EEF-CVE ids, source: hex.pm / OSV).
 | Package | Locked | Advisory | Severity | Decision |
 |---|---|---|---|---|
 | bandit | 1.12.5 | 14 advisories (HTTP/2 flow control, request smuggling via chunk extensions, 1-byte DATA frame amplification, HPACK cookie crumbs, WebSocket fragments, ...), 9 high, 5 medium | **high** | Not touched here: T-1740 bumps it (1.14.1 is the latest). Listed as done there. |
-| ecto | 3.14.1 | EEF-CVE-2026-118391 unbounded query cache growth from interpolated JSON paths and splice lists | high | Bumped to 3.14.3 (patch). |
+| ecto | 3.14.1 | EEF-CVE-2026-118391 unbounded query cache growth from interpolated JSON paths and splice lists | high | **Not bumped**: 3.14.3 makes every `:all` query emit `WHERE (TRUE)`, which fails `Letflow.Entities.QueryScopeTest` (T-C1 and T-C5, pre-change SQL equality). Needs its own task: adapt the query-scope pins or the compile, then bump. |
 | jose | 1.11.12 | EEF-CVE-2026-65625..65632 (8, one high: 65629) | high | Bumped to 1.11.13 (patch). |
 | decimal | 3.1.1 | EEF-CVE-2026-97853 unbounded allocation in `Decimal.round/3` (places argument) | medium | Bumped to 3.2.0 (minor). |
 | plug_crypto | 2.2.0 | EEF-CVE-2026-105963 secret key base exposed in stack-trace arguments on wrong-typed arguments | medium | Bumped to 2.2.1 (patch). |
