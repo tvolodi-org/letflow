@@ -19,6 +19,7 @@ import { locationsScreens } from './fixtures/locations'
 import { moduleRolloutsScreens } from './fixtures/moduleRollouts'
 import { usersImportScreens } from './fixtures/usersImport'
 import { userResetScreens } from './fixtures/userReset'
+import { userSignInScreens } from './fixtures/userSignIn'
 import { notificationBellScreens } from './fixtures/notificationBell'
 import { emptyErrorStates } from './fixtures/emptyErrorStates'
 import { definitionNameScreens } from './fixtures/definitionNames'
@@ -59,6 +60,7 @@ import { processDiagramScreens } from './fixtures/processDiagram'
 import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
 import { processDesignerVersionsScreens } from './fixtures/processDesignerVersions'
 import { instanceReplayScreens } from './fixtures/instanceReplay'
+import { waitingSinceScreens } from './fixtures/waitingSince'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
@@ -280,6 +282,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...moduleRolloutsScreens,
     ...usersImportScreens,
     ...userResetScreens,
+    ...userSignInScreens,
     ...notificationBellScreens,
     ...emptyErrorStates,
     ...definitionNameScreens,
@@ -287,6 +290,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...processDesignerEditScreens,
     ...processDesignerVersionsScreens,
     ...instanceReplayScreens,
+    ...waitingSinceScreens,
     ...definitionNameAdminScreens,
     ...codesLabelScreens,
     ...docLayoutScreens,

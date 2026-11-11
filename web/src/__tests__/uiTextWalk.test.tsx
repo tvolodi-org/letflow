@@ -252,11 +252,71 @@ describe.each(UI_LOCALES)('T-1553 text walk, locale %s', (locale) => {
 
     it('Users create: a refused create shows the status-class text only', async () => {
       renderWithAccess(<UsersPage />, 'tenantAdmin')
-      fireEvent.click(screen.getByText('+ New User'))
-      fireEvent.click(screen.getAllByText('Create user')[1])
+      fireEvent.click(screen.getByText(usersMessages[locale].newUser))
+      fireEvent.click(screen.getAllByText(usersMessages[locale].createUser)[1])
       const el = await screen.findByTestId('admin-users-save-error')
       expectLocaleText(el.textContent ?? '', fb.saveInvalid, feedbackMessages.en.saveInvalid, locale, 'save.invalid')
       expectNoTechnicalCode(el.textContent ?? '')
+    })
+  })
+
+  describe('T-1716 whole pages', () => {
+    /** Every catalogue value is used by the page text and, in ru/kk, none is the English string. */
+    function expectCatalogue<T extends object>(table: Record<UiLocale, T>, keys: (keyof T)[]): void {
+      for (const k of keys) {
+        const v = String(table[locale][k])
+        expect(v.trim(), String(k)).not.toBe('')
+        if (locale !== 'en') expect(v, `${String(k)} is English in ${locale}`).not.toBe(String(table.en[k]))
+      }
+    }
+
+    it('catalogues are complete and translated', () => {
+      for (const table of [usersMessages, instancesMessages, definitionsMessages] as unknown as Record<UiLocale, Record<string, string>>[]) {
+        expect(Object.keys(table[locale]).sort()).toEqual(Object.keys(table.en).sort())
+      }
+      expectCatalogue(usersMessages, ['title', 'newUser', 'apply', 'createUser', 'cancel', 'username', 'roles', 'saved', 'deactivated'])
+      expectCatalogue(instancesMessages, ['title', 'startInstance', 'refresh', 'colInstanceId', 'cancel', 'start'])
+      expectCatalogue(definitionsMessages, ['title', 'importButton', 'newDefinition', 'colName', 'create', 'cancel'])
+    })
+
+    it('Users: heading, buttons and column headers follow the language', () => {
+      renderWithAccess(<UsersPage />, 'tenantAdmin')
+      const m = usersMessages[locale]
+      expect(screen.getByRole('heading', { level: 2 }).textContent).toBe(m.title)
+      expect(screen.getByText(m.newUser)).toBeTruthy()
+      expect(screen.getByText(m.apply)).toBeTruthy()
+      expect(screen.getByPlaceholderText(m.searchPlaceholder)).toBeTruthy()
+      fireEvent.click(screen.getByText(m.newUser))
+      expect(screen.getByLabelText(m.displayName)).toBeTruthy()
+      expect(screen.getByLabelText(m.password)).toBeTruthy()
+    })
+
+    it('Definitions: title and actions follow the language', () => {
+      renderWithAccess(<DefinitionListPage />, 'platformAdmin')
+      const m = definitionsMessages[locale]
+      expect(screen.getByText(m.title)).toBeTruthy()
+      expect(screen.getByTestId('btn-import-definition').textContent).toBe(m.importButton)
+      expect(screen.getByTestId('btn-new-definition').textContent).toBe(m.newDefinition)
+      expect(screen.getByTestId('definition-search').getAttribute('placeholder')).toBe(m.searchPlaceholder)
+      fireEvent.click(screen.getByTestId('btn-new-definition'))
+      fireEvent.click(screen.getByTestId('create-submit'))
+      expect(screen.getByText(m.nameRequired)).toBeTruthy()
+    })
+
+    it('Instances: title, start dialog and refresh follow the language', async () => {
+      render(
+        <AccessStateProvider state={accessState('operator')}>
+          <InstanceBoardPage />
+        </AccessStateProvider>,
+      )
+      const m = instancesMessages[locale]
+      expect(screen.getByRole('heading', { level: 2 }).textContent).toBe(m.title)
+      expect(screen.getByTestId('start-instance-button').textContent).toBe(m.startInstance)
+      expect(screen.getByText(m.refresh)).toBeTruthy()
+      fireEvent.click(screen.getByTestId('start-instance-button'))
+      expect(await screen.findByLabelText(m.definitionName)).toBeTruthy()
+      expect(screen.getByLabelText(m.initialVariables)).toBeTruthy()
+      expect(screen.getByTestId('submit-start-instance').textContent).toBe(m.start)
     })
   })
 

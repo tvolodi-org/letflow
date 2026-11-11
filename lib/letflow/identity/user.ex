@@ -90,6 +90,22 @@ defmodule Letflow.Identity.User do
   end
 
   @doc """
+  T-1730 (REQ-807): binds an existing internal row to the realm login just created for it. Casts nothing
+  from caller attrs; changes exactly `auth_source` (to `:oidc`), `external_realm` and `external_id`.
+  Username, email, status and `password_hash` are untouched.
+  """
+  @spec bind_realm_login_changeset(t(), String.t(), String.t()) :: Ecto.Changeset.t()
+  def bind_realm_login_changeset(%__MODULE__{} = user, external_realm, external_id)
+      when is_binary(external_realm) and is_binary(external_id) do
+    user
+    |> change(auth_source: :oidc, external_realm: external_realm, external_id: external_id)
+    |> validate_required([:external_realm, :external_id])
+    |> unique_constraint([:external_realm, :external_id],
+      name: :users_external_identity_partial_index
+    )
+  end
+
+  @doc """
   Builds the insert changeset for an internally-created (non-OIDC) user, per
   `lib/letflow/design/req073-identity-user-routes.md` §7 gap 1 —
   `Letflow.Identity.create_user/2`'s changeset. Casts `username`,

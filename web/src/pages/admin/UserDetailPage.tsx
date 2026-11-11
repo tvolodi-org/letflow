@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { P, useAccess, AccessPending, roleLabel, roleDescription } from '@/auth/access'
 import { DeactivateUserDialog } from '@/components/admin/users/DeactivateUserDialog'
+import { TemporaryPasswordPanel } from '@/components/admin/users/TemporaryPasswordPanel'
 import { PasswordResetDialog } from '@/components/admin/users/PasswordResetDialog'
 import { CoreHelpLink } from '@/pages/help/CoreHelpLink'
-import { useAdminGroups, useAdminRoles, useAdminUser, useDeactivateAdminUser, useSendPasswordResetInstructions, useUpdateAdminUser } from '@/hooks/useAdminUsers'
+import { useAdminGroups, useAdminRoles, useCreateUserSignIn, useAdminUser, useDeactivateAdminUser, useSendPasswordResetInstructions, useUpdateAdminUser } from '@/hooks/useAdminUsers'
 import type { User } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Banner } from '@/components/ui/Banner'
@@ -13,6 +14,8 @@ import { classifyError, type RendererState } from '@/utils/classifyError'
 import { useFeedbackMessages } from '@/components/ui/feedbackMessages'
 import { saveErrorText } from '@/utils/saveError'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
+import { usersMessages } from './usersMessages'
+import { signInErrorText, signInMessages } from './signInMessages'
 import { conflictText, fillEmail, hintText, passwordResetBlock, passwordResetMessages } from './passwordResetMessages'
 
 function userId(user: User): string {
@@ -30,7 +33,10 @@ export default function UserDetailPage() {
   const navigate = useNavigate()
   const access = useAccess()
   const feedback = useFeedbackMessages()
-  const pm = passwordResetMessages[useUiLocale()]
+  const uiLocale = useUiLocale()
+  const pm = passwordResetMessages[uiLocale]
+  const sm = signInMessages[uiLocale]
+  const um = usersMessages[uiLocale]
   const isAllowed = access.can(P.UsersGroupsRolesManage)
 
   const userQuery = useAdminUser(routeUserId)
@@ -39,6 +45,7 @@ export default function UserDetailPage() {
   const updateUser = useUpdateAdminUser(routeUserId)
   const deactivateUser = useDeactivateAdminUser(routeUserId)
   const sendReset = useSendPasswordResetInstructions(routeUserId)
+  const createSignIn = useCreateUserSignIn()
 
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
@@ -49,6 +56,9 @@ export default function UserDetailPage() {
   const [submitMessage, setSubmitMessage] = useState<string | null>(null)
   const [showReset, setShowReset] = useState(false)
   const [resetMessage, setResetMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null)
+  // The temporary password lives only here (never in a query or mutation cache) and leaves with Close or unmount.
+  const [signInPanel, setSignInPanel] = useState<{ username: string; password: string } | null>(null)
+  const [signInMessage, setSignInMessage] = useState<string | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
@@ -75,8 +85,8 @@ export default function UserDetailPage() {
   if (!isAllowed) {
     return (
       <div style={{ padding: '1.5rem' }}>
-        <h2>User details</h2>
-        <p>You do not have permission to manage users.</p>
+        <h2>{um.detailTitle}</h2>
+        <p>{um.noPermission}</p>
       </div>
     )
   }
@@ -84,8 +94,8 @@ export default function UserDetailPage() {
   return (
     <div style={{ padding: '1.5rem', maxWidth: 900 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-        <Button variant="ghost" size="sm" onClick={() => navigate('/admin/users')}>Back</Button>
-        <h2 style={{ margin: 0 }}>User details</h2>
+        <Button variant="ghost" size="sm" onClick={() => navigate('/admin/users')}>{um.back}</Button>
+        <h2 style={{ margin: 0 }}>{um.detailTitle}</h2>
       </div>
 
       <QueryStateBoundary
@@ -111,7 +121,7 @@ export default function UserDetailPage() {
                 group_ids: selectedGroupIds,
               },
               {
-                onSuccess: () => setSubmitMessage('Saved'),
+                onSuccess: () => setSubmitMessage(um.saved),
                 onError: (error) => setSubmitMessage(saveErrorText(error, feedback)),
               },
             )
@@ -119,28 +129,28 @@ export default function UserDetailPage() {
         >
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <label>
-              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Username</span>
+              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>{um.username}</span>
               <input value={userQuery.data.username ?? ''} disabled readOnly data-testid="admin-user-username" />
             </label>
             <label>
-              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Status</span>
+              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>{um.status}</span>
               <select value={status} onChange={(event) => setStatus(event.target.value as 'ACTIVE' | 'INACTIVE')} data-testid="admin-user-status">
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="INACTIVE">INACTIVE</option>
+                <option value="ACTIVE">{um.active}</option>
+                <option value="INACTIVE">{um.inactive}</option>
               </select>
             </label>
             <label>
-              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Display name</span>
+              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>{um.displayName}</span>
               <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} data-testid="admin-user-display-name" />
             </label>
             <label>
-              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Email</span>
+              <span style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>{um.email}</span>
               <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} data-testid="admin-user-email" />
             </label>
           </div>
 
           <div style={{ marginTop: 16 }}>
-            <h3 style={{ marginBottom: 8 }}>Role assignments</h3>
+            <h3 style={{ marginBottom: 8 }}>{um.roleAssignments}</h3>
             <div style={{ border: '1px solid var(--border-default)', borderRadius: 6, padding: 10 }}>
               {(rolesQuery.data?.items ?? []).map((role) => {
                 const checked = selectedRoleIds.includes(role.id)
@@ -156,10 +166,10 @@ export default function UserDetailPage() {
                         })
                       }}
                     />
-                    {' '}{roleLabel(role.name)}
-                    {roleDescription(role.name) && (
+                    {' '}{roleLabel(role.name, uiLocale)}
+                    {roleDescription(role.name, uiLocale) && (
                       <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                        {roleDescription(role.name)}
+                        {roleDescription(role.name, uiLocale)}
                       </span>
                     )}
                   </label>
@@ -169,7 +179,7 @@ export default function UserDetailPage() {
           </div>
 
           <div style={{ marginTop: 16 }}>
-            <h3 style={{ marginBottom: 8 }}>Group memberships</h3>
+            <h3 style={{ marginBottom: 8 }}>{um.groupMemberships}</h3>
             <div style={{ border: '1px solid var(--border-default)', borderRadius: 6, padding: 10 }}>
               {(groupsQuery.data?.items ?? []).map((group) => {
                 const gid = group.group_id ?? group.id
@@ -209,7 +219,40 @@ export default function UserDetailPage() {
             ) : (
               <div data-testid="admin-user-reset-hint"><Banner tone="info">{hintText(resetBlock, pm)}</Banner></div>
             )}
+            {userQuery.data.auth_source === 'internal' && (
+              <span data-testid="admin-user-create-sign-in">
+                <Button
+                  variant="secondary"
+                  size="md"
+                  type="button"
+                  disabled={createSignIn.isPending}
+                  onClick={() => {
+                    setSignInMessage(null)
+                    createSignIn.mutate(pageUserId, {
+                      onSuccess: (data) => {
+                        setSignInPanel({ username: data.user?.username ?? userQuery.data?.username ?? '', password: data.temporary_password })
+                        createSignIn.reset()
+                      },
+                      onError: (error) => setSignInMessage(signInErrorText(error, sm, feedback)),
+                    })
+                  }}
+                >
+                  {createSignIn.isPending ? sm.creating : sm.action}
+                </Button>
+              </span>
+            )}
             <span data-testid="admin-user-reset-help"><CoreHelpLink topic="passwordReset" /></span>
+            <div aria-live="polite" data-testid="admin-user-sign-in-live">
+              {signInMessage && <Banner tone="danger">{signInMessage}</Banner>}
+              {signInPanel && (
+                <TemporaryPasswordPanel
+                  username={signInPanel.username}
+                  password={signInPanel.password}
+                  messages={sm}
+                  onClose={() => setSignInPanel(null)}
+                />
+              )}
+            </div>
             {/* Always rendered: a live region that exists before its text arrives is announced reliably. */}
             <div aria-live="polite" data-testid="admin-user-reset-live">
               {resetMessage && (
@@ -230,13 +273,13 @@ export default function UserDetailPage() {
                 loading={updateUser.isPending}
                 onClick={() => formRef.current?.requestSubmit()}
               >
-                {updateUser.isPending ? 'Saving...' : 'Save changes'}
+                {updateUser.isPending ? um.saving : um.save}
               </Button>
             </span>
             {status === 'ACTIVE' && (
               <span data-testid="admin-user-deactivate">
                 <Button variant="secondary" size="md" onClick={() => setShowDeactivate(true)}>
-                  Deactivate
+                  {um.deactivate}
                 </Button>
               </span>
             )}
@@ -277,7 +320,7 @@ export default function UserDetailPage() {
             onSuccess: () => {
               setShowDeactivate(false)
               setStatus('INACTIVE')
-              setSubmitMessage('User deactivated')
+              setSubmitMessage(um.deactivated)
             },
             onError: (error) => {
               setSubmitMessage(saveErrorText(error, feedback))

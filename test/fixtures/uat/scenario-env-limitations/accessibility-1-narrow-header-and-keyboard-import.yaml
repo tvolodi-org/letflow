@@ -1,0 +1,14 @@
+scenario_id: tenant-administration-accessibility-1-narrow-header-and-keyboard-import
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "what a screen reader announces on the Users import, instance replay, rollout and user-page screens (the polite status with the row counts, the button's pointer to its reason, the live region of the reset answer), colour contrast of the text in light and dark, and the keyboard behaviour of the replay range slider"
+reason: >
+  The accessibility pass (docs/design-system/accessibility.md section 5, merge 53be5a690) fixed things that exist in the page markup and the style sheet, not in what a tester sees: the announcement text is visually hidden,
+  the pointer from a button to its reason is an attribute, and contrast is a ratio of colours. The UAT runner drives the screen and reads what is visible; it has no screen reader and no contrast meter.
+  The visible results (the reason sentence, the keyboard path, the narrow header) are in scenario tenant-administration-accessibility-1-narrow-header-and-keyboard-import.
+  Checked meanwhile in CI by web/src/pages/admin/usersImport/__tests__/usersImportA11y.test.tsx; the section itself lists a real-browser axe run and the Kazakh wording check as an operator check.
+recorded_by: business-analyst
+recorded_at: "2026-11-11"
+issue_ref: "T-1710"
+review: >
+  Revisit when an operator-run axe or screen-reader check exists in the UAT harness; then write the scenario and remove this file.

@@ -83,6 +83,77 @@ String base64UrlNoPad(List<int> bytes) =>
 String pkceChallenge(String verifier) =>
     base64UrlNoPad(sha256.convert(ascii.encode(verifier)).bytes);
 
+/// An endpoint must be a policy-allowed URL on the issuer's origin.
+Uri checkIssuerEndpoint(TransportPolicy policy, Object? value, Uri issuerUri) {
+  if (value is! String) throw StateError('missing endpoint');
+  final u = Uri.parse(value);
+  if (!policy.isUrlAllowed(u) ||
+      u.scheme != issuerUri.scheme ||
+      u.host != issuerUri.host ||
+      u.port != issuerUri.port) {
+    throw StateError('endpoint off the issuer origin');
+  }
+  return u;
+}
+
+/// Form POST that returns only the HTTP status (RFC 7009 revocation). A
+/// separate seam so [OidcHttp] stays unchanged.
+abstract interface class OidcRevocationHttp {
+  Future<int> postFormStatus(Uri url, Map<String, String> form);
+}
+
+/// Revokes a refresh token at the IdP's `revocation_endpoint` (RFC 7009,
+/// public client: `client_id`, no secret, no admin API). Throws on any
+/// failure; the caller treats that as "revocation failed" and still deletes
+/// the local record.
+class OidcRevoker {
+  OidcRevoker({
+    required OidcHttp discovery,
+    required OidcRevocationHttp post,
+    TransportPolicy? policy,
+  }) : _discovery = discovery,
+       _post = post,
+       _policy = policy ?? transportPolicyFor();
+
+  final OidcHttp _discovery;
+  final OidcRevocationHttp _post;
+  final TransportPolicy _policy;
+
+  Future<void> revoke(
+    String issuer,
+    String clientId,
+    String refreshToken,
+  ) async {
+    final issuerUri = Uri.parse(issuer);
+    if (!_policy.isUrlAllowed(issuerUri)) {
+      throw StateError('issuer not allowed by transport policy');
+    }
+    final base = issuer.endsWith('/') ? issuer : '$issuer/';
+    final doc = await _discovery.getJson(
+      Uri.parse('$base.well-known/openid-configuration'),
+    );
+    String strip(String s) =>
+        s.endsWith('/') ? s.substring(0, s.length - 1) : s;
+    if (doc['issuer'] is! String ||
+        strip(doc['issuer'] as String) != strip(issuer)) {
+      throw StateError('discovery issuer mismatch');
+    }
+    final endpoint = checkIssuerEndpoint(
+      _policy,
+      doc['revocation_endpoint'],
+      issuerUri,
+    );
+    final status = await _post.postFormStatus(endpoint, {
+      'token': refreshToken,
+      'token_type_hint': 'refresh_token',
+      'client_id': clientId,
+    });
+    if (status < 200 || status >= 300) {
+      throw StateError('revocation answered $status');
+    }
+  }
+}
+
 class WebAppAuthAdapter implements AppAuthAdapter {
   WebAppAuthAdapter({
     required OidcHttp http,
@@ -138,17 +209,8 @@ class WebAppAuthAdapter implements AppAuthAdapter {
   }
 
   /// An endpoint must be a policy-allowed URL on the issuer's origin.
-  Uri _checkEndpoint(Object? value, Uri issuerUri) {
-    if (value is! String) throw StateError('missing endpoint');
-    final u = Uri.parse(value);
-    if (!_policy.isUrlAllowed(u) ||
-        u.scheme != issuerUri.scheme ||
-        u.host != issuerUri.host ||
-        u.port != issuerUri.port) {
-      throw StateError('endpoint off the issuer origin');
-    }
-    return u;
-  }
+  Uri _checkEndpoint(Object? value, Uri issuerUri) =>
+      checkIssuerEndpoint(_policy, value, issuerUri);
 
   Future<AuthorizationTokenResponse?> _start(
     AuthorizationTokenRequest request,

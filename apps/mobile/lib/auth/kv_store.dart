@@ -43,3 +43,19 @@ abstract interface class OidcHttp {
   Future<Map<String, dynamic>> getJson(Uri url);
   Future<Map<String, dynamic>> postForm(Uri url, Map<String, String> form);
 }
+
+/// A non-2xx answer of an OIDC endpoint. Carries the status and the OAuth
+/// `error` code only (for example `invalid_grant`), never the body, so it is
+/// safe to log. Lets the keep-signed-in unlock tell "the IdP refused this
+/// refresh token" from "the network failed".
+class OidcHttpError implements Exception {
+  const OidcHttpError(this.statusCode, [this.error]);
+
+  final int statusCode;
+  final String? error;
+
+  bool get isInvalidGrant => error == 'invalid_grant';
+
+  @override
+  String toString() => 'OIDC endpoint answered $statusCode';
+}

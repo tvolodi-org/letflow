@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { P, useAccess, roleLabel } from '@/auth/access'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, rolesApi } from '@/api/identity'
+import { useCreateUserSignIn } from '@/hooks/useAdminUsers'
+import { TemporaryPasswordPanel } from '@/components/admin/users/TemporaryPasswordPanel'
+import { Banner } from '@/components/ui/Banner'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import type { User } from '@/types/api'
 import { useNavigate } from 'react-router-dom'
@@ -15,6 +18,7 @@ import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { fillFeedback, useFeedbackMessages } from '@/components/ui/feedbackMessages'
 import { saveErrorText } from '@/utils/saveError'
 import { usersMessages } from './usersMessages'
+import { fillReason, signInErrorText, signInMessages } from './signInMessages'
 
 // NOTE: user active/inactive is rendered as a tokenized custom badge, not
 // StatusBadge (REQ-272) -- StatusBadgeDomain has no "user" member (only
@@ -46,6 +50,15 @@ export default function UsersPage() {
   const [createRoleIds, setCreateRoleIds] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const feedback = useFeedbackMessages()
+  const uiLocale = useUiLocale()
+  const signIn = useCreateUserSignIn()
+  const [withSignIn, setWithSignIn] = useState(false)
+  // Result of "Create sign-in now"; the password lives only in this state, never in a cache.
+  const [signInResult, setSignInResult] = useState<
+    | { kind: 'created'; userId: string; username: string; password: string }
+    | { kind: 'refused'; userId: string; text: string }
+    | null
+  >(null)
 
   const usersQueryKey = tenantKeys.admin.users({ search: searchApplied || undefined })
 
@@ -66,7 +79,19 @@ export default function UsersPage() {
       setCreating(false)
       setForm({ username: '', email: '', display_name: '', password: '' })
       setCreateRoleIds([])
-      navigate(`/admin/users/${createdUser.id}`)
+      if (!withSignIn) {
+        navigate(`/admin/users/${createdUser.id}`)
+        return
+      }
+      setWithSignIn(false)
+      const m = signInMessages[uiLocale]
+      signIn.mutate(createdUser.id, {
+        onSuccess: (data) => {
+          setSignInResult({ kind: 'created', userId: createdUser.id, username: data.user?.username ?? createdUser.username, password: data.temporary_password })
+          signIn.reset()
+        },
+        onError: (e) => setSignInResult({ kind: 'refused', userId: createdUser.id, text: fillReason(m.createdNoSignIn, signInErrorText(e, m, feedback)) }),
+      })
     },
     onError: (e) => {
       setError(saveErrorText(e, feedback))
@@ -77,35 +102,35 @@ export default function UsersPage() {
     setter(selectedIds.includes(roleId) ? selectedIds.filter((id) => id !== roleId) : [...selectedIds, roleId])
   }
 
-  const uiLocale = useUiLocale()
   const um = usersMessages[uiLocale]
+  const sm = signInMessages[uiLocale]
   const columns: DataTableColumn<User>[] = [
-    { id: 'username', header: 'Username', accessor: displayUsername },
-    { id: 'display_name', header: 'Display name', accessor: (u) => u.display_name },
-    { id: 'email', header: 'Email', accessor: (u) => u.email },
+    { id: 'username', header: um.username, accessor: displayUsername },
+    { id: 'display_name', header: um.displayName, accessor: (u) => u.display_name },
+    { id: 'email', header: um.email, accessor: (u) => u.email },
     {
       id: 'roles',
-      header: 'Roles',
+      header: um.roles,
       accessor: (u) => (
         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{roleList(u).map((name) => roleLabel(name, uiLocale)).join(', ')}</span>
       ),
     },
     {
       id: 'status',
-      header: 'Status',
+      header: um.status,
       accessor: (u) => (
         <span style={{ color: u.status === 'active' ? 'var(--color-success-dark)' : 'var(--text-disabled)', fontWeight: 600, fontSize: 'var(--text-xs)' }}>
-          {u.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
+          {u.status === 'active' ? um.active : um.inactive}
         </span>
       ),
     },
-    { id: 'created', header: 'Created', accessor: (u) => formatDate(u.inserted_at, { year: 'numeric', month: 'short', day: 'numeric' }, uiLocale) },
+    { id: 'created', header: um.created, accessor: (u) => formatDate(u.inserted_at, { year: 'numeric', month: 'short', day: 'numeric' }, uiLocale) },
   ]
 
   return (
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '1.25rem' }}>
-        <h2 style={{ margin: 0 }}>Users</h2>
+        <h2 style={{ margin: 0 }}>{um.title}</h2>
         {canManage && (
           <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '.5rem' }}>
             <span data-testid="admin-users-import">
@@ -115,7 +140,7 @@ export default function UsersPage() {
             </span>
             <span data-testid="admin-users-new">
               <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
-                + New User
+                {um.newUser}
               </Button>
             </span>
           </span>
@@ -127,23 +152,51 @@ export default function UsersPage() {
           data-testid="admin-users-search"
           value={searchDraft}
           onChange={(e) => setSearchDraft(e.target.value)}
-          placeholder="Search users"
+          placeholder={um.searchPlaceholder}
           style={{ width: '100%', maxWidth: '20rem', minWidth: 0, flex: '1 1 12rem', padding: '.45rem .7rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)', boxSizing: 'border-box' }}
         />
         <Button variant="primary" size="sm" onClick={() => setSearchApplied(searchDraft)}>
-          Apply
+          {um.apply}
         </Button>
+      </div>
+
+      <div aria-live="polite" data-testid="admin-users-sign-in-live" style={{ display: 'grid', gap: 'var(--space-2)', marginBottom: signInResult ? '1.25rem' : 0 }}>
+        {signInResult?.kind === 'created' && (
+          <TemporaryPasswordPanel
+            username={signInResult.username}
+            password={signInResult.password}
+            messages={sm}
+            onClose={() => setSignInResult(null)}
+            extraAction={
+              <span data-testid="sign-in-open-user">
+                <Button variant="secondary" size="sm" type="button" onClick={() => navigate(`/admin/users/${signInResult.userId}`)}>{sm.openUser}</Button>
+              </span>
+            }
+          />
+        )}
+        {signInResult?.kind === 'refused' && (
+          <Banner
+            tone="danger"
+            action={
+              <span data-testid="sign-in-open-user">
+                <Button variant="secondary" size="sm" type="button" onClick={() => navigate(`/admin/users/${signInResult.userId}`)}>{sm.openUser}</Button>
+              </span>
+            }
+          >
+            {signInResult.text}
+          </Banner>
+        )}
       </div>
 
       {creating && (
         <div style={{ background: 'var(--surface-page)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', padding: '1.25rem', marginBottom: '1.25rem' }}>
-          <h3 style={{ margin: '0 0 1rem' }}>Create user</h3>
+          <h3 style={{ margin: '0 0 1rem' }}>{um.createUser}</h3>
           {error && <p data-testid="admin-users-save-error" role="alert" style={{ color: 'var(--color-error)', marginBottom: '.75rem', fontSize: 'var(--text-sm)' }}>{error}</p>}
           {([
-            { key: 'username', label: 'Username', type: 'text' },
-            { key: 'display_name', label: 'Display name', type: 'text' },
-            { key: 'email', label: 'Email', type: 'email' },
-            { key: 'password', label: 'Password', type: 'password' },
+            { key: 'username', label: um.username, type: 'text' },
+            { key: 'display_name', label: um.displayName, type: 'text' },
+            { key: 'email', label: um.email, type: 'email' },
+            { key: 'password', label: um.password, type: 'password' },
           ] as const).map((f) => (
             <div key={f.key} style={{ marginBottom: '.75rem' }}>
               <label style={{ display: 'block', marginBottom: '.25rem', fontSize: '.875rem', fontWeight: 500 }}>{f.label}</label>
@@ -158,7 +211,7 @@ export default function UsersPage() {
           ))}
 
           <div style={{ marginBottom: '.75rem' }}>
-            <p style={{ margin: '0 0 .35rem', fontSize: '.875rem', fontWeight: 500 }}>Roles</p>
+            <p style={{ margin: '0 0 .35rem', fontSize: '.875rem', fontWeight: 500 }}>{um.roles}</p>
             {(roles?.items ?? []).map((role) => (
               <label key={role.id} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '.25rem' }}>
                 <input
@@ -167,17 +220,27 @@ export default function UsersPage() {
                   checked={createRoleIds.includes(role.id)}
                   onChange={() => toggleRole(role.id, createRoleIds, setCreateRoleIds)}
                 />
-                <span>{roleLabel(role.name)}</span>
+                <span>{roleLabel(role.name, uiLocale)}</span>
               </label>
             ))}
           </div>
 
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '.75rem' }}>
+            <input
+              type="checkbox"
+              data-testid="admin-users-create-sign-in"
+              checked={withSignIn}
+              onChange={(e) => setWithSignIn(e.target.checked)}
+            />
+            <span>{sm.checkbox}</span>
+          </label>
+
           <div style={{ display: 'flex', gap: '.5rem' }}>
             <Button variant="primary" size="sm" loading={createUser.isPending} onClick={() => createUser.mutate()}>
-              Create user
+              {um.createUser}
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => { setCreating(false); setError(null) }}>
-              Cancel
+            <Button variant="secondary" size="sm" onClick={() => { setCreating(false); setError(null); setWithSignIn(false) }}>
+              {um.cancel}
             </Button>
           </div>
         </div>

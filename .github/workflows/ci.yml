@@ -1257,6 +1257,12 @@ jobs:
         if: needs.changes.outputs.mobile != 'false'
         run: flutter test
 
+      - name: Browser crypto test (Chrome)
+        if: needs.changes.outputs.mobile != 'false'
+        run: |
+          google-chrome --version
+          flutter test --platform chrome test/auth/web_session_crypto_browser_test.dart
+
       - name: Build debug APK
         if: needs.changes.outputs.mobile != 'false'
         run: flutter build apk --debug

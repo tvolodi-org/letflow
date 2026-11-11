@@ -34,6 +34,11 @@ export const usersApi = {
   sendPasswordResetInstructions: (id: string) =>
     client.post<{ status: 'requested' }>(`/api/v1/identity/users/${id}/reset-password`, {}),
 
+  // REQ-807/REQ-809: creates the realm login for an internal user; the answer carries the temporary password once.
+  // The route refuses a non-empty body, so `{}` (the empty map) is sent.
+  createSignIn: (id: string) =>
+    client.post<{ user: User; temporary_password: string }>(`/api/v1/identity/users/${id}/sign-in`, {}),
+
   // `usersApi.delete` removed in ISS-0813.
   // `DELETE /identity/users/:id` does not exist in Letflow.Routers.Identity.__authz_routes__/0
   // at any prefix. Do not re-add until a backend route exists.

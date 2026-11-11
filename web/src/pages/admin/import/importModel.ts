@@ -95,6 +95,8 @@ export interface ImportResultRow {
   outcome?: 'created' | 'updated' | 'unchanged'
   external_ref?: { system?: string; id?: string }
   reason?: ImportReason
+  /** REQ-808 (users import only): the sign-in outcome of a created row; absent on other rows and old answers. */
+  sign_in?: { created: boolean; temporary_password?: string; reason?: string }
 }
 
 export interface ImportAnswer {
