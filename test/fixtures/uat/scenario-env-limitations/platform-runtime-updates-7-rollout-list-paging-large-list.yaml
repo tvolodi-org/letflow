@@ -1,0 +1,17 @@
+scenario_id: platform-runtime-updates-7-rollout-list-paging-and-refusals
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "Rollout list paging (REQ-813): the default page of 50 when more than 50 rollouts exist, a full last page, two rollouts with the same start time, and an expired page marker"
+reason: >
+  NOT OBSERVABLE, not PASS. A UAT run cannot create rollouts: starting one upgrades the modules of every active company on the
+  shared QA instance (platform-runtime-updates-1 never starts one), so the list on QA holds only the few rollouts that earlier
+  operator work left, far below 50. The cases that need a long list or chosen start times (the 50-row default page with a
+  marker, a last page that is exactly full, ties on the start time that must still order the same way on every page) cannot be
+  built from the roster. An expired page marker needs a marker older than the expiry limit and the roster cannot age one.
+  These are proved by the product's own tests (test/letflow/routers/platform_module_rollouts_test.exs, test/letflow/module_upgrade/fleet_test.exs).
+  The scenario covers what QA can show: paging through the real list, the refused inputs and the company-side refusal.
+recorded_by: business-analyst
+recorded_at: "2026-11-11"
+issue_ref: "GH #4243"
+review: >
+  Revisit when a QA copy exists with a seeded list of more than 50 rollouts or a way to start rollouts on a scratch company set.
