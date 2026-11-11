@@ -60,11 +60,11 @@ Task T-1748 (B13#1), source `docs/uat/ba-decisions/T-1739.md` item 1. Docs only:
 | #3915 | REQ-773 | PARTIAL | PR 4114 merged (`Refs #3915`); remainder: fencing token, resumable runner, cutover lock_timeout, capacity and progress block. |
 | #3901 | REQ-760 | PARTIAL | PR 4026 merged (`Refs #3901`); remainder: pair reversal, card retirement, refusal after a card moved. |
 | #3900 | REQ-761 | PARTIAL | No commit names REQ-761. PR 4029 (C16 web screen) is probably its build but says `Refs #3902`; remainder: reverse action in the UI. Re-check: the kind-change form is on main (`web/src/modules/assets/__tests__/KindChangeForm.test.tsx`, harness `assetsDocumentsKindChange.tsx`); remainder not re-verified. |
-| #3899 | REQ-762 | PARTIAL | PR 3973 merged (`Refs #3899`); remainder: end-to-end test of `asset_kind_locked`. Re-check: still true, `test/letflow/modules/assets/card_import_test.exs` only tests the mapping (`Import.refusal(:kind_locked) == :asset_kind_locked`; its header says E10 waits for REQ-752) and `entities_import_atomic_test.exs` lists the code in a table. |
+| #3899 | REQ-762 | PARTIAL | PR 3973 merged (`Refs #3899`); remainder (end-to-end test of `asset_kind_locked`) now covered by test L10 in `test/letflow/modules/assets/card_locks_test.exs` (T-1777). |
 | #3889 | REQ-753 | PARTIAL | PR 4003 merged (`Refs #3889`); remainder: card org_unit_id sync on hand over, `assets_card` handler target. |
 | #3888 | REQ-754 | PARTIAL | PR 3966 merged but its body says `Refs #3894`, not #3888; the employee lookup answers `:none` until the register lands. |
 | #3879 | REQ-741 | PARTIAL | PR 3926 merged (`Refs #3879`); "the issue's remaining slices are not part of this change". |
-| #3772 | REQ-728 | PARTIAL | PR 3801 merged (`Refs #3772`); remainder: masked-leg file test. |
+| #3772 | REQ-728 | PARTIAL | PR 3801 merged (`Refs #3772`); remainder (masked-leg file test) already covered by test X-4b in `test/letflow/modules/stock/xlsx_export_test.exs` (checked in T-1777). |
 | #3763 | REQ-718 | PARTIAL | PRs 3833 and 3884 merged (`Refs #3763`); remainder: the count freeze (split plan row C7). PR 4066 built the freeze but closed #3906. |
 | #3761 | REQ-720 | PARTIAL | PR 3854 merged (`Refs #3761`); remainder: criterion 3 (post, posting record, reverse) and REQ-718-only messages. |
 | #3749 | REQ-712 | PARTIAL | PR 3805 merged (`Refs #3749`); remainder: REQ-713 posting handler, reversal and cancel. |
