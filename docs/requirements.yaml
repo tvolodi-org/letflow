@@ -54206,6 +54206,49 @@ requirements:
       - "7. The Sources section lists every file and decision record the note cites, and every one exists on origin/main at implement time (`git cat-file -e origin/main:<path>` succeeds for each); every function the note names is found by `git grep -nE 'defp? <name>'` on origin/main in the file the note gives for it."
       - "8. git diff origin/main...HEAD --stat of the implementation change lists only docs/design/REQ-801-sign-in-for-created-users.md."
     depends_on: [REQ-788]
+  - id: REQ-804
+    title: "First sign-in refused in plain words when the username already belongs to another account of the company: a fixed 403 reason instead of HTTP 500, the existing row untouched; bug fix with a red proof"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4211
+    # Source: task T-1681 (operator, D-086, PM order 2026-11-11, batch 8 item 3); docs/uat/ba-decisions/T-1677.md "What I found first" point 4 and candidate 3 ("When provisioning a login finds an internal row with the same username and different identity, answer a refusal with a fixed reason and a hint to ask the administrator, log it, keep the row untouched. Behaviour stays a refusal; the e-mail-only case (a second row) is NOT changed here (takeover risk; owner and security decision). Requirement first, then build, bug-fix rules (red proof)"; owner decision "No for turning 500 into a refusal; yes for any change that links or merges rows"). docs/design/REQ-801-sign-in-for-created-users.md section "What happens at first sign-in to an existing row", case (i). Files read on origin/main 833955276: lib/letflow/identity.ex (provision_oidc_user/4, upsert_by_external_identity/4, insert_or_fetch/4, insert_or_fetch_in_tx/4 with its username_unique_conflict?/1, get_by_username/2, identity_matches?/2 branches; @type provisioning_error); lib/letflow/plugs/auth_pipeline.ex (provision_user/4 wraps every error as {:provision, reason}; respond_auth_error/2 clause {:error, {:provision, reason}} logs inspect(reason) and answers 500 internal_error "user provisioning failed"; clause {:provision, :jit_disabled} answers 403; counted_failure?/1 is false for the :provision class; reject/4 renders {error, detail}); test/letflow/plugs/auth_pipeline_configurable_verifier_test.exs (describe "generic provisioning failure (ISS-0534 ...)", which pins the 500 for this exact case); test/letflow/identity_test.exs (describe "provision_oidc_user/4 — username collision, same vs different tenant schemas (REQ-063)", first test, pins {:error, %Ecto.Changeset{}}); test/letflow/identity_login_directory_test.exs (test "JIT username collision with a DIFFERENT identity: ...", pins {:error, %Ecto.Changeset{}}); web/src/api/client.ts (the generic error branch reads title/message and type/code, not error/detail). docs/agents/instructions/security-invariants.md INV-8 and INV-5. Written by the business analyst (T-1681) 2026-11-11.
+    description: >
+      The defect, as read on origin/main: a person signs in through the company's Keycloak realm for the first time
+      and the company already holds a user row with the same username but a different identity (for example a row
+      made on the Users screen or by the xlsx import, whose external_realm and external_id are empty).
+      Letflow.Plugs.AuthPipeline step 4b calls Letflow.Identity.provision_oidc_user/4 (lib/letflow/identity.ex); the
+      insert in the private insert_or_fetch_in_tx/4 hits the unique index on username, username_unique_conflict?/1 is
+      true, get_by_username/2 returns the existing row, identity_matches?/2 is false, and Repo.rollback(changeset)
+      makes provision_oidc_user/4 return {:error, %Ecto.Changeset{}}. respond_auth_error/2 in
+      lib/letflow/plugs/auth_pipeline.ex maps {:error, {:provision, reason}} to HTTP 500 internal_error "user
+      provisioning failed" and logs inspect(reason), the whole changeset, which carries the incoming e-mail. The person
+      sees a server failure with no explanation; INV-8 asks for no unhandled failure on a realistic path, and the pilot
+      runbook's first week meets this path.
+      ONE change, backend only, a bug fix: that one case becomes a refusal. provision_oidc_user/4 returns
+      {:error, :username_in_use} from the branch where identity_matches?/2 is false (the @type provisioning_error and
+      the function's @spec name the new atom); every other branch of insert_or_fetch_in_tx/4 is unchanged (the
+      same-identity race still resolves through re_select_on_conflict/3; the defensive nil-holder branch and every
+      changeset error that is not a username unique conflict still return the changeset). respond_auth_error/2 gets one
+      new clause, before the generic {:provision, reason} clause, that answers HTTP 403 with error "username_in_use"
+      and detail "This username already belongs to another account in this company. Ask your administrator." and
+      logs one warning line. The refusal is not counted as a failed sign-in attempt (counted_failure?/1 stays false
+      for the :provision class, as today).
+      Not in this change: the e-mail-only case (case (ii) of the REQ-801 note: a second row is made) stays as it is;
+      linking, merging or taking over the existing row is the owner's and the security reviewer's decision
+      (docs/uat/ba-decisions/T-1677.md candidate 3). How the web app shows the new reason is not changed here:
+      web/src/api/client.ts reads title/message and type/code, not the pipeline's error/detail, so a screen text for
+      it is a separate web change. No migration, no new route, no new permission, no flag, no change under web/,
+      apps/ or priv/.
+    acceptance_criteria:
+      - "1. Red proof: a new test in test/letflow/plugs/auth_pipeline_configurable_verifier_test.exs seeds, in the tenant's schema, a user row with username \"colliding-user\" and a different external identity (as the existing describe \"generic provisioning failure (ISS-0534 ...)\" does), sends a realm token whose preferred_username is \"colliding-user\" through the pipeline, and asserts HTTP 403, conn.halted, and the decoded body exactly %{\"error\" => \"username_in_use\", \"detail\" => \"This username already belongs to another account in this company. Ask your administrator.\"}. The implementation summary quotes the command and the failing output of this test on the unmodified code (status 500)."
+      - "2. The same test asserts that the existing row is untouched: after the request the tenant's schema holds exactly one user row; that row's id, username, email, auth_source, external_realm, external_id and updated_at equal their values before the request; and no login-directory entry exists for the incoming token's e-mail."
+      - "3. The same test captures the log and asserts that it contains \"username_in_use\" and does not contain the incoming token's e-mail, the existing row's e-mail, or the text \"Ecto.Changeset\"."
+      - "4. Letflow.Identity.provision_oidc_user/4 returns {:error, :username_in_use} for this case: the first test of describe \"provision_oidc_user/4 — username collision, same vs different tenant schemas (REQ-063)\" in test/letflow/identity_test.exs and the test \"JIT username collision with a DIFFERENT identity: ...\" in test/letflow/identity_login_directory_test.exs assert {:error, :username_in_use} instead of {:error, %Ecto.Changeset{}}, and each keeps its other assertions (user count, directory entries) unchanged."
+      - "5. The existing describe \"generic provisioning failure (ISS-0534 ...)\" in test/letflow/plugs/auth_pipeline_configurable_verifier_test.exs no longer uses the username collision: it unsets the login-directory pepper with Letflow.Test.LoginDirectoryFixture.swap_keys!(:unset, nil) (test/support/login_directory_fixture.ex), as the test \"a forced directory failure leaves no user row and returns {:error, {:login_directory, _}}\" in test/letflow/identity_login_directory_test.exs does, so provision_oidc_user/4 returns {:error, {:login_directory, :pepper_unavailable}}; the test keeps asserting HTTP 500, error \"internal_error\", that the log contains \"provisioning\" and \"pepper_unavailable\", and that the tenant holds no user row."
+      - "6. Unchanged behaviour, each shown by its existing test passing unmodified: test \"a token for a realm with JIT provisioning disabled is rejected 403 end-to-end, no user row created\" (test/letflow/plugs/auth_pipeline_configurable_verifier_test.exs); test \"concurrent first logins of the same identity: both succeed, one created, one entry, no aborted transaction\" (test/letflow/identity_login_directory_concurrency_test.exs); test \"a user without an email creates no user and no entry\" (test/letflow/identity_login_directory_test.exs), which still gets {:error, %Ecto.Changeset{}}."
+      - "7. git diff origin/main...HEAD --stat of the implementation change lists only lib/letflow/identity.ex, lib/letflow/plugs/auth_pipeline.ex and the three test files named in criteria 1, 4 and 5; mix letflow.check.static passes."
+    depends_on: [REQ-801]
   - id: REQ-803
     title: "Sign-up sweep, decision-record addendum: allow a timed sweep that closes stale sign-up requests and resumes unfinished ones, behind the sign-up flag (addendum to 0085 D7 with a pointer in 0084 D5); docs only, the build is a later task"
     owner: CODE-DESIGNER
