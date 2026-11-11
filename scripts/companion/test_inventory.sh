@@ -2,8 +2,11 @@
 # Test inventory for the source/companion split (T-1676, S1-prep C).
 #
 # Read-only: only `git grep` over tracked files; writes nothing, changes no test.
-# Counts the test files (under TEST_ROOTS) whose text names a path of a "companion" family:
+# Counts the executable test files (TEST_SPECS: *_test.exs under test/, *.test.ts(x)/*.spec.ts(x)
+# under web/tests/ and web/src/, *_test.dart under apps/mobile/test/) whose text names a path of a "companion" family:
 # docs/, handoffs/, .claude/, requirements.yaml, migration/decisions, runbooks, uat fixtures.
+# Data artefacts (test/reports, test/specs, test/uat-reports, test/fixtures, shard manifests,
+# *_fixture.exs) are not test files and are never counted.
 # Families overlap (a runbook test also names docs/), so the per-family counts do not add up;
 # the distinct union is printed separately.
 #
@@ -17,7 +20,18 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-TEST_ROOTS=(test web/tests apps/mobile/test)
+# Executable test files, as git pathspecs; TEST_ROOTS are the report columns.
+TEST_SPECS=(
+  ':(glob)test/**/*_test.exs'
+  ':(glob)web/tests/**/*.test.ts'
+  ':(glob)web/tests/**/*.test.tsx'
+  ':(glob)web/tests/**/*.spec.ts'
+  ':(glob)web/src/**/*.test.ts'
+  ':(glob)web/src/**/*.test.tsx'
+  ':(glob)apps/mobile/test/**/*_test.dart'
+)
+TEST_ROOTS=(test/ web/tests/ web/src/ apps/mobile/test/)
+specs=("${TEST_SPECS[@]}")
 
 FAMILIES=(
   'docs:docs/'
@@ -38,17 +52,12 @@ case "${1:-}" in
   *) echo "usage: $0 [--list | --files FAMILY]" >&2; exit 2 ;;
 esac
 
-roots=()
-for r in "${TEST_ROOTS[@]}"; do
-  [ -d "$r" ] && roots+=("$r")
-done
+roots=("${TEST_ROOTS[@]}")
 
-total=$(git ls-files -- "${roots[@]}" | wc -l)
+total=$(git ls-files -- "${specs[@]}" | wc -l)
 
-# Fixture data under test/fixtures/uat is itself a companion artefact, not a test file; exclude
-# it from the scan so a fixture that names a path does not count as a test.
 scan() { # $1 = ERE
-  git grep -lIE -e "$1" -- "${roots[@]}" ':!test/fixtures/uat' || true
+  git grep -lIE -e "$1" -- "${specs[@]}" || true
 }
 
 tmp=$(mktemp -d)
@@ -62,7 +71,7 @@ if [ "$mode" = files ]; then
 fi
 
 echo "test inventory (git grep, tracked files only)"
-echo "roots: ${roots[*]}   tracked files under roots: $total"
+echo "roots: ${roots[*]}   executable test files: $total"
 echo
 printf '%-20s %8s' family files
 for r in "${roots[@]}"; do printf ' %12s' "$r"; done
@@ -73,7 +82,7 @@ for f in "${FAMILIES[@]}"; do
   scan "$re" | sort > "$tmp/$name.txt"
   printf '%-20s %8d' "$name" "$(wc -l < "$tmp/$name.txt")"
   for r in "${roots[@]}"; do
-    printf ' %12d' "$(grep -c "^$r/" "$tmp/$name.txt" || true)"
+    printf ' %12d' "$(grep -c "^$r" "$tmp/$name.txt" || true)"
   done
   printf '\n'
 done
