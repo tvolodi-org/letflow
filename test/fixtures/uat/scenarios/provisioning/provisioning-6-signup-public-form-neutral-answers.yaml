@@ -9,7 +9,7 @@
 # accepted exactly true; caps ip_hourly_cap 5, resend_interval_seconds 60, token_ttl_hours 24), lib/letflow/signup/messages.ex
 # (`languages/0`), docs/uat/ba-decisions/T-1567.md section 2 steps 1 to 3.
 # NOT COVERED HERE, with reasons (also recorded in scenario-env-limitations/provisioning-8-signup-verify-to-tenant-created.yaml):
-# (a) following a real mailed link and the tenant that results: needs a test mailbox the UAT cannot read;
+# (a) following a real mailed link and what comes after it (tenant create, welcome mail, the timed sweep of stale requests): needs a test mailbox the UAT cannot read (T-1688);
 # (b) the per-address hourly cap (5) and the pending cap (50): hitting them would block every other tester on the same
 #     network address for an hour and fill the shared pending list; covered by test/letflow/signup_test.exs;
 # (c) the 24-hour link lifetime and the 7-day abandon age: need clock control; covered by the same tests.

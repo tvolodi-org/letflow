@@ -1,0 +1,30 @@
+scenario_id: identity-first-sign-in-username-collision-refusal
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "a person signs in through the company's login realm for the first time and the company already holds a user with the same username but a different identity: the refusal in plain words (REQ-804)"
+reason: >
+  BLOCKED, not PASS. The behaviour is built (merge c45982225; REQ-804): the sign-in is answered 403 with the reason
+  "username_in_use" and the text "This username already belongs to another account in this company. Ask your
+  administrator." instead of a server failure; the existing user is left untouched; the log carries the reason and no
+  e-mail address. To produce it from outside, a runner needs a login-realm account whose username equals the username
+  of a company user that has no login identity (a user made on the Users screen or by the users import), and that
+  has never signed in. The UAT roster (test/fixtures/uat/actors.yaml) holds only accounts that already signed in
+  (each already has its own user with its own identity; a roster account that signed in before cannot meet this case
+  again), and the UAT runner has no step that creates an account in a login realm (the roster notes in actors.yaml
+  record that QA accounts are made by infra). A scenario written without such an account would either pass by accident
+  or prove nothing.
+  What is checked instead, in CI and not UAT: test/letflow/plugs/auth_pipeline_configurable_verifier_test.exs ("a
+  different identity holding the username is refused 403 username_in_use, row untouched, nothing leaked": status, exact
+  body, one user row unchanged, no login-directory entry, log without e-mail), test/letflow/identity_test.exs
+  (provision_oidc_user returns {:error, :username_in_use}) and test/letflow/identity_login_directory_test.exs. Not
+  covered by UAT or by this change, and not decided: the case where only the e-mail address is equal (a second user is
+  made; linking or merging users is the owner's and the security reviewer's decision, REQ-804 "Not in this change"), and how
+  the web app shows this refusal (web/src/api/client.ts reads other field names; a separate web change).
+recorded_by: business-analyst
+recorded_at: "2026-11-11"
+issue_ref: "T-1688"
+review: >
+  Revisit when infra provides a login-realm account for UAT whose username can be matched to a user made on the
+  Users screen (owner or infra decision, with the roster entry in actors.yaml); then queue one task to write the
+  scenario (steps: administrator creates the user, the person signs in, the refusal text is seen, the administrator's
+  Users screen still shows one unchanged row) and remove this file.

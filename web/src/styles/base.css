@@ -263,3 +263,13 @@ samp {
 /* T-1660: module rollouts detail pane: grid children may shrink so the outcomes table scrolls inside its wrapper, not past the card. */
 .lf-md__detail .lf-form > * { min-width: 0; }
 .lf-md__master h2 { padding: var(--space-2) var(--space-3); margin: 0; }
+
+/* T-1717: page header (PageLayout) wraps instead of cramping title and actions at 390 px; the actions row wraps too
+   and its buttons keep their label on one line. Rules live here, not in the generated components.css. */
+.lf-page-layout__header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6); }
+.lf-page-layout__title { min-width: 0; overflow-wrap: anywhere; }
+.lf-page-layout__actions, .lf-page-layout__actions-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.lf-page-layout__actions .lf-btn, .lf-page-layout__actions-row .lf-btn { white-space: nowrap; }
+@media (max-width: 480px) {
+  .lf-page-layout__header { flex-direction: column; align-items: stretch; }
+}
