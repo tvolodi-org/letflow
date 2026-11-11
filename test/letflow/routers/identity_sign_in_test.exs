@@ -465,4 +465,55 @@ defmodule Letflow.Routers.IdentitySignInTest do
     assert Stub.calls(stub) == []
     assert_unchanged(a, user)
   end
+
+  # T-1772 security review: negative tests added.
+
+  test "S11 a second request is 409 with no password; reads never show one; own realm path", %{
+    a: a,
+    admin_token: token
+  } do
+    stub = stub_for(a, 201)
+    user = user!(a)
+    assert post_sign_in(a, token, user.id).status == 201
+
+    again = post_sign_in(a, token, user.id)
+    assert again.status == 409
+    assert again.resp_body =~ "sign_in_exists"
+    refute again.resp_body =~ @password
+
+    one =
+      :get
+      |> Fixture.api_conn("/api/v1/identity/users/#{user.id}", token, a.tenant.slug, nil)
+      |> Fixture.dispatch_api()
+
+    list =
+      :get
+      |> Fixture.api_conn("/api/v1/identity/users", token, a.tenant.slug, nil)
+      |> Fixture.dispatch_api()
+
+    refute one.resp_body =~ @password
+    refute list.resp_body =~ @password
+    assert [%{path: path}] = Stub.calls(stub)
+    assert path == "/v1/realms/#{a.tenant_id}/users"
+    assert length(audits(a)) == 1
+  end
+
+  test "S12 an invalid token is 401 and the provisioner is not called", %{a: a} do
+    stub = stub_for(a, 201)
+    user = user!(a)
+
+    assert post_sign_in(a, "not-a-token", user.id).status == 401
+    assert Stub.calls(stub) == []
+    assert_unchanged(a, user)
+  end
+
+  test "S13 B's admin cannot sign in A's user, and the stub is never called", %{a: a, b: b} do
+    stub = stub_for(b, 201)
+    victim = user!(a)
+    b_token = Fixture.mint_token!(b, ["TENANT_ADMIN"])
+
+    assert post_sign_in(b, b_token, victim.id).status == 404
+    assert Stub.calls(stub) == []
+    assert_unchanged(a, victim)
+  end
 end

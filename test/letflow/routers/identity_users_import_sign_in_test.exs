@@ -51,7 +51,7 @@ defmodule Letflow.Routers.IdentityUsersImportSignInTest do
       set: [idp_realm_id: RealmProvisioner.label(a.tenant_id)]
     )
 
-    %{a: a}
+    %{a: a, b: tenants.b}
   end
 
   defp stub!(a, script) do
@@ -80,14 +80,14 @@ defmodule Letflow.Routers.IdentityUsersImportSignInTest do
 
   defp rows(n), do: for(i <- 1..n, do: ["imp-#{i}", "Person #{i}", "imp-#{i}@example.test"])
 
-  defp import!(a, rows, query \\ "") do
+  defp import!(a, rows, query \\ "", roles \\ ["TENANT_ADMIN"]) do
     conn =
       conn(:post, "/users/import" <> query)
       |> Map.put(:body_params, %{"_xlsx" => xlsx([@header | rows])})
       |> assign(:auth_context, %{
         user_id: Ecto.UUID.generate(),
         tenant_id: a.tenant_id,
-        roles: ["TENANT_ADMIN"]
+        roles: roles
       })
       |> assign(:trace_id, "t1731-trace")
       |> Letflow.Routers.Identity.call(@opts)
@@ -199,5 +199,67 @@ defmodule Letflow.Routers.IdentityUsersImportSignInTest do
     assert [post] = Stub.posts(stub)
     assert post.auth == "Bearer " <> @token
     assert post.path == "/v1/realms/#{a.tenant_id}/users"
+  end
+
+  # T-1772 security review: negative tests added.
+
+  test "I7 flag on, a file over the 200-row cap: refused, no provisioner call, no users", %{a: a} do
+    stub = stub!(a, [{201, Ecto.UUID.generate()}])
+    {conn, _body} = import!(a, rows(201))
+
+    assert conn.status == 413
+    assert Stub.calls(stub) == []
+    assert user_count(a) == 0
+  end
+
+  test "I8 a tenant whose realm is not provisioner-made: rows kept, no call, no password", %{
+    b: b
+  } do
+    stub = stub!(b, [{201, Ecto.UUID.generate()}])
+    {conn, body} = import!(b, rows(2))
+
+    assert body["applied"] == true
+
+    assert Enum.all?(
+             body["results"],
+             &(&1["sign_in"] == %{"created" => false, "reason" => "realm_not_provisioned"})
+           )
+
+    assert Stub.calls(stub) == []
+    refute conn.resp_body =~ @password
+    assert Plug.Conn.get_resp_header(conn, "cache-control") != ["no-store"]
+    assert Enum.all?(1..2, &(user(b, "imp-#{&1}").auth_source == :internal))
+  end
+
+  test "I9 provisioner rate limit (429) stops the loop like an outage", %{a: a} do
+    stub = stub!(a, [{429, %{}}])
+    {_conn, body} = import!(a, rows(3))
+
+    assert [s1, s2, s3] = Enum.map(body["results"], & &1["sign_in"])
+    assert s1 == %{"created" => false, "reason" => "provisioner_unavailable"}
+    assert s2 == %{"created" => false, "reason" => "not_attempted"}
+    assert s3 == %{"created" => false, "reason" => "not_attempted"}
+    assert length(Stub.posts(stub)) == 1
+  end
+
+  test "I10 a caller without UsersManage is 403: no user, no provisioner call", %{a: a} do
+    stub = stub!(a, [{201, Ecto.UUID.generate()}])
+    {conn, _body} = import!(a, rows(1), "", ["TENANT_AUDITOR"])
+
+    assert conn.status == 403
+    assert Stub.calls(stub) == []
+    assert user_count(a) == 0
+  end
+
+  test "I11 passwords come with no-store; a rerun of the file shows no password", %{a: a} do
+    stub!(a, [{201, Ecto.UUID.generate()}])
+    {conn, body} = import!(a, rows(1))
+
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == ["no-store"]
+    assert [%{"sign_in" => %{"temporary_password" => @password}}] = body["results"]
+
+    {conn2, body2} = import!(a, rows(1))
+    refute conn2.resp_body =~ @password
+    refute Enum.any?(body2["results"], &Map.has_key?(&1, "sign_in"))
   end
 end
