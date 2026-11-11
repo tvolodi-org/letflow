@@ -82,9 +82,10 @@ defmodule Letflow.Test.SignupHelpers do
   def json(conn), do: Jason.decode!(conn.resp_body)
 
   @doc """
-  Waits (bounded) until the mail task supervisor has no running child. It returns as soon as the
-  supervisor is idle; the bound only caps a hang. T-1735: the verify step now creates the Letflow
-  tenant in-process (about 3 s in a passing CI run), so the old 3 s cap timed out under load.
+  Waits (bounded, event-based) until the mail task supervisor has no running child: it monitors
+  each running child and blocks in `receive` for its `:DOWN`, then re-checks for children started
+  meanwhile. No polling. The default bound is generous: the provisioning step runs a real
+  in-process tenant create, which can take well over 3 s on a loaded CI shard (T-1734).
   """
   def await_mail(deadline_ms \\ 30_000) do
     deadline = System.monotonic_time(:millisecond) + deadline_ms
@@ -92,10 +93,35 @@ defmodule Letflow.Test.SignupHelpers do
   end
 
   defp do_await(deadline) do
-    cond do
-      Task.Supervisor.children(@supervisor) == [] -> :ok
-      System.monotonic_time(:millisecond) > deadline -> :timeout
-      true -> Process.sleep(10) && do_await(deadline)
+    case Task.Supervisor.children(@supervisor) do
+      [] ->
+        :ok
+
+      pids ->
+        remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+        refs = Enum.map(pids, &Process.monitor/1)
+
+        case wait_down(refs, remaining) do
+          :ok -> do_await(deadline)
+          :timeout -> :timeout
+        end
+    end
+  end
+
+  # Selective receive on our own refs only (`^ref`): unrelated :DOWN messages stay in the mailbox.
+  defp wait_down([], _remaining), do: :ok
+
+  defp wait_down([ref | rest], remaining) do
+    started = System.monotonic_time(:millisecond)
+
+    receive do
+      {:DOWN, ^ref, :process, _pid, _reason} ->
+        left = max(remaining - (System.monotonic_time(:millisecond) - started), 0)
+        wait_down(rest, left)
+    after
+      remaining ->
+        Enum.each([ref | rest], &Process.demonitor(&1, [:flush]))
+        :timeout
     end
   end
 
