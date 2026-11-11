@@ -116,4 +116,34 @@ class WebSessionCrypto implements SessionCrypto {
       return null;
     }
   }
+
+  @override
+  Future<Uint8List> hkdfSha256(
+    Uint8List ikm, {
+    required Uint8List salt,
+    required Uint8List info,
+  }) async {
+    final key = await _subtle
+        .importKey(
+          'raw',
+          ikm.toJS,
+          'HKDF'.toJS,
+          false,
+          ['deriveBits'.toJS].toJS,
+        )
+        .toDart;
+    final bits = await _subtle
+        .deriveBits(
+          _params({
+            'name': 'HKDF'.toJS,
+            'hash': 'SHA-256'.toJS,
+            'salt': salt.toJS,
+            'info': info.toJS,
+          }),
+          key,
+          256,
+        )
+        .toDart;
+    return Uint8List.fromList(bits.toDart.asUint8List());
+  }
 }
