@@ -62,7 +62,7 @@ defmodule Letflow.Routers.IdentitySignInTest do
   defp enable!(stub, enabled \\ true),
     do: Application.put_env(:letflow, RealmUsers, enabled: enabled, provisioner_url: stub.url)
 
-  defp created(password, overrides \\ %{}) do
+  defp created(password, overrides) do
     Map.merge(%{"user_id" => Ecto.UUID.generate(), "temporary_password" => password}, overrides)
   end
 
