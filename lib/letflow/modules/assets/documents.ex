@@ -3,9 +3,11 @@ defmodule Letflow.Modules.Assets.Documents do
   GH #3891 / REQ-751 and GH #3890 / REQ-752 (assets C10): the asset document context. The one writer
   of the commission header and line records (`assets_commission`, `assets_commission_line`) and of
   the versioned document (`Letflow.Documents`, decision 0056) behind them. It mirrors
-  `Letflow.Modules.Stock.Documents`: module `assets` cannot call `stock` (boundary
-  Rule 4, and a stock install must not become a precondition of the asset register), so the glue is
-  copied, not shared; `Kinds` is a table of six kinds (C10 commission; C11 change, handover, write off; C15 change of kind, REQ-759; G5 opening, which cannot be issued yet, see below), one issue lock for all of them (so the inventory number checks of a change of kind serialise with every other issue). A shared extraction is a follow-up.
+  `Letflow.Modules.Stock.Documents`. Module `assets` declares `depends_on: [..., "stock"]`
+  (see `Letflow.Modules.Assets`), but the glue was copied, not shared, because the boundary rule
+  keeps a module from calling another module's internals and the core had no shared home for it yet.
+  The one piece already extracted is the number label, which comes from
+  `Letflow.Documents.number_label/3` (core slice S1); the rest of the glue is still copied. `Kinds` is a table of six kinds (C10 commission; C11 change, handover, write off; C15 change of kind, REQ-759; G5 opening, which cannot be issued yet, see below), one issue lock for all of them (so the inventory number checks of a change of kind serialise with every other issue). A shared extraction is a follow-up.
   Public functions: `save/3`, `replace/4`, `discard/3`, `issue/4` (writes) and `fetch/3`, `list/2`
   (reads); posting and reversal live in `Letflow.Modules.Assets.Documents.Posting`. The tenant is the
   `prefix` argument and nothing else (INV-1); the router derives it from the token.
