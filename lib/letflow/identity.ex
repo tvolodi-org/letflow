@@ -92,6 +92,7 @@ defmodule Letflow.Identity do
           :jit_disabled
           | :realm_tenant_mismatch
           | :external_identity_collision
+          | :username_in_use
           | Ecto.Changeset.t()
           | term()
 
@@ -144,8 +145,8 @@ defmodule Letflow.Identity do
   `created?` is `true` only when this call actually inserted the row (`false`
   on every subsequent call for the same identity). Always returns
   `{:error, reason}` on failure — never raises on a realistic failure path
-  (JIT-disabled, changeset validation failure including a `username`
-  collision, or the conflict-race fallback).
+  (JIT-disabled, changeset validation failure, a `username` already held by a
+  different identity -> `{:error, :username_in_use}`, or the conflict-race fallback).
   """
   @spec provision_oidc_user(
           identity_context :: IdentityContext.t(),
@@ -4222,9 +4223,9 @@ defmodule Letflow.Identity do
                 re_select_on_conflict(tenant_id, identity_context, opts)
               else
                 # A DIFFERENT identity already holds this username ->
-                # genuine, unrelated collision. Propagate the original
-                # changeset error unchanged.
-                Repo.rollback(changeset)
+                # genuine, unrelated collision (REQ-804): a plain refusal
+                # term, not the changeset (which holds the incoming e-mail).
+                Repo.rollback(:username_in_use)
               end
 
             nil ->

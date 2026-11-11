@@ -210,11 +210,14 @@ export default function UserDetailPage() {
               <div data-testid="admin-user-reset-hint"><Banner tone="info">{hintText(resetBlock, pm)}</Banner></div>
             )}
             <span data-testid="admin-user-reset-help"><CoreHelpLink topic="passwordReset" /></span>
-            {resetMessage && (
-              <div data-testid="admin-user-reset-message">
-                <Banner tone={resetMessage.tone}>{resetMessage.text}</Banner>
-              </div>
-            )}
+            {/* Always rendered: a live region that exists before its text arrives is announced reliably. */}
+            <div aria-live="polite" data-testid="admin-user-reset-live">
+              {resetMessage && (
+                <div data-testid="admin-user-reset-message">
+                  <Banner tone={resetMessage.tone}>{resetMessage.text}</Banner>
+                </div>
+              )}
+            </div>
           </div>
 
           {submitMessage && <p role="status" data-testid="admin-user-submit-message">{submitMessage}</p>}
