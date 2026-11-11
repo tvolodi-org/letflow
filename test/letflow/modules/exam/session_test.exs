@@ -995,8 +995,8 @@ defmodule Letflow.Modules.Exam.SessionTest do
 
     test "the write path is the ordinary Records/Query path: a second save on the same question upserts, not duplicates",
          ctx do
-      # Q-1075 / GH #2432: let more than 10 seconds elapse so the stored-value bound does not bind.
-      Process.sleep(11_000)
+      # Q-1075 / GH #2432: start the session more than 10 seconds ago so the stored-value bound does not bind.
+      backdate_session!(ctx, 12)
 
       assert {:ok, _} =
                Session.autosave_answer(
@@ -1690,6 +1690,14 @@ defmodule Letflow.Modules.Exam.SessionTest do
     end
   end
 
+  # Q-1075 / GH #2432: move the session's started_at into the past instead of sleeping, so the
+  # elapsed-seconds bound on the stored time is already wide when the test saves.
+  defp backdate_session!(ctx, seconds) do
+    ExamFixtures.update_record!(ctx.schema, "session", ctx.session_id, %{
+      "started_at" => iso(DateTime.add(DateTime.utc_now(), -seconds, :second))
+    })
+  end
+
   # Q-1075 / GH #2432: the stored time per question is the bounded running total.
   defp q1075_save_time(ctx, seconds) do
     Session.autosave_answer(
@@ -1733,7 +1741,7 @@ defmodule Letflow.Modules.Exam.SessionTest do
     test "a delayed save stores a non-zero time, and a later lower report never lowers it", ctx do
       # The stored value is clamped to the session's elapsed seconds, so wait long enough
       # for two whole seconds to have elapsed before the first save.
-      Process.sleep(2_100)
+      backdate_session!(ctx, 5)
 
       assert {:ok, _} = q1075_save_time(ctx, 2)
       assert q1075_stored_time(ctx) == 2
@@ -1746,7 +1754,7 @@ defmodule Letflow.Modules.Exam.SessionTest do
          ctx do
       # Wait so that at least 2 whole seconds have elapsed since started_at. Without the wait the
       # elapsed bound is typically 0, and a store-0 mutant would then pass (TEST-DESIGN-VALIDATOR G1).
-      Process.sleep(2_100)
+      backdate_session!(ctx, 5)
 
       assert {:ok, _} = q1075_save_time(ctx, 999_999)
 
