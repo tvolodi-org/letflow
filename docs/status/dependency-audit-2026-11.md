@@ -85,7 +85,7 @@ react 18 to 19, react-intl 10 to 12, lucide-react 0.575 to 1.x, @tanstack/react-
 | Where | Image | Note |
 |---|---|---|
 | `deploy/Dockerfile` builder | `elixir:1.20.3-otp-29` | Matches `.tool-versions`. Tag is pinned to a minor, not a digest. |
-| `deploy/Dockerfile` runtime | `debian:trixie-slim` | Debian 13 stable; rebuilt on every deploy, so OS patches arrive with the next QA build; no digest pin. |
+| `deploy/Dockerfile` runtime | `debian:trixie-slim` | Debian 13 stable; no digest pin. **Patch-refresh gap:** `deploy/redeploy-qa.sh` builds without `--pull` and `deploy/Dockerfile` keeps the cached `apt-get update/install` layer, so a rebuild can reuse an outdated base image and outdated installed packages; OS patches are not guaranteed to arrive with the next QA build. No change made here (audit only). |
 | `deploy/docker-compose.qa.yml` | `postgres:16-alpine` | Major 16 is supported upstream until 2028-11; floating minor. |
 | `deploy/docker-compose.test.yml`, `docker-compose.yml` | `postgres:16` | Same major; the QA file uses the alpine variant, the others the Debian one: a difference to know, not a fault. |
 | `docker-compose.yml` (local dev, not deployed) | `quay.io/keycloak/keycloak:26.2` | Pinned to 26.2; later 26.x releases exist upstream (not looked up from here). Dev only, but it is the realm template the tenants are built on: check the template against a current 26.x in an identity task. |
