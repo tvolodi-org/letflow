@@ -1226,11 +1226,14 @@ defmodule Letflow.Routers.Instances do
     case cast_instance_id(raw_id) do
       {:ok, id} ->
         # GH #2702 defence in depth: a synthetic entity-type instance is a plain 404.
-        if InstanceVisibility.synthetic?(id, Keyword.fetch!(opts, :prefix)) do
-          Response.not_found(conn)
-        else
-          render_get_pins(conn, id, PinResolver.reconstruct_effective_pins(id, opts))
-        end
+        # F4-6: same participation rule as get, history and timeline (GH #2932, INV-2/INV-5).
+        with_participation(conn, id, opts, fn ->
+          if InstanceVisibility.synthetic?(id, Keyword.fetch!(opts, :prefix)) do
+            Response.not_found(conn)
+          else
+            render_get_pins(conn, id, PinResolver.reconstruct_effective_pins(id, opts))
+          end
+        end)
 
       {:error, :invalid_instance_id} ->
         Response.unprocessable(conn, "instance_id is not a valid UUID")

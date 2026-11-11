@@ -16,6 +16,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../api/api_client.dart' show TenantConfig;
 import 'app_auth_platform.dart' show webPointerKv;
+import 'keep_signed_in.dart' show KeepSignedIn, SessionSyncKv;
 import 'kv_store.dart';
 
 /// Matches the Keycloak client's sole registered `redirectUris` entry
@@ -25,6 +26,11 @@ const String kOidcRedirectUrl = 'com.bizdala.letflow:/oauth2redirect';
 /// Platform-default scope set (design §3.1, OQ-2) — no tenant-specific
 /// scope.
 const List<String> kOidcScopes = ['openid', 'profile', 'email'];
+
+/// Scopes of the web sign-in when the 30-day sign-in is on (REQ-810): the
+/// platform set plus `offline_access`, so the IdP issues an offline refresh
+/// token. Never used on native, never with the flag off.
+const List<String> kOidcScopesWeb = [...kOidcScopes, 'offline_access'];
 
 @immutable
 class TokenSet {
@@ -169,6 +175,19 @@ class TenantTokenStore {
     final ptr = webPointerKv();
     if (kIsWeb && ptr != null) {
       return TenantTokenStore.withBackends(tokens: MemoryKv(), pointer: ptr);
+    }
+    return TenantTokenStore(productionSecureStorage());
+  }
+
+  /// Web with the 30-day sign-in on (REQ-810): the tokens stay in memory, and
+  /// every new refresh token is also re-sealed into the encrypted record.
+  factory TenantTokenStore.productionKeepSignedIn(KeepSignedIn keepSignedIn) {
+    final ptr = webPointerKv();
+    if (kIsWeb && ptr != null) {
+      return TenantTokenStore.withBackends(
+        tokens: SessionSyncKv(MemoryKv(), keepSignedIn),
+        pointer: ptr,
+      );
     }
     return TenantTokenStore(productionSecureStorage());
   }
@@ -341,6 +360,7 @@ class RealAppAuthAdapter implements AppAuthAdapter {
 Future<AuthorizationTokenResponse?> authenticateWithTenant(
   TenantConfig config, {
   AppAuthAdapter appAuthAdapter = const RealAppAuthAdapter(),
+  List<String> scopes = kOidcScopes,
 }) {
   final allowInsecureConnections =
       Uri.tryParse(config.realmUrl)?.scheme != 'https';
@@ -348,7 +368,7 @@ Future<AuthorizationTokenResponse?> authenticateWithTenant(
     config.clientId,
     kOidcRedirectUrl,
     issuer: config.realmUrl,
-    scopes: kOidcScopes,
+    scopes: scopes,
     allowInsecureConnections: allowInsecureConnections,
   );
   return appAuthAdapter.authorizeAndExchangeCode(request);

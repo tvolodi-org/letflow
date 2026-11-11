@@ -247,7 +247,7 @@ redirect; `lib/auth/app_auth_platform.dart` picks it by conditional import. Nati
 unchanged. Per environment, infra must register the PWA redirect URI in Keycloak first:
 `docs/runbooks/mobile-web-pwa-signin.md`.
 
-**Token storage decision (web): tokens are kept in memory only.** No access, refresh or id token
+**Token storage decision (web), flag off (the default): tokens are kept in memory only.** No access, refresh or id token
 is written to localStorage, sessionStorage or IndexedDB: every browser store is readable by any
 script on the origin, and `flutter_secure_storage` on web gives no more protection than that.
 A reload therefore signs in again through the redirect, silent while the Keycloak SSO session
@@ -260,6 +260,43 @@ handled. `test/guards/token_storage_boundary_guard_test.dart` enforces who may t
 Limits: logout does not end the Keycloak SSO session (follow-up); an iOS standalone PWA that
 opens the redirect outside the app loses its sessionStorage, so that sign-in fails with a retry.
 
+**Stay signed in for 30 days (REQ-810), flag on only.** Built with
+`--dart-define=LETFLOW_PWA_KEEP_SIGNED_IN=true` (compile-time, off by default; no build script or
+workflow sets it, turning it on for a deployment is an operator step). With the flag off nothing
+below exists: memory-only tokens as above, and a stored session record found at start is deleted
+without being read. With the flag on, after a full sign-in the app offers "stay signed in on this
+device for 30 days"; nothing is stored unless the user accepts and sets a PIN of exactly six digits
+(entered twice). The web sign-in then also asks for the `offline_access` scope.
+
+- **What is stored:** one IndexedDB record per origin (database `letflow_session`, written by
+  `lib/auth/web_session_idb.dart`), holding only the realm URL, the tenant slug, the refresh token
+  encrypted with AES-GCM-256 under a random data key, that data key wrapped (AES-GCM) under a key
+  derived from the PIN with PBKDF2-SHA-256 (600000 iterations, 16-byte random salt, both stored), the
+  UTC time of the full sign-in and the count of consecutive wrong PINs. The access and id tokens stay
+  in memory only. No token, PIN or key is stored, logged or printed in clear.
+- **Lifetime:** 30 days counted from the full sign-in, not from the last use; a refresh replaces the
+  stored refresh token and never moves the sign-in time. At an unlock 30 days or more after it the
+  record is deleted and a full sign-in follows, with no refresh call.
+- **Unlock:** a record at start shows the PIN screen before any tenant data. A correct PIN is followed
+  by one refresh call. A wrong PIN adds 1 to the stored count (it survives a reload); the 5th wrong
+  PIN in a row deletes the record. "Sign in again" deletes it. `invalid_grant` deletes it; a network
+  error keeps it and offers a retry without asking for the PIN again.
+- **Sign-out and tenant switch:** the refresh token is revoked at the realm's revocation endpoint
+  (RFC 7009, public client `letflow-mobile`) and the record is deleted even when the revocation fails
+  (one plain line says so). The Keycloak SSO session is not ended (follow-up, unchanged).
+- **Lost or stolen device:** the operator revokes the user's offline sessions in Keycloak, see
+  `docs/runbooks/mobile-web-pwa-signin.md`.
+- **Residual risks (security review):** (1) the wrong-PIN count lives in the browser, so someone who
+  copies the browser's storage can try PINs offline without the limit; (2) a six-digit PIN under
+  PBKDF2 slows that search but does not stop it; (3) while the app is unlocked the refresh token (and
+  the data key, a plain byte array) is in memory and a script running on the PWA origin can read it,
+  as today; (4) iOS Safari may delete the stored record after 7 days without use when the PWA is not
+  installed to the home screen, so the 30 days hold only for an installed PWA there.
+- **Proof:** the lifecycle runs under `flutter test` against fakes. The real WebCrypto calls are
+  proven only in a browser: `test/auth/web_session_crypto_browser_test.dart` (`@TestOn('browser')`,
+  skipped by the plain run), run in Chrome by the mobile job of `ci.yml`
+  ("Browser crypto test (Chrome)"). Biometric unlock is a separate requirement (REQ-811), not built.
+
 Not in M2: web voice recording (added in M4, below), push. iOS limits: camera only on HTTPS
 after a tap, no hardware scanners, storage may be cleared after 7 days unused unless the
 app is installed to the home screen, no background sync.
@@ -267,7 +304,7 @@ app is installed to the home screen, no background sync.
 ### Storage and offline (M3)
 
 - **Tokens on web** (decision of M2, which supersedes the M3 sessionStorage choice for tokens) live in
-  memory only, see "Web sign-in (M2)": the plugin's AES key sits next to its ciphertext in the same
+  memory only (unless the 30-day flag is on, then also as ciphertext in IndexedDB), see "Web sign-in (M2)": the plugin's AES key sits next to its ciphertext in the same
   storage area, so sessionStorage would protect nothing from a script on the origin.
   `productionSecureStorage` (`WebOptions(useSessionStorage: true)`) stays the native/other storage
   configuration. After the PWA is closed or reloaded the user signs in again (Keycloak SSO makes it
