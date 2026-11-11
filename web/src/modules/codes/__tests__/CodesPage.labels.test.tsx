@@ -16,7 +16,7 @@ vi.mock('@/auth/AuthContext', () => ({
 const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), postBlob: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 const saveBlob = vi.hoisted(() => vi.fn())
-vi.mock('../saveBlob', () => ({ saveBlob }))
+vi.mock('@/lib/saveBlob', () => ({ saveBlob }))
 
 const LABELS = '/api/v1/modules/codes/labels'
 const DATA = () => ({

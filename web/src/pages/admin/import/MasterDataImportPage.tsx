@@ -28,6 +28,7 @@ import { useInstalledModules } from '@/hooks/useInstalledModules'
 import { getImportTypesFor } from '@/modules/registry'
 import { ImportIntlProvider } from '@/i18n/ImportIntlProvider'
 import type { UiLocale } from '@/i18n/uiLocaleStore'
+import { saveBlob } from '@/lib/saveBlob'
 import { downloadTemplate, runImport } from './importApi'
 import {
   MAX_FILE_BYTES,
@@ -61,17 +62,6 @@ const OUTCOME_LOOK: Record<Outcome, { tone: StatusTone; glyph: StatusGlyph }> = 
 
 function outcomeOf(row: ImportResultRow): Outcome {
   return row.status === 'error' ? 'refused' : (row.outcome ?? 'unchanged')
-}
-
-function saveBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }
 
 function localeOf(intl: ReturnType<typeof useIntl>): UiLocale {

@@ -20,7 +20,7 @@ import { usePickerOptions } from '../assetsPickers'
 import { LoadMore, RegisterError } from '../register/RegisterShell'
 import { assetDocumentsApi, type AssetDocumentsPageBody } from './assetDocuments.api'
 import { DOC_KINDS, DOC_STATES, formatEventTime } from './documentsModel'
-import { stateTone } from './stateTone'
+import { documentStateTone as stateTone } from '@/lib/documentStateTone'
 
 interface Filters {
   kind: string

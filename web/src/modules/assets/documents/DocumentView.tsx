@@ -32,7 +32,7 @@ import { DocumentTabs } from './DocumentTabs'
 import { DOCUMENTS_PATH } from './DocumentList'
 import { ASSET_DOCUMENTS_LAYOUT_SCREEN, kindChangeColumnSpecs, kindChangeLineColumns, lineColumnSpecs, lineColumns } from './lineColumns'
 import { DOC_KINDS, DOC_STATES, WRITEOFF_REASONS, formatEventTime, isTwoSide, sidesOf } from './documentsModel'
-import { stateTone } from './stateTone'
+import { documentStateTone as stateTone } from '@/lib/documentStateTone'
 
 type AssetLine = AssetDocumentLine
 const noop = () => undefined

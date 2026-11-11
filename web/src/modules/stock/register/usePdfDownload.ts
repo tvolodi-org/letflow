@@ -2,7 +2,7 @@
  *  save it under the Content-Disposition name (else the fallback), keep a refusal as a message id so it follows the
  *  language switch. A ref guards the single flight: two clicks in one tick send one request. */
 import { useCallback, useRef, useState } from 'react'
-import { saveBlob } from './saveBlob'
+import { saveBlob } from '@/lib/saveBlob'
 
 export interface FetchedFile {
   blob: Blob

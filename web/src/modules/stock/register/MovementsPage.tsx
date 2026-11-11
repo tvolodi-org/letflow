@@ -30,7 +30,7 @@ import {
   CAUSES, DOCUMENT_TYPES, formatStockDateTime, movementNameIds, movementParams, rangeError, type MovementFilters,
 } from './stockRegisterModel'
 import { useNames } from './stockNames'
-import { saveBlob } from './saveBlob'
+import { saveBlob } from '@/lib/saveBlob'
 
 const digits = (v: string) => v.replace(/\D/g, '')
 

@@ -15,17 +15,6 @@ import { paperworkAvailable, parseFilename, printReasonMessageId, reasonMessageI
 
 const KINDS: PaperworkKind[] = ['order', 'sheet', 'differences']
 
-export function saveBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-
 export function PaperworkButtons({ order }: { order: CountOrder }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })

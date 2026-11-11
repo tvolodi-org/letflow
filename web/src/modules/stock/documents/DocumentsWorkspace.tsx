@@ -52,7 +52,7 @@ import {
   sidesOf,
   type DocKind,
 } from './documentsModel'
-import { stateTone } from './stateTone'
+import { documentStateTone as stateTone } from '@/lib/documentStateTone'
 
 const NO_ERRORS: Record<string, string> = {}
 const noop = (): void => undefined

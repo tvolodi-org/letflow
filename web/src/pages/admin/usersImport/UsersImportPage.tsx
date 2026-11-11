@@ -28,6 +28,7 @@ import {
   type ImportResultRow,
 } from '../import/importModel'
 import { signInMessages, signInReasonText } from '../signInMessages'
+import { saveBlob } from '@/lib/saveBlob'
 import { UsersImportIntlProvider } from './UsersImportIntlProvider'
 import { downloadUsersTemplate, runUsersImport } from './usersImportApi'
 import { classifyUsersImportError, usersReasonSentence, usersRefusedRowsCsv } from './usersImportModel'
@@ -51,17 +52,6 @@ const OUTCOME_LOOK: Record<Outcome, { tone: StatusTone; glyph: StatusGlyph }> = 
 function outcomeOf(row: ImportResultRow): Outcome {
   if (row.status === 'error') return 'refused'
   return row.outcome === 'created' ? 'created' : 'unchanged'
-}
-
-function saveBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }
 
 function localeOf(intl: ReturnType<typeof useIntl>): UiLocale {
