@@ -41,14 +41,16 @@ afterEach(() => {
 
 const group = (side: 'from' | 'to') => screen.getByTestId(`side-${side}`)
 const form = () => within(screen.getByTestId('document-form'))
+// Waits for the form to render before the first sync access (slow shards).
+const formReady = async () => within(await screen.findByTestId('document-form'))
 const pick = (side: 'from' | 'to', label: string, value: string) =>
   fireEvent.change(within(group(side)).getByLabelText(label), { target: { value } })
 const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
 
 async function ready() {
-  await form().findAllByRole('option', { name: 'Branch store' })
-  await form().findAllByRole('option', { name: 'Shelf B' })
-  await form().findAllByRole('option', { name: 'Marat K.' })
+  await (await formReady()).findAllByRole('option', { name: 'Branch store' })
+  await (await formReady()).findAllByRole('option', { name: 'Shelf B' })
+  await (await formReady()).findAllByRole('option', { name: 'Marat K.' })
   fireEvent.change(form().getByLabelText('Event time, date'), { target: { value: '2026-11-04' } })
   fireEvent.change(form().getByLabelText('Event time, time'), { target: { value: '10:00' } })
 }
@@ -162,7 +164,7 @@ describe('T1 create per kind', () => {
     renderStock(`${LIST}/d9`, withPost)
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     await screen.findByTestId('document-form')
-    await form().findAllByRole('option', { name: 'Branch store' })
+    await (await formReady()).findAllByRole('option', { name: 'Branch store' })
     expect(within(group('to')).getByLabelText('Org unit')).toBeDisabled()
     expect(within(group('from')).getByLabelText('Org unit')).not.toBeDisabled()
     expect(within(group('from')).getByLabelText('Org unit')).toHaveValue('u2')

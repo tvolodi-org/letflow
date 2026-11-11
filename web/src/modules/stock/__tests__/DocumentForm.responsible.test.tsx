@@ -33,9 +33,11 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 const form = () => within(screen.getByTestId('document-form'))
+// Waits for the form to render before the first sync access (slow shards).
+const formReady = async () => within(await screen.findByTestId('document-form'))
 const resp = (scope: { getByLabelText: (l: string) => HTMLElement } = form()) => scope.getByLabelText('Responsible') as HTMLSelectElement
 async function ready() {
-  await form().findAllByRole('option', { name: 'Marat K.' })
+  await (await formReady()).findAllByRole('option', { name: 'Marat K.' })
 }
 
 describe('T-1528 stock form proposes the linked employee', () => {
@@ -56,7 +58,7 @@ describe('T-1528 stock form proposes the linked employee', () => {
   })
   it('S3 opening: no responsible field, nothing proposed', async () => {
     renderStock(`${NEW}?kind=opening`, asUser('user-9'))
-    await form().findAllByRole('option', { name: 'Main store' })
+    await (await formReady()).findAllByRole('option', { name: 'Main store' })
     expect(form().queryByLabelText('Responsible')).toBeNull()
   })
   it('S4 no linked employee: empty', async () => {

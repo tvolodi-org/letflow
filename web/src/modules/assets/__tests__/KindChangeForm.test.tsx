@@ -39,9 +39,11 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 const form = () => within(screen.getByTestId('document-form'))
+// Waits for the form to render before the first sync access (slow shards).
+const formReady = async () => within(await screen.findByTestId('document-form'))
 const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 async function fillHeader() {
-  await form().findAllByRole('option', { name: 'WH - Warehouse' })
+  await (await formReady()).findAllByRole('option', { name: 'WH - Warehouse' })
   fireEvent.change(form().getByLabelText('Time, date'), { target: { value: '2026-11-04' } })
   fireEvent.change(form().getByLabelText('Time, time'), { target: { value: '10:00' } })
   fireEvent.change(form().getByLabelText(/^Org unit/), { target: { value: 'u1' } })
@@ -107,7 +109,7 @@ describe('K6 edit', () => {
     serve(SAVED)
     renderAssets(`${LIST}/d1`, withAll)
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
-    await form().findByRole('option', { name: 'WH - Warehouse' })
+    await (await formReady()).findByRole('option', { name: 'WH - Warehouse' })
     await waitFor(() => expect(form().getByLabelText(/^Org unit/)).toHaveValue('u1'))
     expect(form().getByLabelText(/^Org unit/)).toBeDisabled()
     save()

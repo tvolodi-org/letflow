@@ -39,9 +39,11 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 const form = () => within(screen.getByTestId('document-form'))
+// Waits for the form to render before the first sync access (slow shards).
+const formReady = async () => within(await screen.findByTestId('document-form'))
 const responsible = (scope: { getByLabelText: (l: RegExp) => HTMLElement } = form()) => scope.getByLabelText(/^Material responsible/) as HTMLSelectElement
 async function ready() {
-  await form().findAllByRole('option', { name: 'Marat K.' })
+  await (await formReady()).findAllByRole('option', { name: 'Marat K.' })
 }
 
 describe('T-1528 asset form proposes the linked employee', () => {
