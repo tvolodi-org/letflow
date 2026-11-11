@@ -60,3 +60,20 @@ Route inventory: a text scan finds about 70 page files without `PageHeader` or a
 from another shared component, so the scan is a candidate list, not a failure list. Fixing them is more than the ten
 pages this change allows, so it is a follow-up: confirm each candidate in a browser (or a render test per route)
 and move it to `PageHeader`.
+
+## 5. Pass over the screens built since T-1586 (T-1690)
+
+Screens: users import, instance replay, platform-operator rollouts, user page reset-password button. Checked by reading
+the markup and styles; same method as sections 2 to 4.
+
+| Finding | Screen | Verdict |
+|---|---|---|
+| Disabled "Import" button gave no reason to a screen reader | users import | fixed: the reason hint has an id and the button points to it (`Button` now forwards `aria-describedby`) |
+| Check / import answer appeared without an announcement | users import | fixed: one polite `sr-only` status with the row counts (en, ru, kk) |
+| Decorative em dash read aloud in the reason column | users import | fixed: `aria-hidden` |
+| `lf-faint` (ink-faint, exempt in section 1) used for readable text | rollouts | fixed: `lf-muted` |
+| `aria-label` on a plain `div` (ignored by assistive tech) | rollouts detail | fixed: `role="region"` |
+| Reset-password answer was inserted together with its live region | user page | fixed: the live region is always rendered |
+| Range, step list, mode switch: names, `aria-current`, `aria-live`, focus ring, 4.5:1 text | replay | no fault found |
+| Escape on the rollouts page also fires from the module input and closes the detail | rollouts | left: behaviour, not a label or contrast fault; needs a product call |
+| Real-browser axe run and kk wording check | all four | left: operator check, as in section 1 |
