@@ -97,4 +97,65 @@ void main() {
       }
     },
   );
+
+  group('REQ-811 device keys', () {
+    final base = {
+      'realm_url': 'r',
+      'slug': 's',
+      'enc_refresh_token': 'e',
+      'wrapped_key': 'w',
+      'salt': 'a',
+      'iterations': 1,
+      'signed_in_at': '2026-11-01T00:00:00.000Z',
+      'failed_pins': 0,
+    };
+    final device = {
+      'device_credential_id': 'c',
+      'device_eval_input': 'i',
+      'device_wrapped_key': 'k',
+    };
+
+    test('R5 a partial device key set is refused', () {
+      expect(
+        SessionRecord.tryParse(
+          jsonEncode({...base, 'device_credential_id': 'c'}),
+        ),
+        isNull,
+      );
+      expect(
+        SessionRecord.tryParse(
+          jsonEncode({...base, ...device}..remove('device_wrapped_key')),
+        ),
+        isNull,
+      );
+    });
+
+    test('R6 the full set parses and round-trips', () {
+      final rec = SessionRecord.tryParse(jsonEncode({...base, ...device}))!;
+      expect(rec.hasDeviceUnlock, isTrue);
+      expect(rec.deviceWrappedKey, 'k');
+      expect(jsonDecode(rec.encode()) as Map<String, dynamic>, {
+        ...base,
+        ...device,
+      });
+    });
+
+    test('R7 a PIN-only record still has exactly the 8 keys', () {
+      final rec = SessionRecord.tryParse(jsonEncode(base))!;
+      expect(rec.hasDeviceUnlock, isFalse);
+      expect(
+        (jsonDecode(rec.encode()) as Map).keys.toSet(),
+        kSessionRecordKeys,
+      );
+    });
+
+    test('R8 a mistyped device value is refused', () {
+      expect(
+        SessionRecord.tryParse(
+          jsonEncode({...base, ...device, 'device_eval_input': 1}),
+        ),
+        isNull,
+      );
+    });
+  });
 }

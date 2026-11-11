@@ -14,6 +14,7 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'device_unlock.dart';
 import 'kv_store.dart';
 import 'session_crypto.dart';
 import 'session_record.dart';
@@ -51,6 +52,17 @@ class Corrupt extends UnlockResult {
   const Corrupt();
 }
 
+/// REQ-811: the device secret did not open the device wrapping (or there is
+/// none). Nothing was written; the PIN still works.
+class DeviceNotAccepted extends UnlockResult {
+  const DeviceNotAccepted();
+}
+
+/// HKDF salt of the device key: 32 zero bytes (fixed, documented; the PRF
+/// output is already a uniformly random secret).
+final Uint8List _deviceSalt = Uint8List(32);
+final Uint8List _deviceInfo = Uint8List.fromList(utf8.encode(kDeviceHkdfInfo));
+
 String _b64(List<int> bytes) => base64Url.encode(bytes);
 Uint8List _unb64(String s) => Uint8List.fromList(base64Url.decode(s));
 
@@ -87,6 +99,96 @@ class KeepSignedIn {
     final rec = SessionRecord.tryParse(raw);
     if (rec == null) await delete();
     return rec;
+  }
+
+  /// A fresh random PRF input for a device enrolment.
+  Future<Uint8List> newEvalInput() => _crypto.randomBytes(kPrfEvalInputBytes);
+
+  /// REQ-811: adds the device wrapping of the data key to the record. Needs
+  /// the session unlocked (the data key in memory) and a 32-byte PRF output.
+  /// Touches nothing but the three device keys. Returns false when it cannot.
+  Future<bool> enrollDeviceUnlock({
+    required Uint8List credentialId,
+    required Uint8List evalInput,
+    required Uint8List prfOutput,
+  }) async {
+    final dataKey = _dataKey;
+    if (dataKey == null || prfOutput.length != 32) return false;
+    final raw = await _store.read();
+    final rec = raw == null ? null : SessionRecord.tryParse(raw);
+    if (rec == null) return false;
+    final devKey = await _crypto.hkdfSha256(
+      prfOutput,
+      salt: _deviceSalt,
+      info: _deviceInfo,
+    );
+    try {
+      final wrapped = await _crypto.seal(devKey, dataKey);
+      await _store.write(
+        rec
+            .withDevice(
+              credentialId: _b64(credentialId),
+              evalInput: _b64(evalInput),
+              wrappedKey: _b64(wrapped),
+            )
+            .encode(),
+      );
+      return true;
+    } finally {
+      devKey.fillRange(0, devKey.length, 0);
+      prfOutput.fillRange(0, prfOutput.length, 0);
+    }
+  }
+
+  /// Unlocks with the PRF output of the device passkey. Same expiry and
+  /// corruption handling as [unlock]; a wrong or tampered device wrapping
+  /// returns [DeviceNotAccepted] and writes nothing (the wrong-PIN count is
+  /// not touched). On success the wrong-PIN count is reset.
+  Future<UnlockResult> unlockWithDevice(Uint8List prfOutput) async {
+    final raw = await _store.read();
+    if (raw == null) return const Corrupt();
+    final rec = SessionRecord.tryParse(raw);
+    if (rec == null) {
+      await delete();
+      return const Corrupt();
+    }
+    var age = _now().toUtc().difference(rec.signedInAt);
+    if (age.isNegative) age = Duration.zero;
+    if (age >= kSessionMaxAge) {
+      await delete();
+      return const Expired();
+    }
+    final wrappedB64 = rec.deviceWrappedKey;
+    if (!rec.hasDeviceUnlock || wrappedB64 == null || prfOutput.length != 32) {
+      return const DeviceNotAccepted();
+    }
+    Uint8List devKey = Uint8List(0);
+    try {
+      final wrapped = _unb64(wrappedB64);
+      devKey = await _crypto.hkdfSha256(
+        prfOutput,
+        salt: _deviceSalt,
+        info: _deviceInfo,
+      );
+      final dataKey = await _crypto.open(devKey, wrapped);
+      if (dataKey == null) return const DeviceNotAccepted();
+      final token = await _openToken(dataKey, rec.encRefreshToken);
+      if (token == null) {
+        await delete();
+        return const Corrupt();
+      }
+      _dataKey = dataKey;
+      _lastSealedToken = token;
+      if (rec.failedPins != 0) {
+        await _store.write(rec.copyWith(failedPins: 0).encode());
+      }
+      return Unlocked(rec.copyWith(failedPins: 0));
+    } on FormatException {
+      return const DeviceNotAccepted();
+    } finally {
+      devKey.fillRange(0, devKey.length, 0);
+      prfOutput.fillRange(0, prfOutput.length, 0);
+    }
   }
 
   /// Stores the refresh token for [slug] under a new random data key wrapped
