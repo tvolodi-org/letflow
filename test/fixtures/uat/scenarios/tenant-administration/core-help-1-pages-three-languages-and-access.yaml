@@ -1,0 +1,139 @@
+# T-1710 (BA, UAT sweep): the help pages of the core admin screens built after the asset help (T-1691, commit 2bffc474d; the topic "Create a sign-in" commit 5ce949f03).
+# Sources: web/src/pages/help/coreHelpTopics.ts (the closed list of five topics: users import, password reset, instance replay, module rollouts, create a sign-in; the screen each one belongs to and the permission of that screen),
+# web/src/pages/help/CoreHelpPage.tsx (an unknown topic shows the application's not-found page; a person without the screen's permission sees the "permission denied" view; module rollouts help is also closed to every company except the platform's own),
+# web/src/pages/help/coreHelpMessages.ts (every title and heading quoted below is read from its en, ru, kk entries), web/src/components/help/HelpTopicView.tsx (purpose, ordered list of three tasks, list of refusals, a "Back to the screen" link),
+# where the Help link sits: UsersImportPage.tsx (import screen), UserDetailPage.tsx (user page, beside the reset button), InstanceDetailPage.tsx (Graph tab of an instance), ModuleRolloutsPage.tsx (operator rollout screen);
+# docs/roles.md (UsersGroupsRolesManage is held by TENANT_ADMIN, not by TASK_WORKER; module rollouts are a platform operator right; InstancesRead is held by TASK_WORKER).
+# Instances: the setup-prepared instance I-new of scenario definitions-12 (running, SwiftRoute).
+# NOT UAT-OBSERVABLE HERE: the positive read of the module rollouts help by the platform administrator (the roster's platform actor may appear only in platform-scope scenarios, schema rule SCHEMA-10); it belongs to a platform-scope scenario, see runtime-updates-6-rollout-operator-screen, which does not open the help today.
+# NOT UAT-OBSERVABLE: a "Help" link for the topic "Create a sign-in". The page exists and opens by its address, but the button it describes ("Create sign-in") is not on the Users screen on main (grep of web/src for "Create sign-in" and "createSignIn" finds only the help catalogue, the topic list and the help test),
+#   and nothing links to that page. Step 5 therefore reads the page by its address and only checks the text; it does not check that the described button exists. Whether and when the button and its link are built is the product owner's decision (REQ-801 option b; the requirement is on main, the Users-screen build is not).
+# The kk and ru texts are machine drafts until the owner's native check (docs/assets/i18n-gaps.md).
+# UAT assumption, to be confirmed by the process owner: help gives plain descriptions only, no screenshots and no advice on money or law (as in assets-help-1).
+---
+id: tenant-administration-core-help-1-pages-three-languages-and-access
+scope: tenant-administration
+title: "Each newer core admin screen has a help page in three languages (purpose, three tasks, what a refusal means); people without the right to the screen do not get it"
+version: "1.0"
+tags: [help, users, import, password-reset, instance, replay, rollouts, ru, kk, en, refusal, access_control]
+
+description: >
+  SwiftRoute's administrator opens "Help" on the Users import screen and on a user's page and reads the three parts of each page, then reads the import help in Russian and Kazakh.
+  The ops manager, an ordinary worker, opens "Help" on the Graph tab of a running instance and reads it. The administrator reads the page for creating a sign-in by its address.
+  The ops manager types the Users import help address by hand and is refused. The administrator types the address of the module rollouts help and is refused, because rollouts belong to the platform operator.
+  A topic name that does not exist shows the "Page not found" page.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+
+preconditions:
+  - description: The help pages of the core screens are deployed on QA (commit 2bffc474d; the topic "Create a sign-in" from commit 5ce949f03)
+    check: custom
+    detail: If the import screen has no "Help" link, report BLOCKED for the scenario.
+  - description: SwiftRoute has the setup-prepared running instance I-new of scenario definitions-12, and at least one user other than the administrator
+    check: system_seeded
+    detail: If I-new is missing, report BLOCKED for step 4 only. If there is no second user, step 2 uses the administrator's own user page.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens the Users screen, chooses "Import from Excel" and presses "Help" on the import screen. She reads the title, the part "What this screen is for", the part "Three common tasks" and the part "What a refusal means". She presses "Back to the screen".
+    via: ui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the page of one user and presses "Help" beside the "Send password reset instructions" button. She reads the three parts and presses "Back to the screen".
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      On the import help page the administrator switches the language to Russian and reads the three headings and the title, then to Kazakh and reads them again.
+    via: ui
+  - step: 4
+    actor: worker
+    action: >
+      The ops manager opens the page of the running instance I-new, chooses the Graph tab and presses "Help" above the diagram. She reads the three parts and presses "Back to the screen".
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator types the address of the help page "create a sign-in" (the address ends in /help/createSignIn) by hand and reads the title, the first task and the refusal "The password is gone".
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator types the address of a help topic that does not exist (the address ends in /help/invoices) by hand.
+    via: ui
+  - step: 7
+    actor: worker
+    action: >
+      The ops manager types the address of the Users import help (ends in /help/usersImport) by hand.
+    expect_refusal: true
+    via: ui
+  - step: 8
+    actor: admin
+    action: >
+      The administrator types the address of the module rollouts help (ends in /help/moduleRollouts) by hand.
+    expect_refusal: true
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: The help of the import screen and of the user page has the three parts, in plain words, and returns to the screen it came from.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 shows the title "Help: import users", the heading "What this screen is for" with one purpose sentence, the heading "Three common tasks" with exactly three numbered tasks and the heading "What a refusal means" with three entries each with a title and a body.
+        Step 2 shows the title "Help: password reset instructions" with the same three parts. "Back to the screen" returns to the import screen in step 1 and to the user page in step 2. No screenshot, no code, no advice on money or law.
+      evidence: Screenshots of steps 1 and 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: An administrator who meets a refused row or a refused reset has no answer on the screen and calls the team.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The help exists in Russian and Kazakh.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 shows the title "Справка: импорт пользователей" and the headings "Для чего этот экран", "Три частые задачи", "Что значит отказ" in Russian, and the title "Анықтама: пайдаланушыларды импорттау" with the headings "Бұл экран не үшін", "Үш жиі міндет", "Бас тарту нені білдіреді" in Kazakh;
+        every body text is in the chosen language.
+      evidence: Screenshots in Russian and Kazakh.
+    on_fail:
+      severity: MINOR
+      business_impact: Users of the other languages have no help.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: An ordinary worker can read the help of the instance replay, and the "create a sign-in" help states that the password is shown once.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 shows the title "Help: replay of an instance" with the three parts and a working "Back to the screen" to the instance page. Step 5 shows the title "Help: create a sign-in", a first task that starts with opening the user in the users list,
+        and a refusal "The password is gone" whose body says the password is shown once only and cannot be shown again.
+      evidence: Screenshots of steps 4 and 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A worker cannot learn what the replay shows, or an administrator is not told that a handed-out password cannot be shown again.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: A topic that does not exist shows the not-found page.
+    verification:
+      method: gui_screen
+      detail: Step 6 shows the page titled "Page not found" and no help text.
+      evidence: Screenshot of step 6.
+    on_fail:
+      severity: MINOR
+      business_impact: A mistyped address shows a half-empty page.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: A person without the right to the screen gets no help text for it.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 7 shows the "permission denied" view and none of the import help text (no title "Help: import users", no tasks). Step 8 shows the same view and none of the rollouts help text, although the administrator manages the users of her company.
+      evidence: Screenshots of steps 7 and 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: Help pages describe screens a person may not open and tell her what the company's platform side does.
+      suggested_action: route_to_frontend_dev

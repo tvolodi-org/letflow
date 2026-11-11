@@ -80,32 +80,32 @@ export default function UsersPage() {
   const uiLocale = useUiLocale()
   const um = usersMessages[uiLocale]
   const columns: DataTableColumn<User>[] = [
-    { id: 'username', header: 'Username', accessor: displayUsername },
-    { id: 'display_name', header: 'Display name', accessor: (u) => u.display_name },
-    { id: 'email', header: 'Email', accessor: (u) => u.email },
+    { id: 'username', header: um.username, accessor: displayUsername },
+    { id: 'display_name', header: um.displayName, accessor: (u) => u.display_name },
+    { id: 'email', header: um.email, accessor: (u) => u.email },
     {
       id: 'roles',
-      header: 'Roles',
+      header: um.roles,
       accessor: (u) => (
         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{roleList(u).map((name) => roleLabel(name, uiLocale)).join(', ')}</span>
       ),
     },
     {
       id: 'status',
-      header: 'Status',
+      header: um.status,
       accessor: (u) => (
         <span style={{ color: u.status === 'active' ? 'var(--color-success-dark)' : 'var(--text-disabled)', fontWeight: 600, fontSize: 'var(--text-xs)' }}>
-          {u.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
+          {u.status === 'active' ? um.active : um.inactive}
         </span>
       ),
     },
-    { id: 'created', header: 'Created', accessor: (u) => formatDate(u.inserted_at, { year: 'numeric', month: 'short', day: 'numeric' }, uiLocale) },
+    { id: 'created', header: um.created, accessor: (u) => formatDate(u.inserted_at, { year: 'numeric', month: 'short', day: 'numeric' }, uiLocale) },
   ]
 
   return (
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '1.25rem' }}>
-        <h2 style={{ margin: 0 }}>Users</h2>
+        <h2 style={{ margin: 0 }}>{um.title}</h2>
         {canManage && (
           <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '.5rem' }}>
             <span data-testid="admin-users-import">
@@ -115,7 +115,7 @@ export default function UsersPage() {
             </span>
             <span data-testid="admin-users-new">
               <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
-                + New User
+                {um.newUser}
               </Button>
             </span>
           </span>
@@ -127,23 +127,23 @@ export default function UsersPage() {
           data-testid="admin-users-search"
           value={searchDraft}
           onChange={(e) => setSearchDraft(e.target.value)}
-          placeholder="Search users"
+          placeholder={um.searchPlaceholder}
           style={{ width: '100%', maxWidth: '20rem', minWidth: 0, flex: '1 1 12rem', padding: '.45rem .7rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)', boxSizing: 'border-box' }}
         />
         <Button variant="primary" size="sm" onClick={() => setSearchApplied(searchDraft)}>
-          Apply
+          {um.apply}
         </Button>
       </div>
 
       {creating && (
         <div style={{ background: 'var(--surface-page)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', padding: '1.25rem', marginBottom: '1.25rem' }}>
-          <h3 style={{ margin: '0 0 1rem' }}>Create user</h3>
+          <h3 style={{ margin: '0 0 1rem' }}>{um.createUser}</h3>
           {error && <p data-testid="admin-users-save-error" role="alert" style={{ color: 'var(--color-error)', marginBottom: '.75rem', fontSize: 'var(--text-sm)' }}>{error}</p>}
           {([
-            { key: 'username', label: 'Username', type: 'text' },
-            { key: 'display_name', label: 'Display name', type: 'text' },
-            { key: 'email', label: 'Email', type: 'email' },
-            { key: 'password', label: 'Password', type: 'password' },
+            { key: 'username', label: um.username, type: 'text' },
+            { key: 'display_name', label: um.displayName, type: 'text' },
+            { key: 'email', label: um.email, type: 'email' },
+            { key: 'password', label: um.password, type: 'password' },
           ] as const).map((f) => (
             <div key={f.key} style={{ marginBottom: '.75rem' }}>
               <label style={{ display: 'block', marginBottom: '.25rem', fontSize: '.875rem', fontWeight: 500 }}>{f.label}</label>
@@ -158,7 +158,7 @@ export default function UsersPage() {
           ))}
 
           <div style={{ marginBottom: '.75rem' }}>
-            <p style={{ margin: '0 0 .35rem', fontSize: '.875rem', fontWeight: 500 }}>Roles</p>
+            <p style={{ margin: '0 0 .35rem', fontSize: '.875rem', fontWeight: 500 }}>{um.roles}</p>
             {(roles?.items ?? []).map((role) => (
               <label key={role.id} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '.25rem' }}>
                 <input
@@ -167,17 +167,17 @@ export default function UsersPage() {
                   checked={createRoleIds.includes(role.id)}
                   onChange={() => toggleRole(role.id, createRoleIds, setCreateRoleIds)}
                 />
-                <span>{roleLabel(role.name)}</span>
+                <span>{roleLabel(role.name, uiLocale)}</span>
               </label>
             ))}
           </div>
 
           <div style={{ display: 'flex', gap: '.5rem' }}>
             <Button variant="primary" size="sm" loading={createUser.isPending} onClick={() => createUser.mutate()}>
-              Create user
+              {um.createUser}
             </Button>
             <Button variant="secondary" size="sm" onClick={() => { setCreating(false); setError(null) }}>
-              Cancel
+              {um.cancel}
             </Button>
           </div>
         </div>
