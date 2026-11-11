@@ -87,4 +87,16 @@ defmodule Letflow.Modules.RouterKitTest do
       refute src =~ "defp elem_tag"
     end
   end
+
+  describe "S7c: catalog_items router uses the kit" do
+    test "no private copy of the plumbing is left in the router" do
+      src = File.read!("lib/letflow/modules/catalog_items/router.ex")
+      assert src =~ "RouterKit.with_request(conn, &render/3"
+      assert src =~ "RouterKit.check_keys("
+      refute src =~ "defp with_request"
+      refute src =~ "defp pop_key"
+      refute src =~ "defp check_keys"
+      refute src =~ "defp elem_tag"
+    end
+  end
 end
