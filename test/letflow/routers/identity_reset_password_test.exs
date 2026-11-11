@@ -110,9 +110,29 @@ defmodule Letflow.Routers.IdentityResetPasswordTest do
            end)
   end
 
-  test "R2 202, one audit entry, one delivery row; empty body and {}", %{a: a} do
+  defp old_entry!(tenant, user, minutes_ago, action \\ @action) do
+    Letflow.Support.OnGateFixture.raw_entry!(tenant, %{
+      action: action,
+      resource_type: "user",
+      resource_id: user.id,
+      timestamp: DateTime.add(DateTime.utc_now(), -minutes_ago * 60, :second),
+      after_state: nil
+    })
+  end
+
+  defp put_window!(value) do
+    old = Application.get_env(:letflow, Letflow.Routers.Identity)
+    Application.put_env(:letflow, Letflow.Routers.Identity, reset_password_window_minutes: value)
+
+    on_exit(fn ->
+      if old,
+        do: Application.put_env(:letflow, Letflow.Routers.Identity, old),
+        else: Application.delete_env(:letflow, Letflow.Routers.Identity)
+    end)
+  end
+
+  test "R2 two posts: both 202, one audit entry, one delivery row", %{a: a} do
     user = user!(a)
-    admin = Ecto.UUID.generate()
 
     for body <- [%{}, %{}] do
       conn = call(a, user.id, ["TENANT_ADMIN"], body)
@@ -120,22 +140,138 @@ defmodule Letflow.Routers.IdentityResetPasswordTest do
       assert Jason.decode!(conn.resp_body) == %{"status" => "requested"}
     end
 
-    _ = admin
-    assert [first, _second] = audits(a) |> Enum.sort_by(& &1.timestamp)
+    assert [first] = audits(a)
     assert first.resource_type == "user" and first.resource_id == user.id
     assert first.before_state == nil and first.after_state == nil
     assert first.actor_id != nil
 
-    rows = deliveries(a)
+    assert [row] = await_deliveries(a)
     Process.sleep(100)
-    rows = if length(rows) < 2, do: deliveries(a), else: rows
-    assert rows != []
+    assert [_one] = deliveries(a)
+    assert row.template_key == "password_reset_hint"
+    assert row.recipient_user_id == user.id
+    assert row.trigger_ref == first.id
+  end
 
-    for row <- rows do
-      assert row.template_key == "password_reset_hint"
-      assert row.recipient_user_id == user.id
-      assert row.trigger_ref in Enum.map(audits(a), & &1.id)
+  test "R13a an entry 4 minutes old throttles: 202, nothing new", %{a: a} do
+    user = user!(a)
+    old_entry!(a, user, 4)
+    assert call(a, user.id, ["TENANT_ADMIN"]).status == 202
+    Process.sleep(200)
+    assert length(audits(a)) == 1
+    assert deliveries(a) == []
+  end
+
+  test "R13b an entry 6 minutes old does not throttle", %{a: a} do
+    user = user!(a)
+    old_entry!(a, user, 6)
+    assert call(a, user.id, ["TENANT_ADMIN"]).status == 202
+    assert length(audits(a)) == 2
+    assert [_row] = await_deliveries(a)
+  end
+
+  defp user_deliveries(tenant, user),
+    do: Enum.filter(deliveries(tenant), &(&1.recipient_user_id == user.id))
+
+  defp await_user_delivery(tenant, user) do
+    Enum.reduce_while(1..100, [], fn _i, _acc ->
+      case user_deliveries(tenant, user) do
+        [] ->
+          Process.sleep(20)
+          {:cont, []}
+
+        found ->
+          {:halt, found}
+      end
+    end)
+  end
+
+  test "R14 the window is a setting; bad values fall back to 5", %{a: a} do
+    user = user!(a)
+    put_window!(10)
+    old_entry!(a, user, 6)
+    assert call(a, user.id, ["TENANT_ADMIN"]).status == 202
+    Process.sleep(200)
+    assert length(audits(a)) == 1
+    assert user_deliveries(a, user) == []
+
+    for bad <- [0, -1, "10", nil] do
+      put_window!(bad)
+      u = user!(a)
+      old_entry!(a, u, 6)
+      assert call(a, u.id, ["TENANT_ADMIN"]).status == 202
+      assert length(Enum.filter(audits(a), &(&1.resource_id == u.id))) == 2, inspect(bad)
+      assert [_one] = await_user_delivery(a, u)
+      Process.sleep(50)
+      assert [_one] = user_deliveries(a, u), inspect(bad)
+
+      v = user!(a)
+      old_entry!(a, v, 4)
+      assert call(a, v.id, ["TENANT_ADMIN"]).status == 202
+      assert length(Enum.filter(audits(a), &(&1.resource_id == v.id))) == 1, inspect(bad)
+      Process.sleep(100)
+      assert user_deliveries(a, v) == [], inspect(bad)
     end
+  end
+
+  test "R15 another user's or another action's entry does not throttle", %{a: a} do
+    x = user!(a)
+    y = user!(a)
+    old_entry!(a, x, 1)
+    assert call(a, y.id, ["TENANT_ADMIN"]).status == 202
+    assert Enum.count(audits(a), &(&1.resource_id == y.id)) == 1
+    assert [dy] = await_user_delivery(a, y)
+    assert dy.template_key == "password_reset_hint" and dy.recipient_user_id == y.id
+    assert user_deliveries(a, x) == []
+
+    z = user!(a)
+    old_entry!(a, z, 1, "user.update_status")
+    assert call(a, z.id, ["TENANT_ADMIN"]).status == 202
+    assert Enum.count(audits(a), &(&1.resource_id == z.id)) == 1
+    assert [dz] = await_user_delivery(a, z)
+    assert dz.template_key == "password_reset_hint" and dz.recipient_user_id == z.id
+  end
+
+  test "R16 refusals still win over the throttle", %{a: a} do
+    user = user!(a)
+    old_entry!(a, user, 1)
+    conn = call(a, user.id, ["TENANT_ADMIN"], %{"k" => "v"})
+    assert conn.status == 422 and conn.resp_body =~ "body_not_accepted"
+
+    inactive = user!(a, %{status: :inactive})
+    old_entry!(a, inactive, 1)
+    conn = call(a, inactive.id, ["TENANT_ADMIN"])
+    assert conn.status == 409 and conn.resp_body =~ "user_inactive"
+  end
+
+  test "R17 lock, check and insert share one transaction; delivery follows it" do
+    route = File.read!("lib/letflow/routers/identity.ex")
+    src = File.read!("lib/letflow/identity/password_reset_throttle.ex")
+    {txn, _} = :binary.match(src, "Letflow.Repo.transaction(fn")
+    {lock, _} = :binary.match(src, "pg_advisory_xact_lock(hashtext")
+    {check, _} = :binary.match(src, "Audit.latest_matching(prefix")
+    {insert, _} = :binary.match(src, "Audit.insert_entry(Letflow.Repo")
+    assert txn < lock
+    {call_at, _} = :binary.match(route, "PasswordResetThrottle.request(user, attrs")
+    {deliver, _} = :binary.match(route, "start_reset_delivery(user, entry.id")
+    assert call_at < deliver
+    assert lock < check and check < insert
+  end
+
+  test "R18 a throttled response equals an accepted one", %{a: a} do
+    user = user!(a)
+    accepted = call(a, user.id, ["TENANT_ADMIN"])
+    throttled = call(a, user.id, ["TENANT_ADMIN"])
+    assert {throttled.status, throttled.resp_body} == {accepted.status, accepted.resp_body}
+
+    names = fn c -> c.resp_headers |> Enum.map(&elem(&1, 0)) |> Enum.sort() end
+    assert names.(throttled) == names.(accepted)
+  end
+
+  test "R19 the setting is documented and read from application config only" do
+    src = File.read!("lib/letflow/routers/identity.ex")
+    assert src =~ "reset_password_window_minutes"
+    refute src =~ "System.get_env(\"RESET"
   end
 
   test "R3 other roles get 403 and nothing is written", %{a: a, b: b} do
