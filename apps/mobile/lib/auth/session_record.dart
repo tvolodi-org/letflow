@@ -11,7 +11,9 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
-/// The eight keys of a stored record (REQ-810 criterion 3).
+/// The eight keys of a stored record (REQ-810 criterion 3). A record made
+/// without "unlock with this device" has exactly these keys, byte for byte as
+/// REQ-810 wrote it.
 const Set<String> kSessionRecordKeys = {
   'realm_url',
   'slug',
@@ -21,6 +23,15 @@ const Set<String> kSessionRecordKeys = {
   'iterations',
   'signed_in_at',
   'failed_pins',
+};
+
+/// The three optional, all-or-none keys of REQ-811: the passkey credential id,
+/// the random PRF input and the data key wrapped under the HKDF of the PRF
+/// output. The PRF output and the key derived from it are never stored.
+const Set<String> kDeviceRecordKeys = {
+  'device_credential_id',
+  'device_eval_input',
+  'device_wrapped_key',
 };
 
 @immutable
@@ -34,6 +45,9 @@ class SessionRecord {
     required this.iterations,
     required this.signedInAt,
     required this.failedPins,
+    this.deviceCredentialId,
+    this.deviceEvalInput,
+    this.deviceWrappedKey,
   });
 
   final String realmUrl;
@@ -48,6 +62,34 @@ class SessionRecord {
   final DateTime signedInAt;
   final int failedPins;
 
+  /// REQ-811: all three set or all three null.
+  final String? deviceCredentialId;
+  final String? deviceEvalInput;
+  final String? deviceWrappedKey;
+
+  bool get hasDeviceUnlock =>
+      deviceCredentialId != null &&
+      deviceEvalInput != null &&
+      deviceWrappedKey != null;
+
+  SessionRecord withDevice({
+    required String credentialId,
+    required String evalInput,
+    required String wrappedKey,
+  }) => SessionRecord(
+    realmUrl: realmUrl,
+    slug: slug,
+    encRefreshToken: encRefreshToken,
+    wrappedKey: this.wrappedKey,
+    salt: salt,
+    iterations: iterations,
+    signedInAt: signedInAt,
+    failedPins: failedPins,
+    deviceCredentialId: credentialId,
+    deviceEvalInput: evalInput,
+    deviceWrappedKey: wrappedKey,
+  );
+
   SessionRecord copyWith({String? encRefreshToken, int? failedPins}) =>
       SessionRecord(
         realmUrl: realmUrl,
@@ -58,6 +100,9 @@ class SessionRecord {
         iterations: iterations,
         signedInAt: signedInAt,
         failedPins: failedPins ?? this.failedPins,
+        deviceCredentialId: deviceCredentialId,
+        deviceEvalInput: deviceEvalInput,
+        deviceWrappedKey: deviceWrappedKey,
       );
 
   Map<String, dynamic> toJson() => {
@@ -69,18 +114,34 @@ class SessionRecord {
     'iterations': iterations,
     'signed_in_at': signedInAt.toUtc().toIso8601String(),
     'failed_pins': failedPins,
+    if (hasDeviceUnlock) ...{
+      'device_credential_id': deviceCredentialId,
+      'device_eval_input': deviceEvalInput,
+      'device_wrapped_key': deviceWrappedKey,
+    },
   };
 
   String encode() => jsonEncode(toJson());
 
   /// Parses a stored record; `null` when it is not valid JSON or its key set
-  /// is not exactly [kSessionRecordKeys] or a value has the wrong type.
+  /// is not exactly [kSessionRecordKeys] (or those plus all of
+  /// [kDeviceRecordKeys]) or a value has the wrong type.
   static SessionRecord? tryParse(String raw) {
     try {
       final m = jsonDecode(raw);
       if (m is! Map<String, dynamic>) return null;
-      if (m.length != kSessionRecordKeys.length ||
-          !m.keys.every(kSessionRecordKeys.contains)) {
+      final withDevice = m.containsKey('device_credential_id');
+      final allowed = withDevice
+          ? {...kSessionRecordKeys, ...kDeviceRecordKeys}
+          : kSessionRecordKeys;
+      if (m.length != allowed.length || !m.keys.every(allowed.contains)) {
+        return null;
+      }
+      final devCred = m['device_credential_id'];
+      final devEval = m['device_eval_input'];
+      final devWrapped = m['device_wrapped_key'];
+      if (withDevice &&
+          (devCred is! String || devEval is! String || devWrapped is! String)) {
         return null;
       }
       final realm = m['realm_url'];
@@ -110,6 +171,9 @@ class SessionRecord {
         iterations: iterations,
         signedInAt: DateTime.parse(signedIn).toUtc(),
         failedPins: failed,
+        deviceCredentialId: withDevice ? devCred as String : null,
+        deviceEvalInput: withDevice ? devEval as String : null,
+        deviceWrappedKey: withDevice ? devWrapped as String : null,
       );
     } catch (_) {
       return null;

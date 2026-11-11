@@ -128,4 +128,38 @@ void main() {
     expect(k1, hasLength(32));
     expect(k1, isNot(k2));
   });
+
+  test(
+    'B6 HKDF-SHA-256 RFC 5869 test case 1 (first 32 bytes of OKM)',
+    () async {
+      final okm = await crypto.hkdfSha256(
+        Uint8List.fromList(List.filled(22, 0x0b)),
+        salt: Uint8List.fromList(List.generate(13, (i) => i)),
+        info: Uint8List.fromList(List.generate(10, (i) => 0xf0 + i)),
+      );
+      expect(
+        _toHex(okm),
+        '3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf',
+      );
+    },
+  );
+
+  test(
+    'B7 a key from HKDF wraps and unwraps; another input does not',
+    () async {
+      final salt = Uint8List(32);
+      final info = Uint8List.fromList(
+        utf8.encode('letflow-pwa-device-unlock-v1'),
+      );
+      final ikm = Uint8List.fromList(List.generate(32, (i) => i));
+      final other = Uint8List.fromList(List.generate(32, (i) => i + 1));
+      final key = await crypto.hkdfSha256(ikm, salt: salt, info: info);
+      final data = await crypto.randomBytes(32);
+      final sealed = await crypto.seal(key, data);
+      final again = await crypto.hkdfSha256(ikm, salt: salt, info: info);
+      expect(await crypto.open(again, sealed), data);
+      final wrong = await crypto.hkdfSha256(other, salt: salt, info: info);
+      expect(await crypto.open(wrong, sealed), isNull);
+    },
+  );
 }

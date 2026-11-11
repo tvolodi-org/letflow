@@ -37,4 +37,12 @@ abstract interface class SessionCrypto {
 
   /// Inverse of [seal]; `null` when the tag does not verify.
   Future<Uint8List?> open(Uint8List key, Uint8List sealed);
+
+  /// HKDF-SHA-256 (RFC 5869) of [ikm], 32 bytes (REQ-811: the key derived
+  /// from the passkey PRF output).
+  Future<Uint8List> hkdfSha256(
+    Uint8List ikm, {
+    required Uint8List salt,
+    required Uint8List info,
+  });
 }
