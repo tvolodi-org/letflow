@@ -23,7 +23,7 @@ defmodule Letflow.Routers.Identity do
   * GET    /users                        -> Identity.list_users/2
   * GET    /users/:id                    -> Identity.get_user/2
   * PATCH  /users/:id                    -> Identity.get_user/2, then Identity.update_user_profile/3 (409 `last_tenant_wide_admin`, GH 2564; 409 `last_interactive_tenant_wide_admin`, GH #2869)
-  * POST   /users/:id/reset-password   -> sends a "Forgot password" instruction mail only (REQ-788): Letflow handles no password and calls no identity-provider API (decisions 0072 D1, 0085 D6); 202, audit `user.password_reset_requested`, then `Notifications.start_delivery/5` (`password_reset_hint`)
+  * POST   /users/:id/reset-password   -> sends a "Forgot password" instruction mail only (REQ-788): Letflow handles no password and calls no identity-provider API (decisions 0072 D1, 0085 D6); 202, audit `user.password_reset_requested`, then `Notifications.start_delivery/5` (`password_reset_hint`); throttled per user (REQ-814): at most one accepted request per `reset_password_window_minutes` (config `:letflow, Letflow.Routers.Identity`, default 5), a throttled repeat answers the same 202 and writes nothing
   * POST   /users/:id/sign-in            -> Identity.create_sign_in/2 (T-1730, REQ-807; 201 once with `temporary_password`, 409 `sign_in_creation_off` while the flag is off)
   * POST   /users/:id/status             -> Identity.get_user/2, then Identity.update_user_status/3 (409 `last_tenant_wide_admin`, GH 2564; 409 `last_interactive_tenant_wide_admin`, GH #2869)
   * POST   /groups                       -> Identity.create_group/2
@@ -173,6 +173,8 @@ defmodule Letflow.Routers.Identity do
 
   use Letflow.Api.AuthorizedRouter
 
+  @default_reset_window_minutes 5
+
   alias Letflow.Api.Authorization
   alias Letflow.Api.Error
   alias Letflow.Api.Pagination
@@ -181,9 +183,9 @@ defmodule Letflow.Routers.Identity do
   alias Letflow.Api.TokenView
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
-  alias Letflow.Audit
   alias Letflow.Identity
   alias Letflow.Identity.PendingAdminGrants
+  alias Letflow.Identity.PasswordResetThrottle
   alias Letflow.Identity.RoleRegistry
   alias Letflow.Identity.ScopedGrants
   alias Letflow.Identity.ServicePrincipal
@@ -570,9 +572,13 @@ defmodule Letflow.Routers.Identity do
       trace_id: conn.assigns[:trace_id]
     }
 
-    case safe_insert_audit(attrs, prefix) do
-      {:ok, entry} ->
+    case PasswordResetThrottle.request(user, attrs, prefix, reset_window_minutes()) do
+      {:ok, {:sent, entry}} ->
         start_reset_delivery(user, entry.id, prefix)
+        Response.send_json(conn, 202, %{"status" => "requested"})
+
+      # REQ-814: a repeat inside the window answers the same 202 and writes and sends nothing.
+      {:ok, :throttled} ->
         Response.send_json(conn, 202, %{"status" => "requested"})
 
       _failed ->
@@ -580,10 +586,15 @@ defmodule Letflow.Routers.Identity do
     end
   end
 
-  defp safe_insert_audit(attrs, prefix) do
-    Audit.insert_entry(Letflow.Repo, attrs, prefix)
-  rescue
-    _exception -> {:error, :audit_failed}
+  defp reset_window_minutes do
+    cfg = Application.get_env(:letflow, __MODULE__, [])
+
+    with true <- Keyword.keyword?(cfg),
+         n when is_integer(n) and n > 0 <- Keyword.get(cfg, :reset_password_window_minutes) do
+      n
+    else
+      _ -> @default_reset_window_minutes
+    end
   end
 
   defp start_reset_delivery(user, trigger_ref, prefix) do
