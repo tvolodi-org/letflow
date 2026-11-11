@@ -1,5 +1,6 @@
 /** UsersImportPage -- T-1633 / REQ-791 (BA decision T-1631 item 2). Template download, dry run, a row / column /
- *  reason report in ru, kk and en, fix and re-upload. A sibling of MasterDataImportPage (one fixed import type, no
+ *  reason report in ru, kk and en, fix and re-upload. A sibling of MasterDataImportPage (one fixed import { saveBlob } from '@/lib/saveBlob'
+import type, no
  *  type picker). Every rule stays on the server; the screen sends the file and shows the answer. No tenant
  *  identifier is sent (the tenant comes from the token). Shared components only; no colour or spacing is set here.
  */
@@ -51,17 +52,6 @@ const OUTCOME_LOOK: Record<Outcome, { tone: StatusTone; glyph: StatusGlyph }> = 
 function outcomeOf(row: ImportResultRow): Outcome {
   if (row.status === 'error') return 'refused'
   return row.outcome === 'created' ? 'created' : 'unchanged'
-}
-
-function saveBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }
 
 function localeOf(intl: ReturnType<typeof useIntl>): UiLocale {

@@ -20,7 +20,7 @@ import { usePickerOptions } from '../register/stockPickers'
 import { STOCK_POST } from '../stockPermissions'
 import { documentsApi, type DocumentsPageBody } from './documents.api'
 import { DOC_KINDS, DOC_STATES, formatEventTime } from './documentsModel'
-import { stateTone } from './stateTone'
+import { documentStateTone as stateTone } from '@/lib/documentStateTone'
 
 interface Filters {
   kind: string

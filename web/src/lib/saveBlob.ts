@@ -1,4 +1,4 @@
-/** saveBlob — hands a fetched file to the browser as a download. */
+/** saveBlob — hands a fetched file to the browser as a download (anchor created, clicked, removed; object URL revoked). */
 export function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

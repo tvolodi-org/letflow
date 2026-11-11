@@ -1,7 +1,8 @@
 /** MasterDataImportPage -- GH 3650 / REQ-675 (assets phase A screen S6), restyled in style task S6.
  *
  *  Type picker (from the installed modules' importTypes), template download, drop zone, dry run, confirm, summary.
- *  Core page: it never names a module (0039 D3). Every rule stays in the import route; the screen sends the file
+ *  Core page: it never names a module (0039 D3). Every rule stays in the import { saveBlob } from '@/lib/saveBlob'
+import route; the screen sends the file
  *  and shows the answer. No tenant identifier is sent (the tenant comes from the token).
  *
  *  Look: the design system's import wizard (platform/examples/import.html): PageHeader, Steps, cards, TypePicker,
@@ -61,17 +62,6 @@ const OUTCOME_LOOK: Record<Outcome, { tone: StatusTone; glyph: StatusGlyph }> = 
 
 function outcomeOf(row: ImportResultRow): Outcome {
   return row.status === 'error' ? 'refused' : (row.outcome ?? 'unchanged')
-}
-
-function saveBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }
 
 function localeOf(intl: ReturnType<typeof useIntl>): UiLocale {

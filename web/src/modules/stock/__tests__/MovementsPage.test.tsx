@@ -8,7 +8,7 @@ import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import MovementsPage from '../register/MovementsPage'
 import { MOV, fakeMasters, renderStock, routeCalls } from './stockTestKit'
-import { saveBlob } from '../register/saveBlob'
+import { saveBlob } from '@/lib/saveBlob'
 
 expect.extend(jestDomMatchers)
 
@@ -16,7 +16,7 @@ vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-stock' }, isAuthenticated: true }),
 }))
 const clientMock = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), getBlob: vi.fn() }))
-vi.mock('../register/saveBlob', () => ({ saveBlob: vi.fn() }))
+vi.mock('@/lib/saveBlob', () => ({ saveBlob: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const LEG = { sku: 'i1', location: 'l1', org_unit: 'u1', responsible: 'e1', lot: 't1', unit_ref: 'm1' }

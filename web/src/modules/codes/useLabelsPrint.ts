@@ -6,7 +6,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { codesApi } from './codes.api'
 import { reasonOf } from './codesModel'
 import { codesQueryKeys } from './codesQueryKeys'
-import { saveBlob } from './saveBlob'
+import { saveBlob } from '@/lib/saveBlob'
 
 export type LabelsPrintResult = 'ok' | 'notFound' | 'error'
 
