@@ -1,4 +1,4 @@
-defmodule Letflow.Engine.TaskAuditRecords do
+defmodule Letflow.Engine.TaskAuditWriters do
   @moduledoc """
   Best-effort, log-and-swallow audit writers for task lifecycle refusals, split
   out of `Letflow.Engine` (B4#10 slice 4, code health; code moved verbatim,

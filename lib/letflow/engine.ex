@@ -10730,11 +10730,11 @@ defmodule Letflow.Engine do
        do: error
 
   # ===========================================================================
-  # Task audit record writers -- implemented in `Letflow.Engine.TaskAuditRecords`
+  # Task audit record writers -- implemented in `Letflow.Engine.TaskAuditWriters`
   # (B4#10 slice 4, code health); delegated here so the public API is unchanged.
   # ===========================================================================
 
-  @doc "See `Letflow.Engine.TaskAuditRecords.record_task_activation_rejection_audit/5`."
+  @doc "See `Letflow.Engine.TaskAuditWriters.record_task_activation_rejection_audit/5`."
   @spec record_task_activation_rejection_audit(
           instance_id :: Ecto.UUID.t(),
           node_id :: String.t(),
@@ -10749,9 +10749,9 @@ defmodule Letflow.Engine do
                 actor_id,
                 prefix
               ),
-              to: Letflow.Engine.TaskAuditRecords
+              to: Letflow.Engine.TaskAuditWriters
 
-  @doc "See `Letflow.Engine.TaskAuditRecords.record_completion_refusal_audit/6`."
+  @doc "See `Letflow.Engine.TaskAuditWriters.record_completion_refusal_audit/6`."
   @spec record_completion_refusal_audit(
           instance_id :: Ecto.UUID.t(),
           task_id :: Ecto.UUID.t(),
@@ -10768,9 +10768,9 @@ defmodule Letflow.Engine do
                 refusal,
                 prefix
               ),
-              to: Letflow.Engine.TaskAuditRecords
+              to: Letflow.Engine.TaskAuditWriters
 
-  @doc "See `Letflow.Engine.TaskAuditRecords.record_service_task_advance_failure_audit/5`."
+  @doc "See `Letflow.Engine.TaskAuditWriters.record_service_task_advance_failure_audit/5`."
   @spec record_service_task_advance_failure_audit(
           instance_id :: Ecto.UUID.t(),
           node_id :: String.t() | nil,
@@ -10785,7 +10785,7 @@ defmodule Letflow.Engine do
                 actor_id,
                 prefix
               ),
-              to: Letflow.Engine.TaskAuditRecords
+              to: Letflow.Engine.TaskAuditWriters
 
   # =========================================================================
   # land_service_task_exhaustion/2 (REQ-177) -- implemented in
