@@ -51,7 +51,7 @@ const en: Topics = {
     refusals: [
       { title: 'No path was recorded for this instance', body: 'The instance ran before step recording started. The "Live" view still shows the path worked out from task events.' },
       { title: 'Steps before a given time were not recorded', body: 'Only the steps from that time on can be replayed. Earlier steps are not guessed.' },
-      { title: 'Not all steps could be loaded', body: 'The replay shows the steps read so far. Open the instance again to load the rest.' },
+      { title: 'Not all steps could be loaded', body: 'The replay shows the steps read so far. Very long paths are shown only up to a fixed limit, and opening the instance again does not remove it. If loading failed for a moment, press Retry on the banner.' },
     ],
   },
   moduleRollouts: {
@@ -65,7 +65,7 @@ const en: Topics = {
     refusals: [
       { title: 'The rollout is halted', body: 'It stopped after several failures in a row to protect the other companies. They were not touched. Resume retries the failed ones.' },
       { title: 'A company is outside its upgrade window', body: 'The company is only upgraded in its own window. It is retried by the next start or resume.' },
-      { title: 'Resume is not offered', body: 'The version of that rollout is no longer the running build. Start a new rollout instead.' },
+      { title: 'Resume is not offered', body: 'The button appears only when the rollout is halted, or when some company failed, is waiting or is outside its window, or has been stuck on "running" for over 15 minutes. If it is missing, there is nothing left to retry.' },
     ],
   },
 }
@@ -110,7 +110,7 @@ const ru: Topics = {
     refusals: [
       { title: 'Для этого экземпляра путь не записан', body: 'Он выполнялся до начала записи шагов. Вид «Сейчас» всё равно показывает путь, выведенный из событий задач.' },
       { title: 'Шаги до указанного времени не записаны', body: 'Повторить можно только шаги, начиная с этого времени. Более ранние шаги не угадываются.' },
-      { title: 'Не все шаги удалось загрузить', body: 'Повтор показывает уже прочитанные шаги. Откройте экземпляр снова, чтобы загрузить остальные.' },
+      { title: 'Не все шаги удалось загрузить', body: 'Повтор показывает уже прочитанные шаги. Очень длинные пути показываются только до установленного предела, и повторное открытие экземпляра его не снимает. Если загрузка на время не удалась, нажмите «Повторить» на плашке.' },
     ],
   },
   moduleRollouts: {
@@ -124,7 +124,7 @@ const ru: Topics = {
     refusals: [
       { title: 'Развёртывание остановлено', body: 'Оно остановилось после нескольких ошибок подряд, чтобы защитить остальные компании. Их не трогали. «Продолжить» повторит неудачные.' },
       { title: 'Компания вне окна обновления', body: 'Компанию обновляют только в её собственном окне. Повтор будет при следующем запуске или продолжении.' },
-      { title: 'Кнопки «Продолжить» нет', body: 'Версия этого развёртывания больше не совпадает с работающей сборкой. Начните новое развёртывание.' },
+      { title: 'Кнопки «Продолжить» нет', body: 'Кнопка появляется, только если развёртывание остановлено, либо какая-то компания завершилась ошибкой, ждёт или вне своего окна, либо зависла в состоянии «выполняется» более 15 минут. Если кнопки нет, повторять нечего.' },
     ],
   },
 }
@@ -169,7 +169,7 @@ const kk: Topics = {
     refusals: [
       { title: 'Бұл дана үшін жол жазылмаған', body: 'Ол қадамдарды жазу басталғанға дейін орындалған. «Қазір» көрінісі тапсырма оқиғаларынан шығарылған жолды көрсете береді.' },
       { title: 'Көрсетілген уақытқа дейінгі қадамдар жазылмаған', body: 'Тек сол уақыттан бастап қадамдарды қайталауға болады. Бұрынғы қадамдар болжанбайды.' },
-      { title: 'Қадамдардың бәрі жүктелмеді', body: 'Қайталау оқылған қадамдарды көрсетеді. Қалғанын жүктеу үшін дананы қайта ашыңыз.' },
+      { title: 'Қадамдардың бәрі жүктелмеді', body: 'Қайталау оқылған қадамдарды көрсетеді. Өте ұзын жолдар тек белгілі шекке дейін көрсетіледі, дананы қайта ашу бұл шекті алып тастамайды. Жүктеу уақытша сәтсіз болса, жолақтағы «Қайталау» түймесін басыңыз.' },
     ],
   },
   moduleRollouts: {
@@ -183,7 +183,7 @@ const kk: Topics = {
     refusals: [
       { title: 'Тарату тоқтатылды', body: 'Ол басқа компанияларды қорғау үшін қатарынан бірнеше қатеден кейін тоқтады. Оларға тиіспедік. «Жалғастыру» сәтсіздерін қайталайды.' },
       { title: 'Компания жаңарту терезесінен тыс', body: 'Компания тек өз терезесінде жаңартылады. Келесі бастау немесе жалғастыру кезінде қайталанады.' },
-      { title: '«Жалғастыру» түймесі жоқ', body: 'Бұл таратудың нұсқасы енді жұмыс істеп тұрған құрастырма емес. Орнына жаңа тарату бастаңыз.' },
+      { title: '«Жалғастыру» түймесі жоқ', body: 'Түйме тек тарату тоқтатылғанда, немесе қандай да бір компания қатемен аяқталғанда, күтіп тұрғанда не терезесінен тыс болғанда, немесе «орындалуда» күйінде 15 минуттан астам тұрып қалғанда көрінеді. Түйме жоқ болса, қайталайтын ештеңе жоқ.' },
     ],
   },
 }
