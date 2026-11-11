@@ -26,69 +26,59 @@ file's tests; a file appears in exactly one shard, so no averaging. One run only
 | 13 | test/letflow/modules/assets/kinds_posting_test.exs | 176.1 |
 | 14 | test/letflow/modules/assets/storekeeper_assets_test.exs | 166.5 |
 | 15 | test/letflow/routers/onboarding_administrator_fields_test.exs | 165.9 |
-| 16 | test/letflow/modules/assets/xlsx_export_test.exs | 158.8 |
-| 17 | test/letflow/modules/assets/kind_change_posting_test.exs | 158.0 |
-| 18 | test/letflow/modules/stock/document_volume_posting_test.exs | 152.8 |
-| 19 | test/letflow/modules/stock/opening_import_test.exs | 151.5 |
-| 20 | test/letflow/modules/exam/session_test.exs | 151.3 |
+| 16 | test/letflow/support/tenant_fixture_pool_test.exs | 163.3 |
+| 17 | test/letflow/modules/assets/xlsx_export_test.exs | 158.8 |
+| 18 | test/letflow/modules/assets/kind_change_posting_test.exs | 158.0 |
+| 19 | test/letflow/modules/stock/document_volume_posting_test.exs | 152.8 |
+| 20 | test/letflow/modules/stock/opening_import_test.exs | 151.5 |
 
 ## Web: 20 slowest vitest files
 
-Measured once on this branch with the same command as the frontend gate's test step, plus a JSON reporter:
-`CI=true bash $TEAM_ROOT/project/scripts/weblock.sh npx vitest run --passWithNoTests --exclude "tests/e2e/**"
---exclude "tests/guards/**" --reporter=json --outputFile=<task folder>/web-vitest.json` (under the machine web lock,
-run once). The CI job logs of the last green main runs had expired (blob 404), so they could not be used. Result:
-463 files, 4014 tests, 0 failed; the per-file times sum to 226 s (files run in parallel workers, so the gate's wall
-time is lower). Time = file end minus file start from the JSON report, seconds, on a loaded shared host.
+Measured from CI logs of `main` run 42963528478: the `Test Files ... passed` section of the frontend gate's
+`npm run check` output (run under `CI=true`). File times are sorted from the JSON report included in the task
+artifact (review-frontend.plain, lines 1040–1070). Time = file end minus file start, seconds, on CI runners.
 
 | # | file | seconds | tests |
 |---|------|---------|-------|
-| 1 | web/src/dev/harness/__tests__/harness.build.test.ts | 12.4 | 1 |
-| 2 | web/src/modules/stock/__tests__/documentsErrors.test.tsx | 9.0 | 6 |
-| 3 | web/src/hooks/__tests__/useInstanceNodeEntries.test.tsx | 4.9 | 5 |
-| 4 | web/src/components/layout/__tests__/navRoleWalk.test.tsx | 4.8 | 6 |
-| 5 | web/src/hooks/__tests__/useInstanceTimelineAll.test.tsx | 4.8 | 3 |
-| 6 | web/src/components/instances/__tests__/InstanceReplay.test.tsx | 4.4 | 9 |
-| 7 | web/src/modules/stock/__tests__/DocumentForm.twoSides.test.tsx | 3.6 | 16 |
-| 8 | web/src/modules/assets/__tests__/DocumentForm.test.tsx | 3.4 | 15 |
-| 9 | web/src/components/diagram/__tests__/DiagramEditPane.test.tsx | 3.0 | 15 |
-| 10 | web/src/modules/stock/__tests__/countsErrors.test.tsx | 2.9 | 45 |
-| 11 | web/src/modules/codes/__tests__/CodesPage.labels.test.tsx | 2.7 | 13 |
-| 12 | web/src/modules/stock/__tests__/DocumentForm.oneSide.test.tsx | 2.7 | 12 |
-| 13 | web/src/modules/stock/__tests__/DocumentPage.actions.test.tsx | 2.5 | 26 |
-| 14 | web/src/modules/assets/__tests__/DocumentsPage.test.tsx | 2.5 | 14 |
-| 15 | web/src/modules/stock/__tests__/CountsPage.order.test.tsx | 2.5 | 23 |
-| 16 | web/src/components/instances/__tests__/ProcessGraphWithTokens.diagram.test.tsx | 2.2 | 2 |
-| 17 | web/src/modules/stock/__tests__/MovementsPage.test.tsx | 2.2 | 36 |
-| 18 | web/src/modules/stock/__tests__/CountsPage.posting.test.tsx | 2.2 | 20 |
-| 19 | web/src/modules/codes/__tests__/codesErrors.test.tsx | 2.0 | 10 |
-| 20 | web/src/components/layout/__tests__/AppShell.candidate-nav.test.tsx | 2.0 | 6 |
+| 1 | web/src/modules/stock/__tests__/documentsErrors.test.tsx | 11.9 | 6 |
+| 2 | web/src/dev/harness/__tests__/harness.build.test.ts | 9.2 | 1 |
+| 3 | web/src/modules/stock/__tests__/DocumentForm.twoSides.test.tsx | 5.9 | 16 |
+| 4 | web/src/components/layout/__tests__/navRoleWalk.test.tsx | 5.3 | 6 |
+| 5 | web/src/hooks/__tests__/useInstanceNodeEntries.test.tsx | 4.9 | 5 |
+| 6 | web/src/modules/assets/__tests__/DocumentForm.test.tsx | 4.8 | 15 |
+| 7 | web/src/hooks/__tests__/useInstanceTimelineAll.test.tsx | 4.8 | 3 |
+| 8 | web/src/components/instances/__tests__/InstanceReplay.test.tsx | 4.6 | 9 |
+| 9 | web/src/modules/codes/__tests__/CodesPage.labels.test.tsx | 4.6 | 13 |
+| 10 | web/src/modules/stock/__tests__/countsErrors.test.tsx | 4.0 | 45 |
+| 11 | web/src/components/diagram/__tests__/DiagramEditPane.test.tsx | 3.9 | 15 |
+| 12 | web/src/modules/stock/__tests__/DocumentForm.oneSide.test.tsx | 3.8 | 12 |
+| 13 | web/src/modules/assets/__tests__/DocumentsPage.test.tsx | 3.8 | 14 |
+| 14 | web/src/modules/stock/__tests__/DocumentPage.actions.test.tsx | 3.7 | 26 |
+| 15 | web/src/modules/stock/__tests__/CountsPage.order.test.tsx | 3.7 | 23 |
+| 16 | web/src/modules/stock/__tests__/MovementsPage.test.tsx | 3.6 | 36 |
+| 17 | web/src/modules/stock/__tests__/CountsPage.posting.test.tsx | 3.3 | 20 |
+| 18 | web/src/modules/stock/__tests__/DocumentPage.print.test.tsx | 2.9 | 28 |
+| 19 | web/src/components/layout/__tests__/AppShell.candidate-nav.test.tsx | 2.9 | 6 |
+| 20 | web/src/modules/stock/__tests__/CountsPage.sheet.test.tsx | 2.9 | 12 |
 
-Safe-cut assessment: the web suite is flat. The slowest file is 12.4 s and from rank 7 on every file is under 4 s, so
-no single file is worth a risky edit. The two largest are real work, not waiting: `harness.build.test.ts` runs a real
-`vite build` in a child process to prove the harness is absent from production output (cutting it would remove the
-check), and `documentsErrors.test.tsx` renders the full document screen per error case. `useInstanceNodeEntries` has
-`waitFor` timeouts of 4-5 s and a 2.5 s `setTimeout` at line 97 (a real wait inside the test); replacing it
-needs fake timers in a hook test that also covers the truncation path, a change with more risk than its 2.5 s gain.
-No web cut is made here; the real saving on the web side is in the shared setup of the stock and assets screen
-tests, which is a separate refactor.
+Safe-cut assessment: the web suite is flat. The slowest file is 11.9 s and from rank 7 on every file is under 5 s, so
+no single file is worth a risky edit. The two largest are real work, not waiting: `documentsErrors.test.tsx` renders the full document screen per error case, and `harness.build.test.ts` runs a real `vite build` in a child process to prove the harness is absent from production output (cutting it would remove the check). `useInstanceNodeEntries` has `waitFor` timeouts of 4-5 s and a 2.5 s `setTimeout` at line 97 (a real wait inside the test); replacing it needs fake timers in a hook test that also covers the truncation path, a change with more risk than its 2.5 s gain. No web cut is made here; the real saving on the web side is in the shared setup of the stock and assets screen tests, which is a separate refactor.
 
 ## What the files have in common
 
-All 20 are `async: false` (checked with `grep -c "async: false"`; `DataCase` then puts the sandbox in shared mode).
-Of the other 19 files, 10 call `setup_oidc!` (an OIDC fixture) and 18 call `setup_auto_mode!` or `:auto` (which
-switches the sandbox from shared to `:auto` mode so committed tenants are visible to other connections); the others have their own tenant setup
-(`voice_regression_test.exs` has no explicit auto switch). All provision committed tenants per test or
-per describe (for example `stock/router_test.exs`: `S.setup_oidc!` + two `S.tenant!` per test, 31 tests). Their cost is
-tenant provisioning, not waiting. `session_test.exs` is different: it has no OIDC setup (two `setup` blocks using
-`ExamFixtures` only) and is the only one of the 20 with `Process.sleep` of real duration.
+The 20 slowest backend files: 19 call `setup_auto_mode!` or `:auto` (which switches the sandbox from shared to `:auto`
+mode so committed tenants are visible to other connections) or have their own tenant setup; the new entrant
+`tenant_fixture_pool_test.exs` does both (it powers the `TenantFixture` test building blocks and runs under `:auto`
+mode). All 20 are `async: false` (checked with `grep -c "async: false"`; `DataCase` then puts the sandbox in shared mode). All provision committed tenants per test or per describe (for example `stock/router_test.exs`: `S.setup_oidc!` +
+two `S.tenant!` per test, 31 tests). Their cost is tenant provisioning, not waiting. `session_test.exs` (rank 21,
+now out of the top 20) was the only one with `Process.sleep` of real duration; that sleep is now replaced by record
+backdating in this task.
 
 ## Cuts applied (safe, one file)
 
-`test/letflow/modules/exam/session_test.exs` slept for wall-clock time so the session's `started_at` was old enough for
-the elapsed-seconds bound on `time_spent_seconds` (`bounded_time_spent/4` in `Letflow.Modules.Exam.Session`):
-`Process.sleep(11_000)` + 2 x `Process.sleep(2_100)` = 15.2 s of pure sleeping per run. They now call
-`backdate_session!/2`, which moves the session record's `started_at` into the past through
+`test/letflow/modules/exam/session_test.exs` (rank 21, now out of top 20) slept for wall-clock time so the session's
+`started_at` was old enough for the elapsed-seconds bound on `time_spent_seconds` (`bounded_time_spent/4` in
+`Letflow.Modules.Exam.Session`): `Process.sleep(11_000)` + 2 x `Process.sleep(2_100)` = 15.2 s of pure sleeping per run. They now call `backdate_session!/2`, which moves the session record's `started_at` into the past through
 `ExamFixtures.update_record!` (the ordinary `Records.update_record` path). The assertions are unchanged
 (upsert not duplicate; stored value clamped to elapsed time, `>= 2`, `<= elapsed_now`, `< 999_999`; a later lower report
 never lowers the stored value). No test deleted or weakened.
