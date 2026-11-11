@@ -24,6 +24,8 @@ export function PageLayout(props: PageLayoutProps): React.ReactElement {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 'var(--space-3)',
           marginBottom: 'var(--space-6)',
         }}
       >

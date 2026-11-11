@@ -234,7 +234,7 @@ export default function DefinitionListPage() {
       id: 'actions',
       header: dm.colActions,
       accessor: (def) => (
-        <div style={{ display: 'flex', gap: '.5rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
           {hasDesignerRole && def.status === 'DRAFT' && (
             <Button variant="primary" size="sm" onClick={() => activate.mutate(def.id)} loading={activate.isPending}>
               {dm.activate}
