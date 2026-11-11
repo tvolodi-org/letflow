@@ -15,7 +15,8 @@ import 'package:flutter_appauth/flutter_appauth.dart' show TokenRequest;
 
 import '../auth/auth.dart'
     show AppAuthAdapter, TenantTokenStore, TokenSet, issuerOf, kOidcRedirectUrl;
-import '../auth/kv_store.dart' show OidcHttp;
+import '../auth/kv_store.dart' show OidcHttp, OidcHttpError;
+import '../auth/web_app_auth_adapter.dart' show OidcRevocationHttp;
 import 'api_error.dart';
 import 'transport_policy.dart';
 
@@ -243,15 +244,21 @@ class _RefreshCoordinator {
     required ActiveRealmHolder activeRealm,
     required AppAuthAdapter appAuthAdapter,
     required LoginRouter routeToLogin,
+    Future<void> Function()? onRefreshRejected,
   }) : _tokenStore = tokenStore,
        _activeRealm = activeRealm,
        _appAuthAdapter = appAuthAdapter,
-       _routeToLogin = routeToLogin;
+       _routeToLogin = routeToLogin,
+       _onRefreshRejected = onRefreshRejected;
 
   final TenantTokenStore _tokenStore;
   final ActiveRealmHolder _activeRealm;
   final AppAuthAdapter _appAuthAdapter;
   final LoginRouter _routeToLogin;
+
+  /// Called when the IdP itself refuses the refresh token (`invalid_grant`),
+  /// never for a network error (REQ-810 criterion 7). Null = main's behaviour.
+  final Future<void> Function()? _onRefreshRejected;
 
   /// Non-null while a refresh triggered by some 401 is in flight. Every
   /// caller that observes a 401 while this is non-null awaits THIS Future
@@ -324,13 +331,18 @@ class _RefreshCoordinator {
       );
       await _tokenStore.store(realmUrl, newTokens);
       return _RefreshOutcome.success;
-    } catch (_) {
+    } catch (e) {
       // A tenant switch/logout that raced this failing refresh already
       // cleared/replaced whatever `realmUrl` pointed to -- do not clear the
       // NEW active tenant's tokens or re-route it to login under the guise
       // of handling the OLD tenant's refresh failure.
       if (_activeRealm.currentRealmUrl != realmUrl) {
         return _RefreshOutcome.aborted;
+      }
+      if (e is OidcHttpError && e.isInvalidGrant) {
+        try {
+          await _onRefreshRejected?.call();
+        } catch (_) {}
       }
       await _handleFailure(realmUrl);
       return _RefreshOutcome.failed;
@@ -391,6 +403,7 @@ class ApiClient implements WriteCapableHttpGateway {
     TransportPolicy? transportPolicy,
     Future<void> Function(Duration) delayFn = Future.delayed,
     bool registerRedactingLog = true,
+    Future<void> Function()? onRefreshRejected,
   }) {
     final dio = _makeTransport(
       BaseOptions(baseUrl: baseUrl ?? _apiBaseUrl, validateStatus: (_) => true),
@@ -413,6 +426,7 @@ class ApiClient implements WriteCapableHttpGateway {
       activeRealm: activeRealm,
       appAuthAdapter: appAuthAdapter,
       routeToLogin: routeToLogin,
+      onRefreshRejected: onRefreshRejected,
     );
     return ApiClient._(dio, coordinator, delayFn, activeRealm);
   }
@@ -434,6 +448,7 @@ class ApiClient implements WriteCapableHttpGateway {
     required AppAuthAdapter appAuthAdapter,
     required LoginRouter routeToLogin,
     Future<void> Function(Duration) delayFn = Future.delayed,
+    Future<void> Function()? onRefreshRejected,
   }) {
     dio.interceptors.add(_bearerInterceptor(tokenStore, activeRealm));
     final coordinator = _RefreshCoordinator(
@@ -441,6 +456,7 @@ class ApiClient implements WriteCapableHttpGateway {
       activeRealm: activeRealm,
       appAuthAdapter: appAuthAdapter,
       routeToLogin: routeToLogin,
+      onRefreshRejected: onRefreshRejected,
     );
     return ApiClient._(dio, coordinator, delayFn, activeRealm);
   }
@@ -916,7 +932,8 @@ class _DioOidcHttp implements OidcHttp {
     final code = r.statusCode ?? 0;
     final data = r.data;
     if (code < 200 || code >= 300 || data is! Map) {
-      throw StateError('OIDC endpoint answered $code');
+      final err = data is Map ? data['error'] : null;
+      throw OidcHttpError(code, err is String ? err : null);
     }
     return data.cast<String, dynamic>();
   }
@@ -936,4 +953,26 @@ class _DioOidcHttp implements OidcHttp {
       options: Options(contentType: Headers.formUrlEncodedContentType),
     ),
   );
+}
+
+/// Transport for the sign-out revocation (RFC 7009): form POST, status only.
+/// Separate from [OidcHttp] so that interface stays as it was.
+OidcRevocationHttp newOidcRevocationHttp() => _DioRevocationHttp(
+  _makeTransport(BaseOptions(validateStatus: (_) => true)),
+);
+
+class _DioRevocationHttp implements OidcRevocationHttp {
+  _DioRevocationHttp(this._dio);
+
+  final Dio _dio;
+
+  @override
+  Future<int> postFormStatus(Uri url, Map<String, String> form) async {
+    final r = await _dio.postUri<dynamic>(
+      url,
+      data: form,
+      options: Options(contentType: Headers.formUrlEncodedContentType),
+    );
+    return r.statusCode ?? 0;
+  }
 }

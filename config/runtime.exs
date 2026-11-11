@@ -464,6 +464,44 @@ config :letflow, Letflow.Signup,
   allow_domains: signup_domains.("LETFLOW_SIGNUP_ALLOW_DOMAINS", []),
   captcha_adapter: nil
 
+# T-1730 (REQ-807, decision 0072 section 8b): sign-in creation for created users. OFF by default.
+# Exactly "true" enables; unset or empty is off; every other non-empty value, "false" included,
+# stops boot WITHOUT echoing it. URL and token must be set together and only with the flag.
+users_enabled =
+  case System.get_env("LETFLOW_REALM_USERS_ENABLED") do
+    nil ->
+      false
+
+    "" ->
+      false
+
+    "true" ->
+      true
+
+    _other ->
+      raise "environment variable LETFLOW_REALM_USERS_ENABLED must be \"true\" or unset. The value is not echoed."
+  end
+
+users_url = System.get_env("LETFLOW_REALM_USERS_PROVISIONER_URL")
+users_token = System.get_env("LETFLOW_REALM_USERS_PROVISIONER_TOKEN")
+users_set? = fn v -> v not in [nil, ""] end
+
+if users_enabled or users_set?.(users_url) or users_set?.(users_token) do
+  if not (users_enabled and users_set?.(users_url) and users_set?.(users_token)) do
+    raise "LETFLOW_REALM_USERS_ENABLED, LETFLOW_REALM_USERS_PROVISIONER_URL and " <>
+            "LETFLOW_REALM_USERS_PROVISIONER_TOKEN must be set together. The values are not echoed."
+  end
+
+  if not Letflow.Signup.RealmProvisioner.valid_base_url?(users_url) do
+    raise "environment variable LETFLOW_REALM_USERS_PROVISIONER_URL must be http://<loopback or private IP, " <>
+            "or localhost>:<port> with no path. The value is not echoed."
+  end
+end
+
+config :letflow, Letflow.Signup.RealmUsers,
+  enabled: users_enabled,
+  provisioner_url: if(users_set?.(users_url), do: users_url)
+
 # REQ-437 (design req434 s7, D21/D22): OPTIONAL LETFLOW_LOGIN_DISCOVERY_MODE. Unset,
 # empty or all-whitespace writes nothing, so the config/config.exs default
 # (:redirect_single) stands in every environment; a set value must be exactly

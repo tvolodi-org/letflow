@@ -109,7 +109,7 @@ test('G2 S2 receipt issue claim complete', async () => {
   await issueDocument(page)
 
   await claimAndComplete(page, state.receiptNumber || 'Laptop')
-  await page.goto(state.receiptUrl, { waitUntil: 'domcontentloaded' })
+  await openRoute(page, state.receiptUrl)
   await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 60_000 })
   await assertNoUuid(page, 'Document')
 })
@@ -149,12 +149,12 @@ test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) =
   const second = await newSession(browser, ENV.admin2, ENV.admin2Pw)
   try {
     await claimAndComplete(second.page, number || 'Laptop')
-    await second.page.goto(state.openingUrl, { waitUntil: 'domcontentloaded' })
+    await openRoute(second.page, state.openingUrl)
     await expect(second.page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 60_000 })
   } finally {
     await second.context.close()
   }
-  await page.goto(state.openingUrl, { waitUntil: 'domcontentloaded' })
+  await openRoute(page, state.openingUrl)
   await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 30_000 })
 })
 
@@ -181,7 +181,7 @@ test('G4 S4 registers show rows and no uuid', async () => {
     await assertNoUuid(page, name)
   }
   if (state.receiptUrl) {
-    await page.goto(state.receiptUrl, { waitUntil: 'domcontentloaded' })
+    await openRoute(page, state.receiptUrl)
     await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
     await assertNoUuid(page, 'Document view')
   }

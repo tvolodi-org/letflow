@@ -40,6 +40,10 @@ const String pointerStoreFile = 'lib/auth/web_pointer_kv.dart';
 const Set<String> webImportFiles = {
   'lib/auth/web_browser.dart',
   'lib/auth/app_auth_platform_web.dart',
+  // REQ-810: WebCrypto and the IndexedDB record store of the 30-day sign-in;
+  // neither touches localStorage.
+  'lib/auth/web_session_crypto.dart',
+  'lib/auth/web_session_idb.dart',
   // PWA M4: the browser recorder reads its blob with fetch; no token, no
   // localStorage.
   'lib/features/stock/voice/web_recorder_port_web.dart',
@@ -263,6 +267,29 @@ void main() {
     expect(
       checkTokenStorageBoundary(libFiles: {'lib/auth/web_browser.dart': src}),
       isEmpty,
+    );
+  });
+
+  test('self-test: REQ-810 browser files may import package:web, no others', () {
+    const src = "import 'package:web/web.dart' as web;\n";
+    for (final f in [
+      'lib/auth/web_session_crypto.dart',
+      'lib/auth/web_session_idb.dart',
+    ]) {
+      expect(checkTokenStorageBoundary(libFiles: {f: src}), isEmpty, reason: f);
+    }
+    expect(
+      checkTokenStorageBoundary(
+        libFiles: {'lib/auth/web_session_other.dart': src},
+      ),
+      hasLength(1),
+    );
+    // IndexedDB is not localStorage: the localStorage rule stays in force.
+    expect(
+      checkTokenStorageBoundary(
+        libFiles: {'lib/auth/web_session_idb.dart': 'final x = localStorage;'},
+      ),
+      hasLength(1),
     );
   });
 }

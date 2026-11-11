@@ -26,6 +26,7 @@ vi.mock('@/hooks/useAdminUsers', () => ({
   useUpdateAdminUser: () => idle,
   useDeactivateAdminUser: () => idle,
   useSendPasswordResetInstructions: () => ({ mutate: sendMutate, isPending: false }),
+  useCreateUserSignIn: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false }),
 }))
 
 import UserDetailPage from '../UserDetailPage'

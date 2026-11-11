@@ -4344,4 +4344,12 @@ defmodule Letflow.Identity do
 
     :ok
   end
+
+  @doc """
+  T-1730 (REQ-807, decision 0072 section 8b): creates the realm login for one internal user of the
+  caller's own company and binds the row. See `Letflow.Identity.SignIn.run/2`.
+  """
+  @spec create_sign_in(Ecto.UUID.t() | String.t(), opts()) ::
+          {:ok, User.t(), String.t()} | {:error, atom()}
+  defdelegate create_sign_in(user_id, opts), to: Letflow.Identity.SignIn, as: :run
 end
