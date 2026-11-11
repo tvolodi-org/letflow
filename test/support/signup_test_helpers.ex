@@ -81,8 +81,12 @@ defmodule Letflow.Test.SignupHelpers do
 
   def json(conn), do: Jason.decode!(conn.resp_body)
 
-  @doc "Waits (bounded) until the mail task supervisor has no running child."
-  def await_mail(deadline_ms \\ 3_000) do
+  @doc """
+  Waits (bounded) until the mail task supervisor has no running child. The default is generous:
+  the provisioning step runs a real in-process tenant create, which can take well over 3 s on a
+  loaded CI shard (T-1734); it polls, so a fast run returns at once.
+  """
+  def await_mail(deadline_ms \\ 30_000) do
     deadline = System.monotonic_time(:millisecond) + deadline_ms
     do_await(deadline)
   end
