@@ -6,9 +6,14 @@ defmodule Letflow.Routers.PlatformModuleRollouts do
   | Method/path                                   | Domain fn            | Response                                   |
   |-----------------------------------------------|----------------------|--------------------------------------------|
   | `POST /platform-module-rollouts`              | `Fleet.start/2`      | 200 result; 404 unknown module; 422 field  |
-  | `GET /platform-module-rollouts`               | `Fleet.list/0`       | 200 `%{rollouts: [...]}`                   |
+  | `GET /platform-module-rollouts`               | `Fleet.list/1`       | 200 `%{rollouts, next_cursor}`             |
   | `GET /platform-module-rollouts/:id`           | `Fleet.status/1`     | 200 result; 404                            |
   | `POST /platform-module-rollouts/:id/resume`   | `Fleet.resume/2`     | 200 result; 404; 409 version superseded    |
+
+  The list is keyset-paged like `GET /promotions/platform-events`: `page_size` (default 50, 1..200)
+  and an opaque `cursor` (prefix `RO:`, valid for `Pagination.cursor_expiry_us/0`); the body keeps
+  the key `rollouts` and adds `next_cursor` (null on the last page). A cursor carries a timestamp and
+  a rollout id only.
 
   Every route needs `:ModuleRolloutsManage`, a PLATFORM-scope permission
   (`Letflow.Api.Authorization.permission_scope/1`): honoured only for a `PLATFORM_ADMIN` of the
@@ -26,6 +31,7 @@ defmodule Letflow.Routers.PlatformModuleRollouts do
 
   use Letflow.Api.AuthorizedRouter
 
+  alias Letflow.Api.Pagination
   alias Letflow.Api.Response
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
@@ -36,12 +42,7 @@ defmodule Letflow.Routers.PlatformModuleRollouts do
   end
 
   authz_get "/", :ModuleRolloutsManage do
-    rollouts =
-      Enum.map(Fleet.list(), fn %{rollout: rollout, counts: counts} ->
-        %{"rollout" => rollout_map(rollout), "counts" => counts}
-      end)
-
-    Response.ok(conn, %{"rollouts" => rollouts})
+    handle_list(conn)
   end
 
   authz_get "/:id", :ModuleRolloutsManage do
@@ -73,6 +74,58 @@ defmodule Letflow.Routers.PlatformModuleRollouts do
       max_length: 255
     }
   ]
+
+  @cursor_prefix "RO:"
+
+  defp handle_list(conn) do
+    conn = fetch_query_params(conn)
+    query = conn.query_params
+
+    with {:ok, raw_size} <- Pagination.parse_page_size_param(Map.get(query, "page_size")),
+         {:ok, size} <- Pagination.validate_page_size(raw_size),
+         {:ok, after_key} <- parse_cursor(Map.get(query, "cursor")) do
+      %{items: items, next: next} = Fleet.list(%{page_size: size, after: after_key})
+
+      Response.ok(conn, %{
+        "rollouts" =>
+          Enum.map(items, fn %{rollout: rollout, counts: counts} ->
+            %{"rollout" => rollout_map(rollout), "counts" => counts}
+          end),
+        "next_cursor" => encode_next(next)
+      })
+    else
+      {:error, :invalid_page_size} -> Response.bad_request(conn, "invalid page_size")
+      {:error, :page_size_too_large} -> Response.bad_request(conn, "page_size out of range")
+      {:error, :invalid_cursor} -> Response.bad_request(conn, "invalid cursor")
+    end
+  end
+
+  defp encode_next(nil), do: nil
+
+  # Raw payload "RO:<mint_us>:<started_at_us>:<id>".
+  defp encode_next({started_at, id}) do
+    started_us = started_at |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:microsecond)
+
+    Pagination.encode_cursor(
+      "#{@cursor_prefix}#{System.os_time(:microsecond)}:#{started_us}:#{id}"
+    )
+  end
+
+  defp parse_cursor(nil), do: {:ok, nil}
+  defp parse_cursor(""), do: {:ok, nil}
+
+  defp parse_cursor(raw) when is_binary(raw) do
+    with {:ok, %Pagination.Cursor{inner: inner}} <-
+           Pagination.decode_cursor(raw, @cursor_prefix, byte_size(@cursor_prefix)),
+         {:ok, [started_at, id]} <-
+           Pagination.decode_seek_parts(inner, @cursor_prefix, [:skip, :datetime_us, :uuid]) do
+      {:ok, {DateTime.to_naive(started_at), id}}
+    else
+      _invalid -> {:error, :invalid_cursor}
+    end
+  end
+
+  defp parse_cursor(_other), do: {:error, :invalid_cursor}
 
   defp handle_start(conn) do
     case Validation.validate(@start_schema, conn.body_params) do

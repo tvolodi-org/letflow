@@ -57,7 +57,6 @@ defmodule Letflow.ModuleUpgrade.Fleet do
 
   @batch 25
   @stale_minutes 15
-  @list_limit 50
 
   @type result :: %{rollout: Rollout.t(), outcomes: [Outcome.t()]}
 
@@ -120,11 +119,40 @@ defmodule Letflow.ModuleUpgrade.Fleet do
     end
   end
 
-  @doc "The latest rollouts, newest first, with outcome counts per status (read-only)."
-  @spec list() :: [%{rollout: Rollout.t(), counts: %{String.t() => non_neg_integer()}}]
-  def list do
-    rollouts =
-      Repo.all(from(r in Rollout, order_by: [desc: r.started_at, desc: r.id], limit: @list_limit))
+  @type cursor_key :: {NaiveDateTime.t(), Ecto.UUID.t()}
+
+  @doc """
+  One page of rollouts, newest first (`started_at` then `id`, both descending), with outcome counts
+  per status (read-only). `after` is the `{started_at, id}` of the last row of the previous page
+  (keyset, strictly after in the descending order); `next` is the same key of this page's last row
+  when more rows exist, else `nil`.
+  """
+  @spec list(%{page_size: pos_integer(), after: nil | cursor_key()}) :: %{
+          items: [%{rollout: Rollout.t(), counts: %{String.t() => non_neg_integer()}}],
+          next: nil | cursor_key()
+        }
+  def list(%{page_size: page_size, after: after_key})
+      when is_integer(page_size) and page_size > 0 do
+    base = from(r in Rollout, order_by: [desc: r.started_at, desc: r.id], limit: ^(page_size + 1))
+
+    query =
+      case after_key do
+        nil ->
+          base
+
+        {started_at, id} ->
+          from(r in base,
+            where: r.started_at < ^started_at or (r.started_at == ^started_at and r.id < ^id)
+          )
+      end
+
+    {rollouts, extra} = query |> Repo.all() |> Enum.split(page_size)
+
+    next =
+      case {extra, List.last(rollouts)} do
+        {[_ | _], %Rollout{started_at: s, id: id}} -> {s, id}
+        _ -> nil
+      end
 
     ids = Enum.map(rollouts, & &1.id)
 
@@ -137,9 +165,12 @@ defmodule Letflow.ModuleUpgrade.Fleet do
       |> Repo.all()
       |> Enum.group_by(&elem(&1, 0), fn {_id, status, n} -> {status, n} end)
 
-    Enum.map(rollouts, fn r ->
-      %{rollout: r, counts: Map.new(Map.get(counts, r.id, []))}
-    end)
+    items =
+      Enum.map(rollouts, fn r ->
+        %{rollout: r, counts: Map.new(Map.get(counts, r.id, []))}
+      end)
+
+    %{items: items, next: next}
   end
 
   # ── rollout rows ─────────────────────────────────────────────────────────────────────────

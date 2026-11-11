@@ -4,11 +4,13 @@ library;
 import '../api/api_client.dart' show newOidcHttp, newOidcRevocationHttp;
 import 'auth.dart' show AppAuthAdapter;
 import 'app_auth_platform_types.dart';
+import 'device_unlock.dart';
 import 'kv_store.dart';
 import 'session_crypto.dart';
 import 'session_record.dart';
 import 'web_app_auth_adapter.dart';
 import 'web_browser.dart';
+import 'web_device_unlock.dart';
 import 'web_pointer_kv.dart';
 import 'web_session_crypto.dart';
 import 'web_session_idb.dart';
@@ -38,3 +40,5 @@ SessionRecordStore? webSessionRecordStore() => WebSessionRecordStore();
 
 OidcRevoker? webOidcRevoker() =>
     OidcRevoker(discovery: newOidcHttp(), post: newOidcRevocationHttp());
+
+DeviceUnlockAuthenticator? webDeviceUnlock() => WebDeviceUnlock();
