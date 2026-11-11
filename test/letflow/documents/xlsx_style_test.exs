@@ -54,4 +54,46 @@ defmodule Letflow.Documents.XlsxStyleTest do
     {:ok, {_, ours}} = XlsxStyle.write_to_memory(wb, "t.xlsx")
     assert plain == ours
   end
+
+  describe "CORE S2 cell helpers (canary, values taken from the old module copies)" do
+    @at ~U[2026-11-11 10:20:30Z]
+
+    test "cell_text/1" do
+      for {input, expected} <- [
+            {nil, nil},
+            {@at, "2026-11-11T10:20:30Z"},
+            {"abc", "abc"},
+            {:basis, "basis"},
+            {true, "true"},
+            {7, "7"},
+            {1.5, "1.5"},
+            {~D[2026-11-11], ~s("2026-11-11")},
+            {%{"a" => 1}, ~s({"a":1})},
+            {[1, "x"], ~s([1,"x"])}
+          ] do
+        assert XlsxStyle.cell_text(input) == expected
+      end
+    end
+
+    test "cell_scalar/1" do
+      for {input, expected} <- [
+            {nil, nil},
+            {42, 42},
+            {1.5, "1.5"},
+            {"s", "s"},
+            {:a, "a"},
+            {@at, "2026-11-11T10:20:30Z"},
+            {%{"a" => 1}, ~s({"a":1})}
+          ] do
+        assert XlsxStyle.cell_scalar(input) == expected
+      end
+    end
+
+    test "cell_json/1" do
+      assert XlsxStyle.cell_json(nil) == nil
+      assert XlsxStyle.cell_json(%{"a" => [1]}) == ~s({"a":[1]})
+      assert XlsxStyle.cell_json("x") == ~s("x")
+      assert XlsxStyle.cell_json(3) == "3"
+    end
+  end
 end

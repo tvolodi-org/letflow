@@ -142,18 +142,9 @@ defmodule Letflow.Modules.Stock.XlsxExport do
     _ -> {:error, :xlsx_write_failed}
   end
 
-  defp text(nil), do: nil
-  defp text(%DateTime{} = at), do: DateTime.to_iso8601(at)
-  defp text(value) when is_binary(value), do: value
-  defp text(value) when is_atom(value) or is_number(value), do: to_string(value)
-  defp text(value), do: Jason.encode!(value)
-
-  defp scalar(nil), do: nil
-  defp scalar(value) when is_integer(value), do: value
-  defp scalar(value), do: text(value)
-
-  defp json(nil), do: nil
-  defp json(value), do: Jason.encode!(value)
+  defp text(value), do: XlsxStyle.cell_text(value)
+  defp scalar(value), do: XlsxStyle.cell_scalar(value)
+  defp json(value), do: XlsxStyle.cell_json(value)
 
   defp quantity(nil), do: nil
 
