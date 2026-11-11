@@ -13,7 +13,7 @@ from the repo files only (D-117: nothing here is promoted to demo or production;
 
 | Area | Before | After this change | Left |
 |---|---|---|---|
-| Hex (`mix.lock`) | 25 advisories in 6 packages (bandit 14, jose 8, ecto 1, decimal 1, plug_crypto 1) | 14 (bandit only) | bandit: **T-1740** |
+| Hex (`mix.lock`) | 25 advisories in 5 packages (bandit 14, jose 8, ecto 1, decimal 1, plug_crypto 1) | 15 on this branch's lock before T-1740 (bandit 14, ecto 1); bandit is fixed by T-1740 (lock now has 1.14.1) | ecto: needs its own task; bandit: **done in T-1740, not here** |
 | npm, runtime (`npm audit --omit=dev`) | 3 (react-router high, react-router-dom moderate, zod high) | 1 (zod high) | zod: breaking major |
 | npm, all (dev tools included) | 28 (1 low, 13 moderate, 11 high, 3 critical) | 16 (11 moderate, 2 high, 3 critical) | dev-tool majors, below |
 | Flutter pub | no advisory tool exists in `dart pub` (checked `dart pub --help`); outdated list only | unchanged | majors, below |
@@ -25,14 +25,14 @@ Severity from the advisory text (EEF-CVE ids, source: hex.pm / OSV).
 
 | Package | Locked | Advisory | Severity | Decision |
 |---|---|---|---|---|
-| bandit | 1.12.5 | 14 advisories (HTTP/2 flow control, request smuggling via chunk extensions, 1-byte DATA frame amplification, HPACK cookie crumbs, WebSocket fragments, ...), 9 high, 5 medium | **high** | Not touched here: T-1740 bumps it (1.14.1 is the latest). Listed as done there. |
+| bandit | 1.12.5 | 14 advisories (HTTP/2 flow control, request smuggling via chunk extensions, 1-byte DATA frame amplification, HPACK cookie crumbs, WebSocket fragments, ...), 9 high, 5 medium | **high** | **Resolved by T-1740** (lock has 1.14.1), not by this change. Listed here for the record. |
 | ecto | 3.14.1 | EEF-CVE-2026-118391 unbounded query cache growth from interpolated JSON paths and splice lists | high | **Not bumped**: 3.14.3 makes every `:all` query emit `WHERE (TRUE)`, which fails `Letflow.Entities.QueryScopeTest` (T-C1 and T-C5, pre-change SQL equality). Needs its own task: adapt the query-scope pins or the compile, then bump. |
 | jose | 1.11.12 | EEF-CVE-2026-65625..65632 (8, one high: 65629) | high | Bumped to 1.11.13 (patch). |
 | decimal | 3.1.1 | EEF-CVE-2026-97853 unbounded allocation in `Decimal.round/3` (places argument) | medium | Bumped to 3.2.0 (minor). |
 | plug_crypto | 2.2.0 | EEF-CVE-2026-105963 secret key base exposed in stack-trace arguments on wrong-typed arguments | medium | Bumped to 2.2.1 (patch). |
 | pdf | 0.8.2 | none | - | Bumped to 0.8.3 (patch, outdated only). |
 
-`mix hex.audit` after the bumps lists 14 advisories, all bandit.
+`mix hex.audit` on this branch's own bumps (before T-1740's bandit bump) listed 15 advisories: 14 bandit (since fixed by T-1740) and 1 ecto. **Remaining after both: ecto EEF-CVE-2026-118391 (high), which needs the separate task above.**
 
 Not bumped (outdated, no advisory):
 
@@ -58,11 +58,11 @@ What remains, all needing a major bump (`package.json` ranges: zod ^3, vite ^5, 
 | Package | Severity | Runtime or dev | Why it stays |
 |---|---|---|---|
 | zod (direct, ^3.22.4) | high: memory exhaustion validating oversized constrained collections | **runtime** | Fix is in zod 4.x, a major API change across every schema; needs its own task. Exposure: the SPA validates data it received from the Letflow API and user form input, so the practical risk is a hostile oversized payload making the user's own tab slow; no server side. **First candidate for a follow-up.** |
-| vitest, @vitest/coverage-v8, tinypool, @vitest/mocker, vite-node | critical (Vitest UI server file read/exec; tinypool prototype pollution to RCE) | dev | Test runner only. Exploitable only while the Vitest UI server listens, which CI and the scripts never start. Major bump (2 to 4+) with the suite. |
+| vitest, @vitest/coverage-v8, tinypool, @vitest/mocker, vite-node | critical (vitest; tinypool prototype pollution gadget in worker/`run()` options leading to RCE, GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr) | dev | Test runner only, never in the shipped bundle. The Tinypool advisory is **not** tied to the UI server: it needs an attacker to be able to pollute `Object.prototype` inside the test process (for example through a malicious dependency or a test input that reaches a vulnerable merge) and then have a worker started. We did not analyse whether our tests or dependencies offer such a pollution path, so this is **not** shown unreachable. Exposure is the developer and CI machines running tests. The vitest UI-server file read/exec advisory does need the UI server (`--ui`), which no script or CI step starts. Fix: major bump (2 to 4+/5) with the suite, as one toolchain-upgrade task. |
 | vite, esbuild | high / moderate (dev-server path traversal and cross-site read) | dev | Dev server only; not in the production bundle. Major bump (5 to 8). |
 | @typescript-eslint/* , minimatch, glob, test-exclude | moderate (minimatch DoS) | dev | Lint-time only. Major bump (6 to 8). |
 
-None of the remaining dev findings reaches the shipped bundle. `npm outdated` also lists majors with no advisory:
+None of the remaining dev findings is in the shipped bundle (they affect developer and CI machines). `npm outdated` also lists majors with no advisory:
 react 18 to 19, react-intl 10 to 12, lucide-react 0.575 to 1.x, @tanstack/react-table 8 to 9,
 @hookform/resolvers 5 to 7; not touched.
 
@@ -71,13 +71,14 @@ react 18 to 19, react-intl 10 to 12, lucide-react 0.575 to 1.x, @tanstack/react-
 `dart pub` has no audit command, so there is no advisory check for pub; the report is the outdated list.
 `flutter pub get` changed nothing in tracked files.
 
-- Direct, minor/patch available: `crypto` 3.0.7 to 3.0.8, `web` 1.1.1 to 1.1.2, `sembast_web` 2.4.4+1 to 2.4.7. Not bumped:
+- Direct, minor/patch available: `crypto` 3.0.7 to 3.0.8, `web` 1.1.1 to 1.1.2, `sembast` 3.8.7 to 3.10.1 (a minor within 3.x; pub shows it as not resolvable under the current constraints), `sembast_web` 2.4.4+1 to 2.4.7. Not bumped:
   the mobile suite was not run in this step and the sign-in/crypto code deserves a mobile build around it. Follow-up,
   low risk.
-- Direct, major: flutter_appauth 12 to 13, flutter_riverpod 2 to 3, go_router 17 to 18, record 6 to 7, sembast 3.8 to 3.10.
+- Direct, major: flutter_appauth 12 to 13, flutter_riverpod 2 to 3, go_router 17 to 18, record 6 to 7.
   Not safe without a task each (appauth carries the sign-in; riverpod 3 changes the provider API).
-- 34 transitive packages have newer versions outside the constraints; the 4 that are only locked low
-  (`jni`, `jni_flutter`, `vm_service`, ...) move with `flutter pub upgrade`, not done here.
+- 26 transitive packages have a newer Latest (23 transitive, 3 transitive dev); most are held back by the direct constraints. The
+  4 that pub reports as locked lower than upgradable are `crypto` (direct), `jni`, `jni_flutter` and `vm_service`; they move
+  with `flutter pub upgrade`, not done here.
 
 ## Base images and CI images (read from the repo files)
 
@@ -97,11 +98,12 @@ third-party action and a decision for the operator.
 
 ## Findings, ranked
 
-1. **high** bandit 1.12.5, 9 high and 5 medium advisories on the public HTTP listener: T-1740 (not here).
+1. **high** ecto 3.14.1 (EEF-CVE-2026-118391): open, needs a task adapting the query-scope pins, then bump to 3.14.3.
+1b. bandit: 14 advisories fixed by T-1740 (not by this change).
 2. **high** zod 3.x in the SPA runtime: needs the zod 4 migration task.
 3. **medium** `appleboy/ssh-action@v1` tag-pinned in the deploy workflow.
 4. **medium** images have no CVE scanning and no digest pins.
-5. **low/dev** vitest/vite/eslint chain: critical on paper, not reachable in CI; one major-upgrade task for the toolchain.
+5. **medium (dev/CI machines)** vitest/tinypool/vite/eslint chain: critical on paper, not in the bundle; reachability of the Tinypool pollution gadget in our tests not analysed; one major-upgrade task for the toolchain.
 6. **info** ueberauth_oidcc 0.5, wasmex 0.16, flutter_appauth 13 and riverpod 3 majors; Keycloak 26.2 dev image.
 
 ## Weekly workflow
