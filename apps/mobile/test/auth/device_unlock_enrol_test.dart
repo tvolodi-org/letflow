@@ -106,6 +106,59 @@ void main() {
     expect(fake.createCalls, hasLength(1));
   });
 
+  // Criterion 2(g): after any ended attempt the offer is gone and a second
+  // attempt makes no further create call.
+  Future<void> expectNotAgain(
+    BootstrapController c,
+    FakeDeviceUnlock fake,
+    KeepHarness h,
+    String? rawBefore,
+  ) async {
+    expect(c.offerDeviceUnlock.value, isFalse);
+    final creates = fake.createCalls.length;
+    await c.enrollDeviceUnlock();
+    expect(fake.createCalls, hasLength(creates));
+    expect(h.records.raw, rawBefore);
+  }
+
+  test('E-g2 failed create: not offered or tried again', () async {
+    final (h, c, fake) = await _offered();
+    final raw = h.records.raw;
+    fake.createThrows = true;
+    expect(await c.enrollDeviceUnlock(), DeviceEnrolOutcome.pinStays);
+    await expectNotAgain(c, fake, h, raw);
+  });
+
+  test('E-g3 PRF not enabled: not offered or tried again', () async {
+    final (h, c, fake) = await _offered();
+    final raw = h.records.raw;
+    fake.prfEnabled = false;
+    expect(await c.enrollDeviceUnlock(), DeviceEnrolOutcome.cannotThisWay);
+    await expectNotAgain(c, fake, h, raw);
+  });
+
+  test('E-g3b enabled false but output present still ends', () async {
+    final (h, c, fake) = await _offered();
+    final raw = h.records.raw;
+    fake
+      ..prfEnabled = false
+      ..prfOnCreate = true;
+    expect(await c.enrollDeviceUnlock(), DeviceEnrolOutcome.cannotThisWay);
+    expect(h.records.raw, raw);
+    await expectNotAgain(c, fake, h, raw);
+  });
+
+  for (final mode in ['throws', 'null']) {
+    test('E-g4 get $mode: not offered or tried again', () async {
+      final (h, c, fake) = await _offered();
+      final raw = h.records.raw;
+      fake.getThrows = mode == 'throws';
+      fake.getReturnsNull = mode == 'null';
+      expect(await c.enrollDeviceUnlock(), DeviceEnrolOutcome.cannotThisWay);
+      await expectNotAgain(c, fake, h, raw);
+    });
+  }
+
   test('E-h the PRF output and derived key are not stored', () async {
     final (h, c, _) = await _offered();
     await c.enrollDeviceUnlock();

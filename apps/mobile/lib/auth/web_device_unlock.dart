@@ -120,14 +120,13 @@ class WebDeviceUnlock implements DeviceUnlockAuthenticator {
       out = _bytes((results as JSObject).getProperty<JSAny?>('first'.toJS));
     }
     final isEnabled =
-        out != null ||
-        (enabled != null &&
-            !enabled.isUndefinedOrNull &&
-            (enabled as JSBoolean).toDart);
+        enabled != null &&
+        !enabled.isUndefinedOrNull &&
+        (enabled as JSBoolean).toDart;
     return DeviceCreateResult(
       credentialId: id,
       prfEnabled: isEnabled,
-      prfOutput: out,
+      prfOutput: isEnabled ? out : null,
     );
   }
 

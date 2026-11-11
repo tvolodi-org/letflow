@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:letflow/auth/device_unlock.dart' show kDeviceHkdfInfo;
 import 'package:letflow/bootstrap/navigation_bootstrap.dart';
 
 import 'package:letflow/bootstrap/keep_signed_in_screens.dart'
@@ -68,6 +69,24 @@ void main() {
     texts.add(unlockNoticeText(c.state) ?? '');
 
     final all = [...lines, ...texts, h.records.raw ?? ''].join('\n');
+    // The derived key, computed independently with the same salt and info.
+    final derived = await h.crypto.hkdfSha256(
+      kPrfMarker,
+      salt: Uint8List(32),
+      info: Uint8List.fromList(utf8.encode(kDeviceHkdfInfo)),
+    );
+    String hexOf(List<int> b) =>
+        b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+    for (final secret in [
+      hexOf(derived),
+      base64.encode(derived),
+      base64Url.encode(derived),
+      base64.encode(derived).replaceAll('=', ''),
+      base64Url.encode(derived).replaceAll('=', ''),
+      derived.join(','),
+    ]) {
+      expect(all.contains(secret), isFalse, reason: 'derived key');
+    }
     final hex = kPrfMarker
         .map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join();
