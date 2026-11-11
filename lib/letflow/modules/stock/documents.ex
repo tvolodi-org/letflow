@@ -892,14 +892,7 @@ defmodule Letflow.Modules.Stock.Documents do
   end
 
   defp row(r, headers, type, states) do
-    number =
-      if r.number do
-        padded = r.number |> Integer.to_string() |> String.pad_leading(type.number_pad, "0")
-
-        if type.numbering_scope == :none,
-          do: type.number_prefix <> "-" <> padded,
-          else: type.number_prefix <> "-" <> r.period <> "-" <> padded
-      end
+    number = if r.number, do: Letflow.Documents.number_label(type, r.number, r.period)
 
     %{
       id: r.id,
