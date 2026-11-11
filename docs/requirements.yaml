@@ -54363,7 +54363,10 @@ requirements:
       token and the ID token stay in memory only, as today. No token, PIN, derived key or data key is written in clear
       to any browser store, and none reaches a log, a print or an error text (MOB-5). Encryption uses the browser's
       WebCrypto (crypto.subtle) behind a small Dart interface, so the lifecycle logic is tested with a fake under
-      flutter test; no new package. The data key is wrapped, not derived, so that REQ-811 can add a second wrapping
+      flutter test; no new package. The real WebCrypto implementation gets its own known-answer test file, marked
+      @TestOn('browser') so the plain flutter test run skips it, and run in Chrome by a new step of the mobile job of
+      .github/workflows/ci.yml (criterion 4); the device pass is an end-to-end check only and proves no crypto
+      parameter. The data key is wrapped, not derived, so that REQ-811 can add a second wrapping
       under a biometric key without re-encrypting the token.
       Lifetime. The web build asks for the offline_access scope in addition to kOidcScopes, so the identity provider
       issues an offline refresh token. 30 days count from the full sign-in, not from the last use: a refresh does not
@@ -54397,8 +54400,8 @@ requirements:
       use when the PWA is not installed to the home screen (docs/runbooks/mobile-web-pwa-ready-check.md), so the 30 days
       hold only for an installed PWA there.
       ONE change: apps/mobile (lib/ and test/), apps/mobile/README.md section "Web sign-in (M2)" and the matching
-      storage bullet, docs/runbooks/mobile-web-pwa-signin.md and docs/runbooks/mobile-web-pwa-ready-check.md. No backend,
-      web/, realm template or other file changes.
+      storage bullet, docs/runbooks/mobile-web-pwa-signin.md, docs/runbooks/mobile-web-pwa-ready-check.md, and one new
+      step in the mobile job of .github/workflows/ci.yml. No backend, web/, realm template or other file changes.
       The flag stays off on every deployed build; turning it on for QA is a separate operator step after merge.
       UAT assumptions, to be confirmed by the process owner (only the 30 days and "PIN or biometric" are the owner's):
       six digits, 5 wrong PINs, 30 days counted from the full sign-in rather than from the last use, opt-in per sign-in,
@@ -54407,18 +54410,18 @@ requirements:
       - "1. Flag off: with LETFLOW_PWA_KEEP_SIGNED_IN unset (the default), a flutter test of the web-mode bootstrap shows that no session record is written after a full sign-in, that attemptSessionResume restarts sign-in exactly as on origin/main when the page opens with only the tenant pointer stored, and that a session record present at start is deleted without being read. The existing tests test/auth/tenant_token_store_test.dart and test/auth/web_app_auth_adapter_test.dart pass unchanged."
       - "2. Opt-in: with the flag true, a widget test shows that after a full sign-in the offer to stay signed in is shown; declining stores no record; accepting asks for six digits twice; a PIN with fewer or more than six characters, a character other than 0-9, or a second entry that differs is refused with a message and stores nothing; two matching entries store exactly one record."
       - "3. Record content: a flutter test reads the raw stored record of criterion 2 through the fake store and shows that it holds the realm URL, the tenant slug, the encrypted refresh token, the wrapped data key, the salt, the iteration count, the sign-in time and the wrong-PIN count, and nothing else; that neither the refresh token, the access token, the ID token, the PIN nor any key appears in clear in it; and that the access token and ID token are not in any browser store."
-      - "4. Crypto parameters: the WebCrypto implementation of the crypto interface uses PBKDF2 with SHA-256, a 16-byte random salt per record and 600000 iterations (the PBKDF2-HMAC-SHA256 value of the OWASP Password Storage Cheat Sheet; UAT assumption), AES-GCM with a 256-bit key and a fresh 12-byte IV for every encryption, and a random 256-bit data key; a test of the interface's fake asserts the parameters the lifecycle code passes, and the device pass of criterion 11 proves the WebCrypto calls in a real browser."
+      - "4. Crypto parameters, proven on the real WebCrypto in a browser: a test file under apps/mobile/test/ marked @TestOn('browser') (skipped by the plain flutter test run) exercises the real crypto.subtle implementation, not the fake, and a new step of the mobile job of .github/workflows/ci.yml, after the existing Test step, runs it with flutter test --platform chrome <that file> (the ubuntu-24.04 runner image ships Google Chrome; if the step cannot find Chrome it fails, it is never skipped). The file shows (a) PBKDF2-SHA-256: the implementation's derive function, given the PIN 123456, the salt of the 16 bytes 0x00 to 0x0f and 600000 iterations, returns the 32-byte value written in the test as a hex constant, with the comment giving the command that produced it from an independent implementation (python3 hashlib.pbkdf2_hmac('sha256', ...)); (b) a record created by the implementation stores the iteration count 600000 (the PBKDF2-HMAC-SHA256 value of the OWASP Password Storage Cheat Sheet; UAT assumption) and a 16-byte salt, two records made with the same PIN have different salts, the same PIN unwraps the data key, and the same record with its stored iteration count changed to 599999 does not unwrap; (c) AES-GCM-256 with a 128-bit tag: the implementation's decrypt, given the 256-bit key, 96-bit IV, ciphertext and tag of test case 15 of The Galois/Counter Mode of Operation (McGrew and Viega), returns that test case's plaintext; (d) fresh IVs: encrypting the same plaintext twice under the same key gives two different 12-byte IVs and two different ciphertexts, each stored as IV, then ciphertext with tag; (e) random data key: the data keys unwrapped from two separately created records are each 32 bytes and differ. The lifecycle tests of criteria 2 to 9 run against the fake, and a VM test asserts that the lifecycle code passes the parameters of (b) to the interface."
       - "5. Lifetime: the web build's authorization request carries the scope offline_access in addition to openid, profile and email (a test on the request WebAppAuthAdapter builds), and the native build's scopes stay kOidcScopes unchanged. With a fake clock, an unlock 29 days and 23 hours after the full sign-in refreshes, while an unlock 30 days or more after it deletes the record and starts a full sign-in without any refresh call; a successful refresh replaces the stored refresh token and leaves the stored sign-in time unchanged."
       - "6. Unlock: with a record stored, opening the page shows the PIN screen and no tenant data. A correct PIN leads to one refresh call and the signed-in state, and sets the wrong-PIN count to 0. Each wrong PIN raises the stored count by 1, and the count survives a restart of the bootstrap over the same store. The 5th wrong PIN in a row deletes the record and shows the sign-in entry; the 4th does not. The \"sign in again\" action deletes the record and starts a full sign-in."
       - "7. Refresh failures: a refresh answered with invalid_grant deletes the record and shows the sign-in entry with a plain message; a refresh that fails with a network error keeps the record, keeps the wrong-PIN count at 0 after a correct PIN, shows a no-connection message with a retry, and shows no tenant data. Each case has a flutter test."
       - "8. Sign-out and tenant switch: a flutter test shows that logout deletes the record and sends one revocation request for the stored refresh token to the revocation_endpoint of the realm's discovery document with client_id letflow-mobile and token_type_hint refresh_token; that when that request fails the record is still deleted and the failure is shown; and that switchTenant does the same for the previous tenant before the new tenant's sign-in starts. After either, no record and no token of the previous tenant is left in any store."
       - "9. No secret in logs: a test drives sign-in, opt-in, unlock, a wrong PIN, refresh and logout with debugPrint replaced by a capturing function (the log sink of apps/mobile/lib/api/api_client.dart defaults to debugPrint) and finds neither the refresh token, the access token, the PIN nor the data key in the captured output or in any error message shown on screen."
       - "10. Docs: apps/mobile/README.md section \"Web sign-in (M2)\" states the storage rule with the flag off (memory only, unchanged) and with the flag on (the record of criterion 3, the 30 days, the PIN and 5-attempt rules), and lists the four residual risks of the description in words. docs/runbooks/mobile-web-pwa-signin.md gains (a) the infra step that limits the offline session of the letflow-mobile client of the realm to 30 days and makes offline_access available to that client, named by the setting names of the Keycloak admin console of Keycloak 26.2 (the image in docker-compose.yml), and (b) a section \"Lost or stolen device\" with the operator's step to revoke a user's offline sessions in the tenant realm, the statement that Letflow and the tenant's administrator cannot do it (decision 0072 D1 and its first-administrator row), and what the lost device does at its next unlock. Its \"Behaviour to know\" lines are updated to match the flag."
-      - "11. Device check: docs/runbooks/mobile-web-pwa-ready-check.md gains one item in its device pass and one line in \"Operator check steps (not run by the team)\": on a build with the flag on, sign in, accept, set a PIN, close the page, reopen it and unlock with the PIN without the identity provider's page; enter a wrong PIN five times and see the sign-in entry. The team does not run it."
-      - "12. Scope: `git diff origin/main...HEAD --stat` of the implementation change lists only files under apps/mobile/ and the two runbooks docs/runbooks/mobile-web-pwa-signin.md and docs/runbooks/mobile-web-pwa-ready-check.md; `cd apps/mobile && flutter analyze` is clean and `flutter test` passes."
+      - "11. Device check: docs/runbooks/mobile-web-pwa-ready-check.md gains one item in its device pass and one line in \"Operator check steps (not run by the team)\": on a build with the flag on, sign in, accept, set a PIN, close the page, reopen it and unlock with the PIN without the identity provider's page; enter a wrong PIN five times and see the sign-in entry. It is an end-to-end check of a real device and is not cited as proof of any crypto parameter (criterion 4 is). The team does not run it."
+      - "12. Scope: `git diff origin/main...HEAD --stat` of the implementation change lists only files under apps/mobile/, the two runbooks docs/runbooks/mobile-web-pwa-signin.md and docs/runbooks/mobile-web-pwa-ready-check.md, and .github/workflows/ci.yml, whose diff adds only the browser test step of criterion 4 to the mobile job; `cd apps/mobile && flutter analyze` is clean, `flutter test` passes, and the browser test step of criterion 4 passes in CI."
     depends_on: [REQ-797]
   - id: REQ-811
-    title: "PWA biometric unlock (fingerprint or face through the browser's passkey prompt) as a second way to open the 30-day session of REQ-810, with the PIN kept as the fallback; behind the same flag"
+    title: "PWA device unlock through the browser's passkey prompt (fingerprint, face or the device's own screen lock, as the device decides) as a second way to open the 30-day session of REQ-810, with the PIN kept as the fallback; behind the same flag"
     owner: MOBILE-DEV
     status: pending
     stage: S9
@@ -54428,33 +54431,56 @@ requirements:
       Why: D-118 point 2 allows a PIN or a biometric unlock. REQ-810 builds the session record and the PIN; this entry
       adds the biometric way, so that the storekeeper can open the PWA with a fingerprint or face instead of typing six
       digits. A browser gives a web page biometrics only through WebAuthn (a passkey on the device's platform
-      authenticator), so that is the one mechanism.
-      Rules: with the flag of REQ-810 on and a session record stored, the app offers biometric unlock once, right after
-      the PIN is set, and only where the browser reports a platform authenticator and the WebAuthn PRF extension
-      (PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable and the prf result of the created credential);
-      elsewhere it is not offered and the PIN alone stays. Accepting creates one credential with user verification
-      required and the relying party set to the PWA's own host. The 32-byte PRF output of that credential is turned into
-      a 256-bit key with HKDF-SHA-256, and that key wraps the same data key of REQ-810 a second time; the record stores
-      the credential id and this second wrapping, nothing else new. The PIN wrapping stays, so the PIN is always the
-      fallback.
-      Unlock: when the page opens with both wrappings stored, the app first asks for the biometric; a success unwraps the
-      data key and continues exactly as a correct PIN does in REQ-810 (refresh, wrong-PIN count to 0). A cancelled or
-      failed biometric shows the PIN screen; it does not change the wrong-PIN count (the device limits its own
-      biometric attempts). Every rule of REQ-810 on the 30 days, invalid_grant, sign-out, tenant switch, lost device and
-      the 5 wrong PINs applies unchanged and removes both wrappings with the record. A WebAuthn credential cannot be
-      deleted from the device by a web page; a stale one is harmless because its wrapping is gone, and a new opt-in
-      creates a new one.
+      authenticator) with user verification, so that is the one mechanism.
+      Capability limit, stated in the README: WebAuthn user verification is chosen by the device, not by the page. It
+      may be a fingerprint or face, but also the device's own PIN, pattern or password; a web page cannot require a
+      biometric. The screens therefore say "unlock with this device" and name fingerprint or face only as examples.
+      Offer, enrolment and the PRF check, in this order (the PRF result belongs to a created credential, so it can only
+      be checked after creation):
+      (1) With the flag of REQ-810 on, right after the PIN is set, the offer "unlock with this device" is shown only when
+      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable() answers true; otherwise nothing is offered and
+      the PIN alone stays.
+      (2) Accepting calls navigator.credentials.create once: platform authenticator, userVerification required, the
+      relying party id equal to the page's host, and the prf extension with an eval input of 32 random bytes.
+      (3) A cancelled or failed creation ends the enrolment: the record stays exactly as REQ-810 wrote it, with one
+      plain line that the PIN stays the way to unlock.
+      (4) If the creation's prf extension result does not report enabled true, the enrolment ends the same way, with the
+      plain line that this device cannot unlock this way. The created credential is left on the device (a web page
+      cannot delete it) and is never used.
+      (5) If enabled is true and the creation already returned the PRF output for the eval input, that output is used.
+      If enabled is true but no output came back (allowed by the WebAuthn PRF extension at creation), the app makes one
+      navigator.credentials.get call for that credential id, userVerification required, with the same eval input; the
+      device asks for verification a second time, and the screen says so before the call. If that call is cancelled,
+      fails, or returns no PRF output, the enrolment ends as in (4).
+      (6) Only with a 32-byte PRF output in hand, the output is turned into a 256-bit key with HKDF-SHA-256, and that key
+      wraps the same data key of REQ-810 a second time; the record gains the credential id, the PRF eval input and this
+      second wrapping, nothing else new. The PIN wrapping stays, so the PIN is always the fallback.
+      An enrolment that ended in (3) or (4) is not offered again for this record; the next full sign-in with a new record
+      offers it again.
+      Unlock: when the page opens with both wrappings stored, the app first asks the device to verify (get with the
+      stored credential id and eval input); a success unwraps the data key and continues exactly as a correct PIN does
+      in REQ-810 (refresh, wrong-PIN count to 0). A cancelled or failed verification shows the PIN screen; it does not
+      change the wrong-PIN count (the device limits its own verification attempts). Every rule of REQ-810 on the 30
+      days, invalid_grant, sign-out, tenant switch, lost device and the 5 wrong PINs applies unchanged and removes both
+      wrappings with the record. A WebAuthn credential cannot be deleted from the device by a web page; a stale one is
+      harmless because its wrapping is gone, and a new opt-in creates a new one.
+      Proof: the lifecycle runs against a fake WebAuthn interface under flutter test. The HKDF step runs on the real
+      WebCrypto in the browser test file of REQ-810 criterion 4 with a known answer. The WebAuthn calls themselves are
+      not tested automatically (the browser test has no authenticator); the device pass checks them end to end and is
+      the only check of them, said so in the README.
       ONE change: apps/mobile (lib/ and test/), apps/mobile/README.md section "Web sign-in (M2)", and
       docs/runbooks/mobile-web-pwa-ready-check.md. No backend or identity-provider change: WebAuthn here is local to the
       device and is not a Keycloak sign-in method.
-      UAT assumption, to be confirmed by the process owner: the biometric is offered once, after the PIN is set, and the
-      PIN cannot be skipped.
+      UAT assumption, to be confirmed by the process owner: the device unlock is offered once per record, after the PIN
+      is set, and the PIN cannot be skipped; a device verification that is the device's own PIN or pattern rather than a
+      fingerprint or face is accepted for UAT.
     acceptance_criteria:
-      - "1. Offer: with the flag on, a widget test with a fake WebAuthn interface shows that after the PIN of REQ-810 is set the biometric offer appears only when the fake reports a user-verifying platform authenticator and PRF support, and does not appear when either is missing; declining leaves the record exactly as REQ-810 writes it."
-      - "2. Enrolment: a flutter test shows that accepting creates one credential with userVerification required and the relying party id equal to the page's host, derives the key from the PRF output with HKDF-SHA-256, and adds to the record only the credential id and the second wrapping of the same data key; the PIN wrapping and the encrypted refresh token are byte for byte unchanged."
+      - "1. Offer: with the flag on, a widget test with a fake WebAuthn interface shows that after the PIN of REQ-810 is set the offer appears when the fake's isUserVerifyingPlatformAuthenticatorAvailable answers true and does not appear when it answers false; declining leaves the record byte for byte as REQ-810 writes it and makes no create call."
+      - "2. Enrolment sequence: a flutter test with the fake WebAuthn interface covers each branch of the description's steps (2) to (6): (a) accepting makes exactly one create call with userVerification required, a platform authenticator, the relying party id equal to the page's host and a prf eval input of 32 bytes; (b) a cancelled or failed create leaves the record byte for byte unchanged and shows the PIN-stays line; (c) a create whose prf result is not enabled true leaves the record unchanged, makes no get call and shows the cannot-unlock-this-way line; (d) a create with enabled true and a PRF output makes no get call and enrols; (e) a create with enabled true and no output makes exactly one get call for the new credential id with the same eval input and userVerification required, and enrols when it returns an output; (f) that get cancelled, failed or without output leaves the record unchanged and shows the cannot-unlock-this-way line; (g) after (b), (c) or (f) the offer is not shown again for the same record. In every enrolling case the record gains only the credential id, the eval input and the second wrapping of the same data key, and the PIN wrapping and the encrypted refresh token are byte for byte unchanged."
+      - "2a. HKDF on the real WebCrypto: the browser test file of REQ-810 criterion 4 gains a case showing that the implementation's HKDF-SHA-256 step, given the inputs of test case 1 of RFC 5869 (the SHA-256 case), returns that test case's OKM truncated to 32 bytes, and that a data key wrapped under a key derived from a fixed 32-byte input unwraps with the key derived again from the same input and not from a different one."
       - "3. Unlock: with both wrappings stored, opening the page asks for the biometric first; a successful assertion leads to one refresh call and the signed-in state, as a correct PIN does; a cancelled or failed assertion shows the PIN screen and leaves the wrong-PIN count unchanged; a correct PIN after that still unlocks."
       - "4. Lifecycle: a flutter test shows that the 30-day limit, an invalid_grant refresh, logout, switchTenant and the 5th wrong PIN each delete the record with both wrappings and the credential id, as REQ-810's criteria 5 to 8 require."
       - "5. No secret in logs: the capturing-log test of REQ-810 criterion 9 is extended with a biometric enrolment and unlock and finds neither the PRF output nor the derived key in the output or on screen."
-      - "6. Docs: apps/mobile/README.md section \"Web sign-in (M2)\" states the biometric rule, the browsers where it is not offered, and that the PIN stays the fallback; docs/runbooks/mobile-web-pwa-ready-check.md gains one device-pass item (enrol, close, reopen, unlock with the biometric; cancel it and unlock with the PIN). The team does not run the device pass."
-      - "7. Scope: `git diff origin/main...HEAD --stat` of the implementation change lists only files under apps/mobile/ and docs/runbooks/mobile-web-pwa-ready-check.md; `cd apps/mobile && flutter analyze` is clean and `flutter test` passes."
+      - "6. Docs: apps/mobile/README.md section \"Web sign-in (M2)\" states the device-unlock rule, that it is not offered where the browser reports no user-verifying platform authenticator and fails at enrolment where the credential has no PRF support, that the device and not the page chooses the verification (fingerprint, face or the device's own PIN or pattern), that the WebAuthn calls are checked only by the device pass, and that the PIN stays the fallback; docs/runbooks/mobile-web-pwa-ready-check.md gains one device-pass item (enrol, close, reopen, unlock with the biometric; cancel it and unlock with the PIN). The team does not run the device pass."
+      - "7. Scope: `git diff origin/main...HEAD --stat` of the implementation change lists only files under apps/mobile/ and docs/runbooks/mobile-web-pwa-ready-check.md; `cd apps/mobile && flutter analyze` is clean, `flutter test` passes, and the browser test step that REQ-810 criterion 4 adds to CI passes with the case of criterion 2a."
     depends_on: [REQ-810]
