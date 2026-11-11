@@ -170,12 +170,30 @@ defmodule Letflow.Routers.IdentityResetPasswordTest do
     assert [_row] = await_deliveries(a)
   end
 
+  defp user_deliveries(tenant, user),
+    do: Enum.filter(deliveries(tenant), &(&1.recipient_user_id == user.id))
+
+  defp await_user_delivery(tenant, user) do
+    Enum.reduce_while(1..100, [], fn _i, _acc ->
+      case user_deliveries(tenant, user) do
+        [] ->
+          Process.sleep(20)
+          {:cont, []}
+
+        found ->
+          {:halt, found}
+      end
+    end)
+  end
+
   test "R14 the window is a setting; bad values fall back to 5", %{a: a} do
     user = user!(a)
     put_window!(10)
     old_entry!(a, user, 6)
     assert call(a, user.id, ["TENANT_ADMIN"]).status == 202
+    Process.sleep(200)
     assert length(audits(a)) == 1
+    assert user_deliveries(a, user) == []
 
     for bad <- [0, -1, "10", nil] do
       put_window!(bad)
@@ -183,11 +201,16 @@ defmodule Letflow.Routers.IdentityResetPasswordTest do
       old_entry!(a, u, 6)
       assert call(a, u.id, ["TENANT_ADMIN"]).status == 202
       assert length(Enum.filter(audits(a), &(&1.resource_id == u.id))) == 2, inspect(bad)
+      assert [_one] = await_user_delivery(a, u)
+      Process.sleep(50)
+      assert [_one] = user_deliveries(a, u), inspect(bad)
 
       v = user!(a)
       old_entry!(a, v, 4)
       assert call(a, v.id, ["TENANT_ADMIN"]).status == 202
       assert length(Enum.filter(audits(a), &(&1.resource_id == v.id))) == 1, inspect(bad)
+      Process.sleep(100)
+      assert user_deliveries(a, v) == [], inspect(bad)
     end
   end
 
@@ -197,11 +220,16 @@ defmodule Letflow.Routers.IdentityResetPasswordTest do
     old_entry!(a, x, 1)
     assert call(a, y.id, ["TENANT_ADMIN"]).status == 202
     assert Enum.count(audits(a), &(&1.resource_id == y.id)) == 1
+    assert [dy] = await_user_delivery(a, y)
+    assert dy.template_key == "password_reset_hint" and dy.recipient_user_id == y.id
+    assert user_deliveries(a, x) == []
 
     z = user!(a)
     old_entry!(a, z, 1, "user.update_status")
     assert call(a, z.id, ["TENANT_ADMIN"]).status == 202
     assert Enum.count(audits(a), &(&1.resource_id == z.id)) == 1
+    assert [dz] = await_user_delivery(a, z)
+    assert dz.template_key == "password_reset_hint" and dz.recipient_user_id == z.id
   end
 
   test "R16 refusals still win over the throttle", %{a: a} do
