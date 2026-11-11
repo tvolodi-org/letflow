@@ -1,0 +1,15 @@
+scenario_id: definitions-14-instance-waiting-since-block
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the half of the scenario that reads the elapsed time against a fixed, seeded entry time (the exact value, for example '2 h 5 min' for an entry made at a known moment); steps 2 and 3 check the elapsed time against the reader's clock instead"
+reason: >
+  The entry time of a step is the created_at of the NODE_ENTERED event, written from the clock when the token enters the node
+  (lib/letflow/engine/node_entries.ex). The UAT seed starts instances through the product's own routes and has no way to backdate
+  that event, so no instance with a known entry time can be prepared. The exact elapsed value and the hour-and-minute split for a
+  long wait are covered meanwhile by the unit tests web/src/utils/canvas/__tests__/instanceReplay.waiting.test.ts and
+  web/src/components/instances/__tests__/InstanceWaitingSince.test.tsx (REQ-812 W3 to W5).
+recorded_by: business-analyst
+recorded_at: "2026-11-11"
+issue_ref: "GH #4230"
+review: >
+  Revisit if the UAT setup gains a way to fix the clock of an instance (a test clock) or to seed an instance with a given entry time; then add the fixed-time step and remove this file.
