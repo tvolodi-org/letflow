@@ -24,6 +24,7 @@ defmodule Letflow.Routers.Identity do
   * GET    /users/:id                    -> Identity.get_user/2
   * PATCH  /users/:id                    -> Identity.get_user/2, then Identity.update_user_profile/3 (409 `last_tenant_wide_admin`, GH 2564; 409 `last_interactive_tenant_wide_admin`, GH #2869)
   * POST   /users/:id/reset-password   -> sends a "Forgot password" instruction mail only (REQ-788): Letflow handles no password and calls no identity-provider API (decisions 0072 D1, 0085 D6); 202, audit `user.password_reset_requested`, then `Notifications.start_delivery/5` (`password_reset_hint`)
+  * POST   /users/:id/sign-in            -> Identity.create_sign_in/2 (T-1730, REQ-807; 201 once with `temporary_password`, 409 `sign_in_creation_off` while the flag is off)
   * POST   /users/:id/status             -> Identity.get_user/2, then Identity.update_user_status/3 (409 `last_tenant_wide_admin`, GH 2564; 409 `last_interactive_tenant_wide_admin`, GH #2869)
   * POST   /groups                       -> Identity.create_group/2
   * GET    /groups                       -> Identity.list_groups/1
@@ -225,6 +226,10 @@ defmodule Letflow.Routers.Identity do
 
   authz_post "/users/:id/reset-password", :UsersManage do
     handle_reset_password(conn, conn.params["id"], user_write_opts(conn))
+  end
+
+  authz_post "/users/:id/sign-in", :UsersManage do
+    handle_create_sign_in(conn, conn.params["id"], user_write_opts(conn))
   end
 
   authz_post "/users/:id/status", :UsersManage do
@@ -603,6 +608,58 @@ defmodule Letflow.Routers.Identity do
   rescue
     _exception -> :ok
   end
+
+  # ── POST /users/:id/sign-in (T-1730, REQ-807, decision 0072 section 8b) ────
+  #
+  # The one-time temporary password is returned in the 201 body, with `cache-control: no-store`,
+  # exactly as `token_created_map/2` does for a created API token: never re-derivable, never
+  # logged, never in the audit entry. The tenant comes from the auth context (INV-10).
+  defp handle_create_sign_in(conn, raw_id, opts) do
+    with_cast_id(conn, raw_id, fn id ->
+      cond do
+        conn.body_params != %{} ->
+          Response.unprocessable(conn, "body_not_accepted")
+
+        not Letflow.Signup.RealmUsers.configured?() ->
+          Response.conflict(conn, "sign_in_creation_off")
+
+        true ->
+          case Identity.get_user(id, opts) do
+            {:error, :not_found} ->
+              Response.not_found(conn)
+
+            {:ok, _existing} ->
+              with_platform_admin_member_guard(conn, id, opts, fn ->
+                do_create_sign_in(conn, id, opts)
+              end)
+          end
+      end
+    end)
+  end
+
+  defp do_create_sign_in(conn, id, opts) do
+    case Identity.create_sign_in(id, audit_opts(conn, opts)) do
+      {:ok, bound, password} ->
+        conn
+        |> Plug.Conn.put_resp_header("cache-control", "no-store")
+        |> Response.created(%{"user" => user_map(bound), "temporary_password" => password})
+
+      {:error, :not_found} ->
+        Response.not_found(conn)
+
+      {:error, reason} ->
+        sign_in_refusal(conn, reason)
+    end
+  end
+
+  @sign_in_conflicts ~w(sign_in_creation_off user_inactive sign_in_exists no_email
+                        realm_not_provisioned login_exists_in_realm provisioner_unavailable
+                        provisioner_refused)a
+
+  defp sign_in_refusal(conn, reason) when reason in @sign_in_conflicts,
+    do: Response.conflict(conn, Atom.to_string(reason))
+
+  defp sign_in_refusal(conn, _reason), do: Response.internal_error(conn)
 
   # ── POST /users/:id/status (design §2.5) ────────────────────────────────
 
