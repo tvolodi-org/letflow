@@ -54564,6 +54564,54 @@ requirements:
       - "W9. The block is a section with a heading, the rows are a list, each time is a time element with a machine-readable datetime attribute, and the elapsed text is readable by a screen reader (it is not hidden from assistive technology and is not an aria-live region)."
       - "W10. Out of scope: any view across several instances (REQ-802 candidates a, b, c), alerts or notifications on a waiting time, time limits or thresholds, a backfill of entries, any permission change (STOREKEEPER keeps no :InstancesRead), and the \"Active tokens\" line."
     depends_on: [REQ-793, REQ-799]
+  - id: REQ-813
+    title: "Rollout list paging: page_size and cursor on GET /platform-module-rollouts (security follow-up F4-5)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4243
+    # Source: task T-1715 (operator, D-086, D-118, D-119); docs/uat/ba-decisions/T-1695.md candidate 7 ("a cursor or page parameter for GET /platform-module-rollouts like the other lists, with the screen following. Requirement first"; no owner decision, platform-operator only); docs/security/owasp-review/part-4-followup-new-routes.md finding F4-5 (low; Fleet.list/0 applies a 50-row limit and there is no cursor or page parameter, so rollouts past the 50th are not retrievable; fix "add a pagination mechanism like other lists") and row RO-A04b. Files read on origin/main bd473e63b: lib/letflow/routers/platform_module_rollouts.ex (moduledoc route table; authz_get "/" maps Fleet.list() to %{"rollouts" => [%{"rollout", "counts"}]}); lib/letflow/module_upgrade/fleet.ex (@list_limit 50; list/0 orders by started_at desc, id desc, then one grouped Outcome count query for the listed ids); lib/letflow/platform/module_rollout/rollout.ex (id binary_id, started_at :naive_datetime); lib/letflow/api/pagination.ex (parse_page_size_param/1, validate_page_size/1 with default 50, min 1, max 200, decode_cursor/4, encode_cursor/1, decode_seek_parts/3 with seek parts :skip :int :uuid :datetime_us, cursor_expiry_us/0); the precedent platform list GET /promotions/platform-events in lib/letflow/routers/promotions.ex (handle_platform_events/1: the three 400 texts "invalid page_size", "page_size out of range", "invalid cursor"; prefix "PE:" with payload "PE:<mint_time_us>:<sequence_num>:<event_id>"; parse_platform_events_cursor/1 folds every decode failure into "invalid cursor") and lib/letflow/event_store.ex list_platform_events/1; callers of Fleet.list (grep -rnE "Fleet\.list" lib/ test/: the router and test/letflow/module_upgrade/fleet_test.exs only); test/letflow/routers/platform_module_rollouts_test.exs (403 test for a tenant admin, a PLATFORM_ADMIN of another tenant and a bare token; list order test reading body["rollouts"]); web/src/api/platformModuleRollouts.ts (the screen reads the "rollouts" key). Cursor prefixes in use (grep of _cursor_prefix literals in lib/): A, AH, D, DL, DS, ED, EQ, ERA, G, IA, IH, IL, IT, PE, PR, RG, RH, RV, SC, SCA, T, U; "RO:" is unused (grep -rn '"RO:' lib/ test/ printed nothing). Keeping the "rollouts" key instead of the "items" key the other paged lists use is the analyst's choice so the existing screen keeps working unchanged (UAT assumption, to be confirmed by the process owner). Written by the business analyst (T-1715) 2026-11-11.
+    description: >
+      A platform operator lists the module rollouts on GET /platform-module-rollouts
+      (lib/letflow/routers/platform_module_rollouts.ex). Today Letflow.ModuleUpgrade.Fleet.list/0
+      (lib/letflow/module_upgrade/fleet.ex) returns at most 50 rollouts (@list_limit) and the route takes no paging
+      parameter, so a rollout older than the newest 50 can never be listed (security follow-up finding F4-5,
+      docs/security/owasp-review/part-4-followup-new-routes.md). This change adds cursor paging the way the platform
+      list GET /promotions/platform-events does it (lib/letflow/routers/promotions.ex with Letflow.Api.Pagination,
+      lib/letflow/api/pagination.ex).
+      (1) The route reads two optional query parameters: page_size, parsed and checked with
+      Pagination.parse_page_size_param/1 and Pagination.validate_page_size/1 (absent means 50, the size served today;
+      allowed 1 to 200), and cursor (absent or empty means the first page).
+      (2) Fleet.list/0 is replaced by Fleet.list/1, which takes a map %{page_size: pos_integer(), after: nil |
+      {NaiveDateTime.t(), Ecto.UUID.t()}}. It keeps today's order (started_at descending, then id descending), with
+      after set it returns only rollouts strictly after that position in this order, it reads page_size + 1 rows to
+      know whether another page exists, and it returns %{items: [...], next: nil | {started_at, id}} where every item
+      keeps today's shape %{rollout: Rollout.t(), counts: map} and next is the position of the last returned item when
+      a further row exists, else nil. The outcome counts stay one grouped query over the ids of the returned page.
+      The @list_limit attribute is removed. The one other caller, test/letflow/module_upgrade/fleet_test.exs, is
+      updated to the new function.
+      (3) The router builds the cursor; Fleet stays free of HTTP and cursor text. The raw payload is
+      "RO:<mint_time_us>:<started_at_us>:<id>" (mint time first, as the PE: cursor, so Pagination.decode_cursor/4 with
+      expiry offset byte_size("RO:") checks expiry), encoded with Pagination.encode_cursor/1, and decoded with
+      Pagination.decode_cursor/4 then Pagination.decode_seek_parts/3 with the shape [:skip, :int, :uuid]; started_at_us
+      is started_at as Unix microseconds in UTC.
+      (4) The answer body is %{"rollouts" => [...], "next_cursor" => string or null}: the item shape is unchanged and
+      the key stays "rollouts", so web/src/api/platformModuleRollouts.ts and the screen
+      web/src/pages/admin/module-rollouts/ModuleRolloutsPage.tsx keep working and show the first page. The router
+      moduledoc route table is updated to name Fleet.list/1 and the new answer shape.
+      Out of scope: any screen change (a "load more" control on the rollouts page is a separate, later requirement),
+      paging of the outcomes inside GET /platform-module-rollouts/:id, filters, sorting options, and any permission or
+      route change.
+    acceptance_criteria:
+      - "1. A router test in test/letflow/routers/platform_module_rollouts_test.exs seeds 5 rollouts, two of them with the same started_at, and reads GET /platform-module-rollouts with page_size=2, following next_cursor until it is null: three pages of 2, 2 and 1 items; every seeded id appears exactly once across the pages; the concatenated order equals the order of one read with page_size=200 (started_at descending, then id descending); the third page has next_cursor null."
+      - "2. Exact boundary: with exactly 4 seeded rollouts and page_size=2, the first page has a non-null next_cursor and the second page has 2 items and next_cursor null (a router test)."
+      - "3. A read without page_size and without cursor returns the newest 50 rollouts in today's order when more than 50 exist, with a non-null next_cursor, and the body has exactly the two keys \"rollouts\" and \"next_cursor\"; each item still has exactly the keys \"rollout\" and \"counts\" (a router test)."
+      - "4. Refusals, each a router test asserting status 400 and the detail text: page_size=abc gives \"invalid page_size\"; page_size=0 and page_size=201 give \"page_size out of range\"; cursor=not-a-cursor, a cursor minted by GET /promotions/platform-events (prefix PE:), and an RO: cursor whose mint time is older than Pagination.cursor_expiry_us/0 give \"invalid cursor\"; an RO: cursor with a valid mint time and a non-numeric or non-UUID tail also gives \"invalid cursor\", never a 500."
+      - "5. Fleet.list/1 unit tests in test/letflow/module_upgrade/fleet_test.exs: with after nil it returns the newest page_size rollouts and next set to the {started_at, id} of the last item when more exist, else nil; with after set it returns only rollouts strictly after that position; each item's counts equal the per-status outcome counts of that rollout. grep -rnE \"Fleet\\.list\\(\\)|Fleet\\.list/0|@list_limit\" lib/ test/ prints nothing after the change."
+      - "6. Access is unchanged: the existing 403 test of the router (a tenant admin, a PLATFORM_ADMIN of another tenant and a bare token) passes, and one added case sends page_size=2 and a cursor taken from an operator's first page as a tenant admin and gets the fixed platform 403. The rows for GET /platform-module-rollouts in test/fixtures/route_scope/tenant_wide_default_routes.txt and in test/letflow/api/platform_scope_inventory_test.exs are unchanged (no route is added or removed)."
+      - "7. The list stays read-only: the existing test \"R4 GET writes nothing\" passes, extended to a paged read with a cursor."
+      - "8. Files changed are limited to lib/letflow/module_upgrade/fleet.ex, lib/letflow/routers/platform_module_rollouts.ex, their two test files and, if its rollout read needs the new answer, test/letflow/performance/new_reads_test.exs; no file under web/, priv/ or apps/ changes."
+    depends_on: [REQ-787]
   - id: REQ-814
     title: "Reset-password mail throttle (finding F4-4): at most one instruction mail per user within a window of N minutes (a setting, default 5); a throttled request still answers 202 with the same body and writes nothing"
     owner: ELIXIR-DEV

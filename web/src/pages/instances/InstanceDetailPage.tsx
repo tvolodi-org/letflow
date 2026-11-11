@@ -21,6 +21,7 @@ import { TimelineFeed } from '@/components/instances/TimelineFeed'
 import { HistoryScrubber } from '@/components/instances/HistoryScrubber'
 import { ProcessGraphWithTokens } from '@/components/instances/ProcessGraphWithTokens'
 import { GraphModeSwitch, InstanceReplay } from '@/components/instances/InstanceReplay'
+import { InstanceWaitingSince } from '@/components/instances/InstanceWaitingSince'
 import { CoreHelpLink } from '@/pages/help/CoreHelpLink'
 import { CancelInstanceDialog } from '@/components/instances/CancelInstanceDialog'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
@@ -279,6 +280,7 @@ export default function InstanceDetailPage() {
           <div>Source: {instance.definition_snapshot ? 'Stored snapshot' : 'Current definition version'}</div>
           <div>Active tokens: {currentNodes.join(', ') || '—'}</div>
         </div>
+        <InstanceWaitingSince instanceId={id!} status={instance.status} graph={instanceGraph} />
 
         <div style={{ marginTop: '.75rem', height: '320px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
           {readonlyGraph.nodes.length === 0 ? (
