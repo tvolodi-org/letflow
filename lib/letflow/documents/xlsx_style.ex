@@ -21,6 +21,28 @@ defmodule Letflow.Documents.XlsxStyle do
   @max_w 60
   @sample 200
 
+  @doc """
+  CORE S2: a cell value as text. nil stays nil, a `DateTime` is ISO 8601, a binary is kept, an atom
+  or number is `to_string/1`, anything else is JSON. (Shared by the assets and stock exports.)
+  """
+  @spec cell_text(term()) :: String.t() | nil
+  def cell_text(nil), do: nil
+  def cell_text(%DateTime{} = at), do: DateTime.to_iso8601(at)
+  def cell_text(value) when is_binary(value), do: value
+  def cell_text(value) when is_atom(value) or is_number(value), do: to_string(value)
+  def cell_text(value), do: Jason.encode!(value)
+
+  @doc "A cell value that keeps an integer as a number; otherwise `cell_text/1`."
+  @spec cell_scalar(term()) :: integer() | String.t() | nil
+  def cell_scalar(nil), do: nil
+  def cell_scalar(value) when is_integer(value), do: value
+  def cell_scalar(value), do: cell_text(value)
+
+  @doc "A cell value as a JSON string; nil stays nil."
+  @spec cell_json(term()) :: String.t() | nil
+  def cell_json(nil), do: nil
+  def cell_json(value), do: Jason.encode!(value)
+
   @doc "The sheet with its first row as a bold, frozen header and widths fitted to the content."
   @spec style(Sheet.t(), boolean()) :: Sheet.t()
   def style(sheet, header? \\ true)

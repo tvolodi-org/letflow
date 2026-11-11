@@ -326,6 +326,10 @@ defmodule Letflow.Modules.Stock.XlsxExportTest do
       source = File.read!("lib/letflow/modules/stock/xlsx_export.ex")
       refute source =~ "Repo"
       refute source =~ "Ecto.Query"
+
+      core = File.read!("lib/letflow/documents/xlsx_style.ex")
+      refute core =~ "Repo"
+      refute core =~ "Ecto.Query"
     end
   end
 end
