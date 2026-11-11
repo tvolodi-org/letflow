@@ -1,15 +1,6 @@
-/** StockIntlProvider — GH 3767 / REQ-724. A local IntlProvider for the stock screens (same pattern as CodesIntlProvider). */
-import type { ReactNode } from 'react'
-import { IntlProvider } from 'react-intl'
-import { useUiLocale } from '@/i18n/uiLocaleStore'
-import { stockMessages, type StockUiLocale } from './stockMessages'
+/** StockIntlProvider — GH 3767 / REQ-724. A local IntlProvider for the stock screens, made by the shared `createModuleIntlProvider` (core extraction S6).
+ *  `locale` is given by the screen harness; the app takes it from the UI-language store. */
+import { createModuleIntlProvider } from '@/i18n/createModuleIntlProvider'
+import { stockMessages } from './stockMessages'
 
-export function StockIntlProvider({ children, locale }: { children: ReactNode; locale?: StockUiLocale }) {
-  const stored = useUiLocale()
-  const active = locale ?? stored
-  return (
-    <IntlProvider locale={active} defaultLocale="en" messages={stockMessages[active]}>
-      {children}
-    </IntlProvider>
-  )
-}
+export const StockIntlProvider = createModuleIntlProvider(stockMessages)
