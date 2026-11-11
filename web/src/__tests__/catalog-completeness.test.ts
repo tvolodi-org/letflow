@@ -88,6 +88,7 @@ import { groupsMessages } from '@/pages/admin/groupsMessages'
 import { signInMessages } from '@/pages/admin/signInMessages'
 import { storekeeperGrantMessages } from '@/pages/admin/storekeeperGrantMessages'
 import { instancesMessages } from '@/pages/instances/instancesMessages'
+import { instanceDetailMessages } from '@/pages/instances/instanceDetailMessages'
 import { definitionsMessages } from '@/pages/definitions/definitionsMessages'
 import { REFERENCE_MESSAGES } from '@/lib/references/referenceMessages'
 import { notificationMessages } from '@/components/layout/notificationMessages'
@@ -436,6 +437,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
     ['groups', groupsMessages],
     ['storekeeperGrant', storekeeperGrantMessages],
     ['instances', instancesMessages],
+    ['instanceDetail', instanceDetailMessages],
     ['definitions', definitionsMessages],
   ] as const)('%sMessages (structured, T-1553): no empty values in any locale', (name, catalog) => {
     checkStructuredCatalog(name, catalog)
@@ -496,6 +498,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['groups', groupsMessages],
       ['storekeeperGrant', storekeeperGrantMessages],
       ['instances', instancesMessages],
+      ['instanceDetail', instanceDetailMessages],
       ['definitions', definitionsMessages],
     ]
     const copies = flat.flatMap(([name, cat]) => kkRussianCopies(name, cat))
