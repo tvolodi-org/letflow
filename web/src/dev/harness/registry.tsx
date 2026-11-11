@@ -19,6 +19,7 @@ import { locationsScreens } from './fixtures/locations'
 import { moduleRolloutsScreens } from './fixtures/moduleRollouts'
 import { usersImportScreens } from './fixtures/usersImport'
 import { userResetScreens } from './fixtures/userReset'
+import { userSignInScreens } from './fixtures/userSignIn'
 import { notificationBellScreens } from './fixtures/notificationBell'
 import { emptyErrorStates } from './fixtures/emptyErrorStates'
 import { definitionNameScreens } from './fixtures/definitionNames'
@@ -281,6 +282,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...moduleRolloutsScreens,
     ...usersImportScreens,
     ...userResetScreens,
+    ...userSignInScreens,
     ...notificationBellScreens,
     ...emptyErrorStates,
     ...definitionNameScreens,

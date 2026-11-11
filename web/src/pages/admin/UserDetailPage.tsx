@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { P, useAccess, AccessPending, roleLabel, roleDescription } from '@/auth/access'
 import { DeactivateUserDialog } from '@/components/admin/users/DeactivateUserDialog'
+import { TemporaryPasswordPanel } from '@/components/admin/users/TemporaryPasswordPanel'
 import { PasswordResetDialog } from '@/components/admin/users/PasswordResetDialog'
 import { CoreHelpLink } from '@/pages/help/CoreHelpLink'
-import { useAdminGroups, useAdminRoles, useAdminUser, useDeactivateAdminUser, useSendPasswordResetInstructions, useUpdateAdminUser } from '@/hooks/useAdminUsers'
+import { useAdminGroups, useAdminRoles, useCreateUserSignIn, useAdminUser, useDeactivateAdminUser, useSendPasswordResetInstructions, useUpdateAdminUser } from '@/hooks/useAdminUsers'
 import type { User } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Banner } from '@/components/ui/Banner'
@@ -14,6 +15,7 @@ import { useFeedbackMessages } from '@/components/ui/feedbackMessages'
 import { saveErrorText } from '@/utils/saveError'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { usersMessages } from './usersMessages'
+import { signInErrorText, signInMessages } from './signInMessages'
 import { conflictText, fillEmail, hintText, passwordResetBlock, passwordResetMessages } from './passwordResetMessages'
 
 function userId(user: User): string {
@@ -33,6 +35,7 @@ export default function UserDetailPage() {
   const feedback = useFeedbackMessages()
   const uiLocale = useUiLocale()
   const pm = passwordResetMessages[uiLocale]
+  const sm = signInMessages[uiLocale]
   const um = usersMessages[uiLocale]
   const isAllowed = access.can(P.UsersGroupsRolesManage)
 
@@ -42,6 +45,7 @@ export default function UserDetailPage() {
   const updateUser = useUpdateAdminUser(routeUserId)
   const deactivateUser = useDeactivateAdminUser(routeUserId)
   const sendReset = useSendPasswordResetInstructions(routeUserId)
+  const createSignIn = useCreateUserSignIn()
 
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
@@ -52,6 +56,9 @@ export default function UserDetailPage() {
   const [submitMessage, setSubmitMessage] = useState<string | null>(null)
   const [showReset, setShowReset] = useState(false)
   const [resetMessage, setResetMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null)
+  // The temporary password lives only here (never in a query or mutation cache) and leaves with Close or unmount.
+  const [signInPanel, setSignInPanel] = useState<{ username: string; password: string } | null>(null)
+  const [signInMessage, setSignInMessage] = useState<string | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
@@ -212,7 +219,40 @@ export default function UserDetailPage() {
             ) : (
               <div data-testid="admin-user-reset-hint"><Banner tone="info">{hintText(resetBlock, pm)}</Banner></div>
             )}
+            {userQuery.data.auth_source === 'internal' && (
+              <span data-testid="admin-user-create-sign-in">
+                <Button
+                  variant="secondary"
+                  size="md"
+                  type="button"
+                  disabled={createSignIn.isPending}
+                  onClick={() => {
+                    setSignInMessage(null)
+                    createSignIn.mutate(pageUserId, {
+                      onSuccess: (data) => {
+                        setSignInPanel({ username: data.user?.username ?? userQuery.data?.username ?? '', password: data.temporary_password })
+                        createSignIn.reset()
+                      },
+                      onError: (error) => setSignInMessage(signInErrorText(error, sm, feedback)),
+                    })
+                  }}
+                >
+                  {createSignIn.isPending ? sm.creating : sm.action}
+                </Button>
+              </span>
+            )}
             <span data-testid="admin-user-reset-help"><CoreHelpLink topic="passwordReset" /></span>
+            <div aria-live="polite" data-testid="admin-user-sign-in-live">
+              {signInMessage && <Banner tone="danger">{signInMessage}</Banner>}
+              {signInPanel && (
+                <TemporaryPasswordPanel
+                  username={signInPanel.username}
+                  password={signInPanel.password}
+                  messages={sm}
+                  onClose={() => setSignInPanel(null)}
+                />
+              )}
+            </div>
             {/* Always rendered: a live region that exists before its text arrives is announced reliably. */}
             <div aria-live="polite" data-testid="admin-user-reset-live">
               {resetMessage && (

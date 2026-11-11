@@ -48,7 +48,7 @@ defmodule Letflow.MixProject do
       {:ecto_sql, "~> 3.11"},
       {:postgrex, "~> 0.17"},
       {:plug, "~> 1.15"},
-      {:bandit, "~> 1.5"},
+      {:bandit, "~> 1.14"},
       {:jason, "~> 1.4"},
       # REQ-194 (design req194-prometheus-metrics.md §10): promotes an ALREADY-PRESENT
       # transitive dependency (mix.lock already resolves telemetry v1.4.2 via bandit,

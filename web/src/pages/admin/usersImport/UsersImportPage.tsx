@@ -27,6 +27,7 @@ import {
   type ImportErrorKind,
   type ImportResultRow,
 } from '../import/importModel'
+import { signInMessages, signInReasonText } from '../signInMessages'
 import { UsersImportIntlProvider } from './UsersImportIntlProvider'
 import { downloadUsersTemplate, runUsersImport } from './usersImportApi'
 import { classifyUsersImportError, usersReasonSentence, usersRefusedRowsCsv } from './usersImportModel'
@@ -91,7 +92,7 @@ function errorText(intl: ReturnType<typeof useIntl>, error: ImportErrorKind): st
   }
 }
 
-function ResultTable({ results, hypothetical }: { results: ImportResultRow[]; hypothetical: boolean }) {
+function ResultTable({ results, hypothetical, showSignIn }: { results: ImportResultRow[]; hypothetical: boolean; showSignIn: boolean }) {
   const intl = useIntl()
   const locale = localeOf(intl)
   const columns: DataTableColumn<ImportResultRow>[] = [
@@ -127,6 +128,40 @@ function ResultTable({ results, hypothetical }: { results: ImportResultRow[]; hy
         ),
     },
   ]
+  if (showSignIn) {
+    const sm = signInMessages[locale]
+    columns.push({
+      id: 'signIn',
+      header: intl.formatMessage({ id: 'usersImport.col.signIn' }),
+      render: (r) => {
+        const s = r.sign_in
+        if (!s) return <span className="lf-muted" aria-hidden="true">—</span>
+        if (s.created) {
+          if (typeof s.temporary_password !== 'string') return <span>{intl.formatMessage({ id: 'usersImport.signIn.hidden' })}</span>
+          const pw = s.temporary_password
+          return (
+            <span>
+              <code data-testid="users-import-sign-in-password">{pw}</code>{' '}
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                onClick={() => {
+                  void Promise.resolve()
+                    .then(() => navigator.clipboard.writeText(pw))
+                    .catch(() => undefined)
+                }}
+              >
+                {intl.formatMessage({ id: 'usersImport.signIn.copy' })}
+              </Button>
+            </span>
+          )
+        }
+        // An unknown reason gets the generic "service refused" sentence, never the raw code.
+        return <span data-testid="users-import-sign-in-reason">{signInReasonText(s.reason, sm) ?? sm.reasons.provisioner_refused}</span>
+      },
+    })
+  }
   return (
     <div data-testid="users-import-result-table">
       <DataTable
@@ -241,6 +276,26 @@ function UsersImportPageInner() {
   const shown = phase.name === 'checked' || phase.name === 'done' || phase.name === 'notApplied' ? phase.answer : null
   const notApplied = phase.name === 'notApplied'
   const refusedCount = shown ? countResults(shown.results).refused : 0
+  // REQ-808/809: the sign-in column exists only on a real (done) answer whose rows carry `sign_in`; old answers are unchanged.
+  const showSignInColumn = phase.name === 'done' && phase.answer.results.some((row) => row.sign_in != null)
+  const hasPasswords = phase.name === 'done' && phase.answer.results.some((row) => typeof row.sign_in?.temporary_password === 'string')
+  // Replaces the answer by a copy without the passwords, so they leave the page state.
+  function hidePasswords() {
+    setPhase((p) =>
+      p.name !== 'done'
+        ? p
+        : {
+            name: 'done',
+            answer: {
+              ...p.answer,
+              results: p.answer.results.map((row) => {
+                if (!row.sign_in) return row
+                return { ...row, sign_in: { created: row.sign_in.created, ...(row.sign_in.reason ? { reason: row.sign_in.reason } : {}) } }
+              }),
+            },
+          },
+    )
+  }
   // Steps is zero-based: 0 file, 1 check, 2 import, 3 = all done.
   const stepCurrent = phase.name === 'done' ? 3 : checkedClean ? 2 : file ? 1 : 0
 
@@ -369,7 +424,23 @@ function UsersImportPageInner() {
                   </div>
                 ) : null}
                 <Counts results={shown.results} hypothetical={notApplied || phase.name === 'checked'} />
-                <ResultTable results={shown.results} hypothetical={notApplied || phase.name === 'checked'} />
+                {showSignInColumn ? (
+                  <div data-testid="users-import-sign-in-note">
+                    <Banner
+                      tone="warning"
+                      action={
+                        hasPasswords ? (
+                          <Button variant="secondary" size="sm" type="button" data-testid="users-import-hide-passwords" onClick={hidePasswords}>
+                            {intl.formatMessage({ id: 'usersImport.signIn.hide' })}
+                          </Button>
+                        ) : undefined
+                      }
+                    >
+                      {intl.formatMessage({ id: 'usersImport.signIn.once' })}
+                    </Banner>
+                  </div>
+                ) : null}
+                <ResultTable results={shown.results} hypothetical={notApplied || phase.name === 'checked'} showSignIn={showSignInColumn} />
                 {refusedCount > 0 ? (
                   <div className="lf-form__actions">
                     <Button
