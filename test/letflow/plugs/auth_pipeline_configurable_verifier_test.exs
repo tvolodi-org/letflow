@@ -38,6 +38,7 @@ defmodule Letflow.Plugs.AuthPipelineConfigurableVerifierTest do
   use Letflow.DataCase, async: false
 
   alias Letflow.Identity.User
+  alias Letflow.Test.LoginDirectoryFixture
   alias Letflow.Oidc.ConfigurableTokenVerifierDouble
   alias Letflow.Plugs.AuthPipeline
   alias Letflow.TenantFixture
@@ -145,35 +146,65 @@ defmodule Letflow.Plugs.AuthPipelineConfigurableVerifierTest do
     end
   end
 
-  describe "generic provisioning failure (ISS-0534: reason must be logged, not discarded)" do
-    test "a genuine username collision against a different external identity is rejected 500, and the discarded reason is logged" do
+  describe "first sign-in username collision (REQ-804)" do
+    test "a different identity holding the username is refused 403 username_in_use, row untouched, nothing leaked" do
       realm = unique_realm("provision-collision")
       tenant = insert_tenant_for_realm!(realm)
       {:ok, schema_name} = TenantProvisioning.schema_name_for_tenant(tenant.id)
 
-      # Pre-seed a user under a DIFFERENT external identity but the SAME
-      # username the incoming token will map to (ConfigurableTokenVerifierDouble's
-      # `claims_for/2` sets preferred_username to the raw `sub` value below) --
-      # this is Letflow.Identity.provision_oidc_user/4's genuine, non-race
-      # collision path (identity.ex ~L1517: `identity_matches?/2` is false since
-      # the external identity differs, so the original changeset error is
-      # propagated as `{:error, changeset}` -> `{:provision, changeset}` here).
-      %User{}
-      |> User.jit_changeset(%{
-        external_realm: "some-other-realm",
-        external_id: "some-other-external-id",
-        username: "colliding-user",
-        display_name: "Existing Colliding User",
-        email: "existing@example.com",
-        status: :active
-      })
-      |> Repo.insert!(prefix: schema_name)
+      # The existing row has a DIFFERENT external identity but the SAME username the
+      # token maps to (ConfigurableTokenVerifierDouble sets preferred_username to `sub`).
+      existing =
+        %User{}
+        |> User.jit_changeset(%{
+          external_realm: "some-other-realm",
+          external_id: "some-other-external-id",
+          username: "colliding-user",
+          display_name: "Existing Colliding User",
+          email: "existing@example.com",
+          status: :active
+        })
+        |> Repo.insert!(prefix: schema_name)
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+          conn =
+            call_pipeline(:post, [
+              {"authorization", "Bearer realm-token:#{realm}:sub=colliding-user"}
+            ])
+
+          assert conn.status == 403
+          assert conn.halted
+
+          assert Jason.decode!(conn.resp_body) == %{
+                   "error" => "username_in_use",
+                   "detail" =>
+                     "This username already belongs to another account in this company. Ask your administrator."
+                 }
+        end)
+
+      assert log =~ "username_in_use"
+      refute log =~ "colliding-user@example.com"
+      refute log =~ "existing@example.com"
+      refute log =~ "Ecto.Changeset"
+
+      assert user_count_for_tenant(tenant.id) == 1
+      assert Repo.get!(User, existing.id, prefix: schema_name) == existing
+      assert LoginDirectoryFixture.entries(tenant.id) == []
+    end
+  end
+
+  describe "generic provisioning failure (ISS-0534: reason must be logged, not discarded)" do
+    test "a provisioning failure (login-directory pepper unset) is rejected 500, and the discarded reason is logged" do
+      realm = unique_realm("provision-failure")
+      tenant = insert_tenant_for_realm!(realm)
+      LoginDirectoryFixture.swap_keys!(:unset, nil)
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           conn =
             call_pipeline(:post, [
-              {"authorization", "Bearer realm-token:#{realm}:sub=colliding-user"}
+              {"authorization", "Bearer realm-token:#{realm}:sub=pepper-user"}
             ])
 
           assert conn.status == 500
@@ -182,7 +213,8 @@ defmodule Letflow.Plugs.AuthPipelineConfigurableVerifierTest do
         end)
 
       assert log =~ "provisioning"
-      assert log =~ "Ecto.Changeset"
+      assert log =~ "pepper_unavailable"
+      assert user_count_for_tenant(tenant.id) == 0
     end
   end
 
