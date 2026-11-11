@@ -50,6 +50,7 @@ Part b (in-process `TenantProvisioner.create/1`, default modules, welcome mail) 
   (0072 D3: one call to Letflow's own create path). The step is `tenant_created`; the state stays `provisioning` until the welcome
   mail (1b). Failure codes: `tenant_internal` (retryable), `tenant_conflict`, `invalid_tenant`, `demo_cap_reached`, `source_budget`,
   `email_domain_budget`. Resume restarts at `credential_sent` when `credential_sent_at` is set, so the mail is never repeated.
+- **D10 Users step (T-1703).** Created users' realm sign-in is decided in "Addendum T-1703" of decision 0072 (section 8b); that step uses its own settings (`LETFLOW_REALM_USERS_*`) and its own provisioner caller token, not the sign-up ones.
 
 ## Residuals
 

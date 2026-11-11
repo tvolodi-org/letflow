@@ -252,6 +252,33 @@ The last step of a create installs the modules named by `LETFLOW_PROVISIONER_DEF
 - A failed install never fails the create. `tenant_lifecycles.default_modules_state` (`not_applicable | pending | done | failed`) and `default_modules_failure` (`"<module_id>:<code>"`, never SQL) record it; a replay of the create call with the same `tenant_id` retries `pending` and `failed`. Rows made before the column existed are `not_applicable` and install nothing.
 - The create answer and `GET /tenants/:id` are unchanged. Sweep-driven retry is not part of this decision.
 
+## 8b. Addendum T-1703: sign-in for created users, option (b) (QA only)
+
+**Scope.** This addendum changes only the D1 clause "on a realm it made it gets 403 for users", and only for QA. The D1 sentence "Letflow holds no Keycloak admin credential and gets no admin client" stays as it is: Letflow calls infra's provisioner, as 0085 D1 already does, and gains no Keycloak credential. Reason: a user made on the Users screen or by the xlsx import is an internal row (`create_changeset/2` in `lib/letflow/identity/user.ex`) and no code creates a Keycloak account for it. The owner chose option (b) of `docs/design/REQ-801-sign-in-for-created-users.md` (portfolio D-118 item 1). The names marked "planned" below belong to REQ-807 to REQ-809 and do not exist yet.
+
+**Flow.** A tenant administrator with the existing `UsersManage` permission asks Letflow to create the sign-in of one existing internal user of the own company. Letflow makes one provisioner call. On success it binds the row in one transaction: `auth_source` oidc, `external_realm` = the tenant's `idp_realm_id`, `external_id` = the Keycloak user id the provisioner returns (the token's `sub` claim at sign-in). At the first sign-in `Letflow.Identity.provision_oidc_user/4` finds the row by (`external_realm`, `external_id`) and makes no second row. The temporary password is returned once, in that one answer, to that administrator, who hands it to the person; Keycloak forces a new password at the first sign-in (required action UPDATE_PASSWORD). Planned names (REQ-807): `Letflow.Signup.RealmUsers`, `bind_realm_login_changeset/3`, `create_sign_in/2`, `POST /identity/users/:id/sign-in`.
+
+**INV-4.** The temporary password is a credential. It appears only in the one answer to the administrator, which carries the header `cache-control: no-store`, and in no log line, audit entry, error, stored row, notification or second answer. The precedent for one plaintext in one answer is the API token answer of `POST /identity/tokens` (`token_created_map/2` in `lib/letflow/routers/identity.ex`). The same exception is acceptable here because the value is shown once to the administrator who must hand it over, and it dies at first use (UPDATE_PASSWORD). The security review of REQ-807 checks INV-4.
+
+**Settings.** Exactly three, all unset by default (the step then does not run): `LETFLOW_REALM_USERS_ENABLED` (exactly "true", default off), `LETFLOW_REALM_USERS_PROVISIONER_URL` and `LETFLOW_REALM_USERS_PROVISIONER_TOKEN`. They are set together or boot refuses. The URL follows the rule of 0085 D3 (`Letflow.Signup.RealmProvisioner.valid_base_url?/1`). The token is read with `System.get_env/1` at call time and never put in Application env (0085 D4). The token is separate from `LETFLOW_SIGNUP_PROVISIONER_TOKEN` because infra can give user creation a caller token of its own, and the users step must not depend on the sign-up flag (0085 D2 refuses the sign-up settings without `LETFLOW_SIGNUP_ENABLED`).
+
+**Which realms.** Only a tenant whose `idp_realm_id` equals `Letflow.Signup.RealmProvisioner.label/1` of its tenant id (a realm the provisioner made, D3 name rule) qualifies. Any other tenant is refused with a fixed reason and the row is unchanged. The tenant and its realm come from the authenticated context, never from the request (INV-1, INV-10).
+
+**No binding by name.** When the realm already has an account with that username or e-mail, Letflow binds nothing and refuses with a fixed reason; it never attaches a row to an existing realm account (takeover risk, as 0048 keeps for e-mail binding). Residual: an account the provisioner created whose answer Letflow lost (a crash after the provisioner's 201) blocks a retry until a Keycloak operator removes it by hand (the R2 pattern of `docs/runbooks/onboarding-new-tenant-realm.md`).
+
+**What infra must provide.** For the portfolio manager to hand to infra; Letflow builds none of it.
+
+1. (i) One provisioner call that creates an enabled user in a realm the provisioner made, given tenant_id, username, email and display name, with email marked verified (D2 has verifyEmail true and there is no mail relay yet), a temporary password and the required action UPDATE_PASSWORD.
+2. (ii) Its answer on success carries realm, the Keycloak user id and the temporary password once; on a username or e-mail already present a conflict with no password; on an unknown tenant or a realm the provisioner did not make a not-found; caller-token, rate-limit and unavailable answers as for `POST /v1/realms` (0085 D1).
+3. (iii) The provisioner's Keycloak credential re-scoped so it may create users only in realms it made, and still cannot read, change or delete anything else (a change of D-018, infra's and the portfolio manager's to record).
+4. (iv) A caller token for Letflow's users step.
+5. (v) The provisioner's own audit log and rate limit cover the new call (D-019).
+6. (vi) QA only, no production Keycloak.
+
+The exact path and field names of the call are infra's; Letflow's client (REQ-807, planned) follows what infra publishes.
+
+**Not decided here:** the later e-mail set-password link of D-118 item 1 (needs a mail relay; Keycloak's own action mail conflicts with section 10 "never Keycloak"); production; what happens to internal rows that never get a sign-in; the e-mail-only second-row case (case ii) of `docs/design/REQ-801-sign-in-for-created-users.md`.
+
 ## 9. Consequences and what to build, in order
 
 1. This record, reviewed by the design gate and the SECURITY-REVIEWER (the credential and the grant path are security-relevant).
