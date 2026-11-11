@@ -60,4 +60,7 @@ sent when the app is opened), no push.
 - [ ] Run the check against the deployed QA host (needs the URL and a device).
 - [ ] On a build with the flag on: sign in, accept "stay signed in", set a PIN, close the page, reopen it, unlock with
       the PIN without the identity provider's page; then enter a wrong PIN five times and see the sign-in entry.
+- [ ] REQ-811, same build, on a device with a fingerprint, face or screen lock: after the PIN, accept "Unlock with this
+      device", verify when asked (the device may ask twice); close the page, reopen it and unlock with the device check;
+      then cancel the device check and unlock with the PIN instead. Not run by the team (no authenticator in CI).
 - [ ] Send the link only after GREEN; keep the printed device, operator and time with the result templates.

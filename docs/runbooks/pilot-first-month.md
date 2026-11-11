@@ -45,9 +45,9 @@ Roles: no pilot user gets `PLATFORM_ADMIN`; platform authority belongs to the pl
 
 ## Interim sign-in path for created users
 
-Decided: the portfolio decision D-118 (1), taken under D-086 on the owner's answer "Accept all recommendations" and recorded in the portfolio `DECISIONS.md` (not in this repository), picks option (a) of `docs/design/REQ-801-sign-in-for-created-users.md` as the interim path. It stays until option (b) is built; nothing in Letflow changes for it. Option (b), Letflow side, is decided (`docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md`, section 8b, settings `LETFLOW_REALM_USERS_*`) but no code for it is on main yet, and it needs a provisioner call from infra. It covers QA and the pilot only; production is not approved (D-086). Anything inside the realm is done by a Keycloak operator (infra), never by Letflow (`docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md` D1).
+Decided: the portfolio decision D-118 (1), taken under D-086 on the owner's answer "Accept all recommendations" and recorded in the portfolio `DECISIONS.md` (not in this repository), picks option (a) of `docs/design/REQ-801-sign-in-for-created-users.md` as the interim path. It stays until option (b) is built; nothing in Letflow changes for it. Option (b), Letflow side, is decided (`docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md`, section 8b, settings `LETFLOW_REALM_USERS_*`) and implemented (`POST /users/:id/sign-in`, `Letflow.Signup.RealmUsers`) behind `LETFLOW_REALM_USERS_ENABLED`, which stays OFF for the pilot; it also needs a provisioner call from infra, and interim path (a) continues until the owner approves enabling it. It covers QA and the pilot only; production is not approved (D-086). Anything inside the realm is done by a Keycloak operator (infra), never by Letflow (`docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md` D1).
 
-Why it is needed: a user made by the Users screen or the xlsx import has no identity-provider login, and no code path creates one (the design note, section "Today").
+Why it is needed: a user made by the Users screen or the xlsx import has no identity-provider login, and while the option (b) flag is OFF nothing creates one (the design note, section "Today").
 
 Steps, per pilot user:
 
@@ -66,6 +66,12 @@ Limits of the interim path:
 - A forgotten password: the "Send password reset instructions" button (REQ-789) is hidden for these users until they have an identity-provider login. After their first sign-in they are `:oidc` users and the reset link on the sign-in page works (`docs/guides/tenant-admin/en.md`, section 8). Before it, the operator sets a new temporary password.
 - Leaving the company: the administrator retires the user in Letflow; removing the realm account is the operator's step. Tell the operator.
 - Nobody is on call (D-116); ask the operator for batches, not for same-hour service.
+
+### The created-user sign-in flag (option b) stays OFF
+
+Option (b) of the design note (Letflow asks infra's provisioner to create the sign-in of a user made on the Users screen) is controlled by `LETFLOW_REALM_USERS_ENABLED`. It is on only when set to exactly `true`; unset or empty means OFF, any other value stops boot, and it is OFF for the pilot (decision `docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md`, section 8b; QA only, production is not approved). Two more settings, `LETFLOW_REALM_USERS_PROVISIONER_URL` and `LETFLOW_REALM_USERS_PROVISIONER_TOKEN`, go with it and are set together or not at all. Turning the flag on is the owner's decision, after infra publishes the provisioner call; this runbook does not do it.
+
+While it is OFF, an administrator who tries to create a sign-in for a user (`POST /users/:id/sign-in`) gets 409 `sign_in_creation_off`, shown as a "not available" refusal, and the user row is unchanged. It is not a fault and not to be retried. Tell the administrator to use the interim path (a) above: it stays the pilot path until the owner switches the flag on.
 
 ### Question list for the pilot's 30 users
 

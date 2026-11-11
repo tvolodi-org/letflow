@@ -3,6 +3,7 @@ library;
 
 import 'auth.dart' show AppAuthAdapter, RealAppAuthAdapter;
 import 'app_auth_platform_types.dart';
+import 'device_unlock.dart';
 import 'kv_store.dart';
 import 'session_crypto.dart';
 import 'session_record.dart';
@@ -21,3 +22,5 @@ SessionCrypto? webSessionCrypto() => null;
 SessionRecordStore? webSessionRecordStore() => null;
 
 OidcRevoker? webOidcRevoker() => null;
+
+DeviceUnlockAuthenticator? webDeviceUnlock() => null;
