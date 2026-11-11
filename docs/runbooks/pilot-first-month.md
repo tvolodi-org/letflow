@@ -69,9 +69,9 @@ Limits of the interim path:
 
 ### The created-user sign-in flag (option b) stays OFF
 
-Option (b) of the design note (Letflow asks infra's provisioner to create the sign-in of a user made on the Users screen) is controlled by `LETFLOW_REALM_USERS_ENABLED`. It is on only when set to exactly `true`; unset or any other value means OFF, and it is OFF for the pilot (decision `docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md`, section 8b; QA only, production is not approved). Two more settings, `LETFLOW_REALM_USERS_PROVISIONER_URL` and `LETFLOW_REALM_USERS_PROVISIONER_TOKEN`, go with it and are set together or not at all. Turning the flag on is the owner's decision, after infra publishes the provisioner call; this runbook does not do it.
+Option (b) of the design note (Letflow asks infra's provisioner to create the sign-in of a user made on the Users screen) is controlled by `LETFLOW_REALM_USERS_ENABLED`. It is on only when set to exactly `true`; unset or empty means OFF, any other value stops boot, and it is OFF for the pilot (decision `docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md`, section 8b; QA only, production is not approved). Two more settings, `LETFLOW_REALM_USERS_PROVISIONER_URL` and `LETFLOW_REALM_USERS_PROVISIONER_TOKEN`, go with it and are set together or not at all. Turning the flag on is the owner's decision, after infra publishes the provisioner call; this runbook does not do it.
 
-While it is OFF, an administrator who tries to create a sign-in for a user gets a clear "not available" refusal and the user row is unchanged. It is not a fault and not to be retried. Tell the administrator to use the interim path (a) above: it stays the pilot path until the owner switches the flag on. The code behind the flag is REQ-807 to REQ-809; the names in section 8b are planned until those merge.
+While it is OFF, an administrator who tries to create a sign-in for a user (`POST /users/:id/sign-in`) gets 409 `sign_in_creation_off`, shown as a "not available" refusal, and the user row is unchanged. It is not a fault and not to be retried. Tell the administrator to use the interim path (a) above: it stays the pilot path until the owner switches the flag on.
 
 ### Question list for the pilot's 30 users
 
