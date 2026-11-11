@@ -1,4 +1,4 @@
-/** coreHelpMessages — T-1691. Static help texts of four core screens, en/ru/kk, flattened into catalogue ids
+/** coreHelpMessages — T-1691. Static help texts of five core screens, en/ru/kk, flattened into catalogue ids
  *  `core.help.<topic>.<part>` (shape of B2#8: purpose, three tasks, three refusals). Plain description only. The ru and
  *  kk texts are drafts until the owner's native-speaker check (docs/assets/i18n-gaps.md). */
 import { flattenHelp, type HelpCommonText, type HelpTopicText } from '@/components/help/helpTopicText'
@@ -68,6 +68,20 @@ const en: Topics = {
       { title: 'Resume is not offered', body: 'The button appears only when the rollout is halted, or when some company failed, is waiting or is outside its window, or has been stuck on "running" for over 15 minutes. If it is missing, there is nothing left to retry.' },
     ],
   },
+  createSignIn: {
+    title: 'Help: create a sign-in',
+    purpose: 'Gives a user of your company a first password so that they can sign in. The password is shown to you once, on the screen, and is never shown again.',
+    tasks: [
+      'Open the user in the users list and press "Create sign-in".',
+      'Copy the password shown and hand it over safely: in person or by a private message, never in a group chat.',
+      'Tell the user that the system asks them to change the password at the first sign-in.',
+    ],
+    refusals: [
+      { title: 'The password is gone', body: 'It is shown once only. If it was lost, create the sign-in again to get a new one.' },
+      { title: 'The action is not available', body: 'Creating a sign-in is not switched on for your company yet. Nothing was changed; ask the platform operator or use the password reset instructions.' },
+      { title: 'The user is refused', body: 'The user is inactive or has no e-mail address. Fix this on the user page and try again.' },
+    ],
+  },
 }
 
 const ru: Topics = {
@@ -127,6 +141,20 @@ const ru: Topics = {
       { title: 'Кнопки «Продолжить» нет', body: 'Кнопка появляется, только если развёртывание остановлено, либо какая-то компания завершилась ошибкой, ждёт или вне своего окна, либо зависла в состоянии «выполняется» более 15 минут. Если кнопки нет, повторять нечего.' },
     ],
   },
+  createSignIn: {
+    title: 'Справка: создание входа',
+    purpose: 'Задаёт пользователю вашей компании первый пароль, чтобы он мог войти. Пароль показывается вам один раз на экране и больше не показывается.',
+    tasks: [
+      'Откройте пользователя в списке и нажмите «Создать вход».',
+      'Скопируйте показанный пароль и передайте его безопасно: лично или в личном сообщении, не в общем чате.',
+      'Скажите пользователю, что при первом входе система попросит сменить пароль.',
+    ],
+    refusals: [
+      { title: 'Пароль утерян', body: 'Он показывается только один раз. Если он потерян, создайте вход заново и получите новый пароль.' },
+      { title: 'Действие недоступно', body: 'Создание входа для вашей компании пока не включено. Ничего не изменено; обратитесь к оператору платформы или отправьте инструкцию по сбросу пароля.' },
+      { title: 'Пользователю отказано', body: 'Пользователь неактивен или у него нет адреса почты. Исправьте это на странице пользователя и повторите.' },
+    ],
+  },
 }
 
 const kk: Topics = {
@@ -184,6 +212,20 @@ const kk: Topics = {
       { title: 'Тарату тоқтатылды', body: 'Ол басқа компанияларды қорғау үшін қатарынан бірнеше қатеден кейін тоқтады. Оларға тиіспедік. «Жалғастыру» сәтсіздерін қайталайды.' },
       { title: 'Компания жаңарту терезесінен тыс', body: 'Компания тек өз терезесінде жаңартылады. Келесі бастау немесе жалғастыру кезінде қайталанады.' },
       { title: '«Жалғастыру» түймесі жоқ', body: 'Түйме тек тарату тоқтатылғанда, немесе қандай да бір компания қатемен аяқталғанда, күтіп тұрғанда не терезесінен тыс болғанда, немесе «орындалуда» күйінде 15 минуттан астам тұрып қалғанда көрінеді. Түйме жоқ болса, қайталайтын ештеңе жоқ.' },
+    ],
+  },
+  createSignIn: {
+    title: 'Анықтама: кіруді жасау',
+    purpose: 'Компания пайдаланушысына кіру үшін алғашқы құпиясөзді береді. Құпиясөз сізге экранда бір рет қана көрсетіледі, қайта көрсетілмейді.',
+    tasks: [
+      'Тізімнен пайдаланушыны ашып, «Кіруді жасау» түймесін басыңыз.',
+      'Көрсетілген құпиясөзді көшіріп, қауіпсіз тапсырыңыз: жеке өзіңіз немесе жеке хабармен, жалпы чатта емес.',
+      'Пайдаланушыға алғашқы кіру кезінде жүйе құпиясөзді ауыстыруды сұрайтынын айтыңыз.',
+    ],
+    refusals: [
+      { title: 'Құпиясөз жоғалды', body: 'Ол тек бір рет көрсетіледі. Жоғалса, кіруді қайта жасап, жаңа құпиясөз алыңыз.' },
+      { title: 'Әрекет қолжетімсіз', body: 'Кіруді жасау сіздің компанияңыз үшін әлі қосылмаған. Ештеңе өзгерген жоқ; платформа операторына хабарласыңыз немесе құпиясөзді қалпына келтіру нұсқауын жіберіңіз.' },
+      { title: 'Пайдаланушыға бас тартылды', body: 'Пайдаланушы белсенді емес немесе оның пошта мекенжайы жоқ. Мұны пайдаланушы бетінде түзетіп, қайталаңыз.' },
     ],
   },
 }

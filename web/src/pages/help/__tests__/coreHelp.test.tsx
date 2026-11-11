@@ -102,7 +102,7 @@ describe('C3 route', () => {
     expect(container.querySelector('img')).toBeNull()
   })
   it('every topic renders and links back to its screen', () => {
-    const back = { usersImport: '/admin/users/import', passwordReset: '/admin/users', instanceReplay: '/instances', moduleRollouts: '/admin/module-rollouts' }
+    const back = { usersImport: '/admin/users/import', passwordReset: '/admin/users', instanceReplay: '/instances', moduleRollouts: '/admin/module-rollouts', createSignIn: '/admin/users' }
     for (const topic of CORE_HELP_TOPICS) {
       const { unmount } = renderHelp(coreHelpPath(topic), access(['UsersGroupsRolesManage', 'ModuleRolloutsManage'], true))
       expect(screen.getByTestId('help-topic')).toBeInTheDocument()
@@ -121,7 +121,7 @@ describe('C3 route', () => {
 })
 
 describe('C4 permission', () => {
-  it.each(['usersImport', 'passwordReset'] as const)('%s needs UsersGroupsRolesManage', (topic) => {
+  it.each(['usersImport', 'passwordReset', 'createSignIn'] as const)('%s needs UsersGroupsRolesManage', (topic) => {
     renderHelp(coreHelpPath(topic), access([]))
     expect(screen.queryByTestId('help-topic')).toBeNull()
   })
@@ -169,6 +169,17 @@ describe('C5 links from the screens', () => {
 })
 
 describe('C6 accuracy', () => {
+  it('create sign-in says: shown once, hand over safely, changed at first sign-in, may be unavailable', () => {
+    const want = {
+      en: [/once/, /safely/, /change the password at the first sign-in/, /not available/],
+      ru: [/один раз/, /безопасно/, /сменить пароль/, /недоступно/],
+      kk: [/бір рет/, /қауіпсіз/, /ауыстыру/, /қолжетімсіз/],
+    } as const
+    for (const l of LOCALES) {
+      const text = Object.entries(coreHelpMessages[l]).filter(([k]) => k.startsWith('core.help.createSignIn.')).map(([, v]) => v).join(' ')
+      for (const re of want[l]) expect(text, `${l} ${re}`).toMatch(re)
+    }
+  })
   it('names the buttons as the screens do', () => {
     const rollouts = {
       en: ['Start rollout', 'Resume'],
