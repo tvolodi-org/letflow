@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'bootstrap/keep_signed_in_screens.dart';
 import 'bootstrap/navigation_bootstrap.dart';
 import 'definitions/tenant_home_screen.dart' show TenantHomeScreen;
 
@@ -62,6 +63,35 @@ class _LetflowAppState extends ConsumerState<LetflowApp> {
     // PWA M3: send the queued offline drafts once per app start, as soon as
     // the session is network-verified (not on `resumedOffline`).
     controller.addListener(_syncOnceWhenVerified);
+    // REQ-810: the 30-day offer, shown once per full sign-in.
+    controller.offerKeepSignedIn.addListener(_maybeOffer);
+  }
+
+  bool _offering = false;
+
+  void _maybeOffer() {
+    if (!_controller.offerKeepSignedIn.value || _offering) return;
+    _offering = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final ctx = _router.routerDelegate.navigatorKey.currentContext;
+        if (ctx == null || !ctx.mounted) {
+          _controller.declineKeepSignedIn();
+          return;
+        }
+        final accepted = await showKeepSignedInOffer(ctx);
+        if (!accepted || !ctx.mounted) {
+          _controller.declineKeepSignedIn();
+          return;
+        }
+        await Navigator.of(ctx).push<bool>(
+          MaterialPageRoute<bool>(builder: (_) => const PinSetupScreen()),
+        );
+        _controller.declineKeepSignedIn();
+      } finally {
+        _offering = false;
+      }
+    });
   }
 
   late final BootstrapController _controller;
@@ -77,6 +107,7 @@ class _LetflowAppState extends ConsumerState<LetflowApp> {
   @override
   void dispose() {
     _controller.removeListener(_syncOnceWhenVerified);
+    _controller.offerKeepSignedIn.removeListener(_maybeOffer);
     super.dispose();
   }
 
@@ -134,6 +165,9 @@ GoRouter _buildRouter(BootstrapController controller) {
                   uiState.failureReason!,
                   onRetry: controller.resetToEntry,
                 );
+              }
+              if (uiState.phase == BootstrapPhase.locked) {
+                return const PinUnlockScreen();
               }
               return const TenantSlugEntryScreen();
             },
