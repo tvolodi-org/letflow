@@ -170,6 +170,10 @@ One row per item; evidence is a reference, never a value.
 | The realm never issues `PLATFORM_ADMIN` | | | |
 | Realm ownership confirmed by (named person at the operator who confirmed this realm belongs to this customer's tenant, and the date) | | | |
 
+## Sign-in for users created later (flag `LETFLOW_REALM_USERS_ENABLED`, OFF)
+
+Users added later on the Users screen or by the xlsx import have no realm account. Letflow can ask infra's provisioner to create it (`POST /users/:id/sign-in`, `Letflow.Identity.create_sign_in/2`, client `Letflow.Signup.RealmUsers`, decision `docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md` section 8b), behind `LETFLOW_REALM_USERS_ENABLED`. Exactly `true` turns it on; unset or empty is OFF; any other value, `false` included, stops boot. It stays OFF: do not set it, or `LETFLOW_REALM_USERS_PROVISIONER_URL` / `LETFLOW_REALM_USERS_PROVISIONER_TOKEN` (all three are set together or not at all), as part of onboarding. While OFF the route answers 409 `sign_in_creation_off`, shown to the administrator as a "not available" refusal; nothing changes in the realm or in Letflow. The pilot path is the interim path (a): a Keycloak operator creates each account by hand as in step R2 above (`docs/runbooks/pilot-first-month.md`, "Interim sign-in path for created users"). Only a realm the provisioner made would qualify for option (b); a hand-made realm never does.
+
 ## The one line for the infra onboarding checklist
 
 > Every new tenant realm: clone from bpm-default including the TENANT_ADMIN realm role; create
