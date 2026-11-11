@@ -1095,6 +1095,7 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
           {"GET /users/:id", :get, "/users/#{bad}", nil},
           {"PATCH /users/:id", :patch, "/users/#{bad}", %{"display_name" => "x"}},
           {"POST /users/:id/status", :post, "/users/#{bad}/status", %{"status" => "inactive"}},
+          {"POST /users/:id/sign-in", :post, "/users/#{bad}/sign-in", nil},
           {"DELETE /groups/:id", :delete, "/groups/#{bad}", nil},
           {"GET /groups/:id/members", :get, "/groups/#{bad}/members", nil},
           {"POST /groups/:id/members", :post, "/groups/#{bad}/members",

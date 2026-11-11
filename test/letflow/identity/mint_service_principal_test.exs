@@ -199,6 +199,7 @@ defmodule Letflow.Identity.MintServicePrincipalTest do
                Enum.sort([
                  "lib/letflow/identity.ex",
                  "lib/letflow/identity/service_principal.ex",
+                 "lib/letflow/identity/sign_in.ex",
                  "lib/letflow/identity/user.ex",
                  "lib/letflow/routers/identity.ex",
                  "lib/letflow/tenant_provisioning.ex"
