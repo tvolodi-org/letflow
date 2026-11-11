@@ -216,3 +216,28 @@ Z-2, Z-3, Z-5, Inv-10, Inv-18 ship); they are new-form work, not translation gap
 New `kk` texts for native check: `feedbackMessages` (permission denied, stale version, rate limit, the save-refusal
 texts of `saveErrorText`), `usersMessages`, `instancesMessages`, `definitionsMessages`. Walk table:
 `docs/uat/ui-text-walk.md`.
+
+## ru/kk completeness sweep of screens changed since 2026-11-09 (T-1753)
+
+Method: for each web file touched since 2026-11-09 (`git log --since=2026-11-09 -- web/src`), grep JSX text,
+`title`/`label`/`placeholder`/`aria-label`/`emptyMessage` attributes and toast/error strings for English literals.
+
+Already complete (no English literal left, catalogues en/ru/kk): users import (`usersImportMessages`), module
+rollouts (`moduleRolloutsMessages`), created-user sign-in (`signInMessages`, `TemporaryPasswordPanel`), password
+reset, Users and Definitions pages, core help (`coreHelpMessages`), instance replay and "Waiting since"
+(`processDiagramMessages`). There is no PWA unlock text in `web/` (the PWA sign-in lives in the mobile/PWA tier;
+see the GAP sidecar in `test/fixtures/uat/scenario-env-limitations/`).
+
+Fixed here: `InstanceDetailPage` (changed by the replay and waiting-since slices) had every heading, table header,
+tab, button, empty text and error text hard-coded in English. Now `pages/instances/instanceDetailMessages.ts`
+(en/ru/kk, registered in `catalog-completeness.test.ts`, walked by `InstanceDetailPage.locale.test.tsx`).
+**kk machine draft for the owner's reading:** the whole `instanceDetailMessages.kk` table (note: "Сызба" for graph,
+"Уақыт шкаласы" for timeline, to avoid a Russian copy).
+
+Still English, on the page but in components not changed since 2026-11-09 (follow-up, not done here):
+- `EventHistoryPanel`: "All types", "Loading event history...", column headers Type / Actor / Time / Payload.
+- `TimelineFeed`: "Loading timeline...", "No timeline entries found."
+- `HistoryScrubber`: "Loading…".
+- `AttachmentPanel`: "No attachments yet." (and its other texts).
+- `InstancePinsPanel`: "No dependencies recorded for this case."
+- `CancelInstanceDialog`, `RebindPinDialog`: whole dialogs, no catalogue.

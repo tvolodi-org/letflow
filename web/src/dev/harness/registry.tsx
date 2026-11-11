@@ -60,6 +60,7 @@ import { processDiagramScreens } from './fixtures/processDiagram'
 import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
 import { processDesignerVersionsScreens } from './fixtures/processDesignerVersions'
 import { instanceReplayScreens } from './fixtures/instanceReplay'
+import { instanceDetailScreens } from './fixtures/instanceDetail'
 import { waitingSinceScreens } from './fixtures/waitingSince'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
@@ -290,6 +291,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...processDesignerEditScreens,
     ...processDesignerVersionsScreens,
     ...instanceReplayScreens,
+    ...instanceDetailScreens,
     ...waitingSinceScreens,
     ...definitionNameAdminScreens,
     ...codesLabelScreens,

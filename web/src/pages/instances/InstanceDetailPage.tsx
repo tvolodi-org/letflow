@@ -31,6 +31,8 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useToast } from '@/hooks/useToast'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
+import { fillFeedback } from '@/components/ui/feedbackMessages'
+import { instanceDetailMessages } from './instanceDetailMessages'
 import { formatDateTime as formatLocaleDateTime, formatTime as formatLocaleTime } from '@/i18n/format'
 
 
@@ -53,8 +55,8 @@ function formatDateTime(value: string | undefined): string {
   return formatLocaleDateTime(value)
 }
 
-function toRefreshLabel(value: string | null): string {
-  if (!value) return 'Not yet refreshed'
+function toRefreshLabel(value: string | null, notYet: string): string {
+  if (!value) return notYet
   return formatLocaleTime(value)
 }
 
@@ -99,6 +101,7 @@ function useReadonlyGraph(
 export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const uiLocale = useUiLocale()
+  const m = instanceDetailMessages[uiLocale]
   const tenantKeys = useTenantScopedQueryKeys()
 
   const { data: instance, isLoading, isError, error, refetch, dataUpdatedAt } = useInstance(id!)
@@ -166,7 +169,7 @@ export default function InstanceDetailPage() {
       { id: instance.instance_id, reason },
       {
         onError: () => {
-          toast.error('Failed to cancel instance. The status has been restored.')
+          toast.error(m.cancelFailed)
         },
       },
     )
@@ -176,8 +179,8 @@ export default function InstanceDetailPage() {
   const rendererState: RendererState = isLoading ? 'loading' : isError ? classifyError(error) : 'success'
 
   const detailColumns: DataTableColumn<DetailRow>[] = [
-    { id: 'field', header: 'Field', accessor: (row) => row.key },
-    { id: 'value', header: 'Value', accessor: (row) => row.value },
+    { id: 'field', header: m.colField, accessor: (row) => row.key },
+    { id: 'value', header: m.colValue, accessor: (row) => row.value },
   ]
 
   const detailRows: DetailRow[] = instance
@@ -188,27 +191,27 @@ export default function InstanceDetailPage() {
         // useDefinition(instance?.definition_id) instead. Render a neutral
         // placeholder while that fetch is still in flight rather than the
         // literal string "undefined".
-        { key: 'Definition', value: definition ? <DefinitionName name={definition.name} version={definition.version} /> : '—' },
+        { key: m.rowDefinition, value: definition ? <DefinitionName name={definition.name} version={definition.version} /> : '—' },
         {
-          key: 'Status',
+          key: m.rowStatus,
           value: <StatusBadge status={instance.status} domain="instance" size="sm" />,
         },
-        { key: 'Active nodes', value: currentNodes.join(', ') || '—' },
-        { key: 'Correlation key', value: instance.correlation_key ?? '—' },
-        { key: 'Started at', value: formatDateTime(instance.started_at) },
-        { key: 'Last updated', value: formatDateTime(instance.updated_at ?? instance.started_at) },
-        { key: 'Completed at', value: formatDateTime(instance.completed_at) },
+        { key: m.rowActiveNodes, value: currentNodes.join(', ') || '—' },
+        { key: m.rowCorrelationKey, value: instance.correlation_key ?? '—' },
+        { key: m.rowStartedAt, value: formatDateTime(instance.started_at) },
+        { key: m.rowLastUpdated, value: formatDateTime(instance.updated_at ?? instance.started_at) },
+        { key: m.rowCompletedAt, value: formatDateTime(instance.completed_at) },
       ]
     : []
 
   const pendingTaskColumns: DataTableColumn<PendingTaskRow>[] = [
-    { id: 'taskId', header: 'Task ID', accessor: (row) => (row.taskId ? `${row.taskId.slice(0, 8)}...` : '—') },
-    { id: 'nodeId', header: 'Node', accessor: (row) => row.nodeId },
-    { id: 'nodeName', header: 'Name', accessor: (row) => row.nodeName },
-    { id: 'assignee', header: 'Assignee', accessor: (row) => row.assignee },
+    { id: 'taskId', header: m.colTaskId, accessor: (row) => (row.taskId ? `${row.taskId.slice(0, 8)}...` : '—') },
+    { id: 'nodeId', header: m.colNode, accessor: (row) => row.nodeId },
+    { id: 'nodeName', header: m.colName, accessor: (row) => row.nodeName },
+    { id: 'assignee', header: m.colAssignee, accessor: (row) => row.assignee },
     {
       id: 'createdAt',
-      header: 'Created',
+      header: m.colCreated,
       accessor: (row) => <span style={{ color: 'var(--text-secondary)' }}>{formatDateTime(row.createdAt)}</span>,
     },
   ]
@@ -241,7 +244,7 @@ export default function InstanceDetailPage() {
       >
       {instance && (<>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '1rem', marginBottom: '1.25rem' }}>
-        <h2 style={{ margin: 0 }}>Instance</h2>
+        <h2 style={{ margin: 0 }}>{m.title}</h2>
         <code style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{instance.instance_id}</code>
         {instance.status === 'ACTIVE' && canCancel && (
           <span style={{ marginLeft: 'auto' }}>
@@ -251,7 +254,7 @@ export default function InstanceDetailPage() {
               onClick={() => setShowCancelDialog(true)}
               disabled={cancel.isPending}
             >
-              Cancel
+              {m.cancel}
             </Button>
           </span>
         )}
@@ -259,7 +262,7 @@ export default function InstanceDetailPage() {
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '.6rem', marginBottom: '.8rem' }}>
         <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-          Last refreshed: {toRefreshLabel(polling.lastRefreshedAt ?? (dataUpdatedAt ? new Date(dataUpdatedAt).toISOString() : null))}
+          {fillFeedback(m.lastRefreshed, { time: toRefreshLabel(polling.lastRefreshedAt ?? (dataUpdatedAt ? new Date(dataUpdatedAt).toISOString() : null), m.notRefreshed) })}
         </span>
         <Button
           variant="secondary"
@@ -267,25 +270,25 @@ export default function InstanceDetailPage() {
           onClick={() => void polling.refreshNow()}
           disabled={timelineQuery.isRefetching || cancel.isPending}
         >
-          {timelineQuery.isRefetching ? 'Refreshing...' : 'Refresh'}
+          {timelineQuery.isRefetching ? m.refreshing : m.refresh}
         </Button>
       </div>
 
-      <DataTable columns={detailColumns} data={detailRows} emptyMessage="No instance details available." />
+      <DataTable columns={detailColumns} data={detailRows} emptyMessage={m.noDetails} />
 
       <section style={{ marginTop: '1rem', marginBottom: '1rem' }}>
-        <h3 style={{ marginBottom: '.5rem' }}>Definition Snapshot</h3>
+        <h3 style={{ marginBottom: '.5rem' }}>{m.snapshotHeading}</h3>
         <div style={{ display: 'grid', gap: '.35rem', color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-          <div>Definition ID: <code>{instance.definition_id}</code></div>
-          <div>Source: {instance.definition_snapshot ? 'Stored snapshot' : 'Current definition version'}</div>
-          <div>Active tokens: {currentNodes.join(', ') || '—'}</div>
+          <div>{m.definitionId}: <code>{instance.definition_id}</code></div>
+          <div>{m.source}: {instance.definition_snapshot ? m.sourceSnapshot : m.sourceCurrent}</div>
+          <div>{m.activeTokens}: {currentNodes.join(', ') || '—'}</div>
         </div>
         <InstanceWaitingSince instanceId={id!} status={instance.status} graph={instanceGraph} />
 
         <div style={{ marginTop: '.75rem', height: '320px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
           {readonlyGraph.nodes.length === 0 ? (
             <div style={{ padding: '1rem', color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-              No graph snapshot is available for this instance.
+              {m.noGraph}
             </div>
           ) : (
             <ReactFlow
@@ -306,41 +309,41 @@ export default function InstanceDetailPage() {
         </div>
       </section>
 
-      <h3 style={{ marginBottom: '.75rem' }}>Variables</h3>
+      <h3 style={{ marginBottom: '.75rem' }}>{m.variables}</h3>
       <pre style={{ background: 'var(--color-neutral-100)', padding: '1rem', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', overflow: 'auto', marginBottom: '1.5rem' }}>
         {JSON.stringify(instanceVariables, null, 2)}
       </pre>
 
       <section style={{ marginBottom: '1.25rem' }}>
-        <h3 style={{ marginBottom: '.5rem' }}>Active Tasks</h3>
-        <DataTable columns={pendingTaskColumns} data={pendingTaskRows} emptyMessage="No active tasks." />
+        <h3 style={{ marginBottom: '.5rem' }}>{m.activeTasks}</h3>
+        <DataTable columns={pendingTaskColumns} data={pendingTaskRows} emptyMessage={m.noActiveTasks} />
       </section>
 
       <section style={{ marginBottom: '1.25rem' }}>
-        <h3 style={{ marginBottom: '.5rem' }}>Attachments</h3>
+        <h3 style={{ marginBottom: '.5rem' }}>{m.attachments}</h3>
         <AttachmentPanel instanceId={id!} />
       </section>
 
       <section style={{ marginBottom: '1.25rem' }}>
-        <h3 style={{ marginBottom: '.5rem' }}>Dependency Versions</h3>
+        <h3 style={{ marginBottom: '.5rem' }}>{m.dependencyVersions}</h3>
         <InstancePinsPanel instanceId={id!} />
       </section>
 
       <div style={{ display: 'flex', gap: '.5rem', borderBottom: '1px solid var(--border-default)', marginBottom: '1rem' }}>
         <Button variant="ghost" size="sm" pressed={activeTab === 'graph'} onClick={() => setActiveTab('graph')}>
-          Graph
+          {m.tabGraph}
         </Button>
         <Button variant="ghost" size="sm" pressed={activeTab === 'history'} onClick={() => setActiveTab('history')}>
-          History
+          {m.tabHistory}
         </Button>
         <Button variant="ghost" size="sm" pressed={activeTab === 'timeline'} onClick={() => setActiveTab('timeline')}>
-          Timeline
+          {m.tabTimeline}
         </Button>
       </div>
 
       {activeTab === 'graph' && (
         <>
-          <h3 style={{ marginBottom: '.75rem' }}>Process Graph with Tokens</h3>
+          <h3 style={{ marginBottom: '.75rem' }}>{m.graphHeading}</h3>
           <GraphModeSwitch mode={graphMode} onChange={setGraphMode} />
           <CoreHelpLink topic="instanceReplay" />
           {graphMode === 'live' ? <ProcessGraphWithTokens instanceId={id!} /> : <InstanceReplay instanceId={id!} />}
@@ -349,16 +352,16 @@ export default function InstanceDetailPage() {
 
       {activeTab === 'history' && (
         <>
-          <h3 style={{ marginBottom: '.75rem' }}>Event history</h3>
+          <h3 style={{ marginBottom: '.75rem' }}>{m.historyHeading}</h3>
           <EventHistoryPanel instanceId={id!} />
         </>
       )}
 
       {activeTab === 'timeline' && (
         <>
-          <h3 style={{ marginBottom: '.75rem' }}>Timeline</h3>
+          <h3 style={{ marginBottom: '.75rem' }}>{m.timelineHeading}</h3>
           {scrubber.error && (
-            <p style={{ color: 'var(--color-error)', marginBottom: '.75rem' }}>Failed to load timeline scrubber.</p>
+            <p style={{ color: 'var(--color-error)', marginBottom: '.75rem' }}>{m.scrubberFailed}</p>
           )}
           <HistoryScrubber
             instanceId={id!}
@@ -370,7 +373,7 @@ export default function InstanceDetailPage() {
             onResumeLive={scrubber.resumeLive}
           />
           {timelineQuery.error && timelineItems.length === 0 && (
-            <p style={{ color: 'var(--color-error)' }}>Failed to load timeline.</p>
+            <p style={{ color: 'var(--color-error)' }}>{m.timelineFailed}</p>
           )}
           <TimelineFeed
             items={timelineItems}
