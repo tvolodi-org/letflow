@@ -9,11 +9,45 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import type { RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
-import { fetchAllRecords, fetchCodesPage } from './codes.api'
+import { DELETED_FALSE, fetchAllRecords, fetchCodesPage } from './codes.api'
 import { codesQueryKeys } from './codesQueryKeys'
-import { MAX_BATCH, errorMessageId, reasonOf } from './codesModel'
+import { CODE_ASSIGNMENT, MAX_BATCH, errorMessageId, reasonOf } from './codesModel'
 
 /** All rows of a type matching the filters. `scope` names the filter set in the cache key. */
+// The open assignments of the assigned codes loaded so far, in `code_id in` chunks (T-1802): the list is paged,
+// so the assignments are not read for the whole tenant.
+const OPEN_CHUNK = 200
+const OPEN_ASSIGNMENT: EntityQueryFilterClause = { field: 'released_at', op: 'is_null' }
+
+export function useOpenAssignments(assignedIds: string[]) {
+  const { session } = useAuth()
+  const tenantId = session?.tenant_id ?? ''
+  return useQuery({
+    queryKey: codesQueryKeys.list(
+      tenantId,
+      CODE_ASSIGNMENT,
+      `open|${assignedIds.length}|${assignedIds[0] ?? ''}|${assignedIds[assignedIds.length - 1] ?? ''}`,
+    ),
+    queryFn: async () => {
+      const out: EntityRecord[] = []
+      for (let i = 0; i < assignedIds.length; i += OPEN_CHUNK) {
+        const chunk = assignedIds.slice(i, i + OPEN_CHUNK)
+        out.push(
+          ...(await fetchAllRecords(
+            CODE_ASSIGNMENT,
+            [DELETED_FALSE, OPEN_ASSIGNMENT, { field: 'code_id', op: 'in', value: chunk }],
+            'assigned_at',
+          )),
+        )
+      }
+      return out
+    },
+    enabled: assignedIds.length > 0,
+    placeholderData: keepPreviousData,
+    retry: false,
+  })
+}
+
 export function useCodeRows(
   type: string,
   scope: string,

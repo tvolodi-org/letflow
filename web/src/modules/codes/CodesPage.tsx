@@ -7,9 +7,7 @@
  *  the Retire confirmation. The panel stays open while other rows are clicked, has a close button and closes on
  *  Escape. Targets are read through the generic query route (no other module's code is imported). */
 import { useEffect, useMemo, useState } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
-import { useAuth } from '@/auth/AuthContext'
 import { Search, Plus, Printer, X } from 'lucide-react'
 import { useAccess } from '@/auth/access/useAccess'
 import { Button } from '@/components/ui/Button'
@@ -26,12 +24,11 @@ import { MasterDetail } from '@/components/ui/MasterDetail'
 import { Select } from '@/components/ui/Select'
 import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
 import { useToast } from '@/hooks/useToast'
-import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
+import type { EntityRecord } from '@/types/api'
 import { classifyError } from '@/utils/classifyError'
-import { DELETED_FALSE, codesApi, fetchAllRecords, type ReceiveEntry } from './codes.api'
-import { codesQueryKeys } from './codesQueryKeys'
+import { DELETED_FALSE, codesApi, type ReceiveEntry } from './codes.api'
 import { CodesIntlProvider } from './CodesIntlProvider'
-import { CodesShell, errorText, useCodeRows, useCodeTagRows } from './CodesShell'
+import { CodesShell, errorText, useCodeRows, useCodeTagRows, useOpenAssignments } from './CodesShell'
 import type { CodesUiLocale } from './codesMessages'
 import {
   CODE_ASSIGNMENT,
@@ -71,8 +68,6 @@ function receive(entries: ReceiveEntry[], key: string) {
 }
 
 /** Codes per `code_id in` request of the open-assignment lookup (at most one open assignment per code). */
-const OPEN_CHUNK = 200
-const OPEN_ASSIGNMENT: EntityQueryFilterClause = { field: 'released_at', op: 'is_null' }
 
 /** Tone and glyph per status: a word and a shape, never colour alone. */
 const STATUS_LOOK: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
@@ -155,36 +150,11 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
 
   // The open assignments of the assigned codes loaded so far, in `code_id in` chunks (T-1802): the list is paged,
   // so the assignments are not read for the whole tenant.
-  const { session } = useAuth()
-  const tenantId = session?.tenant_id ?? ''
   const assignedIds = useMemo(
     () => codes.filter((c) => textOf(c, 'status') === 'assigned').map((c) => c.record_id),
     [codes],
   )
-  const open = useQuery({
-    queryKey: codesQueryKeys.list(
-      tenantId,
-      CODE_ASSIGNMENT,
-      `open|${assignedIds.length}|${assignedIds[0] ?? ''}|${assignedIds[assignedIds.length - 1] ?? ''}`,
-    ),
-    queryFn: async () => {
-      const out: EntityRecord[] = []
-      for (let i = 0; i < assignedIds.length; i += OPEN_CHUNK) {
-        const chunk = assignedIds.slice(i, i + OPEN_CHUNK)
-        out.push(
-          ...(await fetchAllRecords(
-            CODE_ASSIGNMENT,
-            [DELETED_FALSE, OPEN_ASSIGNMENT, { field: 'code_id', op: 'in', value: chunk }],
-            'assigned_at',
-          )),
-        )
-      }
-      return out
-    },
-    enabled: assignedIds.length > 0,
-    placeholderData: keepPreviousData,
-    retry: false,
-  })
+  const open = useOpenAssignments(assignedIds)
   const targetOpts = { enabled: needTargets }
   const targetQueries = [
     useCodeRows(TARGET_TYPES[0], 'all', [DELETED_FALSE], targetOpts),
