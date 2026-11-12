@@ -14,6 +14,7 @@ defmodule Letflow.Modules.Assets.OpeningRouterTest do
   alias Letflow.AssetsDocsFixture, as: D
   alias Letflow.AssetsRegisterFixture, as: S
   alias Letflow.Documents.DocumentType
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Repo
 
   @moduletag timeout: 240_000
@@ -23,7 +24,7 @@ defmodule Letflow.Modules.Assets.OpeningRouterTest do
     {:ok, Map.merge(ctx, D.tenant_b!(ctx))}
   end
 
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
 
   defp save!(ctx, extra \\ %{}), do: D.save!(ctx, D.opening_body(ctx.ma, extra))
 

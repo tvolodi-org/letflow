@@ -18,6 +18,7 @@ defmodule Letflow.Modules.Assets.DocumentsRouterTest do
   alias Letflow.Documents.DocumentType
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.Installs
   alias Letflow.Repo
   alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
@@ -29,7 +30,7 @@ defmodule Letflow.Modules.Assets.DocumentsRouterTest do
   end
 
   defp reason(conn, status), do: conn |> D.status!(status) |> Map.fetch!("reason")
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
 
   describe "D1 save" do
     test "creates a versioned draft, the header and the lines", ctx do
