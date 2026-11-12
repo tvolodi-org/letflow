@@ -10,9 +10,6 @@ defmodule Letflow.Modules.Codes.ResolveRouterTest do
 
   use Letflow.DataCase, async: false
 
-  import Plug.Conn
-  import Plug.Test
-
   alias Letflow.CodesFixture, as: Fx
   alias Letflow.Identity
   alias Letflow.Identity.User
