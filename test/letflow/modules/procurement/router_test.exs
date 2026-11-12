@@ -20,6 +20,7 @@ defmodule Letflow.Modules.Procurement.RouterTest do
   alias Letflow.Modules.Procurement.PurchaseRequests
   alias Letflow.Modules.Procurement.Router
   alias Letflow.ProcurementFixture, as: Fixture
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Repo
 
   @base "/api/v1/modules/procurement/purchase-requests"
@@ -52,7 +53,7 @@ defmodule Letflow.Modules.Procurement.RouterTest do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
-  defp json(conn), do: Jason.decode!(conn.resp_body)
+  defp json(conn), do: M.json(conn)
 
   defp decision_body(request, overrides \\ %{}) do
     Map.merge(

@@ -17,6 +17,7 @@ defmodule Letflow.Modules.Assets.CardLocksTest do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.Assets.CardLocks
   alias Letflow.Modules.Org
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Repo
 
   setup do
@@ -233,7 +234,7 @@ defmodule Letflow.Modules.Assets.CardLocksTest do
     assert fv(ctx.schema, id) == before
   end
 
-  defp strip(body), do: body |> Jason.decode!() |> Map.delete("trace_id")
+  defp strip(body), do: body |> Jason.decode!() |> M.strip()
 
   test "L12 a refused call is not cached: the same key refuses again", ctx do
     posted!(ctx)

@@ -18,6 +18,7 @@ defmodule Letflow.Modules.RuntimeDemo.RouterTest do
   alias Letflow.Identity
   alias Letflow.Identity.User
   alias Letflow.Modules.TenantModule
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Repo
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning.ColumnPromotion
@@ -97,7 +98,7 @@ defmodule Letflow.Modules.RuntimeDemo.RouterTest do
     |> Letflow.Router.call(Letflow.Router.init([]))
   end
 
-  defp json(conn), do: Jason.decode!(conn.resp_body)
+  defp json(conn), do: M.json(conn)
 
   defp install!(user) do
     conn =
