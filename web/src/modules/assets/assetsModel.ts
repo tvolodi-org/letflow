@@ -130,15 +130,6 @@ export function decimalError(text: string): 'format' | 'size' | null {
   return int.length > 15 || frac.length > 9 ? 'size' : null
 }
 
-/** Case-insensitive match of the search text against inventory number and name. */
-export function matchesSearch(record: EntityRecord, search: string): boolean {
-  const q = search.trim().toLowerCase()
-  if (q === '') return true
-  return (
-    textOf(record, 'inventory_number').toLowerCase().includes(q) || textOf(record, 'name').toLowerCase().includes(q)
-  )
-}
-
 export interface AssetsErrorInfo {
   status?: number
   reason?: string

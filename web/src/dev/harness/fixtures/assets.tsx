@@ -54,7 +54,7 @@ const PEOPLE: EntityRecord[] = [
 
 type Clause = { field: string; op: string; value?: unknown }
 
-function answer(state: string, body: unknown) {
+function answer(state: string, body: unknown, more = false) {
   const b = (body ?? {}) as { entity_type?: string; filters?: Clause[] }
   const all =
     b.entity_type === 'assets_card'
@@ -73,13 +73,19 @@ function answer(state: string, body: unknown) {
       : all.filter(
           (r) => (!onlyActive || r.field_values['active'] === true) && eqs.every((f) => r.field_values[f.field] === f.value),
         )
-  return { status: 200, body: { items, next_cursor: null } }
+  // T-1793: `more` answers a first page that has a next page, so the truncation notice and Load more show
+  return { status: 200, body: { items, next_cursor: more && b.entity_type === 'assets_card' ? 'next-page' : null } }
 }
 
 const routes: FixtureRoute[] = [
   { match: (path, method) => path === '/api/v1/entities/query' && method === 'POST', reply: (state, _path, body) => answer(state, body) },
   // a write answers an empty object so a click in the harness does not fail
   { match: (path, method) => path.startsWith('/api/v1/modules/assets/') && method !== 'GET', reply: () => ({ status: 200, body: {} }) },
+]
+
+const moreRoutes: FixtureRoute[] = [
+  { match: (path, method) => path === '/api/v1/entities/query' && method === 'POST', reply: (state, _path, body) => answer(state, body, true) },
+  ...routes,
 ]
 
 // T-1488: the holder section reads GET balances?asset=<id> and needs AssetsRead.
@@ -129,6 +135,7 @@ function withAuth(page: ReactElement, access: AccessState = WRITER_ONLY): ReactE
 
 export const assetsScreens: HarnessScreen[] = [
   { name: 'asset-cards', routes, render: () => withAuth(<AssetCardsPage />) },
+  { name: 'asset-cards-more', routes: moreRoutes, render: () => withAuth(<AssetCardsPage />) },
   { name: 'asset-cards-detail', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />) },
   { name: 'asset-cards-dep-single', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-9" />) },
   { name: 'asset-cards-dep-none', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-2" />) },

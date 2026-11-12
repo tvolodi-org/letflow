@@ -1,6 +1,6 @@
 /** AssetCardsPage — T-1333 / C13. The asset card list on the left, the chosen card on the right (MasterDetail; owner
  *  rule 2026-11-03: viewing and editing one record happens in the detail panel, not in a modal). Filters: kind and
- *  org unit go to the server, the text search narrows the loaded rows, "Show retired" lifts the active filter.
+ *  org unit go to the server, the text search runs on the server (number and name), the list is paged, "Show retired" lifts the active filter.
  *  Create and edit use the panel; retire is a short single-answer action, so it is a ConfirmDialog. A retired card
  *  is read-only. There is no "responsible" filter: the card holds no responsible person (the register does, C14). */
 import { useMemo, useState } from 'react'
@@ -28,7 +28,7 @@ import { AssetCardForm, unitName, type Cmd } from './AssetCardForm'
 import { AssetsIntlProvider } from './AssetsIntlProvider'
 import { AssetsShell, useAssetRows, useErrorText, useOrgUnitRows } from './AssetsShell'
 import { HelpLink } from '@/components/help/HelpLink'
-import { ASSET_KINDS, isActive, matchesSearch, textOf } from './assetsModel'
+import { ASSET_KINDS, isActive, textOf } from './assetsModel'
 import { useAssetsWrite, type AssetsWriteResult } from './useAssetsWrite'
 
 function run(cmd: Cmd, key: string) {
@@ -46,7 +46,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
   const [orgUnitId, setOrgUnitId] = useState('')
   const [search, setSearch] = useState('')
   const [showRetired, setShowRetired] = useState(false)
-  const rows = useAssetRows({ kind, orgUnitId, showRetired })
+  const assetRows = useAssetRows({ kind, orgUnitId, showRetired }, search)
   const unitsQuery = useOrgUnitRows()
   const write = useAssetsWrite<Cmd>(run)
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
@@ -54,9 +54,12 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
   const [retiring, setRetiring] = useState<EntityRecord | null>(null)
 
   const units = useMemo(() => unitsQuery.data ?? [], [unitsQuery.data])
-  const loaded = useMemo(() => rows.data ?? [], [rows.data])
-  const cards = useMemo(() => loaded.filter((c) => matchesSearch(c, search)), [loaded, search])
-  const selected = loaded.find((c) => c.record_id === selectedId) ?? null
+  const cards = assetRows.rows
+  // the list is paged and searched on the server: a chosen card may leave the loaded rows, so keep the clicked one
+  // as a fallback (the loaded row wins, it is fresher after a save)
+  const [picked, setPicked] = useState<EntityRecord | null>(null)
+  const selected =
+    cards.find((c) => c.record_id === selectedId) ?? (picked?.record_id === selectedId ? picked : null)
   const panelOpen = creating || selected !== null
   const dialogOpen = retiring !== null
   const unitLabel = (id: string) => {
@@ -74,6 +77,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
     write.clearError()
     setCreating(false)
     setSelectedId(card.record_id)
+    setPicked(card)
   }
   function startCreate() {
     write.clearError()
@@ -223,7 +227,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
       <div className="lf-btn-row lf-btn-row--between">
         <Checkbox label={t('assets.common.showRetired')} checked={showRetired} onChange={setShowRetired} />
         <span className="caption lf-faint">
-          <span className="mono">{cards.length}</span> {t('assets.page.countUnit')}
+          <span className="mono">{cards.length}{assetRows.truncated ? '+' : ''}</span> {t('assets.page.countUnit')}
         </span>
       </div>
     </FilterBar>
@@ -234,7 +238,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
       title={t('assets.page.title')}
       eyebrow={t('assets.page.eyebrow')}
       lede={t('assets.page.lede')}
-      queries={[rows, unitsQuery]}
+      queries={[...assetRows.queries, unitsQuery]}
       actions={
         <>
           <HelpLink to="/admin/assets/help/cards" label={t('assets.help.link')} />
@@ -247,7 +251,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
           <span id="assets-error">{errorText(write.error)}</span>
         </Banner>
       ) : null}
-      {loaded.length === 0 && !panelOpen && !filtersActive && !showRetired ? (
+      {cards.length === 0 && !panelOpen && !filtersActive && !showRetired ? (
         <EmptyState
           title={t('assets.page.emptyTitle')}
           text={t('assets.page.emptyText')}
@@ -269,6 +273,14 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
             detailOpen={panelOpen}
             onBack={closePanel}
             master={
+              <>
+              {assetRows.truncated ? (
+                <Banner tone="info">
+                  <span data-testid="asset-truncated">
+                    {t(assetRows.searching ? 'assets.page.truncatedSearch' : 'assets.page.truncatedList', { count: String(cards.length) })}
+                  </span>
+                </Banner>
+              ) : null}
               <DataTable
                 columns={columns}
                 data={cards}
@@ -284,6 +296,14 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
                   </Button>
                 }
               />
+              {assetRows.hasMore ? (
+                <div className="lf-btn-row">
+                  <Button variant="secondary" size="md" loading={assetRows.loadingMore} onClick={assetRows.loadMore} data-testid="asset-load-more">
+                    {t('assets.page.loadMore')}
+                  </Button>
+                </div>
+              ) : null}
+              </>
             }
             detail={detail}
           />
