@@ -28,3 +28,7 @@ If you are a platform operator, a new screen shows how a new version of a module
 ## 5. Sign-in for users you create (not switched on yet)
 
 Users made on the Users screen or by the Excel import do not have a sign-in of their own yet. A button that would create a first password for them exists, but **it is switched off**: it answers "not available" and changes nothing. Do not retry it. Until the platform owner switches it on, ask your platform operator to create the sign-in for each new user, as before.
+
+## 6. Long lists: "Load more" and the "showing the first" notice
+
+Screens with many records no longer stop silently. The asset cards screen and the codes screen load their lists in parts: press "Load more" under the list, or narrow it with the filters and the search. The items, locations and org units screens, and the pickers on the stock and asset screens (item, location, employee), now read up to 10 000 records of a kind, so a record far down the list can be chosen. When a list is still longer than that, a notice on the screen says how many records are shown and that the rest cannot be reached from there. If you see such a notice, narrow the list with the filters. The screen **Help: long lists** (`/help/longLists`) explains it in three tasks.
