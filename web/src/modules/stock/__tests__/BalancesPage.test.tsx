@@ -173,6 +173,8 @@ describe('T3 export', () => {
     await within(await screen.findByRole('table')).findByText('Bolt M8')
     fireEvent.change(screen.getByLabelText('As of date'), { target: { value: '2026-11-03' } })
     await waitFor(() => expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({ as_of_date: '2026-11-03' }))
+    // the button is disabled while the refetch for the new day is pending: wait for it, do not click a disabled button
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Export to Excel' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Export to Excel' }))
     await waitFor(() => expect(click).toHaveBeenCalled())
     expect(clientMock.getBlob).toHaveBeenCalledWith('/api/v1/modules/stock/balances', { as_of_date: '2026-11-03', format: 'xlsx' })
