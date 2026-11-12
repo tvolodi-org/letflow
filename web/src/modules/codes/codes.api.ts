@@ -49,3 +49,28 @@ export async function fetchAllRecords(
   }
   return out
 }
+
+/** Codes per request of the code list and of each "Load more" (T-1802). */
+export const CODE_PAGE_SIZE = 100
+
+export interface CodesPage {
+  items: EntityRecord[]
+  next_cursor: string | null
+}
+
+/** One page of records of a type, ascending by `sortField`. */
+export async function fetchCodesPage(
+  type: string,
+  filters: EntityQueryFilterClause[],
+  cursor?: string,
+  sortField = 'value',
+  pageSize = CODE_PAGE_SIZE,
+): Promise<CodesPage> {
+  const res = await entitiesApi.queryRecords(type, {
+    filters,
+    sort: [{ field: sortField, dir: 'asc' }],
+    page_size: pageSize,
+    ...(cursor ? { cursor } : {}),
+  })
+  return { items: res.items, next_cursor: res.next_cursor ?? null }
+}

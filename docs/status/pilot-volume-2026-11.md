@@ -182,3 +182,6 @@ Each of the four modules has its own copy of `fetchAllRecords` with the same `MA
   server (`contains` on name/code) instead of a fixed first page of 200.
 * Method limits: one host, other sessions running; one run per row (the cards measurement used five); 12 000 rows, so the
   numbers say "at the cap", not "at the pilot's count"; browser render time not measured; no QA measurement.
+* Update (T-1802, B17#1): item (1) landed for the Codes screen: the code list is paged on the server (100 per request,
+  "Load more", a notice with the count while more pages exist) and the open assignments are read only for the assigned
+  codes loaded (`code_id in`, chunks of 200). Items (2) and (3), and the target lookups of the Codes screen, stay open.
