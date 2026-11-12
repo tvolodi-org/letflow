@@ -9,11 +9,9 @@ defmodule Letflow.Modules.Org.RouterTest do
 
   use Letflow.DataCase, async: false
 
-  import Plug.Conn
-  import Plug.Test
-
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.Org
   alias Letflow.OrgFixture
   alias Letflow.Repo
@@ -46,25 +44,10 @@ defmodule Letflow.Modules.Org.RouterTest do
     %{user_id: user.id, plaintext: plaintext, slug: ctx.slug}
   end
 
-  defp call(method, path, user, body) do
-    conn =
-      case body do
-        nil ->
-          conn(method, @base <> path)
+  defp call(method, path, user, body),
+    do: M.call(method, @base, path, user, body, "t-3613")
 
-        body ->
-          conn(method, @base <> path, Jason.encode!(body))
-          |> put_req_header("content-type", "application/json")
-      end
-
-    conn
-    |> put_req_header("authorization", "Bearer " <> user.plaintext)
-    |> put_req_header("x-tenant-slug", user.slug)
-    |> put_req_header("x-trace-id", "t-3613")
-    |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
-  end
-
-  defp json(conn), do: Jason.decode!(conn.resp_body)
+  defp json(conn), do: M.json(conn)
   defp key, do: "k-" <> Ecto.UUID.generate()
 
   defp ok!(conn, status) do
@@ -125,7 +108,7 @@ defmodule Letflow.Modules.Org.RouterTest do
     rec
   end
 
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
 
   describe "routes R1..R17" do
     test "R1-R3 legal entity create, update, retire", ctx do
