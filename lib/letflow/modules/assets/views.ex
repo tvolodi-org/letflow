@@ -11,6 +11,8 @@ defmodule Letflow.Modules.Assets.Views do
   quantity, unit_ref, masked: true`; the slot keys are absent, not nil.
   """
 
+  alias Letflow.Modules.KeyHelpers
+
   @doc "An `asset_balance` view."
   @spec asset_balance(map()) :: map()
   def asset_balance(%{k: k, unit_ref: unit_ref, quantity: quantity, last_posting_seq: seq}) do
@@ -61,19 +63,14 @@ defmodule Letflow.Modules.Assets.Views do
   end
 
   defp slots(k) do
-    [asset, org_unit, location, responsible, user] = pad(k)
+    [asset, org_unit, location, responsible, user] = KeyHelpers.pad(k)
 
     %{
       asset: asset,
       org_unit: org_unit,
-      location: empty_to_nil(location),
+      location: KeyHelpers.empty_to_nil(location),
       material_responsible: responsible,
-      actual_user: empty_to_nil(user)
+      actual_user: KeyHelpers.empty_to_nil(user)
     }
   end
-
-  defp pad(k), do: k |> Enum.take(5) |> then(&(&1 ++ List.duplicate(nil, 5 - length(&1))))
-
-  defp empty_to_nil(""), do: nil
-  defp empty_to_nil(value), do: value
 end

@@ -57,9 +57,10 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
   alias Letflow.Entities.Record.Latest
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Ledger
+  alias Letflow.Modules.KeyHelpers
   alias Letflow.Modules.Stock.ActorLabel
-  alias Letflow.Modules.Stock.Documents.OpeningPosting
   alias Letflow.Modules.Stock.Documents.Kinds
+  alias Letflow.Modules.Stock.Documents.OpeningPosting
   alias Letflow.Repo
 
   @reversal_definition "stock_reversal"
@@ -873,7 +874,7 @@ defmodule Letflow.Modules.Stock.Documents.Posting do
     actual == expected
   end
 
-  defp pad(k), do: k |> Enum.take(5) |> then(&(&1 ++ List.duplicate(nil, 5 - length(&1))))
+  defp pad(k), do: KeyHelpers.pad(k)
 
   @doc false
   def leg_key(sku, location, org_unit, responsible, lot, unit, quantity) do

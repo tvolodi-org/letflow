@@ -43,6 +43,42 @@ defmodule Letflow.Documents.XlsxStyle do
   def cell_json(nil), do: nil
   def cell_json(value), do: Jason.encode!(value)
 
+  @doc """
+  B16#4: a quantity cell value. nil stays nil; a parseable decimal binary or a `Decimal` becomes a
+  float when it has at most 15 significant digits and a sane exponent, otherwise the text form is
+  kept (exact value: JSON); an integer is returned as-is; anything else falls back to `cell_text/1`.
+  (Shared by the assets and stock xlsx exports; previously a private helper in each.)
+  """
+  @spec cell_quantity(term()) :: number() | String.t() | nil
+  def cell_quantity(nil), do: nil
+
+  def cell_quantity(value) when is_binary(value) do
+    case Decimal.parse(value) do
+      {%Decimal{} = d, ""} -> cell_number_or_text(d, value)
+      _ -> value
+    end
+  end
+
+  def cell_quantity(%Decimal{} = d), do: cell_number_or_text(d, Decimal.to_string(d, :normal))
+  def cell_quantity(value) when is_integer(value), do: value
+  def cell_quantity(value), do: cell_text(value)
+
+  @doc """
+  B16#4: returns a float when the `Decimal` has at most 15 significant digits and its exponent is
+  within ±300; otherwise returns `as_text`. Covers infinity, NaN and rescue on malformed coeff.
+  (Shared by the assets and stock xlsx exports; previously a private helper in each.)
+  """
+  @spec cell_number_or_text(Decimal.t(), String.t()) :: float() | String.t()
+  def cell_number_or_text(%Decimal{coef: coef} = d, as_text) do
+    digits = coef |> Integer.to_string() |> String.trim_trailing("0") |> byte_size()
+
+    if Decimal.inf?(d) or Decimal.nan?(d) or digits > 15 or abs(d.exp) > 300,
+      do: as_text,
+      else: Decimal.to_float(d)
+  rescue
+    _ -> as_text
+  end
+
   @doc "The sheet with its first row as a bold, frozen header and widths fitted to the content."
   @spec style(Sheet.t(), boolean()) :: Sheet.t()
   def style(sheet, header? \\ true)

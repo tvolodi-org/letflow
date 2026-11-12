@@ -10,6 +10,8 @@ defmodule Letflow.Modules.Stock.Views do
   masked: true`; the slot keys are absent, not nil.
   """
 
+  alias Letflow.Modules.KeyHelpers
+
   @doc "A `stock_balance` view."
   @spec stock_balance(map()) :: map()
   def stock_balance(%{k: k, unit_ref: unit_ref, quantity: quantity, last_posting_seq: seq}) do
@@ -60,19 +62,14 @@ defmodule Letflow.Modules.Stock.Views do
   end
 
   defp slots(k) do
-    [sku, location, org_unit, responsible, lot] = pad(k)
+    [sku, location, org_unit, responsible, lot] = KeyHelpers.pad(k)
 
     %{
       sku: sku,
       location: location,
       org_unit: org_unit,
-      responsible: empty_to_nil(responsible),
-      lot: empty_to_nil(lot)
+      responsible: KeyHelpers.empty_to_nil(responsible),
+      lot: KeyHelpers.empty_to_nil(lot)
     }
   end
-
-  defp pad(k), do: k |> Enum.take(5) |> then(&(&1 ++ List.duplicate(nil, 5 - length(&1))))
-
-  defp empty_to_nil(""), do: nil
-  defp empty_to_nil(value), do: value
 end

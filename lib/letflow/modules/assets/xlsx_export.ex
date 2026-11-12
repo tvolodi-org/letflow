@@ -91,27 +91,5 @@ defmodule Letflow.Modules.Assets.XlsxExport do
   defp text(value), do: XlsxStyle.cell_text(value)
   defp scalar(value), do: XlsxStyle.cell_scalar(value)
   defp json(value), do: XlsxStyle.cell_json(value)
-
-  defp quantity(nil), do: nil
-
-  defp quantity(value) when is_binary(value) do
-    case Decimal.parse(value) do
-      {%Decimal{} = d, ""} -> number_or_text(d, value)
-      _ -> value
-    end
-  end
-
-  defp quantity(%Decimal{} = d), do: number_or_text(d, Decimal.to_string(d, :normal))
-  defp quantity(value) when is_integer(value), do: value
-  defp quantity(value), do: text(value)
-
-  defp number_or_text(%Decimal{coef: coef} = d, as_text) do
-    digits = coef |> Integer.to_string() |> String.trim_trailing("0") |> byte_size()
-
-    if Decimal.inf?(d) or Decimal.nan?(d) or digits > 15 or abs(d.exp) > 300,
-      do: as_text,
-      else: Decimal.to_float(d)
-  rescue
-    _ -> as_text
-  end
+  defp quantity(value), do: XlsxStyle.cell_quantity(value)
 end
