@@ -8,8 +8,7 @@ defmodule Letflow.Modules.Codes.LabelsRouterTest do
 
   use Letflow.DataCase, async: false
 
-  import Plug.Conn
-  import Plug.Test
+  import Plug.Conn, only: [get_resp_header: 2]
 
   alias Letflow.CodesFixture, as: Fx
   alias Letflow.Identity
@@ -46,14 +45,7 @@ defmodule Letflow.Modules.Codes.LabelsRouterTest do
     %{user_id: user.id, plaintext: plaintext, slug: ctx.slug}
   end
 
-  defp labels(user, body) do
-    conn(:post, @base <> "/labels", Jason.encode!(body))
-    |> put_req_header("content-type", "application/json")
-    |> put_req_header("authorization", "Bearer " <> user.plaintext)
-    |> put_req_header("x-tenant-slug", user.slug)
-    |> put_req_header("x-trace-id", "t-4017")
-    |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
-  end
+  defp labels(user, body), do: M.call(:post, @base, "/labels", user, body, "t-4017")
 
   defp json(conn), do: M.json(conn)
   defp strip(body), do: M.strip(body)
