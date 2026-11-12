@@ -173,4 +173,31 @@ defmodule Letflow.Modules.RouterKitTest do
       refute src =~ "binary_to_term"
     end
   end
+
+  describe "S7g: adoption pin" do
+    test "no module router defines again a function the kit owns" do
+      routers = Path.wildcard("lib/letflow/modules/*/router.ex")
+      assert length(routers) >= 9
+
+      owned = ~r/^\s*defp?\s+(check_keys|pop_key|elem_tag|limit|cursor|uint)\s*\(/m
+      # assets keeps a two-argument with_request/2 wrapper around the kit's pop_key/1;
+      # only a three-argument definition would copy the kit's with_request/3.
+      owned_with_request = ~r/^\s*defp?\s+with_request\s*\([^,()]+,[^,()]+,/m
+
+      offenders =
+        for path <- routers,
+            src = File.read!(path),
+            Regex.match?(owned, src) or Regex.match?(owned_with_request, src),
+            do: path
+
+      assert offenders == []
+    end
+
+    test "the scan pattern catches a re-defined kit function" do
+      owned = ~r/^\s*defp?\s+(check_keys|pop_key|elem_tag|limit|cursor|uint)\s*\(/m
+      assert Regex.match?(owned, "  defp uint(v), do: v\n")
+      assert Regex.match?(owned, "  def elem_tag(t), do: t\n")
+      refute Regex.match?(owned, "  defp uint_value(v), do: v\n")
+    end
+  end
 end
