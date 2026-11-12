@@ -1079,12 +1079,12 @@ defmodule Letflow.Entities.Query.Compiler do
         :latest ->
           Latest
           |> where([r], r.entity_type == ^entity_type)
-          |> where([r], ^combined)
+          |> apply_filter(combined)
 
         {:per_type_table, table_name} ->
           table_name
           |> from()
-          |> where([r], ^combined)
+          |> apply_filter(combined)
       end
 
     apply_primary_scope(query, plan, :positional)
@@ -1098,7 +1098,7 @@ defmodule Letflow.Entities.Query.Compiler do
       end
 
     base
-    |> where([r], ^combined)
+    |> apply_filter(combined)
     |> apply_primary_scope(plan, {:named, :primary})
     |> add_all_hops(prepared_joins, plan)
   end
@@ -1445,11 +1445,19 @@ defmodule Letflow.Entities.Query.Compiler do
   # Design §5.1 step 3: starting from a `true` identity value, fold every
   # clause's dynamic left-to-right, ANDing each successive fragment onto the
   # accumulator -- implicit AND across all filter clauses.
+  #
+  # No clauses -> `nil`, and `apply_filter/2` adds no `where`. Ecto >= 3.14.3 keeps an
+  # interpolated `dynamic(true)` and emits `WHERE (TRUE)`; the pre-change SQL had no WHERE.
+  defp combine_filters([]), do: nil
+
   defp combine_filters(dynamics) do
     Enum.reduce(dynamics, dynamic(true), fn clause_dynamic, acc ->
       dynamic(^acc and ^clause_dynamic)
     end)
   end
+
+  defp apply_filter(query, nil), do: query
+  defp apply_filter(query, combined), do: where(query, [r], ^combined)
 
   defp apply_order_bys(query, []), do: query
 
@@ -1475,14 +1483,14 @@ defmodule Letflow.Entities.Query.Compiler do
           :latest ->
             Latest
             |> where([r], r.entity_type == ^entity_type)
-            |> where([r], ^combined)
+            |> apply_filter(combined)
             |> apply_primary_scope(plan, :positional)
             |> apply_order_bys(order_bys)
 
           {:per_type_table, table_name} ->
             table_name
             |> from()
-            |> where([r], ^combined)
+            |> apply_filter(combined)
             |> apply_primary_scope(plan, :positional)
             |> apply_order_bys(order_bys)
             |> select_entity_row()
@@ -1543,7 +1551,7 @@ defmodule Letflow.Entities.Query.Compiler do
 
       query =
         base
-        |> where([r], ^combined)
+        |> apply_filter(combined)
         |> apply_primary_scope(plan, {:named, :primary})
         |> apply_order_bys(order_bys)
         |> add_all_hops(prepared_joins, plan)
