@@ -118,3 +118,67 @@ unique constraints and the reversal and offline paths); none is dropped here. On
   for the kind + org unit filter. Both are milliseconds at 20 000 cards / 200 000 legs.
 * Method limits: one host and one PostgreSQL container, other sessions running; 5 timed runs per read; the ledger
   entries have no audit entries; browser time not measured; no QA/production measurement.
+
+## Follow-up (T-1801, 2026-11-12): the other list screens at pilot size
+
+Question: do the stock, locations, items and codes screens have the same fetch-all-and-search-in-browser pattern as the
+asset cards had (fixed for the cards in B16#1)? Measured on the same local stack (one PostgreSQL container, shared
+12-CPU host), through the full `Letflow.Router` with a real bearer token. Repeat with:
+
+```
+MIX_TEST_PARTITION=<n> mix test --only pilot_volume test/letflow/performance/pilot_volume_lists_test.exs
+```
+
+(`PILOT_ROWS=<n>` shrinks the data set for a dry run; the default is 12 000 rows per type, about 4 minutes in total,
+of which seeding is 55 s per type with 4 workers.) Data set: 12 000 rows each of `catalog_item`, `code_tag`,
+`location_node`, `org_employee`, all active, through `Records` (owner path). 12 000 is one size above the 10 000 cap, not a
+claim about what a pilot holds: the pilot's own counts are not known to this note.
+
+### Which screens load everything (read from the code, `grep -rn fetchAllRecords web/src`)
+
+| screen (module) | read | where the search happens |
+|---|---|---|
+| asset cards (assets) | server-paged since B16#1 | server |
+| items, lots (catalog_items) | `fetchAllRecords`, 200 per page, `MAX_PAGES = 50` | browser (`LotsPage` filters the loaded items by `active`; no server search) |
+| codes (codes) | `fetchAllRecords` for `code_tag` (sorted by `value`), the open assignments, and the three target types | browser |
+| locations tree, links (locations) | `fetchAllRecords`, same loop | browser (the tree is built from all rows) |
+| org units, sites, positions, employees (org) | `fetchAllRecords`, same loop | browser |
+| stock register, documents, counts (stock) | balances, movements, documents, counts are cursor-paged by "Load more" (not fetch-all); the filter and form **pickers** (`usePickerOptions`, also the assets copy) read **one page of 200** | picker: none, the options are the first 200 records |
+
+Each of the four modules has its own copy of `fetchAllRecords` with the same `MAX_PAGES = 50`.
+
+### Results (ms; one run of the screen's loop, one request for the picker page)
+
+| type | loop pages | rows reached | server had more | loop time | per page | picker page (200) |
+|---|---|---|---|---|---|---|
+| `catalog_item` | 50 | 10 000 | **yes** | 2 530 | 51 | 47 ms, 200 rows, more on server |
+| `code_tag` | 50 | 10 000 | **yes** | 1 507 | 30 | (no picker) |
+| `location_node` | 50 | 10 000 | **yes** | 3 083 | 62 | 52 ms, 200 rows, more on server |
+| `org_employee` | 50 | 10 000 | **yes** | 2 792 | 56 | 48 ms, 200 rows, more on server |
+
+### Reading
+
+* **Silent truncation exists on all four loops.** Past 10 000 records of a type the loop stops after page 50 with a next
+  cursor still present and the screen shows no notice; rows 10 001.. are invisible and, since the search is in the browser,
+  unfindable. Same defect as the asset cards had.
+* **Speed is not the first problem:** 50 pages take 1.5 to 3.1 s before the browser parses 10 000 rows, i.e. at the
+  page-open limit of 3 000 ms used above for the cards.
+* **Which type can realistically get there:** `code_tag`, because one code is issued per card (20 000 cards in the
+  pilot-size set above means up to 20 000 codes), and the codes screen then also loads the cards, locations and org units
+  as assignment targets. Items, locations and employees reach 10 000 only in a large catalog; unknown for the pilot.
+* **Pickers show the first 200 and say nothing.** With more than 200 items, locations, units or people the filter and
+  document-form pickers cannot offer record 201 and later (the server answered with a next cursor in every picker row
+  above). The `useNames` label lookup is a separate read and is not affected.
+
+### Fixes made and left
+
+* Made: none in `web/` or `lib/`. This task measures; the data set that shows the defect is not a pilot count, and a
+  correct fix is a screen change per module (message in en/ru/kk, state shots, tests), which is more than "fix only what
+  is clearly broken" allows in one task. Added: the on-demand measurement `pilot_volume_lists_test.exs`.
+* Left, for the operator to queue, in this order: (1) **codes**: server-side paging and search for `code_tag` the way
+  B16#1 did for the cards (the `eq` on `value` already exists as the screen's value filter), plus a "showing the first
+  10 000" notice from the shared loop; (2) the same notice (no new paging) in the other three `fetchAllRecords` copies,
+  ideally by moving the loop to one shared helper that returns `truncated`; (3) pickers: a search box that queries the
+  server (`contains` on name/code) instead of a fixed first page of 200.
+* Method limits: one host, other sessions running; one run per row (the cards measurement used five); 12 000 rows, so the
+  numbers say "at the cap", not "at the pilot's count"; browser render time not measured; no QA measurement.
