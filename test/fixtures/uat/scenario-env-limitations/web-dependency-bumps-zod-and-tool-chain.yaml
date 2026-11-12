@@ -1,0 +1,11 @@
+scenario_id: web-dependency-bumps-zod-and-tool-chain
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "Web dependency bumps (B16#2a zod 3 to 4, GH #4319; B17#4 vitest, vite and typescript-eslint majors, GH #4327)"
+reason: >
+  NOT A BUSINESS BEHAVIOUR A USER CAN SEE. The tool chain (vitest, vite, plugins, linter) builds and tests the web application and is not in the shipped code the user runs; a UAT run against QA can only notice a broken screen, which every existing screen scenario already would. The zod library validates the generated record forms of the BilimBaga exam admin screens (web/src/utils/jsonSchemaToZod.ts, used by DynamicFormRenderer and EntityRecordForm, mounted only by web/src/modules/exam/BilimBagaEntityRoute.tsx through EntityCrudPage). No scenario in test/fixtures/uat/scenarios/bilimbaga drives those screens (via: ui), the exam application is not a priority (goal of this team, D-043), and the bump changed no rule: the new test web/src/utils/__tests__/jsonSchemaToZod.test.ts pins string length, pattern, email, number bounds, enum, optional, date, object and array. The Ecto bump is covered by the scenario assets-cards-3-list-without-filter-after-library-bump, and every API scenario is also a regression run of it.
+recorded_by: business-analyst
+recorded_at: "2026-11-12"
+issue_ref: "GH #4319, GH #4327"
+review: >
+  Revisit when a scenario exists for the BilimBaga exam administration screens; add a required-field and a pattern refusal on a generated form then.

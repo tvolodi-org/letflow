@@ -1,0 +1,120 @@
+# T-1810 (BA): regression check for the Ecto bump (B16#2b, build commit 67e0852c9, PR #4321, task T-1795). The bump changed how a list read with NO filter clause is built (Letflow.Entities.Query.Compiler: an empty filter list adds no WHERE; apply_filter/2, combine_filters/1).
+# Sources: lib/letflow/entities/query/compiler.ex (combine_filters([]) returns nil and apply_filter(query, nil) adds no where), lib/letflow/routers/entities.ex moduledoc (the list read is the query route; type gate, then the restricted-field guard, then the compiled query inside the caller's own company schema, INV-1),
+# docs/agents/instructions/security-invariants.md INV-1 and INV-5, docs/roles.md (asset rights: TENANT_ADMIN and PLATFORM_ADMIN only), scenario assets-access-1-worker-refusals-and-other-company (a worker's card list read answers 403; the other company's lists hold its own rows only).
+# Why a scenario: a list with no filter is the one query shape that lost its WHERE; the risk is a list that returns another company's rows or rows the filters used to hide. The tenant comes from the sign-in and the company's own schema, not from the filter, so the check is that nothing foreign appears.
+# The asset cards SCREEN always sends the "not deleted" filter, so it never takes this path; this scenario drives the list read directly (via: api).
+# NOT UAT-observable: the generated SQL text (a unit test, test/letflow/entities/query_scope_test.exs, QueryScopeTest T-C1 and T-C5, covers it); the aggregate and export reads with no filter (same compiler change, no roster-visible difference for a count of own rows; see the sweep note).
+---
+id: assets-cards-3-list-without-filter-after-library-bump
+scope: assets
+title: A card list read with no filter returns the company's own cards only, a filtered read still narrows, a worker is refused and another company sees none of the cards (regression after the Ecto bump)
+version: "1.0"
+tags: [assets, cards, regression, tenancy, refusal, dependencies]
+
+description: >
+  The SwiftRoute administrator creates a card INV-211 "Plotter". A list read of asset cards that names no filter at all returns INV-211 among SwiftRoute's own cards and no card of another company. The same
+  read with the filter "inventory number equals INV-211" returns exactly that card. A read with the filter "inventory number equals INV-NOPE" returns an empty list, not every card. The task worker Marco is refused the
+  unfiltered read. The administrator of BilimBaga reads its own card list with no filter and finds no INV-211. The administrator retires the card at the end.
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has the assets module installed and active; no card with inventory number INV-211 exists.
+    check: system_seeded
+    detail: If the module is not active, report BLOCKED for the whole scenario.
+  - description: BilimBaga has the assets module installed and holds no card with inventory number INV-211.
+    check: system_seeded
+    detail: If BilimBaga has no assets module, report BLOCKED for step 6 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator creates a fixed-asset card with inventory number INV-211 and name "Plotter". The answer is noted as C1.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator reads the asset card list with no filter, sorted by inventory number, 200 cards per page, and follows the page marker until the list ends. All pages together are noted as L1.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator reads the asset card list with the one filter "inventory number equals INV-211". The answer is noted as L2.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator reads the asset card list with the one filter "inventory number equals INV-NOPE". The answer is noted as L3.
+    via: api
+  - step: 5
+    actor: worker
+    action: >
+      The task worker reads the asset card list with no filter. The answer is noted as W1.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: other_admin
+    action: >
+      The administrator of BilimBaga reads its own asset card list with no filter, all pages. This is not a refusal: the tenant is taken from the sign-in and the answer holds BilimBaga's cards only. The answer is noted as O1.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator retires the card INV-211. The answer is noted as C2.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A list read with no filter is answered and holds the company's own card.
+    verification:
+      method: api_response
+      detail: Step 2 answers 200 on every page; L1 holds INV-211 "Plotter" once, and every row of L1 belongs to SwiftRoute (no card with a BilimBaga number or record id).
+      evidence: L1 and C1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Every list read with no filter fails or leaks after the library bump; the register cannot be read.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A filter still narrows the list, and a filter with no match does not widen it.
+    verification:
+      method: api_response
+      detail: Step 3 answers 200 and L2 holds exactly one card, INV-211; step 4 answers 200 and L3 is an empty list.
+      evidence: L2 and L3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A filter that returns every card makes a clerk act on the wrong asset.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A task worker is refused the unfiltered list.
+    verification:
+      method: api_response
+      detail: Step 5 answers 403 and W1 holds no card.
+      evidence: W1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A user without the asset right reads the asset register.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: Another company's unfiltered list holds none of SwiftRoute's cards.
+    verification:
+      method: api_response
+      detail: Step 6 answers 200; O1 holds no INV-211 and no row whose record id is in L1.
+      evidence: O1 compared with L1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company reads another company's assets through a query with no filter.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: The card is retired and the register is left as it was.
+    verification:
+      method: api_response
+      detail: Step 7 answers 200 and C2 shows INV-211 active false.
+      evidence: C2.
+    on_fail:
+      severity: MINOR
+      business_impact: A test card stays active in the register.
+      suggested_action: route_to_elixir_dev

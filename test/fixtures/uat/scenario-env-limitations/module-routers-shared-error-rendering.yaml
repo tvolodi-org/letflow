@@ -1,0 +1,11 @@
+scenario_id: module-routers-shared-error-rendering
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "One shared error rendering for the module routers (B16#3, GH #4326): the answers for not found, unknown field, invalid field, bad record payload, reused idempotency key and audit failure in the assets, items, codes, locations and org routers"
+reason: >
+  PARTLY COVERED. The change moved the clauses of five routers into the router kit and is meant to leave every answer as it was. For the assets router the refusals are observable and already in scenarios: unknown and other-company ids answer as an unknown card, the fixed 422 reasons and the 409 reuse of an idempotency key are in assets-cards-1-create-edit-retire-and-refusals, the 403 refusals in assets-access-1-worker-refusals-and-other-company. For the other four routers (catalog items, codes, locations, org) there is NO UAT scenario: a grep of test/fixtures/uat/scenarios finds none that drives them, so their error answers are checked only by the product's own tests (test/letflow/modules/router_kit_test.exs and each router's test file). The audit-failed answer needs a dropped table and is not UAT-observable. Writing scenarios for those four master-data modules is open work, named here, not done.
+recorded_by: business-analyst
+recorded_at: "2026-11-12"
+issue_ref: "GH #4326"
+review: >
+  Revisit when a master-data scenario exists for items, locations or org units; then add the refusal reasons there.
