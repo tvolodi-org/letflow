@@ -7,6 +7,8 @@ import { useAuth } from '@/auth/AuthContext'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS, anyTruncated } from '@/lib/entities/fetchAllRecords'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
@@ -24,6 +26,7 @@ export interface CardFilters {
 /** What the boundary needs from a query (an infinite query result fits too). */
 export type QueryLike = Pick<UseQueryResult<unknown>, 'isError' | 'error' | 'isPending' | 'fetchStatus'> & {
   refetch: () => unknown
+  data?: unknown
 }
 
 export interface AssetRows {
@@ -100,6 +103,7 @@ export function useOrgUnitRows(): UseQueryResult<EntityRecord[]> {
   return useQuery({
     queryKey: assetsQueryKeys.list(tenantId, ORG_UNIT, 'all'),
     queryFn: () => fetchAllRecords(ORG_UNIT, [DELETED_FALSE], 'code'),
+    structuralSharing: false, // keeps `truncated` on the list
     retry: false,
   })
 }
@@ -136,6 +140,7 @@ export function AssetsShell(props: {
         </Banner>
       ) : (
         <QueryStateBoundary state={state} onRetry={retry}>
+          {anyTruncated(props.queries) && <TruncatedNotice messageId="assets.common.truncated" count={MAX_ROWS} />}
           {props.children}
         </QueryStateBoundary>
       )}

@@ -12,6 +12,7 @@ export function resolveUiLocale(candidates?: readonly string[]): CodesUiLocale {
 }
 
 const en: Record<string, string> = {
+  'codes.common.truncated': 'Showing the first {count} records of a lookup list only; the list is longer, so some targets or history rows may be missing.',
   'codes.title': 'Codes',
   'codes.common.value': 'Value',
   'codes.common.kind': 'Kind',
@@ -124,6 +125,7 @@ const en: Record<string, string> = {
 }
 
 const ru: Record<string, string> = {
+  'codes.common.truncated': 'Справочный список показан не полностью: только первые {count} записей, поэтому некоторые объекты или строки истории могут отсутствовать.',
   'codes.title': 'Коды',
   'codes.common.value': 'Значение',
   'codes.common.kind': 'Тип',
@@ -236,6 +238,7 @@ const ru: Record<string, string> = {
 }
 
 const kk: Record<string, string> = {
+  'codes.common.truncated': 'Анықтамалық тізім толық көрсетілмеген: тек алғашқы {count} жазба, сондықтан кейбір нысандар немесе тарих жолдары болмауы мүмкін.',
   'codes.title': 'Кодтар',
   'codes.common.value': 'Мәні',
   'codes.common.kind': 'Түрі',

@@ -1,0 +1,11 @@
+scenario_id: codes-list-paging-and-notice
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "Codes screen paging (B17#1, GH #4328): 100 codes per request, the \"Load more\" button and the info banner with the count while more codes exist, filters by status and value narrowing the paged list"
+reason: >
+  NOT OBSERVABLE, not PASS, and NO SCENARIO EXISTS for the Codes screen at all (a grep of test/fixtures/uat/scenarios finds the codes module only as a certificate-code step in the exam scenarios and as an entry in default-module lists). The banner and "Load more" appear only with more than 100 codes in one view, and the roster cannot create that many (a code batch is created through the screen's own receive step, with no seeded volume on QA). The product's own tests prove the paging (web/src/modules/codes/__tests__/CodesPaging.test.tsx; harness fixture web/src/dev/harness/fixtures/codesPaged.tsx). Writing a first scenario for the Codes screen (receive a batch, filter by status, assign, access refusals) is open work, not done here: the screen's roster, the right it needs and the batch rules have not been read for this task.
+recorded_by: business-analyst
+recorded_at: "2026-11-12"
+issue_ref: "GH #4328"
+review: >
+  Revisit when the Codes screen gets its first scenario and a QA copy with more than 100 codes.
