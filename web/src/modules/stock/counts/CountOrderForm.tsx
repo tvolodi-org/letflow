@@ -10,7 +10,9 @@ import { Field } from '@/components/ui/Field'
 import { FormActions } from '@/components/ui/FormSection'
 import { Select } from '@/components/ui/Select'
 import { useToast } from '@/hooks/useToast'
-import { usePickerOptions } from '../register/stockPickers'
+import { usePickerOptions, anyPickerTruncated } from '../register/stockPickers'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { countsApi, type CountOrder } from './counts.api'
 import { COUNT_KINDS, EMPTY_ORDER_FORM, buildOrderBody, fieldOf, formFromOrder, orderFormProblems, reasonMessageId, type OrderField, type OrderForm } from './countsModel'
 import { useCountsWrite } from './useCountsWrite'
@@ -72,6 +74,7 @@ export function CountOrderForm({ order, onSaved, onDiscard }: { order?: CountOrd
 
   return (
     <>
+      {anyPickerTruncated(units, people, locations) && <TruncatedNotice messageId="stock.pickers.truncated" count={MAX_ROWS} />}
       <DetailHeader
         title={t(order ? 'counts.form.titleEdit' : 'counts.form.titleCreate')}
         actions={<Button variant="ghost" size="sm" onClick={onDiscard}>{t('counts.form.discard')}</Button>}

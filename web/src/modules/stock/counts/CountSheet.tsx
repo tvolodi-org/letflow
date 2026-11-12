@@ -16,7 +16,9 @@ import { StatusPill } from '@/components/ui/StatusPill'
 import { useToast } from '@/hooks/useToast'
 import { LoadMore, RegisterError } from '../register/RegisterShell'
 import { useNames } from '../register/stockNames'
-import { usePickerOptions } from '../register/stockPickers'
+import { usePickerOptions, anyPickerTruncated } from '../register/stockPickers'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import type { NameIds } from '../register/stockRegisterModel'
 import { countsApi, type CountEntry, type CountLine, type CountPage } from './counts.api'
 import { countsQueryKeys } from './countsQueryKeys'
@@ -161,6 +163,7 @@ function SurplusForm({ orderId }: { orderId: string }) {
   const errorText = write.error ? t(reasonMessageId(write.error)) : undefined
   return (
     <FormSection title={t('counts.surplus.title')}>
+      {anyPickerTruncated(locations, items, units, people, lots) && <TruncatedNotice messageId="stock.pickers.truncated" count={MAX_ROWS} />}
       <div className="lf-form" data-testid="surplus-form">
         {errorText !== undefined && <Banner tone="danger">{errorText}</Banner>}
         <Select label={t('counts.surplus.location')} value={f.location} onChange={set('location')} options={locations} placeholder={t('counts.form.select')} />

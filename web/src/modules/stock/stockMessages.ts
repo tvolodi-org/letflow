@@ -13,6 +13,7 @@ export type StockUiLocale = UiLocale
 const en: Record<string, string> = {
   'import.type.stock_opening_line': 'Opening balance lines',
   'stock.eyebrow': 'Stock · Register',
+  'stock.pickers.truncated': 'The pickers on this screen list only the first {count} records of a kind; the list is longer. Record names beyond that cannot be chosen here.',
   'stock.balances.title': 'Balances',
   'stock.balances.lede': 'How much of each item lies at each org unit, location, responsible employee and lot now.',
   'stock.balances.readAt': 'Read at ledger position {seq}',
@@ -145,6 +146,7 @@ const en: Record<string, string> = {
 const ru: Record<string, string> = {
   'import.type.stock_opening_line': 'Строки начальных остатков',
   'stock.eyebrow': 'Склад · Регистр',
+  'stock.pickers.truncated': 'Выпадающие списки на этом экране показывают только первые {count} записей каждого вида, список длиннее. Остальные записи здесь выбрать нельзя.',
   'stock.balances.title': 'Остатки',
   'stock.balances.lede': 'Сколько каждой позиции лежит сейчас в каждом подразделении, месте хранения, у ответственного и в каждой партии.',
   'stock.balances.readAt': 'Прочитано на позиции журнала {seq}',
@@ -277,6 +279,7 @@ const ru: Record<string, string> = {
 const kk: Record<string, string> = {
   'import.type.stock_opening_line': 'Бастапқы қалдық жолдары',
   'stock.eyebrow': 'Қойма · Тіркелім',
+  'stock.pickers.truncated': 'Бұл экрандағы тізімдер әр түрдің алғашқы {count} жазбасын ғана көрсетеді, тізім ұзынырақ. Қалған жазбаларды мұнда таңдау мүмкін емес.',
   'stock.balances.title': 'Қалдықтар',
   'stock.balances.lede': 'Әр позиция қазір әр бөлімшеде, сақтау орнында, жауапты адамда және партияда қанша жатыр.',
   'stock.balances.readAt': 'Журналдың {seq} позициясында оқылды',

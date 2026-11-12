@@ -24,7 +24,9 @@ import { formatQuantity } from '@/lib/formatQuantity'
 import { AssetsIntlProvider } from '../AssetsIntlProvider'
 import { assetsQueryKeys } from '../assetsQueryKeys'
 import { useNames } from '../assetsNames'
-import { usePickerOptions } from '../assetsPickers'
+import { usePickerOptions, anyPickerTruncated } from '../assetsPickers'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { LoadMore, RegisterError } from './RegisterShell'
 import { assetRegisterApi, type AssetBalanceRow, type AssetBalancesBody } from './assetRegister.api'
 import { BalanceHistoryPanel } from './BalanceHistoryPanel'
@@ -169,6 +171,7 @@ function BalancesInner({ initialSelectedId = null, initialFilters }: { initialSe
 
   return (
     <>
+      {anyPickerTruncated(assets, locations, units, people) && <TruncatedNotice messageId="assets.pickers.truncated" count={MAX_ROWS} />}
       <PageHeader eyebrow={t('assets.reg.eyebrow')} title={t('assets.balances.title')} lede={t('assets.balances.lede')} actions={<HelpLink to="/admin/assets/help/balances" label={t('assets.help.link')} />} />
       <FilterBar
         activeChips={chips}
