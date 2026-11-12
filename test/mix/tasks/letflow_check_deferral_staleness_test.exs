@@ -1292,6 +1292,8 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
       # engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
       # UPDATE (T-1714, 2026-11-11): REQ-814 (reset-password mail throttle, F4-4) is added with a
       # marker; the engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
+      # UPDATE (T-1816, 2026-11-12): REQ-815 (notification default texts in ru, kk and en) is added with a
+      # marker; the engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
       assert result.deferral_count == 0
       assert result.stale_count == 0
 

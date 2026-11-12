@@ -54809,3 +54809,52 @@ requirements:
       - "7. No change to the answer shape: a throttled answer and an accepted answer have equal status, equal body and equal header names (a test compares them); no response field tells that a request was throttled."
       - "8. Kept in step: the route line of the moduledoc of lib/letflow/routers/identity.ex names the throttle and the setting; the Status cell of F4-4 in docs/security/owasp-review/part-4-followup-new-routes.md says it is fixed by this change. No file under web/, apps/ or priv/repo/migrations/ changes, and no environment variable is read for the setting."
     depends_on: [REQ-788]
+  - id: REQ-815
+    title: "Notification default texts per language: the six registered mail templates get a Russian, a Kazakh and an English default subject and body, chosen by the tenant's language, with English for any other language; a stored tenant text still wins"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4340
+    # Source: task T-1816 (operator, D-086, D-117..D-119); docs/uat/ba-decisions/T-1814.md candidate 2 ("default subject/body per locale (ru, kk, en) with the same placeholders, English as the fallback for any other locale"; wording check of the ru/kk texts by a reader is an operator check, not an owner decision); REQ-563 (gh 3199; its registry rule "each registry entry declares ... the default subject and body text of the platform"); REQ-584 (Letflow.Notifications). Files read on origin/main 12f20d067: lib/letflow/notification_templates/registry.ex (@entries with six keys, one English subject and body each; default/2; moduledoc "The defaults are locale-independent constants: the locale selects a stored row, not a default"); lib/letflow/notification_templates.ex (preview/6: request text, else the stored row of exactly that locale, else Registry.default(key, :subject | :body); source :request | :stored | :default; validate_subject/2, validate_body/2); lib/letflow/notifications.ex (render_and_send/7 calls NotificationTemplates.preview(prefix, template_key, locale, nil, nil, values); locale_of/1 returns the tenant's settings "default_locale", else "en"); lib/letflow/identity/tenant.ex (@locale_regex ~r/^[a-z]{2,3}(-[A-Z]{2})?\z/); lib/letflow/routers/notification_templates.ex (POST /:template_key/preview answers subject, body and source); the senders of each key: lib/letflow/tasks.ex (task_assigned), lib/letflow/modules/assets/reminders.ex (@template "asset_expiry_reminder"), lib/letflow/modules/exam/notifications.ex (exam_result, exam_assigned, exam_reminder), lib/letflow/routers/identity.ex (password_reset_hint); tests that quote an English default: test/letflow/notification_templates/registry_test.exs, test/letflow/routers/identity_reset_password_test.exs (Registry.default("password_reset_hint", :subject) == "Set a new password"), test/letflow/notifications_test.exs and test/letflow/routers/notification_templates_test.exs ("Task assigned: ..."). The three languages ru, kk, en are the ones the product ships elsewhere (lib/letflow/modules/stock/document_print.ex). Choosing the language by the part of the tag before "-" is the analyst's choice (UAT assumption, to be confirmed by the process owner). Written by the business analyst (T-1816) 2026-11-12. Not yet validated.
+    description: >
+      Today every platform default mail text is English. Letflow.NotificationTemplates.Registry
+      (lib/letflow/notification_templates/registry.ex) holds one subject and one body per key for the six keys
+      task_assigned, exam_assigned, asset_expiry_reminder, exam_reminder, password_reset_hint and exam_result.
+      Letflow.NotificationTemplates.preview/6 (lib/letflow/notification_templates.ex) uses the stored row of exactly
+      the requested locale and otherwise Registry.default/2, which ignores the locale, and Letflow.Notifications
+      render_and_send/7 (lib/letflow/notifications.ex) asks for the tenant's default_locale. So a company whose
+      language is Russian or Kazakh sends English mail unless its administrator stored its own texts for every key.
+      This change gives each key a default subject and body in three languages and picks one by the locale.
+      (1) Where defaults live: in the same registry module. Each key's entry carries default texts for exactly the
+      languages "ru", "kk" and "en"; the placeholder allow-list stays one list per key and does not change.
+      (2) New function Registry.default/3 (key, field, locale), field :subject or :body. Language rule: the part of
+      the locale before the first "-" ("ru-KZ" gives "ru", "kk" gives "kk"); when that language is "ru", "kk" or
+      "en" its text is returned, for any other locale (for example "de", "uz", "en-GB" gives "en") the English text
+      is returned. Registry.default/2 is kept and returns the English text (it is the same as default/3 with "en").
+      (3) Fallback order in preview/6 for each of subject and body, unchanged except the last step: the text in the
+      request, else the stored row of exactly the requested locale (the REQ-563 rule stays: a stored "ru" row is not
+      used for "ru-KZ"), else Registry.default(key, field, locale). The source value stays :default for the last step.
+      (4) The English texts stay byte for byte as on main, so tests and UAT scenarios that quote them for an English
+      tenant keep passing. The Russian and Kazakh texts use the same placeholders as the English text of the same key
+      (each placeholder that appears in the English subject appears in the ru and kk subject, and the same for the
+      body) and pass the same checks a PUT applies (validate_subject/2 and validate_body/2: length, no control
+      character, only allow-listed {name} placeholders). They are drafted by the implementer; a Russian and a Kazakh
+      reader check the wording before UAT. That reading is an operator check step after the build, not a criterion
+      of this change.
+      (5) The registry moduledoc no longer says the defaults are locale-independent; it states the three languages,
+      the language rule and the fallback to English, and says the ru and kk wording awaits the reader check.
+      Out of scope: a stored-row fallback across region tags (a stored "ru" row for a "ru-KZ" tenant), the language
+      of values filled into placeholders (for example result_status "passed"/"failed" from
+      lib/letflow/modules/exam/notifications.ex, or date formats), a per-recipient language (only the tenant's
+      default_locale is used, as today), the login-discovery mail of REQ-441, new keys, any route, permission,
+      migration or screen change.
+    acceptance_criteria:
+      - "1. A unit test in test/letflow/notification_templates/registry_test.exs: for every key of Registry.keys() and each locale of \"ru\", \"kk\" and \"en\", Registry.default(key, :subject, locale) and Registry.default(key, :body, locale) are non-empty and pass NotificationTemplates.validate_subject/2 and validate_body/2; the ru text differs from the en text and the kk text differs from the en text and from the ru text, for both fields of every key."
+      - "2. A unit test: for every key and field, the set of {name} placeholders in the ru text and in the kk text equals the set in the en text of the same key and field, and every name is in Registry.placeholders(key); the existing N1 test (no secret-looking placeholder name) passes unchanged."
+      - "3. A unit test of the language rule: Registry.default(key, field, \"ru-KZ\") equals the \"ru\" text, \"kk-KZ\" gives the \"kk\" text, and \"de\", \"uz\" and \"en-GB\" each give the \"en\" text; Registry.default(key, field) equals Registry.default(key, field, \"en\") for every key and field."
+      - "4. The English defaults are unchanged: git diff origin/main of lib/letflow/notification_templates/registry.ex removes no English subject or body string, and the existing assertions Registry.default(\"password_reset_hint\", :subject) == \"Set a new password\" (test/letflow/routers/identity_reset_password_test.exs) and the \"Task assigned: ...\" subjects in test/letflow/notifications_test.exs and test/letflow/routers/notification_templates_test.exs pass unchanged."
+      - "5. A router test in test/letflow/routers/notification_templates_test.exs: in a tenant with no stored template, POST /api/v1/notification-templates/task_assigned/preview with locale \"ru\" and sample values answers 200 with source \"default\" and subject equal to the rendered ru default; with locale \"kk\" the kk default; with locale \"de\" the en default. After a PUT of task_assigned with locale \"ru\", the same ru preview answers source \"stored\" with the stored subject (a stored text still wins)."
+      - "6. A test in test/letflow/notifications_test.exs: a tenant whose settings default_locale is \"kk\" and which has no stored task_assigned template gets a task-assigned mail whose subject equals Registry.default(\"task_assigned\", :subject, \"kk\") rendered with the task's values; a tenant without default_locale still gets the English subject."
+      - "7. The moduledoc of Letflow.NotificationTemplates.Registry no longer contains the sentence \"The defaults are locale-independent constants\" and names the languages ru, kk and en, the rule \"the part of the locale before the first -\", the English fallback, and that the ru and kk wording awaits a reader check."
+      - "8. Files changed are limited to lib/letflow/notification_templates/registry.ex, lib/letflow/notification_templates.ex (the default call in preview/6 and its @doc), and the three test files named above; no file under priv/, web/, apps/ or lib/letflow/routers/ changes, and the route count and permission matrix pins are unchanged."
+    depends_on: [REQ-563, REQ-584]
