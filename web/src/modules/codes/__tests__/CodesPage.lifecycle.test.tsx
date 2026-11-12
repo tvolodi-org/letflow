@@ -125,7 +125,7 @@ describe('L2 history', () => {
     expect(rows[1]).toHaveTextContent('ITEM-1')
     expect(rows[1]).toHaveTextContent('open')
     const q = queryBodies(clientMock, 'code_assignment').find((b) =>
-      (b['filters'] as { field: string }[]).some((f) => f.field === 'code_id'),
+      (b['filters'] as { field: string; op: string }[]).some((f) => f.field === 'code_id' && f.op === 'eq'),
     )
     expect(q?.['filters']).toContainEqual({ field: 'code_id', op: 'eq', value: 'c2' })
     expect(q?.['sort']).toEqual([{ field: 'assigned_at', dir: 'asc' }])

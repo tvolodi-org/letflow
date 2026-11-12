@@ -26,6 +26,7 @@ import { emptyErrorStates } from './fixtures/emptyErrorStates'
 import { definitionNameScreens } from './fixtures/definitionNames'
 import { definitionNameAdminScreens } from './fixtures/definitionNamesAdmin'
 import { codesLabelScreens } from './fixtures/codesLabels'
+import { codesPagedScreens } from './fixtures/codesPaged'
 import { docLayoutScreens } from './fixtures/docLayouts'
 import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
@@ -297,6 +298,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...waitingSinceScreens,
     ...definitionNameAdminScreens,
     ...codesLabelScreens,
+    ...codesPagedScreens,
     ...docLayoutScreens,
     ...layoutBaseScreens,
     ...officialFormsScreens,

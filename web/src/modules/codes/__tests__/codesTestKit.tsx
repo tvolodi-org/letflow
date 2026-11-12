@@ -45,13 +45,19 @@ export function fakeServer(
       const filters = (body['filters'] ?? []) as Clause[]
       const onlyActive = filters.some((f) => f.field === 'active' && f.value === true)
       const eqs = filters.filter((f) => f.op === 'eq' && f.field !== 'active' && f.field !== 'deleted')
-      const items = (data[body['entity_type'] as string] ?? []).filter(
+      const ins = filters.filter((f) => f.op === 'in')
+      const all = (data[body['entity_type'] as string] ?? []).filter(
         (r) =>
           !r.deleted &&
           (!onlyActive || r.field_values['active'] === true) &&
-          eqs.every((f) => r.field_values[f.field] === f.value),
+          eqs.every((f) => r.field_values[f.field] === f.value) &&
+          ins.every((f) => (f.value as unknown[]).includes(r.field_values[f.field])),
       )
-      return { items, next_cursor: null }
+      // paging: the cursor is the offset of the next row; no page_size means everything
+      const start = Number(body['cursor'] ?? 0)
+      const size = Number(body['page_size'] ?? all.length)
+      const items = all.slice(start, start + size)
+      return { items, next_cursor: start + size < all.length ? String(start + size) : null }
     }
     return onWrite('post', path, body)
   })

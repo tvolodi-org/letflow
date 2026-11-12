@@ -92,6 +92,12 @@ describe('L1-L4 selecting', () => {
     fakeServer(clientMock, { ...DATA(), code_tag: many })
     renderCodes('/admin/codes')
     await screen.findByTestId('label-tick-m0')
+    // the list is paged (100 per request, T-1802): load the other pages, select-all then covers 1001 loaded codes
+    for (let i = 2; i <= 11; i++) {
+      fireEvent.click(await screen.findByTestId('codes-load-more'))
+      await screen.findByTestId(`label-tick-m${Math.min(i * 100, 1001) - 1}`)
+    }
+    await waitFor(() => expect(screen.queryByTestId('codes-load-more')).toBeNull())
     fireEvent.click(screen.getByTestId('label-tick-all'))
     expect(printBtn()).toHaveTextContent('Print labels (1000)')
     expect(screen.getByText(/At most 1000 labels/)).toBeInTheDocument()

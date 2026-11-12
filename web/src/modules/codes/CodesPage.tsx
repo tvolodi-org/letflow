@@ -24,11 +24,11 @@ import { MasterDetail } from '@/components/ui/MasterDetail'
 import { Select } from '@/components/ui/Select'
 import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
 import { useToast } from '@/hooks/useToast'
-import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
+import type { EntityRecord } from '@/types/api'
 import { classifyError } from '@/utils/classifyError'
 import { DELETED_FALSE, codesApi, type ReceiveEntry } from './codes.api'
 import { CodesIntlProvider } from './CodesIntlProvider'
-import { CodesShell, errorText, useCodeRows } from './CodesShell'
+import { CodesShell, errorText, useCodeRows, useCodeTagRows, useOpenAssignments } from './CodesShell'
 import type { CodesUiLocale } from './codesMessages'
 import {
   CODE_ASSIGNMENT,
@@ -67,7 +67,7 @@ function receive(entries: ReceiveEntry[], key: string) {
   return codesApi.receive(entries, key)
 }
 
-const OPEN_ASSIGNMENT: EntityQueryFilterClause = { field: 'released_at', op: 'is_null' }
+/** Codes per `code_id in` request of the open-assignment lookup (at most one open assignment per code). */
 
 /** Tone and glyph per status: a word and a shape, never colour alone. */
 const STATUS_LOOK: Record<string, { tone: StatusTone; glyph: StatusGlyph }> = {
@@ -126,16 +126,17 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
   const [sentIds, setSentIds] = useState<string[]>(initial?.labelIds ?? [])
   const labels = useLabelsPrint(initial?.labelFailure ? HARNESS_FAILURES[initial.labelFailure] : null)
 
-  const rows = useCodeRows(CODE_TAG, `status:${status}|value:${valueFilter}`, [
+  const codeRows = useCodeTagRows(CODE_TAG, `status:${status}|value:${valueFilter}`, [
     DELETED_FALSE,
     ...(status !== '' ? [{ field: 'status', op: 'eq' as const, value: status }] : []),
     ...(valueFilter !== '' ? [{ field: 'value', op: 'eq' as const, value: valueFilter }] : []),
-  ], { sortField: 'value' })
+  ])
+  const rows = codeRows.query
   // Stable references: DataTable's table model resets (and re-renders) when `data` changes identity.
   const codes = useMemo(() => {
-    const loaded = rows.data ?? []
+    const loaded = codeRows.rows
     return showRetired || status === 'retired' ? loaded : loaded.filter((c) => textOf(c, 'status') !== 'retired')
-  }, [rows.data, showRetired, status])
+  }, [codeRows.rows, showRetired, status])
   // Ticked ids that left the list (filter changed, code retired or gone) are dropped: no ghost id is sent.
   const codeIds = useMemo(() => new Set(codes.map((c) => c.record_id)), [codes])
   const ticked = labelIds.filter((id) => codeIds.has(id))
@@ -147,10 +148,13 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
   const anyAssigned = codes.some((c) => textOf(c, 'status') === 'assigned')
   const needTargets = anyAssigned || assigning !== null || selected !== null
 
-  const open = useCodeRows(CODE_ASSIGNMENT, 'open', [DELETED_FALSE, OPEN_ASSIGNMENT], {
-    sortField: 'assigned_at',
-    enabled: anyAssigned,
-  })
+  // The open assignments of the assigned codes loaded so far, in `code_id in` chunks (T-1802): the list is paged,
+  // so the assignments are not read for the whole tenant.
+  const assignedIds = useMemo(
+    () => codes.filter((c) => textOf(c, 'status') === 'assigned').map((c) => c.record_id),
+    [codes],
+  )
+  const open = useOpenAssignments(assignedIds)
   const targetOpts = { enabled: needTargets }
   const targetQueries = [
     useCodeRows(TARGET_TYPES[0], 'all', [DELETED_FALSE], targetOpts),
@@ -405,7 +409,7 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
       ]
 
   const filtered = status !== '' || valueFilter !== ''
-  const table = (
+  const tableOnly = (
     <DataTable
       columns={columns}
       data={codes}
@@ -427,6 +431,24 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
       }
       labels={{ loading: t('codes.list.loading'), retry: t('codes.common.retry') }}
     />
+  )
+
+  const table = (
+    <>
+      {codeRows.hasMore ? (
+        <Banner tone="info">
+          <span data-testid="codes-truncated">{t('codes.list.truncated', { count: String(codes.length) })}</span>
+        </Banner>
+      ) : null}
+      {tableOnly}
+      {codeRows.hasMore ? (
+        <div className="lf-btn-row">
+          <Button variant="secondary" size="md" loading={codeRows.loadingMore} onClick={codeRows.loadMore} data-testid="codes-load-more">
+            {t('codes.list.loadMore')}
+          </Button>
+        </div>
+      ) : null}
+    </>
   )
 
   let detail = null
