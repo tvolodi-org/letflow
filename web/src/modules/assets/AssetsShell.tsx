@@ -26,6 +26,7 @@ export interface CardFilters {
 /** What the boundary needs from a query (an infinite query result fits too). */
 export type QueryLike = Pick<UseQueryResult<unknown>, 'isError' | 'error' | 'isPending' | 'fetchStatus'> & {
   refetch: () => unknown
+  data?: unknown
 }
 
 export interface AssetRows {
