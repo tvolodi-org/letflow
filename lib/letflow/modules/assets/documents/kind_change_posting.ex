@@ -21,6 +21,7 @@ defmodule Letflow.Modules.Assets.Documents.KindChangePosting do
 
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.Assets.Documents.Posting
+  alias Letflow.Modules.KeyHelpers
   alias Letflow.Repo
 
   @type_key "assets_kind_change"
@@ -261,7 +262,7 @@ defmodule Letflow.Modules.Assets.Documents.KindChangePosting do
         end
       )
 
-  defp pad(k), do: k |> Enum.take(5) |> then(&(&1 ++ List.duplicate(nil, 5 - length(&1))))
+  defp pad(k), do: KeyHelpers.pad(k)
   defp blank(nil), do: ""
   defp blank(value), do: value
 

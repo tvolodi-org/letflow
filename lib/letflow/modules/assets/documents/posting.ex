@@ -50,6 +50,7 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
   alias Letflow.Modules.Assets.Documents.CardMoves
   alias Letflow.Modules.Assets.Documents.KindChangePosting
   alias Letflow.Modules.Assets.Documents.Kinds
+  alias Letflow.Modules.KeyHelpers
   alias Letflow.Repo
 
   @reversal_definition "assets_reversal"
@@ -749,7 +750,7 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
     actual == expected
   end
 
-  defp pad(k), do: k |> Enum.take(5) |> then(&(&1 ++ List.duplicate(nil, 5 - length(&1))))
+  defp pad(k), do: KeyHelpers.pad(k)
 
   defp leg_key(asset, org_unit, location, responsible, actual_user, unit, quantity) do
     {asset, org_unit, blank(location), responsible, blank(actual_user), unit,
