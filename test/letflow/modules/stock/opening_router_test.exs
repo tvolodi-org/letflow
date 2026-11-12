@@ -14,6 +14,7 @@ defmodule Letflow.Modules.Stock.OpeningRouterTest do
 
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Repo
   alias Letflow.StockDocsFixture, as: D
   alias Letflow.StockFixture, as: S
@@ -27,7 +28,7 @@ defmodule Letflow.Modules.Stock.OpeningRouterTest do
     Map.merge(ctx, P.tenant_b!(ctx))
   end
 
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
 
   defp refused(ctx, body, status, reason, extras \\ %{}) do
     before = O.counts(ctx.schema)

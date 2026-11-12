@@ -18,6 +18,7 @@ defmodule Letflow.Modules.Stock.CountScanRouterTest do
   alias Letflow.CodesFixture, as: K
   alias Letflow.CountsFixture, as: F
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.Stock.Counts
   alias Letflow.StockDocsFixture, as: D
   alias Letflow.StockFixture, as: S
@@ -41,7 +42,7 @@ defmodule Letflow.Modules.Stock.CountScanRouterTest do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
-  defp strip(conn), do: conn |> S.json() |> Map.delete("trace_id")
+  defp strip(conn), do: M.strip_conn(conn)
 
   defp status!(conn, status) do
     assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"
