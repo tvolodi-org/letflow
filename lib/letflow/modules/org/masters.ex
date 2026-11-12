@@ -32,6 +32,7 @@ defmodule Letflow.Modules.Org.Masters do
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.Audit
+  alias Letflow.Entities.ImportRow
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
@@ -305,7 +306,7 @@ defmodule Letflow.Modules.Org.Masters do
   # --- preparation: companies -----------------------------------------------------------------
 
   defp prepare_create_company(prefix, attrs, replay?) do
-    with :ok <- check_keys(attrs, @company_create_keys),
+    with :ok <- ImportRow.check_keys(attrs, @company_create_keys),
          :ok <- check_required_text(attrs, "code"),
          :ok <- check_required_text(attrs, "name"),
          :ok <- check_bin(Map.get(attrs, "bin")),
@@ -317,7 +318,7 @@ defmodule Letflow.Modules.Org.Masters do
 
   defp prepare_update_company(prefix, id, attrs, replay?) do
     with {:ok, rec} <- fetch(prefix, id, @company, :legal_entity_not_found),
-         :ok <- check_keys(attrs, @company_update_keys),
+         :ok <- ImportRow.check_keys(attrs, @company_update_keys),
          :ok <- check_optional_required_text(attrs, "name"),
          :ok <- check_update_bin(attrs),
          :ok <- check_ext(attrs),
@@ -365,7 +366,7 @@ defmodule Letflow.Modules.Org.Masters do
   # --- preparation: sites ---------------------------------------------------------------------
 
   defp prepare_create_site(prefix, attrs, replay?) do
-    with :ok <- check_keys(attrs, @site_create_keys),
+    with :ok <- ImportRow.check_keys(attrs, @site_create_keys),
          :ok <- check_required_text(attrs, "code"),
          :ok <- check_required_text(attrs, "name"),
          :ok <- check_ext(attrs),
@@ -379,7 +380,7 @@ defmodule Letflow.Modules.Org.Masters do
 
   defp prepare_update_site(prefix, id, attrs, replay?) do
     with {:ok, rec} <- fetch(prefix, id, @site, :site_not_found),
-         :ok <- check_keys(attrs, @site_update_keys),
+         :ok <- ImportRow.check_keys(attrs, @site_update_keys),
          :ok <- check_optional_required_text(attrs, "name"),
          :ok <- check_ext(attrs),
          {:ok, attrs} <- cast_company(prefix, attrs, replay?) do
@@ -466,14 +467,6 @@ defmodule Letflow.Modules.Org.Masters do
   def merged(rec, attrs) do
     cleared = for {k, nil} <- attrs, do: k
     rec |> state() |> Map.drop(cleared) |> Map.merge(drop_nils(attrs))
-  end
-
-  @doc false
-  def check_keys(attrs, allowed) do
-    case attrs |> Map.keys() |> Enum.reject(&(&1 in allowed)) |> Enum.sort() do
-      [] -> :ok
-      [key | _] -> {:error, {:field_not_allowed, key}}
-    end
   end
 
   @doc false

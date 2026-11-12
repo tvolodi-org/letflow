@@ -21,6 +21,7 @@ defmodule Letflow.Modules.Org.People do
   the same `*_not_found` tuple (INV-5).
   """
 
+  alias Letflow.Entities.ImportRow
   alias Letflow.Identity
   alias Letflow.Modules.Org.Masters
   alias Letflow.Modules.ReadApi
@@ -117,7 +118,7 @@ defmodule Letflow.Modules.Org.People do
 
     Masters.run(prefix, attrs, actor, idem, "org_employee.updated", @employee, fn replay? ->
       with {:ok, rec} <- Masters.fetch(prefix, id, @employee, :employee_not_found),
-           :ok <- Masters.check_keys(attrs, @employee_update_keys),
+           :ok <- ImportRow.check_keys(attrs, @employee_update_keys),
            :ok <- Masters.check_optional_required_text(attrs, "full_name"),
            :ok <- Masters.check_ext(attrs),
            {:ok, attrs} <- cast_user_key(prefix, attrs, replay?) do
@@ -176,7 +177,7 @@ defmodule Letflow.Modules.Org.People do
   # --- preparation ----------------------------------------------------------------------------
 
   defp prepare_create_position(prefix, attrs, replay?) do
-    with :ok <- Masters.check_keys(attrs, @position_keys),
+    with :ok <- ImportRow.check_keys(attrs, @position_keys),
          :ok <- Masters.check_required_text(attrs, "code"),
          :ok <- Masters.check_required_text(attrs, "name"),
          :ok <- Masters.check_ext(attrs),
@@ -192,7 +193,7 @@ defmodule Letflow.Modules.Org.People do
   end
 
   defp prepare_create_employee(prefix, attrs, replay?) do
-    with :ok <- Masters.check_keys(attrs, @employee_keys),
+    with :ok <- ImportRow.check_keys(attrs, @employee_keys),
          :ok <- Masters.check_required_text(attrs, "code"),
          :ok <- Masters.check_required_text(attrs, "full_name"),
          :ok <- Masters.check_ext(attrs),
@@ -214,7 +215,7 @@ defmodule Letflow.Modules.Org.People do
   # Shared by position and (through plan_update/2) employee updates.
   defp prepare_update(prefix, id, attrs, type, not_found, allowed) do
     with {:ok, rec} <- Masters.fetch(prefix, id, type, not_found),
-         :ok <- Masters.check_keys(attrs, allowed),
+         :ok <- ImportRow.check_keys(attrs, allowed),
          :ok <- Masters.check_optional_required_text(attrs, "name"),
          :ok <- Masters.check_ext(attrs) do
       plan_update(rec, attrs)

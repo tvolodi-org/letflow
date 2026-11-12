@@ -30,6 +30,7 @@ defmodule Letflow.Modules.Locations.Tree do
   alias Letflow.Audit
   alias Letflow.Entities.Records
   alias Letflow.EventStore.IdempotencyRecord
+  alias Letflow.Entities.ImportRow
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.ReadApi
   alias Letflow.Repo
@@ -98,7 +99,7 @@ defmodule Letflow.Modules.Locations.Tree do
       lock!(prefix)
 
       with {:ok, parent_id} <- check_parent(prefix, attrs),
-           :ok <- check_keys(attrs),
+           :ok <- ImportRow.check_keys(attrs, @allowed),
            :ok <- check_required(attrs),
            :ok <- check_segment(attrs),
            {:ok, fv} <- build_values(prefix, attrs, parent_id, pattern),
@@ -143,14 +144,6 @@ defmodule Letflow.Modules.Locations.Tree do
           {:ok, _} -> {:error, :parent_inactive}
           {:error, :not_found} -> {:error, :parent_not_found}
         end
-    end
-  end
-
-  # c: first offending key in sorted order.
-  defp check_keys(attrs) do
-    case attrs |> Map.keys() |> Enum.reject(&(&1 in @allowed)) |> Enum.sort() do
-      [] -> :ok
-      [key | _] -> {:error, {:field_not_allowed, key}}
     end
   end
 
