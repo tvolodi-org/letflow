@@ -9,11 +9,11 @@ defmodule Letflow.Modules.Assets.Access do
   403 to a caller whose roles do not hold the permission at all.
 
   The tenant is `principal.prefix`, derived from the token by the plug stack, never from the request.
-  Same shape as `Letflow.Modules.Stock.Access`, fixed to one permission.
+  Same shape as `Letflow.Modules.Stock.Access`, fixed to one permission. The body is
+  `Letflow.Api.ModuleGuard.check/2` (CORE slice S8).
   """
 
-  alias Letflow.Api.Authorization
-  alias Letflow.Api.Scope
+  alias Letflow.Api.ModuleGuard
 
   @permission :AssetsCardWrite
 
@@ -36,20 +36,5 @@ defmodule Letflow.Modules.Assets.Access do
   @spec check(Plug.Conn.t()) :: {:ok, %{prefix: String.t(), actor_id: String.t()}} | :error
   def check(%Plug.Conn{} = conn), do: guard(conn, @permission)
 
-  defp guard(conn, permission) do
-    with {:ok, _conn, %{kind: :user} = principal} <- Scope.principal_from_conn(conn),
-         true <-
-           Enum.any?(
-             principal.roles,
-             &Authorization.role_allows?(&1, permission, principal.role_overlay)
-           ),
-         {:ok, :all} <- Scope.allowed_set(principal, permission),
-         {:ok, actor} <- Ecto.UUID.cast(principal.user_id) do
-      {:ok, %{prefix: principal.prefix, actor_id: actor}}
-    else
-      _refused -> :error
-    end
-  rescue
-    Scope.ScopeSetError -> :error
-  end
+  defp guard(conn, permission), do: ModuleGuard.check(conn, permission)
 end
