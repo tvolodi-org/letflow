@@ -106,10 +106,9 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.Views
   alias Letflow.Modules.Assets.XlsxExport
   alias Letflow.Modules.ReadApi
+  alias Letflow.Modules.RouterKit
 
   @ledger "assets"
-  @uint ~r/\A(0|[1-9][0-9]{0,14})\z/
-  @limit ~r/\A[1-9][0-9]{0,5}\z/
   @uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
   @slots ~w(asset org_unit location material_responsible actual_user)
   @optional_empty ~w(location actual_user)
@@ -163,7 +162,7 @@ defmodule Letflow.Modules.Assets.Router do
            {:ok, basis} <- basis(params),
            {:ok, filters} <- slot_filters(params),
            {:ok, filters} <- subtree_filter(params, filters),
-           {:ok, page} <- page(params, :text) do
+           {:ok, page} <- RouterKit.page(params, :text) do
         # Zero-quantity rows stay out of the answer (not an HTTP parameter).
         page = Map.put(page, :nonzero, true)
 
@@ -187,7 +186,7 @@ defmodule Letflow.Modules.Assets.Router do
       with {:ok, params} <- params(conn, @movement_keys),
            {:ok, filters} <- entry_filters(params),
            {:ok, filters} <- subtree_filter(params, filters),
-           {:ok, page} <- page(params, :integer) do
+           {:ok, page} <- RouterKit.page(params, :integer) do
         case Ledger.entries(authorized, filters, page) do
           {:ok, %{rows: rows, next_cursor: next}} ->
             Response.ok(conn, %{
@@ -493,7 +492,7 @@ defmodule Letflow.Modules.Assets.Router do
     with true <- Regex.match?(~r/\A\d{4}-\d{2}-\d{2}\z/, raw),
          {:ok, date} <- Date.from_iso8601(raw),
          false <- Map.has_key?(params, "basis") or Map.has_key?(params, "as_of"),
-         {:ok, cutoff} <- optional_uint(params, "cutoff_seq") do
+         {:ok, cutoff} <- RouterKit.optional_uint(params, "cutoff_seq") do
       {:ok, {:date, date, cutoff || :latest}}
     else
       _bad -> {:error, :invalid_filter}
@@ -503,7 +502,7 @@ defmodule Letflow.Modules.Assets.Router do
   defp basis(params) do
     kind = Map.get(params, "basis", "posting_seq")
 
-    with {:ok, cutoff} <- optional_uint(params, "cutoff_seq") do
+    with {:ok, cutoff} <- RouterKit.optional_uint(params, "cutoff_seq") do
       case {kind, cutoff, Map.get(params, "as_of")} do
         {"posting_seq", nil, nil} -> {:ok, {:posting_seq, :latest}}
         {"posting_seq", n, nil} -> {:ok, {:posting_seq, n}}
@@ -518,19 +517,6 @@ defmodule Letflow.Modules.Assets.Router do
       {:ok, at, _offset} -> {:ok, {:event_time, at, n}}
       _error -> {:error, :invalid_filter}
     end
-  end
-
-  defp optional_uint(params, key) do
-    case Map.fetch(params, key) do
-      :error -> {:ok, nil}
-      {:ok, text} -> uint(text)
-    end
-  end
-
-  defp uint(text) do
-    if Regex.match?(@uint, text),
-      do: {:ok, String.to_integer(text)},
-      else: {:error, :invalid_filter}
   end
 
   defp slot_filters(params) do
@@ -548,8 +534,8 @@ defmodule Letflow.Modules.Assets.Router do
   end
 
   defp entry_filters(params) do
-    with {:ok, from} <- optional_uint(params, "from_seq"),
-         {:ok, to} <- optional_uint(params, "to_seq"),
+    with {:ok, from} <- RouterKit.optional_uint(params, "from_seq"),
+         {:ok, to} <- RouterKit.optional_uint(params, "to_seq"),
          true <- is_nil(from) or is_nil(to) or from <= to,
          {:ok, texts} <- text_filters(params) do
       {:ok,
@@ -592,40 +578,6 @@ defmodule Letflow.Modules.Assets.Router do
     end)
   end
 
-  defp page(params, cursor_kind) do
-    with {:ok, limit} <- optional_limit(params),
-         {:ok, cursor} <- cursor(params, cursor_kind) do
-      {:ok, %{} |> put_unless_nil(:limit, limit) |> put_unless_nil(:cursor, cursor)}
-    end
-  end
-
-  defp optional_limit(params) do
-    case Map.fetch(params, "limit") do
-      :error ->
-        {:ok, nil}
-
-      {:ok, text} ->
-        if Regex.match?(@limit, text),
-          do: {:ok, String.to_integer(text)},
-          else: {:error, :invalid_filter}
-    end
-  end
-
-  defp cursor(params, :text) do
-    case Map.fetch(params, "cursor") do
-      :error -> {:ok, nil}
-      {:ok, text} when byte_size(text) in 1..4096 -> {:ok, text}
-      _bad -> {:error, :invalid_filter}
-    end
-  end
-
-  defp cursor(params, :integer) do
-    case Map.fetch(params, "cursor") do
-      :error -> {:ok, nil}
-      {:ok, text} -> uint(text)
-    end
-  end
-
   defp reconcile_opts(params) do
     case Map.fetch(params, "cursor") do
       {:ok, cursor} -> %{cursor: cursor}
@@ -655,12 +607,9 @@ defmodule Letflow.Modules.Assets.Router do
 
   # -- shapes -------------------------------------------------------------------------------------
 
-  # Written as a sigil so the AC5 scan of caller-key literals (idempotency_test) is not tripped.
-  @key_field ~s(idempotency_key)
-
   defp with_request(conn, fun) do
     with {:ok, %{prefix: prefix, actor_id: actor}} <- Access.check(conn) |> access(),
-         {:ok, key, attrs} <- pop_key(conn.body_params) do
+         {:ok, key, attrs} <- RouterKit.pop_key(conn.body_params) do
       fun.(prefix, attrs, %{actor_id: actor, idempotency_key: key}, conn)
     else
       :denied -> Response.not_found(conn)
@@ -670,22 +619,6 @@ defmodule Letflow.Modules.Assets.Router do
 
   defp access({:ok, _} = ok), do: ok
   defp access(:error), do: :denied
-
-  defp pop_key(%{"_json" => _}), do: pop_key(%{})
-
-  defp pop_key(body) when is_map(body) do
-    case Map.pop(body, @key_field) do
-      {key, rest} when is_binary(key) ->
-        if String.trim(key) == "", do: invalid_key(), else: {:ok, key, rest}
-
-      _ ->
-        invalid_key()
-    end
-  end
-
-  defp pop_key(_other), do: invalid_key()
-
-  defp invalid_key, do: {:error, {:field_invalid, @key_field}}
 
   # -- rendering ----------------------------------------------------------------------------------
 
@@ -729,12 +662,9 @@ defmodule Letflow.Modules.Assets.Router do
     do: unprocessable(conn, Atom.to_string(reason), %{})
 
   defp render(conn, {:error, term}, _status) do
-    Logger.warning("assets request refused: #{inspect(elem_tag(term))}")
+    Logger.warning("assets request refused: #{inspect(RouterKit.elem_tag(term))}")
     unprocessable(conn, "request_refused", %{})
   end
-
-  defp elem_tag(term) when is_tuple(term) and tuple_size(term) > 0, do: elem(term, 0)
-  defp elem_tag(_term), do: :other
 
   defp unprocessable(conn, reason, extra) do
     problem = Error.unprocessable("request refused")
