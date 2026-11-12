@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS, anyTruncated } from '@/lib/entities/fetchAllRecords'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
@@ -24,6 +26,7 @@ export function useLotRows(
     queryFn: () => fetchAllRecords(type, filters, options.sortField, options.sortDir),
     enabled: options.enabled ?? true,
     placeholderData: keepPreviousData,
+    structuralSharing: false, // keeps `truncated` on the list
     retry: false,
   })
 }
@@ -63,6 +66,7 @@ export function CatalogItemsBoundary(props: { queries: UseQueryResult<unknown>[]
   const state: RendererState = cls === 'fetch-failure' || cls === 'loading' ? 'success' : cls
   return (
     <QueryStateBoundary state={state} onRetry={() => props.queries.forEach((q) => void q.refetch())}>
+      {anyTruncated(props.queries) && <TruncatedNotice messageId="catalog_items.common.truncated" count={MAX_ROWS} />}
       {props.children}
     </QueryStateBoundary>
   )

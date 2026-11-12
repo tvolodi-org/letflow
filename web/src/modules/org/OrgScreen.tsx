@@ -16,6 +16,8 @@ import { FormActions } from '@/components/ui/FormSection'
 import { MasterDetail } from '@/components/ui/MasterDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS, anyTruncated } from '@/lib/entities/fetchAllRecords'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { TreeView, type TreeNode } from '@/components/ui/TreeView'
 import { useOrgLocale } from './OrgIntlProvider'
@@ -74,7 +76,12 @@ function MasterBody(props: { queries: UseQueryResult<unknown>[]; children: React
       </div>
     )
   }
-  return <>{props.children}</>
+  return (
+    <>
+      {anyTruncated(props.queries) && <TruncatedNotice messageId="org.common.truncated" count={MAX_ROWS} />}
+      {props.children}
+    </>
+  )
 }
 
 export function OrgScreen(props: OrgScreenProps) {
