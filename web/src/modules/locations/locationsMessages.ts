@@ -106,7 +106,7 @@ const en: Record<string, string> = {
   'locations.toast.unlinked': 'Link removed',
   'locations.common.retry': 'Retry',
   'locations.common.loadFailed': 'The data could not be loaded.',
-  'locations.common.loadFailed': 'Showing the first {count} records only; the list is longer. Narrow it with the filters.',
+  'locations.common.truncated': 'Showing the first {count} records only; the list is longer. Narrow it with the filters.',
   'import.type.location_node': 'Locations',
 }
 
@@ -205,7 +205,7 @@ const ru: Record<string, string> = {
   'locations.toast.unlinked': 'Связь удалена',
   'locations.common.retry': 'Повторить',
   'locations.common.loadFailed': 'Не удалось загрузить данные.',
-  'locations.common.loadFailed': 'Показаны только первые {count} записей, список длиннее. Сузьте его фильтрами.',
+  'locations.common.truncated': 'Показаны только первые {count} записей, список длиннее. Сузьте его фильтрами.',
   'import.type.location_node': 'Локации',
 }
 
@@ -304,7 +304,7 @@ const kk: Record<string, string> = {
   'locations.toast.unlinked': 'Байланыс жойылды',
   'locations.common.retry': 'Қайталау',
   'locations.common.loadFailed': 'Деректерді жүктеу мүмкін болмады.',
-  'locations.common.loadFailed': 'Тек алғашқы {count} жазба көрсетілген, тізім ұзынырақ. Сүзгілермен тарылтыңыз.',
+  'locations.common.truncated': 'Тек алғашқы {count} жазба көрсетілген, тізім ұзынырақ. Сүзгілермен тарылтыңыз.',
   'import.type.location_node': 'Орналасқан жерлер',
 }
 
