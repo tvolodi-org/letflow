@@ -179,6 +179,8 @@ defmodule Letflow.RiskTierTest do
                "docs/agents/protocols/GIT_MERGE.md",
                "docs/agents/shared/HANDOFF_PROTOCOL.md",
                "docs/assets/asset-register.md",
+               "docs/assets/asset-xlsx.md",
+               "docs/assets/kz-forms-mapping.md",
                "docs/assets/stock-workflow-documents.md",
                "docs/frontend/x-ui-widget-vocabulary.md",
                "docs/issues/[^/]+.yaml",
@@ -198,6 +200,8 @@ defmodule Letflow.RiskTierTest do
       for path <- [
             "docs/agents/shared/HANDOFF_PROTOCOL.md",
             "docs/assets/asset-register.md",
+            "docs/assets/asset-xlsx.md",
+            "docs/assets/kz-forms-mapping.md",
             "docs/assets/stock-workflow-documents.md",
             "docs/frontend/x-ui-widget-vocabulary.md",
             "docs/issues/ISS-1.yaml",
