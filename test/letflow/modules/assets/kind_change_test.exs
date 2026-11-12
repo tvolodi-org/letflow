@@ -17,6 +17,7 @@ defmodule Letflow.Modules.Assets.KindChangeTest do
   alias Letflow.Identity
   alias Letflow.Identity.User
   alias Letflow.KindChangeFixture, as: K
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.Assets.Documents.Shape
   alias Letflow.Modules.Installs
   alias Letflow.Repo
@@ -32,7 +33,7 @@ defmodule Letflow.Modules.Assets.KindChangeTest do
     {:ok, ctx |> Map.merge(b) |> Map.put(:kb, K.masters!(b.b.schema_name))}
   end
 
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
 
   defp save!(ctx, body \\ nil), do: D.save!(ctx, body || K.body(ctx.ka))
 
