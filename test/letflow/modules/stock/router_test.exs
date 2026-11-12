@@ -353,6 +353,14 @@ defmodule Letflow.Modules.Stock.RouterTest do
       assert reason!(S.get("/movements?from_seq=3&to_seq=2", ctx.tok_a), 422) == "invalid_filter"
     end
 
+    test "T-1792 list/array/map-shaped paging params are 422, never a crash (INV-8)", ctx do
+      for q <- ["limit[]=1", "limit[a]=1", "cursor[]=1", "from_seq[]=1", "cutoff_seq[]=1"] do
+        assert reason!(S.get("/movements?" <> q, ctx.tok_a), 422) == "invalid_filter", q
+      end
+
+      assert reason!(S.get("/balances?limit[]=1", ctx.tok_a), 422) == "invalid_filter"
+    end
+
     test "T-RM-2 sku filter: only entries with a leg on that item, honest empty, paging", ctx do
       seed!(ctx.a.schema_name)
 

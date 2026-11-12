@@ -47,3 +47,51 @@ export async function fetchAllRecords(
   }
   return out
 }
+
+/** Cards per request of the card list and of each "Load more" (T-1793). */
+export const CARD_PAGE_SIZE = 100
+
+export interface CardsPage {
+  items: EntityRecord[]
+  next_cursor: string | null
+}
+
+/** One page of cards in inventory-number order. */
+export async function fetchCardsPage(
+  type: string,
+  filters: EntityQueryFilterClause[],
+  cursor?: string,
+  pageSize = CARD_PAGE_SIZE,
+): Promise<CardsPage> {
+  const res = await entitiesApi.queryRecords(type, {
+    filters,
+    sort: [{ field: 'inventory_number', dir: 'asc' }],
+    page_size: pageSize,
+    ...(cursor ? { cursor } : {}),
+  })
+  return { items: res.items, next_cursor: res.next_cursor ?? null }
+}
+
+/** The server's `contains` is a SQL ilike without escaping: escape the wildcard characters so `%` and `_` search
+ *  for themselves. */
+const escapeLike = (q: string) => q.replace(/[\\%_]/g, '\\$&')
+
+/** Server-side search: filters are AND-only, so number and name are two queries, merged by record_id and sorted by
+ *  inventory number. `truncated` when either query has more pages than the first. */
+export async function searchCards(
+  type: string,
+  filters: EntityQueryFilterClause[],
+  q: string,
+): Promise<{ items: EntityRecord[]; truncated: boolean }> {
+  const value = escapeLike(q)
+  const [byNumber, byName] = await Promise.all(
+    ['inventory_number', 'name'].map((field) =>
+      fetchCardsPage(type, [...filters, { field, op: 'contains', value }]),
+    ),
+  )
+  const seen = new Map<string, EntityRecord>()
+  for (const r of [...byNumber.items, ...byName.items]) if (!seen.has(r.record_id)) seen.set(r.record_id, r)
+  const key = (r: EntityRecord) => String(r.field_values['inventory_number'] ?? '')
+  const items = [...seen.values()].sort((a, b) => key(a).localeCompare(key(b)))
+  return { items, truncated: byNumber.next_cursor !== null || byName.next_cursor !== null }
+}

@@ -100,7 +100,7 @@ third-party action and a decision for the operator.
 
 1. ~~ecto 3.14.1 (EEF-CVE-2026-118391)~~ fixed by T-1795 (3.14.3).
 1b. bandit: 14 advisories fixed by T-1740 (not by this change).
-2. **high** zod 3.x in the SPA runtime: needs the zod 4 migration task.
+2. ~~**high** zod 3.x in the SPA runtime~~ **Resolved by T-1794**: web upgraded to zod ^4.6.7; `npm audit --omit=dev` reports 0 vulnerabilities.
 3. **medium** `appleboy/ssh-action@v1` tag-pinned in the deploy workflow.
 4. **medium** images have no CVE scanning and no digest pins.
 5. **medium (dev/CI machines)** vitest/tinypool/vite/eslint chain: critical on paper, not in the bundle; reachability of the Tinypool pollution gadget in our tests not analysed; one major-upgrade task for the toolchain.

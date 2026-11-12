@@ -16,6 +16,7 @@ defmodule Letflow.Modules.Assets.CardsRouterTest do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.Installs
   alias Letflow.StockFixture, as: S
   alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
@@ -93,7 +94,7 @@ defmodule Letflow.Modules.Assets.CardsRouterTest do
     Jason.decode!(conn.resp_body)
   end
 
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
 
   defp org!(tok, path, body) do
     ok!(
