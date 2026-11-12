@@ -21,6 +21,7 @@ defmodule Letflow.Modules.Org.Units do
   `:node_not_found` for it.
   """
 
+  alias Letflow.Entities.ImportRow
   alias Letflow.Modules.Org.Masters
   alias Letflow.Modules.ReadApi
 
@@ -92,7 +93,7 @@ defmodule Letflow.Modules.Org.Units do
   # --- preparation ----------------------------------------------------------------------------
 
   defp prepare_create(prefix, attrs, replay?) do
-    with :ok <- Masters.check_keys(attrs, @create_keys),
+    with :ok <- ImportRow.check_keys(attrs, @create_keys),
          :ok <- Masters.check_required_text(attrs, "code"),
          :ok <- Masters.check_required_text(attrs, "name"),
          :ok <- Masters.check_ext(attrs),
@@ -114,7 +115,7 @@ defmodule Letflow.Modules.Org.Units do
 
   defp prepare_update(prefix, id, attrs, replay?) do
     with {:ok, rec} <- Masters.fetch(prefix, id, @unit, :unit_not_found),
-         :ok <- Masters.check_keys(attrs, @update_keys),
+         :ok <- ImportRow.check_keys(attrs, @update_keys),
          :ok <- Masters.check_optional_required_text(attrs, "name"),
          :ok <- Masters.check_ext(attrs),
          {:ok, attrs} <- cast_refs(prefix, attrs, replay?) do

@@ -14,6 +14,18 @@ defmodule Letflow.Entities.ImportRow do
 
   alias Letflow.Repo
 
+  @doc """
+  The first key of `attrs` (sorted) that is not in `allowed`: `{:error, {:field_not_allowed, key}}`,
+  else `:ok`. One check for the module write paths (create/update key lists).
+  """
+  @spec check_keys(map(), [String.t()]) :: :ok | {:error, {:field_not_allowed, String.t()}}
+  def check_keys(attrs, allowed) do
+    case attrs |> Map.keys() |> Enum.reject(&(&1 in allowed)) |> Enum.sort() do
+      [] -> :ok
+      [key | _] -> {:error, {:field_not_allowed, key}}
+    end
+  end
+
   @doc "True for a binary with something other than whitespace in it."
   @spec text?(term()) :: boolean()
   def text?(v), do: is_binary(v) and String.trim(v) != ""

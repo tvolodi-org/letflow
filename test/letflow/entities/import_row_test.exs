@@ -21,6 +21,22 @@ defmodule Letflow.Entities.ImportRowTest do
 
   defp entry(type, cells), do: %{entity_type: type, external_ref: @ref, field_values: cells}
 
+  describe "check_keys/2" do
+    # Expected values are the results of the four old private copies (catalog lots, locations tree,
+    # org masters, assets cards) before the move: the first offending key in sorted order.
+    test "accepts keys inside the list and the empty map" do
+      assert :ok = ImportRow.check_keys(%{"a" => 1, "b" => 2}, ["a", "b", "c"])
+      assert :ok = ImportRow.check_keys(%{}, [])
+    end
+
+    test "names the first offending key in sorted order" do
+      assert {:error, {:field_not_allowed, "x"}} = ImportRow.check_keys(%{"z" => 1, "x" => 2}, [])
+
+      assert {:error, {:field_not_allowed, "active"}} =
+               ImportRow.check_keys(%{"name" => 1, "zz" => 2, "active" => 3}, ["name"])
+    end
+  end
+
   describe "text?/1" do
     test "T1 non-blank binary only" do
       assert ImportRow.text?("a")

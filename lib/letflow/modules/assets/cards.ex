@@ -48,6 +48,7 @@ defmodule Letflow.Modules.Assets.Cards do
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.Audit
+  alias Letflow.Entities.ImportRow
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Records
   alias Letflow.EventStore.IdempotencyRecord
@@ -83,7 +84,7 @@ defmodule Letflow.Modules.Assets.Cards do
       Repo.transaction(fn ->
         fv = new_doc(attrs)
 
-        with :ok <- check_keys(attrs, opts),
+        with :ok <- ImportRow.check_keys(attrs, allowed_keys(opts)),
              :ok <- check_org_unit(prefix, attrs, opts),
              :ok <- check_rules(prefix, fv),
              {:ok, record_id} <- create_doc(prefix, fv, actor_id, idem),
@@ -111,7 +112,7 @@ defmodule Letflow.Modules.Assets.Cards do
     change = fn fv -> merge(fv, attrs) end
 
     check = fn card, fv, merged ->
-      with :ok <- check_keys(attrs, opts),
+      with :ok <- ImportRow.check_keys(attrs, allowed_keys(opts)),
            :ok <- check_org_unit(prefix, attrs, opts),
            :ok <- CardLocks.check(prefix, card["record_id"], fv, merged),
            :ok <- check_rules(prefix, merged) do
@@ -241,14 +242,7 @@ defmodule Letflow.Modules.Assets.Cards do
   defp check_active(%{"active" => true}), do: :ok
   defp check_active(_card), do: {:error, :card_inactive}
 
-  defp check_keys(attrs, opts) do
-    allowed = if import?(opts), do: @import_allowed, else: @allowed
-
-    case attrs |> Map.keys() |> Enum.reject(&(&1 in allowed)) |> Enum.sort() do
-      [] -> :ok
-      [key | _] -> {:error, {:field_not_allowed, key}}
-    end
-  end
+  defp allowed_keys(opts), do: if(import?(opts), do: @import_allowed, else: @allowed)
 
   defp import?(opts), do: Map.get(opts, :holder_source) == :import
 

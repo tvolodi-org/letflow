@@ -19,6 +19,7 @@ defmodule Letflow.Modules.CatalogItems.Lots do
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.Audit
+  alias Letflow.Entities.ImportRow
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Records
   alias Letflow.EventStore.IdempotencyRecord
@@ -185,7 +186,7 @@ defmodule Letflow.Modules.CatalogItems.Lots do
   # --- preparation ----------------------------------------------------------------------------
 
   defp prepare_create(prefix, attrs) do
-    with :ok <- check_keys(attrs, @create_keys),
+    with :ok <- ImportRow.check_keys(attrs, @create_keys),
          {:ok, item_id} <- check_item(prefix, Map.get(attrs, "item_id")),
          :ok <- check_code(Map.get(attrs, "code")),
          {:ok, _} <- check_values(attrs) do
@@ -201,7 +202,7 @@ defmodule Letflow.Modules.CatalogItems.Lots do
 
   defp prepare_update(prefix, id, attrs) do
     with {:ok, lot} <- fetch_lot(prefix, id),
-         :ok <- check_keys(attrs, @update_keys),
+         :ok <- ImportRow.check_keys(attrs, @update_keys),
          {:ok, _} <- check_values(attrs) do
       stored = state(lot)
       cleared = for {k, nil} <- attrs, do: k
@@ -231,13 +232,6 @@ defmodule Letflow.Modules.CatalogItems.Lots do
   end
 
   defp state(lot), do: Map.drop(lot, @kept)
-
-  defp check_keys(attrs, allowed) do
-    case attrs |> Map.keys() |> Enum.reject(&(&1 in allowed)) |> Enum.sort() do
-      [] -> :ok
-      [key | _] -> {:error, {:field_not_allowed, key}}
-    end
-  end
 
   defp check_item(prefix, item_id) do
     with {:ok, uuid} <- Ecto.UUID.cast(item_id),
