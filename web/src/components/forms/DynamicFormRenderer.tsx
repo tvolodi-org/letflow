@@ -127,7 +127,7 @@ export function DynamicFormRenderer(props: DynamicFormRendererProps) {
     setLocalSubmitting(true)
     try {
       await onSubmit(values)
-    } catch (err) {
+    } catch {
       // Error handling done by parent
     } finally {
       // §4.2 / §12.4 mode 3 — aria-busy cleared in finally regardless of outcome.

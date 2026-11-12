@@ -247,6 +247,7 @@ describe('M5x xlsx export', () => {
     await rowsOf()
     fireEvent.change(screen.getByLabelText('Cause'), { target: { value: 'receipt' } })
     await waitFor(() => expect(routeCalls(clientMock, 'movements').at(-1)).toEqual({ cause: 'receipt' }))
+    await waitFor(() => expect(screen.getByTestId('journal-export')).toBeEnabled())
     fireEvent.click(screen.getByTestId('journal-export'))
     await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(1))
     expect(clientMock.getBlob).toHaveBeenCalledWith('/api/v1/modules/stock/movements', { cause: 'receipt', format: 'xlsx' })

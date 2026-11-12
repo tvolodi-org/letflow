@@ -119,8 +119,11 @@ export default defineConfig({
     },
   },
   test: {
-    // lf.sh caps workers with VITEST_MAX_FORKS/THREADS; a minimum above that cap makes tinypool throw.
-    poolOptions: { forks: { minForks: 1 }, threads: { minThreads: 1 } },
+    // lf.sh caps workers with VITEST_MAX_FORKS/THREADS (vitest 5 dropped poolOptions, minForks and those env vars): map them
+    // to maxWorkers.
+    ...(process.env.VITEST_MAX_FORKS || process.env.VITEST_MAX_WORKERS
+      ? { maxWorkers: Number(process.env.VITEST_MAX_WORKERS || process.env.VITEST_MAX_FORKS) }
+      : {}),
   },
   build: {
     rollupOptions: {

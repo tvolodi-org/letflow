@@ -106,6 +106,18 @@ third-party action and a decision for the operator.
 5. **medium (dev/CI machines)** vitest/tinypool/vite/eslint chain: critical on paper, not in the bundle; reachability of the Tinypool pollution gadget in our tests not analysed; one major-upgrade task for the toolchain.
 6. **info** ueberauth_oidcc 0.5, wasmex 0.16, flutter_appauth 13 and riverpod 3 majors; Keycloak 26.2 dev image.
 
+## Update 2026-11-12: web toolchain upgrade (T-1805, finding 5)
+
+Done in `web/`: vitest 2 to 5.1.0, `@vitest/coverage-v8` 2 to 5, vite 5 to 8.3.8, `@vitejs/plugin-react` 4 to 6, `@typescript-eslint/*` 7 to 8
+(eslint stays 8; `fast-glob`, used by two tests and formerly pulled in transitively, is now a declared devDependency). `npm audit` in
+`web/` before: 15 vulnerabilities (11 moderate, 1 high, 3 critical); after: 6 moderate, all the one `minimatch` range (7.0.0 - 11.0.0)
+reached through `@typescript-eslint/typescript-estree` 8.x (lint time only; the fix needs a newer typescript-eslint release, not available yet).
+tinypool, vitest, vite and esbuild are no longer listed.
+
+Reachability of the tinypool gadget (the audit's open question): superseded, not analysed. `tinypool` is no longer in the installed tree (vitest 5 does not depend on it), so no
+vulnerable copy remains. Config change: vitest 5 has no `poolOptions`/`minForks`; `vite.config.ts` maps `VITEST_MAX_FORKS`
+(the machine-wide cap) to `maxWorkers`. Two stock export tests clicked a button that is disabled while the refetch is pending; they now wait for it to be enabled.
+
 ## Weekly workflow
 
 `.github/workflows/dependency-audit.yml`: `schedule` (Mondays) and `workflow_dispatch` only; `permissions: contents: read`;
