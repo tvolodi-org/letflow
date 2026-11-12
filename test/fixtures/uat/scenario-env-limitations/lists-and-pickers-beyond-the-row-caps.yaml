@@ -1,0 +1,11 @@
+scenario_id: lists-and-pickers-beyond-the-row-caps
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "Pickers that offered only the first 200 records (B17#3, GH #4329) and the one shared load-everything loop with its cap of 10 000 rows and its notice (B17#2, GH #4325): stock and asset document forms, count orders, balances, items, locations, org units and people"
+reason: >
+  NOT OBSERVABLE, not PASS. Record 201 of a picker, and the notice "the list is longer than N records" (stock.pickers.truncated, assets.pickers.truncated, locations.common.truncated and the items and org equivalents), exist only when a company holds more than 200 records of one kind in a picker, or 10 000 in a list that loads everything (the cap is 50 pages of 200). QA companies hold a handful of such records and the roster cannot create thousands (see assets-cards-large-list-notice-and-load-more). The product's own tests prove it: web/src/lib/__tests__/fetchAllRecords.test.ts, web/src/modules/assets/__tests__/assetsPickers.test.tsx, web/src/modules/stock/__tests__/stockPickers.test.tsx, the DocumentForm.pickers tests of both modules and web/src/components/ui/__tests__/TruncatedNotice.test.tsx. The ordinary short-list behaviour of the same pickers on screen is NOT covered by any scenario either: the existing document and count scenarios (assets-documents-1-commission-and-balances, stock-counts-1-count-order-issue-cancel-and-refusals) are all via: api and never open a picker. A first on-screen scenario for the document form pickers is open work, named here, not done.
+recorded_by: business-analyst
+recorded_at: "2026-11-12"
+issue_ref: "GH #4325, GH #4329"
+review: >
+  Revisit when a QA copy exists with more than 200 items or locations and a way to raise a kind past 10 000 rows.

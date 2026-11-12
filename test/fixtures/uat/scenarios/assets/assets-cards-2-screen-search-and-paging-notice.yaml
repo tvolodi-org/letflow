@@ -1,0 +1,171 @@
+# T-1810 (BA): the asset cards screen after the paging change (B16#1, build commit d0660e18a, PR #4320, task T-1793).
+# Sources: web/src/modules/assets/AssetsShell.tsx (useAssetRows: no search = pages of 100 with "Load more", the notice shows only while more pages exist; a search term = one server-side search on number and name, first page of each),
+# web/src/modules/assets/assets.api.ts (CARD_PAGE_SIZE 100; search is "contains" on inventory number and on name, the characters % and _ and the backslash are escaped so they search for themselves; cards come in inventory-number order),
+# web/src/modules/assets/AssetCardsPage.tsx (count with "+" when truncated, notice texts, "Load more" button, "Show retired"), web/src/modules/assets/assetsMessages.ts (texts in en, ru, kk: "Search", "Поиск", "Іздеу"; notice "Showing the first {count} cards. Load more, or narrow the list with the filters."),
+# web/src/modules/assets/index.ts (the cards screen needs the card-write right), docs/roles.md (only TENANT_ADMIN and PLATFORM_ADMIN hold the asset rights; a TASK_WORKER holds none), docs/agents/instructions/security-invariants.md INV-5.
+# NOT UAT-observable (stated, not invented; recorded in scenario-env-limitations/assets-cards-large-list-notice-and-load-more.yaml): the notice, the "+" sign on the count and the "Load more" button, which need more than 100 cards; the cards of one company cannot be deleted, so the roster cannot build that list.
+# Preconditions are in the scenario text. A card list of 100 or fewer cards is the normal case on QA; if SwiftRoute already holds more than 100 active cards the notice is CORRECT and EO-001 is reported BLOCKED, not failed.
+---
+id: assets-cards-2-screen-search-and-paging-notice
+scope: assets
+title: The asset cards screen lists a short list without a notice, finds cards by number and by name on the server, takes wildcard characters literally, works in three languages; a worker cannot open it and another company finds none of the cards
+version: "1.0"
+tags: [assets, cards, screen, search, paging, ru, kk, en, refusal, tenancy]
+
+description: >
+  The SwiftRoute administrator creates three cards: INV-201 "Projector", INV-202 "Screen" and INV-203 "Projector stand". On the asset cards screen all three are listed in number order, the count has no plus sign and
+  there is no notice about a partial list and no "Load more" button. A search for "projector" shows INV-201 and INV-203 only; a search for "INV-202" shows that one card; a search for the percent sign shows no card (the sign is
+  searched for as itself, not as "anything"); a search for a text nobody has shows the empty state and clearing the search brings the list back. In Russian and Kazakh the search label is translated and the same search works.
+  The task worker Marco, who holds no asset right, types the screen address by hand and is refused. The administrator of BilimBaga searches its own cards screen for INV-201 and finds nothing of SwiftRoute. At the end the
+  administrator retires the three cards; they leave the default list and show again under "Show retired".
+
+actors:
+  admin: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has the assets module installed and active; no card with inventory number INV-201, INV-202 or INV-203 exists, and no other active card has "projector" or "zzz-none" in its number or name.
+    check: system_seeded
+    detail: If the module is not active, report BLOCKED for the whole scenario. If a card already has "projector" in its name, report BLOCKED for steps 3 and 7 only.
+  - description: SwiftRoute holds at most 100 active cards before the scenario starts (the screen then needs only one page).
+    check: system_seeded
+    detail: If it holds more, the notice and the "Load more" button are correct; report BLOCKED for steps 2 (the no-notice part) and EO-001 only, and carry on.
+  - description: BilimBaga has the assets module installed and holds no card with inventory number INV-201.
+    check: system_seeded
+    detail: If BilimBaga has no assets module, report BLOCKED for step 9 only.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator creates three fixed-asset cards: INV-201 named "Projector", INV-202 named "Screen" and INV-203 named "Projector stand". The three answers are noted as C1, C2 and C3 (all active).
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the asset cards screen and reads the list, the count above it and the area under the table.
+    via: ui
+  - step: 3
+    actor: admin
+    action: >
+      The administrator types "projector" (small letters) into the search field and waits for the list to settle.
+    via: ui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator replaces the search text with "INV-202".
+    via: ui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator replaces the search text with the single character "%".
+    via: ui
+  - step: 6
+    actor: admin
+    action: >
+      The administrator replaces the search text with "zzz-none", reads the screen, then clears the search field.
+    via: ui
+  - step: 7
+    actor: admin
+    action: >
+      The administrator switches the language to Russian, types "projector" into the search field and reads the list; then switches to Kazakh and reads the search field label; then back to English and clears the search.
+    via: ui
+  - step: 8
+    actor: worker
+    action: >
+      The task worker types the address of the asset cards screen by hand in the browser.
+    expect_refusal: true
+    via: ui
+  - step: 9
+    actor: other_admin
+    action: >
+      The administrator of BilimBaga opens its own asset cards screen and types "INV-201" into the search field. This is not a refusal: the screen answers with BilimBaga's own cards only.
+    via: ui
+  - step: 10
+    actor: admin
+    action: >
+      The administrator retires the three cards INV-201, INV-202 and INV-203 on the screen, one by one, and then reads the cards screen with "Show retired" off and then on.
+    via: ui
+
+expected_outcomes:
+  - id: EO-001
+    description: A list of 100 cards or fewer is shown whole, without any partial-list notice.
+    verification:
+      method: gui_screen
+      detail: Step 2 lists INV-201, INV-202 and INV-203 in that order among the active cards; the count above the table is a plain number with no plus sign; no text "Showing the first ... cards" and no "Load more" button appears.
+      evidence: Screenshot of the screen at step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A clerk is told the list is cut when it is whole, or is not told when it is cut; the count of assets cannot be trusted.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The search finds cards by a part of the name or of the number, with no regard to letter case, and shows no notice.
+    verification:
+      method: gui_screen
+      detail: Step 3 shows INV-201 and INV-203 and not INV-202; step 4 shows INV-202 only; neither step shows the text "Showing the first ... matches".
+      evidence: Screenshots of steps 3 and 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A card cannot be found by the number or the name the clerk remembers, so the clerk creates a duplicate.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The characters percent and underscore are searched for as themselves, not as wildcards.
+    verification:
+      method: gui_screen
+      detail: Step 5 shows no card of the three (the percent sign is in none of their numbers or names) and the empty state; it does not list every card.
+      evidence: Screenshot of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A clerk who types a percent sign sees every card and may act on the wrong one.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: A search with no match shows the empty state, and clearing the search brings the whole list back.
+    verification:
+      method: gui_screen
+      detail: Step 6 shows the empty state and no error banner; after clearing, INV-201, INV-202 and INV-203 are listed again.
+      evidence: Screenshots before and after clearing.
+    on_fail:
+      severity: MINOR
+      business_impact: The clerk thinks the register is empty.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: The search label and the search work in Russian and Kazakh.
+    verification:
+      method: gui_screen
+      detail: Step 7 shows the label "Поиск" in Russian with INV-201 and INV-203 listed, and the label "Іздеу" in Kazakh; no English text is left in the search area.
+      evidence: Screenshots in Russian and Kazakh.
+    on_fail:
+      severity: MINOR
+      business_impact: Users of the other languages do not find the search.
+      suggested_action: route_to_frontend_dev
+  - id: EO-006
+    description: A task worker cannot open the cards screen.
+    verification:
+      method: gui_screen
+      detail: Step 8 shows a refusal or the page for a missing right, and no card number or name.
+      evidence: Screenshot of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A user without the asset right reads the asset register.
+      suggested_action: route_to_elixir_dev
+  - id: EO-007
+    description: Another company finds none of SwiftRoute's cards through the search.
+    verification:
+      method: gui_screen
+      detail: Step 9 shows no row with INV-201, INV-202 or INV-203 and no card named "Projector" of SwiftRoute; the list is BilimBaga's own cards only.
+      evidence: Screenshot of step 9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company sees another company's assets.
+      suggested_action: route_to_elixir_dev
+  - id: EO-008
+    description: Retired cards leave the default list and show again under "Show retired".
+    verification:
+      method: gui_screen
+      detail: Step 10 shows the three cards as retired; the default list shows none of them; with "Show retired" on, the three are listed.
+      evidence: Screenshots of the list with the option off and on.
+    on_fail:
+      severity: MINOR
+      business_impact: Test cards stay in the active register.
+      suggested_action: route_to_frontend_dev
