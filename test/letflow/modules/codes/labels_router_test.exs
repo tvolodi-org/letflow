@@ -14,6 +14,7 @@ defmodule Letflow.Modules.Codes.LabelsRouterTest do
   alias Letflow.CodesFixture, as: Fx
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.Codes
   alias Letflow.Modules.Codes.Labels
   alias Letflow.Repo
@@ -54,8 +55,8 @@ defmodule Letflow.Modules.Codes.LabelsRouterTest do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
-  defp json(conn), do: Jason.decode!(conn.resp_body)
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp json(conn), do: M.json(conn)
+  defp strip(body), do: M.strip(body)
 
   defp ok!(conn, status) do
     assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"
