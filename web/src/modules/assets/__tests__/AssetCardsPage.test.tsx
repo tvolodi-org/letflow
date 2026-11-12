@@ -118,17 +118,6 @@ describe('P2 filters', () => {
     expect(await screen.findByText('FA-4')).toBeInTheDocument()
     expect(queryBodies(clientMock, 'assets_card').at(-1)?.['filters']).not.toContainEqual({ field: 'active', op: 'eq', value: true })
   })
-
-  it('the search narrows the loaded rows without a new request', async () => {
-    fakeServer(clientMock, DATA)
-    renderAssets(PATH)
-    await screen.findByText('FA-1')
-    const before = queryBodies(clientMock, 'assets_card').length
-    fireEvent.change(field('filter_search'), { target: { value: 'ia-3' } })
-    await waitFor(() => expect(screen.queryByText('FA-1')).not.toBeInTheDocument())
-    expect(screen.getByText('IA-3')).toBeInTheDocument()
-    expect(queryBodies(clientMock, 'assets_card').length).toBe(before)
-  })
 })
 
 describe('P3 detail panel', () => {

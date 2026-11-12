@@ -45,13 +45,25 @@ export function fakeServer(
       const filters = (body['filters'] ?? []) as Clause[]
       const onlyActive = filters.some((f) => f.field === 'active' && f.value === true)
       const eqs = filters.filter((f) => f.op === 'eq' && f.field !== 'active' && f.field !== 'deleted')
-      const items = (data[body['entity_type'] as string] ?? []).filter(
+      const contains = filters.filter((f) => f.op === 'contains')
+      // SQL ilike: backslash escapes % and _; % matches any run, _ any single character
+      const like = (value: string, pattern: unknown) => {
+        const re = String(pattern).replace(/\\(.)|([.*+?^${}()|[\]])|%|_/g, (m, esc, special) =>
+          esc ? esc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : special ? `\\${special}` : m === '%' ? '.*' : '.')
+        return new RegExp(re, 'i').test(value)
+      }
+      const all = (data[body['entity_type'] as string] ?? []).filter(
         (r) =>
           !r.deleted &&
           (!onlyActive || r.field_values['active'] === true) &&
-          eqs.every((f) => r.field_values[f.field] === f.value),
+          eqs.every((f) => r.field_values[f.field] === f.value) &&
+          contains.every((f) => like(String(r.field_values[f.field] ?? ''), f.value)),
       )
-      return { items, next_cursor: null }
+      // paging: the cursor is the offset of the next row
+      const start = Number(body['cursor'] ?? 0)
+      const size = Number(body['page_size'] ?? all.length)
+      const items = all.slice(start, start + size)
+      return { items, next_cursor: start + size < all.length ? String(start + size) : null }
     }
     return onWrite('post', path, body)
   })

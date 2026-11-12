@@ -1,7 +1,7 @@
 /** M1, M2 — T-1333 / C13: form <-> request bodies, the decimal check, the error mapping. */
 import { describe, expect, it } from 'vitest'
 import type { EntityRecord } from '@/types/api'
-import { createBody, decimalError, errorMessageId, EMPTY_FORM, fieldMarked, formOf, matchesSearch, reasonOf, updateBody } from '../assetsModel'
+import { createBody, decimalError, errorMessageId, EMPTY_FORM, fieldMarked, formOf, reasonOf, updateBody } from '../assetsModel'
 
 const record = (fields: Record<string, unknown>): EntityRecord => ({
   record_id: 'c-1',
@@ -36,14 +36,6 @@ describe('M1 bodies and decimals', () => {
     for (const bad of ['1e3', '1,5', '01', '.5', '1.', 'abc']) expect(decimalError(bad), bad).toBe('format')
     expect(decimalError('1234567890123456')).toBe('size')
     expect(decimalError('1.1234567890')).toBe('size')
-  })
-
-  it('matchesSearch looks at inventory number and name', () => {
-    const r = record({ inventory_number: 'FA-0001', name: 'Delivery van' })
-    expect(matchesSearch(r, 'fa-00')).toBe(true)
-    expect(matchesSearch(r, 'VAN')).toBe(true)
-    expect(matchesSearch(r, 'truck')).toBe(false)
-    expect(matchesSearch(r, '  ')).toBe(true)
   })
 })
 
