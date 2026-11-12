@@ -183,6 +183,53 @@ defmodule Letflow.Modules.RouterKitTest do
     end
   end
 
+  describe "render/5 (ledger row 4)" do
+    @nf [:thing_not_found]
+
+    defp rendered(result, status \\ 200) do
+      conn = RouterKit.render(Plug.Test.conn(:post, "/x", %{}), result, status, "demo", @nf)
+      body = if conn.resp_body == "", do: nil, else: Jason.decode!(conn.resp_body)
+      {conn.status, body}
+    end
+
+    defp reason({422, %{"reason" => r}} = got), do: {r, got}
+
+    test "ok answers the given status with the record" do
+      assert {201, %{"id" => "x"}} = rendered({:ok, %{"id" => "x"}}, 201)
+    end
+
+    test "listed not-found reasons are 404, other atoms are 422 with the atom as reason" do
+      assert {404, _} = rendered({:error, :thing_not_found})
+      assert {"other_reason", _} = reason(rendered({:error, :other_reason}))
+    end
+
+    test "field refusals name the field" do
+      assert {422, %{"reason" => "field_not_allowed", "field" => "a"}} =
+               rendered({:error, {:field_not_allowed, "a"}})
+
+      assert {422, %{"reason" => "field_invalid", "field" => "b"}} =
+               rendered({:error, {:field_invalid, "b"}})
+    end
+
+    test "record_payload_invalid lists the sorted unique top-level fields" do
+      violations = [%{field_path: "/b/0"}, %{field_path: "/a"}, %{field_path: "/b"}, :junk]
+
+      assert {422, %{"reason" => "record_payload_invalid", "fields" => ["a", "b"]}} =
+               rendered({:error, {:record_payload_invalid, violations}})
+    end
+
+    test "idempotency_key_reuse is a 409, audit_failed a 500" do
+      assert {409, %{"reason" => "idempotency_key_reuse"}} =
+               rendered({:error, :idempotency_key_reuse})
+
+      assert {500, _} = rendered({:error, :audit_failed})
+    end
+
+    test "an unmapped term is a 422 request_refused" do
+      assert {422, %{"reason" => "request_refused"}} = rendered({:error, {:weird, "secret"}})
+    end
+  end
+
   describe "S7g: adoption pin" do
     test "no module router defines again a function the kit owns" do
       routers = Path.wildcard("lib/letflow/modules/*/router.ex")
