@@ -44,6 +44,7 @@ Both specs read everything from the environment, so the same files run against a
 | `E2E_REALM` | optional `?realm=` for hosts that need it |
 | `E2E_ADMIN_USER`, `E2E_ADMIN_PASSWORD` | a tenant administrator with the stock permissions |
 | `E2E_ADMIN2_USER`, `E2E_ADMIN2_PASSWORD` | a second tenant administrator in the same realm (G3 is skipped without it) |
+| `E2E_COUNT_CHAIR` | text of the employee option chosen as chair in G1 (default `Saule Zhumabek`, the seed's employee linked to the sign-in user; a chair needs a user account) |
 | `E2E_RUN_TAG` | text put into every note the spec makes, so a rerun on one tenant does not collide (default `e2e<time>`) |
 | `E2E_SHOTS_DIR` | where S5 writes its screenshots (default `web/test-results/gate-b-shots`) |
 | `BPM_IDP_BASE_URL` | the identity provider, when the helpers need it |
