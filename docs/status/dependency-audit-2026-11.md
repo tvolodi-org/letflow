@@ -13,8 +13,8 @@ from the repo files only (D-117: nothing here is promoted to demo or production;
 
 | Area | Before | After this change | Left |
 |---|---|---|---|
-| Hex (`mix.lock`) | 25 advisories in 5 packages (bandit 14, jose 8, ecto 1, decimal 1, plug_crypto 1) | 15 on this branch's lock before T-1740 (bandit 14, ecto 1); bandit is fixed by T-1740 (lock now has 1.14.1) | ecto: needs its own task; bandit: **done in T-1740, not here** |
-| npm, runtime (`npm audit --omit=dev`) | 3 (react-router high, react-router-dom moderate, zod high) | 1 (zod high) | zod: breaking major |
+| Hex (`mix.lock`) | 25 advisories in 5 packages (bandit 14, jose 8, ecto 1, decimal 1, plug_crypto 1) | 15 on this branch's lock before T-1740 (bandit 14, ecto 1); bandit is fixed by T-1740 (lock now has 1.14.1) | ecto: **done in T-1795** (3.14.3); bandit: **done in T-1740, not here** |
+| npm, runtime (`npm audit --omit=dev`) | 3 (react-router high, react-router-dom moderate, zod high) | 1 (zod high) | zod: **done in T-1794** (zod ^4.6.7, runtime audit 0 vulnerabilities, #4319) |
 | npm, all (dev tools included) | 28 (1 low, 13 moderate, 11 high, 3 critical) | 16 (11 moderate, 2 high, 3 critical) | dev-tool majors, below |
 | Flutter pub | no advisory tool exists in `dart pub` (checked `dart pub --help`); outdated list only | unchanged | majors, below |
 | Base images | no known-advisory tool run (no scanner on the host, none added) | unchanged | tag review, below |
@@ -53,11 +53,11 @@ react-router-dom to 7.18.x, and the transitive fixes (@babel/core, brace-expansi
 nanoid, postcss, source-map-js, ws, baseline-browser-mapping). Router tests run after it: 4 files, 39 passed. The
 `npm run check` gate is the engine's and CI's.
 
-What remains, all needing a major bump (`package.json` ranges: zod ^3, vite ^5, vitest ^2, @typescript-eslint 6):
+As written in this change, what remained needed a major bump (`package.json` ranges: zod ^3, vite ^5, vitest ^2, @typescript-eslint 6). Since then zod was done (T-1794, #4319) and the vitest/vite/eslint chain was upgraded (T-1805, #4327; see the update section below):
 
 | Package | Severity | Runtime or dev | Why it stays |
 |---|---|---|---|
-| zod (direct, ^3.22.4) | high: memory exhaustion validating oversized constrained collections | **runtime** | Fix is in zod 4.x, a major API change across every schema; needs its own task. Exposure: the SPA validates data it received from the Letflow API and user form input, so the practical risk is a hostile oversized payload making the user's own tab slow; no server side. **First candidate for a follow-up.** |
+| zod (direct, ^3.22.4) | high: memory exhaustion validating oversized constrained collections | **runtime** | Fix is in zod 4.x, a major API change across every schema; **done later in T-1794 (#4319).** Exposure: the SPA validates data it received from the Letflow API and user form input, so the practical risk is a hostile oversized payload making the user's own tab slow; no server side. **First candidate for a follow-up.** |
 | vitest, @vitest/coverage-v8, tinypool, @vitest/mocker, vite-node | critical (vitest; tinypool prototype pollution gadget in worker/`run()` options leading to RCE, GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr) | dev | Test runner only, never in the shipped bundle. The Tinypool advisory is **not** tied to the UI server: it needs an attacker to be able to pollute `Object.prototype` inside the test process (for example through a malicious dependency or a test input that reaches a vulnerable merge) and then have a worker started. We did not analyse whether our tests or dependencies offer such a pollution path, so this is **not** shown unreachable. Exposure is the developer and CI machines running tests. The vitest UI-server file read/exec advisory does need the UI server (`--ui`), which no script or CI step starts. Fix: major bump (2 to 4+/5) with the suite, as one toolchain-upgrade task. |
 | vite, esbuild | high / moderate (dev-server path traversal and cross-site read) | dev | Dev server only; not in the production bundle. Major bump (5 to 8). |
 | @typescript-eslint/* , minimatch, glob, test-exclude | moderate (minimatch DoS) | dev | Lint-time only. Major bump (6 to 8). |

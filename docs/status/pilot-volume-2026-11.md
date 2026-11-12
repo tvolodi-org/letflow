@@ -182,6 +182,7 @@ Each of the four modules has its own copy of `fetchAllRecords` with the same `MA
   server (`contains` on name/code) instead of a fixed first page of 200.
 * Method limits: one host, other sessions running; one run per row (the cards measurement used five); 12 000 rows, so the
   numbers say "at the cap", not "at the pilot's count"; browser render time not measured; no QA measurement.
+* Update (T-1813, 2026-11-12): all three "left" items are merged: (1) codes paging and notice in #4328 (B17#1); (2) the shared `fetchAllRecords` helper that returns `truncated` in #4325 (B17#2; that PR says `Refs #4322`, and `grep -rn MAX_PAGES web/src` now finds the loop only in the helper and in `categoryTreeSelect.tsx`, a separate 10-page tree loader, not one of the four copies); (3) pickers with server search/paging in #4329 (B17#3). Still not measured again after these fixes.
 * Update (T-1802, B17#1): item (1) landed for the Codes screen: the code list is paged on the server (100 per request,
   "Load more", a notice with the count while more pages exist) and the open assignments are read only for the assigned
   codes loaded (`code_id in`, chunks of 200). Items (2) and (3), and the target lookups of the Codes screen, stay open.

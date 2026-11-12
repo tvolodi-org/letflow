@@ -102,7 +102,7 @@ describe('C3 route', () => {
     expect(container.querySelector('img')).toBeNull()
   })
   it('every topic renders and links back to its screen', () => {
-    const back = { usersImport: '/admin/users/import', passwordReset: '/admin/users', instanceReplay: '/instances', moduleRollouts: '/admin/module-rollouts', createSignIn: '/admin/users' }
+    const back = { usersImport: '/admin/users/import', passwordReset: '/admin/users', instanceReplay: '/instances', moduleRollouts: '/admin/module-rollouts', createSignIn: '/admin/users', longLists: '/' }
     for (const topic of CORE_HELP_TOPICS) {
       const { unmount } = renderHelp(coreHelpPath(topic), access(['UsersGroupsRolesManage', 'ModuleRolloutsManage'], true))
       expect(screen.getByTestId('help-topic')).toBeInTheDocument()
@@ -188,6 +188,17 @@ describe('C6 accuracy', () => {
       expect(text, l).toMatch(lost[l])
       expect(text, l).not.toMatch(bad[l])
     }
+  })
+  it('long lists names "Load more" as the codes and asset screens do, and is open without a permission', async () => {
+    const label = { en: 'Load more', ru: 'Загрузить ещё', kk: 'Тағы жүктеу' } as const
+    for (const l of LOCALES) {
+      expect(coreHelpMessages[l]['core.help.longLists.task1'], l).toContain(label[l])
+      const { codes, assets } = { codes: readFileSync('src/modules/codes/codesMessages.ts', 'utf8'), assets: readFileSync('src/modules/assets/assetsMessages.ts', 'utf8') }
+      expect(codes, l).toContain(`'codes.list.loadMore': '${label[l]}'`)
+      expect(assets, l).toContain(`'assets.page.loadMore': '${label[l]}'`)
+    }
+    renderHelp(coreHelpPath('longLists'), access([]))
+    expect(screen.getByTestId('help-topic')).toBeInTheDocument()
   })
   it('names the buttons as the screens do', () => {
     const rollouts = {

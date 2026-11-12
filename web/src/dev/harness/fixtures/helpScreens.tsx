@@ -4,6 +4,7 @@ import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import AssetsHelpPage from '@/modules/assets/help/AssetsHelpPage'
 import CountsPage from '@/modules/stock/counts/CountsPage'
+import CoreHelpPage from '@/pages/help/CoreHelpPage'
 import StockHelpPage from '@/modules/stock/help/StockHelpPage'
 import type { UserSession } from '@/types/api'
 import type { FixtureRoute, HarnessScreen } from '../types'
@@ -39,6 +40,7 @@ function withAuth(page: ReactElement): ReactElement {
 export const helpScreens: HarnessScreen[] = [
   { name: 'help-assets-documents', initialPath: '/admin/assets/help/documents', routePattern: '/admin/assets/help/:topic', routes, render: () => withAuth(<AssetsHelpPage />) },
   { name: 'help-stock-counts', initialPath: '/admin/stock/help/counts', routePattern: '/admin/stock/help/:topic', routes, render: () => withAuth(<StockHelpPage />) },
+  { name: 'help-core-long-lists', initialPath: '/help/longLists', routePattern: '/help/:topic', routes, render: () => withAuth(<CoreHelpPage />) },
   { name: 'help-unknown-topic', initialPath: '/admin/assets/help/nope', routePattern: '/admin/assets/help/:topic', routes, render: () => withAuth(<AssetsHelpPage />) },
   { name: 'help-link-stock-counts', initialPath: '/admin/stock/counts', routePattern: '/admin/stock/counts', routes, render: () => withAuth(<CountsPage />) },
 ]
