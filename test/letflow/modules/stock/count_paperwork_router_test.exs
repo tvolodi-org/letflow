@@ -22,6 +22,7 @@ defmodule Letflow.Modules.Stock.CountPaperworkRouterTest do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.Stock.Counts
   alias Letflow.StockDocsFixture, as: D
   alias Letflow.StockFixture, as: S
@@ -45,7 +46,7 @@ defmodule Letflow.Modules.Stock.CountPaperworkRouterTest do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
-  defp strip(conn), do: conn |> S.json() |> Map.delete("trace_id")
+  defp strip(conn), do: M.strip_conn(conn)
 
   defp status!(conn, status) do
     assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"

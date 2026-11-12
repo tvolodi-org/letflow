@@ -15,6 +15,7 @@ defmodule Letflow.Modules.Stock.TwoSideRouterTest do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.StockDocsFixture, as: D
   alias Letflow.StockFixture, as: S
   alias Letflow.StockPostingFixture, as: P
@@ -38,7 +39,7 @@ defmodule Letflow.Modules.Stock.TwoSideRouterTest do
     })
   end
 
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
 
   defp counts(ctx) do
     records =
