@@ -18,7 +18,7 @@ Labels: **[F]** fact checked in a source file, **[G]** guess or recommendation, 
 
 | Fact | Source | Status |
 |---|---|---|
-| T-1519 section 7 says nothing exists for on-site delivery: no package format, no signature, no installer | `ai-dala-portfolio/proposals/letflow-runtime-updates-design-T-1519.md`, sections 7 and 8 (slice S7, "Open; blocked on O1") | [F] |
+| T-1519 section 7 says nothing exists for on-site delivery: no package format, no signature, no installer | `proposals/letflow-runtime-updates-design-T-1519.md` in the sibling repository `ai-dala-portfolio` (outside this repo; opened at `/home/tvolodi/dev/ai-dala/ai-dala-portfolio/`, commit bb4d490; not in this worktree), sections 7 and 8 (slice S7, "Open; blocked on O1") | [F] |
 | A tenant upgrade (plan, apply) needs no restart; new code needs a new build | same note, section 0 | [F] |
 | Rollback route for a tenant module exists now (T-1549, decision 0055 D9). T-1519 listed it as "open" (slice S5); that is out of date | `docs/runbooks/demo-upgrade-notes.md`, "Rolling back an upgrade"; `lib/letflow/routers/tenant_modules.ex`, `authz_post "/:module_id/rollback"` | [F] |
 | Upgrade on deploy is an env setting, default off, exactly `true` or `false` | `config/runtime.exs`, `LETFLOW_MODULE_UPGRADE_ON_BOOT` | [F] |
@@ -179,7 +179,7 @@ No build task should be queued before the first real on-site customer (T-1519 or
 
 ## 10. Sources opened
 
-- `ai-dala-portfolio/proposals/letflow-runtime-updates-design-T-1519.md`, sections 0, 7, 8, 9.
+- `proposals/letflow-runtime-updates-design-T-1519.md` in the sibling repository `ai-dala-portfolio` (outside this repo; opened at `/home/tvolodi/dev/ai-dala/ai-dala-portfolio/`, commit bb4d490; not in this worktree), sections 0, 7, 8, 9.
 - `docs/runbooks/demo-upgrade-notes.md` (headings, "Rolling back an upgrade").
 - `config/runtime.exs` (upgrade-on-boot flag parse), `lib/letflow/routers/tenant_modules.ex` (rollback route), `scripts/pwa_web_package.sh` (SHA256SUMS), `mix.exs` (grep "release").
 - Commands: `command -v openssl minisign cosign sha256sum gpg signify age ssh-keygen`; `grep -rln min_data_version lib`.
