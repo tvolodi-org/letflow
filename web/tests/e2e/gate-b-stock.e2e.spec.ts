@@ -77,7 +77,9 @@ test('G1 S1 count order', async () => {
   await choose(form.getByLabel('Org unit'), 'Warehouse')
   await form.getByLabel('Planned start').fill(localDateTime(1))
   await form.getByLabel('Planned end').fill(localDateTime(3))
-  await choose(form.getByLabel('Chair of the commission'))
+  // the chair must have a user account (chair_without_user): the seed links the storekeeper Saule Zhumabek to the sign-in user;
+  // the first option of the list is an employee without an account, so never take it blindly
+  await choose(form.getByLabel('Chair of the commission'), process.env.E2E_COUNT_CHAIR ?? 'Saule Zhumabek')
   await form.locator('fieldset', { hasText: 'Location roots' }).getByRole('checkbox').first().check()
   await form.getByLabel('Note').fill(`count ${ENV.runTag}`)
   await form.getByTestId('count-save').click()
