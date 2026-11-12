@@ -85,7 +85,7 @@ const paged = <T,>(pages: T[][], cursor?: string) => {
 export function fakeCounts(client: CountsClient, f: Fake = {}) {
   const orders = f.orders ?? [order()]
   fakeMasters(client, f.masters ?? COUNT_MASTERS)
-  const masters = client.post.getMockImplementation()!
+  const masters = client.post.getMockImplementation()! as (path: string, body?: Record<string, unknown>) => Promise<unknown>
   const maybeFail = (key: string) => {
     if (f.fail && key in f.fail) throw f.fail[key]
   }
