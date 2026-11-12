@@ -39,7 +39,7 @@ defmodule Letflow.Modules.AssetDocumentsScopedReadTest do
     {:ok, Map.merge(ctx, %{m2: m2, d1: d1, d2: d2, t1: t1, list: list, gets: gets})}
   end
 
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: Letflow.ModuleConnCase.strip(body)
 
   test "S6a control: the tenant-wide reader sees both real documents and their lines", ctx do
     assert resp_text(ctx.list) =~ ctx.d1["id"] and resp_text(ctx.list) =~ ctx.d2["id"]

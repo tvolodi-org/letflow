@@ -19,6 +19,7 @@ defmodule Letflow.Modules.Procurement.LineCancelTest do
   alias Letflow.Modules.Procurement.LineEvents
   alias Letflow.Modules.Procurement.PurchaseRequests
   alias Letflow.ProcurementFixture, as: Fixture
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Repo
 
   @base "/api/v1/modules/procurement/purchase-requests"
@@ -412,5 +413,5 @@ defmodule Letflow.Modules.Procurement.LineCancelTest do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
-  defp json(conn), do: Jason.decode!(conn.resp_body)
+  defp json(conn), do: M.json(conn)
 end

@@ -16,6 +16,7 @@ defmodule Letflow.Modules.Procurement.LineRoutesTest do
   alias Letflow.Modules.Procurement.Decisions
   alias Letflow.Modules.Procurement.LineEvent
   alias Letflow.ProcurementFixture, as: Fixture
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Repo
 
   @base "/api/v1/modules/procurement/purchase-requests"
@@ -67,7 +68,7 @@ defmodule Letflow.Modules.Procurement.LineRoutesTest do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
-  defp json(conn), do: Jason.decode!(conn.resp_body)
+  defp json(conn), do: M.json(conn)
 
   defp line_path(ctx, suffix \\ "", line_no \\ 1),
     do: "#{@base}/#{ctx.request.id}/lines/#{line_no}#{suffix}"

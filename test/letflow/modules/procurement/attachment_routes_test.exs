@@ -19,6 +19,7 @@ defmodule Letflow.Modules.Procurement.AttachmentRoutesTest do
   alias Letflow.Modules.Procurement, as: Manifest
   alias Letflow.Modules.Procurement.Router
   alias Letflow.ProcurementFixture, as: Fixture
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Repo
 
   @base "/api/v1/modules/procurement/purchase-requests"
@@ -60,7 +61,7 @@ defmodule Letflow.Modules.Procurement.AttachmentRoutesTest do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
-  defp json(conn), do: Jason.decode!(conn.resp_body)
+  defp json(conn), do: M.json(conn)
 
   defp upload(name \\ "a.pdf", bytes \\ "hello", type \\ "application/pdf"),
     do: %{"file_name" => name, "content_type" => type, "content_base64" => Base.encode64(bytes)}
