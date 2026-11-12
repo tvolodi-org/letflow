@@ -7,6 +7,8 @@ import { locationsScreens } from './locations'
 import { orgListScreens } from '../orgFixtures'
 import { assetsDocumentsScreens } from './assetsDocuments'
 import { stockDocumentsScreens } from './stockDocuments'
+import { assetsScreens } from './assets'
+import { codesPagedScreens } from './codesPaged'
 
 function neverEnding(routes: FixtureRoute[]): FixtureRoute[] {
   return routes.map((r) => {
@@ -39,4 +41,23 @@ export const truncatedListScreens: HarnessScreen[] = [
   // T-1804: the document forms of stock and assets when a picker list was cut (the normal twins are stock-document-new-receipt, asset-document-new)
   ...twin(stockDocumentsScreens.find((s) => s.name === 'stock-document-new-receipt'), 'stock-document-new-pickers-truncated'),
   ...twin(assetsDocumentsScreens.find((s) => s.name === 'asset-document-new'), 'asset-document-new-pickers-truncated'),
+  // T-1812: asset cards (org-unit lookup) and codes (lookups) with a cut lookup list; normal twins: asset-cards, codes-paged
+  ...twin(assetsScreens.find((s) => s.name === 'asset-cards'), 'asset-cards-truncated'),
+  // the first rows are "assigned" so the open-assignment lookup runs, and it never ends
+  ...twin(codesPagedScreens.find((s) => s.name === 'codes-paged'), 'codes-truncated').map((s) => ({
+    ...s,
+    routes: s.routes.map((r): FixtureRoute => ({
+      ...r,
+      reply: (state, path, body) => {
+        const res = r.reply(state, path, body)
+        const b = res.body as { items?: { field_values: Record<string, unknown> }[] }
+        const items = (b.items ?? []).map((it, i) =>
+          i < 3 && (body as { entity_type?: string } | undefined)?.entity_type === 'code_tag'
+            ? { ...it, field_values: { ...it.field_values, status: 'assigned' } }
+            : it,
+        )
+        return { ...res, body: { ...b, items } }
+      },
+    })),
+  })),
 ]

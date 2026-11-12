@@ -9,6 +9,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import type { RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
+import type { RecordList } from '@/lib/entities/fetchAllRecords'
 import { DELETED_FALSE, fetchAllRecords, fetchCodesPage } from './codes.api'
 import { codesQueryKeys } from './codesQueryKeys'
 import { CODE_ASSIGNMENT, MAX_BATCH, errorMessageId, reasonOf } from './codesModel'
@@ -29,19 +30,20 @@ export function useOpenAssignments(assignedIds: string[]) {
       `open|${assignedIds.length}|${assignedIds[0] ?? ''}|${assignedIds[assignedIds.length - 1] ?? ''}`,
     ),
     queryFn: async () => {
-      const out: EntityRecord[] = []
+      const out: RecordList = []
       for (let i = 0; i < assignedIds.length; i += OPEN_CHUNK) {
         const chunk = assignedIds.slice(i, i + OPEN_CHUNK)
-        out.push(
-          ...(await fetchAllRecords(
-            CODE_ASSIGNMENT,
-            [DELETED_FALSE, OPEN_ASSIGNMENT, { field: 'code_id', op: 'in', value: chunk }],
-            'assigned_at',
-          )),
+        const part = await fetchAllRecords(
+          CODE_ASSIGNMENT,
+          [DELETED_FALSE, OPEN_ASSIGNMENT, { field: 'code_id', op: 'in', value: chunk }],
+          'assigned_at',
         )
+        out.push(...part)
+        if (part.truncated) out.truncated = true
       }
       return out
     },
+    structuralSharing: false, // keeps `truncated` on the list
     enabled: assignedIds.length > 0,
     placeholderData: keepPreviousData,
     retry: false,
@@ -61,6 +63,7 @@ export function useCodeRows(
     queryFn: () => fetchAllRecords(type, filters, options.sortField),
     enabled: options.enabled ?? true,
     // a filter change keeps the old rows on screen until the new ones arrive
+    structuralSharing: false, // keeps `truncated` on the list
     placeholderData: keepPreviousData,
     retry: false,
   })
