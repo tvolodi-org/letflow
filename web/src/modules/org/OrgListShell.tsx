@@ -28,6 +28,7 @@ export function useOrgRows(type: string, includeRetired: boolean, unitId = ''): 
       ]),
     // a filter change keeps the old rows on screen (and the filter mounted) until the new ones arrive
     placeholderData: keepPreviousData,
+    structuralSharing: false, // keeps `truncated` on the list
     retry: false,
   })
 }
