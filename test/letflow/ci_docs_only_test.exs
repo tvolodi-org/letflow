@@ -132,7 +132,8 @@ defmodule Letflow.CiDocsOnlyTest do
     # T-1675: +1 for letflow_case_test.exs (companion canary reads docs/requirements.yaml)
     # T-1683: +1 for scripts/companion_bootstrap_test.exs (reads the companion move list)
     # T-1358: +1 for production_readiness_runbook_test.exs (reads docs/runbooks/production-readiness.md)
-    assert length(files) < 73, "docs test list grew to #{length(files)} files"
+    # T-1360: +1 for pilot_rollout_runbook_test.exs
+    assert length(files) < 74, "docs test list grew to #{length(files)} files"
     refute "test/letflow/engine_test.exs" in files
     # T-1404: 79 files still ran 575 s on main; these DB suites (80 s each) only cite a docs
     # path in a moduledoc or a comment and must stay out
