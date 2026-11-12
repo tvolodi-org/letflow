@@ -3,7 +3,7 @@
  *  screen (help never opens for a user who cannot open the screen). Route: `/help/:topic`. */
 import { P, type Permission } from '@/auth/access'
 
-export const CORE_HELP_TOPICS = ['usersImport', 'passwordReset', 'instanceReplay', 'moduleRollouts', 'createSignIn'] as const
+export const CORE_HELP_TOPICS = ['usersImport', 'passwordReset', 'instanceReplay', 'moduleRollouts', 'createSignIn', 'longLists'] as const
 export type CoreHelpTopic = (typeof CORE_HELP_TOPICS)[number]
 
 /** `permission` is absent where the screen itself has no guard (instances); `platformOnly` as the screen's route. */
@@ -13,6 +13,7 @@ export const CORE_HELP_ACCESS: Record<CoreHelpTopic, { permission?: Permission; 
   instanceReplay: {},
   moduleRollouts: { permission: P.ModuleRolloutsManage, platformOnly: true },
   createSignIn: { permission: P.UsersGroupsRolesManage },
+  longLists: {},
 }
 
 export const CORE_HELP_BACK: Record<CoreHelpTopic, string> = {
@@ -21,6 +22,7 @@ export const CORE_HELP_BACK: Record<CoreHelpTopic, string> = {
   instanceReplay: '/instances',
   moduleRollouts: '/admin/module-rollouts',
   createSignIn: '/admin/users',
+  longLists: '/',
 }
 
 export function isCoreHelpTopic(value: string | undefined): value is CoreHelpTopic {
