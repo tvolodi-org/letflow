@@ -16,6 +16,7 @@ defmodule Letflow.Modules.Stock.DocumentPrintRouterTest do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.Stock
   alias Letflow.Modules.Stock.CountPrintTest.PdfProbe
   alias Letflow.Modules.Stock.Documents.Kinds
@@ -36,7 +37,7 @@ defmodule Letflow.Modules.Stock.DocumentPrintRouterTest do
     do: D.request(:get, "/documents/#{id}/print#{q}", tok || ctx.tok_a)
 
   defp texts(conn), do: PdfProbe.items(conn.resp_body)
-  defp strip(conn), do: conn |> S.json() |> Map.delete("trace_id")
+  defp strip(conn), do: M.strip_conn(conn)
 
   defp issued_two_side(ctx, kind, quantity \\ "4") do
     {from, to} = if kind == "return", do: {ctx.m2, ctx.ma}, else: {ctx.ma, ctx.m2}

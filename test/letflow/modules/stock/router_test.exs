@@ -14,6 +14,7 @@ defmodule Letflow.Modules.Stock.RouterTest do
 
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.ScopeNodePaths
   alias Letflow.LedgerFixture, as: Fx
   alias Letflow.StockFixture, as: S
@@ -35,7 +36,7 @@ defmodule Letflow.Modules.Stock.RouterTest do
     Map.merge(ctx, %{a: a, b: b, tok_a: S.token(ctx, :a, ["TENANT_ADMIN"])})
   end
 
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
   defp ok!(conn), do: assert_status(conn, 200) |> S.json()
 
   defp assert_status(conn, status) do
