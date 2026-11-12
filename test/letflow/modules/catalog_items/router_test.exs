@@ -9,11 +9,9 @@ defmodule Letflow.Modules.CatalogItems.RouterTest do
 
   use Letflow.DataCase, async: false
 
-  import Plug.Conn
-  import Plug.Test
-
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.CatalogItems
   alias Letflow.Repo
 
@@ -54,18 +52,12 @@ defmodule Letflow.Modules.CatalogItems.RouterTest do
     %{user_id: user.id, plaintext: plaintext, slug: ctx.slug}
   end
 
-  defp call(method, path, user, body) do
-    conn(method, @base <> path, Jason.encode!(body))
-    |> put_req_header("content-type", "application/json")
-    |> put_req_header("authorization", "Bearer " <> user.plaintext)
-    |> put_req_header("x-tenant-slug", user.slug)
-    |> put_req_header("x-trace-id", "t-3610")
-    |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
-  end
+  defp call(method, path, user, body),
+    do: M.call(method, @base, path, user, body, "t-3610")
 
-  defp json(conn), do: Jason.decode!(conn.resp_body)
+  defp json(conn), do: M.json(conn)
   defp key, do: "k-" <> Ecto.UUID.generate()
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
 
   defp ok!(conn, status) do
     assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"
