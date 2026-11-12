@@ -17,6 +17,8 @@ import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { DetailHeader } from '@/components/ui/DetailHeader'
 import { Dialog } from '@/components/ui/Dialog'
 import { Banner } from '@/components/ui/Banner'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS, anyTruncated } from '@/lib/entities/fetchAllRecords'
 import { Field } from '@/components/ui/Field'
 import { FilterBar } from '@/components/ui/FilterBar'
 import { FormActions, FormSection } from '@/components/ui/FormSection'
@@ -435,6 +437,7 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
 
   const table = (
     <>
+      {anyTruncated([open, historyRows, ...targetQueries]) && <TruncatedNotice messageId="codes.common.truncated" count={MAX_ROWS} />}
       {codeRows.hasMore ? (
         <Banner tone="info">
           <span data-testid="codes-truncated">{t('codes.list.truncated', { count: String(codes.length) })}</span>

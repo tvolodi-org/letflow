@@ -26,29 +26,8 @@ export const codesApi = {
   labels: (codeIds: string[]) => client.postBlob(`${BASE}/labels`, { code_ids: codeIds }),
 }
 
-const MAX_PAGES = 50
-
-/** Loads every record of a type matching the filters, following the cursor (max page size 200). */
-export async function fetchAllRecords(
-  type: string,
-  filters: EntityQueryFilterClause[],
-  sortField = 'code',
-): Promise<EntityRecord[]> {
-  const out: EntityRecord[] = []
-  let cursor: string | undefined
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const res = await entitiesApi.queryRecords(type, {
-      filters,
-      sort: [{ field: sortField, dir: 'asc' }],
-      page_size: 200,
-      ...(cursor ? { cursor } : {}),
-    })
-    out.push(...res.items)
-    if (!res.next_cursor || res.next_cursor === cursor) break
-    cursor = res.next_cursor
-  }
-  return out
-}
+/** The one "load everything" loop (cap and `truncated` flag included) is shared: lib/entities/fetchAllRecords. */
+export { fetchAllRecords } from '@/lib/entities/fetchAllRecords'
 
 /** Codes per request of the code list and of each "Load more" (T-1802). */
 export const CODE_PAGE_SIZE = 100
