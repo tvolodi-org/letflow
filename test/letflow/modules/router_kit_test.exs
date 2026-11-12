@@ -157,4 +157,20 @@ defmodule Letflow.Modules.RouterKitTest do
       refute src =~ "defp elem_tag"
     end
   end
+
+  describe "S7f: stock router uses the kit" do
+    test "no private copy of the paging or elem_tag is left in the stock router" do
+      src = File.read!("lib/letflow/modules/stock/router.ex")
+      assert src =~ "RouterKit.page("
+      assert src =~ "RouterKit.optional_uint("
+      assert src =~ "RouterKit.elem_tag("
+      refute src =~ "defp page("
+      refute src =~ "defp cursor("
+      refute src =~ "defp optional_limit"
+      refute src =~ "defp optional_uint"
+      refute src =~ "defp uint("
+      refute src =~ "defp elem_tag"
+      refute src =~ "binary_to_term"
+    end
+  end
 end
