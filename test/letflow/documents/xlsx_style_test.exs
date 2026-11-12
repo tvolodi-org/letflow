@@ -103,4 +103,53 @@ defmodule Letflow.Documents.XlsxStyleTest do
       assert XlsxStyle.cell_json(3) == "3"
     end
   end
+
+  # B16#4 canary: expected values taken from the old private copies in assets/xlsx_export.ex
+  # and stock/xlsx_export.ex (identical bodies, confirmed by diff before removal).
+  describe "cell_quantity/1 and cell_number_or_text/2" do
+    test "nil passes through" do
+      assert XlsxStyle.cell_quantity(nil) == nil
+    end
+
+    test "parseable decimal binary with <=15 significant digits becomes a float" do
+      assert XlsxStyle.cell_quantity("1.5") == 1.5
+      assert XlsxStyle.cell_quantity("100") == 100.0
+    end
+
+    test "non-parseable binary is kept as text" do
+      assert XlsxStyle.cell_quantity("abc") == "abc"
+      assert XlsxStyle.cell_quantity("1.2.3") == "1.2.3"
+    end
+
+    test "Decimal with <=15 significant digits becomes a float" do
+      assert XlsxStyle.cell_quantity(Decimal.new("2.5")) == 2.5
+    end
+
+    test "Decimal with >15 significant digits keeps its text form" do
+      # 16 significant digits: too many for float
+      assert XlsxStyle.cell_quantity(Decimal.new("1234567890123456")) ==
+               "1234567890123456"
+    end
+
+    test "integer is returned unchanged" do
+      assert XlsxStyle.cell_quantity(42) == 42
+    end
+
+    test "other values fall back to cell_text/1" do
+      assert XlsxStyle.cell_quantity(:atom) == "atom"
+      assert XlsxStyle.cell_quantity(nil) == nil
+    end
+
+    test "cell_number_or_text/2: infinity keeps text form" do
+      assert XlsxStyle.cell_number_or_text(Decimal.new("Inf"), "Inf") == "Inf"
+    end
+
+    test "cell_number_or_text/2: NaN keeps text form" do
+      assert XlsxStyle.cell_number_or_text(Decimal.new("NaN"), "NaN") == "NaN"
+    end
+
+    test "cell_number_or_text/2: normal decimal becomes a float" do
+      assert XlsxStyle.cell_number_or_text(Decimal.new("3.14"), "3.14") == 3.14
+    end
+  end
 end
