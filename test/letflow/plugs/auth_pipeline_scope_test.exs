@@ -363,11 +363,15 @@ defmodule Letflow.Plugs.AuthPipelineScopeTest do
       try do
         assert_receive :grants_locked, 5_000
 
-        # The real pipeline (default Repo timeout) hits a connection-level failure inside
-        # load_grants/2. Depending on the driver path it surfaces as DBConnection.ConnectionError
-        # or Postgrex.Error (57014 query_canceled); both must give :not_loaded. The raw exception
-        # class of a standalone query is deliberately not asserted (no timing dependence).
-        {conn, log} = with_log(fn -> oidc!(fx) end)
+        # The real pipeline's grants query blocks behind the lock. Instead of waiting for the Repo
+        # timeout (a wall-clock race: on a slow shard the 60 s holder fallback released the lock
+        # first and the load succeeded, T-1806), wait for the EVENT (an ungranted lock request on
+        # our own table in pg_locks, bounded poll) and then terminate that backend. That is a
+        # deterministic connection-level failure inside load_grants/2; depending on the driver
+        # path it surfaces as DBConnection.ConnectionError or Postgrex.Error, both give :not_loaded.
+        request = Task.async(fn -> with_log(fn -> oidc!(fx) end) end)
+        terminate_blocked_backend!(fx.schema_name, holder.pid)
+        {conn, log} = Task.await(request, 60_000)
 
         assert conn.assigns.auth_context.user_id == user_id
         assert conn.assigns.auth_context.scope_grants == :not_loaded
@@ -388,6 +392,38 @@ defmodule Letflow.Plugs.AuthPipelineScopeTest do
           Task.shutdown(holder, 5_000)
         end
       end
+    end
+  end
+
+  # Waits (bounded, polling pg_locks) until a backend other than the holder's waits for a lock on
+  # `role_scope_grants` of `schema`, then terminates it. Scoped by our unique schema name.
+  defp terminate_blocked_backend!(schema, holder_pid) do
+    sql = """
+    SELECT l.pid FROM pg_locks l
+    WHERE NOT l.granted AND l.locktype = 'relation'
+      AND l.relation = ($1 || '.role_scope_grants')::regclass::oid
+    """
+
+    deadline = System.monotonic_time(:millisecond) + 30_000
+    qualified = ~s|"#{schema}"|
+    do_terminate(sql, qualified, deadline, holder_pid)
+  end
+
+  defp do_terminate(sql, qualified, deadline, holder_pid) do
+    case Repo.query!(sql, [qualified]).rows do
+      [[pid] | _] ->
+        assert %{rows: [[true]]} = Repo.query!("SELECT pg_terminate_backend($1)", [pid])
+
+      [] ->
+        if System.monotonic_time(:millisecond) > deadline,
+          do: flunk("no backend waited for the grants lock within 30 s")
+
+        receive do
+        after
+          50 -> :ok
+        end
+
+        do_terminate(sql, qualified, deadline, holder_pid)
     end
   end
 
