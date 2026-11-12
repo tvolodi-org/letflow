@@ -10,13 +10,13 @@ defmodule Letflow.Modules.Stock.Access do
   else, a scope error included (`ScopeSetError` fails closed, INV-8), is `:error`, which the router turns
   into the 404 of a tenant without the module (INV-5). The `authz_*` macro of the router has already
   answered 403 to a caller whose roles do not hold the permission at all. In phase B scoped posting is
-  not built (L6), so a scoped principal gets the same 404.
+  not built (L6), so a scoped principal gets the same 404. The body is
+  `Letflow.Api.ModuleGuard.check/2` (CORE slice S8).
 
   The tenant is `principal.prefix`, derived from the token by the plug stack, never from the request.
   """
 
-  alias Letflow.Api.Authorization
-  alias Letflow.Api.Scope
+  alias Letflow.Api.ModuleGuard
 
   @doc "The permission each purpose needs (the ledger registration names the same atoms)."
   @spec permission(:read | :post | :reverse) :: atom()
@@ -26,18 +26,6 @@ defmodule Letflow.Modules.Stock.Access do
 
   @spec check(Plug.Conn.t(), :read | :post | :reverse) ::
           {:ok, %{prefix: String.t(), actor_id: String.t()}} | :error
-  def check(%Plug.Conn{} = conn, purpose) when purpose in [:read, :post, :reverse] do
-    permission = permission(purpose)
-
-    with {:ok, _conn, %{kind: :user} = principal} <- Scope.principal_from_conn(conn),
-         true <- Enum.any?(principal.roles, &Authorization.role_allows?(&1, permission)),
-         {:ok, :all} <- Scope.allowed_set(principal, permission),
-         {:ok, actor} <- Ecto.UUID.cast(principal.user_id) do
-      {:ok, %{prefix: principal.prefix, actor_id: actor}}
-    else
-      _refused -> :error
-    end
-  rescue
-    Scope.ScopeSetError -> :error
-  end
+  def check(%Plug.Conn{} = conn, purpose) when purpose in [:read, :post, :reverse],
+    do: ModuleGuard.check(conn, permission(purpose))
 end
