@@ -22,7 +22,9 @@ import { printErrorMessageId } from '../documents/documentsModel'
 import { OfficialFormMenu } from '../forms/OfficialFormMenu'
 import { officialFormLang } from '../forms/officialForms'
 import { stockApi, type BalanceRow, type BalancesPageBody } from './stock.api'
-import { usePickerOptions } from './stockPickers'
+import { usePickerOptions, anyPickerTruncated } from './stockPickers'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { stockQueryKeys } from './stockQueryKeys'
 import { EMPTY_BALANCE_FILTERS, AS_OF_DATE, balanceNameIds, balanceParams, balanceQuery, todayIso, type BalanceFilters } from './stockRegisterModel'
 import { isUuid } from '@/lib/references/referenceLabel'
@@ -205,6 +207,7 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
 
   return (
     <>
+      {anyPickerTruncated(items, locations, units, people, lots) && <TruncatedNotice messageId="stock.pickers.truncated" count={MAX_ROWS} />}
       <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.balances.title')} lede={t('stock.balances.lede')}
         actions={
           <>

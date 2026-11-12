@@ -37,4 +37,12 @@ describe('fetchAllRecords', () => {
     expect(rows.truncated).toBeUndefined()
     expect(anyTruncated([{ data: rows }])).toBe(false)
   })
+
+  it('sends no sort when sortField is null and sorts by code by default (P5)', async () => {
+    query.mockResolvedValue({ items: [row(1)], next_cursor: null } as never)
+    await fetchAllRecords('t', [], null)
+    expect(query.mock.calls[0]?.[1]).not.toHaveProperty('sort')
+    await fetchAllRecords('t', [])
+    expect(query.mock.calls[1]?.[1]).toMatchObject({ sort: [{ field: 'code', dir: 'asc' }] })
+  })
 })

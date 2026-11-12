@@ -16,7 +16,9 @@ import { StatusPill } from '@/components/ui/StatusPill'
 import { LoadMore, RegisterError } from '../register/RegisterShell'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { useNames } from '../register/stockNames'
-import { usePickerOptions } from '../register/stockPickers'
+import { usePickerOptions, anyPickerTruncated } from '../register/stockPickers'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { STOCK_POST } from '../stockPermissions'
 import { documentsApi, type DocumentsPageBody } from './documents.api'
 import { DOC_KINDS, DOC_STATES, formatEventTime } from './documentsModel'
@@ -60,6 +62,7 @@ export function DocumentList({ selectedId }: { selectedId: string | undefined })
 
   return (
     <section className="lf-card lf-doc__list" aria-label={t('stock.doc.title')} data-testid="document-list">
+      {anyPickerTruncated(orgUnits) && <TruncatedNotice messageId="stock.pickers.truncated" count={MAX_ROWS} />}
       <div className="lf-doc__tools">
         <Select
           label={t('stock.doc.col.kind')}

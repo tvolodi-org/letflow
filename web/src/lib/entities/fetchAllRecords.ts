@@ -16,7 +16,7 @@ export type RecordList = EntityRecord[] & { truncated?: boolean }
 export async function fetchAllRecords(
   type: string,
   filters: EntityQueryFilterClause[],
-  sortField = 'code',
+  sortField: string | null = 'code',
   sortDir: 'asc' | 'desc' = 'asc',
   maxPages = MAX_PAGES,
 ): Promise<RecordList> {
@@ -25,7 +25,7 @@ export async function fetchAllRecords(
   for (let page = 0; page < maxPages; page++) {
     const res = await entitiesApi.queryRecords(type, {
       filters,
-      sort: [{ field: sortField, dir: sortDir }],
+      ...(sortField ? { sort: [{ field: sortField, dir: sortDir }] } : {}),
       page_size: PAGE_SIZE,
       ...(cursor ? { cursor } : {}),
     })

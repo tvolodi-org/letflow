@@ -17,7 +17,9 @@ import type { LeCellCtx, LeColumn, LeError } from '@/components/ui/lines/types'
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { useLinesMode } from '@/hooks/useLinesMode'
 import { useNames } from '../assetsNames'
-import { usePickerOptions } from '../assetsPickers'
+import { usePickerOptions, anyPickerTruncated } from '../assetsPickers'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { buildItemCatalog } from './assetLinesCatalog'
 import { MAX_LINES } from './documentForm'
 import { TARGET_KINDS, emptyKindChangeLine, validateKindChangeLine, type KindChangeLine } from './kindChangeForm'
@@ -180,6 +182,7 @@ export function KindChangeLinesEditor(props: {
 
   return (
     <DocCard area="lines" title={t('assets.doc.lines')} count={lines.length} data-testid="lines-card">
+      {anyPickerTruncated(items, locations, employees, orgUnits) && <TruncatedNotice messageId="assets.pickers.truncated" count={MAX_ROWS} />}
       <LFLinesEditor<Line>
         screenId={KIND_CHANGE_LINES_SCREEN_ID}
         resize={{ id: 'kc-lines-edit', screen: ASSET_DOCUMENTS_LAYOUT_SCREEN, cols: kindChangeColumnSpecs() }}

@@ -18,7 +18,9 @@ import { useLinesMode } from '@/hooks/useLinesMode'
 import { Select } from '@/components/ui/Select'
 import { DateCell } from '@/components/ui/DateField'
 import { useNames } from '../register/stockNames'
-import { usePickerOptions, type PickerOption } from '../register/stockPickers'
+import { usePickerOptions, type PickerOption, anyPickerTruncated } from '../register/stockPickers'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { MAX_LINES, emptyLine, sumDecimals, validateLine, type DocKind, type LineForm } from './documentsModel'
 import { DOCUMENTS_LAYOUT_SCREEN, lineColumns, lineColumnSpecs } from './lineColumns'
 import { buildCatalog, itemLabel } from './linesCatalog'
@@ -224,6 +226,7 @@ export function LinesEditor(props: {
 
   return (
     <DocCard area="lines" title={t('stock.doc.lines')} count={lines.length} data-testid="lines-card">
+      {anyPickerTruncated(itemOpts, uoms, locations, employees) && <TruncatedNotice messageId="stock.pickers.truncated" count={MAX_ROWS} />}
       <LFLinesEditor<LineForm>
         screenId="lf-stock-lines"
         resize={{ id: props.readOnly ? 'lines' : 'lines-edit', screen: DOCUMENTS_LAYOUT_SCREEN, cols: lineColumnSpecs(kind) }}

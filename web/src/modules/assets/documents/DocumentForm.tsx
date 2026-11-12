@@ -22,7 +22,9 @@ import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { Select } from '@/components/ui/Select'
 import { ASSETS_POST } from '../assetsPermissions'
 import { linkedEmployeeId } from '@/lib/references'
-import { usePickerOptions } from '../assetsPickers'
+import { usePickerOptions, anyPickerTruncated } from '../assetsPickers'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { assetsQueryKeys } from '../assetsQueryKeys'
 import { assetDocumentsApi, type AssetDocument } from './assetDocuments.api'
 import { AssetLinesEditor } from './AssetLinesEditor'
@@ -153,6 +155,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
         }
       >
         {banner && <Banner tone="danger">{banner}</Banner>}
+        {anyPickerTruncated(orgUnits, locations, employees, cards) && <TruncatedNotice messageId="assets.pickers.truncated" count={MAX_ROWS} />}
       </DocBar>
       <DocumentTabs lineCount={form.kind === 'kind_change' ? form.kcLines.length : form.lines.length} problems={problemsByPane(errors)} />
       <DocCard area="header" title={t('assets.doc.header')} data-testid="document-form">

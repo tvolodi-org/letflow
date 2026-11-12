@@ -16,7 +16,9 @@ import { StatusPill } from '@/components/ui/StatusPill'
 import { ASSETS_CARD_WRITE, ASSETS_POST } from '../assetsPermissions'
 import { assetsQueryKeys } from '../assetsQueryKeys'
 import { useNames } from '../assetsNames'
-import { usePickerOptions } from '../assetsPickers'
+import { usePickerOptions, anyPickerTruncated } from '../assetsPickers'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { LoadMore, RegisterError } from '../register/RegisterShell'
 import { assetDocumentsApi, type AssetDocumentsPageBody } from './assetDocuments.api'
 import { DOC_KINDS, DOC_STATES, formatEventTime } from './documentsModel'
@@ -58,6 +60,7 @@ export function DocumentList({ selectedId }: { selectedId: string | undefined })
 
   return (
     <section className="lf-card lf-doc__list" aria-label={t('assets.doc.title')} data-testid="document-list">
+      {anyPickerTruncated(orgUnits) && <TruncatedNotice messageId="assets.pickers.truncated" count={MAX_ROWS} />}
       <div className="lf-doc__tools">
         {can(ASSETS_POST) && (
           <div className="lf-btn-row" data-testid="document-new" role="group" aria-label={t('assets.doc.action.new')}>

@@ -20,7 +20,9 @@ import { DateField, DateTimeField } from '@/components/ui/DateField'
 import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { Select } from '@/components/ui/Select'
 import { linkedEmployeeId } from '@/lib/references'
-import { usePickerOptions } from '../register/stockPickers'
+import { usePickerOptions, anyPickerTruncated } from '../register/stockPickers'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { stockQueryKeys } from '../register/stockQueryKeys'
 import { STOCK_POST } from '../stockPermissions'
 import { documentsApi, type StockDocument } from './documents.api'
@@ -186,6 +188,7 @@ export function DocumentForm({ kind = 'receipt', doc, onDone, onCancel, ...props
         }
       >
         {banner && <Banner tone="danger">{banner}</Banner>}
+        {anyPickerTruncated(orgUnits, locations, employees, counterparties) && <TruncatedNotice messageId="stock.pickers.truncated" count={MAX_ROWS} />}
       </DocBar>
       <DocumentTabs lineCount={form.lines.length} problems={problemsByPane(errors)} />
       <DocCard area="header" title={t('stock.doc.header')} data-testid="document-form">

@@ -5,6 +5,8 @@ import type { FixtureRoute, HarnessScreen } from '../types'
 import { catalogItemsScreens } from './catalogItems'
 import { locationsScreens } from './locations'
 import { orgListScreens } from '../orgFixtures'
+import { assetsDocumentsScreens } from './assetsDocuments'
+import { stockDocumentsScreens } from './stockDocuments'
 
 function neverEnding(routes: FixtureRoute[]): FixtureRoute[] {
   return routes.map((r) => {
@@ -24,11 +26,17 @@ function neverEnding(routes: FixtureRoute[]): FixtureRoute[] {
 }
 
 function twin(source: HarnessScreen | undefined, name: string): HarnessScreen[] {
-  return source ? [{ ...source, name, routes: neverEnding(source.routes) }] : []
+  return source ? [{ ...source, name, routes: neverEnding(source.routes) }] : [  // T-1804: the document forms of stock and assets when a picker list was cut (the normal twins are stock-document-new-receipt, asset-document-new)
+  ...twin(stockDocumentsScreens.find((s) => s.name === 'stock-document-new-receipt'), 'stock-document-new-pickers-truncated'),
+  ...twin(assetsDocumentsScreens.find((s) => s.name === 'asset-document-new'), 'asset-document-new-pickers-truncated'),
+]
 }
 
 export const truncatedListScreens: HarnessScreen[] = [
   ...twin(catalogItemsScreens.find((s) => s.name === 'catalog-items'), 'catalog-items-truncated'),
   ...twin(locationsScreens.find((s) => s.name === 'locations'), 'locations-truncated'),
   ...twin(orgListScreens.find((s) => s.name === 'org-units-list'), 'org-units-truncated'),
+  // T-1804: the document forms of stock and assets when a picker list was cut (the normal twins are stock-document-new-receipt, asset-document-new)
+  ...twin(stockDocumentsScreens.find((s) => s.name === 'stock-document-new-receipt'), 'stock-document-new-pickers-truncated'),
+  ...twin(assetsDocumentsScreens.find((s) => s.name === 'asset-document-new'), 'asset-document-new-pickers-truncated'),
 ]
