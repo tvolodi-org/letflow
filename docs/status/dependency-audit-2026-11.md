@@ -26,7 +26,7 @@ Severity from the advisory text (EEF-CVE ids, source: hex.pm / OSV).
 | Package | Locked | Advisory | Severity | Decision |
 |---|---|---|---|---|
 | bandit | 1.12.5 | 14 advisories (HTTP/2 flow control, request smuggling via chunk extensions, 1-byte DATA frame amplification, HPACK cookie crumbs, WebSocket fragments, ...), 11 high, 3 medium (counted from `mix hex.audit` output) | **high** | **Resolved by T-1740** (lock has 1.14.1), not by this change. Listed here for the record. |
-| ecto | 3.14.1 | EEF-CVE-2026-118391 unbounded query cache growth from interpolated JSON paths and splice lists | high | **Not bumped**: 3.14.3 makes every `:all` query emit `WHERE (TRUE)`, which fails `Letflow.Entities.QueryScopeTest` (T-C1 and T-C5, pre-change SQL equality). Needs its own task: adapt the query-scope pins or the compile, then bump. |
+| ecto | 3.14.1 | EEF-CVE-2026-118391 unbounded query cache growth from interpolated JSON paths and splice lists | high | **Bumped to 3.14.3 (T-1795).** 3.14.3 emits `WHERE (TRUE)` for an interpolated `dynamic(true)`; `Letflow.Entities.Query.Compiler` now adds no `where` when a request has no filter clauses, so the committed pre-change SQL pins (`QueryScopeTest` T-C1, T-C5) hold unchanged. ecto_sql 3.14.0 and postgrex 0.22.4 satisfy the constraints unchanged; no migration changed. `mix hex.audit`: no advisory packages. |
 | jose | 1.11.12 | EEF-CVE-2026-65625..65632 (8, one high: 65629) | high | Bumped to 1.11.13 (patch). |
 | decimal | 3.1.1 | EEF-CVE-2026-97853 unbounded allocation in `Decimal.round/3` (places argument) | medium | Bumped to 3.2.0 (minor). |
 | plug_crypto | 2.2.0 | EEF-CVE-2026-105963 secret key base exposed in stack-trace arguments on wrong-typed arguments | medium | Bumped to 2.2.1 (patch). |
@@ -98,7 +98,7 @@ third-party action and a decision for the operator.
 
 ## Findings, ranked
 
-1. **high** ecto 3.14.1 (EEF-CVE-2026-118391): open, needs a task adapting the query-scope pins, then bump to 3.14.3.
+1. ~~ecto 3.14.1 (EEF-CVE-2026-118391)~~ fixed by T-1795 (3.14.3).
 1b. bandit: 14 advisories fixed by T-1740 (not by this change).
 2. ~~**high** zod 3.x in the SPA runtime~~ **Resolved by T-1794**: web upgraded to zod ^4.6.7; `npm audit --omit=dev` reports 0 vulnerabilities.
 3. **medium** `appleboy/ssh-action@v1` tag-pinned in the deploy workflow.
