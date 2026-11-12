@@ -20,7 +20,7 @@ import { renderWithAccess } from '@/auth/access/testing'
 expect.extend(jestDomMatchers)
 
 const canvasMounts = { count: 0 }
-const probe = vi.hoisted(() => ({ order: [] as string[], canvasDirty: true, setQueryData: undefined as unknown as ReturnType<typeof vi.fn> }))
+const probe = vi.hoisted(() => ({ order: [] as string[], canvasDirty: true, setQueryData: undefined as ((...a: unknown[]) => void) | undefined }))
 const EDITED = {
   nodesJSON: JSON.stringify([
     { id: 'start', position: { x: 0, y: 0 }, data: { nodeType: 'START', name: 'Start', attributes: {} } },
