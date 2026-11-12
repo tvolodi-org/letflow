@@ -15,6 +15,7 @@ defmodule Letflow.Modules.Stock.VoiceRouterTest do
 
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.CatalogItems
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Stock.VoicePrompt
@@ -43,7 +44,7 @@ defmodule Letflow.Modules.Stock.VoiceRouterTest do
     })
   end
 
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
 
   defp status!(conn, status) do
     assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"

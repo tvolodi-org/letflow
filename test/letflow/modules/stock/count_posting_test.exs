@@ -22,6 +22,7 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
   alias Letflow.Engine.Task
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.Modules.Stock.Counts
   alias Letflow.Modules.Stock.Handlers
   alias Letflow.StockDocsFixture, as: D
@@ -50,7 +51,7 @@ defmodule Letflow.Modules.Stock.CountPostingTest do
     |> then(&Letflow.Router.call(&1, Letflow.Router.init([])))
   end
 
-  defp strip(conn), do: conn |> S.json() |> Map.delete("trace_id")
+  defp strip(conn), do: M.strip_conn(conn)
 
   defp status!(conn, status) do
     assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"

@@ -15,6 +15,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
   alias Letflow.Documents.DocumentVersion
   alias Letflow.Identity
   alias Letflow.Identity.User
+  alias Letflow.ModuleConnCase, as: M
   alias Letflow.StockDocsFixture, as: D
   alias Letflow.StockFixture, as: S
   alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
@@ -37,7 +38,7 @@ defmodule Letflow.Modules.Stock.DocumentsRouterTest do
     })
   end
 
-  defp strip(body), do: Map.delete(body, "trace_id")
+  defp strip(body), do: M.strip(body)
 
   defp status!(conn, status) do
     assert conn.status == status, "expected #{status}, got #{conn.status}: #{conn.resp_body}"

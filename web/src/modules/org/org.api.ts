@@ -1,7 +1,6 @@
 /** org.api — GH 3609 / REQ-669. Calls of the org module routes (REQ-665). Each write carries the idempotency key
  *  in the body and exactly the keys the route accepts; no call sends a tenant identifier. */
 import { client } from '@/api/client'
-import { entitiesApi } from '@/api/entities'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
 
 const BASE = '/api/v1/modules/org'
@@ -62,22 +61,4 @@ export const orgApi = {
     client.post<EntityRecord>(`${BASE}/employees/${seg(id)}/retire`, { idempotency_key: key }),
 }
 
-const MAX_PAGES = 50
-
-/** Loads every record of a type matching the filters, following the cursor (max page size 200). */
-export async function fetchAllRecords(type: string, filters: EntityQueryFilterClause[]): Promise<EntityRecord[]> {
-  const out: EntityRecord[] = []
-  let cursor: string | undefined
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const res = await entitiesApi.queryRecords(type, {
-      filters,
-      sort: [{ field: 'code', dir: 'asc' }],
-      page_size: 200,
-      ...(cursor ? { cursor } : {}),
-    })
-    out.push(...res.items)
-    if (!res.next_cursor || res.next_cursor === cursor) break
-    cursor = res.next_cursor
-  }
-  return out
-}
+export { fetchAllRecords } from '@/lib/entities/fetchAllRecords'

@@ -7,6 +7,8 @@ import { useAuth } from '@/auth/AuthContext'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
+import { MAX_ROWS, anyTruncated } from '@/lib/entities/fetchAllRecords'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
@@ -29,6 +31,7 @@ export function useLocationRows(
     enabled: options.enabled ?? true,
     // a filter change keeps the old rows on screen until the new ones arrive
     placeholderData: keepPreviousData,
+    structuralSharing: false, // keeps `truncated` on the list
     retry: false,
   })
 }
@@ -65,6 +68,7 @@ export function LocationsShell(props: {
         </Banner>
       ) : (
         <QueryStateBoundary state={state} onRetry={retry}>
+          {anyTruncated(props.queries) && <TruncatedNotice messageId="locations.common.truncated" count={MAX_ROWS} />}
           {props.children}
         </QueryStateBoundary>
       )}
