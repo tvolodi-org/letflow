@@ -104,7 +104,7 @@ defmodule Letflow.Modules.RouterKit do
         {:ok, nil}
 
       {:ok, text} ->
-        if Regex.match?(@limit, text),
+        if is_binary(text) and Regex.match?(@limit, text),
           do: {:ok, String.to_integer(text)},
           else: {:error, :invalid_filter}
     end

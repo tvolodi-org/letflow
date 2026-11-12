@@ -132,6 +132,15 @@ defmodule Letflow.Modules.RouterKitTest do
       assert {:ok, 3} = RouterKit.optional_uint(%{"from_seq" => "3"}, "from_seq")
     end
 
+    test "T-1792 a list or map value (limit[]=1) is refused, not a crash (INV-8)" do
+      for bad <- [["1"], %{"a" => "1"}] do
+        assert {:error, :invalid_filter} = RouterKit.limit(%{"limit" => bad})
+        assert {:error, :invalid_filter} = RouterKit.page(%{"limit" => bad}, :text)
+        assert {:error, :invalid_filter} = RouterKit.cursor(%{"cursor" => bad}, :integer)
+        assert {:error, :invalid_filter} = RouterKit.optional_uint(%{"k" => bad}, "k")
+      end
+    end
+
     test "page builds the map and drops absent values" do
       assert {:ok, %{}} = RouterKit.page(%{}, :text)
 
