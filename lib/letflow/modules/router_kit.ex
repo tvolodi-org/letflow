@@ -14,6 +14,8 @@ defmodule Letflow.Modules.RouterKit do
   `conn.assigns.auth_context.user_id`, never from the request (INV-1, INV-10).
   """
 
+  require Logger
+
   alias Letflow.Api.Error
   alias Letflow.Api.Response
 
@@ -143,6 +145,77 @@ defmodule Letflow.Modules.RouterKit do
       :error -> {:ok, nil}
       {:ok, text} -> uint(text)
     end
+  end
+
+  @doc """
+  The shared answer of the module write routers (core extraction ledger row 4).
+
+  Moved unchanged from the identical `render/3` clauses of org, locations, catalog_items, codes and
+  assets. `label` names the module in the log line of an unmapped error; `not_found` lists the reason
+  atoms answered as 404 (indistinguishable from forbidden, INV-5). A router with a clause of its own
+  (codes: `entry_invalid`) matches it first and hands the rest to this function.
+  """
+  @spec render(Plug.Conn.t(), term(), integer(), String.t(), [atom()]) :: Plug.Conn.t()
+  def render(conn, {:ok, record}, status, _label, _not_found),
+    do: Response.send_json(conn, status, record)
+
+  def render(conn, {:error, reason} = result, status, label, not_found) when is_atom(reason) do
+    if reason in not_found,
+      do: Response.not_found(conn),
+      else: refuse(conn, result, status, label)
+  end
+
+  def render(conn, result, status, label, _not_found), do: refuse(conn, result, status, label)
+
+  defp refuse(conn, {:error, {:field_not_allowed, key}}, _status, _label) when is_binary(key),
+    do: unprocessable(conn, "field_not_allowed", %{"field" => key})
+
+  defp refuse(conn, {:error, {:field_invalid, key}}, _status, _label) when is_binary(key),
+    do: unprocessable(conn, "field_invalid", %{"field" => key})
+
+  defp refuse(conn, {:error, {:record_payload_invalid, violations}}, _status, _label) do
+    fields =
+      violations
+      |> List.wrap()
+      |> Enum.flat_map(fn
+        %{field_path: path} when is_binary(path) ->
+          [path |> String.split("/", trim: true) |> List.first()]
+
+        _other ->
+          []
+      end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    unprocessable(conn, "record_payload_invalid", %{"fields" => fields})
+  end
+
+  defp refuse(conn, {:error, :idempotency_key_reuse}, _status, _label) do
+    problem = Error.conflict("request refused")
+    Response.send_problem(conn, %{problem | extensions: %{"reason" => "idempotency_key_reuse"}})
+  end
+
+  defp refuse(conn, {:error, :audit_failed}, _status, _label),
+    do: Response.internal_error(conn)
+
+  defp refuse(conn, {:error, reason}, _status, _label) when is_atom(reason),
+    do: unprocessable(conn, Atom.to_string(reason), %{})
+
+  defp refuse(conn, {:error, term}, _status, label) do
+    Logger.warning("#{label} request refused: #{inspect(elem_tag(term))}")
+    unprocessable(conn, "request_refused", %{})
+  end
+
+  @doc "A 422 problem with `reason` (and the `extra` extension members) in its extensions."
+  @spec unprocessable(Plug.Conn.t(), String.t(), map()) :: Plug.Conn.t()
+  def unprocessable(conn, reason, extra) do
+    problem = Error.unprocessable("request refused")
+
+    Response.send_problem(conn, %{
+      problem
+      | extensions: Map.put(extra, "reason", reason)
+    })
   end
 
   defp put_unless_nil(map, _key, nil), do: map
