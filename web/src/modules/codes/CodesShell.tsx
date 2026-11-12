@@ -2,14 +2,14 @@
  *  action), the list query hook and the text of a failed write. Layout, fields, table, pills and dialogs come
  *  from the shared components; nothing here sets a colour or a spacing. */
 import type { ReactNode } from 'react'
-import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import type { IntlShape } from 'react-intl'
 import { useAuth } from '@/auth/AuthContext'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import type { RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
-import { fetchAllRecords } from './codes.api'
+import { fetchAllRecords, fetchCodesPage } from './codes.api'
 import { codesQueryKeys } from './codesQueryKeys'
 import { MAX_BATCH, errorMessageId, reasonOf } from './codesModel'
 
@@ -30,6 +30,37 @@ export function useCodeRows(
     placeholderData: keepPreviousData,
     retry: false,
   })
+}
+
+export interface CodeTagRows {
+  rows: EntityRecord[]
+  hasMore: boolean
+  loadingMore: boolean
+  loadMore: () => void
+  query: Pick<UseQueryResult<unknown>, 'isError' | 'error' | 'isPending' | 'fetchStatus'> & { refetch: () => unknown }
+}
+
+/** The codes matching the server-side filters, 100 per request, "Load more" for the next page (T-1802). A filter
+ *  change keeps the old rows on screen until the new ones arrive. */
+export function useCodeTagRows(type: string, scope: string, filters: EntityQueryFilterClause[]): CodeTagRows {
+  const { session } = useAuth()
+  const tenantId = session?.tenant_id ?? ''
+  const q = useInfiniteQuery({
+    queryKey: codesQueryKeys.list(tenantId, type, `page|${scope}`),
+    queryFn: ({ pageParam }) => fetchCodesPage(type, filters, pageParam || undefined),
+    initialPageParam: '' as string,
+    getNextPageParam: (last, _all, lastParam) =>
+      last.next_cursor && last.next_cursor !== lastParam ? last.next_cursor : undefined,
+    placeholderData: keepPreviousData,
+    retry: false,
+  })
+  return {
+    rows: q.data?.pages.flatMap((p) => p.items) ?? [],
+    hasMore: q.hasNextPage,
+    loadingMore: q.isFetchingNextPage,
+    loadMore: () => void q.fetchNextPage(),
+    query: q,
+  }
 }
 
 export function CodesShell(props: {

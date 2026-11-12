@@ -7,7 +7,9 @@
  *  the Retire confirmation. The panel stays open while other rows are clicked, has a close button and closes on
  *  Escape. Targets are read through the generic query route (no other module's code is imported). */
 import { useEffect, useMemo, useState } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
+import { useAuth } from '@/auth/AuthContext'
 import { Search, Plus, Printer, X } from 'lucide-react'
 import { useAccess } from '@/auth/access/useAccess'
 import { Button } from '@/components/ui/Button'
@@ -26,9 +28,10 @@ import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/S
 import { useToast } from '@/hooks/useToast'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
 import { classifyError } from '@/utils/classifyError'
-import { DELETED_FALSE, codesApi, type ReceiveEntry } from './codes.api'
+import { DELETED_FALSE, codesApi, fetchAllRecords, type ReceiveEntry } from './codes.api'
+import { codesQueryKeys } from './codesQueryKeys'
 import { CodesIntlProvider } from './CodesIntlProvider'
-import { CodesShell, errorText, useCodeRows } from './CodesShell'
+import { CodesShell, errorText, useCodeRows, useCodeTagRows } from './CodesShell'
 import type { CodesUiLocale } from './codesMessages'
 import {
   CODE_ASSIGNMENT,
@@ -67,6 +70,8 @@ function receive(entries: ReceiveEntry[], key: string) {
   return codesApi.receive(entries, key)
 }
 
+/** Codes per `code_id in` request of the open-assignment lookup (at most one open assignment per code). */
+const OPEN_CHUNK = 200
 const OPEN_ASSIGNMENT: EntityQueryFilterClause = { field: 'released_at', op: 'is_null' }
 
 /** Tone and glyph per status: a word and a shape, never colour alone. */
@@ -126,16 +131,17 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
   const [sentIds, setSentIds] = useState<string[]>(initial?.labelIds ?? [])
   const labels = useLabelsPrint(initial?.labelFailure ? HARNESS_FAILURES[initial.labelFailure] : null)
 
-  const rows = useCodeRows(CODE_TAG, `status:${status}|value:${valueFilter}`, [
+  const codeRows = useCodeTagRows(CODE_TAG, `status:${status}|value:${valueFilter}`, [
     DELETED_FALSE,
     ...(status !== '' ? [{ field: 'status', op: 'eq' as const, value: status }] : []),
     ...(valueFilter !== '' ? [{ field: 'value', op: 'eq' as const, value: valueFilter }] : []),
-  ], { sortField: 'value' })
+  ])
+  const rows = codeRows.query
   // Stable references: DataTable's table model resets (and re-renders) when `data` changes identity.
   const codes = useMemo(() => {
-    const loaded = rows.data ?? []
+    const loaded = codeRows.rows
     return showRetired || status === 'retired' ? loaded : loaded.filter((c) => textOf(c, 'status') !== 'retired')
-  }, [rows.data, showRetired, status])
+  }, [codeRows.rows, showRetired, status])
   // Ticked ids that left the list (filter changed, code retired or gone) are dropped: no ghost id is sent.
   const codeIds = useMemo(() => new Set(codes.map((c) => c.record_id)), [codes])
   const ticked = labelIds.filter((id) => codeIds.has(id))
@@ -147,9 +153,37 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
   const anyAssigned = codes.some((c) => textOf(c, 'status') === 'assigned')
   const needTargets = anyAssigned || assigning !== null || selected !== null
 
-  const open = useCodeRows(CODE_ASSIGNMENT, 'open', [DELETED_FALSE, OPEN_ASSIGNMENT], {
-    sortField: 'assigned_at',
-    enabled: anyAssigned,
+  // The open assignments of the assigned codes loaded so far, in `code_id in` chunks (T-1802): the list is paged,
+  // so the assignments are not read for the whole tenant.
+  const { session } = useAuth()
+  const tenantId = session?.tenant_id ?? ''
+  const assignedIds = useMemo(
+    () => codes.filter((c) => textOf(c, 'status') === 'assigned').map((c) => c.record_id),
+    [codes],
+  )
+  const open = useQuery({
+    queryKey: codesQueryKeys.list(
+      tenantId,
+      CODE_ASSIGNMENT,
+      `open|${assignedIds.length}|${assignedIds[0] ?? ''}|${assignedIds[assignedIds.length - 1] ?? ''}`,
+    ),
+    queryFn: async () => {
+      const out: EntityRecord[] = []
+      for (let i = 0; i < assignedIds.length; i += OPEN_CHUNK) {
+        const chunk = assignedIds.slice(i, i + OPEN_CHUNK)
+        out.push(
+          ...(await fetchAllRecords(
+            CODE_ASSIGNMENT,
+            [DELETED_FALSE, OPEN_ASSIGNMENT, { field: 'code_id', op: 'in', value: chunk }],
+            'assigned_at',
+          )),
+        )
+      }
+      return out
+    },
+    enabled: assignedIds.length > 0,
+    placeholderData: keepPreviousData,
+    retry: false,
   })
   const targetOpts = { enabled: needTargets }
   const targetQueries = [
@@ -405,7 +439,7 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
       ]
 
   const filtered = status !== '' || valueFilter !== ''
-  const table = (
+  const tableOnly = (
     <DataTable
       columns={columns}
       data={codes}
@@ -427,6 +461,24 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
       }
       labels={{ loading: t('codes.list.loading'), retry: t('codes.common.retry') }}
     />
+  )
+
+  const table = (
+    <>
+      {codeRows.hasMore ? (
+        <Banner tone="info">
+          <span data-testid="codes-truncated">{t('codes.list.truncated', { count: String(codes.length) })}</span>
+        </Banner>
+      ) : null}
+      {tableOnly}
+      {codeRows.hasMore ? (
+        <div className="lf-btn-row">
+          <Button variant="secondary" size="md" loading={codeRows.loadingMore} onClick={codeRows.loadMore} data-testid="codes-load-more">
+            {t('codes.list.loadMore')}
+          </Button>
+        </div>
+      ) : null}
+    </>
   )
 
   let detail = null
