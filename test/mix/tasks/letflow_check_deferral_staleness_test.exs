@@ -1294,6 +1294,8 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
       # marker; the engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
       # UPDATE (T-1816, 2026-11-12): REQ-815 (notification default texts in ru, kk and en) is added with a
       # marker; the engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
+      # UPDATE (T-1844, 2026-11-13): REQ-816..REQ-822 (fixed asset count, Inv-8) are added with markers;
+      # register replaces each with a gh: line before CI runs, so the count stays 0.
       assert result.deferral_count == 0
       assert result.stale_count == 0
 
