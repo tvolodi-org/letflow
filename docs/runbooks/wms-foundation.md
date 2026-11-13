@@ -12,7 +12,7 @@ was written.
 1. **Generic writes to the six types are refused.** `org_legal_entity`, `org_site`, `org_unit`,
    `org_unit_membership`, `org_position` and `org_employee` are in `manages_entity_types`, so the generic entity routes answer
    403 `entity_type_managed` (GH #2530, PR #2568). The router maps
-   `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
+   `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:567`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
    (`lib/letflow/entities/records.ex:2009`, delegating to `ManagedTypes.check_record_write/3`).
 2. **Writes go through the module's own Owner only, and nothing checks references.** Module
@@ -127,7 +127,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
 
 1. **Generic writes to the four types are refused.** All are in `manages_entity_types`, so the
    generic entity routes answer 403 `entity_type_managed` (GH #2530, PR #2568). The router maps
-   `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
+   `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:567`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
    (`lib/letflow/entities/records.ex:2009`, delegating to `ManagedTypes.check_record_write/3`).
    The one exception is the import route (item 2).
