@@ -24,6 +24,7 @@ import '../bootstrap/navigation_bootstrap.dart'
         kCodesScanRoutePath,
         kStockHomeRoutePath;
 import '../i18n/i18n.dart';
+import '../bootstrap/language_switcher.dart';
 import 'definitions.dart';
 
 // ── §8.2 `DefinitionHomeController` ────────────────────────────────────────
@@ -117,7 +118,10 @@ class _TenantHomeScreenState extends ConsumerState<TenantHomeScreen> {
 
     return Scaffold(
       key: const Key('tenant-home-screen'),
-      appBar: AppBar(title: Text(tr('home.appBarTitle'))),
+      appBar: AppBar(
+        title: Text(tr('home.appBarTitle')),
+        actions: const [LanguageSwitcher(), SizedBox(width: 8)],
+      ),
       // Deliberately no `CircularProgressIndicator`/`LinearProgressIndicator`
       // or any other loading-indicator widget anywhere in this build
       // method — not gated behind a flag, simply never constructed

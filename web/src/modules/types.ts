@@ -24,6 +24,8 @@ export interface ModuleImportType {
   labels: Record<'en' | 'ru' | 'kk', string>
 }
 
+export type ModuleReportGroup = NonNullable<ModuleDefinition['reportGroup']> & { moduleId: string }
+
 /** A module's static definition. Each module's `web/src/modules/<id>/index.ts`
  *  exports exactly one of these. `registry.ts` is the only file that imports
  *  module code (0039 D3); it wraps `routeObjects` in a `ModuleGuard` when
@@ -36,4 +38,7 @@ export interface ModuleDefinition {
   navItems: ModuleNavItem[]
   /** Importable entity types, parents first (REQ-675). */
   importTypes?: ModuleImportType[]
+  /** T-1874: the Reports page groups saved reports by module; saved views carry no module field, so the module
+   *  claims every entity type whose name starts with `entityTypePrefix` (the backend prefixes a module's types). */
+  reportGroup?: { entityTypePrefix: string; labels: Record<'en' | 'ru' | 'kk', string> }
 }

@@ -11,6 +11,7 @@ const ICONS: Record<string, LucideIcon> = {
   '/instances': Workflow,
   '/tasks': ListTodo,
   '/definitions': FileText,
+  '/reports': BarChart3,
   '/promotions': FileCheck,
   '/dlq': Inbox,
   '/webhooks': Webhook,

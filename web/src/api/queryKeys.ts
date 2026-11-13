@@ -213,6 +213,8 @@ export const queryKeys = {
     /** REQ-634 saved report definitions of one entity type. */
     reports: (tenantId: string, entityType: string) =>
       [...queryKeys.entities.all(tenantId), 'reports', entityType] as const,
+    /** T-1874 every saved report the caller may see, all entity types (Reports menu page). */
+    reportsAll: (tenantId: string) => [...queryKeys.entities.all(tenantId), 'reports-all'] as const,
   },
 
   modules: {
