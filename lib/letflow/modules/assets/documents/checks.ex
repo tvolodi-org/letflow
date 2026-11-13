@@ -173,7 +173,10 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
 
   defp side_place(prefix, card_kind, kind, which, side, extras) do
     extras =
-      if kind == "handover", do: Map.put(extras, "side", Atom.to_string(which)), else: extras
+      if kind == "handover",
+        do:
+          Map.merge(extras, %{"side" => Atom.to_string(which), "field" => "#{which}_location_id"}),
+        else: Map.put(extras, "field", "location_id")
 
     with :ok <- location_rule(card_kind, side.location, extras) do
       if is_nil(side.location),
@@ -222,8 +225,9 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
          :ok <- check(not MapSet.member?(seen, line.asset_id), "duplicate_asset", extras),
          :ok <- check(quantity_ok?(card["kind"], line.quantity), "quantity_invalid", extras),
          :ok <- check(card["org_unit_id"] in [nil, view.org_unit_id], "org_unit_mismatch", extras),
-         :ok <- location_rule(card["kind"], view.location_id, extras),
-         :ok <- linked(prefix, view, extras) do
+         location_extras = Map.put(extras, "field", "location_id"),
+         :ok <- location_rule(card["kind"], view.location_id, location_extras),
+         :ok <- linked(prefix, view, location_extras) do
       in_register(prefix, card, line.asset_id, extras)
     end
   end

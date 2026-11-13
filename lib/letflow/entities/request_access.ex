@@ -37,9 +37,17 @@ defmodule Letflow.Entities.RequestAccess do
   def check(%{user_id: user_id, prefix: prefix} = principal, kind, request, %{exempt?: _} = opts) do
     with {:ok, types} <- RequestGuard.request_entity_types(request, kind),
          {:ok, denied} <- TypeAccess.denied_types(user_id, types, prefix),
+         denied = module_denied(denied, types, principal),
          :ok <- ensure_all_visible(types, denied, prefix) do
       FieldPolicy.check_request(principal, kind, request, opts)
     end
+  end
+
+  # T-1864: the types a module's read permission refuses the caller (`ModuleReadGate.denied/1`,
+  # computed by the router and carried as `principal.module_denied`) join the TypeAccess denial.
+  defp module_denied(denied, types, principal) do
+    module_denied = Map.get(principal, :module_denied, MapSet.new())
+    Enum.reduce(types, denied, &if(&1 in module_denied, do: MapSet.put(&2, &1), else: &2))
   end
 
   # Reads EVERY type's definition (no `Enum.all?`/`reduce_while` early exit),

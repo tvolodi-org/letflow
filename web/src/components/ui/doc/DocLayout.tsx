@@ -83,6 +83,7 @@ function SplitDocLayout({ screen, render }: { screen: string; render: (ref: Reac
     id: 'row',
     screen,
     unit: 'pct',
+    clampStored: true, // T-1875: a saved size never makes the list narrower than its minimum
     vars: ['--lf-pane-1', '--lf-pane-2'],
     sized: 'before',
     min: [200, 260],

@@ -160,10 +160,13 @@ defmodule Letflow.Modules.Assets.KindsTest do
       })
 
       # a fixed card needs a location on each side, an intangible one must have none
-      refused!(ctx, D.writeoff_body(m, %{"location_id" => ""}), "location_required")
+      refused!(ctx, D.writeoff_body(m, %{"location_id" => ""}), "location_required", %{
+        "field" => "location_id"
+      })
 
       refused!(ctx, D.handover_body(m, %{to | location: ""}), "location_required", %{
-        "side" => "to"
+        "side" => "to",
+        "field" => "to_location_id"
       })
 
       intangible = [%{"asset_id" => m.intangible, "quantity" => "1"}]

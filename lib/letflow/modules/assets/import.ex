@@ -17,7 +17,7 @@ defmodule Letflow.Modules.Assets.Import do
     2. `inventory_number`, `name`, `kind` and `org_unit_id` must be non-blank text;
     3. `kind` is `fixed`, `low_value` or `intangible`;
     4. `org_unit_id` holds the external id of the org unit under the SAME external-ref system as the
-       row; it is resolved in this tenant (`prefix` only) to the record id of an active unit;
+       row, or (the form the card export writes) the unit's record id; it is resolved in this tenant (`prefix` only) to the record id of an active unit;
     5. the card is found by the row's external reference pair; the row is the full desired state of
        the importable fields (an absent optional cell clears the value);
     6. a new key calls `create_card/3`; an existing one `update_card/4`. A row equal to the stored
@@ -82,10 +82,20 @@ defmodule Letflow.Modules.Assets.Import do
   defp check_kind(_cells), do: {:error, :asset_kind_invalid}
 
   defp resolve_unit(prefix, system, cell) do
-    case Org.lookup_by_external_ref(prefix, "org_unit", system, cell) do
+    case find_unit(prefix, system, cell) do
       {:error, :not_found} -> {:error, {:reference_not_found, "org_unit_id"}}
       {:ok, %{"active" => false}} -> {:error, {:reference_inactive, "org_unit_id"}}
       {:ok, %{"record_id" => id}} -> {:ok, id}
+    end
+  end
+
+  # The external id wins. When it finds nothing and the cell is a record id of a live org_unit of THIS
+  # tenant (`prefix` scopes both reads), that unit is taken: the card export writes `org_unit_id` as
+  # the stored record id, so an exported file must load back (T-1866).
+  defp find_unit(prefix, system, cell) do
+    case Org.lookup_by_external_ref(prefix, "org_unit", system, cell) do
+      {:error, :not_found} -> ReadApi.lookup(prefix, cell, ["org_unit"])
+      found -> found
     end
   end
 
