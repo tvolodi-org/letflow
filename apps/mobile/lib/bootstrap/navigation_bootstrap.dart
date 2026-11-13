@@ -612,13 +612,39 @@ bool isModuleInstalled(
   String moduleId,
 ) => installedModules.any((m) => m.moduleId == moduleId);
 
-/// Builds the tenant-content route list for the currently
-/// [installedModules] (design §5.4). A `moduleId` absent from
-/// [installedModules] has no route entry at all — not a route that then
-/// denies access. REQ-421 ships zero real feature modules, so this
-/// function's real-world output is the empty set unless a test fixture
-/// supplies a fake installed module and a fake route-registry entry via
-/// [registry].
+/// Returns the module ID whose routes cover [location], or `null` when no
+/// registered module owns that path. Matching is by first path segment: a
+/// top-level route entry at `/foo/bar` establishes `/foo` as the module's
+/// URL prefix, so `/foo`, `/foo/bar` and `/foo/bar/baz` all resolve to the
+/// same module. Used by [_buildRouter]'s redirect to guard paths whose
+/// module is not in the tenant's installed list.
+String? moduleIdForLocation(
+  String location,
+  Map<String, List<RouteBase>> registry,
+) {
+  for (final entry in registry.entries) {
+    for (final route in entry.value) {
+      if (route is GoRoute) {
+        final parts = route.path.split('/').where((s) => s.isNotEmpty).toList();
+        if (parts.isEmpty) continue;
+        final prefix = '/${parts[0]}';
+        if (location == prefix || location.startsWith('$prefix/')) {
+          return entry.key;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/// Builds the tenant-content route list for the module IDs present in
+/// [installedModules] (design §5.4). In production [_buildRouter] passes
+/// **all** registry keys so that every module route is always registered in
+/// the [GoRouter]; the router's own `redirect` closure then guards
+/// uninstalled-module paths by redirecting to `/home` at navigation time
+/// (AC3). Tests that call this function directly with a filtered
+/// [installedModules] list still exercise the filtering path and remain
+/// valid. [registry] defaults to [kFeatureRegistry].
 List<RouteBase> buildRouteTable(
   List<InstalledModule> installedModules, {
   Map<String, List<RouteBase>>? registry,
@@ -806,6 +832,15 @@ class BootstrapController extends ChangeNotifier {
 
   BootstrapUiState _state = BootstrapUiState.unauthenticated;
   BootstrapUiState get state => _state;
+
+  /// Test-only seam: sets the UI state directly and fires [notifyListeners],
+  /// so widget tests can place the controller in any phase without running
+  /// the full HTTP bootstrap sequence. Never call from production code.
+  @visibleForTesting
+  void forceStateForTesting(BootstrapUiState newState) {
+    _state = newState;
+    notifyListeners();
+  }
 
   Future<void> beginBootstrap(String slug) async {
     revocationFailed.value = false;
