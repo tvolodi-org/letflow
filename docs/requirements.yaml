@@ -55109,7 +55109,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- first slice of the currency directory (owner decision D-134), no pending dependency
+    gh: 4394
     # Source: task T-1870 (operator, owner decision D-134 of 2026-11-13; D-097 of 2026-11-05, both quoted in docs/design/currency-directory.md section 0). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) sections 1 to 4 and 6. Files read on origin/main c7950f342: lib/letflow/labels/defaults.ex (priv JSON compiled at build time), lib/letflow/labels.ex (Audit.append_multi/4 with action labels.override_set), priv/repo/migrations/20261025300001_create_label_overrides.exs (tenant-scoped table, registered in Letflow.TenantProvisioning), test/support/tenant_fixture.ex (tenant table list), lib/letflow/module_upgrade/apply.ex (on_install seeds are not re-run on upgrade), lib/letflow/modules/assets/settings.ex (KZT default). Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
     description: >
       Owner decision D-134 asks for a currency directory as common data shared by all modules; D-097 keeps one
@@ -55151,7 +55151,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-823 -- the routes call Letflow.Currencies, which REQ-823 adds
+    gh: 4393
     # Source: task T-1870 (operator, owner decisions D-134, D-097, D-129). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) section 4. Files read on origin/main c7950f342: lib/letflow/routers/labels.ex (GET with :MyAccessRead and scope :self_service, PUT with :LabelsManage and scope :tenant_wide), lib/letflow/plugs/api_pipeline.ex (forward of /labels), lib/letflow/api/route_scope.ex (self-service prefix list with /labels), lib/letflow/api/authorization.ex (endpoint_policy_key for /labels, role_allows?/2), priv/permission_matrix/effective.golden (LabelsManage true only for PLATFORM_ADMIN and TENANT_ADMIN), docs/roles.md. Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
     description: >
       A router Letflow.Routers.Currencies (planned, lib/letflow/routers/currencies.ex) mounted at /currencies by
@@ -55180,7 +55180,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-823 -- the task calls Letflow.Currencies.normalize/1 and switch/4, which REQ-823 adds
+    gh: 4392
     # Source: task T-1870 (operator, owner decision D-134; QA only, a run outside QA is announced to the portfolio manager first). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) sections 6 and 9. Files read on origin/main c7950f342: lib/letflow/release/exam_parent_id.ex (release entry through Letflow.Modules.Catalog, dry_run), lib/letflow/modules/assets/settings.ex, lib/letflow/modules/assets/cards.ex (Records.update_record/3 with ManagedTypes.owner_for!/1, Audit.insert_entry/3), lib/letflow/modules/assets/assets.ex (manifest version 0.16.0, no min_upgradable_from). Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
     description: >
       Existing values of the free text currency must reach the directory without loss. A release entry
@@ -55212,7 +55212,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-823 -- the assets reader calls Letflow.Currencies, which REQ-823 adds
+    gh: 4391
     # Source: task T-1870 (operator, owner decisions D-134, D-097). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) sections 3, 5 rows 1 to 6, 8 and 9. Files read on origin/main c7950f342: lib/letflow/modules/assets/settings.ex (currency/1), lib/letflow/modules/assets/cards.ex (@allowed, private check_rules/2 on the merged document, currency_mismatch), lib/letflow/modules/assets/import.ex (@columns, refusal/1), lib/letflow/routers/entities/record_import.ex (asset_currency_mismatch mapped to field currency), docs/assets/asset-xlsx.md (row 6, rule 6), docs/assets/asset-register.md section 6. Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
     description: >
       Letflow.Modules.Assets.Settings.currency/1 (lib/letflow/modules/assets/settings.ex) answers, in this order:
@@ -55245,7 +55245,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-824 -- the screen calls GET and PUT /api/v1/currencies, which REQ-824 adds
+    gh: 4390
     # Source: task T-1870 (operator, owner decision D-134). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) section 7. Files read on origin/main c7950f342: web/src/router.tsx (admin/print-templates behind RequirePermission), web/src/components/layout/AppShell.tsx (nav item with permission, group tenantAdmin), web/src/api/labels.ts (API client pattern), web/src/auth/access (P, RequirePermission). Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
     description: >
       A screen web/src/pages/admin/currencies/CurrenciesPage.tsx (planned) at /admin/currencies, routed behind
@@ -55268,7 +55268,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-826 -- the dropdown shows the refusal currency_unknown, which REQ-826 adds
+    gh: 4389
     # Source: task T-1870 (operator, owner decisions D-134, D-097). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) sections 3, 5 rows 7 to 12 and 7. Files read on origin/main c7950f342: web/src/modules/assets/AssetCardForm.tsx (free text input currency, maxLength 3; Select already imported from web/src/components/ui/Select.tsx), web/src/modules/assets/AssetCardFacts.tsx, web/src/modules/assets/assetsModel.ts, web/src/modules/assets/assetsMessages.ts, web/src/i18n/importMessages.ts, web/src/modules/stock/documents/lineColumns.ts (labels stock.doc.field.unitPrice and lineValue), web/src/components/ui/lines/linesMessages.ts (ids c.price, c.value, f.price, f.value with a fixed sign). Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
     description: >
       (1) In web/src/modules/assets/AssetCardForm.tsx the currency text input becomes the shared Select. Under
