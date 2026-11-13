@@ -37,21 +37,10 @@ defmodule Letflow.Modules.CatalogUpgradeShapesTest do
   defp manifest(version, steps, extra),
     do: base() |> Map.merge(%{version: version, migrations: steps}) |> Map.merge(extra)
 
-  @real_ids ~w(exam org catalog_items procurement locations codes)
-
-  # Hashes of the registered manifests computed on unmodified origin/main before REQ-640.
-  # locations re-pinned by T-1840 (0.4.0 -> 0.5.0, customer_location).
-  # codes re-pinned by GH #3797 (0.2.0 -> 0.3.0) and GH #4017 (0.3.0 -> 0.4.0).
-  # catalog_items re-pinned by GH #3581 (version 0.2.0 -> 0.3.0; the hash covers the version).
-  @hashes %{
-    "exam" => "992e5266d1b81a138684f50228c5a3429393dcb90fdd0bb0dfb1fa9646252d8a",
-    "org" => "caba62b2f3060c99ae03b3dcc2cdee841fded125aa92719f8ce74c77f39b9b11",
-    # re-pinned by MES-U1 (catalog_items 0.3.0 -> 0.4.0)
-    "catalog_items" => "f890e6e1f1e88ddd03b49c81f7c6535a07d18d914391866def5de5210e78c3bf",
-    "procurement" => "265b5841f1705989bacfdf2ca82385fa0c9d83ad462e3f257f0ac87060f8dd61",
-    "locations" => "c91e67f887dbbd38d258b2acfbe2b5af45ca805de8653e2ade2ceca6d844965a",
-    "codes" => "d3661b5ff799f4325df455cd8e59212fcfeafff0af6a8d6d140a481e75d68b93"
-  }
+  # Hashes of the registered manifests computed on unmodified origin/main before REQ-640; one
+  # file per module in test/letflow/modules/pins/ (T-1900), the ones marked `shapes: true`.
+  @pins Letflow.TestSupport.ModulePins.all()
+  @shape_pins for {_, %{shapes: true} = pin} <- @pins, do: pin
 
   describe "criterion 1: strict semver version" do
     test "V1 accepts plain, prerelease and build versions" do
@@ -316,8 +305,13 @@ defmodule Letflow.Modules.CatalogUpgradeShapesTest do
 
   describe "criterion 9: no manifest hash moves" do
     test "H1 registered manifests hash to the pre-change values" do
-      for m <- Catalog.all_manifests(), m.id in @real_ids do
-        assert ManifestHash.compute(m) == @hashes[m.id], m.id
+      assert length(@shape_pins) == 6
+
+      for %{module: name, hash: expected} <- @shape_pins do
+        entry = Module.concat(Letflow.Modules, name)
+        assert entry in Catalog.entry_modules(), name
+        manifest = entry.manifest()
+        assert ManifestHash.compute(manifest) == expected, manifest.id
       end
     end
 
