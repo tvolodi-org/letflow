@@ -254,12 +254,13 @@ defmodule Letflow.Modules.Stock.CountPaperwork do
 
   @doc false
   # T-1555: a stored plain decimal text regrouped for print. ru/kk `49 360,500` (no-break space,
-  # comma), en `49,360.500`. Digits are never rounded or dropped; anything else is returned as stored.
+  # comma), en `49,360.5`. T-1868: trailing zeros of the fraction are dropped (`1.000000000` prints `1`,
+  # `49360.500` prints `49 360,5`), a value is never rounded; anything else is returned as stored.
   def number(value, lang) do
     str = text(value)
 
     case Regex.run(~r/\A(-?)(\d+)(?:\.(\d+))?\z/, str) do
-      [_, sign, int, frac] -> group_number(sign, int, frac, lang)
+      [_, sign, int, frac] -> group_number(sign, int, String.trim_trailing(frac, "0"), lang)
       [_, sign, int] -> group_number(sign, int, "", lang)
       _ -> str
     end

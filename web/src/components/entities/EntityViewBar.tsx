@@ -52,6 +52,9 @@ export function EntityViewBar(props: EntityViewBarProps): React.ReactElement {
     busy,
   } = props
   const intl = useIntl()
+  // Shipped saved reports carry one stored (English) name; show it in the user's language.
+  const viewLabel = (name: string): string =>
+    name === 'Asset list' ? intl.formatMessage({ id: 'entities.views.shipped.assetList' }) : name
   const [name, setName] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
 
@@ -83,7 +86,7 @@ export function EntityViewBar(props: EntityViewBarProps): React.ReactElement {
           <option value="">{intl.formatMessage({ id: 'entities.views.select.none' })}</option>
           {views.map((v) => (
             <option key={v.id} value={v.id}>
-              {v.name}
+              {viewLabel(v.name)}
             </option>
           ))}
         </select>

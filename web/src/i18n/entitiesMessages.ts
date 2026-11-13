@@ -174,6 +174,7 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
     // Admin landing page (REQ-343).
     'entities.views.select.label': 'View',
     'entities.views.select.none': '(no view)',
+    'entities.views.shipped.assetList': 'Asset list',
     'entities.views.columns.label': 'Columns',
     'entities.views.save.nameLabel': 'View name',
     'entities.views.save.action': 'Save as view',
@@ -349,6 +350,7 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
 
     'entities.views.select.label': 'Представление',
     'entities.views.select.none': '(без представления)',
+    'entities.views.shipped.assetList': 'Список активов',
     'entities.views.columns.label': 'Столбцы',
     'entities.views.save.nameLabel': 'Название представления',
     'entities.views.save.action': 'Сохранить как представление',
@@ -524,6 +526,7 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
 
     'entities.views.select.label': 'Көрініс',
     'entities.views.select.none': '(көріністісіз)',
+    'entities.views.shipped.assetList': 'Активтер тізімі',
     'entities.views.columns.label': 'Бағандар',
     'entities.views.save.nameLabel': 'Көрініс атауы',
     'entities.views.save.action': 'Көрініс ретінде сақтау',
