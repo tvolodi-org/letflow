@@ -915,11 +915,25 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   defp collect(port, acc) do
     receive do
       {^port, {:data, chunk}} ->
-        IO.write(chunk)
+        echo_chunk(chunk)
         collect(port, [acc, chunk])
 
       {^port, {:exit_status, status}} ->
         {IO.iodata_to_binary(acc), status}
     end
+  end
+
+  # T-1843: the echo is cosmetic; the captured bytes (not the echo) feed every gate.
+  # IO.write/1 transcodes as unicode and raises on a non-UTF-8 byte (CI shard 4/8,
+  # run 43376454978), which killed a shard with 0 test failures. binwrite sends the
+  # raw bytes; any write error (closed device) is swallowed so it can never decide
+  # the verdict. A real failure still arrives through exit status and the logs.
+  @doc false
+  def echo_chunk(chunk) do
+    IO.binwrite(chunk)
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 end
