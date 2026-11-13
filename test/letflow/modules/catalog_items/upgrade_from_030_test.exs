@@ -123,4 +123,44 @@ defmodule Letflow.Modules.CatalogItems.UpgradeFrom030Test do
 
     assert Apply.refusal_extras("x", "raw text") == %{"entity" => "x", "reason" => "unknown"}
   end
+
+  test "U3 a refused activation answers 409 with error_code, entity and reason", %{
+    schema: schema,
+    user: user
+  } do
+    report = plan!(user)
+    parent = self()
+    once = :atomics.new(1, [])
+    handler = "t1882-corrupt-#{System.unique_integer([:positive])}"
+
+    # Deterministic: inside the upgrade transaction (same process), give the active catalog_item a NON-strict density_kg_per_l (the record exists), so the strict flip is refused.
+    :telemetry.attach(
+      handler,
+      [:letflow, :repo, :query],
+      fn _event, _m, %{query: query}, _config ->
+        # The row lock on tenant_modules is the last read before the pack is applied.
+        if self() == parent and String.contains?(query, "tenant_modules") and
+             String.contains?(query, "FOR UPDATE") and :atomics.add_get(once, 1, 1) == 1 do
+          Repo.query!(
+            "UPDATE \"#{schema}\".entity_definitions SET definition_json = jsonb_set(definition_json, '{fields}', " <>
+              "definition_json->'fields' || '[{\"name\":\"density_kg_per_l\",\"type\":\"decimal\"," <>
+              "\"decimal_precision\":12,\"decimal_scale\":4}]'::jsonb) " <>
+              "WHERE name = 'catalog_item' AND status = 'active'"
+          )
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    conn = apply_upgrade(user, report)
+    :telemetry.detach(handler)
+    assert conn.status == 409, conn.resp_body
+    body = Jason.decode!(conn.resp_body)
+    assert body["code"] == "upgrade_failed"
+    assert body["error_code"] == "activation_refused"
+    assert body["entity"] == "catalog_item"
+    assert body["reason"] == "decimal_strict_change"
+  end
 end

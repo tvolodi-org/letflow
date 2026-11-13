@@ -222,7 +222,7 @@ what needs no administrator (class A, no data steps) and leaves the rest as `lef
    - **catalog_items 0.3.0 -> 0.4.0** answered 409 `upgrade_failed` / `activation_refused`: U1 adds three strict decimals to `catalog_item`, and the `decimal_strict` activation gate refused any change of the strict set once the type had a record. A strict field the active version does not declare cannot be held by any record, so the gate now ignores it (flipping or removing a declared strict field stays refused).
    - **assets 0.9.0 -> 0.16.0** was read as class B (`assets_card.org_unit_id` loses `required`) with no covering step, so the apply answered `upgrade_forbidden` / `step_required`. Dropping `required` (nothing else of the field changed) is now class A, reason `required_relaxed` (`UpgradePlan.classify_entity/2`): every stored card holds the value and `required` is enforced by record validation, not by a column. No reinstall, no data step: a tenant with cards upgrades in place. Any other change of an existing field stays B.
 
-   The 409 answers of apply and rollback now carry `entity` (the module-owned definition) and `reason` (a closed token such as `decimal_strict_change`) next to `error_code`; the plan answers 200 and never 409.
+   The 409 answers of apply and rollback (when they fail with `activation_refused`; the apply route is covered by a router-level test, `UpgradeFrom030Test` U3) now carry `entity` (the module-owned definition) and `reason` (a closed token such as `decimal_strict_change`) next to `error_code`; the plan answers 200 and never 409.
 
    Result per module and version pair (all through the real routes as a tenant admin; "records" = a test with data in the tenant):
 
