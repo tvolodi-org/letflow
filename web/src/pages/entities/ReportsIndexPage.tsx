@@ -12,6 +12,7 @@ import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { useInstalledModules } from '@/hooks/useInstalledModules'
 import { getReportGroupFor } from '@/modules/registry'
 import { PageLayout } from '@/components/ui/PageLayout'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError } from '@/utils/classifyError'
 import type { ReportView } from '@/types/api'
@@ -71,28 +72,23 @@ function ReportsIndexPageInner(): React.ReactElement {
           onRetry={() => void query.refetch()}
         >
           {groups.length === 0 ? (
-            <p data-testid="reports-index-empty">{intl.formatMessage({ id: 'reports.index.empty' })}</p>
+            <EmptyState
+              data-testid="reports-index-empty"
+              title={intl.formatMessage({ id: 'reports.index.empty' })}
+            />
           ) : (
             groups.map((g) => (
-              <section
-                key={g.key}
-                data-testid="reports-index-group"
-                aria-label={g.label}
-                style={{ marginBottom: 'var(--space-4)' }}
-              >
+              <section key={g.key} className="lf-reports-index__group" data-testid="reports-index-group" aria-label={g.label}>
                 <h2>{g.label}</h2>
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                <ul className="lf-reports-index__list">
                   {g.items.map(({ report, name }) => (
-                    <li key={report.id} style={{ padding: 'var(--space-1) 0' }}>
+                    <li key={report.id}>
                       <Link
                         to={`/entities/${encodeURIComponent(report.entity_type)}/reports?open=${encodeURIComponent(report.id)}`}
                         data-testid={`reports-index-link-${report.id}`}
                       >
                         {name}
-                      </Link>{' '}
-                      <span className="lf-mono" title={intl.formatMessage({ id: 'reports.index.entityType' })}>
-                        {report.entity_type}
-                      </span>
+                      </Link>
                     </li>
                   ))}
                 </ul>

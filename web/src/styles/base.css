@@ -273,3 +273,8 @@ samp {
 @media (max-width: 480px) {
   .lf-page-layout__header { flex-direction: column; align-items: stretch; }
 }
+
+/* T-1874: Reports index page (grouped list of saved reports): list reset and group spacing. */
+.lf-reports-index__group { margin-bottom: var(--space-4); }
+.lf-reports-index__list { list-style: none; padding: 0; margin: 0; }
+.lf-reports-index__list li { padding: var(--space-1) 0; overflow-wrap: anywhere; }
