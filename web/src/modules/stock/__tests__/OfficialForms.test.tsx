@@ -51,7 +51,8 @@ describe('F1/F2 which documents show the menu', () => {
   it.each([
     ['draft', 'issue'],
     ['reversed', 'issue'],
-    ['posted', 'receipt'],
+    ['draft', 'receipt'],
+    ['reversed', 'receipt'],
     ['issued', 'hand_over'],
     ['issued', 'return'],
   ])('state %s, kind %s: none', async (state, kind) => {
@@ -68,6 +69,65 @@ describe('F1/F2 which documents show the menu', () => {
   it('the registry rules', () => {
     expect(formsForDocument({ kind: 'issue', state: 'issued' })).toEqual(['z2'])
     expect(formsForOrder()).toEqual(['inv10', 'inv18'])
+  })
+})
+
+// W1: receipt in issued/posted shows the Z-1 menu
+describe('W1 receipt shows the Z-1 menu', () => {
+  it.each(['issued', 'posted'])('a receipt in state %s shows form-z1 items', async (state) => {
+    fakeDocument(clientMock, stockDoc({ id: 'd1', kind: 'receipt', state, number: 'RCP-1' }))
+    renderStock(`${LIST}/d1`)
+    await screen.findByTestId('document-header')
+    expect(screen.getByTestId('official-form-menu')).toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    expect(screen.getByTestId('form-z1-pdf')).toBeInTheDocument()
+    expect(screen.getByTestId('form-z1-docx')).toBeInTheDocument()
+    expect(screen.queryByTestId('form-z2-pdf')).toBeNull()
+    expect(screen.queryByTestId('form-z5-pdf')).toBeNull()
+  })
+})
+
+// W2: Z-1 download calls the print route with form=z1 and uses _Z-1 suffix
+describe('W2 Z-1 download', () => {
+  it.each([
+    ['docx', 'RCP-1_Z-1.docx'],
+    ['pdf', 'RCP-1_Z-1.pdf'],
+  ] as const)('Z-1 as %s calls the print route and saves the fallback name', async (format, name) => {
+    fakeDocument(clientMock, stockDoc({ id: 'd1', kind: 'receipt', state: 'issued', number: 'RCP-1' }))
+    renderStock(`${LIST}/d1`)
+    await screen.findByTestId('document-header')
+    clientMock.getBlob.mockResolvedValue(file(null))
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    await userEvent.click(screen.getByTestId(`form-z1-${format}`))
+    await waitFor(() => expect(downloads).toEqual([name]))
+    expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'z1', format, lang: 'ru' })
+  })
+})
+
+// W3: kk UI requests lang kk and shows Қ-1 нысаны
+describe('W3 kk UI for Z-1', () => {
+  it('kk UI requests lang kk for z1 and shows Қ-1 нысаны', async () => {
+    useUiLocaleStore.getState().setLocaleTransient('kk')
+    fakeDocument(clientMock, stockDoc({ id: 'd1', kind: 'receipt', state: 'issued', number: 'RCP-1' }))
+    renderStock(`${LIST}/d1`)
+    await screen.findByTestId('document-header')
+    clientMock.getBlob.mockResolvedValue(file(null))
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    expect(screen.getByTestId('form-z1-pdf')).toHaveTextContent('Қ-1 нысаны')
+    await userEvent.click(screen.getByTestId('form-z1-pdf'))
+    await waitFor(() => expect(clientMock.getBlob).toHaveBeenCalledTimes(1))
+    expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'z1', format: 'pdf', lang: 'kk' })
+  })
+})
+
+// W4: formsForDocument catalog tests
+describe('W4 formsForDocument', () => {
+  it('receipt issued gives z1, receipt reversed gives empty, issue rule unchanged', () => {
+    expect(formsForDocument({ kind: 'receipt', state: 'issued' })).toEqual(['z1'])
+    expect(formsForDocument({ kind: 'receipt', state: 'posted' })).toEqual(['z1'])
+    expect(formsForDocument({ kind: 'receipt', state: 'reversed' })).toEqual([])
+    expect(formsForDocument({ kind: 'issue', state: 'issued' })).toEqual(['z2'])
+    expect(formsForDocument({ kind: 'issue', state: 'posted' })).toEqual(['z2'])
   })
 })
 

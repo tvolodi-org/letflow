@@ -290,6 +290,12 @@ export const queryKeys = {
     detail: (tenantId: string, id: string) => [...queryKeys.printOverrides.all(tenantId), 'detail', id] as const,
   },
 
+  /** REQ-827 — currency directory. */
+  currencies: {
+    all: (tenantId: string) => ['tenant', tenantId, 'currencies'] as const,
+    list: (tenantId: string) => [...queryKeys.currencies.all(tenantId), 'list'] as const,
+  },
+
   /** REQ-384 §6.1 — the membership list a user consults in order to switch.
    *  Deliberately NOT tenant-scoped — see this file's moduledoc. */
   me: {

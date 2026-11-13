@@ -34,7 +34,10 @@ export interface ListDetailProps {
   /** Filters, search, show-retired (lf-reg__tools). */
   tools?: ReactNode
   /** DataTable (compact) or TreeView; lives in lf-reg__body. */
-  list: ReactNode
+  list?: ReactNode
+  /** A list that draws its whole pane itself (`RegistryList`: head, tools, body, foot in one `section.lf-reg__list`).
+   *  Replaces `listHeader`, `tools`, `list` and `listFooter`. */
+  listPane?: ReactNode
   /** Pager / truncation notice (lf-reg__foot). */
   listFooter?: ReactNode
   /** The record: DetailHeader + sections, or the create / edit form. */
@@ -69,6 +72,7 @@ export function ListDetail({
   tools,
   list,
   listFooter,
+  listPane,
   detail,
   empty,
   detailOpen,
@@ -131,12 +135,14 @@ export function ListDetail({
         data-tab={asTabs ? tab : undefined}
         onKeyDown={onKeyDown}
       >
-        <section className="lf-card lf-reg__list" aria-label={listLabel}>
-          {listHeader != null && <div className="lf-reg__listhead">{listHeader}</div>}
-          {tools != null && <div className="lf-reg__tools">{tools}</div>}
-          <div className="lf-reg__body">{list}</div>
-          {listFooter != null && <div className="lf-reg__foot">{listFooter}</div>}
-        </section>
+        {listPane ?? (
+          <section className="lf-card lf-reg__list" aria-label={listLabel}>
+            {listHeader != null && <div className="lf-reg__listhead">{listHeader}</div>}
+            {tools != null && <div className="lf-reg__tools">{tools}</div>}
+            <div className="lf-reg__body">{list}</div>
+            {listFooter != null && <div className="lf-reg__foot">{listFooter}</div>}
+          </section>
+        )}
         <div className="lf-reg__details" data-testid="registry-details">
           {detailOpen && (
             <div className="lf-reg__backrow">

@@ -154,6 +154,10 @@ export function useTenantScopedQueryKeys() {
       list: (filters?: Record<string, unknown>) => queryKeys.printOverrides.list(tenantId, filters),
       detail: queryKeys.printOverrides.detail.bind(null, tenantId),
     },
+    currencies: {
+      all: () => queryKeys.currencies.all(tenantId),
+      list: () => queryKeys.currencies.list(tenantId),
+    },
     // NOT tenant-scoped — passed through unchanged.
     onboarding: queryKeys.onboarding,
     me: {

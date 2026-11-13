@@ -73,6 +73,7 @@ import { listDetailNarrowScreens } from './fixtures/listDetailNarrow'
 import { listDetailSlice2Screens } from './fixtures/listDetailSlice2'
 import { listDetailSlice3Screens } from './fixtures/listDetailSlice3'
 import { listDetailSlice4Screens } from './fixtures/listDetailSlice4'
+import { listDetailSlice6Screens } from './fixtures/listDetailSlice6'
 import { listDetailSlice5Screens, slice5TaskRoutes, slice5RolloutRoutes } from './fixtures/listDetailSlice5'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
@@ -80,6 +81,7 @@ import { masterDataImport, masterDataImportResult } from './importFixtures'
 import { importReportScreens } from './importReportFixtures'
 import { navRoleScreens } from './navRoleFixtures'
 import { a11yDialogScreens } from './fixtures/a11yDialogs'
+import { currenciesScreens } from './fixtures/currencies'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -356,6 +358,8 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...listDetailSlice2Screens,
     ...listDetailSlice3Screens(codesRoutes, lotsRoutes),
     ...listDetailSlice4Screens(locationsDataRoutes, orgQueryRoutes),
+    ...currenciesScreens,
     ...listDetailSlice5Screens(slice5TaskRoutes, slice5RolloutRoutes),
+    ...listDetailSlice6Screens,
   ].map(s => [s.name, s]),
 )

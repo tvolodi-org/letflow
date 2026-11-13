@@ -1,13 +1,10 @@
-/** RegistryDetails — the pieces of the details pane: head (back button, code + title, status, actions), a section
+/** RegistryDetails — the pieces of the details pane: head (code + title, status, actions), a section
  *  card, a field list, the history list, the blank and loading states. Pure presentation; classes `lf-reg__*`. */
 import type { ReactNode } from 'react'
-import { ArrowLeft, Info, Layers } from 'lucide-react'
-import { Button } from '../Button'
+import { Info, Layers } from 'lucide-react'
 import { EmptyState } from '../EmptyState'
 
 export interface RegistryHeadProps {
-  backLabel: string
-  onBack: () => void
   /** Mono code and the title; both are shown in the head. */
   code: string
   title: string
@@ -26,18 +23,6 @@ export function RegistryHead(p: RegistryHeadProps) {
   return (
     <div className="lf-reg__top">
       <div className={p.editing ? 'lf-reg__head is-editing' : 'lf-reg__head'} data-testid="registry-head">
-        <div className="lf-reg__backrow">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="lf-reg__back"
-            icon={<ArrowLeft className="lf-icon" aria-hidden="true" />}
-            onClick={p.onBack}
-            data-testid="registry-back"
-          >
-            {p.backLabel}
-          </Button>
-        </div>
         <div className="lf-reg__id">
           <h2 className="lf-reg__name">
             {p.code !== '' && <span className="mono">{p.code}</span>}

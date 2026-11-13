@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
-/** T-1446 T1-T7: the registry's list | details splitter and the list's resizable columns (jsdom, widths stubbed). */
+/** T-1446 T5-T7: the registry list's resizable columns (the list | details splitter is tested in ListDetail.test) (jsdom, widths stubbed). */
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import type { ReactElement } from 'react'
 import { createLayoutStore } from '@/lib/layoutStore'
-import { Registry } from '..'
 import { RegistryList, type RegistryColumn } from '../RegistryList'
 
 expect.extend(jestDomMatchers)
@@ -36,49 +35,6 @@ afterEach(() => {
 
 const wrap = (el: ReactElement) => el
 const key = (el: Element, k: string, shiftKey = false) => act(() => void el.dispatchEvent(new KeyboardEvent('keydown', { key: k, shiftKey, bubbles: true })))
-const list = <section className="lf-reg__list">list</section>
-
-describe('Registry splitter', () => {
-  it('T1 a screen gives one separator between list and details; without a screen none', () => {
-    const { rerender } = render(wrap(<Registry list={list} details={<div />} detailOpen={false} />))
-    expect(screen.queryByRole('separator')).not.toBeInTheDocument()
-    rerender(wrap(<Registry screen="x.reg" list={list} details={<div />} detailOpen={false} />))
-    expect(screen.getAllByRole('separator')).toHaveLength(1)
-  })
-
-  it('T2 keys: ArrowRight changes --lf-pane-1, Enter collapses and restores', () => {
-    render(wrap(<Registry screen="x.reg" list={list} details={<div />} detailOpen={false} />))
-    const h = screen.getByRole('separator')
-    const grid = screen.getByTestId('registry')
-    key(h, 'ArrowRight')
-    const v1 = grid.style.getPropertyValue('--lf-pane-1')
-    expect(v1).toMatch(/%$/)
-    key(h, 'ArrowRight', true)
-    expect(parseFloat(grid.style.getPropertyValue('--lf-pane-1'))).toBeGreaterThan(parseFloat(v1))
-    key(h, 'Enter')
-    expect(grid.style.getPropertyValue('--lf-pane-1')).toMatch(/^0/)
-    key(screen.getByRole('separator'), 'Enter')
-    expect(parseFloat(grid.style.getPropertyValue('--lf-pane-1'))).toBeGreaterThan(0)
-  })
-
-  it('T3 the size is remembered in the store and restored by a fresh render', () => {
-    const { unmount } = render(wrap(<Registry screen="x.reg" list={list} details={<div />} detailOpen={false} />))
-    key(screen.getByRole('separator'), 'ArrowRight', true)
-    const stored = store.getPanes('x.reg', 'list')
-    expect(stored).toBeTruthy()
-    const shown = screen.getByTestId('registry').style.getPropertyValue('--lf-pane-1')
-    unmount()
-    render(wrap(<Registry screen="x.reg" list={list} details={<div />} detailOpen={false} />))
-    expect(screen.getByTestId('registry').style.getPropertyValue('--lf-pane-1')).toBe(shown)
-  })
-
-  it('T4 under 900 px there is no separator and no size is set', () => {
-    width = 600
-    render(wrap(<Registry screen="x.reg" list={list} details={<div />} detailOpen={false} />))
-    expect(screen.queryByRole('separator')).not.toBeInTheDocument()
-    expect(screen.getByTestId('registry').style.getPropertyValue('--lf-pane-1')).toBe('')
-  })
-})
 
 interface Row { id: string; a: string; b: string; c: string }
 const COLUMNS: RegistryColumn<Row>[] = [

@@ -38,7 +38,7 @@ defmodule Letflow.Documents.FormPrintWideTest do
   describe "E1 layouts" do
     test "every shipped layout validates, every kk entry is official" do
       cat = FormPrint.catalog()
-      assert Enum.sort(FormPrint.forms()) == ["inv10", "inv18", "z2", "z3", "z5"]
+      assert Enum.sort(FormPrint.forms()) == ["inv10", "inv18", "z1", "z2", "z3", "z5"]
 
       for form <- FormPrint.forms() do
         {:ok, layout} = FormPrint.layout(form)
