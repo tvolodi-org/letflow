@@ -28,13 +28,15 @@ import { AssetCardDepreciation } from './AssetCardDepreciation'
 import { AssetCardHolder } from './AssetCardHolder'
 import { AssetCardActionsMenu } from './AssetCardActionsMenu'
 import { AssetCardOperations } from './AssetCardOperations'
+import { AssetCardSelectionBar } from './AssetCardSelectionBar'
 import { ASSETS_POST } from './assetsPermissions'
 import { newDocumentHref } from './cardActions'
 import { AssetCardForm, unitName, type Cmd } from './AssetCardForm'
 import { AssetsIntlProvider } from './AssetsIntlProvider'
-import { AssetsShell, useAssetRows, useCardById, useErrorText, useOrgUnitRows } from './AssetsShell'
+import { AssetsShell, useAssetRows, useCardById, useCardsFacts, useErrorText, useOrgUnitRows } from './AssetsShell'
 import { AssetsHelpLink } from '@/modules/assets/help/AssetsHelpLink'
 import { ASSET_KINDS, isActive, textOf } from './assetsModel'
+import { MAX_LINES } from './documents/documentForm'
 import { useAssetsWrite, type AssetsWriteResult } from './useAssetsWrite'
 
 function run(cmd: Cmd, key: string) {
@@ -62,6 +64,13 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
   const [creating, setCreating] = useState(initialCreating ?? false)
   const [retiring, setRetiring] = useState<EntityRecord | null>(null)
+  const [chosen, setChosen] = useState<EntityRecord[]>([])
+  const chosenFacts = useCardsFacts(chosen, chosen.length > 0 && can(ASSETS_POST))
+  const chosenWithFacts = chosen.map((c, i) => ({
+    id: c.record_id,
+    number: textOf(c, 'inventory_number'),
+    facts: chosenFacts[i] ?? { active: true, kind: '', held: undefined, rows: undefined, canRead: true },
+  }))
 
   const units = useMemo(() => unitsQuery.data ?? [], [unitsQuery.data])
   const cards = assetRows.rows
@@ -128,6 +137,37 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
   }
 
   const columns: DataTableColumn<EntityRecord>[] = [
+    ...(can(ASSETS_POST)
+      ? [{
+          key: 'select',
+          label: t('assets.cardActions.select.column'),
+          hideStackLabel: true,
+          render: (c: EntityRecord) => {
+            const isChosen = chosen.some((x) => x.record_id === c.record_id)
+            const atCap = !isChosen && chosen.length >= MAX_LINES
+            const stop = (e: React.SyntheticEvent) => e.stopPropagation()
+            return (
+              <span
+                data-testid={`card-select-${c.record_id}`}
+                onClick={stop}
+                onMouseDown={stop}
+                onKeyDown={stop}
+              >
+                <Checkbox
+                  label={<span className="sr-only">{t('assets.cardActions.select.row', { number: textOf(c, 'inventory_number') })}</span>}
+                  checked={isChosen}
+                  disabled={atCap}
+                  onChange={(checked) =>
+                    setChosen((prev) =>
+                      checked ? [...prev, c] : prev.filter((x) => x.record_id !== c.record_id),
+                    )
+                  }
+                />
+              </span>
+            )
+          },
+        } satisfies DataTableColumn<EntityRecord>]
+      : []),
     { key: 'number', label: t('assets.col.number'), render: (c) => textOf(c, 'inventory_number'), mono: true, sortable: true, sortValue: (c) => textOf(c, 'inventory_number') },
     {
       key: 'name',
@@ -290,11 +330,14 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
         <ListDetail
           screen="assets.cards"
           listLabel={t('assets.page.listPane')}
-          listDefault={40}
+          listDefault={50}
           listMin={380}
           tools={tools}
           list={
             <>
+              {can(ASSETS_POST) && chosen.length > 0 && (
+                <AssetCardSelectionBar chosen={chosenWithFacts} onClear={() => setChosen([])} />
+              )}
               {assetRows.truncated ? (
                 <Banner tone="info">
                   <span data-testid="asset-truncated">

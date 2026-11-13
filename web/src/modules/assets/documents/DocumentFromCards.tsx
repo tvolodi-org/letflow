@@ -1,15 +1,15 @@
 /** DocumentFromCards — T-1880 / D-135. The form of a new document started from asset cards (`?kind=&asset=<card id>`):
- *  it reads each card and its holder rows in the register, builds the draft (`prefillForm`: the cards are the lines, the
- *  header comes from the holder) and hands it to DocumentForm. Nothing is saved until the user presses Save. Without
- *  AssetsRead the balances are not read and the form opens with the lines only. */
+ *  it reads all requested cards in one query and each card's holder rows in the register, builds the draft
+ *  (`prefillForm`: the cards are the lines, the header comes from the holder) and hands it to DocumentForm.
+ *  Cards not found in the read (deleted, foreign id) are dropped with a notice. Nothing is saved until the user
+ *  presses Save. Without AssetsRead the balances are not read and the form opens with the lines only. */
 import { useIntl } from 'react-intl'
-import { useQueries } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { useAccess } from '@/auth/access/useAccess'
 import { useAuth } from '@/auth/AuthContext'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
-import type { EntityRecord } from '@/types/api'
 import { classifyError, type RendererState } from '@/utils/classifyError'
-import { cardByIdQuery } from '../AssetsShell'
+import { cardsByIdsQuery } from '../AssetsShell'
 import { ASSETS_READ } from '../assetsPermissions'
 import { textOf } from '../assetsModel'
 import { assetsQueryKeys } from '../assetsQueryKeys'
@@ -35,10 +35,13 @@ export function DocumentFromCards({ kind, assets, ...rest }: DocumentFromCardsPr
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   const canRead = can(ASSETS_READ)
-  const cardQs = useQueries({ queries: assets.map((id) => cardByIdQuery(tenantId, id)) })
+  const cardsQ = useQuery({ ...cardsByIdsQuery(tenantId, assets), enabled: assets.length > 0 })
+  const foundCards = cardsQ.data ?? []
+  const foundIds = new Set(foundCards.map((c) => c.record_id))
+  const missingCount = assets.filter((id) => !foundIds.has(id)).length
   const rowQs = useQueries({
-    queries: assets.map((id) => {
-      const params = { asset: id }
+    queries: foundCards.map((c) => {
+      const params = { asset: c.record_id }
       return {
         queryKey: assetsQueryKeys.balances(tenantId, JSON.stringify(params)),
         queryFn: () => assetRegisterApi.balances(params),
@@ -47,7 +50,7 @@ export function DocumentFromCards({ kind, assets, ...rest }: DocumentFromCardsPr
       }
     }),
   })
-  const all = [...cardQs, ...rowQs]
+  const all = assets.length === 0 ? [] : [cardsQ, ...rowQs]
   const failed = all.find((q) => q.isError)
   const state: RendererState = failed
     ? classifyError(failed.error)
@@ -58,20 +61,24 @@ export function DocumentFromCards({ kind, assets, ...rest }: DocumentFromCardsPr
   let body = null
   if (state === 'success') {
     const rowsById: Record<string, AssetBalanceRow[] | undefined> = {}
-    assets.forEach((id, i) => {
-      rowsById[id] = rowQs[i].data?.rows
-    })
+    foundCards.forEach((c, i) => { rowsById[c.record_id] = rowQs[i]?.data?.rows })
     const prefill = prefillForm(
       kind,
-      assets.map((id, i) => ({ id, kind: textOf(cardQs[i].data ?? emptyCard, 'kind'), orgUnitId: textOf(cardQs[i].data ?? emptyCard, 'org_unit_id') })),
+      foundCards.map((c) => ({ id: c.record_id, kind: textOf(c, 'kind'), orgUnitId: textOf(c, 'org_unit_id') })),
       rowsById,
     )
+    const notices: string[] = []
+    if (missingCount > 0) notices.push(intl.formatMessage({ id: 'assets.cardActions.prefill.missing' }, { count: missingCount }))
+    if (prefill.manyHolders === 'cards') notices.push(intl.formatMessage({ id: 'assets.cardActions.prefill.manyHoldersCards' }))
+    else if (prefill.manyHolders === 'card') notices.push(intl.formatMessage({ id: 'assets.cardActions.prefill.manyHolders' }))
+    const notice = notices.length > 0 ? notices.join(' ') : undefined
     body = (
       <DocumentForm
         key={`${kind}|${assets.join(',')}`}
         kind={kind}
         initial={prefill.form}
-        notice={prefill.manyHolders ? intl.formatMessage({ id: 'assets.cardActions.prefill.manyHolders' }) : undefined}
+        prefillCards={foundCards}
+        notice={notice}
         {...rest}
       />
     )
@@ -82,5 +89,3 @@ export function DocumentFromCards({ kind, assets, ...rest }: DocumentFromCardsPr
     </QueryStateBoundary>
   )
 }
-
-const emptyCard = { record_id: '', field_values: {} } as unknown as EntityRecord

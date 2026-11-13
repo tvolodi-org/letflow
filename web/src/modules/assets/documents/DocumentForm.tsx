@@ -36,6 +36,8 @@ import { DocumentTabs } from './DocumentTabs'
 import { DOCUMENTS_PATH } from './DocumentList'
 import { buildBody, emptyForm, formFromDocument, placeError, validateForm, type FormState, type SideForm } from './documentForm'
 import { DOC_KINDS, WRITEOFF_REASONS, isTwoSide, type DocKind } from './documentsModel'
+import type { EntityRecord } from '@/types/api'
+import { textOf } from '../assetsModel'
 
 export interface DocumentFormProps {
   kind?: DocKind
@@ -54,9 +56,12 @@ export interface DocumentFormProps {
   initial?: FormState
   /** Create: an info line in the bar (T-1880: the holder of a card could not be taken as one). */
   notice?: string
+  /** Create: the found cards from the pre-fill read; their data feeds the line catalog so the Asset cell shows
+   *  the card before the picker list loads. */
+  prefillCards?: EntityRecord[]
 }
 
-export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title, onBack, onKindChange, initial, notice }: DocumentFormProps) {
+export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title, onBack, onKindChange, initial, notice, prefillCards }: DocumentFormProps) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { can, userId } = useAccess()
@@ -120,7 +125,10 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
 
   const cardOf = (id: string) => {
     const k = cards.find((c) => c.value === id)?.fields?.['kind']
-    return typeof k === 'string' && k !== '' ? { kind: k } : undefined
+    if (typeof k === 'string' && k !== '') return { kind: k }
+    const pc = prefillCards?.find((c) => c.record_id === id)
+    const pk = pc ? textOf(pc, 'kind') : undefined
+    return pk && pk !== '' ? { kind: pk } : undefined
   }
   const submit = () => {
     if (save.isPending) return
@@ -293,7 +301,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
       ) : op ? (
         <OpeningLinesEditor lines={form.opLines} errors={errors} onChange={(opLines) => patch({ opLines })} showErrors={attempted} importer={importer} />
       ) : (
-        <AssetLinesEditor lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} showErrors={attempted} />
+        <AssetLinesEditor lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} showErrors={attempted} extraCards={prefillCards} />
       )}
     </>
   )

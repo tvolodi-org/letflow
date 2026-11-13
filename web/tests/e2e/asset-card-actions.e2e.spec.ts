@@ -142,3 +142,53 @@ test.describe('P4 phone: touch at 390 px', () => {
     await expect.poll(() => reached(urls, expected('handover', 'c-1'))).toBe(true)
   })
 })
+
+test.describe('P5 multi-select', () => {
+  test('P5a checkboxes exist on every row and clicking one does not open the detail panel', async ({ page }) => {
+    await page.setViewportSize(DESKTOP)
+    await page.goto('/__harness/asset-card-select')
+    await expect(page.getByTestId('card-selection-bar')).toBeVisible()
+    await expect(page.getByTestId('asset-pick-hint')).toBeVisible()
+  })
+
+  test('P5b the selection bar shows the count and action buttons', async ({ page }) => {
+    await page.setViewportSize(DESKTOP)
+    await page.goto('/__harness/asset-card-select')
+    await expect(page.getByTestId('card-selection-bar')).toBeVisible()
+    await expect(page.getByTestId('card-bulk-commission')).toBeDisabled()
+    await expect(page.getByTestId('card-bulk-change')).toBeEnabled()
+  })
+
+  test('P5c blocked selection shows reason text', async ({ page }) => {
+    await page.setViewportSize(DESKTOP)
+    await page.goto('/__harness/asset-card-select-blocked')
+    await expect(page.getByTestId('card-selection-bar')).toBeVisible()
+    await expect(page.getByTestId('card-bulk-commission')).toBeDisabled()
+    await expect(page.getByTestId('card-bulk-reason-commission')).toBeVisible()
+  })
+
+  test('P5d new cards: only commission enabled', async ({ page }) => {
+    await page.setViewportSize(DESKTOP)
+    await page.goto('/__harness/asset-card-select-new')
+    await expect(page.getByTestId('card-selection-bar')).toBeVisible()
+    await expect(page.getByTestId('card-bulk-commission')).toBeEnabled()
+    await expect(page.getByTestId('card-bulk-change')).toBeDisabled()
+  })
+
+  test('P5e form from multiple cards shows two lines', async ({ page }) => {
+    await page.setViewportSize(DESKTOP)
+    await page.goto('/__harness/asset-doc-from-cards-multi')
+    await expect(page.getByTestId('document-form')).toBeVisible()
+    await expect(page.getByTestId('line-editor-row')).toHaveCount(2)
+  })
+
+  test('P5f back to cards link on a document opened with multiple card ids', async ({ page }) => {
+    await page.setViewportSize(DESKTOP)
+    await page.goto('/__harness/asset-doc-back-to-cards')
+    const link = page.getByTestId('doc-back-to-card')
+    await expect(link).toBeVisible()
+    const urls = trackUrls(page)
+    await link.click()
+    await expect.poll(() => reached(urls, '/admin/assets/cards')).toBe(true)
+  })
+})
