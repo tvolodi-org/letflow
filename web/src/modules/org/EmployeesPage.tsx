@@ -211,6 +211,7 @@ function EmployeesInner() {
       title={t('org.employees.title')}
       lede={t('org.employees.lede')}
       createLabel={createLabel}
+      screen="org.employees"
       canWrite={canWrite}
       onCreate={() => openPanel({ kind: 'new' })}
       queries={[rows, units, positions]}

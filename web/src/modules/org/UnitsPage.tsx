@@ -204,6 +204,7 @@ function UnitsInner() {
       title={t('org.units.title')}
       lede={t('org.units.lede')}
       createLabel={createLabel}
+      screen="org.units"
       canWrite={canWrite}
       onCreate={() => openPanel({ kind: 'new', parent: '' })}
       queries={[rows, companies, sites]}
