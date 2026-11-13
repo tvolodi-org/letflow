@@ -17,7 +17,7 @@ export function AssetCardSelectionBar(props: {
   const { chosen, onClear } = props
   const items = chosen.map((c) => ({ number: c.number, facts: c.facts }))
   return (
-    <div role="region" aria-label={t('assets.cardActions.select.bar')} data-testid="card-selection-bar" className="lf-btn-row">
+    <div role="region" aria-label={t('assets.cardActions.select.bar')} data-testid="card-selection-bar" className="lf-toolbar">
       <span>{t('assets.cardActions.select.count', { count: chosen.length })}</span>
       {CARD_ACTIONS.map((action) => {
         const state = selectionActionState(action.id, items)

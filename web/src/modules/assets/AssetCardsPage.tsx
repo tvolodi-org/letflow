@@ -330,7 +330,7 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
         <ListDetail
           screen="assets.cards"
           listLabel={t('assets.page.listPane')}
-          listDefault={40}
+          listDefault={50}
           listMin={380}
           tools={tools}
           list={
