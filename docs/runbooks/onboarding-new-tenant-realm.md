@@ -27,6 +27,24 @@ values belong in this file or in any evidence field.
   issue `TENANT_ADMIN`).
 - The tenant realm template, version 1: `priv/keycloak/provisioner/v1/tenant-realm.json` (README beside it; drift test `test/letflow/keycloak_tenant_realm_template_test.exs`). It is for the provisioner; step R1 below still describes the manual clone.
 
+## Realm roles a tenant realm must carry
+
+The IdP claim sync (`Letflow.Oidc.ClaimMapping`, then `Authorization.roles_from_strings/1`) turns the realm role names in the token into the closed set of nine built-in roles (`@roles` in `lib/letflow/api/authorization.ex`) and resolves each to the group that binds it. A name the realm does not issue can never reach a user, so the template must carry each role below. Per role:
+
+| Role | In a tenant realm | Note |
+|------|-------------------|------|
+| `TENANT_ADMIN` | required | plain realm role, see the Realm checklist |
+| `PROCESS_DESIGNER` | required | |
+| `PROCESS_OPERATOR` | required | |
+| `TASK_WORKER` | required | |
+| `CANDIDATE` | required | |
+| `TENANT_AUDITOR` | required | read-only |
+| `STOREKEEPER` | required | decision 0081; template v1 lacks it, v2 (`priv/keycloak/provisioner/v2/tenant-realm.json`) carries it; infra added it by hand in the QA realm gate-b6 |
+| `AGENT_RUNNER` | optional | held through API tokens and groups; harmless to carry |
+| `PLATFORM_ADMIN` | never | platform realm only (Realm checklist, last-but-one row) |
+
+Check: `python3 -I scripts/check_realm_roles.py [--platform] [realm.json ...]` fails when a required role is missing; without a path it checks the committed `docs/runbooks/demo-realm/*.json` fixtures, and `test/scripts/check_realm_roles_test.exs` runs it in CI and pins this table against `Authorization.roles/0`. These fixtures are docs fixtures; the live demo realm is not touched and nothing is promoted.
+
 ## Ordered steps
 
 1. **R1 Create the realm.** Clone the `bpm-default` realm definition

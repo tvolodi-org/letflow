@@ -83,6 +83,8 @@ are written in form (b) until it is given. S0-5 waits for its ruling.
 | 5 | Web roles page and lists, `isCandidate`, UAT roster actor with a custom role | UAT run | revert |
 | 6 | Remove the compiled role lists (templates stay in code as data) | golden over templates only | restore from the pre-deploy backup, so last and alone |
 
+Realm role names are the IDENTIFICATION keys of the read-only template rows (D-132): the IdP claim sync keeps resolving them to groups, and `scripts/check_realm_roles.py` checks the realm exports for them. With roles as data (D-131 stage 2) the template list becomes data of the template rows; stage 0 changes nothing here (T-1862).
+
 ## 5. Not decided here
 
 The security rulings for S0-2 (whether a scoped TENANT_ADMIN grant may count for task work; until then form (b)), S0-3/S0-4 (platform
