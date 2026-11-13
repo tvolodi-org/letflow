@@ -72,7 +72,7 @@ localized_text).
 | accumulated_depreciation | decimal | optional | none | `decimal_strict` true; information only |
 | book_value | decimal | optional | none | `decimal_strict` true; information only |
 | depreciation_as_of | date | optional | none | information only |
-| depreciation_method | string | optional | none | free text, information only (T-1530) |
+| depreciation_method | string | optional | none | one of `straight_line`, `reducing_balance`, `units_of_production` (D-134, checked by the card write path, not by the definition; values stored before assets 0.17.0 are kept and shown as "not in the list"); information only (T-1530) |
 | depreciation_rate | decimal | optional | none | `decimal_strict` true; percent per year as typed, information only (T-1530) |
 | valid_until | date | optional | none | allowed only when kind is `intangible` |
 | active | boolean | required | none | false retires the card; there is no delete (REQ-748; asset-workflow-documents.md section 7 checks it before a posting) |
