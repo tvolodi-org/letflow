@@ -1,0 +1,1 @@
+<div className="lf-md lf-md--wide" data-testid="master-detail">
