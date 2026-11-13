@@ -140,6 +140,12 @@ defmodule Letflow.Api.Authorization do
     keep PLATFORM_ADMIN and TENANT_ADMIN out, so a scoped TENANT_ADMIN grant never counts for task work
     (ruling 1 of `docs/design/roles-stage0-security-rulings.md`); stage 2 turns them into exclusions
     from `grants = all` (decision 0088 D9).
+  * `:TenantSecurityManage` (roles stage 0 S0-3) — **not** route-level. Read in-handler by
+    `Letflow.Api.Scope.require_interactive_tenant_admin/1` (`PUT /tenant/scope-enforcement`,
+    `PUT /users/:id/service-principal`), tenant-wide. Held by TENANT_ADMIN only; an explicit `false`
+    clause keeps the platform tenant's PLATFORM_ADMIN out (ruling 2 of
+    `docs/design/roles-stage0-security-rulings.md`); non-assignable (0088 D4): not in `grantable/0`,
+    modules cannot grant core permissions.
 
   Per design §5, this requirement deliberately adds **no** new
   `role_allows?/2` clause for `PROCESS_DESIGNER`, `PROCESS_OPERATOR`, or
@@ -386,6 +392,7 @@ defmodule Letflow.Api.Authorization do
           | :EntitiesViewsManage
           | :EntitiesRecordsImportAnyType
           | :TasksWorkInScope
+          | :TenantSecurityManage
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -573,7 +580,9 @@ defmodule Letflow.Api.Authorization do
     # Roles stage 0 S0-1 (decision 0088, docs/design/roles-stage0-slices.md): import of any entity type. Tenant scope; TENANT_ADMIN through the derived rule.
     :EntitiesRecordsImportAnyType,
     # Roles stage 0 S0-2 (decision 0088, docs/design/roles-stage0-slices.md): scoped task work (F1). Tenant scope; TASK_WORKER only (explicit false clauses for PLATFORM_ADMIN and TENANT_ADMIN).
-    :TasksWorkInScope
+    :TasksWorkInScope,
+    # Roles stage 0 S0-3 (decision 0088, docs/design/roles-stage0-slices.md): the two admin-only switches. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN, ruling 2).
+    :TenantSecurityManage
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -596,7 +605,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All fifty-nine core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All sixty core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -634,7 +643,9 @@ defmodule Letflow.Api.Authorization do
   roles stage 0 S0-1's `:EntitiesRecordsImportAnyType` (import of any entity type; TENANT_ADMIN through the
   derived rule; STOREKEEPER does not hold it), plus roles stage 0 S0-2's `:TasksWorkInScope` (scoped task
   work, TASK_WORKER only: the first exception to both admin catch-alls, security ruling 1 of
-  `docs/design/roles-stage0-security-rulings.md`).
+  `docs/design/roles-stage0-security-rulings.md`), plus roles stage 0 S0-3's `:TenantSecurityManage`
+  (the two admin-only switches, TENANT_ADMIN through the derived rule; explicit false clause for
+  PLATFORM_ADMIN, ruling 2).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1918,6 +1929,10 @@ defmodule Letflow.Api.Authorization do
   # Roles stage 0 S0-2, ruling 1 (docs/design/roles-stage0-security-rulings.md): scoped task
   # work is TASK_WORKER's alone; the first exception to this catch-all.
   defp core_role_allows?(:PLATFORM_ADMIN, :TasksWorkInScope), do: false
+
+  # Roles stage 0 S0-3, ruling 2 (docs/design/roles-stage0-security-rulings.md): the two admin-only
+  # switches stay refused to a platform-tenant PLATFORM_ADMIN without TENANT_ADMIN.
+  defp core_role_allows?(:PLATFORM_ADMIN, :TenantSecurityManage), do: false
   defp core_role_allows?(:PLATFORM_ADMIN, _permission), do: true
 
   # Roles stage 0 S0-2, ruling 1: a scoped TENANT_ADMIN grant never counts for task work.

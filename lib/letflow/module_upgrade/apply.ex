@@ -60,6 +60,7 @@ defmodule Letflow.ModuleUpgrade.Apply do
           | :not_found
           | {:refused, String.t(), map()}
           | {:failed, String.t()}
+          | {:failed, String.t(), map()}
 
   @doc """
   Applies the upgrade of `module_id` for the plan named in the body. `params` is the decoded
@@ -180,6 +181,14 @@ defmodule Letflow.ModuleUpgrade.Apply do
       {:error, :not_found} ->
         {:error, :not_found}
 
+      {:error, {:failed, code, extras}} ->
+        Logger.error(
+          "module upgrade apply failed: module_id=#{module_id} code=#{code} extras=#{inspect(extras)}"
+        )
+
+        journal_failure(module_id, actor_id, rationale, plan_hash, code, prefix)
+        {:error, {:failed, code, extras}}
+
       {:error, {:failed, code}} ->
         Logger.error("module upgrade apply failed: module_id=#{module_id} code=#{code}")
         journal_failure(module_id, actor_id, rationale, plan_hash, code, prefix)
@@ -191,6 +200,17 @@ defmodule Letflow.ModuleUpgrade.Apply do
         {:error, {:failed, "internal_error"}}
     end
   end
+
+  @doc false
+  # The answer extras of a refused activation: entity name and a closed reason token (INV-8).
+  @spec refusal_extras(String.t(), term()) :: %{String.t() => String.t()}
+  def refusal_extras(name, reason),
+    do: %{"entity" => to_string(name), "reason" => refusal_reason(reason)}
+
+  # A closed token (never a changeset or exception text, INV-8).
+  defp refusal_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp refusal_reason({code, _detail}) when is_atom(code), do: Atom.to_string(code)
+  defp refusal_reason(_other), do: "unknown"
 
   defp transact(entry_module, module_id, actor_id, rationale, plan_hash, ack, prefix) do
     Repo.query!("SET LOCAL lock_timeout = '#{@lock_timeout}'")
@@ -263,8 +283,9 @@ defmodule Letflow.ModuleUpgrade.Apply do
         {:ok, result} ->
           result
 
-        {:error, {:activation_refused, _name, _reason}} ->
-          Repo.rollback({:failed, "activation_refused"})
+        {:error, {:activation_refused, name, reason}} ->
+          # T-1882: name the entity and the closed reason code so the refusal is diagnosable.
+          Repo.rollback({:failed, "activation_refused", refusal_extras(name, reason)})
 
         {:error, :storage_refused} ->
           Repo.rollback({:failed, "storage_refused"})

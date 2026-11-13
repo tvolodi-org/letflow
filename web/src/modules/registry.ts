@@ -6,7 +6,7 @@
  *  module code itself never imports the guard (0039 D3).
  */
 import { createElement } from 'react'
-import type { InstalledModule, ModuleDefinition, ModuleImportType, ModuleNavItem } from './types'
+import type { InstalledModule, ModuleDefinition, ModuleImportType, ModuleNavItem, ModuleReportGroup } from './types'
 import { examModuleDefinition } from './exam/index'
 import { orgModuleDefinition } from './org/index'
 import { locationsModuleDefinition } from './locations/index'
@@ -68,4 +68,17 @@ export function getInstalledImportTypes(
   definitions: ModuleDefinition[] = REGISTERED_MODULES,
 ): ModuleImportType[] {
   return getInstalledModuleDefinitions(installedModules, definitions).flatMap((definition) => definition.importTypes ?? [])
+}
+
+/** T-1874: the report group of the installed module that claims `entityType` by prefix, or null (the "Other reports" group). */
+export function getReportGroupFor(
+  installedModules: InstalledModule[],
+  entityType: string,
+  definitions: ModuleDefinition[] = REGISTERED_MODULES,
+): ModuleReportGroup | null {
+  for (const definition of getInstalledModuleDefinitions(installedModules, definitions)) {
+    const group = definition.reportGroup
+    if (group && entityType.startsWith(group.entityTypePrefix)) return { ...group, moduleId: definition.id }
+  }
+  return null
 }
