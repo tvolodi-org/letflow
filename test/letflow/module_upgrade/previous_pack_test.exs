@@ -164,7 +164,7 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
     @tag timeout: 120_000
     test "P#{i} #{module_id} #{old} -> #{current} upgrades through the routes", ctx do
       module_id = unquote(module_id)
-      names = downgrade!(ctx.schema, module_id, unquote(old), unquote(fixture))
+      _names = downgrade!(ctx.schema, module_id, unquote(old), unquote(fixture))
       report = upgrade!(ctx, module_id)
       assert report["from_version"] == unquote(old)
       assert report["to_version"] == unquote(current)
