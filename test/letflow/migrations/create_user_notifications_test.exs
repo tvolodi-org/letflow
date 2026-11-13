@@ -40,11 +40,11 @@ defmodule Letflow.CreateUserNotificationsTest do
     rows |> List.flatten() |> Enum.sort()
   end
 
-  test "M2 registered last; the table is in the expected list and starts empty", %{
+  test "M2 registered; the table is in the expected list and starts empty", %{
     schema: schema
   } do
     assert {@version, CreateUserNotifications} =
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+             List.keyfind(TenantProvisioning.tenant_scoped_migrations(), @version, 0)
 
     assert "user_notifications" in TenantFixture.expected_tenant_tables()
 
