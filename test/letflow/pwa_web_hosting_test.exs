@@ -322,6 +322,16 @@ defmodule Letflow.PwaWebHostingTest do
       refute conf =~ "max-age"
     end
 
+    test "N3 no types block replaces the MIME map; runbook checks index content-type" do
+      conf = File.read!(@nginx)
+      code = conf |> String.split(~r/\R/) |> Enum.reject(&String.match?(&1, ~r/^\s*#/))
+      refute Enum.any?(code, &(&1 =~ ~r/^\s*types\s*\{/))
+
+      book = File.read!(@runbook)
+      assert book =~ "content-type: text/html"
+      assert book =~ "do NOT add a `types"
+    end
+
     test "N2 runbook names the headers and every variable the workflow reads" do
       book = File.read!(@runbook)
       text = File.read!(@workflow)
