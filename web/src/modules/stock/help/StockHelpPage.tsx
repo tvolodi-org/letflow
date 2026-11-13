@@ -17,7 +17,7 @@ const SCREEN_PATH: Record<StockHelpTopic, string> = {
   movements: '/admin/stock/movements',
 }
 
-function Topic({ topic }: { topic: StockHelpTopic }) {
+function Topic({ topic, withBack }: { topic: StockHelpTopic; withBack: boolean }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   return (
@@ -25,13 +25,22 @@ function Topic({ topic }: { topic: StockHelpTopic }) {
       <HelpTopicView
         text={readTopic('stock', topic, t)}
         headings={{ purpose: t('stock.help.h.purpose'), tasks: t('stock.help.h.tasks'), refusals: t('stock.help.h.refusals') }}
-        back={{ to: SCREEN_PATH[topic], label: t('stock.help.back') }}
+        back={withBack ? { to: SCREEN_PATH[topic], label: t('stock.help.back') } : undefined}
       />
     </RequirePermission>
   )
 }
 
+/** The topic text without the route chrome, for the Help side panel (T-1872). */
+export function StockHelpBody({ topic }: { topic: StockHelpTopic }) {
+  return (
+    <StockIntlProvider>
+      <Topic topic={topic} withBack={false} />
+    </StockIntlProvider>
+  )
+}
+
 export default function StockHelpPage() {
   const { topic } = useParams()
-  return <StockIntlProvider>{isStockHelpTopic(topic) ? <Topic topic={topic} /> : <NotFoundPage />}</StockIntlProvider>
+  return <StockIntlProvider>{isStockHelpTopic(topic) ? <Topic topic={topic} withBack /> : <NotFoundPage />}</StockIntlProvider>
 }

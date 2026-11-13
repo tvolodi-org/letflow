@@ -7,7 +7,7 @@ import { useIntl } from 'react-intl'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { HelpLink } from '@/components/help/HelpLink'
+import { AssetsHelpLink } from '@/modules/assets/help/AssetsHelpLink'
 import { PermissionDenied } from '@/components/ui/PermissionDenied'
 import { useAccess } from '@/auth/access/useAccess'
 import { DocBlank, DocLayout } from '@/components/ui/doc/DocLayout'
@@ -63,7 +63,7 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
         lede={t('assets.doc.lede')}
         actions={
           <>
-          <HelpLink to="/admin/assets/help/documents" label={t('assets.help.link')} />
+          <AssetsHelpLink topic="documents" />
           <Button variant="ghost" onClick={() => store.resetScreen(ASSET_DOCUMENTS_LAYOUT_SCREEN)} data-testid="reset-layout">
             {lm.resetLayout}
           </Button>

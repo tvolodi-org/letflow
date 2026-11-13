@@ -7,9 +7,9 @@ import type { CoreHelpTopic } from './coreHelpTopics'
 
 type Topics = Record<CoreHelpTopic, HelpTopicText>
 
-const commonEn: HelpCommonText = { link: 'Help', back: 'Back to the screen', purpose: 'What this screen is for', tasks: 'Three common tasks', refusals: 'What a refusal means' }
-const commonRu: HelpCommonText = { link: 'Справка', back: 'Назад к экрану', purpose: 'Для чего этот экран', tasks: 'Три частые задачи', refusals: 'Что значит отказ' }
-const commonKk: HelpCommonText = { link: 'Анықтама', back: 'Экранға оралу', purpose: 'Бұл экран не үшін', tasks: 'Үш жиі міндет', refusals: 'Бас тарту нені білдіреді' }
+const commonEn: HelpCommonText = { link: 'Help', close: 'Close', back: 'Back to the screen', purpose: 'What this screen is for', tasks: 'Three common tasks', refusals: 'What a refusal means' }
+const commonRu: HelpCommonText = { link: 'Справка', close: 'Закрыть', back: 'Назад к экрану', purpose: 'Для чего этот экран', tasks: 'Три частые задачи', refusals: 'Что значит отказ' }
+const commonKk: HelpCommonText = { link: 'Анықтама', close: 'Жабу', back: 'Экранға оралу', purpose: 'Бұл экран не үшін', tasks: 'Үш жиі міндет', refusals: 'Бас тарту нені білдіреді' }
 
 const en: Topics = {
   usersImport: {

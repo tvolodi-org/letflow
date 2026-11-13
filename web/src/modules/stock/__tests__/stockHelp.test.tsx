@@ -3,11 +3,11 @@
  *  and the counts correction (stock is not frozen during a count). */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { helpIds } from '@/components/help/helpTopicText'
 import { STOCK_UI_LOCALES, stockMessages } from '../stockMessages'
-import { STOCK_HELP_TOPICS, stockHelpPath } from '../help/stockHelpTopics'
+import { STOCK_HELP_TOPICS } from '../help/stockHelpTopics'
 import { renderStock, withAtom, withoutAtom } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
@@ -36,11 +36,11 @@ describe('H1 H2 catalogue', () => {
           if (l !== 'en') expect(stockMessages[l][id], `${l} ${id}`).not.toBe(stockMessages.en[id])
         }
       }
-      for (const id of ['link', 'back', 'h.purpose', 'h.tasks', 'h.refusals']) expect(stockMessages[l][`stock.help.${id}`], `${l} ${id}`).toBeTruthy()
+      for (const id of ['link', 'close', 'back', 'h.purpose', 'h.tasks', 'h.refusals']) expect(stockMessages[l][`stock.help.${id}`], `${l} ${id}`).toBeTruthy()
     }
   })
   it('H2 the topic list equals the topics present in the catalogue', () => {
-    const present = new Set(helpKeys('en').map((k) => k.split('.')[2]).filter((p) => p !== 'link' && p !== 'back' && p !== 'h'))
+    const present = new Set(helpKeys('en').map((k) => k.split('.')[2]).filter((p) => p !== 'link' && p !== 'close' && p !== 'back' && p !== 'h'))
     expect([...present].sort()).toEqual([...STOCK_HELP_TOPICS].sort())
   })
 })
@@ -65,11 +65,17 @@ describe('H4 links', () => {
     ['/admin/stock/balances', 'balances'],
     ['/admin/stock/movements', 'movements'],
     ['/admin/stock/counts', 'counts'],
-  ] as const)('%s shows a Help link to its topic', async (path, topic) => {
+  ] as const)('%s shows a Help button that opens its topic in a side panel, not a route', async (path, topic) => {
     renderStock(path, withAtom)
     const link = await screen.findByTestId('help-link')
-    expect(link).toHaveAttribute('href', stockHelpPath(topic))
+    expect(link).not.toHaveAttribute('href')
     expect(link).toHaveTextContent('Help')
+    fireEvent.click(link)
+    expect(screen.getByTestId('help-side-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('help-side-title')).toHaveTextContent(stockMessages.en[`stock.help.${topic}.title`])
+    expect(screen.queryByTestId('help-back')).toBeNull()
+    fireEvent.click(screen.getByTestId('help-side-close'))
+    expect(screen.queryByTestId('help-side-panel')).toBeNull()
   })
 })
 

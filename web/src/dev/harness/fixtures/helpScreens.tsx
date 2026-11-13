@@ -2,9 +2,14 @@
 import type { ReactElement } from 'react'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
+import AssetCardsPage from '@/modules/assets/AssetCardsPage'
+import { AssetsIntlProvider } from '@/modules/assets/AssetsIntlProvider'
+import { AssetsHelpLink } from '@/modules/assets/help/AssetsHelpLink'
 import AssetsHelpPage from '@/modules/assets/help/AssetsHelpPage'
 import CountsPage from '@/modules/stock/counts/CountsPage'
 import CoreHelpPage from '@/pages/help/CoreHelpPage'
+import { StockIntlProvider } from '@/modules/stock/StockIntlProvider'
+import { StockHelpLink } from '@/modules/stock/help/StockHelpLink'
 import StockHelpPage from '@/modules/stock/help/StockHelpPage'
 import type { UserSession } from '@/types/api'
 import type { FixtureRoute, HarnessScreen } from '../types'
@@ -43,4 +48,8 @@ export const helpScreens: HarnessScreen[] = [
   { name: 'help-core-long-lists', initialPath: '/help/longLists', routePattern: '/help/:topic', routes, render: () => withAuth(<CoreHelpPage />) },
   { name: 'help-unknown-topic', initialPath: '/admin/assets/help/nope', routePattern: '/admin/assets/help/:topic', routes, render: () => withAuth(<AssetsHelpPage />) },
   { name: 'help-link-stock-counts', initialPath: '/admin/stock/counts', routePattern: '/admin/stock/counts', routes, render: () => withAuth(<CountsPage />) },
+  { name: 'help-link-assets-cards', initialPath: '/admin/assets/cards', routePattern: '/admin/assets/cards', routes, render: () => withAuth(<AssetCardsPage />) },
+  // T-1872: the Help side panel, pre-opened over the real screen (the screen keeps its own Help button behind it).
+  { name: 'help-panel-assets-cards', initialPath: '/admin/assets/cards', routePattern: '/admin/assets/cards', routes, render: () => withAuth(<><AssetCardsPage /><AssetsIntlProvider><AssetsHelpLink topic="cards" defaultOpen /></AssetsIntlProvider></>) },
+  { name: 'help-panel-stock-counts', initialPath: '/admin/stock/counts', routePattern: '/admin/stock/counts', routes, render: () => withAuth(<><CountsPage /><StockIntlProvider><StockHelpLink topic="counts" defaultOpen /></StockIntlProvider></>) },
 ]
