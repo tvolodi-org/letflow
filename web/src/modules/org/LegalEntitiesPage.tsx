@@ -127,6 +127,7 @@ function LegalEntitiesInner() {
       title={t('org.legal.title')}
       lede={t('org.legal.lede')}
       createLabel={createLabel}
+      screen="org.legal-entities"
       canWrite={canWrite}
       onCreate={() => openPanel({ kind: 'new' })}
       queries={[rows]}

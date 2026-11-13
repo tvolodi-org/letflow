@@ -1,9 +1,10 @@
-/** OrgScreen — GH 3609 / REQ-669, style S1. The frame of the three org-structure screens (legal companies, sites,
- *  org units): PageHeader, then MasterDetail with the list or tree on the left and the record in the detail panel
- *  on the right (skill rule 2a: viewing and editing one record is never a modal). Owns the page states: loading
- *  skeleton, load error with retry, empty with an action. The panel has a close button and closes on Escape.
- *  Everything is built from the shared components; this file has no colour or spacing of its own. */
-import type { KeyboardEvent, ReactNode } from 'react'
+/** OrgScreen — GH 3609 / REQ-669, style S1, migrated to ListDetail by T-1890 (slice 4). The frame of the three
+ *  org-structure screens (legal companies, sites, org units): PageHeader, then ListDetail kind=tree with the list
+ *  or tree on the left and the record in the detail panel on the right (skill rule 2a: viewing and editing one
+ *  record is never a modal). Owns the page states: loading skeleton, load error with retry, empty with an action.
+ *  The panel has a close button and closes on Escape. Everything is built from the shared components; this file
+ *  has no colour or spacing of its own. */
+import type { ReactNode } from 'react'
 import { Plus, X } from 'lucide-react'
 import type { UseQueryResult } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
@@ -13,7 +14,7 @@ import { Checkbox } from '@/components/ui/Checkbox'
 import { DetailHeader } from '@/components/ui/DetailHeader'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { FormActions } from '@/components/ui/FormSection'
-import { MasterDetail } from '@/components/ui/MasterDetail'
+import { ListDetail } from '@/components/ui/listDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
@@ -26,6 +27,8 @@ export interface OrgScreenProps {
   title: string
   lede: string
   createLabel: string
+  /** Layout screen id — remembered per user (ui.layout). */
+  screen: string
   /** False hides every write action (create here; edit, move, retire in the panel). */
   canWrite: boolean
   onCreate: () => void
@@ -89,13 +92,6 @@ export function OrgScreen(props: OrgScreenProps) {
   const t = (id: string) => intl.formatMessage({ id })
   const loaded = !props.queries.some((q) => q.isPending || q.isError)
 
-  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'Escape' && props.detail !== null && props.escapeCloses && !e.defaultPrevented) {
-      e.preventDefault()
-      props.onClosePanel()
-    }
-  }
-
   // A fragment: the page's grid (`.lf-content` of the shell) spaces the header, the panel row and the toasts.
   return (
     <>
@@ -117,34 +113,35 @@ export function OrgScreen(props: OrgScreenProps) {
           ) : undefined
         }
       />
-      <div onKeyDown={onKeyDown} data-testid="org-screen">
-        <MasterDetail
-          detailOpen={props.detail !== null}
-          onBack={props.onClosePanel}
-          tools={
-            <div className="lf-btn-row lf-btn-row--between" data-testid="org-retired-row">
-              <Checkbox label={t('org.common.showRetired')} checked={props.showRetired} onChange={props.onShowRetired} />
-              {loaded && (
-                <span className="caption lf-faint" data-testid="org-count">
-                  {intl.formatMessage({ id: 'org.common.count' }, { count: props.count })}
-                </span>
-              )}
-            </div>
-          }
-          master={<MasterBody queries={props.queries}>{props.master}</MasterBody>}
-          detail={
-            props.detail ?? (
-              <div className="lf-card__body">
-                <EmptyState
-                  data-testid="org-pick"
-                  title={t('org.common.pick')}
-                  text={t('org.common.pickText')}
-                />
-              </div>
-            )
-          }
-        />
-      </div>
+      <ListDetail
+        kind="tree"
+        screen={props.screen}
+        detailOpen={props.detail !== null}
+        onClose={props.onClosePanel}
+        escapeCloses={props.escapeCloses}
+        listLabel={props.title}
+        tools={
+          <div className="lf-btn-row lf-btn-row--between" data-testid="org-retired-row">
+            <Checkbox label={t('org.common.showRetired')} checked={props.showRetired} onChange={props.onShowRetired} />
+            {loaded && (
+              <span className="caption lf-faint" data-testid="org-count">
+                {intl.formatMessage({ id: 'org.common.count' }, { count: props.count })}
+              </span>
+            )}
+          </div>
+        }
+        list={<MasterBody queries={props.queries}>{props.master}</MasterBody>}
+        detail={props.detail ?? <></>}
+        empty={
+          <div className="lf-card__body">
+            <EmptyState
+              data-testid="org-pick"
+              title={t('org.common.pick')}
+              text={t('org.common.pickText')}
+            />
+          </div>
+        }
+      />
       {props.children}
     </>
   )

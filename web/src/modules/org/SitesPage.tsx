@@ -127,6 +127,7 @@ function SitesInner() {
       title={t('org.sites.title')}
       lede={t('org.sites.lede')}
       createLabel={createLabel}
+      screen="org.sites"
       canWrite={canWrite}
       onCreate={() => openPanel({ kind: 'new' })}
       queries={[rows, companies]}
