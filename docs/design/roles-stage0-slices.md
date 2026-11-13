@@ -1,7 +1,7 @@
 # Roles, stage 0: replace every role-name decision site by a permission (slice list)
 
 Task T-1849 (PM D-131 (i)). Companion of decision record `docs/migration/decisions/0088-permission-only-access-tenant-defined-roles.md`
-(proposed). Builds on `docs/design/roles-architect-verdict.md` (T-1848, sections E3, E6) and `docs/design/tenant-defined-roles.md`
+(ACCEPTED by the owner, D-131, corrected by D-132, 2026-11-13). Builds on `docs/design/roles-architect-verdict.md` (T-1848, sections E3, E6) and `docs/design/tenant-defined-roles.md`
 (T-1846). Docs only: this file builds nothing; each slice below is a later task with its own requirement, design, security review
 and PR.
 
@@ -13,7 +13,7 @@ Legend: **V** = verified by reading the file on this branch (origin/main `687f42
 Every site that decides access by a role **name** is rewritten to ask for a **permission**. The nine roles stay compiled in
 (`@roles`, `authorization.ex:474`), and each new permission is compiled into exactly the roles that pass the site today (with an
 explicit `false` clause where an admin catch-all would add a holder, S0-2 to S0-4), so every access answer stays the same; S0-5 is
-the exception and is BLOCKED. No table, no migration, no flag, no data. Stage 0 does not need decision 0088 to be confirmed: it
+the exception and is BLOCKED. No table, no migration, no flag, no data. Stage 0 is the same in the open and the corporate build: it
 does not open the role set; it only removes names from decisions.
 
 Rules for every slice:
@@ -43,7 +43,8 @@ included (both catch-alls, section 1); an explicit `false` clause is named where
 
 Order reason: S0-1 is exact, small and proven by existing 0081 D4 tests (the verdict's choice of first step, T-1848 E6). S0-2 is
 exact only in form (b) (two explicit `false` clauses) and touches five routes and an SQL count. S0-3 and S0-4 share one ruling and
-are written in form (b) until it is given. S0-5 waits for its ruling.
+are written in form (b) until it is given. S0-5 waits for its ruling. (T-1851: the S0-5 ruling is on main,
+`docs/design/storekeeper-task-visibility-ruling.md`, T-1850.)
 
 **Where I differ from T-1848.**
 1. S0-1: the verdict splits `EntitiesRecordsImport` and takes it away from STOREKEEPER, which changes the STOREKEEPER row of the golden
@@ -72,22 +73,25 @@ are written in form (b) until it is given. S0-5 waits for its ruling.
 | `web/src/auth/access/access.ts:24` `isCandidate` | display | 5 |
 | Routing comparisons in `tasks.ex` (`ref in scope.role_names`) | addressing (0088 D5) | stays |
 
-## 4. Stages 1 to 6 (outline only; each needs the owner's confirmation of 0088 first)
+## 4. Stages 1 to 6 (outline only; 0088 is accepted; stage 3 is the closed role editor package, D-132)
+
+Stages 1, 2, 4, 5 and 6 are built in the open repository; they give the open build its read-only template rows (0088 D10). Stage 3
+is built in the closed package behind the role editor socket (`docs/design/open-core-sockets.md` section 1.3).
 
 | Stage | Content | Proof | Rollback |
 |---|---|---|---|
 | 1 | Role tables in each tenant schema, backfill equal to today's compiled answers, shadow comparison, flag default off | equality over every tenant fixture, every role, every permission | flag off |
 | 2 | The decision reads the rows; `protected`, `grants`, `assignable`, `read_only` flags; last-admin guard on the protected row | same equality, live | flag off |
-| 3 | Role management routes (create, copy template, edit, retire), escalation rules, audit; owner limits (O6) | escalation, last-admin, INV-5 and INV-10 tests | routes off by flag |
-| 4 | Tokens, identity-provider claims, solution packs, `GET /me/access`, UAT schema check on tenant keys; retire the STOREKEEPER overlay route | token and claim tests | revert |
-| 5 | Web roles page and lists, `isCandidate`, UAT roster actor with a custom role | UAT run | revert |
+| 3 | **Closed package (D-132).** Role editor routes and screens (create, copy template, edit, retire), escalation rules, audit; limits (O6: a number is needed before this stage) | escalation, last-admin, INV-5 and INV-10 tests | routes off by flag |
+| 4 | Tokens, identity-provider claims, solution packs, `GET /me/access`, UAT schema check on tenant keys; retire the STOREKEEPER overlay route (corporate build only; the open build keeps the overlay) | token and claim tests | revert |
+| 5 | Web roles page (read-only in the open build) and lists, `isCandidate`; UAT roster actor with a custom role (corporate build only) | UAT run | revert |
 | 6 | Remove the compiled role lists (templates stay in code as data) | golden over templates only | restore from the pre-deploy backup, so last and alone |
 
 ## 5. Not decided here
 
 The security rulings for S0-2 (whether a scoped TENANT_ADMIN grant may count for task work; until then form (b)), S0-3/S0-4 (platform
-admin in the platform tenant) and S0-5 (storekeeper task list); final permission names;
-owner choices O1 to O6 and OP-A of decision 0088.
+admin in the platform tenant); final permission names; OP-A of decision 0088 (owner, before the closed editor). S0-5 is ruled
+(T-1850). Owner choices O1 to O6 are decided (0088, section "Owner decisions").
 
 ## 6. Commands behind the facts (origin/main `687f4242b`)
 
