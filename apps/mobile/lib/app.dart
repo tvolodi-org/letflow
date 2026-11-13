@@ -168,6 +168,13 @@ GoRouter _buildRouter(BootstrapController controller) {
       // AC3: a module route whose module is absent from installed_modules
       // redirects to /home — the route exists in the table (all module
       // routes are always registered) but the module is not available.
+      //
+      // In `resumedOffline`, `installedModules` reflects the last verified
+      // set from the previous successful bootstrap (persisted in controller
+      // state across `attemptSessionResume`). A module the user had on their
+      // last sign-in is reachable offline; one absent from that list is
+      // refused. An empty list means no modules were previously installed or
+      // the device is fresh — refusing is the correct fallback.
       if (reachable) {
         final moduleId = moduleIdForLocation(
           state.matchedLocation,

@@ -805,6 +805,15 @@ class BootstrapController extends ChangeNotifier {
   BootstrapUiState _state = BootstrapUiState.unauthenticated;
   BootstrapUiState get state => _state;
 
+  /// Test-only seam: sets the UI state directly and fires [notifyListeners],
+  /// so widget tests can place the controller in any phase without running
+  /// the full HTTP bootstrap sequence. Never call from production code.
+  @visibleForTesting
+  void forceStateForTesting(BootstrapUiState newState) {
+    _state = newState;
+    notifyListeners();
+  }
+
   Future<void> beginBootstrap(String slug) async {
     revocationFailed.value = false;
     rememberWebSignInSlug(slug);
