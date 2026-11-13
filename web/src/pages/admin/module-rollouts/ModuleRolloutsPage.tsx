@@ -192,7 +192,7 @@ function Detail({
             <span data-testid="module-outcome-outside-window-note">{t(intl, 'outsideWindow.note')}</span>
           </Banner>
         )}
-        <h3>{t(intl, 'detail.heading')}</h3>
+        <h3 className="lf-form__title">{t(intl, 'detail.heading')}</h3>
         <OutcomeTable outcomes={outcomes} names={names} />
       </div>
     </div>
@@ -256,7 +256,7 @@ function ModuleRolloutsBody() {
         screen="platform.module-rollouts"
         listLabel={t(intl, 'list.pane')}
         listDefault={50}
-        listHeader={<h2>{t(intl, 'list.heading')}</h2>}
+        listHeader={<h2 className="lf-reg__sectitle">{t(intl, 'list.heading')}</h2>}
         list={
           <div data-testid="module-rollouts-list">
             <DataTable

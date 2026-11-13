@@ -72,12 +72,20 @@ const taskAccess: AccessState = {
   info: { roles: [], platform_tenant: false, user_id: ME, permissions: ['TasksRead', 'TasksComplete'] },
 }
 
-const rolloutRow = { rollout: { id: 'r-run', module_id: 'assets', to_version: '1.4.0', status: 'running', halt_after: 3, consecutive_failures: 0, started_at: '2026-11-10T09:00:00Z', completed_at: null, halted_at: null }, counts: { succeeded: 1, pending: 1 } }
-const rolloutDetail = { rollout: rolloutRow.rollout, outcomes: [{ tenant_id: 'ten-1', status: 'succeeded', error_code: null, plan_hash: null, attempted_at: '2026-11-10T09:05:00Z', completed_at: '2026-11-10T09:06:00Z' }] }
+const rolloutRowRunning = { rollout: { id: 'r-run', module_id: 'assets', to_version: '1.4.0', status: 'running', halt_after: 3, consecutive_failures: 0, started_at: '2026-11-10T09:00:00Z', completed_at: null, halted_at: null }, counts: { succeeded: 1, pending: 1 } }
+const rolloutRowHalted = { rollout: { id: 'r-halt', module_id: 'exam', to_version: '2.1.0', status: 'halted', halt_after: 2, consecutive_failures: 2, started_at: '2026-11-10T08:00:00Z', completed_at: null, halted_at: '2026-11-10T08:30:00Z' }, counts: { succeeded: 3, pending: 7 } }
+const rolloutDetailRunning = { rollout: rolloutRowRunning.rollout, outcomes: [{ tenant_id: 'ten-1', status: 'succeeded', error_code: null, plan_hash: null, attempted_at: '2026-11-10T09:05:00Z', completed_at: '2026-11-10T09:06:00Z' }] }
+const rolloutDetailHalted = { rollout: rolloutRowHalted.rollout, outcomes: [{ tenant_id: 'ten-1', status: 'failed', error_code: 'TIMEOUT', plan_hash: null, attempted_at: '2026-11-10T08:25:00Z', completed_at: '2026-11-10T08:30:00Z' }] }
 
 const rolloutRoutes: FixtureRoute[] = [
-  { match: (p, m) => m === 'GET' && p === '/api/v1/platform-module-rollouts', reply: (s) => ({ status: 200, body: { rollouts: s === 'empty' ? [] : [rolloutRow] } }) },
-  { match: (p, m) => m === 'GET' && p.startsWith('/api/v1/platform-module-rollouts/'), reply: () => ({ status: 200, body: rolloutDetail }) },
+  { match: (p, m) => m === 'GET' && p === '/api/v1/platform-module-rollouts', reply: (s) => ({ status: 200, body: { rollouts: s === 'empty' ? [] : [rolloutRowRunning] } }) },
+  { match: (p, m) => m === 'GET' && p === '/api/v1/platform-module-rollouts/r-run', reply: () => ({ status: 200, body: rolloutDetailRunning }) },
+  { match: (p, m) => m === 'GET' && p === '/api/v1/tenants', reply: () => ({ status: 200, body: { items: [{ tenant_id: 'ten-1', slug: 'logistics-co', display_name: 'Acme Logistics' }], next_cursor: null } }) },
+]
+const rolloutRoutesHalted: FixtureRoute[] = [
+  { match: (p, m) => m === 'GET' && p === '/api/v1/platform-module-rollouts', reply: () => ({ status: 200, body: { rollouts: [rolloutRowHalted] } }) },
+  { match: (p, m) => m === 'GET' && p === '/api/v1/platform-module-rollouts/r-halt', reply: () => ({ status: 200, body: rolloutDetailHalted }) },
+  { match: (p, m) => m === 'POST' && p === '/api/v1/platform-module-rollouts/r-halt/resume', reply: () => ({ status: 200, body: {} }) },
   { match: (p, m) => m === 'GET' && p === '/api/v1/tenants', reply: () => ({ status: 200, body: { items: [{ tenant_id: 'ten-1', slug: 'logistics-co', display_name: 'Acme Logistics' }], next_cursor: null } }) },
 ]
 const rolloutAccess: AccessState = { status: 'ready', info: { roles: [], platform_tenant: true, permissions: ['ModuleRolloutsManage', 'TenantsManage'] } }
@@ -85,13 +93,13 @@ const rolloutAccess: AccessState = { status: 'ready', info: { roles: [], platfor
 export function listDetailSlice5Screens(taskInboxRoutes: FixtureRoute[], moduleRolloutsRoutes: FixtureRoute[]): HarnessScreen[] {
   return [
     {
-      name: 'tasks-inbox-shell',
+      name: 'tasks-inbox',
       routes: [...makeRoutes(null), ...taskInboxRoutes],
       initialPath: '/tasks',
       render: inShell(taskAccess, <TaskInboxPage />),
     },
     {
-      name: 'tasks-inbox-shell-open',
+      name: 'tasks-inbox-post',
       routes: [...makeRoutes(null), ...taskInboxRoutes],
       initialPath: '/tasks',
       render: inShell(
@@ -103,15 +111,15 @@ export function listDetailSlice5Screens(taskInboxRoutes: FixtureRoute[], moduleR
       ),
     },
     {
-      name: 'module-rollouts-shell',
+      name: 'module-rollouts',
       routes: [...makeRoutes(null), ...moduleRolloutsRoutes],
       initialPath: '/admin/module-rollouts',
       render: inShell(rolloutAccess, <ModuleRolloutsPage />),
     },
     {
-      name: 'module-rollouts-shell-open',
-      routes: [...makeRoutes(null), ...moduleRolloutsRoutes],
-      initialPath: '/admin/module-rollouts?rollout=r-run',
+      name: 'module-rollouts-halted',
+      routes: [...makeRoutes(null), ...rolloutRoutesHalted],
+      initialPath: '/admin/module-rollouts?rollout=r-halt',
       render: inShell(rolloutAccess, <ModuleRolloutsPage />),
     },
   ]
