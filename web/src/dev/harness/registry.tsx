@@ -23,6 +23,7 @@ import { userResetScreens } from './fixtures/userReset'
 import { userSignInScreens } from './fixtures/userSignIn'
 import { notificationBellScreens } from './fixtures/notificationBell'
 import { emptyErrorStates } from './fixtures/emptyErrorStates'
+import { reportsIndexScreens } from './fixtures/reportsIndex'
 import { definitionNameScreens } from './fixtures/definitionNames'
 import { definitionNameAdminScreens } from './fixtures/definitionNamesAdmin'
 import { codesLabelScreens } from './fixtures/codesLabels'
@@ -289,6 +290,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...userSignInScreens,
     ...notificationBellScreens,
     ...emptyErrorStates,
+    ...reportsIndexScreens,
     ...definitionNameScreens,
     ...processDiagramScreens,
     ...processDesignerEditScreens,

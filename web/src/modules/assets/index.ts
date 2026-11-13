@@ -22,6 +22,10 @@ export const assetsModuleDefinition: ModuleDefinition = {
   id: 'assets',
   depends_on: [],
   routeObjects: assetsRouteObjects,
+  reportGroup: {
+    entityTypePrefix: 'assets_',
+    labels: { en: assetsMessages.en['assets.reports.group'], ru: assetsMessages.ru['assets.reports.group'], kk: assetsMessages.kk['assets.reports.group'] },
+  },
   importTypes: [
     { entityType: 'assets_card', labels: importLabels('assets_card'), permission: ASSETS_CARD_WRITE },
     { entityType: 'assets_opening_line', labels: importLabels('assets_opening_line'), permission: ASSETS_POST },

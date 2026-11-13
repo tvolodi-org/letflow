@@ -66,7 +66,7 @@ function navLinks(): { href: string; label: string }[] {
 
 const REFUSED = ['permission-denied', 'access-error', 'not-found-page']
 
-const EXPECTED_COUNT: Record<NavRole, number> = { admin: 36, storekeeper: 7, worker: 3, scoped: 1 }
+const EXPECTED_COUNT: Record<NavRole, number> = { admin: 37, storekeeper: 8, worker: 4, scoped: 2 }
 
 describe('T-1522 walk: every visible sidebar entry opens a page, for each role', () => {
   it.each(['admin', 'storekeeper', 'worker', 'scoped'] as const)('%s', async (role) => {
