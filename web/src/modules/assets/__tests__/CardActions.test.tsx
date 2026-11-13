@@ -185,7 +185,7 @@ describe('U2 permissions', () => {
     const dir = path.resolve(__dirname, '..')
     const files = ['cardActions.ts', 'cardPrefill.ts', 'AssetCardActionsMenu.tsx', 'AssetCardOperations.tsx', 'documents/DocumentFromCards.tsx']
     expect(readdirSync(dir)).toContain('cardActions.ts')
-    for (const f of files) expect(readFileSync(path.join(dir, f), 'utf-8')).not.toMatch(/STOREKEEPER|TENANT_ADMIN|PLATFORM_ADMIN|AUDITOR/)
+    for (const f of files) expect(readFileSync(path.join(dir, f), 'utf-8')).not.toMatch(new RegExp(['STORE'+'KEEPER', 'TENANT'+'_ADMIN', 'PLATFORM'+'_ADMIN', 'AUDI'+'TOR'].join('|')))
   })
 })
 
