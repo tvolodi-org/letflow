@@ -406,6 +406,7 @@ defmodule Letflow.Api.Authorization do
           | :TenantSecurityManage
           | :TasksReassignRouted
           | :TasksReadAll
+          | :CurrenciesManage
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -599,7 +600,9 @@ defmodule Letflow.Api.Authorization do
     # Roles stage 0 S0-4 (decision 0088, docs/design/roles-stage0-slices.md): take a routed task away. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN, ruling 2).
     :TasksReassignRouted,
     # Roles stage 0 S0-5 (decision 0088, docs/design/storekeeper-task-visibility-ruling.md): read every task of the tenant. Tenant scope; PLATFORM_ADMIN, TENANT_ADMIN (catch-alls), PROCESS_DESIGNER, PROCESS_OPERATOR, TENANT_AUDITOR.
-    :TasksReadAll
+    :TasksReadAll,
+    # Currency directory C2 (REQ-824, GH #4393, D-134): switch a currency on or off, make it the tenant currency. Tenant scope; PLATFORM_ADMIN and TENANT_ADMIN through the derived rule, no role grants.
+    :CurrenciesManage
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -622,7 +625,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All sixty-two core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All sixty-three core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -664,7 +667,8 @@ defmodule Letflow.Api.Authorization do
   (the two admin-only switches, TENANT_ADMIN through the derived rule; explicit false clause for
   PLATFORM_ADMIN, ruling 2), plus roles stage 0 S0-4's `:TasksReassignRouted` (taking a routed task
   away, TENANT_ADMIN through the derived rule; explicit false clause for PLATFORM_ADMIN, ruling 2), plus roles stage 0 S0-5's `:TasksReadAll`
-  (read every task of the tenant; the five roles that saw all tasks before).
+  (read every task of the tenant; the five roles that saw all tasks before), plus REQ-824's `:CurrenciesManage`
+  (the tenant currency switches under `/currencies`, TENANT_ADMIN through the derived rule).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1409,6 +1413,9 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/labels"), do: :MyAccessRead
   def endpoint_policy_key("PUT", "/labels/:message_id"), do: :LabelsManage
   def endpoint_policy_key("DELETE", "/labels/:message_id"), do: :LabelsManage
+  # REQ-824 (GH #4393): the currency directory. The read reuses the role-agnostic :MyAccessRead.
+  def endpoint_policy_key("GET", "/currencies"), do: :MyAccessRead
+  def endpoint_policy_key("PUT", "/currencies/:code"), do: :CurrenciesManage
 
   # REQ-563 (GH #3199): tenant notification templates.
   def endpoint_policy_key("GET", "/notification-templates"), do: :NotificationTemplatesManage
@@ -1755,6 +1762,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:DocumentsRetentionManage), do: :DocumentsRetentionManage
   def required_permission(:IntegrationMappingsManage), do: :IntegrationMappingsManage
   def required_permission(:LabelsManage), do: :LabelsManage
+  def required_permission(:CurrenciesManage), do: :CurrenciesManage
   def required_permission(:NotificationTemplatesManage), do: :NotificationTemplatesManage
   def required_permission(:NumberSequencesManage), do: :NumberSequencesManage
   def required_permission(:ScheduledJobsManage), do: :ScheduledJobsManage

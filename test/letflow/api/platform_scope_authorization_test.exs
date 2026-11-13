@@ -88,7 +88,8 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :TasksWorkInScope,
     :TenantSecurityManage,
     :TasksReassignRouted,
-    :TasksReadAll
+    :TasksReadAll,
+    :CurrenciesManage
   ]
 
   @new_permissions [

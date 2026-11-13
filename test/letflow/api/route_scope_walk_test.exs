@@ -103,6 +103,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
              |> Enum.map(&"#{&1.method} #{&1.path}")
              |> Enum.sort() ==
                [
+                 "GET /currencies",
                  "GET /definitions",
                  "GET /definitions/:id",
                  "GET /definitions/active/:name",
@@ -330,6 +331,9 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"GET", "/", :self_service},
                  {"PUT", "/:message_id", :tenant_wide},
                  {"DELETE", "/:message_id", :tenant_wide},
+                 # REQ-824: the Currencies router (router-local paths): the directory read and the switch write
+                 {"GET", "/", :self_service},
+                 {"PUT", "/:code", :tenant_wide},
                  # REQ-563: the NotificationTemplates router: list, put, delete and preview, all declared
                  {"GET", "/", :tenant_wide},
                  {"PUT", "/:template_key", :tenant_wide},
@@ -401,6 +405,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
 
       assert scopes |> Enum.map(fn {router, _entry} -> router end) |> Enum.uniq() |> Enum.sort() ==
                Enum.sort([
+                 Letflow.Routers.Currencies,
                  Letflow.Routers.Definitions,
                  Letflow.Routers.Documents,
                  Letflow.Routers.Entities,

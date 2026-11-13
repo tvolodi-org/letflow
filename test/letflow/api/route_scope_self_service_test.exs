@@ -348,6 +348,12 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       assert Enum.sort_by(RouteScope.self_service_routes(), & &1.route) ==
                [
                  %{
+                   route: "GET /currencies",
+                   key: :MyAccessRead,
+                   class: :self_service,
+                   ruling: "SEC-824-currencies"
+                 },
+                 %{
                    route: "GET /definitions",
                    key: :DefinitionsRead,
                    class: :self_service,

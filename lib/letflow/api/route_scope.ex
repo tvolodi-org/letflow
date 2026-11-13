@@ -152,17 +152,17 @@ defmodule Letflow.Api.RouteScope do
   # change what `self_service_routes/0` returns. Rules the walk applies to the list (a pending
   # ruling must not stand on a route that is not `:tenant_wide`, the REQ-519 AC 9 blocker) are
   # still the walk's job; this module refuses only what the walk cannot state as a shape.
-  # The guard checks the path shape only: a route must sit under /me, /help, /definitions or /labels
+  # The guard checks the path shape only: a route must sit under /me, /help, /definitions, /labels or /currencies
   # (path-segment match); it does not rule on whether a route is safe as :self_service.
   defmodule SelfServiceEntry do
     @moduledoc false
 
     @fields [:class, :key, :route, :ruling]
     @methods ~w(GET POST PUT PATCH DELETE)
-    @prefixes ["/me", "/help", "/definitions", "/labels"]
+    @prefixes ["/me", "/help", "/definitions", "/labels", "/currencies"]
 
     @typedoc """
-    One ruled `/me`, `/help`, `/definitions` or `/labels` route: `route` is `"METHOD FULL_PATH"`. The guard
+    One ruled `/me`, `/help`, `/definitions`, `/labels` or `/currencies` route: `route` is `"METHOD FULL_PATH"`. The guard
     checks the path shape only.
     """
     @type t :: %{
@@ -211,7 +211,8 @@ defmodule Letflow.Api.RouteScope do
               {:error, "unknown method in route #{inspect(route)}"}
 
             not Enum.any?(@prefixes, &(path == &1 or String.starts_with?(path, &1 <> "/"))) ->
-              {:error, "route #{inspect(route)} is not under /me, /help, /definitions or /labels"}
+              {:error,
+               "route #{inspect(route)} is not under /me, /help, /definitions, /labels or /currencies"}
 
             true ->
               :ok
@@ -330,6 +331,12 @@ defmodule Letflow.Api.RouteScope do
       key: :MyAccessRead,
       class: :self_service,
       ruling: "SEC-551-labels"
+    },
+    %{
+      route: "GET /currencies",
+      key: :MyAccessRead,
+      class: :self_service,
+      ruling: "SEC-824-currencies"
     }
   ]
 
