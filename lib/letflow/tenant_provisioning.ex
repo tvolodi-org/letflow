@@ -987,7 +987,11 @@ defmodule Letflow.TenantProvisioning do
      "20261106200001_raise_posting_leg_cap.exs"},
     # T-1561: user_notifications table (in-app bell list; kind list closed in code, no CHECK).
     {20_261_107_100_001, Letflow.Repo.Migrations.CreateUserNotifications,
-     "20261107100001_create_user_notifications.exs"}
+     "20261107100001_create_user_notifications.exs"},
+    # REQ-823 / GH #4394: tenant_currencies (switches over the platform currency list). Empty for
+    # existing tenants; no row altered; no tenant row reads KZT.
+    {20_261_113_100_001, Letflow.Repo.Migrations.CreateTenantCurrencies,
+     "20261113100001_create_tenant_currencies.exs"}
   ]
 
   @doc """
