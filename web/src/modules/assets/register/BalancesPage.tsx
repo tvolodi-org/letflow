@@ -9,7 +9,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { FilterBar } from '@/components/ui/FilterBar'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { HelpLink } from '@/components/help/HelpLink'
+import { AssetsHelpLink } from '@/modules/assets/help/AssetsHelpLink'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { DateField } from '@/components/ui/DateField'
@@ -195,7 +195,7 @@ function BalancesInner({ initialSelectedId = null, initialFilters, initialAsOf =
       {anyPickerTruncated(assets, locations, units, people) && <TruncatedNotice messageId="assets.pickers.truncated" count={MAX_ROWS} />}
       <PageHeader eyebrow={t('assets.reg.eyebrow')} title={t('assets.balances.title')} lede={t('assets.balances.lede')} actions={
           <>
-            <HelpLink to="/admin/assets/help/balances" label={t('assets.help.link')} />
+            <AssetsHelpLink topic="balances" />
             <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
               {t('assets.balances.export')}
             </Button>

@@ -10,7 +10,7 @@ import { NotFoundPage } from '@/pages/NotFoundPage'
 import { coreHelpMessages } from './coreHelpMessages'
 import { CORE_HELP_ACCESS, CORE_HELP_BACK, isCoreHelpTopic, type CoreHelpTopic } from './coreHelpTopics'
 
-function Topic({ topic }: { topic: CoreHelpTopic }) {
+function Topic({ topic, withBack }: { topic: CoreHelpTopic; withBack: boolean }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { permission, platformOnly } = CORE_HELP_ACCESS[topic]
@@ -18,7 +18,7 @@ function Topic({ topic }: { topic: CoreHelpTopic }) {
     <HelpTopicView
       text={readTopic('core', topic, t)}
       headings={{ purpose: t('core.help.h.purpose'), tasks: t('core.help.h.tasks'), refusals: t('core.help.h.refusals') }}
-      back={{ to: CORE_HELP_BACK[topic], label: t('core.help.back') }}
+      back={withBack ? { to: CORE_HELP_BACK[topic], label: t('core.help.back') } : undefined}
     />
   )
   return permission ? (
@@ -30,12 +30,23 @@ function Topic({ topic }: { topic: CoreHelpTopic }) {
   )
 }
 
+/** The topic text without the route chrome, for the Help side panel (T-1872). Carries its own IntlProvider: some
+ *  core host screens have none. */
+export function CoreHelpBody({ topic }: { topic: CoreHelpTopic }) {
+  const locale = useUiLocale()
+  return (
+    <IntlProvider locale={locale} defaultLocale="en" messages={coreHelpMessages[locale]}>
+      <Topic topic={topic} withBack={false} />
+    </IntlProvider>
+  )
+}
+
 export default function CoreHelpPage() {
   const { topic } = useParams()
   const locale = useUiLocale()
   return (
     <IntlProvider locale={locale} defaultLocale="en" messages={coreHelpMessages[locale]}>
-      {isCoreHelpTopic(topic) ? <Topic topic={topic} /> : <NotFoundPage />}
+      {isCoreHelpTopic(topic) ? <Topic topic={topic} withBack /> : <NotFoundPage />}
     </IntlProvider>
   )
 }

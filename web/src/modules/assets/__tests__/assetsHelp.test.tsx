@@ -2,11 +2,11 @@
 /** H1–H7 (assets) — T-1560: the static help pages: catalogue completeness, text quality, links, route, permission. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { cleanup, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { helpIds } from '@/components/help/helpTopicText'
 import { ASSETS_UI_LOCALES, assetsMessages } from '../assetsMessages'
-import { ASSETS_HELP_TOPICS, assetsHelpPath } from '../help/assetsHelpTopics'
+import { ASSETS_HELP_TOPICS } from '../help/assetsHelpTopics'
 import type { AccessState } from '@/auth/access/types'
 import { renderAssets, withoutAtom } from './assetsTestKit'
 
@@ -39,11 +39,11 @@ describe('H1 H2 catalogue', () => {
           if (l !== 'en') expect(assetsMessages[l][id], `${l} ${id}`).not.toBe(assetsMessages.en[id])
         }
       }
-      for (const id of ['link', 'back', 'h.purpose', 'h.tasks', 'h.refusals']) expect(assetsMessages[l][`assets.help.${id}`], `${l} ${id}`).toBeTruthy()
+      for (const id of ['link', 'close', 'back', 'h.purpose', 'h.tasks', 'h.refusals']) expect(assetsMessages[l][`assets.help.${id}`], `${l} ${id}`).toBeTruthy()
     }
   })
   it('H2 the topic list equals the topics present in the catalogue', () => {
-    const present = new Set(helpKeys('en').map((k) => k.split('.')[2]).filter((p) => p !== 'link' && p !== 'back' && p !== 'h'))
+    const present = new Set(helpKeys('en').map((k) => k.split('.')[2]).filter((p) => p !== 'link' && p !== 'close' && p !== 'back' && p !== 'h'))
     expect([...present].sort()).toEqual([...ASSETS_HELP_TOPICS].sort())
   })
 })
@@ -69,11 +69,18 @@ describe('H4 links', () => {
     ['/admin/assets/balances', 'balances'],
     ['/admin/assets/movements', 'movements'],
   ]
-  it.each(SCREENS)('%s shows a Help link to its topic', async (path, topic) => {
+  it.each(SCREENS)('%s shows a Help button that opens its topic in a side panel, not a route', async (path, topic) => {
     renderAssets(path, ALL)
     const link = await screen.findByTestId('help-link')
-    expect(link).toHaveAttribute('href', assetsHelpPath(topic as never))
+    expect(link).not.toHaveAttribute('href')
     expect(link).toHaveTextContent('Help')
+    fireEvent.click(link)
+    expect(screen.getByTestId('help-side-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('help-side-title')).toHaveTextContent(assetsMessages.en[`assets.help.${topic}.title`])
+    expect(screen.getByTestId('help-purpose-text')).toHaveTextContent(assetsMessages.en[`assets.help.${topic}.purpose`])
+    expect(screen.queryByTestId('help-back')).toBeNull()
+    fireEvent.click(screen.getByTestId('help-side-close'))
+    expect(screen.queryByTestId('help-side-panel')).toBeNull()
   })
 })
 

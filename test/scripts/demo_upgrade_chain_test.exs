@@ -240,25 +240,25 @@ defmodule Letflow.Scripts.DemoUpgradeChainTest do
   end
 
   @tag timeout: 600_000
-  test "C3 a module with no upgrade path (org aged by version) is pending, exit 3, nothing applied",
+  test "C3 a module with no upgrade path (org aged below its window) is pending, exit 3, nothing applied",
        c do
     seeded!(c)
 
     {1, _} =
       Repo.update_all(
         from(r in TenantModule, where: r.module_id == "org"),
-        [set: [version: "0.2.0", manifest_hash: String.duplicate("5", 64)]],
+        [set: [version: "0.0.5", manifest_hash: String.duplicate("5", 64)]],
         prefix: c.schema
       )
 
     before = counts(c.schema)
     {out, code} = chain(c)
     assert code == 3, out
-    assert out =~ ~r/^pending #{c.slug}\/org: 0\.2\.0 -> .*path available: false/m, out
+    assert out =~ ~r/^pending #{c.slug}\/org: 0\.0\.5 -> .*path available: false/m, out
     assert out =~ ~r/^ok      #{c.slug}\/stock: /m, out
     refute out =~ "DIFF"
     refute out =~ "applied"
-    assert Repo.get_by!(TenantModule, [module_id: "org"], prefix: c.schema).version == "0.2.0"
+    assert Repo.get_by!(TenantModule, [module_id: "org"], prefix: c.schema).version == "0.0.5"
     assert counts(c.schema) == before
   end
 

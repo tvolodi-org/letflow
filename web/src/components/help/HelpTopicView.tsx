@@ -7,13 +7,14 @@ import type { HelpTopicText } from './helpTopicText'
 export interface HelpTopicViewProps {
   text: HelpTopicText
   headings: { purpose: string; tasks: string; refusals: string }
-  back: { to: string; label: string }
+  /** Route view: header with a back link. Absent when the view sits in the Help side panel (its own title and Close). */
+  back?: { to: string; label: string }
 }
 
 export function HelpTopicView({ text, headings, back }: HelpTopicViewProps) {
   return (
     <div className="lf-help" data-testid="help-topic">
-      <PageHeader title={text.title} actions={<Link to={back.to} className="lf-btn lf-btn--ghost" data-testid="help-back">{back.label}</Link>} />
+      {back && <PageHeader title={text.title} actions={<Link to={back.to} className="lf-btn lf-btn--ghost" data-testid="help-back">{back.label}</Link>} />}
       <section aria-labelledby="help-purpose">
         <h2 id="help-purpose">{headings.purpose}</h2>
         <p data-testid="help-purpose-text">{text.purpose}</p>

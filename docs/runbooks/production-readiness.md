@@ -25,6 +25,13 @@ Each customer company signs in through its own tenant and realm. Each statement 
 5. D-019 item 7 settles the Keycloak admin rights of the first administrator for demo tenants only (no Keycloak admin
    rights). Manage-users rights for the first administrator of a production tenant are decided later, so this page
    states no rule for a production tenant; see "Open owner questions".
+6. Gate F pre-go-live CHECK (not an owner question): re-probe the production `bpm-default` realm for the nine realm roles
+   (AGENT_RUNNER, CANDIDATE, PLATFORM_ADMIN, PROCESS_DESIGNER, PROCESS_OPERATOR, STOREKEEPER, TASK_WORKER, TENANT_ADMIN,
+   TENANT_AUDITOR). STOREKEEPER, TENANT_ADMIN and TENANT_AUDITOR were missing on 2026-10-14; a fix is infra's and only on
+   the owner's production go. Nothing is touched on production by this page. Run the same check again when the roles-as-data
+   stages 2 and 4 land (`docs/migration/decisions/0088-permission-only-access-tenant-defined-roles.md`,
+   `docs/design/roles-stage0-slices.md`), because the IdP claim mapping changes then. The file check is
+   `scripts/check_realm_roles.py`.
 
 ## What a backup must hold
 
