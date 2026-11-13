@@ -3,7 +3,7 @@ defmodule Letflow.Api.TenantSecurityManageTest do
   Roles stage 0, slice S0-3 (decision 0088, `docs/design/roles-stage0-slices.md`): the permission
   `:TenantSecurityManage` replaces the TENANT_ADMIN role-name check in `require_interactive_tenant_admin/1`.
 
-    * S1 the atom: last core permission, tenant scope, resolves to itself, no route gates on it;
+    * S1 the atom: second-to-last core permission, tenant scope, resolves to itself, no route gates on it;
     * S2 holders are exactly TENANT_ADMIN; PLATFORM_ADMIN is refused by the explicit false clause,
       and a tenant overlay cannot add it (non-assignable);
     * S3 non-assignable: not in `grantable/0`, the overlay cannot add it, Catalog cannot grant it;
@@ -25,8 +25,8 @@ defmodule Letflow.Api.TenantSecurityManageTest do
   @perm :TenantSecurityManage
   @golden "priv/permission_matrix/effective.golden"
 
-  test "S1 last core permission, tenant scope, resolves to itself, no route gates on it" do
-    assert List.last(Authorization.core_permissions()) == @perm
+  test "S1 second-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
+    assert Authorization.core_permissions() |> Enum.take(-2) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 
@@ -93,7 +93,8 @@ defmodule Letflow.Api.TenantSecurityManageTest do
 
   test "S4 the false clause is narrow: no other permission changes for PLATFORM_ADMIN or TENANT_ADMIN" do
     # PLATFORM_ADMIN still holds everything except TasksWorkInScope and TenantSecurityManage
-    for p <- Authorization.permissions() -- [:TasksWorkInScope, @perm] do
+    # Roles stage 0 S0-4: TasksReassignRouted is also TENANT_ADMIN's alone.
+    for p <- Authorization.permissions() -- [:TasksWorkInScope, @perm, :TasksReassignRouted] do
       assert Authorization.role_allows?(:PLATFORM_ADMIN, p), inspect(p)
     end
 

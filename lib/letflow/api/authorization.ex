@@ -146,6 +146,11 @@ defmodule Letflow.Api.Authorization do
     clause keeps the platform tenant's PLATFORM_ADMIN out (ruling 2 of
     `docs/design/roles-stage0-security-rulings.md`); non-assignable (0088 D4): not in `grantable/0`,
     modules cannot grant core permissions.
+  * `:TasksReassignRouted` (roles stage 0 S0-4) — **not** route-level. Read in-handler by
+    `Letflow.Tasks.authorize_reassign/3` (`POST /tasks/:id/reassign` of a ROLE- or GROUP-routed task).
+    Held by TENANT_ADMIN only; an explicit `false` clause keeps the platform tenant's PLATFORM_ADMIN
+    out (ruling 2); non-assignable (0088 D4): not in `grantable/0`, modules cannot grant core
+    permissions.
 
   Per design §5, this requirement deliberately adds **no** new
   `role_allows?/2` clause for `PROCESS_DESIGNER`, `PROCESS_OPERATOR`, or
@@ -393,6 +398,7 @@ defmodule Letflow.Api.Authorization do
           | :EntitiesRecordsImportAnyType
           | :TasksWorkInScope
           | :TenantSecurityManage
+          | :TasksReassignRouted
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -582,7 +588,9 @@ defmodule Letflow.Api.Authorization do
     # Roles stage 0 S0-2 (decision 0088, docs/design/roles-stage0-slices.md): scoped task work (F1). Tenant scope; TASK_WORKER only (explicit false clauses for PLATFORM_ADMIN and TENANT_ADMIN).
     :TasksWorkInScope,
     # Roles stage 0 S0-3 (decision 0088, docs/design/roles-stage0-slices.md): the two admin-only switches. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN, ruling 2).
-    :TenantSecurityManage
+    :TenantSecurityManage,
+    # Roles stage 0 S0-4 (decision 0088, docs/design/roles-stage0-slices.md): take a routed task away. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN, ruling 2).
+    :TasksReassignRouted
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -605,7 +613,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All sixty core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All sixty-one core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -645,7 +653,8 @@ defmodule Letflow.Api.Authorization do
   work, TASK_WORKER only: the first exception to both admin catch-alls, security ruling 1 of
   `docs/design/roles-stage0-security-rulings.md`), plus roles stage 0 S0-3's `:TenantSecurityManage`
   (the two admin-only switches, TENANT_ADMIN through the derived rule; explicit false clause for
-  PLATFORM_ADMIN, ruling 2).
+  PLATFORM_ADMIN, ruling 2), plus roles stage 0 S0-4's `:TasksReassignRouted` (taking a routed task
+  away, TENANT_ADMIN through the derived rule; explicit false clause for PLATFORM_ADMIN, ruling 2).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1933,6 +1942,10 @@ defmodule Letflow.Api.Authorization do
   # Roles stage 0 S0-3, ruling 2 (docs/design/roles-stage0-security-rulings.md): the two admin-only
   # switches stay refused to a platform-tenant PLATFORM_ADMIN without TENANT_ADMIN.
   defp core_role_allows?(:PLATFORM_ADMIN, :TenantSecurityManage), do: false
+
+  # Roles stage 0 S0-4, ruling 2 (docs/design/roles-stage0-security-rulings.md): taking a routed task
+  # away stays refused to a platform-tenant PLATFORM_ADMIN outside the routing role or group.
+  defp core_role_allows?(:PLATFORM_ADMIN, :TasksReassignRouted), do: false
   defp core_role_allows?(:PLATFORM_ADMIN, _permission), do: true
 
   # Roles stage 0 S0-2, ruling 1: a scoped TENANT_ADMIN grant never counts for task work.
