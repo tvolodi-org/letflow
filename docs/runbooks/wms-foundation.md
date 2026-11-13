@@ -375,6 +375,9 @@ limit names the GH issue or the code that holds it; paths are cited without line
    of another tenant) is 404, any other refusal is 422 with a `reason`. A tenant that installed
    `locations` before 0.4.0 gets the routes without an upgrade (they come from the code manifest), but its
    definitions are not upgraded (item 13).
+   Locations 0.5.0 (T-1840) adds the optional boolean `customer_location` to `location_node` (absent means
+   false, no backfill; settable by `POST /nodes`, `PATCH /nodes/:id` and the import; a non-boolean value is
+   422 `field_invalid`). A tenant on 0.4.0 upgrades in place (class A, `min_upgradable_from` 0.4.0).
 
 ## Codes module limits
 

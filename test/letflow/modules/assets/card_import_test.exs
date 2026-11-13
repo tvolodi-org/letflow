@@ -437,6 +437,51 @@ defmodule Letflow.Modules.Assets.CardImportTest do
     assert card_by_ext(ctx.b.schema_name, "XT")["org_unit_id"] == ctx.unit_b
   end
 
+  test "T-1866: the unit record id is accepted; an xlsx export loads back", ctx do
+    # by record id (the form the export writes)
+    conn = import_to(ctx.tok_a, [row("RT-1", "RT1", %{"org_unit_id" => ctx.unit_a})])
+    assert outcomes(conn) == ["created"], conn.resp_body
+    assert card_by_ext(ctx.a.schema_name, "RT1")["org_unit_id"] == ctx.unit_a
+
+    # another tenant's unit record id is not found
+    other = import_to(ctx.tok_a, [row("RT-2", "RT2", %{"org_unit_id" => ctx.unit_b})])
+    assert outcomes(other) == ["reference_not_found"]
+
+    # a non-unit record id (the card itself) is not found
+    card_id = card_by_ext(ctx.a.schema_name, "RT1")["record_id"]
+    wrong = import_to(ctx.tok_a, [row("RT-3", "RT3", %{"org_unit_id" => card_id})])
+    assert outcomes(wrong) == ["reference_not_found"]
+
+    # real export, edit one cell, import back
+    exp =
+      Plug.Test.conn(
+        :post,
+        "/api/v1/entities/records/assets_card/export?format=xlsx",
+        Jason.encode!(%{"entity_type" => "assets_card"})
+      )
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> call(ctx.tok_a)
+
+    assert exp.status == 200, exp.resp_body
+    {:ok, pkg} = XlsxReader.open(exp.resp_body, source: :binary)
+    {:ok, [header | rows]} = XlsxReader.sheet(pkg, "records")
+    idx = fn col -> Enum.find_index(header, &(&1 == col)) end
+    assert [data] = Enum.filter(rows, &(Enum.at(&1, idx.("external_ref_id")) == "RT1"))
+    data = List.replace_at(data, idx.("name"), "Renamed by file")
+    # the test fixture writer takes text cells: render the reader's dates and numbers as text
+    cell = fn
+      %Date{} = d -> Date.to_iso8601(d)
+      n when is_number(n) -> to_string(n)
+      other -> other
+    end
+
+    only = Enum.map(@header, fn col -> cell.(Enum.at(data, idx.(col))) end)
+
+    back = import_to(ctx.tok_a, [only])
+    assert outcomes(back) == ["updated"], back.resp_body
+    assert card_by_ext(ctx.a.schema_name, "RT1")["name"] == "Renamed by file"
+  end
+
   test "W5: a TASK_WORKER is forbidden, nothing written", ctx do
     before = counts(ctx.a.schema_name)
     worker = S.token(ctx, :a, ["TASK_WORKER"], sub: "worker-import")
