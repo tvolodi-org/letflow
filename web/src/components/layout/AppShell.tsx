@@ -1,7 +1,7 @@
 import { ToastContainer } from '@/components/ui/Toast'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, NavLink, useLocation } from 'react-router-dom'
-import { ChevronsLeft, SlidersHorizontal } from 'lucide-react'
+import { ChevronsLeft, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { P, useAccess, type Permission } from '@/auth/access'
@@ -239,9 +239,10 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
               data-testid="reset-layout-all"
               className="lf-btn lf-btn--ghost lf-btn--s"
               title={lm.resetLayoutHint}
+              aria-label={lm.resetLayout}
               onClick={() => store.resetAll()}
             >
-              {lm.resetLayout}
+              {navState === 'collapsed' ? <RotateCcw className="lf-icon" aria-hidden="true" /> : lm.resetLayout}
             </button>
             <ThemeToggle />
           </div>

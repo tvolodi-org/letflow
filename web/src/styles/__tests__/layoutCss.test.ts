@@ -13,6 +13,6 @@ describe('collapsed splitter handle stays visible', () => {
     expect(read('components.css')).toMatch(/\.is-collapsed\s*\{[^}]*visibility:\s*hidden/)
     expect(base).toMatch(/\.lf-splitter\.is-collapsed\s*\{[^}]*visibility:\s*visible/)
     expect(base).toMatch(/\.lf-splitter\.is-collapsed \.lf-splitter__btn\s*\{[^}]*display:\s*grid/)
-    expect(base).toMatch(/\.lf-splitter\.is-collapsed \.lf-splitter__btn\s*\{[^}]*width:\s*32px/)
+    expect(base).toMatch(/\.lf-splitter\.is-collapsed \.lf-splitter__btn\s*\{[^}]*width:\s*var\(--control-h-s\)/)
   })
 })

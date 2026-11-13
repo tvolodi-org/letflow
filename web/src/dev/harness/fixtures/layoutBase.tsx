@@ -3,7 +3,7 @@
  *  `lf-jrn` (list | details, splitter sized after) and `lf-reg` (list | details). The preferences route answers from an
  *  in-memory object (per screen). `layout-base-collapsed` and `layout-base-remembered` start from a stored layout:
  *  collapsed side nav; side nav 320 px, panes 22 % / 18 %, narrower first columns. */
-import { lazy, Suspense, useRef, type ReactElement } from 'react'
+import { lazy, Suspense, useEffect, useRef, type ReactElement } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
@@ -213,7 +213,21 @@ function Content({ kind }: { kind: Kind }) {
   )
 }
 
-function page(kind: Kind): ReactElement {
+/** T-1873: opens the phone drawer (the hamburger) once the shell is mounted, so the sidenav footer is shot at 390 px. */
+function OpenDrawer(): null {
+  useEffect(() => {
+    if (window.innerWidth >= 900) return undefined
+    const id = window.setInterval(() => {
+      const b = document.querySelector<HTMLButtonElement>('[data-testid="topbar-menu"]')
+      if (b && b.getAttribute('aria-expanded') !== 'true') b.click()
+      if (b) window.clearInterval(id)
+    }, 50)
+    return () => window.clearInterval(id)
+  }, [])
+  return null
+}
+
+function page(kind: Kind, drawer = false): ReactElement {
   return (
     <AuthContext.Provider value={AUTH}>
       <BrandingProvider>
@@ -222,7 +236,7 @@ function page(kind: Kind): ReactElement {
             <Suspense fallback={null}>
               <Routes>
                 <Route element={<AppShell fluid />}>
-                  <Route path="*" element={<Content kind={kind} />} />
+                  <Route path="*" element={<><Content kind={kind} />{drawer && <OpenDrawer />}</>} />
                 </Route>
               </Routes>
             </Suspense>
@@ -235,6 +249,7 @@ function page(kind: Kind): ReactElement {
 
 export const layoutBaseScreens: HarnessScreen[] = [
   { name: 'layout-base', routes: makeRoutes(null), render: () => page('doc') },
+  { name: 'layout-base-drawer', routes: makeRoutes(null), render: () => page('doc', true) },
   { name: 'layout-base-journal', routes: makeRoutes(null), render: () => page('jrn') },
   { name: 'layout-base-registry', routes: makeRoutes(null), render: () => page('reg') },
   { name: 'layout-base-collapsed', routes: makeRoutes(SEED_COLLAPSED), render: () => page('doc') },
