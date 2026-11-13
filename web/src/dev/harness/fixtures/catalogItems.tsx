@@ -35,6 +35,8 @@ const ITEMS: EntityRecord[] = NAMES.map(([name, code, uom, extra], i) =>
   rec(`00000000-0000-4000-8000-00000000010${i}`, 'catalog_item', { code, name, base_uom_id: uom, kind: 'material', ...extra }),
 )
 const SELECTED = ITEMS[0]?.record_id ?? ''
+/** The record the `-open` fixtures start with. */
+export const catalogItemsSelectedId = SELECTED
 
 const LOC_A = '00000000-0000-4000-8000-0000000000b1'
 const LOC_B = '00000000-0000-4000-8000-0000000000b2'
@@ -66,7 +68,8 @@ const MOVEMENTS = {
 
 type Clause = { field: string; op: string; value?: unknown }
 
-const routes: FixtureRoute[] = [
+/** The data routes of the items screen (also used by the AppShell fixtures of slice 6). */
+export const catalogItemsDataRoutes: FixtureRoute[] = [
   {
     match: (path, method) => path === '/api/v1/entities/query' && method === 'POST',
     reply: (state, _path, body) => {
@@ -114,9 +117,9 @@ const SEED_REMEMBERED = {
 }
 
 export const catalogItemsScreens: HarnessScreen[] = [
-  { name: 'catalog-items', routes: [...prefRoutes(null), ...routes], render: () => screen(false) },
-  { name: 'catalog-items-detail', routes: [...prefRoutes(null), ...routes], render: () => screen(true) },
+  { name: 'catalog-items', routes: [...prefRoutes(null), ...catalogItemsDataRoutes], render: () => screen(false) },
+  { name: 'catalog-items-detail', routes: [...prefRoutes(null), ...catalogItemsDataRoutes], render: () => screen(true) },
   // the same screen at 1920 / 2560 / 3440 (the shot script sets the viewport): fluid, no centred column
-  { name: 'catalog-items-wide', routes: [...prefRoutes(null), ...routes], render: () => screen(true) },
-  { name: 'catalog-items-remembered', routes: [...prefRoutes(SEED_REMEMBERED), ...routes], render: () => screen(true) },
+  { name: 'catalog-items-wide', routes: [...prefRoutes(null), ...catalogItemsDataRoutes], render: () => screen(true) },
+  { name: 'catalog-items-remembered', routes: [...prefRoutes(SEED_REMEMBERED), ...catalogItemsDataRoutes], render: () => screen(true) },
 ]

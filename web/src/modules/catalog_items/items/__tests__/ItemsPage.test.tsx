@@ -106,7 +106,7 @@ describe('A2 selection and back', () => {
     expect(screen.getByTestId('registry')).toHaveAttribute('data-detail', 'open')
     expect(await screen.findByRole('heading', { level: 2, name: /BOLT/ })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('BOLT', { selector: 'td' }).closest('tr')).toHaveClass('is-selected'))
-    fireEvent.click(screen.getByTestId('registry-back'))
+    fireEvent.click(screen.getByTestId('list-detail-back'))
     expect(screen.getByTestId('registry')).toHaveAttribute('data-detail', 'closed')
     fireEvent.click(await row('BOLT'))
     fireEvent.keyDown(await row('BOLT'), { key: 'Escape' })

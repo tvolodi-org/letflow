@@ -23,7 +23,7 @@ import { causeKey, type ItemRow } from './itemsModel'
 
 const TIME_ZONE = 'Asia/Almaty'
 
-export function ItemDetails(props: { item: ItemRow; onBack: () => void }) {
+export function ItemDetails(props: { item: ItemRow }) {
   const { item } = props
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `catalog_items.items.${id}` }, values)
@@ -133,8 +133,6 @@ export function ItemDetails(props: { item: ItemRow; onBack: () => void }) {
   return (
     <>
       <RegistryHead
-        backLabel={t('back')}
-        onBack={props.onBack}
         code={item.code}
         title={item.name}
         status={

@@ -244,7 +244,7 @@ test('G5 S5 document screen wide and narrow', async () => {
       await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
       await page.screenshot({ path: shotPath(`document-${lang === 'en' ? '' : `${lang}-`}${theme}-1440`), fullPage: true })
 
-      // G5: wide = list and detail side by side (MasterDetail rule 2a)
+      // G5: wide = list and detail side by side (ListDetail rule 2a)
       if (theme === 'light' && lang === 'en') {
         const list = await page.getByTestId('document-list').boundingBox()
         const head = await page.getByTestId('document-header').boundingBox()

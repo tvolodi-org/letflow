@@ -1,5 +1,4 @@
-/** The registry component (lf-registry): list left, details right. See Registry.tsx. */
-export { Registry, type RegistryProps, type RegistrySectionTab } from './Registry'
+/** The pieces of the registry panes (list, details, form). The shell is ListDetail. */
 export { RegistryList, type RegistryColumn, type RegistryChip, type RegistryListLabels, type RegistryListProps, type RegistrySortDir } from './RegistryList'
 export {
   RegistryHead, RegistrySection, RegistryFields, RegistryHistory, RegistryNote, RegistryBlank, RegistryDetailsSkeleton,

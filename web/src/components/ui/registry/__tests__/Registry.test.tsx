@@ -3,7 +3,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { Registry, RegistryForm, RegistrySection, DEFAULT_REGISTRY_LAYOUT, REGISTRY_LAYOUTS, isRegistryLayout, type RegistryFormLabels } from '..'
+import { ListDetail } from '@/components/ui/listDetail'
+import { RegistryForm, RegistrySection, DEFAULT_REGISTRY_LAYOUT, REGISTRY_LAYOUTS, isRegistryLayout, type RegistryFormLabels } from '..'
 
 expect.extend(jestDomMatchers)
 afterEach(cleanup)
@@ -25,10 +26,10 @@ describe('A8 layouts registry', () => {
       </>
     )
     const tabs = [{ id: 'overview', label: 'Overview' }, { id: 'related', label: 'Related' }, { id: 'history', label: 'History' }]
-    const { rerender } = render(<Registry list={<div />} details={sections} detailOpen sectionTabs={tabs} />)
+    const { rerender } = render(<ListDetail screen="t.reg" listLabel="List" list={<div />} detail={sections} detailOpen onClose={vi.fn()} sectionTabs={tabs} />)
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     expect(screen.getByTestId('registry')).not.toHaveAttribute('data-tab')
-    rerender(<Registry layout="tabs" list={<div />} details={sections} detailOpen sectionTabs={tabs} />)
+    rerender(<ListDetail screen="t.reg" listLabel="List" layout="tabs" list={<div />} detail={sections} detailOpen onClose={vi.fn()} sectionTabs={tabs} />)
     expect(screen.getByRole('tablist')).toBeInTheDocument()
     expect(screen.getByTestId('registry')).toHaveAttribute('data-tab', 'overview')
     const first = screen.getByRole('tab', { name: 'Overview' })
@@ -42,7 +43,7 @@ describe('A8 layouts registry', () => {
 
   it('Escape closes the open record', () => {
     const onClose = vi.fn()
-    render(<Registry list={<button type="button">row</button>} details={<div />} detailOpen onClose={onClose} />)
+    render(<ListDetail screen="t.reg" listLabel="List" list={<button type="button">row</button>} detail={<div />} detailOpen onClose={onClose} />)
     fireEvent.keyDown(screen.getByText('row'), { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
   })
@@ -64,10 +65,13 @@ function mount(inside: boolean, props: Partial<React.ComponentProps<typeof Regis
   const onSave = vi.fn(async () => undefined)
   const onCancel = vi.fn()
   render(
-    <Registry
+    <ListDetail
+      screen="t.reg"
+      listLabel="List"
       list={<div />}
       detailOpen
-      details={<RegistryForm fields={FIELDS} initial={{ code: 'X1', name: 'Old', kind: '', from: '' }} creating={inside} labels={LABELS} onSave={onSave} onCancel={onCancel} {...props} />}
+      onClose={vi.fn()}
+      detail={<RegistryForm fields={FIELDS} initial={{ code: 'X1', name: 'Old', kind: '', from: '' }} creating={inside} labels={LABELS} onSave={onSave} onCancel={onCancel} {...props} />}
     />,
   )
   return { onSave, onCancel }

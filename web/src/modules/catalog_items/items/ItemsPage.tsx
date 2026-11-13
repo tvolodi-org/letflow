@@ -1,6 +1,6 @@
 /** ItemsPage — T-1402. The Items (catalog) screen on the lf-registry layout: a compact list on the left (code, title,
  *  unit, tracking, status; search, tracking filter, Show retired, sort, pager), the record on the right (Overview,
- *  Related, History). Under 900 px the selected record replaces the list (back button). The selected item lives in
+ *  Related, History). Under 900 px the selected record replaces the list (ListDetail back button; Escape closes the record). The selected item lives in
  *  the URL (`?item=<record id>`), so Back and a reload keep it.
  *
  *  Read only: no write route exists for catalog_item (the generic entity routes answer 403 entity_type_managed and
@@ -14,7 +14,8 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { Select } from '@/components/ui/Select'
 import { ResetLayoutButton } from '@/components/ui/layout/ResetLayoutButton'
-import { Registry, RegistryDetailsSkeleton, RegistryList, type RegistryColumn, type RegistryChip } from '@/components/ui/registry'
+import { ListDetail } from '@/components/ui/listDetail'
+import { RegistryDetailsSkeleton, RegistryList, type RegistryColumn, type RegistryChip } from '@/components/ui/registry'
 import { useReferenceLabels } from '@/lib/references'
 import { DELETED_FALSE } from '../catalogItems.api'
 import { CatalogItemsIntlProvider } from '../CatalogItemsIntlProvider'
@@ -168,12 +169,22 @@ function ItemsInner({ initialItemId }: { initialItemId?: string }) {
   )
 
   let details
-  if (!detailOpen) details = <ItemBlank />
+  if (!detailOpen) details = null
   else if (query.isPending) details = <RegistryDetailsSkeleton />
   else if (!selected) details = <ItemNotFound />
-  else details = <ItemDetails key={selected.id} item={selected} onBack={() => open(null)} />
+  else details = <ItemDetails key={selected.id} item={selected} />
 
-  return <Registry layout="split" screen={ITEMS_SCREEN} list={list} details={details} detailOpen={detailOpen} onClose={() => open(null)} />
+  return (
+    <ListDetail
+      screen={ITEMS_SCREEN}
+      listLabel={t('listTitle')}
+      listPane={list}
+      detail={details}
+      empty={<ItemBlank />}
+      detailOpen={detailOpen}
+      onClose={() => open(null)}
+    />
+  )
 }
 
 export default function ItemsPage({ initialItemId }: { initialItemId?: string } = {}) {

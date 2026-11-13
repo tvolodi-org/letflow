@@ -136,18 +136,8 @@ samp {
 .lf-topbar { z-index: var(--z-topbar); }
 /* T-1438: the glass tint let the scrolled action bar (Save draft / Back) show through under the language menu. */
 .lf-topbar { background: var(--paper); backdrop-filter: none; }
-.lf-md__detail { min-width: 0; }
-.lf-md--wide { grid-template-columns: minmax(380px, 460px) minmax(0, 1fr); }
-@media (max-width: 1100px) {
-  .lf-md--wide { grid-template-columns: minmax(440px, 470px) minmax(0, 1fr); }
-}
-@media (max-width: 900px) {
-  .lf-md--wide { grid-template-columns: minmax(0, 1fr); }
-}
 /* T-1399 R7: the count sheet has seven columns; tighter cell padding keeps Counted whole in the detail panel. */
 .lf-count-sheet .lf-table th, .lf-count-sheet .lf-table td { padding-inline: var(--space-2); }
-/* T-1399 R7 gui_review: the last cell of a master list keeps the table's right padding so a status pill ends inside the row. */
-.lf-md__master .lf-table th:last-child, .lf-md__master .lf-table td:last-child { padding-inline-end: var(--space-4); }
 /* T-1434/T-1441: the "Official form" menu opens from the trigger's right edge (the trigger ends the action row) and
    stays inside the screen; OfficialFormMenu adds --start when the right-anchored menu would clip on the left. */
 .lf-formmenu .lf-lang__menu { right: 0; left: auto; text-align: start; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
@@ -270,9 +260,6 @@ samp {
 .lf-help dl > div { margin-block-end: var(--space-3); }
 .lf-help dt { font-weight: 600; }
 .lf-help dd { margin: 0; color: var(--ink-muted); }
-/* T-1660: module rollouts detail pane: grid children may shrink so the outcomes table scrolls inside its wrapper, not past the card. */
-.lf-md__detail .lf-form > * { min-width: 0; }
-.lf-md__master h2 { padding: var(--space-2) var(--space-3); margin: 0; }
 
 /* T-1717: page header (PageLayout) wraps instead of cramping title and actions at 390 px; the actions row wraps too
    and its buttons keep their label on one line. Rules live here, not in the generated components.css. */

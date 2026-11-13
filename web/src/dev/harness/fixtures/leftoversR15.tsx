@@ -143,7 +143,6 @@ export const leftoversR15ShellScreens: HarnessScreen[] = [
             <CatalogItemsIntlProvider>
               <ItemDetails
                 item={{ id: 'SKU-1', code: 'SKU-1', name: 'Cement M500', uomId: '', kind: 'material', tracking: 'none', active: true, externalRef: '' }}
-                onBack={() => undefined}
               />
             </CatalogItemsIntlProvider>
           </main>
