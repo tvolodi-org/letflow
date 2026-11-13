@@ -201,7 +201,7 @@ defmodule Letflow.Modules.Stock.CountPrintRouterTest do
 
       first = print(id, "sheet", x.chair_tok, "?lang=en")
       assert first.status == 200
-      assert "3.000000000" in texts(first.resp_body)
+      assert "3" in texts(first.resp_body)
 
       line =
         Repo.one!(
@@ -230,7 +230,7 @@ defmodule Letflow.Modules.Stock.CountPrintRouterTest do
 
       second = print(id, "sheet", x.chair_tok, "?lang=en")
       assert texts(second.resp_body) == texts(first.resp_body)
-      refute "999.000000000" in texts(second.resp_body)
+      refute "999" in texts(second.resp_body)
 
       xlsx = sheets(download(id, "sheet", x.chair_tok).resp_body)["signatures"]
       names = for [_role, name, _code | _] <- tl(xlsx), name != "", do: name

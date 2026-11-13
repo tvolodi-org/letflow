@@ -3,7 +3,7 @@
  *  `lf-jrn` (list | details, splitter sized after) and `lf-reg` (list | details). The preferences route answers from an
  *  in-memory object (per screen). `layout-base-collapsed` and `layout-base-remembered` start from a stored layout:
  *  collapsed side nav; side nav 320 px, panes 22 % / 18 %, narrower first columns. */
-import { lazy, Suspense, useRef, type ReactElement } from 'react'
+import { lazy, Suspense, useEffect, useRef, type ReactElement } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
@@ -40,6 +40,8 @@ const COLS = [
 
 /** A stored layout the screen starts with (what the preferences route answers until the first PUT). */
 const SEED_COLLAPSED = { v: 1, shell: { sidenav: { collapsed: true } }, screens: {} }
+/** T-1873: the pane that trapped users, a stored collapse of the first pane (its restore control must stay visible). */
+const SEED_PANE_COLLAPSED = { v: 1, shell: {}, screens: { 'harness.layout': { collapsed: { 'doc-panes': [0], 'reg-panes': [0] } } } }
 const SEED_REMEMBERED = {
   v: 1,
   shell: { sidenav: { w: 320 } },
@@ -211,7 +213,28 @@ function Content({ kind }: { kind: Kind }) {
   )
 }
 
-function page(kind: Kind): ReactElement {
+/** T-1873: opens the phone drawer (the hamburger) once the shell is mounted, so the sidenav footer is shot at 390 px. */
+function OpenDrawer(): null {
+  useEffect(() => {
+    if (window.innerWidth >= 900) return undefined
+    // The headless shot is taken right after load: no transition, so the drawer is settled and fully opaque.
+    const style = document.createElement('style')
+    style.textContent = '.lf-sidenav, .lf-scrim { transition: none !important; animation: none !important; }'
+    document.head.appendChild(style)
+    const id = window.setInterval(() => {
+      const b = document.querySelector<HTMLButtonElement>('[data-testid="topbar-menu"]')
+      if (b && b.getAttribute('aria-expanded') !== 'true') b.click()
+      if (b) window.clearInterval(id)
+    }, 50)
+    return () => {
+      window.clearInterval(id)
+      style.remove()
+    }
+  }, [])
+  return null
+}
+
+function page(kind: Kind, drawer = false): ReactElement {
   return (
     <AuthContext.Provider value={AUTH}>
       <BrandingProvider>
@@ -220,7 +243,7 @@ function page(kind: Kind): ReactElement {
             <Suspense fallback={null}>
               <Routes>
                 <Route element={<AppShell fluid />}>
-                  <Route path="*" element={<Content kind={kind} />} />
+                  <Route path="*" element={<><Content kind={kind} />{drawer && <OpenDrawer />}</>} />
                 </Route>
               </Routes>
             </Suspense>
@@ -233,8 +256,10 @@ function page(kind: Kind): ReactElement {
 
 export const layoutBaseScreens: HarnessScreen[] = [
   { name: 'layout-base', routes: makeRoutes(null), render: () => page('doc') },
+  { name: 'layout-base-drawer', routes: makeRoutes(null), render: () => page('doc', true) },
   { name: 'layout-base-journal', routes: makeRoutes(null), render: () => page('jrn') },
   { name: 'layout-base-registry', routes: makeRoutes(null), render: () => page('reg') },
   { name: 'layout-base-collapsed', routes: makeRoutes(SEED_COLLAPSED), render: () => page('doc') },
+  { name: 'layout-base-pane-collapsed', routes: makeRoutes(SEED_PANE_COLLAPSED), render: () => page('doc') },
   { name: 'layout-base-remembered', routes: makeRoutes(SEED_REMEMBERED), render: () => page('doc') },
 ]

@@ -184,6 +184,8 @@ defmodule Letflow.Modules.Assets do
   defmanifest(
     id: "assets",
     version: "0.16.0",
+    # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
+    min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
     pack: "modules/assets/pack.json",
     permissions: [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile],

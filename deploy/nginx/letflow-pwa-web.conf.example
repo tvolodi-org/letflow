@@ -13,7 +13,10 @@ server {
     root /var/www/letflow-pwa-web;
     index index.html;
 
-    types { application/wasm wasm; }
+    # No `types { ... }` block here: a `types` block REPLACES nginx's whole MIME map, so index.html
+    # would be served as application/octet-stream and the browser would download it. The stock
+    # `include mime.types;` of the http{} block already maps .wasm to application/wasm (nginx >= 1.21.4).
+    # Check with: curl -sI https://<host>/ | grep -i content-type   (must be text/html).
 
     gzip_static on;
     # brotli_static on;   # needs ngx_brotli; Cloudflare also compresses at the edge
