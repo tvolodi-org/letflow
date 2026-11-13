@@ -7,6 +7,7 @@ import DocumentPage from '@/modules/stock/documents/DocumentPage'
 import DocumentsPage from '@/modules/stock/documents/DocumentsPage'
 import type { EntityRecord, UserSession } from '@/types/api'
 import type { FixtureRoute, HarnessScreen } from '../types'
+import { currenciesRoute } from './currencyDirectoryRoute'
 
 const rec = (id: string, type: string, fields: Record<string, unknown>): EntityRecord => ({
   record_id: id,
@@ -52,6 +53,7 @@ const ROWS = [
 ]
 
 export const routes: FixtureRoute[] = [
+  currenciesRoute,
   {
     match: (path, method) => path === '/api/v1/entities/query' && method === 'POST',
     reply: (state, _p, body) => {

@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAccess } from '@/auth/access/useAccess'
 import { useAuth } from '@/auth/AuthContext'
+import { useTenantCurrency } from '@/api/useTenantCurrency'
 import { useAssetCardLock } from '@/hooks/useAssetCardLock'
 import { assetsApi } from './assets.api'
 import { assetsQueryKeys } from './assetsQueryKeys'
@@ -76,6 +77,15 @@ export function AssetCardForm(props: {
       ? [{ value: initial.depreciation_method, label: intl.formatMessage({ id: 'assets.depMethod.legacy' }, { value: initial.depreciation_method }) }]
       : []
   const patch = (p: Partial<Form>) => setForm({ ...form, ...p })
+  // REQ-828 / D-097: one currency per tenant, so the choices are "tenant currency" (empty) and the tenant currency.
+  // A stored value that is neither stays visible as a disabled option, so it can be replaced.
+  const tenantCurrency = useTenantCurrency()
+  const currencyLegacy = form.currency !== '' && form.currency !== tenantCurrency.code
+  const currencyOptions = [
+    { value: '', label: t('assets.field.currencyTenant') },
+    ...(tenantCurrency.code === '' ? [] : [{ value: tenantCurrency.code, label: tenantCurrency.describe(tenantCurrency.code) }]),
+    ...(currencyLegacy ? [{ value: form.currency, label: form.currency, disabled: true }] : []),
+  ]
 
   const decimalProblem = (key: (typeof DECIMAL_KEYS)[number]) => {
     const fault = decimalError(form[key])
@@ -160,9 +170,17 @@ export function AssetCardForm(props: {
           />
         </FormRow>
         <FormRow>
-          <Field label={t('assets.field.currency')} width="s" mono optional hint={t('assets.field.currencyHint')} error={invalid('currency')}>
-            <input name="currency" maxLength={3} value={form.currency} onChange={(e) => patch({ currency: e.target.value.toUpperCase() })} />
-          </Field>
+          <Select
+            label={t('assets.field.currency')}
+            width="m"
+            name="currency"
+            optional
+            value={form.currency}
+            hint={currencyLegacy && tenantCurrency.code !== '' ? t('assets.field.currencyLegacyHint') : t('assets.field.currencyHint')}
+            error={invalid('currency')}
+            options={currencyOptions}
+            onChange={(v) => patch({ currency: v })}
+          />
         </FormRow>
         {intangible && (
           <FormRow>

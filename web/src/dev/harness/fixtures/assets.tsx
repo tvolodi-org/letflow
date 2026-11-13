@@ -5,8 +5,11 @@ import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
 import AssetCardsPage from '@/modules/assets/AssetCardsPage'
+import { AssetCardFacts } from '@/modules/assets/AssetCardFacts'
+import { AssetsIntlProvider } from '@/modules/assets/AssetsIntlProvider'
 import type { EntityRecord, UserSession } from '@/types/api'
 import type { FixtureRoute, HarnessScreen } from '../types'
+import { currenciesRoute } from './currencyDirectoryRoute'
 
 function rec(id: string, type: string, fields: Record<string, unknown>): EntityRecord {
   return {
@@ -36,7 +39,8 @@ const CARDS: EntityRecord[] = [
     kind: 'intangible', acquisition_cost: '1200000', valid_until: '2027-06-30', acquisition_date: '2025-07-01',
   }),
   card('c-7', 'IA-0202', 'Warehouse management add-on', 'u-wh', { kind: 'intangible', valid_until: '2026-12-31' }),
-  card('c-8', 'FA-0009', 'Forklift (sold)', 'u-wh', { active: false, acquisition_cost: '6100000', book_value: '0' }),
+  card('c-8', 'FA-0009', 'Forklift (sold)', 'u-wh', { active: false, currency: 'KZT', acquisition_cost: '6100000', book_value: '0' }),
+  card('c-10', 'FA-0011', 'Legacy currency card', 'u-ast', { currency: 'TNG', acquisition_cost: '120000' }),
   card('c-9', 'FA-0010', 'Pallet jack', 'u-ast', { acquisition_cost: '310000', book_value: '250000' }),
 ]
 const UNITS: EntityRecord[] = [
@@ -78,6 +82,7 @@ function answer(state: string, body: unknown, more = false) {
 }
 
 export const routes: FixtureRoute[] = [
+  currenciesRoute,
   { match: (path, method) => path === '/api/v1/entities/query' && method === 'POST', reply: (state, _path, body) => answer(state, body) },
   // a write answers an empty object so a click in the harness does not fail
   { match: (path, method) => path.startsWith('/api/v1/modules/assets/') && method !== 'GET', reply: () => ({ status: 200, body: {} }) },
@@ -141,6 +146,8 @@ export const assetsScreens: HarnessScreen[] = [
   { name: 'asset-cards-dep-legacy', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-5" />) },
   { name: 'asset-cards-dep-none', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-2" />) },
   { name: 'asset-cards-intangible', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-6" />) },
+  { name: 'asset-cards-currency-legacy', routes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-10" />) },
+  { name: 'asset-card-facts', routes, render: () => withAuth(<AssetsIntlProvider><AssetCardFacts record={CARDS[7]!} /></AssetsIntlProvider>) },
   { name: 'asset-cards-create', routes, render: () => withAuth(<AssetCardsPage initialCreating />) },
   { name: 'asset-cards-holder', routes: rowsRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-1" />, READER) },
   { name: 'asset-cards-holder-none', routes: noRowsRoutes, render: () => withAuth(<AssetCardsPage initialSelectedId="c-3" />, READER) },
