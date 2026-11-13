@@ -40,6 +40,10 @@ defmodule Letflow.Documents.PrintLayout do
   re-opened by an amendment for this font path, keeps `certificate_document.ex` on the `pdf`
   library and its Latin-1 path; that file is unchanged.
 
+  `opts[:marks]` (code only, no layout key) is a list of `{:rect, x, y, w, h}` (integers >= 0, 1/100 pt)
+  drawn black on every page, before the footer; the count worksheet draws its barcode and QR so.
+  At most 20 000 entries; anything else is `:invalid_marks` at `[]`. Without it the bytes are unchanged.
+
   The output has no `/Info`, no date, no producer and no action, annotation, form or embedded
   file object. Equal inputs give equal bytes (compressed bytes are stable per OTP/zlib build).
   """
@@ -49,6 +53,7 @@ defmodule Letflow.Documents.PrintLayout do
   @type violation :: %{rule: atom, path: [String.t() | non_neg_integer]}
 
   @max_rows 1000
+  @max_marks 20_000
   @max_blocks 200
   @max_literal 500
   @max_columns 12
@@ -106,10 +111,28 @@ defmodule Letflow.Documents.PrintLayout do
   def render(layout, projection, declared_fields, opts \\ []) do
     with :ok <- validate(layout, declared_fields, opts),
          :ok <- check_projection(layout, projection),
+         {:ok, marks} <- check_marks(opt(opts, :marks)),
          {:ok, doc} <- Flow.run(layout, projection) do
-      {:ok, Pdf.build(doc, footer: opt_footer(opts))}
+      {:ok, Pdf.build(doc, footer: opt_footer(opts), marks: marks)}
     end
   end
+
+  # `marks:` is a code-only option (never a layout key): filled rectangles `{:rect, x, y, w, h}`
+  # in 1/100 pt, drawn on every page (barcode and QR of the count worksheet).
+  defp check_marks([]), do: {:ok, []}
+
+  defp check_marks(marks) when is_list(marks) and length(marks) <= @max_marks do
+    if Enum.all?(marks, &valid_mark?/1),
+      do: {:ok, marks},
+      else: {:error, [v(:invalid_marks, [])]}
+  end
+
+  defp check_marks(_), do: {:error, [v(:invalid_marks, [])]}
+
+  defp valid_mark?({:rect, x, y, w, h}),
+    do: Enum.all?([x, y, w, h], &(is_integer(&1) and &1 >= 0))
+
+  defp valid_mark?(_), do: false
 
   defp check_projection(_layout, projection) when not is_map(projection),
     do: {:error, [v(:invalid_projection, [])]}
