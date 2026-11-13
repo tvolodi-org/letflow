@@ -87,7 +87,8 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :EntitiesRecordsImportAnyType,
     :TasksWorkInScope,
     :TenantSecurityManage,
-    :TasksReassignRouted
+    :TasksReassignRouted,
+    :TasksReadAll
   ]
 
   @new_permissions [

@@ -3,7 +3,7 @@ defmodule Letflow.Api.TenantSecurityManageTest do
   Roles stage 0, slice S0-3 (decision 0088, `docs/design/roles-stage0-slices.md`): the permission
   `:TenantSecurityManage` replaces the TENANT_ADMIN role-name check in `require_interactive_tenant_admin/1`.
 
-    * S1 the atom: second-to-last core permission, tenant scope, resolves to itself, no route gates on it;
+    * S1 the atom: third-to-last core permission, tenant scope, resolves to itself, no route gates on it;
     * S2 holders are exactly TENANT_ADMIN; PLATFORM_ADMIN is refused by the explicit false clause,
       and a tenant overlay cannot add it (non-assignable);
     * S3 non-assignable: not in `grantable/0`, the overlay cannot add it, Catalog cannot grant it;
@@ -25,8 +25,8 @@ defmodule Letflow.Api.TenantSecurityManageTest do
   @perm :TenantSecurityManage
   @golden "priv/permission_matrix/effective.golden"
 
-  test "S1 second-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
-    assert Authorization.core_permissions() |> Enum.take(-2) |> hd() == @perm
+  test "S1 third-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
+    assert Authorization.core_permissions() |> Enum.take(-3) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 

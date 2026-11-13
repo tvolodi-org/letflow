@@ -5,7 +5,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
   `Letflow.Api.Authorization`, plus the new `:AttachmentLinksIssue` permission (item L1).
 
   Decision 0046 D6 lists 14 atoms for the auditor and the effective grant is exactly those 14
-  (13 explicit core atoms plus the role-agnostic `:MyModulesRead`). `:PromotionsRead` was
+  (13 explicit core atoms plus the role-agnostic `:MyModulesRead`); roles stage 0 S0-5 adds `:TasksReadAll` (14 explicit core atoms). `:PromotionsRead` was
   withheld by REQ-448 until the stored-tenant check of Q-1011 / ISS-1029 merged and was granted
   by ISS-1109 / GH #2489. `:EntitiesRecordsExport` is not granted (supervisor decision).
 
@@ -37,6 +37,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :HelpRead,
     :MembershipsRead,
     :PromotionsRead,
+    :TasksReadAll,
     :MyModulesRead,
     :MyAccessRead,
     :MyPreferencesSet
@@ -122,7 +123,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
   end
 
   describe "AC1: the grant rule" do
-    test "for every p in permissions/0, role_allows?(:TENANT_AUDITOR, p) is true exactly for the 16 literal atoms and false for every other core and Catalog permission" do
+    test "for every p in permissions/0, role_allows?(:TENANT_AUDITOR, p) is true exactly for the 17 literal atoms and false for every other core and Catalog permission" do
       permissions = Authorization.permissions()
       assert length(permissions) > length(Authorization.core_permissions())
 
@@ -135,7 +136,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
 
       granted = Enum.filter(permissions, &Authorization.role_allows?(:TENANT_AUDITOR, &1))
       assert Enum.sort(granted) == Enum.sort(@auditor_granted)
-      assert length(granted) == 16
+      assert length(granted) == 17
     end
 
     test "the refused core set is the literal 45, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
