@@ -418,7 +418,7 @@ defmodule Letflow.Modules.Locations.CreateNodeTest do
   describe "C-11: version and scope declaration" do
     test "the manifest is 0.3.0 with the two scope declarations and validates" do
       m = Locations.manifest()
-      assert m.version == "0.4.0"
+      assert m.version == "0.5.0"
 
       assert m.scope_declarations == %{
                "location_node" => :tenant_wide,
