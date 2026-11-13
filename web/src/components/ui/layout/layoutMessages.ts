@@ -12,6 +12,7 @@ export interface LayoutCatalog {
   navExpand: string
   navResize: string
   resetLayout: string
+  resetLayoutHint: string
   splitList: string
   splitHeader: string
 }
@@ -26,6 +27,7 @@ export const layoutMessages: Record<UiLocale, LayoutCatalog> = {
     navExpand: 'Expand the side nav',
     navResize: 'Resize the side nav',
     resetLayout: 'Reset layout',
+    resetLayoutHint: 'Forget every saved panel size, collapsed panel and column width',
     splitList: 'Resize the document list',
     splitHeader: 'Resize the header',
   },
@@ -38,6 +40,7 @@ export const layoutMessages: Record<UiLocale, LayoutCatalog> = {
     navExpand: 'Развернуть меню',
     navResize: 'Ширина меню',
     resetLayout: 'Сбросить раскладку',
+    resetLayoutHint: 'Забыть все сохранённые размеры, свёрнутые панели и ширину столбцов',
     splitList: 'Ширина списка документов',
     splitHeader: 'Ширина шапки',
   },
@@ -50,6 +53,7 @@ export const layoutMessages: Record<UiLocale, LayoutCatalog> = {
     navExpand: 'Мәзірді жаю',
     navResize: 'Мәзір ені',
     resetLayout: 'Орналасуды қалпына келтіру',
+    resetLayoutHint: 'Барлық сақталған панель өлшемдерін, жиылған панельдер мен баған енін ұмыту',
     splitList: 'Құжаттар тізімінің ені',
     splitHeader: 'Тақырып ені',
   },

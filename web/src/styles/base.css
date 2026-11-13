@@ -288,3 +288,22 @@ samp {
 .lf-reports-index__group { margin-bottom: var(--space-4); }
 .lf-reports-index__list { list-style: none; padding: 0; margin: 0; }
 .lf-reports-index__list li { padding: var(--space-1) 0; overflow-wrap: anywhere; }
+
+/* T-1873: a collapsed pane must always have a visible way back. The generic `.is-collapsed { visibility: hidden }` of
+   components.css also matched the splitter handle, so the expander existed but could not be seen or clicked. */
+.lf-splitter.is-collapsed { visibility: visible; overflow: visible; }
+.lf-splitter.is-collapsed .lf-splitter__btn { display: grid; width: var(--control-h-s); height: var(--control-h-s); background: var(--current); color: var(--on-current); border-color: var(--current); box-shadow: var(--shadow-raised); opacity: 1; }
+.lf-splitter.is-collapsed .lf-splitter__btn .lf-icon { width: var(--space-4); height: var(--space-4); }
+.lf-splitter.is-collapsed .lf-splitter__line { height: 100%; background: var(--current); opacity: 1; }
+@media (hover: none) { .lf-splitter__btn { display: grid; } }
+
+/* T-1873: collapsed side nav (64 px): the footer keeps only icon-sized entries, so no label is cut mid-word. */
+.lf-app[data-nav="collapsed"] .lf-sidenav__foot > [data-testid="user-display-name"], .lf-app[data-nav="collapsed"] .lf-sidenav__foot > [data-testid="user-roles"] { display: none; }
+.lf-app[data-nav="collapsed"] .lf-sidenav__foot .lf-btn-row { flex-direction: column; align-items: center; }
+/* The footer buttons sit on the night surface: use its foreground token, not the teal ghost colour. */
+.lf-sidenav__foot .lf-btn--ghost { color: var(--on-night); }
+.lf-sidenav__foot .lf-btn--ghost:hover { background: var(--night-hover); }
+
+/* T-1873: the phone drawer shares z-modal with its scrim, and the scrim comes later in the DOM, so it covered the drawer
+   (dimmed it and took its clicks, Reset layout and Sign out included). The open drawer sits one step above the scrim. */
+@media (max-width: 900px) { .lf-app.is-nav-open .lf-sidenav { z-index: calc(var(--z-modal) + 1); } }

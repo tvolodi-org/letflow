@@ -1,7 +1,7 @@
 import { ToastContainer } from '@/components/ui/Toast'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, NavLink, useLocation } from 'react-router-dom'
-import { ChevronsLeft, SlidersHorizontal } from 'lucide-react'
+import { ChevronsLeft, LogOut, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { P, useAccess, type Permission } from '@/auth/access'
@@ -233,8 +233,18 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
           <div data-testid="user-display-name">{session?.display_name}</div>
           <div data-testid="user-roles">{access.roles.join(', ')}</div>
           <div className="lf-btn-row">
-            <button type="button" data-testid="logout-button" className="lf-btn lf-btn--ghost lf-btn--s" onClick={logout}>
-              {navMessages[uiLocale].signOut}
+            <button type="button" data-testid="logout-button" className="lf-btn lf-btn--ghost lf-btn--s" aria-label={navMessages[uiLocale].signOut} title={navMessages[uiLocale].signOut} onClick={logout}>
+              {navState === 'collapsed' ? <LogOut className="lf-icon" aria-hidden="true" /> : navMessages[uiLocale].signOut}
+            </button>
+            <button
+              type="button"
+              data-testid="reset-layout-all"
+              className="lf-btn lf-btn--ghost lf-btn--s"
+              title={lm.resetLayoutHint}
+              aria-label={lm.resetLayout}
+              onClick={() => store.resetAll()}
+            >
+              {navState === 'collapsed' ? <RotateCcw className="lf-icon" aria-hidden="true" /> : lm.resetLayout}
             </button>
             <ThemeToggle />
           </div>
