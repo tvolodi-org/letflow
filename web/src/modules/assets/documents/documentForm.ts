@@ -10,6 +10,10 @@ import {
   validateKindChangeLines, type KindChangeLine,
 } from './kindChangeForm'
 import {
+  buildOpeningLines, emptyOpeningLine, openingLinesFromDocument, openingReasonMessageId, openingRefusalField,
+  validateExternalRef, validateOpeningLines, type OpeningLine,
+} from './openingForm'
+import {
   TEXT_MAX, WRITEOFF_REASONS, documentErrorInfo, documentErrorMessageId, isTwoSide, sidesOf,
   type DocKind,
 } from './documentsModel'
@@ -38,6 +42,10 @@ export interface FormState {
   lines: LineForm[]
   /** The lines of a change of kind (another shape); only the list of the form's kind is validated and sent. */
   kcLines: KindChangeLine[]
+  /** The lines of an opening (T-1877) and its header's external reference pair (the import finds the draft by it). */
+  opLines: OpeningLine[]
+  externalRefSystem: string
+  externalRefId: string
 }
 
 export const emptyLine = (): LineForm => ({ assetId: '', quantity: '1' })
@@ -86,7 +94,7 @@ export const nowZonedLocal = (tz: string = ASSETS_TIME_ZONE): string => isoToZon
 // ---- state -------------------------------------------------------------------------------------------------
 
 export function emptyForm(kind: DocKind, eventTime: string = nowZonedLocal()): FormState {
-  return { kind, from: emptySide(), to: emptySide(), eventTime, reasonCode: '', reasonText: '', note: '', lines: [emptyLine()], kcLines: [emptyKindChangeLine()] }
+  return { kind, from: emptySide(), to: emptySide(), eventTime, reasonCode: '', reasonText: '', note: '', lines: [emptyLine()], kcLines: [emptyKindChangeLine()], opLines: [emptyOpeningLine()], externalRefSystem: '', externalRefId: '' }
 }
 
 const s = (v: string | null | undefined): string => v ?? ''
@@ -99,8 +107,10 @@ export function formFromDocument(doc: AssetDocument): FormState {
     orgUnitId: s(v.orgUnitId), locationId: s(v.locationId), responsibleId: s(v.responsibleId), userId: s(v.userId),
   })
   const isKc = kind === 'kind_change'
-  const lines = isKc ? [] : [...doc.lines].sort((a, b) => a.line_no - b.line_no).map((l) => ({ assetId: l.asset_id, quantity: trimZeros(l.quantity) }))
+  const isOp = kind === 'opening'
+  const lines = isKc || isOp ? [] : [...doc.lines].sort((a, b) => a.line_no - b.line_no).map((l) => ({ assetId: l.asset_id, quantity: trimZeros(l.quantity) }))
   const kcLines = isKc ? kindChangeLinesFromDocument(doc.lines) : []
+  const opLines = isOp ? openingLinesFromDocument(doc.lines) : []
   return {
     kind,
     from: side(sides.from),
@@ -111,6 +121,9 @@ export function formFromDocument(doc: AssetDocument): FormState {
     note: s(doc.note),
     lines: lines.length > 0 ? lines : [emptyLine()],
     kcLines: kcLines.length > 0 ? kcLines : [emptyKindChangeLine()],
+    opLines: opLines.length > 0 ? opLines : [emptyOpeningLine()],
+    externalRefSystem: s(doc.external_ref_system),
+    externalRefId: s(doc.external_ref_id),
   }
 }
 
@@ -147,6 +160,13 @@ export function validateLine(l: LineForm, cardOf: (id: string) => LineCard | und
 export function validateForm(f: FormState, cardOf?: (id: string) => LineCard | undefined): { errors: Record<string, string> } {
   const errors: Record<string, string> = {}
   const required = 'assets.doc.error.field_required'
+  if (f.kind === 'opening') {
+    // Header: org unit, optional note and external pair. No event time: the posting time is the event time (0083 D1).
+    if (f.from.orgUnitId === '') errors['side.from.orgUnitId'] = required
+    if (f.note.length > TEXT_MAX) errors['header.note'] = 'assets.doc.error.textTooLong'
+    if (f.opLines.length < 1 || f.opLines.length > MAX_LINES) errors['lines'] = 'assets.doc.error.lines_count'
+    return { errors: { ...errors, ...validateExternalRef(f.externalRefSystem, f.externalRefId), ...validateOpeningLines(f.opLines, cardOf) } }
+  }
   if (zonedLocalToIso(f.eventTime) === null) errors['header.eventTime'] = 'assets.doc.error.eventTimeRequired'
   if (f.kind === 'kind_change') {
     // Header: org unit, event time, optional reason text and note; the people and places are per line.
@@ -202,6 +222,16 @@ export function buildBody(f: FormState, withKind = true): Record<string, unknown
   if (withKind) body['kind'] = f.kind
   const { from, to } = f
   body['org_unit_id'] = from.orgUnitId
+  if (f.kind === 'opening') {
+    // Never `event_time`: the server refuses it for an opening (`field_not_allowed`).
+    opt('note', f.note)
+    if (f.externalRefSystem.trim() !== '' && f.externalRefId.trim() !== '') {
+      body['external_ref_system'] = f.externalRefSystem.trim()
+      body['external_ref_id'] = f.externalRefId.trim()
+    }
+    body['lines'] = buildOpeningLines(f.opLines)
+    return body
+  }
   if (f.kind === 'kind_change') {
     opt('reason_text', f.reasonText)
     body['event_time'] = zonedLocalToIso(f.eventTime)
@@ -262,6 +292,18 @@ export function placeError(err: unknown, form?: DocKind): { key: string | null; 
   const messageId = documentErrorMessageId(err)
   if (info.reason === 'sides_equal') return { key: 'sides', messageId }
   if (info.reason === 'lines_count') return { key: 'lines', messageId }
+  if (form === 'opening') {
+    if (info.lineNo === undefined) {
+      if (info.reason === 'org_unit_not_active') return { key: 'side.from.orgUnitId', messageId: 'assets.doc.opening.reason.org_unit_not_active' }
+      if (info.reason === 'external_ref_taken' || info.reason === 'external_ref_pair' || info.field === 'external_ref_id') return { key: 'header.externalRefId', messageId }
+      if (info.field === 'external_ref_system') return { key: 'header.externalRefSystem', messageId }
+    } else {
+      const field = openingRefusalField(info.reason, info.field)
+      const i = info.lineNo - 1
+      const own = info.reason !== undefined ? openingReasonMessageId(info.reason, info.field) : null
+      return { key: field ? `lines.${i}.${field}` : `lines.${i}`, messageId: own ?? messageId }
+    }
+  }
   if (form === 'kind_change' && info.lineNo === undefined && info.reason === 'org_unit_not_active') return { key: 'side.from.orgUnitId', messageId }
   if (info.lineNo !== undefined && form === 'kind_change') {
     const field = kindChangeRefusalField(info.reason, info.field, info.side)

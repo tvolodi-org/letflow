@@ -1,4 +1,4 @@
-/** AssetCardsPage — T-1333 / C13. The asset card list on the left, the chosen card on the right (MasterDetail; owner
+/** AssetCardsPage — T-1333 / C13. The asset card list on the left, the chosen card on the right (ListDetail; owner
  *  rule 2026-11-03: viewing and editing one record happens in the detail panel, not in a modal). Filters: kind and
  *  org unit go to the server, the text search runs on the server (number and name), the list is paged, "Show retired" lifts the active filter.
  *  Create and edit use the panel; retire is a short single-answer action, so it is a ConfirmDialog. A retired card
@@ -17,7 +17,7 @@ import { DetailHeader } from '@/components/ui/DetailHeader'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field } from '@/components/ui/Field'
 import { FilterBar } from '@/components/ui/FilterBar'
-import { MasterDetail } from '@/components/ui/MasterDetail'
+import { ListDetail } from '@/components/ui/listDetail'
 import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { useToast } from '@/hooks/useToast'
@@ -28,13 +28,15 @@ import { AssetCardDepreciation } from './AssetCardDepreciation'
 import { AssetCardHolder } from './AssetCardHolder'
 import { AssetCardActionsMenu } from './AssetCardActionsMenu'
 import { AssetCardOperations } from './AssetCardOperations'
+import { AssetCardSelectionBar } from './AssetCardSelectionBar'
 import { ASSETS_POST } from './assetsPermissions'
 import { newDocumentHref } from './cardActions'
 import { AssetCardForm, unitName, type Cmd } from './AssetCardForm'
 import { AssetsIntlProvider } from './AssetsIntlProvider'
-import { AssetsShell, useAssetRows, useCardById, useErrorText, useOrgUnitRows } from './AssetsShell'
+import { AssetsShell, useAssetRows, useCardById, useCardsFacts, useErrorText, useOrgUnitRows } from './AssetsShell'
 import { AssetsHelpLink } from '@/modules/assets/help/AssetsHelpLink'
 import { ASSET_KINDS, isActive, textOf } from './assetsModel'
+import { MAX_LINES } from './documents/documentForm'
 import { useAssetsWrite, type AssetsWriteResult } from './useAssetsWrite'
 
 function run(cmd: Cmd, key: string) {
@@ -62,6 +64,13 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
   const [creating, setCreating] = useState(initialCreating ?? false)
   const [retiring, setRetiring] = useState<EntityRecord | null>(null)
+  const [chosen, setChosen] = useState<EntityRecord[]>([])
+  const chosenFacts = useCardsFacts(chosen, chosen.length > 0 && can(ASSETS_POST))
+  const chosenWithFacts = chosen.map((c, i) => ({
+    id: c.record_id,
+    number: textOf(c, 'inventory_number'),
+    facts: chosenFacts[i] ?? { active: true, kind: '', held: undefined, rows: undefined, canRead: true },
+  }))
 
   const units = useMemo(() => unitsQuery.data ?? [], [unitsQuery.data])
   const cards = assetRows.rows
@@ -128,6 +137,37 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
   }
 
   const columns: DataTableColumn<EntityRecord>[] = [
+    ...(can(ASSETS_POST)
+      ? [{
+          key: 'select',
+          label: t('assets.cardActions.select.column'),
+          hideStackLabel: true,
+          render: (c: EntityRecord) => {
+            const isChosen = chosen.some((x) => x.record_id === c.record_id)
+            const atCap = !isChosen && chosen.length >= MAX_LINES
+            const stop = (e: React.SyntheticEvent) => e.stopPropagation()
+            return (
+              <span
+                data-testid={`card-select-${c.record_id}`}
+                onClick={stop}
+                onMouseDown={stop}
+                onKeyDown={stop}
+              >
+                <Checkbox
+                  label={<span className="sr-only">{t('assets.cardActions.select.row', { number: textOf(c, 'inventory_number') })}</span>}
+                  checked={isChosen}
+                  disabled={atCap}
+                  onChange={(checked) =>
+                    setChosen((prev) =>
+                      checked ? [...prev, c] : prev.filter((x) => x.record_id !== c.record_id),
+                    )
+                  }
+                />
+              </span>
+            )
+          },
+        } satisfies DataTableColumn<EntityRecord>]
+      : []),
     { key: 'number', label: t('assets.col.number'), render: (c) => textOf(c, 'inventory_number'), mono: true, sortable: true, sortValue: (c) => textOf(c, 'inventory_number') },
     {
       key: 'name',
@@ -165,17 +205,17 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
   let detail
   if (creating) {
     detail = (
-      <>
+      <section className="lf-card">
         <DetailHeader title={t('assets.page.createTitle')} actions={closeButton} />
         <div className="lf-card__body">
           <AssetCardForm key="new" record={null} write={write} onDone={formDone} onCancel={closePanel} />
         </div>
-      </>
+      </section>
     )
   } else if (selected !== null) {
     const active = isActive(selected)
     detail = (
-      <>
+      <section className="lf-card">
         <DetailHeader
           title={textOf(selected, 'name') || textOf(selected, 'inventory_number')}
           path={textOf(selected, 'inventory_number') || undefined}
@@ -206,15 +246,12 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
           <AssetCardOperations card={selected} />
           <AssetCardHolder cardId={selected.record_id} />
         </div>
-      </>
+      </section>
     )
   } else {
-    detail = (
-      <div className="lf-card__body">
-        <EmptyState title={t('assets.page.pickTitle')} text={t('assets.page.pickHint')} data-testid="asset-pick-hint" />
-      </div>
-    )
+    detail = null
   }
+  const pickHint = <EmptyState title={t('assets.page.pickTitle')} text={t('assets.page.pickHint')} data-testid="asset-pick-hint" />
 
   const createButton = (
     <Button variant="primary" size="md" icon={<Plus className="lf-icon" aria-hidden="true" />} onClick={startCreate} data-testid="asset-create">
@@ -290,18 +327,17 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
           }
         />
       ) : (
-        <div
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && !e.defaultPrevented && panelOpen && !dialogOpen) closePanel()
-          }}
-        >
-          <MasterDetail
-            masterWidth="wide"
-            tools={tools}
-            detailOpen={panelOpen}
-            onBack={closePanel}
-            master={
-              <>
+        <ListDetail
+          screen="assets.cards"
+          listLabel={t('assets.page.listPane')}
+          listDefault={50}
+          listMin={380}
+          tools={tools}
+          list={
+            <>
+              {can(ASSETS_POST) && chosen.length > 0 && (
+                <AssetCardSelectionBar chosen={chosenWithFacts} onClear={() => setChosen([])} />
+              )}
               {assetRows.truncated ? (
                 <Banner tone="info">
                   <span data-testid="asset-truncated">
@@ -324,18 +360,23 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
                   </Button>
                 }
               />
-              {assetRows.hasMore ? (
-                <div className="lf-btn-row">
-                  <Button variant="secondary" size="md" loading={assetRows.loadingMore} onClick={assetRows.loadMore} data-testid="asset-load-more">
-                    {t('assets.page.loadMore')}
-                  </Button>
-                </div>
-              ) : null}
-              </>
-            }
-            detail={detail}
-          />
-        </div>
+            </>
+          }
+          listFooter={
+            assetRows.hasMore ? (
+              <div className="lf-btn-row">
+                <Button variant="secondary" size="md" loading={assetRows.loadingMore} onClick={assetRows.loadMore} data-testid="asset-load-more">
+                  {t('assets.page.loadMore')}
+                </Button>
+              </div>
+            ) : null
+          }
+          detail={detail}
+          empty={pickHint}
+          detailOpen={panelOpen}
+          onClose={closePanel}
+          escapeCloses={!dialogOpen}
+        />
       )}
       <ConfirmDialog
         open={retiring !== null}

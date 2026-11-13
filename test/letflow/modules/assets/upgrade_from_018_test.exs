@@ -1,9 +1,9 @@
 Code.require_file("documents_fixture.exs", __DIR__)
 
-defmodule Letflow.Modules.Assets.UpgradeFrom017Test do
+defmodule Letflow.Modules.Assets.UpgradeFrom018Test do
   @moduledoc """
-  REQ-825 criterion 5 (PM rule D-139): a tenant that holds assets 0.17.0 WITH real cards (legacy
-  currency texts) takes the upgrade to 0.18.0 (the currency migration release task, code only, pack
+  REQ-825 criterion 5 (PM rule D-139): a tenant that holds assets 0.18.0 WITH real cards (legacy
+  currency texts) takes the upgrade to 0.19.0 (the currency migration release task, code only, pack
   byte-identical) through the real tenant routes, and the cards survive untouched: the migration
   itself is a separate operator run. Committed tenants, Sandbox `:auto`, `async: false`.
   """
@@ -28,7 +28,7 @@ defmodule Letflow.Modules.Assets.UpgradeFrom017Test do
     {1, _} =
       Repo.update_all(
         from(m in TenantModule, where: m.module_id == "assets"),
-        [set: [version: "0.17.0", manifest_hash: @old_hash]],
+        [set: [version: "0.18.0", manifest_hash: @old_hash]],
         prefix: schema
       )
 
@@ -42,30 +42,30 @@ defmodule Letflow.Modules.Assets.UpgradeFrom017Test do
     |> Letflow.Router.call(Letflow.Router.init([]))
   end
 
-  test "U1 a tenant at 0.17.0 with real cards upgrades in place; the cards are untouched", ctx do
+  test "U1 a tenant at 0.18.0 with real cards upgrades in place; the cards are untouched", ctx do
     legacy = Cards.card!(ctx.schema, "U-1", %{"currency" => " Тенге "}).record_id
     plain = Cards.card!(ctx.schema, "U-2", %{"currency" => "KZT"}).record_id
 
     {:ok, entry} = Letflow.Modules.Catalog.fetch("assets")
-    assert entry.manifest().version == "0.18.0"
+    assert entry.manifest().version == "0.19.0"
 
     plan = post("/api/v1/tenant/modules/assets/upgrade/plan", ctx.tok_a, %{})
     assert plan.status == 200, plan.resp_body
     report = Jason.decode!(plan.resp_body)
-    assert report["from_version"] == "0.17.0"
+    assert report["from_version"] == "0.18.0"
     assert report["upgrade_path_available"] == true
     refute Enum.any?(report["entity_types"], &(&1["class"] in ["B", "C"]))
 
     up =
       post("/api/v1/tenant/modules/assets/upgrade", ctx.tok_a, %{
         "plan_hash" => report["plan_hash"],
-        "rationale" => "T-1896 assets 0.17.0 upgrade"
+        "rationale" => "T-1896 assets 0.18.0 upgrade"
       })
 
     assert up.status == 200, up.resp_body
 
     assert Repo.get_by!(TenantModule, [module_id: "assets"], prefix: ctx.schema).version ==
-             "0.18.0"
+             "0.19.0"
 
     assert {:ok, %{"currency" => " Тенге "}} = ReadApi.lookup(ctx.schema, legacy, ["assets_card"])
     assert {:ok, %{"currency" => "KZT"}} = ReadApi.lookup(ctx.schema, plain, ["assets_card"])

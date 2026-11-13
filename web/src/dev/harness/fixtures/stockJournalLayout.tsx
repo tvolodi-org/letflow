@@ -1,7 +1,7 @@
 /** Harness fixtures of GATE B rework I3 (T-1444): the Movements journal inside the REAL AppShell (fluid, collapsible side
  *  nav), with the divider between operations and legs, resizable columns and a remembered layout. Invented data only.
  *  The preferences route answers from an in-memory object: `-remembered` starts from a stored layout (side nav 320 px,
- *  details pane 38 %, narrower date column and legs place column), `-collapsed` from a collapsed side nav. */
+ *  operations list 62 %, narrower date column and legs place column), `-collapsed` from a collapsed side nav. */
 import { lazy, Suspense, type ReactElement } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { AuthContext, type AuthContextValue } from '@/auth/AuthContext'
@@ -18,10 +18,11 @@ import { journalRoutes } from './stockJournal'
 const AppShell = lazy(() => import('@/components/layout/AppShell').then((m) => ({ default: m.AppShell })))
 
 const SEED_COLLAPSED = { v: 1, shell: { sidenav: { collapsed: true } }, screens: {} }
+const SEED_LIST_COLLAPSED = { v: 1, shell: { sidenav: {} }, screens: { 'stock.journal': { panes: { list: [60] }, collapsed: { list: [0] } } } }
 const SEED_REMEMBERED = {
   v: 1,
   shell: { sidenav: { w: 320 } },
-  screens: { 'stock.journal': { panes: { details: [38] }, cols: { ops: { date: 12 }, legs: { loc: 30 } } } },
+  screens: { 'stock.journal': { panes: { list: [62] }, cols: { ops: { date: 12 }, legs: { loc: 30 } } } },
 }
 
 function routes(seed: object | null, forbidden = false): FixtureRoute[] {
@@ -79,6 +80,7 @@ function page(): ReactElement {
 export const stockJournalLayoutScreens: HarnessScreen[] = [
   { name: 'stock-journal-layout', routes: routes(null), render: page },
   { name: 'stock-journal-layout-remembered', routes: routes(SEED_REMEMBERED), render: page },
+  { name: 'stock-journal-layout-list-collapsed', routes: routes(SEED_LIST_COLLAPSED), render: page },
   { name: 'stock-journal-layout-collapsed', routes: routes(SEED_COLLAPSED), render: page },
   { name: 'stock-journal-layout-noperm', routes: routes(null, true), render: page },
 ]

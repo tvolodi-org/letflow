@@ -89,8 +89,27 @@ defmodule Letflow.Modules.Assets.LedgerPolicyTest do
     assert {:ok, _} = declare(cmd("handover", [line(side(), side(%{location: @loc_b}))]))
   end
 
+  test "LP-OPEN-1 opening: one positive leg at to, cause opening" do
+    to = %{org_unit: @unit_a, location: @loc, material_responsible: @resp, actual_user: @user}
+    assert {:ok, posting} = declare(cmd("opening", [line(nil, to)]))
+    assert posting.cause == "opening"
+    assert [%{k: key, quantity: q}] = posting.legs
+    assert key == k(@unit_a, @loc, @resp, @user)
+    assert Decimal.equal?(q, 1)
+  end
+
+  test "LP-OPEN-2 opening refuses every client time key and a from side" do
+    to = side()
+
+    for key <- [:event_time, :client_event_time, :device_id, :client_seq] do
+      refused(cmd("opening", [line(nil, to)], %{key => "x"}), 1)
+    end
+
+    refused(cmd("opening", [line(side(), to)]), 1)
+  end
+
   test "A8-POL-4 an unknown cause is refused at leg 1" do
-    for cause <- ["receipt", "opening", "other", nil, 1] do
+    for cause <- ["receipt", "other", nil, 1] do
       refused(cmd(cause, [line(nil, side())]), 1)
     end
 

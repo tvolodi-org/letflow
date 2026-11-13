@@ -307,3 +307,13 @@ samp {
 /* T-1873: the phone drawer shares z-modal with its scrim, and the scrim comes later in the DOM, so it covered the drawer
    (dimmed it and took its clicks, Reset layout and Sign out included). The open drawer sits one step above the scrim. */
 @media (max-width: 900px) { .lf-app.is-nav-open .lf-sidenav { z-index: calc(var(--z-modal) + 1); } }
+
+/* T-1887 (master-detail slice 1b): the journal divider collapses the operations list, like the balances screens: the first
+   column is the sized pane (--lf-pane-1, default 60 %), the legs take the rest. The design repo needs the same line on its
+   next release (`.lf-jrn { grid-template-columns: var(--lf-pane-1, 60%) minmax(0, 1fr); }`); it is kept here until then
+   because components.css is an exact copy of the release. The :not() keeps the full-screen details view (one column). */
+@container lfhost (min-width: 901px) {
+  .lf-jrn:not([data-detail="open"]) { grid-template-columns: var(--lf-pane-1, 60%) minmax(0, 1fr); }
+}
+/* Opening document (T-1877): the hints and the template button under the lines editor sit inside the card padding. */
+.lf-opening-help { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); }

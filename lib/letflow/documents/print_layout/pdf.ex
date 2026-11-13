@@ -25,12 +25,15 @@ defmodule Letflow.Documents.PrintLayout.Pdf do
   @doc """
   Serialises `%{pages: [[op]], cps: [code point], size: {w, h}}` into a PDF binary. With
   `footer: %{word: w, of: o}` (and the document's `margin`) every page gets a centred
-  "w k o M" line inside the bottom margin; without it the bytes are as before.
+  "w k o M" line inside the bottom margin; without it the bytes are as before. `marks: [{:rect, ...}]`
+  appends filled rectangles to every page (before the footer).
   """
   @spec build(map, keyword) :: binary
   def build(doc, opts \\ [])
 
   def build(%{pages: pages, cps: cps, size: {pw, ph}} = doc, opts) do
+    marks = Keyword.get(opts, :marks, [])
+    pages = if marks == [], do: pages, else: Enum.map(pages, &(&1 ++ marks))
     {pages, cps} = add_footer(pages, cps, pw, doc, Keyword.get(opts, :footer))
     cids = cps |> Enum.with_index(1) |> Map.new()
     page_count = length(pages)

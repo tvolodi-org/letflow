@@ -399,6 +399,83 @@
       },
       "process_key": "assets_kind_change",
       "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0085-000000004037",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "submit"
+          },
+          {
+            "id": "e2",
+            "source": "submit",
+            "target": "approve"
+          },
+          {
+            "id": "e3",
+            "source": "approve",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "role": "ASSETS_OPENING_SUBMIT"
+            },
+            "id": "submit",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "attributes": {
+              "distinct_from": [
+                "submit"
+              ],
+              "module_writes": [
+                {
+                  "args": {
+                    "document_id": {
+                      "var": "document_id"
+                    },
+                    "document_type": {
+                      "var": "document_type"
+                    },
+                    "mark": {
+                      "var": "mark"
+                    },
+                    "org_unit_id": {
+                      "var": "org_unit_id"
+                    },
+                    "posting": {
+                      "var": "posting"
+                    },
+                    "version_no": {
+                      "var": "version_no"
+                    }
+                  },
+                  "handler": "post_document",
+                  "module": "assets"
+                }
+              ],
+              "role": "TENANT_ADMIN"
+            },
+            "id": "approve",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "assets_opening",
+      "version": "1.0.0"
     }
   ],
   "entity_definitions": [

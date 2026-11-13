@@ -3,7 +3,7 @@ defmodule Letflow.Api.TasksReassignRoutedTest do
   Roles stage 0, slice S0-4 (decision 0088, `docs/design/roles-stage0-slices.md`): the permission
   `:TasksReassignRouted` replaces the TENANT_ADMIN role-name check in `Letflow.Tasks.authorize_reassign/3`.
 
-    * R1 the atom: last core permission, tenant scope, resolves to itself, no route gates on it;
+    * R1 the atom: second-to-last core permission, tenant scope, resolves to itself, no route gates on it;
     * R2 holders are exactly TENANT_ADMIN; PLATFORM_ADMIN is refused by the explicit false clause;
     * R3 non-assignable: not in `grantable/0`, the overlay cannot add it, Catalog cannot grant it;
     * R4 the false clause is narrow: no other permission changes for the two admin roles;
@@ -23,8 +23,8 @@ defmodule Letflow.Api.TasksReassignRoutedTest do
   @perm :TasksReassignRouted
   @golden "priv/permission_matrix/effective.golden"
 
-  test "R1 last core permission, tenant scope, resolves to itself, no route gates on it" do
-    assert List.last(Authorization.core_permissions()) == @perm
+  test "R1 second-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
+    assert Authorization.core_permissions() |> Enum.take(-2) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 

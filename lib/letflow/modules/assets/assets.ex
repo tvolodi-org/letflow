@@ -48,8 +48,13 @@ defmodule Letflow.Modules.Assets do
   **Asset opening document** (G5 part 1, version 0.10.0, GH #4037, decision 0083, proposed): a sixth document kind
   `opening` (existing cards enter the register at their posting time) on the same `/documents` routes, with record
   types `assets_opening` and `assets_opening_line`, the document type `assets_opening` (AOP), and the route
-  `POST /documents/:id/check` (every line's reasons, writes nothing). Drafts and the checks only: issuing an
-  opening answers 409 `posting_not_available` until part 2 adds the process and the ledger cause. No SQL migration.
+  `POST /documents/:id/check` (every line's reasons, writes nothing).
+
+  **Posting an opening** (G5 part 2, version 0.18.0, GH #4037, decision 0083 D1, D5, D6): the issue starts the process
+  `assets_opening` (the issuer completes `submit`, a second person completes `approve`, which runs `post_document`),
+  the ledger cause `opening` (positive, no client event time: the entry's event time is its posting time) puts each
+  card into the register once. Money and dates stay on the card; the posting carries only the placement. The
+  reversal is the generic `assets_reversal`. No SQL migration.
 
   **Card locks** (T-1490, version 0.13.0): `GET /cards/:id/lock` (`AssetsRead`) answers whether the card has a posted
   document; the card write path refuses a changed `inventory_number` or `kind` then (`CardLocks`).
@@ -183,7 +188,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.18.0",
+    version: "0.19.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
@@ -315,7 +320,8 @@ defmodule Letflow.Modules.Assets do
           "change" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "handover" => %{sign_rule: :zero_sum_by_slot_1, reason_required: false},
           "writeoff" => %{sign_rule: :negative, reason_required: true},
-          "kind_change_in" => %{sign_rule: :positive, reason_required: false}
+          "kind_change_in" => %{sign_rule: :positive, reason_required: false},
+          "opening" => %{sign_rule: :positive, reason_required: false}
         },
         key_bounds: [],
         permissions: %{

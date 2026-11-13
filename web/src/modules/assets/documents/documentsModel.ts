@@ -5,7 +5,7 @@ import { ASSETS_POST, ASSETS_REVERSE } from '../assetsPermissions'
 import { ASSETS_TIME_ZONE } from '../register/registerModel'
 import type { AssetDocument } from './assetDocuments.api'
 
-export const DOC_KINDS = ['commission', 'change', 'handover', 'writeoff', 'kind_change'] as const
+export const DOC_KINDS = ['commission', 'change', 'handover', 'writeoff', 'kind_change', 'opening'] as const
 export type DocKind = (typeof DOC_KINDS)[number]
 export const DOC_STATES = ['draft', 'issued', 'posted', 'reversed', 'cancelled'] as const
 /** `Posting.@reasons` (lib/letflow/modules/assets/documents/posting.ex). */
@@ -28,6 +28,8 @@ export const DOC_REASONS = [
   // Change of kind (REQ-759): the reasons of kind_change_checks.ex and of the stock tracking check (`tracking_reason`).
   'item_not_active', 'unit_not_valid', 'lot_not_valid', 'lot_required', 'lot_not_allowed', 'lot_expiry_missing',
   'tracking_invalid', 'location_not_active', 'inventory_number_taken',
+  // Opening (decision 0083): the issue-time refusals that are not line checks, and the external reference pair.
+  'register_unreadable', 'external_ref_taken', 'external_ref_pair',
 ] as const
 
 export interface DocumentsErrorInfo {
@@ -114,6 +116,11 @@ export interface SideView {
  *  commission and writeoff have one side (the same on both). */
 export function sidesOf(doc: AssetDocument): { from: SideView; to: SideView } {
   switch (doc.kind) {
+    case 'opening': {
+      // No sides: the place and the people are per line (0083 D3); only the org unit is on the header.
+      const none = { orgUnitId: doc.org_unit_id, locationId: null, responsibleId: null, userId: null }
+      return { from: none, to: none }
+    }
     case 'kind_change': {
       // No sides: the stock side and the asset side are per line (never read for this kind).
       const none = { orgUnitId: doc.org_unit_id, locationId: null, responsibleId: null, userId: null }
@@ -146,4 +153,5 @@ export const HEADER_KEYS: Record<DocKind, readonly string[]> = {
   handover: ['org_unit_id', 'from_location_id', 'from_material_responsible_id', 'from_actual_user_id', 'to_org_unit_id', 'to_location_id', 'to_material_responsible_id', 'to_actual_user_id', 'event_time', 'note'],
   writeoff: ['org_unit_id', 'location_id', 'material_responsible_id', 'actual_user_id', 'reason_code', 'reason_text', 'event_time', 'note'],
   kind_change: ['org_unit_id', 'event_time', 'reason_text', 'note'],
+  opening: ['org_unit_id', 'note', 'external_ref_system', 'external_ref_id'],
 }
