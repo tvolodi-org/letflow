@@ -3,13 +3,19 @@
 Task T-1846. Owner model (PM D-129): one preinstalled role, platform admin; the owner side creates the tenant admin; the tenant admin creates every other role of the tenant and picks its permissions from the list the modules declare.
 Design note only: no code, no migration, nothing on QA, production, demo, secrets, DNS, the public repository or money is changed. MES work is not touched.
 
-Legend: **V** = verified by reading the file on this branch (merged with origin/main at `2ae0eb23e`, 2026-11-13); the commands are in section 9. **G** = guess or proposal. **D** = decision still needed from the PM or the owner.
+Legend: **V** = verified by reading the file on this branch (merged with origin/main at `2ae0eb23e`, 2026-11-13); the commands are in section 9. **G** = guess or proposal. **D** = an item that was open when this note was written; every D item is now settled or placed in section 10.
+
+> **Decided (T-1851): decision record `docs/migration/decisions/0088-permission-only-access-tenant-defined-roles.md` is ACCEPTED
+> (D-131, corrected by D-132, 2026-11-13).** Permission-only checks and roles as data are decided. The **open build** ships the
+> ready-made roles as read-only template rows (the tenant admin assigns users, cannot create or edit roles); creating, copying,
+> editing and replacing roles (the editor described in this note) is the **closed** role editor package behind a socket (D-126).
+> Sections 2 to 6 describe that editor; section 7 and section 10 are updated below.
 
 ## 0. Short answer
 
 | Question | Answer |
 |---|---|
-| Can a tenant admin define roles and pick permissions? | Yes. The code already decides access by **permission**, through `role_allows?/2` in `lib/letflow/api/authorization.ex` (V). What is closed is the **list of role names** (nine atoms) and the mapping role to permissions, which is compiled in. Both become data. |
+| Can a tenant admin define roles and pick permissions? | Yes in the corporate build, through the closed role editor; the open build ships read-only template rows (0088 D10). The code already decides access by **permission**, through `role_allows?/2` in `lib/letflow/api/authorization.ex` (V). What is closed is the **list of role names** (nine atoms) and the mapping role to permissions, which is compiled in. Both become data. |
 | Is the operator's list of role-name sites complete? | No. It is right on every item it names (V), but it misses about ten more sites, among them the task-worker scope grants (`tasks.ex`, `routers/tasks.ex`, `scoped_approvers.ex`), `is_task_worker_only?/1`, the reassign rule in `tasks.ex`, the token mint rules and the tenant-admin guard (section 1). |
 | What already exists that we build on? | A per-tenant table `tenant_role` that binds a role **name** to a **group** (kinds `platform_role` and `process_routing_role`); users get role strings from group membership; scope grants (`role_scope_grants`) are keyed by role name (V). A tenant-defined role is a new kind of row on top of this, not a new assignment mechanism. |
 | Does "stockmanager replaces storekeeper" work? | Yes, once three STOREKEEPER-named sites are made permission-based (section 2.5) and the nine become template rows. Stock, assets, counts and imports then follow the permission set, not the name. |
@@ -150,7 +156,7 @@ Each rule is a test (named in the slice that builds it). The rules are in force 
 
 | Area | Today (V) | Change |
 |---|---|---|
-| Permission matrix golden | `priv/permission_matrix/effective.golden`, header "roles: 9", 791 lines, module versions in the header | The golden lists **fixed and template roles** only; tenant roles are data and never in the golden. Per edition: if custom roles are in the open build (section 7) there is one golden. A new permission still moves it (`mix letflow.permission_matrix --write`). |
+| Permission matrix golden | `priv/permission_matrix/effective.golden`, header "roles: 9", 791 lines, module versions in the header | The golden lists **fixed and template roles** only; tenant roles are data and never in the golden. Per edition: the role editor is closed and adds no permission (`open-core-sockets.md` section 1.3), so both editions share one golden. A new permission still moves it (`mix letflow.permission_matrix --write`). |
 | Parity and pin tests | `roles_matrix_parity_test.exs`, `authorization_tenant_auditor_test.exs` (refused core set), `authorization_test.exs` number words, `permission_matrix_test.exs`; about 576 test files mention TENANT_ADMIN and 38 mention STOREKEEPER (V counts, **classification not done**) | Almost all keep working because the template keys do not change. Tests that call `role_allows?/2` with a hand-built role atom need the stored-role path or a test helper that builds a role set. New tests listed in each slice. |
 | UAT roster | `test/fixtures/uat/actors.yaml`; `check_uat_scenario_schema` reads `known_role_names/0` | Add roster actors that hold a **tenant-defined role** (for example `stockmanager` in the stock tenant) and a `builtin_roles` equivalent for custom roles; the schema check reads the tenant's role keys. New scenario group: "tenant-defined roles" (create, edit, no escalation, last admin, replace storekeeper). |
 | Web | `web/src/auth/access/roles.ts` (`ROLES`, kept equal to `@roles` by `tests/guards/role-set.spec.ts`), `roleLabels.ts`, `fixtures.ts` | The guard compares the web list with the **fixed and template keys** from the server; a new roles admin page (list, create, copy template, edit permissions with the catalogue, retire) in the admin area; role pickers on the groups page and the token page read the tenant's roles. Screen work needs the shots matrix of the design system skill. |
@@ -174,12 +180,13 @@ Order: R1, R2, R3, then R4 and R5 one after the other, R6, R7; removal of the co
 
 ## 7. Effect on open core (D-126) and `docs/design/open-core-sockets.md`
 
+Decided by D-132 (0088 D10); `open-core-sockets.md` is updated to match (T-1851).
+
 | Question | Answer |
 |---|---|
-| What changes in T-1842's assumption A (nine fixed built-ins in the open build, custom roles closed)? | Assumption A (V, `docs/uat/ba-decisions/T-1842.md`, "Two roles versus nine") no longer holds. Under D-129 the owner model has **one** preinstalled role and the tenant creates the rest, and the test case "stockmanager replaces storekeeper" is a customer need for every edition. So: the open build ships the two fixed roles **plus the seven templates as data**, and **custom roles are part of the open build**. Section 1.6 of `open-core-sockets.md` ("two roles or nine") is answered: neither; two fixed plus templates. |
-| What is left for the role socket? | The socket stays but its content changes: it no longer decides "are custom roles on"; it can carry **closed extras** on top of open roles. Candidates (G): approval of role changes by a second person; role-change audit export; role and permission review reports (periodic access review); limits above the open cap (S12); roles shared across companies of one customer. |
-| Edits to `open-core-sockets.md` needed (not made here; that note is T-1842's) | Section 1.2 (custom roles are data in the open core); section 1.3 interface: `custom_roles_enabled?/1` goes; `role_catalog/1` returns the tenant's rows; section 1.4 sizes become slices R1 to R3; section 1.5 (migration) is replaced by section 4 of this note. Sections 2 and 3 (build, tests per edition) stay. |
-| Re-ranked list of first closed features (from T-1842 section 4) | 1. **Licence and feature-flag check** (every closed feature needs it; S to M). 2. **Audit export and retention** (sold, company-scale, works on the audit the role slices already write; M). 3. **Identity provider seam** (company-scale; M to L). 4. Module loader for packages outside the tree; signed packages (needed once there is something closed to ship). 5. Sign-in extras. The role socket is no longer first: it drops to "closed extras of role management" after the open slices R1 to R3 land. |
+| What changes in T-1842's assumption A (nine fixed built-ins in the open build, custom roles closed)? | Its outcome stands with a new form: the open build keeps the nine roles, now as data (two protected admin rows and seven read-only template rows), and custom roles stay closed. Section 1.6 of `open-core-sockets.md` ("two roles or nine") is answered: nine rows as data. The test case "stockmanager replaces storekeeper" is a corporate-build case (closed role editor). |
+| What is the role socket? | The role editor socket (`open-core-sockets.md` section 1.3): open default "no editor"; the closed package mounts the editor, which writes only through the core role write path. No socket on the access decision. |
+| First closed features | 1. The role editor. Then the candidates in `docs/design/open-core-closed-candidates.md` (audit export and retention, several sign-in realms, print template designer, advanced reports); the licence check is a precondition. |
 
 ## 8. Effect on the fixed asset count spec (T-1844)
 
@@ -204,13 +211,13 @@ Commands run from the worktree (`git merge origin/main` first; HEAD `2ae0eb23e`)
 
 **Sources not read:** the T-1844 spec; `Catalog.manifest_hash` and the MES upgrade plan U1-U2 (so the hash effect in section 4 is a guess); the D-129, D-126 and D-097 texts themselves (taken from the task text and from the code comments that cite them); the contents of the 576 and 38 test files; `docs/roles.md` beyond the statement quoted in `open-core-sockets.md`; the portfolio repository (not reachable from the worktree).
 
-## 10. Open decisions
+## 10. Decisions on the former open points
 
-| # | Question | Proposed default (G) |
+| # | Question | Decision |
 |---|---|---|
-| D-1 | Which permission lets someone manage roles? | A new tenant-scope permission held only by TENANT_ADMIN and not assignable. |
-| D-2 | Do module upgrades widen the roles a tenant copied? | No; the editor shows what is new. Only template rows follow module defaults. |
-| D-3 | How are scoped task grants and "task worker only" expressed with permissions? | By permission `TasksComplete` held through the role of the grant. Needs a design step with the security reviewer before R5. |
-| D-4 | Limits on roles per tenant and permissions per role | Owner or PM to give numbers; none invented here. |
-| D-5 | Read-only flag on a role (so an auditor-like role can never receive a write permission) | Yes, optional; ledger lint stays on template keys. |
-| D-6 | Is anything in the open build to be limited for a free edition? | Not decided here; see section 7. |
+| D-1 | Which permission lets someone manage roles? | The existing `UsersGroupsRolesManage`, non-assignable (0088 D4); the closed editor's routes use it (`open-core-sockets.md` 1.3). |
+| D-2 | Do module upgrades widen the roles a tenant copied? | No (0088 D7, O3 a). |
+| D-3 | How are scoped task grants and "task worker only" expressed with permissions? | Scoped task work: slice S0-2 of `docs/design/roles-stage0-slices.md` (its security ruling is a reviewer's step). Task list: ruled in `docs/design/storekeeper-task-visibility-ruling.md` (T-1850). |
+| D-4 | Limits on roles per tenant and permissions per role | No limits now (0088 O6). Reminder (2026-11-13): a number is needed before the closed role editor is built. |
+| D-5 | Read-only flag on a role | Stage 2 of the slice list carries the `read_only` flag; the ledger lint stays on template keys. |
+| D-6 | Is anything in the open build limited for a free edition? | Role creation and editing are closed (D-132, 0088 O5); nothing else is limited by this note. |
