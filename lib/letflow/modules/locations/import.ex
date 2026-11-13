@@ -36,9 +36,9 @@ defmodule Letflow.Modules.Locations.Import do
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
-  @importable ~w(code name node_kind parent_id segment address location_type)
+  @importable ~w(code name node_kind parent_id segment address location_type customer_location)
   @ignored ~w(external_ref_system external_ref_id)
-  @plain ~w(name node_kind segment address location_type)
+  @plain ~w(name node_kind segment address location_type customer_location)
   @required ~w(code name node_kind)
 
   @spec row(prefix :: String.t(), entry :: map(), ctx :: map()) ::
