@@ -16,7 +16,7 @@ const SCREEN_PATH: Record<AssetsHelpTopic, string> = {
   movements: '/admin/assets/movements',
 }
 
-function Topic({ topic }: { topic: AssetsHelpTopic }) {
+function Topic({ topic, withBack }: { topic: AssetsHelpTopic; withBack: boolean }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   return (
@@ -24,13 +24,22 @@ function Topic({ topic }: { topic: AssetsHelpTopic }) {
       <HelpTopicView
         text={readTopic('assets', topic, t)}
         headings={{ purpose: t('assets.help.h.purpose'), tasks: t('assets.help.h.tasks'), refusals: t('assets.help.h.refusals') }}
-        back={{ to: SCREEN_PATH[topic], label: t('assets.help.back') }}
+        back={withBack ? { to: SCREEN_PATH[topic], label: t('assets.help.back') } : undefined}
       />
     </RequirePermission>
   )
 }
 
+/** The topic text without the route chrome, for the Help side panel (T-1872). */
+export function AssetsHelpBody({ topic }: { topic: AssetsHelpTopic }) {
+  return (
+    <AssetsIntlProvider>
+      <Topic topic={topic} withBack={false} />
+    </AssetsIntlProvider>
+  )
+}
+
 export default function AssetsHelpPage() {
   const { topic } = useParams()
-  return <AssetsIntlProvider>{isAssetsHelpTopic(topic) ? <Topic topic={topic} /> : <NotFoundPage />}</AssetsIntlProvider>
+  return <AssetsIntlProvider>{isAssetsHelpTopic(topic) ? <Topic topic={topic} withBack /> : <NotFoundPage />}</AssetsIntlProvider>
 }
