@@ -18,6 +18,12 @@ defmodule Letflow.Modules.Assets.Cards do
   `{:record_payload_invalid, violations}`. Money and depreciation fields are stored as given, never
   calculated.
 
+  `depreciation_method`, when sent, is one of `depreciation_methods/0`, empty (clears the field) or
+  equal to the value already stored on the card (`{:field_invalid, "depreciation_method"}`; owner
+  decision D-134, T-1871). Values stored before assets 0.17.0 stay as they are; they are not mapped
+  or rewritten, and the card stays editable. The check lives here, not in the entity definition, so
+  the definition keeps `string` and a legacy value never fails another edit.
+
   The card has no location, quantity or responsible-person field: those rules belong to the
   commission document (REQ-751).
 
@@ -65,6 +71,11 @@ defmodule Letflow.Modules.Assets.Cards do
   # The import is the one channel that may still carry the unit (D-097; G6 revisits it).
   @import_allowed ["org_unit_id" | @allowed]
   @required ~w(inventory_number name kind)
+  @depreciation_methods ~w(straight_line reducing_balance units_of_production)
+
+  @doc "Codes of the depreciation methods a card may carry (D-134); information only, never calculated."
+  @spec depreciation_methods() :: [String.t()]
+  def depreciation_methods, do: @depreciation_methods
 
   @doc """
   Creates an active card in tenant schema `prefix` and returns the live record map (string keys,
@@ -86,6 +97,7 @@ defmodule Letflow.Modules.Assets.Cards do
 
         with :ok <- ImportRow.check_keys(attrs, allowed_keys(opts)),
              :ok <- check_org_unit(prefix, attrs, opts),
+             :ok <- check_method(attrs, %{}),
              :ok <- check_rules(prefix, fv),
              {:ok, record_id} <- create_doc(prefix, fv, actor_id, idem),
              {:ok, card} <- ReadApi.lookup(prefix, record_id, @types),
@@ -114,6 +126,7 @@ defmodule Letflow.Modules.Assets.Cards do
     check = fn card, fv, merged ->
       with :ok <- ImportRow.check_keys(attrs, allowed_keys(opts)),
            :ok <- check_org_unit(prefix, attrs, opts),
+           :ok <- check_method(attrs, fv),
            :ok <- CardLocks.check(prefix, card["record_id"], fv, merged),
            :ok <- check_rules(prefix, merged) do
         if merged == fv, do: :noop, else: :ok
@@ -247,6 +260,24 @@ defmodule Letflow.Modules.Assets.Cards do
   defp import?(opts), do: Map.get(opts, :holder_source) == :import
 
   # Only the import can carry a unit; a present unit must be live and active.
+  defp check_method(attrs, stored) do
+    case Map.fetch(attrs, "depreciation_method") do
+      :error ->
+        :ok
+
+      {:ok, v} when v in [nil, ""] ->
+        :ok
+
+      {:ok, v} when v in @depreciation_methods ->
+        :ok
+
+      {:ok, v} ->
+        if v == Map.get(stored, "depreciation_method"),
+          do: :ok,
+          else: {:error, {:field_invalid, "depreciation_method"}}
+    end
+  end
+
   defp check_org_unit(prefix, attrs, opts) do
     if import?(opts) and not blank?(Map.get(attrs, "org_unit_id")) do
       if org_unit_active?(prefix, attrs["org_unit_id"]),
