@@ -14,11 +14,18 @@ defmodule Letflow.Scripts.CheckRealmRolesTest do
   @runbook Path.expand("../../docs/runbooks/onboarding-new-tenant-realm.md", __DIR__)
   @demo_dir Path.expand("../../docs/runbooks/demo-realm", __DIR__)
 
-  @tenant_required ~w(TENANT_ADMIN PROCESS_DESIGNER PROCESS_OPERATOR TASK_WORKER CANDIDATE TENANT_AUDITOR STOREKEEPER)
-  @optional ~w(AGENT_RUNNER)
-  @platform_only ~w(PLATFORM_ADMIN)
+  @required ~w(AGENT_RUNNER CANDIDATE PLATFORM_ADMIN PROCESS_DESIGNER PROCESS_OPERATOR STOREKEEPER TASK_WORKER TENANT_ADMIN TENANT_AUDITOR)
+  @template Path.expand("../../priv/keycloak/realms/bpm-default.json", __DIR__)
 
   defp run(args), do: System.cmd("python3", ["-I", "-B", @script | args], stderr_to_stdout: true)
+
+  defp realm_names(path) do
+    path
+    |> File.read!()
+    |> Jason.decode!()
+    |> get_in(["roles", "realm"])
+    |> Enum.map(& &1["name"])
+  end
 
   defp realm_file(names) do
     path =
@@ -30,30 +37,33 @@ defmodule Letflow.Scripts.CheckRealmRolesTest do
     path
   end
 
-  test "the committed demo realm fixtures carry every required role" do
+  test "the committed fixtures (template and demo realms) carry all nine roles" do
     assert Path.wildcard(Path.join(@demo_dir, "*.json")) != []
     {out, code} = run([])
     assert code == 0, out
+    assert out =~ "bpm-default.json: ok"
+    assert out =~ "demo-platform.json: ok"
+  end
+
+  test "the template fixture without STOREKEEPER fails" do
+    copy = realm_file(realm_names(@template) -- ["STOREKEEPER"])
+    {out, code} = run([copy])
+    assert code == 1
+    assert out =~ "missing realm roles: STOREKEEPER"
+    assert realm_names(@template) |> Enum.sort() == Enum.sort(@required)
   end
 
   test "a realm without STOREKEEPER fails and names it" do
-    path = realm_file(@tenant_required -- ["STOREKEEPER"])
-    {out, code} = run([path])
+    {out, code} = run([realm_file(@required -- ["STOREKEEPER"])])
     assert code == 1
     assert out =~ "missing realm roles: STOREKEEPER"
   end
 
-  test "a complete tenant realm passes, AGENT_RUNNER is optional" do
-    {out, code} = run([realm_file(@tenant_required)])
-    assert code == 0, out
-  end
-
-  test "--platform also requires PLATFORM_ADMIN" do
-    path = realm_file(@tenant_required)
-    {out, code} = run(["--platform", path])
+  test "PLATFORM_ADMIN and AGENT_RUNNER are required too" do
+    {out, code} = run([realm_file(@required -- ["PLATFORM_ADMIN", "AGENT_RUNNER"])])
     assert code == 1
-    assert out =~ "PLATFORM_ADMIN"
-    {_, 0} = run(["--platform", realm_file(@tenant_required ++ @platform_only)])
+    assert out =~ "AGENT_RUNNER, PLATFORM_ADMIN" or out =~ "PLATFORM_ADMIN"
+    {_, 0} = run([realm_file(@required)])
   end
 
   test "an unreadable export is refused with exit 2" do
@@ -61,10 +71,9 @@ defmodule Letflow.Scripts.CheckRealmRolesTest do
     assert code == 2
   end
 
-  test "every built-in role is classified, and the runbook names each one" do
-    classified = @tenant_required ++ @optional ++ @platform_only
+  test "the required list is the built-in role set, and the runbook names each" do
     builtin = Authorization.roles() |> Enum.map(&Atom.to_string/1)
-    assert Enum.sort(classified) == Enum.sort(builtin)
+    assert Enum.sort(@required) == Enum.sort(builtin)
 
     runbook = File.read!(@runbook)
     for role <- builtin, do: assert(runbook =~ role, "runbook does not name #{role}")

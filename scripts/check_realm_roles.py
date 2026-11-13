@@ -1,34 +1,33 @@
 #!/usr/bin/env python3
-"""Fail when a Keycloak realm export lacks a realm role every tenant realm must carry.
+"""Fail when a Keycloak realm export lacks one of the nine built-in realm roles.
 
-Usage: python3 -I scripts/check_realm_roles.py [--platform] [realm.json ...]
+Usage: python3 -I scripts/check_realm_roles.py [realm.json ...]
 
-With no path it checks the committed fixtures docs/runbooks/demo-realm/*.json.
-Required in every realm: the tenant roles below (the built-in roles of
-lib/letflow/api/authorization.ex @roles that come from the IdP). `--platform` also
-requires PLATFORM_ADMIN (platform realm only); a tenant realm must never carry it,
-which is a different check (the template drift test). AGENT_RUNNER is optional.
-Stdlib only; exit 0 = all present, 1 = something missing, 2 = unreadable input.
+A realm cloned from the template carries ALL nine built-in roles of
+lib/letflow/api/authorization.ex @roles (PM decision, T-1862). With no path it checks the
+committed fixtures: priv/keycloak/realms/bpm-default.json (the template fixture) and
+docs/runbooks/demo-realm/*.json. Stdlib only; exit 0 = all present, 1 = something
+missing, 2 = unreadable input.
 """
 import glob
 import json
 import os
 import sys
 
-TENANT_REQUIRED = [
-    "TENANT_ADMIN",
+REQUIRED = [
+    "AGENT_RUNNER",
+    "CANDIDATE",
+    "PLATFORM_ADMIN",
     "PROCESS_DESIGNER",
     "PROCESS_OPERATOR",
-    "TASK_WORKER",
-    "CANDIDATE",
-    "TENANT_AUDITOR",
     "STOREKEEPER",
+    "TASK_WORKER",
+    "TENANT_ADMIN",
+    "TENANT_AUDITOR",
 ]
-OPTIONAL = ["AGENT_RUNNER"]
-PLATFORM_ONLY = ["PLATFORM_ADMIN"]
 
 
-def missing(path, platform):
+def missing(path):
     try:
         with open(path, encoding="utf-8") as fh:
             realm = json.load(fh)
@@ -36,23 +35,18 @@ def missing(path, platform):
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"{path}: unreadable realm export ({type(exc).__name__})", file=sys.stderr)
         sys.exit(2)
-    need = TENANT_REQUIRED + (PLATFORM_ONLY if platform else [])
-    return [r for r in need if r not in names]
+    return [r for r in REQUIRED if r not in names]
 
 
 def main(argv):
-    platform = "--platform" in argv
     paths = [a for a in argv if not a.startswith("--")]
     if not paths:
         root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-        paths = sorted(glob.glob(os.path.join(root, "docs/runbooks/demo-realm/*.json")))
-        platform = True  # the demo fixtures are platform-and-tenant demo realms
-    if not paths:
-        print("no realm export found", file=sys.stderr)
-        return 2
+        paths = [os.path.join(root, "priv/keycloak/realms/bpm-default.json")]
+        paths += sorted(glob.glob(os.path.join(root, "docs/runbooks/demo-realm/*.json")))
     bad = False
     for p in paths:
-        gone = missing(p, platform)
+        gone = missing(p)
         if gone:
             bad = True
             print(f"{p}: missing realm roles: {', '.join(gone)}")
