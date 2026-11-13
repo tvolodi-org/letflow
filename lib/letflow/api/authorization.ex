@@ -127,6 +127,12 @@ defmodule Letflow.Api.Authorization do
     while every role holding Import also holds `:EntitiesRecordsWrite`, which
     `test/letflow/api/gh2659_import_implies_write_test.exs` pins over the
     effective-permission golden.
+  * `:EntitiesRecordsImportAnyType` (roles stage 0 S0-1) — **not** route-level.
+    `Letflow.Routers.Entities.RecordImport` checks it in-handler: a caller who holds
+    `:EntitiesRecordsImport` without it imports only the module-managed type `stock` /
+    `stock_opening_line` (decision 0081 D4), and the scope set of every other type is computed
+    for this permission, so a tenant-wide grant of a role without it never widens a scoped
+    import. Held by TENANT_ADMIN and PLATFORM_ADMIN only.
 
   Per design §5, this requirement deliberately adds **no** new
   `role_allows?/2` clause for `PROCESS_DESIGNER`, `PROCESS_OPERATOR`, or
@@ -371,6 +377,7 @@ defmodule Letflow.Api.Authorization do
           | :EntitiesExtensionsManage
           | :IntegrationMappingsManage
           | :EntitiesViewsManage
+          | :EntitiesRecordsImportAnyType
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -554,7 +561,9 @@ defmodule Letflow.Api.Authorization do
     # REQ-596 (GH #3353): tenant solution-pack overrides. Tenant scope; TENANT_ADMIN through the derived rule.
     :SolutionOverridesManage,
     # REQ-609 (GH #3417): tenant x_ extension layer. Tenant scope; TENANT_ADMIN through the derived rule.
-    :EntitiesExtensionsManage
+    :EntitiesExtensionsManage,
+    # Roles stage 0 S0-1 (decision 0088, docs/design/roles-stage0-slices.md): import of any entity type. Tenant scope; TENANT_ADMIN through the derived rule.
+    :EntitiesRecordsImportAnyType
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -577,7 +586,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All fifty-seven core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All fifty-eight core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -611,7 +620,9 @@ defmodule Letflow.Api.Authorization do
   REQ-579's `:DocumentPrintTemplatesManage` (tenant print-template overrides under
   `/documents/print-overrides`) and REQ-596's `:SolutionOverridesManage` (tenant solution-pack
   overrides under `/solution-packs/:pack_id/overrides`), each TENANT_ADMIN through the derived rule,
-  plus RU-S6's platform-scope `:ModuleRolloutsManage` (the fleet driver, PLATFORM_ADMIN only).
+  plus RU-S6's platform-scope `:ModuleRolloutsManage` (the fleet driver, PLATFORM_ADMIN only), plus
+  roles stage 0 S0-1's `:EntitiesRecordsImportAnyType` (import of any entity type; TENANT_ADMIN through the
+  derived rule; STOREKEEPER does not hold it).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -2067,8 +2078,8 @@ defmodule Letflow.Api.Authorization do
   # D-093 / decision 0081: STOREKEEPER holds the stock permissions through the
   # stock manifest's role_grants (Catalog fallback in role_allows?/2). This is
   # the closed CORE list: own tasks (count and approval tasks), reference-data
-  # reads for forms and pickers, and the xlsx import of opening lines (guarded
-  # in Routers.Entities.RecordImport to module-managed types). No write,
+  # reads for forms and pickers, and the xlsx import of opening lines (it does not hold
+  # `:EntitiesRecordsImportAnyType`, so Routers.Entities.RecordImport limits it to `stock_opening_line`). No write,
   # manage, export, token, user, role, module, settings or audit permission,
   # never a platform-scope one.
   defp core_role_allows?(:STOREKEEPER, permission),
