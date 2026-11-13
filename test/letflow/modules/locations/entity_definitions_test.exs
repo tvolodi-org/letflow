@@ -2,7 +2,7 @@ defmodule Letflow.Modules.Locations.EntityDefinitionsTest do
   @moduledoc """
   GH #3501 / REQ-625 criterion 1 (tests E-1a..E-1d): reads the committed source document
   `priv/modules/locations/entity_definitions/location_node.json` and asserts the exact shape the
-  requirement fixes: the ten fields with type, required and queried flags, the two enums, the three
+  requirement fixes: the eleven fields with type, required and queried flags, the two enums, the three
   unique constraints, no `foreign_keys`.
 
   Pure file reads: no database. `async: true`.
@@ -22,6 +22,7 @@ defmodule Letflow.Modules.Locations.EntityDefinitionsTest do
     {"segment", "string", false, true},
     {"address", "string", false, true},
     {"location_type", "enum", false, true},
+    {"customer_location", "boolean", false, true},
     {"active", "boolean", true, true},
     {"external_ref_system", "string", false, true},
     {"external_ref_id", "string", false, true}
@@ -39,7 +40,7 @@ defmodule Letflow.Modules.Locations.EntityDefinitionsTest do
              ~w(constraints display_name fields foreign_keys indexes name)
   end
 
-  test "E-1b: exactly the ten fields with exact type, required and queried flags" do
+  test "E-1b: exactly the eleven fields with exact type, required and queried flags" do
     actual =
       for f <- doc()["fields"] do
         {f["name"], f["type"], Map.get(f, "required", false), Map.get(f, "queried", false)}

@@ -292,6 +292,8 @@ defmodule Letflow.Modules.Assets.CardsRouterTest do
     dup = ok!(card(ctx.tok_a, :post, "/cards", body(ctx.unit_a, "H3-DUP")), 201)
     r = ok!(card(ctx.tok_a, :post, "/cards", body(ctx.unit_a, dup["inventory_number"])), 422)
     assert r["reason"] == "record_payload_invalid"
+    # T-1865: the duplicate names the field, so the web form can show it
+    assert r["fields"] == ["inventory_number"]
   end
 
   test "H-4: a failing audit table answers 500 and writes nothing", ctx do

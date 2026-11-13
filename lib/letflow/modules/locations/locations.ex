@@ -71,7 +71,10 @@ defmodule Letflow.Modules.Locations do
   @impl true
   defmanifest(
     id: "locations",
-    version: "0.4.0",
+    version: "0.5.0",
+    # 0.5.0 only adds the optional boolean `customer_location` to location_node (class A), so a
+    # tenant on 0.4.0 upgrades in place without a step.
+    min_upgradable_from: "0.4.0",
     depends_on: ["org"],
     pack: "modules/locations/pack.json",
     permissions: [:LocationsWrite],
