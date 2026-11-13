@@ -33,26 +33,26 @@ const sideOf = (r: AssetBalanceRow): SideForm => ({
 
 const ONE_UNIT = ['fixed', 'intangible']
 
-/** The form of a new document of `kind` with `cards` as its lines. `manyHolders` is true when the holder could not be
- *  taken as one (a card in several places, or cards of different holders): the header is then left empty. */
+/** The form of a new document of `kind` with `cards` as its lines. `manyHolders` is `'card'` when one card is held in
+ *  several places, `'cards'` when multiple cards have different holders, false when the header could be taken as one. */
 export function prefillForm(
   kind: DocKind,
   cards: PrefillCard[],
   rowsById: Record<string, AssetBalanceRow[] | undefined>,
   eventTime?: string,
-): { form: FormState; manyHolders: boolean } {
+): { form: FormState; manyHolders: 'card' | 'cards' | false } {
   const form = emptyForm(kind, eventTime)
   if (kind === 'kind_change' || cards.length === 0) return { form, manyHolders: false }
-  let manyHolders = false
+  let manyHolders: 'card' | 'cards' | false = false
   const holders: AssetBalanceRow[] = []
   const lines = cards.map((c) => {
     const rows = rowsById[c.id] ?? []
     let quantity = '1'
     if (kind !== 'commission' && rows.length > 0) {
       if (rows.length === 1 && !ONE_UNIT.includes(c.kind)) quantity = trimZeros(rows[0].quantity)
-      if (rows.length > 1) manyHolders = true
+      if (rows.length > 1) manyHolders = manyHolders === 'cards' ? 'cards' : 'card'
       else if (holders.length === 0) holders.push(rows[0])
-      else if (!sameRow(holders[0], rows[0])) manyHolders = true
+      else if (!sameRow(holders[0], rows[0])) manyHolders = 'cards'
     }
     return { assetId: c.id, quantity }
   })
@@ -68,7 +68,6 @@ export function prefillForm(
   const holder = holders[0]
   if (holder !== undefined && !manyHolders) {
     form.from = sideOf(holder)
-    // hand over: the To unit and place start as the From ones (the form keeps copying until To is touched)
     if (kind === 'handover') form.to = { ...emptySide(), orgUnitId: holder.org_unit, locationId: holder.location ?? '' }
   }
   return { form, manyHolders }

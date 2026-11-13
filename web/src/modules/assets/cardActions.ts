@@ -82,6 +82,22 @@ export function cardActionState(id: CardActionId, f: CardFacts): CardActionState
   return reason === null ? { allowed: true } : { allowed: false, reasonId: `assets.cardActions.reason.${reason}` }
 }
 
+export type SelectionActionState = { allowed: true } | { allowed: false; reasonId: string; number: string }
+
+/** Returns allowed if the action is allowed for EVERY item in the list; otherwise the first blocker's reason and number.
+ *  Empty list → noneSelected. Any loading fact → loading. */
+export function selectionActionState(
+  id: CardActionId,
+  items: { number: string; facts: CardFacts }[],
+): SelectionActionState {
+  if (items.length === 0) return { allowed: false, reasonId: 'assets.cardActions.reason.noneSelected', number: '' }
+  for (const { number, facts } of items) {
+    const state = cardActionState(id, facts)
+    if (!state.allowed) return { allowed: false, reasonId: state.reasonId, number }
+  }
+  return { allowed: true }
+}
+
 export function newDocumentHref(kind: string, assetIds: string[]): string {
   const p = new URLSearchParams({ kind })
   for (const id of assetIds) p.append('asset', id)

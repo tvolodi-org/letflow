@@ -1,7 +1,7 @@
 /** U1, U3 — T-1880 / D-135: the card action rule (every cell of the status x action table of docs/assets/card-actions.md)
  *  and the pre-fill of a document started from cards. Pure, no network. */
 import { describe, expect, it } from 'vitest'
-import { CARD_ACTIONS, cardActionState, cardHref, cardStatus, newDocumentHref, type CardActionId, type CardActionState, type CardFacts } from '../cardActions'
+import { CARD_ACTIONS, cardActionState, cardHref, cardStatus, newDocumentHref, selectionActionState, type CardActionId, type CardActionState, type CardFacts } from '../cardActions'
 import { assetParams, prefillForm } from '../cardPrefill'
 import type { AssetBalanceRow } from '../register/assetRegister.api'
 
@@ -83,7 +83,7 @@ describe('U3 pre-fill', () => {
   it('several holder rows: lines filled, header empty, manyHolders', () => {
     const card = { id: 'c-2', kind: 'low_value', orgUnitId: '' }
     const { form, manyHolders } = prefillForm('handover', [card], { 'c-2': [row(), row({ org_unit: 'u-2' })] }, T)
-    expect(manyHolders).toBe(true)
+    expect(manyHolders).toBe('card')
     expect(form.lines).toEqual([{ assetId: 'c-2', quantity: '1' }])
     expect(form.from.orgUnitId).toBe('')
     expect(form.to.orgUnitId).toBe('')
@@ -102,5 +102,41 @@ describe('U3 pre-fill', () => {
     expect(assetParams(p)).toEqual(['a', 'b'])
     const many = new URLSearchParams(Array.from({ length: 130 }, (_, i) => `asset=c${i}`).join('&'))
     expect(assetParams(many)).toHaveLength(100)
+  })
+})
+
+describe('S1 selectionActionState', () => {
+  it('all allowed → allowed', () => {
+    const items = [
+      { number: 'FA-1', facts: facts({ held: true, rows: [row()] }) },
+      { number: 'FA-5', facts: facts({ held: true, rows: [row()] }) },
+    ]
+    expect(selectionActionState('change', items)).toEqual({ allowed: true })
+    expect(selectionActionState('commission', items)).toEqual({ allowed: false, reasonId: R + 'held', number: 'FA-1' })
+  })
+  it('first blocker in list order', () => {
+    const items = [
+      { number: 'FA-5', facts: facts({ held: true, rows: [row()] }) },
+      { number: 'FA-3', facts: facts({ held: false, rows: [] }) },
+    ]
+    expect(selectionActionState('change', items)).toEqual({ allowed: false, reasonId: R + 'notInRegister', number: 'FA-3' })
+    expect(selectionActionState('commission', items)).toEqual({ allowed: false, reasonId: R + 'held', number: 'FA-5' })
+  })
+  it('empty list → noneSelected', () => {
+    expect(selectionActionState('change', [])).toEqual({ allowed: false, reasonId: 'assets.cardActions.reason.noneSelected', number: '' })
+  })
+  it('one loading → loading', () => {
+    const items = [
+      { number: 'FA-1', facts: facts({ rows: undefined, held: undefined }) },
+      { number: 'FA-5', facts: facts({ held: true, rows: [row()] }) },
+    ]
+    expect(selectionActionState('change', items)).toEqual({ allowed: false, reasonId: R + 'loading', number: 'FA-1' })
+  })
+  it('manyHolders: cards variant when multiple cards differ', () => {
+    const T2 = '2026-11-13T10:00'
+    const c1 = { id: 'c-1', kind: 'fixed', orgUnitId: '' }
+    const c2 = { id: 'c-2', kind: 'fixed', orgUnitId: '' }
+    const { manyHolders } = prefillForm('change', [c1, c2], { 'c-1': [row()], 'c-2': [row({ org_unit: 'u-2' })] }, T2)
+    expect(manyHolders).toBe('cards')
   })
 })

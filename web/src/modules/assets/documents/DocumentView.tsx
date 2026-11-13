@@ -24,6 +24,8 @@ import { Button } from '@/components/ui/Button'
 import { assetsQueryKeys } from '../assetsQueryKeys'
 import { ASSETS_CARD_WRITE } from '../assetsPermissions'
 import { cardHref } from '../cardActions'
+import { textOf } from '../assetsModel'
+import { useCardById } from '../AssetsShell'
 import { useNames } from '../assetsNames'
 import { RegisterError } from '../register/RegisterShell'
 import { movementsLinkFor, type NameIds } from '../register/registerModel'
@@ -70,7 +72,7 @@ function nameIds(doc: AssetDocument): NameIds {
   return out
 }
 
-export function DocumentView({ id, onBack, cardId }: { id: string; onBack: () => void; cardId?: string }) {
+export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () => void; cardIds?: string[] }) {
   const intl = useIntl()
   const t = (m: string) => intl.formatMessage({ id: m })
   const { session } = useAuth()
@@ -85,6 +87,9 @@ export function DocumentView({ id, onBack, cardId }: { id: string; onBack: () =>
   }] })
   const doc = query.data
   const [editing, setEditing] = useState(false)
+  const singleCardId = cardIds?.length === 1 ? (cardIds[0] ?? null) : null
+  const cardQuery = useCardById(singleCardId)
+  const cardNumber = cardQuery.data ? textOf(cardQuery.data, 'inventory_number') : null
   const [linesMode, setLinesMode] = useLinesMode('lf-asset-lines')
   const name = useNames(doc ? [nameIds(doc)] : [])
   const dash = t('assets.common.dash')
@@ -193,10 +198,24 @@ export function DocumentView({ id, onBack, cardId }: { id: string; onBack: () =>
         actions={
           <>
             <DocumentActions doc={doc} onEdit={() => setEditing(true)} />
-            {cardId && access.can(ASSETS_CARD_WRITE) && (
-              <Button variant="secondary" onClick={() => navigate(cardHref(cardId))} data-testid="doc-back-to-card">
-                {t('assets.cardActions.backToCard')}
-              </Button>
+            {cardIds && cardIds.length > 0 && access.can(ASSETS_CARD_WRITE) && (
+              cardIds.length === 1 ? (
+                <Link
+                  to={cardHref(cardIds[0]!)}
+                  data-testid="doc-back-to-card"
+                >
+                  {cardNumber
+                    ? intl.formatMessage({ id: 'assets.cardActions.backToCardNo' }, { number: cardNumber })
+                    : t('assets.cardActions.backToCard')}
+                </Link>
+              ) : (
+                <Link
+                  to="/admin/assets/cards"
+                  data-testid="doc-back-to-card"
+                >
+                  {t('assets.cardActions.backToCards')}
+                </Link>
+              )
             )}
             {(doc.state === 'posted' || doc.state === 'reversed') && (
               <Link to={movementsLinkFor(doc.id)}>{t('assets.doc.movementsLink')}</Link>

@@ -17,11 +17,13 @@ import type { LeCellCtx, LeColumn, LeError, LeScanResult } from '@/components/ui
 import { useUiLocale } from '@/i18n/uiLocaleStore'
 import { useLinesMode } from '@/hooks/useLinesMode'
 import { useNames } from '../assetsNames'
-import { usePickerState } from '../assetsPickers'
+import { usePickerState, type PickerOption } from '../assetsPickers'
 import { ASSETS_CARD_WRITE } from '../assetsPermissions'
+import { textOf } from '../assetsModel'
 import { buildAssetCatalog, assetLabel } from './assetLinesCatalog'
 import { MAX_LINES, emptyLine, validateLine, type LineForm } from './documentForm'
 import { ASSET_DOCUMENTS_LAYOUT_SCREEN, lineColumnSpecs, lineColumns } from './lineColumns'
+import type { EntityRecord } from '@/types/api'
 
 export const ASSET_LINES_SCREEN_ID = 'lf-asset-lines'
 
@@ -57,6 +59,8 @@ export function AssetLinesEditor(props: {
   showErrors?: boolean
   /** Rendered inside the card, under the editor. */
   footer?: ReactNode
+  /** Cards from the pre-fill read: added to the catalog so the Asset cell shows them before the picker list loads. */
+  extraCards?: EntityRecord[]
 }) {
   const intl = useIntl()
   const locale = useUiLocale()
@@ -65,7 +69,19 @@ export function AssetLinesEditor(props: {
   const { lines } = props
   const { can } = useAccess()
   const { options, status } = usePickerState('assets_card')
-  const catalog = useMemo(() => buildAssetCatalog(options), [options])
+  const extraOptions: PickerOption[] = useMemo(
+    () =>
+      (props.extraCards ?? [])
+        .filter((c) => !options.some((o) => o.value === c.record_id))
+        .map((c) => ({
+          value: c.record_id,
+          label: textOf(c, 'inventory_number') || c.record_id,
+          fields: c.field_values as Record<string, unknown>,
+        })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.extraCards, options],
+  )
+  const catalog = useMemo(() => buildAssetCatalog([...options, ...extraOptions]), [options, extraOptions])
   const name = useNames(lines.filter((l) => l.assetId !== '').length > 0 ? [{ assets_card: lines.filter((l) => l.assetId !== '').map((l) => l.assetId) }] : [])
   const dash = t('assets.common.dash')
   const cardOf = (id: string) => {

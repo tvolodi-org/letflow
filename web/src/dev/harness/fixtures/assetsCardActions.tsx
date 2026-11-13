@@ -27,6 +27,8 @@ const MASTERS: Record<string, EntityRecord[]> = {
     card('c-2', 'FA-0002', 'Reach truck with a long model name for the wrapping check'),
     card('c-3', 'FA-0003', 'Office laser printer'),
     card('c-4', 'LV-0101', 'Monitor 27 inch', { kind: 'low_value' }),
+    card('c-5', 'FA-0005', 'Desktop workstation'),
+    card('c-7', 'FA-0007', 'Server rack UPS'),
     card('c-8', 'FA-0009', 'Forklift (sold)', { active: false }),
   ],
   org_unit: [rec('u-wh', 'org_unit', { code: 'WH', name: 'Warehouse team' }), rec('u-it', 'org_unit', { code: 'IT', name: 'IT department' })],
@@ -38,7 +40,7 @@ const MASTERS: Record<string, EntityRecord[]> = {
 }
 const ROW = { asset: 'c-1', org_unit: 'u-wh', location: 'l-1', material_responsible: 'e-1', actual_user: 'e-2', unit_ref: 'pcs', quantity: '1.000000000' }
 const ROW2 = { ...ROW, org_unit: 'u-it', location: null }
-const HELD: Record<string, boolean> = { 'c-1': true, 'c-2': true }
+const HELD: Record<string, boolean> = { 'c-1': true, 'c-2': true, 'c-5': true }
 
 type Clause = { field: string; op: string; value?: unknown }
 
@@ -117,6 +119,26 @@ function ClickTestId({ id, children }: { id: string; children: ReactElement }): 
   return children
 }
 
+/** Harness only: clicks checkboxes by test id once they exist (a shot cannot click). */
+function TickTestIds({ ids, children }: { ids: string[]; children: ReactElement }): ReactElement {
+  useEffect(() => {
+    const remaining = new Set(ids)
+    const t = window.setInterval(() => {
+      for (const id of remaining) {
+        const el = document.querySelector<HTMLElement>(`[data-testid="${id}"] input`)
+        if (el) {
+          el.click()
+          remaining.delete(id)
+        }
+      }
+      if (remaining.size === 0) window.clearInterval(t)
+    }, 150)
+    return () => window.clearInterval(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return children
+}
+
 const panel = (name: string, cardId: string, routes: FixtureRoute[], open?: string): HarnessScreen => ({
   name,
   routes,
@@ -157,5 +179,34 @@ export const assetsCardActionsScreens: HarnessScreen[] = [
     initialPath: '/d-1?card=c-1',
     routePattern: '/:id',
     render: () => withAuth(<DocumentPage />),
+  },
+  {
+    name: 'asset-doc-back-to-cards',
+    routes: IN_REGISTER,
+    initialPath: '/d-1?card=c-1&card=c-5',
+    routePattern: '/:id',
+    render: () => withAuth(<DocumentPage />),
+  },
+  {
+    name: 'asset-card-select',
+    routes: IN_REGISTER,
+    render: () => withAuth(<TickTestIds ids={['card-select-c-1', 'card-select-c-5']}><AssetCardsPage /></TickTestIds>),
+  },
+  {
+    name: 'asset-card-select-blocked',
+    routes: NO_ROWS,
+    render: () => withAuth(<TickTestIds ids={['card-select-c-1', 'card-select-c-3']}><AssetCardsPage /></TickTestIds>),
+  },
+  {
+    name: 'asset-card-select-new',
+    routes: NO_ROWS,
+    render: () => withAuth(<TickTestIds ids={['card-select-c-3', 'card-select-c-7']}><AssetCardsPage /></TickTestIds>),
+  },
+  {
+    name: 'asset-doc-from-cards-multi',
+    routes: IN_REGISTER,
+    initialPath: '/new?kind=change&asset=c-1&asset=c-5',
+    routePattern: '/new',
+    render: () => withAuth(<DocumentNewPage />),
   },
 ]
