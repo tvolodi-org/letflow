@@ -3,7 +3,7 @@ defmodule Letflow.Api.ImportAnyTypeTest do
   Roles stage 0 S0-1 (decision 0088, docs/design/roles-stage0-slices.md): the permission
   `:EntitiesRecordsImportAnyType` replaces the role name STOREKEEPER in the import route's rule.
 
-    * P1 the atom: third-to-last core permission, tenant scope, resolves to itself, no route gates on it;
+    * P1 the atom: fourth-to-last core permission, tenant scope, resolves to itself, no route gates on it;
     * P2 holders are exactly PLATFORM_ADMIN and TENANT_ADMIN, STOREKEEPER keeps Import only;
     * P3 platform rule;
     * P4 the new predicate equals today's STOREKEEPER-only predicate for all 512 role sets;
@@ -39,9 +39,9 @@ defmodule Letflow.Api.ImportAnyTypeTest do
     rest ++ Enum.map(rest, &[h | &1])
   end
 
-  test "P1 third-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
+  test "P1 fourth-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
     assert @perm in Authorization.core_permissions()
-    assert Authorization.core_permissions() |> Enum.take(-3) |> hd() == @perm
+    assert Authorization.core_permissions() |> Enum.take(-4) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 
