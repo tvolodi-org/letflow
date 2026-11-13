@@ -34,7 +34,7 @@ registration or version.
 
 | ID | Task | Lane | Size | Touches real stock policy | Depends on |
 |---|---|---|---|---|---|
-| K0 | Decision record 0087 accepted (REVIEWER + SECURITY-REVIEWER sign-off; owner reads it) | docs | S | no | this plan |
+| K0 | Decision record 0087 accepted (REVIEWER + SECURITY-REVIEWER sign-off; owner reads it); done by T-1838 | docs | S | no | this plan |
 | U1 | Unit dimension on `catalog_uom` and physical attributes on `catalog_item` (density and more) | catalog | S | no | none |
 | U2 | Conversion table record type and the pure converter | catalog | M | no | U1 |
 | U3 | Conversion read route (on request only) | catalog | S | no | U2 |
@@ -45,7 +45,7 @@ registration or version.
 | M1 | `mes_core` skeleton: manifest, depends_on, empty permission set, roles table in docs | mes_core | S | no | none (can start at once) |
 | M2 | Recipe and recipe version, ingredient lines with unit and tolerance, approval freeze | mes_core | M | no | M1 |
 | M3 | Work order and batch record, number scheme, status flow | mes_core | M | no | M2 |
-| M4 | Batch consume and produce (calls the S1 handlers), output lot born `quarantine` | mes_core | M | no (uses S1) | S1, M3, K0 |
+| M4 | Batch consume and produce (calls the S1 handlers), output lot born `quarantine`; plus a small `mes_core` ledger registration, posting handler, `post` permission, `depends_on: stock` (0087 D1a) | mes_core | M | no (uses S1) | S1, M3, K0 |
 | M5 | Switch on at install: `mes_core` install sets `lot_hold_enabled`, re-runs the backfill | mes_core | S | no (uses S2) | S2, M1 |
 | M6 | QC sample, result lines with limits, release, hold, reject decision (uses the L1 writer) | mes_core | M | no | L1, M3 |
 | M7 | Trace forward and backward: two routes, no screen | mes_core | M | no | M4 |
@@ -155,7 +155,7 @@ Finding **[V]**: `WriteHandlerSpec` says `posts_ledger` is "the name of a regist
 (`lib/letflow/modules/write_handler_spec.ex`). So a `mes_core` handler cannot post to the `stock` ledger. The options and the recommendation are in the record. In short:
 **(a)** the two posting handlers live in `stock` (S1) and `mes_core` calls them; **(b)** a separate `mes` ledger (cannot consume stock lots, refused); **(c)** change the catalog rule so a manifest may name another module's registration (a core change, bigger blast radius).
 The recommendation is (a). It means no third copy of posting code: the handlers are thin, `mes_core` has no document kind, and the extraction of the shared kernel (core-extraction section 6 row "Kernel") stays HELD and separate.
-**To verify in task M4 (guess until then [G]):** that a process definition of `mes_core` may call a handler of module `stock` (how `Letflow.Definitions.ModuleWrites` resolves a handler name; the `stock_receipt` definitions call their own module today). If it may not, M4 FAILs back to K0 and the record is amended before any code.
+**Verified in K0 (T-1838) [V]:** a `mes_core` definition may call a `stock` handler only under decision 0082 (cross-module posting lines: `stock` in `mes_core` `depends_on`, handler registers `posts_ledger`, stock installed at its compiled hash, and **a posting line of `mes_core` itself on the same node**). The last condition costs M4 a small `mes_core` ledger registration and posting handler (record 0087, D1a). Flagged for the PM. Record 0087 is accepted.
 
 ## 7. Legacy lots: backfill (owner A.1)
 
