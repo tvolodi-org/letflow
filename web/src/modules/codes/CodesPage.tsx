@@ -348,21 +348,8 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
     hideStackLabel: true,
   }
 
-  const valueCol: DataTableColumn<EntityRecord> = {
-    key: 'value',
-    label: t('codes.common.value'),
-    render: (c) => textOf(c, 'value'),
-    sortable: true,
-    mono: true,
-  }
-  const statusCol: DataTableColumn<EntityRecord> = {
-    key: 'status',
-    label: t('codes.common.status'),
-    render: (c) => pill(textOf(c, 'status')),
-    sortable: true,
-    sortValue: (c) => textOf(c, 'status'),
-  }
-  // Beside the detail panel the list is narrow: one column, the status pill under the value.
+  // The list pane is narrow, so a row is one cell: value, status pill, kind and target under it. With a record open
+  // the row actions live in the panel and the list keeps the value and the pill only.
   const columns: DataTableColumn<EntityRecord>[] = selected
     ? [
         tickCol,
@@ -381,24 +368,24 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
       ]
     : [
         tickCol,
-        valueCol,
         {
-          key: 'kind',
-          label: t('codes.common.kind'),
-          render: (c) => kindLabel(textOf(c, 'kind')),
-          sortable: true,
-          sortValue: (c) => textOf(c, 'kind'),
-        },
-        statusCol,
-        {
-          key: 'target',
-          label: t('codes.common.target'),
+          key: 'value',
+          label: t('codes.common.value'),
           render: (c) => {
             const a = openByCode.get(c.record_id)
-            return textOf(c, 'status') === 'assigned' && a
-              ? targetCell(targetParts(textOf(a, 'target_type'), textOf(a, 'target_id')))
-              : dashCell
+            return (
+              <span className="lf-cell-2">
+                <span className="mono">{textOf(c, 'value')}</span>
+                <span>{pill(textOf(c, 'status'))}</span>
+                <span className="caption">{kindLabel(textOf(c, 'kind'))}</span>
+                {textOf(c, 'status') === 'assigned' && a
+                  ? targetCell(targetParts(textOf(a, 'target_type'), textOf(a, 'target_id')))
+                  : null}
+              </span>
+            )
           },
+          sortable: true,
+          sortValue: (c) => textOf(c, 'value'),
         },
         { key: 'actions', label: t('codes.common.actions'), render: rowAction },
       ]
@@ -603,7 +590,7 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
         <ListDetail
           screen="codes"
           listLabel={t('codes.list.pane')}
-          listDefault={40}
+          listDefault={50}
           listMin={320}
           tools={
             <>

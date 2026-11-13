@@ -320,3 +320,6 @@ samp {
 .lf-reg__tools { grid-template-columns: minmax(0, 1fr); }
 .lf-reg__tools > * { min-width: 0; max-width: 100%; }
 .lf-reg__tools .lf-field { max-width: 100%; }
+
+/* Codes and lots list rows: a long code wraps inside its cell instead of being cut (T-1889). */
+.lf-reg__body .lf-cell-2 .mono { white-space: normal; overflow-wrap: anywhere; word-break: break-all; }

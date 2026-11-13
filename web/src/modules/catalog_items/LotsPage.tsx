@@ -357,8 +357,6 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
           )
         },
       },
-      { key: 'producer', label: t('catalog_items.col.producer'), render: (lot) => textOf(lot, 'producer') || dash },
-      { key: 'mark', label: t('catalog_items.col.mark'), mono: true, render: (lot) => textOf(lot, 'mark') || dash },
       expiryCol,
       activeCol,
       {
@@ -489,7 +487,7 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
         <ListDetail
           screen="catalog.lots"
           listLabel={t('catalog_items.lots.listPane')}
-          listDefault={40}
+          listDefault={50}
           listMin={320}
           tools={toolbar}
           list={panelNode ? table(compactColumns, true) : table(fullColumns, false)}
