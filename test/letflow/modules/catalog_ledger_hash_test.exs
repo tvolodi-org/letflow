@@ -51,10 +51,10 @@ defmodule Letflow.Modules.CatalogLedgerHashTest do
       assert Catalog.manifest_hash(id) == {:ok, expected}, name
     end
 
-    # the modules with a :ledger key (FixtureLedgerPost, FixtureLedgerStorage from REQ-711, Stock from REQ-687 and Assets from REQ-749, and the XpostOwner fixture from REQ-758)
+    # the modules with a :ledger key (FixtureLedgerPost, FixtureLedgerStorage from REQ-711, Stock from REQ-687 and Assets from REQ-749, MesCore from T-1841 (changes with every MES task, so no golden), and the XpostOwner fixture from REQ-758)
     # and the one with :reference_targets (FixtureRefTargets, REQ-636) are not in @golden
     # T-1641: RuntimeDemo is release-dependent (its version is a boot setting), so it has no fixed golden hash
-    assert map_size(@golden) == length(registered) - 7
+    assert map_size(@golden) == length(registered) - 8
   end
 
   test "T-MH-21 equal inputs, equal hash; the fixture is covered" do

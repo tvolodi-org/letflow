@@ -61,6 +61,7 @@ config :letflow, :lua_platform_time_source, Letflow.Engine.Lua.Platform.SystemCl
 # GH #3501 (REQ-625) adds Letflow.Modules.Locations;
 # GH #3588 (REQ-648) adds Letflow.Modules.Codes; GH #3707 (REQ-687) adds Letflow.Modules.Stock;
 # GH #3894 (REQ-748) adds Letflow.Modules.Assets;
+# T-1841 (MES M1) adds Letflow.Modules.MesCore;
 # config/test.exs appends the test-only fixture modules on top.
 config :letflow, :modules, [
   Letflow.Modules.Exam,
@@ -70,7 +71,8 @@ config :letflow, :modules, [
   Letflow.Modules.Locations,
   Letflow.Modules.Codes,
   Letflow.Modules.Stock,
-  Letflow.Modules.Assets
+  Letflow.Modules.Assets,
+  Letflow.Modules.MesCore
 ]
 
 # T-1641 (UAT decision B5#10): the QA-only demo module `runtime_demo`. A SEPARATE key from :modules, filled only

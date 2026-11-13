@@ -315,6 +315,7 @@ config :letflow, :modules, [
   Letflow.Modules.Codes,
   Letflow.Modules.Stock,
   Letflow.Modules.Assets,
+  Letflow.Modules.MesCore,
   # T-1641: QA-only demo module (not in the production list or the golden); CI covers it here.
   Letflow.Modules.RuntimeDemo,
   Letflow.Modules.Fixture,
