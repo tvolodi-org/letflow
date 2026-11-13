@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: assets@0.19.0,catalog_items@0.4.0,codes@0.4.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.17.0
 # roles: 9
-# permissions: 92
-# rows: 828
+# permissions: 93
+# rows: 837
 # columns: role permission allowed owner via
 AGENT_RUNNER AssetsCardWrite false module:assets -
 AGENT_RUNNER AssetsPost false module:assets -
@@ -18,6 +18,7 @@ AGENT_RUNNER AuditRead false core -
 AGENT_RUNNER CatalogLotsWrite false module:catalog_items -
 AGENT_RUNNER CodesRead false module:codes -
 AGENT_RUNNER CodesWrite false module:codes -
+AGENT_RUNNER CurrenciesManage false core -
 AGENT_RUNNER DefinitionsRead false core -
 AGENT_RUNNER DefinitionsRollback false core -
 AGENT_RUNNER DefinitionsWrite false core -
@@ -110,6 +111,7 @@ CANDIDATE AuditRead false core -
 CANDIDATE CatalogLotsWrite false module:catalog_items -
 CANDIDATE CodesRead false module:codes -
 CANDIDATE CodesWrite false module:codes -
+CANDIDATE CurrenciesManage false core -
 CANDIDATE DefinitionsRead false core -
 CANDIDATE DefinitionsRollback false core -
 CANDIDATE DefinitionsWrite false core -
@@ -202,6 +204,7 @@ PLATFORM_ADMIN AuditRead true core core
 PLATFORM_ADMIN CatalogLotsWrite true module:catalog_items core
 PLATFORM_ADMIN CodesRead true module:codes core
 PLATFORM_ADMIN CodesWrite true module:codes core
+PLATFORM_ADMIN CurrenciesManage true core core
 PLATFORM_ADMIN DefinitionsRead true core core
 PLATFORM_ADMIN DefinitionsRollback true core core
 PLATFORM_ADMIN DefinitionsWrite true core core
@@ -294,6 +297,7 @@ PROCESS_DESIGNER AuditRead false core -
 PROCESS_DESIGNER CatalogLotsWrite false module:catalog_items -
 PROCESS_DESIGNER CodesRead false module:codes -
 PROCESS_DESIGNER CodesWrite false module:codes -
+PROCESS_DESIGNER CurrenciesManage false core -
 PROCESS_DESIGNER DefinitionsRead true core core
 PROCESS_DESIGNER DefinitionsRollback false core -
 PROCESS_DESIGNER DefinitionsWrite true core core
@@ -386,6 +390,7 @@ PROCESS_OPERATOR AuditRead true core core
 PROCESS_OPERATOR CatalogLotsWrite false module:catalog_items -
 PROCESS_OPERATOR CodesRead false module:codes -
 PROCESS_OPERATOR CodesWrite false module:codes -
+PROCESS_OPERATOR CurrenciesManage false core -
 PROCESS_OPERATOR DefinitionsRead true core core
 PROCESS_OPERATOR DefinitionsRollback false core -
 PROCESS_OPERATOR DefinitionsWrite false core -
@@ -478,6 +483,7 @@ STOREKEEPER AuditRead false core -
 STOREKEEPER CatalogLotsWrite false module:catalog_items -
 STOREKEEPER CodesRead false module:codes -
 STOREKEEPER CodesWrite false module:codes -
+STOREKEEPER CurrenciesManage false core -
 STOREKEEPER DefinitionsRead false core -
 STOREKEEPER DefinitionsRollback false core -
 STOREKEEPER DefinitionsWrite false core -
@@ -570,6 +576,7 @@ TASK_WORKER AuditRead false core -
 TASK_WORKER CatalogLotsWrite false module:catalog_items -
 TASK_WORKER CodesRead false module:codes -
 TASK_WORKER CodesWrite false module:codes -
+TASK_WORKER CurrenciesManage false core -
 TASK_WORKER DefinitionsRead true core core
 TASK_WORKER DefinitionsRollback false core -
 TASK_WORKER DefinitionsWrite false core -
@@ -662,6 +669,7 @@ TENANT_ADMIN AuditRead true core core
 TENANT_ADMIN CatalogLotsWrite true module:catalog_items core
 TENANT_ADMIN CodesRead true module:codes core
 TENANT_ADMIN CodesWrite true module:codes core
+TENANT_ADMIN CurrenciesManage true core core
 TENANT_ADMIN DefinitionsRead true core core
 TENANT_ADMIN DefinitionsRollback true core core
 TENANT_ADMIN DefinitionsWrite true core core
@@ -754,6 +762,7 @@ TENANT_AUDITOR AuditRead true core core
 TENANT_AUDITOR CatalogLotsWrite false module:catalog_items -
 TENANT_AUDITOR CodesRead false module:codes -
 TENANT_AUDITOR CodesWrite false module:codes -
+TENANT_AUDITOR CurrenciesManage false core -
 TENANT_AUDITOR DefinitionsRead true core core
 TENANT_AUDITOR DefinitionsRollback false core -
 TENANT_AUDITOR DefinitionsWrite false core -

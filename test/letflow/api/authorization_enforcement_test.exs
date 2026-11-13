@@ -181,6 +181,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Routers.Help => "/help",
     Letflow.Routers.Me => "/me",
     Letflow.Routers.Labels => "/labels",
+    Letflow.Routers.Currencies => "/currencies",
     Letflow.Routers.NotificationTemplates => "/notification-templates",
     Letflow.Routers.NotificationDeliveries => "/notification-deliveries",
     Letflow.Routers.NumberSequences => "/number-sequences",

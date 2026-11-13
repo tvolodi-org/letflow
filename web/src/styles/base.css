@@ -317,3 +317,17 @@ samp {
 }
 /* Opening document (T-1877): the hints and the template button under the lines editor sit inside the card padding. */
 .lf-opening-help { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); }
+
+/* T-1889: a filter row inside the list pane of ListDetail wraps instead of overflowing the pane. */
+.lf-reg__tools { grid-template-columns: minmax(0, 1fr); }
+.lf-reg__tools > * { min-width: 0; max-width: 100%; }
+.lf-reg__tools .lf-field { max-width: 100%; }
+
+/* Codes and lots list rows: a long code wraps inside its cell instead of being cut (T-1889). */
+.lf-reg__body .lf-cell-2 .mono { white-space: normal; overflow-wrap: anywhere; word-break: break-all; }
+
+/* Lots list, nothing selected: the row actions stack so Edit and Retire never clip in a narrow pane (ru, kk labels). */
+.lf-lots-actions { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); }
+.lf-lots-actions .lf-btn { white-space: normal; }
+.lf-reg__body .lf-table th, .lf-reg__body .lf-table td { padding-inline: var(--space-2); }
+.lf-lots-actions .lf-btn { padding-inline: var(--space-2); }
