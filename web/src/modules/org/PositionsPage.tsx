@@ -137,6 +137,7 @@ function PositionsInner() {
       title={t('org.positions.title')}
       lede={t('org.positions.lede')}
       createLabel={createLabel}
+      screen="org.positions"
       canWrite={canWrite}
       onCreate={() => openPanel({ kind: 'new' })}
       queries={[rows, units]}

@@ -51,7 +51,7 @@ defmodule Letflow.ModuleUpgrade.PreviousPackTest do
   # The current version each module's upgrade test was last run for (G1). A first release has no
   # previous pack and is pinned as such.
   @tested %{
-    "assets" => "0.18.0",
+    "assets" => "0.19.0",
     "catalog_items" => "0.4.0",
     "codes" => "0.4.0",
     "locations" => "0.5.0",

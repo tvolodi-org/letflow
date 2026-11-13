@@ -1,9 +1,10 @@
-/** LocationTreePage — GH 3607 / REQ-671, restyled by T-1172 (style S3). The location tree on the left, the chosen
- *  record on the right (MasterDetail; owner rule 2026-11-03: viewing and editing one record happens in the detail
- *  panel, not in a modal). Create (root or child, free or composed address), edit, move, retire. The tree is built
- *  here from the loaded nodes (`parent_id`). With the retired switch off only active rows are loaded, so an active
- *  child of a retired parent shows as a root; the move picker is built from the loaded active rows and the server's
- *  cycle answer stays the authority. Move and retire are short single-answer actions, so they are dialogs. */
+/** LocationTreePage — GH 3607 / REQ-671, restyled by T-1172 (style S3), migrated to ListDetail by T-1890 (slice 4).
+ *  The location tree on the left, the chosen record on the right (ListDetail kind=tree; owner rule 2026-11-03:
+ *  viewing and editing one record happens in the detail panel, not in a modal). Create (root or child, free or
+ *  composed address), edit, move, retire. The tree is built here from the loaded nodes (`parent_id`). With the
+ *  retired switch off only active rows are loaded, so an active child of a retired parent shows as a root; the
+ *  move picker is built from the loaded active rows and the server's cycle answer stays the authority. Move and
+ *  retire are short single-answer actions, so they are dialogs. */
 import { Fragment, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Plus, X } from 'lucide-react'
@@ -16,7 +17,7 @@ import { DetailHeader } from '@/components/ui/DetailHeader'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field } from '@/components/ui/Field'
 import { FormActions, FormRow, FormSection } from '@/components/ui/FormSection'
-import { MasterDetail } from '@/components/ui/MasterDetail'
+import { ListDetail } from '@/components/ui/listDetail'
 import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { TreeView } from '@/components/ui/TreeView'
@@ -400,13 +401,8 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
         </div>
       </>
     )
-  } else {
-    detail = (
-      <div className="lf-card__body">
-        <EmptyState title={t('locations.tree.pickTitle')} text={t('locations.tree.pickHint')} data-testid="loc-pick-hint" />
-      </div>
-    )
   }
+  // When neither creating nor selected, detail is null; ListDetail shows `empty` instead (detailOpen=false).
 
   return (
     <LocationsShell
@@ -428,44 +424,45 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
           }
         />
       ) : (
-        <div
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && !e.defaultPrevented && panelOpen && !dialogOpen) closePanel()
-          }}
-        >
-          <MasterDetail
-            detailOpen={panelOpen}
-            onBack={closePanel}
-            master={
-              <>
-                <div className="lf-md__tools">
-                  <div className="lf-btn-row lf-btn-row--between" data-testid="locations-retired-row">
-                    <Checkbox label={t('locations.common.showRetired')} checked={showRetired} onChange={setShowRetired} />
-                    <span className="caption lf-faint">
-                      <span className="mono">{nodes.length}</span> {t('locations.tree.countUnit')}
-                    </span>
-                  </div>
-                </div>
-                <TreeView
-                  nodes={treeNodes}
-                  selectedId={selectedId}
-                  expandedIds={expandedIds}
-                  onSelect={select}
-                  onToggle={toggle}
-                  showRetired={showRetired}
-                  aria-label={t('locations.tree.treeLabel')}
-                  labels={{
-                    expand: t('locations.tree.expand'),
-                    collapse: t('locations.tree.collapse'),
-                    retired: t('locations.common.retired'),
-                    loading: t('locations.tree.loading'),
-                  }}
-                />
-              </>
-            }
-            detail={detail}
-          />
-        </div>
+        <ListDetail
+          kind="tree"
+          screen="locations.tree"
+          detailOpen={panelOpen}
+          onClose={closePanel}
+          escapeCloses={!dialogOpen}
+          listLabel={t('locations.tree.treeLabel')}
+          tools={
+            <div className="lf-btn-row lf-btn-row--between" data-testid="locations-retired-row">
+              <Checkbox label={t('locations.common.showRetired')} checked={showRetired} onChange={setShowRetired} />
+              <span className="caption lf-faint">
+                <span className="mono">{nodes.length}</span> {t('locations.tree.countUnit')}
+              </span>
+            </div>
+          }
+          list={
+            <TreeView
+              nodes={treeNodes}
+              selectedId={selectedId}
+              expandedIds={expandedIds}
+              onSelect={select}
+              onToggle={toggle}
+              showRetired={showRetired}
+              aria-label={t('locations.tree.treeLabel')}
+              labels={{
+                expand: t('locations.tree.expand'),
+                collapse: t('locations.tree.collapse'),
+                retired: t('locations.common.retired'),
+                loading: t('locations.tree.loading'),
+              }}
+            />
+          }
+          detail={detail ?? <></>}
+          empty={
+            <div className="lf-card__body">
+              <EmptyState title={t('locations.tree.pickTitle')} text={t('locations.tree.pickHint')} data-testid="loc-pick-hint" />
+            </div>
+          }
+        />
       )}
       <Dialog
         open={moving !== null}
