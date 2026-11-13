@@ -10,8 +10,8 @@
  *  RequirePermission(EntitiesQuery) by the router.
  */
 
-import React, { useCallback, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
 import { reportViewsApi } from '@/api/entityViews'
@@ -271,6 +271,18 @@ function ReportBuilderPageInner(): React.ReactElement {
       setOpening(false)
     }
   }
+
+  // T-1874: `?open=<id>` (the Reports menu page) opens that report once on mount.
+  const [searchParams] = useSearchParams()
+  const openParam = searchParams.get('open')
+  const deepLinkDone = useRef(false)
+  useEffect(() => {
+    if (!openParam || deepLinkDone.current) return
+    deepLinkDone.current = true
+    void handleOpen(openParam)
+    // run once per mount: the page is keyed by entity type
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleClose = () => {
     setSelection({ kind: 'none' })
