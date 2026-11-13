@@ -135,7 +135,7 @@ and seven read-only templates), with today's names (0088 D11). The options A, B 
 | Repositories | The open repository (the product as it is). One small private repository with only the closed packages (the role editor first, section 1.3). No third repository. |
 | Link | The private repo depends on the open repo **at a released tag** (a normal dependency on a git tag). The open repo has no reference to the private repo: no submodule, no ignored directory, no optional folder it looks into. T-1521 section 4 point 6 says the same. |
 | Selection of the implementation | A build-time setting read in the config of the release build (for example which module implements each socket). The open default is compiled into the open repo and is used when nothing is set. The private repo sets it to its own modules in its release config. |
-| Default implementation | Each socket ships with a complete working default in the open repo (section 1.3 column "open build returns"). Not a stub that fails: the open product runs and passes with it. |
+| Default implementation | Each socket ships with a complete working default in the open repo (section 1.3 column "Open build (default module)"). Not a stub that fails: the open product runs and passes with it. |
 | Closed to open | Allowed later (a closed feature can be opened); the reverse needs the PM. |
 
 ### 2.2 The open CI passes without the package
