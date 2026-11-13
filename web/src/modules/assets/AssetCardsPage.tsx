@@ -1,4 +1,4 @@
-/** AssetCardsPage — T-1333 / C13. The asset card list on the left, the chosen card on the right (MasterDetail; owner
+/** AssetCardsPage — T-1333 / C13. The asset card list on the left, the chosen card on the right (ListDetail; owner
  *  rule 2026-11-03: viewing and editing one record happens in the detail panel, not in a modal). Filters: kind and
  *  org unit go to the server, the text search runs on the server (number and name), the list is paged, "Show retired" lifts the active filter.
  *  Create and edit use the panel; retire is a short single-answer action, so it is a ConfirmDialog. A retired card
@@ -17,7 +17,7 @@ import { DetailHeader } from '@/components/ui/DetailHeader'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field } from '@/components/ui/Field'
 import { FilterBar } from '@/components/ui/FilterBar'
-import { MasterDetail } from '@/components/ui/MasterDetail'
+import { ListDetail } from '@/components/ui/listDetail'
 import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { useToast } from '@/hooks/useToast'
@@ -165,17 +165,17 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
   let detail
   if (creating) {
     detail = (
-      <>
+      <section className="lf-card">
         <DetailHeader title={t('assets.page.createTitle')} actions={closeButton} />
         <div className="lf-card__body">
           <AssetCardForm key="new" record={null} write={write} onDone={formDone} onCancel={closePanel} />
         </div>
-      </>
+      </section>
     )
   } else if (selected !== null) {
     const active = isActive(selected)
     detail = (
-      <>
+      <section className="lf-card">
         <DetailHeader
           title={textOf(selected, 'name') || textOf(selected, 'inventory_number')}
           path={textOf(selected, 'inventory_number') || undefined}
@@ -206,15 +206,12 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
           <AssetCardOperations card={selected} />
           <AssetCardHolder cardId={selected.record_id} />
         </div>
-      </>
+      </section>
     )
   } else {
-    detail = (
-      <div className="lf-card__body">
-        <EmptyState title={t('assets.page.pickTitle')} text={t('assets.page.pickHint')} data-testid="asset-pick-hint" />
-      </div>
-    )
+    detail = null
   }
+  const pickHint = <EmptyState title={t('assets.page.pickTitle')} text={t('assets.page.pickHint')} data-testid="asset-pick-hint" />
 
   const createButton = (
     <Button variant="primary" size="md" icon={<Plus className="lf-icon" aria-hidden="true" />} onClick={startCreate} data-testid="asset-create">
@@ -290,18 +287,14 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
           }
         />
       ) : (
-        <div
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && !e.defaultPrevented && panelOpen && !dialogOpen) closePanel()
-          }}
-        >
-          <MasterDetail
-            masterWidth="wide"
-            tools={tools}
-            detailOpen={panelOpen}
-            onBack={closePanel}
-            master={
-              <>
+        <ListDetail
+          screen="assets.cards"
+          listLabel={t('assets.page.listPane')}
+          listDefault={40}
+          listMin={380}
+          tools={tools}
+          list={
+            <>
               {assetRows.truncated ? (
                 <Banner tone="info">
                   <span data-testid="asset-truncated">
@@ -324,18 +317,23 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
                   </Button>
                 }
               />
-              {assetRows.hasMore ? (
-                <div className="lf-btn-row">
-                  <Button variant="secondary" size="md" loading={assetRows.loadingMore} onClick={assetRows.loadMore} data-testid="asset-load-more">
-                    {t('assets.page.loadMore')}
-                  </Button>
-                </div>
-              ) : null}
-              </>
-            }
-            detail={detail}
-          />
-        </div>
+            </>
+          }
+          listFooter={
+            assetRows.hasMore ? (
+              <div className="lf-btn-row">
+                <Button variant="secondary" size="md" loading={assetRows.loadingMore} onClick={assetRows.loadMore} data-testid="asset-load-more">
+                  {t('assets.page.loadMore')}
+                </Button>
+              </div>
+            ) : null
+          }
+          detail={detail}
+          empty={pickHint}
+          detailOpen={panelOpen}
+          onClose={closePanel}
+          escapeCloses={!dialogOpen}
+        />
       )}
       <ConfirmDialog
         open={retiring !== null}
