@@ -136,7 +136,7 @@ defmodule Letflow.Routers.Tasks do
   # the caller's allowed node set to `Tasks.list_tasks/2`); the five single-task routes are
   # `{:resolver, {ScopeResolver, :task_scope}}` (the handler gates through `ScopeGate` and
   # `Tasks.in_scope/3`, or `Tasks.get_task/2` with the set). Approver rule F1: a scoped caller
-  # needs a covering TASK_WORKER grant (docs/roles.md "Known limitation: scoped approvers").
+  # needs a covering grant of a role holding TasksWorkInScope, i.e. TASK_WORKER (docs/roles.md "Known limitation: scoped approvers").
   authz_get "/inbox", :TasksList, scope: :filter do
     handle_inbox(conn, conn.assigns.scoped_opts, conn.assigns.access_decision)
   end
@@ -179,7 +179,7 @@ defmodule Letflow.Routers.Tasks do
          {:ok, page_size} <- Pagination.validate_page_size(raw_page_size) do
       assignee_id = non_empty(Map.get(query, "assignee_id"))
       assignee_scope = build_list_assignee_scope(decision, assignee_id, opts)
-      {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksList, "TASK_WORKER")
+      {conn, scope} = ScopeGate.scope_set_for_holders(conn, :TasksList, :TasksWorkInScope)
 
       Tasks.list_tasks(
         %{
@@ -242,7 +242,7 @@ defmodule Letflow.Routers.Tasks do
          {:ok, page_size} <- Pagination.validate_page_size(raw_page_size) do
       user_id = conn.assigns.auth_context.user_id
       assignee_scope = build_inbox_assignee_scope(conn, user_id, opts)
-      {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksList, "TASK_WORKER")
+      {conn, scope} = ScopeGate.scope_set_for_holders(conn, :TasksList, :TasksWorkInScope)
 
       Tasks.list_tasks(
         %{
@@ -311,7 +311,7 @@ defmodule Letflow.Routers.Tasks do
   # ── GET /tasks/:id (design §5.4) ────────────────────────────────────────
 
   defp handle_get_by_id(conn, id, opts) do
-    {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksGetById, "TASK_WORKER")
+    {conn, scope} = ScopeGate.scope_set_for_holders(conn, :TasksGetById, :TasksWorkInScope)
 
     # Same per-principal row scope as GET /tasks/inbox: a task-worker-only caller reads only
     # tasks assigned to them, their groups or their roles; anything else answers 404 (INV-2/5).
@@ -350,7 +350,7 @@ defmodule Letflow.Routers.Tasks do
   # lib/letflow/design/iss0942-task-complete-authorization-gap.md §3.
   defp handle_complete(conn, id, opts) do
     actor_id = conn.assigns.auth_context.user_id
-    {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksComplete, "TASK_WORKER")
+    {conn, scope} = ScopeGate.scope_set_for_holders(conn, :TasksComplete, :TasksWorkInScope)
     {conn, f1} = ScopeGate.f1_principal(conn, :TasksComplete)
 
     # REQ-518 PR 2d: the scope gate comes first; an out-of-scope task answers like a nonexistent
@@ -558,7 +558,7 @@ defmodule Letflow.Routers.Tasks do
 
   defp handle_claim(conn, id, opts) do
     attrs = %{actor_id: conn.assigns.auth_context.user_id}
-    {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksComplete, "TASK_WORKER")
+    {conn, scope} = ScopeGate.scope_set_for_holders(conn, :TasksComplete, :TasksWorkInScope)
     {conn, f1} = ScopeGate.f1_principal(conn, :TasksComplete)
 
     case Tasks.in_scope(id, scope, opts) do

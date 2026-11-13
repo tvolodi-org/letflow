@@ -149,8 +149,11 @@ defmodule Letflow.Routers.MeAccessTest do
       assert body["roles"] == ["PLATFORM_ADMIN"]
       assert body["platform_tenant"] == true
 
+      # Roles stage 0 S0-2: every permission except scoped task work (TASK_WORKER's alone).
       assert body["permissions"] ==
-               Authorization.permissions() |> Enum.map(&Atom.to_string/1) |> Enum.sort()
+               (Authorization.permissions() -- [:TasksWorkInScope])
+               |> Enum.map(&Atom.to_string/1)
+               |> Enum.sort()
 
       assert body["permissions"] == sorted_expected(["PLATFORM_ADMIN"], true)
     end

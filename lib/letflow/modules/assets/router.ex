@@ -13,7 +13,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `POST /cards` | `AssetsCardWrite` | `create_card/3` | 201 |
   | `PATCH /cards/:id` | `AssetsCardWrite` | `update_card/4` | 200 |
   | `POST /cards/:id/retire` | `AssetsCardWrite` | `retire_card/3` | 200 |
-  | `GET /cards/:id/lock` | `AssetsRead` | `CardLocks.posted?/2` | 200 `{"posted": bool}` |
+  | `GET /cards/:id/lock` | `AssetsRead` | `CardLocks.posted?/2` | 200 `{"posted": bool, "held": bool}` |
 
   Card locks (T-1490): a changed `inventory_number` or `kind` of a card with a posted document is 422
   `inventory_number_locked` / `kind_locked`; `GET /cards/:id/lock` tells the screen which case it is.
@@ -102,6 +102,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.CardLocks
   alias Letflow.Modules.Assets.Cards
   alias Letflow.Modules.Assets.Documents
+  alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Posting
   alias Letflow.Modules.Assets.Views
   alias Letflow.Modules.Assets.XlsxExport
@@ -144,7 +145,10 @@ defmodule Letflow.Modules.Assets.Router do
       {:ok, access} ->
         case ReadApi.lookup(access.prefix, conn.params["id"], ["assets_card"]) do
           {:ok, card} ->
-            Response.ok(conn, %{"posted" => CardLocks.posted?(access.prefix, card["record_id"])})
+            Response.ok(conn, %{
+              "posted" => CardLocks.posted?(access.prefix, card["record_id"]),
+              "held" => Checks.held?(access.prefix, card["record_id"])
+            })
 
           {:error, _} ->
             Response.not_found(conn)
