@@ -1,4 +1,4 @@
-/** TaskInboxPage — T-1380 / GATE B R3. "My Tasks": the tasks a user has claimed or can claim, in a MasterDetail (list on
+/** TaskInboxPage — T-1380 / GATE B R3. "My Tasks": the tasks a user has claimed or can claim, in a ListDetail (list on
  *  the left, the task and its document on the right). The default view shows own tasks and the open ones (role, group or
  *  unassigned) — the server decides who may claim. Row data-testids are kept for the e2e suites (f4-task-inbox, a11y-gate). */
 import { ChevronDown, Search } from 'lucide-react'
@@ -15,7 +15,7 @@ import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { MasterDetail } from '@/components/ui/MasterDetail'
+import { ListDetail } from '@/components/ui/listDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
@@ -133,50 +133,49 @@ export default function TaskInboxPage() {
   )
 
   const state = (isLoading ? 'loading' : isError ? classifyError(error) : 'success') as RendererState
-  const master = (
-    <QueryStateBoundary
-      state={state}
-      onRetry={() => { void refetch() }}
-      rateLimitRetryAfter={isError && classifyError(error) === 'rate-limit' ? getRetryAfterSeconds(error) : undefined}
-      columns={[{ widthPercent: 40 }, { widthPercent: 30 }, { widthPercent: 30 }]}
-    >
-      {tasks.length === 0 ? (
-        <EmptyState title={m.emptyTitle} text={m.emptyText} data-testid="task-inbox-empty" />
-      ) : (
-        <TaskList
-          tasks={tasks}
-          selectedId={selectedTaskId}
-          onSelect={setSelectedTaskId}
-          m={m}
-          refMsg={refMsg}
-          locale={locale}
-          now={now}
-          userId={userId}
-          subjectOf={subjectOf}
-          contextOf={contextOf}
-          label={label}
-          assigneeText={(t) => t.assignee_name || actorLabel(t.assignee_ref, userId, refMsg)}
-        />
-      )}
-    </QueryStateBoundary>
-  )
-
   return (
     <>
       <PageHeader eyebrow={m.eyebrow} title={m.title} lede={m.lede} />
-      <MasterDetail
+      <ListDetail
+        screen="tasks.inbox"
+        listLabel={m.listPane}
         tools={tools}
-        master={master}
+        list={
+          <QueryStateBoundary
+            state={state}
+            onRetry={() => { void refetch() }}
+            rateLimitRetryAfter={isError && classifyError(error) === 'rate-limit' ? getRetryAfterSeconds(error) : undefined}
+            columns={[{ widthPercent: 40 }, { widthPercent: 30 }, { widthPercent: 30 }]}
+          >
+            {tasks.length === 0 ? (
+              <EmptyState title={m.emptyTitle} text={m.emptyText} data-testid="task-inbox-empty" />
+            ) : (
+              <TaskList
+                tasks={tasks}
+                selectedId={selectedTaskId}
+                onSelect={setSelectedTaskId}
+                m={m}
+                refMsg={refMsg}
+                locale={locale}
+                now={now}
+                userId={userId}
+                subjectOf={subjectOf}
+                contextOf={contextOf}
+                label={label}
+                assigneeText={(t) => t.assignee_name || actorLabel(t.assignee_ref, userId, refMsg)}
+              />
+            )}
+          </QueryStateBoundary>
+        }
+        empty={
+          <div className="lf-card__body">
+            <EmptyState title={m.pickTask} data-testid="task-detail-empty" />
+          </div>
+        }
         detailOpen={selectedTaskId !== null}
-        onBack={close}
+        onClose={close}
         detail={
-          selectedTaskId ? (
-            <TaskDetail key={selectedTaskId} taskId={selectedTaskId} onClose={close} m={m} locale={locale} userId={userId} />
-          ) : (
-            <div className="lf-card__body">
-              <EmptyState title={m.pickTask} data-testid="task-detail-empty" />
-            </div>
-          )
+          <TaskDetail key={selectedTaskId!} taskId={selectedTaskId!} onClose={close} m={m} locale={locale} userId={userId} />
         }
       />
     </>

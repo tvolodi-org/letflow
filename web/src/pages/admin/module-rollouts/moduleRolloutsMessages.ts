@@ -22,6 +22,7 @@ const UI: Record<string, Triple> = {
     'Таратуды бастау аяқталмады. Тізімді тексеріңіз, егер ол жоқ болса, қайталап көріңіз.',
   ],
   'moduleRollouts.list.heading': ['Rollouts (latest 50)', 'Развёртывания (последние 50)', 'Таратулар (соңғы 50)'],
+  'moduleRollouts.list.pane': ['Rollouts', 'Развёртывания', 'Таратулар'],
   'moduleRollouts.detail.pick': ['Pick a rollout to see its companies.', 'Выберите развёртывание, чтобы увидеть компании.', 'Компанияларды көру үшін таратуды таңдаңыз.'],
   'moduleRollouts.list.empty': ['No rollouts yet', 'Развёртываний пока нет', 'Әзірге тарату жоқ'],
   'moduleRollouts.list.emptyText': [

@@ -3,7 +3,7 @@
  *  resume one. It calls only the four existing routes of `/platform-module-rollouts`; every rule (permission,
  *  platform tenant, window, halting) stays on the server. No tenant identifier is sent. Shared components only.
  */
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useIntl, type IntlShape } from 'react-intl'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { DetailHeader } from '@/components/ui/DetailHeader'
 import { Field } from '@/components/ui/Field'
-import { MasterDetail } from '@/components/ui/MasterDetail'
+import { ListDetail } from '@/components/ui/listDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { CoreHelpLink } from '@/pages/help/CoreHelpLink'
 import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
@@ -212,15 +212,6 @@ function ModuleRolloutsBody() {
   const [startError, setStartError] = useState<string | null>(null)
   const [resumeError, setResumeError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!selected) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') select(null)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  })
-
   const select = (id: string | null) => {
     const next = new URLSearchParams(params)
     if (id) next.set('rollout', id)
@@ -261,39 +252,38 @@ function ModuleRolloutsBody() {
     <div className="lf-form">
       <PageHeader eyebrow={t(intl, 'eyebrow')} title={t(intl, 'title')} lede={t(intl, 'lede')} actions={<CoreHelpLink topic="moduleRollouts" />} />
       <StartBar busy={start.isPending} error={startError} onStart={onStart} />
-      <MasterDetail
-        masterWidth="wide"
-        master={
-      <section aria-label={t(intl, 'list.heading')}>
-        <h2>{t(intl, 'list.heading')}</h2>
-        <div data-testid="module-rollouts-list">
-          <DataTable
-            columns={columns}
-            data={list.data?.rollouts ?? []}
-            isLoading={list.isLoading}
-            error={list.isError ? t(intl, 'loadError') : undefined}
-            onRetry={() => void list.refetch()}
-            labels={{ loading: t(intl, 'loading'), retry: t(intl, 'retry') }}
-            density="compact"
-            getRowId={(r) => r.rollout.id}
-            selectedId={selected}
-            onRowClick={(r) => select(r.rollout.id)}
-            emptyMessage={t(intl, 'list.empty')}
-            emptyText={t(intl, 'list.emptyText')}
-          />
-        </div>
-      </section>
+      <ListDetail
+        screen="platform.module-rollouts"
+        listLabel={t(intl, 'list.pane')}
+        listDefault={50}
+        listHeader={<h2>{t(intl, 'list.heading')}</h2>}
+        list={
+          <div data-testid="module-rollouts-list">
+            <DataTable
+              columns={columns}
+              data={list.data?.rollouts ?? []}
+              isLoading={list.isLoading}
+              error={list.isError ? t(intl, 'loadError') : undefined}
+              onRetry={() => void list.refetch()}
+              labels={{ loading: t(intl, 'loading'), retry: t(intl, 'retry') }}
+              density="compact"
+              getRowId={(r) => r.rollout.id}
+              selectedId={selected}
+              onRowClick={(r) => select(r.rollout.id)}
+              emptyMessage={t(intl, 'list.empty')}
+              emptyText={t(intl, 'list.emptyText')}
+            />
+          </div>
+        }
+        empty={
+          <p className="lf-muted lf-card__body" data-testid="module-rollouts-detail-empty">
+            {t(intl, 'detail.pick')}
+          </p>
         }
         detailOpen={selected !== null}
-        onBack={() => select(null)}
+        onClose={() => select(null)}
         detail={
-          selected ? (
-            <Detail rolloutId={selected} names={names} resumeError={resumeError} resumeBusy={resume.isPending} onResume={onResume} />
-          ) : (
-            <p className="lf-muted lf-card__body" data-testid="module-rollouts-detail-empty">
-              {t(intl, 'detail.pick')}
-            </p>
-          )
+          <Detail rolloutId={selected!} names={names} resumeError={resumeError} resumeBusy={resume.isPending} onResume={onResume} />
         }
       />
     </div>

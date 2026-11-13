@@ -7,6 +7,7 @@ export interface TaskMessages {
   close: string
   eyebrow: string
   lede: string
+  listPane: string
   filterMe: string
   filterGroup: string
   filterAll: string
@@ -69,7 +70,7 @@ export interface TaskMessages {
 
 export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
   en: {
-    title: 'My Tasks', close: 'Close', eyebrow: 'Work', lede: 'Documents waiting for you to post, approve or reverse them.',
+    title: 'My Tasks', close: 'Close', eyebrow: 'Work', lede: 'Documents waiting for you to post, approve or reverse them.', listPane: 'Tasks',
     filterMe: 'My Tasks', filterGroup: 'Group Tasks', filterAll: 'All Tasks',
     searchPlaceholder: 'Search tasks…', newest: 'Newest first', oldest: 'Oldest first',
     emptyTitle: 'No pending tasks', emptyText: 'Nothing is waiting for you in this view.', pickTask: 'Select a task to see its document.',
@@ -106,7 +107,7 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errGeneric: 'The action failed. Try again.',
   },
   ru: {
-    title: 'Мои задачи', close: 'Закрыть', eyebrow: 'Работа', lede: 'Документы, которые ждут проведения, утверждения или сторнирования.',
+    title: 'Мои задачи', close: 'Закрыть', eyebrow: 'Работа', lede: 'Документы, которые ждут проведения, утверждения или сторнирования.', listPane: 'Задачи',
     filterMe: 'Мои задачи', filterGroup: 'Задачи группы', filterAll: 'Все задачи',
     searchPlaceholder: 'Поиск задач…', newest: 'Сначала новые', oldest: 'Сначала старые',
     emptyTitle: 'Нет задач в ожидании', emptyText: 'В этом списке для вас ничего нет.', pickTask: 'Выберите задачу, чтобы увидеть документ.',
@@ -143,7 +144,7 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errGeneric: 'Не удалось выполнить действие. Повторите попытку.',
   },
   kk: {
-    title: 'Менің тапсырмаларым', close: 'Жабу', eyebrow: 'Жұмыс', lede: 'Өткізуді, бекітуді немесе сторнолауды күтетін құжаттар.',
+    title: 'Менің тапсырмаларым', close: 'Жабу', eyebrow: 'Жұмыс', lede: 'Өткізуді, бекітуді немесе сторнолауды күтетін құжаттар.', listPane: 'Тапсырмалар',
     filterMe: 'Менің тапсырмаларым', filterGroup: 'Топ тапсырмалары', filterAll: 'Барлық тапсырмалар',
     searchPlaceholder: 'Тапсырмаларды іздеу…', newest: 'Алдымен жаңалары', oldest: 'Алдымен ескілері',
     emptyTitle: 'Күтіп тұрған тапсырма жоқ', emptyText: 'Бұл тізімде сізді ешнәрсе күтіп тұрған жоқ.', pickTask: 'Құжатты көру үшін тапсырманы таңдаңыз.',
