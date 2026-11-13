@@ -232,7 +232,6 @@ const tenantAdmin: AccessInfo = {
     'TokensManage',
     'UsersGroupsRolesManage',
     'WebhooksManage',
-    'CurrenciesManage',
   ],
 }
 
