@@ -101,6 +101,24 @@ class _TenantSlugEntryScreenState extends ConsumerState<TenantSlugEntryScreen> {
   final TextEditingController _controller = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    // Prefill the field with the last code the user signed in with
+    // (T-1903: remember the last code on the device). The slug stored in
+    // `LastActiveTenantPointer` is not a secret; we read it without
+    // touching any credential.
+    Future.microtask(_prefillLastSlug);
+  }
+
+  Future<void> _prefillLastSlug() async {
+    final tokenStore = ref.read(tenantTokenStoreProvider);
+    final pointer = await readLastActiveTenant(tokenStore);
+    if (pointer != null && mounted) {
+      _controller.text = pointer.slug;
+    }
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     super.dispose();
@@ -134,6 +152,13 @@ class _TenantSlugEntryScreenState extends ConsumerState<TenantSlugEntryScreen> {
                   hintText: tr('bootstrap.slugEntry.hint'),
                 ),
                 onSubmitted: (_) => _submit(),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  tr('bootstrap.slugEntry.helper'),
+                  key: const Key('slug-entry-helper'),
+                ),
               ),
               if (unlockNoticeText(controller.state) != null)
                 Padding(
