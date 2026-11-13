@@ -66,6 +66,16 @@ describe('attachSplit', () => {
     expect(store.getPanes('scr', 'sp')).toEqual([35])
   })
 
+  it('S-T1875 clampStored shows a stored size below the min at the min and keeps the stored value; off by default', () => {
+    store.setPanes('scr', 'sp', [5])
+    const on = setup({ clampStored: true })
+    expect(on.container.style.getPropertyValue('--lf-pane-1')).toBe('10%')
+    expect(store.getPanes('scr', 'sp')).toEqual([5])
+    expect(setup().container.style.getPropertyValue('--lf-pane-1')).toBe('5%')
+    store.setPanes('scr', 'sp', [42])
+    expect(setup({ clampStored: true }).container.style.getPropertyValue('--lf-pane-1')).toBe('42%')
+  })
+
   it('S3 Home and End hit the limits (min 100 px, max leaves the flexible pane its minimum)', () => {
     const { handle, container } = setup()
     act(() => void handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home' })))

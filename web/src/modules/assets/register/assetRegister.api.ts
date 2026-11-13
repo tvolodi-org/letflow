@@ -15,6 +15,10 @@ export interface AssetBalanceRow {
   last_posting_seq?: number
 }
 export interface AssetBalancesBody {
+  /** Set when the read was made for a day (`as_of_date`): the day, the tenant time zone and the cutoff the server used. */
+  as_of_date?: string | null
+  timezone?: string | null
+  cutoff_seq?: number | null
   ledger_seq?: number | null
   next_cursor: string | null
   /** `visible_only`: the caller reads the rows of its own org units only (REQ-682). */
@@ -51,5 +55,7 @@ export interface AssetMovementsBody {
 
 export const assetRegisterApi = {
   balances: (params: Record<string, string>) => client.get<AssetBalancesBody>(`${BASE}/balances`, params),
+  /** The xlsx file of the first page of the balances; same filters and day as the screen. */
+  balancesXlsx: (params: Record<string, string>) => client.getBlob(`${BASE}/balances`, { ...params, format: 'xlsx' }),
   movements: (params: Record<string, string>) => client.get<AssetMovementsBody>(`${BASE}/movements`, params),
 }

@@ -140,6 +140,9 @@ defmodule Letflow.Api.ScopeGate do
   `excluded` (a role whose grant of the permission is narrower in purpose than the route, such as
   STOREKEEPER's import). Not `on` -> `{conn, :all}`. Without the exclusion the tenant-wide scope of
   that role would widen another role's scoped grant through the union (`Scope.combine/1`).
+
+  No route calls it since roles stage 0 S0-1 (the import route asks for `EntitiesRecordsImportAnyType`
+  instead); removed together with the compiled role list (stage 6).
   """
   @spec scope_set_without_role(Plug.Conn.t(), policy_key :: atom(), excluded :: atom()) ::
           {Plug.Conn.t(), Types.scope_set()}

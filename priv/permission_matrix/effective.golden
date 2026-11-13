@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: assets@0.16.0,catalog_items@0.4.0,codes@0.4.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.17.0
 # roles: 9
-# permissions: 87
-# rows: 783
+# permissions: 88
+# rows: 792
 # columns: role permission allowed owner via
 AGENT_RUNNER AssetsCardWrite false module:assets -
 AGENT_RUNNER AssetsPost false module:assets -
@@ -35,6 +35,7 @@ AGENT_RUNNER EntitiesQuery false core -
 AGENT_RUNNER EntitiesRecordsExport false core -
 AGENT_RUNNER EntitiesRecordsExportUnredacted false core -
 AGENT_RUNNER EntitiesRecordsImport false core -
+AGENT_RUNNER EntitiesRecordsImportAnyType false core -
 AGENT_RUNNER EntitiesRecordsWrite false core -
 AGENT_RUNNER EntitiesRestrictionsManage false core -
 AGENT_RUNNER EntitiesViewsManage false core -
@@ -122,6 +123,7 @@ CANDIDATE EntitiesQuery false core -
 CANDIDATE EntitiesRecordsExport false core -
 CANDIDATE EntitiesRecordsExportUnredacted false core -
 CANDIDATE EntitiesRecordsImport false core -
+CANDIDATE EntitiesRecordsImportAnyType false core -
 CANDIDATE EntitiesRecordsWrite false core -
 CANDIDATE EntitiesRestrictionsManage false core -
 CANDIDATE EntitiesViewsManage false core -
@@ -209,6 +211,7 @@ PLATFORM_ADMIN EntitiesQuery true core core
 PLATFORM_ADMIN EntitiesRecordsExport true core core
 PLATFORM_ADMIN EntitiesRecordsExportUnredacted true core core
 PLATFORM_ADMIN EntitiesRecordsImport true core core
+PLATFORM_ADMIN EntitiesRecordsImportAnyType true core core
 PLATFORM_ADMIN EntitiesRecordsWrite true core core
 PLATFORM_ADMIN EntitiesRestrictionsManage true core core
 PLATFORM_ADMIN EntitiesViewsManage true core core
@@ -296,6 +299,7 @@ PROCESS_DESIGNER EntitiesQuery true core core
 PROCESS_DESIGNER EntitiesRecordsExport false core -
 PROCESS_DESIGNER EntitiesRecordsExportUnredacted false core -
 PROCESS_DESIGNER EntitiesRecordsImport false core -
+PROCESS_DESIGNER EntitiesRecordsImportAnyType false core -
 PROCESS_DESIGNER EntitiesRecordsWrite false core -
 PROCESS_DESIGNER EntitiesRestrictionsManage false core -
 PROCESS_DESIGNER EntitiesViewsManage false core -
@@ -383,6 +387,7 @@ PROCESS_OPERATOR EntitiesQuery true core core
 PROCESS_OPERATOR EntitiesRecordsExport false core -
 PROCESS_OPERATOR EntitiesRecordsExportUnredacted false core -
 PROCESS_OPERATOR EntitiesRecordsImport false core -
+PROCESS_OPERATOR EntitiesRecordsImportAnyType false core -
 PROCESS_OPERATOR EntitiesRecordsWrite true core core
 PROCESS_OPERATOR EntitiesRestrictionsManage false core -
 PROCESS_OPERATOR EntitiesViewsManage false core -
@@ -470,6 +475,7 @@ STOREKEEPER EntitiesQuery true core core
 STOREKEEPER EntitiesRecordsExport false core -
 STOREKEEPER EntitiesRecordsExportUnredacted false core -
 STOREKEEPER EntitiesRecordsImport true core core
+STOREKEEPER EntitiesRecordsImportAnyType false core -
 STOREKEEPER EntitiesRecordsWrite false core -
 STOREKEEPER EntitiesRestrictionsManage false core -
 STOREKEEPER EntitiesViewsManage false core -
@@ -557,6 +563,7 @@ TASK_WORKER EntitiesQuery true core core
 TASK_WORKER EntitiesRecordsExport false core -
 TASK_WORKER EntitiesRecordsExportUnredacted false core -
 TASK_WORKER EntitiesRecordsImport false core -
+TASK_WORKER EntitiesRecordsImportAnyType false core -
 TASK_WORKER EntitiesRecordsWrite false core -
 TASK_WORKER EntitiesRestrictionsManage false core -
 TASK_WORKER EntitiesViewsManage false core -
@@ -644,6 +651,7 @@ TENANT_ADMIN EntitiesQuery true core core
 TENANT_ADMIN EntitiesRecordsExport true core core
 TENANT_ADMIN EntitiesRecordsExportUnredacted true core core
 TENANT_ADMIN EntitiesRecordsImport true core core
+TENANT_ADMIN EntitiesRecordsImportAnyType true core core
 TENANT_ADMIN EntitiesRecordsWrite true core core
 TENANT_ADMIN EntitiesRestrictionsManage true core core
 TENANT_ADMIN EntitiesViewsManage true core core
@@ -731,6 +739,7 @@ TENANT_AUDITOR EntitiesQuery true core core
 TENANT_AUDITOR EntitiesRecordsExport false core -
 TENANT_AUDITOR EntitiesRecordsExportUnredacted false core -
 TENANT_AUDITOR EntitiesRecordsImport false core -
+TENANT_AUDITOR EntitiesRecordsImportAnyType false core -
 TENANT_AUDITOR EntitiesRecordsWrite false core -
 TENANT_AUDITOR EntitiesRestrictionsManage false core -
 TENANT_AUDITOR EntitiesViewsManage false core -

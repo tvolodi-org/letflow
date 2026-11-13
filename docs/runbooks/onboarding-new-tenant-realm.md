@@ -29,6 +29,8 @@ values belong in this file or in any evidence field.
 
 ## Ordered steps
 
+**Reserved slug (T-1861):** the slug `pwa` is reserved (infra serves the QA PWA at `pwa.letflow.qa.bizdala.com`, an exact-name vhost under the tenant wildcard). Tenant creation (`POST /api/v1/onboarding`, `POST /api/v1/tenants`) and the provisioner hostname check refuse it with the usual 422/invalid-field answer and write nothing. The list is `Letflow.Identity.Tenant.reserved_slugs/0`, in one place; existing tenants are not touched.
+
 1. **R1 Create the realm.** Clone the `bpm-default` realm definition
    (`priv/keycloak/realms/bpm-default.json`: the `letflow-web` client with its audience mapper and
    the `realm-roles` mapper), including the realm role `TENANT_ADMIN`. Set the `letflow-web` client's valid

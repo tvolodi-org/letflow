@@ -30,6 +30,9 @@ export interface SplitOptions {
   onCollapse?: (collapsed: Record<number, boolean>) => void
   /** Default size per pane in percent (`unit: 'pct'` only), used while nothing is stored; reset returns to it. */
   defaults?: number[]
+  /** pct only: a stored size below `min[k]` is shown at `min[k]` (px of the container to percent, rounded up to 0.1);
+   *  the store keeps the user's value, as for px. */
+  clampStored?: boolean
 }
 
 export interface SplitHandle {
@@ -134,7 +137,13 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
       else if (sizes[k] != null) {
         // a stored px size outside the allowed range is clamped here, not rewritten in the store
         const px = unit === 'px' ? Math.min(o.max?.[k] ?? 420, Math.max(o.min?.[k] ?? 160, sizes[k] as number)) : null
-        setVar(v, px != null ? `${px}px` : `${sizes[k]}%`)
+        let pctVal = sizes[k] as number
+        if (px == null && o.clampStored) {
+          const w = cw()
+          const lo = o.min?.[k]
+          if (w > 0 && lo != null) pctVal = Math.max(pctVal, Math.ceil((lo / w) * 1000) / 10)
+        }
+        setVar(v, px != null ? `${px}px` : `${pctVal}%`)
       }
       else if (unit === 'pct' && typeof o.defaults?.[k] === 'number') setVar(v, `${o.defaults[k]}%`)
       else container.style.removeProperty(v)

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { resetDefaultLayoutStore } from '@/hooks/useLayoutPrefs'
+import { LAYOUT_STORAGE_KEY } from '@/lib/layoutStore'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { DOCS, LIST, fakeMasters, renderStock, stockDoc, withPost } from './stockTestKit'
 
@@ -109,6 +110,17 @@ describe('T-1443 document screen splitters', () => {
     expect(ws.style.getPropertyValue('--lf-pane-1')).toBe('0px')
     act(() => void h.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })))
     expect(ws.style.getPropertyValue('--lf-pane-1')).not.toBe('0px')
+  })
+
+  it('S8 T-1875 a saved list size below the minimum is shown at the minimum (200 px of 1600 = 12.5 %) and stays stored', async () => {
+    const key = `${LAYOUT_STORAGE_KEY}.anon`
+    localStorage.setItem(key, JSON.stringify({ v: 1, shell: {}, screens: { 'stock.documents': { panes: { row: [5, null] } } } }))
+    resetDefaultLayoutStore()
+    serve([doc()])
+    renderStock(`${LIST}/d1`, withPost)
+    const ws = await screen.findByTestId('document-workspace')
+    await waitFor(() => expect(ws.style.getPropertyValue('--lf-pane-1')).toBe('12.5%'))
+    expect(JSON.parse(localStorage.getItem(key)!).screens['stock.documents'].panes.row).toEqual([5, null])
   })
 
   it('S6 Reset layout clears the screen: variables and column widths', async () => {
