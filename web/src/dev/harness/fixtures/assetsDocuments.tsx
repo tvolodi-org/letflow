@@ -168,6 +168,13 @@ export function ClickButton({ labels, children }: { labels: string[]; children: 
 export const EDIT_LABELS = ['Edit', 'Изменить', 'Өзгерту']
 export const SAVE_LABELS = ['Save', 'Сохранить', 'Сақтау']
 
+/** The balances route answers a day read: the day, the tenant zone and the cutoff (as the server does). */
+const routesAsOf: FixtureRoute[] = routes.map((r) =>
+  r.match('/api/v1/modules/assets/balances', 'GET')
+    ? { ...r, reply: (state, path) => { const o = r.reply(state, path); return { ...o, body: { ...(o.body as object), as_of_date: '2026-11-03', timezone: 'Asia/Almaty', cutoff_seq: 4 } } } }
+    : r,
+)
+
 /** Harness only: the same server with no asset cards (the first-use state). */
 const routesNoCards: FixtureRoute[] = routes.map((r, i) =>
   i !== 0
@@ -213,6 +220,8 @@ export const assetsDocumentsScreens: HarnessScreen[] = [
   view('asset-document-reversed', 'doc-reversed'),
   view('asset-document-mismatch', 'doc-mismatch'),
   { name: 'asset-balances', routes, render: () => withAuth(<BalancesPage />) },
+  { name: 'asset-balances-asof', routes: routesAsOf, render: () => withAuth(<BalancesPage initialAsOf="2026-11-03" />) },
+  { name: 'asset-balances-asof-future', routes, render: () => withAuth(<BalancesPage initialAsOf="2999-01-01" />) },
   { name: 'asset-balances-history', routes, render: () => withAuth(<BalancesPage initialSelectedId="a1|u1|l1|e1|" />) },
   { name: 'asset-balances-subtree', routes, render: () => withAuth(<BalancesPage initialFilters={{ scope_subtree: 'u1' }} />) },
   { name: 'asset-movements', routes, render: () => withAuth(<MovementsPage />) },
