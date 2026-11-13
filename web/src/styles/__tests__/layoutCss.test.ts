@@ -15,4 +15,8 @@ describe('collapsed splitter handle stays visible', () => {
     expect(base).toMatch(/\.lf-splitter\.is-collapsed \.lf-splitter__btn\s*\{[^}]*display:\s*grid/)
     expect(base).toMatch(/\.lf-splitter\.is-collapsed \.lf-splitter__btn\s*\{[^}]*width:\s*var\(--control-h-s\)/)
   })
+
+  it('L1 (T-1884) the collapsed expand button is position: fixed, so the engine can keep it inside the viewport', () => {
+    expect(read('base.css')).toMatch(/\.lf-splitter\.is-collapsed \.lf-splitter__btn\s*\{[^}]*position:\s*fixed/)
+  })
 })
