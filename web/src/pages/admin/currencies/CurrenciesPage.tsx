@@ -5,6 +5,8 @@
  * The list read (GET /api/v1/currencies) is role-agnostic, but the route is
  * behind RequirePermission so only holders reach this page.
  */
+import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
+import { classifyError } from '@/utils/classifyError'
 import React, { useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -180,16 +182,18 @@ function CurrenciesPageInner(): React.ReactElement {
       )}
 
       <div data-testid={listQuery.isLoading ? 'currencies-loading' : 'currencies-table'}>
-        <DataTable
-          columns={columns}
-          data={filtered}
-          isLoading={listQuery.isLoading}
-          error={listQuery.isError ? f({ id: 'currencies.loadError' }) : undefined}
+        <QueryStateBoundary
+          state={listQuery.isLoading ? 'loading' : listQuery.isError ? classifyError(listQuery.error) : 'success'}
           onRetry={() => void listQuery.refetch()}
-          labels={{ loading: f({ id: 'currencies.loading' }), retry: f({ id: 'currencies.retry' }) }}
-          getRowId={(e) => e.code}
-          emptyMessage={f({ id: search ? 'currencies.empty' : 'currencies.emptyAll' })}
-        />
+        >
+          <DataTable
+            columns={columns}
+            data={filtered}
+            labels={{ loading: f({ id: 'currencies.loading' }), retry: f({ id: 'currencies.retry' }) }}
+            getRowId={(e) => e.code}
+            emptyMessage={f({ id: search ? 'currencies.empty' : 'currencies.emptyAll' })}
+          />
+        </QueryStateBoundary>
       </div>
     </>
   )
