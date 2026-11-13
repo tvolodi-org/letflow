@@ -121,6 +121,14 @@ defmodule Letflow.TenantProvisioner.RequestTest do
     assert {:ok, %{hostname: "acme.qa.example"}} = parse(%{"hostname" => " ACME.qa.example "})
   end
 
+  test "C5 hostname: a reserved host label (pwa) is refused, other labels stay accepted" do
+    for bad <- ["pwa.qa.example", " PWA.qa.example "] do
+      assert {:error, "hostname"} = parse(%{"hostname" => bad}), "accepted #{bad}"
+    end
+
+    assert {:ok, %{hostname: "pwa2.qa.example"}} = parse(%{"hostname" => "pwa2.qa.example"})
+  end
+
   test "C5 hostname: no suffix configured refuses every hostname" do
     Application.put_env(:letflow, Letflow.TenantProvisioner, allowed_hostname_suffixes: [])
     assert {:error, "hostname"} = parse(%{})

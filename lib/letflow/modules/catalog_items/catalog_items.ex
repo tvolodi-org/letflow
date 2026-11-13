@@ -69,6 +69,8 @@ defmodule Letflow.Modules.CatalogItems do
   defmanifest(
     id: "catalog_items",
     version: "0.4.0",
+    # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
+    min_upgradable_from: "0.1.0",
     depends_on: [],
     pack: "modules/catalog_items/pack.json",
     permissions: [:CatalogLotsWrite],

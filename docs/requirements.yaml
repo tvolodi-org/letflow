@@ -55104,3 +55104,186 @@ requirements:
       - "3. A component test shows the decision choice offers only the alternatives of the line's difference kind and asks for a reason for no_register_change."
       - "4. npm run check passes, and the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) of the order form, the sheet and the result is in the task folder."
     depends_on: [REQ-816, REQ-817, REQ-818, REQ-819, REQ-821]
+  - id: REQ-823
+    title: "Currencies C1: the platform currency list (ISO 4217 codes, names in ru, kk and en, minor units) compiled from a shipped file, and the tenant switches table with KZT as the default tenant currency; core, no route"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4394
+    # Source: task T-1870 (operator, owner decision D-134 of 2026-11-13; D-097 of 2026-11-05, both quoted in docs/design/currency-directory.md section 0). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) sections 1 to 4 and 6. Files read on origin/main c7950f342: lib/letflow/labels/defaults.ex (priv JSON compiled at build time), lib/letflow/labels.ex (Audit.append_multi/4 with action labels.override_set), priv/repo/migrations/20261025300001_create_label_overrides.exs (tenant-scoped table, registered in Letflow.TenantProvisioning), test/support/tenant_fixture.ex (tenant table list), lib/letflow/module_upgrade/apply.ex (on_install seeds are not re-run on upgrade), lib/letflow/modules/assets/settings.ex (KZT default). Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
+    description: >
+      Owner decision D-134 asks for a currency directory as common data shared by all modules; D-097 keeps one
+      currency per tenant with KZT as the default. Today the only currency is the free text field currency of
+      the asset card and the assets module setting currency read by Letflow.Modules.Assets.Settings.currency/1
+      (lib/letflow/modules/assets/settings.ex). This slice builds the directory in core, following the label
+      overrides of REQ-551: (1) the platform list, the file priv/currencies/iso4217.json (planned, not yet on
+      main), a top-level object with a non-empty source field (the ISO 4217 edition and the national classifier
+      the ru and kk names were taken from) and a currencies array, one entry per ISO 4217 currency with a numeric
+      minor unit: code (three letters A-Z), numeric_code (three digits), minor_units (integer 0 to 4), names with
+      ru, kk and en; compiled at build time by Letflow.Currencies.Catalog (planned, lib/letflow/currencies/catalog.ex)
+      the way Letflow.Labels.Defaults compiles its file; (2) the tenant table tenant_currencies (planned migration,
+      tenant-scoped with the prefix guard, registered in Letflow.TenantProvisioning's manifest like
+      20261025300001_create_label_overrides.exs): id, tenant_id, code (CHECK three uppercase letters, unique),
+      active (boolean), tenant_currency (boolean, a partial unique index allows one true row), updated_by,
+      inserted_at, updated_at; it starts empty and no existing row is altered; (3) the context Letflow.Currencies
+      (planned, lib/letflow/currencies.ex) with list/1 (prefix; every platform entry with its active flag, ordered
+      by code), tenant_currency/1, active?/2, switch/4 (prefix, code, attrs with the required key active and the
+      optional key tenant_currency, actor id) and normalize/1. Reading rule: a code is active when its row says active true or,
+      without a row, when it is KZT; the tenant currency is the code of the row with tenant_currency true, or KZT
+      without one, so an untouched tenant reads KZT as today. switch/4 refuses an unknown code
+      ({:error, :currency_unknown}), switching off the tenant currency ({:error, :currency_is_tenant_currency}) and
+      a body without active, a body with another key, a non-boolean active, tenant_currency other than true, or tenant_currency true with
+      active false ({:error, :invalid_body}); tenant_currency true makes the code the tenant currency, switches it
+      on and clears the flag of the previous row in the same transaction. Each accepted switch writes one audit
+      entry through Letflow.Audit.append_multi/4 with action currencies.switched in the same transaction; a refusal
+      writes nothing. normalize/1 trims its text and answers {:ok, code} for a three-letter ISO code of the list in
+      any letter case and for the aliases тенге, теңге, тг, ₸ and tenge in any letter case (KZT); anything else is
+      :unknown. No route, no permission, no module change, no flag: nothing reads the directory yet.
+    acceptance_criteria:
+      - "1. A test in test/letflow/currencies/catalog_test.exs (planned) parses priv/currencies/iso4217.json and asserts: source is a non-empty string; every entry has a code matching ^[A-Z]{3}$, a numeric_code matching ^[0-9]{3}$, an integer minor_units from 0 to 4 and non-empty ru, kk and en names; codes are unique; KZT is present; Letflow.Currencies.Catalog returns exactly the entries of the file."
+      - "2. A test in test/letflow/currencies_test.exs (planned) on a tenant with no tenant_currencies row asserts tenant_currency/1 is KZT, active?/2 is true for KZT and false for USD, and list/1 holds every catalog code once with active true only for KZT."
+      - "3. The same test file shows, one test each: switching USD on makes it active; tenant_currency true on USD makes USD the tenant currency and keeps KZT active; switching off the tenant currency answers {:error, :currency_is_tenant_currency}; code ABC answers {:error, :currency_unknown}; an extra key answers {:error, :invalid_body}; a body without active (only tenant_currency true) answers {:error, :invalid_body}; each accepted switch adds exactly one audit entry with action currencies.switched and each refusal adds none and changes no row."
+      - "4. A test of normalize/1 asserts kzt, ' Тенге ', теңге, тг, ₸ and TENGE give {:ok, KZT}, usd gives {:ok, USD}, and XYZ, the empty text and a four-letter text give :unknown."
+      - "5. A test with two committed tenants shows a switch in tenant A changes neither list/1 nor tenant_currency/1 of tenant B (INV-1); the tenant table list in test/support/tenant_fixture.ex and its count pin include tenant_currencies, and the migration is in Letflow.TenantProvisioning's manifest."
+    depends_on: []
+  - id: REQ-824
+    title: "Currencies C2: routes to read the currency directory (every tenant user) and to switch a currency on or off or make it the tenant currency (new permission CurrenciesManage, no role grants)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4393
+    # Source: task T-1870 (operator, owner decisions D-134, D-097, D-129). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) section 4. Files read on origin/main c7950f342: lib/letflow/routers/labels.ex (GET with :MyAccessRead and scope :self_service, PUT with :LabelsManage and scope :tenant_wide), lib/letflow/plugs/api_pipeline.ex (forward of /labels), lib/letflow/api/route_scope.ex (self-service prefix list with /labels), lib/letflow/api/authorization.ex (endpoint_policy_key for /labels, role_allows?/2), priv/permission_matrix/effective.golden (LabelsManage true only for PLATFORM_ADMIN and TENANT_ADMIN), docs/roles.md. Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
+    description: >
+      A router Letflow.Routers.Currencies (planned, lib/letflow/routers/currencies.ex) mounted at /currencies by
+      Letflow.Plugs.ApiPipeline the way /labels is: (1) GET /api/v1/currencies with the role-agnostic :MyAccessRead
+      and scope class :self_service (the /currencies prefix joins the self-service prefix list in
+      lib/letflow/api/route_scope.ex) answers 200 with tenant_currency (the code) and currencies, the list of
+      Letflow.Currencies.list/1, each item with exactly code, numeric_code, minor_units, names (ru, kk, en) and
+      active; (2) PUT /api/v1/currencies/:code with the new permission CurrenciesManage and scope :tenant_wide, body
+      active (boolean, required) and optional tenant_currency (true), calls Letflow.Currencies.switch/4 with the caller's user
+      id and answers 200 with the same body as the GET; refusals are 422 with the fixed reason currency_unknown,
+      currency_is_tenant_currency or invalid_body and never echo the body. The tenant comes only from the auth
+      context (INV-1); a tenant_id in the query or body is never read (INV-10). The permission is checked first, so
+      a caller without CurrenciesManage gets the same 403 for a known and an unknown code (INV-5).
+      CurrenciesManage is a tenant-scope core permission with no role grants: by the computed clauses of
+      Letflow.Api.Authorization only PLATFORM_ADMIN and TENANT_ADMIN hold it, as LabelsManage today; no check names
+      a role (D-129). The route-count, route-scope snapshot and self-service pins of the test suite move by the new
+      routes; docs/roles.md lists the permission.
+    acceptance_criteria:
+      - "1. A router test in test/letflow/routers/currencies_test.exs (planned) with a real token of a tenant user who holds neither CurrenciesManage nor any admin role answers 200 on GET /api/v1/currencies with tenant_currency KZT and items carrying exactly the keys code, numeric_code, minor_units, names and active."
+      - "2. The same file: a tenant admin's PUT /api/v1/currencies/USD with active true answers 200 and a following GET shows USD active; PUT with active true and tenant_currency true on USD makes tenant_currency USD; PUT with only tenant_currency true answers 422 invalid_body; PUT active false on the tenant currency answers 422 currency_is_tenant_currency; PUT on ABC answers 422 currency_unknown; a body with another key answers 422 invalid_body; each refusal leaves the GET body unchanged."
+      - "3. The same file: the user without CurrenciesManage gets 403 on PUT for USD and for ABC with bodies equal after dropping trace_id; a tenant admin's PUT in tenant A, with tenant B's id in the body and the query, changes nothing in tenant B (cross-tenant negative test, INV-10)."
+      - "4. After mix letflow.permission_matrix --write the diff of priv/permission_matrix/effective.golden only adds the CurrenciesManage rows (one per role, true only for PLATFORM_ADMIN and TENANT_ADMIN) and changes header counts; every older row is byte-identical; docs/roles.md names CurrenciesManage and its parity test passes."
+    depends_on: [REQ-823]
+  - id: REQ-825
+    title: "Currencies C3: release task that moves the assets currency setting into the directory and rewrites asset card currency texts to ISO codes, unknown values kept and reported, dry run, idempotent, QA only"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4392
+    # Source: task T-1870 (operator, owner decision D-134; QA only, a run outside QA is announced to the portfolio manager first). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) sections 6 and 9. Files read on origin/main c7950f342: lib/letflow/release/exam_parent_id.ex (release entry through Letflow.Modules.Catalog, dry_run), lib/letflow/modules/assets/settings.ex, lib/letflow/modules/assets/cards.ex (Records.update_record/3 with ManagedTypes.owner_for!/1, Audit.insert_entry/3), lib/letflow/modules/assets/assets.ex (manifest version 0.16.0, no min_upgradable_from). Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
+    description: >
+      Existing values of the free text currency must reach the directory without loss. A release entry
+      Letflow.Release.Currencies (planned, lib/letflow/release/currencies.ex), in the pattern of
+      Letflow.Release.ExamParentId (thin delegate, reaches the module through Letflow.Modules.Catalog, forwards only
+      dry_run and actor_id), runs normalize(dry_run: true | false, actor_id: operator user id) over every tenant schema with an active assets install, by a
+      function of module assets (planned, lib/letflow/modules/assets/currency_migration.ex): (1) when the tenant
+      has no tenant_currencies row with tenant_currency true and the assets setting currency maps by
+      Letflow.Currencies.normalize/1 to a code, that code becomes the tenant currency through
+      Letflow.Currencies.switch/4 with the given actor_id; an unknown setting value is
+      reported and nothing is written for it; (2) every assets_card whose currency is not empty and not already a
+      code of the list (exact text) is rewritten to the mapped code through Letflow.Entities.Records.update_record/3
+      with the assets owner, as Letflow.Modules.Assets.Cards writes a card, with one audit entry per card through
+      Letflow.Audit.insert_entry/3, so the old value stays in the record history; an unknown value is kept as
+      stored. The report gives per tenant settings_set, cards_rewritten, cards_unknown, already_ok and failed, and
+      the record ids of unknown cards; no log line holds a currency text. A second run changes nothing; dry_run
+      true writes nothing and reports the same counts. Nothing runs at boot. The assets module version moves one
+      minor step above origin/main at implement time, the pack stays unchanged and the manifest keeps the
+      min_upgradable_from that task T-1860 adds; this slice starts only after T-1860 has merged.
+    acceptance_criteria:
+      - "1. A test in test/letflow/modules/assets/currency_migration_test.exs (planned) on a tenant with the assets setting currency kzt and cards with currency kzt, ' Тенге ', KZT, empty and XYZ asserts after normalize(dry_run: false): tenant currency KZT in Letflow.Currencies; the first two cards hold KZT; KZT and empty cards unchanged; the XYZ card unchanged and reported in cards_unknown with its record id; the counts settings_set 1, cards_rewritten 2, cards_unknown 1."
+      - "2. The same file: each rewritten card has one new record event whose previous document holds the old text, and one audit entry; the unchanged cards have none."
+      - "3. The same file: a second run reports cards_rewritten 0 and settings_set 0 and adds no event and no audit entry; a run with dry_run true on a fresh fixture reports the counts of criterion 1 and leaves every card and the tenant_currencies table unchanged."
+      - "4. The same file: a tenant whose setting currency is TNG gets no tenant_currencies row and a report line for the setting; a tenant that already has a tenant currency row keeps it."
+      - "5. git show origin/main:lib/letflow/modules/assets/assets.ex | grep 'version: \"' prints a lower version than the branch, the pack file is byte-identical to origin/main, and an upgrade plan test on a tenant at the previous version reports upgrade_path_available true."
+    depends_on: [REQ-823]
+  - id: REQ-826
+    title: "Currencies C4: module assets uses the directory: tenant currency read from core with the legacy setting as fallback, card writes and the xlsx import refuse a code not in the directory with the field currency named"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 4391
+    # Source: task T-1870 (operator, owner decisions D-134, D-097). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) sections 3, 5 rows 1 to 6, 8 and 9. Files read on origin/main c7950f342: lib/letflow/modules/assets/settings.ex (currency/1), lib/letflow/modules/assets/cards.ex (@allowed, private check_rules/2 on the merged document, currency_mismatch), lib/letflow/modules/assets/import.ex (@columns, refusal/1), lib/letflow/routers/entities/record_import.ex (asset_currency_mismatch mapped to field currency), docs/assets/asset-xlsx.md (row 6, rule 6), docs/assets/asset-register.md section 6. Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
+    description: >
+      Letflow.Modules.Assets.Settings.currency/1 (lib/letflow/modules/assets/settings.ex) answers, in this order:
+      the tenant currency of Letflow.Currencies when the tenant has a tenant_currencies row with tenant_currency
+      true; else the code that Letflow.Currencies.normalize/1 gives for the assets setting currency; else that
+      setting as stored when it is three characters (behaviour unchanged for a legacy unknown value); else KZT.
+      Card writes (Letflow.Modules.Assets.Cards create_card/3 and update_card/4): a currency in the request body is
+      trimmed and upper-cased; empty is dropped as today; a value that is not a code of the platform list is
+      refused 422 currency_unknown; a code that is not the tenant currency is refused 422 currency_mismatch as
+      today. The check applies to the value sent in the body; an update that does not send currency is no longer
+      refused because of the stored value, so a card holding a legacy value can still be edited and its currency
+      replaced. The xlsx import of assets_card (lib/letflow/modules/assets/import.ex) applies the same rule to the
+      currency cell: an unknown code is the row refusal asset_currency_unknown, added to the refusal-to-field map
+      of lib/letflow/routers/entities/record_import.ex with field currency beside asset_currency_mismatch, and to the constant-reason list beside :asset_currency_mismatch in the same file; aliases
+      such as тенге are not accepted by writes or the import (only REQ-825 maps them). The settings_schema key
+      currency stays (legacy). docs/assets/asset-register.md section 6, docs/assets/asset-xlsx.md rule 6 and
+      docs/runbooks/wms-foundation.md (the currency_mismatch line) are brought in step. The assets module version
+      moves one minor step above origin/main at implement time, the pack stays unchanged, the manifest keeps the
+      min_upgradable_from that task T-1860 adds; this slice starts only after T-1860 and after REQ-825's build if
+      that is in flight (both bump the version).
+    acceptance_criteria:
+      - "1. A test in test/letflow/modules/assets/currency_test.exs shows currency/1 answers: USD when the tenant currency row is USD and the setting is EUR; KZT when there is no row and the setting is kzt; TNG when there is no row and the setting is TNG; KZT when there is neither."
+      - "2. A test in test/letflow/modules/assets/cards_test.exs shows, each answering 422 with the reason and nothing written: create with currency XYZ is currency_unknown; create with currency USD on a KZT tenant is currency_mismatch; and that create with currency ' kzt ' stores KZT and an empty currency stores no currency key."
+      - "3. The same file: a card stored with currency TNG (fixture written through Records) is updated with a new name and no currency key and the update succeeds; the same update with currency KZT stores KZT."
+      - "4. A test in test/letflow/modules/assets/card_import_test.exs shows a row with currency XYZ is refused asset_currency_unknown with field currency, the other rows of the file are processed, and a row with currency kzt is accepted as KZT."
+      - "5. git show origin/main:lib/letflow/modules/assets/assets.ex | grep 'version: \"' prints a lower version than the branch, the pack file is byte-identical to origin/main, and an upgrade plan test on a tenant at the previous version reports upgrade_path_available true."
+    depends_on: [REQ-823]
+  - id: REQ-827
+    title: "Currencies C5: web screen Currencies for the tenant administrator: list with search, switch on or off, make tenant currency, in en, ru and kk"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4390
+    # Source: task T-1870 (operator, owner decision D-134). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) section 7. Files read on origin/main c7950f342: web/src/router.tsx (admin/print-templates behind RequirePermission), web/src/components/layout/AppShell.tsx (nav item with permission, group tenantAdmin), web/src/api/labels.ts (API client pattern), web/src/auth/access (P, RequirePermission). Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
+    description: >
+      A screen web/src/pages/admin/currencies/CurrenciesPage.tsx (planned) at /admin/currencies, routed behind
+      RequirePermission with CurrenciesManage and listed in the tenantAdmin nav group of AppShell with that
+      permission, as /admin/print-templates is. An API client web/src/api/currencies.ts (planned) wraps GET and PUT
+      /api/v1/currencies and is the one place the other screens read the directory from (REQ-828). The screen
+      shows a table: code, name in the UI language (ru, kk or en from names; en when the UI language has no
+      catalog), minor units, an on/off switch and a tenant currency mark; a search box filters by code and by the
+      three names; the row action make tenant currency sends tenant_currency true; the switch of the tenant
+      currency is disabled with a hint that the tenant currency is always on. A refusal shows its fixed reason text.
+      Loading, empty search result, error and no-permission states exist. All texts in en, ru and kk.
+    acceptance_criteria:
+      - "1. Component tests in web/src/pages/admin/currencies/ with a fake API show: the list renders code, name in the UI language and the switch; typing tenge or теңге or KZT in the search keeps the KZT row; switching USD on sends PUT with active true; make tenant currency on USD sends PUT with the body exactly active true and tenant_currency true and the mark moves to USD after the reply."
+      - "2. A component test shows the tenant currency's switch is disabled with the hint, and a 422 currency_is_tenant_currency reply shows its text in ru and kk."
+      - "3. A router test shows /admin/currencies renders the no-permission state for a user without CurrenciesManage and the nav item is hidden for that user."
+      - "4. npm run check passes, and the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) of the list, the search result and the error state is in the task folder."
+    depends_on: [REQ-824]
+  - id: REQ-828
+    title: "Currencies C6: asset card currency becomes a dropdown from the directory, the card shows code and name, and the stock receipt and opening price and value headers show the tenant currency instead of a fixed sign"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 4389
+    # Source: task T-1870 (operator, owner decisions D-134, D-097). Design: docs/design/currency-directory.md (planned, not yet on main; added by the same task) sections 3, 5 rows 7 to 12 and 7. Files read on origin/main c7950f342: web/src/modules/assets/AssetCardForm.tsx (free text input currency, maxLength 3; Select already imported from web/src/components/ui/Select.tsx), web/src/modules/assets/AssetCardFacts.tsx, web/src/modules/assets/assetsModel.ts, web/src/modules/assets/assetsMessages.ts, web/src/i18n/importMessages.ts, web/src/modules/stock/documents/lineColumns.ts (labels stock.doc.field.unitPrice and lineValue), web/src/components/ui/lines/linesMessages.ts (ids c.price, c.value, f.price, f.value with a fixed sign). Written by the business analyst (T-1870) 2026-11-13. Not yet validated.
+    description: >
+      (1) In web/src/modules/assets/AssetCardForm.tsx the currency text input becomes the shared Select. Under
+      D-097 (one currency per tenant) its options are the empty choice, labelled as the tenant currency, and the
+      tenant currency read through the client of REQ-827 (web/src/api/currencies.ts, planned), shown as code, a
+      dash and the name in the UI language. A stored value that is not the tenant currency is shown as an extra
+      disabled option with its stored text and a hint to choose the tenant currency. (2) AssetCardFacts shows the
+      code with its name. (3) The refusals currency_unknown (card form) and asset_currency_unknown (import screen)
+      get texts in en, ru and kk in assetsMessages.ts and importMessages.ts and mark the field currency. (4) The
+      price and value column headers of the stock receipt and opening lines (lineColumns.ts) carry the tenant
+      currency code, and the fixed sign in the ids c.price, c.value, f.price and f.value of linesMessages.ts is
+      replaced by a cur placeholder filled with the tenant currency code. No backend change.
+    acceptance_criteria:
+      - "1. A component test of the asset card form with a fake directory whose tenant currency is KZT shows exactly two options (empty and KZT with its name in the UI language), saving with KZT sends currency KZT, and a card stored with TNG shows a third, disabled option TNG with the hint."
+      - "2. Component tests show a 422 currency_unknown on the card form and an asset_currency_unknown import row mark the field currency with their text in en, ru and kk."
+      - "3. A component test of the stock receipt lines with tenant currency USD shows the price and value headers with USD and no ₸; grep -n '₸' web/src/components/ui/lines/linesMessages.ts prints nothing."
+      - "4. npm run check passes, and the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) of the card form with the open dropdown, the card facts and the receipt lines is in the task folder."
+    depends_on: [REQ-824, REQ-826, REQ-827]

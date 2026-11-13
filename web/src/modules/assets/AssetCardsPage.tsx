@@ -27,7 +27,7 @@ import { AssetCardHolder } from './AssetCardHolder'
 import { AssetCardForm, unitName, type Cmd } from './AssetCardForm'
 import { AssetsIntlProvider } from './AssetsIntlProvider'
 import { AssetsShell, useAssetRows, useErrorText, useOrgUnitRows } from './AssetsShell'
-import { HelpLink } from '@/components/help/HelpLink'
+import { AssetsHelpLink } from '@/modules/assets/help/AssetsHelpLink'
 import { ASSET_KINDS, isActive, textOf } from './assetsModel'
 import { useAssetsWrite, type AssetsWriteResult } from './useAssetsWrite'
 
@@ -241,7 +241,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
       queries={[...assetRows.queries, unitsQuery]}
       actions={
         <>
-          <HelpLink to="/admin/assets/help/cards" label={t('assets.help.link')} />
+          <AssetsHelpLink topic="cards" />
           {createButton}
         </>
       }

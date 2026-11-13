@@ -7,7 +7,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { FilterBar } from '@/components/ui/FilterBar'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { HelpLink } from '@/components/help/HelpLink'
+import { StockHelpLink } from '@/modules/stock/help/StockHelpLink'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
@@ -211,7 +211,7 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
       <PageHeader eyebrow={t('stock.eyebrow')} title={t('stock.balances.title')} lede={t('stock.balances.lede')}
         actions={
           <>
-            <HelpLink to="/admin/stock/help/balances" label={t('stock.help.link')} />
+            <StockHelpLink topic="balances" />
             <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
               {t('stock.balances.export')}
             </Button>

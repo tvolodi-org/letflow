@@ -298,6 +298,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Query.Types
   alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Entities.ModuleReadGate
   alias Letflow.Entities.RequestAccess
   alias Letflow.Entities.Restrictions
   alias Letflow.Entities.ScopeResolver
@@ -1279,7 +1280,7 @@ defmodule Letflow.Routers.Entities do
     with {:ok, request} <- build_query_request(body),
          {:ok, opts} <- build_paginate_opts(body),
          {:ok, %{sets: sets}} <-
-           RequestAccess.check(%{user_id: user_id, prefix: prefix}, :row, request, %{
+           RequestAccess.check(principal_for_access(conn, user_id, prefix), :row, request, %{
              exempt?: false
            }),
          {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
@@ -1527,6 +1528,11 @@ defmodule Letflow.Routers.Entities do
     end
   end
 
+  # T-1864: the caller identity of `RequestAccess.check/4` plus the types a module's read
+  # permission refuses this caller (`ModuleReadGate`).
+  defp principal_for_access(conn, user_id, prefix),
+    do: %{user_id: user_id, prefix: prefix, module_denied: ModuleReadGate.denied(conn)}
+
   @spec run_query_aggregate(Plug.Conn.t(), map(), String.t(), String.t()) :: Plug.Conn.t()
   defp run_query_aggregate(conn, body, user_id, prefix) do
     {conn, scope_set} = ScopeGate.scope_set(conn, :EntitiesAggregate)
@@ -1534,7 +1540,7 @@ defmodule Letflow.Routers.Entities do
     with {:ok, request} <- build_aggregate_request(body),
          {:ok, _guard_ok} <-
            RequestAccess.check(
-             %{user_id: user_id, prefix: prefix},
+             principal_for_access(conn, user_id, prefix),
              :aggregate,
              request,
              %{exempt?: false}
@@ -1720,7 +1726,7 @@ defmodule Letflow.Routers.Entities do
          {:ok, opts} <- build_export_paginate_opts(body),
          {:ok, guard} <-
            RequestAccess.check(
-             %{user_id: user_id, prefix: prefix},
+             principal_for_access(conn, user_id, prefix),
              :row,
              request,
              %{exempt?: unredacted?}

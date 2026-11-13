@@ -13,6 +13,7 @@ export interface HelpRefusal {
 }
 export interface HelpCommonText {
   link: string
+  close: string
   back: string
   purpose: string
   tasks: string
@@ -29,6 +30,7 @@ export function helpIds(mod: string, topic: string): string[] {
 export function flattenHelp(mod: string, common: HelpCommonText, topics: Record<string, HelpTopicText>): Record<string, string> {
   const out: Record<string, string> = {
     [`${mod}.help.link`]: common.link,
+    [`${mod}.help.close`]: common.close,
     [`${mod}.help.back`]: common.back,
     [`${mod}.help.h.purpose`]: common.purpose,
     [`${mod}.help.h.tasks`]: common.tasks,

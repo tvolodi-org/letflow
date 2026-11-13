@@ -36,8 +36,8 @@ defmodule Letflow.Modules.Locations.Tree do
   alias Letflow.Repo
 
   @types ["location_node"]
-  @allowed ~w(code name node_kind parent_id segment address location_type external_ref_system external_ref_id)
-  @optional ~w(parent_id segment address location_type external_ref_system external_ref_id)
+  @allowed ~w(code name node_kind parent_id segment address location_type customer_location external_ref_system external_ref_id)
+  @optional ~w(parent_id segment address location_type customer_location external_ref_system external_ref_id)
 
   @doc """
   Creates a `location_node` in tenant schema `prefix` and returns the live record map of
@@ -102,6 +102,7 @@ defmodule Letflow.Modules.Locations.Tree do
            :ok <- ImportRow.check_keys(attrs, @allowed),
            :ok <- check_required(attrs),
            :ok <- check_segment(attrs),
+           :ok <- check_boolean(attrs),
            {:ok, fv} <- build_values(prefix, attrs, parent_id, pattern),
            {:ok, record_id} <- write(prefix, fv, actor_id, idem),
            {:ok, node} <- ReadApi.lookup(prefix, record_id, @types),
@@ -163,6 +164,13 @@ defmodule Letflow.Modules.Locations.Tree do
         if non_blank?(seg) and not String.contains?(seg, "-"),
           do: :ok,
           else: {:error, {:field_invalid, "segment"}}
+    end
+  end
+
+  defp check_boolean(attrs) do
+    case Map.get(attrs, "customer_location") do
+      v when is_nil(v) or is_boolean(v) -> :ok
+      _ -> {:error, {:field_invalid, "customer_location"}}
     end
   end
 
@@ -232,7 +240,7 @@ defmodule Letflow.Modules.Locations.Tree do
   # REQ-646: move, update, retire, subtree read
   # ---------------------------------------------------------------------------------------------
 
-  @updatable ~w(name node_kind segment address location_type external_ref_system external_ref_id)
+  @updatable ~w(name node_kind segment address location_type customer_location external_ref_system external_ref_id)
   @prefix_re ~r/\A[a-z0-9_]+\z/
 
   @doc """
@@ -278,7 +286,10 @@ defmodule Letflow.Modules.Locations.Tree do
       with :ok <- check_update_keys(attrs) do
         merged = attrs |> Enum.reduce(fv, fn {k, v}, acc -> put_or_drop(acc, k, v) end)
 
-        with :ok <- check_required(merged), :ok <- check_segment(merged), do: {:ok, merged}
+        with :ok <- check_required(merged),
+             :ok <- check_segment(merged),
+             :ok <- check_boolean(merged),
+             do: {:ok, merged}
       end
     end
 

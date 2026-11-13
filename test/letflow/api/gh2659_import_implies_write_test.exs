@@ -29,10 +29,12 @@ defmodule Letflow.Api.Gh2659ImportImpliesWriteTest do
     import = allowed_by_role("EntitiesRecordsImport")
     write = allowed_by_role("EntitiesRecordsWrite")
 
-    # D-093 / decision 0081 D4: STOREKEEPER is the one named exception. It holds Import without
-    # Write, and RecordImport refuses it every type except a module-managed one with a registered
-    # import function, which runs through the owning module's own import function, not the generic update branch.
-    holders = for {role, true} <- import, role != "STOREKEEPER", do: role
+    # Roles stage 0 S0-1 / decision 0081 D4: holders of Import without EntitiesRecordsImportAnyType
+    # (today STOREKEEPER) hold Import without Write, and RecordImport refuses them every type except
+    # stock_opening_line, which runs through the owning module's own import function, not the
+    # generic update branch.
+    any_type = allowed_by_role("EntitiesRecordsImportAnyType")
+    holders = for {role, true} <- import, any_type[role] == true, do: role
     assert holders != [], "no role holds EntitiesRecordsImport: the golden parse is broken"
     assert Map.keys(import) == Map.keys(write)
 

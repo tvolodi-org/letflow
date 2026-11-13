@@ -553,4 +553,45 @@ defmodule Letflow.Identity.TenantTest do
       end)
     end)
   end
+
+  describe "reserved slugs (T-1861)" do
+    test "reserved_slug?/1 matches pwa trimmed and case-insensitively, nothing else" do
+      assert "pwa" in Tenant.reserved_slugs()
+      assert Tenant.reserved_slug?("pwa")
+      assert Tenant.reserved_slug?(" PwA ")
+      refute Tenant.reserved_slug?("pwa2")
+      refute Tenant.reserved_slug?("acme")
+      refute Tenant.reserved_slug?(nil)
+    end
+
+    test "create_changeset refuses a reserved slug and accepts a normal one" do
+      attrs = %{"display_name" => "X"}
+
+      for slug <- ["pwa", "PWA"] do
+        cs = Tenant.create_changeset(%Tenant{}, Map.put(attrs, "slug", slug), :disabled)
+        refute cs.valid?
+        assert {"is reserved", _} = cs.errors[:slug]
+      end
+
+      assert Tenant.create_changeset(%Tenant{}, Map.put(attrs, "slug", "acme"), :disabled).valid?
+    end
+
+    test "Identity.create_tenant/1 refuses pwa and writes nothing" do
+      assert {:error, %Ecto.Changeset{}} =
+               Letflow.Identity.create_tenant(%{"slug" => "pwa", "display_name" => "X"})
+
+      assert {:error, :not_found} = Letflow.Identity.get_tenant_by_slug("pwa")
+    end
+
+    test "provisioning_changeset refuses a reserved slug" do
+      cs =
+        Tenant.provisioning_changeset(%Tenant{}, %{
+          id: Ecto.UUID.generate(),
+          slug: "pwa",
+          display_name: "X"
+        })
+
+      refute cs.valid?
+    end
+  end
 end
