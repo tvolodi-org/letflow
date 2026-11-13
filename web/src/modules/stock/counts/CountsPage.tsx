@@ -1,7 +1,7 @@
-/** CountsPage — GH 3735 / REQ-702. Count orders in a MasterDetail (rule 2a): the list with a status filter on the
+/** CountsPage — GH 3735 / REQ-702. Count orders in a ListDetail (rule 2a): the list with a status filter on the
  *  left; on the right the create form, or the order (and from status counting on, its sheet) of the route's :id.
- *  Escape and the close button leave the panel. Names of masters come through the generic query route only. */
-import { useEffect, useState } from 'react'
+ *  Escape (owned by ListDetail) and the close button leave the panel. Names of masters come through the generic query route only. */
+import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
@@ -9,7 +9,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
-import { MasterDetail } from '@/components/ui/MasterDetail'
+import { ListDetail } from '@/components/ui/listDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { StockHelpLink } from '@/modules/stock/help/StockHelpLink'
 import { Select } from '@/components/ui/Select'
@@ -65,16 +65,6 @@ function CountsInner() {
     setCreating(false)
     if (id !== undefined) navigate(LIST)
   }
-  // Escape leaves the panel (a dialog on top handles its own Escape first).
-  useEffect(() => {
-    if (!panelOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented && document.querySelector('[role="dialog"]') === null) closePanel()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  })
-
   const columns: DataTableColumn<CountOrder>[] = [
     {
       key: 'number',
@@ -102,26 +92,26 @@ function CountsInner() {
   const master = query.isError ? (
     <RegisterError error={query.error} onRetry={() => void query.refetch()} />
   ) : (
-    <>
-      <DataTable
-        columns={columns}
-        data={rows}
-        isLoading={query.isPending}
-        getRowId={(r) => r.id}
-        selectedId={creating ? null : (id ?? null)}
-        onRowClick={(r) => {
-          setCreating(false)
-          navigate(`${LIST}/${r.id}`)
-        }}
-        emptyMessage={t('counts.empty')}
-        emptyText={t('counts.emptyText')}
-        emptyAction={
-          canOrder ? <Button variant="primary" size="md" onClick={() => setCreating(true)}>{t('counts.new')}</Button> : undefined
-        }
-        labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
-      />
-      <LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
-    </>
+    <DataTable
+      columns={columns}
+      data={rows}
+      isLoading={query.isPending}
+      getRowId={(r) => r.id}
+      selectedId={creating ? null : (id ?? null)}
+      onRowClick={(r) => {
+        setCreating(false)
+        navigate(`${LIST}/${r.id}`)
+      }}
+      emptyMessage={t('counts.empty')}
+      emptyText={t('counts.emptyText')}
+      emptyAction={
+        canOrder ? <Button variant="primary" size="md" onClick={() => setCreating(true)}>{t('counts.new')}</Button> : undefined
+      }
+      labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
+    />
+  )
+  const listFooter = query.isError ? null : (
+    <LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
   )
   const detail = creating ? (
     <CountOrderForm
@@ -133,9 +123,12 @@ function CountsInner() {
     />
   ) : id !== undefined ? (
     <CountDetail key={id} id={id} onClose={closePanel} />
-  ) : (
-    <div className="lf-card__body">
-      <p className="lf-hint">{t('counts.hint')}</p>
+  ) : null
+  const empty = (
+    <div className="lf-card">
+      <div className="lf-card__body">
+        <p className="lf-hint">{t('counts.hint')}</p>
+      </div>
     </div>
   )
 
@@ -156,8 +149,11 @@ function CountsInner() {
           </>
         }
       />
-      <MasterDetail
-        masterWidth="wide"
+      <ListDetail
+        screen="stock.counts"
+        listLabel={t('counts.listPane')}
+        listDefault={40}
+        listMin={380}
         tools={
           <Select
             label={t('counts.filter.status')}
@@ -167,10 +163,22 @@ function CountsInner() {
             placeholder={t('counts.filter.all')}
           />
         }
-        master={master}
-        detail={detail}
+        list={master}
+        listFooter={listFooter}
+        detail={
+          // a dialog inside the record owns its Escape: mark the key handled so ListDetail does not close the record
+          <div
+            className="lf-card"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && document.querySelector('[role="dialog"]') !== null) e.preventDefault()
+            }}
+          >
+            {detail}
+          </div>
+        }
+        empty={empty}
         detailOpen={panelOpen}
-        onBack={closePanel}
+        onClose={closePanel}
       />
     </>
   )

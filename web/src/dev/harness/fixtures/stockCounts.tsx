@@ -46,7 +46,7 @@ const ENTRIES = [
   { entry_no: 1, line_no: 1, method: 'typed', quantity_before: null, quantity_after: '38', entered_by: 'aigerim', entered_at: '2026-11-03T05:02:00Z' },
 ]
 
-const routes: FixtureRoute[] = [
+export const routes: FixtureRoute[] = [
   {
     match: (path, method) => path === '/api/v1/entities/query' && method === 'POST',
     reply: (state, _p, body) => {

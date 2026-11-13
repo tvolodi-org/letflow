@@ -77,7 +77,7 @@ function answer(state: string, body: unknown, more = false) {
   return { status: 200, body: { items, next_cursor: more && b.entity_type === 'assets_card' ? 'next-page' : null } }
 }
 
-const routes: FixtureRoute[] = [
+export const routes: FixtureRoute[] = [
   { match: (path, method) => path === '/api/v1/entities/query' && method === 'POST', reply: (state, _path, body) => answer(state, body) },
   // a write answers an empty object so a click in the harness does not fail
   { match: (path, method) => path.startsWith('/api/v1/modules/assets/') && method !== 'GET', reply: () => ({ status: 200, body: {} }) },
@@ -107,7 +107,7 @@ const lockRoute = (reply: () => { status: number; body: unknown }, pending = fal
 const lockedRoutes = [lockRoute(() => ({ status: 200, body: { posted: true } })), ...rowsRoutes]
 const unlockedRoutes = [lockRoute(() => ({ status: 200, body: { posted: false } })), ...rowsRoutes]
 const lockPendingRoutes = [lockRoute(() => ({ status: 200, body: {} }), true), ...rowsRoutes]
-const READER: AccessState = {
+export const READER: AccessState = {
   status: 'ready',
   info: { roles: [], platform_tenant: false, permissions: ['AssetsCardWrite', 'AssetsRead'] },
 }
