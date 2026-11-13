@@ -5,6 +5,8 @@
  *  is read-only. There is no "responsible" filter: the card holds no responsible person (the register does, C14). */
 import { useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useAccess } from '@/auth/access/useAccess'
 import { Plus, X } from 'lucide-react'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
@@ -24,9 +26,13 @@ import { assetsApi } from './assets.api'
 import { AssetCardFacts } from './AssetCardFacts'
 import { AssetCardDepreciation } from './AssetCardDepreciation'
 import { AssetCardHolder } from './AssetCardHolder'
+import { AssetCardActionsMenu } from './AssetCardActionsMenu'
+import { AssetCardOperations } from './AssetCardOperations'
+import { ASSETS_POST } from './assetsPermissions'
+import { newDocumentHref } from './cardActions'
 import { AssetCardForm, unitName, type Cmd } from './AssetCardForm'
 import { AssetsIntlProvider } from './AssetsIntlProvider'
-import { AssetsShell, useAssetRows, useErrorText, useOrgUnitRows } from './AssetsShell'
+import { AssetsShell, useAssetRows, useCardById, useErrorText, useOrgUnitRows } from './AssetsShell'
 import { AssetsHelpLink } from '@/modules/assets/help/AssetsHelpLink'
 import { ASSET_KINDS, isActive, textOf } from './assetsModel'
 import { useAssetsWrite, type AssetsWriteResult } from './useAssetsWrite'
@@ -37,10 +43,14 @@ function run(cmd: Cmd, key: string) {
   return assetsApi.retireCard(cmd.id, key)
 }
 
-function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelectedId?: string; initialCreating?: boolean }) {
+function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initialSelectedId?: string; initialCreating?: boolean }) {
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string>) => intl.formatMessage({ id }, values)
   const toast = useToast()
+  const navigate = useNavigate()
+  const { can } = useAccess()
+  const [searchParams] = useSearchParams()
+  const initialSelectedId = given ?? searchParams.get('card') ?? undefined
   const errorText = useErrorText()
   const [kind, setKind] = useState('')
   const [orgUnitId, setOrgUnitId] = useState('')
@@ -58,8 +68,12 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
   // the list is paged and searched on the server: a chosen card may leave the loaded rows, so keep the clicked one
   // as a fallback (the loaded row wins, it is fresher after a save)
   const [picked, setPicked] = useState<EntityRecord | null>(null)
+  // the deep link of "Back to card" (`?card=`): a card outside the first page is read by id
+  const byId = useCardById(selectedId, !cards.some((c) => c.record_id === selectedId) && picked?.record_id !== selectedId)
   const selected =
-    cards.find((c) => c.record_id === selectedId) ?? (picked?.record_id === selectedId ? picked : null)
+    cards.find((c) => c.record_id === selectedId) ??
+    (picked?.record_id === selectedId ? picked : null) ??
+    (byId.data?.record_id === selectedId ? byId.data : null)
   const panelOpen = creating || selected !== null
   const dialogOpen = retiring !== null
   const unitLabel = (id: string) => {
@@ -135,6 +149,13 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
         </>
       ),
     },
+    {
+      key: 'actions',
+      label: t('assets.cardActions.menu'),
+      hideStackLabel: true,
+      align: 'end',
+      render: (c) => <AssetCardActionsMenu card={c} size="sm" />,
+    },
   ]
 
   const closeButton = (
@@ -165,6 +186,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
           }
           actions={
             <>
+              <AssetCardActionsMenu card={selected} />
               {active && (
                 <Button variant="danger" size="sm" onClick={() => { write.clearError(); setRetiring(selected) }}>
                   {t('assets.common.retire')}
@@ -181,6 +203,7 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
             <AssetCardFacts record={selected} />
           )}
           <AssetCardDepreciation record={selected} />
+          <AssetCardOperations card={selected} />
           <AssetCardHolder cardId={selected.record_id} />
         </div>
       </>
@@ -242,6 +265,11 @@ function AssetCardsInner({ initialSelectedId, initialCreating }: { initialSelect
       actions={
         <>
           <AssetsHelpLink topic="cards" />
+          {can(ASSETS_POST) && (
+            <Button variant="secondary" size="md" onClick={() => navigate(newDocumentHref('kind_change', []))} data-testid="asset-kind-change">
+              {t('assets.cardActions.kindChange')}
+            </Button>
+          )}
           {createButton}
         </>
       }
