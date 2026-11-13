@@ -20,10 +20,12 @@ import type { CardBody } from './assets.api'
 import {
   ASSET_KINDS,
   DECIMAL_KEYS,
+  DEPRECIATION_METHODS,
   createBody,
   decimalError,
   fieldMarked,
   formOf,
+  isDepreciationMethod,
   textOf,
   updateBody,
   type Form,
@@ -68,6 +70,11 @@ export function AssetCardForm(props: {
   const focusInvalid = useFocusFirstInvalid('form.lf-form')
   const dirty = JSON.stringify(form) !== JSON.stringify(initial)
   const intangible = form.kind === 'intangible'
+  // A value stored before the list existed stays selectable (and is not sent unless the user changes it).
+  const legacyMethod =
+    initial.depreciation_method !== '' && !isDepreciationMethod(initial.depreciation_method)
+      ? [{ value: initial.depreciation_method, label: intl.formatMessage({ id: 'assets.depMethod.legacy' }, { value: initial.depreciation_method }) }]
+      : []
   const patch = (p: Partial<Form>) => setForm({ ...form, ...p })
 
   const decimalProblem = (key: (typeof DECIMAL_KEYS)[number]) => {
@@ -186,9 +193,20 @@ export function AssetCardForm(props: {
           />
         </FormRow>
         <FormRow>
-          <Field label={t('assets.field.depMethod')} width="m" optional error={invalid('depreciation_method')}>
-            <input name="depreciation_method" value={form.depreciation_method} onChange={(e) => patch({ depreciation_method: e.target.value })} />
-          </Field>
+          <Select
+            label={t('assets.field.depMethod')}
+            width="m"
+            optional
+            name="depreciation_method"
+            placeholder={t('assets.depMethod.none')}
+            value={form.depreciation_method}
+            options={[
+              ...DEPRECIATION_METHODS.map((m) => ({ value: m, label: t(`assets.depMethod.${m}`) })),
+              ...legacyMethod,
+            ]}
+            error={invalid('depreciation_method')}
+            onChange={(v) => patch({ depreciation_method: v })}
+          />
           {decimalField('depreciation_rate', t('assets.field.depRate'))}
         </FormRow>
       </FormSection>

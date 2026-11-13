@@ -259,14 +259,14 @@ defmodule Letflow.Modules.Assets.CardsTest do
                  "accumulated_depreciation" => "100.250000000",
                  "book_value" => "1134.250000000",
                  "depreciation_as_of" => "2025-01-01",
-                 "depreciation_method" => "straight line",
+                 "depreciation_method" => "straight_line",
                  "depreciation_rate" => "20.000000000",
                  "acquisition_cost" => "1234.500000000"
                },
                opts()
              )
 
-    assert stored(s, c["record_id"])["depreciation_method"] == "straight line"
+    assert stored(s, c["record_id"])["depreciation_method"] == "straight_line"
     assert stored(s, c["record_id"])["depreciation_rate"] == "20.000000000"
 
     assert {:error, {:record_payload_invalid, _}} =
@@ -363,6 +363,116 @@ defmodule Letflow.Modules.Assets.CardsTest do
       assert stored(s, id) == before
       assert {:error, :audit_failed} = Cards.retire_card(s, id, opts())
       assert stored(s, id)["active"] == true
+    end
+  end
+
+  describe "T-1871 depreciation method (D-134)" do
+    defp legacy_card!(s, u, number, text) do
+      card = card!(s, u, number)
+      fv = Map.put(stored(s, card["record_id"]), "depreciation_method", text)
+
+      {:ok, _} =
+        Letflow.Entities.Records.update_record(
+          %{
+            entity_type: "assets_card",
+            record_id: card["record_id"],
+            field_values: fv,
+            actor_id: @actor,
+            idempotency_key: Ecto.UUID.generate()
+          },
+          s,
+          Letflow.Entities.ManagedTypes.owner_for!(Letflow.Modules.Assets)
+        )
+
+      card
+    end
+
+    test "DM-1: the list of codes" do
+      assert Cards.depreciation_methods() ==
+               ~w(straight_line reducing_balance units_of_production)
+    end
+
+    test "DM-2: create refuses an unknown value, writes nothing, accepts a code", %{
+      schema: s,
+      unit: u
+    } do
+      before = {card_count(s), length(entries(s))}
+
+      for bad <- ["linear", 42, %{"a" => 1}] do
+        assert {:error, {:field_invalid, "depreciation_method"}} =
+                 Cards.create_card(
+                   s,
+                   attrs(u, "DM2", %{"depreciation_method" => bad}),
+                   opts()
+                 )
+      end
+
+      assert {card_count(s), length(entries(s))} == before
+
+      for code <- Cards.depreciation_methods() do
+        assert {:ok, c} =
+                 Cards.create_card(
+                   s,
+                   attrs(u, "DM2-#{code}", %{"depreciation_method" => code}),
+                   opts()
+                 )
+
+        assert c["depreciation_method"] == code
+      end
+    end
+
+    test "DM-4: update refuses an unknown value and keeps the stored one", %{schema: s, unit: u} do
+      c = card!(s, u, "DM4", %{"depreciation_method" => "straight_line"})
+
+      assert {:error, {:field_invalid, "depreciation_method"}} =
+               Cards.update_card(s, c["record_id"], %{"depreciation_method" => "linear"}, opts())
+
+      assert stored(s, c["record_id"])["depreciation_method"] == "straight_line"
+
+      assert {:ok, _} =
+               Cards.update_card(
+                 s,
+                 c["record_id"],
+                 %{"depreciation_method" => "reducing_balance"},
+                 opts()
+               )
+
+      assert stored(s, c["record_id"])["depreciation_method"] == "reducing_balance"
+    end
+
+    test "DM-5: a legacy value stays valid when untouched or sent back, not replaced by text", %{
+      schema: s,
+      unit: u
+    } do
+      c = legacy_card!(s, u, "DM5", "straight line")
+      id = c["record_id"]
+
+      assert {:ok, _} = Cards.update_card(s, id, %{"name" => "Renamed"}, opts())
+      assert stored(s, id)["depreciation_method"] == "straight line"
+
+      n = length(entries(s))
+
+      assert {:ok, _} =
+               Cards.update_card(s, id, %{"depreciation_method" => "straight line"}, opts())
+
+      assert length(entries(s)) == n
+
+      assert {:error, {:field_invalid, "depreciation_method"}} =
+               Cards.update_card(s, id, %{"depreciation_method" => "other text"}, opts())
+
+      assert {:ok, _} =
+               Cards.update_card(s, id, %{"depreciation_method" => "straight_line"}, opts())
+
+      assert stored(s, id)["depreciation_method"] == "straight_line"
+    end
+
+    test "DM-6: a legacy value can be cleared", %{schema: s, unit: u} do
+      c = legacy_card!(s, u, "DM6", "declining")
+
+      assert {:ok, _} =
+               Cards.update_card(s, c["record_id"], %{"depreciation_method" => nil}, opts())
+
+      assert stored(s, c["record_id"])["depreciation_method"] in [nil, ""]
     end
   end
 
