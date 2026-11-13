@@ -581,7 +581,7 @@ export const documentsKk: Record<string, string> = {
   'assets.doc.opening.col.responsible': 'МЖТ',
   'assets.doc.opening.col.user': 'Нақты пайдаланушы',
   'assets.doc.opening.col.cost': 'Құны',
-  'assets.doc.opening.col.depreciation': 'Амортизация',
+  'assets.doc.opening.col.depreciation': 'Тозу',
   'assets.doc.opening.col.acquired': 'Алынған',
   'assets.doc.opening.fromCard': 'Құны, жинақталған амортизация және сатып алу күні карточкадан алынады және мұнда тек оқуға арналған.',
   'assets.doc.action.check': 'Барлық жолдарды тексеру',
