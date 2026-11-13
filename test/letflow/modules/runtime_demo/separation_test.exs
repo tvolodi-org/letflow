@@ -21,18 +21,18 @@ defmodule Letflow.Modules.RuntimeDemo.SeparationTest do
 
   defp read(env), do: Config.Reader.read!("config/config.exs", env: env)[:letflow]
 
-  test "S1: production config with the variable unset has no demo module and the 8 real modules" do
+  test "S1: production config with the variable unset has no demo module and the 9 real modules" do
     System.delete_env(@var)
     cfg = read(:prod)
     assert cfg[:demo_modules] == []
-    assert length(cfg[:modules]) == 8
+    assert length(cfg[:modules]) == 9
     refute Letflow.Modules.RuntimeDemo in cfg[:modules]
   end
 
   test "S2: only the exact value true includes it" do
     System.put_env(@var, "true")
     assert read(:prod)[:demo_modules] == [Letflow.Modules.RuntimeDemo]
-    assert read(:prod)[:modules] |> length() == 8
+    assert read(:prod)[:modules] |> length() == 9
 
     for v <- ["false", "1", "TRUE", ""] do
       System.put_env(@var, v)

@@ -1,0 +1,13 @@
+{
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [],
+  "entity_definitions": [],
+  "exported_at": "2026-11-13T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "pack_id": "letflow-mes-core",
+  "service_catalog_entries": [],
+  "variable_schemas": [],
+  "version": "0.1.0"
+}
