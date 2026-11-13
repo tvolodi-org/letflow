@@ -17,6 +17,7 @@ export function resolveUiLocale(candidates?: readonly string[]): AssetsUiLocale 
 
 const en: Record<string, string> = {
   'assets.common.truncated': 'Showing the first {count} records of a lookup list only; the list is longer, so some names may be missing.',
+  'assets.reports.group': 'Assets',
   'import.type.assets_card': 'Asset cards',
   'import.type.assets_opening_line': 'Asset opening lines',
   'assets.common.dash': '—',
@@ -121,6 +122,7 @@ const en: Record<string, string> = {
 
 const ru: Record<string, string> = {
   'assets.common.truncated': 'Справочный список показан не полностью: только первые {count} записей, поэтому некоторые названия могут отсутствовать.',
+  'assets.reports.group': 'Активы',
   'import.type.assets_card': 'Карточки активов',
   'import.type.assets_opening_line': 'Начальные остатки активов',
   'assets.common.dash': '—',
@@ -225,6 +227,7 @@ const ru: Record<string, string> = {
 
 const kk: Record<string, string> = {
   'assets.common.truncated': 'Анықтамалық тізім толық көрсетілмеген: тек алғашқы {count} жазба, сондықтан кейбір атаулар болмауы мүмкін.',
+  'assets.reports.group': 'Активтер',
   'import.type.assets_card': 'Активтер карточкалары',
   'import.type.assets_opening_line': 'Активтердің бастапқы қалдықтары',
   'assets.common.dash': '—',
