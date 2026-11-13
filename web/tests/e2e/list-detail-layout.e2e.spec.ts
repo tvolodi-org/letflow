@@ -7,7 +7,6 @@ import { expect, test, type Page } from '@playwright/test'
 
 test.use({ video: 'off', launchOptions: process.env['LF_CHROMIUM'] ? { executablePath: process.env['LF_CHROMIUM'] } : {} })
 
-interface Box { x: number; y: number; width: number; height: number }
 const SIZES = [
   { width: 1920, height: 1080 },
   { width: 1440, height: 900 },
@@ -24,14 +23,6 @@ const OPEN_SCREEN = '/__harness/stock-balances-layout-open'
 const CLOSED_SCREEN = '/__harness/stock-balances-layout'
 /** Screen with the real AppShell for collapse/reload tests. */
 const SHELL_SCREEN = '/__harness/stock-balances-shell'
-
-const box = async (l: ReturnType<Page['locator']>): Promise<Box> => {
-  const b = await l.first().boundingBox()
-  if (!b) throw new Error('no bounding box')
-  return b
-}
-const inside = (a: Box, b: Box) =>
-  a.x >= b.x - 1 && a.y >= b.y - 1 && a.x + a.width <= b.x + b.width + 1 && a.y + a.height <= b.y + b.height + 1
 
 const list = (p: Page) => p.locator('.lf-reg__list').first()
 const details = (p: Page) => p.locator('.lf-reg__details').first()
