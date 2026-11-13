@@ -6,7 +6,8 @@ import { cleanup, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useUiLocaleStore } from '@/i18n/uiLocaleStore'
 import { docEn, docKk, docRu } from '../documents/documentsMessages'
-import { documentPrintable, printErrorMessageId } from '../documents/documentsModel'
+import { DOC_KINDS, DOC_STATES, documentPrintable, printErrorMessageId } from '../documents/documentsModel'
+import { formsForDocument } from '../forms/officialForms'
 import { DOCS, LIST, fakeDocument, fakeMasters, refusal, renderStock, stockDoc } from './stockTestKit'
 
 expect.extend(jestDomMatchers)
@@ -37,7 +38,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const KINDS = ['transfer', 'hand_over', 'return']
+const KINDS = ['receipt', 'issue', 'write_off', 'transfer', 'hand_over', 'return']
 const STATES = ['issued', 'posted', 'reversed']
 
 describe('D1 button and download', () => {
@@ -65,7 +66,7 @@ describe('D1 button and download', () => {
 
 describe('D2 absent', () => {
   it.each([
-    ['hand_over', 'draft'], ['hand_over', 'cancelled'], ['receipt', 'issued'], ['issue', 'issued'], ['write_off', 'issued'],
+    ['hand_over', 'draft'], ['hand_over', 'cancelled'], ['opening', 'issued'], ['opening', 'posted'], ['receipt', 'draft'], ['write_off', 'cancelled'],
   ])('%s in %s has no button', async (kind, state) => {
     fakeDocument(clientMock, stockDoc({ kind, state }))
     renderStock(VIEW)
@@ -116,7 +117,7 @@ describe('D5 model and catalogs', () => {
   it('documentPrintable and printErrorMessageId', () => {
     expect(documentPrintable({ kind: 'transfer', state: 'issued' })).toBe(true)
     expect(documentPrintable({ kind: 'transfer', state: 'draft' })).toBe(false)
-    expect(documentPrintable({ kind: 'receipt', state: 'posted' })).toBe(false)
+    expect(documentPrintable({ kind: 'opening', state: 'posted' })).toBe(false)
     expect(printErrorMessageId(refusal(422, 'invalid_lang'))).toBe('stock.doc.print.reason.invalid_lang')
     expect(printErrorMessageId(refusal(422, 'unknown'))).toBe('stock.doc.error.generic')
     expect(printErrorMessageId(refusal(403))).toBe('stock.doc.error.generic')
@@ -133,4 +134,12 @@ describe('D5 model and catalogs', () => {
       expect(docKk[k]).not.toBe(docEn[k])
     }
   })
+})
+
+// D6: one state policy for the act and every document form.
+it.each(DOC_KINDS.flatMap(kind => DOC_STATES.map(state => [kind, state])))('D6 %s %s print policy', (kind, state) => {
+  const active = ['issued', 'posted', 'reversed'].includes(state)
+  expect(documentPrintable({ kind, state })).toBe(kind !== 'opening' && active)
+  const form = ({ receipt: 'z1', issue: 'z2', transfer: 'z5' } as Record<string, string>)[kind]
+  expect(formsForDocument({ kind, state })).toEqual(active && form ? [form] : [])
 })

@@ -111,3 +111,39 @@ export const ROLE_ENV = {
   worker: { user: process.env.E2E_WORKER_USER ?? '', pw: process.env.E2E_WORKER_PASSWORD ?? '' },
   scoped: { user: process.env.E2E_SCOPED_USER ?? '', pw: process.env.E2E_SCOPED_PASSWORD ?? '' },
 }
+
+/** The document number from the header card (the value after the "Number" label). */
+export async function headerNumber(p: Page): Promise<string> {
+  const text = (await p.getByTestId('document-header').innerText()).replace(/\s+/g, ' ')
+  return /([A-Z]{1,6}[-/]?\d[\w-]*)/.exec(text)?.[1] ?? ''
+}
+
+export async function saveDocument(p: Page): Promise<void> {
+  await p.getByRole('button', { name: 'Save draft' }).click()
+  await expect(p.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
+  await expect(p.getByTestId('document-actions')).toBeVisible()
+}
+
+export async function issueDocument(p: Page): Promise<void> {
+  await p.getByTestId('document-actions').getByRole('button', { name: 'Issue', exact: true }).click()
+  await p.getByRole('dialog').getByRole('button', { name: 'Issue', exact: true }).click()
+  await expect(p.getByTestId('document-header')).toContainText(/Issued|Posted/i, { timeout: 30_000 })
+}
+
+/** Claim then complete the task row that matches `hint` (document number or item name). */
+export async function claimAndComplete(p: Page, hint: string): Promise<void> {
+  await openRoute(p, '/tasks')
+  const rows = p.getByTestId('task-row')
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 })
+  const own = rows.filter({ hasText: hint })
+  await ((await own.count()) > 0 ? own.first() : rows.first()).click()
+  await expect(p.getByTestId('task-detail-panel')).toBeVisible()
+  const claim = p.getByTestId('task-claim-button')
+  if (await claim.isVisible().catch(() => false)) await claim.click()
+  // R11: Complete appears after the claim
+  await expect(p.getByTestId('task-complete-button')).toBeVisible({ timeout: 20_000 })
+  const done = p.waitForResponse(r => r.request().method() === 'POST' && /complete/.test(r.url()) && r.ok(), { timeout: 30_000 })
+  await p.getByTestId('task-complete-button').click()
+  // Wait for the completion to reach the server before the caller navigates away (a cancelled request leaves it open).
+  await done
+}

@@ -124,7 +124,8 @@ describe('W-4 refusals and catalogs', () => {
 
   it('every new key has a ru and a kk text that differs from English', () => {
     const keys = Object.keys(stockMessages.en).filter((k) => k.startsWith('stock.balances.card'))
-    expect(keys.length).toBe(4)
+    // The two standalone PDF/DOCX labels were removed in D8; the shared menu owns formats.
+    expect(keys.length).toBe(2)
     for (const k of keys) {
       for (const l of ['ru', 'kk'] as const) {
         expect(stockMessages[l][k]?.trim(), `${l} ${k}`).toBeTruthy()

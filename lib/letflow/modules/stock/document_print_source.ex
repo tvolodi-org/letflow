@@ -1,8 +1,8 @@
 defmodule Letflow.Modules.Stock.DocumentPrintSource do
   @moduledoc """
-  REQ-737 / GH #3860: the impure side of the printed two-sided stock document. `read/3` checks, in
+  REQ-737 / GH #3860: the impure side of the printed stock document. `read/3` checks, in
   this order and with nothing built before all pass: the document exists in the caller's tenant
-  (`Documents.fetch/3`, the read behind `GET /documents/:id`), its kind is transfer, hand over or
+  (`Documents.fetch/3`, the read behind `GET /documents/:id`), its kind is receipt, issue, write-off, transfer, hand over or
   return (or the `kinds:` option, see `read/4`), its live version is issued (posted and reversed documents are issued ones), then reads
   the ISSUED version content (never the live header and line records) and the names.
 
@@ -24,7 +24,7 @@ defmodule Letflow.Modules.Stock.DocumentPrintSource do
   alias Letflow.Modules.Stock.CountPaperworkSource
   alias Letflow.Modules.Stock.Documents
 
-  @kinds ["transfer", "hand_over", "return"]
+  @kinds Letflow.Modules.Stock.DocumentPrint.kinds()
   @issued_states ["issued", "posted", "reversed"]
 
   @doc """
