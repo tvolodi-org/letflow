@@ -8,7 +8,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { Printer } from 'lucide-react'
 import { OfficialFormMenu } from '../forms/OfficialFormMenu'
-import { formsForDocument } from '../forms/officialForms'
+import { formsForDocument, isDocumentForm, DOCUMENT_FORM_SUFFIX } from '../forms/officialForms'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
 import { useUiLocale, getUiLocale } from '@/i18n/uiLocaleStore'
@@ -204,14 +204,15 @@ function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
             <OfficialFormMenu
               forms={[...formsForDocument(doc), ...(documentHasZ5(doc) ? (['z5'] as const) : [])]}
               busyKey={pdf.busyKey}
-              onPick={(form, format, lang) =>
+              onPick={(form, format, lang) => {
+                if (!isDocumentForm(form)) return
                 void pdf.run(
                   `form-${form}-${format}`,
-                  () => documentsApi.printForm(doc.id, form === 'z5' ? 'z5' : 'z2', format, lang),
-                  `${doc.number ?? doc.id}${form === 'z5' ? '_Z-5' : '-Z-2'}.${format}`,
+                  () => documentsApi.printForm(doc.id, form, format, lang),
+                  `${doc.number ?? doc.id}${DOCUMENT_FORM_SUFFIX[form]}.${format}`,
                   printErrorMessageId,
                 )
-              }
+              }}
             />
           </>
         }

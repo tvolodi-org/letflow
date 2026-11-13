@@ -1,5 +1,5 @@
 /** Harness screens of the "Official form" menu (task T-1434, E5e): the menu open in the action row of an issue
- *  document (Z-2) and of a count order (Inv-10 and Inv-18). Invented data only; no request is made. */
+ *  document (Z-2) and of a count order (Inv-10 and Inv-18). T-1912 adds Z-1 for receipts. Invented data only; no request is made. */
 import type { ReactElement } from 'react'
 import { StockIntlProvider } from '@/modules/stock/StockIntlProvider'
 import { Banner } from '@/components/ui/Banner'
@@ -38,6 +38,7 @@ export const officialFormsScreens: HarnessScreen[] = [
   { name: 'docs-z2-menu-open', routes: [], render: () => shell(<OfficialFormMenu forms={['z2']} busyKey={null} onPick={noop} initialOpen />) },
   { name: 'docs-z2-menu-right', routes: [], render: () => headed('Issue note', <OfficialFormMenu forms={['z2']} busyKey={null} onPick={noop} initialOpen />) },
   { name: 'docs-z5-menu-right', routes: [], render: () => headed('Transfer', <OfficialFormMenu forms={['z5']} busyKey={null} onPick={noop} initialOpen />) },
+  { name: 'docs-z1-menu-right', routes: [], render: () => headed('Receipt', <OfficialFormMenu forms={['z1']} busyKey={null} onPick={noop} initialOpen />) },
   { name: 'balances-z3-hint', routes: [], render: () => headed('Balances', <><OfficialFormMenu forms={['z3']} disabledForms={{ z3: 'stock.balances.cardHint' }} busyKey={null} onPick={noop} initialOpen /></>) },
   { name: 'balances-z3-ready', routes: [], render: () => headed('Balances', <OfficialFormMenu forms={['z3']} busyKey={null} onPick={noop} initialOpen />) },
   { name: 'balances-z3-closed', routes: [], render: () => headed('Balances', <OfficialFormMenu forms={['z3']} disabledForms={{ z3: 'stock.balances.cardHint' }} busyKey={null} onPick={noop} />) },

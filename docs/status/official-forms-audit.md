@@ -149,3 +149,5 @@ columns of every form (Q5, REQ-778 for З-2), and the forms whose Letflow docume
 * QA click-through: **not done in this step**. The BA write step has no signed-in QA browser and must not probe routes.
   The button rows above are therefore "V" from the web code, not from a click. A UAT scenario (`uat_design`) can walk
   the screens on QA after slices 1 and 2 land.
+
+Slice 1 built by T-1912 (2026-11-14): `form=z1`, `priv/print_forms/z1.json`, menu entry "Official form" on the receipt screen in issued and posted state; the 'Receipt' row and D1 above describe main before this change.

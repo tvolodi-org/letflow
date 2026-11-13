@@ -97,7 +97,10 @@ defmodule Letflow.Modules.Stock.DocumentPrintSource do
         |> resolve(&employee(prefix, &1)),
       items: lines |> ids("catalog_item_id") |> resolve(&named(CatalogItems.lookup(prefix, &1))),
       uoms: lines |> ids("catalog_uom_id") |> resolve(&named(CatalogItems.lookup(prefix, &1))),
-      lots: lines |> ids("catalog_lot_id") |> resolve(&lot(prefix, &1))
+      lots: lines |> ids("catalog_lot_id") |> resolve(&lot(prefix, &1)),
+      counterparties:
+        header_ids.(["counterparty_id"])
+        |> resolve(&counterparty(prefix, &1))
     }
   end
 
@@ -145,6 +148,13 @@ defmodule Letflow.Modules.Stock.DocumentPrintSource do
   defp lot(prefix, id) do
     case CatalogItems.lookup(prefix, id) do
       {:ok, r} -> r["code"]
+      _ -> nil
+    end
+  end
+
+  defp counterparty(prefix, id) do
+    case CatalogItems.lookup(prefix, id) do
+      {:ok, r} -> %{name: r["name"], tax_id: r["tax_id"]}
       _ -> nil
     end
   end

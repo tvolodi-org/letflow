@@ -2,6 +2,7 @@
  *  identifier; a body never carries a server-set value (line_id, line_no, header_id, number, state). */
 import { client } from '@/api/client'
 import type { UiLocale } from '@/i18n/uiLocaleStore'
+import type { DocumentFormId } from '../forms/officialForms'
 
 const BASE = '/api/v1/modules/stock/documents'
 
@@ -91,8 +92,8 @@ export const documentsApi = {
   check: (id: string) => client.post<CheckResult>(`${BASE}/${encodeURIComponent(id)}/check`),
   /** REQ-738: the PDF of a transfer, hand over or return; the language is the UI language. */
   print: (id: string, lang: UiLocale) => client.getBlob(`${BASE}/${encodeURIComponent(id)}/print`, { lang }),
-  /** T-1434: the official Z-2 issue note; T-1417: Z-5 (internal movement invoice of a transfer); .docx or .pdf, ru or kk. */
-  printForm: (id: string, form: 'z2' | 'z5', format: 'docx' | 'pdf', lang: 'ru' | 'kk') =>
+  /** T-1434: the official Z-2 issue note; T-1417: Z-5 (internal movement invoice of a transfer); T-1912: Z-1 (receipt order); .docx or .pdf, ru or kk. */
+  printForm: (id: string, form: DocumentFormId, format: 'docx' | 'pdf', lang: 'ru' | 'kk') =>
     client.getBlob(`${BASE}/${encodeURIComponent(id)}/print`, { form, format, lang }),
   /** The server reads the key `reason` (Posting.cancel/5). */
   cancel: (id: string, body: { reason: string }) => client.post<StockDocument>(`${BASE}/${encodeURIComponent(id)}/cancel`, body),
