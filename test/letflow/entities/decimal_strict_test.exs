@@ -408,6 +408,22 @@ defmodule Letflow.Entities.DecimalStrictTest do
                Definitions.activate_definition("widget", @actor, "ok", schema)
     end
 
+    test "T-1882: adding a strict field the active version never declared is allowed with records; flipping a declared one is not",
+         %{schema: schema} do
+      seed_type!(schema, "widget", [title_field()])
+      {:ok, _} = Records.create_record(attrs("widget", %{"title" => "a"}), schema)
+
+      create_def!(schema, "widget", [title_field(), qty_field()])
+
+      assert {:ok, %EntityDefinition{}} =
+               Definitions.activate_definition("widget", @actor, "added strict", schema)
+
+      create_def!(schema, "widget", [title_field(), qty_field(%{decimal_strict: false})])
+
+      assert {:error, {:decimal_strict_change, ["qty"]}} =
+               Definitions.activate_definition("widget", @actor, "flip", schema)
+    end
+
     test "a type with no decimal_strict key on either side takes no sequence lock: no instance row; a strict key does (A1c)",
          %{schema: schema} do
       seed_type!(schema, "plain", [title_field()])

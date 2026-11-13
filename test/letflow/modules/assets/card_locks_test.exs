@@ -217,6 +217,30 @@ defmodule Letflow.Modules.Assets.CardLocksTest do
     assert lock(ctx, ctx.ma.fixed, "garbage-token").status in [401, 403]
   end
 
+  test "L9b the lock route answers held: never, draft, issued, and not after the reversal",
+       ctx do
+    id = ctx.ma.fixed
+    assert %{"held" => false} = D.status!(lock(ctx, id), 200)
+
+    draft = D.save!(ctx)
+    assert %{"held" => false} = D.status!(lock(ctx, id), 200)
+    assert D.request(:post, "/documents/#{draft["id"]}/issue", ctx.tok_a).status in [200, 202]
+    assert %{"held" => true} = D.status!(lock(ctx, id), 200)
+    assert %{"held" => false} = D.status!(lock(ctx, ctx.ma.fixed2), 200)
+  end
+
+  test "L9c held turns false again after the commission is reversed", ctx do
+    doc = posted!(ctx)
+    assert %{"held" => true} = D.status!(lock(ctx, ctx.ma.fixed), 200)
+
+    assert D.request(:post, "/documents/#{doc["id"]}/reverse", ctx.tok_a, %{
+             "reason_code" => "wrong_document"
+           }).status == 200
+
+    D.run_task!(ctx, doc["id"], "reverse")
+    assert %{"held" => false} = D.status!(lock(ctx, ctx.ma.fixed), 200)
+  end
+
   test "L10 cross-tenant: tenant B gets the same 404 for A's card, an unknown and a bad id",
        ctx do
     posted!(ctx)

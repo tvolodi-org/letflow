@@ -1,0 +1,58 @@
+/** cardActionsMessages — T-1880 / D-135. Messages of the asset card actions (menu, operations buttons, reasons, the
+ *  pre-fill notice, Back to card), merged into the one catalog `assetsMessages`. ru and kk need a native check. */
+export const cardActionsEn: Record<string, string> = {
+  'assets.cardActions.menu': 'Actions',
+  'assets.cardActions.rowLabel': 'Actions: {number}',
+  'assets.cardActions.title': 'Operations',
+  'assets.cardActions.kindChange': 'Change of kind (from stock)',
+  'assets.cardActions.action.commission': 'Commission',
+  'assets.cardActions.action.change': 'Change responsible',
+  'assets.cardActions.action.handover': 'Hand over',
+  'assets.cardActions.action.writeoff': 'Write off',
+  'assets.cardActions.reason.retired': 'The card is retired.',
+  'assets.cardActions.reason.notInRegister': 'Not in the register yet: commission it first.',
+  'assets.cardActions.reason.held': 'Already in the register (an issued commission holds it).',
+  'assets.cardActions.reason.pendingPosting': 'Its commission is issued but not posted yet.',
+  'assets.cardActions.reason.noRead': 'You cannot read the register.',
+  'assets.cardActions.reason.loading': 'Checking…',
+  'assets.cardActions.prefill.manyHolders': 'The card is held in more than one place: fill in the header.',
+  'assets.cardActions.backToCard': 'Back to card',
+}
+
+export const cardActionsRu: Record<string, string> = {
+  'assets.cardActions.menu': 'Действия',
+  'assets.cardActions.rowLabel': 'Действия: {number}',
+  'assets.cardActions.title': 'Операции',
+  'assets.cardActions.kindChange': 'Смена вида (со склада)',
+  'assets.cardActions.action.commission': 'Ввести в эксплуатацию',
+  'assets.cardActions.action.change': 'Сменить МОЛ',
+  'assets.cardActions.action.handover': 'Передать',
+  'assets.cardActions.action.writeoff': 'Списать',
+  'assets.cardActions.reason.retired': 'Карточка выведена из учёта.',
+  'assets.cardActions.reason.notInRegister': 'Ещё нет в регистре: сначала введите в эксплуатацию.',
+  'assets.cardActions.reason.held': 'Уже в регистре (проведённый ввод в эксплуатацию удерживает её).',
+  'assets.cardActions.reason.pendingPosting': 'Ввод в эксплуатацию выпущен, но ещё не проведён.',
+  'assets.cardActions.reason.noRead': 'У вас нет доступа к регистру.',
+  'assets.cardActions.reason.loading': 'Проверяем…',
+  'assets.cardActions.prefill.manyHolders': 'Карточка числится в нескольких местах: заполните шапку.',
+  'assets.cardActions.backToCard': 'Назад к карточке',
+}
+
+export const cardActionsKk: Record<string, string> = {
+  'assets.cardActions.menu': 'Әрекеттер',
+  'assets.cardActions.rowLabel': 'Әрекеттер: {number}',
+  'assets.cardActions.title': 'Операциялар',
+  'assets.cardActions.kindChange': 'Түрін өзгерту (қоймадан)',
+  'assets.cardActions.action.commission': 'Пайдалануға беру',
+  'assets.cardActions.action.change': 'МЖТ ауыстыру',
+  'assets.cardActions.action.handover': 'Беру',
+  'assets.cardActions.action.writeoff': 'Есептен шығару',
+  'assets.cardActions.reason.retired': 'Карточка есептен шығарылған.',
+  'assets.cardActions.reason.notInRegister': 'Тіркелімде әлі жоқ: алдымен пайдалануға беріңіз.',
+  'assets.cardActions.reason.held': 'Тіркелімде бар (шығарылған пайдалануға беру оны ұстап тұр).',
+  'assets.cardActions.reason.pendingPosting': 'Пайдалануға беру шығарылды, бірақ әлі өткізілмеген.',
+  'assets.cardActions.reason.noRead': 'Тіркелімді оқуға рұқсатыңыз жоқ.',
+  'assets.cardActions.reason.loading': 'Тексерілуде…',
+  'assets.cardActions.prefill.manyHolders': 'Карточка бірнеше жерде тұр: тақырыпты толтырыңыз.',
+  'assets.cardActions.backToCard': 'Карточкаға оралу',
+}

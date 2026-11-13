@@ -8,6 +8,8 @@
 /// not unified with it (same reasoning the SPA source records).
 library;
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
+
 import 'formatting_locale.dart' show deviceLocaleTags;
 
 /// == `ENTITIES_UI_LOCALES` (`web/src/i18n/entitiesMessages.ts`). Any change
@@ -20,6 +22,19 @@ const String kEntitiesUiFallbackLocale = 'en';
 
 bool _isEntitiesUiLocale(String value) => kEntitiesUiLocales.contains(value);
 
+/// The language the user picked on this device (`en`/`ru`/`kk`), or `null`
+/// when they never did. Precedence for UI strings: this choice, then the
+/// device locale (the tenant `default_locale` never drives UI strings), then
+/// [kEntitiesUiFallbackLocale]. [setUserUiLocale] also notifies listeners so
+/// the app can redraw at once.
+final ValueNotifier<String?> userUiLocale = ValueNotifier<String?>(null);
+
+/// Sets the user's choice; an unsupported code is ignored.
+void setUserUiLocale(String? code) {
+  if (code != null && !_isEntitiesUiLocale(code)) return;
+  userUiLocale.value = code;
+}
+
 /// Pure resolver mirroring `resolveUiLocale`'s base-tag rule exactly
 /// (design §4.2): for each of [candidates] (defaulting to
 /// [deviceLocaleTags] when omitted), its base tag (substring before the
@@ -29,6 +44,10 @@ bool _isEntitiesUiLocale(String value) => kEntitiesUiLocales.contains(value);
 /// Never throws. `['ru-RU'] -> 'ru'`; `['de-DE'] -> 'en'` (since `'de'` is
 /// not a member of [kEntitiesUiLocales]).
 String resolveUiLocale([List<String>? candidates]) {
+  if (candidates == null) {
+    final chosen = userUiLocale.value;
+    if (chosen != null) return chosen;
+  }
   final sources = candidates ?? deviceLocaleTags();
   for (final raw in sources) {
     final dashIndex = raw.indexOf('-');

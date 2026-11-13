@@ -232,6 +232,30 @@ class TenantTokenStore {
 
 const String _lastActiveTenantKey = 'letflow.last_active_tenant';
 
+/// Key of the user's language choice, kept in the same non-secret store as
+/// the pointer (survives a restart; web: browser storage).
+const String _uiLocalePrefKey = 'letflow.ui_locale';
+
+/// Reads the language the user picked on this device, or `null`.
+Future<String?> readUiLocalePref(TenantTokenStore tokenStore) async {
+  try {
+    return await tokenStore._pointer.read(_uiLocalePrefKey);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Remembers [locale] on this device. Never throws: a failed write only
+/// means the choice is not remembered after a restart.
+Future<void> writeUiLocalePref(
+  TenantTokenStore tokenStore,
+  String locale,
+) async {
+  try {
+    await tokenStore._pointer.write(_uiLocalePrefKey, locale);
+  } catch (_) {}
+}
+
 @immutable
 class LastActiveTenantPointer {
   const LastActiveTenantPointer({required this.realmUrl, required this.slug});
