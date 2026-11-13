@@ -3,7 +3,7 @@
  *  reads `var(--lf-pane-N, <default>)`; the engine sets those custom properties (a user-chosen size, no colour or spacing).
  *  Handles live in a layer (`.lf-split-layer`) outside the re-rendered content; call `refresh()` after each render.
  *  Keys: Left/Right 1 % (Shift 5 %; px unit 8/32), Home = smallest, End = largest, Enter = collapse (collapsible pane)
- *  or reset, double click = reset. Sizes and collapsed flags are remembered through the `LayoutStore`. */
+ *  or reset, double click = collapse/expand (collapsible pane) or reset, Escape = reset every saved layout. Sizes and collapsed flags are remembered through the `LayoutStore`. */
 import type { LayoutStore } from '@/lib/layoutStore'
 
 export interface SplitOptions {
@@ -110,20 +110,38 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
   }
   const paneOf = (k: number) => o.panes()[sized === 'after' ? k + 1 : k] ?? null
 
+  /** A collapse is shown only while its restore control is rendered (T-1873): the splitter is enabled, its handle
+   *  exists and both panes of the pair are there. Otherwise the pane is shown open; the stored flag stays as it is. */
+  const eff = (k: number) => {
+    if (!collapsed[k] || !o.enabled() || !handles[k]) return false
+    const panes = o.panes()
+    return !!panes[k] && !!panes[k + 1]
+  }
+  const effMap = () => {
+    const m: Record<number, boolean> = {}
+    vars.forEach((_, k) => {
+      if (eff(k)) m[k] = true
+    })
+    return m
+  }
+  const setVar = (v: string, val: string) => {
+    if (container.style.getPropertyValue(v) !== val) container.style.setProperty(v, val)
+  }
+
   const apply = () => {
     vars.forEach((v, k) => {
-      if (collapsed[k]) container.style.setProperty(v, `${csz()}px`)
+      if (eff(k)) setVar(v, `${csz()}px`)
       else if (sizes[k] != null) {
         // a stored px size outside the allowed range is clamped here, not rewritten in the store
         const px = unit === 'px' ? Math.min(o.max?.[k] ?? 420, Math.max(o.min?.[k] ?? 160, sizes[k] as number)) : null
-        container.style.setProperty(v, px != null ? `${px}px` : `${sizes[k]}%`)
+        setVar(v, px != null ? `${px}px` : `${sizes[k]}%`)
       }
-      else if (unit === 'pct' && typeof o.defaults?.[k] === 'number') container.style.setProperty(v, `${o.defaults[k]}%`)
+      else if (unit === 'pct' && typeof o.defaults?.[k] === 'number') setVar(v, `${o.defaults[k]}%`)
       else container.style.removeProperty(v)
       const pn = paneOf(k)
-      if (pn) pn.classList.toggle('is-collapsed', !!collapsed[k] && csz() === 0)
+      if (pn) pn.classList.toggle('is-collapsed', eff(k) && csz() === 0)
     })
-    o.onCollapse?.(collapsed)
+    o.onCollapse?.(effMap())
   }
   /** [min, max] of the sized pane in px. */
   const limits = (k: number): [number, number] => {
@@ -159,7 +177,8 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
     persist()
   }
   const toggle = (k: number) => {
-    collapsed[k] = !collapsed[k]
+    // a stored collapse that is not shown (no control rendered) opens instead of collapsing again
+    collapsed[k] = collapsed[k] && !eff(k) ? false : !collapsed[k]
     apply()
     place()
     persist()
@@ -211,7 +230,9 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
     h.addEventListener('pointerup', end)
     h.addEventListener('pointercancel', end)
     h.addEventListener('dblclick', (e) => {
-      if (!onBtn(e)) reset(k)
+      if (onBtn(e)) return
+      if (collapsible.includes(k)) toggle(k)
+      else reset(k)
     })
     h.addEventListener('click', (e) => {
       if (onBtn(e)) toggle(k)
@@ -232,10 +253,15 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
       } else if (e.key === 'End') {
         e.preventDefault()
         set(k, l[1], true)
-      } else if (e.key === 'Enter') {
+      } else if (e.key === 'Enter' || (e.key === ' ' && !onBtn(e))) {
+        if (onBtn(e)) return // native click on the button
         e.preventDefault()
         if (collapsible.includes(k)) toggle(k)
         else reset(k)
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        o.store.resetAll()
       }
     })
     layer.appendChild(h)
@@ -270,13 +296,14 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
         top = L.top
         bot = L.bottom
       }
-      h.style.left = `${mid - L.left}px`
+      const isEff = eff(k)
+      h.style.left = `${isEff ? Math.max(mid - L.left, 18) : mid - L.left}px`
       h.style.top = `${top - L.top}px`
       h.style.height = `${Math.max(0, bot - top)}px`
       const l = limits(k)
       const px = curPx(k)
       const W = cw() || 1
-      const now = collapsed[k] ? 0 : unit === 'px' ? px : (px / W) * 100
+      const now = isEff ? 0 : unit === 'px' ? px : (px / W) * 100
       const lo = unit === 'px' ? l[0] : (l[0] / W) * 100
       const hi = unit === 'px' ? l[1] : (l[1] / W) * 100
       h.setAttribute('aria-valuenow', String(Math.round(now)))
@@ -290,9 +317,13 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
       h.setAttribute('aria-label', name || text.resize)
       const btn = h.querySelector('.lf-splitter__btn')
       if (btn) {
-        btn.setAttribute('aria-label', `${collapsed[k] ? text.expand : text.collapse}: ${name}`)
-        btn.setAttribute('aria-expanded', String(!collapsed[k]))
-        h.classList.toggle('is-collapsed', !!collapsed[k])
+        const label = `${isEff ? text.expand : text.collapse}: ${name}`
+        btn.setAttribute('aria-label', label)
+        btn.setAttribute('title', label)
+        btn.setAttribute('aria-controls', pn.id)
+        btn.setAttribute('aria-expanded', String(!isEff))
+        ;(btn as HTMLElement).tabIndex = isEff ? 0 : -1
+        h.classList.toggle('is-collapsed', isEff)
       }
     })
   }
@@ -300,7 +331,11 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
   let raf = 0
   const later = () => {
     cancelAnimationFrame(raf)
-    raf = requestAnimationFrame(place)
+    raf = requestAnimationFrame(() => {
+      build()
+      apply()
+      place()
+    })
   }
   const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(later) : null
   ro?.observe(container)

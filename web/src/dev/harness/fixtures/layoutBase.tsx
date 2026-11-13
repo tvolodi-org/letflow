@@ -40,6 +40,8 @@ const COLS = [
 
 /** A stored layout the screen starts with (what the preferences route answers until the first PUT). */
 const SEED_COLLAPSED = { v: 1, shell: { sidenav: { collapsed: true } }, screens: {} }
+/** T-1873: the pane that trapped users, a stored collapse of the first pane (its restore control must stay visible). */
+const SEED_PANE_COLLAPSED = { v: 1, shell: {}, screens: { 'harness.layout': { collapsed: { 'doc-panes': [0], 'reg-panes': [0] } } } }
 const SEED_REMEMBERED = {
   v: 1,
   shell: { sidenav: { w: 320 } },
@@ -236,5 +238,6 @@ export const layoutBaseScreens: HarnessScreen[] = [
   { name: 'layout-base-journal', routes: makeRoutes(null), render: () => page('jrn') },
   { name: 'layout-base-registry', routes: makeRoutes(null), render: () => page('reg') },
   { name: 'layout-base-collapsed', routes: makeRoutes(SEED_COLLAPSED), render: () => page('doc') },
+  { name: 'layout-base-pane-collapsed', routes: makeRoutes(SEED_PANE_COLLAPSED), render: () => page('doc') },
   { name: 'layout-base-remembered', routes: makeRoutes(SEED_REMEMBERED), render: () => page('doc') },
 ]

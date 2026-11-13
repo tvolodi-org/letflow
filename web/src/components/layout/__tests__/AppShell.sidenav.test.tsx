@@ -130,6 +130,19 @@ describe('AppShell side nav', () => {
     expect(w).toBe(420)
   })
 
+  it('T5 the Reset layout entry in the nav foot clears the stored layout', async () => {
+    localStorage.setItem('lf.prefs.ui.layout.v1.anon', JSON.stringify({ v: 1, shell: { sidenav: { collapsed: true } }, screens: { s: { collapsed: { list: [0] } } } }))
+    const { resetDefaultLayoutStore } = await import('@/hooks/useLayoutPrefs')
+    resetDefaultLayoutStore()
+    const { container } = await renderShell()
+    expect(app(container)).toHaveAttribute('data-nav', 'collapsed')
+    const btn = await screen.findByTestId('reset-layout-all')
+    expect(btn).toHaveAttribute('title')
+    act(() => void btn.click())
+    expect(localStorage.getItem('lf.prefs.ui.layout.v1.anon')).toBeNull()
+    expect(app(container)).not.toHaveAttribute('data-nav', 'collapsed')
+  })
+
   it('N8 a module entry with no icon mapping gets a letter glyph', async () => {
     const { NavIcon } = await import('../navIcons')
     const { container } = render(<NavIcon to="/x/unknown" label="warehouse" />)

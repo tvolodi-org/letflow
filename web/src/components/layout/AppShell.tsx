@@ -234,6 +234,15 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
             <button type="button" data-testid="logout-button" className="lf-btn lf-btn--ghost lf-btn--s" onClick={logout}>
               {navMessages[uiLocale].signOut}
             </button>
+            <button
+              type="button"
+              data-testid="reset-layout-all"
+              className="lf-btn lf-btn--ghost lf-btn--s"
+              title={lm.resetLayoutHint}
+              onClick={() => store.resetAll()}
+            >
+              {lm.resetLayout}
+            </button>
             <ThemeToggle />
           </div>
         </div>

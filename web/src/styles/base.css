@@ -273,3 +273,11 @@ samp {
 @media (max-width: 480px) {
   .lf-page-layout__header { flex-direction: column; align-items: stretch; }
 }
+
+/* T-1873: a collapsed pane must always have a visible way back. The generic `.is-collapsed { visibility: hidden }` of
+   components.css also matched the splitter handle, so the expander existed but could not be seen or clicked. */
+.lf-splitter.is-collapsed { visibility: visible; overflow: visible; }
+.lf-splitter.is-collapsed .lf-splitter__btn { display: grid; width: 32px; height: 32px; background: var(--current); color: var(--on-current); border-color: var(--current); box-shadow: var(--shadow-raised); opacity: 1; }
+.lf-splitter.is-collapsed .lf-splitter__btn .lf-icon { width: 16px; height: 16px; }
+.lf-splitter.is-collapsed .lf-splitter__line { height: 100%; background: var(--current); opacity: 1; }
+@media (hover: none) { .lf-splitter__btn { display: grid; } }

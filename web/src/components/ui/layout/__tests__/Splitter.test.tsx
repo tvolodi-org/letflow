@@ -156,6 +156,93 @@ describe('attachSplit', () => {
   })
 })
 
+describe('T-1873 collapse trap', () => {
+  const key = (k: string) => new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })
+
+  it('T3 double click toggles a collapsible pane both ways; the button is not part of it', () => {
+    const { handle, a } = setup({ collapsible: [0], collapsedSize: 0 })
+    act(() => void handle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })))
+    expect(a).toHaveClass('is-collapsed')
+    expect(store.getCollapsed('scr', 'sp')).toEqual([0])
+    act(() => void handle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })))
+    expect(a).not.toHaveClass('is-collapsed')
+    expect(store.getCollapsed('scr', 'sp')).toEqual([])
+  })
+
+  it('T1/T7 the collapsed handle keeps a labelled, titled, focusable button; Enter and Space toggle', () => {
+    const { handle, a } = setup({ collapsible: [0], collapsedSize: 0 })
+    const btn = handle.querySelector('.lf-splitter__btn') as HTMLElement
+    expect(btn.tabIndex).toBe(-1)
+    act(() => void handle.dispatchEvent(key('Enter')))
+    expect(handle).toHaveClass('is-collapsed')
+    expect(btn.tabIndex).toBe(0)
+    expect(btn.getAttribute('aria-label')).toMatch(/^Expand: List/)
+    expect(btn.getAttribute('title')).toBe(btn.getAttribute('aria-label'))
+    expect(btn).toHaveAttribute('aria-expanded', 'false')
+    expect(btn).toHaveAttribute('aria-controls', a.id)
+    act(() => void handle.dispatchEvent(key(' ')))
+    expect(handle).not.toHaveClass('is-collapsed')
+    expect(btn).toHaveAttribute('aria-expanded', 'true')
+    act(() => void handle.dispatchEvent(key('ArrowRight')))
+    expect(handle).toHaveAttribute('aria-valuenow', '31')
+  })
+
+  it('T4 Escape on the handle clears every saved layout, once, and stops propagating', () => {
+    const reset = vi.fn()
+    store = createLayoutStore({ storageKey: 'test.layout', reset })
+    store.setCollapsed('other', 'sp', [0])
+    const { handle, a } = setup({ collapsible: [0], collapsedSize: 0 })
+    act(() => void handle.dispatchEvent(key('Enter')))
+    expect(a).toHaveClass('is-collapsed')
+    const outer = vi.fn()
+    document.body.addEventListener('keydown', outer)
+    act(() => void handle.dispatchEvent(key('Escape')))
+    document.body.removeEventListener('keydown', outer)
+    expect(outer).not.toHaveBeenCalled()
+    expect(reset).toHaveBeenCalledTimes(1)
+    expect(store.getCollapsed('other', 'sp')).toEqual([])
+    expect(localStorage.getItem('test.layout')).toBeNull()
+  })
+
+  it('T6 a stored collapse is shown open while its control is not rendered, and kept in the store', () => {
+    store.setCollapsed('scr', 'sp', [0])
+    const off = setup({ collapsible: [0], collapsedSize: 0, enabled: () => false })
+    expect(off.a).not.toHaveClass('is-collapsed')
+    expect(off.container.style.getPropertyValue('--lf-pane-1')).not.toBe('0px')
+    expect(store.getCollapsed('scr', 'sp')).toEqual([0])
+    off.split.destroy()
+    const one = setup({ collapsible: [0], collapsedSize: 0, panes: () => [document.createElement('div')] })
+    expect(one.container.style.getPropertyValue('--lf-pane-1')).not.toBe('0px')
+    one.split.destroy()
+    const on = setup({ collapsible: [0], collapsedSize: 0 })
+    expect(on.a).toHaveClass('is-collapsed')
+    expect(on.handle).toHaveClass('is-collapsed')
+    const btn = on.handle.querySelector('.lf-splitter__btn') as HTMLElement
+    act(() => void btn.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(on.a).not.toHaveClass('is-collapsed')
+    expect(store.getCollapsed('scr', 'sp')).toEqual([])
+  })
+
+  it('T9 collapse, reload (remount from the stored copy), restore, then reset after reload', () => {
+    const one = setup({ collapsible: [0], collapsedSize: 0 })
+    act(() => void one.handle.dispatchEvent(key('Enter')))
+    store.flush()
+    one.split.destroy()
+    document.body.innerHTML = ''
+    store = createLayoutStore({ storageKey: 'test.layout' })
+    const two = setup({ collapsible: [0], collapsedSize: 0 })
+    expect(two.a).toHaveClass('is-collapsed')
+    const btn = two.handle.querySelector('.lf-splitter__btn') as HTMLElement
+    expect(btn).toHaveAttribute('aria-expanded', 'false')
+    act(() => void btn.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(two.a).not.toHaveClass('is-collapsed')
+    act(() => void two.handle.dispatchEvent(key('Enter')))
+    act(() => void two.handle.dispatchEvent(key('Escape')))
+    expect(localStorage.getItem('test.layout')).toBeNull()
+    expect(store.getCollapsed('scr', 'sp')).toEqual([])
+  })
+})
+
 describe('defaults option', () => {
   it('P2 defaults:[60] is applied while nothing is stored, a key press wins, reset returns to it and stores null', () => {
     const { handle, container } = setup({ defaults: [60] })
