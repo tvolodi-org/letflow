@@ -7,7 +7,7 @@ modules declare. This is a verdict, not a plan. Docs only: no code, nothing on Q
 public repository or money; MES work is not touched. Builds on and checks `docs/design/tenant-defined-roles.md` (T-1846).
 
 Legend: **V** = verified by reading the file on this branch (origin/main `d3c4fc9b7`, 2026-11-13; commands in section E8).
-**G** = architect's judgement or guess. **O** = the owner's call.
+**G** = architect's judgement or guess. **O** = the owner's call (all decided; see "Owner choices").
 
 ## VERDICT
 
@@ -73,16 +73,16 @@ touches the decision. Stage 0 first. Before stage 1 one decision record must sup
 but every stage ships on its own and changes nothing a tenant can see until stage 3, except the
 storekeeper task-list narrowing (point 4), which is ruled separately.
 
-## Owner choices that remain (one table)
+## Owner choices (decided: D-131, corrected by D-132, 2026-11-13; recorded in decision 0088)
 
-| # | Question, in business terms | Choices | Architect's recommendation |
+| # | Question, in business terms | Architect's recommendation (T-1848) | Owner decision |
 |---|---|---|---|
-| O1 | Existing tenants have seven ready-made roles (storekeeper, task worker, auditor ...). What happens to them? | (a) They stay as ordinary roles of that tenant, which the admin may edit or remove; (b) they are removed | (a): no behaviour change; only *new* tenants start with none |
-| O2 | A new tenant: does it start with no roles except its admin, or with starter roles already created? | (a) none, the admin copies from a template list; (b) the starter roles are created | (a), as D-129 says; it means QA/UAT seeds create their roles explicitly |
-| O3 | When a module update brings a new permission, do the tenant's own roles get it automatically? | (a) never, the admin switches it on; (b) yes | (a): no silent widening of access (as 0084 D3 already rules for the asset grant) |
-| O4 | May the tenant admin let someone else manage roles and users? | (a) no, only the admin; (b) yes, a delegated "user manager" | (a) for now (0046 D9 deferred it); (b) is a later, separate change |
-| O5 | Is "create your own roles" free (open core) or paid (closed)? | (a) free; (b) paid | (a): it is now the base model; paid extras sit around it (section E7) |
-| O6 | Limits: how many roles per tenant, permissions per role? | numbers | none invented here; a number is needed before stage 3 |
+| O1 | Existing tenants have seven ready-made roles (storekeeper, task worker, auditor ...). What happens to them? | They stay as ordinary roles the admin may edit or remove | (a) in the corporate build; in the open build they stay as read-only template rows with today's permissions |
+| O2 | A new tenant: does it start with no roles except its admin, or with starter roles already created? | Only its admin; templates to copy | (a): only its admin row; open build assigns users to the shipped template rows, corporate build copies templates |
+| O3 | When a module update brings a new permission, do the tenant's own roles get it automatically? | Never | (a): never |
+| O4 | May the tenant admin let someone else manage roles and users? | No, for now | (a): no |
+| O5 | Is "create your own roles" free (open core) or paid (closed)? | Free | **Closed** (D-132): the role editor is the closed package behind a socket; the open build ships read-only template rows |
+| O6 | Limits: how many roles per tenant, permissions per role? | None invented | No limits now; a number is needed before the closed role editor is built (reminder, 2026-11-13) |
 
 ---
 
@@ -201,18 +201,16 @@ owner's answer, and QA seeds then create their roles explicitly.
 ## E7. Open core: what is superseded (answer to question 7)
 
 `docs/design/open-core-sockets.md` (T-1842) assumed the open build keeps nine fixed roles and custom roles come from a
-closed package (section 1.6 option A, recommended; section 7 question 1; V). Under D-129 that is superseded:
+closed package (section 1.6 option A, recommended; section 7 question 1; V). This verdict recommended making custom roles part of
+the open build; the owner decided otherwise (D-132, O5 closed), and `open-core-sockets.md` is updated to the decision (T-1851):
 
-- Section 0 row 1, 1.2, 1.4, 1.5 (rows on custom roles and licence end), 1.6: custom roles are the base model of the open build.
-- Section 1.3: `custom_roles_enabled?/1` goes. More strongly than T-1846 says: **no socket should sit on the access
-  decision at all** (`role_allows?`, `resolve_roles`). The decision is the most security-critical code; a replaceable
-  implementation there is a risk with no business gain. Closed extras attach around role *management*: second-person
-  approval of role changes, periodic access review reports, audit export, limits above the open cap (G list; T-1846
-  section 7 agrees on the content).
+- Open build: the nine roles become data (two protected admin rows, seven read-only template rows); the tenant admin assigns users
+  and cannot create or edit roles.
+- Section 1.3: **no socket sits on the access decision** (`role_allows?`, `resolve_roles`); this verdict's point stands. The decision
+  is the most security-critical code; a replaceable implementation there is a risk with no business gain. The socket is the **role
+  editor socket**: the closed package mounts the editor, which writes only through the core role write path.
 - Sections 2 and 3 (build layout, tests per edition, isolation and audit identical) stay.
-- For D-126: the "role-management socket" stops being the first closed feature. The first closed feature becomes one that
-  does not touch the decision (T-1846 section 7 proposes licence check, audit export and retention, identity-provider seam;
-  I agree with that order, G). O5 confirms.
+- For D-126: the role editor is the first closed feature. Further candidates: `docs/design/open-core-closed-candidates.md`.
 
 ## E8. Verified vs not verified
 
