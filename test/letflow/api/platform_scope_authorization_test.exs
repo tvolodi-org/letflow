@@ -84,11 +84,12 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :DocumentPrintTemplatesManage,
     :SolutionOverridesManage,
     :EntitiesExtensionsManage,
-    :EntitiesRecordsImportAnyType
+    :EntitiesRecordsImportAnyType,
+    :TasksWorkInScope,
+    :TenantSecurityManage
   ]
 
   @new_permissions [
-    :PlatformServicesManage,
     :TenantSettingsManage,
     :PromotionsRead,
     :PromotionsManage,
@@ -250,10 +251,20 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
       end
 
       # ...and the platform tenant's PLATFORM_ADMIN is unchanged (control).
-      for permission <- Authorization.permissions() do
+      # Roles stage 0 S0-2: scoped task work is TASK_WORKER's alone (explicit false clause).
+      # Roles stage 0 S0-3: the two admin-only switches are TENANT_ADMIN's alone (explicit false clause).
+      for permission <- Authorization.permissions() -- [:TasksWorkInScope, :TenantSecurityManage] do
         assert Authorization.has_permission_in_scope?([:PLATFORM_ADMIN], permission, true),
                "#{inspect(permission)} must stay held by the platform tenant's PLATFORM_ADMIN"
       end
+
+      refute Authorization.has_permission_in_scope?([:PLATFORM_ADMIN], :TasksWorkInScope, true)
+      # Roles stage 0 S0-3, ruling 2: explicit false clause.
+      refute Authorization.has_permission_in_scope?(
+               [:PLATFORM_ADMIN],
+               :TenantSecurityManage,
+               true
+             )
 
       # Other roles keep what they hold, including alongside a (dropped) PLATFORM_ADMIN.
       assert Authorization.has_permission_in_scope?([:PROCESS_DESIGNER], :DefinitionsWrite, false)

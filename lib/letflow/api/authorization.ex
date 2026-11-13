@@ -133,6 +133,19 @@ defmodule Letflow.Api.Authorization do
     `stock_opening_line` (decision 0081 D4), and the scope set of every other type is computed
     for this permission, so a tenant-wide grant of a role without it never widens a scoped
     import. Held by TENANT_ADMIN and PLATFORM_ADMIN only.
+  * `:TasksWorkInScope` (roles stage 0 S0-2) — **not** route-level. Read in-handler by
+    `Letflow.Tasks.f1_allowed?/3`, `Letflow.Api.ScopeGate.scope_set_for_holders/3` and
+    `Letflow.Identity.ScopedApprovers`: a scoped caller works on a task only through a grant, covering
+    the task's scope node, of a role holding it. Held by TASK_WORKER only. Two explicit `false` clauses
+    keep PLATFORM_ADMIN and TENANT_ADMIN out, so a scoped TENANT_ADMIN grant never counts for task work
+    (ruling 1 of `docs/design/roles-stage0-security-rulings.md`); stage 2 turns them into exclusions
+    from `grants = all` (decision 0088 D9).
+  * `:TenantSecurityManage` (roles stage 0 S0-3) — **not** route-level. Read in-handler by
+    `Letflow.Api.Scope.require_interactive_tenant_admin/1` (`PUT /tenant/scope-enforcement`,
+    `PUT /users/:id/service-principal`), tenant-wide. Held by TENANT_ADMIN only; an explicit `false`
+    clause keeps the platform tenant's PLATFORM_ADMIN out (ruling 2 of
+    `docs/design/roles-stage0-security-rulings.md`); non-assignable (0088 D4): not in `grantable/0`,
+    modules cannot grant core permissions.
 
   Per design §5, this requirement deliberately adds **no** new
   `role_allows?/2` clause for `PROCESS_DESIGNER`, `PROCESS_OPERATOR`, or
@@ -378,6 +391,8 @@ defmodule Letflow.Api.Authorization do
           | :IntegrationMappingsManage
           | :EntitiesViewsManage
           | :EntitiesRecordsImportAnyType
+          | :TasksWorkInScope
+          | :TenantSecurityManage
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -563,7 +578,11 @@ defmodule Letflow.Api.Authorization do
     # REQ-609 (GH #3417): tenant x_ extension layer. Tenant scope; TENANT_ADMIN through the derived rule.
     :EntitiesExtensionsManage,
     # Roles stage 0 S0-1 (decision 0088, docs/design/roles-stage0-slices.md): import of any entity type. Tenant scope; TENANT_ADMIN through the derived rule.
-    :EntitiesRecordsImportAnyType
+    :EntitiesRecordsImportAnyType,
+    # Roles stage 0 S0-2 (decision 0088, docs/design/roles-stage0-slices.md): scoped task work (F1). Tenant scope; TASK_WORKER only (explicit false clauses for PLATFORM_ADMIN and TENANT_ADMIN).
+    :TasksWorkInScope,
+    # Roles stage 0 S0-3 (decision 0088, docs/design/roles-stage0-slices.md): the two admin-only switches. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN, ruling 2).
+    :TenantSecurityManage
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -581,12 +600,12 @@ defmodule Letflow.Api.Authorization do
                       end
                     )
 
-  @doc "All nine `Role` values, R-Co's exact names plus ISS-0646's `CANDIDATE`, REQ-447's `TENANT_ADMIN` (every tenant-scope permission, never a platform-scope one) and REQ-448's read-only `TENANT_AUDITOR` and D-093's `STOREKEEPER` (decision 0081). See `roles_from_strings/1` for untrusted-input conversion."
+  @doc "All nine `Role` values, R-Co's exact names plus ISS-0646's `CANDIDATE`, REQ-447's `TENANT_ADMIN` (every tenant-scope permission except `TasksWorkInScope`, never a platform-scope one) and REQ-448's read-only `TENANT_AUDITOR` and D-093's `STOREKEEPER` (decision 0081). See `roles_from_strings/1` for untrusted-input conversion."
   @spec roles() :: [role()]
   def roles, do: @roles
 
   @doc """
-  All fifty-eight core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All sixty core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -622,7 +641,11 @@ defmodule Letflow.Api.Authorization do
   overrides under `/solution-packs/:pack_id/overrides`), each TENANT_ADMIN through the derived rule,
   plus RU-S6's platform-scope `:ModuleRolloutsManage` (the fleet driver, PLATFORM_ADMIN only), plus
   roles stage 0 S0-1's `:EntitiesRecordsImportAnyType` (import of any entity type; TENANT_ADMIN through the
-  derived rule; STOREKEEPER does not hold it).
+  derived rule; STOREKEEPER does not hold it), plus roles stage 0 S0-2's `:TasksWorkInScope` (scoped task
+  work, TASK_WORKER only: the first exception to both admin catch-alls, security ruling 1 of
+  `docs/design/roles-stage0-security-rulings.md`), plus roles stage 0 S0-3's `:TenantSecurityManage`
+  (the two admin-only switches, TENANT_ADMIN through the derived rule; explicit false clause for
+  PLATFORM_ADMIN, ruling 2).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1903,10 +1926,20 @@ defmodule Letflow.Api.Authorization do
   @spec core_role_allows?(role(), permission()) :: boolean()
   defp core_role_allows?(role, permission)
 
+  # Roles stage 0 S0-2, ruling 1 (docs/design/roles-stage0-security-rulings.md): scoped task
+  # work is TASK_WORKER's alone; the first exception to this catch-all.
+  defp core_role_allows?(:PLATFORM_ADMIN, :TasksWorkInScope), do: false
+
+  # Roles stage 0 S0-3, ruling 2 (docs/design/roles-stage0-security-rulings.md): the two admin-only
+  # switches stay refused to a platform-tenant PLATFORM_ADMIN without TENANT_ADMIN.
+  defp core_role_allows?(:PLATFORM_ADMIN, :TenantSecurityManage), do: false
   defp core_role_allows?(:PLATFORM_ADMIN, _permission), do: true
 
+  # Roles stage 0 S0-2, ruling 1: a scoped TENANT_ADMIN grant never counts for task work.
+  defp core_role_allows?(:TENANT_ADMIN, :TasksWorkInScope), do: false
+
   # REQ-447 (design req447-tenant-admin-role.md section 3.1): TENANT_ADMIN holds
-  # exactly the tenant-scope permissions. permission_scope/1 classifies every
+  # exactly the tenant-scope permissions (except the explicit false clause above). permission_scope/1 classifies every
   # unclassified atom (including :Unknown and the Unmatched* markers) as
   # :platform, so this clause fails closed and never grants a platform-scope
   # permission. Catalog permissions are tenant scope and are covered here.
@@ -2023,7 +2056,9 @@ defmodule Letflow.Api.Authorization do
         # REQ-366 (design §1.3): see PROCESS_DESIGNER clause's comment above.
         :HelpRead,
         # REQ-384: see PROCESS_DESIGNER clause's comment above.
-        :MembershipsRead
+        :MembershipsRead,
+        # Roles stage 0 S0-2: scoped task work (F1).
+        :TasksWorkInScope
       ]
 
   # REQ-366 -- the one exception to this role's otherwise total, unconditional

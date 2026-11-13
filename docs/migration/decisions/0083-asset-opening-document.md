@@ -224,7 +224,7 @@ opening could never post or be reversed; part 2 removes the refusal; (c) the reg
 (a non-zero quantity in the register) needs the caller's ledger authorization and goes to part 2; part 1 counts issued,
 non-reversed commission and opening documents.
 
-**Status of the build, part 2 (T-1876, GH #4037).** Built in assets 0.17.0 (`min_upgradable_from` "0.1.0" kept; class A
+**Status of the build, part 2 (T-1876, GH #4037).** Built in assets 0.18.0 (`min_upgradable_from` "0.1.0" kept; class A
 only, the process `assets_opening` appears as a new draft). Issue starts the process `assets_opening`: the issuer
 completes `submit`, a second person completes `approve`, which posts the ledger cause `opening` (positive, no client
 event time) and the `assets_posting_mark`; the reversal is the generic `assets_reversal`. Deviations (b) and (c) above

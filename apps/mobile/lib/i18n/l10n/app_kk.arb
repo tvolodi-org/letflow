@@ -1,13 +1,14 @@
 {
   "@@locale": "kk",
-  "bootstrap.slugEntry.prompt": "Ұйымыңыздың мекенжайын енгізіңіз",
+  "bootstrap.slugEntry.prompt": "Компания коды",
   "bootstrap.slugEntry.hint": "acme",
+  "bootstrap.slugEntry.helper": "Бұл кодты компания әкімшісінен аласыз",
   "bootstrap.slugEntry.signingIn": "Кіру орындалып жатыр…",
   "bootstrap.slugEntry.continueAction": "Жалғастыру",
   "bootstrap.error.retry": "Қайталау",
   "bootstrap.error.backToSignIn": "Кіруге оралу",
-  "bootstrap.error.tenantNotFound.title": "Ұйым табылмады",
-  "bootstrap.error.tenantNotFound.body": "Бұл мекенжай бойынша ұйым табылмады. Мекенжайды тексеріп, қайталап көріңіз.",
+  "bootstrap.error.tenantNotFound.title": "Компания табылмады",
+  "bootstrap.error.tenantNotFound.body": "Бұл кодпен компания табылмады. Кодты тексеріп, қайталап көріңіз.",
   "bootstrap.error.networkUnavailable.title": "Желі қолжетімсіз",
   "bootstrap.error.networkUnavailable.body": "Letflow-ға қосылу мүмкін болмады. Байланысты тексеріп, қайталап көріңіз.",
   "bootstrap.error.oidcFailure.title": "Кіру сәтсіз аяқталды",
@@ -277,5 +278,9 @@
   "session.device.offer.decline": "Қазір емес",
   "session.device.pinStays": "Құрылғымен тексеру орнатылмады. Қолданбаны PIN арқылы ашасыз.",
   "session.device.cannotThisWay": "Бұл құрылғы олай жасай алмайды. Қолданбаны PIN арқылы ашасыз.",
-  "session.device.unlockButton": "Осы құрылғымен ашу"
+  "session.device.unlockButton": "Осы құрылғымен ашу",
+  "language.label": "Тіл",
+  "language.en": "EN",
+  "language.ru": "RU",
+  "language.kk": "KK"
 }

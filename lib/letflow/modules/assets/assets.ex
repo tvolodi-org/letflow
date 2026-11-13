@@ -50,7 +50,7 @@ defmodule Letflow.Modules.Assets do
   types `assets_opening` and `assets_opening_line`, the document type `assets_opening` (AOP), and the route
   `POST /documents/:id/check` (every line's reasons, writes nothing).
 
-  **Posting an opening** (G5 part 2, version 0.17.0, GH #4037, decision 0083 D1, D5, D6): the issue starts the process
+  **Posting an opening** (G5 part 2, version 0.18.0, GH #4037, decision 0083 D1, D5, D6): the issue starts the process
   `assets_opening` (the issuer completes `submit`, a second person completes `approve`, which runs `post_document`),
   the ledger cause `opening` (positive, no client event time: the entry's event time is its posting time) puts each
   card into the register once. Money and dates stay on the card; the posting carries only the placement. The
@@ -188,7 +188,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.17.0",
+    version: "0.18.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],

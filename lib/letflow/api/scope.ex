@@ -198,6 +198,8 @@ defmodule Letflow.Api.Scope do
   role is `{:allow, :token}`; grants not loaded is `{:deny, :grants_unavailable}`; a role with
   no applicable row is `{:deny, :no_grant_rows}`; otherwise the same resource rules as
   `allowed?/3` (they share `decide_resource/3`, so the two cannot diverge).
+  No production caller since roles stage 0 S0-2 (the task routes ask `allowed_for_holders?/3`);
+  removed with the compiled role list (stage 6).
   """
   @spec allowed_for_role?(Principal.t(), role :: String.t(), resource_scope()) :: decision()
   def allowed_for_role?(%Principal{} = principal, role, resource_scope) when is_binary(role) do
@@ -236,6 +238,76 @@ defmodule Letflow.Api.Scope do
       true -> expand_set({:combined, effective_scope(principal, role)}, principal)
     end
   end
+
+  @doc """
+  Roles stage 0 S0-2 (decision 0088): the F1 rule by permission instead of by role name. Like
+  `allowed_for_role?/3`, but the roles whose effective scope counts are the principal's roles that
+  hold `holder_permission` (today `:TasksWorkInScope`, held by TASK_WORKER only), combined. The
+  steps and their order are those of `allowed_for_role?/3`; with the compiled matrix the holder set
+  is `[:TASK_WORKER]` or empty, and `combine/1` of one effective scope returns it unchanged, so the
+  answers equal the role form's (`scope_for_holders_test.exs` pins it).
+  """
+  @spec allowed_for_holders?(Principal.t(), atom(), resource_scope()) :: decision()
+  def allowed_for_holders?(%Principal{} = principal, holder_permission, resource_scope)
+      when is_atom(holder_permission) do
+    holders = holder_roles(principal, holder_permission)
+
+    cond do
+      resource_scope == :unresolvable ->
+        {:deny, :unresolvable}
+
+      holders == [] ->
+        {:deny, :role_not_held}
+
+      principal.kind == :token ->
+        {:allow, :token}
+
+      not is_struct(principal.grants, Grants) ->
+        {:deny, :grants_unavailable}
+
+      true ->
+        holders
+        |> Enum.map(&effective_scope(principal, Atom.to_string(&1)))
+        |> combine()
+        |> decide_resource(resource_scope, principal)
+    end
+  end
+
+  @doc """
+  Roles stage 0 S0-2: the expanded allowed node set for the roles holding `holder_permission`
+  (same relation to `allowed_for_holders?/3` as `allowed_set_for_role/2` has to
+  `allowed_for_role?/3`). Fails closed exactly like `allowed_set/2`.
+  """
+  @spec allowed_set_for_holders(Principal.t(), atom()) ::
+          {:ok, Letflow.Entities.Query.Types.scope_set()}
+  def allowed_set_for_holders(%Principal{} = principal, holder_permission)
+      when is_atom(holder_permission) do
+    holders = holder_roles(principal, holder_permission)
+
+    cond do
+      holders == [] ->
+        {:ok, :none}
+
+      principal.kind == :token ->
+        {:ok, :all}
+
+      not is_struct(principal.grants, Grants) ->
+        {:ok, :none}
+
+      true ->
+        combined =
+          holders |> Enum.map(&effective_scope(principal, Atom.to_string(&1))) |> combine()
+
+        expand_set({:combined, combined}, principal)
+    end
+  end
+
+  defp holder_roles(principal, permission),
+    do:
+      Enum.filter(
+        principal.roles,
+        &Authorization.role_allows?(&1, permission, principal.role_overlay)
+      )
 
   defp role_held?(principal, role),
     do: Enum.any?(principal.roles, &(Atom.to_string(&1) == role))
@@ -482,17 +554,17 @@ defmodule Letflow.Api.Scope do
   order: (1) an interactive credential (`auth_context.credential == :oidc`, so an API token,
   even one holding TENANT_ADMIN, is refused; an absent credential is refused); (2)
   `:UsersGroupsRolesManage` held tenant-wide (`require_tenant_wide/2`); (3) the caller holds
-  TENANT_ADMIN, tenant-wide (a platform-tenant PLATFORM_ADMIN alone does not). Every refusal
-  is the same `{:error, conn, :forbidden}`; the caller answers the unchanged uniform 403.
+  `:TenantSecurityManage` tenant-wide (roles stage 0 S0-3; held by TENANT_ADMIN only, a
+  platform-tenant PLATFORM_ADMIN alone does not hold it: explicit false clause, ruling 2 of
+  `docs/design/roles-stage0-security-rulings.md`). Every refusal is the same
+  `{:error, conn, :forbidden}`; the caller answers the unchanged uniform 403.
   """
   @spec require_interactive_tenant_admin(Plug.Conn.t()) ::
           {:ok, Plug.Conn.t()} | {:error, Plug.Conn.t(), :forbidden}
   def require_interactive_tenant_admin(%Plug.Conn{} = conn) do
     with :oidc <- Map.get(conn.assigns[:auth_context] || %{}, :credential),
          {:ok, conn} <- require_tenant_wide(conn, :UsersGroupsRolesManage),
-         {:ok, conn, principal} <- principal_from_conn(conn),
-         true <- :TENANT_ADMIN in principal.roles,
-         :tenant_wide <- effective_scope(principal, "TENANT_ADMIN") do
+         {:ok, conn} <- require_tenant_wide(conn, :TenantSecurityManage) do
       {:ok, conn}
     else
       _not_allowed -> {:error, conn, :forbidden}

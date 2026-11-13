@@ -49,6 +49,21 @@ defmodule Letflow.Modules.UpgradePlanTest do
                UpgradePlan.classify_entity(old, json([field("a", %{"enum" => ["x"]})]))
     end
 
+    test "T-1882: dropping required (and nothing else of the field) is A, other changes stay B" do
+      old = json([field("a", %{"required" => true})])
+
+      assert {"A", "required_relaxed"} = UpgradePlan.classify_entity(old, json([field("a")]))
+
+      assert {"A", "required_relaxed"} =
+               UpgradePlan.classify_entity(old, json([field("a", %{"required" => false})]))
+
+      assert {"B", "field_changed"} =
+               UpgradePlan.classify_entity(old, json([field("a", %{"enum" => ["x"]})]))
+
+      assert {"B", "field_type_changed"} =
+               UpgradePlan.classify_entity(old, json([field("a", %{"type" => "integer"})]))
+    end
+
     test "indexes: plain add is A, unique add or any removal is B" do
       base = json([field("a")])
       idx = %{"name" => "i1", "fields" => ["a"]}

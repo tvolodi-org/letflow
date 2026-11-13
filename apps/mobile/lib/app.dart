@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'auth/auth.dart' show readUiLocalePref;
 import 'bootstrap/keep_signed_in_screens.dart';
+import 'i18n/i18n.dart' show setUserUiLocale, userUiLocale;
 import 'bootstrap/navigation_bootstrap.dart';
 import 'definitions/tenant_home_screen.dart' show TenantHomeScreen;
 
@@ -60,6 +62,12 @@ class _LetflowAppState extends ConsumerState<LetflowApp> {
     // state at `BootstrapPhase.unauthenticated` unconditionally (today's
     // exact behaviour, design §7.3).
     controller.attemptSessionResume();
+    // The language the user picked wins over the device locale; `tr()` is a
+    // global lookup, so a change redraws the whole tree (state is kept).
+    userUiLocale.addListener(_redrawAll);
+    readUiLocalePref(ref.read(tenantTokenStoreProvider)).then((saved) {
+      if (saved != null && userUiLocale.value == null) setUserUiLocale(saved);
+    });
     // PWA M3: send the queued offline drafts once per app start, as soon as
     // the session is network-verified (not on `resumedOffline`).
     controller.addListener(_syncOnceWhenVerified);
@@ -125,8 +133,19 @@ class _LetflowAppState extends ConsumerState<LetflowApp> {
     unawaited(syncOfflineQueueOnOpen(ref));
   }
 
+  void _redrawAll() {
+    if (!mounted) return;
+    void rebuild(Element e) {
+      e.markNeedsBuild();
+      e.visitChildren(rebuild);
+    }
+
+    (context as Element).visitChildren(rebuild);
+  }
+
   @override
   void dispose() {
+    userUiLocale.removeListener(_redrawAll);
     _controller.removeListener(_syncOnceWhenVerified);
     _controller.offerKeepSignedIn.removeListener(_maybeOffer);
     super.dispose();
@@ -165,6 +184,26 @@ GoRouter _buildRouter(BootstrapController controller) {
       if (reachable && state.matchedLocation == '/') {
         return '/home';
       }
+      // AC3: a module route whose module is absent from installed_modules
+      // redirects to /home — the route exists in the table (all module
+      // routes are always registered) but the module is not available.
+      //
+      // In `resumedOffline`, `installedModules` reflects the last verified
+      // set from the previous successful bootstrap (persisted in controller
+      // state across `attemptSessionResume`). A module the user had on their
+      // last sign-in is reachable offline; one absent from that list is
+      // refused. An empty list means no modules were previously installed or
+      // the device is fresh — refusing is the correct fallback.
+      if (reachable) {
+        final moduleId = moduleIdForLocation(
+          state.matchedLocation,
+          kFeatureRegistry,
+        );
+        if (moduleId != null &&
+            !isModuleInstalled(controller.state.installedModules, moduleId)) {
+          return '/home';
+        }
+      }
       return null;
     },
     routes: [
@@ -199,10 +238,16 @@ GoRouter _buildRouter(BootstrapController controller) {
         path: '/home',
         builder: (context, state) => const TenantHomeScreen(),
       ),
-      // buildRouteTable uses the real feature registry (`codes`, REQ-732).
-      // A module absent from `installed_modules` has no route entry here, so
-      // `GoRouter`'s own default not-found page is shown for it (AC3).
-      ...buildRouteTable(controller.state.installedModules),
+      // All module routes from kFeatureRegistry are always registered so
+      // that the GoRouter is built correctly on first render, before
+      // bootstrap has resolved the installed-module list. The redirect
+      // closure above guards each module path at navigation time: a module
+      // absent from installed_modules redirects to /home (AC3).
+      ...buildRouteTable(
+        kFeatureRegistry.keys
+            .map((id) => InstalledModule(moduleId: id, version: ''))
+            .toList(),
+      ),
     ],
   );
 }

@@ -619,7 +619,7 @@ answer 403 `entity_type_managed`. Routes under `/api/v1/modules/assets`, permiss
 grants: TENANT_ADMIN and PLATFORM_ADMIN), interactive tenant-wide callers only (`Assets.Access`; an API token or a
 scoped grant gets the 404 of a tenant without the module):
 
-- `POST /cards` (201), `PATCH /cards/:id` (200), `POST /cards/:id/retire` (200). Every body carries `idempotency_key`. `GET /cards/:id/lock` (`AssetsRead`) answers `{"posted": bool}` (T-1490); once a document naming the card is posted, a changed `inventory_number` or `kind` is 422 `inventory_number_locked` / `kind_locked` and nothing is written.
+- `POST /cards` (201), `PATCH /cards/:id` (200), `POST /cards/:id/retire` (200). Every body carries `idempotency_key`. `GET /cards/:id/lock` (`AssetsRead`) answers `{"posted": bool, "held": bool}` (T-1490; `held` T-1880: an issued, non-reversed commission or opening holds the card, the rule of `asset_already_in_register`); once a document naming the card is posted, a changed `inventory_number` or `kind` is 422 `inventory_number_locked` / `kind_locked` and nothing is written.
 - 422 `reason`: `field_not_allowed` (`active` and unknown keys), `field_invalid`, `org_unit_not_active`,
   `valid_until_not_allowed` (only kind `intangible`), `currency_mismatch` (the tenant currency, setting `currency`,
   `KZT` by default), `card_inactive` (update or second retire of a retired card), `record_payload_invalid`
@@ -707,7 +707,7 @@ the code that holds it; paths are cited without line numbers.
    `/documents` routes. `POST /documents/:id/check` (`AssetsPost`, drafts of an opening only; writes nothing, takes no
    lock) answers `ok`, the `header` reasons and, per line, all `reasons` and `fields`
    (`lib/letflow/modules/assets/documents/opening_checks.ex`). Issue runs the same checks and refuses with the first
-   failing line (422 `reason`, `line_no`, `field`); a clean opening is issued (G5 part 2, assets 0.17.0) and starts the process
+   failing line (422 `reason`, `line_no`, `field`); a clean opening is issued (G5 part 2, assets 0.18.0) and starts the process
    `assets_opening`: the issuer completes `submit`, a second person completes `approve` and posts the cause `opening`
    (`Documents.Posting`, `Documents.OpeningPosting`; no client event time; a failed `submit` completion is logged and
    whoever completes it becomes the preparer). "Once" counts issued, non-reversed commission and opening documents and

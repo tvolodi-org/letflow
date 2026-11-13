@@ -61,7 +61,7 @@ describe('role-based sidebar (golden-backed)', () => {
     const v = view(setFor('tenantAdmin'))
     expect(v.groups).toEqual(['work', 'tenantAdmin'])
     expect(v.labels).toEqual([
-      'Instances', 'My Tasks', 'Definitions', 'Exams', 'Question Bank', 'Grading', 'Exam builder',
+      'Instances', 'My Tasks', 'Definitions', 'Reports', 'Exams', 'Question Bank', 'Grading', 'Exam builder',
       'Legal companies', 'Sites', 'Org units', 'Positions', 'Employees', 'Locations', 'Location links',
       'Codes', 'Items', 'Lots', 'Stock documents', 'Balances', 'Movements', 'Counts',
       'Asset cards', 'Asset documents', 'Asset balances', 'Asset movements',
@@ -78,7 +78,7 @@ describe('role-based sidebar (golden-backed)', () => {
   it('N2 storekeeper: stock screens and My Tasks; Import data with exactly stock_opening_line; no org/users entry', () => {
     const v = view(setFor('storekeeper'))
     expect(v.groups).toEqual(['work', 'tenantAdmin'])
-    expect(v.labels).toEqual(['My Tasks', 'Items', 'Stock documents', 'Balances', 'Movements', 'Counts', 'Import data'])
+    expect(v.labels).toEqual(['My Tasks', 'Reports', 'Items', 'Stock documents', 'Balances', 'Movements', 'Counts', 'Import data'])
     expect(v.importTypes).toEqual(['stock_opening_line'])
   })
 
@@ -88,14 +88,16 @@ describe('role-based sidebar (golden-backed)', () => {
     expect(v.importTypes).toEqual([])
   })
 
-  it('N3 task worker: only the Work group with Instances, My Tasks, Definitions', () => {
+  it('N3 task worker: only the Work group with Instances, My Tasks, Definitions, Reports', () => {
     const v = view(setFor('taskWorker'))
     expect(v.groups).toEqual(['work'])
-    expect(v.labels).toEqual(['Instances', 'My Tasks', 'Definitions'])
+    expect(v.labels).toEqual(['Instances', 'My Tasks', 'Definitions', 'Reports'])
   })
 
   it('N4 scoped users (custom permission sets): exactly the entries their atoms allow', () => {
-    expect(view(new Set(['TasksRead', 'TasksComplete', 'EntitiesQuery'])).labels).toEqual(['My Tasks'])
+    expect(view(new Set(['TasksRead', 'TasksComplete', 'EntitiesQuery'])).labels).toEqual(['My Tasks', 'Reports'])
+    // T-1874: the Reports entry is permission-based: without EntitiesQuery it is absent
+    expect(view(new Set(['TasksRead'])).labels).not.toContain('Reports')
     expect(view(new Set(['StockRead'])).labels).toEqual(['Items', 'Stock documents', 'Balances', 'Movements', 'Counts'])
     expect(view(new Set()).labels).toEqual([])
   })

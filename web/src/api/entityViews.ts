@@ -35,6 +35,13 @@ export const reportViewsApi = {
     return { items: items.filter((v): v is ReportView => v.kind === 'report') }
   },
 
+  /** T-1874 every report the caller may see across entity types (the server drops denied types). */
+  listAll: async (): Promise<{ items: ReportView[] }> => {
+    const page = await client.get<{ items: EntityView[] }>('/api/v1/entity-views')
+    const items = Array.isArray(page?.items) ? page.items : []
+    return { items: items.filter((v): v is ReportView => v.kind === 'report') }
+  },
+
   get: (id: string) => client.get<ReportView>(`/api/v1/entity-views/${encodeURIComponent(id)}`),
 
   create: (body: ReportCreateRequest) =>

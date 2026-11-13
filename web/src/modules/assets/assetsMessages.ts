@@ -3,6 +3,7 @@
  *  native-speaker check. */
 
 import { helpEn, helpKk, helpRu } from './help/assetsHelpMessages'
+import { cardActionsEn, cardActionsKk, cardActionsRu } from './cardActionsMessages'
 import { resolveLocale } from '@/i18n/resolveLocale'
 import { documentsEn, documentsKk, documentsRu } from './documents/documentsMessages'
 import { registerEn, registerKk, registerRu } from './register/registerMessages'
@@ -16,6 +17,7 @@ export function resolveUiLocale(candidates?: readonly string[]): AssetsUiLocale 
 
 const en: Record<string, string> = {
   'assets.common.truncated': 'Showing the first {count} records of a lookup list only; the list is longer, so some names may be missing.',
+  'assets.reports.group': 'Assets',
   'import.type.assets_card': 'Asset cards',
   'import.type.assets_opening_line': 'Asset opening lines',
   'assets.common.dash': '—',
@@ -79,6 +81,12 @@ const en: Record<string, string> = {
   'assets.field.bookValue': 'Book value',
   'assets.field.asOf': 'Depreciation as of',
   'assets.field.depMethod': 'Depreciation method',
+  'assets.depMethod.straight_line': 'Straight-line',
+  'assets.depMethod.reducing_balance': 'Reducing balance',
+  'assets.depMethod.units_of_production': 'Units of production',
+  'assets.depMethod.none': 'Not set',
+  'assets.depMethod.legacy': '{value} (not in the list)',
+  'assets.depMethod.notInList': 'not in the list',
   'assets.field.depRate': 'Depreciation rate, %',
   'assets.depreciation.infoOnly': 'Information only, not calculated',
   'assets.field.externalRef': 'External reference',
@@ -114,6 +122,7 @@ const en: Record<string, string> = {
 
 const ru: Record<string, string> = {
   'assets.common.truncated': 'Справочный список показан не полностью: только первые {count} записей, поэтому некоторые названия могут отсутствовать.',
+  'assets.reports.group': 'Активы',
   'import.type.assets_card': 'Карточки активов',
   'import.type.assets_opening_line': 'Начальные остатки активов',
   'assets.common.dash': '—',
@@ -177,6 +186,12 @@ const ru: Record<string, string> = {
   'assets.field.bookValue': 'Балансовая стоимость',
   'assets.field.asOf': 'Износ на дату',
   'assets.field.depMethod': 'Метод износа',
+  'assets.depMethod.straight_line': 'Прямолинейный',
+  'assets.depMethod.reducing_balance': 'Уменьшаемого остатка',
+  'assets.depMethod.units_of_production': 'Пропорционально объёму продукции',
+  'assets.depMethod.none': 'Не указан',
+  'assets.depMethod.legacy': '{value} (нет в списке)',
+  'assets.depMethod.notInList': 'нет в списке',
   'assets.field.depRate': 'Ставка износа, %',
   'assets.depreciation.infoOnly': 'Только справочная информация, не рассчитывается',
   'assets.field.externalRef': 'Внешняя ссылка',
@@ -212,6 +227,7 @@ const ru: Record<string, string> = {
 
 const kk: Record<string, string> = {
   'assets.common.truncated': 'Анықтамалық тізім толық көрсетілмеген: тек алғашқы {count} жазба, сондықтан кейбір атаулар болмауы мүмкін.',
+  'assets.reports.group': 'Активтер',
   'import.type.assets_card': 'Активтер карточкалары',
   'import.type.assets_opening_line': 'Активтердің бастапқы қалдықтары',
   'assets.common.dash': '—',
@@ -275,6 +291,12 @@ const kk: Record<string, string> = {
   'assets.field.bookValue': 'Теңгерімдік құн',
   'assets.field.asOf': 'Тозу күні',
   'assets.field.depMethod': 'Тозу әдісі',
+  'assets.depMethod.straight_line': 'Біркелкі (түзу сызықты)',
+  'assets.depMethod.reducing_balance': 'Азайып отыратын қалдық',
+  'assets.depMethod.units_of_production': 'Өнім көлеміне пропорционал',
+  'assets.depMethod.none': 'Көрсетілмеген',
+  'assets.depMethod.legacy': '{value} (тізімде жоқ)',
+  'assets.depMethod.notInList': 'тізімде жоқ',
   'assets.field.depRate': 'Тозу мөлшерлемесі, %',
   'assets.depreciation.infoOnly': 'Тек анықтама ақпараты, есептелмейді',
   'assets.field.externalRef': 'Сыртқы сілтеме',
@@ -310,7 +332,7 @@ const kk: Record<string, string> = {
 
 /** The catalog of the whole module: the card screen's own ids plus the document and register screens' (C14). */
 export const assetsMessages: Record<AssetsUiLocale, Record<string, string>> = {
-  en: { ...en, ...documentsEn, ...registerEn, ...helpEn },
-  ru: { ...ru, ...documentsRu, ...registerRu, ...helpRu },
-  kk: { ...kk, ...documentsKk, ...registerKk, ...helpKk },
+  en: { ...en, ...documentsEn, ...registerEn, ...helpEn, ...cardActionsEn },
+  ru: { ...ru, ...documentsRu, ...registerRu, ...helpRu, ...cardActionsRu },
+  kk: { ...kk, ...documentsKk, ...registerKk, ...helpKk, ...cardActionsKk },
 }

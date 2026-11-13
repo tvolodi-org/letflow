@@ -19,7 +19,7 @@ export const assetsApi = {
   createCard: (b: CardBody, key: string) => client.post<EntityRecord>(`${BASE}/cards`, { ...b, idempotency_key: key }),
   updateCard: (id: string, b: CardBody, key: string) =>
     client.patch<EntityRecord>(`${BASE}/cards/${seg(id)}`, { ...b, idempotency_key: key }),
-  cardLock: (id: string) => client.get<{ posted: boolean }>(`${BASE}/cards/${seg(id)}/lock`),
+  cardLock: (id: string) => client.get<{ posted: boolean; held?: boolean }>(`${BASE}/cards/${seg(id)}/lock`),
   retireCard: (id: string, key: string) =>
     client.post<EntityRecord>(`${BASE}/cards/${seg(id)}/retire`, { idempotency_key: key }),
 }

@@ -202,7 +202,7 @@ Line (one per card and placement): `asset_id`, `material_responsible_id`, `quant
 `card_not_active`, `duplicate_asset`, `quantity_invalid`, `org_unit_mismatch`, `location_required` /
 `location_not_allowed`, `not_linked`, `employee_not_active` (the `fields` name the key), `asset_already_in_register`
 (any card kind: an issued, not reversed commission or opening holds the asset). Issue repeats the checks and starts the
-process `assets_opening` (G5 part 2, assets 0.17.0): the issuer completes `submit`, a second person completes `approve`,
+process `assets_opening` (G5 part 2, assets 0.18.0): the issuer completes `submit`, a second person completes `approve`,
 which posts the ledger cause `opening` (no client event time: the entry's event time is its posting time). The register
 half of "once" refuses an asset with a non-zero register balance; it needs a tenant-wide ledger read, otherwise issue
 answers 409 `register_unreadable` and the advisory check shows the document half only. Cost, accumulated depreciation

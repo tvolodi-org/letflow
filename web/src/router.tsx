@@ -50,6 +50,7 @@ import ModuleUninstallPage from '@/pages/admin/moduleLifecycle/ModuleUninstallPa
 import { isModulesUninstallEnabled } from '@/config/modulesUninstallFlag'
 import EntityListBrowserPage from '@/pages/entities/EntityListBrowserPage'
 import ReportBuilderPage from '@/pages/entities/ReportBuilderPage'
+import ReportsIndexPage from '@/pages/entities/ReportsIndexPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 import { REGISTERED_MODULE_ROUTE_OBJECTS } from '@/modules/registry'
@@ -181,6 +182,15 @@ export const appRoutes: RouteObject[] = [
       { path: 'webhooks', element: <RequirePermission permission={P.WebhooksManage}><WebhooksPage /></RequirePermission> },
       // REQ-393: tenant-agnostic entity-list browse screen (filter/sort/page-size)
       { path: 'entities/:entityType', element: <EntityListBrowserPage /> },
+      // T-1874: Reports menu page, lists the saved reports of every module
+      {
+        path: 'reports',
+        element: (
+          <RequirePermission permission={P.EntitiesQuery}>
+            <ReportsIndexPage />
+          </RequirePermission>
+        ),
+      },
       // REQ-634: saved report builder; EntitiesQuery is the read permission of the report routes
       {
         path: 'entities/:entityType/reports',

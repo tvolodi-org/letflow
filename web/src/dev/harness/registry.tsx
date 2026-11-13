@@ -23,6 +23,7 @@ import { userResetScreens } from './fixtures/userReset'
 import { userSignInScreens } from './fixtures/userSignIn'
 import { notificationBellScreens } from './fixtures/notificationBell'
 import { emptyErrorStates } from './fixtures/emptyErrorStates'
+import { reportsIndexScreens } from './fixtures/reportsIndex'
 import { definitionNameScreens } from './fixtures/definitionNames'
 import { definitionNameAdminScreens } from './fixtures/definitionNamesAdmin'
 import { codesLabelScreens } from './fixtures/codesLabels'
@@ -36,11 +37,13 @@ import { envBannerScreens } from './fixtures/envBanner'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
 import { leftoversR15Screens, leftoversR15ShellScreens } from './fixtures/leftoversR15'
 import { assetsDocumentsScreens } from './fixtures/assetsDocuments'
+import { assetsCardActionsScreens } from './fixtures/assetsCardActions'
 import { assetsKindChangeScreens } from './fixtures/assetsDocumentsKindChange'
 import { responsibleProposalScreens } from './fixtures/responsibleProposal'
 import { stockScreens } from './fixtures/stock'
 import { stockBalanceHistoryScreens } from './fixtures/stockBalanceHistory'
 import { stockBalancesLayoutScreens } from './fixtures/stockBalancesLayout'
+import { stockBalancesShellScreens } from './fixtures/stockBalancesShell'
 import { stockJournalScreens } from './fixtures/stockJournal'
 import { stockJournalLayoutScreens } from './fixtures/stockJournalLayout'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
@@ -289,6 +292,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...userSignInScreens,
     ...notificationBellScreens,
     ...emptyErrorStates,
+    ...reportsIndexScreens,
     ...definitionNameScreens,
     ...processDiagramScreens,
     ...processDesignerEditScreens,
@@ -304,6 +308,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...officialFormsScreens,
     ...assetsScreens,
     ...assetsDocumentsScreens,
+    ...assetsCardActionsScreens,
     ...responsibleProposalScreens,
     ...assetsKindChangeScreens,
     ...stockR7Screens,
@@ -314,6 +319,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockScreens,
     ...stockBalanceHistoryScreens,
     ...stockBalancesLayoutScreens,
+    ...stockBalancesShellScreens,
     ...stockJournalScreens,
     ...stockJournalLayoutScreens,
     ...stockDocumentsScreens,
