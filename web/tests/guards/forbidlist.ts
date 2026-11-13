@@ -174,6 +174,98 @@ export const PATTERNS: GuardPattern[] = [
     ],
     rationale: 'ISS-0813',
   },
+  {
+    // T-1885 / T-1886: a screen must not write a shell root or modifier class (lf-md, lf-reg, lf-doc,
+    // lf-jrn, or --modifier) on its own element; that is the shell's job. Matches the class string
+    // token (the class immediately after a quote or space), not child-element classes such as
+    // lf-reg__list or lf-doc__header which are allowed inside slots.
+    name: 'list-detail-own-shell',
+    regex: /className=(?:\{[^}]*)?["'`](?:[^"'`]*\s)?lf-(?:md|reg|doc|jrn)(?:--[a-z]+)?(?=[\s"'`])/,
+    appliesTo: 'source',
+    allowedPaths: [
+      'web/src/components/ui/listDetail/',
+      'web/src/components/ui/doc/',
+      'web/src/components/ui/journal/',
+      'web/src/components/ui/registry/',
+      'web/src/components/ui/layout/',
+      'web/src/components/layout/AppShell.tsx',
+      'web/src/dev/harness/fixtures/layoutBase.tsx',
+      // Ratchet: files not yet migrated to ListDetail (remove one per slice).
+      'web/src/components/ui/MasterDetail.tsx',
+      'web/src/components/ui/DetailHeader.tsx',
+      'web/src/components/ui/__tests__/Layout.test.tsx',
+      'web/src/components/ui/__tests__/MasterDetail.narrow.test.tsx',
+      'web/src/modules/assets/AssetCardsPage.tsx',
+      'web/src/modules/catalog_items/LotsPage.tsx',
+      'web/src/modules/codes/CodesPage.tsx',
+      'web/src/modules/locations/LocationTreePage.tsx',
+      'web/src/modules/org/OrgScreen.tsx',
+      'web/src/modules/stock/counts/CountsPage.tsx',
+      'web/src/pages/admin/module-rollouts/ModuleRolloutsPage.tsx',
+      'web/src/pages/tasks/TaskInboxPage.tsx',
+    ],
+    rationale: 'T-1885',
+  },
+  {
+    // T-1885 / T-1886: a screen must not attach the splitter (useSplit or SplitWrap) itself; ListDetail
+    // owns the divider. The layout primitives and the reference harness are exempt.
+    name: 'list-detail-direct-split',
+    regex: /\buseSplit\s*\(|<SplitWrap\b/,
+    appliesTo: 'source',
+    allowedPaths: [
+      'web/src/components/ui/listDetail/',
+      'web/src/components/ui/doc/',
+      'web/src/components/ui/journal/',
+      'web/src/components/ui/registry/',
+      'web/src/components/ui/layout/',
+      'web/src/components/layout/AppShell.tsx',
+      'web/src/dev/harness/fixtures/layoutBase.tsx',
+      // Ratchet: files not yet migrated.
+      'web/src/components/ui/MasterDetail.tsx',
+      'web/src/components/ui/DetailHeader.tsx',
+      'web/src/components/ui/__tests__/Layout.test.tsx',
+      'web/src/components/ui/__tests__/MasterDetail.narrow.test.tsx',
+      'web/src/modules/assets/AssetCardsPage.tsx',
+      'web/src/modules/catalog_items/LotsPage.tsx',
+      'web/src/modules/codes/CodesPage.tsx',
+      'web/src/modules/locations/LocationTreePage.tsx',
+      'web/src/modules/org/OrgScreen.tsx',
+      'web/src/modules/stock/counts/CountsPage.tsx',
+      'web/src/pages/admin/module-rollouts/ModuleRolloutsPage.tsx',
+      'web/src/pages/tasks/TaskInboxPage.tsx',
+    ],
+    rationale: 'T-1885',
+  },
+  {
+    // T-1885 / T-1886: a new user of the old MasterDetail or masterDetailBack shell is a regression;
+    // use ListDetail instead. Catches any import path prefix so deep relative imports are caught too.
+    name: 'master-detail-import',
+    regex: /from\s+['"](?:[./@\w-]+\/)?(?:MasterDetail|masterDetailBack)['"]/,
+    appliesTo: 'source',
+    allowedPaths: [
+      'web/src/components/ui/listDetail/',
+      'web/src/components/ui/doc/',
+      'web/src/components/ui/journal/',
+      'web/src/components/ui/registry/',
+      'web/src/components/ui/layout/',
+      'web/src/components/layout/AppShell.tsx',
+      'web/src/dev/harness/fixtures/layoutBase.tsx',
+      // Ratchet: files not yet migrated.
+      'web/src/components/ui/MasterDetail.tsx',
+      'web/src/components/ui/DetailHeader.tsx',
+      'web/src/components/ui/__tests__/Layout.test.tsx',
+      'web/src/components/ui/__tests__/MasterDetail.narrow.test.tsx',
+      'web/src/modules/assets/AssetCardsPage.tsx',
+      'web/src/modules/catalog_items/LotsPage.tsx',
+      'web/src/modules/codes/CodesPage.tsx',
+      'web/src/modules/locations/LocationTreePage.tsx',
+      'web/src/modules/org/OrgScreen.tsx',
+      'web/src/modules/stock/counts/CountsPage.tsx',
+      'web/src/pages/admin/module-rollouts/ModuleRolloutsPage.tsx',
+      'web/src/pages/tasks/TaskInboxPage.tsx',
+    ],
+    rationale: 'T-1885',
+  },
 ]
 
 // GH #2470: undefined-token guard (token-scan.spec.ts). Regexes live here with the other patterns.

@@ -1,0 +1,2 @@
+<div className="lf-reg__list" data-testid="list">
+<ListDetail screen="codes" />
