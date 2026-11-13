@@ -49,11 +49,15 @@ async function issueDocument(p: Page): Promise<void> {
 
 /** Claim then complete the task row that matches `hint` (document number or item name). */
 async function claimAndComplete(p: Page, hint: string): Promise<void> {
-  await openRoute(p, '/tasks')
-  const rows = p.getByTestId('task-row')
-  await expect(rows.first()).toBeVisible({ timeout: 30_000 })
-  const own = rows.filter({ hasText: hint })
-  await ((await own.count()) > 0 ? own.first() : rows.first()).click()
+  // The approval task of a freshly issued document is created by the engine after the issue call returns, so it can be
+  // missing from the first load of the list. Wait (reloading) for the row of THIS document; never fall back to the first
+  // row: that is another document's task (earlier steps, earlier runs), and completing it leaves this one unposted.
+  const own = p.getByTestId('task-row').filter({ hasText: hint })
+  await expect(async () => {
+    await openRoute(p, '/tasks')
+    await expect(own.first()).toBeVisible({ timeout: 5_000 })
+  }).toPass({ timeout: 60_000, intervals: [1_000, 2_000, 4_000] })
+  await own.first().click()
   await expect(p.getByTestId('task-detail-panel')).toBeVisible()
   const claim = p.getByTestId('task-claim-button')
   if (await claim.isVisible().catch(() => false)) await claim.click()
@@ -117,7 +121,8 @@ test('G2 S2 receipt issue claim complete', async () => {
   state.receiptNumber = await headerNumber(page)
   await issueDocument(page)
 
-  await claimAndComplete(page, state.receiptNumber || 'Laptop')
+  expect(state.receiptNumber, 'the receipt number is needed to find its own task').not.toBe('')
+  await claimAndComplete(page, state.receiptNumber)
   // Posting follows the task completion: reload the receipt until its header shows the posting.
   await expect(async () => {
     await openRoute(page, state.receiptUrl)
