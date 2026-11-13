@@ -116,8 +116,9 @@ by the process owner: no new guard against changing it while cards hold the old 
 ## 4. Who edits it
 
 - The platform list is edited only by a code change to the JSON file (a pull request). No route writes it.
-- A tenant writes only its switches, through `PUT /api/v1/currencies/:code` (body `active`, optional
-  `tenant_currency: true`), permission **`CurrenciesManage`** (new, tenant scope, no role grants). By the
+- A tenant writes only its switches, through `PUT /api/v1/currencies/:code` (body `active`, required, and optional
+  `tenant_currency: true`; a body without `active` is refused as `invalid_body`, so "make tenant currency"
+  sends exactly `active: true, tenant_currency: true`), permission **`CurrenciesManage`** (new, tenant scope, no role grants). By the
   computed clauses of `Letflow.Api.Authorization` it is held by PLATFORM_ADMIN and TENANT_ADMIN only, as
   `LabelsManage` is today **[V]** (`priv/permission_matrix/effective.golden`: `LabelsManage` true only for
   PLATFORM_ADMIN and TENANT_ADMIN). No role name appears in any new check (D-129).
@@ -233,6 +234,9 @@ production) is announced to the portfolio manager first. Nothing runs at boot.
 Ordering notes: C2 touches `lib/letflow/api/authorization.ex`, the permission golden and `docs/roles.md`,
 which the roles stage 0 slices (T-1855, T-1856, T-1857) also change one at a time: C2 runs after them. C3 and C4
 both bump the assets version: run them one after the other, not in parallel.
+C3 runs on QA before C6 deploys: a tenant whose legacy assets setting is a code other than KZT (for example
+EUR) reads EUR in the backend fallback but KZT in the directory until C3 has run, so the C6 dropdown would offer
+a code the backend refuses as `currency_mismatch`.
 
 Tests per slice are the acceptance criteria of each entry.
 

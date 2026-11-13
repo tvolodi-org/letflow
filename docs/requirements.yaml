@@ -55127,12 +55127,12 @@ requirements:
       active (boolean), tenant_currency (boolean, a partial unique index allows one true row), updated_by,
       inserted_at, updated_at; it starts empty and no existing row is altered; (3) the context Letflow.Currencies
       (planned, lib/letflow/currencies.ex) with list/1 (prefix; every platform entry with its active flag, ordered
-      by code), tenant_currency/1, active?/2, switch/4 (prefix, code, attrs with the keys active and optional
-      tenant_currency, actor id) and normalize/1. Reading rule: a code is active when its row says active true or,
+      by code), tenant_currency/1, active?/2, switch/4 (prefix, code, attrs with the required key active and the
+      optional key tenant_currency, actor id) and normalize/1. Reading rule: a code is active when its row says active true or,
       without a row, when it is KZT; the tenant currency is the code of the row with tenant_currency true, or KZT
       without one, so an untouched tenant reads KZT as today. switch/4 refuses an unknown code
       ({:error, :currency_unknown}), switching off the tenant currency ({:error, :currency_is_tenant_currency}) and
-      a body with another key, a non-boolean active, tenant_currency other than true, or tenant_currency true with
+      a body without active, a body with another key, a non-boolean active, tenant_currency other than true, or tenant_currency true with
       active false ({:error, :invalid_body}); tenant_currency true makes the code the tenant currency, switches it
       on and clears the flag of the previous row in the same transaction. Each accepted switch writes one audit
       entry through Letflow.Audit.append_multi/4 with action currencies.switched in the same transaction; a refusal
@@ -55142,7 +55142,7 @@ requirements:
     acceptance_criteria:
       - "1. A test in test/letflow/currencies/catalog_test.exs (planned) parses priv/currencies/iso4217.json and asserts: source is a non-empty string; every entry has a code matching ^[A-Z]{3}$, a numeric_code matching ^[0-9]{3}$, an integer minor_units from 0 to 4 and non-empty ru, kk and en names; codes are unique; KZT is present; Letflow.Currencies.Catalog returns exactly the entries of the file."
       - "2. A test in test/letflow/currencies_test.exs (planned) on a tenant with no tenant_currencies row asserts tenant_currency/1 is KZT, active?/2 is true for KZT and false for USD, and list/1 holds every catalog code once with active true only for KZT."
-      - "3. The same test file shows, one test each: switching USD on makes it active; tenant_currency true on USD makes USD the tenant currency and keeps KZT active; switching off the tenant currency answers {:error, :currency_is_tenant_currency}; code ABC answers {:error, :currency_unknown}; an extra key answers {:error, :invalid_body}; each accepted switch adds exactly one audit entry with action currencies.switched and each refusal adds none and changes no row."
+      - "3. The same test file shows, one test each: switching USD on makes it active; tenant_currency true on USD makes USD the tenant currency and keeps KZT active; switching off the tenant currency answers {:error, :currency_is_tenant_currency}; code ABC answers {:error, :currency_unknown}; an extra key answers {:error, :invalid_body}; a body without active (only tenant_currency true) answers {:error, :invalid_body}; each accepted switch adds exactly one audit entry with action currencies.switched and each refusal adds none and changes no row."
       - "4. A test of normalize/1 asserts kzt, ' Тенге ', теңге, тг, ₸ and TENGE give {:ok, KZT}, usd gives {:ok, USD}, and XYZ, the empty text and a four-letter text give :unknown."
       - "5. A test with two committed tenants shows a switch in tenant A changes neither list/1 nor tenant_currency/1 of tenant B (INV-1); the tenant table list in test/support/tenant_fixture.ex and its count pin include tenant_currencies, and the migration is in Letflow.TenantProvisioning's manifest."
     depends_on: []
@@ -55160,7 +55160,7 @@ requirements:
       lib/letflow/api/route_scope.ex) answers 200 with tenant_currency (the code) and currencies, the list of
       Letflow.Currencies.list/1, each item with exactly code, numeric_code, minor_units, names (ru, kk, en) and
       active; (2) PUT /api/v1/currencies/:code with the new permission CurrenciesManage and scope :tenant_wide, body
-      active (boolean) and optional tenant_currency (true), calls Letflow.Currencies.switch/4 with the caller's user
+      active (boolean, required) and optional tenant_currency (true), calls Letflow.Currencies.switch/4 with the caller's user
       id and answers 200 with the same body as the GET; refusals are 422 with the fixed reason currency_unknown,
       currency_is_tenant_currency or invalid_body and never echo the body. The tenant comes only from the auth
       context (INV-1); a tenant_id in the query or body is never read (INV-10). The permission is checked first, so
@@ -55171,7 +55171,7 @@ requirements:
       routes; docs/roles.md lists the permission.
     acceptance_criteria:
       - "1. A router test in test/letflow/routers/currencies_test.exs (planned) with a real token of a tenant user who holds neither CurrenciesManage nor any admin role answers 200 on GET /api/v1/currencies with tenant_currency KZT and items carrying exactly the keys code, numeric_code, minor_units, names and active."
-      - "2. The same file: a tenant admin's PUT /api/v1/currencies/USD with active true answers 200 and a following GET shows USD active; PUT with tenant_currency true on USD makes tenant_currency USD; PUT active false on the tenant currency answers 422 currency_is_tenant_currency; PUT on ABC answers 422 currency_unknown; a body with another key answers 422 invalid_body; each refusal leaves the GET body unchanged."
+      - "2. The same file: a tenant admin's PUT /api/v1/currencies/USD with active true answers 200 and a following GET shows USD active; PUT with active true and tenant_currency true on USD makes tenant_currency USD; PUT with only tenant_currency true answers 422 invalid_body; PUT active false on the tenant currency answers 422 currency_is_tenant_currency; PUT on ABC answers 422 currency_unknown; a body with another key answers 422 invalid_body; each refusal leaves the GET body unchanged."
       - "3. The same file: the user without CurrenciesManage gets 403 on PUT for USD and for ABC with bodies equal after dropping trace_id; a tenant admin's PUT in tenant A, with tenant B's id in the body and the query, changes nothing in tenant B (cross-tenant negative test, INV-10)."
       - "4. After mix letflow.permission_matrix --write the diff of priv/permission_matrix/effective.golden only adds the CurrenciesManage rows (one per role, true only for PLATFORM_ADMIN and TENANT_ADMIN) and changes header counts; every older row is byte-identical; docs/roles.md names CurrenciesManage and its parity test passes."
     depends_on: [REQ-823]
@@ -55226,7 +55226,7 @@ requirements:
       refused because of the stored value, so a card holding a legacy value can still be edited and its currency
       replaced. The xlsx import of assets_card (lib/letflow/modules/assets/import.ex) applies the same rule to the
       currency cell: an unknown code is the row refusal asset_currency_unknown, added to the refusal-to-field map
-      of lib/letflow/routers/entities/record_import.ex with field currency beside asset_currency_mismatch; aliases
+      of lib/letflow/routers/entities/record_import.ex with field currency beside asset_currency_mismatch, and to the constant-reason list beside :asset_currency_mismatch in the same file; aliases
       such as тенге are not accepted by writes or the import (only REQ-825 maps them). The settings_schema key
       currency stays (legacy). docs/assets/asset-register.md section 6, docs/assets/asset-xlsx.md rule 6 and
       docs/runbooks/wms-foundation.md (the currency_mismatch line) are brought in step. The assets module version
@@ -55258,7 +55258,7 @@ requirements:
       currency is disabled with a hint that the tenant currency is always on. A refusal shows its fixed reason text.
       Loading, empty search result, error and no-permission states exist. All texts in en, ru and kk.
     acceptance_criteria:
-      - "1. Component tests in web/src/pages/admin/currencies/ with a fake API show: the list renders code, name in the UI language and the switch; typing tenge or теңге or KZT in the search keeps the KZT row; switching USD on sends PUT with active true; make tenant currency on USD sends tenant_currency true and the mark moves to USD after the reply."
+      - "1. Component tests in web/src/pages/admin/currencies/ with a fake API show: the list renders code, name in the UI language and the switch; typing tenge or теңге or KZT in the search keeps the KZT row; switching USD on sends PUT with active true; make tenant currency on USD sends PUT with the body exactly active true and tenant_currency true and the mark moves to USD after the reply."
       - "2. A component test shows the tenant currency's switch is disabled with the hint, and a 422 currency_is_tenant_currency reply shows its text in ru and kk."
       - "3. A router test shows /admin/currencies renders the no-permission state for a user without CurrenciesManage and the nav item is hidden for that user."
       - "4. npm run check passes, and the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) of the list, the search result and the error state is in the task folder."
