@@ -104,7 +104,18 @@ describe('AppShell side nav', () => {
     expect(await screen.findByTestId('sidenav-toggle')).toHaveAttribute('aria-expanded', 'false')
   })
 
-  it('N5 the splitter on the nav edge is a separator with the 200-360 px range and the translated label', async () => {
+  it('N4b collapsed: Sign out is an icon with a label, expanded it shows the text', async () => {
+    const { container } = await renderShell()
+    const out = await screen.findByTestId('logout-button')
+    expect(out).toHaveTextContent('Sign out')
+    await userEvent.click(screen.getByTestId('sidenav-toggle'))
+    expect(app(container)).toHaveAttribute('data-nav', 'collapsed')
+    expect(out).toHaveTextContent('')
+    expect(out).toHaveAttribute('aria-label', 'Sign out')
+    expect(out.querySelector('svg')).toBeTruthy()
+  })
+
+  it('N5the splitter on the nav edge is a separator with the 200-360 px range and the translated label', async () => {
     const { container } = await renderShell()
     await screen.findByTestId('sidenav')
     const h = container.querySelector('.lf-splitter') as HTMLElement
@@ -128,6 +139,19 @@ describe('AppShell side nav', () => {
     }
     render(<Probe />)
     expect(w).toBe(420)
+  })
+
+  it('T5 the Reset layout entry in the nav foot clears the stored layout', async () => {
+    localStorage.setItem('lf.prefs.ui.layout.v1.anon', JSON.stringify({ v: 1, shell: { sidenav: { collapsed: true } }, screens: { s: { collapsed: { list: [0] } } } }))
+    const { resetDefaultLayoutStore } = await import('@/hooks/useLayoutPrefs')
+    resetDefaultLayoutStore()
+    const { container } = await renderShell()
+    expect(app(container)).toHaveAttribute('data-nav', 'collapsed')
+    const btn = await screen.findByTestId('reset-layout-all')
+    expect(btn).toHaveAttribute('title')
+    act(() => void btn.click())
+    expect(localStorage.getItem('lf.prefs.ui.layout.v1.anon')).toBeNull()
+    expect(app(container)).not.toHaveAttribute('data-nav', 'collapsed')
   })
 
   it('N8 a module entry with no icon mapping gets a letter glyph', async () => {
