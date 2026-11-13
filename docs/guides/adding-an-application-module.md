@@ -645,6 +645,10 @@ only reaches the modules its own `depends_on` lists — and both run in CI:
   ["src/modules/<id>/**"]` override block added to `web/.eslintrc.json`,
   mirroring the `exam` block with `<id>` substituted throughout.
 
+## 11a. Where a module's pins live (T-1900)
+
+The golden `ManifestHash` of each registered module lives in its own file, `test/letflow/modules/pins/<Module>.exs` (`%{module: "<Module>", hash: "..."}`; add `shapes: true` if `catalog_upgrade_shapes_test.exs` should also check it, or `exempt: "<reason>"` instead of `hash:` for a module with a `:ledger` key or a release-dependent version). `catalog_ledger_hash_test.exs` and `catalog_upgrade_shapes_test.exs` loop over that directory (`Letflow.TestSupport.ModulePins`) and hold no per-module line, so a task that bumps module X edits only X's pin file. A new module adds its own pin file; the test requires exactly one per registered module. Do not append per-task `UPDATE (T-...)` comment lines to the deferral-count assertion in `letflow_check_deferral_staleness_test.exs`; they collided between parallel tasks.
+
 ## 12. Explicitly out of scope (do not build this as part of adding a module)
 
 - **Uninstall.** 0039 D5: "No uninstall in S11" — removing a module safely
