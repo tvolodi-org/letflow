@@ -68,6 +68,7 @@ const platformAdmin: AccessInfo = {
     'TokensManage',
     'UsersGroupsRolesManage',
     'WebhooksManage',
+    'CurrenciesManage',
   ],
 }
 
@@ -231,6 +232,7 @@ const tenantAdmin: AccessInfo = {
     'TokensManage',
     'UsersGroupsRolesManage',
     'WebhooksManage',
+    'CurrenciesManage',
   ],
 }
 

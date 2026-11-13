@@ -78,6 +78,7 @@ import { masterDataImport, masterDataImportResult } from './importFixtures'
 import { importReportScreens } from './importReportFixtures'
 import { navRoleScreens } from './navRoleFixtures'
 import { a11yDialogScreens } from './fixtures/a11yDialogs'
+import { currenciesScreens } from './fixtures/currencies'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -353,5 +354,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...listDetailNarrowScreens,
     ...listDetailSlice2Screens,
     ...listDetailSlice3Screens(codesRoutes, lotsRoutes),
+    ...currenciesScreens,
   ].map(s => [s.name, s]),
 )

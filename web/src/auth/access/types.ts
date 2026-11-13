@@ -37,6 +37,7 @@ export const P = {
   EntitiesQuery: 'EntitiesQuery',
   EntitiesAggregate: 'EntitiesAggregate',
   SolutionOverridesManage: 'SolutionOverridesManage',
+  CurrenciesManage: 'CurrenciesManage',
 } as const
 
 /** Body of GET /api/v1/me/access. */

@@ -70,6 +70,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/admin/tokens', group: 'tenantAdmin', label: 'Tokens', permission: P.TokensManage },
   { to: '/admin/audit', group: 'tenantAdmin', label: 'Audit', permission: P.AuditRead },
   { to: '/admin/print-templates', group: 'tenantAdmin', label: 'Print Templates', permission: P.DocumentPrintTemplatesManage },
+  { to: '/admin/currencies', group: 'tenantAdmin', label: 'Currencies', permission: P.CurrenciesManage },
   { to: '/admin/import', group: 'tenantAdmin', label: 'Import data', permission: P.EntitiesRecordsImport, needsImportTypes: true },
   { to: '/admin/module-lifecycle', group: 'tenantAdmin', label: 'Module lifecycle', permission: P.ModulesManage, enabled: isModulesUninstallEnabled },
   { to: '/admin/health', group: 'platform', label: 'Health', permission: P.TenantsManage, platformOnly: true },
