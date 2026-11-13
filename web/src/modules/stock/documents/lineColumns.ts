@@ -7,7 +7,9 @@ import type { DocKind } from './documentsModel'
 /** Layout-screen id of the document screens in the remembered layout (`ui.layout`). */
 export const DOCUMENTS_LAYOUT_SCREEN = 'stock.documents'
 
-export function lineColumns(kind: DocKind, t: (id: string) => string): DocColumn[] {
+/** `currency` is the tenant currency code (REQ-828); the price and value headers carry it, or nothing while unknown. */
+export function lineColumns(kind: DocKind, t: (id: string) => string, currency = ''): DocColumn[] {
+  const withCur = (label: string) => (currency === '' ? label : `${label}, ${currency}`)
   const cols: DocColumn[] = [
     { key: 'item', label: t('stock.col.item'), colId: 'item' },
     { key: 'lot', label: t('stock.col.lot'), colId: 'lot' },
@@ -27,8 +29,8 @@ export function lineColumns(kind: DocKind, t: (id: string) => string): DocColumn
   }
   if (kind === 'receipt' || kind === 'opening') {
     cols.push(
-      { key: 'unitPrice', label: t('stock.doc.field.unitPrice'), num: true, cls: 'price', colId: 'price' },
-      { key: 'lineValue', label: t('stock.doc.field.lineValue'), num: true, cls: 'value', colId: 'value' },
+      { key: 'unitPrice', label: withCur(t('stock.doc.field.unitPrice')), num: true, cls: 'price', colId: 'price' },
+      { key: 'lineValue', label: withCur(t('stock.doc.field.lineValue')), num: true, cls: 'value', colId: 'value' },
     )
   }
   return cols

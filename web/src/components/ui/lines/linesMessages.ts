@@ -25,8 +25,8 @@ export const linesMessages = {
     "c.item": "Item",
     "c.lot": "Lot",
     "c.qty": "Quantity",
-    "c.price": "Unit price, ₸",
-    "c.value": "Line value, ₸",
+    "c.price": "Unit price, {cur}",
+    "c.value": "Line value, {cur}",
     "c.act": "Actions",
     "totals": "Totals",
     "lines": "Lines",
@@ -71,8 +71,8 @@ export const linesMessages = {
     "f.item": "Item",
     "f.lot": "Lot",
     "f.qty": "Quantity",
-    "f.price": "Unit price, ₸",
-    "f.value": "Line value, ₸",
+    "f.price": "Unit price, {cur}",
+    "f.value": "Line value, {cur}",
     "savedLines": "Saved lines",
     "pickLot": "Choose a lot",
     "empty": "No lines yet",
@@ -111,8 +111,8 @@ export const linesMessages = {
     "c.item": "Номенклатура",
     "c.lot": "Партия",
     "c.qty": "Количество",
-    "c.price": "Цена, ₸",
-    "c.value": "Сумма, ₸",
+    "c.price": "Цена, {cur}",
+    "c.value": "Сумма, {cur}",
     "c.act": "Действия",
     "totals": "Итого",
     "lines": "Строк",
@@ -157,8 +157,8 @@ export const linesMessages = {
     "f.item": "Номенклатура",
     "f.lot": "Партия",
     "f.qty": "Количество",
-    "f.price": "Цена, ₸",
-    "f.value": "Сумма, ₸",
+    "f.price": "Цена, {cur}",
+    "f.value": "Сумма, {cur}",
     "savedLines": "Сохранённые строки",
     "pickLot": "Выберите партию",
     "empty": "Строк пока нет",
@@ -197,8 +197,8 @@ export const linesMessages = {
     "c.item": "Тауар",
     "c.lot": "Партия",
     "c.qty": "Саны",
-    "c.price": "Бағасы, ₸",
-    "c.value": "Сомасы, ₸",
+    "c.price": "Бағасы, {cur}",
+    "c.value": "Сомасы, {cur}",
     "c.act": "Әрекеттер",
     "totals": "Барлығы",
     "lines": "Жол",
@@ -243,8 +243,8 @@ export const linesMessages = {
     "f.item": "Тауар",
     "f.lot": "Партия",
     "f.qty": "Саны",
-    "f.price": "Бағасы, ₸",
-    "f.value": "Сомасы, ₸",
+    "f.price": "Бағасы, {cur}",
+    "f.value": "Сомасы, {cur}",
     "savedLines": "Сақталған жолдар",
     "pickLot": "Партияны таңдаңыз",
     "empty": "Жолдар әлі жоқ",
@@ -269,7 +269,9 @@ export type LinesMessageId = keyof (typeof linesMessages)['en']
 /** Message lookup with {name} substitution for a UI locale. */
 export function formatLines(locale: EntitiesUiLocale, id: LinesMessageId, values?: Record<string, string | number>): string {
   const table: Record<string, string> = linesMessages[locale]
-  const s = table[id] ?? linesMessages.en[id]
+  let s = table[id] ?? linesMessages.en[id]
+  // REQ-828: the currency of a price or value header is the tenant currency code; without one the header has no tail.
+  if (!values || values['cur'] == null || values['cur'] === '') s = s.replace(/,\s*\{cur\}/, '')
   return s.replace(/\{(\w+)\}/g, (_, k: string) => (values && values[k] != null ? String(values[k]) : ''))
 }
 
