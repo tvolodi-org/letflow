@@ -64,3 +64,9 @@ The check of the six phase A screens before the owner's Gate A look, with its op
 ## Accessibility beyond forms
 
 Contrast, dialog focus, reduced motion, headings and landmarks: [accessibility.md](accessibility.md).
+
+## List and record screens
+
+One shell for every list + record screen: `ListDetail` (divider, collapse, remembered size, Back under 900 px, Escape).
+The old `MasterDetail`, `masterDetailBack` and the hand-written `lf-md` rules are gone (slice 6, T-1892), and the guard's
+ratchet list is empty. The decision and the slice plan: [master-detail-verdict.md](master-detail-verdict.md).

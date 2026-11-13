@@ -11,7 +11,6 @@ import { DetailHeader } from '../DetailHeader'
 import { DropZone } from '../DropZone'
 import { FileRow } from '../FileRow'
 import { LanguageSwitcher, loadLocale } from '../LanguageSwitcher'
-import { MasterDetail } from '../MasterDetail'
 import { PageHeader } from '../PageHeader'
 import { TopBar } from '../TopBar'
 import { TypePicker } from '../TypePicker'
@@ -69,13 +68,7 @@ describe('TopBar', () => {
   })
 })
 
-describe('MasterDetail and DetailHeader', () => {
-  it('renders master and detail panes', () => {
-    render(<MasterDetail master={<p>tree</p>} detail={<p>form</p>} />)
-    expect(screen.getByTestId('master-detail-master')).toHaveTextContent('tree')
-    expect(screen.getByTestId('master-detail-detail')).toHaveTextContent('form')
-  })
-
+describe('DetailHeader', () => {
   it('DetailHeader shows path, title, status and actions', () => {
     render(<DetailHeader path="Head office / IT" title="IT department" status={<span>Active</span>} actions={<button>Edit</button>} />)
     expect(screen.getByRole('heading', { level: 2, name: 'IT department' })).toBeInTheDocument()
