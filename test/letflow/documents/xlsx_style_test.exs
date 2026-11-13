@@ -5,6 +5,8 @@ defmodule Letflow.Documents.XlsxStyleTest do
   alias Elixlsx.{Sheet, Workbook}
   alias Letflow.Documents.XlsxStyle
 
+  @pinned_at "2026-01-01T00:00:00Z"
+
   defp parts(bin) do
     {:ok, files} = :zip.unzip(bin, [:memory])
     Map.new(files, fn {n, c} -> {List.to_string(n), c} end)
@@ -48,13 +50,41 @@ defmodule Letflow.Documents.XlsxStyleTest do
   end
 
   test "X3 an unmatched anchor returns the unpatched bytes" do
-    # a document sheet has no frozen header: nothing to patch, same bytes as Elixlsx
-    wb = %Workbook{sheets: [XlsxStyle.style(%Sheet{name: "e", rows: [["k", "v"]]}, false)]}
+    # a document sheet has no frozen header: nothing to patch, same bytes as Elixlsx.
+    # Root cause of the flake (CI run 43450776819): Elixlsx stamps docProps/core.xml with the
+    # current second when `datetime` is nil, so two writes straddling a second differ. Pin it.
+    wb = %Workbook{
+      datetime: @pinned_at,
+      sheets: [XlsxStyle.style(%Sheet{name: "e", rows: [["k", "v"]]}, false)]
+    }
+
     {:ok, {_, plain}} = Elixlsx.write_to_memory(wb, "t.xlsx")
     {:ok, {_, ours}} = XlsxStyle.write_to_memory(wb, "t.xlsx")
-    # Zip entries carry the write time (DOS time, 2 s resolution), so two writes straddling a
-    # tick differ in raw bytes (CI run 42983525653). Unpatched means: same entries, same content.
+    # Zip entry headers also carry the write time (DOS time, 2 s resolution; CI run 42983525653),
+    # so compare entries, not raw bytes.
     assert unzip(plain) == unzip(ours)
+  end
+
+  test "X3 guard: the only clock-dependent entry is core.xml, and a pinned datetime removes it" do
+    sheet = XlsxStyle.style(%Sheet{name: "e", rows: [["k", "v"]]}, false)
+
+    at = fn dt ->
+      unzip(
+        elem(
+          elem(Elixlsx.write_to_memory(%Workbook{sheets: [sheet], datetime: dt}, "t.xlsx"), 1),
+          1
+        )
+      )
+    end
+
+    assert at.(@pinned_at) == at.(@pinned_at)
+
+    differing =
+      for {{n, a}, {n, b}} <- Enum.zip(at.(@pinned_at), at.("2001-01-01T00:00:01Z")),
+          a != b,
+          do: n
+
+    assert differing == ["docProps/core.xml"]
   end
 
   defp unzip(bin) do
