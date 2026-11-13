@@ -202,6 +202,34 @@ defmodule Letflow.Modules.Stock.CountSheet do
     end
   end
 
+  @doc """
+  T-1905: the stored sheet lines of an order, in `line_no` order (read-only). The caller passes the id of
+  an order header that `Counts.header/3` already scope-checked; the worksheet prints exactly these lines.
+  """
+  @spec worksheet_lines(String.t(), String.t()) :: [map()]
+  def worksheet_lines(prefix, order_id), do: all_lines(prefix, order_id)
+
+  @doc """
+  T-1905: the lines the open WOULD create for an `ordered` order, read at "now" (a preview for the
+  count worksheet). Same code as the open (`locations/2`, `read_book/4`, `build_lines/2`); writes
+  nothing, takes no lock. `header` was scope-checked by `Counts.header/3`; the ledger narrows a scoped
+  `authorized` further. An `authorized` of another prefix (or `nil`) is `:ledger_read_not_allowed`.
+  """
+  @spec preview_lines(String.t(), map(), term()) ::
+          {:ok, [map()], DateTime.t()}
+          | {:error, :ledger_read_not_allowed | :ledger_read_failed | :count_too_large}
+  def preview_lines(prefix, header, %{prefix: prefix} = authorized) when is_map(header) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    locs = locations(prefix, header["record_id"])
+
+    with {:ok, _n, rows} <- read_book(authorized, header["org_unit_id"], locs, now),
+         {:ok, lines} <- build_lines(header, rows) do
+      {:ok, lines, now}
+    end
+  end
+
+  def preview_lines(_prefix, _header, _authorized), do: {:error, :ledger_read_not_allowed}
+
   defp full_reader(prefix, %{scope: :all, prefix: prefix} = authorized),
     do: {:ok, authorized}
 

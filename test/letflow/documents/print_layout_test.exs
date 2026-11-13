@@ -250,6 +250,70 @@ defmodule Letflow.Documents.PrintLayoutTest do
     end
   end
 
+  describe "marks option (T-1905)" do
+    @mark_proj %{"order" => %{"number" => "A1"}}
+    @mark_decl %{"order" => ["number"]}
+
+    defp mark_layout(extra \\ []),
+      do: layout([@page, @field] ++ extra)
+
+    defp rect_count(pdf) do
+      for [{s, l}, {ns, nl}, {ds, dl}] <-
+            Regex.scan(~r/(\d+) 0 obj\n<< ([^>]*)>>\nstream\n/, pdf, return: :index),
+          n = pdf |> binary_part(ns, nl) |> String.to_integer(),
+          n >= 10 and rem(n, 2) == 0,
+          [_, len] = Regex.run(~r/\/Length (\d+)/, binary_part(pdf, ds, dl)),
+          do:
+            length(
+              Regex.scan(
+                ~r/ re f\n/,
+                :zlib.uncompress(binary_part(pdf, s + l, String.to_integer(len)))
+              )
+            )
+    end
+
+    test "M1 no or empty marks keep the bytes" do
+      {:ok, a} = PrintLayout.render(mark_layout(), @mark_proj, @mark_decl)
+      {:ok, b} = PrintLayout.render(mark_layout(), @mark_proj, @mark_decl, marks: [])
+      assert a == b
+    end
+
+    test "M2 marks are drawn on every page" do
+      rows = for i <- 1..120, do: %{"sku" => "S#{i}"}
+
+      tbl = %{
+        "type" => "table",
+        "entity_type" => "line",
+        "columns" => [%{"field_name" => "sku", "header" => "SKU", "width" => 40}]
+      }
+
+      proj = Map.put(@mark_proj, "line", rows)
+      decl = Map.put(@mark_decl, "line", ["sku"])
+
+      {:ok, pdf} =
+        PrintLayout.render(mark_layout([tbl]), proj, decl,
+          marks: [{:rect, 100, 100, 200, 200}, {:rect, 0, 0, 1, 1}]
+        )
+
+      counts = rect_count(pdf)
+      assert length(counts) > 1
+      assert Enum.all?(counts, &(&1 == 2))
+    end
+
+    test "M3 invalid marks are refused" do
+      for bad <- [
+            [{:rect, -1, 0, 1, 1}],
+            :x,
+            [{:rect, 1.5, 0, 1, 1}],
+            [:no],
+            List.duplicate({:rect, 0, 0, 1, 1}, 20_001)
+          ] do
+        assert {:error, [%{rule: :invalid_marks, path: []}]} =
+                 PrintLayout.render(mark_layout(), @mark_proj, @mark_decl, marks: bad)
+      end
+    end
+  end
+
   describe "purity" do
     test "SC1 source scan: no Repo, DateTime, System or :httpc" do
       files = [

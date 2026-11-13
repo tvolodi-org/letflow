@@ -93,7 +93,7 @@ defmodule Letflow.Modules.Stock.Router do
   | `GET /counts/:id/paperwork/:kind[?lang=ru\|kk\|en]` (`kind` exactly `order`, `sheet` or `differences`) | `StockRead` | 200 `.xlsx` of the issued document (labels and times localized with `lang`, snake_case keys without), 422 `document_not_issued` or `invalid_lang` |
   | `GET /documents/:id/print[?lang=ru\|kk\|en]` (REQ-737; transfer, hand over, return; `lang` default `ru`; with `form=z2&format=pdf\|docx&lang=ru\|kk` the official form Z-2 / Q-2 of an issued `issue`, T-1416; `form=z5` the form Z-5 / Q-5 of an issued `transfer`, T-1417) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued version, 404 as `GET /documents/:id`, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
   | `GET /stock-card/print?sku&location[&lot]&format=pdf\|docx&lang=ru\|kk` (T-1417; official form Z-3 / Q-3, the stock card of one item at one place, from the ledger movements the caller may read) | `StockRead` | 200 `application/pdf` (or `.docx`), 404 when the caller sees no movement (absent and hidden look the same), 422 `invalid_filter`, `invalid_format`, `invalid_lang`, `card_too_long` (more than 1000 entries), `print_unsupported_character` |
-  | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character` |
+  | `GET /counts/:id/print/:kind[?lang=ru\|kk\|en]` (REQ-736; `kind` as above, `lang` default `ru`; with `form=inv18` on `differences` or `form=inv10` on `sheet` and `format=pdf\|docx&lang=ru\|kk` the official form Inv-18 / Tug-18 or Inv-10 / Tug-10, T-1418) | `StockRead` | 200 `application/pdf` (or `.docx`) of the issued document, 422 `invalid_lang`, `invalid_form`, `invalid_format`, `document_not_issued`, `print_too_large`, `print_unsupported_character`; T-1905: `kind` `worksheet` (also on `paperwork/:kind`, xlsx) with `expected=0\|1` prints the count worksheet of an `ordered` or `counting` order, 422 `worksheet_not_available`, `invalid_expected`, `ledger_read_not_allowed`, `ledger_read_failed`, `count_too_large` |
 
   The scope is the caller's allowed org-unit set for the route permission (`Scope.allowed_set/2`),
   so a scoped caller gets the same 404 for an order of another unit as for an unknown id. When the
@@ -164,6 +164,7 @@ defmodule Letflow.Modules.Stock.Router do
   alias Letflow.Modules.Stock.Counts
   alias Letflow.Modules.Stock.CountPaperworkSource
   alias Letflow.Modules.Stock.CountPrint
+  alias Letflow.Modules.Stock.CountWorksheet
   alias Letflow.Modules.Stock.DocumentPrint
   alias Letflow.Modules.Stock.DocumentPrintSource
   alias Letflow.Modules.Stock.DocumentNumbers
@@ -627,7 +628,12 @@ defmodule Letflow.Modules.Stock.Router do
   end
 
   # REQ-719: the count paperwork as xlsx, rendered from the issued document version.
-  @paperwork_kinds %{"order" => :order, "sheet" => :sheet, "differences" => :differences}
+  @paperwork_kinds %{
+    "order" => :order,
+    "sheet" => :sheet,
+    "differences" => :differences,
+    "worksheet" => :worksheet
+  }
 
   authz_get "/counts/:id/paperwork/:kind", :StockRead do
     # T-1435: a missing `lang` keeps the old English snake_case workbook; only an explicit one localizes.
@@ -635,7 +641,9 @@ defmodule Letflow.Modules.Stock.Router do
 
     with {:ok, kind} <- Map.fetch(@paperwork_kinds, conn.params["kind"]),
          {:ok, lang} <- paperwork_lang(query["lang"]) do
-      paperwork(conn, kind, lang)
+      if kind == :worksheet,
+        do: worksheet(conn, :xlsx, query),
+        else: paperwork(conn, kind, lang)
     else
       :error -> Response.not_found(conn)
       :invalid_lang -> unprocessable(conn, "invalid_lang")
@@ -649,13 +657,18 @@ defmodule Letflow.Modules.Stock.Router do
     query = query_params(conn)
 
     with {:ok, kind} <- Map.fetch(@paperwork_kinds, conn.params["kind"]) do
-      if Map.has_key?(query, "form") do
-        print_count_form(conn, kind, query)
-      else
-        case print_lang(query["lang"]) do
-          {:ok, lang} -> print(conn, kind, lang)
-          :invalid_lang -> unprocessable(conn, "invalid_lang")
-        end
+      cond do
+        Map.has_key?(query, "form") ->
+          print_count_form(conn, kind, query)
+
+        kind == :worksheet ->
+          worksheet(conn, :pdf, query)
+
+        true ->
+          case print_lang(query["lang"]) do
+            {:ok, lang} -> print(conn, kind, lang)
+            :invalid_lang -> unprocessable(conn, "invalid_lang")
+          end
       end
     else
       :error -> Response.not_found(conn)
@@ -806,6 +819,77 @@ defmodule Letflow.Modules.Stock.Router do
       end
     end)
   end
+
+  # T-1905: the count worksheet (a print of the order, not a document of record), pdf or xlsx.
+  # `expected=1` adds the book quantities; blank (`0` or missing) has none. No blind mark exists on
+  # an order yet, so `expected=1` is allowed for every order the caller may read (it reads
+  # `book_quantity` through `GET /counts/:id/lines` anyway).
+  defp worksheet(conn, format, query) do
+    with {:ok, lang} <- paperwork_lang(query["lang"] || "ru"),
+         {:ok, expected?} <- worksheet_expected(query["expected"]) do
+      with_paperwork_ctx(conn, fn prefix, ctx ->
+        with {:ok, input} <-
+               CountPaperworkSource.read_worksheet(
+                 prefix,
+                 conn.params["id"],
+                 ctx,
+                 read_authorized(conn)
+               ),
+             {:ok, bin} <- build_worksheet(format, input, lang, expected?) do
+          number = input.order[:number_label]
+
+          case format do
+            :pdf ->
+              send_pdf(conn, bin, CountPaperworkSource.file_name("#{number}_worksheet", "pdf"))
+
+            :xlsx ->
+              send_xlsx(conn, bin, CountPaperworkSource.file_name("#{number}_worksheet", "xlsx"))
+          end
+        else
+          {:error, :not_found} ->
+            Response.not_found(conn)
+
+          {:error, reason}
+          when reason in [
+                 :worksheet_not_available,
+                 :document_not_issued,
+                 :ledger_read_not_allowed,
+                 :ledger_read_failed,
+                 :count_too_large
+               ] ->
+            unprocessable(conn, Atom.to_string(reason))
+
+          {:error, :unsupported_glyph} ->
+            unprocessable(conn, "print_unsupported_character")
+
+          {:error, {:render_failed, rules}} ->
+            Logger.error(
+              "stock count worksheet render failed: " <> Enum.map_join(rules, ",", &inspect/1)
+            )
+
+            Response.internal_error(conn)
+
+          {:error, :xlsx_write_failed} ->
+            Logger.error("stock count worksheet xlsx write failed")
+            Response.internal_error(conn)
+        end
+      end)
+    else
+      :invalid_lang -> unprocessable(conn, "invalid_lang")
+      :invalid_expected -> unprocessable(conn, "invalid_expected")
+    end
+  end
+
+  defp build_worksheet(:pdf, input, lang, expected?),
+    do: CountWorksheet.build_pdf(input, lang, expected?)
+
+  defp build_worksheet(:xlsx, input, lang, expected?),
+    do: CountWorksheet.build_xlsx(input, lang, expected?)
+
+  defp worksheet_expected(nil), do: {:ok, false}
+  defp worksheet_expected("0"), do: {:ok, false}
+  defp worksheet_expected("1"), do: {:ok, true}
+  defp worksheet_expected(_), do: :invalid_expected
 
   # REQ-736: the PDF of the same issued document; `read/4` is the one scope and name path.
   defp print(conn, kind, lang) do
