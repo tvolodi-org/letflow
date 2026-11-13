@@ -289,7 +289,11 @@ defmodule Letflow.Modules.Assets.Documents.Checks do
     {"assets_opening", "assets_opening_line"}
   ]
 
-  @doc false
+  @doc """
+  True when an issued, non-reversed commission or opening names the card: the rule behind
+  `asset_already_in_register`. Also read by `GET /cards/:id/lock` (`held`, T-1880) so the web
+  disables Commission by the server's own rule.
+  """
   @spec held?(String.t(), term()) :: boolean()
   def held?(prefix, asset_id) do
     Enum.any?(@holders, fn {header_type, line_type} ->
