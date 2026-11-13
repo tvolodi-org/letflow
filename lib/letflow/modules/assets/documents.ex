@@ -33,8 +33,10 @@ defmodule Letflow.Modules.Assets.Documents do
     A client sends back every header field and every line field it loaded. The issuing org unit of
     the versioned draft cannot change: a body with another `org_unit_id` is `field_invalid`.
   * The opening (G5 part 1, decision 0083) is saved, replaced, discarded, fetched and listed like the
-    others; `check/2` shows every line's reasons. `issue/4` runs all its checks and then answers
-    `{:error, :posting_not_available}` (nothing issued, no number): part 2 adds the process and the posting.
+    others; `check/3` shows every line's reasons. `issue/4` runs all its checks (the register half of
+    "once" needs a tenant-wide ledger read: `{:error, :register_unreadable}` otherwise), makes the
+    process `assets_opening` active and issues it; the issuer completes `submit`, a second person
+    completes `approve` (G5 part 2).
   * Replace and discard lock the `documents` row (`FOR UPDATE`) first, the lock `Letflow.Documents`
     takes, so concurrent replace, discard and issue serialise; the draft is re-read under the lock.
   * Issue takes a per-tenant advisory lock (a bound text parameter), runs the checks inside it, makes
@@ -327,7 +329,14 @@ defmodule Letflow.Modules.Assets.Documents do
     with {:ok, id} <- cast(id),
          {:ok, view} <- fetch(prefix, id),
          :ok <- draft?(view),
-         {:ok, _issued} <- issue_in_lock(prefix, id, actor, Keyword.get(opts, :activator)) do
+         {:ok, _issued} <-
+           issue_in_lock(
+             prefix,
+             id,
+             actor,
+             Keyword.get(opts, :activator),
+             Keyword.get(opts, :authorized)
+           ) do
       if Kinds.get(view.kind).posts?, do: start_posting(prefix, id, actor)
 
       fetch(prefix, id, Keyword.get(opts, :authorized),
@@ -336,20 +345,16 @@ defmodule Letflow.Modules.Assets.Documents do
     end
   end
 
-  defp issue_in_lock(prefix, id, actor, activator) do
+  defp issue_in_lock(prefix, id, actor, activator, authorized) do
     tx(fn ->
       lock_issue!(prefix)
       view = fetch!(prefix, id)
       if view.state != "draft", do: Repo.rollback(:document_not_draft)
 
-      case issue_checks(prefix, view) do
+      case issue_checks(prefix, view, authorized) do
         :ok -> :ok
         {:error, reason} -> Repo.rollback(reason)
       end
-
-      # Part 1 of the opening (G5): every check ran, but nothing can post it yet (no process definition,
-      # no ledger cause), so it is not issued. Part 2 deletes this clause.
-      if not issuable?(view.kind), do: Repo.rollback(:posting_not_available)
 
       if Kinds.get(view.kind).posts? do
         case Posting.ensure_active(prefix, Kinds.get(view.kind).definition, activator) do
@@ -374,12 +379,19 @@ defmodule Letflow.Modules.Assets.Documents do
     end
   end
 
-  defp issuable?("opening"), do: false
-  defp issuable?(_kind), do: true
+  # The opening: the register half of "once" is proved only through a tenant-wide ledger read.
+  defp issue_checks(prefix, %{kind: "opening"} = view, authorized) do
+    if OpeningChecks.register_readable?(authorized) do
+      case prefix |> OpeningChecks.check_all(view, authorized) |> OpeningChecks.first_failure() do
+        nil -> :ok
+        {reason, extras} -> {:error, {reason, extras}}
+      end
+    else
+      {:error, :register_unreadable}
+    end
+  end
 
-  defp issue_checks(prefix, %{kind: "opening"} = view), do: Checks.masters(prefix, view)
-
-  defp issue_checks(prefix, view) do
+  defp issue_checks(prefix, view, _authorized) do
     with :ok <- Checks.event_time(view.event_time, now()),
          :ok <- Checks.masters(prefix, view) do
       card_moves_cap(prefix, view)
@@ -407,13 +419,13 @@ defmodule Letflow.Modules.Assets.Documents do
   `{:error, :not_found}` for an unknown id, `{:error, {"unknown_kind", %{}}}` for another kind and
   `{:error, :document_not_draft}` for a document that is not a draft. The issue repeats the checks.
   """
-  @spec check(String.t(), term()) :: {:ok, map()} | {:error, term()}
-  def check(prefix, id) when is_binary(prefix) do
+  @spec check(String.t(), term(), term()) :: {:ok, map()} | {:error, term()}
+  def check(prefix, id, authorized \\ nil) when is_binary(prefix) do
     with {:ok, id} <- cast(id),
          {:ok, view} <- fetch(prefix, id),
          :ok <- opening?(view),
          :ok <- draft?(view) do
-      result = OpeningChecks.check_all(prefix, view)
+      result = OpeningChecks.check_all(prefix, view, authorized)
 
       {:ok,
        %{

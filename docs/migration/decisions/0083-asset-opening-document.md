@@ -224,6 +224,19 @@ opening could never post or be reversed; part 2 removes the refusal; (c) the reg
 (a non-zero quantity in the register) needs the caller's ledger authorization and goes to part 2; part 1 counts issued,
 non-reversed commission and opening documents.
 
+**Status of the build, part 2 (T-1876, GH #4037).** Built in assets 0.17.0 (`min_upgradable_from` "0.1.0" kept; class A
+only, the process `assets_opening` appears as a new draft). Issue starts the process `assets_opening`: the issuer
+completes `submit`, a second person completes `approve`, which posts the ledger cause `opening` (positive, no client
+event time) and the `assets_posting_mark`; the reversal is the generic `assets_reversal`. Deviations (b) and (c) above
+are resolved: the 409 `posting_not_available` is gone; the register-balance half of "once" reads the caller's ledger
+balance and fails closed: a caller without a tenant-wide `AssetsRead` (none, or scoped, REQ-693) gets 409
+`register_unreadable` and nothing is issued. Spec check, decided without an owner question: (S1) no official form of
+order No. 562 is an opening document; the inventory number, cost, accumulated depreciation and acquisition date belong
+to the card (DA-2) and stay on it untouched, the posting carries only location, responsible and actual user; (S2)
+compared with the stock opening (0079 D1..D6) event time, process, four-eyes, cause, idempotency, reversal and posting
+check are the same; three differences are intended and were decided above: no price or value on the line (D2), an asset
+is opened once where stock adds to a balance (D4), assets has no cancel or post-retry route (D6).
+
 ## Out of scope
 
 Creating cards from an opening line (D2); depreciation calculation (D-061); import of historical movements; the card's

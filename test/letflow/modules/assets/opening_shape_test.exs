@@ -38,9 +38,12 @@ defmodule Letflow.Modules.Assets.OpeningShapeTest do
     assert spec.line_keys ==
              ~w(asset_id location_id material_responsible_id actual_user_id quantity external_ref_system external_ref_id)
 
-    refute spec.posts?
-    assert spec.definition == nil
+    assert spec.posts?
+    assert spec.definition == "assets_opening"
+    assert spec.completion_node == "approve"
+    assert spec.device_id == nil
     assert "opening" in Kinds.kinds()
+    assert "assets_opening" in Kinds.definition_names()
     refute nil in Kinds.definition_names()
   end
 

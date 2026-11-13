@@ -50,10 +50,12 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
   alias Letflow.Modules.Assets.Documents.CardMoves
   alias Letflow.Modules.Assets.Documents.KindChangePosting
   alias Letflow.Modules.Assets.Documents.Kinds
+  alias Letflow.Modules.Assets.Documents.OpeningPosting
   alias Letflow.Modules.KeyHelpers
   alias Letflow.Repo
 
   @reversal_definition "assets_reversal"
+  @post_nodes ["post", "submit", "approve"]
   @mark_type "assets_posting_mark"
   @reasons ~w(wrong_document wrong_quantity wrong_master_data other)
   @reason_text_max 500
@@ -165,14 +167,65 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
           "posting" => command
         })
 
-      start(prefix, spec.definition, "assets-post", issued.version_id, view.id, vars, actor)
+      with {:ok, instance_id} <-
+             start(
+               prefix,
+               spec.definition,
+               "assets-post",
+               issued.version_id,
+               view.id,
+               vars,
+               actor
+             ) do
+        if view.kind == "opening", do: complete_submit(prefix, instance_id, actor)
+        {:ok, instance_id}
+      end
     end
   end
+
+  # G5 part 2: the issuing user is the preparer of an opening. A failure is logged by tag and is NOT
+  # an error of the start: the instance and its pending `submit` task stay (whoever completes it
+  # becomes the preparer for `distinct_from`).
+  defp complete_submit(prefix, instance_id, actor) do
+    task =
+      Repo.one(
+        from(t in Task,
+          where: t.instance_id == ^instance_id and t.node_id == "submit" and t.status == :pending,
+          limit: 1
+        ),
+        prefix: prefix
+      )
+
+    attrs = %{
+      output_variables: %{},
+      actor_id: actor,
+      idempotency_key: "assets-submit:#{instance_id}"
+    }
+
+    with %Task{id: task_id} <- task,
+         {:ok, _result} <- Engine.complete_task(task_id, attrs, prefix: prefix) do
+      :ok
+    else
+      other ->
+        Logger.warning("assets opening submit not completed: #{inspect(submit_tag(other))}")
+        :error
+    end
+  end
+
+  defp submit_tag({:error, reason}), do: tag(reason)
+  defp submit_tag(other), do: other
 
   # A change of kind posts two entries: the asset command is `posting`, the stock one `stock_posting`.
   defp post_commands(_prefix, %{kind: "kind_change"}, view, issued) do
     with {:ok, %{assets: assets, stock: stock}} <- KindChangePosting.commands(view, issued),
          do: {:ok, assets, %{"stock_posting" => stock}}
+  end
+
+  defp post_commands(_prefix, %{kind: "opening"}, view, issued) do
+    line_ids = Map.new(view.lines, &{&1.line_no, &1.line_id})
+
+    with {:ok, command} <- OpeningPosting.command(view, issued, line_ids),
+         do: {:ok, command, %{}}
   end
 
   defp post_commands(prefix, spec, view, issued) do
@@ -528,7 +581,7 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
           join: p in InstanceProjection,
           on: p.instance_id == t.instance_id,
           where:
-            t.status == :pending and t.node_id in ^["post", "reverse"] and
+            t.status == :pending and t.node_id in ^["reverse" | @post_nodes] and
               p.status == :active and
               p.definition_id in ^ids and fragment("?->>'document_id' = ?", p.variables, ^id),
           select: t.node_id
@@ -536,7 +589,7 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
         prefix: prefix
       )
 
-    %{post: "post" in nodes, reverse: "reverse" in nodes}
+    %{post: Enum.any?(@post_nodes, &(&1 in nodes)), reverse: "reverse" in nodes}
   end
 
   @doc false
@@ -665,18 +718,28 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
     cond do
       rows == [] and marks == %{} -> nil
       state == "draft" -> "mismatch"
-      consistent?(base, state, marks, postings, reversals, prefix) -> "ok"
+      consistent?(base, state, marks, postings, reversals, prefix, kind) -> "ok"
       true -> "mismatch"
     end
   end
 
-  defp consistent?(base, state, marks, [posting], reversals, prefix) do
+  defp consistent?(base, state, marks, [posting], reversals, prefix, kind) do
     legs_match?(posting, expected_legs(prefix, base)) and
+      online_time?(kind, posting) and
       Map.has_key?(marks, "posted") and
       reversal_consistent?(state, marks, posting, reversals)
   end
 
-  defp consistent?(_base, _state, _marks, _none_or_many, _reversals, _prefix), do: false
+  defp consistent?(_base, _state, _marks, _none_or_many, _reversals, _prefix, _kind), do: false
+
+  # G5 part 2: an opening has no client time, so its event time IS its posting time.
+  defp online_time?(%{kind: "opening"}, entry),
+    do: same_instant?(Map.get(entry, :event_time), Map.get(entry, :posting_time))
+
+  defp online_time?(_kind, _entry), do: true
+
+  defp same_instant?(%DateTime{} = a, %DateTime{} = b), do: DateTime.compare(a, b) == :eq
+  defp same_instant?(_a, _b), do: false
 
   defp reversal_consistent?("reversed", marks, posting, [reversal]),
     do: Map.has_key?(marks, "reversed") and reversal.reverses_entry_id == posting.entry_id
@@ -693,25 +756,32 @@ defmodule Letflow.Modules.Assets.Documents.Posting do
   defp expected_legs(prefix, base) do
     case issued(prefix, base.id) do
       %{content: content} ->
-        {from, to} = Kinds.sides(Kinds.get(base.kind), Map.get(content, "header", %{}))
-
-        content
-        |> Map.get("lines", [])
-        |> Enum.flat_map(fn line ->
-          quantity = Map.get(line, "quantity")
-          asset = Map.get(line, "asset_id")
-
-          [
-            expected_leg(asset, to, quantity),
-            expected_leg(asset, from, negate(quantity))
-          ]
-          |> Enum.reject(&is_nil/1)
-        end)
-        |> Enum.sort()
+        expected_legs_of(Kinds.get(base.kind), content)
 
       _none ->
         :none
     end
+  end
+
+  defp expected_legs_of(%{kind: "opening"}, content),
+    do: content |> OpeningPosting.expected_legs(&leg_key/7) |> Enum.sort()
+
+  defp expected_legs_of(spec, content) do
+    {from, to} = Kinds.sides(spec, Map.get(content, "header", %{}))
+
+    content
+    |> Map.get("lines", [])
+    |> Enum.flat_map(fn line ->
+      quantity = Map.get(line, "quantity")
+      asset = Map.get(line, "asset_id")
+
+      [
+        expected_leg(asset, to, quantity),
+        expected_leg(asset, from, negate(quantity))
+      ]
+      |> Enum.reject(&is_nil/1)
+    end)
+    |> Enum.sort()
   end
 
   defp expected_leg(_asset, nil, _quantity), do: nil

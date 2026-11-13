@@ -13,8 +13,8 @@ defmodule Letflow.Modules.Assets.Handlers do
   runbook until slice L7). The posting command is rebuilt here from LITERAL keys of the string-keyed
   `posting` argument (no `String.to_atom`, scans H4); `ledger_id` is always `"assets"`, and a
   `prefix`, `subject_id` or `credential` in the arguments is never copied: the platform fills them
-  from the context. `post_document` accepts the closed list of causes `commission`, `change`, `handover` and
-  `writeoff` (C11, GH #3889),
+  from the context. `post_document` accepts the closed list of causes `commission`, `change`, `handover`,
+  `writeoff` (C11, GH #3889) and `opening` (G5 part 2, GH #4037),
   `reverse_document` only `reversal`.
 
   A second mark of the same kind for one document violates the unique constraint of the mark type,
@@ -28,7 +28,7 @@ defmodule Letflow.Modules.Assets.Handlers do
 
   @spec post_document(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) :: result()
   def post_document(multi, ctx, %{"posting" => %{"cause" => cause}} = args)
-      when cause in ["commission", "change", "handover", "writeoff"],
+      when cause in ["commission", "change", "handover", "writeoff", "opening"],
       do: run(multi, ctx, args, "posted", [])
 
   def post_document(_multi, _ctx, _args), do: {:error, :invalid_arguments}
@@ -249,6 +249,23 @@ defmodule Letflow.Modules.Assets.Handlers do
        reverses_entry_id: Map.get(posting, "reverses_entry_id"),
        reason_code: Map.get(posting, "reason_code")
      }}
+  end
+
+  # G5 part 2: an opening has NO event time from the client. The three offline keys and a reason are
+  # never copied for it (a changed `posting` variable cannot backdate it); the ledger stamps the
+  # posting time.
+  defp command(%{"cause" => "opening", "lines" => lines} = posting) when is_list(lines) do
+    with {:ok, lines} <- lines(lines) do
+      {:ok,
+       %{
+         ledger_id: "assets",
+         cause: "opening",
+         document_type: Map.get(posting, "document_type"),
+         document_id: Map.get(posting, "document_id"),
+         client_op_id: Map.get(posting, "client_op_id"),
+         lines: lines
+       }}
+    end
   end
 
   defp command(%{"cause" => cause, "lines" => lines} = posting)

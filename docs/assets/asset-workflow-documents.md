@@ -201,8 +201,13 @@ Line (one per card and placement): `asset_id`, `material_responsible_id`, `quant
 `POST /documents/:id/check` shows every line's reasons and writes nothing. Reasons per line, in this order:
 `card_not_active`, `duplicate_asset`, `quantity_invalid`, `org_unit_mismatch`, `location_required` /
 `location_not_allowed`, `not_linked`, `employee_not_active` (the `fields` name the key), `asset_already_in_register`
-(any card kind: an issued, not reversed commission or opening holds the asset). Issue repeats the checks and, until
-part 2 adds the process and the posting, answers 409 `posting_not_available` for a clean opening.
+(any card kind: an issued, not reversed commission or opening holds the asset). Issue repeats the checks and starts the
+process `assets_opening` (G5 part 2, assets 0.17.0): the issuer completes `submit`, a second person completes `approve`,
+which posts the ledger cause `opening` (no client event time: the entry's event time is its posting time). The register
+half of "once" refuses an asset with a non-zero register balance; it needs a tenant-wide ledger read, otherwise issue
+answers 409 `register_unreadable` and the advisory check shows the document half only. Cost, accumulated depreciation
+and dates stay on the card (no official form describes an opening); the reversal is the generic one
+(`POST /documents/:id/reverse`), after which the asset may be opened again.
 
 G6 (assets 0.11.0, T-1493) adds the optional external reference pair `external_ref_system` / `external_ref_id` (both or
 neither, at most 128 characters) on the header and on each line. A header pair is unique among live opening headers

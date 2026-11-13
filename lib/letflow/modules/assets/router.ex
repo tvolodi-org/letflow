@@ -30,14 +30,14 @@ defmodule Letflow.Modules.Assets.Router do
   | `PUT /documents/:id` | `AssetsPost` | `Documents.replace/4` | 200 document |
   | `DELETE /documents/:id` | `AssetsPost` | `Documents.discard/3` | 204 |
   | `POST /documents/:id/issue` | `AssetsPost` | `Documents.issue/4` | 200 document (starts the posting instance) |
-  | `POST /documents/:id/check` | `AssetsPost` | `Documents.check/2` | 200 `ok, header, lines` (opening drafts only; writes nothing) |
+  | `POST /documents/:id/check` | `AssetsPost` | `Documents.check/3` | 200 `ok, header, lines` (opening drafts only; writes nothing) |
   | `POST /documents/:id/reverse` | `AssetsReverse` | `Posting.reverse/6` | 200 document (starts the reversal instance) |
   | `GET /documents` | `AssetsRead` | `Documents.list/2` | 200 `rows, next_cursor` |
   | `GET /documents/:id` | `AssetsRead` | `Documents.fetch/3` | 200 document |
 
   Refusals: not found (malformed, unknown, discarded and other-tenant ids, one body) 404; 409
   `document_not_draft`, `document_not_posted`, `document_reversed`, `reversal_pending`,
-  `posting_inconsistent`, `definition_not_active`, `posting_not_available` (an opening cannot be issued yet); 503 `busy`; 422 with a fixed `reason` (and only the
+  `posting_inconsistent`, `definition_not_active`, `register_unreadable` (an opening needs a tenant-wide ledger read); 503 `busy`; 422 with a fixed `reason` (and only the
   extension keys `field` / `line_no`) for shape, master and reason refusals; 500 without detail. The
   tenant is `Access.check/2`'s prefix only, never a path or body key (INV-1, INV-10).
 
@@ -258,7 +258,7 @@ defmodule Letflow.Modules.Assets.Router do
 
   authz_post "/documents/:id/check", :AssetsPost do
     with_doc_access(conn, :post, fn conn, access ->
-      case Documents.check(access.prefix, conn.params["id"]) do
+      case Documents.check(access.prefix, conn.params["id"], read_authorized(conn)) do
         {:ok, result} -> Response.ok(conn, result)
         {:error, reason} -> doc_refuse(conn, reason)
       end
@@ -319,8 +319,10 @@ defmodule Letflow.Modules.Assets.Router do
     end
   end
 
-  # The ledger read authorization of the caller (tenant-wide: `Access` has proved it) for
-  # `posting_check`; `nil` when the ledger refuses, and the check is then `nil` too.
+  # The ledger read authorization of the caller for `posting_check`: `nil` when the ledger refuses (the
+  # check is then `nil` too), otherwise tenant-wide or scoped (REQ-693). `Access` proves `AssetsPost`
+  # only, not the read scope; the opening's "once" rule accepts only a tenant-wide value
+  # (`OpeningChecks.register_readable?/1`).
   defp read_authorized(conn) do
     case Ledger.authorize(conn, @ledger, :read) do
       {:ok, authorized} -> authorized
@@ -360,7 +362,7 @@ defmodule Letflow.Modules.Assets.Router do
   defp doc_render(conn, {:error, reason}, _status), do: doc_refuse(conn, reason)
 
   @doc_conflicts ~w(document_not_draft document_not_posted document_reversed reversal_pending
-                    posting_inconsistent definition_not_active posting_not_available
+                    posting_inconsistent definition_not_active register_unreadable
                     external_ref_taken)a
 
   defp doc_refuse(conn, :not_found), do: Response.not_found(conn)
