@@ -42,6 +42,7 @@ defmodule Letflow.Api.RolesMatrixParityTest do
     :HelpRead,
     :MembershipsRead,
     :PromotionsRead,
+    :TasksReadAll,
     :MyModulesRead,
     :MyAccessRead,
     :MyPreferencesSet
@@ -322,13 +323,13 @@ defmodule Letflow.Api.RolesMatrixParityTest do
       end
     end
 
-    test "the TENANT_AUDITOR column is exactly the 16 literal atoms (D6's 14 plus MyAccessRead and MyPreferencesSet), PromotionsRead included" do
+    test "the TENANT_AUDITOR column is exactly the 17 literal atoms (D6's 14, S0-5's TasksReadAll, MyAccessRead and MyPreferencesSet), PromotionsRead included" do
       {:ok, %{rows: rows}} = parse(real_text())
 
       assert Enum.sort(yes_names(rows, "TENANT_AUDITOR")) ==
                Enum.sort(Enum.map(@auditor_yes_literal, &Atom.to_string/1))
 
-      assert length(@auditor_yes_literal) == 16
+      assert length(@auditor_yes_literal) == 17
 
       # and the code agrees with the same literal (not only with the doc)
       granted =

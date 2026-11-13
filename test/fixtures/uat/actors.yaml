@@ -7,6 +7,7 @@
 # scripts/uat_preflight.sh (actor-platform-admin needs a seeded PLATFORM_ADMIN user),
 # priv/keycloak/realms/bpm-default.json (only users: admin-user, designer-user, operator-user,
 # worker-user; no actor-* accounts). Anything not established is under `unresolved`.
+# Since roles stage 0 S0-5 (TasksReadAll, T-1857): a storekeeper-only user sees only own and group tasks in My Tasks; no actor below is a storekeeper.
 actors:
   actor-platform-admin:
     tenant: platform
