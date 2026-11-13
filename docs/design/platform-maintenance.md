@@ -63,7 +63,7 @@ Marks: **V** = I read it in the file on origin/main (`c2fae818e`, 2026-11-13) or
 | Front-end crash | A React error boundary (`web/src/components/layout/ErrorBoundary.tsx`), mounted in `AuthenticatedShellRoot.tsx`; it logs only in dev mode | | Its fallback screen gets "Report this problem", pre-filled with the error |
 | Bell and e-mail | In-app bell list per user (`Letflow.UserNotifications`, `lib/letflow/user_notifications.ex`, closed kinds `task_assigned`, `count_assigned`; web `NotificationBell.tsx`); mail log (`Letflow.Notifications.Delivery`, `notification_deliveries`, no body or address stored) and templates (`lib/letflow/notification_templates.ex`) | | Status messages: new bell kind(s) and one mail template. Note: the bell is per tenant, so the status must be written in the reporter's own company, not the platform company |
 | Event trail of a case | Instance history (`GET /instances/:id/history`, see `docs/roles.md`, TASK_WORKER) and record history (`GET /entities/records/:entity_type/:record_id/history`, `lib/letflow/routers/instances.ex` moduledoc) | | The capture may name the instance or record the user was on; the diagnostic view reads the history, not the business values (section 7) |
-| Audit | Hash-chained audit trail per tenant, plus platform events (`Letflow.Audit`, `lib/letflow/audit.ex`, `append/2`, `append_platform_event/2`) | | Every owner and AI decision and every AI read is an audit row |
+| Audit | Hash-chained audit trail per tenant, plus platform events (audit writers `Letflow.Audit.append_multi/4` and `Letflow.Audit.insert_entry/3` in `lib/letflow/audit.ex`, checked by `verify_chain/2`; platform events through `Letflow.EventStore.append_platform_event/2` in `lib/letflow/event_store.ex`) | | Every owner and AI decision and every AI read is an audit row |
 | Process and tasks | The BPM engine, definitions, user tasks, inbox (`Letflow.Engine`, `Letflow.Tasks`, `lib/letflow/tasks.ex`) | | The maintenance process is a definition in the platform tenant (section 3) |
 | Platform company | One pinned platform tenant (`Letflow.PlatformTenant`, `lib/letflow/platform_tenant.ex`); `PLATFORM_ADMIN` is honoured only there and "must not act inside a customer tenant or read a customer's business data" (`docs/roles.md`) | | The inbox lives there; the report is a copy the user chose to send, so the "must not read" rule holds |
 | App version | Build SHA on `GET /health` (`Letflow.BuildInfo`, `lib/letflow/build_info.ex`) | | Sent with each report |
@@ -209,7 +209,7 @@ A report can be re-classed by the owner at any step; the change is audited.
    any production deploy needs the owner's OK.
 5. **Cost cap per case** (section 6).
 6. **Audit.** Every AI read and proposal, every owner decision and every switch change is an audit row in the platform
-   company (`Letflow.Audit.append_platform_event/2` or `append/2`).
+   company (`Letflow.Audit.insert_entry/3`, or `Letflow.Audit.append_multi/4` inside a transaction, with the platform company's schema prefix).
 7. **Public GitHub.** A development task made from a case carries only our own summary, never customer text, names,
    screenshots or captured facts (owner table line 6).
 
@@ -283,12 +283,12 @@ or an agent reads it).
   `lib/letflow/obs/logger.ex`, `lib/letflow/obs/alerts.ex`, `lib/letflow/secrets/redaction.ex`, `lib/letflow/api/context.ex`,
   `lib/letflow/api/error.ex`, `web/src/types/api.ts`, `web/src/components/layout/ErrorBoundary.tsx`,
   `web/src/components/ui/feedbackMessages.ts`, `lib/letflow/user_notifications.ex`, `lib/letflow/notifications/delivery.ex`,
-  `lib/letflow/audit.ex`, `lib/letflow/platform_tenant.ex`, `lib/letflow/build_info.ex`, `lib/letflow/voice/model_client.ex`,
+  `lib/letflow/audit.ex`, `lib/letflow/event_store.ex`, `lib/letflow/platform_tenant.ex`, `lib/letflow/build_info.ex`, `lib/letflow/voice/model_client.ex`,
   `lib/letflow/voice/settings.ex`, `lib/letflow/router.ex`, `lib/letflow/signup.ex`, `docs/roles.md`,
   `docs/runbooks/backup-restore.md`, `docs/status/owner-gate-review-2026-11.md`, `docs/design/open-core-closed-candidates.md`.
 * Commands: `grep -rli "feedback\|report a problem\|report_problem" lib web/src docs`; `grep -rlnE "sentry|Sentry" lib web/src
   config mix.exs web/package.json` (no hit: no error-tracking service today); `grep -rliE "anthropic|openai|llm\b" lib config`
-  (only the voice client); `grep -n "@kinds" lib/letflow/user_notifications.ex`.
+  (only the voice client); `grep -n "@kinds" lib/letflow/user_notifications.ex`; `grep -n "  def " lib/letflow/audit.ex lib/letflow/event_store.ex`.
 * Qoimeks (read only, `01e8780`): `server/internal/api/api.go`, `server/internal/api/feedback.go`,
   `server/internal/api/failures.go`, `server/internal/store/migrations/008_feedback.sql`, `mobile/lib/feedback.dart`.
 * Outside the worktree, quoted above: `project/LAB-CHANGELOG.md` line 75 (12 points a day).
