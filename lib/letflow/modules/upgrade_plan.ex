@@ -487,6 +487,9 @@ defmodule Letflow.Modules.UpgradePlan do
           Map.get(old_field, "type") != Map.get(new_field, "type") ->
             {"B", "field_type_changed"}
 
+          required_relaxed?(old_field, new_field) ->
+            {"A", "required_relaxed"}
+
           Map.get(old_field, "required") != true and Map.get(new_field, "required") == true ->
             {"B", "required_tightened"}
 
@@ -496,6 +499,14 @@ defmodule Letflow.Modules.UpgradePlan do
       end
 
     added ++ removed ++ changed
+  end
+
+  # `required: true` dropped and nothing else of the field changed (T-1882, assets 0.9.0 -> 0.16.0
+  # org_unit_id). Widening: every stored record already holds the value, and `required` is enforced
+  # by record validation only (no column constraint), so no data step is needed.
+  defp required_relaxed?(old_field, new_field) do
+    Map.get(old_field, "required") == true and Map.get(new_field, "required") != true and
+      Map.delete(old_field, "required") == Map.delete(new_field, "required")
   end
 
   defp fields_by_name(%{"fields" => fields}) when is_list(fields) do
