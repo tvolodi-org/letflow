@@ -217,12 +217,19 @@ function Content({ kind }: { kind: Kind }) {
 function OpenDrawer(): null {
   useEffect(() => {
     if (window.innerWidth >= 900) return undefined
+    // The headless shot is taken right after load: no transition, so the drawer is settled and fully opaque.
+    const style = document.createElement('style')
+    style.textContent = '.lf-sidenav, .lf-scrim { transition: none !important; animation: none !important; }'
+    document.head.appendChild(style)
     const id = window.setInterval(() => {
       const b = document.querySelector<HTMLButtonElement>('[data-testid="topbar-menu"]')
       if (b && b.getAttribute('aria-expanded') !== 'true') b.click()
       if (b) window.clearInterval(id)
     }, 50)
-    return () => window.clearInterval(id)
+    return () => {
+      window.clearInterval(id)
+      style.remove()
+    }
   }, [])
   return null
 }

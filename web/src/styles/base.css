@@ -295,4 +295,10 @@ samp {
 /* T-1873: collapsed side nav (64 px): the footer keeps only icon-sized entries, so no label is cut mid-word. */
 .lf-app[data-nav="collapsed"] .lf-sidenav__foot > [data-testid="user-display-name"], .lf-app[data-nav="collapsed"] .lf-sidenav__foot > [data-testid="user-roles"] { display: none; }
 .lf-app[data-nav="collapsed"] .lf-sidenav__foot .lf-btn-row { flex-direction: column; align-items: center; }
-.lf-app[data-nav="collapsed"] .lf-sidenav__foot [data-testid="logout-button"] { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-inline: var(--space-1); }
+/* The footer buttons sit on the night surface: use its foreground token, not the teal ghost colour. */
+.lf-sidenav__foot .lf-btn--ghost { color: var(--on-night); }
+.lf-sidenav__foot .lf-btn--ghost:hover { background: var(--night-hover); }
+
+/* T-1873: the phone drawer shares z-modal with its scrim, and the scrim comes later in the DOM, so it covered the drawer
+   (dimmed it and took its clicks, Reset layout and Sign out included). The open drawer sits one step above the scrim. */
+@media (max-width: 900px) { .lf-app.is-nav-open .lf-sidenav { z-index: calc(var(--z-modal) + 1); } }
