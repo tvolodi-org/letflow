@@ -165,6 +165,19 @@ GoRouter _buildRouter(BootstrapController controller) {
       if (reachable && state.matchedLocation == '/') {
         return '/home';
       }
+      // AC3: a module route whose module is absent from installed_modules
+      // redirects to /home — the route exists in the table (all module
+      // routes are always registered) but the module is not available.
+      if (reachable) {
+        final moduleId = moduleIdForLocation(
+          state.matchedLocation,
+          kFeatureRegistry,
+        );
+        if (moduleId != null &&
+            !isModuleInstalled(controller.state.installedModules, moduleId)) {
+          return '/home';
+        }
+      }
       return null;
     },
     routes: [
@@ -199,10 +212,16 @@ GoRouter _buildRouter(BootstrapController controller) {
         path: '/home',
         builder: (context, state) => const TenantHomeScreen(),
       ),
-      // buildRouteTable uses the real feature registry (`codes`, REQ-732).
-      // A module absent from `installed_modules` has no route entry here, so
-      // `GoRouter`'s own default not-found page is shown for it (AC3).
-      ...buildRouteTable(controller.state.installedModules),
+      // All module routes from kFeatureRegistry are always registered so
+      // that the GoRouter is built correctly on first render, before
+      // bootstrap has resolved the installed-module list. The redirect
+      // closure above guards each module path at navigation time: a module
+      // absent from installed_modules redirects to /home (AC3).
+      ...buildRouteTable(
+        kFeatureRegistry.keys
+            .map((id) => InstalledModule(moduleId: id, version: ''))
+            .toList(),
+      ),
     ],
   );
 }
