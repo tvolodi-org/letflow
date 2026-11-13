@@ -3,7 +3,7 @@ defmodule Letflow.Api.TasksWorkInScopeTest do
   Roles stage 0, slice S0-2 (decision 0088, `docs/design/roles-stage0-slices.md`): the permission
   `:TasksWorkInScope` replaces the role name TASK_WORKER in the scoped task-work rule (F1).
 
-    * W1 the atom: last core permission, tenant scope, resolves to itself, no route gates on it;
+    * W1 the atom: second-to-last core permission, tenant scope, resolves to itself, no route gates on it;
     * W2 holders are exactly TASK_WORKER (allowed branch); PLATFORM_ADMIN and TENANT_ADMIN are
       refused by the two explicit false clauses (ruling 1 of
       `docs/design/roles-stage0-security-rulings.md`), and a tenant overlay cannot add it;
@@ -23,8 +23,8 @@ defmodule Letflow.Api.TasksWorkInScopeTest do
   @perm :TasksWorkInScope
   @golden "priv/permission_matrix/effective.golden"
 
-  test "W1 last core permission, tenant scope, resolves to itself, no route gates on it" do
-    assert List.last(Authorization.core_permissions()) == @perm
+  test "W1 second-to-last core permission, tenant scope, resolves to itself, no route gates on it" do
+    assert Authorization.core_permissions() |> Enum.take(-2) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 
@@ -55,9 +55,12 @@ defmodule Letflow.Api.TasksWorkInScopeTest do
   end
 
   test "W3 the exceptions are narrow: every other permission keeps the admin catch-all rules" do
-    for p <- Authorization.permissions() -- [@perm] do
+    # Roles stage 0 S0-3: TenantSecurityManage is TENANT_ADMIN's alone; also exclude it from PLATFORM_ADMIN.
+    for p <- Authorization.permissions() -- [@perm, :TenantSecurityManage] do
       assert Authorization.role_allows?(:PLATFORM_ADMIN, p), inspect(p)
+    end
 
+    for p <- Authorization.permissions() -- [@perm] do
       assert Authorization.role_allows?(:TENANT_ADMIN, p) ==
                (Authorization.permission_scope(p) == :tenant),
              inspect(p)

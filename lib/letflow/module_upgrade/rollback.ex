@@ -40,6 +40,7 @@ defmodule Letflow.ModuleUpgrade.Rollback do
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
+  alias Letflow.ModuleUpgrade.Apply
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.TenantModule
   alias Letflow.Modules.TenantModuleUpgrade
@@ -56,6 +57,7 @@ defmodule Letflow.ModuleUpgrade.Rollback do
           | :not_found
           | {:refused, String.t(), map()}
           | {:failed, String.t()}
+          | {:failed, String.t(), map()}
 
   @doc """
   Rolls `module_id` back for the tenant in `opts[:prefix]`. Returns `{:ok, body}` (also for a dry run) or
@@ -156,6 +158,10 @@ defmodule Letflow.ModuleUpgrade.Rollback do
 
       {:error, :not_found} ->
         {:error, :not_found}
+
+      {:error, {:failed, code, extras}} ->
+        fail(module_id, actor_id, rationale, target, code, dry_run?, prefix)
+        {:error, {:failed, code, extras}}
 
       {:error, {:failed, code}} ->
         fail(module_id, actor_id, rationale, target, code, dry_run?, prefix)
@@ -433,11 +439,18 @@ defmodule Letflow.ModuleUpgrade.Rollback do
         {:error, {:decimal_strict_change, _fields}} ->
           Repo.rollback({:refused, "rollback_refused", %{"reason" => "decimal_strict_change"}})
 
-        {:error, _other} ->
-          Repo.rollback({:failed, "activation_refused"})
+        {:error, other} ->
+          # T-1882: name the entity and a closed reason token (no changeset or exception text).
+          Repo.rollback(
+            {:failed, "activation_refused", Apply.refusal_extras(name, activation_reason(other))}
+          )
       end
     end
   end
+
+  defp activation_reason(reason) when is_atom(reason), do: reason
+  defp activation_reason({code, _detail}) when is_atom(code), do: code
+  defp activation_reason(_other), do: :unknown
 
   defp audit!(row, candidate, base, rationale, actor_id, prefix) do
     {:ok, _entry} =
