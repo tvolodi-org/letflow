@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
@@ -62,11 +62,11 @@ describe('C1 catalogue', () => {
           if (l !== 'en') expect(coreHelpMessages[l][id], `${l} ${id}`).not.toBe(coreHelpMessages.en[id])
         }
       }
-      for (const id of ['link', 'back', 'h.purpose', 'h.tasks', 'h.refusals']) expect(coreHelpMessages[l][`core.help.${id}`], `${l} ${id}`).toBeTruthy()
+      for (const id of ['link', 'close', 'back', 'h.purpose', 'h.tasks', 'h.refusals']) expect(coreHelpMessages[l][`core.help.${id}`], `${l} ${id}`).toBeTruthy()
     }
   })
   it('the topic list equals the topics present in the catalogue', () => {
-    const present = new Set(helpKeys('en').map((k) => k.split('.')[2]).filter((p) => p !== 'link' && p !== 'back' && p !== 'h'))
+    const present = new Set(helpKeys('en').map((k) => k.split('.')[2]).filter((p) => p !== 'link' && p !== 'close' && p !== 'back' && p !== 'h'))
     expect([...present].sort()).toEqual([...CORE_HELP_TOPICS].sort())
   })
 })
@@ -147,7 +147,10 @@ describe('C5 links from the screens', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     )
-    expect(screen.getByTestId('help-link')).toHaveAttribute('href', coreHelpPath('usersImport'))
+    const link = screen.getByTestId('help-link')
+    expect(link).not.toHaveAttribute('href')
+    fireEvent.click(link)
+    expect(screen.getByTestId('help-side-title')).toHaveTextContent('Help: import users')
   })
   it('the module rollouts screen shows a Help link to its topic', () => {
     render(
@@ -157,7 +160,10 @@ describe('C5 links from the screens', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     )
-    expect(screen.getByTestId('help-link')).toHaveAttribute('href', coreHelpPath('moduleRollouts'))
+    const link = screen.getByTestId('help-link')
+    expect(link).not.toHaveAttribute('href')
+    fireEvent.click(link)
+    expect(screen.getByTestId('help-side-panel')).toBeInTheDocument()
   })
   it.each([
     ['../../admin/UserDetailPage.tsx', 'passwordReset'],

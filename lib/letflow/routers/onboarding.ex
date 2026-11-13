@@ -328,6 +328,8 @@ defmodule Letflow.Routers.Onboarding do
         _ok -> []
       end
 
+    slug_errors = slug_reserved_errors(Map.get(attrs, "slug"))
+
     email_result = admin_email_check(body)
 
     email_errors =
@@ -336,7 +338,7 @@ defmodule Letflow.Routers.Onboarding do
         _ok -> []
       end
 
-    case {realm_errors ++ email_errors, realm_result, email_result} do
+    case {slug_errors ++ realm_errors ++ email_errors, realm_result, email_result} do
       {[], {:ok, realm}, {:ok, email_key}} -> {:ok, realm, email_key}
       {errors, _realm_result, _email_result} -> {:errors, errors}
     end
@@ -399,6 +401,12 @@ defmodule Letflow.Routers.Onboarding do
 
   # A non-string value was already refused by the schema's type check.
   defp validate_realm_field(_other), do: {:ok, nil}
+
+  defp slug_reserved_errors(slug) do
+    if Tenant.reserved_slug?(slug),
+      do: [%FieldError{field: "slug", constraint: "reserved", message: "is reserved"}],
+      else: []
+  end
 
   defp realm_field_error(constraint, message),
     do: %FieldError{field: "idp_realm_id", constraint: constraint, message: message}

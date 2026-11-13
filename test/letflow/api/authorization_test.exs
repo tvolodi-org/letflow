@@ -100,7 +100,8 @@ defmodule Letflow.Api.AuthorizationTest do
       :ScheduledJobsManage,
       :DocumentPrintTemplatesManage,
       :SolutionOverridesManage,
-      :EntitiesExtensionsManage
+      :EntitiesExtensionsManage,
+      :EntitiesRecordsImportAnyType
     ]
 
     test "core_permissions/0 returns the closed core list through ISS-0935's :EntitiesRestrictionsManage, no Catalog atoms" do
@@ -500,7 +501,8 @@ defmodule Letflow.Api.AuthorizationTest do
           54 => "fifty-four",
           55 => "fifty-five",
           56 => "fifty-six",
-          57 => "fifty-seven"
+          57 => "fifty-seven",
+          58 => "fifty-eight"
         }
         |> Map.get(actual_count)
 
@@ -1117,7 +1119,8 @@ defmodule Letflow.Api.AuthorizationTest do
           54 => "fifty-four",
           55 => "fifty-five",
           56 => "fifty-six",
-          57 => "fifty-seven"
+          57 => "fifty-seven",
+          58 => "fifty-eight"
         }
         |> Map.get(actual_count)
 
@@ -1624,7 +1627,8 @@ defmodule Letflow.Api.AuthorizationTest do
           54 => "fifty-four",
           55 => "fifty-five",
           56 => "fifty-six",
-          57 => "fifty-seven"
+          57 => "fifty-seven",
+          58 => "fifty-eight"
         }
         |> Map.get(actual_count)
 
@@ -2505,7 +2509,8 @@ defmodule Letflow.Api.AuthorizationTest do
                    :ScheduledJobsManage,
                    :DocumentPrintTemplatesManage,
                    :SolutionOverridesManage,
-                   :EntitiesExtensionsManage
+                   :EntitiesExtensionsManage,
+                   :EntitiesRecordsImportAnyType
                  ]
 
       pair_count = length(pre_storekeeper_roles()) * length(@pre_req401_permissions)

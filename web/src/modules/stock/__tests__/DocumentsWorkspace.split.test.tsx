@@ -87,7 +87,7 @@ describe('T-1443 document screen splitters', () => {
     await waitFor(() => expect(handles(ws)).toHaveLength(1))
   })
 
-  it('S3/S4 keys move the list pane and are remembered; Home/End hit the limits; double click resets', async () => {
+  it('S3/S4 keys move the list pane and are remembered; Home/End hit the limits; double click toggles', async () => {
     serve([doc()])
     renderStock(`${LIST}/d1`, withPost)
     const ws = await screen.findByTestId('document-workspace')
@@ -106,7 +106,10 @@ describe('T-1443 document screen splitters', () => {
     }
     await waitFor(() => expect(stored()).toBeTruthy(), { timeout: 2000 })
     act(() => void h.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })))
-    expect(ws.style.getPropertyValue('--lf-pane-1')).toBe('')
+    // the list pane is collapsible: a double click collapses it (T-1873), a second one restores it
+    expect(ws.style.getPropertyValue('--lf-pane-1')).toBe('0px')
+    act(() => void h.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })))
+    expect(ws.style.getPropertyValue('--lf-pane-1')).not.toBe('0px')
   })
 
   it('S8 T-1875 a saved list size below the minimum is shown at the minimum (200 px of 1600 = 12.5 %) and stays stored', async () => {

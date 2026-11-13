@@ -33,7 +33,7 @@ import { newDocumentHref } from './cardActions'
 import { AssetCardForm, unitName, type Cmd } from './AssetCardForm'
 import { AssetsIntlProvider } from './AssetsIntlProvider'
 import { AssetsShell, useAssetRows, useCardById, useErrorText, useOrgUnitRows } from './AssetsShell'
-import { HelpLink } from '@/components/help/HelpLink'
+import { AssetsHelpLink } from '@/modules/assets/help/AssetsHelpLink'
 import { ASSET_KINDS, isActive, textOf } from './assetsModel'
 import { useAssetsWrite, type AssetsWriteResult } from './useAssetsWrite'
 
@@ -264,7 +264,7 @@ function AssetCardsInner({ initialSelectedId: given, initialCreating }: { initia
       queries={[...assetRows.queries, unitsQuery]}
       actions={
         <>
-          <HelpLink to="/admin/assets/help/cards" label={t('assets.help.link')} />
+          <AssetsHelpLink topic="cards" />
           {can(ASSETS_POST) && (
             <Button variant="secondary" size="md" onClick={() => navigate(newDocumentHref('kind_change', []))} data-testid="asset-kind-change">
               {t('assets.cardActions.kindChange')}

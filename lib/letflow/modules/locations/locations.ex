@@ -72,9 +72,9 @@ defmodule Letflow.Modules.Locations do
   defmanifest(
     id: "locations",
     version: "0.5.0",
-    # 0.5.0 only adds the optional boolean `customer_location` to location_node (class A), so a
-    # tenant on 0.4.0 upgrades in place without a step.
-    min_upgradable_from: "0.4.0",
+    # 0.5.0 only adds the optional boolean `customer_location` to location_node (class A).
+    # T-1860: step-less window from 0.1.0; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
+    min_upgradable_from: "0.1.0",
     depends_on: ["org"],
     pack: "modules/locations/pack.json",
     permissions: [:LocationsWrite],

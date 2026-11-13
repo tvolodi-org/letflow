@@ -146,7 +146,7 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
             table("signers", [
               col("role", l.(:role), 2),
               col("full_name", l.(:full_name), 3),
-              col("code", l.(:personnel_code), 1),
+              col("code", l.(:personnel_code), 2),
               col("signature", l.(:signature), 2),
               col("date", l.(:date), 1)
             ])

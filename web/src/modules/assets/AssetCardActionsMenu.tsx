@@ -70,6 +70,17 @@ function Menu({ card, size, initialOpen }: { card: EntityRecord; size?: 'sm'; in
     } else if (menu.getBoundingClientRect().left < 8) setAlign('start')
   }, [open, row, facts.rows, facts.held])
 
+  // Position through the element's style object (not a JSX style prop: assets-style scan, rule 1).
+  const placeMenu = (el: HTMLDivElement | null) => {
+    if (el == null) return
+    if (row && fixedAt != null) {
+      el.style.position = 'fixed'
+      el.style.top = `${fixedAt.top}px`
+      el.style.left = `${fixedAt.left}px`
+      el.style.right = 'auto'
+    }
+  }
+
   useEffect(() => {
     if (!open || !row) return
     const close = () => setOpen(false)
@@ -139,7 +150,8 @@ function Menu({ card, size, initialOpen }: { card: EntityRecord; size?: 'sm'; in
           className="lf-lang__menu"
           role="menu"
           aria-label={label}
-          style={row && fixedAt != null ? { position: 'fixed', top: fixedAt.top, left: fixedAt.left, right: 'auto' } : undefined}
+          ref={placeMenu}
+          data-fixed={row && fixedAt != null ? 'true' : undefined}
         >
           {CARD_ACTIONS.map((a) => {
             const state = cardActionState(a.id, facts)

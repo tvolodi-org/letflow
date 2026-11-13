@@ -27,7 +27,27 @@ values belong in this file or in any evidence field.
   issue `TENANT_ADMIN`).
 - The tenant realm template, version 1: `priv/keycloak/provisioner/v1/tenant-realm.json` (README beside it; drift test `test/letflow/keycloak_tenant_realm_template_test.exs`). It is for the provisioner; step R1 below still describes the manual clone.
 
+## Realm roles a tenant realm must carry
+
+The IdP claim sync (`Letflow.Oidc.ClaimMapping`, then `Authorization.roles_from_strings/1`) turns the realm role names in the token into the closed set of nine built-in roles (`@roles` in `lib/letflow/api/authorization.ex`) and resolves each to the group that binds it. A name the realm does not issue can never reach a user, so the template must carry each role below. Per role:
+
+| Role | In a realm cloned from the template | Note |
+|------|-------------------------------------|------|
+| `AGENT_RUNNER` | required | held through API tokens and groups, still a realm role name |
+| `CANDIDATE` | required | |
+| `PLATFORM_ADMIN` | required | the role exists in every realm; platform authority is bound to the platform tenant, not to the realm (INV-10), and a tenant user is never given it |
+| `PROCESS_DESIGNER` | required | |
+| `PROCESS_OPERATOR` | required | |
+| `STOREKEEPER` | required | decision 0081; the QA template realm lacked it and infra added it by hand in gate-b6 |
+| `TASK_WORKER` | required | |
+| `TENANT_ADMIN` | required | plain realm role, see the Realm checklist |
+| `TENANT_AUDITOR` | required | read-only |
+
+Check: `python3 -I scripts/check_realm_roles.py [realm.json ...]` fails when any of the nine is missing; without a path it checks `priv/keycloak/realms/bpm-default.json` and the `docs/runbooks/demo-realm/*.json` fixtures, and `test/scripts/check_realm_roles_test.exs` runs it in CI and pins this list against `Authorization.roles/0`. These are docs and repo fixtures; the live demo realm is not touched and nothing is promoted.
+
 ## Ordered steps
+
+**Reserved slug (T-1861):** the slug `pwa` is reserved (infra serves the QA PWA at `pwa.letflow.qa.bizdala.com`, an exact-name vhost under the tenant wildcard). Tenant creation (`POST /api/v1/onboarding`, `POST /api/v1/tenants`) and the provisioner hostname check refuse it with the usual 422/invalid-field answer and write nothing. The list is `Letflow.Identity.Tenant.reserved_slugs/0`, in one place; existing tenants are not touched.
 
 1. **R1 Create the realm.** Clone the `bpm-default` realm definition
    (`priv/keycloak/realms/bpm-default.json`: the `letflow-web` client with its audience mapper and

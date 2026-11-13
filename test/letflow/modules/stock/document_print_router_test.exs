@@ -158,7 +158,8 @@ defmodule Letflow.Modules.Stock.DocumentPrintRouterTest do
     test "a change to the live line record does not reach the PDF", ctx do
       {doc, _, _} = issued_two_side(ctx, "hand_over", "5")
       first = print(ctx, doc["id"], "?lang=en")
-      assert "5.000000000" in texts(first)
+      assert "5" in texts(first)
+      refute "5.000000000" in texts(first)
 
       type = Kinds.get("hand_over").line_type
 

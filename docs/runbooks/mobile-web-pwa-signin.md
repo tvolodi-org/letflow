@@ -8,6 +8,24 @@ The shared realm template (`priv/keycloak/realms/bpm-default.json`) is **not** c
 pin the native redirect as the only entry (no http(s), no wildcard), and the PWA host differs per
 environment. Adding the URI is a manual infra step; automating it in the provisioner is a follow-up.
 
+## Prerequisite: the `letflow-mobile` client must exist in the tenant realm
+
+The Keycloak client `letflow-mobile` is defined in `priv/keycloak/realms/bpm-default.json`, but the
+provisioner's tenant realm template (`priv/keycloak/provisioner/v2/tenant-realm.json`, v1 frozen)
+creates only `letflow-web`. A realm made by the provisioner therefore has NO `letflow-mobile`
+client (infra created it by hand in realm `gate-b6`). Until the gap below is closed, create it
+once per tenant realm from the `letflow-mobile` block of `bpm-default.json`: public client, standard
+flow only, PKCE `S256`, implicit flow and direct access grants off, the `realm-roles` and
+`letflow-mobile-audience` mappers, then do the steps below.
+
+Gap (decision needed from PM/infra, not built in T-1863): the provisioner should create the client
+too. It is not a one-line addition to a client list: the template is versioned and pinned by drift
+tests (`keycloak_tenant_realm_template_v2_test.exs`), so it means a new template version, and the
+redirect URIs and web origin differ per environment (the PWA host), so the provisioner needs a
+setting for them. Infra owns the template and the provisioner; proposed shape: template v3 with
+`letflow-mobile` (native redirect plus the environment's PWA URI substituted like the `letflow-web`
+placeholders).
+
 ## Steps (per environment, per tenant realm that serves the PWA)
 
 1. Decide the PWA address: `https://<pwa-host><base-href>`, for example
