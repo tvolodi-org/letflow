@@ -4,8 +4,7 @@ defmodule Letflow.Modules.Assets.OpeningRouterTest do
   @moduledoc """
   GH #4037 (assets G5 part 1): the draft side and the check route of the asset opening document
   through the full `Letflow.Router` with real OIDC bearer tokens. D1 save and reads, D2 replace and
-  discard, C1 the check writes nothing, C3 check refusals, I2 issue is refused 409
-  `posting_not_available`, N1 INV-10 cross-tenant negatives, T1 access, R3 the document type exists.
+  discard, C1 the check writes nothing, C3 check refusals, I2 issue answers 200, N1 INV-10 cross-tenant negatives, T1 access, R3 the document type exists.
   Committed tenants, Sandbox `:auto`, `async: false`.
   """
 
@@ -196,19 +195,11 @@ defmodule Letflow.Modules.Assets.OpeningRouterTest do
   end
 
   describe "I2 issue" do
-    test "a clean opening is refused 409 posting_not_available and takes no number", ctx do
+    test "OP-ROUTE-1 a clean opening issues 200 and takes AOP number 1", ctx do
       doc = save!(ctx)
-      before = D.written(ctx.schema)
-      json = D.request(:post, "/documents/#{doc["id"]}/issue", ctx.tok_a) |> D.status!(409)
-      assert json["reason"] == "posting_not_available"
-
-      after_doc = D.get!(ctx, doc["id"])
-      assert after_doc["state"] == "draft" and after_doc["number"] == nil
-      assert D.written(ctx.schema) == before
-
-      # no number was consumed: the next commission gets number 1
-      issued = D.issue!(ctx)
-      assert issued["number"] =~ ~r/^ACM-\d{4}-000001$/
+      json = D.request(:post, "/documents/#{doc["id"]}/issue", ctx.tok_a) |> D.status!(200)
+      assert json["state"] == "issued"
+      assert json["number"] =~ ~r/^AOP-\d{4}-000001$/
     end
   end
 

@@ -95,6 +95,13 @@ defmodule Letflow.Modules.Stock do
   order, count sheet or differences sheet with signer lines (`Letflow.Modules.Stock.CountPaperwork`,
   `CountPaperworkSource`). No migration, record type or permission.
 
+  ## Count worksheet (T-1905; no version bump)
+
+  `GET /counts/:id/print/worksheet` (PDF) and `GET /counts/:id/paperwork/worksheet` (xlsx), `?lang`, `?expected=0|1`
+  (`StockRead`, the two existing routes with one more `kind`): a print of an `ordered` or `counting` order for the
+  field, with empty boxes for the counted quantity (`CountWorksheet`, `CountPaperworkSource.read_worksheet/4`).
+  Not a document of record: no number, no posting, no write. No migration, record type or permission.
+
   ## Official forms Z-3 and Z-5 (T-1417, phase E5c; no version bump)
 
   `GET /documents/:id/print?form=z5` prints the issued transfer on Z-5 / Q-5 (annex 29), and the new read

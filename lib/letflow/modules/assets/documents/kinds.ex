@@ -13,8 +13,8 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
   The fifth kind `kind_change` (GH #3902 / REQ-759, C15; posts since REQ-760) posts TWO entries (stock
   `kind_change_out`, assets `kind_change_in`) from `Letflow.Modules.Assets.Documents.KindChangePosting`, so
   it has NO `sides/2` or `side_fields/2` clause (they are never called for it). The sixth kind `opening`
-  (GH #4037 / G5 part 1, decision 0083) has no `event_time` in its header, no process definition yet
-  (`definition: nil`, `posts?: false`; part 2 adds `OpeningPosting`) and per-line placement, so it has no
+  (GH #4037 / G5 part 1, decision 0083) has no `event_time` in its header, posts through
+  `OpeningPosting` (G5 part 2: process `assets_opening`, submit then approve) and has per-line placement, so it has no
   `sides/2` or `side_fields/2` clause either. `line_keys` and `line_required` say which body
   keys a line accepts and needs, so `Shape` and `Documents` serve every kind from this table.
   """
@@ -116,15 +116,15 @@ defmodule Letflow.Modules.Assets.Documents.Kinds do
       kind: "opening",
       type_key: "assets_opening",
       line_type: "assets_opening_line",
-      definition: nil,
+      definition: "assets_opening",
       cause: "opening",
       prefix: "AOP",
       device_id: nil,
       header_keys: ~w(org_unit_id note external_ref_system external_ref_id),
       required: ~w(org_unit_id),
       id_keys: ~w(org_unit_id),
-      completion_node: nil,
-      posts?: false,
+      completion_node: "approve",
+      posts?: true,
       line_keys:
         ~w(asset_id location_id material_responsible_id actual_user_id quantity external_ref_system external_ref_id),
       line_required: ~w(asset_id material_responsible_id quantity)

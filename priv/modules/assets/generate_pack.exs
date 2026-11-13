@@ -269,6 +269,48 @@ kind_change_definition = fn ->
   }
 end
 
+# G5 part 2 (GH #4037, decision 0083): the opening posts in two steps, as the stock opening does: a
+# `submit` task (completed by the issuing user at issue; its role is a label that differs from
+# approve's) and an `approve` task kept apart from it by distinct_from; completing `approve` posts.
+opening_definition = fn ->
+  %{
+    "definition_id" => "00501000-0000-0040-0085-000000004037",
+    "process_key" => "assets_opening",
+    "version" => "1.0.0",
+    "graph" => %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "submit",
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{"role" => "ASSETS_OPENING_SUBMIT"}
+        },
+        %{
+          "id" => "approve",
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{
+            "role" => "TENANT_ADMIN",
+            "distinct_from" => ["submit"],
+            "module_writes" => [
+              %{
+                "module" => "assets",
+                "handler" => "post_document",
+                "args" => posting_args.(base_args)
+              }
+            ]
+          }
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "submit"},
+        %{"id" => "e2", "source" => "submit", "target" => "approve"},
+        %{"id" => "e3", "source" => "approve", "target" => "end"}
+      ]
+    }
+  }
+end
+
 process_definitions = [
   process_definition.(
     "00501000-0000-0040-0080-000000003891",
@@ -305,7 +347,8 @@ process_definitions = [
     "post_document",
     base_args
   ),
-  kind_change_definition.()
+  kind_change_definition.(),
+  opening_definition.()
 ]
 
 document = %{

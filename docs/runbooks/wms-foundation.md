@@ -707,12 +707,15 @@ the code that holds it; paths are cited without line numbers.
    `/documents` routes. `POST /documents/:id/check` (`AssetsPost`, drafts of an opening only; writes nothing, takes no
    lock) answers `ok`, the `header` reasons and, per line, all `reasons` and `fields`
    (`lib/letflow/modules/assets/documents/opening_checks.ex`). Issue runs the same checks and refuses with the first
-   failing line (422 `reason`, `line_no`, `field`); a clean opening answers 409 `posting_not_available` (nothing issued, no
-   number): the process, the posting, the reversal and the register-balance half of "once" are part 2, the web screen is
-   part 3. "Once" in part 1 counts issued, non-reversed commission and opening documents (`asset_already_in_register`,
-   any card kind for an opening). G6 (assets 0.11.0) adds the optional external reference pair (`external_ref_system`,
+   failing line (422 `reason`, `line_no`, `field`); a clean opening is issued (G5 part 2, assets 0.18.0) and starts the process
+   `assets_opening`: the issuer completes `submit`, a second person completes `approve` and posts the cause `opening`
+   (`Documents.Posting`, `Documents.OpeningPosting`; no client event time; a failed `submit` completion is logged and
+   whoever completes it becomes the preparer). "Once" counts issued, non-reversed commission and opening documents and
+   the register balance (`asset_already_in_register`, any card kind for an opening); the balance half needs a tenant-wide
+   `AssetsRead`, otherwise issue answers 409 `register_unreadable`. The reversal is the generic one. The web screen is
+   part 3. G6 (assets 0.11.0) adds the optional external reference pair (`external_ref_system`,
    `external_ref_id`, both or neither, unique among live opening headers, 409 `external_ref_taken`) on the header and the
    line, and the xlsx import of lines: `POST /api/v1/entities/records/assets_opening_line/import?upsert_by=external_ref`
    (columns `header_id asset_id location_id material_responsible_id actual_user_id quantity`, every reference an
    external id; draft only, never posts, no D4 check; quantity above zero; 100 lines per document, 200 rows per file;
-   `lib/letflow/modules/assets/documents/opening_import.ex`). The module upgrade has no window (see `demo-upgrade-notes.md`).
+   `lib/letflow/modules/assets/documents/opening_import.ex`). The module upgrade window is 0.1.0 (T-1860, see `demo-upgrade-notes.md`).

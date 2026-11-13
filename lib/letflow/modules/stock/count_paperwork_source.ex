@@ -31,6 +31,7 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
   alias Letflow.Modules.Stock.DocumentPrintSource
   alias Letflow.Modules.Stock.Counts
   alias Letflow.Modules.Stock.CountPaperwork
+  alias Letflow.Modules.Stock.CountSheet
   alias Letflow.Repo
 
   @doc_keys %{
@@ -107,6 +108,74 @@ defmodule Letflow.Modules.Stock.CountPaperworkSource do
         _ -> {id, nil}
       end
     end
+  end
+
+  @doc """
+  T-1905: the read for the count worksheet (a print of an `ordered` or `counting` order, not a
+  document of record). Scope-checked header (`:not_found` for an unknown, other-tenant or
+  out-of-scope id, INV-5), the issued ORDER, the lines (at `counting` the stored sheet lines; at
+  `ordered` a preview read at "now" by the same code the open uses, `CountSheet.preview_lines/3`,
+  writes nothing) and the names with the legal entity. Header times get their offsets from
+  `issued_at`, `planned_start`, `planned_end` and the as-of instant (stored under `"cut_off_at"`).
+  """
+  @spec read_worksheet(String.t(), term(), ctx(), term()) ::
+          {:ok, map()}
+          | {:error,
+             :not_found
+             | :worksheet_not_available
+             | :document_not_issued
+             | :ledger_read_not_allowed
+             | :ledger_read_failed
+             | :count_too_large}
+  def read_worksheet(prefix, id, %{principal: principal, tenant_id: tenant_id} = ctx, authorized)
+      when is_binary(prefix) do
+    with {:ok, header} <- Counts.header(prefix, id, ctx.scope),
+         :ok <- worksheet_status(header["status"]),
+         {:ok, order} <- issued(prefix, header, :order),
+         {:ok, lines, as_of, as_of_key} <- worksheet_lines(prefix, header, authorized) do
+      issued = %{
+        issued_at: order[:issued_at],
+        content: %{
+          "lines" => lines,
+          "org_unit_id" => header["org_unit_id"],
+          "cut_off_at" => as_of,
+          "planned_start" => order.content["planned_start"],
+          "planned_end" => order.content["planned_end"]
+        },
+        order_content: order.content
+      }
+
+      unit_id = header["org_unit_id"]
+
+      names =
+        prefix
+        |> names(:sheet, issued, principal, tenant_id)
+        |> Map.put(:legal_entities, DocumentPrintSource.legal_entity(prefix, unit_id))
+
+      {:ok,
+       %{
+         status: header["status"],
+         order: Map.put(order, :order_id, header["record_id"]),
+         order_id: header["record_id"],
+         lines: lines,
+         names: names,
+         as_of: as_of,
+         as_of_key: as_of_key
+       }}
+    end
+  end
+
+  defp worksheet_status(status) when status in ["ordered", "counting"], do: :ok
+  defp worksheet_status(_), do: {:error, :worksheet_not_available}
+
+  defp worksheet_lines(prefix, %{"status" => "counting"} = header, _authorized),
+    do:
+      {:ok, CountSheet.worksheet_lines(prefix, header["record_id"]), header["cut_off_at"],
+       :cut_off_at}
+
+  defp worksheet_lines(prefix, header, authorized) do
+    with {:ok, lines, now} <- CountSheet.preview_lines(prefix, header, authorized),
+         do: {:ok, lines, now, :book_as_of}
   end
 
   @doc "True when the issued document has more lines than a form PDF can hold (`print_too_large`)."
