@@ -27,7 +27,7 @@ defmodule Letflow.Modules.Locations.CustomerLocationTest do
 
   defp opts, do: %{actor_id: Ecto.UUID.generate(), idempotency_key: Ecto.UUID.generate()}
 
-  defp attrs(code, extra \\ %{}),
+  defp attrs(code, extra),
     do: Map.merge(%{"code" => code, "name" => "N #{code}", "node_kind" => "zone"}, extra)
 
   defp mk!(schema, code, extra \\ %{}) do
