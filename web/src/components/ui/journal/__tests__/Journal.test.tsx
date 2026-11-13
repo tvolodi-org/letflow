@@ -164,6 +164,12 @@ describe('C1 base.css keeps the T-1439 rules', () => {
     expect(block).toContain('[data-detail="open"] > .lf-jrn__list')
     expect(block).toContain('.lf-jrn__fullbtn')
   })
+
+  it('has the T-1887 first-column rule that the design release will carry', async () => {
+    const { readFileSync } = await import('node:fs')
+    const css = readFileSync('src/styles/base.css', 'utf8')
+    expect(css).toContain('.lf-jrn:not([data-detail="open"]) { grid-template-columns: var(--lf-pane-1, 60%) minmax(0, 1fr); }')
+  })
 })
 
 /** jsdom has no layout: the journal element is `area` px wide, a table 1000 px, a th as wide as its percent. */
@@ -199,6 +205,28 @@ describe('J3-1 / J3-2 the divider between operations and legs', () => {
     expect(jrn.style.getPropertyValue('--lf-pane-1')).not.toBe('')
   })
 
+  it('J3-6 the divider collapses the operations list (Enter), shows the restore control, and Enter restores it', () => {
+    layout(1200)
+    render(shell('v1', true))
+    const sep = () => screen.getAllByRole('separator').filter((e) => !e.classList.contains('lf-colhandle'))[0]
+    expect(sep()).not.toHaveClass('is-collapsed')
+    key(sep(), 'Enter')
+    expect(sep()).toHaveClass('is-collapsed')
+    expect(sep().querySelector('.lf-splitter__btn')).not.toBeNull()
+    key(sep(), 'Enter')
+    expect(sep()).not.toHaveClass('is-collapsed')
+  })
+
+  it('J3-7 the first pane is the sized one: default 60 %, the stored value lives under the split id "list"', () => {
+    layout(1200)
+    render(shell('v1', true))
+    expect(screen.getByTestId('journal').style.getPropertyValue('--lf-pane-1')).toBe('60%')
+    const sep = screen.getAllByRole('separator').filter((e) => !e.classList.contains('lf-colhandle'))[0]
+    key(sep, 'ArrowLeft')
+    const panes = stored().screens['test.journal'].panes
+    expect(Object.keys(panes)).toEqual(['list'])
+  })
+
   it('J3-2 narrow area: no divider and no column handle', () => {
     layout(500)
     render(shell())
@@ -225,7 +253,7 @@ describe('J3-4 / J3-5 resizable and remembered columns', () => {
 
   it('J3-5 remembered widths and pane size are applied on mount', () => {
     const seed = createLayoutStore({ storageKey: ANON })
-    seed.setPanes('test.journal', 'details', [38])
+    seed.setPanes('test.journal', 'list', [38])
     seed.setCols('test.journal', 'ops', { date: 12 })
     seed.flush()
     resetDefaultLayoutStore()
