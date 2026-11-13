@@ -48,9 +48,13 @@ export interface DocumentFormProps {
   onBack?: () => void
   /** Create: shows the Kind select at the top of the header card. */
   onKindChange?: (kind: DocKind) => void
+  /** Create: the draft the form opens with (T-1880: started from asset cards) instead of the empty one. */
+  initial?: FormState
+  /** Create: an info line in the bar (T-1880: the holder of a card could not be taken as one). */
+  notice?: string
 }
 
-export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title, onBack, onKindChange }: DocumentFormProps) {
+export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title, onBack, onKindChange, initial, notice }: DocumentFormProps) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { can, userId } = useAccess()
@@ -58,7 +62,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
   const tenantId = session?.tenant_id ?? ''
   const qc = useQueryClient()
   const edit = doc !== undefined
-  const [form, setForm] = useState<FormState>(() => (doc ? formFromDocument(doc) : emptyForm(kind)))
+  const [form, setForm] = useState<FormState>(() => (doc ? formFromDocument(doc) : (initial ?? emptyForm(kind))))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [banner, setBanner] = useState<string | null>(null)
   const [attempted, setAttempted] = useState(false)
@@ -73,7 +77,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
   const toTouched = useRef(edit)
   // T-1528: the signed-in user's linked employee is proposed as the From responsible (never the To side), once, until
   // the user touches the field.
-  const respTouched = useRef(edit)
+  const respTouched = useRef(edit || (initial?.from.responsibleId ?? '') !== '')
   const linked = linkedEmployeeId(userId, employees)
   useEffect(() => {
     if (respTouched.current || linked === null || form.kind === 'kind_change') return
@@ -154,6 +158,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
           </>
         }
       >
+        {notice && <Banner tone="info"><span data-testid="doc-prefill-notice">{notice}</span></Banner>}
         {banner && <Banner tone="danger">{banner}</Banner>}
         {anyPickerTruncated(orgUnits, locations, employees, cards) && <TruncatedNotice messageId="assets.pickers.truncated" count={MAX_ROWS} />}
       </DocBar>

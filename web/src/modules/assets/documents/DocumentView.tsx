@@ -22,6 +22,8 @@ import type { LeColumn } from '@/components/ui/lines/types'
 import { useLinesMode } from '@/hooks/useLinesMode'
 import { Button } from '@/components/ui/Button'
 import { assetsQueryKeys } from '../assetsQueryKeys'
+import { ASSETS_CARD_WRITE } from '../assetsPermissions'
+import { cardHref } from '../cardActions'
 import { useNames } from '../assetsNames'
 import { RegisterError } from '../register/RegisterShell'
 import { movementsLinkFor, type NameIds } from '../register/registerModel'
@@ -68,7 +70,7 @@ function nameIds(doc: AssetDocument): NameIds {
   return out
 }
 
-export function DocumentView({ id, onBack }: { id: string; onBack: () => void }) {
+export function DocumentView({ id, onBack, cardId }: { id: string; onBack: () => void; cardId?: string }) {
   const intl = useIntl()
   const t = (m: string) => intl.formatMessage({ id: m })
   const { session } = useAuth()
@@ -191,6 +193,11 @@ export function DocumentView({ id, onBack }: { id: string; onBack: () => void })
         actions={
           <>
             <DocumentActions doc={doc} onEdit={() => setEditing(true)} />
+            {cardId && access.can(ASSETS_CARD_WRITE) && (
+              <Button variant="secondary" onClick={() => navigate(cardHref(cardId))} data-testid="doc-back-to-card">
+                {t('assets.cardActions.backToCard')}
+              </Button>
+            )}
             {(doc.state === 'posted' || doc.state === 'reversed') && (
               <Link to={movementsLinkFor(doc.id)}>{t('assets.doc.movementsLink')}</Link>
             )}

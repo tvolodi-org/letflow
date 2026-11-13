@@ -150,8 +150,8 @@ samp {
 .lf-md__master .lf-table th:last-child, .lf-md__master .lf-table td:last-child { padding-inline-end: var(--space-4); }
 /* T-1434/T-1441: the "Official form" menu opens from the trigger's right edge (the trigger ends the action row) and
    stays inside the screen; OfficialFormMenu adds --start when the right-anchored menu would clip on the left. */
-.lf-formmenu .lf-lang__menu { right: 0; left: auto; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
-.lf-formmenu--start .lf-lang__menu { left: 0; right: auto; }
+.lf-formmenu .lf-lang__menu { right: 0; left: auto; text-align: start; width: max-content; max-width: min(320px, calc(100vw - var(--space-6))); }
+.lf-formmenu--start .lf-lang__menu { left: 0; right: auto; text-align: start; }
 .lf-formmenu .lf-lang__item { grid-template-columns: 1fr auto; }
 .lf-formmenu .lf-lang__item[aria-disabled="true"] { height: auto; padding-block: var(--space-2); color: var(--ink-muted); cursor: not-allowed; }
 .lf-formmenu .lf-lang__item[aria-disabled="true"]:hover { background: transparent; color: var(--ink-muted); }
