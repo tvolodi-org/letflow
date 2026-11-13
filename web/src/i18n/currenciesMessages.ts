@@ -26,7 +26,22 @@ const UI: Record<string, Triple> = {
     'Сделать валютой организации',
     'Ұйым валютасы ету',
   ],
-  'currencies.tenantCurrency.mark': ['●', '●', '●'],
+  'currencies.tenantCurrency.mark': ['Tenant currency', 'Валюта организации', 'Ұйым валютасы'],
+  'currencies.eyebrow': ['Administration', 'Администрирование', 'Әкімшілік'],
+  'currencies.lede': [
+    'Switch the currencies your organisation works with on or off and choose the tenant currency.',
+    'Включайте и отключайте валюты, с которыми работает организация, и выберите валюту организации.',
+    'Ұйым жұмыс істейтін валюталарды қосыңыз немесе өшіріңіз және ұйым валютасын таңдаңыз.',
+  ],
+  'currencies.toast.saved': ['Currency saved.', 'Валюта сохранена.', 'Валюта сақталды.'],
+  'currencies.loadError': [
+    'The currency list could not be loaded.',
+    'Не удалось загрузить список валют.',
+    'Валюталар тізімін жүктеу мүмкін болмады.',
+  ],
+  'currencies.retry': ['Try again', 'Повторить', 'Қайталау'],
+  'currencies.loading': ['Loading currencies', 'Загрузка валют', 'Валюталар жүктелуде'],
+  'currencies.emptyAll': ['No currencies yet.', 'Валют пока нет.', 'Әзірге валюта жоқ.'],
   'currencies.empty': [
     'No currencies matched the search.',
     'Нет валют, соответствующих поиску.',

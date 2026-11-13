@@ -112,8 +112,8 @@ describe('REQ-827 criterion 1: list and interactions', () => {
   it('renders code, name in the UI language (en default) and a switch', async () => {
     render()
     await waitFor(() => expect(screen.getByTestId('currencies-table')).toBeInTheDocument())
-    expect(screen.getByTestId('currency-row-KZT')).toBeInTheDocument()
-    expect(screen.getByTestId('currency-row-USD')).toBeInTheDocument()
+    expect(screen.getByText('KZT', { selector: 'td' })).toBeInTheDocument()
+    expect(screen.getByText('USD', { selector: 'td' })).toBeInTheDocument()
     // code is visible
     expect(screen.getAllByText('KZT').length).toBeGreaterThan(0)
     // en name
@@ -127,24 +127,24 @@ describe('REQ-827 criterion 1: list and interactions', () => {
     render()
     await waitFor(() => expect(screen.getByTestId('currencies-table')).toBeInTheDocument())
     fireEvent.change(screen.getByTestId('currencies-search'), { target: { value: 'tenge' } })
-    expect(screen.getByTestId('currency-row-KZT')).toBeInTheDocument()
-    expect(screen.queryByTestId('currency-row-USD')).toBeNull()
+    expect(screen.getByText('KZT', { selector: 'td' })).toBeInTheDocument()
+    expect(screen.queryByText('USD', { selector: 'td' })).toBeNull()
   })
 
   it('typing "теңге" in the search keeps KZT row (kk name match)', async () => {
     render()
     await waitFor(() => expect(screen.getByTestId('currencies-table')).toBeInTheDocument())
     fireEvent.change(screen.getByTestId('currencies-search'), { target: { value: 'теңге' } })
-    expect(screen.getByTestId('currency-row-KZT')).toBeInTheDocument()
-    expect(screen.queryByTestId('currency-row-USD')).toBeNull()
+    expect(screen.getByText('KZT', { selector: 'td' })).toBeInTheDocument()
+    expect(screen.queryByText('USD', { selector: 'td' })).toBeNull()
   })
 
   it('typing "KZT" in the search keeps KZT row (code match)', async () => {
     render()
     await waitFor(() => expect(screen.getByTestId('currencies-table')).toBeInTheDocument())
     fireEvent.change(screen.getByTestId('currencies-search'), { target: { value: 'KZT' } })
-    expect(screen.getByTestId('currency-row-KZT')).toBeInTheDocument()
-    expect(screen.queryByTestId('currency-row-USD')).toBeNull()
+    expect(screen.getByText('KZT', { selector: 'td' })).toBeInTheDocument()
+    expect(screen.queryByText('USD', { selector: 'td' })).toBeNull()
   })
 
   it('switching USD on sends PUT with active true', async () => {
@@ -266,5 +266,41 @@ describe('REQ-827 criterion 2: tenant currency switch disabled and 422 error tex
       ),
     )
     useUiLocaleStore.getState().setLocale('en')
+  })
+})
+
+describe('REQ-827 gui states: lede, empty text, toast', () => {
+  it('renders eyebrow and lede from the catalog', async () => {
+    render()
+    await waitFor(() => expect(screen.getByTestId('currencies-table')).toBeInTheDocument())
+    expect(screen.getByText(/Switch the currencies your organisation works with/)).toBeInTheDocument()
+    expect(screen.getByText('Administration')).toBeInTheDocument()
+  })
+
+  it('search with no match shows the empty text, not an empty table', async () => {
+    render()
+    await waitFor(() => expect(screen.getByTestId('currencies-table')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('currencies-search'), { target: { value: 'zzzz' } })
+    expect(screen.getByText('No currencies matched the search.')).toBeInTheDocument()
+  })
+
+  it('a successful switch shows the success toast', async () => {
+    const { ToastContainer } = await import('@/components/ui/Toast')
+    const { clearAllToasts } = await import('@/hooks/useToast')
+    clearAllToasts()
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    renderWithAccess(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <CurrenciesPage />
+          <ToastContainer />
+        </MemoryRouter>
+      </QueryClientProvider>,
+      'tenantAdmin',
+    )
+    await waitFor(() => expect(screen.getByTestId('switch-USD')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('switch-USD'))
+    await waitFor(() => expect(screen.getByTestId('toast-message')).toHaveTextContent('Currency saved.'))
+    clearAllToasts()
   })
 })

@@ -117,4 +117,5 @@ export const currenciesScreens: HarnessScreen[] = [
   mkScreen('currencies-search-result', searchRoutes),
   mkScreen('currencies-error', routes),
   mkScreen('currencies-empty', routes),
+  mkScreen('currencies-loading', routes),
 ]
