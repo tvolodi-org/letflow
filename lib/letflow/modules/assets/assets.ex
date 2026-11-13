@@ -183,7 +183,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.17.0",
+    version: "0.18.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
@@ -391,4 +391,13 @@ defmodule Letflow.Modules.Assets do
   """
   @spec expiry_lead_days(prefix :: String.t()) :: pos_integer() | nil
   defdelegate expiry_lead_days(prefix), to: Letflow.Modules.Assets.Settings
+
+  @doc """
+  Release entry of the currency migration (REQ-825, slice C3): maps the legacy `currency` setting
+  and the stored card texts to the ISO codes of the directory. See
+  `Letflow.Modules.Assets.CurrencyMigration`; run through `Letflow.Release.Currencies`.
+  """
+  @spec currency_migration(opts :: keyword()) ::
+          {:ok, Letflow.Modules.Assets.CurrencyMigration.report()}
+  defdelegate currency_migration(opts), to: Letflow.Modules.Assets.CurrencyMigration, as: :run
 end

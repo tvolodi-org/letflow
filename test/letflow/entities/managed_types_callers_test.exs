@@ -64,6 +64,8 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @locations_links "lib/letflow/modules/locations/links.ex"
   # REQ-750: the asset card writers write under the assets Owner.
   @assets_cards "lib/letflow/modules/assets/cards.ex"
+  # REQ-825: the currency migration release task rewrites card currencies under the assets Owner.
+  @assets_currency_migration "lib/letflow/modules/assets/currency_migration.ex"
   # REQ-751: the asset document context writes the commission header and line records under the assets Owner.
   @assets_documents "lib/letflow/modules/assets/documents.ex"
   @locations_tree "lib/letflow/modules/locations/tree.ex"
@@ -122,6 +124,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @authority_callers [
                        @handler_writes,
                        @assets_cards,
+                       @assets_currency_migration,
                        @assets_documents,
                        @catalog_lots,
                        @codes_writes
@@ -727,7 +730,14 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
       assert r2_violations(files) == []
       # GH #2596: the three exam writers join the fixture (directory rule, alias form).
       assert owner_for_callers(files) ==
-               [@assets_cards, @assets_documents, @catalog_import, @catalog_lots, @codes_writes] ++
+               [
+                 @assets_cards,
+                 @assets_currency_migration,
+                 @assets_documents,
+                 @catalog_import,
+                 @catalog_lots,
+                 @codes_writes
+               ] ++
                  @exam_owner_callers ++
                  [
                    @locations_links,
