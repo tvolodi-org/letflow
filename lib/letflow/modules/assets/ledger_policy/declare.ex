@@ -14,7 +14,7 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
 
   | cause | `from` | `to` | legs per line |
   |---|---|---|---|
-  | commission, kind_change_in | absent | required | `+q` at `to` |
+  | commission, kind_change_in, opening | absent | required | `+q` at `to` |
   | writeoff | required | absent | `-q` at `from` (needs `reason_code`) |
   | change | required | required, same org_unit and location, different responsible or user | `-q` at `from`, `+q` at `to` |
   | handover | required | required, different org_unit or location | `-q` at `from`, `+q` at `to` |
@@ -32,6 +32,8 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
   The refusal is always `{:error, {:invalid_posting, %{leg_no: n}}}`, `n` the number of the first leg
   the bad line would produce; no reason, key or value is returned. Whole-command faults give 1; more
   than 100 lines give the first leg of line 101 (101 for a one-leg cause, 201 for a two-leg cause).
+  An `opening` takes no client time: `event_time`, `client_event_time`, `device_id` and `client_seq` are
+  refused (G5 part 2, decision 0083 D1).
   Assumption, owner may change at GATE B: the four causes, the unit `pcs`, the 96-hour lateness.
   """
 
@@ -41,7 +43,13 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
 
   @max_lines 100
   @unit "pcs"
-  @one_leg %{"commission" => :to, "writeoff" => :from, "kind_change_in" => :to}
+  @one_leg %{
+    "commission" => :to,
+    "writeoff" => :from,
+    "kind_change_in" => :to,
+    "opening" => :to
+  }
+  @client_time_keys [:event_time, :client_event_time, :device_id, :client_seq]
   @two_leg ~w(change handover)
   @header [:reason_code, :document_type, :document_id, :related_document_id, :correlation_id]
 
@@ -75,6 +83,7 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
 
   defp ordinary(command) do
     with {:ok, cause, width} <- cause(Map.get(command, :cause)),
+         :ok <- no_client_time(cause, command),
          {:ok, lines} <- lines(Map.get(command, :lines), width),
          {:ok, legs} <- build(cause, command, lines, width) do
       {:ok,
@@ -83,6 +92,12 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
        )}
     end
   end
+
+  defp no_client_time("opening", command) do
+    if Enum.all?(@client_time_keys, &is_nil(Map.get(command, &1))), do: :ok, else: invalid(1)
+  end
+
+  defp no_client_time(_cause, _command), do: :ok
 
   defp header(command) do
     command
@@ -140,7 +155,7 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
 
   defp reason(_cause, _command), do: :ok
 
-  defp legs(cause, base, _from, to) when cause in ["commission", "kind_change_in"],
+  defp legs(cause, base, _from, to) when cause in ["commission", "kind_change_in", "opening"],
     do: [leg(base, to, false)]
 
   defp legs("writeoff", base, from, _to), do: [leg(base, from, true)]
@@ -173,7 +188,8 @@ defmodule Letflow.Modules.Assets.LedgerPolicy do
     end
   end
 
-  defp sides(cause, from, to) when cause in ["commission", "kind_change_in"] and is_nil(from) do
+  defp sides(cause, from, to)
+       when cause in ["commission", "kind_change_in", "opening"] and is_nil(from) do
     with {:ok, to} <- side(to), do: {:ok, nil, to}
   end
 

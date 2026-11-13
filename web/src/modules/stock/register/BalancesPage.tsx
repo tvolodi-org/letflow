@@ -32,12 +32,10 @@ import { useNames } from './stockNames'
 import { DateValueHint } from '@/components/ui/DateValueHint'
 import { formatLocalInput } from '@/i18n/format'
 import { formatQuantity } from '@/lib/formatQuantity'
-import { Registry } from '@/components/ui/registry/Registry'
+import { ListDetail } from '@/components/ui/listDetail'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { SplitWrap, useSplit } from '@/components/ui/layout/Splitter'
 import { useColResize } from '@/components/ui/layout/ColumnResize'
 import { isWideHost } from '@/components/ui/layout/isWideHost'
-import { useUiMessages } from '@/components/ui/uiMessages'
 import { BalanceHistoryPanel } from './BalanceHistoryPanel'
 
 const ACTIVE_ONLY: never[] = []
@@ -142,68 +140,34 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
     )
   const selectedRow = selected === null ? null : (rows.find((r) => rowId(r) === selected) ?? null)
 
-  const ui = useUiMessages()
-  const gridRef = useRef<HTMLDivElement>(null)
-  const layerRef = useRef<HTMLDivElement>(null)
   const tableRef = useRef<HTMLTableElement>(null)
-  useSplit(gridRef, layerRef, {
-    id: 'list',
-    screen: 'stock.balances',
-    unit: 'pct',
-    sized: 'before',
-    vars: ['--lf-pane-1'],
-    min: [320],
-    flexMin: 360,
-    collapsible: [0],
-    labels: [t('stock.balances.listPane')],
-    defaults: [60],
-    panes: () => [
-      gridRef.current?.querySelector<HTMLElement>(':scope > .lf-reg__list') ?? null,
-      gridRef.current?.querySelector<HTMLElement>(':scope > .lf-reg__details') ?? null,
-    ],
-    enabled: () => isWideHost(gridRef.current),
-  })
   useColResize(tableRef, {
     id: 'list',
     screen: 'stock.balances',
     cols: LIST_COLS,
     minTable: true,
-    enabled: () => isWideHost(gridRef.current),
+    enabled: () => isWideHost(tableRef.current),
   })
 
-  const list = (
-    <section className="lf-card lf-reg__list" aria-label={t('stock.balances.listPane')}>
-      <div className="lf-reg__body">
-        <DataTable
-          columns={columns}
-          data={rows}
-          isLoading={query.isPending}
-          getRowId={rowId}
-          onRowClick={(r) => setSelected(rowId(r))}
-          selectedId={selected}
-          emptyMessage={t('stock.balances.empty')}
-          emptyText={t('stock.balances.emptyText')}
-          labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
-          tableRef={tableRef}
-        />
-      </div>
-      <div className="lf-reg__foot">
-        <LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
-      </div>
-    </section>
+  const listBody = (
+    <DataTable
+      columns={columns}
+      data={rows}
+      isLoading={query.isPending}
+      getRowId={rowId}
+      onRowClick={(r) => setSelected(rowId(r))}
+      selectedId={selected}
+      emptyMessage={t('stock.balances.empty')}
+      emptyText={t('stock.balances.emptyText')}
+      labels={{ loading: t('stock.common.loading'), retry: t('stock.common.retry') }}
+      tableRef={tableRef}
+    />
   )
-  const details = selectedRow ? (
-    <>
-      <div className="lf-reg__backrow">
-        <Button variant="ghost" size="sm" className="lf-reg__back" onClick={() => setSelected(null)} data-testid="master-detail-back">
-          {ui.back}
-        </Button>
-      </div>
-      <BalanceHistoryPanel row={selectedRow} asOf={asOf} onClose={() => setSelected(null)} name={name} />
-    </>
-  ) : (
-    <EmptyState title={t('stock.balances.pickRow')} text={t('stock.balances.pickRowText')} data-testid="balances-pick-row" />
-  )
+  const listFooter = <LoadMore visible={query.hasNextPage} loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
+  const detail = selectedRow ? (
+    <BalanceHistoryPanel row={selectedRow} asOf={asOf} onClose={() => setSelected(null)} name={name} />
+  ) : null
+  const empty = <EmptyState title={t('stock.balances.pickRow')} text={t('stock.balances.pickRowText')} data-testid="balances-pick-row" />
 
   return (
     <>
@@ -288,9 +252,18 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
       {query.isError && <RegisterError error={query.error} onRetry={() => void query.refetch()} />}
       {/* stays mounted on a load error (hidden) so the splitter keeps its container */}
       <div hidden={query.isError}>
-        <SplitWrap layerRef={layerRef}>
-          <Registry layout="split" list={list} details={details} detailOpen={selectedRow != null} onClose={() => setSelected(null)} gridRef={gridRef} />
-        </SplitWrap>
+        <ListDetail
+          screen="stock.balances"
+          listLabel={t('stock.balances.listPane')}
+          listMin={320}
+          listDefault={60}
+          list={listBody}
+          listFooter={listFooter}
+          detail={detail ?? <></>}
+          empty={empty}
+          detailOpen={selectedRow != null}
+          onClose={() => setSelected(null)}
+        />
       </div>
     </>
   )

@@ -9,7 +9,7 @@ export const MODULE_ATOMS_TENANT_ADMIN = [
   'IntegrationMappingsManage', 'LabelsManage', 'LocationsWrite', 'NotificationTemplatesManage', 'NumberSequencesManage',
   'OrgEmployeesWrite', 'OrgStructureWrite', 'ProcurementLineRecord', 'ProcurementRequestDecide', 'ProcurementRequestRead',
   'ProcurementRequestWrite', 'ScheduledJobsManage', 'StockCountOrder', 'StockCountRecord', 'StockPost', 'StockRead', 'StockReconcile',
-  'StockReverse', 'TenantSecurityManage',
+  'StockReverse', 'TasksReassignRouted', 'TenantSecurityManage',
 ]
 
 export const NAV_ROLE_PERMISSIONS = {

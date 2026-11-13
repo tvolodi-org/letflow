@@ -84,7 +84,7 @@ describe('S layout', () => {
     await loaded()
     fireEvent.click(screen.getByTestId('datatable-row'))
     await screen.findByTestId('balance-history')
-    fireEvent.click(screen.getByTestId('master-detail-back'))
+    fireEvent.click(screen.getByTestId('list-detail-back'))
     await waitFor(() => expect(screen.queryByTestId('balance-history')).toBeNull())
   })
 })

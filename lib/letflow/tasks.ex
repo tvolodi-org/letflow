@@ -823,7 +823,8 @@ defmodule Letflow.Tasks do
 
   # GH #2931: a ROLE- or GROUP-routed task may be taken away from its routing only by a caller
   # who holds that role / is in that group (token roles or tenant-role groups), or by a
-  # TENANT_ADMIN. `:TasksReassign` alone (PROCESS_OPERATOR) is not enough: otherwise the operator
+  # holder of `:TasksReassignRouted` (TENANT_ADMIN only, roles stage 0 S0-4; a platform-tenant
+  # PLATFORM_ADMIN does not hold it, ruling 2). `:TasksReassign` alone (PROCESS_OPERATOR) is not enough: otherwise the operator
   # reassigns the task to themselves and completes it without the routing role. A missing
   # `:actor_id` (key present, value nil) fails closed. A trusted in-process caller that passes no
   # `:actor_id` key at all (no HTTP caller; the router always sets it) is not checked.
@@ -834,7 +835,7 @@ defmodule Letflow.Tasks do
     token_roles = Map.get(attrs, :actor_roles, [])
 
     cond do
-      "TENANT_ADMIN" in token_roles ->
+      reassign_routed_holder?(token_roles, prefix) ->
         :ok
 
       not is_binary(actor_id) ->
@@ -854,6 +855,18 @@ defmodule Letflow.Tasks do
   end
 
   defp authorize_reassign(_task, _attrs, _prefix), do: :ok
+
+  # Roles stage 0 S0-4 (decision 0088): the permission replaces the TENANT_ADMIN name. Roles go through the
+  # one shared resolution (effective_roles/2), so a PLATFORM_ADMIN string confers nothing outside the platform
+  # tenant; inside it the explicit false clause (ruling 2) keeps PLATFORM_ADMIN out. Baseline matrix, no
+  # overlay: the atom is not grantable.
+  defp reassign_routed_holder?(token_roles, prefix) do
+    platform_tenant? = Letflow.PlatformTenant.platform_prefix?(prefix)
+
+    token_roles
+    |> Authorization.effective_roles(platform_tenant?)
+    |> Authorization.has_permission_in_scope?(:TasksReassignRouted, platform_tenant?)
+  end
 
   defp reassign_refusal("ROLE"), do: {:error, :assignee_role_not_held}
   defp reassign_refusal("GROUP"), do: {:error, :assignee_group_not_member}

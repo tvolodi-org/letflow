@@ -2714,4 +2714,90 @@ defmodule Letflow.Routers.TasksTest do
       end
     end
   end
+
+  describe "roles stage 0 S0-4: TasksReassignRouted at POST /tasks/:id/reassign" do
+    setup do: %{tenant: TenantFixture.provisioned_tenant!(slug_prefix: "s04-reassign")}
+
+    defp s04_reassign(tenant, task, roles, user_id) do
+      build_conn(:post, "/#{task.id}/reassign", tenant,
+        user_id: user_id,
+        roles: roles,
+        body: %{"user_id" => user_id}
+      )
+      |> dispatch()
+    end
+
+    defp s04_row(tenant, task), do: Repo.get!(EngineTask, task.id, prefix: tenant.schema_name)
+
+    test "H1a TENANT_ADMIN outside the routing role takes a ROLE task away (200, audited)",
+         %{tenant: tenant} do
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "role-ops-manager"})
+      new_user = Ecto.UUID.generate()
+
+      conn = s04_reassign(tenant, task, ["TENANT_ADMIN"], new_user)
+
+      assert conn.status == 200
+      row = s04_row(tenant, task)
+      assert {row.assignee_type, row.assignee_ref} == {"USER", new_user}
+      assert length(task_audit_rows(tenant, task.id, "task.reassign")) == 1
+    end
+
+    test "H1b TENANT_ADMIN who is not a member takes a GROUP task away (200)", %{tenant: tenant} do
+      task = insert_task!(tenant, %{assignee_type: "GROUP", assignee_ref: Ecto.UUID.generate()})
+      new_user = Ecto.UUID.generate()
+
+      assert s04_reassign(tenant, task, ["TENANT_ADMIN"], new_user).status == 200
+      assert s04_row(tenant, task).assignee_type == "USER"
+    end
+
+    test "H2a platform-tenant PLATFORM_ADMIN alone is refused on a ROLE task (ruling 2)",
+         %{tenant: tenant} do
+      Letflow.Support.PlatformTenantFixture.pin!(tenant.tenant_id)
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "role-ops-manager"})
+
+      conn = s04_reassign(tenant, task, ["PLATFORM_ADMIN"], Ecto.UUID.generate())
+
+      # 409 (not 403): the route-level check passed, the in-handler check refused.
+      assert conn.status == 409
+      assert conn.resp_body =~ "does not hold the assigned role"
+      row = s04_row(tenant, task)
+      assert {row.assignee_type, row.assignee_ref} == {"ROLE", "role-ops-manager"}
+      assert task_audit_rows(tenant, task.id, "task.reassign") == []
+    end
+
+    test "H2b platform-tenant PLATFORM_ADMIN alone is refused on a GROUP task", %{tenant: tenant} do
+      Letflow.Support.PlatformTenantFixture.pin!(tenant.tenant_id)
+      group = Ecto.UUID.generate()
+      task = insert_task!(tenant, %{assignee_type: "GROUP", assignee_ref: group})
+
+      conn = s04_reassign(tenant, task, ["PLATFORM_ADMIN"], Ecto.UUID.generate())
+
+      assert conn.status == 409
+      row = s04_row(tenant, task)
+      assert {row.assignee_type, row.assignee_ref} == {"GROUP", group}
+      assert task_audit_rows(tenant, task.id, "task.reassign") == []
+    end
+
+    test "H3 platform tenant: PLATFORM_ADMIN plus TENANT_ADMIN takes a ROLE task away (200)",
+         %{tenant: tenant} do
+      Letflow.Support.PlatformTenantFixture.pin!(tenant.tenant_id)
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "role-ops-manager"})
+
+      conn = s04_reassign(tenant, task, ["PLATFORM_ADMIN", "TENANT_ADMIN"], Ecto.UUID.generate())
+
+      assert conn.status == 200
+      assert s04_row(tenant, task).assignee_type == "USER"
+    end
+
+    test "H4 platform tenant: PLATFORM_ADMIN holding the routing role passes the membership branch",
+         %{tenant: tenant} do
+      Letflow.Support.PlatformTenantFixture.pin!(tenant.tenant_id)
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "role-ops-manager"})
+
+      conn =
+        s04_reassign(tenant, task, ["PLATFORM_ADMIN", "role-ops-manager"], Ecto.UUID.generate())
+
+      assert conn.status == 200
+    end
+  end
 end

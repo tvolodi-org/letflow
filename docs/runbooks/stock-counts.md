@@ -198,6 +198,26 @@ Assumptions, owner may change at GATE B: the pair rule rather than the whole pla
 scheduled expiry job, the flag cannot change after issue. Existing installs take the new type and fields through the
 module-upgrade path; no row exists before, nothing is backfilled.
 
+## The count worksheet (T-1905; no version bump)
+
+A print of the order for the field, to count on paper and type in later. `GET /api/v1/modules/stock/counts/:id/print/worksheet?lang=ru|kk|en&expected=0|1`
+(A4 landscape PDF) and `GET .../counts/:id/paperwork/worksheet` (xlsx); both `StockRead`, the existing `print/:kind` and
+`paperwork/:kind` routes with `kind` = `worksheet`.
+
+- **States:** `ordered` and `counting` only (else 422 `worksheet_not_available`). At `counting` the lines are the stored sheet
+  lines (including surplus lines); at `ordered` they are a preview computed at print time by the same code the open uses
+  (nothing is written; a posting between the print and the open can add or remove a line, the paper says so).
+- **Expected quantities:** `expected=0` or no parameter prints the BLANK variant (no expected column, no book quantity
+  anywhere). `expected=1` adds the book quantity. No order carries a "blind" mark yet, so `expected=1` is allowed for every
+  order the caller may read (the same caller reads `book_quantity` through `GET /counts/:id/lines`); a blind mark would refuse
+  it in `CountPaperworkSource.read_worksheet/4`. Any other value is 422 `invalid_expected`.
+- **Paper:** header (order number and date, organisation and BIN, org unit, planned start and end, cut-off or book-as-of time),
+  commission, lines (No., location, item code and name, lot, unit, [expected], counted, notes) with the header row repeated on
+  every page, signature lines, "Page k of N", and on every page a Code 128 of the order number and a QR of the order id.
+  The xlsx has no codes (the order number cell is the key).
+- **Not a document of record:** no number sequence, no posting, no state change, no audit entry.
+- 422 `ledger_read_failed` and `count_too_large` (more than 2000 lines) carry the open's meaning.
+
 ## Org units and the document service
 
 The document service accepts an issuing org unit only when it is in the core scope tree

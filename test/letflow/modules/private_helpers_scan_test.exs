@@ -34,6 +34,7 @@ defmodule Letflow.Modules.PrivateHelpersScanTest do
     modules/stock/count_posting_test.exs
     modules/stock/count_print_router_test.exs
     modules/stock/count_scan_router_test.exs
+    modules/stock/count_worksheet_router_test.exs
     modules/stock/counts_router_test.exs
     modules/stock/count_sheet_router_test.exs
     modules/stock/form_count_router_test.exs

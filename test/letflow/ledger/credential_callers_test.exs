@@ -19,7 +19,8 @@ defmodule Letflow.Ledger.CredentialCallersTest do
   # route has passed StockPost; that node has no module write, so it carries no credential.
   @allowed %{
     "lib/letflow/routers/tasks.ex" => :request_credential,
-    "lib/letflow/modules/stock/documents/posting.ex" => :submit_node_no_write
+    "lib/letflow/modules/stock/documents/posting.ex" => :submit_node_no_write,
+    "lib/letflow/modules/assets/documents/posting.ex" => :submit_node_no_write
   }
 
   defp complete_calls(ast) do
@@ -93,6 +94,27 @@ defmodule Letflow.Ledger.CredentialCallersTest do
           do: {d["process_key"], node}
 
     assert [{"stock_opening", _}] = submits
+
+    for {_key, node} <- submits,
+        do: refute(Map.has_key?(node["attributes"] || %{}, "module_writes"))
+  end
+
+  # Same reason for the assets opening posting: it completes only `submit`, which has no module write.
+  test "T-SEC-3f assets posting.ex completes only submit, and the assets submit node does not write" do
+    source = File.read!("lib/letflow/modules/assets/documents/posting.ex")
+    assert source =~ ~s(t.node_id == "submit" and t.status == :pending)
+
+    submits =
+      for d <-
+            "priv/modules/assets/pack.json"
+            |> File.read!()
+            |> Jason.decode!()
+            |> Map.fetch!("definitions"),
+          node <- d["graph"]["nodes"],
+          node["id"] == "submit",
+          do: {d["process_key"], node}
+
+    assert [{"assets_opening", _}] = submits
 
     for {_key, node} <- submits,
         do: refute(Map.has_key?(node["attributes"] || %{}, "module_writes"))

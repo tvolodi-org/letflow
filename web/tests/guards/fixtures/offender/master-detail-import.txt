@@ -1,0 +1,1 @@
+import { MasterDetail } from '@/components/ui/MasterDetail'
