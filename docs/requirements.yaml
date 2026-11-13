@@ -54863,7 +54863,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-753 -- the asset documents the count result drafts (C11) must stand first; REQ-753 is pending in this file
+    gh: 4375
     # Source: task T-1844 (operator, owner decision D-128 of 2026-11-13, quoted in docs/assets/asset-count.md section 0). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) sections 1, 2, 5 and 8. Files read on origin/main 8d1c91fde: lib/letflow/modules/stock/counts.ex (order, scope, commission, states, 96-hour period, advisory lock at issue, cancel), lib/letflow/modules/assets/assets.ex (version 0.16.0, permissions, empty role_grants, settings_schema, route_policies), lib/letflow/modules/assets/access.ex, lib/letflow/modules/assets/router.ex, lib/letflow/routers/tenant_modules.ex (PUT /:module_id/settings, ModulesManage), lib/letflow/identity/role_registry.ex (@max_name_codepoints 128), docs/migration/decisions/0079-counts-inventory-taking.md sections 2 to 4. Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
     description: >
       First slice of the fixed asset count (official form Inv-8, annex 39; docs/assets/kz-forms-mapping.md section 3.6
@@ -54914,7 +54914,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-816 -- needs the asset count order of K1
+    gh: 4374
     # Source: task T-1844 (operator, owner decision D-128). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) section 3. Files read on origin/main 8d1c91fde: lib/letflow/modules/stock/count_sheet.ex (Ledger.hold_exclusive!/2 then Ledger.balances/4 at the cut-off, page cap 200, typed entries, entry log, close, sheet_document), lib/letflow/modules/stock/count_differences.ex (mark_sheet_signed/4, exact signer set), lib/letflow/ledger.ex (hold_exclusive!/2, balances/4), lib/letflow/modules/assets/assets.ex (ledger assets and its five slots), lib/letflow/modules/assets/cards.ex. Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
     description: >
       Second slice of the fixed asset count; same flow as Letflow.Modules.Stock.CountSheet
@@ -54956,7 +54956,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-817 -- needs the asset count sheet of K2
+    gh: 4373
     # Source: task T-1844 (operator, owner decision D-128). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) section 3. Files read on origin/main 8d1c91fde: lib/letflow/modules/codes/codes.ex (resolve/2), lib/letflow/modules/codes/writes.ex (@targets location_node catalog_item catalog_lot), lib/letflow/modules/stock/count_sheet.ex (scan handling), docs/migration/decisions/0079-counts-inventory-taking.md sections 5 and 6. Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
     description: >
       POST /api/v1/modules/assets/counts/:id/scan (AssetsCountRecord, a commission member or the chair, count in
@@ -54984,7 +54984,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-817 -- needs the signed asset count sheet of K2
+    gh: 4372
     # Source: task T-1844 (operator, owner decision D-128: the signer is whoever holds the role accountant or the role the tenant maps to that step, nothing hard-coded, no fallback; closes owner question A2). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) sections 4 and 5. Files read on origin/main 8d1c91fde: lib/letflow/modules/stock/count_differences.ex (differences from the issued sheet content, 200-line cap), lib/letflow/modules/assets/documents.ex (save/3 makes drafts, the number is taken at issue), lib/letflow/modules/assets/documents/kinds.ex (commission, change, handover, writeoff header keys), lib/letflow/modules/assets/documents/shape.ex (@reason_codes disposed lost broken expired other), lib/letflow/tasks.ex (resolve_principal_scope/2, role_names through groups), lib/letflow/identity/tenant_role.ex (kind process_routing_role), lib/letflow/engine/task_activation.ex (resolve_assignee/1), test/fixtures/uat/actors.yaml (routing role role-accountant). Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
     description: >
       (1) Differences (GET /api/v1/modules/assets/counts/:id/result, AssetsRead, count sheet_signed or signed): built
@@ -55030,7 +55030,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-817 -- needs the asset count open step of K2
+    gh: 4371
     # Source: task T-1844 (operator, owner decision D-128; the task asks for count freeze reuse). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) section 6. Files read on origin/main 8d1c91fde: lib/letflow/modules/stock/freeze_state.ex (state from data, default limit 120, setting count_freeze_limit_minutes), lib/letflow/modules/stock/freeze_guard.ex, lib/letflow/modules/assets/documents.ex (issue/4 runs Documents.Checks inside the issue lock), lib/letflow/modules/assets/documents/checks.ex. Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
     description: >
       For an asset count order with freeze_locations true (REQ-816), the frozen scope is the order's org unit and its
@@ -55054,7 +55054,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-817 -- needs the issued asset count sheet of K2
+    gh: 4370
     # Source: task T-1844 (operator, owner decision D-128: official print in ru and kk plus en). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) section 7. Files read on origin/main 8d1c91fde: docs/assets/kz-forms-mapping.md section 3.6 (Inv-8 field list) and section 3.7 row 39 (Kazakh title), lib/letflow/documents/form_print.ex (layout and catalog, ru and kk only, blanks never invented), lib/letflow/modules/stock/form_count_inv10.ex, lib/letflow/modules/stock/count_print.ex, lib/letflow/modules/stock/router.ex (GET /counts/:id/print/:kind with form, format and lang), priv/print_forms/inv10.json and messages.json. Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
     description: >
       GET /api/v1/modules/assets/counts/:id/print/sheet (AssetsRead) on an issued assets_count.sheet, in the shape of the
@@ -55084,7 +55084,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-819 -- needs the count result routes of K4
+    gh: 4369
     # Source: task T-1844 (operator, owner decision D-128). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) sections 2 to 7. Files read on origin/main 8d1c91fde: web/src/modules/assets/ and web/src/modules/stock/ (directory listing; the stock count screens of REQ-702 and REQ-766 are the pattern), lib/letflow/modules/stock/router.ex (count routes). Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
     description: >
       Screens in web/src/modules/assets/ for the routes of REQ-816 to REQ-821, following the stock count screens of
