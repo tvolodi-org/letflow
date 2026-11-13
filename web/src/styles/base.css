@@ -323,3 +323,9 @@ samp {
 
 /* Codes and lots list rows: a long code wraps inside its cell instead of being cut (T-1889). */
 .lf-reg__body .lf-cell-2 .mono { white-space: normal; overflow-wrap: anywhere; word-break: break-all; }
+
+/* Lots list, nothing selected: the row actions stack so Edit and Retire never clip in a narrow pane (ru, kk labels). */
+.lf-lots-actions { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); }
+.lf-lots-actions .lf-btn { white-space: normal; }
+.lf-reg__body .lf-table th, .lf-reg__body .lf-table td { padding-inline: var(--space-2); }
+.lf-lots-actions .lf-btn { padding-inline: var(--space-2); }

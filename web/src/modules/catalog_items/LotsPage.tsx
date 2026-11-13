@@ -365,7 +365,7 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
         align: 'end',
         render: (lot) =>
           canWrite ? (
-            <span className="lf-btn-row" onClick={(e) => e.stopPropagation()}>
+            <span className="lf-lots-actions" onClick={(e) => e.stopPropagation()}>
               <Button
                 variant="secondary"
                 size="sm"
