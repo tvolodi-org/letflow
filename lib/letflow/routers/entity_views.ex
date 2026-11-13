@@ -32,6 +32,7 @@ defmodule Letflow.Routers.EntityViews do
   use Letflow.Api.AuthorizedRouter
 
   alias Letflow.Api.Response
+  alias Letflow.Entities.ModuleReadGate
   alias Letflow.Entities.Views
   alias Letflow.Entities.Views.View
 
@@ -74,14 +75,14 @@ defmodule Letflow.Routers.EntityViews do
         _other -> nil
       end
 
-    case Views.list(prefix!(conn), user_id(conn), entity_type) do
+    case Views.list(prefix!(conn), user_id(conn), entity_type, ModuleReadGate.denied(conn)) do
       {:ok, views} -> Response.ok(conn, %{"items" => Enum.map(views, &view_map/1)})
       {:error, reason} -> render_error(conn, reason)
     end
   end
 
   defp handle_get(conn, id) do
-    case Views.get(prefix!(conn), user_id(conn), id) do
+    case Views.get(prefix!(conn), user_id(conn), id, ModuleReadGate.denied(conn)) do
       {:ok, view} -> Response.ok(conn, view_map(view))
       {:error, reason} -> render_error(conn, reason)
     end

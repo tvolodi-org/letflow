@@ -203,6 +203,16 @@ samp {
 @container lfhost (max-width: 1439px) {
   .lf-doc__list:has(.lf-doc__empty) { height: auto; }
 }
+/* T-1875: in the medium document grid (901-1439 px) the list card has height 0 and takes the height of the rows it spans.
+   With no document open the blank card spans all three rows and its height went to the third (empty) row, so the list
+   was the 16 px row gap; with a short header the filters and New buttons filled the card and no document row showed.
+   Nothing open: the list sizes to its content up to the viewport. Always: never shorter than a usable floor. */
+@container lfhost (min-width: 901px) and (max-width: 1439px) {
+  .lf-doc > .lf-doc__list:not(.is-collapsed) { min-height: max(100%, min(40rem, calc(100vh - 2 * var(--space-4)))); }
+  .lf-doc:has(> .lf-doc__blank) > .lf-doc__list:not(.is-collapsed) { height: auto; max-height: calc(100vh - 2 * var(--space-4)); }
+  /* Firefox does not count the floor above in the row sizing: the second row carries it too, so the lines card starts below the list. */
+  .lf-doc:not([data-layout="tabs"]):not(:has(> .lf-doc__blank)):has(> .lf-doc__list:not(.is-collapsed)) { grid-template-rows: auto minmax(min(36rem, calc(100vh - 6rem)), auto) auto; }
+}
 /* T-1490: a disabled text input (inventory number of a posted card) reads as read-only, like the disabled select. */
 .lf-form input:disabled { opacity: .55; cursor: not-allowed; }
 /* T-1561: notification bell (badge, popover list). Reuses the lang-menu popover and item. */
