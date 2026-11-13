@@ -11,12 +11,14 @@ defmodule Letflow.Modules.Assets.Cards do
   active (`:card_inactive`, also for a second retire); the key allow-list (`{:field_not_allowed, key}`;
   `active` is not a caller key); (import only) `org_unit_id`, when present, is a live, active
   `org_unit` (`:org_unit_not_active`); `valid_until` only for kind
-  `intangible` (`:valid_until_not_allowed`, judged on the merged document); `currency`, when given,
-  equals the tenant currency (`:currency_mismatch`; an empty one is dropped). Then the record errors of
-  `Records` pass through: a duplicate `inventory_number` or external reference pair (per tenant,
-  D-097), a missing required field or a decimal that is not strict text is
-  `{:record_payload_invalid, violations}`. Money and depreciation fields are stored as given, never
-  calculated.
+  `intangible` (`:valid_until_not_allowed`, judged on the merged document); `currency`, when given
+  in the request body, is trimmed and upper-cased, then checked: an unknown code is
+  `{:error, :currency_unknown}` and a code that is not the tenant currency is
+  `{:error, :currency_mismatch}` (C4 / REQ-826); an empty one is dropped. An update that does not
+  send `currency` is not refused because of the stored value. Then the record errors of `Records`
+  pass through: a duplicate `inventory_number` or external reference pair (per tenant, D-097), a
+  missing required field or a decimal that is not strict text is `{:record_payload_invalid,
+  violations}`. Money and depreciation fields are stored as given, never calculated.
 
   `depreciation_method`, when sent, is one of `depreciation_methods/0`, empty (clears the field) or
   equal to the value already stored on the card (`{:field_invalid, "depreciation_method"}`; owner
@@ -54,6 +56,7 @@ defmodule Letflow.Modules.Assets.Cards do
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.Audit
+  alias Letflow.Currencies.Catalog
   alias Letflow.Entities.ImportRow
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Records
@@ -98,7 +101,7 @@ defmodule Letflow.Modules.Assets.Cards do
         with :ok <- ImportRow.check_keys(attrs, allowed_keys(opts)),
              :ok <- check_org_unit(prefix, attrs, opts),
              :ok <- check_method(attrs, %{}),
-             :ok <- check_rules(prefix, fv),
+             :ok <- check_rules(prefix, fv, fv),
              {:ok, record_id} <- create_doc(prefix, fv, actor_id, idem),
              {:ok, card} <- ReadApi.lookup(prefix, record_id, @types),
              {:ok, after_fv} <- stored_fields(prefix, card),
@@ -121,14 +124,15 @@ defmodule Letflow.Modules.Assets.Cards do
       when is_binary(prefix) and is_map(attrs) and is_map(opts) do
     {actor_id, idem} = write_opts!(opts, "update_card/4")
 
-    change = fn fv -> merge(fv, attrs) end
+    norm = normalize_attrs(attrs)
+    change = fn fv -> merge(fv, norm) end
 
     check = fn card, fv, merged ->
       with :ok <- ImportRow.check_keys(attrs, allowed_keys(opts)),
            :ok <- check_org_unit(prefix, attrs, opts),
-           :ok <- check_method(attrs, fv),
+           :ok <- check_method(norm, fv),
            :ok <- CardLocks.check(prefix, card["record_id"], fv, merged),
-           :ok <- check_rules(prefix, merged) do
+           :ok <- check_rules(prefix, norm, merged) do
         if merged == fv, do: :noop, else: :ok
       end
     end
@@ -295,12 +299,17 @@ defmodule Letflow.Modules.Assets.Cards do
 
   defp org_unit_active?(_prefix, _id), do: false
 
-  defp check_rules(prefix, fv) do
+  defp check_rules(prefix, body, merged) do
+    currency = Map.get(body, "currency")
+
     cond do
-      Map.has_key?(fv, "valid_until") and fv["kind"] != "intangible" ->
+      Map.has_key?(merged, "valid_until") and merged["kind"] != "intangible" ->
         {:error, :valid_until_not_allowed}
 
-      Map.has_key?(fv, "currency") and fv["currency"] != Assets.currency(prefix) ->
+      is_binary(currency) and currency != "" and not Catalog.known?(currency) ->
+        {:error, :currency_unknown}
+
+      is_binary(currency) and currency != "" and currency != Assets.currency(prefix) ->
         {:error, :currency_mismatch}
 
       true ->
@@ -308,8 +317,18 @@ defmodule Letflow.Modules.Assets.Cards do
     end
   end
 
+  # Trims and upper-cases the `"currency"` key if present. Applied before checks and storage
+  # so that `" kzt "` stores as `"KZT"` (REQ-826 C4).
+  defp normalize_attrs(attrs) do
+    case Map.get(attrs, "currency") do
+      c when is_binary(c) -> Map.put(attrs, "currency", c |> String.trim() |> String.upcase())
+      _ -> attrs
+    end
+  end
+
   defp new_doc(attrs) do
     attrs
+    |> normalize_attrs()
     |> Enum.reject(fn {k, v} -> k not in @required and blank?(v) end)
     |> Map.new()
     |> Map.put("active", true)

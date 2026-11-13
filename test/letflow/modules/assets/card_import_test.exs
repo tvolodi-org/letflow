@@ -7,7 +7,8 @@ defmodule Letflow.Modules.Assets.CardImportTest do
   human task to claim: the end check is that an imported card is a normal card of the register routes.
 
   R1 registration; I1..I5 created/unchanged/updated/dry run/no posting; E1..E9, E11, E12 refusals;
-  W1..W5 route guards and tenancy; C1 the 200-row cap; U1 direct calls; M1 reason rendering.
+  E13 `asset_currency_unknown` (REQ-826 C4); W1..W5 route guards and tenancy; C1 the 200-row cap;
+  U1 direct calls; M1 reason rendering.
   E10 (`asset_kind_locked` end to end through the route) is test L10 of `card_locks_test.exs`; here only the mapping is tested.
   `async: false`, Sandbox `:auto`.
   """
@@ -209,7 +210,7 @@ defmodule Letflow.Modules.Assets.CardImportTest do
   test "R1: the manifest registers the import function and validates" do
     m = Assets.manifest()
     assert %{entity_type: "assets_card", function: :import_card} in m.import_functions
-    assert m.version == "0.19.0"
+    assert m.version == "0.20.0"
     assert Catalog.validate(m) == :ok
     assert Catalog.import_function("assets", "assets_card") == :ok
   end
@@ -589,5 +590,29 @@ defmodule Letflow.Modules.Assets.CardImportTest do
     assert outcomes(import_to(ctx.tok_a, [row("R-1", "R1", %{"name" => "Other"})])) == [
              "card_inactive"
            ]
+  end
+
+  test "E13: currency_unknown refusal — REQ-826 C4: a code not in the platform list is refused with field currency; a lowercase kzt is accepted as KZT; the other rows in the file are still processed",
+       ctx do
+    rows = [
+      row("E13-ok", "E13-0"),
+      row("E13-xz", "E13-1", %{"currency" => "XYZ"}),
+      row("E13-lc", "E13-2", %{"currency" => "kzt"})
+    ]
+
+    conn = import_to(ctx.tok_a, rows)
+    assert conn.status == 200, conn.resp_body
+
+    r = results(conn)
+    # First row succeeds
+    assert Enum.at(r, 0)["outcome"] == "created"
+    # XYZ is not an ISO 4217 code
+    assert Enum.at(r, 1)["reason"]["type"] == "asset_currency_unknown"
+    assert Enum.at(r, 1)["reason"]["header"] == "currency"
+    # "kzt" is upper-cased to "KZT" — matches the KZT tenant currency
+    assert Enum.at(r, 2)["outcome"] == "created"
+    assert card_by_ext(ctx.a.schema_name, "E13-2")["currency"] == "KZT"
+
+    assert Import.refusal(:currency_unknown) == :asset_currency_unknown
   end
 end

@@ -821,6 +821,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
     asset_kind_invalid: "kind",
     asset_kind_locked: "kind",
     asset_currency_mismatch: "currency",
+    asset_currency_unknown: "currency",
     asset_valid_until_not_allowed: "valid_until",
     external_ref_invalid: "external_ref_id",
     duplicate_external_ref_in_request: "external_ref_id"
@@ -967,6 +968,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
               :asset_kind_locked,
               :asset_inventory_number_locked,
               :asset_currency_mismatch,
+              :asset_currency_unknown,
               :asset_inventory_number_taken,
               :asset_row_invalid,
               :card_inactive

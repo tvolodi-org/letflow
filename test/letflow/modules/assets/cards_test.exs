@@ -3,7 +3,12 @@ Code.require_file("assets_fixture.exs", __DIR__)
 defmodule Letflow.Modules.Assets.CardsTest do
   @moduledoc """
   GH #3892 / REQ-750 criteria 2 and 3 (tests R-1..R-9, A-1, A-2, I-1): the write functions of
-  `Letflow.Modules.Assets.Cards` on committed tenants. `async: false`.
+  `Letflow.Modules.Assets.Cards` on committed tenants.
+
+  GH #4391 / REQ-826 criteria 2 and 3 (tests R-4c, R-4d): `currency_unknown`, trim+upcase
+  normalisation, and the check-on-body rule that lets a card with a legacy currency be edited.
+
+  `async: false`.
   """
 
   use Letflow.DataCase, async: false
@@ -12,7 +17,9 @@ defmodule Letflow.Modules.Assets.CardsTest do
 
   alias Letflow.Audit.Entry
   alias Letflow.AssetsFixture, as: Fx
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Entities.Records
   alias Letflow.Modules.Assets.Cards
   alias Letflow.OrgFixture, as: Org
 
@@ -203,6 +210,65 @@ defmodule Letflow.Modules.Assets.CardsTest do
 
     assert {:error, :currency_mismatch} =
              Cards.create_card(s, attrs(u, "R4K", %{"currency" => "KZT"}), opts())
+  end
+
+  # REQ-826 criteria 2 and 3: currency_unknown, trim+upcase, check-on-body rule
+
+  test "R-4c: currency_unknown for a code not in the platform list; trim+upcase accepted (REQ-826 C2)",
+       %{schema: s, unit: u} do
+    # XYZ is not an ISO 4217 code — refused with currency_unknown, not currency_mismatch
+    assert {:error, :currency_unknown} =
+             Cards.create_card(s, attrs(u, "R4CX", %{"currency" => "XYZ"}), opts())
+
+    # USD is in the catalog but not the KZT tenant currency
+    assert {:error, :currency_mismatch} =
+             Cards.create_card(s, attrs(u, "R4CU", %{"currency" => "USD"}), opts())
+
+    # " kzt " is trimmed and upper-cased to "KZT" — matches the KZT tenant currency
+    assert {:ok, c} = Cards.create_card(s, attrs(u, "R4CL", %{"currency" => " kzt "}), opts())
+    assert c["currency"] == "KZT"
+
+    # empty currency is dropped as before
+    assert {:ok, c2} = Cards.create_card(s, attrs(u, "R4CE", %{"currency" => ""}), opts())
+    refute Map.has_key?(c2, "currency")
+  end
+
+  test "R-4d: a card with a legacy currency is editable; check applies to the body, not the stored value (REQ-826 C3)",
+       %{schema: s} do
+    # Write a card with currency "TNG" directly via Records, bypassing the currency check
+    owner = ManagedTypes.owner_for!(Letflow.Modules.Assets)
+    idem = Ecto.UUID.generate()
+
+    {:ok, %{record: record}} =
+      Records.create_record(
+        %{
+          entity_type: "assets_card",
+          field_values: %{
+            "inventory_number" => "R4D-TNG",
+            "name" => "Legacy TNG card",
+            "kind" => "fixed",
+            "active" => true,
+            "currency" => "TNG"
+          },
+          actor_id: @actor,
+          idempotency_key: idem
+        },
+        s,
+        owner
+      )
+
+    # An update that does not send currency succeeds even though the stored value is not in the catalog
+    assert {:ok, updated} =
+             Cards.update_card(s, record.record_id, %{"name" => "Renamed"}, opts())
+
+    assert updated["name"] == "Renamed"
+    assert updated["currency"] == "TNG"
+
+    # An update that sends currency KZT replaces the stored value
+    assert {:ok, kzt_card} =
+             Cards.update_card(s, record.record_id, %{"currency" => "KZT"}, opts())
+
+    assert kzt_card["currency"] == "KZT"
   end
 
   test "R-5: record errors: duplicates, strict decimals, missing required", %{schema: s, unit: u} do

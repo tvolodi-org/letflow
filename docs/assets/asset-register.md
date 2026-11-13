@@ -142,12 +142,13 @@ A failed check posts nothing. These checks are run by the documents of item C2, 
 user or imported (item C4), never calculated by the product in the first version (assets.md, D-061). They are
 never a ledger slot, a leg column, a leg attrs key or a balance column (assets.md review finding 4). No process
 definition, trigger or script of the assets module writes them. A change of these fields is a card update recorded
-in the audit trail, not a posting. Currency (D-097, which supersedes the
+in the audit trail, not a posting. Currency (D-097, C4 / REQ-826, which supersedes the
 REQ-689 criterion 7 wording that gives the currency no answer of its own): there is one currency per tenant, KZT by
-default. The `currency` field of the card is kept. Reading chosen here: the tenant holds the one currency in a
-setting with default KZT, the card field `currency` (string, optional) is kept for information and for the xlsx
-import (item C4), and write logic refuses a value that differs from the tenant currency; empty means the tenant
-currency. The product never converts between currencies. The money fields stay information only.
+default. The `currency` field of the card is kept. Reading chosen here: the tenant currency is read from the currency
+directory (C1/C2) with the legacy module setting as fallback; write logic refuses a code not in the platform list
+(`currency_unknown`) or a code that differs from the tenant currency (`currency_mismatch`); the check applies to the
+value sent in the request body, so an update that does not send `currency` is not refused because of the stored value;
+empty means the tenant currency. The product never converts between currencies. The money fields stay information only.
 
 ## 7. Quantity and access
 

@@ -47,6 +47,17 @@ defmodule Letflow.Currencies do
     |> Kernel.||(Catalog.default_code())
   end
 
+  @doc """
+  The tenant currency code when a `tenant_currencies` row with `tenant_currency = true` exists,
+  otherwise `nil`. Used by `Letflow.Modules.Assets.Settings.currency/1` to decide whether to
+  trust the directory or fall back to the legacy assets setting (C4 / REQ-826).
+  """
+  @spec tenant_currency_opt(String.t()) :: String.t() | nil
+  def tenant_currency_opt(prefix) do
+    from(s in Switch, where: s.tenant_currency == true, select: s.code, limit: 1)
+    |> Repo.one(prefix: prefix)
+  end
+
   @doc "True when `code` is switched on for the tenant (and is in the platform list)."
   @spec active?(String.t(), term()) :: boolean()
   def active?(prefix, code) do

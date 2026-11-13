@@ -156,6 +156,7 @@ defmodule Letflow.Modules.Assets.Import do
   @spec refusal(term()) :: term()
   def refusal(:valid_until_not_allowed), do: :asset_valid_until_not_allowed
   def refusal(:currency_mismatch), do: :asset_currency_mismatch
+  def refusal(:currency_unknown), do: :asset_currency_unknown
   def refusal(:kind_locked), do: :asset_kind_locked
   def refusal(:inventory_number_locked), do: :asset_inventory_number_locked
   def refusal(:org_unit_not_active), do: {:reference_inactive, "org_unit_id"}

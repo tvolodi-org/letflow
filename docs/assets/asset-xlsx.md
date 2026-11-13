@@ -89,8 +89,10 @@ One rule per line. Reason codes introduced by this file are constants and carry 
    `asset_inventory_number_locked`.
 5. Each money cell follows the `decimal_strict` grammar of `CsvImport` (`@decimal_strict`); any other text is the
    row error `csv_invalid_decimal` (0077 D3).
-6. A `currency` cell that differs from the tenant currency is refused: `asset_currency_mismatch`
-   (`asset-register.md` section 6, D-097).
+6. A `currency` cell is trimmed and upper-cased; a code not in the platform list is refused:
+   `asset_currency_unknown` with field `currency`; a code that differs from the tenant currency is
+   refused: `asset_currency_mismatch` (`asset-register.md` section 6, D-097, C4 / REQ-826).
+   Aliases such as `тенге` are not accepted (the xlsx import never maps them).
 7. A missing required cell (`inventory_number`, `name`, `kind`, `org_unit_id`) is refused: `asset_field_required`
    with the constant header of the field.
 8. An `inventory_number` already used by another card of the tenant is refused: `asset_inventory_number_taken`.

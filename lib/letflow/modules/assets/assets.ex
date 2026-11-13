@@ -87,8 +87,11 @@ defmodule Letflow.Modules.Assets do
   an existing tenant has no key and stays off until a tenant administrator switches it on
   (`PUT /tenant/role-grants`). AssetsReverse, AssetsReconcile and AssetsCardWrite are never grantable.
 
-  **Currency** (D-097): the tenant currency is the module setting `currency` (three characters),
-  `KZT` when absent. See `currency/1`.
+  **Currency** (D-097, C4 / REQ-826): the tenant currency is read from the currency directory
+  (`Letflow.Currencies.tenant_currency_opt/1`) with the legacy module setting `currency` as fallback
+  for tenants not yet migrated by the C3 release task. Card writes and the xlsx import refuse a code
+  not in the platform list (`:currency_unknown`) and a known code that is not the tenant currency
+  (`:currency_mismatch`). See `currency/1`.
 
   **Import** (C17, REQ-762): `import_card/3` is the managed import function of `assets_card` (xlsx upsert by
   external reference, spec `docs/assets/asset-xlsx.md`); see `Letflow.Modules.Assets.Import`.
@@ -188,7 +191,7 @@ defmodule Letflow.Modules.Assets do
   @impl true
   defmanifest(
     id: "assets",
-    version: "0.19.0",
+    version: "0.20.0",
     # T-1860: step-less window; the plan's class rows still gate unsafe changes. Without it a bump strands every tenant.
     min_upgradable_from: "0.1.0",
     depends_on: ["catalog_items", "locations", "org", "stock"],
