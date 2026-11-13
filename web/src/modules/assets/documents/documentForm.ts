@@ -251,6 +251,9 @@ const FIELD_KEYS: Record<string, string> = {
   to_org_unit_id: 'side.to.orgUnitId', to_location_id: 'side.to.locationId',
   to_material_responsible_id: 'side.to.responsibleId', to_actual_user_id: 'side.to.userId',
 }
+const LOCATION_FIELD_KEYS: Record<string, string> = {
+  location_id: 'side.from.locationId', from_location_id: 'side.from.locationId', to_location_id: 'side.to.locationId',
+}
 const LINE_FIELD_KEYS: Record<string, string> = { asset_id: 'assetId', quantity: 'quantity' }
 
 /** `{ key, messageId }` for a save refusal; `key` is null when it belongs to the whole form (banner). */
@@ -265,6 +268,8 @@ export function placeError(err: unknown, form?: DocKind): { key: string | null; 
     const i = info.lineNo - 1
     return { key: field ? `lines.${i}.${field}` : `lines.${i}`, messageId: info.reason === 'not_linked' && (info.side === 'asset' || info.side === 'stock') ? `${messageId}_${info.side}` : messageId }
   }
+  // A location refusal of a line names the header's location field (the location is typed once, on the header).
+  if (info.lineNo !== undefined && info.field !== undefined && LOCATION_FIELD_KEYS[info.field]) return { key: LOCATION_FIELD_KEYS[info.field], messageId }
   if (info.lineNo !== undefined) {
     const field = info.field !== undefined ? (LINE_FIELD_KEYS[info.field] ?? 'assetId') : info.reason === 'quantity_invalid' ? 'quantity' : undefined
     const i = info.lineNo - 1
