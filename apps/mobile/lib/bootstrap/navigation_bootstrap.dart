@@ -11,6 +11,7 @@
 /// `docs/mobile/architecture.md` §1. Built starting REQ-421 (MOB-2).
 library;
 
+import 'language_switcher.dart';
 import 'dart:convert' show base64Url;
 import 'dart:typed_data';
 
@@ -143,6 +144,8 @@ class _TenantSlugEntryScreenState extends ConsumerState<TenantSlugEntryScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              const LanguageSwitcher(),
+              const SizedBox(height: 16),
               Text(tr('bootstrap.slugEntry.prompt')),
               TextField(
                 key: const Key('tenant-slug-field'),

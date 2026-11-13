@@ -278,5 +278,9 @@
   "session.device.offer.decline": "Не сейчас",
   "session.device.pinStays": "Проверка устройством не настроена. Вы разблокируете приложение PIN-кодом.",
   "session.device.cannotThisWay": "Это устройство так не умеет. Вы разблокируете приложение PIN-кодом.",
-  "session.device.unlockButton": "Разблокировать устройством"
+  "session.device.unlockButton": "Разблокировать устройством",
+  "language.label": "Язык",
+  "language.en": "EN",
+  "language.ru": "RU",
+  "language.kk": "KK"
 }

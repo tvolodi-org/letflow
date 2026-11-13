@@ -278,5 +278,9 @@
   "session.device.offer.decline": "Not now",
   "session.device.pinStays": "This device check was not set up. You unlock with your PIN.",
   "session.device.cannotThisWay": "This device cannot do it this way. You unlock with your PIN.",
-  "session.device.unlockButton": "Unlock with this device"
+  "session.device.unlockButton": "Unlock with this device",
+  "language.label": "Language",
+  "language.en": "EN",
+  "language.ru": "RU",
+  "language.kk": "KK"
 }

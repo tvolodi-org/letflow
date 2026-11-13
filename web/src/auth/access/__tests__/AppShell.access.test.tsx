@@ -160,14 +160,14 @@ describe('AppShell nav groups from /me/access (GH 2238 slice 2b)', () => {
 
   it('platform-tenant platform admin: all three groups with their entries', () => {
     renderShell(accessState('platformAdmin'))
-    expect(linksIn(WORK)).toEqual(['Instances', 'My Tasks', 'Definitions'])
+    expect(linksIn(WORK)).toEqual(['Instances', 'My Tasks', 'Definitions', 'Reports'])
     expect(linksIn(TENANT_ADMIN)).toEqual(expect.arrayContaining(['Users', 'Tokens', 'Audit', 'Promotion Reviews']))
     expect(linksIn(PLATFORM)).toEqual(expect.arrayContaining(PLATFORM_ENTRIES))
   })
 
   it('auditor: read pages only (no write-surface entries, no Platform group)', () => {
     renderShell(accessState('auditor'))
-    expect(linksIn(WORK)).toEqual(['Instances', 'My Tasks', 'Definitions'])
+    expect(linksIn(WORK)).toEqual(['Instances', 'My Tasks', 'Definitions', 'Reports'])
     expect(linksIn(TENANT_ADMIN)).toEqual(['Promotion Reviews', 'Audit', 'Metrics'])
   })
 
