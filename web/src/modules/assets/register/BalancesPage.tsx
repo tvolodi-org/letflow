@@ -12,6 +12,10 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { HelpLink } from '@/components/help/HelpLink'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
+import { Field } from '@/components/ui/Field'
+import { DateValueHint } from '@/components/ui/DateValueHint'
+import { formatLocalInput } from '@/i18n/format'
+import { saveBlob } from '@/lib/saveBlob'
 import { Banner } from '@/components/ui/Banner'
 import { Registry } from '@/components/ui/registry/Registry'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -30,7 +34,7 @@ import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { LoadMore, RegisterError } from './RegisterShell'
 import { assetRegisterApi, type AssetBalanceRow, type AssetBalancesBody } from './assetRegister.api'
 import { BalanceHistoryPanel } from './BalanceHistoryPanel'
-import { EMPTY_BALANCE_FILTERS, balanceNameIds, balanceParams, type BalanceFilters } from './registerModel'
+import { EMPTY_BALANCE_FILTERS, AS_OF_DATE, balanceNameIds, balanceParams, balanceQuery, todayIso, type BalanceFilters } from './registerModel'
 
 const ACTIVE_ONLY: never[] = []
 const LAYOUT_SCREEN = 'assets.balances'
@@ -56,13 +60,16 @@ const FILTER_LABEL: Record<keyof BalanceFilters, string> = {
   scope_subtree: 'assets.reg.filter.subtree',
 }
 
-function BalancesInner({ initialSelectedId = null, initialFilters }: { initialSelectedId?: string | null; initialFilters?: Partial<BalanceFilters> }) {
+function BalancesInner({ initialSelectedId = null, initialFilters, initialAsOf = '' }: { initialSelectedId?: string | null; initialFilters?: Partial<BalanceFilters>; initialAsOf?: string }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   const [filters, setFilters] = useState<BalanceFilters>({ ...EMPTY_BALANCE_FILTERS, ...initialFilters })
   const [selected, setSelected] = useState<string | null>(initialSelectedId)
+  const [asOf, setAsOf] = useState(initialAsOf)
+  const [exporting, setExporting] = useState(false)
+  const [exportFailed, setExportFailed] = useState(false)
   const set = (key: keyof BalanceFilters) => (value: string) => {
     setSelected(null)
     setFilters((f) => ({ ...f, [key]: value }))
@@ -73,7 +80,8 @@ function BalancesInner({ initialSelectedId = null, initialFilters }: { initialSe
   const units = usePickerOptions('org_unit', ACTIVE_ONLY)
   const people = usePickerOptions('org_employee', ACTIVE_ONLY)
 
-  const params = balanceParams(filters)
+  const params = balanceQuery(filters, asOf)
+  const filterParams = balanceParams(filters)
   const query = useInfiniteQuery({
     queryKey: assetsQueryKeys.balances(tenantId, JSON.stringify(params)),
     queryFn: ({ pageParam }) => assetRegisterApi.balances({ ...params, ...(pageParam ? { cursor: pageParam } : {}) }),
@@ -98,12 +106,26 @@ function BalancesInner({ initialSelectedId = null, initialFilters }: { initialSe
     { key: 'user', label: t('assets.reg.col.user'), render: (r) => name('org_employee', r.actual_user) || dash },
     { key: 'quantity', label: t('assets.reg.col.quantity'), render: (r) => formatQuantity(r.quantity, intl.locale), align: 'end', mono: true },
   ]
-  const chips: { id: string; label: string }[] = (Object.keys(params) as (keyof BalanceFilters)[]).map((k) => ({
+  const chips: { id: string; label: string }[] = (Object.keys(filterParams) as (keyof BalanceFilters)[]).map((k) => ({
     id: k,
     label: `${t(FILTER_LABEL[k])}: ${
-      [...assets, ...locations, ...units, ...people].find((o) => o.value === params[k])?.label ?? (isUuid(params[k]) ? dash : params[k])
+      [...assets, ...locations, ...units, ...people].find((o) => o.value === filterParams[k])?.label ?? (isUuid(filterParams[k]) ? dash : filterParams[k])
     }`,
   }))
+  if (params['as_of_date']) chips.push({ id: 'as_of_date', label: `${t('assets.filter.asOf')}: ${formatLocalInput(params['as_of_date'], 'date', intl.locale)}` })
+  const onExport = async () => {
+    setExporting(true)
+    setExportFailed(false)
+    try {
+      const { blob } = await assetRegisterApi.balancesXlsx(params)
+      saveBlob(blob, 'asset-balances.xlsx')
+    } catch {
+      setExportFailed(true)
+    } finally {
+      setExporting(false)
+    }
+  }
+  const first = pages[0]
   const selectedRow = selected === null ? null : (rows.find((r) => rowId(r) === selected) ?? null)
 
   const gridRef = useRef<HTMLDivElement>(null)
@@ -172,13 +194,24 @@ function BalancesInner({ initialSelectedId = null, initialFilters }: { initialSe
   return (
     <>
       {anyPickerTruncated(assets, locations, units, people) && <TruncatedNotice messageId="assets.pickers.truncated" count={MAX_ROWS} />}
-      <PageHeader eyebrow={t('assets.reg.eyebrow')} title={t('assets.balances.title')} lede={t('assets.balances.lede')} actions={<HelpLink to="/admin/assets/help/balances" label={t('assets.help.link')} />} />
+      <PageHeader eyebrow={t('assets.reg.eyebrow')} title={t('assets.balances.title')} lede={t('assets.balances.lede')} actions={
+          <>
+            <HelpLink to="/admin/assets/help/balances" label={t('assets.help.link')} />
+            <Button variant="secondary" loading={exporting} disabled={query.isPending || query.isError} onClick={() => void onExport()}>
+              {t('assets.balances.export')}
+            </Button>
+          </>
+        }
+      />
+      {exportFailed && <Banner tone="danger">{t('assets.balances.exportFailed')}</Banner>}
+      {query.hasNextPage && <p className="caption">{t('assets.balances.exportHint')}</p>}
       <FilterBar
         activeChips={chips}
-        onRemoveChip={(id) => set(id as keyof BalanceFilters)('')}
+        onRemoveChip={(id) => (id === 'as_of_date' ? setAsOf('') : set(id as keyof BalanceFilters)(''))}
         onClear={() => {
           setSelected(null)
           setFilters(EMPTY_BALANCE_FILTERS)
+          setAsOf('')
         }}
         labels={{ clear: t('assets.common.clear'), remove: t('assets.common.remove') }}
       >
@@ -188,11 +221,39 @@ function BalancesInner({ initialSelectedId = null, initialFilters }: { initialSe
         <Select label={t('assets.reg.filter.responsible')} value={filters.material_responsible} onChange={set('material_responsible')} options={people} placeholder={t('assets.reg.all')} />
         <Select label={t('assets.reg.filter.user')} value={filters.actual_user} onChange={set('actual_user')} options={people} placeholder={t('assets.reg.all')} />
         <Select label={t('assets.reg.filter.subtree')} value={filters.scope_subtree} onChange={set('scope_subtree')} options={units} placeholder={t('assets.reg.all')} />
+        <Field
+          label={t('assets.filter.asOf')}
+          hint={t('assets.filter.asOfHint')}
+          error={
+            asOf !== '' && !AS_OF_DATE.test(asOf)
+              ? t('assets.filter.asOfInvalid')
+              : asOf > todayIso()
+                ? t('assets.filter.asOfFuture')
+                : undefined
+          }
+          mono
+          width="m"
+        >
+          <input name="as-of-date" type="date" max={todayIso()} value={asOf} onChange={(e) => {
+            setSelected(null)
+            setAsOf(e.target.value)
+          }} />
+        </Field>
+        <DateValueHint value={asOf} kind="date" />
       </FilterBar>
-      {ledgerSeq != null && (
-        <p className="caption" data-testid="ledger-seq">
-          {intl.formatMessage({ id: 'assets.balances.readAt' }, { seq: ledgerSeq })}
+      {first?.as_of_date ? (
+        <p className="caption" data-testid="as-of-read">
+          {intl.formatMessage(
+            { id: 'assets.balances.asOfRead' },
+            { date: formatLocalInput(first.as_of_date, 'date', intl.locale), zone: first.timezone ?? '', seq: first.cutoff_seq ?? ledgerSeq ?? '' },
+          )}
         </p>
+      ) : (
+        ledgerSeq != null && (
+          <p className="caption" data-testid="ledger-seq">
+            {intl.formatMessage({ id: 'assets.balances.readAt' }, { seq: ledgerSeq })}
+          </p>
+        )
       )}
       {visibleOnly && (
         <Banner tone="info">
@@ -211,11 +272,11 @@ function BalancesInner({ initialSelectedId = null, initialFilters }: { initialSe
 }
 
 /** `initialSelectedId`: opens the history panel of one row at first render; `initialFilters`: starts with filters set
- *  (the screen harness uses both). */
-export default function BalancesPage({ initialSelectedId, initialFilters }: { initialSelectedId?: string; initialFilters?: Partial<BalanceFilters> } = {}) {
+ *  and the as-of day (the screen harness uses them). */
+export default function BalancesPage({ initialSelectedId, initialFilters, initialAsOf }: { initialSelectedId?: string; initialFilters?: Partial<BalanceFilters>; initialAsOf?: string } = {}) {
   return (
     <AssetsIntlProvider>
-      <BalancesInner initialSelectedId={initialSelectedId ?? null} initialFilters={initialFilters} />
+      <BalancesInner initialSelectedId={initialSelectedId ?? null} initialFilters={initialFilters} initialAsOf={initialAsOf} />
     </AssetsIntlProvider>
   )
 }

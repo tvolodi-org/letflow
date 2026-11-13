@@ -12,7 +12,7 @@ expect.extend(jestDomMatchers)
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ session: { token: 'tok', tenant_id: 'tid-assets' }, isAuthenticated: true }),
 }))
-const clientMock = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() }))
+const clientMock = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn(), getBlob: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({ ...(await importOriginal<object>()), client: clientMock }))
 
 const ROW = { asset: 'a1', org_unit: 'u1', location: 'l1', material_responsible: 'e1', actual_user: null, unit_ref: 'pcs', quantity: '12.500000000', last_posting_seq: 4 }
@@ -122,6 +122,62 @@ describe('B1 balances', () => {
     expect(within(panel).getByText('13 pcs')).toBeInTheDocument()
     expect(within(panel).getByText('0.5 pcs')).toBeInTheDocument()
     for (const p of routeCalls(clientMock, 'movements')) expect(Object.keys(p)).toEqual([])
+  })
+})
+
+describe('T1 as-of date and export', () => {
+  const download = () => {
+    const create = vi.fn(() => 'blob:x')
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    return { create, click }
+  }
+  const body = { as_of_date: '2026-11-03', timezone: 'Asia/Almaty', cutoff_seq: 17, ledger_seq: 42, next_cursor: null, rows: [ROW] }
+  it('sends as_of_date only, shows the server day, zone and cutoff, and clearing drops it', async () => {
+    serve({ balances: body })
+    renderAssets(BAL)
+    await firstAsset()
+    fireEvent.change(screen.getByLabelText('As of date'), { target: { value: '2026-11-03' } })
+    await screen.findByTestId('as-of-read')
+    expect(screen.getByTestId('as-of-read')).toHaveTextContent('Balance at the end of 2026-11-03 (Asia/Almaty), through posting number 17')
+    expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({ as_of_date: '2026-11-03' })
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    await waitFor(() => expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({}))
+  })
+  it('shows the future message, sends no as_of_date and caps the input at today', async () => {
+    serve({ balances: { rows: [ROW], next_cursor: null } })
+    renderAssets(BAL)
+    await firstAsset()
+    const input = screen.getByLabelText('As of date')
+    expect(input).toHaveAttribute('max')
+    fireEvent.change(input, { target: { value: '2999-01-01' } })
+    expect(await screen.findByText('The date cannot be in the future.')).toBeInTheDocument()
+    await waitFor(() => expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({}))
+  })
+  it('exports the xlsx with the current filters and day, no cursor, and saves the file', async () => {
+    const { create, click } = download()
+    clientMock.getBlob.mockResolvedValue({ blob: new Blob(['x']), contentType: 'x' })
+    serve({ balances: body })
+    renderAssets(BAL)
+    await firstAsset()
+    fireEvent.change(screen.getByLabelText('As of date'), { target: { value: '2026-11-03' } })
+    await waitFor(() => expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({ as_of_date: '2026-11-03' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Export to Excel' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Export to Excel' }))
+    await waitFor(() => expect(click).toHaveBeenCalled())
+    expect(clientMock.getBlob).toHaveBeenCalledWith(`${API}/balances`, { as_of_date: '2026-11-03', format: 'xlsx' })
+    expect(create).toHaveBeenCalled()
+  })
+  it('shows an error and saves nothing when the export fails', async () => {
+    const { click } = download()
+    clientMock.getBlob.mockRejectedValue({ status: 403 })
+    serve({ balances: body })
+    renderAssets(BAL)
+    await firstAsset()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Export to Excel' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Export to Excel' }))
+    expect(await screen.findByText('The file could not be exported. Try again.')).toBeInTheDocument()
+    expect(click).not.toHaveBeenCalled()
   })
 })
 
