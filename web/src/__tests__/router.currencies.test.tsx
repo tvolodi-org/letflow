@@ -12,6 +12,7 @@ import { AccessStateProvider } from '@/auth/access/AccessContext'
 import { ACCESS_FIXTURES, accessState, type AccessFixtureName } from '@/auth/access/fixtures'
 import { P } from '@/auth/access'
 import { NAV_ITEMS } from '@/components/layout/AppShell'
+import { NAV_ROLE_PERMISSIONS } from '@/dev/harness/navRoleAccess'
 import { router } from '@/router'
 
 expect.extend(jestDomMatchers)
@@ -35,6 +36,13 @@ vi.mock('@/auth/AuthContext', () => ({
 
 const PATH = 'admin/currencies'
 
+/** The tenantAdmin base fixture predates the module atoms; its full set is the harness's `admin` role screen. */
+function stateFor(fixture: AccessFixtureName) {
+  const base = accessState(fixture)
+  if (fixture !== 'tenantAdmin' || base.status !== 'ready') return base
+  return { ...base, info: { ...base.info, permissions: [...NAV_ROLE_PERMISSIONS.admin] } } as typeof base
+}
+
 function renderRoute(fixture: AccessFixtureName) {
   const root = router.routes.find((r) => r.path === '/')
   const element = root?.children?.find((c) => c.path === PATH)?.element
@@ -42,7 +50,7 @@ function renderRoute(fixture: AccessFixtureName) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <AccessStateProvider state={accessState(fixture)}>
+      <AccessStateProvider state={stateFor(fixture)}>
         <MemoryRouter initialEntries={['/' + PATH]}>
           <Routes>
             <Route path={'/' + PATH} element={element} />
@@ -55,7 +63,7 @@ function renderRoute(fixture: AccessFixtureName) {
 
 const HOLDERS: AccessFixtureName[] = ['tenantAdmin', 'platformAdmin']
 const NON_HOLDERS = (Object.keys(ACCESS_FIXTURES) as AccessFixtureName[]).filter(
-  (k) => !(ACCESS_FIXTURES[k].permissions as readonly string[]).includes('CurrenciesManage'),
+  (k) => !HOLDERS.includes(k) && !(ACCESS_FIXTURES[k].permissions as readonly string[]).includes('CurrenciesManage'),
 )
 
 let fetchSpy: MockInstance<typeof window.fetch>
@@ -92,10 +100,11 @@ describe('REQ-827 criterion 3: route and nav', () => {
     expect(screen.queryByText(/do not have access to this area/)).toBeNull()
   })
 
-  it('only the two admin fixtures hold CurrenciesManage', () => {
-    const holders = (Object.keys(ACCESS_FIXTURES) as AccessFixtureName[]).filter((k) =>
-      (ACCESS_FIXTURES[k].permissions as readonly string[]).includes(P.CurrenciesManage),
-    )
+  it('only the two admin role sets hold CurrenciesManage', () => {
+    const holders = (Object.keys(ACCESS_FIXTURES) as AccessFixtureName[]).filter((k) => {
+      const s = stateFor(k)
+      return s.status === 'ready' && (s.info.permissions as readonly string[]).includes(P.CurrenciesManage)
+    })
     expect(holders.sort()).toEqual([...HOLDERS].sort())
   })
 })
