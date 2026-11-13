@@ -2,7 +2,7 @@
  *  (strings, mono); dates through the same format as DateField; empty values as a dash. */
 import { Fragment } from 'react'
 import { useIntl } from 'react-intl'
-import { useTenantCurrency } from '@/api/useTenantCurrency'
+import { useTenantCurrency } from '@/hooks/useTenantCurrency'
 import { formatDate } from '@/i18n/format'
 import type { EntityRecord } from '@/types/api'
 import { textOf } from './assetsModel'

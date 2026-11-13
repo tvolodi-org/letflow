@@ -26,7 +26,7 @@ import { DOCUMENTS_LAYOUT_SCREEN, lineColumns, lineColumnSpecs } from './lineCol
 import { buildCatalog, itemLabel } from './linesCatalog'
 import { documentsApi, type StockDocument } from './documents.api'
 import { OPENING_LINE_TYPE, importErrorText, summariseImport } from './openingImport'
-import { useTenantCurrency } from '@/api/useTenantCurrency'
+import { useTenantCurrency } from '@/hooks/useTenantCurrency'
 import { MAX_FILE_BYTES } from '@/pages/admin/import/importModel'
 import { runImport } from '@/pages/admin/import/importApi'
 

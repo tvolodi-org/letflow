@@ -4,8 +4,8 @@
  *  currency text, never to a fixed sign. */
 import { useQuery } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
-import { currenciesApi, type CurrencyEntry } from './currencies'
-import { useTenantScopedQueryKeys } from './useTenantScopedQueryKeys'
+import { currenciesApi, type CurrencyEntry } from '../api/currencies'
+import { useTenantScopedQueryKeys } from '../api/useTenantScopedQueryKeys'
 
 export interface TenantCurrency {
   /** ISO code of the tenant currency, '' while unknown. */
