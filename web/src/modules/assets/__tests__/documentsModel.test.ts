@@ -7,6 +7,7 @@ import {
 } from '../documents/documentsModel'
 import type { AssetDocument } from '../documents/assetDocuments.api'
 import { assetsMessages } from '../assetsMessages'
+import { OPENING_CHECK_REASONS, openingReasonMessageId } from '../documents/openingForm'
 
 const can = (...atoms: string[]) => (a: string) => atoms.includes(a)
 
@@ -43,7 +44,7 @@ describe('M1 reasons and errors', () => {
   })
 })
 
-const WEB_PENDING_KINDS: readonly string[] = ['opening']
+const WEB_PENDING_KINDS: readonly string[] = []
 
 describe('M1 sidesOf', () => {
   const base = { id: 'd', state: 'draft', number: null, event_time: null, lines: [] }
@@ -60,7 +61,7 @@ describe('M1 sidesOf', () => {
   it('the header keys of every kind equal Kinds.header_keys', () => {
     const src = readFileSync(path.resolve(__dirname, '../../../../../lib/letflow/modules/assets/documents/kinds.ex'), 'utf-8')
     const blocks = [...src.matchAll(/kind: "(\w+)"[\s\S]*?header_keys:\s*~w\(([^)]*)\)/g)].filter(
-      // Server kinds with no web form yet (G5 opening, #4045): the web screen is a later slice.
+      // Server kinds with no web form yet (none since T-1877 added the opening).
       (b) => !WEB_PENDING_KINDS.includes(b[1]),
     )
     expect(blocks.map((b) => b[1])).toEqual([...DOC_KINDS])
@@ -88,5 +89,38 @@ describe('K1/K9b change of kind', () => {
   })
   it('a not_linked refusal carries its side', () => {
     expect(documentErrorInfo({ status: 422, details: { reason: 'not_linked', side: 'asset', line_no: 2 } })).toMatchObject({ side: 'asset', lineNo: 2 })
+  })
+})
+
+describe('O-R1 opening reasons', () => {
+  const root = path.resolve(__dirname, '../../../../../lib/letflow/modules/assets/documents')
+  it('every reason of OpeningChecks (nine line reasons and the header one) is in OPENING_CHECK_REASONS with a text in en, ru and kk', () => {
+    const src = readFileSync(path.resolve(root, 'opening_checks.ex'), 'utf-8')
+    // only the `reasons =` list of line_result: employee_fields/2 has {"material_responsible_id", ...} tuples too
+    const from = src.indexOf('reasons =')
+    const slice = src.slice(from, src.indexOf('|> Enum.filter', from))
+    const line = [...slice.matchAll(/\{"([a-z_]+)",/g)].map((m) => m[1])
+    expect(line).toHaveLength(9)
+    const all = [...line, 'org_unit_not_active']
+    for (const r of all) expect(OPENING_CHECK_REASONS as readonly string[], r).toContain(r)
+    const ids = [
+      ...OPENING_CHECK_REASONS.filter((r) => r !== 'employee_not_active').map((r) => openingReasonMessageId(r)!),
+      openingReasonMessageId('employee_not_active', 'material_responsible_id')!,
+      openingReasonMessageId('employee_not_active', 'actual_user_id')!,
+    ]
+    for (const l of ['en', 'ru', 'kk'] as const) {
+      for (const id of ids) expect(assetsMessages[l][id], `${l} ${id}`).toBeTruthy()
+      for (const id of ['register_unreadable', 'external_ref_taken', 'external_ref_pair']) expect(assetsMessages[l][`assets.doc.error.${id}`], `${l} ${id}`).toBeTruthy()
+    }
+    for (const r of ['register_unreadable', 'external_ref_taken', 'external_ref_pair']) expect(DOC_REASONS as readonly string[]).toContain(r)
+  })
+})
+
+describe('O-K2 opening sides and reverse', () => {
+  it('sidesOf an opening has the org unit and no place or people; Reverse stays open for it', () => {
+    const doc = { id: 'd', kind: 'opening', state: 'posted', number: 'AOP-1', event_time: null, org_unit_id: 'u', lines: [] } as AssetDocument
+    expect(sidesOf(doc).from).toEqual({ orgUnitId: 'u', locationId: null, responsibleId: null, userId: null })
+    expect(actionsFor('posted', can('AssetsReverse'), 'opening').reverse).toBe(true)
+    expect(actionsFor('draft', can('AssetsPost'), 'opening')).toEqual({ edit: true, discard: true, issue: true, reverse: false })
   })
 })

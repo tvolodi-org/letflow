@@ -2800,4 +2800,170 @@ defmodule Letflow.Routers.TasksTest do
       assert conn.status == 200
     end
   end
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Roles stage 0 S0-5: TasksReadAll on GET /tasks, /tasks/inbox, /tasks/:id
+  # (docs/design/storekeeper-task-visibility-ruling.md, T-1850)
+  # ══════════════════════════════════════════════════════════════════════
+
+  describe "roles stage 0 S0-5: TasksReadAll on GET /tasks, /tasks/inbox, /tasks/:id" do
+    setup do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "s05-read")
+      %{tenant: tenant, set: s05_tasks!(tenant)}
+    end
+
+    test "H1 a STOREKEEPER-only caller sees only own, group and role tasks; a foreign id is a 404",
+         %{tenant: tenant, set: set} do
+      for path <- ["/?page_size=50", "/inbox?page_size=50"] do
+        conn =
+          build_conn(:get, path, tenant, roles: ["STOREKEEPER"], user_id: set.me)
+          |> dispatch()
+
+        assert conn.status == 200, path
+        ids = conn.resp_body |> Jason.decode!() |> item_ids()
+
+        for t <- [:t_own, :t_my_group, :t_sk_role], do: assert(set[t].id in ids, "#{path} #{t}")
+
+        for t <- [:t_other_user, :t_other_group, :t_admin_role],
+            do: refute(set[t].id in ids, "#{path} #{t}")
+      end
+
+      hidden =
+        build_conn(:get, "/#{set.t_other_group.id}", tenant,
+          roles: ["STOREKEEPER"],
+          user_id: set.me
+        )
+        |> dispatch()
+
+      missing =
+        build_conn(:get, "/#{Ecto.UUID.generate()}", tenant,
+          roles: ["STOREKEEPER"],
+          user_id: set.me
+        )
+        |> dispatch()
+
+      assert hidden.status == 404
+      assert hidden.status == missing.status
+      assert hidden.resp_body == missing.resp_body
+
+      own =
+        build_conn(:get, "/#{set.t_own.id}", tenant, roles: ["STOREKEEPER"], user_id: set.me)
+        |> dispatch()
+
+      assert own.status == 200
+    end
+
+    test "H2 tasks routed to the storekeeper (its group, the STOREKEEPER role) are listed and readable",
+         %{tenant: tenant, set: set} do
+      for t <- [:t_my_group, :t_sk_role] do
+        conn =
+          build_conn(:get, "/#{set[t].id}", tenant, roles: ["STOREKEEPER"], user_id: set.me)
+          |> dispatch()
+
+        assert conn.status == 200, inspect(t)
+      end
+    end
+
+    test "H3 the five reading roles still see all six tasks, list, inbox and by id",
+         %{tenant: tenant, set: set} do
+      Letflow.Support.PlatformTenantFixture.pin!(tenant.tenant_id)
+      all_ids = set.all |> Enum.map(& &1.id) |> Enum.sort()
+
+      for roles <- [
+            ["PROCESS_DESIGNER"],
+            ["PROCESS_OPERATOR"],
+            ["TENANT_ADMIN"],
+            ["TENANT_AUDITOR"],
+            ["PLATFORM_ADMIN"]
+          ],
+          path <- ["/?page_size=50", "/inbox?page_size=50"] do
+        conn = build_conn(:get, path, tenant, roles: roles, user_id: set.me) |> dispatch()
+        assert conn.status == 200, inspect({roles, path})
+
+        assert conn.resp_body |> Jason.decode!() |> item_ids() |> Enum.sort() == all_ids,
+               inspect({roles, path})
+
+        by_id =
+          build_conn(:get, "/#{set.t_other_group.id}", tenant, roles: roles, user_id: set.me)
+          |> dispatch()
+
+        assert by_id.status == 200, inspect(roles)
+      end
+    end
+
+    test "H4 a TASK_WORKER is unchanged; a reading role next to STOREKEEPER lifts the filter",
+         %{tenant: tenant, set: set} do
+      for roles <- [["TASK_WORKER"], ["STOREKEEPER", "TASK_WORKER"]] do
+        conn =
+          build_conn(:get, "/inbox?page_size=50", tenant, roles: roles, user_id: set.me)
+          |> dispatch()
+
+        ids = conn.resp_body |> Jason.decode!() |> item_ids()
+
+        assert Enum.sort(ids) ==
+                 Enum.sort(Enum.map([set.t_own, set.t_my_group, set.t_sk_role], & &1.id))
+
+        by_id =
+          build_conn(:get, "/#{set.t_other_user.id}", tenant, roles: roles, user_id: set.me)
+          |> dispatch()
+
+        assert by_id.status == 404
+      end
+
+      conn =
+        build_conn(:get, "/?page_size=50", tenant,
+          roles: ["STOREKEEPER", "PROCESS_OPERATOR"],
+          user_id: set.me
+        )
+        |> dispatch()
+
+      assert conn.resp_body |> Jason.decode!() |> item_ids() |> length() == 6
+    end
+
+    test "H5 outside the platform tenant a PLATFORM_ADMIN is dropped and the caller stays filtered",
+         %{tenant: tenant, set: set} do
+      for roles <- [["PLATFORM_ADMIN", "TASK_WORKER"], ["PLATFORM_ADMIN", "STOREKEEPER"]] do
+        conn =
+          build_conn(:get, "/inbox?page_size=50", tenant, roles: roles, user_id: set.me)
+          |> dispatch()
+
+        assert conn.status == 200, inspect(roles)
+        ids = conn.resp_body |> Jason.decode!() |> item_ids()
+        refute set.t_other_user.id in ids
+        assert set.t_own.id in ids
+      end
+    end
+  end
+
+  # The ruling's 1.2 set: me and other users; `stores` (me) bound to the STOREKEEPER role,
+  # `approvers` (other); six tasks, one per addressing form.
+  defp s05_tasks!(tenant) do
+    me = insert_user!(tenant, %{username: "s05-me"}).id
+    other = insert_user!(tenant, %{username: "s05-other"}).id
+
+    approvers = insert_group!(tenant, name: "s05-approvers")
+    insert_group_member!(tenant, approvers.id, other)
+    insert_role!(tenant, "approver", approvers.id)
+
+    stores = insert_group!(tenant, name: "s05-stores")
+    insert_group_member!(tenant, stores.id, me)
+    insert_role!(tenant, "STOREKEEPER", stores.id)
+
+    set = %{
+      me: me,
+      t_own: insert_task!(tenant, %{assignee_type: "USER", assignee_ref: me}),
+      t_other_user: insert_task!(tenant, %{assignee_type: "USER", assignee_ref: other}),
+      t_other_group: insert_task!(tenant, %{assignee_type: "GROUP", assignee_ref: approvers.id}),
+      t_admin_role: insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "TENANT_ADMIN"}),
+      t_sk_role: insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "STOREKEEPER"}),
+      t_my_group: insert_task!(tenant, %{assignee_type: "GROUP", assignee_ref: stores.id})
+    }
+
+    Map.put(
+      set,
+      :all,
+      [:t_own, :t_other_user, :t_other_group, :t_admin_role, :t_sk_role, :t_my_group]
+      |> Enum.map(&Map.fetch!(set, &1))
+    )
+  end
 end

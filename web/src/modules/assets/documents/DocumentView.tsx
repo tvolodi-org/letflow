@@ -34,7 +34,7 @@ import { DocumentActions } from './DocumentActions'
 import { DocumentForm } from './DocumentForm'
 import { DocumentTabs } from './DocumentTabs'
 import { DOCUMENTS_PATH } from './DocumentList'
-import { ASSET_DOCUMENTS_LAYOUT_SCREEN, kindChangeColumnSpecs, kindChangeLineColumns, lineColumnSpecs, lineColumns } from './lineColumns'
+import { ASSET_DOCUMENTS_LAYOUT_SCREEN, kindChangeColumnSpecs, kindChangeLineColumns, lineColumnSpecs, lineColumns, openingColumnSpecs, openingLineColumns } from './lineColumns'
 import { DOC_KINDS, DOC_STATES, WRITEOFF_REASONS, formatEventTime, isTwoSide, sidesOf } from './documentsModel'
 import { documentStateTone as stateTone } from '@/lib/documentStateTone'
 
@@ -68,6 +68,7 @@ function nameIds(doc: AssetDocument): NameIds {
     add('org_employee', l.actual_user_id)
     add('org_unit', l.asset_org_unit_id)
     add('assets_card', l.asset_card_id)
+    add('location_node', l.location_id)
   }
   return out
 }
@@ -139,6 +140,7 @@ export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () =
   const sides = sidesOf(doc)
   const columns = lineColumns(t)
   const kc = doc.kind === 'kind_change'
+  const op = doc.kind === 'opening'
   const ref = (type: Parameters<typeof name>[0], id: string | null | undefined) => (id ? name(type, id) : dash)
   const kcView: Record<string, (l: AssetLine) => string> = {
     item: (l) => ref('catalog_item', l.catalog_item_id),
@@ -157,7 +159,16 @@ export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () =
     actualUser: (l) => ref('org_employee', l.actual_user_id),
     assetCard: (l) => ref('assets_card', l.asset_card_id),
   }
-  const editorColumns: LeColumn<AssetLine>[] = kc
+  const opView: Record<string, (l: AssetLine) => string> = {
+    asset: (l) => name('assets_card', l.asset_id),
+    quantity: (l) => formatQuantity(l.quantity, intl.locale),
+    location: (l) => ref('location_node', l.location_id),
+    responsible: (l) => ref('org_employee', l.material_responsible_id),
+    user: (l) => ref('org_employee', l.actual_user_id),
+  }
+  const editorColumns: LeColumn<AssetLine>[] = op
+    ? openingLineColumns(t, false).map((c) => ({ key: c.key, colId: c.colId, label: c.label, num: c.num, grow: c.key === 'asset', view: opView[c.key]! }))
+    : kc
     ? kindChangeLineColumns(t, true).map((c) => ({ key: c.key, colId: c.colId, label: c.label, num: c.num, grow: c.key === 'item', view: kcView[c.key]! }))
     : [
         { key: 'asset', colId: 'item', label: columns[0].label, grow: true, view: (l) => name('assets_card', l.asset_id) },
@@ -230,7 +241,7 @@ export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () =
         )}
         {doc.state === 'issued' && (
           <Banner tone="info" action={<Link to="/tasks">{t('assets.doc.waiting.link')}</Link>}>
-            {t('assets.doc.waiting.text')}
+            {t(op ? 'assets.doc.waiting.opening' : 'assets.doc.waiting.text')}
           </Banner>
         )}
       </DocBar>
@@ -238,13 +249,15 @@ export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () =
       <DocCard area="header" title={t('assets.doc.header')}>
         <DocFields data-testid="document-header">
           {row(t('assets.doc.col.number'), doc.number, true)}
-          {row(t('assets.reg.col.time'), when(doc.event_time), true)}
+          {!op && row(t('assets.reg.col.time'), when(doc.event_time), true)}
           {(!two || doc.kind === 'change') && row(t('assets.reg.col.orgUnit'), name('org_unit', sides.from.orgUnitId))}
-          {!kc && (!two || doc.kind === 'change') && row(t('assets.reg.col.location'), name('location_node', sides.from.locationId))}
-          {!two && !kc && sideRows(sides.from, false)}
+          {!kc && !op && (!two || doc.kind === 'change') && row(t('assets.reg.col.location'), name('location_node', sides.from.locationId))}
+          {!two && !kc && !op && sideRows(sides.from, false)}
           {doc.reason_code && row(t('assets.doc.field.reasonCode'), known(WRITEOFF_REASONS, 'assets.doc.writeoffReason', doc.reason_code))}
           {doc.reason_text && row(t('assets.doc.field.reasonText'), doc.reason_text)}
           {row(t('assets.doc.field.note'), doc.note, false, false)}
+          {op && row(t('assets.doc.field.externalRefSystem'), doc.external_ref_system, true, false)}
+          {op && row(t('assets.doc.field.externalRefId'), doc.external_ref_id, true, false)}
           {hasPosting && <DocGroup>{t('assets.doc.group.posting')}</DocGroup>}
           {row(t('assets.doc.field.issuedAt'), doc.issued_at ? when(doc.issued_at) : null, true, false)}
           {row(t('assets.doc.field.postedAt'), doc.posted_at ? when(doc.posted_at) : null, true, false)}
@@ -281,9 +294,9 @@ export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () =
             max={lines.length}
             mode={linesMode}
             onModeChange={setLinesMode}
-            searchText={(l) => (kc ? `${kcView['item']!(l)} ${l.inventory_number ?? ''} ${l.asset_name ?? ''} ${l.quantity}` : `${name('assets_card', l.asset_id)} ${l.quantity}`)}
+            searchText={(l) => (op ? `${opView['asset']!(l)} ${l.quantity}` : kc ? `${kcView['item']!(l)} ${l.inventory_number ?? ''} ${l.asset_name ?? ''} ${l.quantity}` : `${name('assets_card', l.asset_id)} ${l.quantity}`)}
             totals={() => ({ col: kc ? 'item' : 'asset', node: `${t('assets.doc.lines.total')}: ${lines.length}` })}
-            resize={{ id: kc ? 'kc-lines' : 'lines', screen: ASSET_DOCUMENTS_LAYOUT_SCREEN, cols: kc ? kindChangeColumnSpecs(true) : lineColumnSpecs() }}
+            resize={{ id: op ? 'op-lines' : kc ? 'kc-lines' : 'lines', screen: ASSET_DOCUMENTS_LAYOUT_SCREEN, cols: op ? openingColumnSpecs(false) : kc ? kindChangeColumnSpecs(true) : lineColumnSpecs() }}
           />
         )}
         <div className="lf-btn-row">

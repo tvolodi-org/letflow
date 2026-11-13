@@ -30,6 +30,8 @@ import { assetDocumentsApi, type AssetDocument } from './assetDocuments.api'
 import { AssetLinesEditor } from './AssetLinesEditor'
 import { AssetSideGroup } from './AssetSideGroup'
 import { KindChangeLinesEditor } from './KindChangeLinesEditor'
+import { ENTITIES_RECORDS_IMPORT, OpeningLinesEditor, type OpeningImporter } from './OpeningLinesEditor'
+import { sameOpeningLines } from './openingForm'
 import { DocumentTabs } from './DocumentTabs'
 import { DOCUMENTS_PATH } from './DocumentList'
 import { buildBody, emptyForm, formFromDocument, placeError, validateForm, type FormState, type SideForm } from './documentForm'
@@ -85,7 +87,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
   const respTouched = useRef(edit || (initial?.from.responsibleId ?? '') !== '')
   const linked = linkedEmployeeId(userId, employees)
   useEffect(() => {
-    if (respTouched.current || linked === null || form.kind === 'kind_change') return
+    if (respTouched.current || linked === null || form.kind === 'kind_change' || form.kind === 'opening') return
     if (form.from.responsibleId === '') setForm((f) => ({ ...f, from: { ...f.from, responsibleId: linked } }))
   }, [linked, form.kind, form.from.responsibleId])
   const patchSide = (side: 'from' | 'to', p: Partial<SideForm>) =>
@@ -146,6 +148,30 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
   const err = (key: string) => (errors[`header.${key}`] ? t(errors[`header.${key}`]) : undefined)
   const two = isTwoSide(form.kind)
   const kc = form.kind === 'kind_change'
+  const op = form.kind === 'opening'
+  // Import from Excel (opening only): a saved draft with its external pair and no unsaved edits; the import route is
+  // gated by its own atom (the server stays the authority).
+  const saved = doc ? formFromDocument(doc) : undefined
+  const importReason = !can(ENTITIES_RECORDS_IMPORT)
+    ? t('assets.doc.import.noPermission')
+    : !doc || !saved
+      ? t('assets.doc.import.saveFirst')
+      : saved.externalRefSystem === '' || saved.externalRefId === ''
+        ? t('assets.doc.import.noRef')
+        : !sameOpeningLines(form.opLines, saved.opLines) || form.externalRefSystem !== saved.externalRefSystem || form.externalRefId !== saved.externalRefId
+          ? t('assets.doc.import.dirty')
+          : undefined
+  const importer: OpeningImporter | undefined = op
+    ? {
+        documentId: doc?.id ?? '',
+        disabledReason: importReason,
+        onImported: (fresh) => {
+          patch({ opLines: formFromDocument(fresh).opLines })
+          void qc.invalidateQueries({ queryKey: assetsQueryKeys.documentsAll(tenantId) })
+          void qc.invalidateQueries({ queryKey: assetsQueryKeys.document(tenantId, fresh.id) })
+        },
+      }
+    : undefined
   const sideProps = { orgUnits, locations, employees, errors }
   const E = DocEdit
   return (
@@ -170,7 +196,7 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
         {banner && <Banner tone="danger">{banner}</Banner>}
         {anyPickerTruncated(orgUnits, locations, employees, cards) && <TruncatedNotice messageId="assets.pickers.truncated" count={MAX_ROWS} />}
       </DocBar>
-      <DocumentTabs lineCount={form.kind === 'kind_change' ? form.kcLines.length : form.lines.length} problems={problemsByPane(errors)} />
+      <DocumentTabs lineCount={form.kind === 'kind_change' ? form.kcLines.length : form.kind === 'opening' ? form.opLines.length : form.lines.length} problems={problemsByPane(errors)} />
       <DocCard area="header" title={t('assets.doc.header')} data-testid="document-form">
         <DocFields editing>
           {onKindChange ? (
@@ -187,9 +213,15 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
               <p>{t(`assets.doc.kind.${form.kind}`)}</p>
             </E>
           )}
-          <E full>
-            <DateTimeField label={t('assets.reg.col.time')} error={err('eventTime')} value={form.eventTime} onChange={(eventTime) => patch({ eventTime })} />
-          </E>
+          {op ? (
+            <E full>
+              <p data-testid="opening-time-info">{t('assets.doc.opening.timeInfo')}</p>
+            </E>
+          ) : (
+            <E full>
+              <DateTimeField label={t('assets.reg.col.time')} error={err('eventTime')} value={form.eventTime} onChange={(eventTime) => patch({ eventTime })} />
+            </E>
+          )}
           {two && errors['sides'] && <p role="alert">{t(errors['sides'])}</p>}
           {form.kind === 'handover' && (['from', 'to'] as const).map((side) => (
             <AssetSideGroup
@@ -220,7 +252,22 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
               </E>
             </>
           )}
-          {!two && !kc && (
+          {op && (
+            <>
+              <AssetSideGroup bare side="from" value={form.from} onChange={(p) => patchSide('from', p)} fields={['orgUnitId']} orgUnitFixed={edit} {...sideProps} />
+              <E>
+                <Field label={t('assets.doc.field.externalRefSystem')} error={err('externalRefSystem')} optional>
+                  <input type="text" autoComplete="off" value={form.externalRefSystem} onChange={(e) => patch({ externalRefSystem: e.target.value })} />
+                </Field>
+              </E>
+              <E>
+                <Field label={t('assets.doc.field.externalRefId')} error={err('externalRefId')} hint={t('assets.doc.field.externalRefHint')} optional>
+                  <input type="text" autoComplete="off" value={form.externalRefId} onChange={(e) => patch({ externalRefId: e.target.value })} />
+                </Field>
+              </E>
+            </>
+          )}
+          {!two && !kc && !op && (
             <AssetSideGroup bare side="from" value={form.from} onChange={(p) => patchSide('from', p)} fields={['orgUnitId', 'locationId', 'responsibleId', 'userId']} orgUnitFixed={edit} {...sideProps} />
           )}
           {form.kind === 'writeoff' && (
@@ -251,6 +298,8 @@ export function DocumentForm({ kind = 'commission', doc, onDone, onCancel, title
       </DocCard>
       {kc ? (
         <KindChangeLinesEditor lines={form.kcLines} errors={errors} onChange={(kcLines) => patch({ kcLines })} showErrors={attempted} />
+      ) : op ? (
+        <OpeningLinesEditor lines={form.opLines} errors={errors} onChange={(opLines) => patch({ opLines })} showErrors={attempted} importer={importer} />
       ) : (
         <AssetLinesEditor lines={form.lines} errors={errors} onChange={(lines) => patch({ lines })} showErrors={attempted} extraCards={prefillCards} />
       )}

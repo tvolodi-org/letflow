@@ -68,7 +68,7 @@ defmodule Letflow.Routers.Tasks do
 
   ## Inbox scoping — per-principal, not merely per-tenant
 
-  For a task-worker-only caller (`Authorization.is_task_worker_only?/1`),
+  For a caller who holds `TasksRead` but not `TasksReadAll` (`Authorization.reads_all_tasks?/2`, roles stage 0 S0-5; a TASK_WORKER or a STOREKEEPER without one of the five reading roles),
   `GET /tasks` (via `evaluate_access/2`'s own `AllowWithRowFilter`
   decision), `GET /tasks/inbox` and `GET /tasks/:id` (a task outside the
   scope answers the 404 of a nonexistent id) force `assignee_scope` to
@@ -208,7 +208,7 @@ defmodule Letflow.Routers.Tasks do
     end
   end
 
-  # A task-worker-only caller's scope is always forced to their own
+  # A caller without `TasksReadAll` has a scope that is always forced to their own
   # principal scope, regardless of any assignee_id the caller supplied
   # (INV-2 -- AllowWithRowFilter's row scope can never be widened by a
   # request-supplied filter).
@@ -278,10 +278,11 @@ defmodule Letflow.Routers.Tasks do
 
     roles = Authorization.effective_roles(conn.assigns.auth_context.roles, platform_tenant?)
 
-    if Authorization.is_task_worker_only?(roles) do
-      {:principal, Tasks.resolve_principal_scope(user_id, opts)}
-    else
+    # Roles stage 0 S0-5: filtered unless the caller holds :TasksReadAll.
+    if Authorization.reads_all_tasks?(roles, platform_tenant?) do
       :unfiltered
+    else
+      {:principal, Tasks.resolve_principal_scope(user_id, opts)}
     end
   end
 
@@ -313,7 +314,7 @@ defmodule Letflow.Routers.Tasks do
   defp handle_get_by_id(conn, id, opts) do
     {conn, scope} = ScopeGate.scope_set_for_holders(conn, :TasksGetById, :TasksWorkInScope)
 
-    # Same per-principal row scope as GET /tasks/inbox: a task-worker-only caller reads only
+    # Same per-principal row scope as GET /tasks/inbox: a caller without `TasksReadAll` reads only
     # tasks assigned to them, their groups or their roles; anything else answers 404 (INV-2/5).
     assignee_scope = build_inbox_assignee_scope(conn, conn.assigns.auth_context.user_id, opts)
 

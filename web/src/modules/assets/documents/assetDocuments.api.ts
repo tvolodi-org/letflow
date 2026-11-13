@@ -38,6 +38,10 @@ export interface AssetDocumentLine {
   inventory_number?: string
   asset_name?: string
   asset_card_id?: string | null
+  // Opening (decision 0083): the place is per line; the external pair is written by the import.
+  location_id?: string | null
+  external_ref_system?: string | null
+  external_ref_id?: string | null
 }
 /** A document view: the union of the header keys of the four kinds (`Kinds.header_keys`); a kind carries its own. */
 export interface AssetDocument {
@@ -61,6 +65,8 @@ export interface AssetDocument {
   to_location_id?: string | null
   reason_code?: string | null
   reason_text?: string | null
+  external_ref_system?: string | null
+  external_ref_id?: string | null
   lines: AssetDocumentLine[]
   posted_at?: string | null
   posted_by?: string | null
@@ -70,6 +76,14 @@ export interface AssetDocument {
   reversed_by_label?: string | null
   entry_id?: string | null
   posting_check?: string | null
+}
+
+/** The answer of `POST /documents/:id/check` (opening drafts): header reasons and, per line, its reasons. `fields` names
+ *  the employee fields of an `employee_not_active` reason. */
+export interface OpeningCheckResult {
+  ok: boolean
+  header: string[]
+  lines: { line_no: number; reasons: string[]; fields: string[] }[]
 }
 
 /** The body of create (with `kind`) and replace (the whole header and the whole line list). */
@@ -82,6 +96,7 @@ export const assetDocumentsApi = {
   replace: (id: string, body: AssetDocumentBody) => client.put<AssetDocument>(`${BASE}/${encodeURIComponent(id)}`, body),
   discard: (id: string) => client.delete<void>(`${BASE}/${encodeURIComponent(id)}`),
   issue: (id: string) => client.post<AssetDocument>(`${BASE}/${encodeURIComponent(id)}/issue`),
+  check: (id: string) => client.post<OpeningCheckResult>(`${BASE}/${encodeURIComponent(id)}/check`),
   reverse: (id: string, body: { reason_code: string; reason_text?: string }) =>
     client.post<AssetDocument>(`${BASE}/${encodeURIComponent(id)}/reverse`, body),
 }
