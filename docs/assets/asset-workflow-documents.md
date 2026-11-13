@@ -238,6 +238,14 @@ A failed check posts nothing and leaves the document a draft. They run in the mo
 States: **draft, posted, reversed**.
 
 * A draft may be edited and posts nothing.
+* A draft's header `org_unit_id` cannot change in an edit (422 `field_invalid`, field `org_unit_id`, T-1865): the
+  lines and the scope column carry that unit, so a document for another unit is a new draft. The edit form shows the
+  unit read-only with a hint.
+* The location refusals of a line (`location_required`, `location_not_allowed`, `not_linked`) name the header field
+  (`location_id`; `from_location_id` / `to_location_id` with `side` on a handover) and the `line_no` (T-1865).
+* For the BA's walk text (T-1865): the location rule is per card kind and the header holds one location, so a
+  commission (or any sided kind) holding an intangible card (no location) together with a fixed or low-value card
+  (location required) is refused whichever header is used. This is intended: use one document per kind.
 * Posting is one transaction that commits the ledger posting and marks the document posted, or commits
   neither.
 * After posting no field of the header or of any line changes, and the document is never deleted (D-062,

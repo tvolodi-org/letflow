@@ -85,6 +85,14 @@ describe('K3 body', () => {
   })
 })
 
+describe('T-1865 a location refusal of a line lands on the header location', () => {
+  const err = (details: Record<string, unknown>) => ({ status: 422, details })
+  it('location_id / to_location_id with a line number name the header field, not the asset', () => {
+    expect(placeError(err({ reason: 'location_required', line_no: 2, field: 'location_id' }), 'commission').key).toBe('side.from.locationId')
+    expect(placeError(err({ reason: 'location_required', line_no: 1, field: 'to_location_id', side: 'to' }), 'handover').key).toBe('side.to.locationId')
+  })
+})
+
 describe('K4 where a refusal is shown', () => {
   const err = (details: Record<string, unknown>) => ({ status: 422, details })
   it('a named field lands on that cell of the line', () => {
