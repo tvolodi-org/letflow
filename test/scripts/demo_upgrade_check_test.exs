@@ -339,7 +339,7 @@ defmodule Letflow.Scripts.DemoUpgradeCheckTest do
   end
 
   @tag timeout: 600_000
-  test "U8 a module with no declared window (org) aged by version is refused 409 no_upgrade_path, data untouched",
+  test "U8 a module with window (org) aged below it is refused 409 no_upgrade_path, data untouched",
        c do
     seeded!(c)
     snap = snapshot_file(c)
@@ -349,7 +349,7 @@ defmodule Letflow.Scripts.DemoUpgradeCheckTest do
     {1, _} =
       Repo.update_all(
         from(r in TenantModule, where: r.module_id == "org"),
-        [set: [version: "0.2.0", manifest_hash: String.duplicate("5", 64)]],
+        [set: [version: "0.0.5", manifest_hash: String.duplicate("5", 64)]],
         prefix: c.schema
       )
 
@@ -370,7 +370,7 @@ defmodule Letflow.Scripts.DemoUpgradeCheckTest do
 
     {out, code} = check(c, "verify", snap)
     assert code == 3, out
-    assert out =~ "pending org: pending 0.2.0"
+    assert out =~ "pending org: pending 0.0.5"
     refute out =~ "DIFF"
   end
 
