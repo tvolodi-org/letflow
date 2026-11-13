@@ -38,8 +38,9 @@ defmodule Letflow.Entities.Views do
   @type error :: :not_found | :name_taken | {:unprocessable, String.t()} | term()
 
   @doc "Lists the views the caller may see, optionally of one entity type, by type then name."
-  @spec list(String.t(), String.t(), String.t() | nil) :: {:ok, [View.t()]} | {:error, term()}
-  def list(prefix, user_id, entity_type \\ nil) do
+  @spec list(String.t(), String.t(), String.t() | nil, MapSet.t(String.t())) ::
+          {:ok, [View.t()]} | {:error, term()}
+  def list(prefix, user_id, entity_type \\ nil, module_denied \\ MapSet.new()) do
     query = from(v in View, order_by: [asc: v.entity_type, asc: v.name])
 
     query =
@@ -49,19 +50,26 @@ defmodule Letflow.Entities.Views do
 
     with {:ok, denied} <-
            TypeAccess.denied_types(user_id, Enum.map(views, & &1.entity_type), prefix) do
-      {:ok, Enum.reject(views, &MapSet.member?(denied, &1.entity_type))}
+      {:ok,
+       Enum.reject(
+         views,
+         &(MapSet.member?(denied, &1.entity_type) or MapSet.member?(module_denied, &1.entity_type))
+       )}
     end
   end
 
   @doc "One view, or `{:error, :not_found}` for an absent, malformed, other-tenant or denied id."
-  @spec get(String.t(), String.t(), term()) :: {:ok, View.t()} | {:error, :not_found | term()}
-  def get(prefix, user_id, id) do
+  @spec get(String.t(), String.t(), term(), MapSet.t(String.t())) ::
+          {:ok, View.t()} | {:error, :not_found | term()}
+  def get(prefix, user_id, id, module_denied \\ MapSet.new()) do
     with {:ok, uuid} <- cast_id(id),
          %View{} = view <- Repo.get(View, uuid, prefix: prefix),
+         false <- MapSet.member?(module_denied, view.entity_type),
          :ok <- visible(prefix, user_id, view.entity_type) do
       {:ok, view}
     else
       nil -> {:error, :not_found}
+      true -> {:error, :not_found}
       {:error, _reason} = error -> error
     end
   end

@@ -42,7 +42,7 @@ so cache busting is done by HTTP validators:
 | Header | Value | Why |
 |---|---|---|
 | `Cache-Control` | `no-cache` on every file, always | a new deploy is picked up on the next load; unchanged files cost one 304 (`ETag`), CanvasKit is not downloaded again. No `immutable`, no `max-age`: names do not change. |
-| `Content-Type` | `application/wasm` for `.wasm` | required for streaming compile |
+| `Content-Type` | `application/wasm` for `.wasm`, `text/html` for `index.html` | wasm is required for streaming compile. Both come from the stock `include mime.types;`: do NOT add a `types { ... }` block, it replaces the whole map and `index.html` becomes `application/octet-stream` (a browser then downloads it). |
 | `Content-Encoding` | gzip (`gzip_static on`), brotli if `ngx_brotli` is there | the `.gz`/`.br` files are in the tar |
 | `Permissions-Policy` | `camera=(self), microphone=(self)` | scanner and voice |
 | `X-Content-Type-Options` | `nosniff` | |
@@ -53,6 +53,8 @@ Glyphs outside Roboto (emoji, CJK) show as boxes instead of being fetched from a
 ## Operator checks after the first run (cannot run in the build step)
 
 - [ ] The first push to main touching the paths produces artifact `letflow-pwa-web`.
+- [ ] `curl -sI https://<host>/` (the index) shows `content-type: text/html`; `application/octet-stream` means a `types` block
+      replaced the MIME map.
 - [ ] `curl -sI -H 'Accept-Encoding: gzip' https://<host>/canvaskit/canvaskit.wasm` shows `content-encoding: gzip`,
       `cache-control: no-cache`, an `etag` and `content-type: application/wasm`; a repeat with `If-None-Match` answers 304.
 - [ ] In the browser (DevTools, Network): sign in, open a form with Russian and Kazakh text, scan once: no request to any

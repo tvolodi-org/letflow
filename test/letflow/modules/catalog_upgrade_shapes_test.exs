@@ -12,7 +12,8 @@ defmodule Letflow.Modules.CatalogUpgradeShapesTest do
   alias Letflow.Modules.ManifestHash
   alias Letflow.Modules.Step
 
-  defp base, do: CatalogItems.manifest()
+  # T-1860: the real manifest now declares a window; these shapes start from one without it.
+  defp base, do: Map.delete(CatalogItems.manifest(), :min_upgradable_from)
   defp with_key(key, value), do: Map.put(base(), key, value)
 
   defp step(id, from, to, over \\ []) do

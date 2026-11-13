@@ -158,8 +158,8 @@ defmodule Letflow.Modules.Locations.CustomerLocationTest do
     assert Locations.manifest().version == "0.5.0"
     assert {:ok, []} = Catalog.upgrade_path(Locations.manifest(), "0.4.0", "0.5.0")
 
-    assert {:error, {:no_upgrade_path, _, _}} =
-             Catalog.upgrade_path(Locations.manifest(), "0.3.0", "0.5.0")
+    # T-1860: the window now reaches back to 0.1.0, so older tenants have a path too.
+    assert {:ok, []} = Catalog.upgrade_path(Locations.manifest(), "0.3.0", "0.5.0")
   end
 
   test "CL-7: a marker on one tenant's node does not reach another tenant", %{schema: schema} do

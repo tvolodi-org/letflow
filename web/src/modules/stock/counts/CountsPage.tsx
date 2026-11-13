@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { MasterDetail } from '@/components/ui/MasterDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { HelpLink } from '@/components/help/HelpLink'
+import { StockHelpLink } from '@/modules/stock/help/StockHelpLink'
 import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { StockIntlProvider } from '../StockIntlProvider'
@@ -147,7 +147,7 @@ function CountsInner() {
         lede={t('counts.lede')}
         actions={
           <>
-            <HelpLink to="/admin/stock/help/counts" label={t('stock.help.link')} />
+            <StockHelpLink topic="counts" />
             {canOrder ? (
               <Button variant="primary" size="md" onClick={() => setCreating(true)} data-testid="count-new">
                 {t('counts.new')}

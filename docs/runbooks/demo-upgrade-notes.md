@@ -148,7 +148,7 @@ no steps, declares `min_upgradable_from` and `from` lies in `[min_upgradable_fro
 |---|---|---|---|---|
 | `stock` 0.15.0 | `min_upgradable_from: "0.10.0"` | 0.10.0 .. 0.15.0 | 0.1.0 .. 0.9.0: no path | stock writes refused (409) until the demo is re-seeded on a rebuilt database |
 | `org` 0.3.0 | none | 0.3.0 only | 0.1.0, 0.2.0: no path | org writes refused; the seed script fails at its first org write (`STOP: ... HTTP 409`) |
-| `locations` 0.5.0 | `min_upgradable_from: "0.4.0"` (T-1840) | 0.4.0 .. 0.5.0 | 0.1.0 .. 0.3.0: no path | same |
+| `locations` 0.5.0 | `min_upgradable_from: "0.1.0"` (T-1860, was 0.4.0 from T-1840) | 0.1.0 .. 0.5.0 | none below 0.1.0 | none |
 | `catalog_items` 0.3.0 | none | 0.3.0 only | 0.1.0, 0.2.0: no path | same |
 | `codes` 0.4.0 | `min_upgradable_from: "0.1.0"` (T-1485) | 0.1.0 .. 0.4.0 | none below 0.1.0 | none: a QA tenant on 0.3.0 (gate-b5) now plans and applies |
 | `assets` 0.16.0 | none | 0.16.0 only | 0.1.0 .. 0.15.0: no path (0.16.0, T-1570, adds the optional setting `storekeeper_grants`; no data change, existing tenants stay off; 0.15.0, T-1530, adds optional `depreciation_method` and `depreciation_rate` to `assets_card`: definition only, class B; 0.14.0, T-1489, adds `updates` and the `assets_card` target to two handlers, so the manifest hash changes; 0.13.0, T-1490, adds the card lock route and refusals only; 0.12.0, T-1488, makes `assets_card.org_unit_id` optional: class B, no in-place upgrade; G6 bumped 0.10.0 > 0.11.0 and G5 part 1 bumped 0.9.0 > 0.10.0, both without a window) | same: re-seed |
@@ -215,3 +215,5 @@ Standing rules for infra: take a database backup before promote; run `snapshot` 
 exit 3 means the chain is not complete, not that data is lost; run the seed script after every promote (it is idempotent and
 fails loudly when a document shape changed). Keep `LETFLOW_MODULE_UPGRADE_ON_BOOT` as the owner decides: on, it applies only
 what needs no administrator (class A, no data steps) and leaves the rest as `left_for_admin` (`Letflow.ModuleUpgrade.Boot.list_outcomes/0`).
+
+7. **A version bump without `min_upgradable_from` strands every tenant** (T-1860: catalog_items 0.3.0 -> 0.4.0 and assets 0.9.0 -> 0.16.0 answered `no_upgrade_path`). Every manifest above 0.1.0 now declares a window (catalog_items, assets, locations, org declare `0.1.0`), and `test/letflow/modules/upgrade_window_test.exs` (G1) fails the build when one does not. Caveat for assets: the 0.9.0 card definition drops `required` on `org_unit_id` (read as class B, over-strict) and no step of the closed vocabulary can cover it without writing values, so the plan has a path but the apply answers `upgrade_forbidden` (`step_required`, `assets_card`) for a tenant whose card type is still the 0.9.0 one: such a tenant is reinstalled (the card holds no stock).

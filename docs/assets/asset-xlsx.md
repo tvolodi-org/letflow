@@ -51,7 +51,7 @@ The header row of an asset import file is one column per field of the `assets_ca
 | 1 | inventory_number | string | required; unique per tenant (D-097) |
 | 2 | name | string | required |
 | 3 | kind | enum | required; `fixed`, `low_value` or `intangible` |
-| 4 | org_unit_id | reference | required (the import is the one channel that still writes the card's unit, T-1488); external id of an org_unit (section 3 rule 1) |
+| 4 | org_unit_id | reference | required (the import is the one channel that still writes the card's unit, T-1488); external id of an org_unit, or its record id as the card export writes it (section 3 rule 1) |
 | 5 | acquisition_date | date | optional; the real receipt date |
 | 6 | currency | string | optional; empty means the tenant currency |
 | 7 | acquisition_cost | decimal | optional; `decimal_strict` |
@@ -163,8 +163,9 @@ The asset cards are exported through the existing record export `POST /entities/
   read, served for every visible type). This is checked again when the export is built.
 - The export applies the field redaction and the scope filter of the export route, so a scoped reader gets only
   the cards of its units (REQ-689 criterion 9).
-- `org_unit_id` is the stored record id, not the external id, so an exported card file is not promised to re-import
-  as it is (**UAT assumption**, as in decision 0079 D8).
+- `org_unit_id` is exported as the stored record id. The card import accepts it (T-1866): the external id is tried
+  first, then a record id of a live org_unit of the same tenant, so export, edit, import round-trips. An unknown or
+  other-tenant id is `reference_not_found`.
 
 ## 7. Register balances export
 
