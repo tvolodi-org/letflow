@@ -2,8 +2,12 @@
 
 Status: **PROPOSED until the owner confirms** (T-1849, PM D-131 (i), owner principle D-129). Until the owner confirms, records
 0013, 0046 D10, 0081 D1 and 0084 stay in force as written, and nothing below changes code, data, QA, demo or production.
-Stage 0 (`docs/design/roles-stage0-slices.md`) changes no access answer and keeps the nine compiled roles, so it does not need this
-record to be confirmed; stage 1 and later do.
+Stage 0 (`docs/design/roles-stage0-slices.md`) keeps the nine compiled roles and, in the forms the slice list prescribes, changes
+no access answer: S0-1 is exact as compiled; S0-2, S0-3 and S0-4 are exact only with explicit `false` clauses above the admin
+catch-alls (`authorization.ex:1895` PLATFORM_ADMIN, `:1902` TENANT_ADMIN holds every tenant-scope permission), because compiled
+plainly S0-2 would let a scoped TENANT_ADMIN grant count for task work in every tenant and S0-3/S0-4 would let a platform-tenant
+platform admin pass; S0-5 changes an answer and is BLOCKED until its security ruling. So stage 0 does not need this record to be
+confirmed; stage 1 and later do.
 **REVIEWER sign-off:** pending; given by the T-1849 gate and recorded in the Gates block of the merged PR.
 **SECURITY-REVIEWER sign-off:** pending; required before the owner confirms, because this record moves the rules of every access
 decision. Each stage-0 slice and stages 2 to 4 get their own security review (D9).
@@ -102,8 +106,13 @@ added. Stages 1 to 6 follow only after the owner confirms this record.
 
 Every stage-0 slice, and stages 2, 3 and 4, are security-reviewed before merge (tenant isolation INV-1, INV-5 not-found equals
 forbidden, INV-6 new data path, INV-10 cross-tenant negative test for every new route). A slice whose permission would also be held
-by PLATFORM_ADMIN through its catch-all (`core_role_allows?(:PLATFORM_ADMIN, _) -> true`) names that row in its PR, and the reviewer
-rules whether the platform admin may gain it inside the platform tenant (see the slice list, S0-3 and S0-4).
+by PLATFORM_ADMIN through its catch-all (`core_role_allows?(:PLATFORM_ADMIN, _) -> true`) or by TENANT_ADMIN through its
+tenant-scope clause (`core_role_allows?(:TENANT_ADMIN, p) -> permission_scope(p) == :tenant`, which also reaches every scoped
+TENANT_ADMIN grant) names those rows in its PR. Where either would change an answer, the slice keeps today's answer with an explicit
+`false` clause above the catch-all, and the reviewer rules whether that exception stays or the gain is accepted as a separate
+change: S0-2 (scoped TENANT_ADMIN grant counting for task work, every tenant), S0-3 and S0-4 (platform admin inside the platform
+tenant). In stage 2 every such exception becomes an explicit exclusion from the `all` / `all_tenant_scope` row flags (D3), or is
+dropped by a ruling.
 
 ## What this record supersedes, and what stays valid
 
