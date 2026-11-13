@@ -146,6 +146,7 @@ const taskWorker: AccessInfo = {
     'MyModulesRead',
     'TasksComplete',
     'TasksRead',
+    'TasksWorkInScope',
   ],
 }
 

@@ -56,7 +56,7 @@ export function fakeServer(
         (r) =>
           !r.deleted &&
           (!onlyActive || r.field_values['active'] === true) &&
-          eqs.every((f) => r.field_values[f.field] === f.value) &&
+          eqs.every((f) => (f.field === 'record_id' ? r.record_id : r.field_values[f.field]) === f.value) &&
           contains.every((f) => like(String(r.field_values[f.field] ?? ''), f.value)),
       )
       // paging: the cursor is the offset of the next row

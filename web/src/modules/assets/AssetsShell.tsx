@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { keepPreviousData, useInfiniteQuery, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
 import { useAuth } from '@/auth/AuthContext'
+import { useAccess } from '@/auth/access/useAccess'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -13,9 +14,12 @@ import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
 import { useDebounce } from '@/hooks/useDebounce'
-import { ACTIVE_TRUE, DELETED_FALSE, fetchAllRecords, fetchCardsPage, searchCards } from './assets.api'
+import { ACTIVE_TRUE, DELETED_FALSE, assetsApi, fetchAllRecords, fetchCardsPage, searchCards } from './assets.api'
+import { ASSETS_READ } from './assetsPermissions'
+import type { CardFacts } from './cardActions'
+import { assetRegisterApi } from './register/assetRegister.api'
 import { assetsQueryKeys } from './assetsQueryKeys'
-import { ASSET_CARD, ORG_UNIT, errorMessageId, reasonOf } from './assetsModel'
+import { ASSET_CARD, ORG_UNIT, errorMessageId, isActive, reasonOf, textOf } from './assetsModel'
 
 export interface CardFilters {
   kind: string
@@ -153,4 +157,54 @@ export function useErrorText(): (error: unknown) => string {
   const intl = useIntl()
   return (error) =>
     intl.formatMessage({ id: errorMessageId(error) }, { fields: (reasonOf(error).fields ?? []).join(', ') })
+}
+
+/** The facts the card actions are decided from (docs/assets/card-actions.md): the card's own fields, the lock read
+ *  (`held`) and the holder rows. The two reads share the keys of `AssetCardForm` and `AssetCardHolder`, so the panel
+ *  costs no extra call. Both need AssetsRead; `enabled` false (a closed row menu) makes no call. */
+export function useCardFacts(card: EntityRecord, enabled: boolean): CardFacts {
+  const { can } = useAccess()
+  const { session } = useAuth()
+  const tenantId = session?.tenant_id ?? ''
+  const canRead = can(ASSETS_READ)
+  const on = enabled && canRead
+  const id = card.record_id
+  const params = { asset: id }
+  const lock = useQuery({
+    queryKey: assetsQueryKeys.cardLock(tenantId, id),
+    queryFn: () => assetsApi.cardLock(id),
+    enabled: on,
+    retry: false,
+  })
+  const balances = useQuery({
+    queryKey: assetsQueryKeys.balances(tenantId, JSON.stringify(params)),
+    queryFn: () => assetRegisterApi.balances(params),
+    enabled: on,
+    retry: false,
+  })
+  return {
+    active: isActive(card),
+    kind: textOf(card, 'kind'),
+    held: lock.data?.held,
+    rows: balances.data?.rows,
+    canRead,
+    failed: lock.isError || balances.isError,
+  }
+}
+
+/** The query of one card by id: `record_id` is a typed column of every entity type. A retired card is found too
+ *  (`deleted` filter only). Shared by the `?card=` deep link and the document form started from cards. */
+export const cardByIdQuery = (tenantId: string, id: string) => ({
+  queryKey: assetsQueryKeys.list(tenantId, ASSET_CARD, `id|${id}`),
+  queryFn: async (): Promise<EntityRecord | null> => {
+    const page = await fetchCardsPage(ASSET_CARD, [DELETED_FALSE, { field: 'record_id', op: 'eq', value: id }], undefined, 1)
+    return page.items[0] ?? null
+  },
+  retry: false as const,
+})
+
+/** One card by id (the `?card=` deep link of "Back to card"). */
+export function useCardById(id: string | null, enabled = true): UseQueryResult<EntityRecord | null> {
+  const { session } = useAuth()
+  return useQuery({ ...cardByIdQuery(session?.tenant_id ?? '', id ?? ''), enabled: enabled && id !== null && id !== '' })
 }
