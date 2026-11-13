@@ -54858,3 +54858,249 @@ requirements:
       - "7. The moduledoc of Letflow.NotificationTemplates.Registry no longer contains the sentence \"The defaults are locale-independent constants\" and names the languages ru, kk and en, the rule \"the part of the locale before the first -\", the English fallback, and that the ru and kk wording awaits a reader check."
       - "8. Files changed are limited to lib/letflow/notification_templates/registry.ex, lib/letflow/notification_templates.ex (the default call in preview/6 and its @doc), and the three test files named above; no file under priv/, web/, apps/ or lib/letflow/routers/ changes, and the route count and permission matrix pins are unchanged."
     depends_on: [REQ-563, REQ-584]
+  - id: REQ-816
+    title: "Assets count K1: the fixed asset count order of module assets with its scope and commission, behind the per-tenant setting count_enabled (default off), with the settings count_signer_role (default accountant) and count_freeze_limit_minutes"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-753 -- the asset documents the count result drafts (C11) must stand first; REQ-753 is pending in this file
+    # Source: task T-1844 (operator, owner decision D-128 of 2026-11-13, quoted in docs/assets/asset-count.md section 0). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) sections 1, 2, 5 and 8. Files read on origin/main 8d1c91fde: lib/letflow/modules/stock/counts.ex (order, scope, commission, states, 96-hour period, advisory lock at issue, cancel), lib/letflow/modules/assets/assets.ex (version 0.16.0, permissions, empty role_grants, settings_schema, route_policies), lib/letflow/modules/assets/access.ex, lib/letflow/modules/assets/router.ex, lib/letflow/routers/tenant_modules.ex (PUT /:module_id/settings, ModulesManage), lib/letflow/identity/role_registry.ex (@max_name_codepoints 128), docs/migration/decisions/0079-counts-inventory-taking.md sections 2 to 4. Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
+    description: >
+      First slice of the fixed asset count (official form Inv-8, annex 39; docs/assets/kz-forms-mapping.md section 3.6
+      and section 6 row 39 "asset count (not built)"). It copies the order part of the stock count
+      (Letflow.Modules.Stock.Counts, lib/letflow/modules/stock/counts.ex) into module assets, because module assets
+      does not call module stock (the same reason lib/letflow/modules/assets/documents.ex gives). No ledger call.
+      (1) Settings. The settings_schema of Letflow.Modules.Assets (lib/letflow/modules/assets/assets.ex) gains three
+      properties: count_enabled (boolean), count_signer_role (string, 1 to 128 characters, the name limit of
+      Letflow.Identity.RoleRegistry) and count_freeze_limit_minutes (integer 1 to 5760, as the stock setting of the same
+      name). Absent count_enabled counts as false; absent count_signer_role counts as "accountant"; absent
+      count_freeze_limit_minutes counts as 120. A reader module for the three values follows
+      lib/letflow/modules/assets/settings.ex. They are set with the existing PUT /api/v1/tenant/modules/assets/settings.
+      (2) Flag. While count_enabled is not true for the tenant, every route of this slice and of the later count
+      slices answers 404 exactly as for a tenant without the module.
+      (3) Records and documents. Module-managed record types of the assets pack (names proposed): assets_count_order
+      (header, scoped by org_unit_id), assets_count_scope (one row per root location) and assets_count_member (one row
+      per commission member). Three document types registered at install: assets_count.order (prefix ACO),
+      assets_count.sheet (ACS) and assets_count.result (ACR); only the order is issued in this slice.
+      (4) Order. Fields: org_unit_id (one org unit), location_ids (0 to 500 root locations linked to that org unit,
+      empty means the whole org unit), kinds (a non-empty subset of fixed, low_value, intangible), planned_start,
+      planned_end (at most 96 hours apart), chair_employee_id (an employee linked to a user), member_employee_ids,
+      freeze_locations (boolean, default false), note (up to 1000 characters). Statuses: draft, ordered, counting,
+      counted, sheet_signed, signed, cancelled. Issue takes a per-tenant, per-org-unit advisory lock first and refuses
+      an overlap with another open asset count of the same org unit and an overlapping location set
+      (count_scope_overlaps). Cancel is allowed in draft, ordered, counting, counted and sheet_signed and refused in
+      signed (count_state_invalid).
+      (5) Routes under /api/v1/modules/assets: POST /counts, PUT /counts/:id, POST /counts/:id/issue and
+      POST /counts/:id/cancel need the new permission AssetsCountOrder; GET /counts and GET /counts/:id need AssetsRead.
+      The new atoms AssetsCountOrder and AssetsCountRecord (the second is used from K2 on) join the module's
+      permissions and route_policies with no role grant, so TENANT_ADMIN holds them like every assets atom; the guard is
+      Letflow.Modules.Assets.Access (tenant-wide interactive users only). The tenant comes from the token only; an
+      unknown, malformed or other tenant's id is 404 (INV-5).
+      (6) Audit. Each accepted write appends one entry in its transaction (assets_count.created, updated, issued,
+      cancelled) with ids and status only; a database failure of the entry rolls the write back as audit_failed.
+      The module version moves to the next free number above origin/main at implement time.
+      Out of scope: book lines, input, differences, signing, freeze, print, screens (REQ-817 to REQ-822, planned).
+    acceptance_criteria:
+      - "1. A test in test/letflow/modules/assets/counts_test.exs (planned) shows that with count_enabled absent and with count_enabled false each of the six routes answers 404 with the same body as for a tenant without module assets, and that with count_enabled true POST /counts answers 201 with a draft order."
+      - "2. A test shows that PUT /api/v1/tenant/modules/assets/settings accepts count_signer_role 'accountant' and a 128-character name, refuses an empty string and a 129-character name, accepts count_freeze_limit_minutes 1 and 5760 and refuses 0 and 5761; and that the settings reader returns 'accountant' and 120 when the keys are absent."
+      - "3. A test shows that create refuses kinds empty or holding a value outside fixed, low_value, intangible; a planned period of 96 hours plus one second; a chair with no user link; and a location that is not linked to the order's org unit; each refusal stores nothing."
+      - "4. A test issues two orders of one org unit with overlapping location sets at the same time and shows exactly one is issued and the other answers count_scope_overlaps; an order of another org unit is issued."
+      - "5. A test shows cancel succeeds from draft, ordered, counting, counted and sheet_signed (states set by fixture) and is refused count_state_invalid from signed."
+      - "6. A router test shows that a tenant user holding TASK_WORKER only gets 403 on POST /counts, that a TENANT_ADMIN gets 201, and that GET /counts/:id with the id of an order of another tenant answers 404 (INV-10 cross-tenant negative test)."
+      - "7. A test shows each accepted write appends exactly one audit entry with the listed action and no quantity or note text, and a refused write appends none; mix letflow.permission_matrix --check passes with AssetsCountOrder and AssetsCountRecord named in the module's route_policies."
+    depends_on: [REQ-750, REQ-751, REQ-753, REQ-700]
+  - id: REQ-817
+    title: "Assets count K2: open an asset count at the cut-off, build the Inv-8 count sheet from the asset register as of the cut-off with card data, typed input with observed location, responsible and condition, surplus lines, the entry log, close, the issued sheet and the commission's sheet marks"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-816 -- needs the asset count order of K1
+    # Source: task T-1844 (operator, owner decision D-128). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) section 3. Files read on origin/main 8d1c91fde: lib/letflow/modules/stock/count_sheet.ex (Ledger.hold_exclusive!/2 then Ledger.balances/4 at the cut-off, page cap 200, typed entries, entry log, close, sheet_document), lib/letflow/modules/stock/count_differences.ex (mark_sheet_signed/4, exact signer set), lib/letflow/ledger.ex (hold_exclusive!/2, balances/4), lib/letflow/modules/assets/assets.ex (ledger assets and its five slots), lib/letflow/modules/assets/cards.ex. Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
+    description: >
+      Second slice of the fixed asset count; same flow as Letflow.Modules.Stock.CountSheet
+      (lib/letflow/modules/stock/count_sheet.ex), applied to ledger "assets".
+      (1) Open (POST /api/v1/modules/assets/counts/:id/open, AssetsCountRecord, by the chair's user, inside the planned
+      period, as the stock open): the server time is
+      the cut-off. Under Ledger.hold_exclusive!(prefix, "assets") the book lines are read with Ledger.balances/4 as of
+      the cut-off: one line per balance key (asset, org_unit, location, material_responsible, actual_user) with
+      quantity above zero whose org_unit is the order's unit, whose location lies under a root location of the order
+      (any location when the order names none; intangible keys have no location) and whose card kind is in the order's
+      kinds. Each line keeps the book key, the book quantity and the card's inventory_number, name, kind,
+      acquisition_date, acquisition_cost and book_value as stored. Status becomes counting.
+      (2) Typed input (PUT /counts/:id/lines/:line_no, AssetsCountRecord, a commission member or the chair): for a
+      fixed or intangible line found true or false (counted 1 or 0); for a low_value line a counted quantity, a strict
+      decimal text of zero or more. Optional on every line: observed_location_id (a location in the scope),
+      observed_material_responsible_id and observed_actual_user_id (employees), condition (in_use, not_in_use,
+      damaged). A new value replaces the old one.
+      (3) Surplus line (POST /counts/:id/surplus-lines): an active card with no book line in this count, with its
+      counted quantity and observed key, or an object without a card with a description of 1 to 500 characters.
+      (4) Entry log (GET /counts/:id/entries, AssetsRead): every accepted input is stored append-only with user,
+      server time, line and the old and new value; nothing is edited.
+      (5) Close (POST /counts/:id/close, chair): refused lines_not_counted while a line has no found or counted value;
+      otherwise issues assets_count.sheet from the line records; status counted.
+      (6) Sheet marks (POST /counts/:id/sheet-signatures, chair): the exact signer set is the chair, every member and
+      every material responsible person of a sheet line; the status becomes sheet_signed. A paper signature
+      acknowledged by the chair, as decision 0079 section 9.
+      Every write is one transaction under the per-order lock and appends one audit entry (opened, entry_recorded,
+      closed, sheet_signed) with ids only. Reads GET /counts/:id/lines and GET /counts/:id/sheet-document need AssetsRead.
+    acceptance_criteria:
+      - "1. A test in test/letflow/modules/assets/count_sheet_test.exs (planned) posts commissions to three assets (two under the order's root location, one in another org unit), then a hand over of one of the two after a fixed instant, opens the count with the cut-off before the hand over, and shows exactly two lines with the book key as of the cut-off and the card's inventory_number and book_value."
+      - "2. A test shows an order with kinds [fixed] gets no line for a low_value card in its scope, and an intangible key (no location) is a line of an order that names root locations only when kinds holds intangible."
+      - "3. A test shows typed input: found false on a fixed line stores counted 0; a low_value counted '-1' or '1.5x' is refused with nothing stored; an observed_location_id outside the scope is refused; condition 'broken' is refused; a second value replaces the first and the entry log holds both with user and time."
+      - "4. A test shows a surplus line for an active card that already has a line in the count is refused, a surplus line without a card and with a 501-character description is refused, and a valid one is stored."
+      - "5. A test shows close issues an assets_count.sheet whose content equals the line records, and that a sheet mark with one member missing or one extra employee is refused, while the exact set moves the count to sheet_signed."
+      - "6. A test shows a user who is neither chair nor member is refused not_commission_member on typed input, a member who is not the chair is refused not_chair on open and close, close with one uncounted line answers lines_not_counted, and open with the id of another tenant's order answers 404 (INV-10)."
+    depends_on: [REQ-816]
+  - id: REQ-818
+    title: "Assets count K3: keyboard-scanner input on the asset count sheet: location codes through the codes module set the current location, inventory numbers find the asset, a second scan of a found fixed asset is not counted twice"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-817 -- needs the asset count sheet of K2
+    # Source: task T-1844 (operator, owner decision D-128). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) section 3. Files read on origin/main 8d1c91fde: lib/letflow/modules/codes/codes.ex (resolve/2), lib/letflow/modules/codes/writes.ex (@targets location_node catalog_item catalog_lot), lib/letflow/modules/stock/count_sheet.ex (scan handling), docs/migration/decisions/0079-counts-inventory-taking.md sections 5 and 6. Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
+    description: >
+      POST /api/v1/modules/assets/counts/:id/scan (AssetsCountRecord, a commission member or the chair, count in
+      counting) with body text: the text a keyboard scanner typed, trimmed. Resolution in this order:
+      (1) Letflow.Modules.Codes.resolve/2. A location_node target inside the scope sets the caller's current location
+      for this count and answers it; nothing is counted. A location outside the scope answers exactly as an unknown
+      code (decision 0076 R7 ruling 2). A retired code, an assignment conflict or a not-assigned code is refused with
+      its reason, nothing recorded. A catalog_item or catalog_lot target is refused not_countable_here.
+      (2) When resolve/2 answers not found: the text is matched exactly against inventory_number of active asset
+      cards. No match: unknown_code. A match with a line in this count: a fixed or intangible line becomes found
+      (observed location = the caller's current location when set); a second scan of an already found line answers
+      already_counted and is logged, the line does not change; a low_value line's counted quantity grows by 1. A match
+      with no line: a surplus line is added for the card (observed location = current location).
+      Codes cannot target asset cards today, so the asset label carries the inventory number; adding asset cards as a
+      code target is not part of this change. Every accepted scan is an entry of the K2 entry log.
+    acceptance_criteria:
+      - "1. A test in test/letflow/modules/assets/count_scan_test.exs (planned) scans a location code of the scope and then an inventory number, and shows the line found with observed_location_id equal to that location and the answer of the first scan naming the location."
+      - "2. A test shows scanning a fixed asset's inventory number twice leaves counted 1, answers already_counted the second time and stores two log entries; scanning a low_value asset's number three times adds 3."
+      - "3. A test shows a location code outside the scope and a text that is neither a code nor an inventory number give the same unknown_code answer and store nothing; a catalog item code answers not_countable_here."
+      - "4. A test shows the inventory number of an active card with no line adds one surplus line, and the number of a retired card answers unknown_code."
+      - "5. A test shows a scan on a count in status counted is refused count_state_invalid and stores nothing."
+    depends_on: [REQ-817]
+  - id: REQ-819
+    title: "Assets count K4: the count result: differences from the issued sheet, one decision per line, signing by a user who holds the tenant's configured signer role (default accountant, no fallback), and draft write-off, hand over, change or commission documents or a recorded decision, never a silent register change"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-817 -- needs the signed asset count sheet of K2
+    # Source: task T-1844 (operator, owner decision D-128: the signer is whoever holds the role accountant or the role the tenant maps to that step, nothing hard-coded, no fallback; closes owner question A2). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) sections 4 and 5. Files read on origin/main 8d1c91fde: lib/letflow/modules/stock/count_differences.ex (differences from the issued sheet content, 200-line cap), lib/letflow/modules/assets/documents.ex (save/3 makes drafts, the number is taken at issue), lib/letflow/modules/assets/documents/kinds.ex (commission, change, handover, writeoff header keys), lib/letflow/modules/assets/documents/shape.ex (@reason_codes disposed lost broken expired other), lib/letflow/tasks.ex (resolve_principal_scope/2, role_names through groups), lib/letflow/identity/tenant_role.ex (kind process_routing_role), lib/letflow/engine/task_activation.ex (resolve_assignee/1), test/fixtures/uat/actors.yaml (routing role role-accountant). Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
+    description: >
+      (1) Differences (GET /api/v1/modules/assets/counts/:id/result, AssetsRead, count sheet_signed or signed): built
+      from the CONTENT of the issued assets_count.sheet, never from live lines. One result line per sheet line with a
+      difference, kind and proposed decision as in docs/assets/asset-count.md section 4: shortage -> writeoff;
+      location_mismatch -> handover; responsible_mismatch -> change; surplus_registered_elsewhere -> handover;
+      surplus_unregistered -> commission; surplus_no_card -> no_register_change; condition (damaged or not_in_use) ->
+      no_register_change. A line whose location and responsible both differ is one location_mismatch (the hand over
+      carries both). More than 200 result lines is refused result_too_large before any write.
+      (2) Decisions (PUT /counts/:id/result/lines/:line_no, the signer of (3)): the decision may be the proposed one,
+      no_register_change with a reason text of 1 to 500 characters, or for condition also writeoff; anything else is
+      decision_invalid.
+      (3) Signer. The step is mapped to a role per tenant: the role name is the setting count_signer_role of the
+      tenant's assets install (REQ-816; absent = "accountant"). A user may decide and sign when the user reaches the
+      route (AssetsRead, tenant-wide, Letflow.Modules.Assets.Access) AND Letflow.Tasks.resolve_principal_scope/2 lists
+      the configured name among the user's roles from a tenant_role row of kind process_routing_role (the mapping a
+      HUMAN_TASK role uses today; the tenant creates it with POST /api/v1/roles and puts people in its group). No role
+      bypasses this check, TENANT_ADMIN included. When the tenant has no process_routing_role row with that name, the
+      result read carries signer_role with name and configured false, and decide and sign answer 422
+      signer_role_not_configured; a user outside the role gets 403 signer_role_not_held. There is no fallback to
+      another role.
+      (4) Sign (POST /counts/:id/result/sign): in one transaction under the per-order lock, issues assets_count.result
+      (lines, decisions, signer, time) and saves one DRAFT asset document per line whose decision is writeoff, handover,
+      change or commission, through Letflow.Modules.Assets.Documents.save/3 with event_time = the signing time: writeoff
+      with reason_code lost (broken for a condition line) and reason_text 'count' plus the sheet number, from the book
+      key, quantity book minus counted; handover from the book key to the observed key; change from the book
+      responsible and user to the observed ones; commission of the found quantity to the observed key. A refused save
+      rolls everything back and answers its reason with the line_no. The count becomes signed. Nothing is posted: a
+      draft changes the register only when an AssetsPost holder issues and posts it through its existing flow.
+      (5) The result read shows for each line its decision, the draft document id and the live state of that document.
+      One audit entry assets_count.result_signed with the count id, the signer id and the draft ids.
+    acceptance_criteria:
+      - "1. A test in test/letflow/modules/assets/count_result_test.exs (planned) builds a signed sheet with one not found fixed asset, one found at another location, one with another responsible, one surplus card registered elsewhere, one surplus card never committed, one object without card and one damaged asset, and shows seven result lines with the kinds and proposed decisions of the description."
+      - "2. A test shows that after a live line record is changed by fixture the result still equals the issued sheet content."
+      - "3. A test shows a user in the group bound to a process_routing_role named by count_signer_role signs; a TENANT_ADMIN outside that group gets 403 signer_role_not_held; with count_signer_role absent the role 'accountant' is used; with no process_routing_role row of the configured name decide and sign answer 422 signer_role_not_configured and the read shows configured false; a platform_role row of the same name does not count."
+      - "4. A test shows signing saves exactly one draft per writeoff, handover, change and commission decision with the header and line values of the description, takes no document number, posts nothing (the asset ledger entry count is unchanged) and moves the count to signed; a no_register_change line saves nothing and keeps its reason text in the result."
+      - "5. A test makes one draft save fail and shows nothing is stored (no result document, no draft, status sheet_signed); a result of 201 lines is refused result_too_large with nothing stored."
+      - "6. A test shows a decision outside the allowed list answers decision_invalid, and no_register_change with an empty or 501-character reason is refused."
+      - "7. A test issues and posts one produced draft through the existing asset document routes and shows the result read then reports that draft as posted."
+    depends_on: [REQ-817, REQ-753, REQ-751]
+  - id: REQ-820
+    title: "Assets count K5: freeze of the counted asset scope from the cut-off until the result is signed, the count is cancelled or the limit runs out: issuing an asset document with a side in the frozen scope is refused count_in_progress"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-817 -- needs the asset count open step of K2
+    # Source: task T-1844 (operator, owner decision D-128; the task asks for count freeze reuse). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) section 6. Files read on origin/main 8d1c91fde: lib/letflow/modules/stock/freeze_state.ex (state from data, default limit 120, setting count_freeze_limit_minutes), lib/letflow/modules/stock/freeze_guard.ex, lib/letflow/modules/assets/documents.ex (issue/4 runs Documents.Checks inside the issue lock), lib/letflow/modules/assets/documents/checks.ex. Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
+    description: >
+      For an asset count order with freeze_locations true (REQ-816), the frozen scope is the order's org unit and its
+      root locations with everything below them (the whole org unit when the order names none), fixed at open. The
+      freeze state is computed from data as Letflow.Modules.Stock.FreezeState does: none (switch off or not opened),
+      ended (cancelled or result signed), expired (now at or after the cut-off plus the setting
+      count_freeze_limit_minutes of assets, default 120), active otherwise. While a freeze is active, issuing an asset
+      document (Letflow.Modules.Assets.Documents.issue/4) whose from side or to side has the frozen org unit and a
+      location in the frozen set (or no location, for an intangible key, when the order covers intangible) is refused
+      422 count_in_progress inside the issue lock, before a number is taken. Saving and replacing drafts is not
+      blocked. The asset ledger is separate from the stock ledger: no change to Letflow.Ledger, to the stock module or
+      to any ledger policy. GET /api/v1/modules/assets/counts/:id shows freeze_state and freeze_until.
+    acceptance_criteria:
+      - "1. A test in test/letflow/modules/assets/count_freeze_test.exs (planned) opens a freeze count and shows issuing a hand over whose from location is under the frozen root is refused count_in_progress with no document number taken, and one whose sides are both outside the scope is issued."
+      - "2. A test shows that after the result is signed, after cancel, and with the clock at the cut-off plus the limit (fixed instants, limit 1 minute set by setting), the same hand over is issued."
+      - "3. A test shows a count with freeze_locations false blocks nothing, and saving a draft inside an active frozen scope succeeds."
+      - "4. git diff origin/main of the change touches no file under lib/letflow/ledger/ or lib/letflow/modules/stock/."
+    depends_on: [REQ-817, REQ-765]
+  - id: REQ-821
+    title: "Assets count K6: print of the issued asset count sheet: the official form Inv-8 / Tug-8 (annex 39) in Russian and Kazakh as PDF and DOCX, and the plain count sheet PDF in Russian, Kazakh and English"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-817 -- needs the issued asset count sheet of K2
+    # Source: task T-1844 (operator, owner decision D-128: official print in ru and kk plus en). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) section 7. Files read on origin/main 8d1c91fde: docs/assets/kz-forms-mapping.md section 3.6 (Inv-8 field list) and section 3.7 row 39 (Kazakh title), lib/letflow/documents/form_print.ex (layout and catalog, ru and kk only, blanks never invented), lib/letflow/modules/stock/form_count_inv10.ex, lib/letflow/modules/stock/count_print.ex, lib/letflow/modules/stock/router.ex (GET /counts/:id/print/:kind with form, format and lang), priv/print_forms/inv10.json and messages.json. Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
+    description: >
+      GET /api/v1/modules/assets/counts/:id/print/sheet (AssetsRead) on an issued assets_count.sheet, in the shape of the
+      stock route GET /counts/:id/print/:kind (lib/letflow/modules/stock/router.ex):
+      (1) with form=inv8&format=pdf|docx&lang=ru|kk the official form Inv-8 / Tug-8 through Letflow.Documents.FormPrint,
+      layout priv/print_forms/inv8.json (planned, not yet on main) and new keys in priv/print_forms/messages.json; the
+      Kazakh title is the text of docs/assets/kz-forms-mapping.md section 3.7 row 39. A pure mapper module in module
+      assets (the shape of Letflow.Modules.Stock.FormCountInv10) fills: organisation name and BIN, sheet number and
+      date, order number and date, cut-off date, the location of the order when it names exactly one root, commission
+      chair and members (name and position), the material responsible persons of the lines, line number, name,
+      inventory number, acquisition date, counted quantity, book quantity, book cost = the card book_value as stored
+      (UAT assumption, to be confirmed by the process owner), count of lines and total counted quantity. Left blank:
+      accounts, factory and passport numbers, release date, actual cost, actual start and end, amounts in words, the
+      responsible persons' statement, signatures, the checker.
+      (2) without form, lang=ru|kk|en (default ru) a plain count sheet PDF in the CountPrint pattern
+      (lib/letflow/modules/stock/count_print.ex) with the same columns and empty signer lines for the chair, members
+      and responsible persons. English is not an official-form language of FormPrint, so en exists only here.
+      Refusals as the stock route: invalid_lang, invalid_form, invalid_format, document_not_issued, print_too_large.
+    acceptance_criteria:
+      - "1. A test in test/letflow/modules/assets/form_count_inv8_test.exs (planned) feeds the mapper a fixed issued sheet and asserts every filled key of the description holds the expected text and that the keys of the blank fields are absent from the data map."
+      - "2. A router test shows form=inv8 with lang ru and kk and format pdf and docx answers 200 with the matching content type; lang en with form=inv8 answers 422 invalid_lang; form=inv8 on a count whose sheet is not issued answers 422 document_not_issued."
+      - "3. A router test shows the plain print answers 200 application/pdf for ru, kk and en, and lang de answers 422 invalid_lang."
+      - "4. A test shows every catalog key the inv8 layout names exists in messages.json with ru and kk texts, and the kk title equals the text of kz-forms-mapping section 3.7 row 39."
+    depends_on: [REQ-817, REQ-736]
+  - id: REQ-822
+    title: "Assets count K7: web screens of the fixed asset count: order list and form, count sheet with typed and keyboard-scanner input, sheet marks, the result with decisions and signing, the signer role message, and print buttons, in en, ru and kk"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-819 -- needs the count result routes of K4
+    # Source: task T-1844 (operator, owner decision D-128). Spec: docs/assets/asset-count.md (planned, not yet on main; added by the same task) sections 2 to 7. Files read on origin/main 8d1c91fde: web/src/modules/assets/ and web/src/modules/stock/ (directory listing; the stock count screens of REQ-702 and REQ-766 are the pattern), lib/letflow/modules/stock/router.ex (count routes). Written by the business analyst (T-1844) 2026-11-13. Not yet validated.
+    description: >
+      Screens in web/src/modules/assets/ for the routes of REQ-816 to REQ-821, following the stock count screens of
+      REQ-702 and REQ-766 in web/src/modules/stock/: (1) count order list and form (org unit, root locations, kinds,
+      planned period, chair, members, freeze switch), issue and cancel; (2) count sheet: open, lines with book data,
+      found switch or counted quantity, observed location, responsible, user and condition, surplus line, a scan field
+      that keeps focus and submits on Enter, the answer of each scan (location set, found, already counted, unknown
+      code), close and sheet marks; (3) result: lines with kind, proposed decision, decision choice and reason, sign
+      button, the draft document of each line with a link to it and its state; when the read says signer_role
+      configured false, the text "The signing role {name} is not set up in this company. Ask your administrator." in
+      place of the sign button; when the user is not in the role, the sign button is not shown and the text says
+      which role signs; (4) print buttons for Inv-8 (ru, kk) and the plain sheet (ru, kk, en). The screens are shown
+      only when the module setting count_enabled is true (the routes answer 404 otherwise). All texts in en, ru and kk.
+    acceptance_criteria:
+      - "1. Component tests in web/src/modules/assets/ show the scan field submits on Enter, clears and keeps focus, and shows each of the four scan answers from a fake API."
+      - "2. A component test shows the result screen with signer_role configured false shows the not-set-up text with the role name and no sign button, and with a user outside the role no sign button and the role name."
+      - "3. A component test shows the decision choice offers only the alternatives of the line's difference kind and asks for a reason for no_register_change."
+      - "4. npm run check passes, and the screenshot matrix of the design-system skill (1440 and 390, light and dark, en, ru and kk) of the order form, the sheet and the result is in the task folder."
+    depends_on: [REQ-816, REQ-817, REQ-818, REQ-819, REQ-821]
