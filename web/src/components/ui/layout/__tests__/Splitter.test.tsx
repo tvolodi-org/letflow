@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useRef } from 'react'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { createLayoutStore } from '@/lib/layoutStore'
-import { attachSplit, type SplitHandle } from '../splitEngine'
+import { attachSplit, expanderTop, type SplitHandle } from '../splitEngine'
 import { SplitWrap, useSplit } from '../Splitter'
 import { layoutMessages } from '../layoutMessages'
 
@@ -277,3 +277,35 @@ describe('layoutMessages', () => {
 })
 
 vi.stubGlobal('ResizeObserver', undefined)
+
+describe('T-1884 expander in the viewport', () => {
+  it('U1 expanderTop clamps the button into [visible top, bottom edge] whatever the strip top is', () => {
+    // viewport 900 high, top bar 56, button 32, pad 16
+    expect(expanderTop(300, 56, 900, 32, 16)).toBe(316) // strip on screen: 16 px under its top
+    expect(expanderTop(-400, 56, 900, 32, 16)).toBe(56) // strip scrolled above the bar: below the bar
+    expect(expanderTop(1305, 56, 900, 32, 16)).toBe(852) // strip below the fold: the bottom edge
+    expect(expanderTop(0, 56, 900, 32, 16)).toBe(56)
+    expect(expanderTop(500, 56, 60, 32, 16)).toBe(56) // too short a viewport: the visible top wins
+  })
+
+  it('S1/S2 a collapsed handle spans the container rect and its button gets an inline top inside the viewport; both go on restore', () => {
+    const { container, a, b, handle, split } = setup({ collapsible: [0], collapsedSize: 0 })
+    const low = (r: DOMRect) => ({ ...r, top: 1305, bottom: 1400, y: 1305 }) as DOMRect
+    const ra = a.getBoundingClientRect
+    const rb = b.getBoundingClientRect
+    a.getBoundingClientRect = () => low(ra.call(a))
+    b.getBoundingClientRect = () => low(rb.call(b))
+    container.getBoundingClientRect = () => ({ ...rect(0, 1000), top: 1305, bottom: 1700, height: 395 }) as DOMRect
+    const btn = handle.querySelector('.lf-splitter__btn') as HTMLElement
+    Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true })
+    act(() => split.toggle(0))
+    expect(handle).toHaveClass('is-collapsed')
+    expect(handle.style.height).toBe('395px') // the container height, not the 95 px of the panes
+    expect(parseFloat(btn.style.top)).toBe(900 - 32 - 16) // strip below the fold: pinned at the bottom edge (jsdom button rect is 0x0 -> 32 px fallback)
+    expect(btn.style.left).not.toBe('')
+    act(() => split.toggle(0))
+    expect(handle).not.toHaveClass('is-collapsed')
+    expect(btn.style.top).toBe('')
+    expect(btn.style.left).toBe('')
+  })
+})

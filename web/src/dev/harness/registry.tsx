@@ -41,6 +41,7 @@ import { responsibleProposalScreens } from './fixtures/responsibleProposal'
 import { stockScreens } from './fixtures/stock'
 import { stockBalanceHistoryScreens } from './fixtures/stockBalanceHistory'
 import { stockBalancesLayoutScreens } from './fixtures/stockBalancesLayout'
+import { stockBalancesShellScreens } from './fixtures/stockBalancesShell'
 import { stockJournalScreens } from './fixtures/stockJournal'
 import { stockJournalLayoutScreens } from './fixtures/stockJournalLayout'
 import { stockDocumentsScreens } from './fixtures/stockDocuments'
@@ -314,6 +315,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...stockScreens,
     ...stockBalanceHistoryScreens,
     ...stockBalancesLayoutScreens,
+    ...stockBalancesShellScreens,
     ...stockJournalScreens,
     ...stockJournalLayoutScreens,
     ...stockDocumentsScreens,
