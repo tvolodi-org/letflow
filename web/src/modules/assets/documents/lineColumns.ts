@@ -42,3 +42,25 @@ export function kindChangeColumnSpecs(withCard = false): ColSpec[] {
   if (withCard) specs.push({ id: 'acard', w: 5, min: 120 })
   return specs
 }
+
+// ---- opening (T-1877, decision 0083): the asset, quantity and placement of each line, plus the card's money and date ----
+
+/** Column keys of an opening line in table order (key, colId, default width %). The last three are read from the card; the last column is the flexible one of the table, so the widths before it leave it room. */
+export const OPENING_COLUMNS = [
+  ['asset', 'item', 16], ['quantity', 'qty', 6], ['location', 'loc', 13], ['responsible', 'resp', 13], ['user', 'user', 11],
+  ['cost', 'cost', 9], ['depreciation', 'dep', 9], ['acquired', 'acq', 8],
+] as const
+const CARD_INFO_KEYS: readonly string[] = ['cost', 'depreciation', 'acquired']
+
+/** `withCardInfo`: the cost, accumulated depreciation and acquisition date columns (read-only, from the card). */
+export function openingLineColumns(t: (id: string) => string, withCardInfo = true): DocColumn[] {
+  return OPENING_COLUMNS
+    .filter(([key]) => withCardInfo || !CARD_INFO_KEYS.includes(key))
+    .map(([key, colId]) => ({ key, colId, label: t(`assets.doc.opening.col.${key}`), num: key === 'quantity' || key === 'cost' || key === 'depreciation' }))
+}
+
+export function openingColumnSpecs(withCardInfo = true): ColSpec[] {
+  return OPENING_COLUMNS
+    .filter(([key]) => withCardInfo || !CARD_INFO_KEYS.includes(key))
+    .map(([, id, w]) => ({ id, w, min: id === 'qty' ? 70 : id === 'cost' || id === 'dep' || id === 'acq' ? 90 : 120 }))
+}

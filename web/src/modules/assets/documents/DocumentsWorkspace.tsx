@@ -42,7 +42,7 @@ function DocumentCreate({ onBack }: { onBack: () => void }) {
   const open = (id: string, card?: string) =>
     navigate(`${DOCUMENTS_PATH}/${encodeURIComponent(id)}${card ? `?card=${encodeURIComponent(card)}` : ''}`)
   // T-1880: started from a card: the card is a line of the unsaved draft; after Save a link leads back to it
-  if (assets.length > 0 && kind !== 'kind_change') {
+  if (assets.length > 0 && kind !== 'kind_change' && kind !== 'opening') {
     return <DocumentFromCards kind={kind} assets={assets} {...common} onDone={(saved) => open(saved.id, assets.length === 1 ? assets[0] : undefined)} />
   }
   return <DocumentForm key={kind} kind={kind} {...common} onDone={(saved) => open(saved.id)} />
