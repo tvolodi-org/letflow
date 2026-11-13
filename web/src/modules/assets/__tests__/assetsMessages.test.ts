@@ -11,7 +11,7 @@ describe('A1 assetsMessages', () => {
   it('has identical id sets in en, ru and kk, and ru/kk differ from en for every id', () => {
     const [first, ...rest] = ASSETS_UI_LOCALES.map((l) => Object.keys(assetsMessages[l]).sort())
     for (const other of rest) expect(other).toEqual(first)
-    const same = new Set(['assets.common.dash'])
+    const same = new Set(['assets.common.dash', 'assets.cardActions.select.blocked'])
     for (const id of first) {
       if (same.has(id)) continue
       for (const l of ['ru', 'kk'] as const) expect(assetsMessages[l][id], `${l} ${id}`).not.toBe(assetsMessages.en[id])

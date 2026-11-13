@@ -31,17 +31,21 @@ const DATA = {
     rec('c-1', 'assets_card', { inventory_number: 'FA-1', name: 'Asset FA-1', kind: 'fixed' }),
     rec('c-3', 'assets_card', { inventory_number: 'FA-3', name: 'Asset FA-3', kind: 'fixed' }),
     rec('c-2', 'assets_card', { inventory_number: 'FA-2', name: 'Asset FA-2', kind: 'fixed' }),
+    rec('c-5', 'assets_card', { inventory_number: 'FA-5', name: 'Asset FA-5', kind: 'fixed' }),
+    rec('c-6', 'assets_card', { inventory_number: 'FA-6', name: 'Asset FA-6', kind: 'fixed' }),
     rec('c-8', 'assets_card', { inventory_number: 'FA-8', name: 'Asset FA-8', kind: 'fixed', active: false }),
   ],
   org_unit: [rec('u-1', 'org_unit', { code: 'U1', name: 'Head office' })],
   location_node: [rec('l-1', 'location_node', { code: 'L1', name: 'Main hall' })],
   org_employee: [rec('e-1', 'org_employee', { code: 'E1', full_name: 'Aigul Responsible' }), rec('e-2', 'org_employee', { code: 'E2', full_name: 'Bolat User' })],
 }
-// c-1 in the register; c-2 commission issued, not posted; c-3 never commissioned
+// c-1 in the register; c-2 commission issued, not posted; c-3 never commissioned; c-5 in register (different holder); c-6 same as c-1
 const FACTS: Record<string, { held: boolean; rows: unknown[] }> = {
   'c-1': { held: true, rows: [ROW] },
   'c-2': { held: true, rows: [] },
   'c-3': { held: false, rows: [] },
+  'c-5': { held: true, rows: [{ ...ROW, asset: 'c-5', org_unit: 'u-2' }] },
+  'c-6': { held: true, rows: [ROW] },
   'c-8': { held: false, rows: [] },
 }
 const reads = (suffix: string) => clientMock.get.mock.calls.filter(([p]) => String(p).endsWith(suffix))
@@ -227,7 +231,7 @@ describe('W1 pre-filled form: a draft, nothing posted before Save', () => {
 })
 
 describe('W7 W8 Back to card and the deep link', () => {
-  it('a saved document opened with ?card= shows Back to card and it leads to the card panel', async () => {
+  it('a saved document opened with ?card= shows Back to card as a link with the card number and it leads to the card panel', async () => {
     const doc = {
       id: 'd1', kind: 'change', state: 'draft', number: null, issued_at: null, header_id: 'h1', org_unit_id: 'u-1', location_id: 'l-1',
       material_responsible_id: 'e-1', actual_user_id: 'e-2', event_time: '2026-11-04T05:00:00Z', note: null,
@@ -235,9 +239,24 @@ describe('W7 W8 Back to card and the deep link', () => {
     }
     clientMock.get.mockImplementation(async (p: string) => (p === `${API}/documents/d1` ? doc : { rows: [], next_cursor: null }))
     renderAssets('/admin/assets/documents/d1?card=c-1', FULL)
-    fireEvent.click(await screen.findByTestId('doc-back-to-card'))
+    const link = await screen.findByTestId('doc-back-to-card')
+    expect(link.tagName).toBe('A')
+    await waitFor(() => expect(link).toHaveTextContent('FA-1'))
+    fireEvent.click(link)
     expect(await screen.findByTestId('asset-operations')).toBeInTheDocument()
     expect(screen.getByText('Asset FA-1', { selector: 'h1, h2, h3, [class*=title]' })).toBeInTheDocument()
+  })
+
+  it('W7b several ?card= params: Back to asset cards link', async () => {
+    const doc = {
+      id: 'd1', kind: 'change', state: 'draft', number: null, lines: [], event_time: '2026-11-04T05:00:00Z',
+    }
+    clientMock.get.mockImplementation(async (p: string) => (p === `${API}/documents/d1` ? doc : { rows: [], next_cursor: null }))
+    renderAssets('/admin/assets/documents/d1?card=c-1&card=c-3', FULL)
+    await screen.findByTestId('document-header')
+    const link = screen.getByTestId('doc-back-to-card')
+    expect(link.tagName).toBe('A')
+    expect(link).toHaveTextContent(en['assets.cardActions.backToCards'])
   })
 
   it('Back to card is hidden without AssetsCardWrite, and without ?card=', async () => {
@@ -261,5 +280,97 @@ describe('W7 W8 Back to card and the deep link', () => {
   it('an unknown ?card= leaves the panel closed, no error', async () => {
     renderAssets(`${CARDS}?card=nope`, FULL)
     expect(await screen.findByTestId('asset-pick-hint')).toBeInTheDocument()
+  })
+})
+
+describe('W1b W1c W1d pre-fill batch card read', () => {
+  it('W1d an unknown card id is left out with a notice', async () => {
+    renderAssets('/admin/assets/documents/new?kind=change&asset=c-1&asset=nope', FULL)
+    await screen.findByTestId('document-form')
+    const rows = await screen.findAllByTestId('line-editor-row')
+    expect(rows).toHaveLength(1)
+    await waitFor(() => expect(screen.queryByTestId('doc-prefill-notice')).toBeInTheDocument())
+    expect(screen.getByTestId('doc-prefill-notice')).toHaveTextContent('1')
+  })
+
+  it('W1b the Asset cell shows from the card read even when the picker list never answers', async () => {
+    const original = clientMock.post.getMockImplementation()
+    clientMock.post.mockImplementation(async (p: string, body: Record<string, unknown>) => {
+      if (p === '/api/v1/entities/query') {
+        const filters = (body['filters'] ?? []) as { field: string; op: string; value?: unknown }[]
+        const isPickerQuery = filters.some((f) => f.field === 'active' && f.value === true)
+          && !filters.some((f) => f.field === 'record_id')
+        if (isPickerQuery) return new Promise<never>(() => undefined)
+      }
+      return original!(p, body)
+    })
+    renderAssets('/admin/assets/documents/new?kind=writeoff&asset=c-1', FULL)
+    const row = await lineHas('FA-1')
+    expect((within(row).getByLabelText('Asset') as HTMLInputElement).value).toContain('FA-1')
+    expect(screen.queryByTestId('no-cards')).not.toBeInTheDocument()
+  })
+})
+
+describe('M1 M2 M3 M4 M5 multi-select', () => {
+  const tick = async (testId: string) => {
+    const el = await screen.findByTestId(testId)
+    const input = el.querySelector('input')
+    if (input) fireEvent.click(input)
+  }
+
+  it('M1 checkboxes are present and clicking one does NOT open the panel', async () => {
+    renderAssets(CARDS, FULL)
+    await screen.findByText('FA-1')
+    expect(screen.getByTestId('card-select-c-1')).toBeInTheDocument()
+    await tick('card-select-c-1')
+    expect(screen.queryByTestId('asset-pick-hint')).toBeInTheDocument()
+    expect(screen.queryByTestId('asset-operations')).not.toBeInTheDocument()
+    expect(screen.getByTestId('card-selection-bar')).toBeInTheDocument()
+  })
+
+  it('M2 bar: commission disabled when a chosen card is in the register', async () => {
+    renderAssets(CARDS, FULL)
+    await screen.findByText('FA-1')
+    await tick('card-select-c-1')
+    await tick('card-select-c-6')
+    const bar = await screen.findByTestId('card-selection-bar')
+    await waitFor(() => expect(within(bar).getByTestId('card-bulk-commission')).toBeDisabled())
+    expect(within(bar).getByTestId('card-bulk-change')).toBeEnabled()
+  })
+
+  it('M3 bar: change/handover/writeoff disabled when a chosen card is not in the register', async () => {
+    renderAssets(CARDS, FULL)
+    await screen.findByText('FA-1')
+    await tick('card-select-c-1')
+    await tick('card-select-c-3')
+    const bar = await screen.findByTestId('card-selection-bar')
+    await waitFor(() => expect(within(bar).getByTestId('card-bulk-change')).toBeDisabled())
+    expect(within(bar).getByTestId('card-bulk-change')).toBeDisabled()
+    expect(within(bar).getByTestId('card-bulk-handover')).toBeDisabled()
+    expect(within(bar).getByTestId('card-bulk-writeoff')).toBeDisabled()
+  })
+
+  it('M4 clear removes the bar', async () => {
+    renderAssets(CARDS, FULL)
+    await screen.findByText('FA-1')
+    await tick('card-select-c-1')
+    await screen.findByTestId('card-selection-bar')
+    fireEvent.click(screen.getByTestId('card-bulk-clear'))
+    await waitFor(() => expect(screen.queryByTestId('card-selection-bar')).not.toBeInTheDocument())
+  })
+
+  it('M5 two cards with different holders: manyHoldersCards notice shown', async () => {
+    // c-1 (holder u-1) and c-5 (holder u-2) are both in the register with different holders
+    fakeServer(clientMock, DATA, (_m, p, b) => (p === `${API}/documents` ? { id: 'd9', kind: 'change', state: 'draft', lines: [], ...b } : {}))
+    renderAssets('/admin/assets/documents/new?kind=change&asset=c-1&asset=c-5', FULL)
+    await screen.findByTestId('document-form')
+    await waitFor(() => expect(screen.queryByTestId('doc-prefill-notice')).toBeInTheDocument())
+    expect(screen.getByTestId('doc-prefill-notice')).toHaveTextContent(en['assets.cardActions.prefill.manyHoldersCards'])
+  })
+
+  it('without AssetsPost there are no checkboxes and no bar', async () => {
+    renderAssets(CARDS, NO_POST)
+    await screen.findByText('FA-1')
+    expect(screen.queryByTestId('card-select-c-1')).not.toBeInTheDocument()
   })
 })

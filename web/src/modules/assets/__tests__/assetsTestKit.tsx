@@ -45,6 +45,7 @@ export function fakeServer(
       const filters = (body['filters'] ?? []) as Clause[]
       const onlyActive = filters.some((f) => f.field === 'active' && f.value === true)
       const eqs = filters.filter((f) => f.op === 'eq' && f.field !== 'active' && f.field !== 'deleted')
+      const ins = filters.filter((f) => f.op === 'in')
       const contains = filters.filter((f) => f.op === 'contains')
       // SQL ilike: backslash escapes % and _; % matches any run, _ any single character
       const like = (value: string, pattern: unknown) => {
@@ -57,6 +58,10 @@ export function fakeServer(
           !r.deleted &&
           (!onlyActive || r.field_values['active'] === true) &&
           eqs.every((f) => (f.field === 'record_id' ? r.record_id : r.field_values[f.field]) === f.value) &&
+          ins.every((f) => {
+            const val = f.field === 'record_id' ? r.record_id : r.field_values[f.field]
+            return Array.isArray(f.value) && (f.value as unknown[]).includes(val)
+          }) &&
           contains.every((f) => like(String(r.field_values[f.field] ?? ''), f.value)),
       )
       // paging: the cursor is the offset of the next row

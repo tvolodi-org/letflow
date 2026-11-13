@@ -151,6 +151,12 @@ defmodule Letflow.Api.Authorization do
     Held by TENANT_ADMIN only; an explicit `false` clause keeps the platform tenant's PLATFORM_ADMIN
     out (ruling 2); non-assignable (0088 D4): not in `grantable/0`, modules cannot grant core
     permissions.
+  * `:TasksReadAll` (roles stage 0 S0-5) — **not** route-level. Read by `evaluate_access/2` for
+    `:TasksList` and by `Letflow.Routers.Tasks` for the inbox and by-id reads, through
+    `reads_all_tasks?/2`: a `:TasksRead` holder without it sees only tasks addressed to the user, one
+    of its groups or one of its roles. Held by PLATFORM_ADMIN and TENANT_ADMIN (catch-alls),
+    PROCESS_DESIGNER, PROCESS_OPERATOR and TENANT_AUDITOR; non-assignable (0088 D4): not in
+    `grantable/0`, modules cannot grant core permissions.
 
   Per design §5, this requirement deliberately adds **no** new
   `role_allows?/2` clause for `PROCESS_DESIGNER`, `PROCESS_OPERATOR`, or
@@ -399,6 +405,7 @@ defmodule Letflow.Api.Authorization do
           | :TasksWorkInScope
           | :TenantSecurityManage
           | :TasksReassignRouted
+          | :TasksReadAll
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -590,7 +597,9 @@ defmodule Letflow.Api.Authorization do
     # Roles stage 0 S0-3 (decision 0088, docs/design/roles-stage0-slices.md): the two admin-only switches. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN, ruling 2).
     :TenantSecurityManage,
     # Roles stage 0 S0-4 (decision 0088, docs/design/roles-stage0-slices.md): take a routed task away. Tenant scope; TENANT_ADMIN only (explicit false clause for PLATFORM_ADMIN, ruling 2).
-    :TasksReassignRouted
+    :TasksReassignRouted,
+    # Roles stage 0 S0-5 (decision 0088, docs/design/storekeeper-task-visibility-ruling.md): read every task of the tenant. Tenant scope; PLATFORM_ADMIN, TENANT_ADMIN (catch-alls), PROCESS_DESIGNER, PROCESS_OPERATOR, TENANT_AUDITOR.
+    :TasksReadAll
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -613,7 +622,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All sixty-one core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All sixty-two core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -654,7 +663,8 @@ defmodule Letflow.Api.Authorization do
   `docs/design/roles-stage0-security-rulings.md`), plus roles stage 0 S0-3's `:TenantSecurityManage`
   (the two admin-only switches, TENANT_ADMIN through the derived rule; explicit false clause for
   PLATFORM_ADMIN, ruling 2), plus roles stage 0 S0-4's `:TasksReassignRouted` (taking a routed task
-  away, TENANT_ADMIN through the derived rule; explicit false clause for PLATFORM_ADMIN, ruling 2).
+  away, TENANT_ADMIN through the derived rule; explicit false clause for PLATFORM_ADMIN, ruling 2), plus roles stage 0 S0-5's `:TasksReadAll`
+  (read every task of the tenant; the five roles that saw all tasks before).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1593,7 +1603,7 @@ defmodule Letflow.Api.Authorization do
         if not has_permission_in_scope?(roles, required, ctx.platform_tenant?, ctx.role_overlay) do
           %AccessDecision{kind: :Deny403, task_scope: nil}
         else
-          if endpoint == :TasksList and is_task_worker_only?(roles) do
+          if endpoint == :TasksList and not reads_all_tasks?(roles, ctx.platform_tenant?) do
             %AccessDecision{
               kind: :AllowWithRowFilter,
               task_scope: {:own_user_and_groups, ctx.user_id}
@@ -1605,7 +1615,23 @@ defmodule Letflow.Api.Authorization do
     end
   end
 
-  @doc "Ports `isTaskWorkerOnly/1` (L141-146), extended by REQ-447 (`TENANT_ADMIN`) and REQ-448 (`TENANT_AUDITOR`) exclusions."
+  @doc """
+  Roles stage 0 S0-5: true when the roles hold `:TasksReadAll`, i.e. may read every task of the
+  tenant. Replaces `is_task_worker_only?/1` on the three task read routes (`GET /tasks`,
+  `GET /tasks/inbox`, `GET /tasks/:id`). A non-platform PLATFORM_ADMIN is dropped by
+  `has_permission_in_scope?/3`'s tenant branch. The overlay is left out on purpose: it keeps only
+  `grantable/0` atoms and so can never carry `:TasksReadAll`.
+  """
+  @spec reads_all_tasks?([role()], boolean() | nil) :: boolean()
+  def reads_all_tasks?(roles, platform_tenant?),
+    do: has_permission_in_scope?(roles, :TasksReadAll, platform_tenant?)
+
+  @doc """
+  Ports `isTaskWorkerOnly/1` (L141-146), extended by REQ-447 (`TENANT_ADMIN`) and REQ-448 (`TENANT_AUDITOR`) exclusions.
+
+  Since roles stage 0 S0-5 the task read routes use `reads_all_tasks?/2`; this predicate remains
+  only for the instance participation check (`Routers.Instances`, GH #2932).
+  """
   @spec is_task_worker_only?([role()]) :: boolean()
   def is_task_worker_only?(roles) do
     # REQ-448 (OQ-1): a read-only auditor who also holds TASK_WORKER sees all tasks.
@@ -1999,7 +2025,9 @@ defmodule Letflow.Api.Authorization do
         # section): a user reading their own membership list is not a
         # privileged operation, same "assist every authenticated user"
         # class as :HelpRead above.
-        :MembershipsRead
+        :MembershipsRead,
+        # Roles stage 0 S0-5: reads every task of the tenant.
+        :TasksReadAll
       ]
 
   defp core_role_allows?(:PROCESS_OPERATOR, permission),
@@ -2041,7 +2069,9 @@ defmodule Letflow.Api.Authorization do
         # REQ-366 (design §1.3): see PROCESS_DESIGNER clause's comment above.
         :HelpRead,
         # REQ-384: see PROCESS_DESIGNER clause's comment above.
-        :MembershipsRead
+        :MembershipsRead,
+        # Roles stage 0 S0-5: reads every task of the tenant.
+        :TasksReadAll
       ]
 
   defp core_role_allows?(:TASK_WORKER, permission),
@@ -2120,7 +2150,9 @@ defmodule Letflow.Api.Authorization do
         :EntitiesAttachmentsRead,
         :HelpRead,
         :MembershipsRead,
-        :PromotionsRead
+        :PromotionsRead,
+        # Roles stage 0 S0-5: reads every task of the tenant.
+        :TasksReadAll
       ]
 
   # D-093 / decision 0081: STOREKEEPER holds the stock permissions through the
