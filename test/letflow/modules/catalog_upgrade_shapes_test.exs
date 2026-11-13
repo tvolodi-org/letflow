@@ -40,6 +40,7 @@ defmodule Letflow.Modules.CatalogUpgradeShapesTest do
   @real_ids ~w(exam org catalog_items procurement locations codes)
 
   # Hashes of the registered manifests computed on unmodified origin/main before REQ-640.
+  # locations re-pinned by T-1840 (0.4.0 -> 0.5.0, customer_location).
   # codes re-pinned by GH #3797 (0.2.0 -> 0.3.0) and GH #4017 (0.3.0 -> 0.4.0).
   # catalog_items re-pinned by GH #3581 (version 0.2.0 -> 0.3.0; the hash covers the version).
   @hashes %{
@@ -48,7 +49,7 @@ defmodule Letflow.Modules.CatalogUpgradeShapesTest do
     # re-pinned by MES-U1 (catalog_items 0.3.0 -> 0.4.0)
     "catalog_items" => "f890e6e1f1e88ddd03b49c81f7c6535a07d18d914391866def5de5210e78c3bf",
     "procurement" => "265b5841f1705989bacfdf2ca82385fa0c9d83ad462e3f257f0ac87060f8dd61",
-    "locations" => "a9f6b26a8d6df340267381c4a3025b7a8848eb0f02d288167b66d9134ba96116",
+    "locations" => "c91e67f887dbbd38d258b2acfbe2b5af45ca805de8653e2ade2ceca6d844965a",
     "codes" => "d3661b5ff799f4325df455cd8e59212fcfeafff0af6a8d6d140a481e75d68b93"
   }
 

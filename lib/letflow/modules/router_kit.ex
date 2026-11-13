@@ -181,6 +181,10 @@ defmodule Letflow.Modules.RouterKit do
         %{field_path: path} when is_binary(path) ->
           [path |> String.split("/", trim: true) |> List.first()]
 
+        # A `Violation` of the write path (a unique constraint) carries the field names as a list.
+        %{path: [_ | _] = names} ->
+          Enum.filter(names, &is_binary/1)
+
         _other ->
           []
       end)

@@ -92,9 +92,10 @@ defmodule Letflow.Modules.Assets.IssueChecksTest do
       {"quantity_invalid", %{"lines" => [line(m.low, "1.5")]}, %{"line_no" => 1}},
       {"quantity_invalid", %{"lines" => [line(m.fixed, "2")]}, %{"line_no" => 1}},
       {"org_unit_mismatch", %{"lines" => [line(foreign_card)]}, %{"line_no" => 1}},
-      {"location_not_allowed", %{"lines" => [line(m.intangible)]}, %{"line_no" => 1}},
-      {"location_required", %{"location_id" => ""}, %{"line_no" => 1}},
-      {"not_linked", %{"location_id" => unlinked}, %{"line_no" => 1}}
+      {"location_not_allowed", %{"lines" => [line(m.intangible)]},
+       %{"line_no" => 1, "field" => "location_id"}},
+      {"location_required", %{"location_id" => ""}, %{"line_no" => 1, "field" => "location_id"}},
+      {"not_linked", %{"location_id" => unlinked}, %{"line_no" => 1, "field" => "location_id"}}
     ]
 
     for {reason, extra, want} <- cases do

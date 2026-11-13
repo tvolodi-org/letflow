@@ -93,6 +93,14 @@ export const registerEn: Record<string, string> = {
   'assets.journal.status.posted': 'Posted',
   'assets.journal.status.reversed': 'Reversed',
   'assets.journal.status.reversal': 'Reversal',
+  'assets.balances.export': 'Export to Excel',
+  'assets.balances.exportHint': 'The file holds the rows loaded on the first page only.',
+  'assets.balances.exportFailed': 'The file could not be exported. Try again.',
+  'assets.balances.asOfRead': 'Balance at the end of {date} ({zone}), through posting number {seq}',
+  'assets.filter.asOf': 'As of date',
+  'assets.filter.asOfHint': 'Balance at the end of the chosen day in the tenant time zone. Empty means now.',
+  'assets.filter.asOfInvalid': 'Enter a full date.',
+  'assets.filter.asOfFuture': 'The date cannot be in the future.',
 }
 
 export const registerRu: Record<string, string> = {
@@ -188,6 +196,14 @@ export const registerRu: Record<string, string> = {
   'assets.journal.status.posted': 'Проведено',
   'assets.journal.status.reversed': 'Сторнировано',
   'assets.journal.status.reversal': 'Сторно',
+  'assets.balances.export': 'Выгрузить в Excel',
+  'assets.balances.exportHint': 'В файл попадает только первая страница строк.',
+  'assets.balances.exportFailed': 'Не удалось выгрузить файл. Повторите попытку.',
+  'assets.balances.asOfRead': 'Остаток на конец дня {date} ({zone}), по проводку № {seq}',
+  'assets.filter.asOf': 'На дату',
+  'assets.filter.asOfHint': 'Остаток на конец выбранного дня в часовом поясе организации. Пусто — на сейчас.',
+  'assets.filter.asOfInvalid': 'Введите дату полностью.',
+  'assets.filter.asOfFuture': 'Дата не может быть в будущем.',
 }
 
 export const registerKk: Record<string, string> = {
@@ -283,4 +299,12 @@ export const registerKk: Record<string, string> = {
   'assets.journal.status.posted': 'Өткізілді',
   'assets.journal.status.reversed': 'Сторнеленді',
   'assets.journal.status.reversal': 'Сторно',
+  'assets.balances.export': 'Excel-ге жүктеу',
+  'assets.balances.exportHint': 'Файлға жолдардың тек бірінші беті түседі.',
+  'assets.balances.exportFailed': 'Файлды жүктеу мүмкін болмады. Қайталап көріңіз.',
+  'assets.balances.asOfRead': '{date} күні соңындағы қалдық ({zone}), {seq}-жазбаға дейін',
+  'assets.filter.asOf': 'Күні бойынша',
+  'assets.filter.asOfHint': 'Ұйымның уақыт белдеуіндегі таңдалған күн соңындағы қалдық. Бос болса — қазір.',
+  'assets.filter.asOfInvalid': 'Күнді толық енгізіңіз.',
+  'assets.filter.asOfFuture': 'Күн болашақта болмауы керек.',
 }

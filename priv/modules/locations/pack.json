@@ -28,7 +28,7 @@
             "type": "unique"
           }
         ],
-        "description": "GH #3501 / REQ-625, GH #3591 / REQ-645, decisions 0050 D1, 0057 D1 and 0066. One tree of locations. node_kind is a free non-empty text per level (country, region, building, zone, aisle, rack, shelf, bin, position, or any other word the tenant chooses); there is no fixed list and no depth bound. parent_id is the record_id of the parent location_node (absent for a root); the foreign_keys entry fk_location_node_parent_id promotes it to a nullable uuid self-referencing column with ON DELETE RESTRICT (inert on the soft-delete path), and idx_location_node_parent_id indexes it. The tree is stored as this parent link only: no path and no depth is stored (decision 0066); the live write rules are in Letflow.Modules.Locations.Tree. segment is the optional short label of the node inside its address, it never contains a dash. address is the scannable label, unique per tenant, optional; it is built once at create from the segments of the ancestors when the tenant chooses the segment pattern, and nothing rewrites it later. name is queried. active false retires the record, there is no delete operation. external_ref_system and external_ref_id are the nullable import key (0057 D1). The link to an org unit is a later step and is not stored here.",
+        "description": "GH #3501 / REQ-625, GH #3591 / REQ-645, decisions 0050 D1, 0057 D1 and 0066. One tree of locations. node_kind is a free non-empty text per level (country, region, building, zone, aisle, rack, shelf, bin, position, or any other word the tenant chooses); there is no fixed list and no depth bound. parent_id is the record_id of the parent location_node (absent for a root); the foreign_keys entry fk_location_node_parent_id promotes it to a nullable uuid self-referencing column with ON DELETE RESTRICT (inert on the soft-delete path), and idx_location_node_parent_id indexes it. The tree is stored as this parent link only: no path and no depth is stored (decision 0066); the live write rules are in Letflow.Modules.Locations.Tree. segment is the optional short label of the node inside its address, it never contains a dash. address is the scannable label, unique per tenant, optional; it is built once at create from the segments of the ancestors when the tenant chooses the segment pattern, and nothing rewrites it later. name is queried. active false retires the record, there is no delete operation. external_ref_system and external_ref_id are the nullable import key (0057 D1). customer_location is the optional boolean marker of a location that belongs to a customer (absent means false, no default is stored, and keeping it right is the tenant administrators' data duty). The link to an org unit is a later step and is not stored here.",
         "display_name": "Location",
         "fields": [
           {
@@ -79,6 +79,11 @@
             "type": "enum"
           },
           {
+            "name": "customer_location",
+            "queried": true,
+            "type": "boolean"
+          },
+          {
             "name": "active",
             "queried": true,
             "required": true,
@@ -114,7 +119,7 @@
       },
       "display_name": "Location",
       "entity_definition_id": "86d7354a-b1d1-6bc1-d684-5e1b62ad82ff",
-      "logical_shape_version": "4fce1eaa1c152ee61688be845fe23d59d838c4c4d4a166b6ae93c0ca04b1c6fd",
+      "logical_shape_version": "88ce6bb85c2f03457b1b2c213a65df1f364815bd395a13ac6dc2f3af76adebce",
       "name": "location_node"
     },
     {
