@@ -927,6 +927,56 @@ defmodule Mix.Tasks.Letflow.Check.TestTest do
     end
   end
 
+  describe "T-1843: invalid UTF-8 in the runner's output must not crash the echo" do
+    @tag :unix_only
+    test "a non-UTF-8 byte line is echoed without raising and the suite still passes",
+         %{fixture_root: fixture_root, fake_bin_dir: fake_bin_dir} do
+      log_dir =
+        write_partition_log(fixture_root, "logs", "partition-1.log", "Result: 5/5 passed\n")
+
+      fake_path = Path.join(fake_bin_dir, "bash")
+
+      File.write!(fake_path, """
+      #!/bin/sh
+      echo "test_parallel: N=1 (source: fake)"
+      printf 'test_parallel: partition 1 slowest: bad \\377\\376 bytes\\n'
+      echo "test_parallel: partition logs in #{log_dir}"
+      exit 0
+      """)
+
+      File.chmod!(fake_path, 0o755)
+      install_wasm_hang_aware_fake_mix(fake_bin_dir)
+      install_executable_resolver(fake_bin_dir, ["bash", "mix"])
+
+      ExUnit.CaptureIO.capture_io(fn ->
+        assert Mix.Tasks.Letflow.Check.Test.run([]) == :ok
+      end)
+    end
+
+    test "a failing runner with invalid bytes still fails the shard (no hidden failure)",
+         %{fixture_root: fixture_root, fake_bin_dir: fake_bin_dir} do
+      log_dir =
+        write_partition_log(fixture_root, "logs", "partition-1.log", "Result: 5/5 passed\n")
+
+      fake_path = Path.join(fake_bin_dir, "bash")
+
+      File.write!(fake_path, """
+      #!/bin/sh
+      printf 'bad \\377 bytes\\n'
+      echo "test_parallel: partition logs in #{log_dir}"
+      exit 1
+      """)
+
+      File.chmod!(fake_path, 0o755)
+      install_passing_fake_mix(fake_bin_dir)
+      install_executable_resolver(fake_bin_dir, ["bash", "mix"])
+
+      assert_raise Mix.Error, fn ->
+        ExUnit.CaptureIO.capture_io(fn -> Mix.Tasks.Letflow.Check.Test.run([]) end)
+      end
+    end
+  end
+
   describe "mix letflow.check.test's two new hard-failure paths (design doc section 1.2, must never pass silently)" do
     test "hard-fails when the wrapper exits 0 but never prints a parseable partition-log-directory line",
          %{fake_bin_dir: fake_bin_dir} do

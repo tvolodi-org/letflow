@@ -54,3 +54,9 @@ passing again; status as that note records it. A second occurrence is filed with
 | `Letflow.Routers.EntitiesImportXlsxTest` "R4c: a row error is reported on its line ..." (schedule run) | `test/letflow/routers/entities_import_xlsx_test.exs` | 1 | random record id contained `abc` | assertion fixed |
 | `Letflow.Engine.CancelLockTimeoutTest` T6 "set_config is the first statement after BEGIN" | `test/letflow/engine/cancel_lock_timeout_test.exs` | 1 | random tenant schema name contained `5000` | fixed in #4272 (round 2) |
 | `XlsxStyleTest` X3 | not named in the sweep | not counted | not investigated | open, no failing log pulled; a second occurrence is filed |
+
+### CI runner crash, not a test flake (T-1843, 2026-11-13)
+
+| Item | Where | Count | Cause (short) | Status |
+|---|---|---|---|---|
+| `mix letflow.check test` aborted with `(ArgumentError)` in `:io.put_chars` while echoing the runner's output; shard 4/8 failed with 0 test failures (merge-group run 43376454978, PR #4364) | `lib/mix/tasks/letflow.check.test.ex`, `collect/2` | 1 | the echo used `IO.write/1`, which raises on a non-UTF-8 byte in the captured chunk; reproduced with a fake runner printing bytes 255 254 (`:no_translation`) | fixed in T-1843: `echo_chunk/1` uses `IO.binwrite/1` and swallows write errors; the captured bytes and exit status still decide the verdict (test "T-1843" in `letflow_check_test_test.exs`). A second occurrence is filed with a citation of this entry. |
