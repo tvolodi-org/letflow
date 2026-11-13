@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { DOC_REASONS } from '../documents/documentsModel'
+import { DOC_KINDS, DOC_REASONS } from '../documents/documentsModel'
 import { assetsMessages } from '../assetsMessages'
 import {
   DOCS, LIST, assetDoc, fakeDocument, fakeMasters, postsTo, refusal, renderAssets, routeCalls, withAll, withPost, withRead, withReverse,
@@ -48,6 +48,22 @@ describe('L1 list', () => {
     expect(rows[1]).toHaveTextContent('Posted')
     expect(rows[1]).toHaveTextContent('Write off')
     expect(present()).toEqual([])
+  })
+  it('L1b T-1875 an admin with AssetsPost sees one New button per kind next to the list rows; handover opens the new form', async () => {
+    clientMock.get.mockResolvedValue({
+      rows: [
+        { id: 'd1', kind: 'commission', state: 'draft', number: null, org_unit_id: 'u1', event_time: '2026-11-04T05:00:00Z' },
+        { id: 'd2', kind: 'writeoff', state: 'posted', number: 'AWO-2026-000001', org_unit_id: 'u2', event_time: '2026-11-03T05:00:00Z' },
+      ],
+      next_cursor: null,
+    })
+    renderAssets(LIST, withPost)
+    expect(await screen.findAllByTestId('document-row')).toHaveLength(2)
+    const group = screen.getByTestId('document-new')
+    const buttons = within(group).getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual(DOC_KINDS.map((k) => assetsMessages.en[`assets.doc.new.${k}`]))
+    fireEvent.click(buttons[DOC_KINDS.indexOf('handover')]!)
+    await screen.findByTestId('document-form')
   })
   it('sends only kind, state and org_unit_id, and the cursor of Load more', async () => {
     clientMock.get.mockResolvedValueOnce({ rows: [{ id: 'd1', kind: 'change', state: 'draft', number: null, org_unit_id: 'u1', event_time: null }], next_cursor: 'c1' })
