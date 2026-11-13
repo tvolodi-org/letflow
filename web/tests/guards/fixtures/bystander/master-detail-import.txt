@@ -1,0 +1,2 @@
+import { ListDetail } from '@/components/ui/listDetail'
+// MasterDetail is a name used in a comment, not an import
