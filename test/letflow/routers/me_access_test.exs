@@ -151,8 +151,10 @@ defmodule Letflow.Routers.MeAccessTest do
 
       # Roles stage 0 S0-2: every permission except scoped task work (TASK_WORKER's alone).
       # Roles stage 0 S0-3: also excluding the two admin-only switches (TENANT_ADMIN's alone).
+      # Roles stage 0 S0-4: and taking a routed task away (TENANT_ADMIN's alone).
       assert body["permissions"] ==
-               (Authorization.permissions() -- [:TasksWorkInScope, :TenantSecurityManage])
+               (Authorization.permissions() --
+                  [:TasksWorkInScope, :TenantSecurityManage, :TasksReassignRouted])
                |> Enum.map(&Atom.to_string/1)
                |> Enum.sort()
 

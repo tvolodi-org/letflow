@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: assets@0.17.0,catalog_items@0.4.0,codes@0.4.0,exam@0.1.0,locations@0.5.0,mes_core@0.1.0,org@0.3.0,procurement@0.1.0,stock@0.17.0
 # roles: 9
-# permissions: 90
-# rows: 810
+# permissions: 91
+# rows: 819
 # columns: role permission allowed owner via
 AGENT_RUNNER AssetsCardWrite false module:assets -
 AGENT_RUNNER AssetsPost false module:assets -
@@ -89,6 +89,7 @@ AGENT_RUNNER StockReverse false module:stock -
 AGENT_RUNNER TasksAssign false core -
 AGENT_RUNNER TasksComplete false core -
 AGENT_RUNNER TasksRead false core -
+AGENT_RUNNER TasksReassignRouted false core -
 AGENT_RUNNER TasksWorkInScope false core -
 AGENT_RUNNER TenantSecurityManage false core -
 AGENT_RUNNER TenantSettingsManage false core -
@@ -179,6 +180,7 @@ CANDIDATE StockReverse false module:stock -
 CANDIDATE TasksAssign false core -
 CANDIDATE TasksComplete false core -
 CANDIDATE TasksRead false core -
+CANDIDATE TasksReassignRouted false core -
 CANDIDATE TasksWorkInScope false core -
 CANDIDATE TenantSecurityManage false core -
 CANDIDATE TenantSettingsManage false core -
@@ -269,6 +271,7 @@ PLATFORM_ADMIN StockReverse true module:stock core
 PLATFORM_ADMIN TasksAssign true core core
 PLATFORM_ADMIN TasksComplete true core core
 PLATFORM_ADMIN TasksRead true core core
+PLATFORM_ADMIN TasksReassignRouted false core -
 PLATFORM_ADMIN TasksWorkInScope false core -
 PLATFORM_ADMIN TenantSecurityManage false core -
 PLATFORM_ADMIN TenantSettingsManage true core core
@@ -359,6 +362,7 @@ PROCESS_DESIGNER StockReverse false module:stock -
 PROCESS_DESIGNER TasksAssign false core -
 PROCESS_DESIGNER TasksComplete false core -
 PROCESS_DESIGNER TasksRead true core core
+PROCESS_DESIGNER TasksReassignRouted false core -
 PROCESS_DESIGNER TasksWorkInScope false core -
 PROCESS_DESIGNER TenantSecurityManage false core -
 PROCESS_DESIGNER TenantSettingsManage false core -
@@ -449,6 +453,7 @@ PROCESS_OPERATOR StockReverse false module:stock -
 PROCESS_OPERATOR TasksAssign true core core
 PROCESS_OPERATOR TasksComplete true core core
 PROCESS_OPERATOR TasksRead true core core
+PROCESS_OPERATOR TasksReassignRouted false core -
 PROCESS_OPERATOR TasksWorkInScope false core -
 PROCESS_OPERATOR TenantSecurityManage false core -
 PROCESS_OPERATOR TenantSettingsManage false core -
@@ -539,6 +544,7 @@ STOREKEEPER StockReverse true module:stock grant
 STOREKEEPER TasksAssign false core -
 STOREKEEPER TasksComplete true core core
 STOREKEEPER TasksRead true core core
+STOREKEEPER TasksReassignRouted false core -
 STOREKEEPER TasksWorkInScope false core -
 STOREKEEPER TenantSecurityManage false core -
 STOREKEEPER TenantSettingsManage false core -
@@ -629,6 +635,7 @@ TASK_WORKER StockReverse false module:stock -
 TASK_WORKER TasksAssign false core -
 TASK_WORKER TasksComplete true core core
 TASK_WORKER TasksRead true core core
+TASK_WORKER TasksReassignRouted false core -
 TASK_WORKER TasksWorkInScope true core core
 TASK_WORKER TenantSecurityManage false core -
 TASK_WORKER TenantSettingsManage false core -
@@ -719,6 +726,7 @@ TENANT_ADMIN StockReverse true module:stock core
 TENANT_ADMIN TasksAssign true core core
 TENANT_ADMIN TasksComplete true core core
 TENANT_ADMIN TasksRead true core core
+TENANT_ADMIN TasksReassignRouted true core core
 TENANT_ADMIN TasksWorkInScope false core -
 TENANT_ADMIN TenantSecurityManage true core core
 TENANT_ADMIN TenantSettingsManage true core core
@@ -809,6 +817,7 @@ TENANT_AUDITOR StockReverse false module:stock -
 TENANT_AUDITOR TasksAssign false core -
 TENANT_AUDITOR TasksComplete false core -
 TENANT_AUDITOR TasksRead true core core
+TENANT_AUDITOR TasksReassignRouted false core -
 TENANT_AUDITOR TasksWorkInScope false core -
 TENANT_AUDITOR TenantSecurityManage false core -
 TENANT_AUDITOR TenantSettingsManage false core -
