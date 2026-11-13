@@ -6,7 +6,7 @@ changed on QA, production, the demo, secrets, DNS, the public repo or money.
 
 It replaces the snapshot `docs/status/owner-questions-2026-11.md` (2026-11-11) for the walk. That page stays as it
 is. Every row of it was checked again against main and the owner decisions D-097 to D-130. Rows the owner has
-already answered are in section 8 ("Already answered"). They are not asked again.
+already answered are in section 9 ("Already answered"). They are not asked again.
 
 How to read the tables:
 - **Look at** = something to open and check. **Answer** = a question for the owner.
@@ -18,7 +18,7 @@ How to read the tables:
 
 ## 1. Short version
 
-- About **2 h 40 min** of owner time in total (guess). Two sittings work best (section 9).
+- About **2 h 40 min** of owner time in total (guess). Two sittings work best (section 10).
 - **Must answer before the next build step:** the six role choices (item N1), the voice key line (D2), and the
   production questions (F1), if production is the next step.
 - **Only looking, no answer:** gates C, D and E. They need a QA walk.
@@ -208,6 +208,9 @@ Left out on purpose:
   each "Manual step (D-063). All work stops. Close ... only when the owner says the phase is accepted." T-1128
   `done`. T-1359 "phase F F1b: Sign-in per company", `ready`, held by the operator. T-1459 "Engine cleanup: nothing calls
   Copilot", held "release when Copilot is drained".
+- T-1849 (engine task, its branch only, not on main): commit 60105ace4 "Decision record (proposed): custom roles as
+  tenant data supersede the closed role set (0013, 0046 D10, 0081 D1, 0084); plus the stage 0 slice list"; it adds
+  `docs/migration/decisions/0088-permission-only-access-tenant-defined-roles.md` (planned, not yet on main).
 - `project/walkthrough-gates-cde.md` (2026-11-08): "Tenant: **gate-b5** (the only live QA tenant). Login:
   https://qa.bizdala.com/login?realm=gate-b5"; "module **assets 0.9.0 installed** on gate-b5"; gate C about 25
   minutes, steps 1 to 8; gate D "about 10 minutes on the web, the rest needs the phone app"; gate E about 25 minutes,
