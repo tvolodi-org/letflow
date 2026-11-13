@@ -76,7 +76,7 @@ so the Reset column names only extra per-screen buttons.
 | 12 | Locations (tree) | `/admin/locations` | `MasterDetail` + `TreeView` | **no** [V] | no | n/a | no | same as 8 | tree arrow keys; Escape closes [V] |
 | 13-17 | Org: legal entities, sites, units, positions, employees | `/admin/org/legal-entities`, `/sites`, `/units`, `/positions`, `/employees` | `OrgScreen` -> `MasterDetail` + `TreeView` | **no** [V] | no | n/a | no | same as 8 | tree keys; Escape closes [V] |
 | 18 | Task inbox | `/tasks` | `MasterDetail` | **no** [V] | no | n/a | no | same as 8 | no Escape handler found [V] |
-| 19 | Module rollouts (platform) | `/admin/module-rollouts` | `MasterDetail` wide | **no** [V] | no | n/a | no | same as 8 | no Escape handler found [V] |
+| 19 | Module rollouts (platform) | `/admin/module-rollouts` | `MasterDetail` wide | **no** [V] | no | n/a | no | same as 8 | Escape closes (document keydown listener in the page, `ModuleRolloutsPage.tsx`, active while a rollout is selected) [V] |
 
 Totals: 19 screens, 6 shells. 12 screens (8-19) have no divider. 2 screens (5, 6) have a divider without a collapse
 button. 5 screens (1-4, 7) have both. The owner's observation is confirmed.
@@ -252,7 +252,8 @@ The guard uses the existing source-scan guard (`web/tests/guards/`), which alrea
      not match element classes such as `lf-reg__list` or `lf-doc__header`, which screens may use inside the slots.
   2. `list-detail-direct-split`: a screen attaching the splitter itself. `regex: /\buseSplit\s*\(|<SplitWrap\b/`
   3. `master-detail-import`: a new user of the old shell.
-     `regex: /from\s+['"](?:@\/components\/ui\/|\.\.?\/(?:ui\/)?)(?:MasterDetail|masterDetailBack)['"]/`
+     `regex: /from\s+['"](?:[./@\w-]+\/)?(?:MasterDetail|masterDetailBack)['"]/` (any path prefix, so a deep
+     relative import such as `../../components/ui/MasterDetail` is caught too; none exists today, every screen uses `@/`)
 - `allowedPaths` (all three): `web/src/components/ui/listDetail/`, `web/src/components/ui/doc/`,
   `web/src/components/ui/journal/`, `web/src/components/ui/registry/` (until slice 6), `web/src/components/ui/layout/`,
   `web/src/components/layout/AppShell.tsx` (side-nav splitter), `web/src/dev/harness/fixtures/layoutBase.tsx`
@@ -301,6 +302,9 @@ demo or production from this task.
 The gate C-E screens go first. Each slice is one `change` task (web only), with `after` = the previous slice
 (they all edit `forbidlist.ts` and the harness registry). Every slice:
 
+- removes the screen's own Escape key handler for closing the record (today in asset cards, counts, codes, lots,
+  locations, `OrgScreen` and module rollouts; verified by `git grep -n "'Escape'"`), since `ListDetail` owns Escape
+  (section 4.2 behaviour 6) and two handlers would close twice; Escape handling inside the record (dialogs, editors) stays;
 - keeps data, permission and route behaviour unchanged (the screen's existing tests stay green unmodified, apart from
   selectors that named `master-detail*` test ids, which move to `registry*` / `list-detail*`);
 - adds a Playwright check at **1920, 1440, 1280, 1024 and 390 px** width: list and record visible; divider present above
@@ -311,12 +315,12 @@ The gate C-E screens go first. Each slice is one `change` task (web only), with 
 
 | Slice | Content | Screens | Gate |
 |---|---|---|---|
-| 1 | Add `ListDetail` + `LIST_SPLIT` + the component tests (section 4.2 lines 1-8); add the two guard patterns with fixtures and a ratchet list of every current offender; move the balances screens to it | asset balances, stock balances | C-E |
+| 1 | Add `ListDetail` + `LIST_SPLIT` + the component tests (section 4.2 lines 1-8); add the three guard patterns of section 4.5 (`list-detail-own-shell`, `list-detail-direct-split`, `master-detail-import`) with offender and bystander fixtures and a ratchet list of every current offender; move the balances screens to it | asset balances, stock balances | C-E |
 | 1b | Journal: collapsible list divider (section 4.3 item 3), CSS line copied from the design repo after it is released there | asset movements, stock movements | C-E |
 | 2 | Asset cards and stock counts to `ListDetail` (`listDefault` replaces `masterWidth="wide"`) | asset cards, stock counts | C-E |
 | 3 | Codes and lots to `ListDetail` (two panes always, empty state) | codes, lots | C-E |
 | 4 | Tree screens: `ListDetail kind="tree"`; `OrgScreen` uses it, so the five org pages change at once | locations, org (5) | C-E |
-| 5 | Work lists | task inbox, module rollouts | after C-E |
+| 5 | Work lists; the module rollouts page's own document-level Escape listener is removed, since `ListDetail` owns Escape (section 4.2 behaviour 6) | task inbox, module rollouts | after C-E |
 | 6 | `Registry` re-export removed (catalog items imports `ListDetail`); `MasterDetail.tsx` and `masterDetailBack.ts` are deleted, and so are the hand-written `lf-md` rules in `base.css` (the generated `components.css` is never edited; its `lf-md` block goes when the design repo drops it, section 4.4 d); ratchet list empty; README pointer | catalog items | after C-E |
 | 7 (optional) | Detail below the table or in a drawer moved to `ListDetail` | DLQ, print templates, webhooks | operator's call |
 
@@ -356,7 +360,7 @@ A.2 Behaviour checks
 ```
 git grep -nE "screen=['\"{]" -- web/src | grep -E "<(Registry|DocLayout)" ; git grep -n "layoutScreen=" -- web/src
 git grep -n "ResetLayoutButton\|resetScreen\|resetAll\|resetLayout" -- web/src | grep -v test
-git grep -nE "Escape" -- <the eight MasterDetail screens>     (no hit in TaskInboxPage, ModuleRolloutsPage)
+git grep -nE "Escape" -- <the eight MasterDetail screens>     (no hit in TaskInboxPage)
 grep -n "collapsible\|sized\|enabled" web/src/components/ui/journal/Journal.tsx    (no collapsible)
 grep -n "lf-md\|lf-reg\[data-detail\|lf-jrn\[data-variant" web/src/styles/components.css
 awk '... /@media|@container/ ...' web/src/styles/components.css   (lf-md: @media 1100/900/640; lf-doc, lf-reg, lf-jrn: @container lfhost)
