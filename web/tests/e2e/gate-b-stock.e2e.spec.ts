@@ -3,14 +3,17 @@
  * Keycloak sign-in (no stubs, no session injection). Runs locally (scripts/e2e/stack_up.sh), in CI (job "Stock browser e2e
  * (playwright)") and against QA (E2E_BASE_URL + credentials from env; see docs/testing/gate-b-browser-e2e.md).
  *
- * Steps: S1 count order, S2 receipt -> issue -> My Tasks claim + complete, S3 opening balance approved by a second
- * user, S4 Balances + Movements rows and no uuid on any screen (the R1 helper), S5 document screen wide and narrow
- * (layout asserts + screenshots), S6 dates in ru as DD-MM-YYYY.
+ * Steps: S1 count order, S2 receipt -> issue -> My Tasks claim + complete, S2b Z-1 official form download from
+ * the receipt screen, S3 opening balance approved by a second user, S4 Balances + Movements rows and no uuid on
+ * any screen (the R1 helper), S5 document screen wide and narrow (layout asserts + screenshots), S6 dates in
+ * ru as DD-MM-YYYY.
  * Every record made here carries E2E_RUN_TAG so reruns on one tenant do not collide.
  */
+import * as fs from 'node:fs'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { assertNoUuid } from './support/noUuid'
 import { choose, ENV, hasAdmin, localDateTime, openRoute, setPrefs, shotPath, signIn, SKIP_REASON } from './support/gateB'
+import { pdfTextItems } from './support/pdfText'
 
 test.describe.configure({ mode: 'serial' })
 test.skip(!hasAdmin, SKIP_REASON)
@@ -114,6 +117,40 @@ test('G2 S2 receipt issue claim complete', async () => {
   await openRoute(page, state.receiptUrl)
   await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 60_000 })
   await assertNoUuid(page, 'Document')
+})
+
+test('G2b S2b receipt order Z-1 from the receipt screen', async () => {
+  test.skip(!state.receiptNumber, 'no receipt made by G2')
+  // Navigate to the documents list and click on the receipt row
+  await openRoute(page, '/admin/stock/documents')
+  await page.getByTestId('document-row').filter({ hasText: state.receiptNumber }).first().click()
+  await expect(page.getByTestId('document-header')).toBeVisible()
+
+  // Open the official form menu and download the Z-1 PDF
+  const [response, download] = await Promise.all([
+    page.waitForResponse(r => r.url().includes('/print') && r.url().includes('form=z1')),
+    page.waitForEvent('download'),
+    (async () => {
+      await page.getByTestId('official-form-menu').click()
+      await page.getByTestId('form-z1-pdf').click()
+    })(),
+  ])
+
+  expect(response.status()).toBe(200)
+  expect(response.headers()['content-type']).toContain('application/pdf')
+
+  const filename = download.suggestedFilename()
+  expect(filename).toMatch(/_Z-1\.pdf$/)
+
+  const filePath = await download.path()
+  expect(filePath).toBeTruthy()
+  const bytes = fs.readFileSync(filePath!)
+  expect(bytes.subarray(0, 4).toString()).toBe('%PDF')
+
+  const items = pdfTextItems(bytes)
+  const text = items.join('\n')
+  expect(text).toContain('Приходный ордер ЗАПАСОВ')
+  expect(text).toContain('Форма З-1')
 })
 
 test('G3 S3 opening approve and G3b separation of duties', async ({ browser }) => {

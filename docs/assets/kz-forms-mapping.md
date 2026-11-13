@@ -618,3 +618,28 @@ Not registered, with the reason: the IIN (8.2: covered by the existing `bin` and
 and cashier lines (8.3: outside decision (c), blank lines by hand); VAT on ДА-1 (8.4: no inter-organisation sale in
 phase E, Q21); and every form whose Letflow document is "none" (outside the application of phases A to F). None of
 these blocks phase E.
+
+### 7.1 Z-1 on the print engine (T-1912)
+
+`GET /documents/:id/print?form=z1&format=pdf|docx&lang=ru|kk` prints the issued or posted receipt on form Z-1 (ru)
+/ Қ-1 (kk), annex 25 of order No. 562 "warehouse receipt order".
+
+**What is filled:** organisation name and BIN, warehouse (location name), document number, date (from `event_time`,
+DD.MM.YYYY), supplier name and tax_id (joined with " / "), accompanying document reference (`supplier_document_ref`),
+"Принял" / "Қабылдаған" (responsible employee), and per line: item name, nomenclature code, unit, quantity,
+unit price, amount.
+
+**What is blank (gap ids from section 2):** kind of operation (G6), account (G6), payment document (G7),
+"Сдал" (G4), and per line: qty_doc, mass_doc, mass, passport number, card number (G13). The IIN is not stored (G1).
+`received_on` is not printed (the form has no arrival-date cell). Quantities and prices print as the stored
+9-decimal text.
+
+**Ru/kk differences between sources (kept as printed):** the kk column 1 header says "Операция түрінің коды"
+(code of the kind of operation) where the ru says "Вид операции"; the kk price column header says "Бағасы,
+теңгемен" (not "per unit") while the ru says "Цена за единицу, в теңге". Both differences are from the official
+texts.
+
+**Proof:** `test/letflow/modules/stock/form_z1_test.exs`, `test/letflow/modules/stock/form_z1_router_test.exs`.
+
+**To be confirmed by an accountant: Z-1 is the form for every receipt, also a receipt with no supplier (audit
+section 5).**

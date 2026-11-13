@@ -1,6 +1,7 @@
 /** T-1434: texts of the "Official form" menu, en/ru/kk (same id set; the ru and kk texts need a native-speaker check). */
 export const formEn: Record<string, string> = {
   'stock.form.menu': 'Official form',
+  'stock.form.z1': 'Z-1 form',
   'stock.form.z2': 'Z-2 form',
   'stock.form.z3': 'Z-3 form',
   'stock.form.z5': 'Z-5 form',
@@ -14,6 +15,7 @@ export const formEn: Record<string, string> = {
 }
 export const formRu: Record<string, string> = {
   'stock.form.menu': 'Официальная форма',
+  'stock.form.z1': 'Форма З-1',
   'stock.form.z2': 'Форма З-2',
   'stock.form.z3': 'Форма З-3',
   'stock.form.z5': 'Форма З-5',
@@ -27,6 +29,7 @@ export const formRu: Record<string, string> = {
 }
 export const formKk: Record<string, string> = {
   'stock.form.menu': 'Ресми нысан',
+  'stock.form.z1': 'Қ-1 нысаны',
   'stock.form.z2': 'Ж-2 нысаны',
   'stock.form.z3': 'Қ-3 нысаны',
   'stock.form.z5': 'Қ-5 нысаны',

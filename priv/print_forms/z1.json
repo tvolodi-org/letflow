@@ -1,0 +1,41 @@
+{
+  "form_layout_version": 1,
+  "form": "z1",
+  "annex": 25,
+  "blocks": [
+    {"type": "text", "label": "z1.annex"},
+    {"type": "text", "label": "z1.form_code"},
+    {"type": "field", "label": "z2.org", "key": "org_name"},
+    {"type": "field", "label": "z1.warehouse", "key": "warehouse"},
+    {"type": "field", "label": "z2.bin", "key": "org_bin"},
+    {"type": "title", "label": "z1.title"},
+    {"type": "field", "label": "z2.number", "key": "number"},
+    {"type": "field", "label": "z2.date", "key": "date"},
+    {"type": "field", "label": "z1.operation", "key": "operation"},
+    {"type": "field", "label": "z1.supplier", "key": "supplier"},
+    {"type": "field", "label": "z1.account", "key": "account"},
+    {"type": "field", "label": "z1.accomp_doc", "key": "accomp_doc"},
+    {"type": "field", "label": "z1.payment_doc", "key": "payment_doc"},
+    {
+      "type": "table",
+      "rows": "lines",
+      "totals": {"label": "z2.total", "sum": ["qty", "sum"]},
+      "columns": [
+        {"key": "name", "label": "z1.c1"},
+        {"key": "nom", "label": "z2.c3"},
+        {"key": "unit", "label": "z2.c4"},
+        {"key": "qty_doc", "label": "z1.qty", "group": "z1.by_doc"},
+        {"key": "mass_doc", "label": "z1.mass", "group": "z1.by_doc"},
+        {"key": "qty", "label": "z1.qty", "group": "z1.accepted"},
+        {"key": "mass", "label": "z1.mass", "group": "z1.accepted"},
+        {"key": "price", "label": "z1.c8"},
+        {"key": "sum", "label": "z5.c8"},
+        {"key": "passport", "label": "z1.c10"},
+        {"key": "card_no", "label": "z1.c11"}
+      ]
+    },
+    {"type": "signature", "label": "z1.accepted_by", "key": "accepted_by", "parts": ["signature", "name"]},
+    {"type": "signature", "label": "z1.handed_by", "key": "handed_by", "parts": ["signature", "name"]},
+    {"type": "text", "label": "z1.note"}
+  ]
+}

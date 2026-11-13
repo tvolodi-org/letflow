@@ -109,6 +109,13 @@ defmodule Letflow.Modules.Stock do
   the stock card of one item at one place on Z-3 / Q-3 (annex 27), both on the E5b print engine
   (`FormZ5`, `FormZ3`, `StockCardSource`). No migration, record type or permission.
 
+  ## Official form Z-1 (T-1912; no version bump)
+
+  `GET /documents/:id/print?form=z1&format=pdf|docx&lang=ru|kk` prints the issued or posted receipt on Z-1 / Қ-1
+  (annex 25), the receipt order. The mapper `FormZ1` and layout `priv/print_forms/z1.json` follow Z-2; the web
+  offers the menu on receipts in issued and posted state. Blank cells for every gap; nothing is invented
+  (mapping doc `docs/assets/kz-forms-mapping.md` section 7.1).
+
   ## Document print (REQ-737 / GH #3860; version 0.13.0)
 
   One more read route, `GET /documents/:id/print?lang=ru|kk|en` (`StockRead`, the guard of `GET /documents/:id`):
