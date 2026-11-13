@@ -223,6 +223,13 @@ defmodule Letflow.Routers.TenantModules do
       {:error, {:failed, "internal_error"}} ->
         Response.internal_error(conn)
 
+      {:error, {:failed, code, extras}} ->
+        Response.module_upgrade_refused(
+          conn,
+          "upgrade_failed",
+          Map.put(extras, "error_code", code)
+        )
+
       {:error, {:failed, code}} ->
         Response.module_upgrade_refused(conn, "upgrade_failed", %{"error_code" => code})
     end

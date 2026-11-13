@@ -531,7 +531,8 @@ defmodule Letflow.Entities.Definitions do
   (the lock every record writer takes; the type's instance row is created if absent,
   as the first write would), re-reads the active definition under it, compares the
   SET of strict decimal field names (a strict field removed or retyped is a
-  difference; a non-strict decimal added, removed or retyped is not) and refuses with
+  difference; a non-strict decimal added, removed or retyped is not; a strict field the
+  current version does not declare at all, T-1882, is not, since no record can hold it) and refuses with
   `{:error, {:decimal_strict_change, field_names}}` (rolling everything back, no
   activation pointer written) when they differ and the type has a record. It then
   runs `activate_group/5` and `promote_and_demote_siblings/2` in that same
@@ -704,9 +705,23 @@ defmodule Letflow.Entities.Definitions do
     current_set = strict_decimal_names(current)
     target_set = strict_decimal_names(target)
 
+    # T-1882: a strict field the active version does not declare at all cannot be held by any record
+    # (a record carries only declared fields), so adding it puts no legacy number under a strict flag.
+    # Without this, a module upgrade that adds a strict decimal to a type that already has records
+    # (catalog_items 0.3.0 -> 0.4.0) was refused with `activation_refused`.
+    declared = declared_field_names(current)
+
     current_set
     |> MapSet.symmetric_difference(target_set)
+    |> Enum.reject(&(not MapSet.member?(declared, &1) and MapSet.member?(target_set, &1)))
     |> Enum.sort()
+  end
+
+  defp declared_field_names(%EntityDefinition{definition_json: json}) do
+    json
+    |> Map.get("fields", [])
+    |> Enum.filter(&is_map/1)
+    |> MapSet.new(&Map.get(&1, "name"))
   end
 
   defp strict_decimal_names(%EntityDefinition{definition_json: json}) do
