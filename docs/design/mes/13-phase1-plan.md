@@ -243,7 +243,7 @@ Security review is mandatory for tasks that touch a tenant-data path: U2, U3, L1
 Caveats the owner must see:
 
 * **C1 (demo).** `docs/runbooks/demo-upgrade-notes.md` **[V]** says infra's `promote-demo.sh` runs the upgrade chain on every promote, and its smoke check compares record checksums (a changed lot field would show as `DIFF`, exit 1). A promote of a main that contains L1 would set `quality_status = released` on the demo's lots. This plan does not touch the demo; nothing here promotes. **Infra holds the demo promote past L1 until the owner agrees, or X1 updates the demo check to expect the backfill.** Production: not approved for the chain; `LETFLOW_MODULE_UPGRADE_ON_BOOT` stays off.
-* **C2 (QA).** Every QA tenant with `catalog_items`, `locations` or `stock` installed answers 409 on writes of that module between a deploy and the fleet run. UAT must be told.
+* **C2 (QA).** Every QA tenant with `catalog_items`, `locations` or `stock` installed answers 409 on writes of that module between a deploy and the fleet run. UAT must be told. A module version bump without `min_upgradable_from` strands every tenant (T-1860 hit catalog_items and assets): the guard `test/letflow/modules/upgrade_window_test.exs` now prevents it.
 * **C3 (rule is a guess).** The hold rule list, who may release, and four-eyes are owner choices (doc 09 s5, doc 12 row 7). The plan builds the starting list.
 
 ## 13. Open items for later decisions (not decided here)
