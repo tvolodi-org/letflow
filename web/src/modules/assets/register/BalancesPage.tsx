@@ -12,8 +12,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { HelpLink } from '@/components/help/HelpLink'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
-import { Field } from '@/components/ui/Field'
-import { DateValueHint } from '@/components/ui/DateValueHint'
+import { DateField } from '@/components/ui/DateField'
 import { formatLocalInput } from '@/i18n/format'
 import { saveBlob } from '@/lib/saveBlob'
 import { Banner } from '@/components/ui/Banner'
@@ -34,7 +33,7 @@ import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { LoadMore, RegisterError } from './RegisterShell'
 import { assetRegisterApi, type AssetBalanceRow, type AssetBalancesBody } from './assetRegister.api'
 import { BalanceHistoryPanel } from './BalanceHistoryPanel'
-import { EMPTY_BALANCE_FILTERS, AS_OF_DATE, balanceNameIds, balanceParams, balanceQuery, todayIso, type BalanceFilters } from './registerModel'
+import { EMPTY_BALANCE_FILTERS, balanceNameIds, balanceParams, balanceQuery, todayIso, type BalanceFilters } from './registerModel'
 
 const ACTIVE_ONLY: never[] = []
 const LAYOUT_SCREEN = 'assets.balances'
@@ -221,25 +220,15 @@ function BalancesInner({ initialSelectedId = null, initialFilters, initialAsOf =
         <Select label={t('assets.reg.filter.responsible')} value={filters.material_responsible} onChange={set('material_responsible')} options={people} placeholder={t('assets.reg.all')} />
         <Select label={t('assets.reg.filter.user')} value={filters.actual_user} onChange={set('actual_user')} options={people} placeholder={t('assets.reg.all')} />
         <Select label={t('assets.reg.filter.subtree')} value={filters.scope_subtree} onChange={set('scope_subtree')} options={units} placeholder={t('assets.reg.all')} />
-        <Field
+        <DateField
           label={t('assets.filter.asOf')}
-          hint={t('assets.filter.asOfHint')}
-          error={
-            asOf !== '' && !AS_OF_DATE.test(asOf)
-              ? t('assets.filter.asOfInvalid')
-              : asOf > todayIso()
-                ? t('assets.filter.asOfFuture')
-                : undefined
-          }
-          mono
-          width="m"
-        >
-          <input name="as-of-date" type="date" max={todayIso()} value={asOf} onChange={(e) => {
+          error={asOf !== '' && asOf > todayIso() ? t('assets.filter.asOfFuture') : undefined}
+          value={asOf}
+          onChange={(v) => {
             setSelected(null)
-            setAsOf(e.target.value)
-          }} />
-        </Field>
-        <DateValueHint value={asOf} kind="date" />
+            setAsOf(v)
+          }}
+        />
       </FilterBar>
       {first?.as_of_date ? (
         <p className="caption" data-testid="as-of-read">

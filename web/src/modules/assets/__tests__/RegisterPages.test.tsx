@@ -144,12 +144,11 @@ describe('T1 as-of date and export', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
     await waitFor(() => expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({}))
   })
-  it('shows the future message, sends no as_of_date and caps the input at today', async () => {
+  it('shows the future message and sends no as_of_date', async () => {
     serve({ balances: { rows: [ROW], next_cursor: null } })
     renderAssets(BAL)
     await firstAsset()
     const input = screen.getByLabelText('As of date')
-    expect(input).toHaveAttribute('max')
     fireEvent.change(input, { target: { value: '2999-01-01' } })
     expect(await screen.findByText('The date cannot be in the future.')).toBeInTheDocument()
     await waitFor(() => expect(routeCalls(clientMock, 'balances').at(-1)).toEqual({}))
