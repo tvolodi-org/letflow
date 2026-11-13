@@ -1,7 +1,7 @@
 /** LotsPage — GH 3605 / REQ-673. The lots screen: list (item filter, retired switch, expiry sort), create,
  *  edit and retire. Restyled on the shared components (design system, rule 2a): a lot is created and edited in the
- *  detail panel of MasterDetail, not in a modal; only Retire asks in a ConfirmDialog. */
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+ *  detail panel of ListDetail, not in a modal; only Retire asks in a ConfirmDialog. */
+import { useEffect, useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { X } from 'lucide-react'
 import { useAccess } from '@/auth/access'
@@ -10,10 +10,11 @@ import { Button } from '@/components/ui/Button'
 import { Checkbox } from '@/components/ui/Checkbox'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { DetailHeader } from '@/components/ui/DetailHeader'
 import { Field } from '@/components/ui/Field'
 import { FormActions, FormRow, FormSection } from '@/components/ui/FormSection'
-import { MasterDetail } from '@/components/ui/MasterDetail'
+import { ListDetail } from '@/components/ui/listDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
@@ -125,7 +126,7 @@ function LotPanel(props: LotPanelProps) {
     />
   )
   return (
-    <div data-testid="lot-panel">
+    <section className="lf-card" data-testid="lot-panel">
       <DetailHeader
         title={title}
         path={lot ? textOf(lot, 'code') : undefined}
@@ -247,7 +248,7 @@ function LotPanel(props: LotPanelProps) {
           />
         </form>
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -457,17 +458,9 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
     </div>
   )
 
-  function onPanelKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'Escape') {
-      e.stopPropagation()
-      setPanel(null)
-    }
-  }
-
   const itemOptions = activeItems.map((r) => ({ value: r.record_id, label: itemLabel(r) }))
   const panelNode = panel ? (
-    <div onKeyDown={onPanelKeyDown}>
-      <LotPanel
+    <LotPanel
         key={panel.mode === 'edit' ? panel.lot.record_id : 'create'}
         mode={panel.mode}
         lot={panel.mode === 'edit' ? panel.lot : null}
@@ -482,7 +475,6 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
           setPanel(null)
         }}
       />
-    </div>
   ) : null
 
   return (
@@ -494,12 +486,19 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
         actions={createAction}
       />
       <CatalogItemsBoundary queries={[itemsQuery, lotsQuery]}>
-        {toolbar}
-        {panelNode ? (
-          <MasterDetail master={table(compactColumns, true)} detail={panelNode} detailOpen onBack={() => setPanel(null)} />
-        ) : (
-          table(fullColumns, false)
-        )}
+        <ListDetail
+          screen="catalog.lots"
+          listLabel={t('catalog_items.lots.listPane')}
+          listDefault={40}
+          listMin={320}
+          tools={toolbar}
+          list={panelNode ? table(compactColumns, true) : table(fullColumns, false)}
+          detail={panelNode}
+          empty={<EmptyState title={t('catalog_items.lots.pickTitle')} text={t('catalog_items.lots.pickHint')} data-testid="lot-pick-hint" />}
+          detailOpen={panelNode !== null}
+          onClose={() => setPanel(null)}
+          escapeCloses={retiring === null}
+        />
       </CatalogItemsBoundary>
 
       <ConfirmDialog

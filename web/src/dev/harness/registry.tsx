@@ -70,6 +70,7 @@ import { waitingSinceScreens } from './fixtures/waitingSince'
 import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import { listDetailNarrowScreens } from './fixtures/listDetailNarrow'
 import { listDetailSlice2Screens } from './fixtures/listDetailSlice2'
+import { listDetailSlice3Screens } from './fixtures/listDetailSlice3'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
 import { masterDataImport, masterDataImportResult } from './importFixtures'
@@ -349,5 +350,6 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...importReportScreens,
     ...listDetailNarrowScreens,
     ...listDetailSlice2Screens,
+    ...listDetailSlice3Screens(codesRoutes, lotsRoutes),
   ].map(s => [s.name, s]),
 )

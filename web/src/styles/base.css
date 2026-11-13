@@ -315,3 +315,8 @@ samp {
 @container lfhost (min-width: 901px) {
   .lf-jrn:not([data-detail="open"]) { grid-template-columns: var(--lf-pane-1, 60%) minmax(0, 1fr); }
 }
+
+/* T-1889: a filter row inside the list pane of ListDetail wraps instead of overflowing the pane. */
+.lf-reg__tools { grid-template-columns: minmax(0, 1fr); }
+.lf-reg__tools > * { min-width: 0; max-width: 100%; }
+.lf-reg__tools .lf-field { max-width: 100%; }

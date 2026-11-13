@@ -136,14 +136,22 @@ describe('L4 detail panel (owner rule 2a)', () => {
   it('stays open while other rows are clicked, has a close button and closes on Escape', async () => {
     renderCodes('/admin/codes')
     await openPanel('FREE-1')
-    expect(screen.getByTestId('master-detail')).toBeInTheDocument()
+    expect(screen.getByTestId('registry')).toBeInTheDocument()
     fireEvent.click(await row('USED-1'))
     expect(within(await panel()).getByRole('heading', { level: 2, name: 'USED-1' })).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('codes-detail-close'))
     expect(screen.queryByTestId('codes-detail')).toBeNull()
     await openPanel('FREE-1')
-    fireEvent.keyDown(document, { key: 'Escape' })
+    // ListDetail owns Escape: the key comes from inside the record, as from a focused control
+    fireEvent.keyDown(screen.getByTestId('codes-detail'), { key: 'Escape' })
     expect(screen.queryByTestId('codes-detail')).toBeNull()
+  })
+
+  it('shows two panes with the empty state while no code is selected', async () => {
+    renderCodes('/admin/codes')
+    await row('FREE-1')
+    expect(screen.getByTestId('registry')).toHaveAttribute('data-detail', 'closed')
+    expect(screen.getByTestId('codes-pick-hint')).toBeInTheDocument()
   })
 
   it('does not close the panel on Escape while a dialog is open', async () => {
