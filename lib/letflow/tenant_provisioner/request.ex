@@ -95,7 +95,8 @@ defmodule Letflow.TenantProvisioner.Request do
     with true <- byte_size(host) in 1..253,
          [suffix] <- Enum.filter(suffixes, &String.ends_with?(host, "." <> &1)) |> Enum.take(1),
          label = binary_part(host, 0, byte_size(host) - byte_size(suffix) - 1),
-         true <- Regex.match?(@label_regex, label) do
+         true <- Regex.match?(@label_regex, label),
+         false <- Tenant.reserved_slug?(label) do
       {:ok, host}
     else
       _invalid -> {:error, "hostname"}

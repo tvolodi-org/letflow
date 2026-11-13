@@ -126,6 +126,28 @@ defmodule Letflow.Identity.Tenant do
 
   @default_tenant_slug "bpm-default"
 
+  # GH T-1861: host names infra serves under the tenant wildcard `*.letflow.qa.bizdala.com` by an
+  # exact-name vhost. A tenant with such a slug would collide with that host. One list, one place;
+  # only names the code or runbooks already use are listed (`pwa`: the QA PWA).
+  @reserved_slugs ["pwa"]
+
+  @doc "The slugs no tenant may take (host names infra serves under the tenant wildcard)."
+  @spec reserved_slugs() :: [String.t()]
+  def reserved_slugs, do: @reserved_slugs
+
+  @doc "True for a reserved slug, compared trimmed and case-insensitively."
+  @spec reserved_slug?(term()) :: boolean()
+  def reserved_slug?(value) when is_binary(value),
+    do: value |> String.trim() |> String.downcase() |> then(&(&1 in @reserved_slugs))
+
+  def reserved_slug?(_other), do: false
+
+  defp validate_slug_not_reserved(changeset) do
+    validate_change(changeset, :slug, fn :slug, slug ->
+      if reserved_slug?(slug), do: [slug: "is reserved"], else: []
+    end)
+  end
+
   @doc """
   Changeset for creating a new tenant. `oidc_mode` (`:enabled` or
   `:disabled`) is caller-resolved and passed in explicitly — this changeset
@@ -145,6 +167,7 @@ defmodule Letflow.Identity.Tenant do
     tenant
     |> cast(attrs, [:slug, :display_name, :status, :idp_realm_id, :tenant_type])
     |> validate_required([:slug, :display_name])
+    |> validate_slug_not_reserved()
     |> validate_inclusion(:tenant_type, @tenant_types)
     |> check_constraint(:tenant_type, name: :tenants_tenant_type_check)
     |> validate_default_tenant_pinning()
@@ -165,6 +188,7 @@ defmodule Letflow.Identity.Tenant do
     tenant
     |> cast(attrs, [:id, :slug, :display_name])
     |> validate_required([:id, :slug, :display_name])
+    |> validate_slug_not_reserved()
     |> put_change(:status, :migrating)
     |> put_change(:tenant_type, "test")
     |> unique_constraint(:slug)
