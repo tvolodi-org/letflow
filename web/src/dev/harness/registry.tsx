@@ -16,7 +16,7 @@ import { storekeeperGrantScreens } from './storekeeperGrantFixtures'
 import { groupsT1610Screens } from './fixtures/groupsT1610'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { truncatedListScreens } from './fixtures/truncatedLists'
-import { locationsScreens } from './fixtures/locations'
+import { locationsScreens, locationsDataRoutes } from './fixtures/locations'
 import { moduleRolloutsScreens } from './fixtures/moduleRollouts'
 import { usersImportScreens } from './fixtures/usersImport'
 import { userResetScreens } from './fixtures/userReset'
@@ -68,10 +68,11 @@ import { processDesignerVersionsScreens } from './fixtures/processDesignerVersio
 import { instanceReplayScreens } from './fixtures/instanceReplay'
 import { instanceDetailScreens } from './fixtures/instanceDetail'
 import { waitingSinceScreens } from './fixtures/waitingSince'
-import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
+import { orgEmployees, orgLegal, orgListScreens, orgPositions, orgQueryRoutes, orgSites, orgUnits, orgUnitsNewChild } from './orgFixtures'
 import { listDetailNarrowScreens } from './fixtures/listDetailNarrow'
 import { listDetailSlice2Screens } from './fixtures/listDetailSlice2'
 import { listDetailSlice3Screens } from './fixtures/listDetailSlice3'
+import { listDetailSlice4Screens } from './fixtures/listDetailSlice4'
 import type { EntityRecord } from '@/types/api'
 import type { FixtureRoute, HarnessLang, HarnessScreen } from './types'
 import { masterDataImport, masterDataImportResult } from './importFixtures'
@@ -354,6 +355,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...listDetailNarrowScreens,
     ...listDetailSlice2Screens,
     ...listDetailSlice3Screens(codesRoutes, lotsRoutes),
+    ...listDetailSlice4Screens(locationsDataRoutes, orgQueryRoutes),
     ...currenciesScreens,
   ].map(s => [s.name, s]),
 )

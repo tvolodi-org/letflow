@@ -87,3 +87,6 @@ export const locationsScreens: HarnessScreen[] = [
   { name: 'locations-detail', routes, render: () => withAuth(<LocationTreePage initialSelectedId="n-a" />) },
   { name: 'location-links', routes, render: () => withAuth(<LocationLinksPage initialUnitId="u-wh" />) },
 ]
+
+/** The query routes used by the locations screens, exported so shell-based e2e fixtures can reuse the data. */
+export const locationsDataRoutes: FixtureRoute[] = routes

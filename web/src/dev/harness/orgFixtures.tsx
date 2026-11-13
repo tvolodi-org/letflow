@@ -226,3 +226,6 @@ export const orgListScreens: HarnessScreen[] = [
   listOnly('org-positions-list', [queryRoute()], <PositionsPage />),
   listOnly('org-employees-list', [queryRoute(), usersRoute()], <EmployeesPage />),
 ]
+
+/** The entity query route for the org screens, exported so shell-based fixtures can reuse the data. */
+export const orgQueryRoutes: FixtureRoute[] = [queryRoute()]
