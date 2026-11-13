@@ -2,11 +2,11 @@
  *  codes module: list (status filter, exact value search, "Show retired"), receive in bulk (one call, in a dialog),
  *  assign / release / retire, change value and the assignment history of a code.
  *
- *  Owner rule 2a: one record is viewed and edited in the detail panel of MasterDetail (list on the left, the code
+ *  Owner rule 2a: one record is viewed and edited in the detail panel of ListDetail (list on the left, the code
  *  on the right), never in a modal. Dialogs stay for the short single-answer actions: Receive codes, Assign and
  *  the Retire confirmation. The panel stays open while other rows are clicked, has a close button and closes on
  *  Escape. Targets are read through the generic query route (no other module's code is imported). */
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Search, Plus, Printer, X } from 'lucide-react'
 import { useAccess } from '@/auth/access/useAccess'
@@ -19,10 +19,11 @@ import { Dialog } from '@/components/ui/Dialog'
 import { Banner } from '@/components/ui/Banner'
 import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
 import { MAX_ROWS, anyTruncated } from '@/lib/entities/fetchAllRecords'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { Field } from '@/components/ui/Field'
 import { FilterBar } from '@/components/ui/FilterBar'
 import { FormActions, FormSection } from '@/components/ui/FormSection'
-import { MasterDetail } from '@/components/ui/MasterDetail'
+import { ListDetail } from '@/components/ui/listDetail'
 import { Select } from '@/components/ui/Select'
 import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
 import { useToast } from '@/hooks/useToast'
@@ -203,16 +204,8 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
   const failed = [rows, open, historyRows, ...targetQueries].find((q) => q.isError)
   const isLoading = rows.isPending && rows.fetchStatus !== 'idle'
 
-  // Escape closes the detail panel (a dialog on top handles its own Escape first).
+  // ListDetail closes the record on Escape; a dialog on top owns the key while it is open.
   const dialogOpen = receiveOpen || assigning !== null || retiring !== null
-  useEffect(() => {
-    if (selectedId === null || dialogOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) setSelectedId(null)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [selectedId, dialogOpen])
 
   function retry() {
     for (const q of [rows, open, historyRows, ...targetQueries]) void q.refetch()
@@ -355,21 +348,8 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
     hideStackLabel: true,
   }
 
-  const valueCol: DataTableColumn<EntityRecord> = {
-    key: 'value',
-    label: t('codes.common.value'),
-    render: (c) => textOf(c, 'value'),
-    sortable: true,
-    mono: true,
-  }
-  const statusCol: DataTableColumn<EntityRecord> = {
-    key: 'status',
-    label: t('codes.common.status'),
-    render: (c) => pill(textOf(c, 'status')),
-    sortable: true,
-    sortValue: (c) => textOf(c, 'status'),
-  }
-  // Beside the detail panel the list is narrow: one column, the status pill under the value.
+  // The list pane is narrow, so a row is one cell: value, status pill, kind and target under it. With a record open
+  // the row actions live in the panel and the list keeps the value and the pill only.
   const columns: DataTableColumn<EntityRecord>[] = selected
     ? [
         tickCol,
@@ -388,24 +368,24 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
       ]
     : [
         tickCol,
-        valueCol,
         {
-          key: 'kind',
-          label: t('codes.common.kind'),
-          render: (c) => kindLabel(textOf(c, 'kind')),
-          sortable: true,
-          sortValue: (c) => textOf(c, 'kind'),
-        },
-        statusCol,
-        {
-          key: 'target',
-          label: t('codes.common.target'),
+          key: 'value',
+          label: t('codes.common.value'),
           render: (c) => {
             const a = openByCode.get(c.record_id)
-            return textOf(c, 'status') === 'assigned' && a
-              ? targetCell(targetParts(textOf(a, 'target_type'), textOf(a, 'target_id')))
-              : dashCell
+            return (
+              <span className="lf-cell-2">
+                <span className="mono">{textOf(c, 'value')}</span>
+                <span>{pill(textOf(c, 'status'))}</span>
+                <span className="caption">{kindLabel(textOf(c, 'kind'))}</span>
+                {textOf(c, 'status') === 'assigned' && a
+                  ? targetCell(targetParts(textOf(a, 'target_type'), textOf(a, 'target_id')))
+                  : null}
+              </span>
+            )
           },
+          sortable: true,
+          sortValue: (c) => textOf(c, 'value'),
         },
         { key: 'actions', label: t('codes.common.actions'), render: rowAction },
       ]
@@ -444,15 +424,15 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
         </Banner>
       ) : null}
       {tableOnly}
-      {codeRows.hasMore ? (
-        <div className="lf-btn-row">
-          <Button variant="secondary" size="md" loading={codeRows.loadingMore} onClick={codeRows.loadMore} data-testid="codes-load-more">
-            {t('codes.list.loadMore')}
-          </Button>
-        </div>
-      ) : null}
     </>
   )
+  const tableFooter = codeRows.hasMore ? (
+    <div className="lf-btn-row">
+      <Button variant="secondary" size="md" loading={codeRows.loadingMore} onClick={codeRows.loadMore} data-testid="codes-load-more">
+        {t('codes.list.loadMore')}
+      </Button>
+    </div>
+  ) : null
 
   let detail = null
   if (selected) {
@@ -462,7 +442,7 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
     const current = draft && draft.id === selected.record_id ? draft.value : value
     const valueError = lastOp === 'value' ? rowError : null
     detail = (
-      <div data-testid="codes-detail">
+      <section className="lf-card" data-testid="codes-detail">
         <DetailHeader
           title={value}
           path={kindLabel(textOf(selected, 'kind'))}
@@ -572,7 +552,7 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
             />
           </FormSection>
         </div>
-      </div>
+      </section>
     )
   }
 
@@ -607,6 +587,13 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
           ) : undefined
         }
       >
+        <ListDetail
+          screen="codes"
+          listLabel={t('codes.list.pane')}
+          listDefault={50}
+          listMin={320}
+          tools={
+            <>
         <FilterBar>
           <Field
             label={t('codes.list.searchValue')}
@@ -675,7 +662,16 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
         {labelBanner}
         {limitHint && <Banner tone="info">{t('codes.labels.limit', { max: MAX_BATCH })}</Banner>}
         {someNotPrintable && <p className="caption">{t('codes.labels.notPrintable')}</p>}
-        {selected ? <MasterDetail master={table} detail={detail} detailOpen onBack={() => setSelectedId(null)} /> : table}
+            </>
+          }
+          list={table}
+          listFooter={tableFooter}
+          detail={detail}
+          empty={<EmptyState title={t('codes.detail.pickTitle')} text={t('codes.detail.pickHint')} data-testid="codes-pick-hint" />}
+          detailOpen={selected !== null}
+          onClose={() => setSelectedId(null)}
+          escapeCloses={!dialogOpen}
+        />
       </CodesShell>
 
       <Dialog

@@ -91,7 +91,7 @@ describe('detail panel (rule 2a)', () => {
     const panel = await screen.findByTestId('lot-panel')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(within(panel).getByLabelText(/^Producer/)).toHaveValue('Acme')
-    expect(screen.getByTestId('master-detail')).toBeInTheDocument()
+    expect(screen.getByTestId('registry')).toBeInTheDocument()
     fireEvent.click(await findLot('LOT-B'))
     await waitFor(() => expect(within(screen.getByTestId('lot-panel')).getByLabelText(/^Producer/)).toHaveValue('Beta'))
     expect(within(screen.getByTestId('lot-panel')).getByLabelText('Lot code')).toHaveValue('LOT-B')
