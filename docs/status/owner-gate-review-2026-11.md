@@ -18,8 +18,8 @@ How to read the tables:
 
 ## 1. Short version
 
-- About **2 h 40 min** of owner time in total (guess). Two sittings work best (section 10).
-- **Must answer before the next build step:** the six role choices (item N1), the voice key line (D2), and the
+- About **2 h 30 min** of owner time in total (guess). Two sittings work best (section 10).
+- **Must answer before the next build step:** the voice key line (D2), and the
   production questions (F1), if production is the next step.
 - **Only looking, no answer:** gates C, D and E. They need a QA walk.
 - Everything else is a quick yes/no on our recommendations, or can wait.
@@ -118,7 +118,6 @@ again.
 
 | # | What it is | Look at or answer | Our recommendation | Time | Blocked until done | V/G |
 |---|---|---|---|---|---|---|
-| N1 | Roles as tenant data: six choices from the architect's verdict (`docs/design/roles-architect-verdict.md`, "Owner choices that remain"; D-129: you wait for this verdict) | **Answer:** (1) Existing companies keep their ready-made roles as normal roles they may edit, or the roles are removed? (2) A new company starts with only its administrator, or with starter roles? (3) When a module update brings a new permission, do the company's own roles get it automatically? (4) May the company administrator let someone else manage users and roles? (5) Is "create your own roles" free or paid? (6) Any limit on roles per company? | (1) keep them; (2) only the administrator, starter roles copied from a list; (3) never automatically; (4) not now; (5) free; (6) no number now, needed before stage 3. All are the architect's recommendations, except (6), which the architect leaves to you. | 10 | Decision record T-1849 and every stage after stage 0 of the roles change. | V |
 | N2 | Three product calls from the security follow-up (`docs/uat/ba-decisions/T-1695.md`, "Must wait") | **Answer:** (a) May the platform operator force a security update on a company, even inside the company's chosen upgrade window? (b) When the sign-up limit for a mail domain is reached, does the person see "limit reached", or the same neutral "check your mail" as always? (c) On the rollouts page, should Escape inside the module field close the whole detail? | Our suggestions, no source wrote one (G): (a) yes, after a notice to the company; (b) the neutral answer, so nobody can probe which domains exist; (c) no, Escape inside a field only leaves the field. | 5 | Fixes F4-2, F4-3 and one accessibility row. | V (questions). G (recommendations). |
 | N3 | Paid CI capacity (`docs/status/ci-minutes-after-batch4.md`, "Owner decisions") | **Answer:** pay for bigger runners or more parallel jobs? | No, not now. The saving has not been measured, and the free cuts have been applied first. | 2 | Nothing urgent. | V |
 | N4 | Public repo clean-up, the rest of the plan (`docs/uat/ba-decisions/T-1599.md` section 12. Q1 to Q4 and Q6 are answered by D-116 and D-118) | **Answer:** Q5: is it fine that the issues and PRs of the old repo become private with it? Q7: do the team template and lab stay private (the engine maybe published later)? Q8: rotate any live secret the audit finds, before stage 1? Q9: go for the last stage only after the trial period? | Yes to all four, as written in the plan. As decided in D-118, you are still told before the new public repo is created, before files are deleted, and before any force-push. | 3 | Stages 1 and 7 of the clean-up. | V |
@@ -151,20 +150,20 @@ again.
 | MES | A.1 backfill, A.2 customer marker, A.4 decision record first, A.6 units and density, phase 1 go, MES open under MIT (D-122, D-124). |
 | Signing key place | Any place for now; decide at the first customer (D-121). |
 | Voice test phrases | Synthetic first (D-092, D-097). |
+| Roles | Permission-only checks, read-only ready-made roles in the open build, role editor is the closed package, O1-O6 (D-129, D-131, D-132) |
 
 ## 10. Total time and suggested order
 
 | Order | Item | Owner minutes (G) |
 |---|---|---|
-| 1 | N1 roles (blocks the next roles build steps) | 10 |
-| 2 | D2 voice key line (so voice can be tried in the walk) | 2 |
-| 3 | Sitting 1 on QA: C1 assets walk, then E1 paperwork walk | 55 |
-| 4 | E2 who checks Kazakh | 2 |
-| 5 | Sitting 2: D1 phone walk | 25 |
-| 6 | F1 production questions, F2 pilot company, F4, F5 | 20 |
-| 7 | Quick yes/no list: N2, N3, N4, N5, N6 | 15 |
-| 8 | Later: F3 with the company, N7 when sign-up opens | 0 now |
-| | **Total** | **about 129 min**, plus about 30 min of slack for questions during the walks: **about 2 h 40 min** |
+| 1 | D2 voice key line (so voice can be tried in the walk) | 2 |
+| 2 | Sitting 1 on QA: C1 assets walk, then E1 paperwork walk | 55 |
+| 3 | E2 who checks Kazakh | 2 |
+| 4 | Sitting 2: D1 phone walk | 25 |
+| 5 | F1 production questions, F2 pilot company, F4, F5 | 20 |
+| 6 | Quick yes/no list: N2, N3, N4, N5, N6 | 15 |
+| 7 | Later: F3 with the company, N7 when sign-up opens | 0 now |
+| | **Total** | **about 119 min**, plus about 30 min of slack for questions during the walks: **about 2 h 30 min** |
 
 ## 11. Sources
 
