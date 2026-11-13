@@ -275,6 +275,18 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
     item; a combined policy such as serial with expiry is an open owner question (assumption, owner
     may change at GATE B).
 
+23. **Unit dimension and physical attributes (MES-U1, `catalog_items` 0.4.0, MES plan U1, owner A.6).**
+    `catalog_uom` has an optional `dimension` enum (`mass`, `volume`, `count`, `other`; absent reads as
+    `other`, no default is stored) and `catalog_item` has three optional strict decimals (scale 9):
+    `density_kg_per_l`, `net_mass_kg` (mass of one base unit) and `net_volume_l` (volume of one base
+    unit). Both are in `priv/modules/catalog_items/entity_definitions/`. A value must be greater than zero:
+    `Letflow.Modules.CatalogItems.Import` (`lib/letflow/modules/catalog_items/import.ex`) refuses a zero, negative or non-decimal value with a
+    `field_invalid` row error naming the field (the value is not echoed); more than 9 decimals is refused
+    by the definition. Nothing converts units and no posting reads these fields yet (U2/U3 of the plan);
+    their consistency with the base unit's dimension is not checked here. The change is upgrade class A
+    (optional fields, no step): a QA tenant with 0.3.0 answers `upgrade_required` on writes of the module
+    until the operator's upgrade run; existing records read back unchanged.
+
 ## Locations module limits
 
 Module `locations` (GH #3501 / REQ-625 skeleton, GH #3591 / REQ-645, decisions 0050 and 0066) as it

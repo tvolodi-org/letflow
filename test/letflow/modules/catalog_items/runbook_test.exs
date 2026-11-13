@@ -142,9 +142,18 @@ defmodule Letflow.Modules.CatalogItems.RunbookTest do
   end
 
   test "P2: item 22 names the tracking policies, validate_capture and the open points" do
-    {22, text} = List.last(items())
+    {22, text} = Enum.find(items(), &(elem(&1, 0) == 22))
 
     for word <- ~w(serial lot expiry REQ-503 validate_capture #3581 0057 entity_type_managed) do
+      assert text =~ word, word
+    end
+  end
+
+  test "P3: item 23 names the dimension, the three attributes and the version" do
+    {23, text} = List.last(items())
+
+    for word <-
+          ~w(dimension density_kg_per_l net_mass_kg net_volume_l MES-U1 0.4.0 field_invalid) do
       assert text =~ word, word
     end
   end

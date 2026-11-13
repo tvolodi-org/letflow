@@ -15,7 +15,8 @@ defmodule Letflow.Modules.CatalogLedgerHashTest do
   @golden %{
     "Exam" => "992e5266d1b81a138684f50228c5a3429393dcb90fdd0bb0dfb1fa9646252d8a",
     "Org" => "caba62b2f3060c99ae03b3dcc2cdee841fded125aa92719f8ce74c77f39b9b11",
-    "CatalogItems" => "d0e4882ffd3c14833715727d94bdc188897ca84e73a74c927048d19cb610eb9a",
+    # re-pinned by MES-U1 (catalog_items 0.3.0 -> 0.4.0)
+    "CatalogItems" => "f890e6e1f1e88ddd03b49c81f7c6535a07d18d914391866def5de5210e78c3bf",
     "Procurement" => "265b5841f1705989bacfdf2ca82385fa0c9d83ad462e3f257f0ac87060f8dd61",
     "Locations" => "a9f6b26a8d6df340267381c4a3025b7a8848eb0f02d288167b66d9134ba96116",
     "Codes" => "d3661b5ff799f4325df455cd8e59212fcfeafff0af6a8d6d140a481e75d68b93",
