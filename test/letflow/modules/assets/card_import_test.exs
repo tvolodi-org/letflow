@@ -134,7 +134,7 @@ defmodule Letflow.Modules.Assets.CardImportTest do
       "accumulated_depreciation" => "100.25",
       "book_value" => "900.25",
       "depreciation_as_of" => "2025-12-31",
-      "depreciation_method" => "straight line",
+      "depreciation_method" => "straight_line",
       "depreciation_rate" => "20.5",
       "external_ref_system" => "erp",
       "external_ref_id" => ext
@@ -170,10 +170,46 @@ defmodule Letflow.Modules.Assets.CardImportTest do
     c
   end
 
+  test "IM-2/IM-3: an unknown method is refused with its header; legacy text re-imports unchanged",
+       ctx do
+    schema = ctx.a.schema_name
+    before = counts(schema)
+
+    conn = import_to(ctx.tok_a, [row("M-1", "EM1", %{"depreciation_method" => "linear"})])
+    assert conn.status == 200, conn.resp_body
+
+    assert [%{"reason" => %{"type" => "field_invalid", "header" => "depreciation_method"}}] =
+             results(conn)
+
+    assert counts(schema) == before
+
+    assert outcomes(import_to(ctx.tok_a, [row("M-2", "EM2")])) == ["created"]
+    c = card_by_ext(schema, "EM2")
+    {:ok, %Latest{field_values: fv}} = Latest.get(c["record_id"], "assets_card", schema)
+
+    {:ok, _} =
+      Letflow.Entities.Records.update_record(
+        %{
+          entity_type: "assets_card",
+          record_id: c["record_id"],
+          field_values: Map.put(fv, "depreciation_method", "straight line"),
+          actor_id: Ecto.UUID.generate(),
+          idempotency_key: Ecto.UUID.generate()
+        },
+        schema,
+        Letflow.Entities.ManagedTypes.owner_for!(Letflow.Modules.Assets)
+      )
+
+    legacy = row("M-2", "EM2", %{"depreciation_method" => "straight line"})
+    before = counts(schema)
+    assert outcomes(import_to(ctx.tok_a, [legacy])) == ["unchanged"]
+    assert counts(schema) == before
+  end
+
   test "R1: the manifest registers the import function and validates" do
     m = Assets.manifest()
     assert %{entity_type: "assets_card", function: :import_card} in m.import_functions
-    assert m.version == "0.16.0"
+    assert m.version == "0.17.0"
     assert Catalog.validate(m) == :ok
     assert Catalog.import_function("assets", "assets_card") == :ok
   end
@@ -205,7 +241,7 @@ defmodule Letflow.Modules.Assets.CardImportTest do
     assert Decimal.equal?(c["accumulated_depreciation"], "100.25")
     assert Decimal.equal?(c["book_value"], "900.25")
     assert c["depreciation_as_of"] == "2025-12-31"
-    assert c["depreciation_method"] == "straight line"
+    assert c["depreciation_method"] == "straight_line"
     assert Decimal.equal?(c["depreciation_rate"], "20.5")
     assert c["active"] == true
 

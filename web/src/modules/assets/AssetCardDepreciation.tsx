@@ -5,14 +5,17 @@ import { Fragment } from 'react'
 import { useIntl } from 'react-intl'
 import { formatDate } from '@/i18n/format'
 import type { EntityRecord } from '@/types/api'
-import { textOf } from './assetsModel'
+import { isDepreciationMethod, textOf } from './assetsModel'
 
 export function AssetCardDepreciation({ record }: { record: EntityRecord }) {
   const intl = useIntl()
   const t = (id: string) => intl.formatMessage({ id })
   const asOf = textOf(record, 'depreciation_as_of').trim()
+  const methodLabel = t('assets.field.depMethod')
+  const method = textOf(record, 'depreciation_method').trim()
+  const legacy = method !== '' && !isDepreciationMethod(method)
   const rows: [string, string, boolean][] = [
-    [t('assets.field.depMethod'), textOf(record, 'depreciation_method').trim(), false],
+    [methodLabel, legacy || method === '' ? method : t(`assets.depMethod.${method}`), false],
     [t('assets.field.depRate'), textOf(record, 'depreciation_rate').trim(), true],
     [t('assets.field.accumulated'), textOf(record, 'accumulated_depreciation').trim(), true],
     [t('assets.field.bookValue'), textOf(record, 'book_value').trim(), true],
@@ -30,7 +33,15 @@ export function AssetCardDepreciation({ record }: { record: EntityRecord }) {
         {shown.map(([label, value, mono]) => (
           <Fragment key={label}>
             <dt>{label}</dt>
-            <dd className={mono ? 'mono' : undefined}>{value}</dd>
+            <dd className={mono ? 'mono' : undefined}>
+              {value}
+              {legacy && label === methodLabel && (
+                <span className="caption lf-faint" data-testid="asset-dep-method-legacy">
+                  {' '}
+                  {t('assets.depMethod.notInList')}
+                </span>
+              )}
+            </dd>
           </Fragment>
         ))}
       </dl>

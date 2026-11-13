@@ -46,10 +46,12 @@ export function LayoutPrefsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onHide = () => store.flush()
+    store.connect()
     window.addEventListener('pagehide', onHide)
     return () => {
       window.removeEventListener('pagehide', onHide)
       store.flush()
+      store.dispose()
     }
   }, [store])
 

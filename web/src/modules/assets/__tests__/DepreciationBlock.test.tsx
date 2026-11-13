@@ -27,11 +27,12 @@ const card = (id: string, no: string, extra: Record<string, unknown> = {}) =>
 const DATA = {
   assets_card: [
     card('c-1', 'FA-1', {
-      depreciation_method: 'straight line', depreciation_rate: '12.5', accumulated_depreciation: '100',
+      depreciation_method: 'straight_line', depreciation_rate: '12.5', accumulated_depreciation: '100',
       book_value: '999', depreciation_as_of: '2026-09-30',
     }),
     card('c-2', 'FA-2', { book_value: '55.00' }),
     card('c-3', 'FA-3', { acquisition_cost: '10' }),
+    card('c-5', 'FA-5', { depreciation_method: 'declining' }),
     card('c-4', 'FA-4', { active: false, depreciation_method: 'declining', accumulated_depreciation: '7' }),
   ],
   org_unit: [rec('u-1', 'org_unit', { code: 'U1', name: 'Head office' })],
@@ -60,7 +61,7 @@ describe('depreciation block', () => {
     await open('FA-1')
     const block = await screen.findByTestId('asset-depreciation')
     expect(within(block).getByText(en['assets.depreciation.infoOnly'])).toBeInTheDocument()
-    for (const v of ['straight line', '12.5', '100', '999']) expect(within(block).getByText(v)).toBeInTheDocument()
+    for (const v of [en['assets.depMethod.straight_line'], '12.5', '100', '999']) expect(within(block).getByText(v)).toBeInTheDocument()
     for (const k of ['depMethod', 'depRate', 'accumulated', 'bookValue', 'asOf'] as const) {
       expect(within(block).getByText(en[`assets.field.${k}`])).toBeInTheDocument()
     }
@@ -112,6 +113,7 @@ describe('depreciation block', () => {
     fireEvent.click(await screen.findByText('FA-4'))
     const block = await screen.findByTestId('asset-depreciation')
     expect(within(block).getByText('declining')).toBeInTheDocument()
+    expect(within(block).getByTestId('asset-dep-method-legacy')).toHaveTextContent(en['assets.depMethod.notInList'])
     expect(screen.queryByTestId('asset-save')).not.toBeInTheDocument()
     expect(screen.getAllByText(en['assets.field.accumulated'])).toHaveLength(1)
   })
@@ -121,9 +123,13 @@ describe('depreciation block', () => {
     renderAssets(PATH)
     fireEvent.click(await screen.findByTestId('asset-create'))
     await screen.findByRole('form', { name: en['assets.page.createTitle'] })
+    const select = field('depreciation_method') as unknown as HTMLSelectElement
+    expect(select.tagName).toBe('SELECT')
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'straight_line', 'reducing_balance', 'units_of_production'])
+    expect(select.options[1].textContent).toBe(en['assets.depMethod.straight_line'])
     fireEvent.change(field('inventory_number'), { target: { value: 'FA-9' } })
     fireEvent.change(field('name'), { target: { value: 'New' } })
-    fireEvent.change(field('depreciation_method'), { target: { value: 'linear' } })
+    fireEvent.change(field('depreciation_method'), { target: { value: 'reducing_balance' } })
     fireEvent.change(field('depreciation_rate'), { target: { value: '1,5' } })
     expect(field('depreciation_rate')).toHaveAttribute('aria-invalid', 'true')
     fireEvent.click(screen.getByTestId('asset-save'))
@@ -131,6 +137,21 @@ describe('depreciation block', () => {
     fireEvent.change(field('depreciation_rate'), { target: { value: '20' } })
     fireEvent.click(screen.getByTestId('asset-save'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
-    expect(writeCalls(clientMock)[0].body).toMatchObject({ depreciation_method: 'linear', depreciation_rate: '20' })
+    expect(writeCalls(clientMock)[0].body).toMatchObject({ depreciation_method: 'reducing_balance', depreciation_rate: '20' })
+  })
+
+  it('W-4 a legacy value stays selected as an extra option and is not sent unless changed', async () => {
+    fakeServer(clientMock, DATA)
+    renderAssets(PATH)
+    await open('FA-5')
+    const select = field('depreciation_method') as unknown as HTMLSelectElement
+    expect(select.value).toBe('declining')
+    expect(Array.from(select.options).map((o) => o.textContent)).toContain(
+      en['assets.depMethod.legacy'].replace('{value}', 'declining'),
+    )
+    fireEvent.change(field('depreciation_rate'), { target: { value: '20' } })
+    fireEvent.click(screen.getByTestId('asset-save'))
+    await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
+    expect(writeCalls(clientMock)[0].body).not.toHaveProperty('depreciation_method')
   })
 })

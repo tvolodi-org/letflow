@@ -61,7 +61,7 @@ The header row of an asset import file is one column per field of the `assets_ca
 | 11 | valid_until | date | optional; only for kind `intangible` |
 | 12 | external_ref_system | string | the row's external ref system |
 | 13 | external_ref_id | string | the row's external ref id |
-| 14 | depreciation_method | string | optional, free text, information only (T-1530; added at the end so numbers 1..13 stay) |
+| 14 | depreciation_method | string | optional; a method code `straight_line`, `reducing_balance` or `units_of_production` (D-134, T-1871); any other value is refused with `field_invalid`, header `depreciation_method`, unless it equals the value already stored on the card (so a legacy text re-imports unchanged); information only (T-1530; added at the end so numbers 1..13 stay) |
 | 15 | depreciation_rate | decimal | optional; `decimal_strict`; percent per year as typed, information only (T-1530) |
 
 The row's external ref is also written into the card's own `external_ref_system` and `external_ref_id` fields (as
