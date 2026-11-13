@@ -1,7 +1,7 @@
 {
   "name": "catalog_item",
   "display_name": "Catalog Item",
-  "description": "GH #2663 / REQ-474, decisions 0050 D1 and 0057 D1. An item master. base_uom_id is the id of a catalog_uom record as a queried string (declarative reference, no foreign key: 0050 D3.6). kind is material or service (services are a later catalog). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+  "description": "GH #2663 / REQ-474, decisions 0050 D1 and 0057 D1. An item master. base_uom_id is the id of a catalog_uom record as a queried string (declarative reference, no foreign key: 0050 D3.6). kind is material or service (services are a later catalog). external_ref_system and external_ref_id are the nullable import key (0057 D1). Physical attributes (MES plan U1, owner A.6), all optional and positive: density_kg_per_l, net_mass_kg (mass of one base unit) and net_volume_l (volume of one base unit), strict decimals of scale 9.",
   "fields": [
     {
       "name": "code",
@@ -56,6 +56,27 @@
         "serial",
         "expiry"
       ]
+    },
+    {
+      "name": "density_kg_per_l",
+      "type": "decimal",
+      "decimal_strict": true,
+      "decimal_precision": 24,
+      "decimal_scale": 9
+    },
+    {
+      "name": "net_mass_kg",
+      "type": "decimal",
+      "decimal_strict": true,
+      "decimal_precision": 24,
+      "decimal_scale": 9
+    },
+    {
+      "name": "net_volume_l",
+      "type": "decimal",
+      "decimal_strict": true,
+      "decimal_precision": 24,
+      "decimal_scale": 9
     }
   ],
   "constraints": [

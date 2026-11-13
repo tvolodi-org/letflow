@@ -14,6 +14,17 @@ defmodule Letflow.Modules.Exam.ExamPackNoStrictDecimalTest do
   use ExUnit.Case, async: true
   @moduletag :unit
 
+  # MES plan U1 (owner A.6): the three physical attributes of a catalog item are strict decimals
+  # on purpose (exact strings, scale 9). The readers named above were revisited: a strict field
+  # holds only the canonical string written by the strict path (gh2654 design, D10), so returning
+  # the stored `field_values` as is yields the same string `render_field_values/2` would. Nothing in
+  # the exam runtime reads these fields. Any other strict field still fails this guard.
+  @allowed_strict MapSet.new([
+                    {"catalog_item", "density_kg_per_l"},
+                    {"catalog_item", "net_mass_kg"},
+                    {"catalog_item", "net_volume_l"}
+                  ])
+
   @modules_dir Path.join([File.cwd!(), "priv", "modules"])
 
   defp fields_of(module_dir) do
@@ -31,7 +42,7 @@ defmodule Letflow.Modules.Exam.ExamPackNoStrictDecimalTest do
       assert fields != [] or unquote(module_dir) != "exam"
 
       strict = for {type, %{"decimal_strict" => true} = f} <- fields, do: {type, f["name"]}
-      assert strict == []
+      assert Enum.reject(strict, &MapSet.member?(@allowed_strict, &1)) == []
     end
   end
 

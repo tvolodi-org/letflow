@@ -21,7 +21,7 @@
             "type": "unique"
           }
         ],
-        "description": "GH #2663 / REQ-474, decisions 0050 D1 and 0057 D1. A unit of measure master. The decimal scale and conversion factors are not here (REQ-504). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "description": "GH #2663 / REQ-474, decisions 0050 D1 and 0057 D1. A unit of measure master. The decimal scale and conversion factors are not here (conversion factors are MES plan U2/U3, never applied at posting). dimension (mass, volume, count, other; MES plan U1, owner A.6) is optional; an absent dimension reads as other. external_ref_system and external_ref_id are the nullable import key (0057 D1).",
         "display_name": "Catalog Unit of Measure",
         "fields": [
           {
@@ -50,13 +50,24 @@
             "name": "external_ref_id",
             "queried": true,
             "type": "string"
+          },
+          {
+            "enum_values": [
+              "mass",
+              "volume",
+              "count",
+              "other"
+            ],
+            "name": "dimension",
+            "queried": true,
+            "type": "enum"
           }
         ],
         "name": "catalog_uom"
       },
       "display_name": "Catalog Unit of Measure",
       "entity_definition_id": "e7e57811-5333-393e-5258-61501d663a5d",
-      "logical_shape_version": "9dcbcef340246a9b879253e028c1a9c9187c0b8c987198c12826387396917edf",
+      "logical_shape_version": "e1da0b2e83932080efd0f04a637b3a53f8cf414eef5cc7b6aabc48626b1757e6",
       "name": "catalog_uom"
     },
     {
@@ -78,7 +89,7 @@
             "type": "unique"
           }
         ],
-        "description": "GH #2663 / REQ-474, decisions 0050 D1 and 0057 D1. An item master. base_uom_id is the id of a catalog_uom record as a queried string (declarative reference, no foreign key: 0050 D3.6). kind is material or service (services are a later catalog). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "description": "GH #2663 / REQ-474, decisions 0050 D1 and 0057 D1. An item master. base_uom_id is the id of a catalog_uom record as a queried string (declarative reference, no foreign key: 0050 D3.6). kind is material or service (services are a later catalog). external_ref_system and external_ref_id are the nullable import key (0057 D1). Physical attributes (MES plan U1, owner A.6), all optional and positive: density_kg_per_l, net_mass_kg (mass of one base unit) and net_volume_l (volume of one base unit), strict decimals of scale 9.",
         "display_name": "Catalog Item",
         "fields": [
           {
@@ -134,13 +145,34 @@
             "name": "tracking_policy",
             "queried": true,
             "type": "enum"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "density_kg_per_l",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "net_mass_kg",
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 24,
+            "decimal_scale": 9,
+            "decimal_strict": true,
+            "name": "net_volume_l",
+            "type": "decimal"
           }
         ],
         "name": "catalog_item"
       },
       "display_name": "Catalog Item",
       "entity_definition_id": "802d6a3a-9f95-0c9c-d9b8-7261ade45e3d",
-      "logical_shape_version": "122f1e3483b1a53799ae44433db77d7b13cbc914edb49d0b06408649f5e36b41",
+      "logical_shape_version": "477c5a5215a065e3a0106dd31cf9238e9e22a89407aedbaa9d714a92f31fedba",
       "name": "catalog_item"
     },
     {

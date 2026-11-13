@@ -28,6 +28,14 @@ defmodule Letflow.Modules.CatalogItems.Import do
        `Letflow.Modules.CatalogItems.Lots`). `:unchanged`, a refused row and a replay of a claimed
        idempotency key write none. An audit failure rolls the row back: `{:error, :audit_failed}`.
 
+    5. physical attributes (MES plan U1, owner A.6): for a `catalog_item` row, each of
+       `density_kg_per_l`, `net_mass_kg` and `net_volume_l` that is present (a blank CSV cell has no
+       key; a JSON null is left to the definition) must be a decimal text or integer greater than
+       zero, else `{:field_invalid, field}` (first bad field in that order; the field name is a
+       constant, the value is never echoed). The pack carries no range keys, so "greater than zero"
+       is checked here, before the database. Scale and precision stay with the strict decimal
+       definition.
+
   `ctx.dry_run` is accepted and unused: the core owns the rollback. No effect outside `prefix`.
   """
 
@@ -42,6 +50,9 @@ defmodule Letflow.Modules.CatalogItems.Import do
   alias Letflow.Modules.CatalogItems
   alias Letflow.Repo
 
+  @positive_decimals ~w(density_kg_per_l net_mass_kg net_volume_l)
+  @max_decimal_bytes 1100
+
   @references %{"catalog_item" => [{"base_uom_id", "catalog_uom"}]}
 
   @spec row(prefix :: String.t(), entry :: map(), ctx :: map()) ::
@@ -49,7 +60,8 @@ defmodule Letflow.Modules.CatalogItems.Import do
           | {:error, term()}
   def row(prefix, %{entity_type: type, external_ref: %ExternalRef{} = ref} = entry, ctx)
       when is_binary(prefix) do
-    with {:ok, field_values} <- resolve_references(type, entry.field_values, ref, prefix) do
+    with {:ok, field_values} <- resolve_references(type, entry.field_values, ref, prefix),
+         :ok <- validate_positive_decimals(type, field_values) do
       attrs = %{
         entity_type: type,
         external_ref: ExternalRef.to_payload(ref),
@@ -170,6 +182,29 @@ defmodule Letflow.Modules.CatalogItems.Import do
   rescue
     _ -> {:error, :audit_failed}
   end
+
+  defp validate_positive_decimals("catalog_item", field_values) do
+    Enum.find_value(@positive_decimals, :ok, fn field ->
+      case Map.get(field_values, field) do
+        nil -> nil
+        value -> if positive_decimal?(value), do: nil, else: {:error, {:field_invalid, field}}
+      end
+    end)
+  end
+
+  defp validate_positive_decimals(_type, _field_values), do: :ok
+
+  defp positive_decimal?(value) when is_integer(value), do: value > 0
+
+  defp positive_decimal?(value)
+       when is_binary(value) and byte_size(value) <= @max_decimal_bytes do
+    case Decimal.parse(value) do
+      {%Decimal{} = d, ""} -> Decimal.gt?(d, 0)
+      _ -> false
+    end
+  end
+
+  defp positive_decimal?(_value), do: false
 
   defp resolve_references(type, field_values, ref, prefix) do
     @references
