@@ -3,6 +3,15 @@
 Task T-1842. Owner decision D-126 (open core, a few closed features behind sockets), as given in the task text.
 Design note only: no code, no private repository, no package, nothing on QA, production, demo, secrets, money, DNS or the public repository is changed. MES work is not touched.
 
+> **Update (T-1849, 2026-11-13): assumption A of this note is SUPERSEDED.** This note assumed the open build keeps the nine
+> built-in roles and that permission-bearing custom roles come only from a closed package (section 1.6, option A, "UAT
+> assumption"). Under owner principle D-129 and decision record `docs/migration/decisions/0088-permission-only-access-tenant-defined-roles.md`
+> (proposed, not yet confirmed by the owner), **tenant-defined roles are the base model of the open build**, pending owner choice
+> O5 of 0088 (open or closed; recommendation: open). What changes here: section 0 row 1, sections 1.2 to 1.6, the socket list of
+> 1.3, section 4 and question 1 of section 7 (each marked below). Sections 2 and 3 (build layout, tests per edition, isolation and
+> audit identical in both builds) stay valid. Sources: `docs/design/roles-architect-verdict.md` section E7 (T-1848),
+> `docs/design/tenant-defined-roles.md` (T-1846). Migration order: `docs/design/roles-stage0-slices.md`.
+
 Legend: **V** = verified by reading the file on this branch (2026-11-13). **G** = guess. Commands behind the facts are in section 6.
 
 ## 0. Short answer
@@ -10,6 +19,7 @@ Legend: **V** = verified by reading the file on this branch (2026-11-13). **G** 
 | Question | Answer |
 |---|---|
 | Is a role socket possible? | Yes, but the owner's picture ("open build answers from two fixed roles") does not match the code. Today the core has **nine** built-in roles, closed by design (V). "Custom roles" today are **routing names for process tasks**, not permission sets (V). So there is a decision for the PM (section 1.6): keep nine built-ins in the open build and put only *permission-bearing custom roles* behind the socket (recommended, size M), or collapse the open build to two roles (size L, high risk). |
+| (T-1849) Superseded answer | Custom permission-bearing roles become the open base model (0088, pending O5). The role socket on the access decision is dropped; closed extras sit around role management (section 1.6 note). |
 | How does the closed package get in at build time? | One small private repo that depends on the open repo at a tag. The open repo never mentions it: it ships a default implementation of every socket. No submodule, no gitignore trick (section 2). |
 | Do tenant isolation and audit change? | No. Both are in the core, below every socket. The sockets only answer "which permissions does this role hold" and never see a database prefix (section 3). |
 | What gets simpler compared with T-1521 section 4? | The "closed module package" and "second repo" mechanics are reused as they are; what is new is that a closed feature need not be a whole module. A socket is a few lines in the core. Details in section 5. |
@@ -35,9 +45,18 @@ Legend: **V** = verified by reading the file on this branch (2026-11-13). **G** 
 
 ### 1.2 What "custom roles" would mean (V for the facts, decision for the PM)
 
+> **Superseded in part (T-1849), also for 1.4 and 1.5.** The facts in 1.2 stay (V). What changes: custom roles are built in the open
+> core, not in a closed package; the size and risk of 1.4 now belong to stages 0 to 6 of `docs/design/roles-stage0-slices.md`; the
+> 1.5 rows about "a tenant that later gets the closed package" and "licence ends" apply only if O5 is answered "closed".
+
 Today a tenant cannot define "Warehouse supervisor may do X and Y". It can only name a routing role. The nine roles and their permissions are compiled in. So a closed package that "provides custom roles" must provide **a stored role with a set of permission atoms**, and the core must accept that set at the point of `role_allows?`. Role atoms are a closed set on purpose (an atom table cannot grow from input; `roles_from_strings/1` refuses unknown strings). A custom role therefore cannot be an atom; it has to be a binary role key with its own lookup path. That is the main size driver.
 
 ### 1.3 Interface shape (proposal, G)
+
+> **Superseded (T-1849).** No socket sits on the access decision: `resolve_roles/2`, `role_allows?/3` and `custom_roles_enabled?/1` are
+> withdrawn. The decision is the most security-critical code and a replaceable implementation there adds risk with no business gain
+> (T-1848 E7). The core rules listed under the table stay, as rules of the open core itself (0088 D3, D4). A closed package may
+> still add *role-management extras* (see 1.6 note); the table is kept as history.
 
 Names are working names. A behaviour with a small number of callbacks, one default module in the open repo, selected by configuration at build time (section 2).
 
@@ -75,6 +94,13 @@ Rules that stay in the core and cannot be overridden by a package (each is a tes
 | Production | Nothing is changed by this note. |
 
 ### 1.6 Decision for the PM: two roles or nine (open question)
+
+> **Superseded (T-1849).** Neither A, B nor C: under D-129 the open build has one preinstalled platform-admin row, a tenant-admin
+> row per tenant, and the nine roles of today as templates (existing tenants keep them as ordinary rows, owner choice O1 of 0088).
+> Whether role creation is open or closed is owner choice O5; recommendation open. Closed-feature candidates around role
+> management, not on the decision (G list, T-1848 E7 and T-1846 section 7): second-person approval of role changes, periodic
+> access-review reports, audit export of role changes, limits above the open cap (O6). The paragraph and table below are kept as
+> history.
 
 The task text says the open build answers "from two fixed roles (admin, user)". The code has nine built-ins, used by 594 test files, the UAT actor roster (`test/fixtures/uat/actors.yaml`), the golden, `docs/roles.md` and the web app. Reading the owner's sentence as "the open build still ships what it has; the closed package adds custom roles" is a **UAT assumption, to be confirmed by the PM**.
 
@@ -151,6 +177,10 @@ Reviewer note: the security reviewer is mandatory for the socket PR (tenant-data
 
 ## 4. Next candidate closed-feature sockets (G for all sizes)
 
+> **Update (T-1849).** The role-management socket is no longer the first closed feature; role management is open (pending O5).
+> The order below becomes: licence check first, then audit export and retention, then the identity-provider seam (T-1846 section 7,
+> T-1848 E7; G). The role-management extras of the 1.6 note join the list as one more candidate.
+
 | Candidate | What it is | Why closed | Size |
 |---|---|---|---|
 | Identity provider seam | One operator-configured identity provider in the open build; per-company realm and provisioner contract in the closed one | Company-scale feature; T-1521 section 4 point 4 | M to L, security review for isolation |
@@ -160,7 +190,7 @@ Reviewer note: the security reviewer is mandatory for the socket PR (tenant-data
 | Signed packages | Verify a signature over the delivered package | Needed before customers install closed packages | M |
 | Sign-in extras (single sign-on mapping, extra policies) | Optional | Company-scale | S to M |
 
-Order proposed (G): licence check first (every other socket depends on it), then the role socket, then the module loader.
+Order proposed (G): licence check first (every other socket depends on it), then the role socket, then the module loader. (Superseded by the update at the top of this section: the role socket is dropped.)
 
 ## 5. Comparison with T-1521 section 4
 
@@ -194,6 +224,6 @@ Not verified: the exact body of `core_role_allows?/2` for each role (not read in
 
 ## 7. Open questions for the PM
 
-1. Two roles or nine in the open build (section 1.6)? This note assumes nine (option A).
-2. What happens to custom roles when a licence ends (section 1.5)? Same question as T-1521 Q9.
+1. Two roles or nine in the open build (section 1.6)? This note assumes nine (option A). **Superseded (T-1849):** replaced by owner choices O1, O2 and O5 of decision 0088.
+2. What happens to custom roles when a licence ends (section 1.5)? Same question as T-1521 Q9. (T-1849: moot if O5 is answered "open"; stays open otherwise.)
 3. Order of the first two sockets: licence check before role socket (section 4)?
