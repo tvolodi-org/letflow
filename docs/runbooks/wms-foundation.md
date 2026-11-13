@@ -621,8 +621,10 @@ scoped grant gets the 404 of a tenant without the module):
 
 - `POST /cards` (201), `PATCH /cards/:id` (200), `POST /cards/:id/retire` (200). Every body carries `idempotency_key`. `GET /cards/:id/lock` (`AssetsRead`) answers `{"posted": bool, "held": bool}` (T-1490; `held` T-1880: an issued, non-reversed commission or opening holds the card, the rule of `asset_already_in_register`); once a document naming the card is posted, a changed `inventory_number` or `kind` is 422 `inventory_number_locked` / `kind_locked` and nothing is written.
 - 422 `reason`: `field_not_allowed` (`active` and unknown keys), `field_invalid`, `org_unit_not_active`,
-  `valid_until_not_allowed` (only kind `intangible`), `currency_mismatch` (the tenant currency, setting `currency`,
-  `KZT` by default), `card_inactive` (update or second retire of a retired card), `record_payload_invalid`
+  `valid_until_not_allowed` (only kind `intangible`), `currency_unknown` (not a code of the platform
+  list), `currency_mismatch` (a known code that is not the tenant currency; the check applies to the
+  value sent in the body — an update that does not send `currency` is not refused for the stored value;
+  C4 / REQ-826), `card_inactive` (update or second retire of a retired card), `record_payload_invalid`
   (duplicate `inventory_number` or external reference pair, a decimal that is not strict text). 409
   `idempotency_key_reuse`; 500 `audit_failed` (the write is rolled back).
 - Each accepted write appends one audit entry (`assets_card.created`, `.updated`, `.retired`). Money and depreciation
