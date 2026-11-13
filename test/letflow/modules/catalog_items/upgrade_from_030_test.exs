@@ -3,7 +3,7 @@ Code.require_file("catalog_items_fixture.exs", __DIR__)
 defmodule Letflow.Modules.CatalogItems.UpgradeFrom030Test do
   @moduledoc """
   T-1882: a tenant that holds catalog_items 0.3.0 (the pack before MES U1, kept as
-  `test/fixtures/catalog_items_0_3_0_pack.json`) WITH records takes the 0.4.0 upgrade. U1 adds three
+  `test/fixtures/previous_packs/catalog_items_0_3_0.json`) WITH records takes the 0.4.0 upgrade. U1 adds three
   strict decimals to `catalog_item`; the `decimal_strict` activation gate used to refuse that with
   `activation_refused` as soon as the type had a record. U1..U2. Committed tenants, `async: false`.
   """
@@ -23,7 +23,7 @@ defmodule Letflow.Modules.CatalogItems.UpgradeFrom030Test do
   alias Letflow.Modules.TenantModule
 
   @old_hash String.duplicate("7", 64)
-  @pack Path.expand("../../../fixtures/catalog_items_0_3_0_pack.json", __DIR__)
+  @pack Path.expand("../../../fixtures/previous_packs/catalog_items_0_3_0.json", __DIR__)
 
   setup do
     %{schema: schema, slug: slug, tenant_id: tenant_id} = Fx.installed_tenant!("t1882")
