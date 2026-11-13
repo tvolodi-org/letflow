@@ -6,7 +6,7 @@ defmodule Letflow.Modules.Assets.UpgradeFrom090Test do
   `test/fixtures/previous_packs/assets_0_9_0.json`) WITH asset cards, a posted commission document
   and its balances takes the upgrade to the current version, through the real tenant routes.
 
-  The 0.9.0 -> 0.16.0 class B row (`assets_card` `field_changed`: `org_unit_id` loses `required`) is
+  The 0.9.0 -> 0.17.0 class B row (`assets_card` `field_changed`: `org_unit_id` loses `required`) is
   covered by the plan classifier rule `required_relaxed` (class A, no data step): the stored cards
   all hold the value and `required` is enforced by record validation only. A1..A3. Committed
   tenants, Sandbox `:auto`, `async: false`.

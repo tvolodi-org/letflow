@@ -221,7 +221,7 @@ what needs no administrator (class A, no data steps) and leaves the rest as `lef
 
 8. **Upgrades from the previous pack, with a test behind each (T-1882, PM D-139).** Two defects made a tenant on an older version unable to take the build although the plan said a path exists:
    - **catalog_items 0.3.0 -> 0.4.0** answered 409 `upgrade_failed` / `activation_refused`: U1 adds three strict decimals to `catalog_item`, and the `decimal_strict` activation gate refused any change of the strict set once the type had a record. A strict field the active version does not declare cannot be held by any record, so the gate now ignores it (flipping or removing a declared strict field stays refused).
-   - **assets 0.9.0 -> 0.16.0** was read as class B (`assets_card.org_unit_id` loses `required`) with no covering step, so the apply answered `upgrade_forbidden` / `step_required`. Dropping `required` (nothing else of the field changed) is now class A, reason `required_relaxed` (`UpgradePlan.classify_entity/2`): every stored card holds the value and `required` is enforced by record validation, not by a column. No reinstall, no data step: a tenant with cards upgrades in place. Any other change of an existing field stays B.
+   - **assets 0.9.0 -> 0.17.0** was read as class B (`assets_card.org_unit_id` loses `required`) with no covering step, so the apply answered `upgrade_forbidden` / `step_required`. Dropping `required` (nothing else of the field changed) is now class A, reason `required_relaxed` (`UpgradePlan.classify_entity/2`): every stored card holds the value and `required` is enforced by record validation, not by a column. No reinstall, no data step: a tenant with cards upgrades in place. Any other change of an existing field stays B.
 
    The 409 answers of apply and rollback (when they fail with `activation_refused`; the apply route is covered by a router-level test, `UpgradeFrom030Test` U3) now carry `entity` (the module-owned definition) and `reason` (a closed token such as `decimal_strict_change`) next to `error_code`; the plan answers 200 and never 409.
 
@@ -235,7 +235,7 @@ what needs no administrator (class A, no data steps) and leaves the rest as `lef
    | stock | 0.10.0 -> 0.17.0, 0.14.0 -> 0.17.0 | P3, P4 (no records) | upgrades; window `0.10.0` holds |
    | codes | 0.3.0 -> 0.4.0 | P5 | upgrades |
    | org | 0.2.0 -> 0.3.0 | P6 | upgrades |
-   | assets | 0.9.0 -> 0.16.0 | `assets/upgrade_from_090_test.exs` A1..A3 (cards; a commission and its balances after the upgrade) | upgrades in place (was `step_required`) |
+   | assets | 0.9.0 -> 0.17.0 | `assets/upgrade_from_090_test.exs` A1..A3 (cards; a commission and its balances after the upgrade) | upgrades in place (was `step_required`) |
 
    Limits, stated: only entity definitions are rolled back to the old shape in these tests (process definitions and settings stay current), and documents/balances cannot be written in the 0.9.0 shape by the current code, so the assets test proves that no document, register or balance type changes in the plan and that posting works on the upgraded cards. Stock and locations carry no records in P2..P4.
 
