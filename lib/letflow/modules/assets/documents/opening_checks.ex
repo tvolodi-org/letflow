@@ -16,9 +16,18 @@ defmodule Letflow.Modules.Assets.Documents.OpeningChecks do
   (the location is not active and linked to the header's org unit), `employee_not_active` (the
   material responsible, and the actual user when given; `fields` names the key) and
   `asset_already_in_register` (any card kind: an issued, non-reversed commission or opening holds it;
-  the ledger-balance half of the rule is part 2).
+  the register balance of the asset is non-zero: the ledger-balance half of the rule, G5 part 2).
+
+  The balance half reads the register through the caller's ledger read authorization and only when it
+  is tenant-wide (`register_readable?/1`): a scoped reader (REQ-693) would see a filtered page and an
+  empty one would prove nothing. Without a tenant-wide read the issue refuses (`register_unreadable`)
+  and the advisory check shows the document half only. A failed read counts as "already in the
+  register" (fail closed).
   """
 
+  require Logger
+
+  alias Letflow.Ledger
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Locations
   alias Letflow.Modules.Org
@@ -27,13 +36,13 @@ defmodule Letflow.Modules.Assets.Documents.OpeningChecks do
   @type result :: %{header: [String.t()], lines: [line_result()]}
 
   @doc "Every check on the header and on every line of `view` (the document map), in `line_no` order."
-  @spec check_all(String.t(), map()) :: result()
-  def check_all(prefix, view) do
+  @spec check_all(String.t(), map(), term()) :: result()
+  def check_all(prefix, view, authorized \\ nil) do
     {results, _seen} =
       view.lines
       |> Enum.sort_by(& &1.line_no)
       |> Enum.map_reduce(%{assets: MapSet.new(), placements: MapSet.new()}, fn line, seen ->
-        line_result(prefix, view, line, seen)
+        line_result(prefix, view, line, seen, authorized)
       end)
 
     %{header: header(prefix, view), lines: results}
@@ -71,7 +80,16 @@ defmodule Letflow.Modules.Assets.Documents.OpeningChecks do
 
   # -- one line -----------------------------------------------------------------------------------
 
-  defp line_result(prefix, view, line, seen) do
+  @doc """
+  True only for a ledger read authorization that reads the whole register (`scope: :all`). `nil` and
+  a scoped reader are false. Reads the field with `Map.get`: the authorization struct is not matched
+  outside the ledger (scan T-AZ-8).
+  """
+  @spec register_readable?(term()) :: boolean()
+  def register_readable?(authorized),
+    do: is_map(authorized) and Map.get(authorized, :scope) == :all
+
+  defp line_result(prefix, view, line, seen, authorized) do
     card = Checks.card_lookup(prefix, line.asset_id)
     kind = with {:ok, c} <- card, do: c["kind"]
     placement = {line.location_id, line.material_responsible_id, line.actual_user_id}
@@ -87,7 +105,9 @@ defmodule Letflow.Modules.Assets.Documents.OpeningChecks do
         {"location_not_allowed", card_ok?(card) and location_given?(kind, line)},
         {"not_linked", card_ok?(card) and not linked?(prefix, view, line)},
         {"employee_not_active", employees != []},
-        {"asset_already_in_register", Checks.held?(prefix, line.asset_id)}
+        {"asset_already_in_register",
+         Checks.held?(prefix, line.asset_id) or
+           (card_ok?(card) and in_balance?(authorized, line.asset_id))}
       ]
       |> Enum.filter(&elem(&1, 1))
       |> Enum.map(&elem(&1, 0))
@@ -99,6 +119,31 @@ defmodule Letflow.Modules.Assets.Documents.OpeningChecks do
 
     {%{line_no: line.line_no, reasons: reasons, fields: employees}, seen}
   end
+
+  # The register half of "once": a non-zero balance row of the asset. Only with a tenant-wide read.
+  defp in_balance?(authorized, asset_id) do
+    if register_readable?(authorized) do
+      case Ledger.balances(authorized, {:posting_seq, :latest}, %{"asset" => asset_id}, %{
+             limit: 1,
+             nonzero: true
+           }) do
+        {:ok, %{rows: [_ | _]}} ->
+          true
+
+        {:ok, %{rows: []}} ->
+          false
+
+        {:error, reason} ->
+          Logger.warning("assets opening register read refused: #{inspect(tag(reason))}")
+          true
+      end
+    else
+      false
+    end
+  end
+
+  defp tag(reason) when is_tuple(reason) and tuple_size(reason) > 0, do: elem(reason, 0)
+  defp tag(reason), do: reason
 
   defp card_ok?({:ok, _card}), do: true
   defp card_ok?(:error), do: false

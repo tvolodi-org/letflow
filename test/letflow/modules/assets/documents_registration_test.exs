@@ -133,7 +133,8 @@ defmodule Letflow.Modules.Assets.DocumentsRegistrationTest do
              "assets_change",
              "assets_handover",
              "assets_writeoff",
-             "assets_kind_change"
+             "assets_kind_change",
+             "assets_opening"
            ]
 
     for {d, node, handler} <- [
