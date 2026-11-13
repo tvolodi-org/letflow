@@ -331,3 +331,12 @@ samp {
 .lf-lots-actions .lf-btn { white-space: normal; }
 .lf-reg__body .lf-table th, .lf-reg__body .lf-table td { padding-inline: var(--space-2); }
 .lf-lots-actions .lf-btn { padding-inline: var(--space-2); }
+
+/* T-1891: a list header inside the ListDetail list card sits inside the card padding, and the record pane
+   never overflows its pane: wide tables scroll inside the panel, the header row wraps. */
+.lf-reg__list > .lf-reg__listhead { padding: var(--space-3) var(--space-4) var(--space-2); }
+.lf-reg__details { min-width: 0; }
+.lf-reg__details > * { min-width: 0; max-width: 100%; }
+.lf-reg__details [data-testid="module-rollouts-outcomes"] { overflow-x: auto; max-width: 100%; scrollbar-color: var(--ink-muted) transparent; }
+.lf-reg__details .lf-detail-head { flex-wrap: wrap; min-width: 0; }
+.lf-reg__details .lf-detail-head__title { min-width: 0; }
