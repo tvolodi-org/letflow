@@ -22,6 +22,18 @@ defmodule Letflow.Modules.Stock.DocumentPrintTest do
   @item "00000000-0000-0000-0000-0000000000d1"
   @uom "00000000-0000-0000-0000-0000000000d2"
 
+  defp header(kind) when kind in ["receipt", "issue", "write_off"] do
+    %{
+      "org_unit_id" => @org_a,
+      "location_id" => @loc_a,
+      "responsible_id" => @emp_a,
+      "counterparty_id" => "supplier",
+      "supplier_document_ref" => "SUP-1",
+      "reason_code" => "damaged",
+      "reason_text" => "Broken"
+    }
+  end
+
   defp header("return") do
     %{
       "from_org_unit_id" => @org_b,
@@ -85,6 +97,7 @@ defmodule Letflow.Modules.Stock.DocumentPrintTest do
         },
         items: %{@item => %{code: "I1", name: "Widget"}},
         uoms: %{@uom => %{code: "pcs", name: "Pieces"}},
+        counterparties: %{"supplier" => %{name: "Supplier", tax_id: "123"}},
         lots: %{}
       },
       extra
@@ -144,13 +157,77 @@ defmodule Letflow.Modules.Stock.DocumentPrintTest do
     end
   end
 
+  describe "P1b one-sided acts" do
+    for kind <- ~w(receipt issue write_off), lang <- [:ru, :kk, :en] do
+      test "#{kind} #{lang} title and side" do
+        kind = unquote(kind)
+        lang = unquote(lang)
+        text = items(kind, lang)
+        assert DocumentPrint.labels()[:"title_#{kind}"][lang] in text
+        assert Enum.any?(text, &String.ends_with?(&1, "TR-2026-000007"))
+        local = if lang == :en, do: "2026-11-04 10:00", else: "04-11-2026 10:00"
+        assert Enum.count(text, &String.ends_with?(&1, local <> " (UTC+05:00)")) == 2
+        assert "UA Alpha" in text and "LA ShelfA" in text and "Anna Alpha E-1" in text
+      end
+    end
+  end
+
+  test "P2b one-side columns and signer rules" do
+    for {kind, roles} <- [
+          {"receipt", [:role_to, :role_from]},
+          {"issue", [:role_from, :role_to]},
+          {"write_off", [:role_responsible]}
+        ] do
+      {layout, projection} = DocumentPrint.layout(issued(kind), names(), :en)
+      sides = Enum.find(layout["blocks"], &(&1["entity_type"] == "sides"))
+      assert Enum.map(sides["columns"], & &1["field_name"]) == ~w(what side)
+      assert length(projection["sides"]) == 3
+
+      assert Enum.map(projection["signers"], & &1["role"]) ==
+               Enum.map(roles, &DocumentPrint.labels()[&1].en)
+
+      assert hd(projection["signers"])["full_name"] == "Anna Alpha"
+      assert Enum.all?(tl(projection["signers"]), &(&1["full_name"] == "" and &1["code"] == ""))
+    end
+  end
+
+  test "P2c supplier and closed reason labels" do
+    for lang <- [:ru, :kk, :en] do
+      {_, projection} = DocumentPrint.layout(issued("write_off"), names(), lang)
+      assert projection["doc"]["reason"] == DocumentPrint.labels().reason_damaged[lang]
+      assert projection["doc"]["reason_text"] == "Broken"
+    end
+
+    bad = put_in(issued("write_off"), [:content, "header", "reason_code"], "bogus")
+    {_, projection} = DocumentPrint.layout(bad, names(), :en)
+    assert projection["doc"]["reason"] == ""
+    {_, projection} = DocumentPrint.layout(issued("receipt"), names(), :en)
+    assert projection["doc"]["counterparty"] == "Supplier 123"
+    assert projection["doc"]["supplier_document_ref"] == "SUP-1"
+  end
+
+  test "P6 act kinds exclude opening" do
+    assert DocumentPrint.kinds() == ~w(receipt issue write_off transfer hand_over return)
+
+    assert_raise FunctionClauseError, fn ->
+      DocumentPrint.build(issued("opening"), names(), :en)
+    end
+  end
+
   describe "P3 labels" do
     test "every key has a non-empty text in ru, kk and en; titles differ from en" do
       for {key, texts} <- DocumentPrint.labels(), lang <- [:ru, :kk, :en] do
         assert is_binary(texts[lang]) and texts[lang] != "", "#{key} #{lang}"
       end
 
-      for key <- [:title_transfer, :title_hand_over, :title_return] do
+      for key <- [
+            :title_receipt,
+            :title_issue,
+            :title_write_off,
+            :title_transfer,
+            :title_hand_over,
+            :title_return
+          ] do
         t = DocumentPrint.labels()[key]
         assert t.ru != t.en and t.kk != t.en
       end

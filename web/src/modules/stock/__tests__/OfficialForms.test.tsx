@@ -44,15 +44,13 @@ const open = async (state: string, kind = 'issue') => {
 }
 
 describe('F1/F2 which documents show the menu', () => {
-  it.each(['issued', 'posted'])('an issue document in state %s', async (state) => {
+  it.each(['issued', 'posted', 'reversed'])('an issue document in state %s', async (state) => {
     await open(state)
     expect(screen.getByTestId('official-form-menu')).toBeInTheDocument()
   })
   it.each([
     ['draft', 'issue'],
-    ['reversed', 'issue'],
     ['draft', 'receipt'],
-    ['reversed', 'receipt'],
     ['issued', 'hand_over'],
     ['issued', 'return'],
   ])('state %s, kind %s: none', async (state, kind) => {
@@ -74,7 +72,7 @@ describe('F1/F2 which documents show the menu', () => {
 
 // W1: receipt in issued/posted shows the Z-1 menu
 describe('W1 receipt shows the Z-1 menu', () => {
-  it.each(['issued', 'posted'])('a receipt in state %s shows form-z1 items', async (state) => {
+  it.each(['issued', 'posted', 'reversed'])('a receipt in state %s shows form-z1 items', async (state) => {
     fakeDocument(clientMock, stockDoc({ id: 'd1', kind: 'receipt', state, number: 'RCP-1' }))
     renderStock(`${LIST}/d1`)
     await screen.findByTestId('document-header')
@@ -122,10 +120,10 @@ describe('W3 kk UI for Z-1', () => {
 
 // W4: formsForDocument catalog tests
 describe('W4 formsForDocument', () => {
-  it('receipt issued gives z1, receipt reversed gives empty, issue rule unchanged', () => {
+  it('receipt issued gives z1, receipt and issue share the issued states', () => {
     expect(formsForDocument({ kind: 'receipt', state: 'issued' })).toEqual(['z1'])
     expect(formsForDocument({ kind: 'receipt', state: 'posted' })).toEqual(['z1'])
-    expect(formsForDocument({ kind: 'receipt', state: 'reversed' })).toEqual([])
+    expect(formsForDocument({ kind: 'receipt', state: 'reversed' })).toEqual(['z1'])
     expect(formsForDocument({ kind: 'issue', state: 'issued' })).toEqual(['z2'])
     expect(formsForDocument({ kind: 'issue', state: 'posted' })).toEqual(['z2'])
   })
@@ -203,6 +201,12 @@ describe('F7 menu keyboard and mouse', () => {
 })
 
 describe('F8 catalogs', () => {
+  it('D8 obsolete separate stock-card button labels are removed', () => {
+    for (const lang of ['en', 'ru', 'kk'] as const) {
+      expect(stockMessages[lang]).not.toHaveProperty('stock.balances.cardPdf')
+      expect(stockMessages[lang]).not.toHaveProperty('stock.balances.cardDocx')
+    }
+  })
   it('en, ru and kk have the same non-empty ids', () => {
     const ids = Object.keys(formEn).sort()
     expect(Object.keys(formRu).sort()).toEqual(ids)
@@ -231,4 +235,11 @@ describe('T1/T2 menu stays inside the viewport (T-1441)', () => {
     await userEvent.keyboard('{Escape}')
     expect(root).not.toHaveClass('lf-formmenu--start')
   })
+})
+
+it('W5 Kazakh Z-2 menu uses Қ-2', async () => {
+  useUiLocaleStore.getState().setLocaleTransient('kk')
+  await open('reversed')
+  await userEvent.click(screen.getByTestId('official-form-menu'))
+  expect(screen.getByTestId('form-z2-pdf')).toHaveTextContent('Қ-2 нысаны')
 })

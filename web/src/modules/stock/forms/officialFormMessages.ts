@@ -30,7 +30,7 @@ export const formRu: Record<string, string> = {
 export const formKk: Record<string, string> = {
   'stock.form.menu': 'Ресми нысан',
   'stock.form.z1': 'Қ-1 нысаны',
-  'stock.form.z2': 'Ж-2 нысаны',
+  'stock.form.z2': 'Қ-2 нысаны',
   'stock.form.z3': 'Қ-3 нысаны',
   'stock.form.z5': 'Қ-5 нысаны',
   'stock.form.inv10': 'Түг-10 нысаны',

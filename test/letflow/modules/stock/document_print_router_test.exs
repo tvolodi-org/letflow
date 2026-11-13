@@ -1,5 +1,6 @@
 Code.require_file("two_side_fixture.exs", __DIR__)
 Code.require_file("count_print_probe.exs", __DIR__)
+Code.require_file("opening_fixture.exs", __DIR__)
 
 defmodule Letflow.Modules.Stock.DocumentPrintRouterTest do
   @moduledoc """
@@ -113,6 +114,34 @@ defmodule Letflow.Modules.Stock.DocumentPrintRouterTest do
     end
   end
 
+  @tag timeout: 120_000
+  test "R1b one-sided issued acts", ctx do
+    for kind <- ~w(receipt issue write_off) do
+      extra = if kind == "write_off", do: %{"reason_code" => "damaged"}, else: %{}
+      body = if kind == "receipt", do: D.body(ctx.ma), else: plain_body(ctx, kind, extra)
+      doc = P.issue!(ctx, body)
+      conn = print(ctx, doc["id"], "?lang=en")
+      assert conn.status == 200, conn.resp_body
+      assert Plug.Conn.get_resp_header(conn, "content-type") |> hd() =~ "application/pdf"
+
+      assert Plug.Conn.get_resp_header(conn, "content-disposition") == [
+               ~s(attachment; filename="#{doc["number"]}.pdf")
+             ]
+
+      assert Stock.DocumentPrint.labels()[:"title_#{kind}"].en in texts(conn)
+      assert employee_name(ctx, ctx.ma.employee) in texts(conn)
+    end
+  end
+
+  test "R6b another tenant cannot print an issued receipt", ctx do
+    doc = P.issue!(ctx, D.body(ctx.ma))
+    got = print(ctx, doc["id"], "", ctx.tok_b)
+    unknown = print(ctx, Ecto.UUID.generate(), "", ctx.tok_b)
+    assert got.status == 404
+    assert strip(got) == strip(unknown)
+    refute got.resp_body =~ "%PDF"
+  end
+
   describe "R2 language" do
     test "absent is ru, kk and en are accepted, anything else is 422 invalid_lang", ctx do
       {doc, _, _} = issued_two_side(ctx, "transfer")
@@ -131,22 +160,17 @@ defmodule Letflow.Modules.Stock.DocumentPrintRouterTest do
   end
 
   describe "R3 refusals" do
-    test "a draft is document_not_issued; other kinds print_not_available", ctx do
+    test "a draft is document_not_issued; opening print_not_available", ctx do
       {from, to} = {ctx.ma, ctx.m2}
       draft = T.save!(ctx, T.body("transfer", ctx.ma, from, to))
       conn = print(ctx, draft["id"])
       assert conn.status == 422 and S.json(conn)["reason"] == "document_not_issued"
       refute conn.resp_body =~ "%PDF"
 
-      for kind <- ["receipt", "issue", "write_off"] do
-        extra = if kind == "write_off", do: %{"reason_code" => "damaged"}, else: %{}
-        body = plain_body(ctx, kind, extra)
-        body = if kind == "receipt", do: D.body(ctx.ma), else: body
-        issued = P.issue!(ctx, body)
-        conn = print(ctx, issued["id"])
-        assert conn.status == 422, "#{kind}: #{conn.resp_body}"
-        assert S.json(conn)["reason"] == "print_not_available"
-      end
+      issued = Letflow.StockOpeningFixture.issue!(ctx)
+      conn = print(ctx, issued["id"])
+      assert conn.status == 422
+      assert S.json(conn)["reason"] == "print_not_available"
     end
 
     test "R4 the route is declared in the module manifest" do

@@ -1,6 +1,6 @@
 defmodule Letflow.Modules.Stock.DocumentPrint do
   @moduledoc """
-  REQ-737 / GH #3860: the printed act of a two-sided stock document (transfer, hand over, return)
+  REQ-737 / GH #3860: the printed act of an issued stock document (receipt, issue, write-off, transfer, hand over, return)
   as an A4 PDF in ru, kk or en. Pure: issued content and names in, PDF bytes out; no database, no
   clock, no process. The layout is built in code and rendered by
   `Letflow.Documents.PrintLayout.render/4` (REQ-571), which is not changed.
@@ -9,7 +9,8 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
   content (`"kind"`, `"header"`, `"lines"`), never the live records. The from and to side of the
   header come from `Letflow.Modules.Stock.Documents.Kinds.sides/2`, the one place that maps the
   header fields of a kind to its sides, so the printed direction cannot disagree with posting.
-  The two signer rows are the responsible person of the from side (handed over by) and of the
+  One-sided documents use a single side column. Receipt and issue leave the counter-signature
+  blank; write-off has one responsible signer. For two-sided documents the two signer rows are the responsible person of the from side (handed over by) and of the
   to side (received by), each with empty signature and date cells.
 
   Every literal comes from `labels/0`, never from data; all data goes through the projection.
@@ -26,7 +27,34 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
 
   @type lang :: :ru | :kk | :en
 
+  @act_kinds ~w(receipt issue write_off transfer hand_over return)
+
+  @doc "Kinds with a plain issued act."
+  @spec kinds() :: [String.t()]
+  def kinds, do: @act_kinds
+
   @labels %{
+    title_receipt: %{en: "Act of receipt", ru: "Акт приёма", kk: "Қабылдау актісі"},
+    title_issue: %{en: "Act of issue", ru: "Акт отпуска", kk: "Босату актісі"},
+    title_write_off: %{en: "Act of write-off", ru: "Акт списания", kk: "Есептен шығару актісі"},
+    counterparty: %{en: "Supplier", ru: "Поставщик", kk: "Жеткізуші"},
+    supplier_document_ref: %{
+      en: "Supplier document",
+      ru: "Документ поставщика",
+      kk: "Жеткізуші құжаты"
+    },
+    reason: %{en: "Reason", ru: "Причина", kk: "Себебі"},
+    reason_text: %{en: "Reason text", ru: "Текст причины", kk: "Себеп мәтіні"},
+    party: %{en: "Place", ru: "Место", kk: "Орны"},
+    role_responsible: %{
+      en: "Responsible",
+      ru: "Материально ответственное лицо",
+      kk: "Материалдық жауапты тұлға"
+    },
+    reason_lost: %{en: "Lost", ru: "Утеряно", kk: "Жоғалған"},
+    reason_damaged: %{en: "Damaged", ru: "Повреждено", kk: "Зақымдалған"},
+    reason_used_up: %{en: "Used up", ru: "Израсходовано", kk: "Пайдаланылған"},
+    reason_other: %{en: "Other", ru: "Другое", kk: "Басқа"},
     title_transfer: %{
       en: "Act of transfer",
       ru: "Акт перемещения",
@@ -84,13 +112,13 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
   @spec build(map(), map(), lang()) ::
           {:ok, binary()} | {:error, :unsupported_glyph | {:render_failed, [atom()]}}
   def build(%{content: %{"kind" => kind}} = issued, names, lang)
-      when kind in ["transfer", "hand_over", "return"] and lang in [:ru, :kk, :en] do
+      when kind in @act_kinds and lang in [:ru, :kk, :en] do
     {layout, projection} = layout(issued, names, lang)
 
     declared =
       Map.new(projection, fn
         {et, %{} = fields} -> {et, Map.keys(fields)}
-        {et, rows} when is_list(rows) -> {et, row_fields(et)}
+        {et, rows} when is_list(rows) -> {et, row_fields(et, kind)}
       end)
 
     case PrintLayout.render(layout, projection, declared) do
@@ -116,7 +144,7 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
     l = fn key -> Map.fetch!(@labels, key) |> Map.fetch!(lang) end
     {from, to} = Kinds.sides(Kinds.get(kind), header)
 
-    doc = doc_fields(issued, header, names, lang)
+    doc = Map.merge(doc_fields(issued, header, names, lang), extra_fields(kind, header, names, l))
 
     layout = %{
       "layout_schema_version" => 1,
@@ -128,11 +156,7 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
           field_blocks(l) ++
           [
             %{"type" => "spacer", "height_mm" => 4},
-            table("sides", [
-              col("what", l.(:what), 2),
-              col("from", l.(:from), 3),
-              col("to", l.(:to), 3)
-            ]),
+            table("sides", side_columns(kind, l)),
             %{"type" => "spacer", "height_mm" => 4},
             table("lines", [
               col("line_no", l.(:line_no), 0.5),
@@ -157,12 +181,15 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
       "doc" => doc,
       "sides" => side_rows(from, to, names, l),
       "lines" => line_rows(content, names, lang),
-      "signers" => signer_rows(from, to, names, l)
+      "signers" => signer_rows(kind, from, to, names, l)
     }
 
     {layout, projection}
   end
 
+  defp title_key("receipt"), do: :title_receipt
+  defp title_key("issue"), do: :title_issue
+  defp title_key("write_off"), do: :title_write_off
   defp title_key("transfer"), do: :title_transfer
   defp title_key("hand_over"), do: :title_hand_over
   defp title_key("return"), do: :title_return
@@ -179,13 +206,49 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
     }
   end
 
+  defp extra_fields(kind, header, names, l) do
+    supplier = lookup(names, :counterparties, header["counterparty_id"]) || %{}
+
+    reason =
+      case header["reason_code"] do
+        "lost" -> l.(:reason_lost)
+        "damaged" -> l.(:reason_damaged)
+        "used_up" -> l.(:reason_used_up)
+        "other" -> l.(:reason_other)
+        _ -> ""
+      end
+
+    %{
+      "counterparty" =>
+        if(kind == "receipt",
+          do:
+            [supplier[:name], supplier[:tax_id]]
+            |> Enum.reject(&(&1 in [nil, ""]))
+            |> Enum.join(" "),
+          else: ""
+        ),
+      "supplier_document_ref" =>
+        if(kind == "receipt", do: CountPaperwork.text(header["supplier_document_ref"]), else: ""),
+      "reason" => if(kind == "write_off", do: reason, else: ""),
+      "reason_text" =>
+        if(kind in ["issue", "write_off"],
+          do: CountPaperwork.text(header["reason_text"]),
+          else: ""
+        )
+    }
+  end
+
   defp field_blocks(l) do
     for {f, key} <- [
           {"number", :number},
           {"version_no", :version},
           {"issued_at", :issued_at},
           {"event_time", :event_time},
-          {"note", :note}
+          {"note", :note},
+          {"counterparty", :counterparty},
+          {"supplier_document_ref", :supplier_document_ref},
+          {"reason", :reason},
+          {"reason_text", :reason_text}
         ] do
       block = %{
         "type" => "field",
@@ -194,7 +257,9 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
         "label" => l.(key)
       }
 
-      if f == "note", do: Map.put(block, "show_if_nonempty", true), else: block
+      if f in ~w(note counterparty supplier_document_ref reason reason_text),
+        do: Map.put(block, "show_if_nonempty", true),
+        else: block
     end
   end
 
@@ -206,11 +271,15 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
           {:location, &unit_cell(&1, :locations, names)},
           {:responsible, &person_cell(&1, names)}
         ] do
-      %{
-        "what" => l.(key),
-        "from" => getter.(side_value(from, key)),
-        "to" => getter.(side_value(to, key))
-      }
+      if is_nil(from) or is_nil(to) do
+        %{"what" => l.(key), "side" => getter.(side_value(from || to, key))}
+      else
+        %{
+          "what" => l.(key),
+          "from" => getter.(side_value(from, key)),
+          "to" => getter.(side_value(to, key))
+        }
+      end
     end
   end
 
@@ -262,8 +331,15 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
 
   # -- signers --------------------------------------------------------------------------------
 
-  defp signer_rows(from, to, names, l) do
-    for {role, side} <- [{:role_from, from}, {:role_to, to}] do
+  defp signer_rows(kind, from, to, names, l) do
+    parties =
+      case kind do
+        "receipt" -> [{:role_to, to}, {:role_from, nil}]
+        "write_off" -> [{:role_responsible, from}]
+        _ -> [{:role_from, from}, {:role_to, to}]
+      end
+
+    for {role, side} <- parties do
       emp = lookup(names, :employees, side_value(side, :responsible)) || %{}
 
       %{
@@ -276,9 +352,16 @@ defmodule Letflow.Modules.Stock.DocumentPrint do
     end
   end
 
-  defp row_fields("sides"), do: ~w(what from to)
-  defp row_fields("lines"), do: ~w(line_no item lot unit quantity)
-  defp row_fields("signers"), do: ~w(role full_name code signature date)
+  defp side_columns(kind, l) when kind in ~w(receipt issue write_off),
+    do: [col("what", l.(:what), 2), col("side", l.(:party), 6)]
+
+  defp side_columns(_, l),
+    do: [col("what", l.(:what), 2), col("from", l.(:from), 3), col("to", l.(:to), 3)]
+
+  defp row_fields("sides", kind) when kind in ~w(receipt issue write_off), do: ~w(what side)
+  defp row_fields("sides", _), do: ~w(what from to)
+  defp row_fields("lines", _), do: ~w(line_no item lot unit quantity)
+  defp row_fields("signers", _), do: ~w(role full_name code signature date)
 
   defp map(%{} = m), do: m
   defp map(_), do: %{}
