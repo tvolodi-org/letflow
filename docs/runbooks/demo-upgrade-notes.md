@@ -217,4 +217,26 @@ exit 3 means the chain is not complete, not that data is lost; run the seed scri
 fails loudly when a document shape changed). Keep `LETFLOW_MODULE_UPGRADE_ON_BOOT` as the owner decides: on, it applies only
 what needs no administrator (class A, no data steps) and leaves the rest as `left_for_admin` (`Letflow.ModuleUpgrade.Boot.list_outcomes/0`).
 
-7. **A version bump without `min_upgradable_from` strands every tenant** (T-1860: catalog_items 0.3.0 -> 0.4.0 and assets 0.9.0 -> 0.16.0 answered `no_upgrade_path`). Every manifest above 0.1.0 now declares a window (catalog_items, assets, locations, org declare `0.1.0`), and `test/letflow/modules/upgrade_window_test.exs` (G1) fails the build when one does not. Caveat for assets: the 0.9.0 card definition drops `required` on `org_unit_id` (read as class B, over-strict) and no step of the closed vocabulary can cover it without writing values, so the plan has a path but the apply answers `upgrade_forbidden` (`step_required`, `assets_card`) for a tenant whose card type is still the 0.9.0 one: such a tenant is reinstalled (the card holds no stock).
+7. **A version bump without `min_upgradable_from` strands every tenant** (T-1860: catalog_items 0.3.0 -> 0.4.0 and assets 0.9.0 -> 0.16.0 answered `no_upgrade_path`). Every manifest above 0.1.0 now declares a window (catalog_items, assets, locations, org declare `0.1.0`), and `test/letflow/modules/upgrade_window_test.exs` (G1) fails the build when one does not. (The assets caveat that stood here, `step_required` on `assets_card`, is closed by item 8.)
+
+8. **Upgrades from the previous pack, with a test behind each (T-1882, PM D-139).** Two defects made a tenant on an older version unable to take the build although the plan said a path exists:
+   - **catalog_items 0.3.0 -> 0.4.0** answered 409 `upgrade_failed` / `activation_refused`: U1 adds three strict decimals to `catalog_item`, and the `decimal_strict` activation gate refused any change of the strict set once the type had a record. A strict field the active version does not declare cannot be held by any record, so the gate now ignores it (flipping or removing a declared strict field stays refused).
+   - **assets 0.9.0 -> 0.17.0** was read as class B (`assets_card.org_unit_id` loses `required`) with no covering step, so the apply answered `upgrade_forbidden` / `step_required`. Dropping `required` (nothing else of the field changed) is now class A, reason `required_relaxed` (`UpgradePlan.classify_entity/2`): every stored card holds the value and `required` is enforced by record validation, not by a column. No reinstall, no data step: a tenant with cards upgrades in place. Any other change of an existing field stays B.
+
+   The 409 answers of apply and rollback (when they fail with `activation_refused`; the apply route is covered by a router-level test, `UpgradeFrom030Test` U3) now carry `entity` (the module-owned definition) and `reason` (a closed token such as `decimal_strict_change`) next to `error_code`; the plan answers 200 and never 409.
+
+   Result per module and version pair (all through the real routes as a tenant admin; "records" = a test with data in the tenant):
+
+   | module | from -> to | test | result |
+   |---|---|---|---|
+   | catalog_items | 0.3.0 -> 0.4.0 | `catalog_items/upgrade_from_030_test.exs` U1 (items, units) | upgrades (was refused) |
+   | catalog_items | 0.2.0 -> 0.4.0 | `module_upgrade/previous_pack_test.exs` P1 (no records) | upgrades; window `0.1.0` holds |
+   | locations | 0.4.0 -> 0.5.0 | P2 (no records) | upgrades |
+   | stock | 0.10.0 -> 0.17.0, 0.14.0 -> 0.17.0 | P3, P4 (no records) | upgrades; window `0.10.0` holds |
+   | codes | 0.3.0 -> 0.4.0 | P5 | upgrades |
+   | org | 0.2.0 -> 0.3.0 | P6 | upgrades |
+   | assets | 0.9.0 -> 0.17.0 | `assets/upgrade_from_090_test.exs` A1..A3 (cards; a commission and its balances after the upgrade) | upgrades in place (was `step_required`) |
+
+   Limits, stated: only entity definitions are rolled back to the old shape in these tests (process definitions and settings stay current), and documents/balances cannot be written in the 0.9.0 shape by the current code, so the assets test proves that no document, register or balance type changes in the plan and that posting works on the upgraded cards. Stock and locations carry no records in P2..P4.
+
+9. **Guard rule: no module version bump merges without an end-to-end upgrade test from the PREVIOUS pack** (PM D-139). Keep the replaced pack under `test/fixtures/previous_packs/`, add a case to `previous_pack_test.exs` (and, where the module holds records, an upgrade test with real records: items, lots, cards, documents) and move the pin of `previous_pack_test.exs` G1, which fails when a module's version differs from the last tested one. The same rule is in `docs/design/mes/13-phase1-plan.md` section 12 (C4).
