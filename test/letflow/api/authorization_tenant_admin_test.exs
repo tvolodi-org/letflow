@@ -38,12 +38,18 @@ defmodule Letflow.Api.AuthorizationTenantAdminTest do
   end
 
   describe "AC1: the grant rule" do
-    test "role_allows?(:TENANT_ADMIN, p) is true exactly when permission_scope(p) is :tenant, for every p in permissions/0" do
+    test "role_allows?(:TENANT_ADMIN, p) is true exactly when permission_scope(p) is :tenant, for every p in permissions/0 except the explicit false clause" do
       permissions = Authorization.permissions()
       assert length(permissions) > length(Authorization.core_permissions())
 
+      # Roles stage 0 S0-2, ruling 1 (docs/design/roles-stage0-security-rulings.md): scoped task
+      # work is TASK_WORKER's alone; the one explicit exception to the derived rule.
+      not_tenant_admin = [:TasksWorkInScope]
+
       for permission <- permissions do
-        expected = Authorization.permission_scope(permission) == :tenant
+        expected =
+          Authorization.permission_scope(permission) == :tenant and
+            permission not in not_tenant_admin
 
         assert Authorization.role_allows?(:TENANT_ADMIN, permission) == expected,
                "role_allows?(:TENANT_ADMIN, #{inspect(permission)}) disagrees with the " <>
@@ -51,7 +57,7 @@ defmodule Letflow.Api.AuthorizationTenantAdminTest do
       end
     end
 
-    test "the rule is not vacuous: exactly the two platform atoms are refused, everything else is granted" do
+    test "the rule is not vacuous: the two platform atoms and the explicit false clause are refused, everything else is granted" do
       permissions = Authorization.permissions()
       granted = Enum.filter(permissions, &Authorization.role_allows?(:TENANT_ADMIN, &1))
       refused = permissions -- granted
@@ -59,9 +65,14 @@ defmodule Letflow.Api.AuthorizationTenantAdminTest do
       # Literal: the only two platform-scope core permissions (decision 0046 D2). Not derived from
       # permission_scope/1, so a drift of the scope table is caught here too.
       assert Enum.sort(refused) ==
-               Enum.sort([:TenantsManage, :PlatformServicesManage, :ModuleRolloutsManage])
+               Enum.sort([
+                 :TenantsManage,
+                 :PlatformServicesManage,
+                 :ModuleRolloutsManage,
+                 :TasksWorkInScope
+               ])
 
-      assert length(granted) == length(permissions) - 3
+      assert length(granted) == length(permissions) - 4
     end
 
     test "Catalog (module) permissions are granted to TENANT_ADMIN: tenant scope, independent of any manifest role_grants" do

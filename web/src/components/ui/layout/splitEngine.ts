@@ -66,6 +66,16 @@ function chevronsLeft(): SVGElement {
   return svg
 }
 
+/** T-1884: viewport y of the expand button of a collapsed pane. Normally `pad` under the strip top; pushed down to the
+ *  visible top (below the sticky top bar) when the strip top is scrolled above it; pulled up to the bottom edge of the
+ *  viewport when the strip top is below the fold. So the way back is on screen wherever the strip is. When the viewport
+ *  is too short for the range, `visTop` wins. */
+export function expanderTop(stripTop: number, visTop: number, viewH: number, btnH: number, pad: number): number {
+  const lo = visTop
+  const hi = Math.max(lo, viewH - btnH - pad)
+  return Math.min(Math.max(stripTop + pad, lo), hi)
+}
+
 export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandle {
   const vars = o.vars ?? ['--lf-pane-1']
   const unit = o.unit ?? 'pct'
@@ -284,6 +294,28 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
     while (handles.length < want) makeHandle(handles.length)
   }
 
+  /** T-1884: the expand button of a collapsed pane is `position: fixed` (base.css) and placed against the viewport. */
+  function placeExpander(btn: HTMLElement, isEff: boolean, stripTop: number, mid: number) {
+    if (!isEff) {
+      btn.style.removeProperty('top')
+      btn.style.removeProperty('left')
+      return
+    }
+    // an ancestor with layout containment can be the containing block of a fixed box: measure the origin it gives
+    btn.style.top = '0px'
+    btn.style.left = '0px'
+    const o0 = btn.getBoundingClientRect()
+    const pad = 16
+    const bar = document.querySelector('.lf-topbar')
+    const visTop = bar ? bar.getBoundingClientRect().bottom : 0
+    const bw = o0.width || 32
+    const bh = o0.height || 32
+    const y = expanderTop(stripTop, visTop, window.innerHeight, bh, pad)
+    const x = Math.min(Math.max(mid - bw / 2, pad / 2), Math.max(pad / 2, window.innerWidth - bw - pad / 2))
+    btn.style.top = `${y - o0.top}px`
+    btn.style.left = `${x - o0.left}px`
+  }
+
   function place() {
     const panes = o.panes()
     const L = layer.getBoundingClientRect()
@@ -306,6 +338,12 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
         bot = L.bottom
       }
       const isEff = eff(k)
+      if (isEff && !o.shell) {
+        // a collapsed strip is as tall as the whole work area, not as tall as the (hidden) pane
+        const C = container.getBoundingClientRect()
+        top = Math.min(top, C.top)
+        bot = Math.max(bot, C.bottom)
+      }
       h.style.left = `${isEff ? Math.max(mid - L.left, 18) : mid - L.left}px`
       h.style.top = `${top - L.top}px`
       h.style.height = `${Math.max(0, bot - top)}px`
@@ -326,6 +364,7 @@ export function attachSplit(container: HTMLElement, o: SplitOptions): SplitHandl
       h.setAttribute('aria-label', name || text.resize)
       const btn = h.querySelector('.lf-splitter__btn')
       if (btn) {
+        placeExpander(btn as HTMLElement, isEff, top, L.left + Math.max(mid - L.left, 18))
         const label = `${isEff ? text.expand : text.collapse}: ${name}`
         btn.setAttribute('aria-label', label)
         btn.setAttribute('title', label)

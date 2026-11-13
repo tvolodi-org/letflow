@@ -432,8 +432,9 @@ defmodule Letflow.Tasks do
   The F1 grant requirement for one task (design C.3). (1) A principal who holds
   `route_permission` tenant-wide (`Scope.allowed?(principal, route_permission, :tenant_wide)`
   allows: a tenant-wide holder, a token principal, a platform admin) is exempt (RA-13; nothing
-  role-name based). (2) Otherwise the principal must hold a TASK_WORKER grant covering the
-  task's scope node (`Scope.allowed_for_role?/3`); a NULL node, a retired node, other roles'
+  role-name based). (2) Otherwise the principal must hold a grant covering the
+  task's scope node of a role that holds `TasksWorkInScope` (TASK_WORKER only; roles stage 0 S0-2,
+  `Scope.allowed_for_holders?/3`); a NULL node, a retired node, other roles'
   grants and a PROCESS_OPERATOR or TENANT_ADMIN grant never count. The routing-role checks of
   `claim_task/3` and `authorize_completion/3` are separate and unchanged.
   """
@@ -443,7 +444,7 @@ defmodule Letflow.Tasks do
     match?({:allow, _basis}, Scope.allowed?(principal, route_permission, :tenant_wide)) or
       match?(
         {:allow, _basis},
-        Scope.allowed_for_role?(principal, "TASK_WORKER", ScopeResolver.task_scope(task))
+        Scope.allowed_for_holders?(principal, :TasksWorkInScope, ScopeResolver.task_scope(task))
       )
   end
 

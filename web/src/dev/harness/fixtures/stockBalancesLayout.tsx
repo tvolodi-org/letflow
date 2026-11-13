@@ -13,7 +13,7 @@ const BALANCES = [
   { sku: 'i1', location: 'l1', org_unit: 'u1', responsible: null, lot: null, unit_ref: 'm1', quantity: '240.500' },
   { sku: 'i1', location: 'l2', org_unit: 'u1', responsible: null, lot: null, unit_ref: 'm1', quantity: '1 200.000' },
 ]
-const layoutRoutes: FixtureRoute[] = routes.map((r) =>
+export const layoutRoutes: FixtureRoute[] = routes.map((r) =>
   r.match('/api/v1/modules/stock/balances', 'GET') ? { ...r, reply: (state) => ({ status: 200, body: { ledger_seq: 1041, next_cursor: null, rows: state === 'empty' ? [] : BALANCES } }) } : r,
 )
 

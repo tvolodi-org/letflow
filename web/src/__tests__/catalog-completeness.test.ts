@@ -74,6 +74,11 @@ import {
   registerRu,
   registerKk,
 } from '@/modules/assets/register/registerMessages'
+import {
+  cardActionsEn,
+  cardActionsRu,
+  cardActionsKk,
+} from '@/modules/assets/cardActionsMessages'
 import { formMessages } from '@/components/ui/formMessages'
 import { layoutMessages } from '@/components/ui/layout/layoutMessages'
 import { navMessages } from '@/components/layout/navMessages'
@@ -463,6 +468,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('assets register (sub-catalog): all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('assets.register', fromSplit(registerEn, registerRu, registerKk))
+  })
+
+  it('assets card actions (sub-catalog): all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('assets.cardActions', fromSplit(cardActionsEn, cardActionsRu, cardActionsKk))
   })
 
   it('kk is not a copy of ru (T-1357): every catalog', () => {
