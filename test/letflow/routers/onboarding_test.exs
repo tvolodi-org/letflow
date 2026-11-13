@@ -125,6 +125,24 @@ defmodule Letflow.Routers.OnboardingTest do
   end
 
   describe "REQ-076 AC8: onboarding creates a tenant via Letflow.TenantProvisioning, no second path" do
+    test "POST /api/v1/onboarding refuses the reserved slug pwa with 422 and writes nothing (T-1861)" do
+      {admin_plaintext, admin_slug} = mint_caller!("t1861-caller", ["PLATFORM_ADMIN"])
+
+      for slug <- ["pwa", "PWA"] do
+        conn =
+          authed_request(:post, "/api/v1/onboarding", admin_plaintext, admin_slug, %{
+            "slug" => slug,
+            "display_name" => "Reserved",
+            "hostname" => unique_hostname("t1861")
+          })
+          |> dispatch()
+
+        assert conn.status == 422
+      end
+
+      assert {:error, :not_found} = Letflow.Identity.get_tenant_by_slug("pwa")
+    end
+
     test "POST /api/v1/onboarding provisions a real, queryable Postgres schema for the new tenant" do
       {admin_plaintext, admin_slug} = mint_caller!("req076-ac8-caller", ["PLATFORM_ADMIN"])
 
