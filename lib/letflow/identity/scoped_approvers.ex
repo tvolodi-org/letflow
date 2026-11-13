@@ -7,7 +7,8 @@ defmodule Letflow.Identity.ScopedApprovers do
   Definitions, over ACTIVE users only (an inactive user cannot act and returns through
   reactivation; the integrity endpoint shows the count):
 
-    * HOLDER(U): U is a member of a group bound as a `:platform_role` to `TASK_WORKER`.
+    * HOLDER(U): U is a member of a group bound as a `:platform_role` to a role holding
+      `TasksWorkInScope` (today `TASK_WORKER` only, roles stage 0 S0-2; see `holder_roles/0`).
     * SCOPED_TW(U): HOLDER(U), at least one applicable `TASK_WORKER` row of U has
       `tenant_wide = false` (a user-principal row of U, or a group row of a group U belongs to
       that binds `TASK_WORKER`), and NO applicable `TASK_WORKER` row has `tenant_wide = true`.
@@ -30,6 +31,7 @@ defmodule Letflow.Identity.ScopedApprovers do
 
   import Ecto.Query
 
+  alias Letflow.Api.Authorization
   alias Letflow.Identity
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.RoleScopeGrant
@@ -37,12 +39,22 @@ defmodule Letflow.Identity.ScopedApprovers do
   alias Letflow.Identity.User
   alias Letflow.Repo
 
-  @role "TASK_WORKER"
-
   @type counts :: %{
           approvers: non_neg_integer(),
           task_workers_not_approvers: non_neg_integer()
         }
+
+  @doc """
+  Roles stage 0 S0-2: the role names that hold `TasksWorkInScope` in the compiled matrix (no tenant
+  overlay: the count is tenant-wide and the overlay cannot grant this permission). Today
+  `["TASK_WORKER"]`, the name this module used to hard-code.
+  """
+  @spec holder_roles() :: [String.t()]
+  def holder_roles do
+    Authorization.roles()
+    |> Enum.filter(&Authorization.role_allows?(&1, :TasksWorkInScope))
+    |> Enum.map(&Atom.to_string/1)
+  end
 
   @doc """
   The scoped approver counts for the tenant schema `prefix` (see the moduledoc). Read-only,
@@ -50,7 +62,7 @@ defmodule Letflow.Identity.ScopedApprovers do
   """
   @spec count(prefix :: String.t()) :: counts()
   def count(prefix) when is_binary(prefix) do
-    base = scoped_task_workers()
+    base = scoped_task_workers(holder_roles())
 
     routed =
       from(gm in GroupMember,
@@ -76,19 +88,19 @@ defmodule Letflow.Identity.ScopedApprovers do
   end
 
   # SCOPED_TW(U): active holder, a scoped applicable row, no tenant-wide applicable row.
-  defp scoped_task_workers do
+  defp scoped_task_workers(roles) do
     holder =
       from(gm in GroupMember,
         join: tr in TenantRole,
         on: tr.group_id == gm.group_id,
-        where: gm.user_id == parent_as(:u).id and tr.name == ^@role and tr.kind == :platform_role,
+        where: gm.user_id == parent_as(:u).id and tr.name in ^roles and tr.kind == :platform_role,
         select: 1
       )
 
-    scoped_user_row = user_rows(false)
-    scoped_group_row = group_rows(false)
-    wide_user_row = user_rows(true)
-    wide_group_row = group_rows(true)
+    scoped_user_row = user_rows(roles, false)
+    scoped_group_row = group_rows(roles, false)
+    wide_user_row = user_rows(roles, true)
+    wide_group_row = group_rows(roles, true)
 
     from(u in User,
       as: :u,
@@ -99,25 +111,25 @@ defmodule Letflow.Identity.ScopedApprovers do
     )
   end
 
-  defp user_rows(tenant_wide?) do
+  defp user_rows(roles, tenant_wide?) do
     from(g in RoleScopeGrant,
       where:
-        g.role == ^@role and g.tenant_wide == ^tenant_wide? and g.principal_type == :user and
+        g.role in ^roles and g.tenant_wide == ^tenant_wide? and g.principal_type == :user and
           g.principal_id == parent_as(:u).id,
       select: 1
     )
   end
 
   # A group row of a group the user belongs to AND that group binds the role as a platform role.
-  defp group_rows(tenant_wide?) do
+  defp group_rows(roles, tenant_wide?) do
     from(gm in GroupMember,
       join: g in RoleScopeGrant,
       on: g.principal_type == :group and g.principal_id == gm.group_id,
       join: tr in TenantRole,
       on: tr.group_id == gm.group_id,
       where:
-        gm.user_id == parent_as(:u).id and g.role == ^@role and
-          g.tenant_wide == ^tenant_wide? and tr.name == ^@role and tr.kind == :platform_role,
+        gm.user_id == parent_as(:u).id and g.role in ^roles and
+          g.tenant_wide == ^tenant_wide? and tr.name == g.role and tr.kind == :platform_role,
       select: 1
     )
   end

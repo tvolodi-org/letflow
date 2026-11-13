@@ -8,8 +8,9 @@ defmodule Letflow.Api.ScopeGate do
       `t:Letflow.Entities.Query.Types.scope_set/0`, for `Letflow.Entities.Query.Compiler`;
     * `resource_allowed?/3` -- one resource's allow/deny (`Letflow.Api.Scope.allowed?/3`);
     * `mode/1` -- the per-request scope-enforcement mode;
-    * `scope_set_for_role/3` and `f1_principal/2` -- the task approver rule F1 (REQ-518 PR 2d,
-      design C.2 to C.4): the set of ONE role, and the principal the engine path re-checks.
+    * `scope_set_for_holders/3` (roles stage 0 S0-2; `scope_set_for_role/3` before) and `f1_principal/2`
+      -- the task approver rule F1 (REQ-518 PR 2d, design C.2 to C.4): the set of the roles holding
+      one permission, and the principal the engine path re-checks.
 
   ## Not `on` means no read
 
@@ -122,6 +123,9 @@ defmodule Letflow.Api.ScopeGate do
   `Letflow.Api.Scope.allowed?(principal, permission, :tenant_wide)`, nothing role-name based);
   otherwise `Letflow.Api.Scope.allowed_set_for_role/2` for the ONE role `role`. A request without
   a principal gets `:none`. Memoised per permission and role; failures are loud like `scope_set/2`.
+
+  No route calls it since roles stage 0 S0-2 (the task routes ask `scope_set_for_holders/3`);
+  removed together with the compiled role list (stage 6).
   """
   @spec scope_set_for_role(Plug.Conn.t(), policy_key :: atom(), role :: String.t()) ::
           {Plug.Conn.t(), Types.scope_set()}
@@ -132,6 +136,30 @@ defmodule Letflow.Api.ScopeGate do
     case mode(conn) do
       :on -> memoised_set(conn, {Authorization.required_permission(policy_key), role})
       _not_on -> {conn, :all}
+    end
+  end
+
+  @doc """
+  Roles stage 0 S0-2 (decision 0088): `scope_set_for_role/3` by permission. Same behaviour (not `on`
+  -> `{conn, :all}` with no query; RA-13 exemption first), but the grants that count are those of the
+  caller's roles holding `holder_permission` (`Letflow.Api.Scope.allowed_set_for_holders/2`), not of
+  a role named in code. Memoised per route permission and holder permission.
+  """
+  @spec scope_set_for_holders(Plug.Conn.t(), policy_key :: atom(), holder_permission :: atom()) ::
+          {Plug.Conn.t(), Types.scope_set()}
+  def scope_set_for_holders(%Plug.Conn{} = conn, policy_key, holder_permission)
+      when is_atom(policy_key) and is_atom(holder_permission) do
+    conn = Plug.Conn.put_private(conn, @marker, true)
+
+    case mode(conn) do
+      :on ->
+        memoised_set(
+          conn,
+          {:holders, Authorization.required_permission(policy_key), holder_permission}
+        )
+
+      _not_on ->
+        {conn, :all}
     end
   end
 
@@ -214,6 +242,13 @@ defmodule Letflow.Api.ScopeGate do
 
   defp set_for(principal, {:without_role, permission, excluded}) do
     Scope.allowed_set(%{principal | roles: List.delete(principal.roles, excluded)}, permission)
+  end
+
+  defp set_for(principal, {:holders, permission, holder_permission}) do
+    case Scope.allowed?(principal, permission, :tenant_wide) do
+      {:allow, _basis} -> {:ok, :all}
+      {:deny, _reason} -> Scope.allowed_set_for_holders(principal, holder_permission)
+    end
   end
 
   defp set_for(principal, {permission, role}) do

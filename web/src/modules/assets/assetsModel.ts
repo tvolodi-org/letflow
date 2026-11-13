@@ -78,6 +78,10 @@ const OPTIONAL_KEYS = [
   'valid_until',
 ] as const
 
+/** Depreciation method codes (D-134); the same list as `Cards.depreciation_methods/0`. Information only. */
+export const DEPRECIATION_METHODS = ['straight_line', 'reducing_balance', 'units_of_production'] as const
+export const isDepreciationMethod = (v: string): boolean => (DEPRECIATION_METHODS as readonly string[]).includes(v)
+
 export const DECIMAL_KEYS = ['acquisition_cost', 'accumulated_depreciation', 'book_value', 'depreciation_rate'] as const
 
 export function formOf(record: EntityRecord | null): Form {
