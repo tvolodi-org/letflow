@@ -37,13 +37,17 @@ export function Journal(props: JournalProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const layerRef = useRef<HTMLDivElement>(null)
   useSplit(gridRef, layerRef, {
-    id: 'details',
+    // the same setup as the balances screens (verdict 4.3 item 3): the divider collapses the operations list
+    id: 'list',
     screen: props.layoutScreen,
     vars: ['--lf-pane-1'],
     unit: 'pct',
-    sized: 'after',
+    sized: 'before',
     min: [360],
     flexMin: 460,
+    collapsible: [0],
+    clampStored: true,
+    defaults: [60],
     labels: [props.splitLabel],
     // the V2 scrim is a third grid child and is not a pane
     panes: () => {
