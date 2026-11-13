@@ -78,7 +78,6 @@ export function AssetLinesEditor(props: {
           label: textOf(c, 'inventory_number') || c.record_id,
           fields: c.field_values as Record<string, unknown>,
         })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [props.extraCards, options],
   )
   const catalog = useMemo(() => buildAssetCatalog([...options, ...extraOptions]), [options, extraOptions])
