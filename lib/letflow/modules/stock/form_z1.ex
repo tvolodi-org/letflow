@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Stock.FormZ1 do
   Left out of the map, so they print blank (nothing is invented; mapping doc
   `docs/assets/kz-forms-mapping.md` section 7.1): kind of operation (G6), account (G6),
   payment document (G7), "Сдал" (G4), and per line: qty_doc, mass_doc, mass, passport,
-  card_no (G13). The IIN is never stored (G1). received_on is not printed (the form has
+  card_no (G13). The IIN is never stored (G1). The receipt arrival date is not printed (the form has
   no arrival-date cell). Quantities and prices print as the stored 9-decimal text.
   """
 

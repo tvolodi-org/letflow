@@ -59,7 +59,10 @@ async function claimAndComplete(p: Page, hint: string): Promise<void> {
   if (await claim.isVisible().catch(() => false)) await claim.click()
   // R11: Complete appears after the claim
   await expect(p.getByTestId('task-complete-button')).toBeVisible({ timeout: 20_000 })
+  const done = p.waitForResponse(r => r.request().method() === 'POST' && /complete/.test(r.url()) && r.ok(), { timeout: 30_000 })
   await p.getByTestId('task-complete-button').click()
+  // Wait for the completion to reach the server before the caller navigates away (a cancelled request leaves it open).
+  await done
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -93,6 +96,7 @@ test('G1 S1 count order', async () => {
 })
 
 test('G2 S2 receipt issue claim complete', async () => {
+  test.setTimeout(120_000)
   await openRoute(page, '/admin/stock/documents/new')
   const form = page.getByTestId('document-form')
   await expect(form).toBeVisible()
@@ -114,8 +118,11 @@ test('G2 S2 receipt issue claim complete', async () => {
   await issueDocument(page)
 
   await claimAndComplete(page, state.receiptNumber || 'Laptop')
-  await openRoute(page, state.receiptUrl)
-  await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 60_000 })
+  // Posting follows the task completion: reload the receipt until its header shows the posting.
+  await expect(async () => {
+    await openRoute(page, state.receiptUrl)
+    await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 5_000 })
+  }).toPass({ timeout: 60_000, intervals: [1_000, 2_000, 4_000] })
   await assertNoUuid(page, 'Document')
 })
 
