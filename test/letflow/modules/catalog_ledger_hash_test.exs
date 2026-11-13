@@ -12,30 +12,8 @@ defmodule Letflow.Modules.CatalogLedgerHashTest do
   alias Letflow.Modules.FixtureLedgerPost
   alias Letflow.Modules.ManifestHash
 
-  @golden %{
-    "Exam" => "992e5266d1b81a138684f50228c5a3429393dcb90fdd0bb0dfb1fa9646252d8a",
-    "Org" => "caba62b2f3060c99ae03b3dcc2cdee841fded125aa92719f8ce74c77f39b9b11",
-    # re-pinned by MES-U1 (catalog_items 0.3.0 -> 0.4.0)
-    "CatalogItems" => "f890e6e1f1e88ddd03b49c81f7c6535a07d18d914391866def5de5210e78c3bf",
-    "Procurement" => "265b5841f1705989bacfdf2ca82385fa0c9d83ad462e3f257f0ac87060f8dd61",
-    "Locations" => "c91e67f887dbbd38d258b2acfbe2b5af45ca805de8653e2ade2ceca6d844965a",
-    "Codes" => "d3661b5ff799f4325df455cd8e59212fcfeafff0af6a8d6d140a481e75d68b93",
-    "Fixture" => "469c50f3420bc652af6afb8e24c202c8f455d486fb9524b6ca2c1fb61caa0b59",
-    "FixtureDependent" => "42e4637c9404ced4a6545a77bc7334c2ca7f6fb7d1b50f747a71a9d7484b06b6",
-    "FixtureFailingInstall" => "33e53980998a1ca1ce3cd6269ee9dd0e258b83c71317fdce3557de37c8ada7fe",
-    "FixtureFkPack" => "4153467de65bdd4213a0be4c2454fd14ef107010aba975f0fafa7902027d7e73",
-    "FixtureFkPackFailing" => "09c83c8ee15a697438a143786a7dcbf35a4a4d398f258f4a3cf64f3b84b5f978",
-    "FixtureCtxRecorder" => "75a3f1581939926d14eaf520826688d00a6ebc5d1329b8d57f6067c99d4510d0",
-    "FixtureManaged" => "84866adc83eee01abb7888c6ea98e12b7d22d4c98c1865a1b527f0b2b355f6b0",
-    "FixtureManagedNoPack" => "47f329b517fdf6e1ed7e32822dae6d9756fbb0a53d5a74c76a2faab2bb04781f",
-    "FixtureLedger" => "6394cff92f1f30f14e74d59a45bb7e272087160c7596e6078571fbfb6d8d866d",
-    "FixtureLedgerOther" => "24aff18970d1b5c2629f71b46f7858a2fb2789e85d505710a2360a15353c9b22",
-    "FixtureLedgerRogue" => "20f7d07cb2aa08e4e916cf3bde4fe0dcc4e73d73342d5a42edc2e64b6fae9b98",
-    "FixtureScoped" => "073fb6684c0a502600271bc0c257da0899a3c11090abf96ceb371e6bccfa9495",
-    "FixtureDdlFailing" => "49e667a456679e3f5112affb142659f6953bd14952a8845e8e4501136ab8c7c5",
-    "FixturePoints" => "a25427d0c523854a0ab5fb9fd847b7cd441fe2662fe32639025fb1b417b7e65f",
-    "FixtureDataStep" => "868512211460361d3ac158d2a3b6195cca48c2092313573fb44f9999cf903973"
-  }
+  # Golden hashes live one file per module in test/letflow/modules/pins/ (T-1900).
+  @pins Letflow.TestSupport.ModulePins.all()
 
   defp base, do: FixtureLedgerPost.manifest()
   defp hash(manifest), do: ManifestHash.compute(manifest)
@@ -46,16 +24,23 @@ defmodule Letflow.Modules.CatalogLedgerHashTest do
     registered = for entry <- Catalog.entry_modules(), do: entry.manifest().id
     ids = Map.new(Catalog.entry_modules(), fn entry -> {inspect(entry), entry.manifest().id} end)
 
-    for {name, expected} <- @golden do
+    golden = for {name, %{hash: expected}} <- @pins, do: {name, expected}
+
+    for {name, expected} <- golden do
       id = Map.fetch!(ids, "Letflow.Modules." <> name)
       assert id in registered
       assert Catalog.manifest_hash(id) == {:ok, expected}, name
     end
 
-    # the modules with a :ledger key (FixtureLedgerPost, FixtureLedgerStorage from REQ-711, Stock from REQ-687 and Assets from REQ-749, MesCore from T-1841 (changes with every MES task, so no golden), and the XpostOwner fixture from REQ-758)
-    # and the one with :reference_targets (FixtureRefTargets, REQ-636) are not in @golden
-    # T-1641: RuntimeDemo is release-dependent (its version is a boot setting), so it has no fixed golden hash
-    assert map_size(@golden) == length(registered) - 8
+    # Modules with a :ledger key, :reference_targets or a release-dependent version carry
+    # `exempt:` in their pin file instead of a hash. Every registered module has exactly one pin
+    # file, so a new module cannot be forgotten and a stale file is caught.
+    assert Enum.sort(Map.keys(@pins)) ==
+             Enum.sort(
+               for {name, _} <- ids, do: String.replace_prefix(name, "Letflow.Modules.", "")
+             )
+
+    assert map_size(@pins) == length(registered)
   end
 
   test "T-MH-21 equal inputs, equal hash; the fixture is covered" do

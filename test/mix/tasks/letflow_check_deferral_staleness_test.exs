@@ -1243,61 +1243,13 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStalenessTest do
       # `mix letflow.check_deferral_staleness`, returning
       # "0 deferred of 397 entries; 0 stale". The detector is unchanged.
       #
-      # UPDATE (T-1493, 2026-11-09): REQ-784 (assets G6) has no GitHub issue yet and carries
-      # `# impl_order: UNREGISTERED -- blocked-by: REQ-783`; REQ-783 is `pending`, so the deferral is
-      # legitimate. It leaves the set when the operator registers the issue (then this is 0 again).
-      #
-      # UPDATE (T-1197, 2026-11-09): the count dropped from 1 to 0. The engine's register step for
-      # REQ-785 (GH#4057) also registered REQ-784 (GH#4058), replacing its marker with `gh: 4058`,
-      # so no deferral is left. The detector is unchanged.
-      #
-      # UPDATE (T-1609, 2026-11-10): REQ-791 (xlsx user import) has no GitHub issue yet and carries
-      # `# impl_order: UNREGISTERED -- blocked-by: REQ-786`; REQ-786 is live, so the deferral is
-      # legitimate. It leaves the set when the engine registers the issue (then this is 0 again).
-      #
-      # UPDATE (T-1594, 2026-11-10): REQ-787 (module fleet driver) has no GitHub issue yet and carries
-      # `# impl_order: UNREGISTERED -- blocked-by: REQ-773`; REQ-773 is `pending`, so the deferral is
-      # legitimate. It leaves the set when the operator registers the issue (then this is 0 again).
-      #
-      # UPDATE (T-1624, 2026-11-10): the count dropped from 2 to 0. The engine's register step for
-      # REQ-794 (GH#4156) also registered REQ-787 (GH#4153) and REQ-791 (GH#4160), replacing their
-      # markers with gh: lines, so no deferral is left. The detector is unchanged.
-      #
-      # UPDATE (T-1640, 2026-11-10): REQ-795 (fleet upgrade window) has no GitHub issue yet and carries
-      # `# impl_order: UNREGISTERED -- blocked-by: REQ-787`; REQ-787 is `pending`, so the deferral is
-      # legitimate.
-      # UPDATE (T-1635, 2026-11-10): REQ-799 (instance replay screen) has no GitHub issue yet and carries
-      # `# impl_order: UNREGISTERED -- blocked-by: REQ-793`; REQ-793 is `pending`, so the deferral is
-      # legitimate. Each leaves the set when the engine registers its issue (count drops by one each).
-      # UPDATE (T-1634, 2026-11-10): REQ-800 (notification bell kinds) has no GitHub issue yet and carries
-      # `# impl_order: UNREGISTERED -- blocked-by: REQ-584` (pending), so the deferral is legitimate.
-      #
-      # UPDATE (T-1661, 2026-11-11): the count dropped from 3 to 0. The engine's register step for
-      # REQ-802 (GH#4191) also registered REQ-795 (GH#4188), REQ-800 (GH#4187) and REQ-799 (GH#4186),
-      # replacing their markers with gh: lines, so no deferral is left. The detector is unchanged.
-      # UPDATE (T-1656, 2026-11-11): REQ-801 (GH#4185) was registered by the same kind of step; the
-      # count stays 0.
-      # UPDATE (T-1680, 2026-11-11): REQ-803 (sign-up sweep addendum) is added with a marker; the
-      # engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
-      # UPDATE (T-1684, 2026-11-11): REQ-805 (companion test split note) is added with a marker; the
-      # engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
-      # UPDATE (T-1698, 2026-11-11): REQ-810 (PWA 30-day PIN session) and REQ-811 (PWA biometric
-      # unlock) are added with markers; the engine's register step replaces both with gh: lines
-      # before CI runs, so the count stays 0.
-      # UPDATE (T-1696, 2026-11-11): REQ-806..REQ-809 (sign-in for created users, option b) are added
-      # with markers; register replaces each with a gh: line before CI runs, so the count stays 0.
-      # UPDATE (T-1699, 2026-11-11): REQ-812 (process designer slice 3C, waiting since) is added with a
-      # marker; the engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
-      # UPDATE (T-1715, 2026-11-11): REQ-813 (rollout list paging, F4-5) is added with a marker; the
-      # engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
-      # UPDATE (T-1714, 2026-11-11): REQ-814 (reset-password mail throttle, F4-4) is added with a
-      # marker; the engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
-      # UPDATE (T-1816, 2026-11-12): REQ-815 (notification default texts in ru, kk and en) is added with a
-      # marker; the engine's register step replaces it with a gh: line before CI runs, so the count stays 0.
-      # UPDATE (T-1844, 2026-11-13): REQ-816..REQ-822 (fixed asset count, Inv-8) are added with markers;
-      # register replaces each with a gh: line before CI runs, so the count stays 0.
-      # UPDATE (T-1870, 2026-11-13): REQ-823..REQ-828 (currency directory) are added with markers;
-      # register replaces each with a gh: line before CI runs, so the count stays 0.
+      # UPDATE (T-1493 .. T-1870, 2026-11-09 .. 2026-11-13): requirements REQ-784..REQ-828 were each
+      # added with an `UNREGISTERED` marker and registered by the engine's register step before CI
+      # ran (the count dipped above 0 only between those two steps), so the count stayed 0. The
+      # per-task UPDATE lines that used to be appended here collided between parallel tasks (T-1900),
+      # so the history lives in git (`git log -p -S"UPDATE (T-" -- <this file>`). Do NOT append a new
+      # UPDATE line for a task that merely adds a requirement; edit this block only when the count
+      # itself changes.
       assert result.deferral_count == 0
       assert result.stale_count == 0
 
