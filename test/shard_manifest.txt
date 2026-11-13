@@ -429,6 +429,7 @@
 10 test/letflow/login_discovery/boot_check_test.exs 0.35
 10 test/letflow/migrations/ledger_migration_test.exs 2098.67
 10 test/letflow/modules/asset_stock_isolation_test.exs 185893.23
+10 test/letflow/modules/catalog_items/physical_attributes_test.exs 20000.00
 10 test/letflow/modules/catalog_items/tracking_policy_cross_tenant_test.exs 2373.97
 10 test/letflow/modules/codes/code128_test.exs 1.54
 10 test/letflow/modules/exam/parent_rollout_test.exs 22169.36
