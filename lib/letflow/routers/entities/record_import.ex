@@ -79,36 +79,36 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
   @doc false
   def handle_import_records(conn, entity_type) do
-    storekeeper_only? = storekeeper_only_import?(conn.assigns.auth_context)
+    restricted? = import_type_restricted?(conn.assigns.auth_context)
     {conn, scope} = import_scope(conn, entity_type)
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> managed_import(conn, entity_type, scope)
       :write_denied -> Response.forbidden(conn, "insufficient permissions")
-      # D-093 / decision 0081 D4: a caller who holds Import only through STOREKEEPER imports
-      # module-managed types with a registered import function and nothing else.
-      _access when storekeeper_only? -> Response.forbidden(conn, "insufficient permissions")
+      # decision 0081 D4 / roles stage 0 S0-1: a caller who holds Import without
+      # EntitiesRecordsImportAnyType imports module-managed types with a registered import
+      # function and nothing else.
+      _access when restricted? -> Response.forbidden(conn, "insufficient permissions")
       access -> import_records_with_access(conn, entity_type, access, scope, nil)
     end
   end
 
-  # D-093 / decision 0081 D4: STOREKEEPER's import covers `stock_opening_line` only, so its (tenant-wide)
-  # grant must not widen another role's scoped import of any other type through the union of roles.
+  # D-093 / decision 0081 D4: STOREKEEPER's import covers `stock_opening_line` only. The set of every
+  # other type is computed for the wide permission, so the tenant-wide grant of a role without it
+  # (STOREKEEPER) never widens another role's scoped import through the union (0081 D4 ruling).
   defp import_scope(conn, "stock_opening_line"),
     do: ScopeGate.scope_set(conn, :EntitiesRecordsImport)
 
   defp import_scope(conn, _entity_type),
-    do: ScopeGate.scope_set_without_role(conn, :EntitiesRecordsImport, :STOREKEEPER)
+    do: ScopeGate.scope_set(conn, :EntitiesRecordsImportAnyType)
 
-  # True when no held role other than STOREKEEPER allows the import permission.
-  defp storekeeper_only_import?(auth_context) do
+  # Roles stage 0 S0-1: holds Import but not the wide permission (today: STOREKEEPER without
+  # TENANT_ADMIN/PLATFORM_ADMIN).
+  defp import_type_restricted?(auth_context) do
     roles = Authorization.roles_from_strings(Map.get(auth_context, :roles, []))
 
-    :STOREKEEPER in roles and
-      not Enum.any?(
-        roles -- [:STOREKEEPER],
-        &Authorization.role_allows?(&1, :EntitiesRecordsImport)
-      )
+    Authorization.has_permission?(roles, :EntitiesRecordsImport) and
+      not Authorization.has_permission?(roles, :EntitiesRecordsImportAnyType)
   end
 
   # REQ-651 (decision 0077 D5): a managed type imports only when its owning module registered an
@@ -119,12 +119,12 @@ defmodule Letflow.Routers.Entities.RecordImport do
     prefix = prefix!(conn)
 
     with {:ok, module_id} <- ManagedTypes.owner_of(entity_type, prefix),
-         :ok <- storekeeper_managed_allowed(conn, module_id, entity_type),
+         :ok <- managed_import_allowed(conn, module_id, entity_type),
          :ok <- Catalog.import_function(module_id, entity_type) do
       access = RecordAccess.managed_open(conn.assigns.auth_context.user_id, entity_type, prefix)
       import_records_with_access(conn, entity_type, access, scope, {:managed, module_id})
     else
-      {:error, :storekeeper_managed_import} ->
+      {:error, :managed_import_restricted} ->
         Response.forbidden(conn, "insufficient permissions")
 
       _no_import_function ->
@@ -132,12 +132,12 @@ defmodule Letflow.Routers.Entities.RecordImport do
     end
   end
 
-  # D-093 / decision 0081 D4: a STOREKEEPER-only caller imports the stock opening line and no
+  # D-093 / decision 0081 D4: a caller restricted to opening lines imports the stock opening line and no
   # other module-managed type (locations, catalog items and org data stay admin work).
-  defp storekeeper_managed_allowed(conn, module_id, entity_type) do
-    if storekeeper_only_import?(conn.assigns.auth_context) and
+  defp managed_import_allowed(conn, module_id, entity_type) do
+    if import_type_restricted?(conn.assigns.auth_context) and
          not (module_id == "stock" and entity_type == "stock_opening_line"),
-       do: {:error, :storekeeper_managed_import},
+       do: {:error, :managed_import_restricted},
        else: :ok
   end
 

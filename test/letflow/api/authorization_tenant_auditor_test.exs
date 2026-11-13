@@ -42,7 +42,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :MyPreferencesSet
   ]
 
-  # The 27 core permissions the auditor does NOT hold (41 core permissions minus the 14 above).
+  # The 28 core permissions the auditor does NOT hold (42 core permissions minus the 14 above).
   @auditor_refused_core [
     :DefinitionsWrite,
     :InstancesStart,
@@ -86,7 +86,8 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :ScheduledJobsManage,
     :DocumentPrintTemplatesManage,
     :SolutionOverridesManage,
-    :EntitiesExtensionsManage
+    :EntitiesExtensionsManage,
+    :EntitiesRecordsImportAnyType
   ]
 
   @link_route {"POST", "/instances/:id/attachments/:attachment_id/link"}
@@ -131,12 +132,12 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
       assert length(granted) == 16
     end
 
-    test "the refused core set is the literal 41, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
+    test "the refused core set is the literal 42, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
       core = Authorization.core_permissions()
       granted_core = Enum.filter(core, &Authorization.role_allows?(:TENANT_AUDITOR, &1))
       refused_core = core -- granted_core
 
-      assert length(@auditor_refused_core) == 41
+      assert length(@auditor_refused_core) == 42
       assert Enum.sort(refused_core) == Enum.sort(@auditor_refused_core)
       assert Enum.sort(granted_core ++ @auditor_refused_core) == Enum.sort(core)
 
