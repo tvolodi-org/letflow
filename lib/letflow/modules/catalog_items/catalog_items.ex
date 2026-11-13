@@ -24,8 +24,8 @@ defmodule Letflow.Modules.CatalogItems do
   All are declared in `manages_entity_types`, so after install the generic entity routes answer
   403 `entity_type_managed`, except the import of the four types through the one import function `import_row/3` (REQ-651 for
   the first three, REQ-654 for `catalog_lot`; upsert by external ref only). The module ships no other write functions than the lot writers `create_lot/3`, `update_lot/4` and `retire_lot/3` (GH #3614 / REQ-664), and
-  three lot routes (`Letflow.Modules.CatalogItems.Router`, GH #3610 / REQ-668) behind the one permission `CatalogLotsWrite`, with no role grants (TENANT_ADMIN and PLATFORM_ADMIN hold it); the read API (REQ-507, GH #2664) is below. The unit scale and conversion factors
-  are REQ-504 (#2660), not here. `catalog_lot.item_id` is a real foreign key (D-066); the other
+  three lot routes (`Letflow.Modules.CatalogItems.Router`, GH #3610 / REQ-668) behind the one permission `CatalogLotsWrite`, with no role grants (TENANT_ADMIN and PLATFORM_ADMIN hold it); the read API (REQ-507, GH #2664) is below. The unit dimension and the item physical attributes (density, net mass, net volume) are MES plan U1 (owner A.6): optional fields, positive decimals checked by the import. Conversion factors are U2/U3 of that plan and are never applied at posting (this overrides that part of REQ-504, #2660).
+  `catalog_lot.item_id` is a real foreign key (D-066); the other
   references between the types, `base_uom_id` among them, stay declarative strings (0050 D3.6).
   The import audits its rows (GH #3739 / REQ-706): `catalog_uom.created|updated`,
   `catalog_item.created|updated` and `catalog_counterparty.created|updated`, written by
@@ -68,7 +68,7 @@ defmodule Letflow.Modules.CatalogItems do
   @impl true
   defmanifest(
     id: "catalog_items",
-    version: "0.3.0",
+    version: "0.4.0",
     depends_on: [],
     pack: "modules/catalog_items/pack.json",
     permissions: [:CatalogLotsWrite],

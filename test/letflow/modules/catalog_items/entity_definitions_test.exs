@@ -5,7 +5,7 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
   `priv/modules/catalog_items/entity_definitions/` and asserts the exact shape the issue fixes:
   four types, exact fields, types, required and queried flags, the enum values, the unique
   constraints (code and the external_ref pair), `catalog_lot` as the only type with a `foreign_keys` entry (GH #3593 /
-  REQ-647, D-066), no decimal field.
+  REQ-647, D-066), decimals only on catalog_item (MES-U1).
 
   Pure file reads: no database. `async: true`.
   """
@@ -29,7 +29,8 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
       [
         {"code", "string", true, true},
         {"name", "string", true, false},
-        @active
+        @active,
+        {"dimension", "enum", false, true}
       ] ++ @external_ref,
     "catalog_item" =>
       [
@@ -38,7 +39,10 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
         {"base_uom_id", "string", true, true},
         {"kind", "enum", true, true},
         @active,
-        {"tracking_policy", "enum", false, true}
+        {"tracking_policy", "enum", false, true},
+        {"density_kg_per_l", "decimal", false, false},
+        {"net_mass_kg", "decimal", false, false},
+        {"net_volume_l", "decimal", false, false}
       ] ++ @external_ref,
     "catalog_counterparty" =>
       [
@@ -149,7 +153,7 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
       end
     end
 
-    test "D-06: foreign_keys only on catalog_lot, no indexes, no decimal field (scale and conversion are REQ-504)" do
+    test "D-06: foreign_keys only on catalog_lot, no indexes, decimals only the three strict scale-9 physical attributes of catalog_item (MES-U1)" do
       for type <- @types do
         doc = read!(type)
 
@@ -157,7 +161,19 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
           do: refute(Map.has_key?(doc, "foreign_keys"), "#{type} declares foreign_keys")
 
         refute Map.has_key?(doc, "indexes"), "#{type} declares indexes"
-        refute Enum.any?(doc["fields"], &(&1["type"] == "decimal")), "#{type} has a decimal"
+        decimals = for f <- doc["fields"], f["type"] == "decimal", do: f
+
+        if type == "catalog_item" do
+          assert Enum.sort(Enum.map(decimals, & &1["name"])) ==
+                   ~w(density_kg_per_l net_mass_kg net_volume_l)
+
+          for f <- decimals do
+            assert f["decimal_strict"] == true and f["decimal_scale"] == 9 and
+                     f["decimal_precision"] == 24
+          end
+        else
+          assert decimals == [], "#{type} has a decimal"
+        end
       end
     end
   end
