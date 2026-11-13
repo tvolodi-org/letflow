@@ -15,6 +15,7 @@ import { Field } from '@/components/ui/Field'
 import { Select } from '@/components/ui/Select'
 import { assetsQueryKeys } from '../assetsQueryKeys'
 import { assetDocumentsApi, type AssetDocument } from './assetDocuments.api'
+import { checkMessages, openingReasonMessageId } from './openingForm'
 import { REVERSE_REASONS, TEXT_MAX, actionsFor, documentErrorInfo, documentErrorMessageId, reasonTextError } from './documentsModel'
 
 type Dlg = 'discard' | 'issue' | 'reverse' | null
@@ -33,6 +34,9 @@ export function DocumentActions({ doc, onEdit }: { doc: AssetDocument; onEdit?: 
   const [text, setText] = useState('')
   const [touched, setTouched] = useState(false)
   const acts = actionsFor(doc.state, can, doc.kind)
+  const opening = doc.kind === 'opening'
+  const [checkResult, setCheckResult] = useState<string[] | null>(null)
+  const [checkError, setCheckError] = useState(false)
 
   const close = () => {
     setDlg(null)
@@ -60,9 +64,24 @@ export function DocumentActions({ doc, onEdit }: { doc: AssetDocument; onEdit?: 
       await qc.invalidateQueries({ queryKey: assetsQueryKeys.documentsAll(tenantId) })
     },
     onError: (e) => {
-      const line = documentErrorInfo(e).lineNo
-      const msg = t(documentErrorMessageId(e))
+      const info = documentErrorInfo(e)
+      const line = info.lineNo
+      // An opening has its own texts for the line reasons (`not_linked` is about the location there).
+      const own = opening && info.reason !== undefined ? openingReasonMessageId(info.reason, info.field) : null
+      const msg = t(own ?? documentErrorMessageId(e))
       setError(line !== undefined ? `${intl.formatMessage({ id: 'assets.doc.error.line' }, { line })} ${msg}` : msg)
+    },
+  })
+
+  const check = useMutation({
+    mutationFn: () => assetDocumentsApi.check(doc.id),
+    onSuccess: (r) => {
+      setCheckError(false)
+      setCheckResult(checkMessages(r, (id, values) => intl.formatMessage({ id }, values)))
+    },
+    onError: () => {
+      setCheckResult(null)
+      setCheckError(true)
     },
   })
 
@@ -78,10 +97,25 @@ export function DocumentActions({ doc, onEdit }: { doc: AssetDocument; onEdit?: 
   return (
     <div className="lf-btn-row" data-testid="document-actions">
       {acts.edit && onEdit && <Button variant="secondary" onClick={onEdit}>{t('assets.doc.action.edit')}</Button>}
+      {acts.issue && opening && (
+        <Button variant="secondary" loading={check.isPending} onClick={() => check.mutate()}>{t('assets.doc.action.check')}</Button>
+      )}
       {acts.issue && <Button variant="primary" onClick={() => setDlg('issue')}>{t('assets.doc.action.issue')}</Button>}
       {acts.discard && <Button variant="danger" onClick={() => setDlg('discard')}>{t('assets.doc.action.discard')}</Button>}
       {acts.reverse && <Button variant="danger" onClick={() => setDlg('reverse')}>{t('assets.doc.action.reverse')}</Button>}
       {error && dlg === null && <span role="alert" data-testid="action-error">{error}</span>}
+      {checkError && <span role="alert" data-testid="check-error">{t('assets.doc.check.failed')}</span>}
+      {checkResult !== null && (
+        <div role="status" data-testid="check-result">
+          {checkResult.length === 0 ? (
+            <p>{t('assets.doc.check.ok')}</p>
+          ) : (
+            <ul>
+              {checkResult.map((m, i) => <li key={i}>{m}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       <ConfirmDialog
         open={dlg === 'discard'}
@@ -98,7 +132,7 @@ export function DocumentActions({ doc, onEdit }: { doc: AssetDocument; onEdit?: 
       <ConfirmDialog
         open={dlg === 'issue'}
         title={t('assets.doc.issue.title')}
-        body={t('assets.doc.issue.body')}
+        body={t(opening ? 'assets.doc.issue.bodyOpening' : 'assets.doc.issue.body')}
         confirmText={t('assets.doc.action.issue')}
         cancelText={t('assets.doc.dialog.back')}
         isLoading={run.isPending}

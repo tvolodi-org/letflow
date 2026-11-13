@@ -1,7 +1,7 @@
 /** AssetsShell — T-1333 / C13. The shared frame of the asset card screen (page header, loading/error through
  *  QueryStateBoundary), the two list query hooks and the write-error pieces. */
 import type { ReactNode } from 'react'
-import { keepPreviousData, useInfiniteQuery, useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
 import { useAuth } from '@/auth/AuthContext'
 import { useAccess } from '@/auth/access/useAccess'
@@ -207,4 +207,49 @@ export const cardByIdQuery = (tenantId: string, id: string) => ({
 export function useCardById(id: string | null, enabled = true): UseQueryResult<EntityRecord | null> {
   const { session } = useAuth()
   return useQuery({ ...cardByIdQuery(session?.tenant_id ?? '', id ?? ''), enabled: enabled && id !== null && id !== '' })
+}
+
+/** One query that reads cards by a list of ids (up to 100). Used by DocumentFromCards. */
+export const cardsByIdsQuery = (tenantId: string, ids: string[]) => ({
+  queryKey: assetsQueryKeys.list(tenantId, ASSET_CARD, `ids|${ids.join(',')}`),
+  queryFn: async (): Promise<EntityRecord[]> => {
+    if (ids.length === 0) return []
+    const page = await fetchCardsPage(ASSET_CARD, [DELETED_FALSE, { field: 'record_id', op: 'in', value: ids }], undefined, ids.length)
+    return page.items
+  },
+  retry: false as const,
+})
+
+/** The facts of every chosen card (for the selection bar). Reads lock and balances only when enabled.
+ *  Reuses the same query keys as useCardFacts so a card whose menu was opened costs no extra call. */
+export function useCardsFacts(cards: EntityRecord[], enabled: boolean): CardFacts[] {
+  const { can } = useAccess()
+  const { session } = useAuth()
+  const tenantId = session?.tenant_id ?? ''
+  const canRead = can(ASSETS_READ)
+  const on = enabled && canRead
+  const lockQs = useQueries({
+    queries: cards.map((c) => ({
+      queryKey: assetsQueryKeys.cardLock(tenantId, c.record_id),
+      queryFn: () => assetsApi.cardLock(c.record_id),
+      enabled: on,
+      retry: false as const,
+    })),
+  })
+  const balanceQs = useQueries({
+    queries: cards.map((c) => ({
+      queryKey: assetsQueryKeys.balances(tenantId, JSON.stringify({ asset: c.record_id })),
+      queryFn: () => assetRegisterApi.balances({ asset: c.record_id }),
+      enabled: on,
+      retry: false as const,
+    })),
+  })
+  return cards.map((c, i) => ({
+    active: isActive(c),
+    kind: textOf(c, 'kind'),
+    held: lockQs[i]?.data?.held,
+    rows: balanceQs[i]?.data?.rows,
+    canRead,
+    failed: lockQs[i]?.isError || balanceQs[i]?.isError,
+  }))
 }

@@ -60,6 +60,7 @@ const ROWS = [
   { id: 'doc-draft', kind: 'commission', state: 'draft', number: null, org_unit_id: 'u1', event_time: null },
   { id: 'doc-reversed', kind: 'writeoff', state: 'reversed', number: 'AWO-2026-000003', org_unit_id: 'u1', event_time: '2026-10-28T08:00:00Z' },
   { id: 'doc-mismatch', kind: 'change', state: 'posted', number: 'ACH-2026-000011', org_unit_id: 'u1', event_time: '2026-10-27T08:00:00Z' },
+  { id: 'op-posted', kind: 'opening', state: 'posted', number: 'AOP-2026-000001', org_unit_id: 'u1', event_time: null },
 ]
 
 const BALANCES = [

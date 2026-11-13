@@ -1,9 +1,9 @@
-# Asset card actions from the UI (T-1880, owner decision D-135)
+# Asset card actions from the UI (T-1880, T-1904, owner decision D-135)
 
-Every operation on a fixed asset card starts from the UI, not from a typed address. This is part 1 of D-135:
-the Actions menu on the card panel and on each card-list row, the button row on the card panel, the pre-filled
-document form and the way back to the card. Multi-select (part 2) and "Documents of this card" (part 3, needs a new
-`asset` filter on `GET /documents` with its own security review) are not delivered here.
+Every operation on a fixed asset card starts from the UI, not from a typed address. Part 1 (T-1880) delivered
+the Actions menu, the card-panel button row, and the pre-filled document form. Part 2 (T-1904) delivered
+multi-select with an action bar and the back link with the card number. "Documents of this card" (part 3, needs a
+new `asset` filter on `GET /documents` with its own security review) is not delivered yet.
 
 ## 1. Card status and the facts it is read from
 
@@ -58,22 +58,32 @@ With no `AssetsPost` the menu trigger and the button row are not rendered.
 
 ## 4. Pre-fill contract
 
-Address: `/admin/assets/documents/new?kind=<kind>&asset=<card id>`. Part 1 sends one `asset`; part 2 repeats it (up to
+Address: `/admin/assets/documents/new?kind=<kind>&asset=<card id>`. Part 2 repeats `asset` for multi-select (up to
 100, repeats dropped). Kinds: `commission | change | handover | writeoff`. With `kind_change`, `asset` is ignored.
 
 The form opens as a **draft that is not saved**: the card is a line; nothing is sent until Save, and issuing stays the
 document view's action.
 
+Cards that are not found in the read (deleted, foreign id) are dropped; the form shows a notice for each missing card.
+The found cards feed the line editor's catalog directly so the Asset cell shows the card before the picker list loads.
+
 | Kind | Lines | Header |
 |---|---|---|
-| commission | the card, quantity 1 | `org_unit_id` of the card when it has one; the rest empty |
-| change | the card; quantity 1 for fixed and intangible, else the holder row's quantity | From side = the single holder row; To empty |
-| handover | as change | From side = the holder row; To unit and place copy From until touched |
-| writeoff | as change | the one side = the holder row |
+| commission | each card, quantity 1 | `org_unit_id` of the card when ALL cards share one; the rest empty |
+| change | each card; quantity 1 for fixed and intangible, else the holder row's quantity | From side = the single common holder row of all cards; if two cards have different holders, the header stays empty with a notice |
+| handover | as change | From side = the common holder row; To unit and place copy From until touched |
+| writeoff | as change | the one side = the common holder row |
 
-With more than one holder row the header stays empty and the form shows a banner; the line is still filled.
-After Save from a one-card form the view opens as `/admin/assets/documents/<id>?card=<card id>` with **Back to card**
-(`/admin/assets/cards?card=<card id>`).
+With more than one holder row for one card the header stays empty and the form shows a banner; the lines are still
+filled. When two or more cards have different holders, the form shows a "different holders" banner; the lines are filled.
+After Save, the view opens as `/admin/assets/documents/<id>?card=<id1>&card=<id2>…` with a **Back to card** link
+(single card: "Back to card `<number>`" → `/admin/assets/cards?card=<card id>`; multiple cards: "Back to asset cards"
+→ `/admin/assets/cards`).
+
+**Multi-select on the card list (T-1904):** a checkbox column (only with AssetsPost) lets the user tick up to 100 cards.
+An action bar "N selected" shows four action buttons. An action is allowed only when it is allowed for every chosen
+card; otherwise the first blocker's reason is shown with the card number. Opening the action sends all card ids as
+`?asset=` params to the document form.
 
 **Change of kind is not a per-card action.** The document turns stock into a NEW card: the card is the server-set
 output `asset_card_id`, so an existing card cannot be its line (`change-of-kind.md` section 1). It is a page button

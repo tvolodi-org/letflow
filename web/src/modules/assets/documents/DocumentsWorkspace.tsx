@@ -39,11 +39,13 @@ function DocumentCreate({ onBack }: { onBack: () => void }) {
   // the kind select keeps the `asset` values: the pre-fill is built again for the new kind
   const onKindChange = (k: DocKind) => setParams((p) => { p.set('kind', k); return p }, { replace: true })
   const common = { title: t('assets.doc.newTitle'), onBack, onCancel: onBack, onKindChange }
-  const open = (id: string, card?: string) =>
-    navigate(`${DOCUMENTS_PATH}/${encodeURIComponent(id)}${card ? `?card=${encodeURIComponent(card)}` : ''}`)
+  const open = (id: string, cardIds?: string[]) => {
+    const params = cardIds && cardIds.length > 0 ? '?' + cardIds.map((c) => `card=${encodeURIComponent(c)}`).join('&') : ''
+    navigate(`${DOCUMENTS_PATH}/${encodeURIComponent(id)}${params}`)
+  }
   // T-1880: started from a card: the card is a line of the unsaved draft; after Save a link leads back to it
-  if (assets.length > 0 && kind !== 'kind_change') {
-    return <DocumentFromCards kind={kind} assets={assets} {...common} onDone={(saved) => open(saved.id, assets.length === 1 ? assets[0] : undefined)} />
+  if (assets.length > 0 && kind !== 'kind_change' && kind !== 'opening') {
+    return <DocumentFromCards kind={kind} assets={assets} {...common} onDone={(saved) => open(saved.id, assets)} />
   }
   return <DocumentForm key={kind} kind={kind} {...common} onDone={(saved) => open(saved.id)} />
 }
@@ -77,7 +79,7 @@ export function DocumentsWorkspace({ mode }: { mode: WorkspaceMode }) {
         <DocumentList selectedId={mode === 'view' ? id : undefined} />
         {mode === 'list' && <DocBlank title={t('assets.doc.blank.title')} text={t('assets.doc.blank.text')} />}
         {mode === 'create' && <DocumentCreate onBack={back} />}
-        {mode === 'view' && id && <DocumentView key={id} id={id} onBack={back} cardId={viewParams.get('card') ?? undefined} />}
+        {mode === 'view' && id && <DocumentView key={id} id={id} onBack={back} cardIds={viewParams.getAll('card').filter((c) => c !== '')} />}
       </DocLayout>
     </>
   )
