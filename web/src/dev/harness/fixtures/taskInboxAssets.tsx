@@ -14,10 +14,13 @@ const D1 = 'dddddddd-1111-4222-8333-0000000000a1'
 const ORG = 'bbbbbbbb-1111-4222-8333-0000000000a1'
 const LOC = 'bbbbbbbb-1111-4222-8333-0000000000a2'
 
+const C1 = 'c1410ee1-22ac-4d2f-b180-98447bf9e940'
+const C2 = 'c1410ee1-22ac-4d2f-b180-98447bf9e941'
+
 const task = { id: T1, instance_id: I1, token_id: 't1', node_id: 'approve', node_name: 'approve', status: 'PENDING', assignee_type: 'ROLE', assignee_ref: 'asset_approver', definition_name: 'Asset opening flow', created_at: new Date(Date.now() - 45 * 60_000).toISOString() }
 const lines = [
-  { line_no: 1, asset_id: 'a1', quantity: '1.000000000', location_id: LOC, inventory_number: 'FA-0101', asset_name: 'Delivery van Gazelle Next' },
-  { line_no: 2, asset_id: 'a2', quantity: '4.000000000', location_id: LOC, inventory_number: 'LV-0201', asset_name: 'Monitor 27 inch' },
+  { line_no: 1, asset_id: C1, quantity: '1.000000000', location_id: LOC },
+  { line_no: 2, asset_id: C2, quantity: '4.000000000', location_id: LOC },
 ]
 const doc = (withLines: boolean) => ({
   id: D1, kind: 'opening', state: 'issued', number: 'AOP-2026-000001', org_unit_id: ORG, event_time: null,
@@ -26,6 +29,8 @@ const doc = (withLines: boolean) => ({
 const MASTER: Record<string, Record<string, unknown>> = {
   [ORG]: { code: 'WH-1', name: 'Warehouse team' },
   [LOC]: { code: 'A-01', name: 'Rack A, main hall' },
+  [C1]: { inventory_number: 'FA-0101', name: 'Delivery van Gazelle Next' },
+  [C2]: { inventory_number: 'LV-0201', name: 'Monitor 27 inch' },
 }
 
 type Mode = 'loaded' | 'refused' | 'loading' | 'empty-lines'

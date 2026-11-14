@@ -55,18 +55,20 @@ export default function TaskInboxPage() {
     const loc: string[] = []
     const item: string[] = []
     const uom: string[] = []
+    const card: string[] = []
     for (const t of byFilter) {
       const d = contextOf(t.instance_id)?.doc
       if (!d) continue
       if (d.orgUnitId) org.push(d.orgUnitId)
       for (const l of [d.locationId, d.fromLocationId, ...d.locationIds]) if (l) loc.push(l)
       const first = d.lines[0]
-      if (first && first.assetName === undefined) {
+      if (first?.assetId) card.push(first.assetId)
+      if (first && first.assetId === undefined) {
         item.push(first.catalog_item_id)
         uom.push(first.catalog_uom_id)
       }
     }
-    return [{ org_unit: org, location_node: loc, catalog_item: item, catalog_uom: uom }]
+    return [{ org_unit: org, location_node: loc, catalog_item: item, catalog_uom: uom, assets_card: card }]
   })()
   const label = useReferenceLabels(labelPages)
 

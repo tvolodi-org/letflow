@@ -33,9 +33,10 @@ function docIds(doc: TaskDoc | null): ReferenceIds {
   const locations = [doc.locationId, doc.fromLocationId, doc.toLocationId, ...doc.locationIds].filter((x): x is string => !!x)
   return {
     org_unit: orgUnits,
-    location_node: locations,
+    location_node: [...locations, ...doc.lines.map((l) => l.locationId).filter((x): x is string => !!x)],
     catalog_item: doc.lines.map((l) => l.catalog_item_id).filter((x) => x !== ''),
     catalog_uom: doc.lines.map((l) => l.catalog_uom_id).filter((x) => x !== ''),
+    assets_card: doc.lines.map((l) => l.assetId).filter((x): x is string => !!x),
     catalog_lot: doc.lines.map((l) => l.catalog_lot_id).filter((x): x is string => !!x),
   }
 }
@@ -81,6 +82,7 @@ function DocumentSummary({ doc, m, refMsg, label, locale }: {
             <thead>
               <tr>
                 <th scope="col">{m.colItem}</th>
+                {isAsset && <th scope="col">{m.location}</th>}
                 {!isAsset && <th scope="col">{m.colUnit}</th>}
                 {!isAsset && <th scope="col">{m.colLot}</th>}
                 <th scope="col" className="is-end">{m.colQuantity}</th>
@@ -89,7 +91,8 @@ function DocumentSummary({ doc, m, refMsg, label, locale }: {
             <tbody>
               {doc.lines.map((l) => (
                 <tr key={l.line_no}>
-                  <td>{l.assetName !== undefined ? l.assetName : label('catalog_item', l.catalog_item_id)}</td>
+                  <td>{l.assetId !== undefined ? label('assets_card', l.assetId) : label('catalog_item', l.catalog_item_id)}</td>
+                  {isAsset && <td>{l.locationId ? label('location_node', l.locationId) : ''}</td>}
                   {!isAsset && <td>{label('catalog_uom', l.catalog_uom_id)}</td>}
                   {!isAsset && <td>{l.catalog_lot_id ? label('catalog_lot', l.catalog_lot_id) : ''}</td>}
                   <td className="is-num">{formatQuantity(l.quantity, locale)}</td>
