@@ -4,6 +4,14 @@ React 18 + TypeScript 5 + Vite single-page application. This is **Letflow's own
 frontend**, not a vendored read-only copy: changes to it are made here, reviewed
 here, and merged here.
 
+## Task action refusals
+
+My Tasks explains module upgrade refusals in English, Russian and Kazakh. A tenant
+administrator must upgrade the module under Administration > Modules, or ask the
+platform operator; repeating the task action cannot resolve the version mismatch.
+Permission refusals direct the user to their tenant administrator, and version
+conflicts ask them to reload the changed record before acting again.
+
 ## Provenance
 
 Migrated from R-Co (`c:\Users\tvolo\dev\ai-dala\R-Co\web\`) on **2026-08-21** as
