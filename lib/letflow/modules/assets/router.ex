@@ -53,6 +53,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `POST /counts/:id/surplus-lines` | `AssetsCountRecord` | `add_surplus_line/4` | 201 line view |
   | `POST /counts/:id/close` (empty body) | `AssetsCountRecord` | `close/3` | 200 order view |
   | `POST /counts/:id/sheet-signatures` | `AssetsCountRecord` | `mark_sheet_signed/4` | 200 order view |
+  | `POST /counts/:id/scan` (REQ-818, K3; body `{"text"}`) | `AssetsCountRecord` | `scan/4` | 200 scan answer |
   | `GET /counts/:id/lines`, `GET /counts/:id/entries` (`limit`, `cursor`) | `AssetsRead` | `lines/4`, `entries/4` | 200 `rows, next_cursor` |
   | `GET /counts/:id/sheet-document` | `AssetsRead` | `sheet_document/3` | 200 summary / 404 |
 
@@ -467,6 +468,12 @@ defmodule Letflow.Modules.Assets.Router do
   authz_post "/counts/:id/sheet-signatures", :AssetsCountRecord do
     count_call(conn, :count_record, 200, fn prefix, opts ->
       CountSheet.mark_sheet_signed(prefix, conn.params["id"], conn.body_params, opts)
+    end)
+  end
+
+  authz_post "/counts/:id/scan", :AssetsCountRecord do
+    count_call(conn, :count_record, 200, fn prefix, opts ->
+      CountSheet.scan(prefix, conn.params["id"], conn.body_params, opts)
     end)
   end
 
