@@ -1453,3 +1453,4 @@
 32 test/letflow/scripts/meridian_kyc_screening_env_limitation_test.exs 41.54
 32 test/letflow/webhooks_mapping_test.exs 25708.48
 32 test/scripts/companion_dry_run_test.exs 109867.58
+1 test/letflow/routers/tenant_config_oidc_env_test.exs 50.00
