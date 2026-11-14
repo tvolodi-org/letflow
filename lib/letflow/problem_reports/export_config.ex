@@ -12,10 +12,33 @@ defmodule Letflow.ProblemReports.ExportConfig do
   @spec var() :: String.t()
   def var, do: @var
 
-  @spec parse_hash(String.t() | nil) :: {:ok, String.t() | nil} | {:error, String.t()}
-  def parse_hash(nil), do: {:ok, nil}
+  @owner_list_var "LETFLOW_OWNER_LIST_SHA256"
 
-  def parse_hash(value) when is_binary(value) do
+  @doc "The environment variable of the owner-list (team write) credential, T-1963."
+  @spec owner_list_var() :: String.t()
+  def owner_list_var, do: @owner_list_var
+
+  @doc """
+  T-1963: the owner-list credential hash must differ from the export hash (the export token is
+  read-only; the owner-list token writes). The message names no value.
+  """
+  @spec distinct(String.t() | nil, String.t() | nil) :: :ok | {:error, String.t()}
+  def distinct(export_hash, owner_list_hash)
+      when is_binary(export_hash) and export_hash == owner_list_hash,
+      do:
+        {:error,
+         "environment variables #{@var} and #{@owner_list_var} must hold different hashes; " <>
+           "the values are not echoed."}
+
+  def distinct(_export_hash, _owner_list_hash), do: :ok
+
+  @spec parse_hash(String.t() | nil) :: {:ok, String.t() | nil} | {:error, String.t()}
+  def parse_hash(value), do: parse_hash(value, @var)
+
+  @spec parse_hash(String.t() | nil, String.t()) :: {:ok, String.t() | nil} | {:error, String.t()}
+  def parse_hash(nil, _var), do: {:ok, nil}
+
+  def parse_hash(value, var) when is_binary(value) do
     case String.trim(value) do
       "" ->
         {:ok, nil}
@@ -25,7 +48,7 @@ defmodule Letflow.ProblemReports.ExportConfig do
           {:ok, hash}
         else
           {:error,
-           "environment variable #{@var} is invalid; the value is not echoed. It takes 64 " <>
+           "environment variable #{var} is invalid; the value is not echoed. It takes 64 " <>
              "lowercase hex characters (a SHA-256) or nothing."}
         end
     end

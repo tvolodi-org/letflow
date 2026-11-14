@@ -1545,6 +1545,16 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/platform-problem-reports/:id/decision"),
     do: :ProblemReportsManage
 
+  # T-1963: owner list (class review): thread entry, state, screenshot.
+  def endpoint_policy_key("POST", "/platform-problem-reports/:id/comments"),
+    do: :ProblemReportsManage
+
+  def endpoint_policy_key("POST", "/platform-problem-reports/:id/state"),
+    do: :ProblemReportsManage
+
+  def endpoint_policy_key("GET", "/platform-problem-reports/:id/images/:image_id"),
+    do: :ProblemReportsManage
+
   # T-1948/T-1949: own reports; role-agnostic self-service atoms.
   def endpoint_policy_key("GET", "/me/problem-reports"), do: :MyAccessRead
   def endpoint_policy_key("POST", "/me/problem-reports"), do: :MyPreferencesSet

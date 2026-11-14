@@ -34,7 +34,7 @@ defmodule Letflow.CreateProblemReportsTest do
       )
 
     assert rows |> List.flatten() |> Enum.sort() ==
-             ~w(consented_at context decided_at decided_by_user_id dev_summary id inserted_at last_action reply_text reporter_name reporter_permissions reporter_roles reporter_tenant_id reporter_tenant_name reporter_user_id seq server_version status tenant_id text trace_id)
+             ~w(answer class closed_at consented_at context cycle decided_at decided_by_user_id dev_summary due id inserted_at kind last_action owner_ref recommended reply_text reporter_name reporter_permissions reporter_roles reporter_tenant_id reporter_tenant_name reporter_user_id seq server_version source status steps tasks tenant_id text trace_id why)
 
     %{rows: [[idx]]} =
       Repo.query!(
