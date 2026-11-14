@@ -16,6 +16,14 @@ defmodule Letflow.Plugs.ReportExportAuth do
        here (401), and this credential means nothing to `Letflow.Plugs.ApiPipeline`.
 
   Error bodies are `{error, message}` with fixed messages (INV-4).
+
+  ## Second credential (T-1963)
+
+  `plug ReportExportAuth, credential: :owner_list` serves the owner-list mount
+  (`Letflow.Routers.MaintenanceOwnerListV1`): it reads `owner_list_sha256` (from
+  `LETFLOW_OWNER_LIST_SHA256`, never equal to the export hash: boot refuses), rate-limits class
+  `:owner_list` and assigns `:owner_list`. The export token stays read-only; the default option is
+  `credential: :export`, so `MaintenanceV1` is unchanged.
   """
 
   import Plug.Conn
@@ -29,11 +37,13 @@ defmodule Letflow.Plugs.ReportExportAuth do
   def init(opts), do: opts
 
   @impl Plug
-  def call(conn, _opts) do
+  def call(conn, opts) do
     config = Application.get_env(:letflow, __MODULE__, [])
+    credential = Keyword.get(opts, :credential, :export)
+    key = if credential == :owner_list, do: :owner_list_sha256, else: :sha256
 
-    case Keyword.get(config, :sha256) do
-      hash when is_binary(hash) -> authenticate(conn, hash)
+    case Keyword.get(config, key) do
+      hash when is_binary(hash) -> authenticate(conn, hash, credential)
       _unset -> conn |> Response.not_found() |> halt()
     end
   end
@@ -47,11 +57,16 @@ defmodule Letflow.Plugs.ReportExportAuth do
     |> halt()
   end
 
-  defp authenticate(conn, hash) do
+  defp authenticate(conn, hash, credential) do
+    {class, assign_key} =
+      if credential == :owner_list,
+        do: {:owner_list, :owner_list},
+        else: {:report_export, :report_export}
+
     with ["Bearer " <> token | _] when token != "" <- get_req_header(conn, "authorization"),
          true <- token_matches?(token, hash),
-         :ok <- RateLimiter.hit(:report_export) do
-      assign(conn, :report_export, true)
+         :ok <- RateLimiter.hit(class) do
+      assign(conn, assign_key, true)
     else
       {:error, retry_after} when is_integer(retry_after) ->
         conn

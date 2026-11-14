@@ -2,6 +2,7 @@
   "form_layout_version": 1,
   "form": "inv10",
   "annex": 41,
+  "page": {"orientation": "portrait", "margins_mm": [25, 15, 25, 25], "font_pt": 12, "table_font_pt": 8},
   "blocks": [
     {"type": "text", "label": "inv10.annex"},
     {"type": "text", "label": "inv10.form_code"},
@@ -22,7 +23,7 @@
     {"type": "field", "label": "inv10.started", "key": "started"},
     {"type": "field", "label": "inv10.ended", "key": "ended"},
     {"type": "text", "label": "inv10.found"},
-    {"type": "table", "rows": "lines", "totals": {"label": "inv10.total", "sum": ["qty_fact", "qty_book"]}, "columns": [{"key": "no", "label": "inv10.c1"}, {"key": "name", "label": "inv10.c2"}, {"key": "acct", "label": "inv10.c3"}, {"key": "nom", "label": "inv10.c4"}, {"key": "unit", "label": "inv10.c5"}, {"key": "price", "label": "inv10.c6"}, {"key": "qty_fact", "label": "inv10.qty", "group": "inv10.g_fact"}, {"key": "sum_fact", "label": "inv10.sum", "group": "inv10.g_fact"}, {"key": "qty_book", "label": "inv10.qty", "group": "inv10.g_book"}, {"key": "sum_book", "label": "inv10.sum", "group": "inv10.g_book"}]},
+    {"type": "table", "rows": "lines", "totals": {"label": "inv10.total", "sum": ["qty_fact", "qty_book"]}, "columns": [{"key": "no", "label": "inv10.c1"}, {"key": "name", "label": "inv10.c2"}, {"key": "acct", "label": "inv10.c3"}, {"key": "nom", "label": "inv10.c4"}, {"key": "unit", "label": "inv10.c5"}, {"key": "price", "label": "inv10.c6", "decimals": 2}, {"key": "qty_fact", "label": "inv10.qty", "group": "inv10.g_fact"}, {"key": "sum_fact", "label": "inv10.sum", "group": "inv10.g_fact", "decimals": 2}, {"key": "qty_book", "label": "inv10.qty", "group": "inv10.g_book"}, {"key": "sum_book", "label": "inv10.sum", "group": "inv10.g_book", "decimals": 2}]},
     {"type": "field", "label": "inv10.total_nos", "key": "total_nos"},
     {"type": "field", "label": "inv10.words", "key": "total_nos_words"},
     {"type": "field", "label": "inv10.total_qty", "key": "total_qty"},

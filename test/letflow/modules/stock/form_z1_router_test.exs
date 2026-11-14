@@ -100,9 +100,9 @@ defmodule Letflow.Modules.Stock.FormZ1RouterTest do
             "Наименование поставщика",
             "Наименование, сорт, размер, марка",
             item(ctx)["name"],
-            "5.000000000",
-            "100.000000000",
-            "500.000000000",
+            "5",
+            "100.00",
+            "500.00",
             le["name"],
             le["bin"],
             s["name"],
@@ -128,7 +128,7 @@ defmodule Letflow.Modules.Stock.FormZ1RouterTest do
             "Жеткізушінің атауы",
             "Қабылдаған",
             item(ctx)["name"],
-            "5.000000000"
+            "5"
           ] do
         assert text =~ t, "missing #{t}"
       end
