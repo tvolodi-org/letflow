@@ -643,3 +643,27 @@ texts.
 
 **To be confirmed by an accountant: Z-1 is the form for every receipt, also a receipt with no supplier (audit
 section 5).**
+
+### 7.2 Z-6 on the print engine (T-1914)
+
+`GET /documents/:id/print?form=z6&format=pdf|docx&lang=ru|kk` prints the issued, posted or reversed write-off on form
+Z-6 (ru) / Қ-6 (kk), annex 30 of order No. 562 "act of writing off stock". Same route, permission (`StockRead`) and
+read path as 7.1.
+
+**What is filled:** organisation name and BIN, structural unit (org unit and location name joined with " / "),
+document number, date (from `event_time`, DD.MM.YYYY), the responsible person (header field and the signature
+line), and per line: item name, nomenclature code, unit, quantity as the stored text, and the reason of the
+write-off. A write-off has one reason for the whole document (`reason_code`, plus `reason_text` when given), so
+every line prints that stored reason in the form language.
+
+**What is blank (gap ids from section 2):** approver and approval date (G4), basis (G7), date of acquisition and
+service life per line (G13), price and sum (G5: a write-off line stores no price), every "in words" line of the back
+side (G10), commission decision, scrap rows, commission chair and members (G14, REQ-776 not built), position of the
+responsible person (G4).
+
+**Ru/kk differences between sources (kept as printed):** the kk title of the number cell is "Құжаттың нөмірі"
+(not the Z-2 wording), so the message key `z6.number` is its own; in the kk text the back-side heading follows the
+"in words" lines, the layout keeps the ru order.
+
+**Proof:** `test/letflow/modules/stock/form_z6_test.exs`, `test/letflow/modules/stock/form_z6_router_test.exs`, the
+P3 step of `web/tests/e2e/gate-b-stock-print.e2e.spec.ts`.

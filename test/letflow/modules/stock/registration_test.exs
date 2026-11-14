@@ -259,7 +259,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # T-1417: form_z3.ex, form_z5.ex (pure) and stock_card_source.ex (reads through Ledger) make 37; REQ-765 freeze_guard.ex and freeze_state.ex make 39.
     # T-1905: count_worksheet.ex (pure, no Repo) makes 40.
     # T-1912: form_z1.ex (pure Z-1 data map, no Repo) makes 41.
-    assert length(files) == 41
+    # T-1914: form_z6.ex (pure Z-6 data map, no Repo) makes 42.
+    assert length(files) == 42
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []
