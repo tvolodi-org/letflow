@@ -176,6 +176,29 @@ defmodule Letflow.Instances do
     |> fetch_display_names_by_actor_id(Keyword.fetch!(opts, :prefix))
   end
 
+  @doc """
+  Batched `actor_id => label` lookup for a history page (T-1968): the user's non-blank `display_name`, else the
+  `username`; an actor with neither (deleted user, platform sentinel) is absent. One query, tenant `prefix`, no
+  e-mail. Read by the history route so a screen can name the person without the users-read permission.
+  """
+  @spec actor_labels([Event.t()], opts()) :: %{Ecto.UUID.t() => String.t()}
+  def actor_labels(events, opts) when is_list(events) and is_list(opts) do
+    ids = events |> Enum.map(& &1.actor_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    case ids do
+      [] ->
+        %{}
+
+      _ ->
+        from(u in User, where: u.id in ^ids, select: {u.id, u.display_name, u.username})
+        |> Repo.all(prefix: Keyword.fetch!(opts, :prefix))
+        |> Enum.reduce(%{}, fn {id, name, username}, acc ->
+          label = if blank?(name), do: username, else: name
+          if blank?(label), do: acc, else: Map.put(acc, id, label)
+        end)
+    end
+  end
+
   # ── timeline/2 ───────────────────────────────────────────────────────────
 
   @doc """

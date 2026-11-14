@@ -41,7 +41,7 @@ const MASTER: Record<string, Record<string, unknown>> = {
 const routes: FixtureRoute[] = [
   { match: (p, m) => p === '/api/v1/tasks/inbox' && m === 'GET', reply: (s) => ({ status: 200, body: { items: s === 'empty' ? [] : tasks, next_cursor: null, count: tasks.length } }) },
   { match: (p, m) => p.startsWith('/api/v1/tasks/') && m === 'GET', reply: (_s, p) => ({ status: 200, body: tasks.find((t) => p.endsWith(t.id)) ?? tasks[0] }) },
-  { match: (p, m) => /^\/api\/v1\/instances\/[^/]+\/history$/.test(p) && m === 'GET', reply: () => ({ status: 200, body: [{ actor_id: ME }] }) },
+  { match: (p, m) => /^\/api\/v1\/instances\/[^/]+\/history$/.test(p) && m === 'GET', reply: () => ({ status: 200, body: [{ actor_id: ME, actor_label: 'gate-b6-admin' }] }) },
   {
     match: (p, m) => /^\/api\/v1\/instances\/[^/]+$/.test(p) && m === 'GET',
     reply: (_s, p) => ({ status: 200, body: { id: p.split('/').pop(), variables: { document_id: p.endsWith(I1) ? D1 : D2, document_type: 'stock_issue' } } }),
