@@ -41,6 +41,7 @@ In this repository (origin/main a7f2410ba):
   - `docs/status/owner-questions-2026-11.md`;
   - decisions `0073-domain-neutral-ledger-primitive.md` (PILOT GATE, L6, L7, D6 "OQ-R4 stays owed") and `0079-opening-balances-and-ledger-xlsx.md`.
 - T-1616 tooling: `scripts/pilot/qoimeks_convert.py` (`MAX_ROWS = 200`, `MAX_LINES = 100`, drop reasons `quantity_comma_decimal`, `quantity_invalid`, `quantity_not_positive`) and `scripts/pilot/qoimeks_compare.sh`.
+- Four-eyes switch (section 1.4, added 2026-11-14, task T-1945): `docs/design/four-eyes-switch.md` (Plain summary, Owner table, sections 0 to 3.3, 4, 6) and `docs/uat/ba-decisions/T-1944.md`; `priv/modules/stock/generate_pack.exs` (`two_step_definition` used once, for `stock_opening`; every other stock process is one `post` or `reverse` task).
 - Code:
   - `lib/letflow/ledger.ex`: `authorize/3` accepts only `:read | :reconcile`. Its Reversal section has `posting_is_reversal` and `posting_already_reversed`, and its idempotency section has `idempotency_key_reuse`.
   - `lib/letflow/ledger/codes.ex`: these codes answer 409.
@@ -104,6 +105,7 @@ Searches behind "not found" claims (run on this worktree):
 | G19 | Feedback | «Сообщить о проблеме», Markdown export; 0 rows at 2026-10-29 | No in-app feedback (search above); problems go to the operator (`pilot-rollout.md`, "Support") | No | Not needed for the first move [A]. Propose one only if count 9 shows real use | count 9 |
 | G20 | Languages | ru, kk; Excel headers Russian | ru, kk, en in web and mobile (#4416) | Fit | none | — |
 | G21 | Money and printing | none [§2, §7] | Stock lines have "no price or value" (`stock.ex`); Letflow's printed forms are not needed | Fit | none | — |
+| G22 | **Four eyes on the stock opening** (added T-1945) | No approval step: one operator loads the stock | The stock opening has two steps: `submit` (done by the issuer) and `approve`, which must be done by a **different person** (`distinct_from`, `stock_opening` in `priv/modules/stock/generate_pack.exs`). It is the only four-eyes approval in the stock module; receipt, issue, write-off, transfer, handover, return, reversal and count posting are one step. **The switch to "two eyes" is not on main** (design `docs/design/four-eyes-switch.md`, slices 1 and 3) | Fit if Client 1 has two people who may post stock; **Gap** if one person does everything | Section 1.4. If count 5 shows one operator: build slices 1 and 3 of the design, then the tenant admin switches `stock_opening / approve` off. **No task: propose one per slice** | count 5 (how many operator names) |
 
 The rules of a move (§8.10) shape section 2 and are not a fit/gap row.
 
@@ -140,6 +142,18 @@ The inventory answers the facts that files can show. Two kinds of unknown are le
 11. May their data stay in Germany (Hetzner) after a move? (owner item, C7; T-1569 §6)
 
 Also unknown from the inventory: the activity since 2026-10-29 (count 1, 2), whether the LLM changed after 2026-10-08 [INV §5], and how many phones run the APK [INV §1].
+
+### 1.4 The four-eyes rule: a second person approves the stock opening (added 2026-11-14, task T-1945)
+
+Source: the PM relay of the owner decision of 2026-11-14, quoted in `docs/design/four-eyes-switch.md`, section 0 ("Qoimeks Client 1 may need it off"), and that design. **The switch is planned, not on main**; the permission name below is the design's working name.
+
+- **The rule today.** A step may say that a different person must do it. In the stock module only one step does: the stock opening `approve` step, kept apart from `submit`, which the issuer completes at issue. So the person who issues the opening cannot approve it. In a company where one person does everything, the opening can never be posted.
+- **Which approvals exist in the stock module.** Only that one (design, section 2 rows 3 and 14; section 6). Receipt, issue, write-off, transfer, handover, return, reversal and count posting are one step: one person posts. Count signatures and "only the chair" checks are not four-eyes and are not switched; a count can run with the chair alone, because the member list may be empty (design, section 6).
+- **The switch.** Per company, per process and step; default ON (four eyes); no stored setting means ON (design, section 3.1). Only the company administrator switches it, through one new permission (working name `ApprovalRulesManage`, tenant scope, checked tenant-wide; held by TENANT_ADMIN through the tenant-scope rule; the design recommends that the platform admin is kept out by an explicit rule (O-2) and that the permission is not assignable in the role editor (O-3); design, section 1). A reason is asked for when switching off (owner question O-8 of the design).
+- **The audit line.** Each time one person approves their own document, the audit log gets one entry `task.self_approved` with the note **"self-approved, four-eyes off"**, in the same transaction as the approval; the switch itself is logged as `approval_rule.changed` with who, when and the reason (design, section 3.3).
+- **What Client 1 needs.** Only if count 5 shows one operator name (or only one person who may post stock): slices 1 (core) and 3 (stock opening) of the design built and merged, then the Client 1 administrator switches `stock_opening / approve` off before the opening lines are loaded. With two or more such people: nothing, the default stays.
+- **Readiness check** (condition C17): in a QA rehearsal with one administrator, switch off, issue and approve one opening alone, and see exactly one "self-approved, four-eyes off" entry for it and one switch entry with the reason; switch back on and see the next self-approval refused.
+- Open for the owner, from the design: whether a service user (API token) stays under four eyes when it is off (O-7), and the permission name and the platform admin exclusion (O-1, O-2). They do not block the decision for Client 1, only the build.
 
 ## 2. Data migration path and rehearsal plan
 
@@ -251,6 +265,7 @@ Each one waits for the one before it, except where "parallel" is said.
 | C14 | Phase F gate of the owner (`pilot-rollout.md`, "Before the pilot starts" 4); whether Client 1 pays and may pause (client question 8) | open | owner |
 | C15 | Training in ru and kk (counts, no minus balance, sign-in) and the user notice a week before | open | owner, PM |
 | C16 | Window agreed with the client, outside working hours (section 2.5) | open | owner, PM, client |
+| C17 | **Four eyes** (G22, section 1.4): if Client 1 has only one person who may post stock, the switch (slices 1 and 3 of `docs/design/four-eyes-switch.md`) is built and merged, the Client 1 admin switches `stock_opening / approve` off with a reason, and the audit check of section 1.4 passes in a QA rehearsal. With two such people: nothing to do (default ON) | not built; need unknown until count 5 | team (tasks to propose), owner (open rows of the design) |
 
 **Owner items that block the move** (from C4, C6, C7, C8, C9, C11, C12, C14, C15, C16):
 - the old token vs accounts;
@@ -277,6 +292,7 @@ Each one waits for the one before it, except where "parallel" is said.
 | Old shared token | No | Letflow needs a login per person. Your choice | You |
 | Minus balances | No | Your yes: fix them before the move | You |
 | Count sets the balance | Other way | Your yes: formal count with places locked | You |
+| Four eyes (a second person approves the opening) | Not built | Only if one person does everything: build the switch, then the company admin turns it off | Team; you (open design questions) |
 | Old history | Plan | Your yes: keep it in Qoimeks, read-only | You |
 | Items, places, balances | Half | Quantity check tool | Team |
 | Barcodes, second place, voice words | Maybe | Only if the counts show they are used | PM (counts), team |
