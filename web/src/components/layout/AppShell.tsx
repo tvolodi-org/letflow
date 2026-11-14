@@ -28,6 +28,8 @@ import { useSplit } from '@/components/ui/layout/Splitter'
 import { layoutMessages } from '@/components/ui/layout/layoutMessages'
 import { NavIcon } from './navIcons'
 import { NotificationBell } from './NotificationBell'
+import { ReportProblemButton } from './ReportProblemButton'
+import { installActionCapture, recordAction, resetCapture } from '@/lib/problemReport/capture'
 import { visibleNavGroups, type NavGroup, type NavItem } from './navVisibility'
 
 const NARROW_QUERY = '(max-width: 900px)'
@@ -145,6 +147,14 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
   })
   const navState = narrow || !navCollapsed ? 'expanded' : 'collapsed'
   const { pathname } = useLocation()
+  // T-1950: the problem-report rings start empty on every shell mount (login, tenant switch, retry) and follow the page.
+  useEffect(() => {
+    resetCapture()
+    return installActionCapture()
+  }, [])
+  useEffect(() => {
+    recordAction('nav', pathname)
+  }, [pathname])
   const fluid = fluidProp || FLUID_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
   // The drawer closes on navigation and on Escape.
   useEffect(() => setNavOpen(false), [pathname])
@@ -260,6 +270,7 @@ export function AppShell({ fluid: fluidProp = false }: { fluid?: boolean } = {})
           menuControls="app-sidenav"
           end={
             <>
+              <ReportProblemButton />
               <NotificationBell />
               <Link
                 to="/me/settings"
