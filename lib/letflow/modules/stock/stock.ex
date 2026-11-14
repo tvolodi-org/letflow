@@ -116,6 +116,13 @@ defmodule Letflow.Modules.Stock do
   offers the menu on receipts in issued and posted state. Blank cells for every gap; nothing is invented
   (mapping doc `docs/assets/kz-forms-mapping.md` section 7.1).
 
+  ## Official form Z-6 (T-1914; no version bump)
+
+  `GET /documents/:id/print?form=z6&format=pdf|docx&lang=ru|kk` prints the issued or posted write-off on Z-6 / Қ-6
+  (annex 30), the act of writing off stock. The mapper `FormZ6` and layout `priv/print_forms/z6.json` follow Z-1;
+  the commission block, approver, price and sum and the "in words" lines print blank (REQ-776 is not built; mapping
+  doc section 7.2). The web offers the menu on write-offs in issued, posted and reversed state.
+
   ## Document print (REQ-737 / GH #3860; version 0.13.0)
 
   One more read route, `GET /documents/:id/print?lang=ru|kk|en` (`StockRead`, the guard of `GET /documents/:id`):

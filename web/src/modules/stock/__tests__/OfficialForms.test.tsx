@@ -129,6 +129,37 @@ describe('W4 formsForDocument', () => {
   })
 })
 
+// W-Z6: the write-off screen offers Z-6 / Қ-6 (T-1914)
+describe('W-Z6 write-off shows the Z-6 menu', () => {
+  it('W-Z6-1 the registry gives z6 for issued, posted and reversed write-offs only', () => {
+    for (const state of ['issued', 'posted', 'reversed']) expect(formsForDocument({ kind: 'write_off', state })).toEqual(['z6'])
+    for (const state of ['draft', 'cancelled']) expect(formsForDocument({ kind: 'write_off', state })).toEqual([])
+  })
+  it('W-Z6-2 an issued write-off shows the menu with Z-6 only', async () => {
+    await open('issued', 'write_off')
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    expect(screen.getByTestId('form-z6-pdf')).toBeInTheDocument()
+    expect(screen.getByTestId('form-z6-docx')).toBeInTheDocument()
+    for (const f of ['z1', 'z2', 'z5']) expect(screen.queryByTestId(`form-${f}-pdf`)).toBeNull()
+  })
+  it('W-Z6-3 Z-6 docx calls the print route with ru and saves the fallback name; kk UI asks kk', async () => {
+    await open('issued', 'write_off')
+    clientMock.getBlob.mockResolvedValue(file(null))
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    await userEvent.click(screen.getByTestId('form-z6-docx'))
+    await waitFor(() => expect(downloads).toEqual(['ISS-1_Z-6.docx']))
+    expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'z6', format: 'docx', lang: 'ru' })
+    cleanup()
+    clientMock.getBlob.mockClear()
+    useUiLocaleStore.getState().setLocaleTransient('kk')
+    await open('issued', 'write_off')
+    await userEvent.click(screen.getByTestId('official-form-menu'))
+    expect(screen.getByTestId('form-z6-pdf')).toHaveTextContent('Қ-6 нысаны')
+    await userEvent.click(screen.getByTestId('form-z6-pdf'))
+    await waitFor(() => expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'z6', format: 'pdf', lang: 'kk' }))
+  })
+})
+
 describe('F3/F4 download and language', () => {
   it.each([
     ['docx', 'ISS-1-Z-2.docx'],

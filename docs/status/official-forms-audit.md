@@ -153,3 +153,5 @@ columns of every form (Q5, REQ-778 for З-2), and the forms whose Letflow docume
 Slice 1 built by T-1912 (2026-11-14): `form=z1`, `priv/print_forms/z1.json`, menu entry "Official form" on the receipt screen in issued and posted state; the 'Receipt' row and D1 above describe main before this change.
 
 Slice 2 built by T-1913 (2026-11-14): plain act for receipt, issue and write-off; Print and the official form menu in issued, posted and reversed for every supported kind except opening; kk Қ-2; D2, D6, D8 fixed. The audit tables above describe main before these changes.
+
+Slice 3 built by T-1914 (2026-11-14): `form=z6`, `priv/print_forms/z6.json`, menu entry on the write-off screen in issued, posted and reversed state; the commission, approver, price and sum and back-side lines print blank until REQ-776 / REQ-778; the 'Write-off (stock)' row and D3 above describe main before this change.

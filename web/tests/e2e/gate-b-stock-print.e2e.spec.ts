@@ -33,12 +33,12 @@ async function expectDownload(click: () => Promise<void>, ext: keyof typeof MIME
   expect(bytes.subarray(0, ext === 'pdf' ? 4 : 2).toString()).toBe(ext === 'pdf' ? '%PDF' : 'PK')
   if (title) expect(pdfTextItems(bytes).join('\n')).toContain(title)
 }
-async function formDownloads(form: string) {
+async function formDownloads(form: string, title?: string) {
   for (const ext of ['pdf', 'docx'] as const) {
     await expectDownload(async () => {
       await page.getByTestId('official-form-menu').click()
       await page.getByTestId(`form-${form}-${ext}`).click()
-    }, ext, `form=${form}`)
+    }, ext, `form=${form}`, ext === 'pdf' ? title : undefined)
   }
 }
 async function reopen(number: string) {
@@ -133,7 +133,7 @@ test('P1 receipt act and Z-1, then posted act', async () => {
 })
 for (const [step, kind, title, official] of [
   ['P2', 'Issue', 'Act of issue', 'z2'],
-  ['P3', 'Write off', 'Act of write-off', ''],
+  ['P3', 'Write off', 'Act of write-off', 'z6'],
   ['P4', 'Transfer', 'Act of transfer', 'z5'],
   ['P5', 'Hand over', 'Act of hand over', ''],
   ['P6', 'Return', 'Act of return', ''],
@@ -142,7 +142,7 @@ for (const [step, kind, title, official] of [
     test.setTimeout(120_000)
     const number = await createDocument(kind)
     await expectDownload(() => page.getByTestId('document-print').click(), 'pdf', '/print', title)
-    if (official) await formDownloads(official)
+    if (official) await formDownloads(official, official === 'z6' ? 'АКТ списания запасов' : undefined)
     else await expect(page.getByTestId('official-form-menu')).toHaveCount(0)
     await cancelDocument(number)
   })
