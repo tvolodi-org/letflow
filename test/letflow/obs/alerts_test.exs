@@ -83,6 +83,32 @@ defmodule Letflow.Obs.AlertsTest do
     Repo.get!(AlertTriggerState, trigger_key, prefix: schema_name)
   end
 
+  # Delivery is a fire-and-forget task under the alerts TaskSupervisor; wait (bounded) until
+  # it has finished instead of sleeping a fixed time, so the exhaustion log is already emitted.
+  defp await_delivery_tasks_done(timeout_ms \\ 10_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_await_delivery_tasks(deadline)
+  end
+
+  defp do_await_delivery_tasks(deadline) do
+    cond do
+      Task.Supervisor.children(Letflow.Obs.Alerts.TaskSupervisor) == [] ->
+        :ok
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("alert delivery task did not finish in time")
+
+      true ->
+        # yield the scheduler between polls; the loop is bounded by the deadline above
+        :erlang.yield()
+
+        receive do
+        after
+          5 -> do_await_delivery_tasks(deadline)
+        end
+    end
+  end
+
   defp receive_request(timeout \\ 2_000) do
     receive do
       {:webhook_test_server_request, req} -> req
@@ -675,7 +701,7 @@ defmodule Letflow.Obs.AlertsTest do
             })
           )
 
-          Process.sleep(200)
+          await_delivery_tasks_done()
         end)
 
       # Step 3: exhaustion confirmed, no side-channel delivery.
@@ -766,7 +792,7 @@ defmodule Letflow.Obs.AlertsTest do
       log =
         capture_log(fn ->
           Alerts.run_detection(schema_name, base_tick_context(%{dlq_count: 6}))
-          Process.sleep(200)
+          await_delivery_tasks_done()
         end)
 
       assert log =~ "alert delivery exhausted"
