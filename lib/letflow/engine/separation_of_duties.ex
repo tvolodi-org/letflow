@@ -31,7 +31,7 @@ defmodule Letflow.Engine.SeparationOfDuties do
       query counts). A stored `four_eyes: false` for the step lets the same person through
       when the caller signed in interactively (`credential == :oidc`) and the definition name is
       known; API tokens, service principals, scripts and timers still need a second person.
-      The `users.admin_flagged_service_principal` flag is deliberately NOT read. No row, a
+      The admin-flagged service-principal user flag is deliberately NOT read. No row, a
       row `true`, a missing name or a failed read all refuse (fails closed; a failed read logs
       one warning). Completion returns `{:self_approved, info}` so the engine audits it.
     * Default off: a node without a non-empty `distinct_from`, or an
