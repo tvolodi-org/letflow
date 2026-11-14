@@ -18,7 +18,7 @@ defmodule Letflow.Api.NumberSequencesRouteClassesTest do
 
   test "R1 tenant scope, fifth to last core permission, TENANT_ADMIN and PLATFORM_ADMIN only" do
     assert Authorization.permission_scope(@perm) == :tenant
-    assert Authorization.core_permissions() |> Enum.take(-11) |> hd() == @perm
+    assert Authorization.core_permissions() |> Enum.take(-12) |> hd() == @perm
     assert Authorization.required_permission(@perm) == @perm
 
     for role <- Authorization.roles() do

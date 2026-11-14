@@ -115,7 +115,7 @@ defmodule Letflow.Entities.ReportViewsTest do
 
       assert %{rows: []} =
                Repo.query!(
-                 "SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name LIKE '%report%'",
+                 "SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name LIKE '%report%' AND table_name <> 'problem_reports'",
                  [schema]
                )
     end

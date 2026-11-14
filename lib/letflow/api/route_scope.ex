@@ -296,6 +296,13 @@ defmodule Letflow.Api.RouteScope do
       class: :self_service,
       ruling: "SEC-T1561-notif-read"
     },
+    # T-1948: "Report a problem": the caller's own report, written in the platform company only with consent.
+    %{
+      route: "POST /me/problem-reports",
+      key: :MyPreferencesSet,
+      class: :self_service,
+      ruling: "SEC-T1948-report-post"
+    },
     %{
       route: "GET /help/resolved",
       key: :HelpRead,

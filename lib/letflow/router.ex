@@ -70,6 +70,10 @@ defmodule Letflow.Router do
   by `Letflow.Plugs.ProvisionerAuth` (a hash-configured credential class, not a role), outside
   `Letflow.Plugs.ApiPipeline`, and 404 when no credential is configured. See `Letflow.Routers.AdminV1`.
 
+  `/maintenance/v1` (T-1948) is the problem-report export mount for the PM handoff: credential-authenticated
+  by `Letflow.Plugs.ReportExportAuth` (a hash-configured read-only credential), outside
+  `Letflow.Plugs.ApiPipeline`, and 404 when no credential is configured. See `Letflow.Routers.MaintenanceV1`.
+
   `Letflow.Plugs.HttpMetrics` (REQ-194) is mounted here, ahead of `plug(:match)`, so
   it observes every route this router serves except `GET /metrics` itself (excluded
   to avoid a self-observation feedback loop in the metrics it is producing). It
@@ -178,6 +182,12 @@ defmodule Letflow.Router do
   # Letflow.Plugs.ProvisionerAuth, answers 404 when no credential hash is configured. See
   # Letflow.Routers.AdminV1's moduledoc.
   forward("/admin/v1", to: Letflow.Routers.AdminV1)
+
+  # Credential-authenticated by mount (T-1948; maintenance slice 1) -- the read-only problem-report export
+  # for the PM handoff, declared BEFORE the catch-all and OUTSIDE Letflow.Plugs.ApiPipeline. Its first plug,
+  # Letflow.Plugs.ReportExportAuth, answers 404 when no credential hash is configured. See
+  # Letflow.Routers.MaintenanceV1's moduledoc.
+  forward("/maintenance/v1", to: Letflow.Routers.MaintenanceV1)
 
   match _ do
     Letflow.Api.Response.not_found(conn)

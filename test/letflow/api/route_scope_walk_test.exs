@@ -116,6 +116,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  "GET /me/notifications",
                  "GET /me/preferences",
                  "POST /me/notifications/read",
+                 "POST /me/problem-reports",
                  "PUT /me/preferences"
                ]
     end
@@ -323,6 +324,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"PUT", "/preferences", :self_service},
                  {"GET", "/notifications", :self_service},
                  {"POST", "/notifications/read", :self_service},
+                 {"POST", "/problem-reports", :self_service},
                  {"GET", "/resolved", :self_service},
                  # REQ-545: the definitions collection reads (router-local paths "/" and "/search")
                  {"GET", "/", :self_service},
@@ -334,6 +336,9 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  # REQ-824: the Currencies router (router-local paths): the directory read and the switch write
                  {"GET", "/", :self_service},
                  {"PUT", "/:code", :tenant_wide},
+                 # T-1955: Data export discovery and download, both explicitly tenant-wide.
+                 {"GET", "/datasets", :tenant_wide},
+                 {"POST", "/", :tenant_wide},
                  # REQ-563: the NotificationTemplates router: list, put, delete and preview, all declared
                  {"GET", "/", :tenant_wide},
                  {"PUT", "/:template_key", :tenant_wide},
@@ -406,6 +411,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
       assert scopes |> Enum.map(fn {router, _entry} -> router end) |> Enum.uniq() |> Enum.sort() ==
                Enum.sort([
                  Letflow.Routers.Currencies,
+                 Letflow.Routers.DataExport,
                  Letflow.Routers.Definitions,
                  Letflow.Routers.Documents,
                  Letflow.Routers.Entities,

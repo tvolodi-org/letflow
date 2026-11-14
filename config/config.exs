@@ -199,3 +199,9 @@ config :letflow, :tenant_logo_upload_enabled, false
 config :letflow, :config_env, config_env()
 
 import_config "#{config_env()}.exs"
+
+# Data export providers live in their owner modules (boundary Rule 5).
+config :letflow, :data_export_datasets, [
+  Letflow.Modules.Stock.DataExport,
+  Letflow.Modules.Assets.DataExport
+]

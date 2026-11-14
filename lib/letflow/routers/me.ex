@@ -18,6 +18,7 @@ defmodule Letflow.Routers.Me do
   | handle_put_preferences | `PUT /me/preferences` | `Letflow.UserPreferences.put/3` | `:MyPreferencesSet` | 200 / 422 |
   | handle_list_notifications | `GET /me/notifications` | `Letflow.UserNotifications.list/3` | `:MyAccessRead` | 200 |
   | handle_read_notifications | `POST /me/notifications/read` | `Letflow.UserNotifications.mark_read/3`, `mark_all_read/2` | `:MyPreferencesSet` | 200 / 422 |
+  | handle_submit_problem_report | `POST /me/problem-reports` | `Letflow.ProblemReports.submit/4` | `:MyPreferencesSet` | 201 / 422 / 429 / 503 |
 
   ## `GET /me/modules` (REQ-403)
 
@@ -101,6 +102,7 @@ defmodule Letflow.Routers.Me do
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
   alias Letflow.PlatformTenant
+  alias Letflow.ProblemReports
   alias Letflow.UserNotifications
   alias Letflow.UserPreferences
 
@@ -132,7 +134,52 @@ defmodule Letflow.Routers.Me do
     handle_read_notifications(conn)
   end
 
+  authz_post "/problem-reports", :MyPreferencesSet, scope: :self_service do
+    handle_submit_problem_report(conn)
+  end
+
   authz_unmatched(:ordinary)
+
+  # ── POST /me/problem-reports (T-1948) ────────────────────────────────────
+  # "Report a problem": the caller's own report goes to the platform company's schema, only with
+  # `consent: true`. Every reporter fact comes from the auth context; ids in the body are ignored
+  # (INV-10). The answer carries only `{id, number, received_at}`; no route reads reports back.
+
+  defp handle_submit_problem_report(conn) do
+    {prefix, _user_id} = preferences_identity(conn)
+    {roles, permissions} = access_lists(conn)
+
+    result =
+      ProblemReports.submit(conn.assigns.auth_context, prefix, conn.body_params,
+        roles: roles,
+        permissions: permissions,
+        trace_id: conn.assigns[:trace_id]
+      )
+
+    case result do
+      {:ok, %{id: id, number: number, received_at: received_at}} ->
+        Response.created(conn, %{
+          "id" => id,
+          "number" => number,
+          "received_at" => DateTime.to_iso8601(received_at)
+        })
+
+      {:error, :consent_required} ->
+        Response.unprocessable(conn, "Tick the consent box to send the report.")
+
+      {:error, {:invalid, field}} when field in ["text", "context"] ->
+        Response.unprocessable(conn, "Invalid #{field}.")
+
+      {:error, :throttled} ->
+        Response.rate_limited(conn, "Too many reports. Try again later.")
+
+      {:error, :unavailable} ->
+        Response.service_unavailable(conn, "Problem reports are not available.")
+
+      {:error, _internal} ->
+        Response.internal_error(conn)
+    end
+  end
 
   # ── GET /me/notifications, POST /me/notifications/read (T-1561) ──────────
   # The caller's own in-app notification list (the bell). Prefix from scoped_opts, user id from the
@@ -290,6 +337,24 @@ defmodule Letflow.Routers.Me do
   defp handle_get_access(conn) do
     auth_context = conn.assigns.auth_context
     platform_tenant? = PlatformTenant.platform_tenant?(Map.get(auth_context, :tenant_id))
+    {roles, permissions} = access_lists(conn)
+
+    Response.ok(conn, %{
+      "roles" => roles,
+      "permissions" => permissions,
+      "platform_tenant" => platform_tenant?,
+      # The caller's own tenant user record id (what task assignee refs and actor refs hold);
+      # the SPA cannot derive it from the token `sub` (the IdP lookup key, not this id).
+      "user_id" => Map.get(auth_context, :user_id)
+    })
+  end
+
+  # The caller's effective roles and permissions as sorted string lists (shared by GET /me/access and
+  # the problem report, T-1948, so the report records exactly what the SPA is shown).
+  @spec access_lists(Plug.Conn.t()) :: {[String.t()], [String.t()]}
+  defp access_lists(conn) do
+    auth_context = conn.assigns.auth_context
+    platform_tenant? = PlatformTenant.platform_tenant?(Map.get(auth_context, :tenant_id))
     roles = Authorization.effective_roles(Map.get(auth_context, :roles), platform_tenant?)
 
     # T-1570 (D-097): the same overlay the gate used (`Plugs.Authorize` assigns it), so this list,
@@ -302,14 +367,10 @@ defmodule Letflow.Routers.Me do
             role_agnostic?(permission),
           do: Atom.to_string(permission)
 
-    Response.ok(conn, %{
-      "roles" => roles |> Enum.map(&Atom.to_string/1) |> Enum.uniq() |> Enum.sort(),
-      "permissions" => permissions |> Enum.uniq() |> Enum.sort(),
-      "platform_tenant" => platform_tenant?,
-      # The caller's own tenant user record id (what task assignee refs and actor refs hold);
-      # the SPA cannot derive it from the token `sub` (the IdP lookup key, not this id).
-      "user_id" => Map.get(auth_context, :user_id)
-    })
+    {
+      roles |> Enum.map(&Atom.to_string/1) |> Enum.uniq() |> Enum.sort(),
+      permissions |> Enum.uniq() |> Enum.sort()
+    }
   end
 
   # Held by every role (:MyModulesRead, :MyAccessRead): shown even when the caller's effective

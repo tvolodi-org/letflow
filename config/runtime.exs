@@ -657,6 +657,22 @@ case Letflow.TenantProvisioner.Config.parse(provisioner_env, config_env()) do
             "and read hashes must differ."
 end
 
+# T-1948 (maintenance slice 1): OPTIONAL LETFLOW_PROBLEM_REPORT_EXPORT_SHA256, the SHA-256 of the read-only
+# token of the problem-report export (`/maintenance/v1`, the PM handoff). Unset or blank writes nothing and
+# the mount answers 404. Invalid stops boot WITHOUT echoing the value (INV-4).
+case Letflow.ProblemReports.ExportConfig.parse_hash(
+       System.get_env("LETFLOW_PROBLEM_REPORT_EXPORT_SHA256")
+     ) do
+  {:ok, nil} ->
+    :ok
+
+  {:ok, report_export_hash} ->
+    config :letflow, Letflow.Plugs.ReportExportAuth, sha256: report_export_hash
+
+  {:error, message} ->
+    raise message
+end
+
 # ISS-0993 / ISS-0994 (design iss0993-platform-scope-separation.md section 3): OPTIONAL
 # LETFLOW_PLATFORM_TENANT_ID, the tenants.id UUID of the platform tenant (not a secret,
 # never echoed). Unset, empty or whitespace writes nothing (config/config.exs default

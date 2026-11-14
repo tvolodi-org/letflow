@@ -72,6 +72,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.TenantSettings, "/tenant/settings", :patch, "/", :route},
     {Letflow.Routers.TenantLogo, "/tenant/logo", :put, "/", :route},
     {Letflow.Routers.Labels, "/labels", :put, "/:message_id", :route},
+    {Letflow.Routers.DataExport, "/data-export", :post, "/", :route},
     {Letflow.Routers.Currencies, "/currencies", :put, "/:code", :route},
     {Letflow.Routers.NotificationDeliveries, "/notification-deliveries", :get, "/", :route},
     {Letflow.Routers.NotificationTemplates, "/notification-templates", :put, "/:template_key",
@@ -173,6 +174,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     # T-1389: the auditor's own display preferences (rows keyed by its own user id; no tenant data)
     # T-1561: the caller's own notification read marks (rows keyed by its own user id)
     {Letflow.Routers.Me, "POST", "/notifications/read"},
+    # T-1948: the auditor may report a problem; the row goes to the platform company, no tenant data changes
+    {Letflow.Routers.Me, "POST", "/problem-reports"},
     {Letflow.Routers.Me, "PUT", "/preferences"}
   ]
 
@@ -735,7 +738,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # --- AC2: 403 block --------------------------------------------------------------------------
 
   describe "AC2 completeness guards" do
-    test "the routers mounted in ApiPipeline are exactly the 46 named in the table: a new router fails here" do
+    test "the routers mounted in ApiPipeline are exactly the 47 named in the table: a new router fails here" do
       mounted = mounted_routers()
       named = Enum.map(@named_routes, &elem(&1, 0))
 
@@ -743,7 +746,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert Enum.sort(mounted) == Enum.sort(named)
       # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
       # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews; REQ-563: 34 with Letflow.Routers.NotificationTemplates; REQ-567: 35 with Letflow.Routers.EntityTypeHooks; REQ-561: 36 with Letflow.Routers.ScheduledJobs; REQ-575: 37 with Letflow.Routers.NumberSequences.; REQ-570: 38 with Letflow.Routers.RecordTriggerBindings; REQ-590: 39 with Letflow.Routers.TenantLogo; REQ-584 part 2: 40 with Letflow.Routers.NotificationDeliveries; REQ-609: 41 with Letflow.Routers.EntityTypeExtensions; REQ-635: 42 with Letflow.Routers.EntityScopeDeclarations; T-1570: 43 with Letflow.Routers.TenantRoleGrants; RU-S6: 44 with Letflow.Routers.PlatformModuleRollouts; T-1607: 45 with Letflow.Routers.PlatformStatus; REQ-824: 46 with Letflow.Routers.Currencies.
-      assert length(named) == 46
+      # T-1955: 47 with Letflow.Routers.DataExport.
+      assert length(named) == 47
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do
@@ -776,13 +780,17 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
         assert methods == ["GET"], inspect(router)
       end
 
-      # T-1389/T-1561: Me gained exactly two writes, the caller's own preferences and own notification read marks (in @allowed_non_get)
+      # T-1389/T-1561/T-1948: Me gained exactly three writes, the caller's own preferences, own notification read marks and own problem report (in @allowed_non_get)
       me_writes =
         for {method, local, _key} <- Letflow.Routers.Me.__authz_routes__(),
             method != "GET",
             do: {method, local}
 
-      assert me_writes == [{"POST", "/notifications/read"}, {"PUT", "/preferences"}]
+      assert me_writes == [
+               {"POST", "/problem-reports"},
+               {"POST", "/notifications/read"},
+               {"PUT", "/preferences"}
+             ]
     end
 
     test "the non-GET routes the auditor holds are exactly the literal allowlist of design 2.5 (everything else that persists is denied)" do
