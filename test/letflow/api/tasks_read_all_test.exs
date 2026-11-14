@@ -27,8 +27,8 @@ defmodule Letflow.Api.TasksReadAllTest do
   @golden "priv/permission_matrix/effective.golden"
   @five [:PLATFORM_ADMIN, :PROCESS_DESIGNER, :PROCESS_OPERATOR, :TENANT_ADMIN, :TENANT_AUDITOR]
 
-  test "A1 second to last core permission (CurrenciesManage follows), tenant scope, resolves to itself, no route gates on it" do
-    assert Authorization.core_permissions() |> Enum.take(-2) |> hd() == @perm
+  test "A1 third to last core permission (CurrenciesManage and DataExport follow), tenant scope, resolves to itself, no route gates on it" do
+    assert Authorization.core_permissions() |> Enum.take(-3) |> hd() == @perm
     assert Authorization.permission_scope(@perm) == :tenant
     assert Authorization.required_permission(@perm) == @perm
 
