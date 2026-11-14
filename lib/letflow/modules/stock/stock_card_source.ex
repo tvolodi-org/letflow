@@ -56,22 +56,24 @@ defmodule Letflow.Modules.Stock.StockCardSource do
   end
 
   @doc """
-  Pages through `page_fun` (cursor -> `{:ok, %{rows, next_cursor}}`) in order, at most #{@max_pages}
-  pages; a further page is `{:error, :card_too_long}`. Public so a test can drive it with a fake.
+  Pages through `page_fun` (cursor -> `{:ok, %{rows, next_cursor}}`) in order, at most `max_pages`
+  (default #{@max_pages}; the stock sheet of T-1925 asks for more) pages; a further page is `{:error, :card_too_long}`. Public so a test can drive it with a fake.
   """
-  @spec collect((term() -> {:ok, %{rows: [map()], next_cursor: term()}} | {:error, term()})) ::
-          {:ok, [map()]} | {:error, term()}
-  def collect(page_fun), do: collect(page_fun, nil, 1, [])
+  @spec collect(
+          (term() -> {:ok, %{rows: [map()], next_cursor: term()}} | {:error, term()}),
+          pos_integer()
+        ) :: {:ok, [map()]} | {:error, term()}
+  def collect(page_fun, max_pages \\ @max_pages), do: collect(page_fun, nil, 1, [], max_pages)
 
-  defp collect(page_fun, cursor, n, acc) do
+  defp collect(page_fun, cursor, n, acc, max_pages) do
     case page_fun.(cursor) do
       {:ok, %{rows: rows, next_cursor: nil}} ->
         {:ok, Enum.reverse(acc, rows)}
 
       {:ok, %{rows: rows, next_cursor: next}} ->
-        if n >= @max_pages,
+        if n >= max_pages,
           do: {:error, :card_too_long},
-          else: collect(page_fun, next, n + 1, Enum.reverse(rows, acc))
+          else: collect(page_fun, next, n + 1, Enum.reverse(rows, acc), max_pages)
 
       {:error, _} = error ->
         error
@@ -123,16 +125,18 @@ defmodule Letflow.Modules.Stock.StockCardSource do
 
   defp visible_leg?(_other, _sku, _location, _lot), do: false
 
-  defp quantity(text) when is_binary(text) do
+  @doc false
+  # Also used by `StockSheetSource` (T-1925): one quantity text to a `Decimal`.
+  def quantity(text) when is_binary(text) do
     case Decimal.parse(text) do
       {%Decimal{} = d, ""} -> d
       _ -> Decimal.new(0)
     end
   end
 
-  defp quantity(%Decimal{} = d), do: d
-  defp quantity(n) when is_integer(n), do: Decimal.new(n)
-  defp quantity(_), do: Decimal.new(0)
+  def quantity(%Decimal{} = d), do: d
+  def quantity(n) when is_integer(n), do: Decimal.new(n)
+  def quantity(_), do: Decimal.new(0)
 
   # -- rows -------------------------------------------------------------------------------------
 
@@ -178,7 +182,9 @@ defmodule Letflow.Modules.Stock.StockCardSource do
 
   defp offset(_zone, _other, cache), do: {0, cache}
 
-  defp unit_name(prefix, ref) when is_binary(ref) do
+  @doc false
+  # Also used by `StockSheetSource` (T-1925).
+  def unit_name(prefix, ref) when is_binary(ref) do
     with true <- Regex.match?(@uuid, ref),
          {:ok, r} <- CatalogItems.lookup(prefix, ref),
          name when is_binary(name) and name != "" <- r["name"] || r["code"] do
@@ -188,7 +194,7 @@ defmodule Letflow.Modules.Stock.StockCardSource do
     end
   end
 
-  defp unit_name(_prefix, ref), do: to_string(ref)
+  def unit_name(_prefix, ref), do: to_string(ref)
 
   # -- header -----------------------------------------------------------------------------------
 

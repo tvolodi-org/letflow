@@ -1,0 +1,50 @@
+{
+  "form_layout_version": 1,
+  "form": "z7",
+  "annex": 31,
+  "blocks": [
+    {"type": "text", "label": "z7.annex"},
+    {"type": "text", "label": "z7.form_code"},
+    {"type": "field", "label": "z2.org", "key": "org_name"},
+    {"type": "field", "label": "z2.bin", "key": "org_bin"},
+    {"type": "field", "label": "z7.warehouse", "key": "warehouse"},
+    {"type": "field", "label": "z7.shop", "key": "shop"},
+    {"type": "title", "label": "z7.title"},
+    {"type": "signature", "label": "z7.mol", "key": "mol", "parts": ["position", "signature", "name"]},
+    {
+      "type": "table",
+      "rows": "head",
+      "columns": [
+        {"key": "number", "label": "z2.number"},
+        {"key": "made", "label": "z2.date"},
+        {"key": "period", "label": "z7.period"},
+        {"key": "unit", "label": "z7.struct_unit"},
+        {"key": "shop", "label": "z7.shop"},
+        {"key": "warehouse", "label": "z7.warehouse"},
+        {"key": "pantry", "label": "z7.pantry"}
+      ]
+    },
+    {"type": "signature", "label": "z7.mol_sign", "key": "mol_sign", "parts": ["signature"]},
+    {"type": "signature", "label": "z7.accountant", "key": "accountant", "parts": ["signature", "name"]},
+    {
+      "type": "table",
+      "rows": "lines",
+      "columns": [
+        {"key": "no", "label": "z2.c1"},
+        {"key": "name", "label": "z7.c2"},
+        {"key": "nom", "label": "z2.c3"},
+        {"key": "unit", "label": "z2.c4"},
+        {"key": "qty", "label": "z7.c5"},
+        {"key": "price", "label": "z7.c6"},
+        {"key": "norm", "label": "z7.c7"},
+        {"key": "open_qty", "label": "z7.qty", "group": "z7.g_balance"},
+        {"key": "open_sum", "label": "z7.sum", "group": "z7.g_balance"},
+        {"key": "in_qty", "label": "z7.qty", "group": "z7.g_in"},
+        {"key": "in_sum", "label": "z7.sum", "group": "z7.g_in"},
+        {"key": "out_qty", "label": "z7.qty", "group": "z7.g_out"},
+        {"key": "out_sum", "label": "z7.sum", "group": "z7.g_out"},
+        {"key": "close_qty", "label": "z7.qty", "group": "z7.g_balance"}
+      ]
+    }
+  ]
+}
