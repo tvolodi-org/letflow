@@ -38,7 +38,6 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
   List<QueuedDraft> _queued = const [];
   String? _syncNote;
   bool _syncing = false;
-  bool _hintSeen = true;
 
   @override
   void initState() {
@@ -46,19 +45,6 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
     _api = StockDocumentsApi(ref.read(stockGatewayProvider));
     unawaited(_load());
     unawaited(_loadQueue());
-    unawaited(_loadHint());
-  }
-
-  Future<void> _loadHint() async {
-    final store = ref.read(installHintStoreProvider);
-    if (store == null) return;
-    final seen = await store.seen();
-    if (mounted) setState(() => _hintSeen = seen);
-  }
-
-  Future<void> _dismissHint() async {
-    setState(() => _hintSeen = true);
-    await ref.read(installHintStoreProvider)?.markSeen();
   }
 
   Future<void> _loadQueue() async {
@@ -188,15 +174,8 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
     final waiting = _queued.where((e) => e.rejection == null).length;
     final isWeb = ref.read(offlineQueueEnabledProvider);
     final installState = ref.read(installStateProvider);
-    final platform = ref.read(installPlatformProvider);
-    final hint = shouldShowInstallHint(
-      installState,
-      platform,
-      isWeb: isWeb,
-      seen: _hintSeen,
-    );
-    final warn = !hint && shouldWarnStorage(installState, isWeb: isWeb);
-    if (_queued.isEmpty && !warn && !hint) return const SizedBox.shrink();
+    final warn = shouldWarnStorage(installState, isWeb: isWeb);
+    if (_queued.isEmpty && !warn) return const SizedBox.shrink();
     return Column(
       key: const Key('stock-doc-offline-banner'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -216,31 +195,6 @@ class _DocumentsListState extends ConsumerState<DocumentsListScreen> {
           ),
         for (final e in _queued.where((e) => e.rejection != null))
           _rejectedCard(e),
-        if (hint)
-          Card(
-            key: const Key('stock-doc-install-hint'),
-            margin: const EdgeInsets.all(8),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    tr(
-                      platform == InstallPlatform.ios
-                          ? 'offline.install.ios'
-                          : 'offline.install.android',
-                    ),
-                  ),
-                  TextButton(
-                    key: const Key('stock-doc-install-hint-dismiss'),
-                    onPressed: () => unawaited(_dismissHint()),
-                    child: Text(tr('offline.install.dismiss')),
-                  ),
-                ],
-              ),
-            ),
-          ),
         if (warn)
           Padding(
             key: const Key('stock-doc-storage-warning'),

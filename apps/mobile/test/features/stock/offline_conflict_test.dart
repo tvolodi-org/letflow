@@ -220,44 +220,17 @@ void main() {
     expect(q.items, isEmpty);
   });
 
-  testWidgets('H: ios hint shown once, dismissed, stored', (t) async {
-    final store = MemoryInstallHintStore();
-    await pump(t, platform: InstallPlatform.ios, web: true, store: store);
-    expect(find.byKey(const Key('stock-doc-install-hint')), findsOne);
-    expect(find.text(tr('offline.install.ios')), findsOne);
-    expect(find.byKey(const Key('stock-doc-storage-warning')), findsNothing);
-    await t.tap(find.byKey(const Key('stock-doc-install-hint-dismiss')));
-    await t.pumpAndSettle();
-    expect(find.byKey(const Key('stock-doc-install-hint')), findsNothing);
-    expect(await store.seen(), isTrue);
-    expect(find.byKey(const Key('stock-doc-storage-warning')), findsOne);
-  });
-
-  testWidgets('H3b: a rebuilt screen with a seen store has no hint', (t) async {
-    final store = MemoryInstallHintStore();
-    await store.markSeen();
-    await pump(t, platform: InstallPlatform.android, web: true, store: store);
-    expect(find.byKey(const Key('stock-doc-install-hint')), findsNothing);
-  });
-
-  testWidgets('H1b: android shown; other and installed not shown', (t) async {
-    await pump(
-      t,
-      platform: InstallPlatform.android,
-      web: true,
-      store: MemoryInstallHintStore(),
-    );
-    expect(find.text(tr('offline.install.android')), findsOne);
-  });
-
-  testWidgets('H1c: installed shows no hint', (t) async {
+  testWidgets('H: the documents list no longer carries the install hint', (
+    t,
+  ) async {
     await pump(
       t,
       platform: InstallPlatform.ios,
-      state: InstallState.installed,
       web: true,
       store: MemoryInstallHintStore(),
     );
     expect(find.byKey(const Key('stock-doc-install-hint')), findsNothing);
+    expect(find.text(tr('offline.install.ios')), findsNothing);
+    expect(find.byKey(const Key('stock-doc-storage-warning')), findsOne);
   });
 }

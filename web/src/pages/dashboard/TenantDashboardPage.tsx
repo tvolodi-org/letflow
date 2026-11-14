@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { P, useAccess } from '@/auth/access'
 import { useTenantContext } from '@/auth/useTenantContext'
+import { useAuth } from '@/auth/AuthContext'
+import { InstallHint } from '@/components/layout/InstallHint'
 import { definitionsApi } from '@/api/definitions'
 import { instancesApi } from '@/api/instances'
 import { tasksApi } from '@/api/tasks'
@@ -26,6 +28,8 @@ function SkeletonBox(): JSX.Element {
 
 export default function TenantDashboardPage(): JSX.Element {
   const { tenantDisplayName, isUnknown } = useTenantContext()
+  const { session } = useAuth()
+  const installKey = `${session?.tenant_slug ?? ''}.${session?.display_name ?? ''}`
   const locale = useUiLocale()
   const t = dashboardMessages[locale]
   const tenantKeys = useTenantScopedQueryKeys()
@@ -63,6 +67,10 @@ export default function TenantDashboardPage(): JSX.Element {
       <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
         {t.welcome}
       </p>
+
+      <div className="lf-install-hint">
+        <InstallHint userKey={installKey} />
+      </div>
 
       {isUnknown && (
         <div
