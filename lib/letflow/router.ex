@@ -183,6 +183,11 @@ defmodule Letflow.Router do
   # Letflow.Routers.AdminV1's moduledoc.
   forward("/admin/v1", to: Letflow.Routers.AdminV1)
 
+  # Credential-authenticated by mount (T-1963) -- the owner-list import, a WRITE credential of its own
+  # (LETFLOW_OWNER_LIST_SHA256). Declared ABOVE "/maintenance/v1": a forward matches by prefix, so the
+  # longer mount must come first. See Letflow.Routers.MaintenanceOwnerListV1's moduledoc.
+  forward("/maintenance/v1/owner-list", to: Letflow.Routers.MaintenanceOwnerListV1)
+
   # Credential-authenticated by mount (T-1948; maintenance slice 1) -- the read-only problem-report export
   # for the PM handoff, declared BEFORE the catch-all and OUTSIDE Letflow.Plugs.ApiPipeline. Its first plug,
   # Letflow.Plugs.ReportExportAuth, answers 404 when no credential hash is configured. See

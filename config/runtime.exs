@@ -673,6 +673,26 @@ case Letflow.ProblemReports.ExportConfig.parse_hash(
     raise message
 end
 
+# T-1963: OPTIONAL LETFLOW_OWNER_LIST_SHA256, the SHA-256 of the WRITE token of the owner list
+# (`/maintenance/v1/owner-list`: the import now, the team writes of part B). Unset or blank: that mount
+# answers 404. Invalid, or equal to the export hash: boot stops WITHOUT echoing a value (INV-4).
+with {:ok, owner_list_hash} <-
+       Letflow.ProblemReports.ExportConfig.parse_hash(
+         System.get_env("LETFLOW_OWNER_LIST_SHA256"),
+         Letflow.ProblemReports.ExportConfig.owner_list_var()
+       ),
+     {:ok, export_hash} <-
+       Letflow.ProblemReports.ExportConfig.parse_hash(
+         System.get_env("LETFLOW_PROBLEM_REPORT_EXPORT_SHA256")
+       ),
+     :ok <- Letflow.ProblemReports.ExportConfig.distinct(export_hash, owner_list_hash) do
+  if owner_list_hash do
+    config :letflow, Letflow.Plugs.ReportExportAuth, owner_list_sha256: owner_list_hash
+  end
+else
+  {:error, message} -> raise message
+end
+
 # ISS-0993 / ISS-0994 (design iss0993-platform-scope-separation.md section 3): OPTIONAL
 # LETFLOW_PLATFORM_TENANT_ID, the tenants.id UUID of the platform tenant (not a secret,
 # never echoed). Unset, empty or whitespace writes nothing (config/config.exs default
