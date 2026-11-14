@@ -63,8 +63,30 @@ describe('W-1 Z-5 buttons on a transfer', () => {
   })
 })
 
+describe('W-Z5HR-2 Z-5 on a return and a hand over (T-1959)', () => {
+  it('a return in ru asks for z5 docx and saves under the number', async () => {
+    fakeDocument(clientMock, stockDoc({ kind: 'return', state: 'issued', number: 'RT-1' }))
+    clientMock.getBlob.mockResolvedValue(file(null))
+    renderStock(`${LIST}/d1`)
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
+    await userEvent.click(await screen.findByTestId('form-z5-docx'))
+    await waitFor(() => expect(downloads).toEqual(['RT-1_Z-5.docx']))
+    expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'z5', format: 'docx', lang: 'ru' })
+  })
+  it('a Kazakh screen: hand over item reads Қ-5 and asks for kk', async () => {
+    useUiLocaleStore.getState().setLocaleTransient('kk')
+    fakeDocument(clientMock, stockDoc({ kind: 'hand_over', state: 'posted', number: 'H-2' }))
+    clientMock.getBlob.mockResolvedValue(file(null))
+    renderStock(`${LIST}/d1`)
+    await userEvent.click(await screen.findByTestId('official-form-menu'))
+    expect(screen.getByTestId('form-z5-pdf')).toHaveTextContent('Қ-5 нысаны')
+    await userEvent.click(screen.getByTestId('form-z5-pdf'))
+    await waitFor(() => expect(clientMock.getBlob).toHaveBeenCalledWith(`${DOCS}/d1/print`, { form: 'z5', format: 'pdf', lang: 'kk' }))
+  })
+})
+
 describe('W-2 no Z-5 elsewhere', () => {
-  it.each([['transfer', 'draft'], ['hand_over', 'issued'], ['return', 'issued'], ['issue', 'issued'], ['receipt', 'posted']])('%s in %s', async (kind, state) => {
+  it.each([['transfer', 'draft'], ['hand_over', 'draft'], ['return', 'cancelled'], ['issue', 'issued'], ['receipt', 'posted']])('%s in %s', async (kind, state) => {
     fakeDocument(clientMock, stockDoc({ kind, state }))
     renderStock(`${LIST}/d1`)
     await screen.findByTestId('document-lines')

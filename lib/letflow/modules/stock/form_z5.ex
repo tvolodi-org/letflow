@@ -1,12 +1,14 @@
 defmodule Letflow.Modules.Stock.FormZ5 do
   @moduledoc """
   T-1417 (phase E, E5c): the data of official form Z-5 (ru) / Q-5 (kk), annex 29 of order No. 562
-  "invoice for the internal movement of stock", for an ISSUED `transfer` document. Pure: the output
-  of `DocumentPrintSource.read/4` (with `kinds: ["transfer"]`, `legal_entities: true`) in, the data
+  "invoice for the internal movement of stock", for an ISSUED `transfer`, `hand_over` or `return` document
+  (T-1959, owner Q19). Both sides come from `Kinds.sides/2`, so a return prints the returning unit as the
+  sender. Pure: the output of `DocumentPrintSource.read/4` (with `kinds: ["transfer", "hand_over", "return"]`, `legal_entities: true`) in, the data
   map of `Letflow.Documents.FormPrint` (form `z5`) out. Layout and wording are in
   `priv/print_forms/z5.json` and `messages.json`.
 
-  Filled in: organisation name and BIN of the legal entity of the sending unit, number, date,
+  Filled in: organisation name and BIN of the legal entity of the filing unit (`org_unit_id`: the sender
+  for a transfer and a hand over, the receiver for a return; to be confirmed by the accountant), number, date,
   sending and receiving structural unit (with the location name after a slash when the document
   has one), the sender's and the receiver's responsible person, line number, item name and code,
   unit, issued quantity as the stored text. Left out of the map, so it prints blank (nothing is
@@ -16,6 +18,7 @@ defmodule Letflow.Modules.Stock.FormZ5 do
   """
 
   alias Letflow.Modules.Stock.CountPaperwork
+  alias Letflow.Modules.Stock.Documents.Kinds
   alias Letflow.Modules.Stock.FormCount
 
   @spec data(map(), map()) :: map()
@@ -23,22 +26,29 @@ defmodule Letflow.Modules.Stock.FormZ5 do
     content = Map.get(issued, :content, %{})
     header = map(content["header"])
     entity = names |> Map.get(:legal_entities, %{}) |> Map.get(header["org_unit_id"], %{})
-    from = lookup(names, :employees, header["from_responsible_id"])
-    to = lookup(names, :employees, header["to_responsible_id"])
+    {from_side, to_side} = sides(content["kind"], header)
+    from = lookup(names, :employees, from_side.responsible)
+    to = lookup(names, :employees, to_side.responsible)
 
     %{
       "org_name" => CountPaperwork.text(entity[:name]),
       "org_bin" => CountPaperwork.text(entity[:bin]),
       "number" => CountPaperwork.text(issued[:number_label]),
       "date" => FormCount.date(CountPaperwork.time(header["event_time"], names, :event_time)),
-      "sender_unit" => unit(names, header["org_unit_id"], header["from_location_id"]),
-      "receiver_unit" => unit(names, header["to_org_unit_id"], header["to_location_id"]),
+      "sender_unit" => unit(names, from_side.org_unit, from_side.location),
+      "receiver_unit" => unit(names, to_side.org_unit, to_side.location),
       "responsible" => CountPaperwork.text(from[:full_name]),
       "released" => CountPaperwork.text(from[:full_name]),
       "received" => CountPaperwork.text(to[:full_name]),
       "lines" => lines(content, names)
     }
   end
+
+  # Two-sided kinds only; anything else falls back to the transfer mapping (INV-8: never crash).
+  defp sides(kind, header) when kind in ["transfer", "hand_over", "return"],
+    do: Kinds.sides(Kinds.get(kind), header)
+
+  defp sides(_kind, header), do: Kinds.sides(Kinds.get("transfer"), header)
 
   defp unit(names, unit_id, location_id) do
     [lookup(names, :org_units, unit_id), lookup(names, :locations, location_id)]
