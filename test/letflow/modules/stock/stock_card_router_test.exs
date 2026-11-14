@@ -73,9 +73,9 @@ defmodule Letflow.Modules.Stock.StockCardRouterTest do
       |> P.status!(200)
 
     assert row["quantity"] == "1.500000000"
-    assert "1.500000000" in items
-    assert "2.000000000" in items
-    assert "0.500000000" in items
+    assert "1.5" in items
+    assert "2" in items
+    assert "0.5" in items
   end
 
   test "T-Z3-3 kk docx: official title, form code and column heads", ctx do

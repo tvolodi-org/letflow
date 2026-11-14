@@ -12,6 +12,7 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   `{:render_failed, rule_atoms}` (rule atoms only, never a value).
   """
 
+  alias Letflow.Documents.FormPrint
   alias Letflow.Documents.PrintLayout
 
   @blank "____________"
@@ -20,26 +21,24 @@ defmodule Letflow.Documents.FormPrint.Pdf do
   @spec blank() :: String.t()
   def blank, do: @blank
 
-  # Official forms with more columns than this print on a landscape A4 page.
-  @wide_columns 7
-
-  @spec render([tuple()], %{word: String.t(), of: String.t()} | nil) ::
+  # The layout's `page` decides the paper: orientation from it, and `PrintLayout` takes one margin
+  # for all four sides, so the widest of the four margins is used. The font is the bundled DejaVu
+  # Sans at the renderer's fixed size: the font set has no serif face and `PrintLayout` has no size
+  # option (see the moduledoc of `FormPrint`).
+  @spec render([tuple()], %{word: String.t(), of: String.t()} | nil, map() | nil) ::
           {:ok, binary()} | {:error, :unsupported_glyph | {:render_failed, [atom()]}}
-  def render(model, footer \\ nil) do
+  def render(model, footer \\ nil, page \\ nil) do
     {blocks, doc, tables} = compile(model)
+    page = page || FormPrint.page(%{})
 
-    wide? =
-      Enum.any?(model, fn
-        {:table, %{columns: tcols}} -> length(tcols) > @wide_columns
-        _ -> false
-      end)
-
-    size = if wide?, do: "A4-landscape", else: "A4"
+    size = if page.orientation == "landscape", do: "A4-landscape", else: "A4"
+    margin = page.margins_mm |> Enum.max() |> margin_mm()
 
     layout = %{
       "layout_schema_version" => 1,
       "blocks" => [
-        %{"type" => "page", "size" => size, "margin_mm" => 12, "font" => "dejavu-sans"} | blocks
+        %{"type" => "page", "size" => size, "margin_mm" => margin, "font" => "dejavu-sans"}
+        | blocks
       ]
     }
 
@@ -60,6 +59,9 @@ defmodule Letflow.Documents.FormPrint.Pdf do
           else: {:error, {:render_failed, rules}}
     end
   end
+
+  defp margin_mm(m) when is_float(m), do: if(m == trunc(m), do: trunc(m), else: m)
+  defp margin_mm(m), do: m
 
   @max_chunk 12
 

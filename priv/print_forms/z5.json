@@ -2,6 +2,7 @@
   "form_layout_version": 1,
   "form": "z5",
   "annex": 29,
+  "page": {"orientation": "portrait", "margins_mm": [25, 15, 25, 25], "font_pt": 12, "table_font_pt": 10},
   "blocks": [
     {"type": "text", "label": "z5.annex"},
     {"type": "text", "label": "z5.form_code"},
@@ -25,8 +26,8 @@
         {"key": "unit", "label": "z2.c4"},
         {"key": "qty_plan", "label": "z2.c5", "group": "z2.qty"},
         {"key": "qty_issued", "label": "z2.c6", "group": "z2.qty"},
-        {"key": "price", "label": "z2.c7"},
-        {"key": "sum", "label": "z5.c8"}
+        {"key": "price", "label": "z2.c7", "decimals": 2},
+        {"key": "sum", "label": "z5.c8", "decimals": 2}
       ]
     },
     {"type": "field", "label": "z5.words_qty", "key": "words_qty"},

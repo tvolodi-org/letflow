@@ -146,7 +146,7 @@ defmodule Letflow.Modules.Stock.FormZ1Test do
     {:table, t} = List.keyfind(model, :table, 0)
     assert t.total["sum"] == ""
     # qty total is sum of both
-    assert t.total["qty"] == "8.000000000"
+    assert t.total["qty"] == "8"
   end
 
   test "Z1 supplier with no tax_id: name only, no slash" do
