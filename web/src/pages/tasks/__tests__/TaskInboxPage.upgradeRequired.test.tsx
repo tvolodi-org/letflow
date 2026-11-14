@@ -3,8 +3,8 @@
  * T-1969 -- a 409 module-upgrade-required on task complete shows the real reason, never 'Try again'.
  *
  * End to end: @/api/tasks and the api client are REAL; only window.fetch is
- * stubbed (URL router returning the backend's literal 403 body), so these
- * tests fail if the client.ts mapping is removed. (vi.mock is file-wide, so
+ * stubbed (URL router returning the backend's literal 409 body), so these
+ * tests fail if the task error mapping is removed. (vi.mock is file-wide, so
  * the earlier isolated cases that mocked @/api/tasks were dropped.)
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
