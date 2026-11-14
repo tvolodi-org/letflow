@@ -28,7 +28,7 @@ count design so no new owner question is needed; **[A]** UAT assumption, to be c
   `count_posting.ex`, `freeze_state.ex` and `freeze_guard.ex` (freeze of the counted locations, limit setting
   `count_freeze_limit_minutes`, default 120), `count_print.ex` (PDF in ru, kk, en), `form_count_inv10.ex` with
   `lib/letflow/documents/form_print.ex` (official forms, ru and kk only, `priv/print_forms/*.json`).
-- Built asset code [V]: `lib/letflow/modules/assets/assets.ex` (version 0.24.0; ledger `assets` with the slots
+- Built asset code [V]: `lib/letflow/modules/assets/assets.ex` (version 0.25.0; ledger `assets` with the slots
   asset, org_unit, location, material_responsible, actual_user; causes commission, change, handover, writeoff,
   kind_change_in; permissions AssetsCardWrite, AssetsPost, AssetsReverse, AssetsRead, AssetsReconcile with no role
   grants; settings currency, expiry_reminder_lead_days, storekeeper_grants), `cards.ex` (the card has no location,
