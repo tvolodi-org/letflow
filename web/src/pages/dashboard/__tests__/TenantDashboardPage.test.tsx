@@ -36,6 +36,17 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+describe('O-003 install hint on the main screen', () => {
+  it('I1 the dashboard carries the install how-to', async () => {
+    window.localStorage.clear()
+    m.defs.mockResolvedValue({ items: [] })
+    m.inst.mockResolvedValue({ items: [] })
+    m.tasks.mockResolvedValue({ items: [] })
+    renderDash('tenantAdmin')
+    expect(await screen.findByTestId('install-hint')).toBeInTheDocument()
+  })
+})
+
 describe('T-1435 dashboard', () => {
   it('D1 without DefinitionsRead: no access text, tasks tile present, no definitions request', async () => {
     m.inst.mockResolvedValue({ items: [] })

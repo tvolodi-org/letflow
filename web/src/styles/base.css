@@ -338,3 +338,7 @@ samp {
 .lf-detail-tabs { display: grid; gap: var(--space-4); min-width: 0; }
 .lf-detail-tabs__panel { display: grid; gap: var(--space-4); min-width: 0; }
 .lf-detail-tabs__panel[hidden] { display: none; }
+
+/* O-003: the install how-to (or its one-line entry) on the main screen. */
+.lf-install-hint { margin-block-end: var(--space-6); }
+.lf-install-hint ol { list-style: decimal; margin: var(--space-1) 0 var(--space-2); padding-inline-start: var(--space-6); }

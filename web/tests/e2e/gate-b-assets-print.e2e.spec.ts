@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { ENV, SKIP_REASON, hasAdmin, signIn, setPrefs, openRoute, choose, localDateTime,
-  headerNumber, issueDocument, claimAndComplete } from './support/gateB'
+  headerNumber, issueDocument, claimAndComplete, fillDateTime } from './support/gateB'
 import { pdfTextItems } from './support/pdfText'
 
 test.describe.configure({ mode: 'serial', timeout: 120_000 })
@@ -14,7 +14,8 @@ let page: Page
 let number = ''
 let changeNumber = ''
 let writeoffNumber = ''
-const inventoryNumber = `E2E-${ENV.runTag}`
+// One number per ATTEMPT: a retry of E1 in the same run would otherwise meet `asset_already_in_register` (T-1964).
+let inventoryNumber = `E2E-${ENV.runTag}`
 
 type Kind = { url: RegExp; type: string; ext: 'pdf' | 'docx'; magic: string; name?: RegExp }
 const PLAIN: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print(?!.*form=)/, type: 'application/pdf', ext: 'pdf', magic: '%PDF' }
@@ -28,6 +29,11 @@ const DA3_PDF: Kind = { url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form
 const DA3_DOCX: Kind = {
   url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da3.*format=docx/,
   type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx', magic: 'PK', name: /_DA-3\.docx$/,
+}
+const DA2_PDF: Kind = { url: /\/modules\/assets\/cards\/[^/]+\/print\?.*form=da2.*format=pdf/, type: 'application/pdf', ext: 'pdf', magic: '%PDF', name: /_DA-2\.pdf$/ }
+const DA2_DOCX: Kind = {
+  url: /\/modules\/assets\/cards\/[^/]+\/print\?.*form=da2.*format=docx/,
+  type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx', magic: 'PK', name: /_DA-2\.docx$/,
 }
 const FORM_DOCX: Kind = {
   url: /\/modules\/assets\/documents\/[^/]+\/print\?.*form=da1.*format=docx/,
@@ -52,7 +58,7 @@ async function download(click: () => Promise<void>, kind: Kind = PLAIN) {
 }
 /** The "Official form" menu entry (no typed URL): open the menu, click the item. */
 async function pickForm(
-  item: 'form-da1-pdf' | 'form-da1-docx' | 'form-da3-pdf' | 'form-da3-docx' | 'form-da4-pdf' | 'form-da4-docx', kind: Kind,
+  item: 'form-da1-pdf' | 'form-da1-docx' | 'form-da2-pdf' | 'form-da2-docx' | 'form-da3-pdf' | 'form-da3-docx' | 'form-da4-pdf' | 'form-da4-docx', kind: Kind,
 ) {
   return download(async () => {
     await page.getByTestId('official-form-menu').click()
@@ -75,7 +81,8 @@ test.afterAll(async () => {
   await context?.close()
 })
 
-test('E1 a card, a commission started from it, issued', async () => {
+test('E1 a card, a commission started from it, issued', async (_fixtures, testInfo) => {
+  inventoryNumber = `E2E-${ENV.runTag}-${testInfo.retry}`
   await openRoute(page, '/admin/assets/cards')
   await page.getByTestId('asset-create').first().click()
   await page.getByLabel('Inventory number').fill(inventoryNumber)
@@ -87,7 +94,7 @@ test('E1 a card, a commission started from it, issued', async () => {
   await expect(form).toBeVisible()
   await choose(form.getByLabel(/^Org unit/).first(), 'Warehouse team')
   await choose(form.getByLabel(/^Material responsible/).first(), 'Saule Zhumabek')
-  await form.getByLabel('Time').fill(localDateTime(-1))
+  await fillDateTime(form, 'Time', localDateTime(-1))
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
   await expect(page.getByTestId('document-actions')).toBeVisible()
@@ -153,7 +160,7 @@ test('E8 a change of responsible from the card: DA-4 is reached through the menu
   await expect(form).toBeVisible()
   await choose(form.getByTestId('side-from').getByLabel(/^Material responsible/), 'Saule Zhumabek')
   await choose(form.getByTestId('side-to').getByLabel(/^Material responsible/), 'Yerlan Mukanov')
-  await form.getByLabel('Time').fill(localDateTime(-1))
+  await fillDateTime(form, 'Time', localDateTime(-1))
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
   await issueDocument(page)
@@ -187,7 +194,7 @@ test('E10 a write-off from the card: DA-3 is reached through the menu, PDF then 
   await expect(form).toBeVisible()
   await choose(form.getByLabel(/^Material responsible/).first(), 'Saule Zhumabek')
   await choose(form.getByLabel('Reason'), 'Broken')
-  await form.getByLabel('Time').fill(localDateTime(-1))
+  await fillDateTime(form, 'Time', localDateTime(-1))
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByTestId('document-header')).toBeVisible({ timeout: 30_000 })
   await issueDocument(page)
@@ -209,5 +216,33 @@ test('E11 in the Kazakh UI the DA-3 form is printed in Kazakh', async () => {
   await reopen(writeoffNumber)
   const text = await pickForm('form-da3-pdf', DA3_PDF)
   expect(text).toContain('ІСТЕН ШЫҒАРУ')
+  await setPrefs(page, { lang: 'en' })
+})
+
+// ДА-2 is a card form: the "Official form" menu in the card header, no typed URL. The register holder is Saule Zhumabek since E3.
+async function openCard() {
+  await openRoute(page, '/admin/assets/cards')
+  await page.getByRole('row').filter({ hasText: inventoryNumber }).first().click()
+  await expect(page.getByTestId('official-form-menu')).toBeVisible()
+}
+
+test('E12 the card prints ДА-2 through the menu: PDF with the title, the card and the holder, then .docx', async () => {
+  await openCard()
+  await page.getByTestId('official-form-menu').click()
+  await expect(page.getByTestId('form-da1-pdf')).toHaveCount(0)
+  await expect(page.getByTestId('form-da3-pdf')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const text = await pickForm('form-da2-pdf', DA2_PDF)
+  expect(text).toContain('ИНВЕНТАРНАЯ КАРТОЧКА')
+  expect(text).toContain(inventoryNumber)
+  expect(text).toContain('Saule Zhumabek')
+  await pickForm('form-da2-docx', DA2_DOCX)
+})
+
+test('E13 in the Kazakh UI the ҰМА-2 card is printed in Kazakh', async () => {
+  await setPrefs(page, { lang: 'kk' })
+  await openCard()
+  const text = await pickForm('form-da2-pdf', DA2_PDF)
+  expect(text).toContain('ТҮГЕНДЕУ КАРТОЧКАСЫ')
   await setPrefs(page, { lang: 'en' })
 })

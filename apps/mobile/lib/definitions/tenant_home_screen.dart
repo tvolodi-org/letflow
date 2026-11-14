@@ -25,6 +25,7 @@ import '../bootstrap/navigation_bootstrap.dart'
         kStockHomeRoutePath;
 import '../i18n/i18n.dart';
 import '../bootstrap/language_switcher.dart';
+import '../offline/install_hint_card.dart';
 import 'definitions.dart';
 
 // ── §8.2 `DefinitionHomeController` ────────────────────────────────────────
@@ -128,6 +129,7 @@ class _TenantHomeScreenState extends ConsumerState<TenantHomeScreen> {
       // (design §8.3).
       body: Column(
         children: [
+          const InstallHintCard(),
           if (codesInstalled)
             ListTile(
               key: const Key('tenant-home-codes-entry'),

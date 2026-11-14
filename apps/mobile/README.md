@@ -338,7 +338,7 @@ app is installed to the home screen, no background sync.
 - **7-day warning**: in a browser tab (not installed to the home screen) the draft list shows that the
   browser may delete saved data after 7 days without use; the app also asks the browser for persistent
   storage (`navigator.storage.persist()`, best effort).
-- **Install hint**: on iPhone/iPad Safari and Android browsers the draft list shows once, in ru/kk/en, how to add the app to the home screen (static text, no `beforeinstallprompt`). "Got it" stores a flag in its own IndexedDB file (`letflow_install_hint`) that sign-out does not clear.
+- **Install hint**: the PWA home screen (not the document list) shows once, in ru/kk/en, how to add the app to the home screen (iPhone Safari, Android; static text, no `beforeinstallprompt`). "I have read it" stores a flag in its own IndexedDB file (`letflow_install_hint`) that sign-out does not clear; a one-line "Install on your phone" entry stays on the home screen and opens the how-to again. The web SPA tenant dashboard has the same card (flag in localStorage, per user).
 
 ### Scanner and voice on Safari (M4)
 
@@ -356,6 +356,11 @@ app is installed to the home screen, no background sync.
   starts at once as before. A refusal says how to allow the camera; no camera, a non-HTTPS page or an
   unsupported browser has its own text. The typed field works in every state.
   `mobile_scanner_source.dart` reads the start error the package stores (it does not throw it).
+  Each scan screen creates and disposes its own camera source; the shared provider holds
+  only the factory, so leaving a scan screen cannot leave the next count with a disposed
+  controller. `test/features/stock/count_camera_lifecycle_test.dart` exercises reopening
+  counts, switching from codes to counts, document scan dismissal, permission denial and
+  no-camera errors through the real scanner controller with a fake device platform.
 - **Voice on web.** `voice_source_platform.dart` picks the recorder at compile time: native records
   AAC-LC into a temporary file as before; web (`web_voice_source.dart`, `web_recorder_port_web.dart`)
   records in memory with the encoder chosen at run time: Opus where the browser records it (Chrome,

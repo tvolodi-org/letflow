@@ -119,6 +119,30 @@ function ClickTestId({ id, children }: { id: string; children: ReactElement }): 
   return children
 }
 
+/** Harness only: clicks the elements with these test ids once each exists, in order (a shot cannot click). */
+function ClickTestIds({ ids, children }: { ids: string[]; children: ReactElement }): ReactElement {
+  useEffect(() => {
+    let next = 0
+    const t = window.setInterval(() => {
+      const el = document.querySelector<HTMLElement>(`[data-testid="${ids[next]}"]`)
+      if (el) {
+        el.click()
+        next += 1
+        if (next >= ids.length) window.clearInterval(t)
+      }
+    }, 30)
+    return () => window.clearInterval(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return children
+}
+
+/** T-1924: the card print answers a refusal, so the error banner shows. */
+const printFails: FixtureRoute = {
+  match: (path, method) => /\/modules\/assets\/cards\/[^/]+\/print$/.test(path) && method === 'GET',
+  reply: () => ({ status: 422, body: { reason: 'print_unsupported_character' } }),
+}
+
 /** Harness only: clicks checkboxes by test id once they exist (a shot cannot click). */
 function TickTestIds({ ids, children }: { ids: string[]; children: ReactElement }): ReactElement {
   useEffect(() => {
@@ -170,6 +194,13 @@ export const assetsCardActionsScreens: HarnessScreen[] = [
   panel('asset-card-tabs-accounting', 'c-1', IN_REGISTER, undefined, 'accounting'),
   panel('asset-card-tabs-retired-main', 'c-8', NO_ROWS),
   panel('asset-card-tabs-retired-accounting', 'c-8', NO_ROWS, undefined, 'accounting'),
+  panel('asset-card-form-menu', 'c-1', IN_REGISTER, 'official-form-menu'),
+  panel('asset-card-form-menu-retired', 'c-8', NO_ROWS, 'official-form-menu'),
+  {
+    name: 'asset-card-form-error',
+    routes: [printFails, ...IN_REGISTER],
+    render: () => withAuth(<ClickTestIds ids={['official-form-menu', 'form-da2-pdf']}><AssetCardsPage initialSelectedId="c-1" /></ClickTestIds>),
+  },
   { name: 'asset-card-rows', routes: IN_REGISTER, render: () => withAuth(<AssetCardsPage />) },
   { name: 'asset-card-row-menu', routes: IN_REGISTER, render: () => withAuth(<ClickTestId id="card-actions-c-1"><AssetCardsPage /></ClickTestId>) },
   fromCard('asset-doc-from-card-commission', 'commission', 'c-3', NO_ROWS),

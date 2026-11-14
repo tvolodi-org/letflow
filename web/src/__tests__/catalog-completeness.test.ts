@@ -83,6 +83,7 @@ import {
 } from '@/modules/assets/cardActionsMessages'
 import { formMessages } from '@/components/ui/formMessages'
 import { layoutMessages } from '@/components/ui/layout/layoutMessages'
+import { installHintMessages } from '@/components/layout/installHintMessages'
 import { navMessages } from '@/components/layout/navMessages'
 import { uiMessages } from '@/components/ui/uiMessages'
 import { mySettingsMessages } from '@/pages/me/mySettingsMessages'
@@ -421,6 +422,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('layoutMessages (structured): no empty values in any locale', () => {
     checkStructuredCatalog('layoutMessages', layoutMessages)
+  })
+
+  it('installHintMessages (structured): no empty values in any locale', () => {
+    checkStructuredCatalog('installHint', installHintMessages)
   })
 
   it('notificationMessages (structured): no empty values in any locale', () => {

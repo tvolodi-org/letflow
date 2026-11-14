@@ -19,6 +19,9 @@ export const assetsApi = {
   createCard: (b: CardBody, key: string) => client.post<EntityRecord>(`${BASE}/cards`, { ...b, idempotency_key: key }),
   updateCard: (id: string, b: CardBody, key: string) =>
     client.patch<EntityRecord>(`${BASE}/cards/${seg(id)}`, { ...b, idempotency_key: key }),
+  /** T-1924: the official form ДА-2 of a card (.docx or PDF); no tenant identifier is sent. */
+  printCardForm: (id: string, form: string, format: string, lang: string) =>
+    client.getBlob(`${BASE}/cards/${seg(id)}/print`, { form, format, lang }),
   cardLock: (id: string) => client.get<{ posted: boolean; held?: boolean }>(`${BASE}/cards/${seg(id)}/lock`),
   retireCard: (id: string, key: string) =>
     client.post<EntityRecord>(`${BASE}/cards/${seg(id)}/retire`, { idempotency_key: key }),
