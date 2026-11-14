@@ -66,6 +66,9 @@ export interface TaskMessages {
   errInsufficientStock: string
   errLocationFrozen: string
   errGeneric: string
+  errModuleUpgrade: string
+  errForbidden: string
+  errConflict: string
 }
 
 export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
@@ -105,6 +108,9 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errInsufficientStock: 'Not enough stock to post this document.',
     errLocationFrozen: 'A stock count has frozen these locations. Complete this task after the count ends or is cancelled.',
     errGeneric: 'The action failed. Try again.',
+    errModuleUpgrade: 'This company needs an upgrade of the module before this action works. A tenant administrator must run the module upgrade (Administration > Modules) or ask the platform operator. Trying again will not help.',
+    errForbidden: 'You do not have permission to do this. Ask your tenant administrator.',
+    errConflict: 'This item was changed by someone else. Reload the page and check its current state.',
   },
   ru: {
     title: 'Мои задачи', close: 'Закрыть', eyebrow: 'Работа', lede: 'Документы, которые ждут проведения, утверждения или сторнирования.', listPane: 'Задачи',
@@ -142,6 +148,9 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errInsufficientStock: 'Недостаточно остатка для проведения документа.',
     errLocationFrozen: 'Эти места хранения заморожены инвентаризацией. Завершите задачу после окончания или отмены инвентаризации.',
     errGeneric: 'Не удалось выполнить действие. Повторите попытку.',
+    errModuleUpgrade: 'Этой компании нужно обновить модуль, прежде чем это действие заработает. Администратор организации должен запустить обновление модуля (Администрирование > Модули) или обратиться к оператору платформы. Повтор не поможет.',
+    errForbidden: 'У вас нет прав на это действие. Обратитесь к администратору организации.',
+    errConflict: 'Запись изменил кто-то другой. Обновите страницу и проверьте её текущее состояние.',
   },
   kk: {
     title: 'Менің тапсырмаларым', close: 'Жабу', eyebrow: 'Жұмыс', lede: 'Өткізуді, бекітуді немесе сторнолауды күтетін құжаттар.', listPane: 'Тапсырмалар',
@@ -179,5 +188,8 @@ export const TASK_MESSAGES: Record<UiLocale, TaskMessages> = {
     errInsufficientStock: 'Құжатты өткізуге қалдық жеткіліксіз.',
     errLocationFrozen: 'Бұл сақтау орындарын түгендеу тоңазытты. Тапсырманы түгендеу аяқталғаннан немесе бас тартылғаннан кейін орындаңыз.',
     errGeneric: 'Әрекет орындалмады. Қайталап көріңіз.',
+    errModuleUpgrade: 'Бұл әрекет жұмыс істеуі үшін компанияға модульді жаңарту керек. Ұйым әкімшісі модульді жаңартуы (Әкімшілік > Модульдер) немесе платформа операторына хабарласуы тиіс. Қайталау көмектеспейді.',
+    errForbidden: 'Бұл әрекетке рұқсатыңыз жоқ. Ұйым әкімшісіне хабарласыңыз.',
+    errConflict: 'Жазбаны басқа адам өзгертті. Бетті жаңартып, ағымдағы күйін тексеріңіз.',
   },
 }

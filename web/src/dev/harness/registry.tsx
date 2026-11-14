@@ -68,6 +68,7 @@ import { metricsScreens } from './fixtures/metrics'
 import { auditLogScreens } from './fixtures/auditLog'
 import { taskInboxScreens } from './fixtures/taskInbox'
 import { taskInboxAssetsScreens } from './fixtures/taskInboxAssets'
+import { taskUpgradeScreens } from './fixtures/taskUpgrade'
 import { instancesBoardScreens } from './fixtures/instancesBoard'
 import { processDiagramScreens } from './fixtures/processDiagram'
 import { processDesignerEditScreens } from './fixtures/processDesignerEdit'
@@ -364,6 +365,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...groupsT1610Screens,
     ...taskInboxScreens,
     ...taskInboxAssetsScreens,
+    ...taskUpgradeScreens,
     ...navRoleScreens,
     ...a11yDialogScreens,
     ...instancesBoardScreens,
