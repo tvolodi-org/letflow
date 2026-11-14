@@ -121,7 +121,7 @@ Future<void> _pump(WidgetTester tester, String start) async {
     ProviderScope(
       overrides: [
         stockGatewayProvider.overrideWithValue(gw),
-        scanSourceProvider.overrideWithValue(source),
+        scanSourceProvider.overrideWithValue(() => source),
       ],
       child: MaterialApp.router(routerConfig: router),
     ),

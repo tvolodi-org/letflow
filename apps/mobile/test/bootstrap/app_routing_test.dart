@@ -99,7 +99,7 @@ Future<void> _pumpApp(
       (ref) => _makeDefinitionController(),
     ),
     if (fakeScanSource != null)
-      scanSourceProvider.overrideWithValue(fakeScanSource),
+      scanSourceProvider.overrideWithValue(() => fakeScanSource),
     if (codesGateway != null)
       codesGatewayProvider.overrideWithValue(codesGateway),
   ];

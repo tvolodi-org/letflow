@@ -17,6 +17,8 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
   `names.positions` (employee id => position name) and the money fields of each card. Plain act
   reads do not change.
 
+  `legal_entity/2` is also read by `CardPrintSource` (T-1924).
+
   The small zone, offset and issued-version reads are copies of the stock count paperwork ones:
   `core-extraction-design.md` section 2 says "down, never sideways", so assets does not call
   `Letflow.Modules.Stock.*`; moving them into the core is a follow-up slice.
@@ -138,7 +140,8 @@ defmodule Letflow.Modules.Assets.DocumentPrintSource do
     |> Enum.reduce(%{}, &Map.merge(&2, legal_entity(prefix, &1)))
   end
 
-  defp legal_entity(prefix, unit_id) do
+  @doc false
+  def legal_entity(prefix, unit_id) do
     with {:ok, unit} <- Org.lookup(prefix, unit_id),
          le_id when is_binary(le_id) <- unit["legal_entity_id"],
          {:ok, le} <- Org.lookup(prefix, le_id) do

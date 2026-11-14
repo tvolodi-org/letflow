@@ -1,21 +1,22 @@
-import { documentPrintable } from './documentsModel'
+import { documentPrintable, printErrorMessageId } from './documentsModel'
 
 /** T-1921, T-1922, T-1923: the official forms the asset document screen can print. Data only: a form is one row here plus its message
  *  ids and its backend kinds. The assets module does not import `modules/stock` (module boundary), so this is its own
- *  small copy of the stock registry (`stock/forms/officialForms.ts`). ДА-2 joins as a row later. */
-export type AssetFormId = 'da1' | 'da3' | 'da4'
+ *  small copy of the stock registry (`stock/forms/officialForms.ts`). T-1924: ДА-2 is a card form (`CARD_FORMS`), printed from the asset card, never offered for a document. */
+export type AssetFormId = 'da1' | 'da2' | 'da3' | 'da4'
 export type AssetFormFormat = 'docx' | 'pdf'
 export type AssetFormLang = 'ru' | 'kk'
 export const ASSET_FORM_FORMATS: readonly AssetFormFormat[] = ['docx', 'pdf']
 
 export const ASSET_FORMS: Record<AssetFormId, { labelId: string; kinds: readonly string[] }> = {
   da1: { labelId: 'assets.doc.form.da1', kinds: ['commission', 'handover'] },
+  da2: { labelId: 'assets.doc.form.da2', kinds: [] },
   da3: { labelId: 'assets.doc.form.da3', kinds: ['writeoff'] },
   da4: { labelId: 'assets.doc.form.da4', kinds: ['change', 'handover'] },
 }
 
 /** Fallback filename suffix when the server sends no Content-Disposition. */
-export const ASSET_FORM_SUFFIX: Record<AssetFormId, string> = { da1: '_DA-1', da3: '_DA-3', da4: '_DA-4' }
+export const ASSET_FORM_SUFFIX: Record<AssetFormId, string> = { da1: '_DA-1', da2: '_DA-2', da3: '_DA-3', da4: '_DA-4' }
 
 /** The forms exist in ru and kk: the Kazakh UI prints kk, any other UI ru. */
 export function assetFormLang(ui: string): AssetFormLang {
@@ -26,4 +27,13 @@ export function assetFormLang(ui: string): AssetFormLang {
 export function formsForAssetDocument(doc: { kind: string; state: string }): AssetFormId[] {
   if (!documentPrintable(doc)) return []
   return (Object.keys(ASSET_FORMS) as AssetFormId[]).filter((id) => ASSET_FORMS[id].kinds.includes(doc.kind))
+}
+
+/** T-1924: the forms printed from the asset card (`GET /cards/:id/print`). */
+export const CARD_FORMS: readonly AssetFormId[] = ['da2']
+
+/** The message id of a failed card print: as `printErrorMessageId`, but a 404 names the card, not the document. */
+export function cardPrintErrorMessageId(err: unknown): string {
+  const id = printErrorMessageId(err)
+  return id === 'assets.doc.error.notFound' ? 'assets.doc.form.cardNotFound' : id
 }

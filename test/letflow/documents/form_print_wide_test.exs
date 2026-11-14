@@ -41,6 +41,7 @@ defmodule Letflow.Documents.FormPrintWideTest do
 
       assert Enum.sort(FormPrint.forms()) == [
                "da1",
+               "da2",
                "da3",
                "da4",
                "inv10",
