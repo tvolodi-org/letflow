@@ -56,6 +56,17 @@ defmodule Letflow.Modules.Assets.Router do
   | `GET /counts/:id/lines`, `GET /counts/:id/entries` (`limit`, `cursor`) | `AssetsRead` | `lines/4`, `entries/4` | 200 `rows, next_cursor` |
   | `GET /counts/:id/sheet-document` | `AssetsRead` | `sheet_document/3` | 200 summary / 404 |
 
+  REQ-819 (K4) count result routes, a thin layer over `Letflow.Modules.Assets.CountResult` (also need a
+  tenant-wide ledger read, else 404; the decision and the signature need the configured signer role,
+  else 403 `signer_role_not_held` or 422 `signer_role_not_configured`; a refused draft is 422 with
+  `reason` and `line_no`):
+
+  | Route | Permission | Call | Success |
+  |---|---|---|---|
+  | `GET /counts/:id/result` | `AssetsRead` | `CountResult.result/3` | 200 result view |
+  | `PUT /counts/:id/result/lines/:line_no` | `AssetsRead` + signer role | `decide/5` | 200 result line view |
+  | `POST /counts/:id/result/sign` (empty body) | `AssetsRead` + signer role | `sign/3` | 200 result view |
+
   Refusals: not found (malformed, unknown, discarded and other-tenant ids, one body) 404; 409
   `document_not_draft`, `document_not_posted`, `document_reversed`, `reversal_pending`,
   `posting_inconsistent`, `definition_not_active`, `register_unreadable` (an opening needs a tenant-wide ledger read); 503 `busy`; 422 with a fixed `reason` (and only the
@@ -124,6 +135,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.CardLocks
   alias Letflow.Modules.Assets.CardPrintSource
   alias Letflow.Modules.Assets.Cards
+  alias Letflow.Modules.Assets.CountResult
   alias Letflow.Modules.Assets.CountSheet
   alias Letflow.Modules.Assets.Counts
   alias Letflow.Modules.Assets.Documents
@@ -486,6 +498,38 @@ defmodule Letflow.Modules.Assets.Router do
     end)
   end
 
+  # REQ-819 (asset count K4): the result of a count. The decision and the signature need the configured
+  # signer role (`CountSigner`), checked inside the call; the permission is `AssetsRead`.
+  authz_get "/counts/:id/result", :AssetsRead do
+    count_call(conn, :read, 200, fn prefix, opts ->
+      count_result(conn, opts, &CountResult.result(prefix, conn.params["id"], &1))
+    end)
+  end
+
+  authz_put "/counts/:id/result/lines/:line_no", :AssetsRead do
+    count_call(conn, :read, 200, fn prefix, opts ->
+      count_result(
+        conn,
+        opts,
+        &CountResult.decide(
+          prefix,
+          conn.params["id"],
+          conn.params["line_no"],
+          conn.body_params,
+          &1
+        )
+      )
+    end)
+  end
+
+  authz_post "/counts/:id/result/sign", :AssetsRead do
+    count_call(conn, :read, 200, fn prefix, opts ->
+      if empty_body?(conn),
+        do: count_result(conn, opts, &CountResult.sign(prefix, conn.params["id"], &1)),
+        else: {:error, {:field_not_allowed, first_key(conn.body_params)}}
+    end)
+  end
+
   authz_unmatched(:ordinary)
 
   # -- count order handler (REQ-816) --------------------------------------------------------------
@@ -496,11 +540,38 @@ defmodule Letflow.Modules.Assets.Router do
   defp count_call(conn, purpose, status, fun) do
     with {:ok, access} <- Access.check(conn, purpose),
          true <- Settings.count_enabled?(access.prefix) do
-      render(conn, fun.(access.prefix, %{actor_id: access.actor_id}), status)
+      count_render(conn, fun.(access.prefix, %{actor_id: access.actor_id}), status)
     else
       _ -> Response.not_found(conn)
     end
   end
+
+  # The result calls read the ledger as of the cut-off: they need a tenant-wide read (REQ-819).
+  defp count_result(conn, opts, fun) do
+    case Ledger.authorize(conn, @ledger, :read) do
+      {:ok, authorized} -> fun.(Map.put(opts, :authorized, authorized))
+      :error -> {:error, :not_found}
+    end
+  end
+
+  # The refusals of the result calls that RouterKit does not know: 403 for a caller outside the signer
+  # role, 422 carrying the refused draft's reason and result line, 503 for a busy lock.
+  defp count_render(conn, {:error, :signer_role_not_held}, _status),
+    do: problem(conn, Error.forbidden("request refused"), "signer_role_not_held")
+
+  defp count_render(conn, {:error, {:line_refused, reason, extras, line_no}}, _status) do
+    problem = Error.unprocessable("request refused")
+
+    Response.send_problem(conn, %{
+      problem
+      | extensions: Map.merge(extras, %{"reason" => reason, "line_no" => line_no})
+    })
+  end
+
+  defp count_render(conn, {:error, :busy}, _status),
+    do: problem(conn, Error.service_unavailable("request refused"), "busy")
+
+  defp count_render(conn, result, status), do: render(conn, result, status)
 
   defp empty_body?(conn), do: conn.body_params in [%{}, nil]
 

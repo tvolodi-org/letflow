@@ -24,6 +24,7 @@ import { usersImportMessages } from '@/pages/admin/usersImport/usersImportMessag
 import { moduleRolloutsMessages } from '@/pages/admin/module-rollouts/moduleRolloutsMessages'
 import { processDiagramMessages } from '@/i18n/processDiagramMessages'
 import { auditMessages } from '@/i18n/auditMessages'
+import { reportProblemMessages } from '@/components/layout/reportProblemMessages'
 import { currenciesMessages } from '@/i18n/currenciesMessages'
 import { assetsMessages } from '@/modules/assets/assetsMessages'
 import { catalogItemsMessages } from '@/modules/catalog_items/catalogItemsMessages'
@@ -208,6 +209,8 @@ function unimportedCatalogs(
  * until the owner's native check (docs/assets/i18n-gaps.md).
  */
 const KK_SAME_AS_RU_OK: Record<string, string> = {
+  'reportProblem:factScreen': 'loanword, same spelling in Kazakh',
+  'reportProblem:addCompany': 'loanword, same spelling in Kazakh',
   'lines:c.lot': 'lot: Kazakh screens already write Партия/Партиялар',
   'assets:assets.cause.reversal':
     'accounting term, used unchanged in Kazakh books and forms',
@@ -340,6 +343,10 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
 
   it('auditMessages: all en keys in ru/kk, no empty values', () => {
     checkFlatCatalog('audit', auditMessages)
+  })
+
+  it('reportProblemMessages: all en keys in ru/kk, no empty values', () => {
+    checkFlatCatalog('reportProblem', reportProblemMessages)
   })
 
   it('currenciesMessages: all en keys in ru/kk, no empty values', () => {
@@ -496,6 +503,7 @@ describe('catalog-completeness — T-1457: every en/ru/kk key present and non-em
       ['usersImport', usersImportMessages],
       ['processDiagram', processDiagramMessages],
       ['audit', auditMessages],
+      ['reportProblem', reportProblemMessages],
       ['currencies', currenciesMessages],
       ['assets', assetsMessages],
       ['catalog_items', catalogItemsMessages],
