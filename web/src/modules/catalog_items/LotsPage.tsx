@@ -69,7 +69,8 @@ interface LotPanelProps {
   locale: CatalogItemsUiLocale
   onClose: () => void
   onRetire: (lot: EntityRecord) => void
-  onSaved: (message: string) => void
+  /** `createdId`: the new lot's id after a create, null after an edit (T-1946: create selects it, edit keeps it). */
+  onSaved: (message: string, createdId: string | null) => void
   canWrite: boolean
 }
 
@@ -103,12 +104,12 @@ function LotPanel(props: LotPanelProps) {
   async function submit() {
     if (mode === 'create') {
       const result = await write.submit(lotBodyForCreate(form))
-      if (result === 'ok') props.onSaved(t('catalog_items.toast.created', { code: form.code }))
+      if (result === 'ok') props.onSaved(t('catalog_items.toast.created', { code: form.code }), write.lastId())
       return
     }
     if (!lot) return
     const result = await editWrite.submit(lotBodyForEdit(form), lot.record_id)
-    if (result === 'ok') props.onSaved(t('catalog_items.toast.saved', { code: textOf(lot, 'code') }))
+    if (result === 'ok') props.onSaved(t('catalog_items.toast.saved', { code: textOf(lot, 'code') }), null)
     else if (result === 'notFound') props.onClose()
   }
 
@@ -263,7 +264,8 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
   const [expirySort, setExpirySort] = useState<ExpirySort>('none')
 
   // The detail panel: closed, a new lot, or one lot being edited.
-  const [panel, setPanel] = useState<{ mode: 'create' } | { mode: 'edit'; lot: EntityRecord } | null>(null)
+  // `open` is a lot known only by id (just created): it resolves from the reloaded list.
+  const [rawPanel, setPanel] = useState<{ mode: 'create' } | { mode: 'edit'; lot: EntityRecord } | { mode: 'open'; id: string } | null>(null)
   const [retiring, setRetiring] = useState<EntityRecord | null>(null)
 
   const itemsQuery = useLotRows(CATALOG_ITEM, 'all-items', [DELETED_FALSE])
@@ -280,6 +282,17 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
   const sortDir = expirySort === 'desc' ? 'desc' : 'asc'
   const lotsQuery = useLotRows(CATALOG_LOT, lotScope, lotFilters, { sortField, sortDir })
   const lots = lotsQuery.data ?? NO_ROWS
+  const panel: { mode: 'create' } | { mode: 'edit'; lot: EntityRecord } | null =
+    rawPanel === null
+      ? null
+      : rawPanel.mode === 'create'
+        ? rawPanel
+        : rawPanel.mode === 'open'
+          ? (() => {
+              const lot = lots.find((l) => l.record_id === rawPanel.id)
+              return lot ? { mode: 'edit' as const, lot } : null
+            })()
+          : { mode: 'edit', lot: lots.find((l) => l.record_id === rawPanel.lot.record_id) ?? rawPanel.lot }
   const itemById = useMemo(() => new Map(allItems.map((r) => [r.record_id, r])), [allItems])
 
   const retireWrite = useCatalogItemsWrite<Record<string, never>>((_body, key) =>
@@ -468,9 +481,11 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
         canWrite={canWrite}
         onClose={() => setPanel(null)}
         onRetire={setRetiring}
-        onSaved={(message) => {
+        onSaved={(message, createdId) => {
           toast.success(message)
-          setPanel(null)
+          // T-1946: create opens the new lot, edit keeps the same lot open (fresh values from the reloaded list)
+          if (createdId !== null) setPanel({ mode: 'open', id: createdId })
+          else if (panel?.mode !== 'edit') setPanel(null)
         }}
       />
   ) : null
@@ -486,6 +501,8 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
       <CatalogItemsBoundary queries={[itemsQuery, lotsQuery]}>
         <ListDetail
           screen="catalog.lots"
+          defaultSelectId={lots[0]?.record_id ?? null}
+          onDefaultSelect={canWrite ? (id) => setPanel({ mode: 'open', id }) : undefined}
           listLabel={t('catalog_items.lots.listPane')}
           listDefault={50}
           listMin={320}

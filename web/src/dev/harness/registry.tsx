@@ -17,6 +17,7 @@ import { groupsT1610Screens } from './fixtures/groupsT1610'
 import { catalogItemsScreens } from './fixtures/catalogItems'
 import { truncatedListScreens } from './fixtures/truncatedLists'
 import { locationsScreens, locationsDataRoutes } from './fixtures/locations'
+import { listDetailSaveScreens } from './fixtures/listDetailSave'
 import { moduleRolloutsScreens } from './fixtures/moduleRollouts'
 import { usersImportScreens } from './fixtures/usersImport'
 import { userResetScreens } from './fixtures/userReset'
@@ -297,6 +298,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     codesScreen('codes-receive', { receive: true }),
     ...catalogItemsScreens,
     ...locationsScreens,
+    ...listDetailSaveScreens,
     ...truncatedListScreens,
     ...moduleRolloutsScreens,
     ...usersImportScreens,

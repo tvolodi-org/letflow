@@ -17,7 +17,7 @@ import { DetailHeader } from '@/components/ui/DetailHeader'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field } from '@/components/ui/Field'
 import { FormActions, FormRow, FormSection } from '@/components/ui/FormSection'
-import { ListDetail } from '@/components/ui/listDetail'
+import { ListDetail, useListSelection } from '@/components/ui/listDetail'
 import { Select } from '@/components/ui/Select'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { TreeView } from '@/components/ui/TreeView'
@@ -264,8 +264,8 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
     ...(showRetired ? [] : [ACTIVE_TRUE]),
   ])
   const write = useLocationsWrite<Cmd>(run)
-  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
-  const [creating, setCreating] = useState<{ parent: string } | null>(null)
+  const sel = useListSelection<{ parent: string }>(initialSelectedId ?? null)
+  const { selectedId, creating } = sel
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const [moving, setMoving] = useState<EntityRecord | null>(null)
   const [moveTo, setMoveTo] = useState('')
@@ -280,18 +280,15 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
 
   function select(id: string) {
     write.clearError()
-    setCreating(null)
-    setSelectedId(id)
+    sel.select(id)
   }
   function startCreate(parent = '') {
     write.clearError()
-    setSelectedId(null)
-    setCreating({ parent })
+    sel.startCreate({ parent })
   }
   function closePanel() {
     write.clearError()
-    setCreating(null)
-    setSelectedId(null)
+    sel.close()
   }
   function toggle(id: string) {
     setCollapsed((prev) => {
@@ -305,11 +302,11 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
   function formDone(result: LocationsWriteResult) {
     if (result === 'ok') {
       toast.success(t(creating !== null ? 'locations.toast.created' : 'locations.toast.updated'))
-      closePanel()
+      // T-1946: create selects the new node, edit keeps the same node selected
+      sel.saved(creating !== null ? { kind: 'create', id: write.lastId() } : { kind: 'edit' })
     } else if (result === 'notFound') {
       // the record is gone: close the panel but keep the error banner that says so
-      setCreating(null)
-      setSelectedId(null)
+      sel.close()
     }
   }
 
@@ -328,6 +325,7 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
     const result = await write.submit({ op: 'retire', id: target.record_id })
     if (result !== 'error') {
       if (result === 'ok') toast.success(t('locations.toast.retired'))
+      if (result === 'ok' && selectedId === target.record_id) sel.saved({ kind: 'delete' })
       setRetiring(null)
     }
   }
@@ -427,6 +425,8 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
         <ListDetail
           kind="tree"
           screen="locations.tree"
+          defaultSelectId={treeNodes[0]?.id ?? null}
+          onDefaultSelect={sel.select}
           detailOpen={panelOpen}
           onClose={closePanel}
           escapeCloses={!dialogOpen}
