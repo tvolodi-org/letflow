@@ -83,11 +83,14 @@ test('G2 S2 receipt issue claim complete', async () => {
   // a draft has no number: it is allocated at Issue (T-1964)
   state.receiptNumber = await headerNumber(page)
   await claimAndComplete(page, state.receiptNumber)
-  // Posting follows the task completion: reload the receipt until its header shows the posting.
+  // Posting follows the task completion. Navigate to the documents list and reopen the receipt each iteration so the
+  // component remounts and React Query fetches the latest state rather than serving a cached pre-posting snapshot
+  // (the same navigate-away pattern used in gate-b-stock-print's P1 toPass loop).
   await expect(async () => {
-    await openRoute(page, state.receiptUrl)
-    await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 5_000 })
-  }).toPass({ timeout: 60_000, intervals: [1_000, 2_000, 4_000] })
+    await openRoute(page, '/admin/stock/documents')
+    await page.getByTestId('document-row').filter({ hasText: state.receiptNumber }).first().click()
+    await expect(page.getByTestId('document-header')).toContainText(/Posted/i, { timeout: 10_000 })
+  }).toPass({ timeout: 90_000, intervals: [2_000, 4_000, 8_000] })
   await assertNoUuid(page, 'Document')
 })
 

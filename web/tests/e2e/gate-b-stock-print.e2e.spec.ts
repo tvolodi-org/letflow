@@ -176,7 +176,8 @@ test('P7 count order xlsx and pdf', async () => {
 test('P8 count sheet xlsx/pdf and Inv-10', async () => {
   await page.getByTestId('count-open').click()
   const inputs = page.locator('input[data-testid^="count-input-"]')
-  await expect(inputs.first()).toBeVisible()
+  // After count-open the sheet component fetches its lines asynchronously; allow time for the fetch and render.
+  await expect(inputs.first()).toBeVisible({ timeout: 20_000 })
   for (const input of await inputs.all()) {
     const row = input.locator('xpath=ancestor::tr')
     const book = await row.locator('td').nth(5).innerText()

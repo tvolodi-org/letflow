@@ -29,6 +29,7 @@ defmodule Letflow.CiStockE2ePathsTest do
     {"web/src/modules/stock/documents/Zz.tsx", "stock_web=true"},
     {"web/src/pages/tasks/Zz.tsx", "stock_web=true"},
     {"web/src/modules/assets/documents/Zz.tsx", "stock_web=true"},
+    {"web/src/hooks/useTaskSubjects.ts", "stock_web=true"},
     {"web/tests/e2e/gate-b-zz.e2e.spec.ts", "stock_web=true"},
     {"web/tests/e2e/gate-b-yy.e2e.spec.ts", "stock_web=true"},
     {"web/tests/e2e/support/zz.ts", "stock_web=true"},
