@@ -116,6 +116,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  "GET /me/notifications",
                  "GET /me/preferences",
                  "POST /me/notifications/read",
+                 "POST /me/problem-reports",
                  "PUT /me/preferences"
                ]
     end
@@ -323,6 +324,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"PUT", "/preferences", :self_service},
                  {"GET", "/notifications", :self_service},
                  {"POST", "/notifications/read", :self_service},
+                 {"POST", "/problem-reports", :self_service},
                  {"GET", "/resolved", :self_service},
                  # REQ-545: the definitions collection reads (router-local paths "/" and "/search")
                  {"GET", "/", :self_service},

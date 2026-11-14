@@ -44,7 +44,8 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
     "GET /me/preferences MyAccessRead",
     "PUT /me/preferences MyPreferencesSet",
     "GET /me/notifications MyAccessRead",
-    "POST /me/notifications/read MyPreferencesSet"
+    "POST /me/notifications/read MyPreferencesSet",
+    "POST /me/problem-reports MyPreferencesSet"
     | @filter_lines
   ]
 
@@ -432,6 +433,12 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
                    key: :MyPreferencesSet,
                    class: :self_service,
                    ruling: "SEC-T1561-notif-read"
+                 },
+                 %{
+                   route: "POST /me/problem-reports",
+                   key: :MyPreferencesSet,
+                   class: :self_service,
+                   ruling: "SEC-T1948-report-post"
                  }
                ]
                |> Enum.sort_by(& &1.route)

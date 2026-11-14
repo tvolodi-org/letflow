@@ -252,7 +252,9 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/suspend"},
       {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/resume"},
       {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/expire"},
-      {"lib/letflow/routers/admin_v1.ex", "DELETE", "/tenants/:id"}
+      {"lib/letflow/routers/admin_v1.ex", "DELETE", "/tenants/:id"},
+      # T-1948 (test CS2): the read-only problem-report export, behind `Letflow.Plugs.ReportExportAuth`
+      {"lib/letflow/routers/maintenance_v1.ex", "GET", "/problem-reports"}
     ]
 
     defp scanned_files do
@@ -341,7 +343,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       end
 
       assert length(@public_allowlist) == 11
-      assert length(@credential_allowlist) == 6
+      assert length(@credential_allowlist) == 7
     end
 
     test "CS1 the credential routes sit behind ProvisionerAuth and the mount is in Letflow.Router" do
@@ -353,6 +355,17 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       router = File.read!("lib/letflow/router.ex")
       assert router =~ ~r/forward\(?\s*"\/admin\/v1"/
       refute File.read!("lib/letflow/plugs/api_pipeline.ex") =~ "AdminV1"
+    end
+
+    test "CS2 the problem-report export sits behind ReportExportAuth and the mount is in Letflow.Router" do
+      source = File.read!("lib/letflow/routers/maintenance_v1.ex")
+      {plug_at, _} = :binary.match(source, "plug(Letflow.Plugs.ReportExportAuth)")
+      {first_route, _} = ~r/^  (get|post) "/m |> Regex.run(source, return: :index) |> hd()
+      assert plug_at < first_route, "ReportExportAuth must be plugged before the first route"
+
+      router = File.read!("lib/letflow/router.ex")
+      assert router =~ ~r/forward\(?\s*"\/maintenance\/v1"/
+      refute File.read!("lib/letflow/plugs/api_pipeline.ex") =~ "MaintenanceV1"
     end
   end
 

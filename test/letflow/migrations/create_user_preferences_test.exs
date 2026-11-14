@@ -44,7 +44,7 @@ defmodule Letflow.CreateUserPreferencesTest do
     schema: schema
   } do
     assert {@version, CreateUserPreferences} =
-             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -5)
+             Enum.at(TenantProvisioning.tenant_scoped_migrations(), -6)
 
     assert "user_preferences" in TenantFixture.expected_tenant_tables()
 
