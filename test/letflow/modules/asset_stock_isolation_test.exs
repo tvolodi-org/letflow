@@ -1,4 +1,5 @@
 Code.require_file("assets/documents_fixture.exs", __DIR__)
+Code.require_file("assets/counts_fixture.exs", __DIR__)
 Code.require_file("stock/documents_fixture.exs", __DIR__)
 Code.require_file("stock/counts_fixture.exs", __DIR__)
 Code.require_file("stock/posting_fixture.exs", __DIR__)
@@ -19,6 +20,7 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.AssetsCountsFixture, as: ACF
   alias Letflow.AssetsDocsFixture, as: AD
   alias Letflow.AssetsRegisterFixture, as: RS
   alias Letflow.Identity.User
@@ -54,6 +56,11 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     {:sdoc, "POST", "/documents/:id/post", nil, :call},
     {:sdoc, "POST", "/documents/:id/reverse", :reverse, :call},
     {:sdoc, "POST", "/documents/:id/cancel", :cancel, :call},
+    # REQ-816 (asset count K1): flag `count_enabled` is on in both tenants, so B's 404 is the cross-tenant one.
+    {:acount, "PUT", "/counts/:id", :acount_put, :call},
+    {:acount, "GET", "/counts/:id", nil, :call},
+    {:acount, "POST", "/counts/:id/issue", :empty, :call},
+    {:acount, "POST", "/counts/:id/cancel", :empty, :call},
     {:count, "PUT", "/counts/:id", :count_put, :call},
     {:count, "GET", "/counts/:id", nil, :call},
     {:count, "POST", "/counts/:id/issue", :empty, :call},
@@ -84,6 +91,8 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     ctx = RS.setup_oidc!([:aa, :ab, :sa, :sb, :s])
     aa = RS.tenant!("ast-isa", ctx.names.aa)
     ab = RS.tenant!("ast-isb", ctx.names.ab)
+    ACF.enable!(aa.schema_name)
+    ACF.enable!(ab.schema_name)
     sa = S.tenant!("stk-isa", ctx.names.sa)
     sb = S.tenant!("stk-isb", ctx.names.sb)
 
@@ -99,6 +108,7 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
        msb: SD.masters!(sb.schema_name),
        wa: CF.world!(sa.schema_name),
        wb: CF.world!(sb.schema_name),
+       wcb: ACF.world!(ab.schema_name),
        tok_aa: S.token(ctx, :aa, ["TENANT_ADMIN"]),
        tok_ab: S.token(ctx, :ab, ["TENANT_ADMIN"]),
        tok_sa: S.token(ctx, :sa, ["TENANT_ADMIN"]),
@@ -171,6 +181,9 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
       :count_put ->
         CF.input(ctx.wb)
 
+      :acount_put ->
+        ACF.input(ctx.wcb)
+
       :counted ->
         %{"counted_quantity" => "1"}
 
@@ -205,6 +218,17 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
     {id, @stock, ctx.tok_sa, ctx.tok_sb, "/documents/#{id}"}
   end
 
+  defp fresh(:acount, ctx) do
+    # An open order blocks overlapping scope, so every order gets its own unit and locations.
+    w = ACF.world!(ctx.aa.schema_name)
+    created = call(@assets, "POST", "/counts", ctx.tok_aa, ACF.input(w))
+    assert created.status == 201, created.resp_body
+    id = RS.json(created)["id"]
+    issued = call(@assets, "POST", "/counts/#{id}/issue", ctx.tok_aa, %{})
+    assert issued.status == 200, issued.resp_body
+    {id, @assets, ctx.tok_aa, ctx.tok_ab, "/counts/#{id}"}
+  end
+
   defp fresh(:count, ctx) do
     # An active order blocks overlapping scope, so every order gets its own unit and locations.
     created = call(@stock, "POST", "/counts", ctx.tok_sa, CF.input(CF.world!(ctx.sa.schema_name)))
@@ -230,7 +254,7 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
 
       from_table =
         for {family, m, p, _, _} <- @id_routes do
-          {if(family in [:card, :adoc], do: :assets, else: :stock), m, p}
+          {if(family in [:card, :adoc, :acount], do: :assets, else: :stock), m, p}
         end
         |> Enum.sort()
 
@@ -243,7 +267,7 @@ defmodule Letflow.Modules.AssetStockIsolationTest do
   describe "I2 cross-tenant, every id route" do
     @describetag timeout: 600_000
 
-    for family <- [:card, :adoc, :sdoc, :count] do
+    for family <- [:card, :adoc, :acount, :sdoc, :count] do
       test "#{family}: tenant B gets the uniform 404 and A's row is unchanged", ctx do
         family = unquote(family)
 

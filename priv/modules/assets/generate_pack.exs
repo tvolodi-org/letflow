@@ -27,6 +27,9 @@ entity_types = ~w(
   assets_kind_change_line
   assets_opening
   assets_opening_line
+  assets_count_order
+  assets_count_scope
+  assets_count_member
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole

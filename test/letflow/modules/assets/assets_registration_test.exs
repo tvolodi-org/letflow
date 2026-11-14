@@ -18,7 +18,7 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
     m = Assets.manifest()
 
     assert m.id == "assets"
-    assert m.version == "0.21.0"
+    assert m.version == "0.22.0"
     assert m.depends_on == ["catalog_items", "locations", "org", "stock"]
     assert m.pack == "modules/assets/pack.json"
 
@@ -27,7 +27,9 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              :AssetsPost,
              :AssetsReverse,
              :AssetsRead,
-             :AssetsReconcile
+             :AssetsReconcile,
+             :AssetsCountOrder,
+             :AssetsCountRecord
            ]
 
     assert m.role_grants == %{}
@@ -48,13 +50,21 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
              {"POST", "/documents/:id/reverse", :AssetsReverse},
              {"GET", "/documents", :AssetsRead},
              {"GET", "/documents/:id", :AssetsRead},
-             {"GET", "/documents/:id/print", :AssetsRead}
+             {"GET", "/documents/:id/print", :AssetsRead},
+             {"POST", "/counts", :AssetsCountOrder},
+             {"PUT", "/counts/:id", :AssetsCountOrder},
+             {"POST", "/counts/:id/issue", :AssetsCountOrder},
+             {"POST", "/counts/:id/cancel", :AssetsCountOrder},
+             {"GET", "/counts", :AssetsRead},
+             {"GET", "/counts/:id", :AssetsRead},
+             {"POST", "/counts/:id/open", :AssetsCountRecord}
            ]
 
     assert m.manages_entity_types ==
              ~w(assets_card assets_commission assets_commission_line assets_change assets_change_line
                 assets_handover assets_handover_line assets_writeoff assets_writeoff_line
-                assets_posting_mark assets_kind_change assets_kind_change_line assets_opening assets_opening_line)
+                assets_posting_mark assets_kind_change assets_kind_change_line assets_opening assets_opening_line
+                assets_count_order assets_count_scope assets_count_member)
 
     assert m.scope_declarations ==
              Map.new(m.manages_entity_types, &{&1, {:column, "org_unit_id"}})
@@ -71,6 +81,13 @@ defmodule Letflow.Modules.Assets.RegistrationTest do
                  "type" => "integer",
                  "minimum" => 1,
                  "maximum" => 3650
+               },
+               "count_enabled" => %{"type" => "boolean"},
+               "count_signer_role" => %{"type" => "string", "minLength" => 1, "maxLength" => 128},
+               "count_freeze_limit_minutes" => %{
+                 "type" => "integer",
+                 "minimum" => 1,
+                 "maximum" => 5760
                },
                "storekeeper_grants" => %{
                  "type" => "array",

@@ -80,7 +80,15 @@ defmodule Letflow.Modules.Assets.DocumentsRegistrationTest do
            ]
 
     assert m.permissions ==
-             [:AssetsCardWrite, :AssetsPost, :AssetsReverse, :AssetsRead, :AssetsReconcile]
+             [
+               :AssetsCardWrite,
+               :AssetsPost,
+               :AssetsReverse,
+               :AssetsRead,
+               :AssetsReconcile,
+               :AssetsCountOrder,
+               :AssetsCountRecord
+             ]
   end
 
   test "R1 the exact field sets, and no price, value, number, status or posted_at field" do

@@ -19,19 +19,23 @@ defmodule Letflow.Modules.Assets.Access do
 
   @doc """
   GH #3890 / #3891 (C10): the guard of the document routes, same body as `Stock.Access.check/2`.
-  `purpose` is `:read` (`AssetsRead`), `:post` (`AssetsPost`) or `:reverse` (`AssetsReverse`). A
+  `purpose` is `:read` (`AssetsRead`), `:post` (`AssetsPost`), `:reverse` (`AssetsReverse`),
+  `:count_order` (`AssetsCountOrder`, REQ-816) or `:count_record` (`AssetsCountRecord`, K2). A
   scoped principal and an API token get `:error` (the 404 of a tenant without the module): scoped
   posting is not built.
   """
-  @spec permission(:read | :post | :reverse) :: atom()
+  @spec permission(:read | :post | :reverse | :count_order | :count_record) :: atom()
   def permission(:read), do: :AssetsRead
   def permission(:post), do: :AssetsPost
   def permission(:reverse), do: :AssetsReverse
+  def permission(:count_order), do: :AssetsCountOrder
+  def permission(:count_record), do: :AssetsCountRecord
 
-  @spec check(Plug.Conn.t(), :read | :post | :reverse) ::
+  @spec check(Plug.Conn.t(), :read | :post | :reverse | :count_order | :count_record) ::
           {:ok, %{prefix: String.t(), actor_id: String.t()}} | :error
-  def check(%Plug.Conn{} = conn, purpose) when purpose in [:read, :post, :reverse],
-    do: guard(conn, permission(purpose))
+  def check(%Plug.Conn{} = conn, purpose)
+      when purpose in [:read, :post, :reverse, :count_order, :count_record],
+      do: guard(conn, permission(purpose))
 
   @spec check(Plug.Conn.t()) :: {:ok, %{prefix: String.t(), actor_id: String.t()}} | :error
   def check(%Plug.Conn{} = conn), do: guard(conn, @permission)

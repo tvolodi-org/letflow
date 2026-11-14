@@ -191,6 +191,8 @@ Module `mes_core` (T-1841, MES M1) declares no permissions and no `role_grants`:
 Module `assets` (GH #3892, REQ-750) declares `AssetsCardWrite` (asset cards: create, change, retire), tenant scope. It declares no `role_grants`, so only
 TENANT_ADMIN and PLATFORM_ADMIN hold it; the routes also require an interactive, tenant-wide caller.
 Module `assets` (GH #3893, REQ-749) declares `AssetsPost`, `AssetsReverse`, `AssetsRead` and `AssetsReconcile`, tenant scope. It declares no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold them; giving them to another role (the storekeeper, owner decision D-097) is a later widening that needs per-tenant grant snapshots (decision 0055 D7), so STOREKEEPER cannot read or post assets yet.
+
+Module `assets` (REQ-816, asset count K1) also declares `AssetsCountOrder` and `AssetsCountRecord`, tenant scope, no `role_grants`, so only TENANT_ADMIN and PLATFORM_ADMIN hold them. The count routes are 404 unless the tenant setting `count_enabled` is on (default off). Signing a count (K4) is `AssetsRead` plus the tenant's configured routing role.
 Module `locations` (GH #3612, REQ-666) declares `LocationsWrite` (location nodes: create, change, move, retire; links of org units to locations: link, unlink), tenant scope. It declares no `role_grants`, so only
 TENANT_ADMIN and PLATFORM_ADMIN hold it; giving it to another role is a later widening that needs per-tenant grant snapshots.
 Conditional cells: the 0046 D3 binding condition (source-tenant ownership proven) is met by REQ-446

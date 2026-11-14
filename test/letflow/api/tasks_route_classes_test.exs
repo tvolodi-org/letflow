@@ -119,7 +119,8 @@ defmodule Letflow.Api.TasksRouteClassesTest do
       # REQ-770 (GH #3918) added the module upgrade apply route line (247 -> 248).
       # REQ-765 (GH #3906) added the frozen-locations route line (258 -> 259).
       # The module rollback route (GH T-1549, decision 0055 D9) added one more (259 -> 260).
-      assert length(snapshot) == 267
+      # REQ-816 (GH #4375) added the six assets count lines (267 -> 273).
+      assert length(snapshot) == 273
       # REQ-751 / REQ-752 (GH #3891, #3890) added the seven assets document lines (248 -> 255).
       # REQ-779 (GH #4017) added the codes label route line (255 -> 256).
 
