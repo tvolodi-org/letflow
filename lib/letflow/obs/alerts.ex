@@ -832,12 +832,15 @@ defmodule Letflow.Obs.Alerts do
   """
   @spec notify_error_group(platform_schema :: String.t(), payload :: map()) :: :ok
   def notify_error_group(platform_schema, %{} = payload) when is_binary(platform_schema) do
+    reason = Map.get(payload, "reason")
+    group = Map.get(payload, "group")
+
     Logger.error(
-      "error group alert reason=#{Map.get(payload, "reason")} group=#{Map.get(payload, "group")}",
+      "error group alert reason=#{reason} group=#{group}",
       component: "error_capture",
       trigger: "error_group_alert",
-      reason: Map.get(payload, "reason"),
-      group: Map.get(payload, "group")
+      reason: reason,
+      group: group
     )
 
     cfg = Application.get_env(:letflow, :alert_hooks, [])
