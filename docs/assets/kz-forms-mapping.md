@@ -789,3 +789,40 @@ date stay blank for a system card; that the register's single holder is the "М�
 **Proof:** `test/letflow/modules/assets/form_da2_test.exs`, `test/letflow/modules/assets/form_da2_router_test.exs` (real
 tokens, cross-tenant 404 both ways), `web/src/modules/assets/__tests__/CardFormPrint.test.tsx`, E12 and E13 of
 `web/tests/e2e/gate-b-assets-print.e2e.spec.ts`.
+
+### 7.7 З-7 / Қ-7 on the print engine (T-1925)
+
+**Route:** `GET /api/v1/modules/stock/stock-sheet/print?location=<id>&from=YYYY-MM-DD&to=YYYY-MM-DD&format=pdf|docx&lang=ru|kk`
+(permission `StockRead`, the guard of `GET /movements`; `format` defaults to pdf, `lang` to ru, `en` is refused). One
+location and one reporting period per sheet. Layout `priv/print_forms/z7.json` (annex 31), data `Letflow.Modules.Stock.FormZ7`,
+read `Letflow.Modules.Stock.StockSheetSource`. Web: the "Official form" menu on the balances screen, next to Z-3; the entry
+is disabled, with its reason shown, until a location is chosen; picking pdf or .docx opens a short period dialog.
+
+**Filled, from stored facts:** name and BIN of the legal entity (only when the printed legs belong to one), the warehouse
+(the location), the responsible person and the structural unit (only when the printed legs point to exactly one), the date
+of the print (tenant zone) and the period, and per item the name, code, unit of measure, the opening balance, the income and
+expense of the period and the closing balance. Quantities are the ledger movements summed per item and unit (lots of one item
+are one row; a move between two units inside the location shows as income and expense, as on the Z-3 card). A zero prints
+blank. Day boundaries are tenant-zone days; the period end may not be after the tenant's today (422 `period_in_future`).
+
+**Blank (never invented):** the workshop and pantry, the document number (the sheet is not a document of record), the
+position and the signatures ("Подпись материально-ответственного лица", "Проверил бухгалтер", G4), column 5, the price and
+every sum (G5), the stock norm.
+
+**Layout limits:** the print engine takes 14 columns and one header level, so column 15 (closing sum, blank under G5), the
+further-period columns 16-27 and the "Обороты за период" level above income and expense are not printed. Differences between
+the two official texts are kept as printed: the kk header cell says "құрылымдық бірлігінің коды" (code of the unit) where ru
+says the unit itself, the kk column 2 reads "Атауы, мінездеме", ru has "Остаток на ___" with three underscores and kk
+"________ қалдық" with eight.
+
+**Caps:** the opening balance needs the location's whole history, so the cap of 5000 ledger entries counts every entry of the
+location up to now (also those after `to`), and 1000 item rows; more is 422 `sheet_too_long`, and the screen says so (the
+sheet is never cut silently).
+
+**To be confirmed by accountant (PM decision 2026-11-14, not blocking):** that З-7 is printed for one location and one
+period from the ledger quantities; that the money columns, the stock norm and the further-period columns stay blank; that a
+child location is not included in its parent's sheet.
+
+**Proof:** `test/letflow/modules/stock/stock_sheet_source_test.exs`, `form_z7_test.exs`, `form_z7_router_test.exs` (real tokens,
+cross-tenant 404), `test/letflow/modules/asset_stock_scope_exports_test.exs` (S5), `web/src/modules/stock/__tests__/OfficialFormZ7.test.tsx`,
+P10 of `web/tests/e2e/gate-b-stock-print.e2e.spec.ts`.

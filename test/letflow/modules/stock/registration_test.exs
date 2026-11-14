@@ -145,6 +145,7 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
              {"GET", "/documents/:id", :StockRead},
              {"GET", "/documents/:id/print", :StockRead},
              {"GET", "/stock-card/print", :StockRead},
+             {"GET", "/stock-sheet/print", :StockRead},
              {"POST", "/documents/:id/post", :StockPost},
              {"POST", "/documents/:id/reverse", :StockReverse},
              {"POST", "/documents/:id/cancel", :StockReverse},
@@ -261,7 +262,8 @@ defmodule Letflow.Modules.Stock.RegistrationTest do
     # T-1912: form_z1.ex (pure Z-1 data map, no Repo) makes 41.
     # T-1914: form_z6.ex (pure Z-6 data map, no Repo) makes 42.
     # T-1955: data_export.ex (reads through Ledger, no Repo) makes 43.
-    assert length(files) == 43
+    # T-1925: form_z7.ex (pure Z-7 data map, no Repo) and stock_sheet_source.ex (reads through Ledger) make 45.
+    assert length(files) == 45
 
     sources = Enum.map(files, &{&1, File.read!(&1)})
     assert Mix.Tasks.Letflow.CheckBoundaries.rule_8_violations(sources) == []

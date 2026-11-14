@@ -20,13 +20,14 @@ import { parseFilename } from '@/lib/parseFilename'
 import { getUiLocale } from '@/i18n/uiLocaleStore'
 import { printErrorMessageId } from '../documents/documentsModel'
 import { OfficialFormMenu } from '../forms/OfficialFormMenu'
-import { officialFormLang } from '../forms/officialForms'
+import { officialFormLang, type OfficialFormFormat } from '../forms/officialForms'
+import { SheetPeriodDialog } from './SheetPeriodDialog'
 import { stockApi, type BalanceRow, type BalancesPageBody } from './stock.api'
 import { usePickerOptions, anyPickerTruncated } from './stockPickers'
 import { TruncatedNotice } from '@/components/ui/TruncatedNotice'
 import { MAX_ROWS } from '@/lib/entities/fetchAllRecords'
 import { stockQueryKeys } from './stockQueryKeys'
-import { EMPTY_BALANCE_FILTERS, AS_OF_DATE, balanceNameIds, balanceParams, balanceQuery, todayIso, type BalanceFilters } from './stockRegisterModel'
+import { EMPTY_BALANCE_FILTERS, AS_OF_DATE, balanceNameIds, balanceParams, balanceQuery, sheetPeriodDefault, tenantTodayIso, todayIso, type BalanceFilters } from './stockRegisterModel'
 import { isUuid } from '@/lib/references/referenceLabel'
 import { useNames } from './stockNames'
 import { DateValueHint } from '@/components/ui/DateValueHint'
@@ -64,6 +65,8 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
   const [exporting, setExporting] = useState(false)
   const [exportFailed, setExportFailed] = useState(false)
   const card = usePdfDownload(parseFilename)
+  const [sheetFormat, setSheetFormat] = useState<OfficialFormFormat | null>(null)
+  const [sheetSent, setSheetSent] = useState({ from: '', to: '' })
   const set = (key: keyof BalanceFilters) => (value: string) => {
     setSelected(null)
     setFilters((f) => ({ ...f, [key]: value, ...(key === 'sku' ? { lot: '' } : {}) }))
@@ -138,6 +141,20 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
       `stock-card_Z-3.${format}`,
       cardError,
     )
+  const sheetError = (err: unknown) => ((err as { status?: unknown } | null)?.status === 404 ? 'stock.balances.sheetEmpty' : printErrorMessageId(err))
+  // The tenant's today (the zone the balances read states), the day the server checks the period against.
+  const tenantToday = tenantTodayIso(first?.timezone)
+  const sheetDefault = sheetPeriodDefault(first?.as_of_date ?? '', tenantToday)
+  const onSheet = (from: string, to: string, format: OfficialFormFormat) => {
+    setSheetFormat(null)
+    setSheetSent({ from, to })
+    void card.run(
+      `form-z7-${format}`,
+      () => stockApi.stockSheet({ location: filters.location, from, to, format, lang: officialFormLang(getUiLocale()) }),
+      `stock-sheet_Z-7.${format}`,
+      sheetError,
+    )
+  }
   const selectedRow = selected === null ? null : (rows.find((r) => rowId(r) === selected) ?? null)
 
   const tableRef = useRef<HTMLTableElement>(null)
@@ -180,16 +197,36 @@ function BalancesInner({ initialSelectedId = null }: { initialSelectedId?: strin
               {t('stock.balances.export')}
             </Button>
             <OfficialFormMenu
-              forms={['z3']}
+              forms={['z3', 'z7']}
               busyKey={card.busyKey}
-              disabledForms={cardReady ? undefined : { z3: 'stock.balances.cardHint' }}
-              onPick={(_form, format) => onCard(format)}
+              disabledForms={{
+                ...(cardReady ? {} : { z3: 'stock.balances.cardHint' }),
+                ...(filters.location !== '' ? {} : { z7: 'stock.balances.sheetHint' }),
+              }}
+              onPick={(form, format) => (form === 'z7' ? setSheetFormat(format) : onCard(format))}
             />
           </>
         }
       />
       {exportFailed && <Banner tone="danger">{t('stock.balances.exportFailed')}</Banner>}
-      {card.error !== null && <Banner tone="danger">{t(card.error)}</Banner>}
+      {card.error !== null && (
+        <Banner tone="danger">
+          {card.error === 'stock.balances.sheetEmpty'
+            ? intl.formatMessage(
+                { id: card.error },
+                { from: formatLocalInput(sheetSent.from, 'date', intl.locale), to: formatLocalInput(sheetSent.to, 'date', intl.locale) },
+              )
+            : t(card.error)}
+        </Banner>
+      )}
+      <SheetPeriodDialog
+        open={sheetFormat !== null}
+        initialFrom={sheetDefault.from}
+        initialTo={sheetDefault.to}
+        today={tenantToday}
+        onConfirm={(from, to) => sheetFormat !== null && onSheet(from, to, sheetFormat)}
+        onCancel={() => setSheetFormat(null)}
+      />
       {!cardReady && <p className="caption" data-testid="stock-card-hint">{t('stock.balances.cardHint')}</p>}
       {query.hasNextPage && <p className="caption">{t('stock.balances.exportHint')}</p>}
       <FilterBar

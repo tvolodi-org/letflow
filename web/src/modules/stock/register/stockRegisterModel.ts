@@ -76,6 +76,36 @@ export function todayIso(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+/** The date of `now` in the tenant time zone as YYYY-MM-DD (the zone the balances read states). No zone, or one the
+ *  browser does not know, falls back to the browser-local date; the server stays authoritative (T-1925). */
+export function tenantTodayIso(zone: string | null | undefined, now: Date = new Date()): string {
+  if (zone == null || zone === '') return todayIso()
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+  } catch {
+    return todayIso()
+  }
+}
+
+/** The default period of the Z-7 sheet: the as-of day (when valid and not after `today`), else `today`, and the first
+ *  day of that month. */
+export function sheetPeriodDefault(asOf: string, today: string): { from: string; to: string } {
+  const to = AS_OF_DATE.test(asOf) && asOf <= today ? asOf : today
+  return { from: `${to.slice(0, 8)}01`, to }
+}
+
+/** Message ids of the problems of a Z-7 period, keyed by the field they belong to. */
+export function sheetPeriodError(from: string, to: string, today: string): { from?: string; to?: string } {
+  const errors: { from?: string; to?: string } = {}
+  if (!AS_OF_DATE.test(from)) errors.from = 'stock.balances.sheet.required'
+  if (!AS_OF_DATE.test(to)) errors.to = 'stock.balances.sheet.required'
+  if (errors.from === undefined && errors.to === undefined) {
+    if (from > to) errors.from = 'stock.balances.sheet.fromAfterTo'
+    else if (to > today) errors.to = 'stock.balances.sheet.future'
+  }
+  return errors
+}
+
 /** Filters plus the as-of day. Never basis, as_of, cutoff_seq or a tenant: the server resolves the cutoff and states it. */
 export function balanceQuery(f: BalanceFilters, asOf: string): Record<string, string> {
   const day = asOf.trim()

@@ -3,8 +3,8 @@ import { documentPrintable } from '../documents/documentsModel'
 /** Registry of the official KZ forms the stock screens can print (T-1434, E5e). Data only: a form is one row here plus
  *  its message ids. Only the forms the backend serves today are listed (Z-1 on /documents/:id/print for receipts T-1912, Z-6 for write-offs T-1914;
  *  Z-2 on /documents/:id/print, Inv-10 and Inv-18 on /counts/:id/print/:kind); Z-3 (balances) and Z-5 (transfer) joined
- *  with E5c; Inv-1/3/7 join as rows once their backend routes exist (T-1441: all forms live in this one menu). */
-export type OfficialFormId = 'z1' | 'z2' | 'z3' | 'z5' | 'z6' | 'inv10' | 'inv18'
+ *  with E5c; Z-7 (the balances sheet of one location, T-1925) joins Z-3 on the balances screen; Inv-1/3/7 join as rows once their backend routes exist (T-1441: all forms live in this one menu). */
+export type OfficialFormId = 'z1' | 'z2' | 'z3' | 'z5' | 'z6' | 'z7' | 'inv10' | 'inv18'
 export type OfficialFormFormat = 'docx' | 'pdf'
 export type OfficialFormLang = 'ru' | 'kk'
 export const OFFICIAL_FORMATS: readonly OfficialFormFormat[] = ['docx', 'pdf']
@@ -15,6 +15,7 @@ export const OFFICIAL_FORMS: Record<OfficialFormId, { labelId: string; target: '
   z3: { labelId: 'stock.form.z3', target: 'balances' },
   z5: { labelId: 'stock.form.z5', target: 'document' },
   z6: { labelId: 'stock.form.z6', target: 'document' },
+  z7: { labelId: 'stock.form.z7', target: 'balances' },
   inv18: { labelId: 'stock.form.inv18', target: 'count', countKind: 'differences' },
   inv10: { labelId: 'stock.form.inv10', target: 'count', countKind: 'sheet' },
 }

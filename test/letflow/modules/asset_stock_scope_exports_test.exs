@@ -10,7 +10,8 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
   the hidden quantity; a reader granted on the parent node is the control that must show every one of those
   sentinels, so the absence is not vacuous. S2 also pins the masked leg's cells (blank slots, `masked` true).
   S1 stock balances xlsx, S2 stock movements xlsx, S3 assets balances xlsx, S4 stock-card print (S4b: an item
-  and place whose movements are all hidden answer like an absent identifier).
+  and place whose movements are all hidden answer like an absent identifier), S5 stock balances sheet print Z-7
+  (T-1925; S5b: a place whose movements are all hidden answers like an absent one).
   Documents stay tenant-wide-only (assets S1, stock A-TEN-1; real assets documents: asset_documents_scoped_read_test.exs S6a) and counts keep their scoped contract
   (`asset_stock_isolation_test.exs`, S6). `async: false`, committed tenants, Sandbox `:auto`.
   """
@@ -20,7 +21,9 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.AssetsRegisterFixture, as: AS
+  alias Letflow.Identity.TenantTimezone
   alias Letflow.Identity.User
+  alias Letflow.Modules.Stock.CountPaperworkSource
   alias Letflow.ScopeNodePaths
   alias Letflow.StockDocsFixture, as: SD
   alias Letflow.StockFixture, as: S
@@ -272,5 +275,42 @@ defmodule Letflow.Modules.AssetStockScopeExportsTest do
     strip = fn c -> c.resp_body |> Jason.decode!() |> Map.delete("trace_id") end
     assert strip.(refused) == strip.(gone)
     refute refused.resp_body =~ ctx.h.item
+  end
+
+  defp sheet_q(ctx, location) do
+    {:ok, today} = TenantTimezone.today(CountPaperworkSource.zone(ctx.st.tenant_id))
+    "location=#{location}&from=2020-01-01&to=#{today}&format=docx&lang=ru"
+  end
+
+  test "S5 stock balances sheet (Z-7) through the router: U1 totals shown, U2 values absent",
+       ctx do
+    q = sheet_q(ctx, ctx.m.location)
+    scoped = req(@stock <> "/stock-sheet/print?" <> q, ctx.s1) |> ok!("wordprocessingml")
+    text = docx_text(scoped)
+    # U1 legs only: receipt 10 in, transfer 3 out, closing 7.
+    assert text =~ "10.000000000" and text =~ "3.000000000" and text =~ "7.000000000"
+    refute text =~ @hidden_qty
+    refute text =~ @u2
+    refute text =~ "14.500000000"
+    refute text =~ "11.500000000"
+
+    control = req(@stock <> "/stock-sheet/print?" <> q, ctx.sp) |> ok!("wordprocessingml")
+    ctext = docx_text(control)
+    # unrestricted reader: the same-key U2 receipt is income too (10 + 4.5), closing 14.5 - 3
+    assert ctext =~ "14.500000000" and ctext =~ "3.000000000" and ctext =~ "11.500000000"
+  end
+
+  test "S5b a place with only hidden movements answers like an absent place", ctx do
+    path = @stock <> "/stock-sheet/print?"
+    full = req(path <> sheet_q(ctx, ctx.h.location), ctx.sp) |> ok!("wordprocessingml")
+    assert docx_text(full) =~ @hidden_qty
+
+    gone = req(path <> sheet_q(ctx, Ecto.UUID.generate()), ctx.s1)
+    refused = req(path <> sheet_q(ctx, ctx.h.location), ctx.s1)
+    assert gone.status == 404, gone.resp_body
+    assert refused.status == 404, refused.resp_body
+    strip = fn c -> c.resp_body |> Jason.decode!() |> Map.delete("trace_id") end
+    assert strip.(refused) == strip.(gone)
+    refute refused.resp_body =~ ctx.h.location
   end
 end

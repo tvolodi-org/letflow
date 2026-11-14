@@ -82,6 +82,7 @@ export const PRINT_KINDS = ['receipt', 'issue', 'write_off', 'transfer', 'hand_o
 export const PRINT_STATES = ['issued', 'posted', 'reversed'] as const
 export const PRINT_REASONS = [
   'document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang', 'invalid_form', 'invalid_format', 'card_too_long',
+  'sheet_too_long', 'invalid_period', 'period_in_future',
 ] as const
 
 /** The PDF exists for every issued stock kind except opening. */

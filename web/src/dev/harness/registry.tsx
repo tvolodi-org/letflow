@@ -33,6 +33,7 @@ import { codesPagedScreens } from './fixtures/codesPaged'
 import { docLayoutScreens } from './fixtures/docLayouts'
 import { layoutBaseScreens } from './fixtures/layoutBase'
 import { officialFormsScreens } from './fixtures/officialForms'
+import { stockSheetZ7Screens } from './fixtures/stockSheetZ7'
 import { assetsScreens } from './fixtures/assets'
 import { stockR7Screens } from './fixtures/stockR7'
 import { envBannerScreens } from './fixtures/envBanner'
@@ -325,6 +326,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...docLayoutScreens,
     ...layoutBaseScreens,
     ...officialFormsScreens,
+    ...stockSheetZ7Screens,
     ...assetsScreens,
     ...assetsDocumentsScreens,
     ...assetsCardActionsScreens,

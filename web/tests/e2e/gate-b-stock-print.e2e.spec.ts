@@ -19,7 +19,7 @@ const MIME = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 }
-async function expectDownload(click: () => Promise<void>, ext: keyof typeof MIME, urlPart: string, title?: string) {
+async function expectDownload(click: () => Promise<void>, ext: keyof typeof MIME, urlPart: string, title?: string): Promise<Buffer> {
   const [response, download] = await Promise.all([
     page.waitForResponse(r => r.url().includes(urlPart)),
     page.waitForEvent('download'), click(),
@@ -32,6 +32,7 @@ async function expectDownload(click: () => Promise<void>, ext: keyof typeof MIME
   const bytes = readFileSync(path!)
   expect(bytes.subarray(0, ext === 'pdf' ? 4 : 2).toString()).toBe(ext === 'pdf' ? '%PDF' : 'PK')
   if (title) expect(pdfTextItems(bytes).join('\n')).toContain(title)
+  return bytes
 }
 async function formDownloads(form: string, title?: string) {
   for (const ext of ['pdf', 'docx'] as const) {
@@ -199,4 +200,34 @@ test('P9 differences xlsx/pdf and Inv-18', async () => {
   await countDownloads('differences')
   await formDownloads('inv18')
   await cancelCount()
+})
+
+// T-1925: Z-7 balances sheet from the balances screen. The period is typed from the tenant's own day (the zone the
+// balances read states), so the run does not depend on the runner's clock zone; the dialog default is checked first.
+test('P10 balances sheet Z-7', async () => {
+  test.setTimeout(120_000)
+  const balances = page.waitForResponse(r => r.url().includes('/modules/stock/balances') && r.status() === 200)
+  await openRoute(page, '/admin/stock/balances')
+  const zone: string = (await (await balances).json()).timezone ?? 'Asia/Almaty'
+  await choose(page.getByLabel('Location', { exact: true }), 'Central')
+  await expect(page.getByTestId('ledger-seq')).toBeVisible()
+  const day = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+  const tenantToday = day(new Date())
+  const before = new Date(`${tenantToday}T00:00:00Z`)
+  before.setUTCDate(before.getUTCDate() - 1)
+  const dayBefore = before.toISOString().slice(0, 10)
+  for (const ext of ['pdf', 'docx'] as const) {
+    await page.getByTestId('official-form-menu').click()
+    await page.getByTestId(`form-z7-${ext}`).click()
+    const dialog = page.getByTestId('sheet-period-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByLabel('Period to', { exact: true })).toHaveValue(tenantToday)
+    await dialog.getByLabel('Period to', { exact: true }).fill(tenantToday)
+    await dialog.getByLabel('Period from', { exact: true }).fill(dayBefore)
+    const bytes = await expectDownload(
+      () => dialog.getByRole('button', { name: 'Print', exact: true }).click(),
+      ext, '/stock-sheet/print', ext === 'pdf' ? 'Ведомость учета остатков' : undefined,
+    )
+    if (ext === 'pdf') expect(pdfTextItems(bytes).join('\n')).toContain('Laptop')
+  }
 })

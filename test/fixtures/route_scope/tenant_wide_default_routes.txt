@@ -74,6 +74,7 @@ GET /modules/stock/frozen-locations StockRead
 GET /modules/stock/movements StockRead
 GET /modules/stock/reconcile StockReconcile
 GET /modules/stock/stock-card/print StockRead
+GET /modules/stock/stock-sheet/print StockRead
 GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage
