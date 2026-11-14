@@ -1,7 +1,9 @@
-/** ItemDetails — T-1402. The details pane of the Items screen: head (code, title, status), Overview, Related (stock
+/** ItemDetails — T-1402. The details pane of the Items screen: head (code, title, status), Overview, Codes, Related (stock
  *  by location, from the balances read) and History (last stock movements). References show "code - title" through
  *  the reference-label hook, never an id. Item create / edit / retire has no server route yet (see ItemsPage):
  *  the head carries the view-only line instead of buttons. */
+import { RecordCodes } from "@/components/record-codes/RecordCodes"
+import { useCodesAvailable, useRecordCodes } from "@/hooks/useRecordCodes"
 import { useId } from 'react'
 import { useIntl } from 'react-intl'
 import { Link } from 'react-router-dom'
@@ -23,8 +25,10 @@ import { causeKey, type ItemRow } from './itemsModel'
 
 const TIME_ZONE = 'Asia/Almaty'
 
-export function ItemDetails(props: { item: ItemRow }) {
+export function ItemDetails(props: { item: ItemRow; initialCodesDialog?: "new" | "pick"; onCodesDialogChange?: (open: boolean) => void }) {
   const { item } = props
+  const codesAvailable = useCodesAvailable()
+  const codes = useRecordCodes("catalog_item", item.id, codesAvailable)
   const intl = useIntl()
   const t = (id: string, values?: Record<string, string | number>) => intl.formatMessage({ id: `catalog_items.items.${id}` }, values)
   const access = useAccess()
@@ -152,6 +156,9 @@ export function ItemDetails(props: { item: ItemRow }) {
       <RegistrySection pane="overview" id={`${uid}-ov`} title={t('sec.overview')}>
         <RegistryFields fields={fields} />
       </RegistrySection>
+      {codesAvailable && <RegistrySection pane="codes" id={`${uid}-codes`} title={t("sec.codes")} count={codes.data?.rows.length}>
+        <RecordCodes targetType="catalog_item" targetId={item.id} targetActive={item.active} data={codes} initialDialog={props.initialCodesDialog} onDialogChange={props.onCodesDialogChange} />
+      </RegistrySection>}
       <RegistrySection pane="related" id={`${uid}-rel`} title={t('sec.related')} count={canStock && balances.data ? balRows.length : undefined}>
         {related()}
       </RegistrySection>
