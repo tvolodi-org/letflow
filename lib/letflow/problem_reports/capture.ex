@@ -63,7 +63,9 @@ defmodule Letflow.ProblemReports.Capture do
     len = String.length(trimmed)
 
     if len >= 1 and len <= @max_text do
-      {:ok, mask(trimmed)}
+      # Masking can lengthen the text ("Bearer x" -> "Bearer [REDACTED]"): re-check the cap after it.
+      masked = mask(trimmed)
+      if String.length(masked) <= @max_text, do: {:ok, masked}, else: {:error, {:invalid, "text"}}
     else
       {:error, {:invalid, "text"}}
     end
@@ -99,7 +101,7 @@ defmodule Letflow.ProblemReports.Capture do
   defp browser(%{} = browser) do
     result =
       %{}
-      |> put_present("user_agent", string_cap(Map.get(browser, "user_agent"), 300))
+      |> put_present("user_agent", one_line(string_cap(Map.get(browser, "user_agent"), 300)))
       |> put_present(
         "viewport",
         matching(Map.get(browser, "viewport"), ~r/\A[0-9]{1,5}x[0-9]{1,5}\z/)
@@ -184,6 +186,15 @@ defmodule Letflow.ProblemReports.Capture do
 
   defp string_cap(value, max) when is_binary(value), do: cap(value, max)
   defp string_cap(_other, _max), do: nil
+
+  # A one-line field never carries a line break or control character (it is printed into a frame).
+  defp one_line(value) when is_binary(value),
+    do:
+      value
+      |> String.replace(~r/[\x00-\x1f\x7f]+/, " ")
+      |> String.replace(["\u2028", "\u2029", "\u0085"], " ")
+
+  defp one_line(other), do: other
 
   defp masked_cap(value, max) when is_binary(value), do: value |> cap(max) |> mask()
   defp masked_cap(_other, _max), do: nil

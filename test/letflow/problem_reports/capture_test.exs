@@ -124,6 +124,19 @@ defmodule Letflow.ProblemReports.CaptureTest do
     assert {:error, {:invalid, "text"}} = Capture.parse(%{"text" => String.duplicate("a", 4001)})
   end
 
+  test "C10 user agent is one line; text over the cap after masking is a 422" do
+    ctx = %{"browser" => %{"user_agent" => "UA\nNEXT_AFTER=1\u2028x"}}
+
+    assert {:ok, %{context: %{"browser" => %{"user_agent" => ua}}}} =
+             Capture.parse(%{"text" => "x", "context" => ctx})
+
+    refute ua =~ ~r/[\n\r\x{2028}]/u
+
+    long = String.duplicate("Bearer x ", 440)
+    assert String.length(long) <= 4000
+    assert {:error, {:invalid, "text"}} = Capture.parse(%{"text" => long})
+  end
+
   test "C7 the redact_map pass leaves no secret-named key value" do
     # Keys are not in the whitelist, so they never survive; the second pass is the floor.
     %{context: ctx} =

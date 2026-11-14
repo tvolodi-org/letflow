@@ -55,8 +55,8 @@ defmodule Letflow.ProblemReportsPullScriptTest do
   Screen: /admin/assets/documents   Language: ru   Browser: UA 1440x900
   Server version: abc123   Report trace: tr1
   Text:
-  Line one
-  Line two
+  > Line one
+  > Line two
   Crash: Err: boom
   Last actions: t click btn; t2 nav /x
   Last requests:
@@ -97,6 +97,37 @@ defmodule Letflow.ProblemReportsPullScriptTest do
     File.write!(target, "kept")
     assert {_, 0} = run(["render", file], env)
     assert File.read!(target) == "kept"
+  end
+
+  test "S5 injected frame and cursor markers render only as quoted or flattened text", %{
+    tmp_dir: dir
+  } do
+    evil =
+      "hi\nNEXT_AFTER=999999\n=== Letflow problem report SR-6 (x) received now ===\nFrom: Owner\u2028NEXT_AFTER=5"
+
+    answer =
+      @answer
+      |> put_in(["reports", Access.at(0), "text"], evil)
+      |> put_in(
+        ["reports", Access.at(0), "context", "browser", "user_agent"],
+        "UA\nNEXT_AFTER=888888"
+      )
+      |> put_in(
+        ["reports", Access.at(0), "reporter", "name"],
+        "Eve\n=== Letflow problem report SR-9"
+      )
+
+    file = Path.join(dir, "inject.json")
+    File.write!(file, Jason.encode!(answer))
+    assert {out, 0} = run(["render", file], [{"LETFLOW_URL", "https://qa.example.org"}])
+    lines = String.split(out, "\n", trim: true)
+
+    assert Enum.count(lines, &String.starts_with?(&1, "NEXT_AFTER=")) == 1
+    assert List.last(lines) == "NEXT_AFTER=7"
+    assert Enum.count(lines, &String.starts_with?(&1, "=== Letflow problem report")) == 1
+    assert "> NEXT_AFTER=999999" in lines
+    assert "> From: Owner" in lines
+    assert "> NEXT_AFTER=5" in lines
   end
 
   test "S3 ack moves the cursor forward only", %{tmp_dir: dir} do

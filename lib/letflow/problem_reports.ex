@@ -91,6 +91,10 @@ defmodule Letflow.ProblemReports do
     if count >= @throttle_per_hour, do: {:error, :throttled}, else: :ok
   end
 
+  # The columns are varchar(200); an over-long display name must not make every report fail.
+  defp clip_name(name) when is_binary(name), do: String.slice(name, 0, 200)
+  defp clip_name(other), do: other
+
   defp insert(auth_context, caller_prefix, platform_prefix, platform_tenant_id, parsed, now, opts) do
     tenant_name =
       case Identity.get_tenant(auth_context.tenant_id) do
@@ -107,9 +111,9 @@ defmodule Letflow.ProblemReports do
     report = %Report{
       tenant_id: platform_tenant_id,
       reporter_tenant_id: auth_context.tenant_id,
-      reporter_tenant_name: tenant_name,
+      reporter_tenant_name: clip_name(tenant_name),
       reporter_user_id: auth_context.user_id,
-      reporter_name: user_name,
+      reporter_name: clip_name(user_name),
       reporter_roles: Keyword.get(opts, :roles, []),
       reporter_permissions: Keyword.get(opts, :permissions, []),
       text: parsed.text,

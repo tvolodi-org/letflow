@@ -41,20 +41,26 @@ read_cursor() {
 # One report (a JSON object on stdin) as a plain-text block.
 render_report() {
   local host="$1"
+  # Every field is the customer's words: one-line fields are flattened (no newline or control character can
+  # start a line of the frame); the text is quoted line by line with "> ".
   jq -r --arg host "$host" '
-    def j(a): (a // []) | join(", ");
-    def v(a): (a // "-");
-    "=== Letflow problem report \(.number) (\($host)) received \(.received_at) ===",
+    def flat: tostring | gsub("[\\p{Cc}\u2028\u2029]+"; " ");
+    def v(a): (a // "-") | flat;
+    def j(a): ((a // []) | map(flat) | join(", "));
+    def quote(a): "> " + ((a // "") | tostring
+      | gsub("[\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f]"; " ")
+      | gsub("\r\n|\r|\n|\u2028|\u2029|\u0085"; "\n> "));
+    "=== Letflow problem report \(v(.number)) (\($host | flat)) received \(v(.received_at)) ===",
     "From: \(v(.reporter.name)) (user \(v(.reporter.user_id))), company \(v(.reporter.tenant_name)) (\(v(.reporter.tenant_id)))",
     "Roles: \(j(.reporter.roles))   Permissions: \((.reporter.permissions // []) | length)",
-    "Screen: \(v(.context.route))   Language: \(v(.context.ui_language))   Browser: \(v(.context.browser.user_agent)) \(.context.browser.viewport // "")",
+    "Screen: \(v(.context.route))   Language: \(v(.context.ui_language))   Browser: \(v(.context.browser.user_agent)) \(.context.browser.viewport // "" | flat)",
     "Server version: \(v(.server_version))   Report trace: \(v(.trace_id))",
     "Text:",
-    .text,
+    quote(.text),
     (if .context.crash then "Crash: \(v(.context.crash.name)): \(v(.context.crash.message))" else empty end),
-    "Last actions: \((.context.actions // []) | map("\(v(.at)) \(.kind) \(.name)") | join("; "))",
+    "Last actions: \((.context.actions // []) | map("\(v(.at)) \(v(.kind)) \(v(.name))") | join("; "))",
     "Last requests:",
-    ((.context.requests // [])[] | "  \(.method) \(v(.path)) -> \(v(.status)) trace=\(v(.trace_id)) code=\(v(.error_code))")
+    ((.context.requests // [])[] | "  \(v(.method)) \(v(.path)) -> \(v(.status)) trace=\(v(.trace_id)) code=\(v(.error_code))")
   '
 }
 
