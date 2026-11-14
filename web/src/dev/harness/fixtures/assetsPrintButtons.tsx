@@ -3,7 +3,7 @@
  *  proven by `DocumentPrintButton.test.tsx` (W3, W4). Own file (one registry line). */
 import DocumentPage from '@/modules/assets/documents/DocumentPage'
 import type { FixtureRoute, HarnessScreen } from '../types'
-import { routes as baseRoutes, withAuth } from './assetsDocuments'
+import { ClickButton, routes as baseRoutes, withAuth } from './assetsDocuments'
 
 const lines = [
   { line_id: 'ln1', line_no: 1, asset_id: 'a1', quantity: '1.000000000' },
@@ -34,6 +34,16 @@ const view = (name: string, id: string): HarnessScreen => ({
   render: () => withAuth(<DocumentPage />),
 })
 
+/** T-1921: the "Official form" menu opened by a click on the real screen (the menu state is local, a shot cannot click). */
+const FORM_MENU_LABELS = ['Official form', 'Официальная форма', 'Ресми нысан']
+const menuOpen = (name: string, id: string): HarnessScreen => ({
+  name,
+  routes,
+  initialPath: `/${id}`,
+  routePattern: '/:id',
+  render: () => withAuth(<ClickButton labels={FORM_MENU_LABELS}><DocumentPage /></ClickButton>),
+})
+
 export const assetsPrintButtonsScreens: HarnessScreen[] = [
   view('asset-print-commission-issued', 'print-commission-issued'),
   view('asset-print-change-posted', 'print-change-posted'),
@@ -41,4 +51,6 @@ export const assetsPrintButtonsScreens: HarnessScreen[] = [
   view('asset-print-writeoff-reversed', 'doc-reversed'),
   view('asset-print-commission-draft', 'doc-draft'),
   view('asset-print-kind-change-posted', 'print-kind-change-posted'),
+  menuOpen('asset-form-commission-open', 'print-commission-issued'),
+  menuOpen('asset-form-handover-open', 'print-handover-posted'),
 ]

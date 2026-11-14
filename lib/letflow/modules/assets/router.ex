@@ -36,7 +36,7 @@ defmodule Letflow.Modules.Assets.Router do
   | `GET /documents/:id` | `AssetsRead` | `Documents.fetch/3` | 200 document |
   | `POST /counts`, `PUT /counts/:id` (whole-document replace of a draft), `POST /counts/:id/issue`, `POST /counts/:id/cancel` (empty bodies; REQ-816) | `AssetsCountOrder` | 201 / 200 `Counts` order view |
   | `GET /counts` (`status`, `org_unit_id`, `limit`, `cursor`), `GET /counts/:id` (REQ-816) | `AssetsRead` | 200 `rows, next_cursor` / order view |
-  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (T-1915) | `AssetsRead` | `DocumentPrintSource.read/3`, `DocumentPrint.build/3` | 200 `application/pdf` of the issued version; 404 as `GET /documents/:id`; 422 `invalid_lang`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
+  | `GET /documents/:id/print[?lang=ru\|kk\|en]` (T-1915) | `AssetsRead` | `DocumentPrintSource.read/4`, `DocumentPrint.build/3`; with `form=da1&format=pdf\|docx&lang=ru\|kk` (T-1921) `FormDa1.data/3`, `FormPrint.build/4` | 200 `application/pdf` (or `.docx` for the form) of the issued version; 404 as `GET /documents/:id`; 422 `invalid_lang`, `invalid_form`, `invalid_format`, `print_not_available`, `document_not_issued`, `print_unsupported_character` |
 
   Asset count routes (REQ-816, K1): after the `authz_*` permission check (403 for a caller whose roles lack it) every
   count route asks `Access.check/2` and then the flag `Settings.count_enabled?/1`; a refusal or a flag that is off is
@@ -107,6 +107,7 @@ defmodule Letflow.Modules.Assets.Router do
 
   alias Letflow.Api.Error
   alias Letflow.Api.Response
+  alias Letflow.Documents.FormPrint
   alias Letflow.Ledger
   alias Letflow.Modules.Assets.Access
   alias Letflow.Modules.Assets.CardLocks
@@ -115,6 +116,7 @@ defmodule Letflow.Modules.Assets.Router do
   alias Letflow.Modules.Assets.Documents
   alias Letflow.Modules.Assets.Documents.Checks
   alias Letflow.Modules.Assets.Documents.Posting
+  alias Letflow.Modules.Assets.FormDa1
   alias Letflow.Modules.Assets.DocumentPrint
   alias Letflow.Modules.Assets.DocumentPrintSource
   alias Letflow.Modules.Assets.Settings
@@ -329,9 +331,15 @@ defmodule Letflow.Modules.Assets.Router do
   # T-1915: the printed act of an issued commission, change, hand over or write-off; same guard as the read.
   authz_get "/documents/:id/print", :AssetsRead do
     with_doc_access(conn, :read, fn conn, access ->
-      case print_lang(Plug.Conn.fetch_query_params(conn).query_params["lang"]) do
-        {:ok, lang} -> print_document(conn, access.prefix, lang)
-        :invalid_lang -> unprocessable(conn, "invalid_lang")
+      query = Plug.Conn.fetch_query_params(conn).query_params
+
+      if Map.has_key?(query, "form") do
+        print_form(conn, access.prefix, query)
+      else
+        case print_lang(query["lang"]) do
+          {:ok, lang} -> print_document(conn, access.prefix, lang)
+          :invalid_lang -> unprocessable(conn, "invalid_lang")
+        end
       end
     end)
   end
@@ -568,12 +576,78 @@ defmodule Letflow.Modules.Assets.Router do
     end
   end
 
-  defp send_pdf(conn, binary, name) do
+  defp send_pdf(conn, binary, name), do: send_binary(conn, binary, "application/pdf", name)
+
+  defp send_binary(conn, binary, type, name) do
     conn
-    |> Plug.Conn.put_resp_content_type("application/pdf", nil)
+    |> Plug.Conn.put_resp_content_type(type, nil)
     |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="#{name}"))
     |> Plug.Conn.put_resp_header("cache-control", "no-store")
     |> Plug.Conn.send_resp(200, binary)
+  end
+
+  # T-1921: the official forms printed from an asset document: kinds it may print, mapper, file suffix.
+  @document_forms %{"da1" => {["commission", "handover"], &FormDa1.data/3, "_DA-1"}}
+
+  # `?form=da1&format=pdf|docx&lang=ru|kk`: official form ДА-1 / ҰМА-1 of an issued commission or hand over.
+  # The query is validated before the read, so an unknown and a foreign id answer alike (INV-5).
+  defp print_form(conn, prefix, query) do
+    with {:ok, form} <- form_param(query["form"]),
+         {:ok, format} <- form_format(query["format"]),
+         {:ok, lang} <- form_lang(query["lang"]) do
+      {kinds, mapper, suffix} = Map.fetch!(@document_forms, form)
+      tenant_id = conn.assigns |> Map.get(:auth_context, %{}) |> Map.get(:tenant_id)
+
+      with {:ok, %{issued: issued, names: names}} <-
+             DocumentPrintSource.read(prefix, conn.params["id"], tenant_id,
+               kinds: kinds,
+               form: true
+             ),
+           {:ok, bin} <- FormPrint.build(form, mapper.(issued, names, lang), lang, format) do
+        {type, ext} = form_type(format)
+        send_binary(conn, bin, type, form_file_name(issued.number_label, suffix, ext))
+      else
+        {:error, :not_found} -> Response.not_found(conn)
+        {:error, reason} -> form_failure(conn, reason)
+      end
+    else
+      {:invalid, reason} -> unprocessable(conn, reason)
+    end
+  end
+
+  defp form_failure(conn, reason) when reason in [:print_not_available, :document_not_issued],
+    do: unprocessable(conn, Atom.to_string(reason))
+
+  defp form_failure(conn, :unsupported_glyph),
+    do: unprocessable(conn, "print_unsupported_character")
+
+  defp form_failure(conn, {:render_failed, rules}) do
+    Logger.error("assets form print render failed: " <> Enum.map_join(rules, ",", &inspect/1))
+    Response.internal_error(conn)
+  end
+
+  defp form_failure(conn, _internal), do: Response.internal_error(conn)
+
+  defp form_param(form) when form in ["da1"], do: {:ok, form}
+  defp form_param(_), do: {:invalid, "invalid_form"}
+
+  defp form_format(nil), do: {:ok, :pdf}
+  defp form_format("pdf"), do: {:ok, :pdf}
+  defp form_format("docx"), do: {:ok, :docx}
+  defp form_format(_), do: {:invalid, "invalid_format"}
+
+  defp form_lang(nil), do: {:ok, "ru"}
+  defp form_lang(lang) when lang in ["ru", "kk"], do: {:ok, lang}
+  defp form_lang(_), do: {:invalid, "invalid_lang"}
+
+  defp form_type(:pdf), do: {"application/pdf", "pdf"}
+
+  defp form_type(:docx),
+    do: {"application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"}
+
+  defp form_file_name(label, suffix, ext) do
+    safe = (to_string(label) <> suffix) |> String.replace(~r/[^A-Za-z0-9._-]/, "_")
+    safe <> "." <> ext
   end
 
   @xlsx_content_type "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

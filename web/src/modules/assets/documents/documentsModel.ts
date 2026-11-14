@@ -70,7 +70,7 @@ export function documentErrorMessageId(err: unknown): string {
 
 export const PRINT_KINDS = ['commission', 'change', 'handover', 'writeoff'] as const
 export const PRINT_STATES = ['issued', 'posted', 'reversed'] as const
-export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang'] as const
+export const PRINT_REASONS = ['document_not_issued', 'print_not_available', 'print_unsupported_character', 'invalid_lang', 'invalid_form', 'invalid_format'] as const
 
 /** T-1915: the plain act exists for an issued, posted or reversed commission, change, hand over or write-off. */
 export function documentPrintable(doc: { kind: string; state: string }): boolean {

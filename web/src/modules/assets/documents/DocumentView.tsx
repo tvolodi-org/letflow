@@ -38,6 +38,8 @@ import { DocumentForm } from './DocumentForm'
 import { DocumentTabs } from './DocumentTabs'
 import { DOCUMENTS_PATH } from './DocumentList'
 import { ASSET_DOCUMENTS_LAYOUT_SCREEN, kindChangeColumnSpecs, kindChangeLineColumns, lineColumnSpecs, lineColumns, openingColumnSpecs, openingLineColumns } from './lineColumns'
+import { AssetFormMenu } from './AssetFormMenu'
+import { ASSET_FORM_SUFFIX, formsForAssetDocument } from './assetForms'
 import { DOC_KINDS, DOC_STATES, WRITEOFF_REASONS, documentPrintable, formatEventTime, isTwoSide, printErrorMessageId, sidesOf } from './documentsModel'
 import { documentStateTone as stateTone } from '@/lib/documentStateTone'
 
@@ -224,6 +226,18 @@ export function DocumentView({ id, onBack, cardIds }: { id: string; onBack: () =
                 {t('assets.doc.print')}
               </Button>
             )}
+            <AssetFormMenu
+              forms={formsForAssetDocument(doc)}
+              busyKey={pdf.busyKey}
+              onPick={(form, format, lang) =>
+                void pdf.run(
+                  `form-${form}-${format}`,
+                  () => assetDocumentsApi.printForm(doc.id, form, format, lang),
+                  `${doc.number ?? doc.id}${ASSET_FORM_SUFFIX[form]}.${format}`,
+                  printErrorMessageId,
+                )
+              }
+            />
             {cardIds && cardIds.length > 0 && access.can(ASSETS_CARD_WRITE) && (
               cardIds.length === 1 ? (
                 <Link
