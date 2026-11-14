@@ -300,6 +300,9 @@ defmodule Letflow.Plugs.ApiPipeline do
   # Letflow.Routers.PlatformModuleRollouts.
   forward("/platform-module-rollouts", to: Letflow.Routers.PlatformModuleRollouts)
 
+  # T-1949: owner inbox, gated by the platform-scope ProblemReportsManage permission.
+  forward("/platform-problem-reports", to: Letflow.Routers.PlatformProblemReports)
+
   # REQ-377 -- the operator-facing platform-wide event-history retirement
   # screen's backend HTTP surface. Mounted here for the same structural
   # reason /platform-migrations is: a platform-wide, cross-tenant fanout

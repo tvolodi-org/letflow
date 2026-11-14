@@ -9,6 +9,12 @@ defmodule Letflow.ProblemReports.Report do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   schema "problem_reports" do
+    field(:status, :string, default: "received")
+    field(:last_action, :string)
+    field(:reply_text, :string)
+    field(:dev_summary, :string)
+    field(:decided_by_user_id, :binary_id)
+    field(:decided_at, :utc_datetime_usec)
     field(:seq, :integer, read_after_writes: true)
     field(:tenant_id, :binary_id)
     field(:reporter_tenant_id, :binary_id)

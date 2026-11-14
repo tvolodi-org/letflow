@@ -45,6 +45,9 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
 
   # The 24 platform routes (design 7.1 plus ISS-1030's bind-realm and, in PR 2, the pending-admins list and revoke): {router, method, concrete local path, body}.
   @routes [
+    {Letflow.Routers.PlatformProblemReports, :get, "/", nil},
+    {Letflow.Routers.PlatformProblemReports, :get, "/" <> @unused_uuid, nil},
+    {Letflow.Routers.PlatformProblemReports, :post, "/" <> @unused_uuid <> "/decision", %{}},
     {Letflow.Routers.Tenants, :post, "/", %{}},
     {Letflow.Routers.Tenants, :get, "/", nil},
     {Letflow.Routers.Tenants, :get, "/no-such-slug", nil},
@@ -92,7 +95,7 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
   end
 
   defp assert_all_forbidden(fixture, roles) do
-    assert length(@routes) == 30
+    assert length(@routes) == 33
 
     for {label, status} <- platform_route_statuses(fixture, roles) do
       assert status == 403, "#{label}: expected 403, got #{status}"
