@@ -82,7 +82,8 @@ test('G2 S2 receipt issue claim complete', async () => {
   state.receiptNumber = await headerNumber(page)
   await issueDocument(page)
 
-  await claimAndComplete(page, state.receiptNumber || 'Laptop')
+  expect(state.receiptNumber, 'the receipt number is needed to find its own task').not.toBe('')
+  await claimAndComplete(page, state.receiptNumber)
   // Posting follows the task completion: reload the receipt until its header shows the posting.
   await expect(async () => {
     await openRoute(page, state.receiptUrl)
