@@ -37,6 +37,7 @@ GET /modules/assets/counts AssetsRead
 GET /modules/assets/counts/:id AssetsRead
 GET /modules/assets/counts/:id/entries AssetsRead
 GET /modules/assets/counts/:id/lines AssetsRead
+GET /modules/assets/counts/:id/result AssetsRead
 GET /modules/assets/counts/:id/sheet-document AssetsRead
 GET /modules/assets/documents AssetsRead
 GET /modules/assets/documents/:id AssetsRead
@@ -145,6 +146,7 @@ POST /modules/assets/counts/:id/cancel AssetsCountOrder
 POST /modules/assets/counts/:id/close AssetsCountRecord
 POST /modules/assets/counts/:id/issue AssetsCountOrder
 POST /modules/assets/counts/:id/open AssetsCountRecord
+POST /modules/assets/counts/:id/result/sign AssetsRead
 POST /modules/assets/counts/:id/sheet-signatures AssetsCountRecord
 POST /modules/assets/counts/:id/surplus-lines AssetsCountRecord
 POST /modules/assets/documents AssetsPost
@@ -265,6 +267,7 @@ PUT /entity-type-hooks/:entity_type EntityTypeHooksManage
 PUT /integration-mappings/:id IntegrationMappingsManage
 PUT /modules/assets/counts/:id AssetsCountOrder
 PUT /modules/assets/counts/:id/lines/:line_no AssetsCountRecord
+PUT /modules/assets/counts/:id/result/lines/:line_no AssetsRead
 PUT /modules/assets/documents/:id AssetsPost
 PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
