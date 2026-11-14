@@ -35,6 +35,7 @@ import { officialFormsScreens } from './fixtures/officialForms'
 import { assetsScreens } from './fixtures/assets'
 import { stockR7Screens } from './fixtures/stockR7'
 import { envBannerScreens } from './fixtures/envBanner'
+import { installHintScreens } from './fixtures/installHint'
 import { sessionNoticeScreens } from './fixtures/sessionNotice'
 import { leftoversR15Screens, leftoversR15ShellScreens } from './fixtures/leftoversR15'
 import { assetsDocumentsScreens } from './fixtures/assetsDocuments'
@@ -330,6 +331,7 @@ export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries
     ...assetsPrintButtonsScreens,
     ...stockR7Screens,
     ...envBannerScreens,
+    ...installHintScreens,
     ...sessionNoticeScreens,
     ...leftoversR15Screens,
     ...leftoversR15ShellScreens,
