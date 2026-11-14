@@ -334,6 +334,30 @@ Documents (asset and stock) need no slice: they already have divider, collapse, 
   owner will see it in gate C-E.
 - The ru/kk wording of the new empty-state line is left to the implementer, who checks it in the screenshot matrix.
 
+## 8. Slice 7 outcome (T-1893, judged screen by screen)
+
+Each of the six screens was judged with the criteria of section 4 (list + one record beside it, divider, collapse,
+restore, saved layout, phone stacking) and with section 5 (no change to data, permission or route behaviour).
+
+| Screen | Decision | Reason |
+|---|---|---|
+| DLQ (`/dlq`) | **Converted** to `ListDetail` (`screen="dlq.items"`, `listDefault` 60, `listMin` 320) | The detail card sat below the table (rule 12) and pushed off-screen on a long page. Selection is local state, so nothing in data, permission or route changes. Retry / Discard stay in the list rows; the confirm dialog is a short single answer and stays a dialog. |
+| Webhooks (`/webhooks`) | **Converted** (`screen="dlq.webhooks"`) | The fixed overlay drawer was a modal for viewing (rule 2a). The `subscription` URL parameter still selects the record, so deep links keep working; Escape and the phone Back button now come from `ListDetail`. Create stays the inline form above the list (a short single-purpose form). |
+| Print templates (`/admin/print-templates`) | **Exception** | The layout editor is also the create form (a new draft), so it must be reachable with no record chosen. `ListDetail` shows only the list on a phone until a record is open, which would hide create. Fixing that needs a new "New override" action and state, i.e. a behaviour change this slice may not make. Revisit together with moving the page to the message catalog. |
+| Users (`/admin/users` -> user detail) | **Exception** | List, then a separate route per user. The URL per record is a contract (links, permission-gated `RequirePermission` routes), and the user page is a full form with tabs that needs the whole width. Changing it changes route behaviour. |
+| Definitions (list -> editor) | **Exception** | The editor is a full-width process designer (diagram canvas, versions); beside a list it would be unusable. Route per record stays. |
+| Instances (list -> instance detail) | **Exception** | The instance detail is a full-width page (diagram, history, variables) reached by URL from tasks, DLQ and notifications. Route per record stays. |
+
+The exceptions are recorded in `web/tests/guards/forbidlist.ts` next to the `list-detail-*` patterns (they match no
+pattern, so no allowed path is needed; the comment names each screen and the reason).
+
+Exact text for the design repo catalog (`platform/NOTES.md`, section 8, rule 16, "Do not" sentence; read-only for this
+task, to be given to the design repo's owner): append
+
+> Exceptions: a screen whose record is a full-width editor or board reached by its own URL (users, process
+> definitions, instances) stays list-then-page; a screen whose detail is also its create form (print templates) stays
+> as is until it has an explicit "New" action. Each exception is named with its reason in the product's guard file.
+
 ## Appendix: commands
 
 All commands ran in the T-1885 worktree at origin/main `589c2817b`.
